@@ -270,6 +270,16 @@ const { title, description = 'Myriad - Multi-Platform Profile Aggregator' } = As
     </style>
 
     <script>
+      // Color extraction configuration
+      const COLOR_EXTRACTION_CONFIG = {
+        CANVAS_WIDTH: 192,
+        CANVAS_HEIGHT: 108,
+        QUANTIZATION_LEVELS: 16,
+        MIN_PERCENTAGE: 0.5,
+        MIN_SATURATION: 0.1,
+        TOP_COLORS_COUNT: 5,
+      };
+
       // Color extraction utility
       interface ColorInfo {
         rgb: string;
@@ -312,9 +322,9 @@ const { title, description = 'Myriad - Multi-Platform Profile Aggregator' } = As
                 return;
               }
 
-              // Use smaller size for performance (192x108 as mentioned in problem statement)
-              canvas.width = 192;
-              canvas.height = 108;
+              // Use smaller size for performance (as configured)
+              canvas.width = COLOR_EXTRACTION_CONFIG.CANVAS_WIDTH;
+              canvas.height = COLOR_EXTRACTION_CONFIG.CANVAS_HEIGHT;
               
               // Draw scaled image
               ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
@@ -336,10 +346,11 @@ const { title, description = 'Myriad - Multi-Platform Profile Aggregator' } = As
                 // Skip transparent pixels
                 if (a < 128) continue;
                 
-                // Round colors to reduce noise (quantize to 16 levels per channel)
-                const rRounded = Math.round(r / 16) * 16;
-                const gRounded = Math.round(g / 16) * 16;
-                const bRounded = Math.round(b / 16) * 16;
+                // Round colors to reduce noise (quantize based on configured levels)
+                const quantize = COLOR_EXTRACTION_CONFIG.QUANTIZATION_LEVELS;
+                const rRounded = Math.round(r / quantize) * quantize;
+                const gRounded = Math.round(g / quantize) * quantize;
+                const bRounded = Math.round(b / quantize) * quantize;
                 
                 const key = `${rRounded},${gRounded},${bRounded}`;
                 
@@ -363,15 +374,16 @@ const { title, description = 'Myriad - Multi-Platform Profile Aggregator' } = As
                     saturation: sat
                   };
                 })
-                // Filter: only keep colors with meaningful presence and decent saturation
-                .filter(c => c.percentage > 0.5 && c.saturation > 0.1)
+                // Filter: only keep colors with meaningful presence based on configured thresholds
+                .filter(c => c.percentage > COLOR_EXTRACTION_CONFIG.MIN_PERCENTAGE && 
+                             c.saturation > COLOR_EXTRACTION_CONFIG.MIN_SATURATION)
                 // Sort by combination of frequency and saturation
                 .sort((a, b) => {
                   const scoreA = a.percentage * (1 + a.saturation);
                   const scoreB = b.percentage * (1 + b.saturation);
                   return scoreB - scoreA;
                 })
-                .slice(0, 5); // Keep top 5
+                .slice(0, COLOR_EXTRACTION_CONFIG.TOP_COLORS_COUNT);
               
               console.log(`[Color Extraction] Analyzed ${canvas.width}x${canvas.height} canvas`);
               console.log(`[Color Extraction] Found ${colorMap.size} unique colors from ${totalPixels} pixels`);
