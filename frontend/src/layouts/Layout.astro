@@ -29,14 +29,14 @@ const { title, description = 'Myriad - Multi-Platform Profile Aggregator' } = As
       <!-- Dynamic Wallpaper -->
       <div id="wallpaper" class="absolute inset-0 bg-cover bg-center bg-no-repeat"></div>
       
-      <!-- Overlay Gradient - Spring Colors -->
-      <div class="absolute inset-0 bg-gradient-to-br from-green-50/95 via-pink-50/90 to-yellow-50/95"></div>
+      <!-- Overlay Gradient - Dynamic Colors -->
+      <div id="overlay-gradient" class="absolute inset-0 bg-gradient-to-br from-green-50/95 via-pink-50/90 to-yellow-50/95"></div>
       
-      <!-- Animated Mesh Gradient - Spring Colors -->
+      <!-- Animated Mesh Gradient - Dynamic Colors -->
       <div class="absolute inset-0 opacity-30">
-        <div class="absolute top-0 -left-4 w-96 h-96 bg-green-400 rounded-full mix-blend-multiply filter blur-3xl animate-blob"></div>
-        <div class="absolute top-0 -right-4 w-96 h-96 bg-pink-400 rounded-full mix-blend-multiply filter blur-3xl animate-blob animation-delay-2000"></div>
-        <div class="absolute -bottom-8 left-20 w-96 h-96 bg-yellow-300 rounded-full mix-blend-multiply filter blur-3xl animate-blob animation-delay-4000"></div>
+        <div id="blob-1" class="absolute top-0 -left-4 w-96 h-96 bg-green-400 rounded-full mix-blend-multiply filter blur-3xl animate-blob"></div>
+        <div id="blob-2" class="absolute top-0 -right-4 w-96 h-96 bg-pink-400 rounded-full mix-blend-multiply filter blur-3xl animate-blob animation-delay-2000"></div>
+        <div id="blob-3" class="absolute -bottom-8 left-20 w-96 h-96 bg-yellow-300 rounded-full mix-blend-multiply filter blur-3xl animate-blob animation-delay-4000"></div>
       </div>
       
       <!-- Subtle Grid Pattern -->
@@ -270,15 +270,218 @@ const { title, description = 'Myriad - Multi-Platform Profile Aggregator' } = As
     </style>
 
     <script>
-      // Load wallpaper from config
+      // Color extraction utility
+      interface ColorInfo {
+        rgb: string;
+        hex: string;
+        count: number;
+        percentage: number;
+        saturation: number;
+      }
+
+      // Convert RGB to hex
+      function rgbToHex(r: number, g: number, b: number): string {
+        return '#' + [r, g, b].map(x => {
+          const hex = x.toString(16);
+          return hex.length === 1 ? '0' + hex : hex;
+        }).join('');
+      }
+
+      // Calculate saturation from RGB
+      function calculateSaturation(r: number, g: number, b: number): number {
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        if (max === 0) return 0;
+        return (max - min) / max;
+      }
+
+      // Extract dominant colors from image
+      async function extractColorsFromImage(imageUrl: string): Promise<ColorInfo[]> {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.crossOrigin = 'Anonymous';
+          
+          img.onload = () => {
+            try {
+              // Create canvas for color extraction
+              const canvas = document.createElement('canvas');
+              const ctx = canvas.getContext('2d', { willReadFrequently: true });
+              
+              if (!ctx) {
+                reject(new Error('Could not get canvas context'));
+                return;
+              }
+
+              // Use smaller size for performance (192x108 as mentioned in problem statement)
+              canvas.width = 192;
+              canvas.height = 108;
+              
+              // Draw scaled image
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+              
+              // Get image data
+              const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+              const pixels = imageData.data;
+              
+              // Count colors
+              const colorMap = new Map<string, { count: number; r: number; g: number; b: number }>();
+              
+              // Sample every pixel
+              for (let i = 0; i < pixels.length; i += 4) {
+                const r = pixels[i];
+                const g = pixels[i + 1];
+                const b = pixels[i + 2];
+                const a = pixels[i + 3];
+                
+                // Skip transparent pixels
+                if (a < 128) continue;
+                
+                // Round colors to reduce noise (quantize to 16 levels per channel)
+                const rRounded = Math.round(r / 16) * 16;
+                const gRounded = Math.round(g / 16) * 16;
+                const bRounded = Math.round(b / 16) * 16;
+                
+                const key = `${rRounded},${gRounded},${bRounded}`;
+                
+                if (colorMap.has(key)) {
+                  colorMap.get(key)!.count++;
+                } else {
+                  colorMap.set(key, { count: 1, r: rRounded, g: gRounded, b: bRounded });
+                }
+              }
+              
+              // Convert to array and calculate percentages
+              const totalPixels = canvas.width * canvas.height;
+              const colors: ColorInfo[] = Array.from(colorMap.entries())
+                .map(([_, value]) => {
+                  const sat = calculateSaturation(value.r, value.g, value.b);
+                  return {
+                    rgb: `rgb(${value.r},${value.g},${value.b})`,
+                    hex: rgbToHex(value.r, value.g, value.b),
+                    count: value.count,
+                    percentage: (value.count / totalPixels) * 100,
+                    saturation: sat
+                  };
+                })
+                // Filter: only keep colors with meaningful presence and decent saturation
+                .filter(c => c.percentage > 0.5 && c.saturation > 0.1)
+                // Sort by combination of frequency and saturation
+                .sort((a, b) => {
+                  const scoreA = a.percentage * (1 + a.saturation);
+                  const scoreB = b.percentage * (1 + b.saturation);
+                  return scoreB - scoreA;
+                })
+                .slice(0, 5); // Keep top 5
+              
+              console.log(`[Color Extraction] Analyzed ${canvas.width}x${canvas.height} canvas`);
+              console.log(`[Color Extraction] Found ${colorMap.size} unique colors from ${totalPixels} pixels`);
+              console.log(`[Color Extraction] Top 5 significant colors:`, colors.map(c => 
+                `${c.rgb} ${c.percentage.toFixed(1)}% sat:${c.saturation.toFixed(2)}`
+              ));
+              
+              resolve(colors);
+            } catch (error) {
+              reject(error);
+            }
+          };
+          
+          img.onerror = () => {
+            reject(new Error('Failed to load image'));
+          };
+          
+          // Add cache-busting to ensure fresh image load
+          const url = imageUrl.includes('?') 
+            ? `${imageUrl}&_cb=${Date.now()}` 
+            : `${imageUrl}?_cb=${Date.now()}`;
+          img.src = url;
+        });
+      }
+
+      // Apply extracted colors to UI
+      function applyColorsToUI(colors: ColorInfo[]) {
+        if (colors.length === 0) {
+          console.log('[Color Extraction] No significant colors found, using defaults');
+          return;
+        }
+
+        // Apply to overlay gradient
+        const overlayGradient = document.getElementById('overlay-gradient');
+        if (overlayGradient && colors.length >= 3) {
+          const color1 = colors[0].rgb.replace('rgb(', 'rgba(').replace(')', ', 0.95)');
+          const color2 = colors[1].rgb.replace('rgb(', 'rgba(').replace(')', ', 0.90)');
+          const color3 = colors[2].rgb.replace('rgb(', 'rgba(').replace(')', ', 0.95)');
+          overlayGradient.style.background = `linear-gradient(to bottom right, ${color1}, ${color2}, ${color3})`;
+          console.log('[Color Extraction] Applied overlay gradient');
+        }
+
+        // Apply to animated blobs
+        const blob1 = document.getElementById('blob-1');
+        const blob2 = document.getElementById('blob-2');
+        const blob3 = document.getElementById('blob-3');
+        
+        if (blob1 && colors[0]) {
+          blob1.style.backgroundColor = colors[0].rgb;
+          console.log('[Color Extraction] Applied blob-1 color:', colors[0].rgb);
+        }
+        if (blob2 && colors[1]) {
+          blob2.style.backgroundColor = colors[1].rgb;
+          console.log('[Color Extraction] Applied blob-2 color:', colors[1].rgb);
+        }
+        if (blob3 && colors[2]) {
+          blob3.style.backgroundColor = colors[2].rgb;
+          console.log('[Color Extraction] Applied blob-3 color:', colors[2].rgb);
+        }
+
+        // Store colors in sessionStorage with wallpaper URL as key
+        const wallpaperEl = document.getElementById('wallpaper');
+        if (wallpaperEl) {
+          const bgImage = wallpaperEl.style.backgroundImage;
+          if (bgImage) {
+            const urlMatch = bgImage.match(/url\(["']?([^"')]+)["']?\)/);
+            if (urlMatch) {
+              const wallpaperUrl = urlMatch[1];
+              sessionStorage.setItem(`wallpaper_colors_${wallpaperUrl}`, JSON.stringify(colors));
+              console.log('[Color Extraction] Cached colors for:', wallpaperUrl);
+            }
+          }
+        }
+      }
+
+      // Load wallpaper from config and extract colors
       async function loadWallpaper() {
         try {
           const response = await fetch('http://localhost:3000/api/config');
           const data = await response.json();
           const wallpaperEl = document.getElementById('wallpaper');
+          
           if (wallpaperEl && data.ui_config?.wallpaper_url) {
-            wallpaperEl.style.backgroundImage = `url(${data.ui_config.wallpaper_url})`;
+            const wallpaperUrl = data.ui_config.wallpaper_url;
+            wallpaperEl.style.backgroundImage = `url(${wallpaperUrl})`;
             wallpaperEl.style.filter = `blur(${data.ui_config.wallpaper_blur || 3}px)`;
+            
+            console.log('[Color Extraction] Loading wallpaper:', wallpaperUrl);
+            
+            // Check if we have cached colors for this exact wallpaper URL
+            const cachedColorsStr = sessionStorage.getItem(`wallpaper_colors_${wallpaperUrl}`);
+            if (cachedColorsStr) {
+              try {
+                const cachedColors = JSON.parse(cachedColorsStr);
+                console.log('[Color Extraction] Using cached colors for current wallpaper');
+                applyColorsToUI(cachedColors);
+                return;
+              } catch (e) {
+                console.log('[Color Extraction] Failed to parse cached colors, extracting fresh');
+              }
+            }
+            
+            // Extract colors from the current wallpaper
+            try {
+              const colors = await extractColorsFromImage(wallpaperUrl);
+              applyColorsToUI(colors);
+            } catch (error) {
+              console.log('[Color Extraction] Failed to extract colors:', error);
+              console.log('[Color Extraction] Using default colors');
+            }
           }
         } catch (error) {
           console.log('Using default background');
