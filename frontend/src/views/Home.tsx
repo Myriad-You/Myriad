@@ -33,7 +33,7 @@ import { useTappWidgets } from '../hooks/useTappWidgets';
 export default function Home() {
   // 🆕 初始化首页调度器（Visibility + Resize + RAF + Idle）
   useHomeScheduler();
-  
+
   const navigate = useNavigate();
   const { isAuthenticated, hasChecked, checkAuth, isAdmin } = useAuth();
   const { t } = useI18n();
@@ -44,10 +44,10 @@ export default function Home() {
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
   const [dashboardTitle, setDashboardTitle] = useState('Dashboard');
   const [csrfToken, setCsrfToken] = useState<string>('');
-  
+
   // 标题字体 Hook
   const { currentFont, titleFontSize, titleColor } = useTitleFont();
-  
+
   // 检测深色模式
   const [isDark, setIsDark] = useState(false);
   useEffect(() => {
@@ -59,11 +59,11 @@ export default function Home() {
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
     return () => observer.disconnect();
   }, []);
-  
+
   // 计算标题颜色
   const getTitleColor = () => {
     if (titleColor === 'adaptive') {
-      return isDark 
+      return isDark
         ? 'color-mix(in srgb, var(--color-primary) 50%, #ffffff)'
         : 'color-mix(in srgb, var(--color-primary) 50%, #000000)';
     }
@@ -188,28 +188,6 @@ export default function Home() {
     return [...AVAILABLE_WIDGETS, ...tappWidgets];
   }, [AVAILABLE_WIDGETS, tappWidgets]);
 
-  // 检查是否需要初始化设置
-  useEffect(() => {
-    async function checkSetup() {
-      try {
-        const response = await fetch(`${API_URL}/api/setup/status`);
-        if (!response.ok) {
-          return;
-        }
-
-        const data = await response.json();
-
-        if (data.is_setup_required) {
-          navigate('/setup', { replace: true });
-        }
-      } catch (error) {
-        // 允许用户访问应用
-      }
-    }
-
-    checkSetup();
-  }, [navigate]);
-
   // 智能检测：如果有登录迹象（会话提示标志），主动检查认证状态
   useEffect(() => {
     if (!hasChecked && hasSessionHint()) {
@@ -258,7 +236,7 @@ export default function Home() {
   // 从后端加载小组件配置（使用去重机制）
   // 存储原始布局数据，用于 Tapp widgets 加载后重新验证
   const [rawLayoutData, setRawLayoutData] = useState<WidgetConfig[] | null>(null);
-  
+
   useEffect(() => {
     async function loadDashboardConfig() {
       try {
@@ -299,11 +277,11 @@ export default function Home() {
   // 当 Tapp widgets 加载完成后，重新验证布局中的小组件
   useEffect(() => {
     if (isTappWidgetsLoading || !rawLayoutData || tappWidgets.length === 0) return;
-    
+
     // 使用完整的可用组件列表重新过滤
     const registeredWidgetIds = new Set(ALL_AVAILABLE_WIDGETS.map(w => w.id));
     const validWidgets = rawLayoutData.filter((w: WidgetConfig) => registeredWidgetIds.has(w.type));
-    
+
     if (validWidgets.length > 0) {
       setWidgets(validWidgets);
     }
@@ -413,7 +391,7 @@ export default function Home() {
                   value={dashboardTitle}
                   onChange={(e) => handleTitleChange(e.target.value)}
                   className="absolute left-1 whitespace-nowrap z-0 hidden md:block bg-transparent border-none outline-none p-0 m-0 w-full"
-                  style={{ 
+                  style={{
                     top: `calc(30px - ${7.5 * titleFontSize}rem)`,
                     fontSize: `${6 * titleFontSize}rem`,
                     color: getTitleColor(),
@@ -424,9 +402,9 @@ export default function Home() {
                   }}
                 />
               ) : (
-                <div 
-                  className="absolute left-1 whitespace-nowrap pointer-events-none z-0 hidden md:block" 
-                  style={{ 
+                <div
+                  className="absolute left-1 whitespace-nowrap pointer-events-none z-0 hidden md:block"
+                  style={{
                     top: `calc(30px - ${7.5 * titleFontSize}rem)`,
                     fontSize: `${6 * titleFontSize}rem`,
                     color: getTitleColor(),
@@ -439,14 +417,14 @@ export default function Home() {
                 </div>
               )}
 
-              <motion.div 
+              <motion.div
                 className="h-full flex items-center justify-between"
                 initial={{ opacity: 0, x: -20 }}
                 animate={isPageReady ? { opacity: 1, x: 0 } : { opacity: 0, x: -20 }}
                 transition={{ duration: 0.3, ease: "easeOut", delay: isPageReady ? 0.1 : 0 }}
               >
                 {/* 用户信息卡片 */}
-                <motion.div 
+                <motion.div
                   className="h-full glass rounded-xl px-4 py-1 flex items-center gap-3 shadow-sm relative z-10"
                   whileHover={{ scale: 1.02 }}
                   transition={{ duration: 0.2 }}
@@ -454,8 +432,8 @@ export default function Home() {
                   {userInfo ? (
                     <>
                       <div className="w-8 h-8 rounded-full overflow-hidden border border-gray-200 dark:border-white/10">
-                        <img 
-                          src={userInfo.avatar} 
+                        <img
+                          src={userInfo.avatar}
                           alt={userInfo.name}
                           className="w-full h-full object-cover"
                         />

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * React 版主布局组件
  * 包含导航栏、背景、全局控制面板
  */
@@ -27,6 +27,7 @@ import {
 import { useIdleEffect, useIdleInterval } from '../hooks/useIdleCallback';
 import { useScrollOptimization } from '../hooks/useScrollOptimization';
 import { startFpsMonitor, stopFpsMonitor } from '../utils/performance';
+import { useSystemSetupCheck } from '../hooks/useSystemSetupCheck';
 import './AppLayout.css';
 
 interface AppLayoutProps {
@@ -41,13 +42,14 @@ export function AppLayout({ children }: AppLayoutProps) {
   const [backendConnected, setBackendConnected] = useState<boolean | null>(null);
   const [hasEverConnected, setHasEverConnected] = useState(false);
   const { notifications } = useNotification();
-  
+
   // ℹ️ 性能优化: 移动端/低端设备禁用背景动画
   const anim = useAnimationLevel();
 
   // 🔧 帧率优化：启用滚动优化和 FPS 监控
   useScrollOptimization({ enabled: true });
-  
+  useSystemSetupCheck();
+
   // 启动/停止 FPS 监控
   useEffect(() => {
     startFpsMonitor();
@@ -105,14 +107,14 @@ export function AppLayout({ children }: AppLayoutProps) {
   const loadWallpaper = useCallback(async () => {
     console.debug('[AppLayout] loadWallpaper starting...');
     const wallpaperResult = await loadWallpaperFromHook();
-    
+
     if (!wallpaperResult) {
       console.debug('[AppLayout] No wallpaper result from hook');
       return;
     }
-    
+
     console.debug('[AppLayout] Wallpaper loaded:', wallpaperResult.actualUrl.substring(0, 80));
-    
+
     // 更新 Evocative 动效配置
     if (wallpaperResult.evocative) {
       setEvocativeParallax(wallpaperResult.evocative.parallax);
@@ -126,10 +128,10 @@ export function AppLayout({ children }: AppLayoutProps) {
     }
     // 更新模糊度配置
     setWallpaperBlur(wallpaperResult.blur);
-    
+
     if (wallpaperResult) {
       const { actualUrl, verified } = wallpaperResult;
-      
+
       // 如果URL未通过验证，记录警告但继续尝试
       if (!verified) {
         console.warn('壁纸URL验证失败，尝试使用返回的URL进行颜色提取');
@@ -163,7 +165,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       try {
         console.debug('[AppLayout] Starting color extraction for:', actualUrl.substring(0, 80));
         const colors = await extractColorsFromImage(actualUrl, { context: 'wallpaper' });
-        
+
         // 🔒 应用颜色前验证壁纸是否仍然一致
         if (wallpaperState.isUrlActive(actualUrl)) {
           applyColorPalette(colors);
@@ -270,7 +272,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       const newUrl = customEvent.detail?.url;
 
       if (!newUrl) return;
-      
+
       console.debug('[AppLayout] wallpaperChanged event received:', newUrl.substring(0, 80));
 
       // 🔒 验证URL与当前活跃壁纸一致
@@ -300,7 +302,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       // 提取颜色
       try {
         const colors = await extractColorsFromImage(newUrl, { context: 'wallpaper' });
-        
+
         // 🔒 应用颜色前验证壁纸是否仍然一致
         if (wallpaperState.isUrlActive(newUrl)) {
           applyColorPalette(colors);
@@ -360,7 +362,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     let hiddenByScroll = false; // 是否因滚动而隐藏
     let cachedIsDesktop = window.innerWidth >= 768;
     let cachedWindowHeight = window.innerHeight;
-    
+
     // ===== 配置 =====
     const INACTIVITY_DELAY = 5000;
     const SCROLL_THRESHOLD = 50;
