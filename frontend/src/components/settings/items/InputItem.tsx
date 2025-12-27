@@ -4,6 +4,7 @@
 
 import React, { useCallback, useState } from 'react';
 import type { InputSettingConfig } from '../types';
+import { FaCheck, FaCopy } from '@lib/icons';
 import './SettingItem.css';
 
 export interface InputItemProps extends Omit<InputSettingConfig, 'type'> {}
@@ -33,7 +34,7 @@ export const InputItem = React.memo<InputItemProps>(({
   className = '',
 }) => {
   const [isCopied, setIsCopied] = useState(false);
-  
+
   const handleChange = useCallback((
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
   ) => {
@@ -75,7 +76,7 @@ export const InputItem = React.memo<InputItemProps>(({
   const inputClassName = `field-input ${error ? 'has-error' : ''}`;
 
   return (
-    <div 
+    <div
       className={`setting-item setting-item-input setting-${layout} setting-${size} ${className} ${disabled ? 'disabled' : ''}`}
     >
       <label htmlFor={id} className="setting-label">
@@ -87,7 +88,7 @@ export const InputItem = React.memo<InputItemProps>(({
           <span className="setting-description">{description}</span>
         )}
       </label>
-      
+
       <div className="setting-control">
         <div className="input-wrapper">
           {multiline ? (
@@ -131,7 +132,7 @@ export const InputItem = React.memo<InputItemProps>(({
               onClick={handleCopy}
               title={isCopied ? 'Copied!' : 'Copy'}
             >
-              {isCopied ? '✓' : '📋'}
+              {isCopied ? <FaCheck /> : <FaCopy />}
             </button>
           )}
         </div>

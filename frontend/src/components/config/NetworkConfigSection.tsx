@@ -5,6 +5,7 @@
 
 import React, { useCallback } from 'react';
 import { useI18n } from '../../contexts/I18nContext';
+import { FaLightbulb, FaExchangeAlt } from '@lib/icons';
 import {
   SettingSection,
   SettingGroup,
@@ -23,11 +24,17 @@ interface NetworkConfigSectionProps {
   configFields: ConfigField[];
   /** 更新配置字段值 */
   updateValue: (key: string, value: string) => void;
+  title: string;
+  icon: React.ReactNode;
+  description: string;
 }
 
 export const NetworkConfigSection: React.FC<NetworkConfigSectionProps> = ({
   configFields,
   updateValue,
+  title,
+  icon,
+  description,
 }) => {
   const { t } = useI18n();
 
@@ -40,14 +47,14 @@ export const NetworkConfigSection: React.FC<NetworkConfigSectionProps> = ({
 
   return (
     <SettingSection
-      title={t.config.networkConfigTitle || '网络代理'}
-      icon="🔗"
-      description={t.config.networkConfigDesc || '配置网络代理以便中国大陆服务器访问外部API服务'}
+      title={title}
+      icon={icon}
+      description={description}
     >
       {/* 代理说明 */}
       <InfoCard
         title={t.config.networkProxyInfoTitle || '代理配置说明'}
-        icon="💡"
+        icon={<FaLightbulb />}
         content={
           <>
             {t.config.networkProxyInfo || '如果您的服务器位于中国大陆，可能需要配置代理才能正常访问 GitHub OAuth、Gemini AI 等外部服务。您可以选择以下方式：'}
@@ -99,7 +106,8 @@ export const NetworkConfigSection: React.FC<NetworkConfigSectionProps> = ({
 
       {/* API 镜像配置 */}
       <SettingGroup
-        title={`🔄 ${t.config.apiMirrorConfig || 'API 镜像服务'}`}
+        title={t.config.apiMirrorConfig || 'API 镜像服务'}
+        icon={<FaExchangeAlt />}
         description={t.config.apiMirrorConfigHint || '使用第三方 API 镜像服务，可替代代理配置'}
       >
         <InputItem

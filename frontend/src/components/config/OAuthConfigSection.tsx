@@ -5,6 +5,7 @@
 
 import React, { useCallback, useState } from 'react';
 import { useI18n } from '../../contexts/I18nContext';
+import { FaCheck, FaClipboard, FaExclamationTriangle } from '@lib/icons';
 import {
   SettingSection,
   InfoCard,
@@ -21,11 +22,17 @@ interface OAuthConfigSectionProps {
   configFields: ConfigField[];
   /** 更新配置字段值 */
   updateValue: (key: string, value: string) => void;
+  title: string;
+  icon: React.ReactNode;
+  description: string;
 }
 
 export const OAuthConfigSection: React.FC<OAuthConfigSectionProps> = ({
   configFields,
   updateValue,
+  title,
+  icon,
+  description,
 }) => {
   const { t } = useI18n();
   const [copiedUrl, setCopiedUrl] = useState(false);
@@ -48,9 +55,9 @@ export const OAuthConfigSection: React.FC<OAuthConfigSectionProps> = ({
 
   return (
     <SettingSection
-      title={t.config.oauthConfigTitle}
-      icon="🔐"
-      description={t.config.oauthConfigDesc}
+      title={title}
+      icon={icon}
+      description={description}
     >
       {/* OAuth 配置指南 */}
       <InfoCard
@@ -84,7 +91,7 @@ export const OAuthConfigSection: React.FC<OAuthConfigSectionProps> = ({
               onClick={handleCopyUrl}
               title={copiedUrl ? 'Copied!' : 'Copy'}
             >
-              {copiedUrl ? '✓' : '📋'}
+              {copiedUrl ? <FaCheck /> : <FaClipboard />}
             </button>
           </div>
         ) : (
