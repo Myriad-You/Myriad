@@ -13,6 +13,7 @@ export interface SettingGroupProps extends SettingGroupConfig {}
 export const SettingGroup: React.FC<SettingGroupProps> = ({
   title,
   description,
+  icon,
   items,
   children,
   collapsible = false,
@@ -39,7 +40,16 @@ export const SettingGroup: React.FC<SettingGroupProps> = ({
   const headerContent = (
     <>
       <div className="setting-group-header-content">
-        {title && <h4 className="setting-group-title">{title}</h4>}
+        {title && (
+          <h4 className="setting-group-title">
+            {icon && (
+              <span className="setting-group-icon">
+                {typeof icon === 'string' ? icon : icon}
+              </span>
+            )}
+            {title}
+          </h4>
+        )}
         {description && <p className="setting-group-description">{description}</p>}
       </div>
       {collapsible && (

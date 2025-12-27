@@ -45,3 +45,4 @@ export { CheckboxItem } from './items/CheckboxItem';
 
 // 预设组合组件
 export { PermissionGroup, QuotaGroup } from './presets';
+export { CompactSettingGroup } from './CompactSettingGroup';
