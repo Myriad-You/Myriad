@@ -12,6 +12,7 @@ import {
   CheckboxItem,
   SelectItem,
 } from '../settings';
+import { FaLink, FaGlobe, FaInfoCircle, FaPalette, FaMagic } from '@lib/icons';
 
 interface ConfigField {
   key: string;
@@ -31,6 +32,9 @@ interface UiConfigSectionProps {
   getFieldLabel: (key: string, originalLabel: string) => string;
   /** 获取字段占位符（国际化） */
   getFieldPlaceholder: (key: string, originalPlaceholder: string) => string;
+  title: string;
+  icon: React.ReactNode;
+  description: string;
 }
 
 export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
@@ -38,6 +42,9 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
   updateValue,
   getFieldLabel,
   getFieldPlaceholder,
+  title,
+  icon,
+  description,
 }) => {
   const { t } = useI18n();
 
@@ -47,14 +54,14 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
   }, [configFields]);
 
   // 站点元数据字段
-  const siteMetadataFields = useMemo(() => 
+  const siteMetadataFields = useMemo(() =>
     configFields.filter(f => ['site_title', 'site_description', 'site_favicon'].includes(f.key)),
     [configFields]
   );
 
   // 背景主题字段（排除特定前缀和字段）
-  const backgroundFields = useMemo(() => 
-    configFields.filter(f => 
+  const backgroundFields = useMemo(() =>
+    configFields.filter(f =>
       !f.key.startsWith('pet_') &&
       !f.key.startsWith('github_') &&
       !f.key.startsWith('music_') &&
@@ -69,12 +76,15 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
 
   return (
     <SettingSection
-      title={t.config.basicConfigTitle}
-      icon="⚙️"
-      description={t.config.basicConfigDesc}
+      title={title}
+      icon={icon}
+      description={description}
     >
       {/* 站点 URL 配置 */}
-      <SettingGroup title={`🔗 ${t.config.siteUrlConfig}`}>
+      <SettingGroup
+        title={t.config.siteUrlConfig}
+        icon={<FaLink />}
+      >
         <InputItem
           itemKey="base_url"
           label={t.config.baseUrl}
@@ -87,7 +97,10 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
       </SettingGroup>
 
       {/* 站点元数据 */}
-      <SettingGroup title={`🌐 ${t.config.siteMetadata}`}>
+      <SettingGroup
+        title={t.config.siteMetadata}
+        icon={<FaGlobe />}
+      >
         {siteMetadataFields.map((field) => (
           <InputItem
             key={field.key}
@@ -105,8 +118,9 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
       </SettingGroup>
 
       {/* 站点底部信息（备案和云赞助商） */}
-      <SettingGroup 
-        title={`📋 ${t.config.siteFooterTitle}`}
+      <SettingGroup
+        title={t.config.siteFooterTitle}
+        icon={<FaInfoCircle />}
         description={t.config.siteFooterDesc}
       >
         <InputItem
@@ -139,7 +153,7 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
               value={getFieldValue('cloud_sponsors').includes('cloudflare')}
               onChange={(v) => {
                 const current = getFieldValue('cloud_sponsors').split(',').map(s => s.trim()).filter(Boolean);
-                const newSponsors = v 
+                const newSponsors = v
                   ? [...current.filter(s => s !== 'cloudflare'), 'cloudflare']
                   : current.filter(s => s !== 'cloudflare');
                 updateValue('cloud_sponsors', newSponsors.join(','));
@@ -153,7 +167,7 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
               value={getFieldValue('cloud_sponsors').includes('edgeone')}
               onChange={(v) => {
                 const current = getFieldValue('cloud_sponsors').split(',').map(s => s.trim()).filter(Boolean);
-                const newSponsors = v 
+                const newSponsors = v
                   ? [...current.filter(s => s !== 'edgeone'), 'edgeone']
                   : current.filter(s => s !== 'edgeone');
                 updateValue('cloud_sponsors', newSponsors.join(','));
@@ -167,7 +181,7 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
               value={getFieldValue('cloud_sponsors').includes('upyun')}
               onChange={(v) => {
                 const current = getFieldValue('cloud_sponsors').split(',').map(s => s.trim()).filter(Boolean);
-                const newSponsors = v 
+                const newSponsors = v
                   ? [...current.filter(s => s !== 'upyun'), 'upyun']
                   : current.filter(s => s !== 'upyun');
                 updateValue('cloud_sponsors', newSponsors.join(','));
@@ -196,8 +210,9 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
       </SettingGroup>
 
       {/* Evocative 壁纸动效 */}
-      <SettingGroup 
-        title={`✨ ${t.config.evocativeTitle}`}
+      <SettingGroup
+        title={t.config.evocativeTitle}
+        icon={<FaMagic />}
         description={t.config.evocativeDesc}
       >
         {/* 微动效果 */}

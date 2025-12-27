@@ -10,3 +10,4 @@ export { default as PermissionsConfigSection } from './PermissionsConfigSection'
 export { default as PlatformConfigSection } from './PlatformConfigSection';
 export { default as AiConfigSection } from './AiConfigSection';
 export { default as GenericConfigSection } from './GenericConfigSection';
+export { AdvancedConfigSection } from './AdvancedConfigSection';

@@ -4,7 +4,7 @@
  */
 
 import React, { useCallback } from 'react';
-import { SiNeteasecloudmusic } from '@lib/icons';
+import { SiNeteasecloudmusic, FaHeadphones, FaTrash } from '@lib/icons';
 import { useI18n } from '../../contexts/I18nContext';
 import {
   SettingSection,
@@ -29,12 +29,18 @@ interface MusicConfigSectionProps {
   updateValue: (key: string, value: string) => void;
   /** 消息回调 */
   onMessage?: (message: string) => void;
+  title: string;
+  icon: React.ReactNode;
+  description: string;
 }
 
 export const MusicConfigSection: React.FC<MusicConfigSectionProps> = ({
   configFields,
   updateValue,
   onMessage,
+  title,
+  icon,
+  description,
 }) => {
   const { t } = useI18n();
 
@@ -54,9 +60,9 @@ export const MusicConfigSection: React.FC<MusicConfigSectionProps> = ({
 
   return (
     <SettingSection
-      title={t.config.musicConfigTitle}
-      icon="🎵"
-      description={t.config.musicConfigDesc}
+      title={title}
+      icon={icon}
+      description={description}
     >
       {/* 使用说明 */}
       <InfoCard
@@ -80,15 +86,15 @@ export const MusicConfigSection: React.FC<MusicConfigSectionProps> = ({
         value={musicSource}
         onChange={(v) => updateValue('music_source', v)}
         options={[
-          { 
-            value: 'netease', 
-            label: t.config.neteaseMusic, 
-            icon: <SiNeteasecloudmusic /> 
+          {
+            value: 'netease',
+            label: t.config.neteaseMusic,
+            icon: <SiNeteasecloudmusic />
           },
-          { 
-            value: 'qq', 
-            label: t.config.qqMusic, 
-            icon: '🎧' 
+          {
+            value: 'qq',
+            label: t.config.qqMusic,
+            icon: <FaHeadphones />
           },
         ]}
         layout="horizontal"
@@ -120,7 +126,7 @@ export const MusicConfigSection: React.FC<MusicConfigSectionProps> = ({
           itemKey="clear_cache"
           description={t.config.clearMusicCacheDesc}
           buttonText={t.config.clearMusicCacheBtn}
-          buttonIcon="🗑️"
+          buttonIcon={<FaTrash />}
           variant="secondary"
           onClick={handleClearCache}
         />

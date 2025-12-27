@@ -38,7 +38,7 @@ const PlatformConfigSection = React.memo<PlatformConfigSectionProps>(({
   onOpenModal
 }) => {
   const { t } = useI18n();
-  
+
   return (
     <div className="config-section">
       <div className="section-header">
