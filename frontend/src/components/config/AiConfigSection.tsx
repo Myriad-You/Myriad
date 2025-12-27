@@ -14,8 +14,10 @@ import {
   NumberItem,
   ProviderItem,
   ButtonItem,
+  CompactSettingGroup,
 } from '../settings';
 import type { SettingOption } from '../settings/types';
+import { FaRobot, FaMagic, FaFreeCodeCamp, FaVolumeUp, FaPalette, FaMicrophone, SiGooglegemini, SiOpenai } from '@lib/icons';
 
 interface ConfigField {
   key: string;
@@ -33,12 +35,18 @@ interface AiConfigSectionProps {
   updateValue: (key: string, value: string) => void;
   /** 语音测试回调 */
   onSpeechTest: () => Promise<{ success: boolean; message: string }>;
+  title: string;
+  icon: React.ReactNode;
+  description: string;
 }
 
 export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
   configFields,
   updateValue,
   onSpeechTest,
+  title,
+  icon,
+  description,
 }) => {
   const { t } = useI18n();
   const [speechTesting, setSpeechTesting] = useState(false);
@@ -50,27 +58,27 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
   }, [configFields]);
 
   // 当前 AI Provider
-  const currentProvider = useMemo(() => 
+  const currentProvider = useMemo(() =>
     getFieldValue('provider', 'gemini'),
     [getFieldValue]
   );
 
   // 当前图片生成 Provider
-  const currentImageProvider = useMemo(() => 
+  const currentImageProvider = useMemo(() =>
     getFieldValue('ai_image_provider', 'pollinations'),
     [getFieldValue]
   );
 
   // AI Provider 选项
   const aiProviderOptions: SettingOption<string>[] = useMemo(() => [
-    { value: 'gemini', label: 'Gemini', icon: '🤖' },
-    { value: 'openai', label: 'OpenAI', icon: '✨' },
+    { value: 'gemini', label: 'Gemini', icon: <SiGooglegemini /> },
+    { value: 'openai', label: 'OpenAI', icon: <SiOpenai /> },
   ], []);
 
   // 图片生成 Provider 选项
   const imageProviderOptions: SettingOption<string>[] = useMemo(() => [
-    { value: 'pollinations', label: 'Pollinations', icon: '🆓', badge: t.config.pollinationsFree },
-    { value: 'imaginepro', label: 'ImaginePro', icon: '✨', badge: 'MJ' },
+    { value: 'pollinations', label: 'Pollinations', icon: <FaFreeCodeCamp />, badge: t.config.pollinationsFree },
+    { value: 'imaginepro', label: 'ImaginePro', icon: <FaMagic />, badge: 'MJ' },
   ], [t.config.pollinationsFree]);
 
   // Pollinations 模型选项
@@ -97,7 +105,7 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
       if (field.key === 'provider') return false;
       if (field.key.startsWith('ai_image_') || field.key.startsWith('imaginepro_')) return false;
       if (field.key.startsWith('tencent_')) return false;
-      
+
       if (currentProvider === 'gemini') {
         return field.key.startsWith('gemini_');
       } else if (currentProvider === 'openai') {
@@ -115,9 +123,9 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
       const result = await onSpeechTest();
       setSpeechTestResult(result);
     } catch (error) {
-      setSpeechTestResult({ 
-        success: false, 
-        message: error instanceof Error ? error.message : 'Test failed' 
+      setSpeechTestResult({
+        success: false,
+        message: error instanceof Error ? error.message : 'Test failed'
       });
     } finally {
       setSpeechTesting(false);
@@ -126,9 +134,9 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
 
   return (
     <SettingSection
-      title={t.config.aiConfigTitle}
-      icon="🤖"
-      description={t.config.aiConfigDesc}
+      title={title}
+      icon={icon}
+      description={description}
     >
       {/* AI 服务介绍 */}
       <InfoCard
@@ -174,7 +182,8 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
 
       {/* AI 图片生成配置 */}
       <InfoCard
-        title={`🎨 ${t.config.aiImageTitle}`}
+        title={t.config.aiImageTitle}
+        icon={<FaPalette />}
         content={
           <>
             <strong>Pollinations AI</strong>：{t.config.pollinationsDescription}<br />
@@ -205,7 +214,7 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
             options={pollinationsModelOptions}
             layout="vertical"
           />
-          <div className="config-compact-group">
+          <CompactSettingGroup>
             <NumberItem
               itemKey="ai_image_width_poll"
               label={t.config.width}
@@ -226,7 +235,7 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
               step={64}
               layout="vertical"
             />
-          </div>
+          </CompactSettingGroup>
         </>
       )}
 
@@ -244,7 +253,7 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
             autoSelectOnMask
             layout="vertical"
           />
-          <div className="config-compact-group">
+          <CompactSettingGroup>
             <NumberItem
               itemKey="ai_image_width_mj"
               label={t.config.width}
@@ -265,13 +274,14 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
               step={128}
               layout="vertical"
             />
-          </div>
+          </CompactSettingGroup>
         </>
       )}
 
       {/* 语音服务配置 */}
       <SettingGroup
-        title={`🎙️ ${t.config.speechServiceTitle}`}
+        title={t.config.speechServiceTitle}
+        icon={<FaMicrophone />}
         description={t.config.speechServiceDesc}
       >
         <InputItem
@@ -308,7 +318,8 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
         <ButtonItem
           itemKey="speech_test"
           label=""
-          buttonText={`🔊 ${t.config.speechTestAvailability}`}
+          buttonText={t.config.speechTestAvailability}
+          buttonIcon={<FaVolumeUp />}
           onClick={handleSpeechTest}
           loading={speechTesting}
           loadingText={t.config.speechTestTesting}
