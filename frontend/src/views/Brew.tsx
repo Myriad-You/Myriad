@@ -1,14 +1,14 @@
 /**
  * Brew 阅读视图组件
  * RSS/Atom 订阅管理与阅读 - 重构版
- * 
+ *
  * 性能优化：
  * - 接入统一动画调度器 (useBrewScheduler)
  * - useMemo 缓存导航项和计算结果
  * - useCallback 缓存所有回调函数
  * - useRef 避免闭包陷阱
  * - 子组件均已使用 React.memo 优化
- * 
+ *
  * 权限控制：
  * - 游客可浏览所有内容（只读）
  * - 登录用户可编辑、收藏、标记已读等
@@ -142,18 +142,18 @@ export default function Brew() {
 
   // 构建二级导航项
   const navItems: SecondaryNavItem[] = useMemo(() => [
-    { 
-      id: 'all', 
-      icon: NavIcons.all, 
-      label: t.brew.all, 
-      title: t.brew.all + t.brew.sources, 
+    {
+      id: 'all',
+      icon: NavIcons.all,
+      label: t.brew.all,
+      title: t.brew.all + t.brew.sources,
       ariaLabel: t.brew.all + t.brew.sources,
     },
-    { 
-      id: 'friends', 
-      icon: NavIcons.friends, 
-      label: t.brew.friendLinks, 
-      title: t.brew.friendLinks, 
+    {
+      id: 'friends',
+      icon: NavIcons.friends,
+      label: t.brew.friendLinks,
+      title: t.brew.friendLinks,
       ariaLabel: t.brew.friendLinks,
     },
     { id: 'mine', icon: NavIcons.mine, label: t.brew.me, title: t.brew.me, ariaLabel: t.brew.me },
@@ -193,7 +193,7 @@ export default function Brew() {
       return;
     }
     prevActiveIdRef.current = activeId;
-    
+
     if (activeId === 'starred') {
       setViewMode('starred');
       setSelectedSource(null);
@@ -238,12 +238,12 @@ export default function Brew() {
   const loadItems = useCallback(async (reset = false, sourceId?: number, mode?: ViewMode, categoryFilter?: string) => {
     // 生成新的请求 ID，用于防止竞态条件
     const requestId = ++loadRequestIdRef.current;
-    
+
     setItemsLoading(true);
     try {
       const currentPage = reset ? 1 : pageRef.current;
       const filter = mode === 'starred' ? 'starred' : 'all';
-      
+
       const data = await brewApi.getItems({
         source_id: sourceId || undefined,
         category: categoryFilter || undefined,
@@ -320,7 +320,7 @@ export default function Brew() {
 
   // 处理订阅源更新（如卡片尺寸变更）
   const handleSourceUpdate = (updatedSource: BrewSource) => {
-    setSources(prev => 
+    setSources(prev =>
       prev.map(s => s.id === updatedSource.id ? updatedSource : s)
     );
   };
@@ -348,7 +348,7 @@ export default function Brew() {
       // 先更新为已读状态再显示
       const updatedItem = { ...item, is_read: true };
       setSelectedItem(updatedItem);
-      
+
       try {
         await brewApi.markRead(item.id);
         setItems(prev =>
@@ -360,7 +360,7 @@ export default function Brew() {
           prev.map(s => s.id === item.source_id ? {
             ...s,
             unread_count: s.unread_count - 1,
-            recent_items: s.recent_items?.map(ri => 
+            recent_items: s.recent_items?.map(ri =>
               ri.id === item.id ? { ...ri, is_read: true } : ri
             )
           } : s)
@@ -443,7 +443,7 @@ export default function Brew() {
       const categoryFilter = viewMode === 'category-feed' && selectedCategory !== 'all'
         ? PRESET_CATEGORY_DB_VALUES[selectedCategory as PresetCategoryId]
         : undefined;
-      
+
       const marked = await brewApi.markAllRead({
         source_id: selectedSource?.id || undefined,
         category: categoryFilter,
@@ -454,7 +454,7 @@ export default function Brew() {
         setItems(prev => prev.map(item => ({ ...item, is_read: true })));
         // 更新订阅源的未读计数
         if (selectedSource) {
-          setSources(prev => prev.map(s => 
+          setSources(prev => prev.map(s =>
             s.id === selectedSource.id ? { ...s, unread_count: 0 } : s
           ));
         } else if (categoryFilter) {
@@ -496,25 +496,25 @@ export default function Brew() {
 
   const handleStarredBatchUnstar = useCallback(async () => {
     if (starredSelectedIds.size === 0) return;
-    
+
     setStarredProcessing(true);
     try {
       // 批量取消收藏
-      const promises = Array.from(starredSelectedIds).map(id => 
+      const promises = Array.from(starredSelectedIds).map(id =>
         brewApi.unstarItem(id)
       );
       await Promise.all(promises);
-      
+
       // 更新列表
       setItems(prev => prev.filter(i => !starredSelectedIds.has(i.id)));
       setTotal(prev => prev - starredSelectedIds.size);
-      
+
       // 更新统计
       setStats(prev => prev ? {
         ...prev,
         total_starred: prev.total_starred - starredSelectedIds.size,
       } : prev);
-      
+
       // 退出编辑模式
       handleStarredExitEditMode();
     } catch (err) {
@@ -580,7 +580,7 @@ export default function Brew() {
         prev.map(s => s.id === item.source_id ? {
           ...s,
           unread_count: newReadState ? s.unread_count - 1 : s.unread_count + 1,
-          recent_items: s.recent_items?.map(ri => 
+          recent_items: s.recent_items?.map(ri =>
             ri.id === item.id ? { ...ri, is_read: newReadState } : ri
           )
         } : s)

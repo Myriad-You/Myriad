@@ -803,6 +803,25 @@ pub async fn get_client_geo(
         }
     }
 
+    // 如果是本地开发，返回默认位置
+    if is_local_ip {
+        tracing::warn!("All geolocation services failed for local IP, using default fallback");
+        let fallback_data = json!({
+            "status": "success",
+            "lat": 0.0,
+            "lon": 0.0,
+            "city": "Localhost",
+            "country": "Development",
+            "regionName": "Local"
+        });
+        return (
+            StatusCode::OK,
+            [(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")],
+            Json(fallback_data),
+        )
+            .into_response();
+    }
+
     // 所有方案都失败，返回错误
     tracing::error!("All geolocation services failed for IP: {}", target_ip);
     (

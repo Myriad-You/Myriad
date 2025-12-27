@@ -220,4 +220,32 @@ export const triggerAnalysis = async () => {
   return response.data;
 };
 
+// Config Permissions
+export const fetchPermissionsConfig = async () => {
+  const response = await api.get('/api/config/permissions');
+  return response.data;
+};
+
+export const updatePermissionsConfig = async (permissions: Record<string, boolean | number>) => {
+  const response = await api.post('/api/config/permissions', permissions);
+  return response.data;
+};
+
+// System
+export const reloadSystemConfig = async () => {
+  const response = await api.post('/api/system/reload-config');
+  return response.data;
+};
+
+export const testPlatformConfig = async (platform: string, config: any) => {
+  const response = await api.post('/api/config/test', { platform, config });
+  return response.data;
+};
+
+// Speech
+export const checkSpeechStatus = async () => {
+  const response = await api.get('/api/speech/status');
+  return response.data;
+};
+
 export default api;
