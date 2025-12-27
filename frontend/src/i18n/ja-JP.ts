@@ -32,7 +32,7 @@ export const jaJP: TranslationKeys = {
     networkError: 'ネットワークエラー',
     unknownError: '不明なエラー',
   },
-  
+
   // ナビゲーション
   nav: {
     home: 'ホーム',
@@ -82,7 +82,7 @@ export const jaJP: TranslationKeys = {
     tappStore: 'Tapp ストア',
     openTappStore: 'Tapp ストアを開く',
   },
-  
+
   // 挨拶
   greeting: {
     morning: 'おはようございます',
@@ -93,7 +93,7 @@ export const jaJP: TranslationKeys = {
     lateNight: '夜更かしですね',
     welcome: 'おかえりなさい',
   },
-  
+
   // コントロールパネル
   controlPanel: {
     appearance: '外観',
@@ -114,7 +114,7 @@ export const jaJP: TranslationKeys = {
     language: '言語',
     languageSwitch: '言語切替',
   },
-  
+
   // ログイン
   auth: {
     username: 'ユーザー名',
@@ -139,7 +139,7 @@ export const jaJP: TranslationKeys = {
     logoutSuccess: 'ログアウトしました',
     logoutFailed: 'ログアウト失敗',
   },
-  
+
   // セットアップウィザード
   setup: {
     title: 'システム設定',
@@ -201,7 +201,7 @@ export const jaJP: TranslationKeys = {
     atLeast8Chars: '8文字以上',
     enterPasswordAgain: 'パスワードを再入力',
   },
-  
+
   // 設定
   config: {
     title: 'システム設定',
@@ -224,6 +224,9 @@ export const jaJP: TranslationKeys = {
     allConfig: 'すべての設定',
     saveConfig: '設定を保存',
     resetConfig: '設定をリセット',
+    resetConfigDesc: 'すべての設定をデフォルト値にリセットします。この操作は元に戻せません。',
+    resetConfirmMessage: 'すべての設定をリセットしてもよろしいですか？この操作は元に戻せません。すべての設定がデフォルト値に戻ります。',
+    dangerZone: '危険エリア',
     searchConfig: '設定項目を検索...',
     searchResults: '検索結果',
     noMatchingConfig: '一致する設定項目が見つかりません',
@@ -284,6 +287,8 @@ export const jaJP: TranslationKeys = {
     // ネットワークプロキシ設定
     networkConfigTitle: 'ネットワークプロキシ',
     networkConfigDesc: '中国本土のサーバーが外部APIにアクセスするためのプロキシを設定',
+    advanced: '詳細設定',
+    advancedDesc: '高度なシステム設定と危険な操作',
     networkProxyInfoTitle: 'プロキシ設定ガイド',
     networkProxyInfo: 'サーバーが中国本土にある場合、GitHub OAuthやGemini AIなどの外部サービスにアクセスするためにプロキシが必要な場合があります。以下の方法から選択できます：',
     enableProxy: 'ネットワークプロキシを有効化',
@@ -477,7 +482,7 @@ export const jaJP: TranslationKeys = {
     edgeone: 'EdgeOne',
     upyun: '又拍云',
   },
-  
+
   // ウィジェット
   widgets: {
     welcome: 'ようこそ',
@@ -506,7 +511,7 @@ export const jaJP: TranslationKeys = {
     tappDesc: '拡張アプリ',
     tappFeature: 'ウィジェット、ツール、拡張',
   },
-  
+
   // タイトルスタイルセレクター
   titleStyle: {
     style: 'スタイル',
@@ -527,7 +532,7 @@ export const jaJP: TranslationKeys = {
     sizeXLarge: '特大',
     sizeXXLarge: '極大',
   },
-  
+
   // ホーム
   home: {
     dashboard: 'ダッシュボード',
@@ -541,7 +546,7 @@ export const jaJP: TranslationKeys = {
     saveTitleFailed: 'タイトルの保存に失敗しました',
     saveCustomPlatformsFailed: 'カスタムプラットフォームの保存に失敗しました',
   },
-  
+
   // ライブラリ
   library: {
     title: 'ライブラリ',
@@ -564,7 +569,7 @@ export const jaJP: TranslationKeys = {
     anime: 'アニメ',
     tvSeries: 'ドラマ',
   },
-  
+
   // レポート
   reports: {
     title: 'データレポート',
@@ -573,7 +578,7 @@ export const jaJP: TranslationKeys = {
     generating: 'レポート生成中...',
     generated: 'レポート生成完了',
   },
-  
+
   // アカウント
   account: {
     title: 'アカウント設定',
@@ -592,7 +597,7 @@ export const jaJP: TranslationKeys = {
     passwordChanged: 'パスワードを変更しました',
     passwordChangeFailed: 'パスワード変更に失敗しました',
   },
-  
+
   // エラーメッセージ
   errors: {
     networkError: 'ネットワーク接続に失敗しました',
@@ -603,7 +608,7 @@ export const jaJP: TranslationKeys = {
     timeout: 'リクエストタイムアウト',
     unknown: '不明なエラー',
   },
-  
+
   // 天気ウィジェット
   weather: {
     humidity: '湿度',
@@ -636,7 +641,7 @@ export const jaJP: TranslationKeys = {
     thunderstorm: '雷雨',
     unknown: '不明',
   },
-  
+
   // 音楽プレイヤー
   music: {
     noSong: '再生中の曲なし',
@@ -665,7 +670,7 @@ export const jaJP: TranslationKeys = {
     loadPlaylistFailed: 'プレイリストの読み込みに失敗しました',
     playFailed: '再生に失敗しました。ネットワーク接続または曲の利用可能性を確認してください',
   },
-  
+
   // キャッシュ管理
   cache: {
     title: 'キャッシュ管理',
@@ -690,7 +695,7 @@ export const jaJP: TranslationKeys = {
     cacheHint3: 'キャッシュをクリアした後、プラットフォームデータを使用するには再処理が必要です',
     cacheHint4: '処理中も他の操作はブロックされません',
   },
-  
+
   // タスク状態
   task: {
     fetchFailed: 'タスク状態の取得に失敗しました',
@@ -705,7 +710,7 @@ export const jaJP: TranslationKeys = {
     createdTime: '作成日時',
     completedTime: '完了日時',
   },
-  
+
   // ユーザーモーダル
   userModal: {
     title: 'ユーザー情報',
@@ -748,7 +753,7 @@ export const jaJP: TranslationKeys = {
     noRecentTapps: '最近使用したアプリはありません',
     viewAllTapps: 'すべてのTappを見る',
   },
-  
+
   // ウィジェットグリッド
   widgetGrid: {
     widgetLibrary: 'ウィジェットライブラリ',
@@ -758,7 +763,7 @@ export const jaJP: TranslationKeys = {
     positionConflict: '✖ 位置競合',
     canPlace: '✓ 配置可能',
   },
-  
+
   // ソーシャルネットワークウィジェット
   socialNetwork: {
     platformName: 'プラットフォーム名',
@@ -788,7 +793,7 @@ export const jaJP: TranslationKeys = {
     clickToVisit: 'クリックでプロフィールにアクセス',
     notConfigured: '未設定',
   },
-  
+
   // レポートカードウィジェット
   reportCard: {
     noReportData: 'レポートデータなし',
@@ -801,14 +806,14 @@ export const jaJP: TranslationKeys = {
     legendaryDev: 'レジェンド開発者',
     danmakuDefault: ['神回', '草', 'かわいい', '懐かしい', '泣いた'],
   },
-  
+
   // パフォーマンス監視
   performance: {
     animationDetected: 'パフォーマンスに影響するアニメーションを検出しました',
     collapse: '折りたたむ',
     expand: '展開',
   },
-  
+
   // レポートページ
   reportsPage: {
     // プラットフォーム名
@@ -816,13 +821,13 @@ export const jaJP: TranslationKeys = {
     bilibili: 'Bilibili',
     steam: 'Steam',
     github: 'GitHub',
-    
+
     // 弾幕デフォルトテキスト
     danmakuDefaults: ['神回', '草', 'かわいい', '懐かしい', '泣いた'],
-    
+
     // プレイヤータイプ
     casualPlayer: 'カジュアルプレイヤー',
-    
+
     // 開発者レベル
     activeDeveloper: 'アクティブ開発者',
     legendary: 'レジェンド',
@@ -830,7 +835,7 @@ export const jaJP: TranslationKeys = {
     senior: 'シニア',
     prolific: '多産',
     active: 'アクティブ',
-    
+
     // 統計ラベル
     library: 'ライブラリ',
     playtime: 'プレイ時間',
@@ -838,11 +843,11 @@ export const jaJP: TranslationKeys = {
     repos: 'リポジトリ',
     fans: 'ファン',
     lists: 'リスト',
-    
+
     // 状態テキスト
     analyzingRepos: '> リポジトリを分析中_',
     noReposFound: '> リポジトリが見つかりません_',
-    
+
     // Toastメッセージ
     noPlatformReports: '利用可能なプラットフォームレポートがありません',
     allPlaybackComplete: 'すべてのプラットフォームの再生が完了しました',
@@ -857,7 +862,7 @@ export const jaJP: TranslationKeys = {
     generateFailedRetry: '生成に失敗しました、後でもう一度お試しください',
     deleteFailed: '削除失敗',
     deleteFailedRetry: '削除に失敗しました、後でもう一度お試しください',
-    
+
     // UIテキスト
     close: '閉じる',
     regenerateReport: 'レポートを再生成',
@@ -896,7 +901,7 @@ export const jaJP: TranslationKeys = {
     adminNotGenerated: '管理者がまだ総合レポートを生成していません',
     waitingGenerate: '生成待ち',
   },
-  
+
   // アカウントページ
   accountPage: {
     accountInfo: 'アカウント情報',
@@ -927,7 +932,7 @@ export const jaJP: TranslationKeys = {
     changing: '変更中...',
     changePasswordBtn: 'パスワード変更',
   },
-  
+
   // データ管理ページ
   dataManagement: {
     neteaseMusic: 'NetEase Music',
@@ -962,7 +967,7 @@ export const jaJP: TranslationKeys = {
     usageSmartFilter: 'スマートフィルター：AI分析処理後のデータ、処理ボタンでキャッシュ生成',
     usageBackground: 'バックグラウンド処理：データ処理タスクは非同期で実行、トップで進捗を確認可能',
   },
-  
+
   // クイック統計ウィジェット
   quickStats: {
     widgetTitle: 'コンテンツ概要',
@@ -975,7 +980,7 @@ export const jaJP: TranslationKeys = {
     saveCacheFailed: 'キャッシュの保存に失敗しました',
     fetchStatsFailed: 'ライブラリ統計の取得に失敗しました',
   },
-  
+
   // 最近のアクティビティウィジェット
   recentActivity: {
     widgetTitle: '最近のアクティビティ',
@@ -1025,7 +1030,7 @@ export const jaJP: TranslationKeys = {
     myMusicCollection: 'マイミュージックコレクション',
     techShareCollection: '技術シェアコレクション',
   },
-  
+
   // 天気ウィジェット
   weatherWidget: {
     loadCacheFailed: '天気キャッシュの読み込みに失敗しました',
@@ -1034,7 +1039,7 @@ export const jaJP: TranslationKeys = {
     sunny: '晴れ',
     sampleCity: 'サンプル都市',
   },
-  
+
   // 一言ウィジェット
   quoteWidget: {
     loadCacheFailed: '一言キャッシュの読み込みに失敗しました',
@@ -1044,7 +1049,7 @@ export const jaJP: TranslationKeys = {
     anonymous: '作者不明',
     unavailable: '一言は利用できません',
   },
-  
+
   // 音楽プレイヤーウィジェット
   musicPlayer: {
     sampleSong: 'サンプル曲',
@@ -1054,12 +1059,12 @@ export const jaJP: TranslationKeys = {
     sampleLyricNext: 'サンプル歌詞 - 次の行',
     noLyrics: '歌詞なし',
   },
-  
+
   // プラットフォームカードウィジェット
   platformCard: {
     neteaseMusic: 'NetEase Music',
   },
-  
+
   // レポートカードウィジェット拡張
   reportCardWidget: {
     bilibili: 'Bilibili',
@@ -1080,7 +1085,7 @@ export const jaJP: TranslationKeys = {
     samplePlaylist: 'サンプルプレイリスト',
     fetchReportFailed: 'レポートの取得に失敗しました',
   },
-  
+
   // ソーシャルネットワークウィジェット拡張
   socialNetworkWidget: {
     fillPlatformName: 'プラットフォーム名を入力してください',
@@ -1093,7 +1098,7 @@ export const jaJP: TranslationKeys = {
     delete: '削除',
     longPressToEdit: 'ウィジェットを長押しして設定',
   },
-  
+
   // Tapp 関連
   tapp: {
     // 共通
@@ -1110,7 +1115,7 @@ export const jaJP: TranslationKeys = {
     installing: 'インストール中...',
     version: 'バージョン',
     author: '作者',
-    
+
     // カテゴリ
     categoryAI: 'AI アプリ',
     categoryDataExtension: 'データ拡張',
@@ -1130,7 +1135,7 @@ export const jaJP: TranslationKeys = {
     categoryMusic: '音楽',
     categoryVisualization: '可視化',
     categoryData: 'データ',
-    
+
     // 権限
     permissions: '権限',
     noPermissions: '権限不要',
@@ -1138,7 +1143,7 @@ export const jaJP: TranslationKeys = {
     elevatedPermission: '昇格',
     privilegedPermission: '特権',
     grantedPermissions: '付与済み権限',
-    
+
     // 権限ラベル
     permRegisterWidget: 'ウィジェット登録',
     permReadPlatform: 'プラットフォームデータ読取',
@@ -1162,7 +1167,7 @@ export const jaJP: TranslationKeys = {
     permRegisterShortcut: 'ショートカット登録',
     permPublishEvent: 'イベント発行',
     permSubscribeEvent: 'イベント購読',
-    
+
     // 権限説明
     permRegisterWidgetDesc: 'ホームページへのカスタムウィジェット登録を許可',
     permReadPlatformDesc: '既存のプラットフォームデータ読取を許可',
@@ -1186,7 +1191,7 @@ export const jaJP: TranslationKeys = {
     permRegisterShortcutDesc: 'キーボードショートカットの登録を許可',
     permPublishEventDesc: 'システムイベントの発行を許可',
     permSubscribeEventDesc: 'システムイベントの購読を許可',
-    
+
     // リストページ
     listTitle: 'Tapp アプリ',
     listSubtitle: '拡張アプリを管理・実行',
@@ -1201,7 +1206,7 @@ export const jaJP: TranslationKeys = {
     loginRequiredToInstall: 'アプリをインストールするにはログインしてください',
     export: 'エクスポート',
     exportFailed: 'エクスポートに失敗しました',
-    
+
     // インストールモーダル
     installTappTitle: 'Tapp アプリをインストール',
     dropTappFile: '.tapp ファイルをここにドロップ',
@@ -1210,7 +1215,7 @@ export const jaJP: TranslationKeys = {
     invalidTappFile: '.tapp ファイルを選択してください',
     installFailed: 'インストール失敗',
     installSuccess: '{name} をインストールしました',
-    
+
     // 実行ページ
     loadingApp: 'アプリを読み込み中...',
     pleaseWait: 'しばらくお待ちください',
@@ -1223,7 +1228,7 @@ export const jaJP: TranslationKeys = {
     fullscreen: 'フルスクリーン',
     stopApp: 'アプリを停止',
     back: '戻る',
-    
+
     // マルチウィンドウモード
     windowScheme: 'ウィンドウスキーム',
     scheme: 'スキーム',
@@ -1239,7 +1244,7 @@ export const jaJP: TranslationKeys = {
     openFirstApp: '最初のアプリを開く',
     selectApp: 'アプリを選択',
     noAvailableApps: '利用可能なアプリがありません',
-    
+
     // 詳細ページ
     appSettings: 'アプリ設定',
     customizeBehavior: 'アプリの動作をカスタマイズ',
@@ -1255,14 +1260,14 @@ export const jaJP: TranslationKeys = {
     loading: '読み込み中...',
     settingSaved: '設定を保存しました',
     settingSaveFailed: '保存に失敗しました',
-    
+
     // AI クォータ
     aiQuota: 'AI クォータ',
     premiumQuota: 'プレミアムクォータ',
     standardQuota: '標準クォータ',
     dailyCalls: '日次呼び出し',
     tokenUsage: 'トークン使用量',
-    
+
     // ストア
     storeTitle: 'Tapp ストア',
     storeSourceSettings: 'ストアソース設定',
@@ -1293,7 +1298,7 @@ export const jaJP: TranslationKeys = {
     keepDataOnUninstallDesc: '再インストール時に復元できるよう、保存されたデータと設定を保持します',
     uninstalling: 'アンインストール中...',
     confirmUninstallBtn: 'アンインストールを確認',
-    
+
     // ストアソース設定
     sourceManagement: 'ソース管理',
     addSource: 'ストアソースを追加',
@@ -1309,14 +1314,14 @@ export const jaJP: TranslationKeys = {
     addSourceFailed: '追加に失敗しました',
     refreshAllStores: 'すべてのストアを更新',
     confirmDeleteSource: 'このストアソースを削除してもよろしいですか？',
-    
+
     // 動的コンテンツ API
     dynamicContent: '動的コンテンツ',
     dynamicContentDesc: '折りたたみ時のコントロールアイランドにカスタムコンテンツを表示',
     dynamicContentSet: '動的コンテンツを設定しました',
     dynamicContentRemoved: '動的コンテンツを削除しました',
   },
-  
+
   // 動的コンテンツ
   dynamicContent: {
     unavailable: 'コンテンツがありません',
@@ -1324,7 +1329,7 @@ export const jaJP: TranslationKeys = {
     loading: '読み込み中...',
     tappContent: 'Tapp コンテンツ',
   },
-  
+
   // Brew RSS リーダー
   brew: {
     // 共通
@@ -1343,13 +1348,13 @@ export const jaJP: TranslationKeys = {
     friendLinks: '相互リンク',
     me: '自分',
     expandMenu: 'Brew メニューを展開',
-    
+
     // 時間関連
     justNow: 'たった今',
     minutesAgo: '{minutes} 分前',
     hoursAgo: '{hours} 時間前',
     daysAgo: '{days} 日前',
-    
+
     // フィードタイプ
     feedTypeRss: 'RSS',
     feedTypeAtom: 'Atom',
@@ -1358,14 +1363,14 @@ export const jaJP: TranslationKeys = {
     feedTypeRsshub: 'RSSHub',
     feedTypeLink: 'リンク',
     feedTypeBrewlia: 'AI 強化',
-    
+
     // フィードタイプの説明
     feedTypeRssDesc: '標準 RSS/Atom/JSON Feed 購読',
     feedTypeLinkDesc: 'リンクのみ保存、更新購読なし',
     feedTypeNotionDesc: 'Notion データベースまたはページコンテンツを購読',
     feedTypeRsshubDesc: 'RSSHub マルチプラットフォームルート購読、インスタンス切り替え対応',
     feedTypeBrewliaDesc: 'AI 強化購読：語彙注釈、代名詞分析などの読書支援機能を自動提供',
-    
+
     // 操作
     addSubscription: '購読を追加',
     editSubscription: '購読元を編集',
@@ -1383,7 +1388,7 @@ export const jaJP: TranslationKeys = {
     importExportOpml: 'OPML インポート/エクスポート',
     keyboardShortcuts: 'キーボードショートカット',
     moreOptions: 'その他のオプション',
-    
+
     // 購読を追加
     addLink: 'リンクを追加',
     addBrewlia: 'Brewlia を追加',
@@ -1399,12 +1404,12 @@ export const jaJP: TranslationKeys = {
     inputNewCategory: '新しいカテゴリを入力...',
     detect: '検出',
     detecting: '検出中...',
-    
+
     // AI 強化
     enableAiEnhance: 'AI 強化を有効化',
     disableAiEnhance: 'AI 強化を無効化',
     aiEnhanceDesc: 'AI 強化購読：語彙注釈、代名詞分析などの読書支援機能を自動提供',
-    
+
     // 購読を編集
     uploadIcon: 'アイコンをアップロード',
     uploadIconHint: 'アイコンをアップロード（JPG/PNG/GIF/SVG、最大 500KB）',
@@ -1418,7 +1423,7 @@ export const jaJP: TranslationKeys = {
     generateTags: 'タグを生成',
     regenerateTags: '再生成',
     deleteTag: 'タグを削除',
-    
+
     // 更新間隔
     updateInterval: '更新間隔',
     interval15min: '15 分',
@@ -1428,20 +1433,20 @@ export const jaJP: TranslationKeys = {
     interval6hours: '6 時間',
     interval12hours: '12 時間',
     intervalDaily: '毎日',
-    
+
     // ソート
     sortByUpdate: '更新順',
     sortByCustom: 'カスタム順',
     sortByCategory: 'カテゴリ順',
     sortByRandom: 'ランダム',
     sortByPinyin: '名前順',
-    
+
     // ショートカットカテゴリ
     shortcutNavigation: 'ナビゲーション',
     shortcutArticle: '記事',
     shortcutSource: '購読元',
     shortcutOther: 'その他',
-    
+
     // ショートカットの説明
     shortcutDescNextArticle: '次の記事',
     shortcutDescPrevArticle: '前の記事',
@@ -1454,7 +1459,7 @@ export const jaJP: TranslationKeys = {
     shortcutDescRefreshSource: '現在の購読元を更新',
     shortcutDescAddSource: '新しい購読元を追加',
     shortcutDescShowHelp: 'ショートカットヘルプを表示',
-    
+
     // ヒント
     tipJustUpdated: '更新されました',
     tipUnreadCount: '{count} 件未読',
@@ -1467,7 +1472,7 @@ export const jaJP: TranslationKeys = {
     tipRelaxReading: '軽い読書に最適です',
     tipEvening: 'こんばんは',
     tipQuietTime: '静かな時間をお楽しみください',
-    
+
     // エラーメッセージ
     errorDetectFailed: '検出に失敗しました。ネットワークまたは URL を確認してください',
     errorRsshubRouteRequired: 'RSSHub ルートを設定してください',
@@ -1484,7 +1489,7 @@ export const jaJP: TranslationKeys = {
     errorSaveFailed: '保存に失敗しました',
     errorGenerateTagsFailed: 'スタイルタグの生成に失敗しました',
     errorInvalidFormat: '無効なインポートファイル形式',
-    
+
     // インポート/エクスポート
     exportBrewpack: '購読をエクスポート',
     importBrewpack: '購読をインポート',
@@ -1494,18 +1499,18 @@ export const jaJP: TranslationKeys = {
     importStepUnzipping: '解凍中...',
     importStepParsing: '解析中...',
     importStepImporting: 'インポート中: {name}',
-    
+
     // 空の状態
     emptyNoSources: '購読元がありません',
     emptyCategoryNoSources: '「{category}」にはソースがありません',
-    
+
     // 検索
     searchSources: '購読元を検索...',
     closeSearch: '検索を閉じる',
-    
+
     // OPML
     selectOpmlFile: 'OPML ファイルを選択',
-    
+
     // RSSHub 設定
     rsshubInstanceStatus: 'インスタンス状態',
     rsshubStatusNormal: '正常',
@@ -1536,7 +1541,7 @@ export const jaJP: TranslationKeys = {
     rsshubDefaultRss: 'デフォルト（RSS）',
     rsshubAtom: 'Atom',
     rsshubJson: 'JSON',
-    
+
     // RSSHub カテゴリ
     rsshubCategorySocial: 'ソーシャルメディア',
     rsshubCategoryVideo: '動画プラットフォーム',
@@ -1546,13 +1551,13 @@ export const jaJP: TranslationKeys = {
     rsshubCategoryDesign: 'デザインリソース',
     rsshubCategoryShopping: 'ショッピング・セール',
     rsshubCategoryOther: 'その他',
-    
+
     // 記事を選択
     selectArticles: '記事を選択',
     cancelStarred: 'スターを外す',
     returnToSourceList: '購読元リストに戻る',
     returnToAllSources: 'すべての購読元に戻る',
-    
+
     // ControlIsland 専用
     tipFromSource: '{source}から',
     articlesCount: '{count}件',
@@ -1582,7 +1587,7 @@ export const jaJP: TranslationKeys = {
     exportOpml: 'OPMLをエクスポート（{count}件の購読）',
     importResult: '{imported}件をインポート{skipped}',
     skippedCount: '、{count}件をスキップ',
-    
+
     // その他のControlIslandキー
     sourceTypeLabel: '購読タイプ',
     pureLink: 'リンクのみ',
@@ -1778,7 +1783,7 @@ export const jaJP: TranslationKeys = {
     noArticles: '記事がありません',
     subscribeMoreSources: 'コンテンツを取得するにはソースを追加してください',
     loadedAllArticles: '— 全 {count} 件の記事を読み込みました —',
-    
+
     // BrewSidebar - UI text
     brewReader: 'Brew リーダー',
     sourcesCount: '{count} 件のソース',
@@ -1789,7 +1794,7 @@ export const jaJP: TranslationKeys = {
     keyboardShortcutsHint: 'キーボードショートカット',
     refresh: '更新',
     delete: '削除',
-    
+
     // EditModal - UI text
     friendLink: '相互リンク',
     categoryMe: '私',
@@ -1828,7 +1833,7 @@ export const jaJP: TranslationKeys = {
     adminOnlyVisible: '管理者のみ表示',
     adminOnlyVisibleHint: '有効にすると、管理者以外のユーザーはこのソースを見ることができません',
     saveChanges: '変更を保存',
-    
+
     // RSSHubConfig - Error messages
     errorLoadFailed: '読み込み失敗',
     errorNetworkRetry: 'ネットワークエラー、再試行してください',
@@ -1837,7 +1842,7 @@ export const jaJP: TranslationKeys = {
     errorDeleteFailed: '削除失敗',
     errorHealthCheckFailed: 'ヘルスチェック失敗',
     errorResetFailed: 'リセット失敗',
-    
+
     // RSSHubConfig - Instance management
     rsshubAccessKey: 'アクセスキー',
     rsshubAccessKeyKeep: '空のままで変更なし',
@@ -1899,7 +1904,7 @@ export const jaJP: TranslationKeys = {
     rsshubViewFullDocs: '完全なドキュメントを表示',
     save: '保存',
     label: 'ラベル',
-    
+
     // Lightbox - 画像ライトボックス
     lightboxZoomIn: '拡大',
     lightboxZoomOut: '縮小',

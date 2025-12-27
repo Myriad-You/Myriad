@@ -224,6 +224,9 @@ export const enUS: TranslationKeys = {
     allConfig: 'All Configurations',
     saveConfig: 'Save Config',
     resetConfig: 'Reset Config',
+    resetConfigDesc: 'Reset all configurations to default values. This action cannot be undone.',
+    resetConfirmMessage: 'Are you sure you want to reset all configurations? This action cannot be undone and will restore all settings to their default values.',
+    dangerZone: 'Danger Zone',
     searchConfig: 'Search configurations...',
     searchResults: 'Search Results',
     noMatchingConfig: 'No matching configurations found',
@@ -284,6 +287,8 @@ export const enUS: TranslationKeys = {
     // Network Proxy Config
     networkConfigTitle: 'Network Proxy',
     networkConfigDesc: 'Configure network proxy for servers in mainland China to access external APIs',
+    advanced: 'Advanced',
+    advancedDesc: 'Advanced system configurations and dangerous operations',
     networkProxyInfoTitle: 'Proxy Configuration Guide',
     networkProxyInfo: 'If your server is in mainland China, you may need to configure a proxy to access external services like GitHub OAuth and Gemini AI. You can choose:',
     enableProxy: 'Enable Network Proxy',

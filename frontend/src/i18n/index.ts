@@ -33,7 +33,7 @@ export interface TranslationKeys {
     networkError: string;
     unknownError: string;
   };
-  
+
   // 导航
   nav: {
     home: string;
@@ -83,7 +83,7 @@ export interface TranslationKeys {
     tappStore: string;
     openTappStore: string;
   };
-  
+
   // 问候语
   greeting: {
     morning: string;
@@ -94,7 +94,7 @@ export interface TranslationKeys {
     lateNight: string;
     welcome: string;
   };
-  
+
   // 控制面板
   controlPanel: {
     appearance: string;
@@ -115,7 +115,7 @@ export interface TranslationKeys {
     language: string;
     languageSwitch: string;
   };
-  
+
   // 登录
   auth: {
     username: string;
@@ -140,7 +140,7 @@ export interface TranslationKeys {
     logoutSuccess: string;
     logoutFailed: string;
   };
-  
+
   // 设置向导
   setup: {
     title: string;
@@ -202,7 +202,7 @@ export interface TranslationKeys {
     atLeast8Chars: string;
     enterPasswordAgain: string;
   };
-  
+
   // 配置
   config: {
     title: string;
@@ -225,6 +225,9 @@ export interface TranslationKeys {
     allConfig: string;
     saveConfig: string;
     resetConfig: string;
+    resetConfigDesc: string;
+    resetConfirmMessage: string;
+    dangerZone: string;
     searchConfig: string;
     searchResults: string;
     noMatchingConfig: string;
@@ -288,6 +291,8 @@ export interface TranslationKeys {
     // 网络代理配置
     networkConfigTitle: string;
     networkConfigDesc: string;
+    advanced: string;
+    advancedDesc: string;
     networkProxyInfoTitle: string;
     networkProxyInfo: string;
     enableProxy: string;
@@ -478,7 +483,7 @@ export interface TranslationKeys {
     edgeone: string;
     upyun: string;
   };
-  
+
   // 小组件
   widgets: {
     welcome: string;
@@ -507,7 +512,7 @@ export interface TranslationKeys {
     tappDesc: string;
     tappFeature: string;
   };
-  
+
   // 标题样式选择器
   titleStyle: {
     style: string;
@@ -528,7 +533,7 @@ export interface TranslationKeys {
     sizeXLarge: string;
     sizeXXLarge: string;
   };
-  
+
   // 首页
   home: {
     dashboard: string;
@@ -542,7 +547,7 @@ export interface TranslationKeys {
     saveTitleFailed: string;
     saveCustomPlatformsFailed: string;
   };
-  
+
   // 资料库
   library: {
     title: string;
@@ -565,7 +570,7 @@ export interface TranslationKeys {
     anime: string;
     tvSeries: string;
   };
-  
+
   // 报告
   reports: {
     title: string;
@@ -574,7 +579,7 @@ export interface TranslationKeys {
     generating: string;
     generated: string;
   };
-  
+
   // 账户
   account: {
     title: string;
@@ -593,7 +598,7 @@ export interface TranslationKeys {
     passwordChanged: string;
     passwordChangeFailed: string;
   };
-  
+
   // 错误信息
   errors: {
     networkError: string;
@@ -604,7 +609,7 @@ export interface TranslationKeys {
     timeout: string;
     unknown: string;
   };
-  
+
   // 天气小组件
   weather: {
     humidity: string;
@@ -637,7 +642,7 @@ export interface TranslationKeys {
     thunderstorm: string;
     unknown: string;
   };
-  
+
   // 音乐播放器
   music: {
     noSong: string;
@@ -666,7 +671,7 @@ export interface TranslationKeys {
     loadPlaylistFailed: string;
     playFailed: string;
   };
-  
+
   // 缓存管理
   cache: {
     title: string;
@@ -691,7 +696,7 @@ export interface TranslationKeys {
     cacheHint3: string;
     cacheHint4: string;
   };
-  
+
   // 任务状态
   task: {
     fetchFailed: string;
@@ -706,7 +711,7 @@ export interface TranslationKeys {
     createdTime: string;
     completedTime: string;
   };
-  
+
   // 用户弹窗
   userModal: {
     title: string;
@@ -749,7 +754,7 @@ export interface TranslationKeys {
     noRecentTapps: string;
     viewAllTapps: string;
   };
-  
+
   // 小组件网格
   widgetGrid: {
     widgetLibrary: string;
@@ -759,7 +764,7 @@ export interface TranslationKeys {
     positionConflict: string;
     canPlace: string;
   };
-  
+
   // 社交网络小组件
   socialNetwork: {
     platformName: string;
@@ -789,7 +794,7 @@ export interface TranslationKeys {
     clickToVisit: string;
     notConfigured: string;
   };
-  
+
   // 报告卡片小组件
   reportCard: {
     noReportData: string;
@@ -802,14 +807,14 @@ export interface TranslationKeys {
     legendaryDev: string;
     danmakuDefault: string[];
   };
-  
+
   // 性能监控
   performance: {
     animationDetected: string;
     collapse: string;
     expand: string;
   };
-  
+
   // 报告页面
   reportsPage: {
     // 平台名称
@@ -817,13 +822,13 @@ export interface TranslationKeys {
     bilibili: string;
     steam: string;
     github: string;
-    
+
     // 弹幕默认文本
     danmakuDefaults: string[];
-    
+
     // 玩家类型
     casualPlayer: string;
-    
+
     // 开发者级别
     activeDeveloper: string;
     legendary: string;
@@ -831,7 +836,7 @@ export interface TranslationKeys {
     senior: string;
     prolific: string;
     active: string;
-    
+
     // 统计标签
     library: string;
     playtime: string;
@@ -839,11 +844,11 @@ export interface TranslationKeys {
     repos: string;
     fans: string;
     lists: string;
-    
+
     // 状态文本
     analyzingRepos: string;
     noReposFound: string;
-    
+
     // Toast 消息
     noPlatformReports: string;
     allPlaybackComplete: string;
@@ -858,7 +863,7 @@ export interface TranslationKeys {
     generateFailedRetry: string;
     deleteFailed: string;
     deleteFailedRetry: string;
-    
+
     // UI 文本
     close: string;
     regenerateReport: string;
@@ -897,7 +902,7 @@ export interface TranslationKeys {
     adminNotGenerated: string;
     waitingGenerate: string;
   };
-  
+
   // 账户页面
   accountPage: {
     accountInfo: string;
@@ -928,7 +933,7 @@ export interface TranslationKeys {
     changing: string;
     changePasswordBtn: string;
   };
-  
+
   // 数据管理页面
   dataManagement: {
     neteaseMusic: string;
@@ -963,7 +968,7 @@ export interface TranslationKeys {
     usageSmartFilter: string;
     usageBackground: string;
   };
-  
+
   // 快速统计小组件
   quickStats: {
     widgetTitle: string;
@@ -976,7 +981,7 @@ export interface TranslationKeys {
     saveCacheFailed: string;
     fetchStatsFailed: string;
   };
-  
+
   // 最近活动小组件
   recentActivity: {
     widgetTitle: string;
@@ -1026,7 +1031,7 @@ export interface TranslationKeys {
     myMusicCollection: string;
     techShareCollection: string;
   };
-  
+
   // 天气小组件
   weatherWidget: {
     loadCacheFailed: string;
@@ -1035,7 +1040,7 @@ export interface TranslationKeys {
     sunny: string;
     sampleCity: string;
   };
-  
+
   // 语录小组件
   quoteWidget: {
     loadCacheFailed: string;
@@ -1045,7 +1050,7 @@ export interface TranslationKeys {
     anonymous: string;
     unavailable: string;
   };
-  
+
   // 音乐播放器小组件
   musicPlayer: {
     sampleSong: string;
@@ -1055,12 +1060,12 @@ export interface TranslationKeys {
     sampleLyricNext: string;
     noLyrics: string;
   };
-  
+
   // 平台卡片小组件
   platformCard: {
     neteaseMusic: string;
   };
-  
+
   // 报告卡片小组件扩展
   reportCardWidget: {
     bilibili: string;
@@ -1081,7 +1086,7 @@ export interface TranslationKeys {
     samplePlaylist: string;
     fetchReportFailed: string;
   };
-  
+
   // 社交网络小组件扩展
   socialNetworkWidget: {
     fillPlatformName: string;
@@ -1094,7 +1099,7 @@ export interface TranslationKeys {
     delete: string;
     longPressToEdit: string;
   };
-  
+
   // Tapp 相关
   tapp: {
     // 通用
@@ -1111,7 +1116,7 @@ export interface TranslationKeys {
     installing: string;
     version: string;
     author: string;
-    
+
     // 分类
     categoryAI: string;
     categoryDataExtension: string;
@@ -1131,7 +1136,7 @@ export interface TranslationKeys {
     categoryMusic: string;
     categoryVisualization: string;
     categoryData: string;
-    
+
     // 权限
     permissions: string;
     noPermissions: string;
@@ -1139,7 +1144,7 @@ export interface TranslationKeys {
     elevatedPermission: string;
     privilegedPermission: string;
     grantedPermissions: string;
-    
+
     // 权限标签
     permRegisterWidget: string;
     permReadPlatform: string;
@@ -1163,7 +1168,7 @@ export interface TranslationKeys {
     permRegisterShortcut: string;
     permPublishEvent: string;
     permSubscribeEvent: string;
-    
+
     // 权限描述
     permRegisterWidgetDesc: string;
     permReadPlatformDesc: string;
@@ -1187,7 +1192,7 @@ export interface TranslationKeys {
     permRegisterShortcutDesc: string;
     permPublishEventDesc: string;
     permSubscribeEventDesc: string;
-    
+
     // 列表页面
     listTitle: string;
     listSubtitle: string;
@@ -1202,7 +1207,7 @@ export interface TranslationKeys {
     loginRequiredToInstall: string;
     export: string;
     exportFailed: string;
-    
+
     // 安装弹窗
     installTappTitle: string;
     dropTappFile: string;
@@ -1211,7 +1216,7 @@ export interface TranslationKeys {
     invalidTappFile: string;
     installFailed: string;
     installSuccess: string;
-    
+
     // 运行页面
     loadingApp: string;
     pleaseWait: string;
@@ -1224,7 +1229,7 @@ export interface TranslationKeys {
     fullscreen: string;
     stopApp: string;
     back: string;
-    
+
     // 多窗口模式
     windowScheme: string;
     scheme: string;
@@ -1240,7 +1245,7 @@ export interface TranslationKeys {
     openFirstApp: string;
     selectApp: string;
     noAvailableApps: string;
-    
+
     // 详情页面
     appSettings: string;
     customizeBehavior: string;
@@ -1256,14 +1261,14 @@ export interface TranslationKeys {
     loading: string;
     settingSaved: string;
     settingSaveFailed: string;
-    
+
     // AI 配额
     aiQuota: string;
     premiumQuota: string;
     standardQuota: string;
     dailyCalls: string;
     tokenUsage: string;
-    
+
     // 商店
     storeTitle: string;
     storeSourceSettings: string;
@@ -1294,7 +1299,7 @@ export interface TranslationKeys {
     keepDataOnUninstallDesc: string;
     uninstalling: string;
     confirmUninstallBtn: string;
-    
+
     // 商店源设置
     sourceManagement: string;
     addSource: string;
@@ -1310,14 +1315,14 @@ export interface TranslationKeys {
     addSourceFailed: string;
     refreshAllStores: string;
     confirmDeleteSource: string;
-    
+
     // 动态内容 API
     dynamicContent: string;
     dynamicContentDesc: string;
     dynamicContentSet: string;
     dynamicContentRemoved: string;
   };
-  
+
   // 动态内容
   dynamicContent: {
     unavailable: string;
@@ -1325,7 +1330,7 @@ export interface TranslationKeys {
     loading: string;
     tappContent: string;
   };
-  
+
   // Brew RSS 阅读器
   brew: {
     // 通用
@@ -1344,13 +1349,13 @@ export interface TranslationKeys {
     friendLinks: string;
     me: string;
     expandMenu: string;
-    
+
     // 时间相关
     justNow: string;
     minutesAgo: string;
     hoursAgo: string;
     daysAgo: string;
-    
+
     // 订阅类型
     feedTypeRss: string;
     feedTypeAtom: string;
@@ -1359,14 +1364,14 @@ export interface TranslationKeys {
     feedTypeRsshub: string;
     feedTypeLink: string;
     feedTypeBrewlia: string;
-    
+
     // 订阅类型描述
     feedTypeRssDesc: string;
     feedTypeLinkDesc: string;
     feedTypeNotionDesc: string;
     feedTypeRsshubDesc: string;
     feedTypeBrewliaDesc: string;
-    
+
     // 操作
     addSubscription: string;
     editSubscription: string;
@@ -1384,7 +1389,7 @@ export interface TranslationKeys {
     importExportOpml: string;
     keyboardShortcuts: string;
     moreOptions: string;
-    
+
     // 添加订阅
     addLink: string;
     addBrewlia: string;
@@ -1400,12 +1405,12 @@ export interface TranslationKeys {
     inputNewCategory: string;
     detect: string;
     detecting: string;
-    
+
     // AI 增强
     enableAiEnhance: string;
     disableAiEnhance: string;
     aiEnhanceDesc: string;
-    
+
     // 编辑订阅
     uploadIcon: string;
     uploadIconHint: string;
@@ -1419,7 +1424,7 @@ export interface TranslationKeys {
     generateTags: string;
     regenerateTags: string;
     deleteTag: string;
-    
+
     // 更新间隔
     updateInterval: string;
     interval15min: string;
@@ -1429,20 +1434,20 @@ export interface TranslationKeys {
     interval6hours: string;
     interval12hours: string;
     intervalDaily: string;
-    
+
     // 排序
     sortByUpdate: string;
     sortByCustom: string;
     sortByCategory: string;
     sortByRandom: string;
     sortByPinyin: string;
-    
+
     // 快捷键分类
     shortcutNavigation: string;
     shortcutArticle: string;
     shortcutSource: string;
     shortcutOther: string;
-    
+
     // 快捷键描述
     shortcutDescNextArticle: string;
     shortcutDescPrevArticle: string;
@@ -1455,7 +1460,7 @@ export interface TranslationKeys {
     shortcutDescRefreshSource: string;
     shortcutDescAddSource: string;
     shortcutDescShowHelp: string;
-    
+
     // 提示
     tipJustUpdated: string;
     tipUnreadCount: string;
@@ -1468,7 +1473,7 @@ export interface TranslationKeys {
     tipRelaxReading: string;
     tipEvening: string;
     tipQuietTime: string;
-    
+
     // 错误信息
     errorDetectFailed: string;
     errorRsshubRouteRequired: string;
@@ -1485,7 +1490,7 @@ export interface TranslationKeys {
     errorSaveFailed: string;
     errorGenerateTagsFailed: string;
     errorInvalidFormat: string;
-    
+
     // 导入/导出
     exportBrewpack: string;
     importBrewpack: string;
@@ -1495,18 +1500,18 @@ export interface TranslationKeys {
     importStepUnzipping: string;
     importStepParsing: string;
     importStepImporting: string;
-    
+
     // 空状态
     emptyNoSources: string;
     emptyCategoryNoSources: string;
-    
+
     // 搜索
     searchSources: string;
     closeSearch: string;
-    
+
     // OPML
     selectOpmlFile: string;
-    
+
     // RSSHub 配置
     rsshubInstanceStatus: string;
     rsshubStatusNormal: string;
@@ -1537,7 +1542,7 @@ export interface TranslationKeys {
     rsshubDefaultRss: string;
     rsshubAtom: string;
     rsshubJson: string;
-    
+
     // RSSHub 分类
     rsshubCategorySocial: string;
     rsshubCategoryVideo: string;
@@ -1547,13 +1552,13 @@ export interface TranslationKeys {
     rsshubCategoryDesign: string;
     rsshubCategoryShopping: string;
     rsshubCategoryOther: string;
-    
+
     // 选择文章
     selectArticles: string;
     cancelStarred: string;
     returnToSourceList: string;
     returnToAllSources: string;
-    
+
     // ControlIsland 特有
     tipFromSource: string;
     articlesCount: string;
@@ -1583,7 +1588,7 @@ export interface TranslationKeys {
     exportOpml: string;
     importResult: string;
     skippedCount: string;
-    
+
     // 更多 ControlIsland 键
     sourceTypeLabel: string;
     pureLink: string;
@@ -1778,7 +1783,7 @@ export interface TranslationKeys {
     noArticles: string;
     subscribeMoreSources: string;
     loadedAllArticles: string;
-    
+
     // BrewSidebar - UI text
     brewReader: string;
     sourcesCount: string;
@@ -1789,7 +1794,7 @@ export interface TranslationKeys {
     keyboardShortcutsHint: string;
     refresh: string;
     delete: string;
-    
+
     // EditModal - UI text
     friendLink: string;
     categoryMe: string;
@@ -1828,7 +1833,7 @@ export interface TranslationKeys {
     adminOnlyVisible: string;
     adminOnlyVisibleHint: string;
     saveChanges: string;
-    
+
     // RSSHubConfig - Error messages
     errorLoadFailed: string;
     errorNetworkRetry: string;
@@ -1837,7 +1842,7 @@ export interface TranslationKeys {
     errorDeleteFailed: string;
     errorHealthCheckFailed: string;
     errorResetFailed: string;
-    
+
     // RSSHubConfig - Instance management
     rsshubAccessKey: string;
     rsshubAccessKeyKeep: string;
@@ -1918,7 +1923,7 @@ export function getDefaultLocale(): Locale {
       return saved;
     }
   }
-  
+
   // 2. 检查浏览器语言
   if (typeof navigator !== 'undefined') {
     const browserLang = navigator.language || (navigator as any).userLanguage;
@@ -1933,7 +1938,7 @@ export function getDefaultLocale(): Locale {
       }
     }
   }
-  
+
   // 3. 默认英文
   return 'en-US';
 }

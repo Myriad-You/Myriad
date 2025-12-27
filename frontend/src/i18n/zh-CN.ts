@@ -32,7 +32,7 @@ export const zhCN: TranslationKeys = {
     networkError: '网络错误',
     unknownError: '未知错误',
   },
-  
+
   // 导航
   nav: {
     home: '首页',
@@ -82,7 +82,7 @@ export const zhCN: TranslationKeys = {
     tappStore: 'Tapp 应用商店',
     openTappStore: '打开 Tapp 应用商店',
   },
-  
+
   // 问候语
   greeting: {
     morning: '早上好',
@@ -93,7 +93,7 @@ export const zhCN: TranslationKeys = {
     lateNight: '夜深了',
     welcome: '欢迎回来',
   },
-  
+
   // 控制面板
   controlPanel: {
     appearance: '外观',
@@ -114,7 +114,7 @@ export const zhCN: TranslationKeys = {
     language: '语言',
     languageSwitch: '语言切换',
   },
-  
+
   // 登录
   auth: {
     username: '用户名',
@@ -139,7 +139,7 @@ export const zhCN: TranslationKeys = {
     logoutSuccess: '已退出登录',
     logoutFailed: '退出失败',
   },
-  
+
   // 设置向导
   setup: {
     title: '系统设置',
@@ -201,7 +201,7 @@ export const zhCN: TranslationKeys = {
     atLeast8Chars: '至少8个字符',
     enterPasswordAgain: '再次输入密码',
   },
-  
+
   // 配置
   config: {
     title: '系统配置',
@@ -224,6 +224,9 @@ export const zhCN: TranslationKeys = {
     allConfig: '所有配置',
     saveConfig: '保存配置',
     resetConfig: '重置配置',
+    resetConfigDesc: '将所有配置重置为默认值。此操作不可撤销。',
+    resetConfirmMessage: '您确定要重置所有配置吗？此操作不可撤销，所有设置将恢复为默认值。',
+    dangerZone: '危险区域',
     searchConfig: '搜索配置项...',
     searchResults: '搜索结果',
     noMatchingConfig: '未找到匹配的配置项',
@@ -284,6 +287,8 @@ export const zhCN: TranslationKeys = {
     // 网络代理配置
     networkConfigTitle: '网络代理',
     networkConfigDesc: '配置网络代理以便中国大陆服务器访问外部API服务',
+    advanced: '高级配置',
+    advancedDesc: '高级系统配置及危险操作',
     networkProxyInfoTitle: '代理配置说明',
     networkProxyInfo: '如果您的服务器位于中国大陆，可能需要配置代理才能正常访问 GitHub OAuth、Gemini AI 等外部服务。您可以选择以下方式：',
     enableProxy: '启用网络代理',
@@ -477,7 +482,7 @@ export const zhCN: TranslationKeys = {
     edgeone: 'EdgeOne',
     upyun: '又拍云',
   },
-  
+
   // 小组件
   widgets: {
     welcome: '欢迎',
@@ -506,7 +511,7 @@ export const zhCN: TranslationKeys = {
     tappDesc: '扩展应用',
     tappFeature: '小组件、工具、扩展',
   },
-  
+
   // 标题样式选择器
   titleStyle: {
     style: '样式',
@@ -527,7 +532,7 @@ export const zhCN: TranslationKeys = {
     sizeXLarge: '超大',
     sizeXXLarge: '特大',
   },
-  
+
   // 首页
   home: {
     dashboard: '仪表盘',
@@ -541,7 +546,7 @@ export const zhCN: TranslationKeys = {
     saveTitleFailed: '保存标题失败',
     saveCustomPlatformsFailed: '保存自定义平台失败',
   },
-  
+
   // 资料库
   library: {
     title: '资料库',
@@ -564,7 +569,7 @@ export const zhCN: TranslationKeys = {
     anime: '追番',
     tvSeries: '追剧',
   },
-  
+
   // 报告
   reports: {
     title: '数据报告',
@@ -573,7 +578,7 @@ export const zhCN: TranslationKeys = {
     generating: '正在生成报告...',
     generated: '报告已生成',
   },
-  
+
   // 账户
   account: {
     title: '账户设置',
@@ -592,7 +597,7 @@ export const zhCN: TranslationKeys = {
     passwordChanged: '密码已修改',
     passwordChangeFailed: '密码修改失败',
   },
-  
+
   // 错误信息
   errors: {
     networkError: '网络连接失败',
@@ -603,7 +608,7 @@ export const zhCN: TranslationKeys = {
     timeout: '请求超时',
     unknown: '未知错误',
   },
-  
+
   // 天气小组件
   weather: {
     humidity: '湿度',
@@ -636,7 +641,7 @@ export const zhCN: TranslationKeys = {
     thunderstorm: '雷暴',
     unknown: '未知',
   },
-  
+
   // 音乐播放器
   music: {
     noSong: '暂无播放',
@@ -665,7 +670,7 @@ export const zhCN: TranslationKeys = {
     loadPlaylistFailed: '加载歌单失败',
     playFailed: '播放失败，请检查网络连接或歌曲是否可用',
   },
-  
+
   // 缓存管理
   cache: {
     title: '缓存管理',
@@ -690,7 +695,7 @@ export const zhCN: TranslationKeys = {
     cacheHint3: '清除缓存后需要重新处理才能使用该平台数据',
     cacheHint4: '处理过程不会阻塞其他操作',
   },
-  
+
   // 任务状态
   task: {
     fetchFailed: '获取任务状态失败',
@@ -705,7 +710,7 @@ export const zhCN: TranslationKeys = {
     createdTime: '创建时间',
     completedTime: '完成时间',
   },
-  
+
   // 用户弹窗
   userModal: {
     title: '用户信息',
@@ -748,7 +753,7 @@ export const zhCN: TranslationKeys = {
     noRecentTapps: '暂无最近使用',
     viewAllTapps: '查看全部 Tapp',
   },
-  
+
   // 小组件网格
   widgetGrid: {
     widgetLibrary: '小组件库',
@@ -758,7 +763,7 @@ export const zhCN: TranslationKeys = {
     positionConflict: '✖ 位置冲突',
     canPlace: '✓ 可以放置',
   },
-  
+
   // 社交网络小组件
   socialNetwork: {
     platformName: '平台名称',
@@ -788,7 +793,7 @@ export const zhCN: TranslationKeys = {
     clickToVisit: '点击访问个人主页',
     notConfigured: '未配置',
   },
-  
+
   // 报告卡片小组件
   reportCard: {
     noReportData: '无报告数据',
@@ -801,14 +806,14 @@ export const zhCN: TranslationKeys = {
     legendaryDev: '传奇开发者',
     danmakuDefault: ['高能预警', '下次一定', 'AWSL', '爷青回', '泪目'],
   },
-  
+
   // 性能监控
   performance: {
     animationDetected: '检测到可能影响性能的动效',
     collapse: '收起',
     expand: '展开',
   },
-  
+
   // 报告页面
   reportsPage: {
     // 平台名称
@@ -816,13 +821,13 @@ export const zhCN: TranslationKeys = {
     bilibili: 'Bilibili',
     steam: 'Steam',
     github: 'GitHub',
-    
+
     // 弹幕默认文本
     danmakuDefaults: ['高能预警', '下次一定', 'AWSL', '爷青回', '泪目'],
-    
+
     // 玩家类型
     casualPlayer: '休闲玩家',
-    
+
     // 开发者级别
     activeDeveloper: '活跃开发者',
     legendary: '传奇',
@@ -830,7 +835,7 @@ export const zhCN: TranslationKeys = {
     senior: '资深',
     prolific: '高产',
     active: '活跃',
-    
+
     // 统计标签
     library: '资料库',
     playtime: '游玩时长',
@@ -838,11 +843,11 @@ export const zhCN: TranslationKeys = {
     repos: '仓库',
     fans: '粉丝',
     lists: '歌单',
-    
+
     // 状态文本
     analyzingRepos: '> 正在分析仓库_',
     noReposFound: '> 未找到仓库_',
-    
+
     // Toast 消息
     noPlatformReports: '没有可用的平台报告',
     allPlaybackComplete: '所有平台播放完毕',
@@ -857,7 +862,7 @@ export const zhCN: TranslationKeys = {
     generateFailedRetry: '生成失败,请稍后重试',
     deleteFailed: '删除失败',
     deleteFailedRetry: '删除失败，请稍后重试',
-    
+
     // UI 文本
     close: '关闭',
     regenerateReport: '重新生成报告',
@@ -896,7 +901,7 @@ export const zhCN: TranslationKeys = {
     adminNotGenerated: '管理员还未生成综合报告',
     waitingGenerate: '等待生成',
   },
-  
+
   // 账户页面
   accountPage: {
     accountInfo: '账户信息',
@@ -927,7 +932,7 @@ export const zhCN: TranslationKeys = {
     changing: '修改中...',
     changePasswordBtn: '修改密码',
   },
-  
+
   // 数据管理页面
   dataManagement: {
     neteaseMusic: '网易云音乐',
@@ -962,7 +967,7 @@ export const zhCN: TranslationKeys = {
     usageSmartFilter: '智能过滤: 经过 AI 分析处理后的数据,点击处理按钮生成缓存',
     usageBackground: '后台处理: 数据处理任务在后台异步执行,可在顶部查看进度',
   },
-  
+
   // 快速统计小组件
   quickStats: {
     widgetTitle: '内容总览',
@@ -975,7 +980,7 @@ export const zhCN: TranslationKeys = {
     saveCacheFailed: '保存缓存失败',
     fetchStatsFailed: '获取资料库统计失败',
   },
-  
+
   // 最近活动小组件
   recentActivity: {
     widgetTitle: '最近活动',
@@ -1025,7 +1030,7 @@ export const zhCN: TranslationKeys = {
     myMusicCollection: '我的音乐收藏',
     techShareCollection: '技术分享合集',
   },
-  
+
   // 天气小组件
   weatherWidget: {
     loadCacheFailed: '加载天气缓存失败',
@@ -1034,7 +1039,7 @@ export const zhCN: TranslationKeys = {
     sunny: '晴',
     sampleCity: '示例城市',
   },
-  
+
   // 语录小组件
   quoteWidget: {
     loadCacheFailed: '加载一言缓存失败',
@@ -1044,7 +1049,7 @@ export const zhCN: TranslationKeys = {
     anonymous: '佚名',
     unavailable: '一言不可用',
   },
-  
+
   // 音乐播放器小组件
   musicPlayer: {
     sampleSong: '示例歌曲',
@@ -1054,12 +1059,12 @@ export const zhCN: TranslationKeys = {
     sampleLyricNext: '示例歌词 - 下一句',
     noLyrics: '暂无歌词',
   },
-  
+
   // 平台卡片小组件
   platformCard: {
     neteaseMusic: '网易云',
   },
-  
+
   // 报告卡片小组件扩展
   reportCardWidget: {
     bilibili: 'B站',
@@ -1080,7 +1085,7 @@ export const zhCN: TranslationKeys = {
     samplePlaylist: '示例歌单',
     fetchReportFailed: '获取报告失败',
   },
-  
+
   // 社交网络小组件扩展
   socialNetworkWidget: {
     fillPlatformName: '请填写平台名称',
@@ -1093,7 +1098,7 @@ export const zhCN: TranslationKeys = {
     delete: '删除',
     longPressToEdit: '长按小组件进行设置',
   },
-  
+
   // Tapp 相关
   tapp: {
     // 通用
@@ -1110,7 +1115,7 @@ export const zhCN: TranslationKeys = {
     installing: '安装中...',
     version: '版本',
     author: '作者',
-    
+
     // 分类
     categoryAI: 'AI 应用',
     categoryDataExtension: '数据扩展',
@@ -1130,7 +1135,7 @@ export const zhCN: TranslationKeys = {
     categoryMusic: '音乐',
     categoryVisualization: '可视化',
     categoryData: '数据',
-    
+
     // 权限
     permissions: '权限',
     noPermissions: '无需权限',
@@ -1138,7 +1143,7 @@ export const zhCN: TranslationKeys = {
     elevatedPermission: '提升',
     privilegedPermission: '特权',
     grantedPermissions: '已授权权限',
-    
+
     // 权限标签
     permRegisterWidget: '注册小组件',
     permReadPlatform: '读取平台数据',
@@ -1162,7 +1167,7 @@ export const zhCN: TranslationKeys = {
     permRegisterShortcut: '注册快捷键',
     permPublishEvent: '发布事件',
     permSubscribeEvent: '订阅事件',
-    
+
     // 权限描述
     permRegisterWidgetDesc: '允许注册自定义小组件到主页',
     permReadPlatformDesc: '允许读取已有的平台数据',
@@ -1186,7 +1191,7 @@ export const zhCN: TranslationKeys = {
     permRegisterShortcutDesc: '允许注册键盘快捷键',
     permPublishEventDesc: '允许发布系统事件',
     permSubscribeEventDesc: '允许订阅系统事件',
-    
+
     // 列表页面
     listTitle: 'Tapp 应用',
     listSubtitle: '管理和运行你的扩展应用',
@@ -1201,7 +1206,7 @@ export const zhCN: TranslationKeys = {
     loginRequiredToInstall: '请先登录后再安装应用',
     export: '导出',
     exportFailed: '导出失败',
-    
+
     // 安装弹窗
     installTappTitle: '安装 Tapp 应用',
     dropTappFile: '拖放 .tapp 文件到这里',
@@ -1210,7 +1215,7 @@ export const zhCN: TranslationKeys = {
     invalidTappFile: '请选择 .tapp 文件',
     installFailed: '安装失败',
     installSuccess: '已安装 {name}',
-    
+
     // 运行页面
     loadingApp: '正在加载应用...',
     pleaseWait: '请稍候',
@@ -1223,7 +1228,7 @@ export const zhCN: TranslationKeys = {
     fullscreen: '全屏',
     stopApp: '停止应用',
     back: '返回',
-    
+
     // 多窗口模式
     windowScheme: '窗口方案',
     scheme: '方案',
@@ -1239,7 +1244,7 @@ export const zhCN: TranslationKeys = {
     openFirstApp: '打开第一个应用',
     selectApp: '选择应用',
     noAvailableApps: '没有可用的应用',
-    
+
     // 详情页面
     appSettings: '应用设置',
     customizeBehavior: '自定义应用行为',
@@ -1255,14 +1260,14 @@ export const zhCN: TranslationKeys = {
     loading: '正在加载...',
     settingSaved: '设置已保存',
     settingSaveFailed: '保存失败',
-    
+
     // AI 配额
     aiQuota: 'AI 配额',
     premiumQuota: '高级配额',
     standardQuota: '标准配额',
     dailyCalls: '每日调用',
     tokenUsage: 'Token 使用',
-    
+
     // 商店
     storeTitle: 'Tapp 商店',
     storeSourceSettings: '商店源设置',
@@ -1293,7 +1298,7 @@ export const zhCN: TranslationKeys = {
     keepDataOnUninstallDesc: '保留存储的数据和设置，以便再次安装时恢复',
     uninstalling: '卸载中...',
     confirmUninstallBtn: '确认卸载',
-    
+
     // 商店源设置
     sourceManagement: '商店源管理',
     addSource: '添加商店源',
@@ -1309,14 +1314,14 @@ export const zhCN: TranslationKeys = {
     addSourceFailed: '添加失败',
     refreshAllStores: '刷新所有商店',
     confirmDeleteSource: '确定要删除这个商店源吗？',
-    
+
     // 动态内容 API
     dynamicContent: '动态内容',
     dynamicContentDesc: '在控制岛收缩状态下显示自定义内容',
     dynamicContentSet: '动态内容已设置',
     dynamicContentRemoved: '动态内容已移除',
   },
-  
+
   // 动态内容
   dynamicContent: {
     unavailable: '暂无内容',
@@ -1324,7 +1329,7 @@ export const zhCN: TranslationKeys = {
     loading: '加载中...',
     tappContent: 'Tapp 内容',
   },
-  
+
   // Brew RSS 阅读器
   brew: {
     // 通用
@@ -1343,13 +1348,13 @@ export const zhCN: TranslationKeys = {
     friendLinks: '友情链接',
     me: '我',
     expandMenu: '展开 Brew 菜单',
-    
+
     // 时间相关
     justNow: '刚刚',
     minutesAgo: '{minutes} 分钟前',
     hoursAgo: '{hours} 小时前',
     daysAgo: '{days} 天前',
-    
+
     // 订阅类型
     feedTypeRss: 'RSS',
     feedTypeAtom: 'Atom',
@@ -1358,14 +1363,14 @@ export const zhCN: TranslationKeys = {
     feedTypeRsshub: 'RSSHub',
     feedTypeLink: '链接',
     feedTypeBrewlia: 'AI 增强',
-    
+
     // 订阅类型描述
     feedTypeRssDesc: '标准 RSS/Atom/JSON Feed 订阅',
     feedTypeLinkDesc: '仅保存链接入口，不订阅更新',
     feedTypeNotionDesc: '订阅 Notion 数据库或页面内容',
     feedTypeRsshubDesc: 'RSSHub 多平台路由订阅，支持实例切换',
     feedTypeBrewliaDesc: 'AI 增强订阅：自动提供词汇注释、代词指代分析等阅读辅助功能',
-    
+
     // 操作
     addSubscription: '添加订阅',
     editSubscription: '编辑订阅源',
@@ -1383,7 +1388,7 @@ export const zhCN: TranslationKeys = {
     importExportOpml: '导入/导出 OPML',
     keyboardShortcuts: '键盘快捷键',
     moreOptions: '更多选项',
-    
+
     // 添加订阅
     addLink: '添加链接',
     addBrewlia: '添加 Brewlia',
@@ -1399,12 +1404,12 @@ export const zhCN: TranslationKeys = {
     inputNewCategory: '输入新分类...',
     detect: '探测',
     detecting: '探测中...',
-    
+
     // AI 增强
     enableAiEnhance: '启用 AI 增强',
     disableAiEnhance: '禁用 AI 增强',
     aiEnhanceDesc: 'AI 增强订阅：自动提供词汇注释、代词指代分析等阅读辅助功能',
-    
+
     // 编辑订阅
     uploadIcon: '上传图标',
     uploadIconHint: '上传图标（JPG/PNG/GIF/SVG，最大 500KB）',
@@ -1418,7 +1423,7 @@ export const zhCN: TranslationKeys = {
     generateTags: '生成标签',
     regenerateTags: '重新生成',
     deleteTag: '删除标签',
-    
+
     // 更新间隔
     updateInterval: '更新间隔',
     interval15min: '15 分钟',
@@ -1428,20 +1433,20 @@ export const zhCN: TranslationKeys = {
     interval6hours: '6 小时',
     interval12hours: '12 小时',
     intervalDaily: '每天',
-    
+
     // 排序
     sortByUpdate: '更新时间',
     sortByCustom: '自由排序',
     sortByCategory: '分类排序',
     sortByRandom: '随机排序',
     sortByPinyin: '拼音排序',
-    
+
     // 快捷键分类
     shortcutNavigation: '导航',
     shortcutArticle: '文章',
     shortcutSource: '订阅源',
     shortcutOther: '其他',
-    
+
     // 快捷键描述
     shortcutDescNextArticle: '下一篇文章',
     shortcutDescPrevArticle: '上一篇文章',
@@ -1454,7 +1459,7 @@ export const zhCN: TranslationKeys = {
     shortcutDescRefreshSource: '刷新当前订阅源',
     shortcutDescAddSource: '添加新订阅源',
     shortcutDescShowHelp: '显示快捷键帮助',
-    
+
     // 提示
     tipJustUpdated: '刚刚更新',
     tipUnreadCount: '{count} 条未读',
@@ -1467,7 +1472,7 @@ export const zhCN: TranslationKeys = {
     tipRelaxReading: '适合轻松阅读',
     tipEvening: '晚间阅读',
     tipQuietTime: '享受安静时刻',
-    
+
     // 错误信息
     errorDetectFailed: '探测失败，请检查网络或地址',
     errorRsshubRouteRequired: '请配置 RSSHub 路由',
@@ -1484,7 +1489,7 @@ export const zhCN: TranslationKeys = {
     errorSaveFailed: '保存失败',
     errorGenerateTagsFailed: '生成风格标签失败',
     errorInvalidFormat: '无效的导入文件格式',
-    
+
     // 导入导出
     exportBrewpack: '导出订阅包',
     importBrewpack: '导入订阅包',
@@ -1494,18 +1499,18 @@ export const zhCN: TranslationKeys = {
     importStepUnzipping: '解压文件...',
     importStepParsing: '解析配置...',
     importStepImporting: '导入: {name}',
-    
+
     // 空状态
     emptyNoSources: '暂无订阅源',
     emptyCategoryNoSources: '「{category}」分类暂无订阅源',
-    
+
     // 搜索
     searchSources: '搜索订阅源...',
     closeSearch: '关闭搜索',
-    
+
     // OPML
     selectOpmlFile: '选择OPML文件',
-    
+
     // RSSHub 配置
     rsshubInstanceStatus: '实例状态',
     rsshubStatusNormal: '正常',
@@ -1536,7 +1541,7 @@ export const zhCN: TranslationKeys = {
     rsshubDefaultRss: '默认(RSS)',
     rsshubAtom: 'Atom',
     rsshubJson: 'JSON',
-    
+
     // RSSHub 分类
     rsshubCategorySocial: '社交媒体',
     rsshubCategoryVideo: '视频平台',
@@ -1546,13 +1551,13 @@ export const zhCN: TranslationKeys = {
     rsshubCategoryDesign: '设计素材',
     rsshubCategoryShopping: '购物优惠',
     rsshubCategoryOther: '其他',
-    
+
     // 选择文章
     selectArticles: '选择文章',
     cancelStarred: '取消收藏',
     returnToSourceList: '返回订阅源列表',
     returnToAllSources: '返回全部订阅源',
-    
+
     // ControlIsland 特有
     tipFromSource: '来自 {source}',
     articlesCount: '{count} 篇',
@@ -1582,7 +1587,7 @@ export const zhCN: TranslationKeys = {
     exportOpml: '导出 OPML ({count} 个订阅)',
     importResult: '成功导入 {imported} 个{skipped}',
     skippedCount: '，跳过 {count} 个',
-    
+
     // 更多 ControlIsland 键
     sourceTypeLabel: '订阅类型',
     pureLink: '纯链接',
@@ -1614,7 +1619,7 @@ export const zhCN: TranslationKeys = {
     addSuccess: '添加成功！',
     errorImageSize: '图片大小不能超过 500KB',
     errorImageRead: '图片读取失败',
-    
+
     // BrewReader 阅读器
     fontSerif: '衬线',
     fontSans: '黑体',
@@ -1768,7 +1773,7 @@ export const zhCN: TranslationKeys = {
     noArticles: '暂无文章',
     subscribeMoreSources: '订阅更多源来获取内容',
     loadedAllArticles: '— 已加载全部 {count} 篇文章 —',
-    
+
     // BrewSidebar - UI text
     brewReader: 'Brew 阅读器',
     sourcesCount: '共 {count} 个订阅源',
@@ -1779,7 +1784,7 @@ export const zhCN: TranslationKeys = {
     keyboardShortcutsHint: '键盘快捷键',
     refresh: '刷新',
     delete: '删除',
-    
+
     // EditModal - UI text
     friendLink: '友情链接',
     categoryMe: '我',
@@ -1818,7 +1823,7 @@ export const zhCN: TranslationKeys = {
     adminOnlyVisible: '仅管理员可见',
     adminOnlyVisibleHint: '开启后，非管理员用户将无法看到此订阅源',
     saveChanges: '保存更改',
-    
+
     // RSSHubConfig - Error messages
     errorLoadFailed: '加载失败',
     errorNetworkRetry: '网络错误，请重试',
@@ -1827,7 +1832,7 @@ export const zhCN: TranslationKeys = {
     errorDeleteFailed: '删除失败',
     errorHealthCheckFailed: '健康检查失败',
     errorResetFailed: '重置失败',
-    
+
     // RSSHubConfig - Instance management
     rsshubAccessKey: '访问密钥',
     rsshubAccessKeyKeep: '留空保持不变',
@@ -1889,7 +1894,7 @@ export const zhCN: TranslationKeys = {
     rsshubViewFullDocs: '查看完整文档',
     save: '保存',
     label: '标签',
-    
+
     // Lightbox - 图片灯箱
     lightboxZoomIn: '放大',
     lightboxZoomOut: '缩小',

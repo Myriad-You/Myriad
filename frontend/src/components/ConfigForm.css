@@ -238,7 +238,51 @@ html.dark .btn-icon:hover {
 .modern-config-container {
   max-width: 72rem; /* max-w-6xl = 72rem = 1152px */
   margin: 0 auto;
-  padding: 0;
+  padding: 0 0 6rem 0;
+}
+
+.floating-save-container {
+  position: fixed;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 900;
+  animation: slideUpFade 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.floating-save-btn {
+  padding: 0.75rem 2rem;
+  border-radius: 9999px; /* Pill shape */
+  font-size: 1rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12),
+              0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.floating-save-btn:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.16),
+              0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+html.dark .floating-save-btn {
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4),
+              0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+html.dark .floating-save-btn:hover {
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6),
+              0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+@keyframes slideUpFade {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 40px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
 }
 
 /* 加载状态 */
@@ -1784,6 +1828,25 @@ html.dark .checkbox-hint {
   color: #9ca3af;
 }
 
+.toggle-switch.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: grayscale(1);
+}
+
+.toggle-switch.disabled input {
+  cursor: not-allowed;
+}
+
+.toggle-switch.disabled .toggle-slider {
+  cursor: not-allowed;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+html.dark .toggle-switch.disabled .toggle-slider {
+  background: rgba(255, 255, 255, 0.1);
+}
+
 /* 测试按钮 - 使用主题渐变色 */
 .test-button {
   display: flex;
@@ -2413,6 +2476,73 @@ html.dark .modal-content {
 
 /* slideUp 动画已移至 animations.css */
 
+.modal-content.modal-small {
+  max-width: 480px;
+}
+
+.danger-zone-container {
+  margin-top: 3rem;
+  padding-top: 2rem;
+  border-top: 1px dashed rgba(239, 68, 68, 0.3);
+  margin-bottom: 2rem;
+}
+
+.danger-zone-title {
+  color: #dc2626;
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+}
+
+html.dark .danger-zone-title {
+  color: #f87171;
+}
+
+.danger-zone-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.5rem;
+  background: rgba(239, 68, 68, 0.05);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 1rem;
+  transition: all 0.3s ease;
+}
+
+.danger-zone-card:hover {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.danger-zone-info h4 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1f2937;
+  margin: 0 0 0.25rem 0;
+}
+
+.danger-zone-info p {
+  font-size: 0.875rem;
+  color: #6b7280;
+  margin: 0;
+}
+
+html.dark .danger-zone-info h4 {
+  color: #f3f4f6;
+}
+
+html.dark .danger-zone-info p {
+  color: #9ca3af;
+}
+
+.text-danger {
+  color: #dc2626;
+}
+
+html.dark .text-danger {
+  color: #f87171;
+}
+
 .modal-header {
   display: flex;
   align-items: center;
@@ -2488,6 +2618,19 @@ html.dark .modal-close-button:hover {
   padding: 1.5rem;
   overflow-y: auto;
   flex: 1;
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 1.5rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  gap: 1rem;
+}
+
+html.dark .modal-footer {
+  border-top-color: rgba(255, 255, 255, 0.1);
 }
 
 .test-button-inline {

@@ -194,6 +194,8 @@ export type SettingItemConfig =
 export interface SettingGroupConfig {
   /** 组标题 */
   title?: string;
+  /** 组图标 */
+  icon?: ReactNode | string;
   /** 组描述 */
   description?: string;
   /** 子项 */
