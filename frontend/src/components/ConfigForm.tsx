@@ -1,14 +1,35 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motionShim as motion } from '@lib/motionShim';
-import { API_URL } from '@/config';
 import PlatformIcon from './PlatformIcon';
 import Toast from './Toast';
 import { ButtonSpinner } from './Spinner';
-import { FaSearch, FaTimes, FaStar } from '@lib/icons';
+import {
+  FaSearch,
+  FaTimes,
+  FaStar,
+  FaGlobe,
+  FaDatabase,
+  FaCog,
+  FaMusic,
+  FaLock,
+  FaUsers,
+  FaWrench,
+  FaLink,
+  FaCheck,
+  FaExclamationTriangle,
+  LuSparkles
+} from '@lib/icons';
 import { SiNeteasecloudmusic } from '@lib/icons';
-import { fetchJson } from '../utils/apiHelper';
-import { fetchConfig } from '../lib/api';
+import {
+  fetchConfig,
+  updateConfig,
+  fetchPermissionsConfig,
+  updatePermissionsConfig,
+  reloadSystemConfig,
+  testPlatformConfig,
+  checkSpeechStatus
+} from '../lib/api';
 import { useDebounce } from '../hooks/useDebounce';
 import { getCSRFToken } from '../utils/csrf';
 import { clearPlaylistCache } from '../utils/musicPlayer';
@@ -23,6 +44,7 @@ import {
   UiConfigSection,
   PermissionsConfigSection,
   AiConfigSection,
+  AdvancedConfigSection,
 } from './config';
 
 interface ConfigField {
@@ -131,6 +153,7 @@ const ModernConfigForm: React.FC = () => {
   const navigate = useNavigate();
   const { t } = useI18n();
   const [config, setConfig] = useState<Config | null>(null);
+  const [initialConfig, setInitialConfig] = useState<Config | null>(null);
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState<string | null>(null);
   const [message, setMessage] = useState('');
@@ -179,24 +202,18 @@ const ModernConfigForm: React.FC = () => {
   const updatePermissionConfig = useCallback(async (key: string, value: boolean | number) => {
     const prevValue = permissionConfig[key as keyof typeof permissionConfig];
     setPermissionConfig(prev => ({ ...prev, [key]: value }));
-    
+
     // 自动保存权限配置
     try {
       // 强制刷新 CSRF Token 确保有效
-      const csrfToken = await getCSRFToken(true);
-      const response = await fetchJson(`${API_URL}/api/config/permissions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
-        },
-        credentials: 'include',
-        body: JSON.stringify({ [key]: value }),
-      });
-      
+      await getCSRFToken(true);
+      const response = await updatePermissionsConfig({ [key]: value });
+
       if (response.success) {
         setMessage(t.config.permissionsSaved);
         setTimeout(() => setMessage(''), 2000);
+      } else {
+        throw new Error(response.message || 'Failed');
       }
     } catch (error) {
       console.error('Failed to save permission:', error);
@@ -210,10 +227,8 @@ const ModernConfigForm: React.FC = () => {
   const loadPermissionConfig = useCallback(async () => {
     try {
       setPermissionLoading(true);
-      const response = await fetchJson(`${API_URL}/api/config/permissions`, {
-        credentials: 'include',
-      });
-      
+      const response = await fetchPermissionsConfig();
+
       if (response.success && response.config) {
         const { guest, user, user_ai_quota, guest_ai_quota } = response.config;
         setPermissionConfig({
@@ -254,6 +269,15 @@ const ModernConfigForm: React.FC = () => {
   }, []);
 
 
+  const isPlatformConfigured = useCallback((platform: PlatformConfig) => {
+    if (!platform.config_fields || platform.config_fields.length === 0) return true;
+
+    return platform.config_fields.every(field => {
+      if (!field.required) return true;
+      return field.value && String(field.value).trim().length > 0;
+    });
+  }, []);
+
   // 获取翻译后的字段标签（覆盖后端返回的标签）
   const getFieldLabel = useCallback((fieldKey: string, originalLabel: string): string => {
     const fieldLabels: Record<string, string> = {
@@ -289,22 +313,23 @@ const ModernConfigForm: React.FC = () => {
 
   // 快速访问项（使用 useMemo 避免每次渲染重新创建数组）
   const quickAccessItems: QuickAccessItem[] = useMemo(() => [
-    { id: 'platforms', label: t.config.platforms, icon: '🌐', section: 'platforms' },
-    { id: 'data', label: t.config.data, icon: '💾', section: 'data' },
-    { id: 'ai', label: t.config.ai, icon: '🤖', section: 'ai' },
-    { id: 'ui', label: t.config.basic, icon: '⚙️', section: 'ui' },
-    { id: 'music', label: t.config.music, icon: '🎵', section: 'music' },
-    { id: 'oauth', label: t.config.oauth, icon: '🔐', section: 'oauth' },
-    { id: 'network', label: t.config.network || '网络代理', icon: '🔗', section: 'network' },
-    { id: 'permissions', label: t.config.permissions, icon: '👥', section: 'permissions' },
+    { id: 'platforms', label: t.config.platforms, icon: <FaGlobe />, section: 'platforms' },
+    { id: 'data', label: t.config.data, icon: <FaDatabase />, section: 'data' },
+    { id: 'ai', label: t.config.ai, icon: <LuSparkles />, section: 'ai' },
+    { id: 'ui', label: t.config.basic, icon: <FaCog />, section: 'ui' },
+    { id: 'music', label: t.config.music, icon: <FaMusic />, section: 'music' },
+    { id: 'oauth', label: t.config.oauth, icon: <FaLock />, section: 'oauth' },
+    { id: 'network', label: t.config.network, icon: <FaLink />, section: 'network' },
+    { id: 'permissions', label: t.config.permissions, icon: <FaUsers />, section: 'permissions' },
+    { id: 'advanced', label: t.config.advanced, icon: <FaWrench />, section: 'advanced' },
   ], [t]);
 
   // 搜索功能
   const searchableContent = useMemo(() => {
     if (!config) return [];
-    
+
     const items: Array<{ type: string; section: string; title: string; description: string; keywords: string[] }> = [];
-    
+
     // 平台配置
     config.platforms.forEach(platform => {
       items.push({
@@ -315,7 +340,7 @@ const ModernConfigForm: React.FC = () => {
         keywords: [platform.name.toLowerCase(), '平台', '数据源', 'token', 'api']
       });
     });
-    
+
     // AI配置
     items.push({
       type: 'section',
@@ -324,7 +349,7 @@ const ModernConfigForm: React.FC = () => {
       description: t.config.aiDesc,
       keywords: ['ai', 'gemini', 'openai', 'api', '模型', '智能', '图片', '生成', 'image']
     });
-    
+
     // UI配置
     items.push({
       type: 'section',
@@ -333,7 +358,7 @@ const ModernConfigForm: React.FC = () => {
       description: t.config.basicDesc,
       keywords: ['basic', '基础', '站点', '主题', '背景', '样式', 'theme', 'url']
     });
-    
+
     // OAuth配置
     items.push({
       type: 'section',
@@ -342,7 +367,7 @@ const ModernConfigForm: React.FC = () => {
       description: t.config.oauthDesc,
       keywords: ['oauth', 'github', '登录', 'auth', '认证']
     });
-    
+
     // 音乐播放器
     items.push({
       type: 'section',
@@ -359,6 +384,15 @@ const ModernConfigForm: React.FC = () => {
       title: t.config.network || '网络代理',
       description: t.config.networkDesc || '配置网络代理以访问外部服务',
       keywords: ['proxy', '代理', '网络', 'gemini', 'github', 'api', '镜像', 'mirror', 'socks']
+    });
+
+    // 高级配置
+    items.push({
+      type: 'section',
+      section: 'advanced',
+      title: t.config.advanced,
+      description: t.config.advancedDesc,
+      keywords: ['advanced', '高级', 'danger', 'reset', '重置', '危险']
     });
 
     return items;
@@ -414,26 +448,12 @@ const ModernConfigForm: React.FC = () => {
 
     try {
       // 获取 CSRF Token
-      const csrfToken = await getCSRFToken(true);
-      if (!csrfToken) {
-        throw new Error(t.userModal.cannotGetCsrf);
-      }
+      await getCSRFToken(true);
 
-      const result = await fetchJson(
-        `${API_URL}/api/config`,
-        {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'X-CSRF-Token': csrfToken,
-          },
-          credentials: 'include',
-          body: JSON.stringify(config),
-        },
-        t.config.configSaveFailed
-      );
-      
+      const result = await updateConfig(config);
+
       setMessage(`✓ ${t.config.configSaved} ${t.config.refreshing}`);
+      setInitialConfig(JSON.parse(JSON.stringify(config)));
       notifyDirtyState(false);
       window.dispatchEvent(
         new CustomEvent('config-save-result', {
@@ -443,21 +463,11 @@ const ModernConfigForm: React.FC = () => {
 
       try {
         // reload-config 也需要 CSRF Token
-        const reloadCsrfToken = await getCSRFToken(true);
-        await fetchJson(
-          `${API_URL}/api/system/reload-config`,
-          {
-            method: 'POST',
-            headers: {
-              'X-CSRF-Token': reloadCsrfToken || '',
-            },
-            credentials: 'include'
-          },
-          t.config.refreshFailed
-        );
+        await getCSRFToken(true);
+        await reloadSystemConfig();
 
         setMessage(`✓ ${t.config.savedSuccess}`);
-        
+
         // 等待后端完成配置保存和环境变量重新加载，然后刷新页面
         setTimeout(() => {
           window.location.reload();
@@ -482,10 +492,10 @@ const ModernConfigForm: React.FC = () => {
 
   const handleReset = React.useCallback(async () => {
     setMessage(t.config.resettingConfig);
-    
+
     try {
       const data = await fetchConfig();
-      
+
       const clearedData = {
         ...data,
         platforms: data.platforms.map((platform: any) => ({
@@ -521,37 +531,22 @@ const ModernConfigForm: React.FC = () => {
           }),
         },
       };
-      
+
       setConfig(clearedData);
       notifyDirtyState(false);
-      
+
       await new Promise(resolve => setTimeout(resolve, 200));
-      
+
       setMessage(t.config.savingDefault);
-      
+
       // 获取 CSRF Token
-      const resetCsrfToken = await getCSRFToken(true);
-      if (!resetCsrfToken) {
-        throw new Error(t.userModal.cannotGetCsrf);
-      }
-      
-      const saveResult = await fetchJson(
-        `${API_URL}/api/config`,
-        {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'X-CSRF-Token': resetCsrfToken,
-          },
-          credentials: 'include',
-          body: JSON.stringify(clearedData),
-        },
-        t.config.configSaveFailed
-      );
+      await getCSRFToken(true);
+
+      const saveResult = await updateConfig(clearedData);
 
       setMessage(`✓ ${t.config.configReset}`);
       setTimeout(() => setMessage(''), 5000);
-      
+
       window.dispatchEvent(
         new CustomEvent('config-reset-result', {
           detail: { success: true, message: saveResult.message || t.config.configReset },
@@ -581,6 +576,7 @@ const ModernConfigForm: React.FC = () => {
     try {
       const data = await fetchConfig();
       setConfig(data);
+      setInitialConfig(JSON.parse(JSON.stringify(data)));
       notifyDirtyState(false);
 
       const event = new CustomEvent('config-loaded', { detail: data });
@@ -624,27 +620,9 @@ const ModernConfigForm: React.FC = () => {
       });
 
       // 获取 CSRF Token
-      const testCsrfToken = await getCSRFToken(true);
-      if (!testCsrfToken) {
-        throw new Error(t.userModal.cannotGetCsrf);
-      }
+      await getCSRFToken(true);
 
-      const result = await fetchJson(
-        `${API_URL}/api/config/test`,
-        {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'X-CSRF-Token': testCsrfToken,
-          },
-          credentials: 'include',
-          body: JSON.stringify({
-            platform: platformName,
-            config: configObj,
-          }),
-        },
-        t.config.testFailed
-      );
+      const result = await testPlatformConfig(platformName, configObj);
 
       setMessage(result.message);
       setTimeout(() => setMessage(''), 5000);
@@ -662,14 +640,7 @@ const ModernConfigForm: React.FC = () => {
     }
 
     try {
-      const result = await fetchJson(
-        `${API_URL}/api/speech/status`,
-        {
-          method: 'GET',
-          credentials: 'include',
-        },
-        t.config.speechTestFailed
-      );
+      const result = await checkSpeechStatus();
 
       return {
         success: result.available === true,
@@ -762,6 +733,155 @@ const ModernConfigForm: React.FC = () => {
     notifyDirtyState(true);
   }, [config]);
 
+  const isConfigDirty = useMemo(() => {
+    if (!config || !initialConfig) return false;
+    return JSON.stringify(config) !== JSON.stringify(initialConfig);
+  }, [config, initialConfig]);
+
+  const getSectionProps = (sectionId: string) => {
+    const item = quickAccessItems.find(i => i.id === sectionId);
+    if (!item) {
+      // 理论上不会发生，因为 activeSection 总是有效的
+      return { title: '', icon: null, description: '' };
+    }
+    return {
+      title: item.label,
+      icon: item.icon,
+      description: searchableContent.find(c => c.section === sectionId)?.description || ''
+    };
+  };
+
+  const renderActiveSection = () => {
+    if (!config) return null;
+
+    const props = getSectionProps(activeSection);
+
+    switch (activeSection) {
+      case 'platforms':
+        return (
+          <div className="config-section">
+            <div className="section-header">
+              <div className="section-header-left">
+                <span className="section-icon icon-platforms">{props.icon}</span>
+                <div>
+                  <h2 className="section-title">{props.title}</h2>
+                  <p className="section-description">{props.description}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="platforms-grid">
+              {config.platforms.map((platform, index) => (
+                <motion.div
+                  key={platform.name}
+                  className="platform-card"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.2 + index * 0.05, duration: 0.3 }}
+                  onClick={() => setPlatformModalOpen(platform.name)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <div className="platform-header">
+                    <div className="platform-info">
+                      <div className="platform-icon-wrapper">
+                        <PlatformIcon platform={platform.name} className="platform-icon" />
+                      </div>
+                      <div className="platform-details">
+                        <div className="platform-title-row">
+                          <h3 className="platform-name">{platform.name}</h3>
+                          <span className={`status-badge ${isPlatformConfigured(platform) ? 'configured' : 'unconfigured'}`}>
+                            {isPlatformConfigured(platform) ? `✓ ${t.config.configured}` : `⚠ ${t.config.notConfigured}`}
+                          </span>
+                        </div>
+                        <p className="platform-desc">{platform.description}</p>
+                      </div>
+                    </div>
+                    <div className="platform-actions">
+                      <label className={`toggle-switch ${isPlatformConfigured(platform) ? '' : 'disabled'}`} onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={platform.enabled}
+                          onChange={() => togglePlatform(index)}
+                          aria-label={`Enable ${platform.name}`}
+                          disabled={!isPlatformConfigured(platform)}
+                        />
+                        <span className="toggle-slider"></span>
+                      </label>
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        );
+      case 'ai':
+        return (
+          <AiConfigSection
+            configFields={config.ai_config.config_fields}
+            updateValue={updateAiFieldValue}
+            onSpeechTest={handleSpeechTest}
+            {...props}
+          />
+        );
+      case 'ui':
+        return (
+          <UiConfigSection
+            configFields={config.ui_config.config_fields}
+            updateValue={updateUiFieldValue}
+            getFieldLabel={getFieldLabel}
+            getFieldPlaceholder={getFieldPlaceholder}
+            {...props}
+          />
+        );
+      case 'oauth':
+        return (
+          <OAuthConfigSection
+            configFields={config.ui_config.config_fields}
+            updateValue={updateUiFieldValue}
+            {...props}
+          />
+        );
+      case 'music':
+        return (
+          <MusicConfigSection
+            configFields={config.ui_config.config_fields}
+            updateValue={updateUiFieldValue}
+            onMessage={(msg) => {
+              setMessage(msg);
+              setTimeout(() => setMessage(''), 3000);
+            }}
+            {...props}
+          />
+        );
+      case 'network':
+        return (
+          <NetworkConfigSection
+            configFields={config.ui_config.config_fields}
+            updateValue={updateUiFieldValue}
+            {...props}
+          />
+        );
+      case 'permissions':
+        return (
+          <PermissionsConfigSection
+            permissionConfig={permissionConfig}
+            updatePermissionConfig={updatePermissionConfig}
+            loading={permissionLoading}
+            {...props}
+          />
+        );
+      case 'advanced':
+        return (
+          <AdvancedConfigSection
+            onReset={handleReset}
+            {...props}
+          />
+        );
+      default:
+        return null;
+    }
+  };
+
   if (loading) {
     return null;
   }
@@ -769,14 +889,14 @@ const ModernConfigForm: React.FC = () => {
   if (!config) {
     return (
       <div className="modern-config-error">
-        <span className="error-icon">⚠️</span>
+        <FaExclamationTriangle className="error-icon" />
         <p>{t.config.loadConfigFailed}</p>
       </div>
     );
   }
 
   return (
-    <motion.div 
+    <motion.div
       className="modern-config-container"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
@@ -787,7 +907,7 @@ const ModernConfigForm: React.FC = () => {
       {message && <Toast message={message} />}
 
       {/* 配置导航卡片 */}
-      <motion.div 
+      <motion.div
         className="config-nav-card"
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -795,36 +915,17 @@ const ModernConfigForm: React.FC = () => {
       >
         <div className="config-nav-header">
           <div className="nav-header-left">
-            <span className="nav-icon">🛠️</span>
+            <span className="nav-icon"><FaWrench /></span>
             <div>
               <h3 className="nav-title">{t.config.title}</h3>
               <p className="nav-subtitle">{t.config.selectProject}</p>
             </div>
           </div>
           <div className="nav-header-actions">
-            <button
-              onClick={handleReset}
-              className="btn-base btn-danger nav-action-button reset-button"
-              aria-label={t.config.resetConfigLabel}
-            >
-              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width="16" height="16">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              <span>{t.config.resetConfig}</span>
-            </button>
-            <button
-              onClick={handleSave}
-              className="btn-base btn-primary nav-action-button save-button"
-              aria-label={t.config.saveConfigLabel}
-            >
-              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width="16" height="16">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-              <span>{t.config.saveConfig}</span>
-            </button>
+            {/* 操作按钮已移至底部悬浮栏 */}
           </div>
         </div>
-        
+
         {/* 搜索栏 */}
         <div className="config-search-bar">
           <div className="search-input-wrapper">
@@ -930,134 +1031,7 @@ const ModernConfigForm: React.FC = () => {
       {/* 配置内容区域 */}
       {!searchQuery && (
         <div className="config-content">
-          {/* 平台配置 */}
-          {activeSection === 'platforms' && (
-            <div className="config-section">
-              <div className="section-header">
-                <div className="section-header-left">
-                  <span className="section-icon icon-platforms">🌐</span>
-                  <div>
-                    <h2 className="section-title">{t.config.platforms}</h2>
-                    <p className="section-description">{t.config.platformsDesc}</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="platforms-grid">
-                {config.platforms.map((platform, index) => (
-                  <motion.div 
-                    key={platform.name} 
-                    className="platform-card"
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.2 + index * 0.05, duration: 0.3 }}
-                    onClick={() => setPlatformModalOpen(platform.name)}
-                    style={{ cursor: 'pointer' }}
-                  >
-                    <div className="platform-header">
-                      <div className="platform-info">
-                        <div className="platform-icon-wrapper">
-                          <PlatformIcon platform={platform.name} className="platform-icon" />
-                        </div>
-                        <div className="platform-details">
-                          <div className="platform-title-row">
-                            <h3 className="platform-name">{platform.name}</h3>
-                            <span className={`status-badge ${(() => {
-                              // GitHub只需要username即可，token是可选的
-                              if (platform.name.toLowerCase() === 'github') {
-                                const usernameField = platform.config_fields.find(f => f.key === 'username');
-                                return platform.enabled && usernameField?.value ? 'configured' : 'unconfigured';
-                              }
-                              // 其他平台需要token
-                              return platform.enabled && platform.has_token ? 'configured' : 'unconfigured';
-                            })()}`}>
-                              {(() => {
-                                if (platform.name.toLowerCase() === 'github') {
-                                  const usernameField = platform.config_fields.find(f => f.key === 'username');
-                                  return platform.enabled && usernameField?.value ? `✓ ${t.config.configured}` : `⚠ ${t.config.notConfigured}`;
-                                }
-                                return platform.enabled && platform.has_token ? `✓ ${t.config.configured}` : `⚠ ${t.config.notConfigured}`;
-                              })()}
-                            </span>
-                          </div>
-                          <p className="platform-desc">{platform.description}</p>
-                        </div>
-                      </div>
-                      <div className="platform-actions">
-                        <label className="toggle-switch" onClick={(e) => e.stopPropagation()}>
-                          <input
-                            type="checkbox"
-                            checked={platform.enabled}
-                            onChange={() => togglePlatform(index)}
-                            aria-label={`Enable ${platform.name}`}
-                          />
-                          <span className="toggle-slider"></span>
-                        </label>
-                      </div>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* AI配置 - 使用迁移后的组件 */}
-          {activeSection === 'ai' && (
-            <AiConfigSection
-              configFields={config.ai_config.config_fields}
-              updateValue={updateAiFieldValue}
-              onSpeechTest={handleSpeechTest}
-            />
-          )}
-
-          {/* UI配置 - 使用迁移后的组件 */}
-          {activeSection === 'ui' && (
-            <UiConfigSection
-              configFields={config.ui_config.config_fields}
-              updateValue={updateUiFieldValue}
-              getFieldLabel={getFieldLabel}
-              getFieldPlaceholder={getFieldPlaceholder}
-            />
-          )}
-
-          {/* OAuth配置 - 使用迁移后的组件 */}
-          {activeSection === 'oauth' && (
-            <OAuthConfigSection
-              configFields={config.ui_config.config_fields}
-              updateValue={updateUiFieldValue}
-            />
-          )}
-
-          {/* 音乐播放器配置 - 使用迁移后的组件 */}
-          {activeSection === 'music' && (
-            <MusicConfigSection
-              configFields={config.ui_config.config_fields}
-              updateValue={updateUiFieldValue}
-              onMessage={(msg) => {
-                setMessage(msg);
-                setTimeout(() => setMessage(''), 3000);
-              }}
-            />
-          )}
-
-          {/* 网络代理配置 - 使用迁移后的组件 */}
-          {activeSection === 'network' && (
-            <NetworkConfigSection
-              configFields={config.ui_config.config_fields}
-              updateValue={updateUiFieldValue}
-            />
-          )}
-
-          {/* Tapp 权限下放配置 - 使用迁移后的组件 */}
-          {activeSection === 'permissions' && (
-            <PermissionsConfigSection
-              permissionConfig={permissionConfig}
-              updatePermissionConfig={updatePermissionConfig}
-              loading={permissionLoading}
-            />
-          )}
-
-
+          {renderActiveSection()}
         </div>
       )}
 
@@ -1114,10 +1088,33 @@ const ModernConfigForm: React.FC = () => {
                   </div>
                 ))}
               </div>
+              <div className="modal-footer">
+                <button
+                  onClick={() => setPlatformModalOpen(null)}
+                  className="btn-base btn-primary"
+                >
+                  {t.common.confirm}
+                </button>
+              </div>
             </div>
           </div>
         );
       })()}
+
+      {isConfigDirty && (
+        <div className="floating-save-container">
+          <button
+            onClick={handleSave}
+            className="btn-base btn-primary floating-save-btn"
+            aria-label={t.config.saveConfigLabel}
+          >
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width="20" height="20">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+            <span>{t.config.saveConfig}</span>
+          </button>
+        </div>
+      )}
     </motion.div>
   );
 };

@@ -1,7 +1,7 @@
 /**
  * 统一图标导出
  * 从 react-icons 和 lucide-react 精确导入需要的图标，保持包体积最小化
- * 
+ *
  * ⚠️ 重要：不要使用 import * as 语法，否则会导入整个图标库
  */
 
@@ -93,6 +93,8 @@ import {
   SiBilibili,
   SiMaildotru,
   SiCloudflare,
+  SiOpenai,
+  SiGooglegemini,
 } from 'react-icons/si';
 
 // 导出 Simple Icons
@@ -178,6 +180,8 @@ export {
   SiBilibili,
   SiMaildotru,
   SiCloudflare,
+  SiOpenai,
+  SiGooglegemini
 };
 
 // ============================================================
@@ -311,6 +315,12 @@ import {
   FaGithub,
   FaPlay,
   FaPause,
+  FaFreeCodeCamp,
+  FaVolumeUp,
+  FaMicrophone,
+  FaHeadphones,
+  FaClipboard,
+  FaExchangeAlt,
 } from 'react-icons/fa';
 
 // 导出 Font Awesome
@@ -442,6 +452,12 @@ export {
   FaGithub,
   FaPlay,
   FaPause,
+  FaFreeCodeCamp,
+  FaVolumeUp,
+  FaMicrophone,
+  FaHeadphones,
+  FaClipboard,
+  FaExchangeAlt,
 };
 
 // ============================================================
@@ -461,7 +477,7 @@ import {
   ChevronUp as LuChevronUp,
   ArrowRight as LuArrowRight,
   ArrowUpDown as LuArrowUpDown,
-  
+
   // 操作
   Plus as LuPlus,
   Minus as LuMinus,
@@ -481,18 +497,18 @@ import {
   Square as LuSquare,
   SkipBack as LuSkipBack,
   SkipForward as LuSkipForward,
-  
+
   // 选择 & 复选框
   CheckSquare as LuCheckSquare,
   MinusSquare as LuMinusSquare,
   CheckCircle as LuCheckCircle,
-  
+
   // 状态 & 反馈
   Loader2 as LuLoader2,
   AlertCircle as LuAlertCircle,
   Eye as LuEye,
   EyeOff as LuEyeOff,
-  
+
   // 内容 & 媒体
   Star as LuStar,
   FileText as LuFileText,
@@ -501,29 +517,29 @@ import {
   MessageSquare as LuMessageSquare,
   Mic as LuMic,
   Volume2 as LuVolume2,
-  
+
   // RSS & 链接
   Rss as LuRss,
   Link as LuLink,
   ExternalLink as LuExternalLink,
   Globe as LuGlobe,
-  
+
   // 时间 & 用户
   Clock as LuClock,
   Calendar as LuCalendar,
   User as LuUser,
-  
+
   // 布局 & 视图
   List as LuList,
   Inbox as LuInbox,
   GripVertical as LuGripVertical,
   AlignJustify as LuAlignJustify,
   MoreHorizontal as LuMoreHorizontal,
-  
+
   // AI & 特效
   Sparkles as LuSparkles,
   Zap as LuZap,
-  
+
   // 设置 & 工具
   Settings as LuSettings,
   Palette as LuPalette,
@@ -531,18 +547,18 @@ import {
   Key as LuKey,
   Keyboard as LuKeyboard,
   Type as LuType,
-  
+
   // 服务器 & 监控
   Server as LuServer,
   Cloud as LuCloud,
   Monitor as LuMonitor,
   Activity as LuActivity,
   BarChart3 as LuBarChart3,
-  
+
   // 排序
   Shuffle as LuShuffle,
   SortAsc as LuSortAsc,
-  
+
   // 图片相关
   ZoomIn as LuZoomIn,
   ZoomOut as LuZoomOut,
@@ -558,7 +574,7 @@ export {
   LuChevronUp,
   LuArrowRight,
   LuArrowUpDown,
-  
+
   // 操作
   LuPlus,
   LuMinus,
@@ -578,18 +594,18 @@ export {
   LuSquare,
   LuSkipBack,
   LuSkipForward,
-  
+
   // 选择 & 复选框
   LuCheckSquare,
   LuMinusSquare,
   LuCheckCircle,
-  
+
   // 状态 & 反馈
   LuLoader2,
   LuAlertCircle,
   LuEye,
   LuEyeOff,
-  
+
   // 内容 & 媒体
   LuStar,
   LuFileText,
@@ -598,29 +614,29 @@ export {
   LuMessageSquare,
   LuMic,
   LuVolume2,
-  
+
   // RSS & 链接
   LuRss,
   LuLink,
   LuExternalLink,
   LuGlobe,
-  
+
   // 时间 & 用户
   LuClock,
   LuCalendar,
   LuUser,
-  
+
   // 布局 & 视图
   LuList,
   LuInbox,
   LuGripVertical,
   LuAlignJustify,
   LuMoreHorizontal,
-  
+
   // AI & 特效
   LuSparkles,
   LuZap,
-  
+
   // 设置 & 工具
   LuSettings,
   LuPalette,
@@ -628,18 +644,18 @@ export {
   LuKey,
   LuKeyboard,
   LuType,
-  
+
   // 服务器 & 监控
   LuServer,
   LuCloud,
   LuMonitor,
   LuActivity,
   LuBarChart3,
-  
+
   // 排序
   LuShuffle,
   LuSortAsc,
-  
+
   // 图片相关
   LuZoomIn,
   LuZoomOut,
@@ -815,6 +831,12 @@ export const iconMap: Record<string, IconType> = {
   FaPause,
   // Font Awesome 6
   FaGrip,
+  FaFreeCodeCamp,
+  FaVolumeUp,
+  FaMicrophone,
+  FaHeadphones,
+  FaClipboard,
+  FaExchangeAlt,
   // 别名
   FaXTwitter: SiX,
 };

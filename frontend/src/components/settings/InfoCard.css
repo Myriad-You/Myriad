@@ -28,7 +28,12 @@
 
 /* 图标样式 */
 .info-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.125rem;
   margin-right: 0.5rem;
+  line-height: 1;
 }
 
 /* 暗色模式变体 */

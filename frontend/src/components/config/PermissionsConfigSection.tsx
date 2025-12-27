@@ -1,13 +1,14 @@
 /**
  * 权限配置区块示例
  * 演示如何使用通用设置组件重构 ConfigForm 中的权限配置部分
- * 
+ *
  * 重构前：约 400 行代码
  * 重构后：约 80 行代码
  */
 
 import React from 'react';
 import { useI18n } from '../../contexts/I18nContext';
+import { FaLightbulb } from '@lib/icons';
 import {
   SettingSection,
   SettingGroup,
@@ -20,7 +21,6 @@ import {
 
 interface PermissionsConfigSectionProps {
   permissionConfig: {
-    // 普通用户权限
     user_perm_ai_generate: boolean;
     user_perm_ai_analyze: boolean;
     user_perm_ai_chat: boolean;
@@ -50,12 +50,18 @@ interface PermissionsConfigSectionProps {
   };
   updatePermissionConfig: (key: string, value: boolean | number) => void;
   loading?: boolean;
+  title: string;
+  icon: React.ReactNode;
+  description: string;
 }
 
 export const PermissionsConfigSection: React.FC<PermissionsConfigSectionProps> = ({
   permissionConfig,
   updatePermissionConfig,
   loading = false,
+  title,
+  icon,
+  description,
 }) => {
   const { t } = useI18n();
 
@@ -110,14 +116,14 @@ export const PermissionsConfigSection: React.FC<PermissionsConfigSectionProps> =
 
   return (
     <SettingSection
-      title={t.config.permissionsTitle}
-      icon="🔐"
-      description={t.config.permissionsDesc}
+      title={title}
+      icon={icon}
+      description={description}
     >
       {/* 说明卡片 */}
       <InfoCard
         title={t.config.tappPermissionsInfoTitle}
-        icon="💡"
+        icon={<FaLightbulb />}
         content={t.config.tappPermissionsInfo}
         className="info-card-spaced"
       />
@@ -161,7 +167,7 @@ export const PermissionsConfigSection: React.FC<PermissionsConfigSectionProps> =
         />
 
         <InfoCard
-          icon="💡"
+          icon={<FaLightbulb />}
           content={t.config.aiQuotaAdminNote}
           className="info-card-spaced"
         />
