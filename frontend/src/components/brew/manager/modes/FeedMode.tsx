@@ -2,30 +2,30 @@
  * Feed 模式组件 - 单个订阅源文章列表视图
  */
 
-import { motion } from 'framer-motion';
+import type { FeedModeConfig } from './types'
 import {
-  LuChevronLeft as ChevronLeft,
-  LuRss as Rss,
-  LuRefreshCw as RefreshCw,
   LuCheckCircle as CheckCircle,
+  LuChevronLeft as ChevronLeft,
   LuExternalLink as ExternalLink,
-} from '@lib/icons';
-import { SPRING_SNAPPY } from './constants';
-import type { FeedModeConfig } from './types';
+  LuRefreshCw as RefreshCw,
+  LuRss as Rss,
+} from '@lib/icons'
+import { motion } from 'framer-motion'
+import { SPRING_SNAPPY } from './constants'
 
 export interface FeedModeProps {
-  variant: 'mobile' | 'desktop';
-  feedMode: FeedModeConfig;
-  isAdmin?: boolean;
-  isAuthenticated?: boolean;
+  variant: 'mobile' | 'desktop'
+  feedMode: FeedModeConfig
+  isAdmin?: boolean
+  isAuthenticated?: boolean
   t: {
-    backToSourceList: string;
-    articlesCount: string;
-    tipUnreadCount: string;
-    refreshSource: string;
-    markAllAsRead: string;
-    visitWebsite: string;
-  };
+    backToSourceList: string
+    articlesCount: string
+    tipUnreadCount: string
+    refreshSource: string
+    markAllAsRead: string
+    visitWebsite: string
+  }
 }
 
 export function FeedMode({
@@ -35,8 +35,8 @@ export function FeedMode({
   isAuthenticated = false,
   t,
 }: FeedModeProps) {
-  const isMobile = variant === 'mobile';
-  
+  const isMobile = variant === 'mobile'
+
   return (
     <motion.div
       key={`feed-bar-${variant}`}
@@ -59,20 +59,22 @@ export function FeedMode({
 
       {/* 订阅源信息 */}
       <div className="flex items-center gap-2 h-10 px-2 min-w-0 flex-1">
-        {feedMode.source.icon ? (
-          <img 
-            src={feedMode.source.icon} 
-            alt="" 
-            className="w-7 h-7 rounded-lg object-cover flex-shrink-0" 
-          />
-        ) : (
-          <div 
-            className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
-            style={{ backgroundColor: feedMode.source.theme_color || '#F97316' }}
-          >
-            <Rss className="w-4 h-4 text-white" />
-          </div>
-        )}
+        {feedMode.source.icon
+          ? (
+              <img
+                src={feedMode.source.icon}
+                alt=""
+                className="w-7 h-7 rounded-lg object-cover flex-shrink-0"
+              />
+            )
+          : (
+              <div
+                className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
+                style={{ backgroundColor: feedMode.source.theme_color || '#F97316' }}
+              >
+                <Rss className="w-4 h-4 text-white" />
+              </div>
+            )}
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">
             {feedMode.source.name}
@@ -80,7 +82,7 @@ export function FeedMode({
           <div className="flex items-center gap-1.5 text-[10px] text-gray-500 dark:text-gray-400">
             <span>{t.articlesCount.replace('{count}', String(feedMode.total))}</span>
             {feedMode.source.unread_count > 0 && (
-              <span 
+              <span
                 className="font-medium"
                 style={{ color: feedMode.source.theme_color || '#F97316' }}
               >
@@ -136,5 +138,5 @@ export function FeedMode({
         </motion.a>
       )}
     </motion.div>
-  );
+  )
 }

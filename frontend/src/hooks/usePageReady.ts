@@ -1,22 +1,22 @@
 /**
  * usePageReady Hook
- * 
+ *
  * 向后兼容的导出，实际使用新的动画协调系统
  * @deprecated 请使用 import { usePageReady } from './animation'
  */
 
 // 重新导出新的实现
-export { usePageReady, usePageReady as default } from './animation';
-export { useStaggerAnimation as useStaggeredDelay } from './animation';
-
 // 兼容旧 API
-import { coordinator } from './animation';
+import { coordinator } from './animation'
+
+export { usePageReady as default, usePageReady } from './animation'
+export { useStaggerAnimation as useStaggeredDelay } from './animation'
 
 /**
  * @deprecated 使用 coordinator.completePageTransition() 代替
  */
 export function markPageAnimationComplete() {
-  coordinator.completePageTransition();
+  coordinator.completePageTransition()
 }
 
 /**
@@ -30,5 +30,5 @@ export function resetPageAnimationState() {
  * @deprecated 使用 coordinator.getPageReadyState() 代替
  */
 export function isPageReady(): boolean {
-  return coordinator.getPageReadyState();
+  return coordinator.getPageReadyState()
 }

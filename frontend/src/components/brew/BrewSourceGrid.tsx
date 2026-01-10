@@ -1,12 +1,12 @@
 /**
  * Brew 订阅源网格组件
  * 设计参考 TappCard / UnifiedAppCard 风格
- * 
+ *
  * 功能整合：
  * - 订阅源卡片展示
  * - 内置管理工具（搜索、批量选择、编辑、删除）
  * - 浮动操作栏
- * 
+ *
  * 性能优化：
  * - 接入统一动画调度器 (useBrewCardStagger)
  * - React.memo + 自定义比较函数避免不必要的重渲染
@@ -15,39 +15,38 @@
  * - 图片懒加载
  */
 
-import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { 
-  LuRss as Rss, 
+import type { BrewSource, CardSize, SourceType } from '../../types/brew'
+import type { SortMode } from './manager/ControlIsland'
+import {
+  LuRss as Rss,
   LuSearch as Search,
-} from '@lib/icons';
-import type { BrewSource, CardSize, SourceType } from '../../types/brew';
-import * as brewApi from '../../services/brewApi';
-import { useI18n } from '../../contexts/I18nContext';
+} from '@lib/icons'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useI18n } from '../../contexts/I18nContext'
 
-// 管理组件
-import EditModal from './manager/EditModal';
-import ControlIsland, { type SortMode } from './manager/ControlIsland';
-
+import * as brewApi from '../../services/brewApi'
 // 卡片组件
-import { SourceCard } from './cards';
+import { SourceCard } from './cards'
 
 // 共享常量
-import { 
+import {
   PRESET_CATEGORY_DB_VALUES,
-  DEFAULT_THEME_COLOR,
-  getSourceColor,
-} from './constants';
+} from './constants'
+import ControlIsland from './manager/ControlIsland'
+
+// 管理组件
+import EditModal from './manager/EditModal'
 
 interface BrewSourceGridProps {
-  sources: BrewSource[];
-  category?: string;  // 分类筛选
-  onSourceClick: (source: BrewSource) => void;
-  onRefreshSource: (sourceId: number) => void;
-  onSourceUpdate?: (source: BrewSource) => void;
-  onSourcesChange?: () => void;
-  onAddSource?: (url: string, name?: string, category?: string, icon?: string, sourceType?: SourceType) => Promise<void>;
-  isAuthenticated?: boolean;  // 是否已登录（用于已读状态等普通用户功能）
-  isAdmin?: boolean;  // 是否是管理员（用于添加、编辑、删除等管理功能）
+  sources: BrewSource[]
+  category?: string // 分类筛选
+  onSourceClick: (source: BrewSource) => void
+  onRefreshSource: (sourceId: number) => void
+  onSourceUpdate?: (source: BrewSource) => void
+  onSourcesChange?: () => void
+  onAddSource?: (url: string, name?: string, category?: string, icon?: string, sourceType?: SourceType) => Promise<void>
+  isAuthenticated?: boolean // 是否已登录（用于已读状态等普通用户功能）
+  isAdmin?: boolean // 是否是管理员（用于添加、编辑、删除等管理功能）
 }
 
 export default function BrewSourceGrid({
@@ -58,72 +57,73 @@ export default function BrewSourceGrid({
   onSourceUpdate,
   onSourcesChange,
   onAddSource,
-  isAuthenticated = false,  // 默认游客模式（用于已读状态）
-  isAdmin = false,  // 默认非管理员（用于管理功能）
+  isAuthenticated = false, // 默认游客模式（用于已读状态）
+  isAdmin = false, // 默认非管理员（用于管理功能）
 }: BrewSourceGridProps) {
-  const { t } = useI18n();
+  const { t } = useI18n()
   // 管理功能状态（仅登录用户可用）
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-  const [isEditMode, setIsEditMode] = useState(false);
-  const [editingSource, setEditingSource] = useState<BrewSource | null>(null);
-  const [deletingIds, setDeletingIds] = useState<number[]>([]);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  
+  const [searchQuery, setSearchQuery] = useState('')
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  const [isEditMode, setIsEditMode] = useState(false)
+  const [editingSource, setEditingSource] = useState<BrewSource | null>(null)
+  const [deletingIds, setDeletingIds] = useState<number[]>([])
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+
   // 排序状态
-  const [sortMode, setSortMode] = useState<SortMode>('custom'); // 默认自由排序
-  const [customOrder, setCustomOrder] = useState<number[]>([]); // 自由排序的顺序
-  const [randomSeed, setRandomSeed] = useState(Date.now()); // 随机排序种子
+  const [sortMode, setSortMode] = useState<SortMode>('custom') // 默认自由排序
+  const [customOrder, setCustomOrder] = useState<number[]>([]) // 自由排序的顺序
+  const [randomSeed, setRandomSeed] = useState(Date.now()) // 随机排序种子
 
   // 拖拽排序状态（仅登录用户可用）
-  const [draggingSourceId, setDraggingSourceId] = useState<number | null>(null);
-  const [dragOverSourceId, setDragOverSourceId] = useState<number | null>(null);
-  const cardRefsRef = useRef<Map<number, HTMLDivElement>>(new Map());
-  const dragStartPosRef = useRef<{ x: number; y: number } | null>(null);
-  
+  const [draggingSourceId, setDraggingSourceId] = useState<number | null>(null)
+  const [dragOverSourceId, setDragOverSourceId] = useState<number | null>(null)
+  const cardRefsRef = useRef<Map<number, HTMLDivElement>>(new Map())
+  const dragStartPosRef = useRef<{ x: number, y: number } | null>(null)
+
   // FLIP 动画：存储卡片位置快照
-  const cardRectsRef = useRef<Map<number, DOMRect>>(new Map());
-  const flipAnimationsRef = useRef<Map<number, Animation>>(new Map());
-  
+  const cardRectsRef = useRef<Map<number, DOMRect>>(new Map())
+  const flipAnimationsRef = useRef<Map<number, Animation>>(new Map())
+
   // 记录所有卡片的当前位置（在排序变化前调用）
   const recordCardPositions = useCallback(() => {
-    cardRectsRef.current.clear();
+    cardRectsRef.current.clear()
     cardRefsRef.current.forEach((el, id) => {
-      cardRectsRef.current.set(id, el.getBoundingClientRect());
-    });
-  }, []);
-  
+      cardRectsRef.current.set(id, el.getBoundingClientRect())
+    })
+  }, [])
+
   // 播放 FLIP 动画（在排序变化后调用）- 支持位置和尺寸变化
   const playFlipAnimations = useCallback(() => {
     // 取消所有正在进行的动画
-    flipAnimationsRef.current.forEach(anim => anim.cancel());
-    flipAnimationsRef.current.clear();
-    
+    flipAnimationsRef.current.forEach(anim => anim.cancel())
+    flipAnimationsRef.current.clear()
+
     // 用 requestAnimationFrame 确保 DOM 已更新
     requestAnimationFrame(() => {
       cardRefsRef.current.forEach((el, id) => {
-        const firstRect = cardRectsRef.current.get(id);
-        if (!firstRect) return;
-        
-        const lastRect = el.getBoundingClientRect();
-        
+        const firstRect = cardRectsRef.current.get(id)
+        if (!firstRect)
+          return
+
+        const lastRect = el.getBoundingClientRect()
+
         // 计算位移差
-        const deltaX = firstRect.left - lastRect.left;
-        const deltaY = firstRect.top - lastRect.top;
-        
+        const deltaX = firstRect.left - lastRect.left
+        const deltaY = firstRect.top - lastRect.top
+
         // 计算尺寸比例差（FLIP 的核心：用 scale 模拟尺寸变化）
-        const scaleX = firstRect.width / lastRect.width;
-        const scaleY = firstRect.height / lastRect.height;
-        
+        const scaleX = firstRect.width / lastRect.width
+        const scaleY = firstRect.height / lastRect.height
+
         // 检查是否有位置或尺寸变化
-        const hasPositionChange = Math.abs(deltaX) > 1 || Math.abs(deltaY) > 1;
-        const hasSizeChange = Math.abs(scaleX - 1) > 0.01 || Math.abs(scaleY - 1) > 0.01;
-        
+        const hasPositionChange = Math.abs(deltaX) > 1 || Math.abs(deltaY) > 1
+        const hasSizeChange = Math.abs(scaleX - 1) > 0.01 || Math.abs(scaleY - 1) > 0.01
+
         if (!hasPositionChange && !hasSizeChange) {
-          return;
+          return
         }
-        
+
         // 使用 Web Animations API 执行流畅动画
         // transformOrigin 设为 top left 确保缩放从正确的位置开始
         const animation = el.animate(
@@ -141,544 +141,577 @@ export default function BrewSourceGrid({
             duration: 650,
             easing: 'cubic-bezier(0.16, 1, 0.3, 1)', // 更优雅的缓动曲线
             fill: 'none',
-          }
-        );
-        
-        flipAnimationsRef.current.set(id, animation);
-        
+          },
+        )
+
+        flipAnimationsRef.current.set(id, animation)
+
         animation.onfinish = () => {
-          flipAnimationsRef.current.delete(id);
-        };
-      });
-    });
-  }, []);
+          flipAnimationsRef.current.delete(id)
+        }
+      })
+    })
+  }, [])
 
   // 获取所有分类（用于编辑弹窗）- 支持多分类
   const categories = useMemo(() => {
-    const cats = new Set<string>();
-    sources.forEach(s => {
+    const cats = new Set<string>()
+    sources.forEach((s) => {
       if (s.category) {
         // 解析逗号分隔的多分类
-        s.category.split(',').forEach(c => {
-          const trimmed = c.trim();
-          if (trimmed) cats.add(trimmed);
-        });
+        s.category.split(',').forEach((c) => {
+          const trimmed = c.trim()
+          if (trimmed)
+            cats.add(trimmed)
+        })
       }
-    });
-    return Array.from(cats);
-  }, [sources]);
+    })
+    return Array.from(cats)
+  }, [sources])
 
   // 根据分类和搜索筛选源
   const filteredSources = useMemo(() => {
-    let result = sources;
+    let result = sources
     if (category) {
       // 支持多分类：检查 category 字段是否包含目标分类（用逗号分隔）
-      result = result.filter(s => {
-        if (!s.category) return false;
-        const cats = s.category.split(',').map(c => c.trim());
-        return cats.includes(category);
-      });
+      result = result.filter((s) => {
+        if (!s.category)
+          return false
+        const cats = s.category.split(',').map(c => c.trim())
+        return cats.includes(category)
+      })
     }
     if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      result = result.filter(s => 
-        s.name.toLowerCase().includes(query) ||
-        s.url.toLowerCase().includes(query) ||
-        (s.description?.toLowerCase().includes(query))
-      );
+      const query = searchQuery.toLowerCase()
+      result = result.filter(s =>
+        s.name.toLowerCase().includes(query)
+        || s.url.toLowerCase().includes(query)
+        || (s.description?.toLowerCase().includes(query)),
+      )
     }
-    return result;
-  }, [sources, category, searchQuery]);
+    return result
+  }, [sources, category, searchQuery])
 
   // 初始化自定义排序顺序（从数据库加载或默认）
   useEffect(() => {
     if (customOrder.length === 0 && filteredSources.length > 0) {
       // 检查是否有已保存的 sort_order
-      const sourcesWithOrder = filteredSources.filter(s => s.sort_order !== null && s.sort_order !== undefined);
-      
+      const sourcesWithOrder = filteredSources.filter(s => s.sort_order !== null && s.sort_order !== undefined)
+
       if (sourcesWithOrder.length > 0) {
         // 按 sort_order 排序，然后提取 id 作为 customOrder
         const sortedByOrder = [...filteredSources].sort((a, b) => {
-          const orderA = a.sort_order ?? Number.MAX_SAFE_INTEGER;
-          const orderB = b.sort_order ?? Number.MAX_SAFE_INTEGER;
-          return orderA - orderB;
-        });
-        setCustomOrder(sortedByOrder.map(s => s.id));
-      } else {
+          const orderA = a.sort_order ?? Number.MAX_SAFE_INTEGER
+          const orderB = b.sort_order ?? Number.MAX_SAFE_INTEGER
+          return orderA - orderB
+        })
+        setCustomOrder(sortedByOrder.map(s => s.id))
+      }
+      else {
         // 没有保存的排序，使用默认顺序
-        setCustomOrder(filteredSources.map(s => s.id));
+        setCustomOrder(filteredSources.map(s => s.id))
       }
     }
-  }, [filteredSources, customOrder.length]);
+  }, [filteredSources, customOrder.length])
 
   // 排序后的源列表
   const sortedSources = useMemo(() => {
-    const result = [...filteredSources];
-    
+    const result = [...filteredSources]
+
     switch (sortMode) {
       case 'update':
         // 按最新文章发布时间排序（最新的在前）
         return result.sort((a, b) => {
           // 获取每个订阅源最新文章的发布时间
-          const latestA = a.recent_items?.[0]?.published_at || a.last_fetched_at || 0;
-          const latestB = b.recent_items?.[0]?.published_at || b.last_fetched_at || 0;
-          return latestB - latestA;
-        });
-        
+          const latestA = a.recent_items?.[0]?.published_at || a.last_fetched_at || 0
+          const latestB = b.recent_items?.[0]?.published_at || b.last_fetched_at || 0
+          return latestB - latestA
+        })
+
       case 'custom':
         // 按自定义顺序排序
         if (customOrder.length === 0) {
-          return result; // 如果没有自定义顺序，保持原样
+          return result // 如果没有自定义顺序，保持原样
         }
         return result.sort((a, b) => {
-          const indexA = customOrder.indexOf(a.id);
-          const indexB = customOrder.indexOf(b.id);
+          const indexA = customOrder.indexOf(a.id)
+          const indexB = customOrder.indexOf(b.id)
           // 如果不在自定义顺序中，放到最后
-          if (indexA === -1) return 1;
-          if (indexB === -1) return -1;
-          return indexA - indexB;
-        });
-        
+          if (indexA === -1)
+            return 1
+          if (indexB === -1)
+            return -1
+          return indexA - indexB
+        })
+
       case 'category':
         // 按分类排序（同分类内按名称排序）
         // 预置分类（友情链接、我）在排序时被忽略，取主分类进行排序
         const getMainCategory = (cat: string | null): string => {
-          if (!cat) return '';
-          const cats = cat.split(',').map(c => c.trim()).filter(Boolean);
+          if (!cat)
+            return ''
+          const cats = cat.split(',').map(c => c.trim()).filter(Boolean)
           // 过滤掉预置分类，取第一个非预置分类
-          const mainCat = cats.find(c => !PRESET_CATEGORY_DB_VALUES.includes(c));
-          return mainCat || cats[0] || '';
-        };
+          const mainCat = cats.find(c => !PRESET_CATEGORY_DB_VALUES.includes(c))
+          return mainCat || cats[0] || ''
+        }
         return result.sort((a, b) => {
-          const catA = getMainCategory(a.category);
-          const catB = getMainCategory(b.category);
+          const catA = getMainCategory(a.category)
+          const catB = getMainCategory(b.category)
           if (catA !== catB) {
-            return catA.localeCompare(catB, 'zh-CN');
+            return catA.localeCompare(catB, 'zh-CN')
           }
-          return a.name.localeCompare(b.name, 'zh-CN');
-        });
-        
+          return a.name.localeCompare(b.name, 'zh-CN')
+        })
+
       case 'random':
         // 随机排序（使用种子确保同一会话内稳定）
         return result.sort((a, b) => {
-          const hashA = (a.id * randomSeed) % 1000;
-          const hashB = (b.id * randomSeed) % 1000;
-          return hashA - hashB;
-        });
-        
+          const hashA = (a.id * randomSeed) % 1000
+          const hashB = (b.id * randomSeed) % 1000
+          return hashA - hashB
+        })
+
       case 'pinyin':
         // 按拼音排序（使用 localeCompare）
-        return result.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
-        
+        return result.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
+
       default:
-        return result;
+        return result
     }
-  }, [filteredSources, sortMode, customOrder, randomSeed]);
+  }, [filteredSources, sortMode, customOrder, randomSeed])
 
   // 分类排序时的分类标题生成
   const getMainCategoryForRender = (cat: string | null): string => {
-    if (!cat) return t.brew.uncategorized;
-    const cats = cat.split(',').map(c => c.trim()).filter(Boolean);
-    const mainCat = cats.find(c => !PRESET_CATEGORY_DB_VALUES.includes(c));
-    return mainCat || t.brew.uncategorized;
-  };
+    if (!cat)
+      return t.brew.uncategorized
+    const cats = cat.split(',').map(c => c.trim()).filter(Boolean)
+    const mainCat = cats.find(c => !PRESET_CATEGORY_DB_VALUES.includes(c))
+    return mainCat || t.brew.uncategorized
+  }
 
   // 切换排序模式时的处理 - 带 FLIP 动画
   const handleSortModeChange = useCallback((mode: SortMode) => {
     // 1. 记录当前所有卡片的位置
-    recordCardPositions();
-    
+    recordCardPositions()
+
     // 2. 更新排序模式（触发重排序）
-    setSortMode(mode);
-    
+    setSortMode(mode)
+
     // 如果切换到随机排序，更新种子
     if (mode === 'random') {
-      setRandomSeed(Date.now());
+      setRandomSeed(Date.now())
     }
     // 如果切换到自由排序，初始化顺序
     if (mode === 'custom' && customOrder.length === 0) {
       // 优先按已保存的 sort_order 排序
-      const sourcesWithOrder = filteredSources.filter(s => s.sort_order !== null && s.sort_order !== undefined);
+      const sourcesWithOrder = filteredSources.filter(s => s.sort_order !== null && s.sort_order !== undefined)
       if (sourcesWithOrder.length > 0) {
         const sortedByOrder = [...filteredSources].sort((a, b) => {
-          const orderA = a.sort_order ?? Number.MAX_SAFE_INTEGER;
-          const orderB = b.sort_order ?? Number.MAX_SAFE_INTEGER;
-          return orderA - orderB;
-        });
-        setCustomOrder(sortedByOrder.map(s => s.id));
-      } else {
-        setCustomOrder(filteredSources.map(s => s.id));
+          const orderA = a.sort_order ?? Number.MAX_SAFE_INTEGER
+          const orderB = b.sort_order ?? Number.MAX_SAFE_INTEGER
+          return orderA - orderB
+        })
+        setCustomOrder(sortedByOrder.map(s => s.id))
+      }
+      else {
+        setCustomOrder(filteredSources.map(s => s.id))
       }
     }
-    
+
     // 3. 下一帧播放 FLIP 动画
     // 使用 setTimeout 确保 React 已经完成 DOM 更新
     setTimeout(() => {
-      playFlipAnimations();
-    }, 0);
-  }, [filteredSources, customOrder.length, recordCardPositions, playFlipAnimations]);
+      playFlipAnimations()
+    }, 0)
+  }, [filteredSources, customOrder.length, recordCardPositions, playFlipAnimations])
 
   // 拖拽排序 - 开始拖拽（仅编辑模式 + 自由排序模式）
   const handleCardDragStart = useCallback((e: React.MouseEvent | React.TouchEvent, sourceId: number) => {
-    if (!isEditMode || sortMode !== 'custom') return;
-    
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-    
-    dragStartPosRef.current = { x: clientX, y: clientY };
-    setDraggingSourceId(sourceId);
-  }, [isEditMode, sortMode]);
+    if (!isEditMode || sortMode !== 'custom')
+      return
+
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY
+
+    dragStartPosRef.current = { x: clientX, y: clientY }
+    setDraggingSourceId(sourceId)
+  }, [isEditMode, sortMode])
 
   // 拖拽排序 - 移动和结束
   useEffect(() => {
-    if (draggingSourceId === null) return;
+    if (draggingSourceId === null)
+      return
 
-    let rafId: number | null = null;
+    let rafId: number | null = null
 
     const handleMove = (e: MouseEvent | TouchEvent) => {
-      if (rafId !== null) return;
-      
+      if (rafId !== null)
+        return
+
       rafId = requestAnimationFrame(() => {
-        rafId = null;
-        
-        const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-        const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-        
+        rafId = null
+
+        const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
+        const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY
+
         // 遍历卡片，找到鼠标下的卡片
-        let targetId: number | null = null;
+        let targetId: number | null = null
         cardRefsRef.current.forEach((element, id) => {
-          if (id === draggingSourceId) return;
-          const rect = element.getBoundingClientRect();
+          if (id === draggingSourceId)
+            return
+          const rect = element.getBoundingClientRect()
           if (
-            clientX >= rect.left &&
-            clientX <= rect.right &&
-            clientY >= rect.top &&
-            clientY <= rect.bottom
+            clientX >= rect.left
+            && clientX <= rect.right
+            && clientY >= rect.top
+            && clientY <= rect.bottom
           ) {
-            targetId = id;
+            targetId = id
           }
-        });
-        
-        setDragOverSourceId(targetId);
-      });
-    };
+        })
+
+        setDragOverSourceId(targetId)
+      })
+    }
 
     const handleEnd = async () => {
       if (rafId !== null) {
-        cancelAnimationFrame(rafId);
+        cancelAnimationFrame(rafId)
       }
-      
+
       // 如果有目标卡片，交换两者位置（1对1交换）
       if (dragOverSourceId !== null && draggingSourceId !== null) {
-        let newFromIndex = -1;
-        let newToIndex = -1;
-        
+        let newFromIndex = -1
+        let newToIndex = -1
+
         // 记录当前位置用于 FLIP 动画
-        recordCardPositions();
-        
-        setCustomOrder(prev => {
-          const newOrder = [...prev];
-          const fromIndex = newOrder.indexOf(draggingSourceId);
-          const toIndex = newOrder.indexOf(dragOverSourceId);
-          
+        recordCardPositions()
+
+        setCustomOrder((prev) => {
+          const newOrder = [...prev]
+          const fromIndex = newOrder.indexOf(draggingSourceId)
+          const toIndex = newOrder.indexOf(dragOverSourceId)
+
           if (fromIndex !== -1 && toIndex !== -1) {
             // 1对1位置交换
-            newOrder[fromIndex] = dragOverSourceId;
-            newOrder[toIndex] = draggingSourceId;
-            newFromIndex = fromIndex;
-            newToIndex = toIndex;
+            newOrder[fromIndex] = dragOverSourceId
+            newOrder[toIndex] = draggingSourceId
+            newFromIndex = fromIndex
+            newToIndex = toIndex
           }
-          
-          return newOrder;
-        });
-        
+
+          return newOrder
+        })
+
         // 播放 FLIP 动画
-        setTimeout(() => playFlipAnimations(), 0);
-        
+        setTimeout(() => playFlipAnimations(), 0)
+
         // 保存交换后的排序到数据库
         if (newFromIndex !== -1 && newToIndex !== -1) {
           try {
             await Promise.all([
               brewApi.updateSource(draggingSourceId, { sort_order: newToIndex }),
               brewApi.updateSource(dragOverSourceId, { sort_order: newFromIndex }),
-            ]);
-          } catch (err) {
-            console.error('Failed to save sort order:', err);
+            ])
+          }
+          catch (err) {
+            console.error('Failed to save sort order:', err)
           }
         }
       }
-      
-      setDraggingSourceId(null);
-      setDragOverSourceId(null);
-      dragStartPosRef.current = null;
-    };
 
-    window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', handleEnd);
-    window.addEventListener('touchmove', handleMove, { passive: false });
-    window.addEventListener('touchend', handleEnd);
+      setDraggingSourceId(null)
+      setDragOverSourceId(null)
+      dragStartPosRef.current = null
+    }
+
+    window.addEventListener('mousemove', handleMove)
+    window.addEventListener('mouseup', handleEnd)
+    window.addEventListener('touchmove', handleMove, { passive: false })
+    window.addEventListener('touchend', handleEnd)
 
     return () => {
       if (rafId !== null) {
-        cancelAnimationFrame(rafId);
+        cancelAnimationFrame(rafId)
       }
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleEnd);
-      window.removeEventListener('touchmove', handleMove);
-      window.removeEventListener('touchend', handleEnd);
-    };
-  }, [draggingSourceId, dragOverSourceId, recordCardPositions, playFlipAnimations]);
+      window.removeEventListener('mousemove', handleMove)
+      window.removeEventListener('mouseup', handleEnd)
+      window.removeEventListener('touchmove', handleMove)
+      window.removeEventListener('touchend', handleEnd)
+    }
+  }, [draggingSourceId, dragOverSourceId, recordCardPositions, playFlipAnimations])
 
   // 保存卡片ref
   const setCardRef = useCallback((id: number, element: HTMLDivElement | null) => {
     if (element) {
-      cardRefsRef.current.set(id, element);
-    } else {
-      cardRefsRef.current.delete(id);
+      cardRefsRef.current.set(id, element)
     }
-  }, []);
+    else {
+      cardRefsRef.current.delete(id)
+    }
+  }, [])
 
   // 图标颜色提取后保存到数据库
   const handleThemeColorExtracted = useCallback(async (sourceId: number, color: string) => {
     try {
-      const updatedSource = await brewApi.updateSource(sourceId, { theme_color: color });
+      const updatedSource = await brewApi.updateSource(sourceId, { theme_color: color })
       // 通知父组件更新
       if (onSourceUpdate) {
-        onSourceUpdate(updatedSource);
+        onSourceUpdate(updatedSource)
       }
-    } catch {
+    }
+    catch {
       // 保存主题色失败，静默处理
     }
-  }, [onSourceUpdate]);
+  }, [onSourceUpdate])
 
   // 处理选择切换
   const handleToggleSelect = useCallback((sourceId: number) => {
-    setSelectedIds(prev => {
-      const next = new Set(prev);
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
       if (next.has(sourceId)) {
-        next.delete(sourceId);
-      } else {
-        next.add(sourceId);
+        next.delete(sourceId)
       }
-      return next;
-    });
-  }, []);
+      else {
+        next.add(sourceId)
+      }
+      return next
+    })
+  }, [])
 
   // 全选/取消全选
   const handleSelectAll = useCallback(() => {
     if (selectedIds.size === filteredSources.length) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(filteredSources.map(s => s.id)));
+      setSelectedIds(new Set())
     }
-  }, [filteredSources, selectedIds.size]);
+    else {
+      setSelectedIds(new Set(filteredSources.map(s => s.id)))
+    }
+  }, [filteredSources, selectedIds.size])
 
   // 进入编辑模式
   const handleEnterEditMode = useCallback(() => {
-    setIsEditMode(true);
-  }, []);
+    setIsEditMode(true)
+  }, [])
 
   // 退出编辑模式
   const handleExitEditMode = useCallback(() => {
-    setIsEditMode(false);
-    setSelectedIds(new Set());
-  }, []);
+    setIsEditMode(false)
+    setSelectedIds(new Set())
+  }, [])
 
   // 批量删除
   const handleBatchDelete = useCallback(async () => {
-    if (selectedIds.size === 0) return;
-    
-    const ids = Array.from(selectedIds);
-    setDeletingIds(ids);
-    setIsDeleting(true);
-    
+    if (selectedIds.size === 0)
+      return
+
+    const ids = Array.from(selectedIds)
+    setDeletingIds(ids)
+    setIsDeleting(true)
+
     try {
-      await Promise.all(ids.map(id => brewApi.deleteSource(id)));
-      setSelectedIds(new Set());
-      onSourcesChange?.();
-    } catch (err) {
-      console.error('Failed to delete sources:', err);
-    } finally {
-      setDeletingIds([]);
-      setIsDeleting(false);
+      await Promise.all(ids.map(id => brewApi.deleteSource(id)))
+      setSelectedIds(new Set())
+      onSourcesChange?.()
     }
-  }, [selectedIds, onSourcesChange]);
+    catch (err) {
+      console.error('Failed to delete sources:', err)
+    }
+    finally {
+      setDeletingIds([])
+      setIsDeleting(false)
+    }
+  }, [selectedIds, onSourcesChange])
 
   // 批量刷新全部订阅
   const handleBatchRefresh = useCallback(async () => {
-    if (filteredSources.length === 0) return;
-    
-    setIsRefreshing(true);
-    
+    if (filteredSources.length === 0)
+      return
+
+    setIsRefreshing(true)
+
     try {
       // 并行刷新所有订阅源
-      await Promise.all(filteredSources.map(source => onRefreshSource(source.id)));
-    } catch (err) {
-      console.error('Failed to refresh sources:', err);
-    } finally {
-      setIsRefreshing(false);
+      await Promise.all(filteredSources.map(source => onRefreshSource(source.id)))
     }
-  }, [filteredSources, onRefreshSource]);
+    catch (err) {
+      console.error('Failed to refresh sources:', err)
+    }
+    finally {
+      setIsRefreshing(false)
+    }
+  }, [filteredSources, onRefreshSource])
 
   // 全部订阅标记已读
-  const [isMarkingAllRead, setIsMarkingAllRead] = useState(false);
+  const [isMarkingAllRead, setIsMarkingAllRead] = useState(false)
   const handleMarkAllSourcesRead = useCallback(async () => {
-    if (!isAuthenticated) return;
-    
-    setIsMarkingAllRead(true);
+    if (!isAuthenticated)
+      return
+
+    setIsMarkingAllRead(true)
     try {
       // 按当前分类过滤
-      await brewApi.markAllRead({ category: category || undefined });
+      await brewApi.markAllRead({ category: category || undefined })
       // 触发刷新
-      onSourcesChange?.();
-    } catch (err) {
-      console.error('Failed to mark all sources read:', err);
-    } finally {
-      setIsMarkingAllRead(false);
+      onSourcesChange?.()
     }
-  }, [isAuthenticated, category, onSourcesChange]);
+    catch (err) {
+      console.error('Failed to mark all sources read:', err)
+    }
+    finally {
+      setIsMarkingAllRead(false)
+    }
+  }, [isAuthenticated, category, onSourcesChange])
 
   // Resize 状态
   const [resizingSource, setResizingSource] = useState<{
-    sourceId: number;
-    startY: number;
-    startSize: CardSize;
-    previewSize: CardSize;  // 预览尺寸（拖拽时显示）
-  } | null>(null);
+    sourceId: number
+    startY: number
+    startSize: CardSize
+    previewSize: CardSize // 预览尺寸（拖拽时显示）
+  } | null>(null)
 
   // 尺寸阈值配置（基于拖动距离）
-  const SIZE_ORDER: CardSize[] = ['tiny', 'mini', 'full'];
-  const RESIZE_THRESHOLD = 100; // 每个尺寸变化需要的像素距离
+  const SIZE_ORDER: CardSize[] = ['tiny', 'mini', 'full']
+  const RESIZE_THRESHOLD = 100 // 每个尺寸变化需要的像素距离
 
   // 开始拖拽调整尺寸
   const handleResizeStart = useCallback((e: React.MouseEvent | React.TouchEvent, sourceId: number) => {
-    if (!isEditMode) return;
-    
-    const source = sources.find(s => s.id === sourceId);
-    if (!source) return;
-    
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-    const currentSize = source.card_size || 'mini';
-    
+    if (!isEditMode)
+      return
+
+    const source = sources.find(s => s.id === sourceId)
+    if (!source)
+      return
+
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY
+    const currentSize = source.card_size || 'mini'
+
     setResizingSource({
       sourceId,
       startY: clientY,
       startSize: currentSize,
       previewSize: currentSize,
-    });
-  }, [isEditMode, sources]);
+    })
+  }, [isEditMode, sources])
 
   // 尺寸对应的 row-span 高度（与 SourceCard 中一致）
   const SIZE_TO_ROWS: Record<CardSize, number> = {
-    full: 8,   // 8 × 24px = 192px
-    mini: 4,   // 4 × 24px = 96px
-    tiny: 2,   // 2 × 24px = 48px
-  };
+    full: 8, // 8 × 24px = 192px
+    mini: 4, // 4 × 24px = 96px
+    tiny: 2, // 2 × 24px = 48px
+  }
 
   // 拖拽移动处理 - 更新预览尺寸并触发 FLIP 动画
   useEffect(() => {
-    if (!resizingSource) return;
+    if (!resizingSource)
+      return
 
     const handleMove = (e: MouseEvent | TouchEvent) => {
-      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-      const deltaY = clientY - resizingSource.startY;
-      
+      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY
+      const deltaY = clientY - resizingSource.startY
+
       // 计算目标尺寸
-      const startIndex = SIZE_ORDER.indexOf(resizingSource.startSize);
-      const sizeChange = Math.round(deltaY / RESIZE_THRESHOLD);
-      const targetIndex = Math.max(0, Math.min(SIZE_ORDER.length - 1, startIndex + sizeChange));
-      const targetSize = SIZE_ORDER[targetIndex];
-      
+      const startIndex = SIZE_ORDER.indexOf(resizingSource.startSize)
+      const sizeChange = Math.round(deltaY / RESIZE_THRESHOLD)
+      const targetIndex = Math.max(0, Math.min(SIZE_ORDER.length - 1, startIndex + sizeChange))
+      const targetSize = SIZE_ORDER[targetIndex]
+
       // 尺寸变化时触发 FLIP 动画
       if (targetSize !== resizingSource.previewSize) {
         // 1. 记录当前位置（在 DOM 更新前）
-        recordCardPositions();
+        recordCardPositions()
         // 2. 更新预览尺寸（触发重渲染）
-        setResizingSource(prev => prev ? { ...prev, previewSize: targetSize } : null);
+        setResizingSource(prev => prev ? { ...prev, previewSize: targetSize } : null)
         // 3. 双层 RAF 确保 React 渲染完成后再播放动画
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
-            playFlipAnimations();
-          });
-        });
+            playFlipAnimations()
+          })
+        })
       }
-    };
+    }
 
     const handleEnd = async () => {
-      if (!resizingSource) return;
-      
-      const source = sources.find(s => s.id === resizingSource.sourceId);
-      const finalSize = resizingSource.previewSize;
-      
+      if (!resizingSource)
+        return
+
+      const source = sources.find(s => s.id === resizingSource.sourceId)
+      const finalSize = resizingSource.previewSize
+
       // 尺寸有变化时才更新
       if (source && finalSize !== resizingSource.startSize) {
         // 记录所有卡片位置用于 FLIP 动画
-        recordCardPositions();
-        
+        recordCardPositions()
+
         // 更新数据
-        const optimisticSource: BrewSource = { ...source, card_size: finalSize };
-        onSourceUpdate?.(optimisticSource);
-        
+        const optimisticSource: BrewSource = { ...source, card_size: finalSize }
+        onSourceUpdate?.(optimisticSource)
+
         // 播放 FLIP 动画
-        setTimeout(() => playFlipAnimations(), 0);
-        
+        setTimeout(() => playFlipAnimations(), 0)
+
         // 保存到数据库
         try {
-          await brewApi.updateSource(source.id, { card_size: finalSize });
-        } catch (err) {
-          console.error('Failed to save card size:', err);
+          await brewApi.updateSource(source.id, { card_size: finalSize })
+        }
+        catch (err) {
+          console.error('Failed to save card size:', err)
           // 失败时回滚
-          const rollbackSource: BrewSource = { ...source, card_size: resizingSource.startSize };
-          onSourceUpdate?.(rollbackSource);
+          const rollbackSource: BrewSource = { ...source, card_size: resizingSource.startSize }
+          onSourceUpdate?.(rollbackSource)
         }
       }
-      
-      setResizingSource(null);
-    };
 
-    window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', handleEnd);
-    window.addEventListener('touchmove', handleMove);
-    window.addEventListener('touchend', handleEnd);
+      setResizingSource(null)
+    }
+
+    window.addEventListener('mousemove', handleMove)
+    window.addEventListener('mouseup', handleEnd)
+    window.addEventListener('touchmove', handleMove)
+    window.addEventListener('touchend', handleEnd)
 
     return () => {
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleEnd);
-      window.removeEventListener('touchmove', handleMove);
-      window.removeEventListener('touchend', handleEnd);
-    };
-  }, [resizingSource, sources, onSourceUpdate, recordCardPositions, playFlipAnimations]);
+      window.removeEventListener('mousemove', handleMove)
+      window.removeEventListener('mouseup', handleEnd)
+      window.removeEventListener('touchmove', handleMove)
+      window.removeEventListener('touchend', handleEnd)
+    }
+  }, [resizingSource, sources, onSourceUpdate, recordCardPositions, playFlipAnimations])
 
   // 处理编辑保存
   const handleEditSave = useCallback(async (id: number, data: {
-    name?: string;
-    category?: string;
-    update_interval?: number;
-    enabled?: boolean;
-    icon?: string;
-    ai_style_tags?: string[];
+    name?: string
+    category?: string
+    update_interval?: number
+    enabled?: boolean
+    icon?: string
+    ai_style_tags?: string[]
   }) => {
     // 如果更新了图标，同时清除主题色，让图标加载时重新提取
-    const updateData = data.icon !== undefined 
-      ? { ...data, theme_color: '' }  // 清除主题色
-      : data;
-    const updatedSource = await brewApi.updateSource(id, updateData);
-    onSourceUpdate?.(updatedSource);
-    onSourcesChange?.();
-  }, [onSourceUpdate, onSourcesChange]);
+    const updateData = data.icon !== undefined
+      ? { ...data, theme_color: '' } // 清除主题色
+      : data
+    const updatedSource = await brewApi.updateSource(id, updateData)
+    onSourceUpdate?.(updatedSource)
+    onSourcesChange?.()
+  }, [onSourceUpdate, onSourcesChange])
 
   // 处理单个删除
   const handleDeleteSource = useCallback(async (sourceId: number) => {
-    setDeletingIds([sourceId]);
+    setDeletingIds([sourceId])
     try {
-      await brewApi.deleteSource(sourceId);
-      onSourcesChange?.();
-    } catch (err) {
-      console.error('Failed to delete source:', err);
-    } finally {
-      setDeletingIds([]);
+      await brewApi.deleteSource(sourceId)
+      onSourcesChange?.()
     }
-  }, [onSourcesChange]);
+    catch (err) {
+      console.error('Failed to delete source:', err)
+    }
+    finally {
+      setDeletingIds([])
+    }
+  }, [onSourcesChange])
 
   if (filteredSources.length === 0 && !searchQuery) {
     return (
@@ -721,7 +754,7 @@ export default function BrewSourceGrid({
           </p>
         </div>
       </div>
-    );
+    )
   }
 
   return (
@@ -771,16 +804,16 @@ export default function BrewSourceGrid({
           {sortedSources.map((source, index) => {
             // 分类排序模式下，检查是否需要显示分类标题
             const showCategoryHeader = sortMode === 'category' && (
-              index === 0 || 
-              getMainCategoryForRender(sortedSources[index - 1].category) !== getMainCategoryForRender(source.category)
-            );
-            const currentCategory = getMainCategoryForRender(source.category);
-            
+              index === 0
+              || getMainCategoryForRender(sortedSources[index - 1].category) !== getMainCategoryForRender(source.category)
+            )
+            const currentCategory = getMainCategoryForRender(source.category)
+
             return (
               <React.Fragment key={source.id}>
                 {/* 分类标题 */}
                 {showCategoryHeader && (
-                  <div 
+                  <div
                     className="col-span-1 md:col-span-2 xl:col-span-3 flex items-center gap-2 pt-6 pb-1 first:pt-0"
                     style={{ gridRow: 'span 2' }}
                   >
@@ -793,7 +826,7 @@ export default function BrewSourceGrid({
                   </div>
                 )}
                 <SourceCard
-                  ref={(el) => setCardRef(source.id, el)}
+                  ref={el => setCardRef(source.id, el)}
                   source={source}
                   index={index}
                   onSourceClick={isEditMode ? () => handleToggleSelect(source.id) : onSourceClick}
@@ -812,7 +845,7 @@ export default function BrewSourceGrid({
                   sortMode={sortMode}
                 />
               </React.Fragment>
-            );
+            )
           })}
         </div>
       )}
@@ -827,5 +860,5 @@ export default function BrewSourceGrid({
         />
       )}
     </div>
-  );
+  )
 }

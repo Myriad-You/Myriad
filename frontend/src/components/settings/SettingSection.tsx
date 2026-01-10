@@ -3,11 +3,11 @@
  * 带标题、图标和描述的设置容器
  */
 
-import React from 'react';
-import { motionShim as motion } from '@lib/motionShim';
-import type { SettingSectionConfig, SettingGroupConfig } from './types';
-import { SettingGroup } from './SettingGroup';
-import './SettingSection.css';
+import type { SettingSectionConfig } from './types'
+import { motionShim as motion } from '@lib/motionShim'
+import React from 'react'
+import { SettingGroup } from './SettingGroup'
+import './SettingSection.css'
 
 export interface SettingSectionProps extends SettingSectionConfig {}
 
@@ -21,12 +21,13 @@ export const SettingSection: React.FC<SettingSectionProps> = ({
   animated = true,
 }) => {
   const renderIcon = () => {
-    if (!icon) return null;
+    if (!icon)
+      return null
     if (typeof icon === 'string') {
-      return <span className="section-icon">{icon}</span>;
+      return <span className="section-icon">{icon}</span>
     }
-    return <span className="section-icon">{icon}</span>;
-  };
+    return <span className="section-icon">{icon}</span>
+  }
 
   const content = (
     <div className={`config-section setting-section ${className}`}>
@@ -47,7 +48,7 @@ export const SettingSection: React.FC<SettingSectionProps> = ({
         {children}
       </div>
     </div>
-  );
+  )
 
   if (animated) {
     return (
@@ -58,10 +59,10 @@ export const SettingSection: React.FC<SettingSectionProps> = ({
       >
         {content}
       </motion.div>
-    );
+    )
   }
 
-  return content;
-};
+  return content
+}
 
-SettingSection.displayName = 'SettingSection';
+SettingSection.displayName = 'SettingSection'

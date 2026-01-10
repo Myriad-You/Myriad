@@ -14,7 +14,8 @@
 
 /* 拖拽虚线动画 - 使用 opacity 脉动效果提高性能 */
 @keyframes dash {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 1;
   }
   50% {
@@ -38,7 +39,7 @@
   .widget-grid-container.edit-mode {
     touch-action: none;
   }
-  
+
   /* 非编辑模式下允许正常滚动 */
   .widget-grid-container:not(.edit-mode) {
     touch-action: pan-y;

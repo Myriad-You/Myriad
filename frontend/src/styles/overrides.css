@@ -4,36 +4,64 @@
    ============================================ */
 
 /* Tailwind颜色类全局覆盖 */
-.text-gray-700 { color: var(--text-primary) !important; }
-.text-gray-800 { color: var(--text-primary) !important; }
-.text-gray-600 { color: var(--text-secondary) !important; }
-.text-gray-500 { color: var(--text-tertiary) !important; }
-.text-gray-400 { color: var(--text-muted) !important; }
-.text-gray-300 { color: var(--text-secondary) !important; }
+.text-gray-700 {
+  color: var(--text-primary) !important;
+}
+.text-gray-800 {
+  color: var(--text-primary) !important;
+}
+.text-gray-600 {
+  color: var(--text-secondary) !important;
+}
+.text-gray-500 {
+  color: var(--text-tertiary) !important;
+}
+.text-gray-400 {
+  color: var(--text-muted) !important;
+}
+.text-gray-300 {
+  color: var(--text-secondary) !important;
+}
 
-html.dark .dark\:text-gray-100 { color: var(--text-primary) !important; }
-html.dark .dark\:text-gray-300 { color: var(--text-secondary) !important; }
-html.dark .dark\:text-gray-400 { color: var(--text-tertiary) !important; }
-html.dark .dark\:text-gray-500 { color: var(--text-muted) !important; }
+html.dark .dark\:text-gray-100 {
+  color: var(--text-primary) !important;
+}
+html.dark .dark\:text-gray-300 {
+  color: var(--text-secondary) !important;
+}
+html.dark .dark\:text-gray-400 {
+  color: var(--text-tertiary) !important;
+}
+html.dark .dark\:text-gray-500 {
+  color: var(--text-muted) !important;
+}
 
 /* 背景颜色覆盖 */
-html.dark .dark\:bg-gray-700 { background-color: var(--bg-tertiary) !important; }
-html.dark .dark\:bg-gray-800\/50 { 
-  background-color: rgba(31, 33, 40, 0.5) !important;
-  background-color: color-mix(in srgb, var(--bg-tertiary) 50%, transparent) !important; 
+html.dark .dark\:bg-gray-700 {
+  background-color: var(--bg-tertiary) !important;
 }
-html.dark .dark\:hover\:bg-gray-700:hover { background-color: var(--bg-hover) !important; }
+html.dark .dark\:bg-gray-800\/50 {
+  background-color: rgba(31, 33, 40, 0.5) !important;
+  background-color: color-mix(in srgb, var(--bg-tertiary) 50%, transparent) !important;
+}
+html.dark .dark\:hover\:bg-gray-700:hover {
+  background-color: var(--bg-hover) !important;
+}
 
 /* 边框颜色覆盖 */
-.border-gray-200\/50 { 
+.border-gray-200\/50 {
   border-color: rgba(229, 231, 235, 0.5) !important;
-  border-color: color-mix(in srgb, var(--border-color) 50%, transparent) !important; 
+  border-color: color-mix(in srgb, var(--border-color) 50%, transparent) !important;
 }
-.border-gray-300 { border-color: var(--border-color) !important; }
-html.dark .dark\:border-gray-600 { border-color: var(--border-color) !important; }
-html.dark .dark\:border-gray-700\/50 { 
+.border-gray-300 {
+  border-color: var(--border-color) !important;
+}
+html.dark .dark\:border-gray-600 {
+  border-color: var(--border-color) !important;
+}
+html.dark .dark\:border-gray-700\/50 {
   border-color: rgba(55, 58, 71, 0.5) !important;
-  border-color: color-mix(in srgb, var(--border-color) 50%, transparent) !important; 
+  border-color: color-mix(in srgb, var(--border-color) 50%, transparent) !important;
 }
 
 /* 主题色覆盖 */
@@ -58,20 +86,20 @@ html.dark .dark\:hover\:bg-indigo-700:hover {
 }
 
 .hover\:bg-gray-800:hover {
-  background: linear-gradient(135deg,
-    rgba(79, 82, 217, 1),
-    rgba(139, 92, 246, 1)) !important;
-  background: linear-gradient(135deg,
+  background: linear-gradient(135deg, rgba(79, 82, 217, 1), rgba(139, 92, 246, 1)) !important;
+  background: linear-gradient(
+    135deg,
     color-mix(in srgb, var(--color-primary) 90%, black),
-    color-mix(in srgb, var(--color-secondary) 90%, black)) !important;
+    color-mix(in srgb, var(--color-secondary) 90%, black)
+  ) !important;
 }
 
 /* 表单和输入框样式 */
-input[type="text"],
-input[type="email"],
-input[type="password"],
-input[type="url"],
-input[type="number"],
+input[type='text'],
+input[type='email'],
+input[type='password'],
+input[type='url'],
+input[type='number'],
 textarea,
 select {
   background: var(--input-bg);
@@ -80,11 +108,11 @@ select {
   transition: all 0.2s ease;
 }
 
-input[type="text"]:focus,
-input[type="email"]:focus,
-input[type="password"]:focus,
-input[type="url"]:focus,
-input[type="number"]:focus,
+input[type='text']:focus,
+input[type='email']:focus,
+input[type='password']:focus,
+input[type='url']:focus,
+input[type='number']:focus,
 textarea:focus,
 select:focus {
   background: var(--bg-secondary);
@@ -129,9 +157,15 @@ button:disabled {
     font-size: 15px;
   }
 
-  h1 { font-size: 1.75rem; }
-  h2 { font-size: 1.5rem; }
-  h3 { font-size: 1.25rem; }
+  h1 {
+    font-size: 1.75rem;
+  }
+  h2 {
+    font-size: 1.5rem;
+  }
+  h3 {
+    font-size: 1.25rem;
+  }
 
   .px-4 {
     padding-left: 1rem !important;

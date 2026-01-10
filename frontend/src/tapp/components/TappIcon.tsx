@@ -1,7 +1,7 @@
 /**
  * Tapp 图标渲染组件
  * 统一处理 emoji、URL、内联 SVG 三种图标类型
- * 
+ *
  * iOS/Safari 兼容性：使用 img+data URI 方式渲染 SVG
  */
 
@@ -29,7 +29,8 @@ export interface TappIconProps {
  * 检查字符串是否为 URL（用于区分 emoji 和图片 URL）
  */
 export function isIconUrl(icon: string | undefined): boolean {
-  if (!icon) return false
+  if (!icon)
+    return false
   return icon.startsWith('http://') || icon.startsWith('https://') || icon.startsWith('data:') || icon.startsWith('/')
 }
 
@@ -37,7 +38,8 @@ export function isIconUrl(icon: string | undefined): boolean {
  * 检查字符串是否为内联 SVG
  */
 export function isIconSvg(icon: string | undefined): boolean {
-  if (!icon) return false
+  if (!icon)
+    return false
   return icon.trim().startsWith('<svg')
 }
 
@@ -47,20 +49,20 @@ export function isIconSvg(icon: string | undefined): boolean {
  */
 function svgToDataUri(svg: string, color: string = 'white'): string {
   let normalized = svg.trim()
-  
+
   // 添加 xmlns（如果缺失）- 必须用于 data URI
   if (!normalized.includes('xmlns=')) {
     normalized = normalized.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"')
   }
-  
+
   // 替换 currentColor 为指定颜色（data URI 中无法继承 CSS 颜色）
   normalized = normalized.replace(/currentColor/g, color)
-  
+
   // 编码为 data URI
   const encoded = encodeURIComponent(normalized)
     .replace(/'/g, '%27')
     .replace(/"/g, '%22')
-  
+
   return `data:image/svg+xml,${encoded}`
 }
 
@@ -95,7 +97,7 @@ export function TappIcon({
         src={svgDataUri}
         alt=""
         className={`${sizeClass} ${className}`}
-        style={{ 
+        style={{
           display: 'block',
           objectFit: 'contain',
         }}

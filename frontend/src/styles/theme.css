@@ -9,7 +9,7 @@
   --color-accent: #cbd5e1;
   --color-light: #cbd5e1;
   --color-dark: #475569;
-  
+
   /* 浅色模式背景色 - 纯色透明 */
   --bg-primary: #f5f5f5;
   --bg-secondary: #ffffff;
@@ -47,7 +47,9 @@ html.dark {
 
 /* 全局过渡 */
 html {
-  transition: background-color 0.5s cubic-bezier(0.4, 0, 0.2, 1), color 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  transition:
+    background-color 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+    color 0.5s cubic-bezier(0.4, 0, 0.2, 1);
   scroll-behavior: smooth;
   overflow-y: auto;
   overflow-x: hidden;
@@ -56,7 +58,9 @@ html {
 body {
   background: var(--bg-primary);
   color: var(--text-primary);
-  transition: background-color 0.5s cubic-bezier(0.4, 0, 0.2, 1), color 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  transition:
+    background-color 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+    color 0.5s cubic-bezier(0.4, 0, 0.2, 1);
   font-family: 'Inter', sans-serif;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
@@ -75,7 +79,9 @@ body {
   will-change: transform;
   backface-visibility: hidden;
   /* 禁用 CSS transition，由 JS 控制平滑动画 */
-  transition: background-image 0.7s ease-in-out, opacity 0.7s ease-in-out !important;
+  transition:
+    background-image 0.7s ease-in-out,
+    opacity 0.7s ease-in-out !important;
 }
 
 /* 低端设备禁用视差动画 */
@@ -93,9 +99,10 @@ body {
   backdrop-filter: blur(16px) saturate(180%);
   border: 1px solid rgba(255, 255, 255, 0.3);
   box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.1);
-  transition: background 0.3s cubic-bezier(0.4, 0, 0.2, 1), 
-              border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-              box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition:
+    background 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 html.dark .glass {
@@ -108,14 +115,14 @@ html.dark .glass {
 
 /* 背景网格 */
 .bg-grid-pattern {
-  background-image: 
+  background-image:
     linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
   background-size: 50px 50px;
 }
 
 html.dark .bg-grid-pattern {
-  background-image: 
+  background-image:
     linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
 }
@@ -127,8 +134,8 @@ html.dark #bg-container {
 
 html.dark #bg-gradient {
   background: linear-gradient(
-    to bottom, 
-    transparent 0%, 
+    to bottom,
+    transparent 0%,
     transparent 35%,
     rgba(10, 10, 10, 0.3) 45%,
     rgba(10, 10, 10, 0.5) 55%,
@@ -177,7 +184,8 @@ html.dark ::placeholder {
 
 /* 移动端优化 */
 @media (max-width: 767px) {
-  html, body {
+  html,
+  body {
     overscroll-behavior-y: contain;
     -webkit-overflow-scrolling: touch;
     touch-action: pan-y pinch-zoom;

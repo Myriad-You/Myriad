@@ -1,33 +1,33 @@
-import React from 'react';
-import PlatformIcon from './PlatformIcon';
+import React from 'react'
+import PlatformIcon from './PlatformIcon'
 
 interface MusicCardProps {
   item: {
-    id: string;
-    title: string;
-    cover?: string;
-    platform: string;
+    id: string
+    title: string
+    cover?: string
+    platform: string
     metadata: {
-      id?: string;
-      artist?: string;
-      ar?: Array<{ name: string }>;
-      isVip?: boolean;
-      fee?: number;
-    };
-  };
+      id?: string
+      artist?: string
+      ar?: Array<{ name: string }>
+      isVip?: boolean
+      fee?: number
+    }
+  }
   layout: {
-    left: number;
-    top: number;
-    width: number;
-    height: number;
-  };
-  platformColor: string;
-  isVip: boolean;
-  isCurrentSong: boolean;
-  isPlaying: boolean;
-  musicColor: string;
-  animationDelay: number;
-  onPlay: () => void;
+    left: number
+    top: number
+    width: number
+    height: number
+  }
+  platformColor: string
+  isVip: boolean
+  isCurrentSong: boolean
+  isPlaying: boolean
+  musicColor: string
+  animationDelay: number
+  onPlay: () => void
 }
 
 /**
@@ -48,29 +48,29 @@ const MusicCard = React.memo<MusicCardProps>(({
 }) => {
   // 提取艺术家信息
   const getArtist = () => {
-    const artists = item.metadata.ar;
+    const artists = item.metadata.ar
     if (Array.isArray(artists) && artists.length > 0) {
-      return artists.map((a: any) => a.name || a).join(', ');
+      return artists.map((a: any) => a.name || a).join(', ')
     }
     if (item.metadata.artist) {
-      return item.metadata.artist;
+      return item.metadata.artist
     }
-    return null;
-  };
+    return null
+  }
 
-  const artist = getArtist();
+  const artist = getArtist()
 
   return (
     <div
       key={item.id}
       className="absolute group library-card-container"
       style={{
-        left: `${layout.left}px`,
-        top: `${layout.top}px`,
-        width: `${layout.width}px`,
-        height: `${layout.height}px`,
+        'left': `${layout.left}px`,
+        'top': `${layout.top}px`,
+        'width': `${layout.width}px`,
+        'height': `${layout.height}px`,
         '--platform-color': platformColor,
-        animationDelay: `${animationDelay}s`
+        'animationDelay': `${animationDelay}s`,
       } as React.CSSProperties}
     >
       {/* 音乐卡片：正方形专辑封面 */}
@@ -78,29 +78,31 @@ const MusicCard = React.memo<MusicCardProps>(({
         <div
           className="block w-full h-full relative cursor-pointer"
           onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onPlay();
+            e.preventDefault()
+            e.stopPropagation()
+            onPlay()
           }}
         >
-          {item.cover ? (
-            <img
-              src={item.cover}
-              alt={item.title}
-              className="w-full h-full object-cover transition-all duration-500 group-hover:scale-110"
-              loading="lazy"
-              decoding="async"
-              onError={(e) => {
-                (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(item.title)}&size=400&background=random`;
-              }}
-            />
-          ) : (
-            <div className="w-full h-full bg-gradient-to-br from-pink-400 to-purple-500 flex items-center justify-center">
-              <span className="text-white text-4xl font-bold">
-                {item.title.charAt(0).toUpperCase()}
-              </span>
-            </div>
-          )}
+          {item.cover
+            ? (
+                <img
+                  src={item.cover}
+                  alt={item.title}
+                  className="w-full h-full object-cover transition-all duration-500 group-hover:scale-110"
+                  loading="lazy"
+                  decoding="async"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(item.title)}&size=400&background=random`
+                  }}
+                />
+              )
+            : (
+                <div className="w-full h-full bg-gradient-to-br from-pink-400 to-purple-500 flex items-center justify-center">
+                  <span className="text-white text-4xl font-bold">
+                    {item.title.charAt(0).toUpperCase()}
+                  </span>
+                </div>
+              )}
 
           {/* VIP 标识 */}
           {isVip && (
@@ -147,9 +149,9 @@ const MusicCard = React.memo<MusicCardProps>(({
         </div>
       </div>
     </div>
-  );
-});
+  )
+})
 
-MusicCard.displayName = 'MusicCard';
+MusicCard.displayName = 'MusicCard'
 
-export default MusicCard;
+export default MusicCard

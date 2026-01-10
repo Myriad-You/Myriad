@@ -2,60 +2,60 @@
  * Brew 阅读器子组件导出
  */
 
-// 类型导出
-export type { 
-  ThemeKey, 
-  LayoutKey, 
-  TocItem, 
-  ThemeConfig, 
-  FontOption, 
-  LayoutOption,
-  MobileReaderBarProps,
-  ReaderLeftPanelProps,
-  ReaderRightPanelProps,
-} from './types';
+export { default as CommentsListPanel } from './CommentsListPanel'
 
 // 常量导出
 export {
-  THEMES,
-  THEME_ORDER,
+  DATE_FORMAT_FULL,
+  DATE_FORMAT_SHORT,
   FONT_OPTIONS,
   LAYOUT_OPTIONS,
-  TRANSITION_FAST,
-  TRANSITION_NORMAL,
-  TRANSITION_SLOW,
-  TRANSITION_PANEL,
-  DATE_FORMAT_SHORT,
-  DATE_FORMAT_FULL,
-  STYLE_TRANSFORM_ORIGIN,
+  STYLE_MAX_HEIGHT_60VH,
+  STYLE_MAX_HEIGHT_320,
   STYLE_READER_CONTAINER,
   STYLE_SCROLL_SMOOTH,
-  STYLE_MAX_HEIGHT_320,
-  STYLE_MAX_HEIGHT_60VH,
-} from './constants';
+  STYLE_TRANSFORM_ORIGIN,
+  THEME_ORDER,
+  THEMES,
+  TRANSITION_FAST,
+  TRANSITION_NORMAL,
+  TRANSITION_PANEL,
+  TRANSITION_SLOW,
+} from './constants'
 
 // Hooks 导出
 export {
-  useReaderSettings,
   useAnnotations,
   useComments,
   usePodcast,
-} from './hooks';
+  useReaderSettings,
+} from './hooks'
 export type {
-  UseReaderSettingsReturn,
+  SelectionRange,
   UseAnnotationsOptions,
   UseAnnotationsReturn,
   UseCommentsOptions,
   UseCommentsReturn,
-  SelectionRange,
   UsePodcastOptions,
   UsePodcastReturn,
-} from './hooks';
+  UseReaderSettingsReturn,
+} from './hooks'
 
+export { Lightbox } from './Lightbox'
 // 组件导出
-export { MobileReaderBar } from './MobileReaderBar';
-export { default as ReaderLeftPanel } from './ReaderLeftPanel';
-export { default as ReaderRightPanel } from './ReaderRightPanel';
-export { default as CommentsListPanel } from './CommentsListPanel';
-export { AnnotationTooltip, CommentTooltip, CommentInputPopup } from './ReaderTooltips';
-export { Lightbox } from './Lightbox';
+export { MobileReaderBar } from './MobileReaderBar'
+export { default as ReaderLeftPanel } from './ReaderLeftPanel'
+export { default as ReaderRightPanel } from './ReaderRightPanel'
+export { AnnotationTooltip, CommentInputPopup, CommentTooltip } from './ReaderTooltips'
+// 类型导出
+export type {
+  FontOption,
+  LayoutKey,
+  LayoutOption,
+  MobileReaderBarProps,
+  ReaderLeftPanelProps,
+  ReaderRightPanelProps,
+  ThemeConfig,
+  ThemeKey,
+  TocItem,
+} from './types'

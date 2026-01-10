@@ -2,35 +2,35 @@
  * KeyboardMode - 快捷键模式
  */
 
-import { motion } from 'framer-motion';
 import {
   LuKeyboard as Keyboard,
   LuX as X,
-} from '@lib/icons';
-import { SPRING_SMOOTH } from './constants';
+} from '@lib/icons'
+import { motion } from 'framer-motion'
+import { SPRING_SMOOTH } from './constants'
 
 interface KeyboardShortcut {
-  key: string;
-  descriptionKey?: string;
-  description?: string;
-  category: string;
+  key: string
+  descriptionKey?: string
+  description?: string
+  category: string
 }
 
 export interface KeyboardModeProps {
-  variant: 'mobile' | 'desktop';
+  variant: 'mobile' | 'desktop'
   groupedShortcuts: {
-    navigation: KeyboardShortcut[];
-    article: KeyboardShortcut[];
-    source: KeyboardShortcut[];
-    other: KeyboardShortcut[];
-  };
-  categoryLabels: Record<string, string>;
-  onClose: () => void;
+    navigation: KeyboardShortcut[]
+    article: KeyboardShortcut[]
+    source: KeyboardShortcut[]
+    other: KeyboardShortcut[]
+  }
+  categoryLabels: Record<string, string>
+  onClose: () => void
   t: {
-    keyboardShortcuts: string;
-    close: string;
-    [key: string]: string;
-  };
+    keyboardShortcuts: string
+    close: string
+    [key: string]: string
+  }
 }
 
 export function KeyboardMode({
@@ -40,13 +40,13 @@ export function KeyboardMode({
   onClose,
   t,
 }: KeyboardModeProps) {
-  const isMobile = variant === 'mobile';
-  
+  const isMobile = variant === 'mobile'
+
   // 移动端不显示快捷键模式
   if (isMobile) {
-    return null;
+    return null
   }
-  
+
   return (
     <motion.div
       key="keyboard-bar"
@@ -60,7 +60,8 @@ export function KeyboardMode({
       <div className="p-4 max-h-[50vh] overflow-y-auto">
         <div className="grid grid-cols-2 gap-3">
           {Object.entries(groupedShortcuts).map(([cat, shortcuts]) => {
-            if (shortcuts.length === 0) return null;
+            if (shortcuts.length === 0)
+              return null
             return (
               <div
                 key={cat}
@@ -90,11 +91,11 @@ export function KeyboardMode({
                   ))}
                 </div>
               </div>
-            );
+            )
           })}
         </div>
       </div>
-      
+
       {/* 底部标题栏 */}
       <div className="flex items-center justify-between px-4 py-2.5 border-t border-gray-100 dark:border-neutral-800 bg-gray-50/50 dark:bg-neutral-800/30">
         <div className="flex items-center gap-2">
@@ -113,5 +114,5 @@ export function KeyboardMode({
         </button>
       </div>
     </motion.div>
-  );
+  )
 }

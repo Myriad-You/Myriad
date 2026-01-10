@@ -2,9 +2,9 @@
  * 复选框设置项组件
  */
 
-import React, { useCallback } from 'react';
-import type { CheckboxSettingConfig } from '../types';
-import './SettingItem.css';
+import type { CheckboxSettingConfig } from '../types'
+import React, { useCallback } from 'react'
+import './SettingItem.css'
 
 export interface CheckboxItemProps extends Omit<CheckboxSettingConfig, 'type'> {}
 
@@ -24,20 +24,20 @@ export const CheckboxItem = React.memo<CheckboxItemProps>(({
 }) => {
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     if (!disabled && !loading) {
-      onChange(e.target.checked);
+      onChange(e.target.checked)
     }
-  }, [onChange, disabled, loading]);
+  }, [onChange, disabled, loading])
 
-  const id = `setting-checkbox-${itemKey || label.replace(/\s+/g, '-').toLowerCase()}`;
+  const id = `setting-checkbox-${itemKey || label.replace(/\s+/g, '-').toLowerCase()}`
 
   return (
-    <div 
+    <div
       className={`setting-item setting-item-checkbox setting-${layout} setting-${size} ${className} ${disabled ? 'disabled' : ''}`}
     >
       <label htmlFor={id} className="setting-label">
         <span className="setting-label-text">{label}</span>
       </label>
-      
+
       <div className="setting-control">
         <div className="checkbox-wrapper">
           <input
@@ -56,7 +56,7 @@ export const CheckboxItem = React.memo<CheckboxItemProps>(({
         {hint && <p className="setting-hint">{hint}</p>}
       </div>
     </div>
-  );
-});
+  )
+})
 
-CheckboxItem.displayName = 'CheckboxItem';
+CheckboxItem.displayName = 'CheckboxItem'

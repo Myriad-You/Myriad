@@ -2,21 +2,21 @@
  * 搜索模式组件
  */
 
-import { motion } from 'framer-motion';
-import { LuSearch as Search, LuX as X } from '@lib/icons';
-import { SPRING_SNAPPY } from './constants';
+import { LuSearch as Search, LuX as X } from '@lib/icons'
+import { motion } from 'framer-motion'
+import { SPRING_SNAPPY } from './constants'
 
 export interface SearchModeProps {
-  variant: 'mobile' | 'desktop';
-  searchQuery: string;
-  setSearchQuery?: (query: string) => void;
-  filteredCount: number;
-  onClose: () => void;
+  variant: 'mobile' | 'desktop'
+  searchQuery: string
+  setSearchQuery?: (query: string) => void
+  filteredCount: number
+  onClose: () => void
   t: {
-    searchSources: string;
-    resultsCount: string;
-    closeSearch: string;
-  };
+    searchSources: string
+    resultsCount: string
+    closeSearch: string
+  }
 }
 
 export function SearchMode({
@@ -27,8 +27,8 @@ export function SearchMode({
   onClose,
   t,
 }: SearchModeProps) {
-  const isMobile = variant === 'mobile';
-  
+  const isMobile = variant === 'mobile'
+
   return (
     <motion.div
       key={`search-bar-${variant}`}
@@ -62,5 +62,5 @@ export function SearchMode({
         <X className="w-5 h-5" />
       </button>
     </motion.div>
-  );
+  )
 }

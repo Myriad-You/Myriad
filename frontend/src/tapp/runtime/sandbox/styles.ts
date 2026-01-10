@@ -1,8 +1,8 @@
 /**
  * 沙箱 CSS 样式
- * 
+ *
  * 提供基础 CSS、Tailwind 子集和主题变量
- * 
+ *
  * 🎯 性能优化：
  * - 静态 CSS 使用模块级常量（避免重复计算）
  * - 主题 CSS 使用缓存（相同参数返回缓存结果）
@@ -27,18 +27,18 @@ const TAILWIND_MAP: Record<string, string> = {
   'flex': 'display:flex',
   'inline-flex': 'display:inline-flex',
   'grid': 'display:grid',
-  
+
   // Flex Direction
   'flex-row': 'flex-direction:row',
   'flex-row-reverse': 'flex-direction:row-reverse',
   'flex-col': 'flex-direction:column',
   'flex-col-reverse': 'flex-direction:column-reverse',
-  
+
   // Flex Wrap
   'flex-wrap': 'flex-wrap:wrap',
   'flex-nowrap': 'flex-wrap:nowrap',
   'flex-wrap-reverse': 'flex-wrap:wrap-reverse',
-  
+
   // Flex
   'flex-1': 'flex:1 1 0%',
   'flex-auto': 'flex:1 1 auto',
@@ -48,7 +48,7 @@ const TAILWIND_MAP: Record<string, string> = {
   'flex-shrink': 'flex-shrink:1',
   'flex-grow-0': 'flex-grow:0',
   'flex-grow': 'flex-grow:1',
-  
+
   // Justify Content
   'justify-start': 'justify-content:flex-start',
   'justify-end': 'justify-content:flex-end',
@@ -56,28 +56,28 @@ const TAILWIND_MAP: Record<string, string> = {
   'justify-between': 'justify-content:space-between',
   'justify-around': 'justify-content:space-around',
   'justify-evenly': 'justify-content:space-evenly',
-  
+
   // Align Items
   'items-start': 'align-items:flex-start',
   'items-end': 'align-items:flex-end',
   'items-center': 'align-items:center',
   'items-baseline': 'align-items:baseline',
   'items-stretch': 'align-items:stretch',
-  
+
   // Align Self
   'self-auto': 'align-self:auto',
   'self-start': 'align-self:flex-start',
   'self-end': 'align-self:flex-end',
   'self-center': 'align-self:center',
   'self-stretch': 'align-self:stretch',
-  
+
   // Position
   'static': 'position:static',
   'fixed': 'position:fixed',
   'absolute': 'position:absolute',
   'relative': 'position:relative',
   'sticky': 'position:sticky',
-  
+
   // Inset
   'inset-0': 'top:0;right:0;bottom:0;left:0',
   'inset-x-0': 'left:0;right:0',
@@ -120,7 +120,7 @@ const TAILWIND_MAP: Record<string, string> = {
   '-right-6': 'right:-1.5rem',
   '-bottom-2': 'bottom:-0.5rem',
   '-left-2': 'left:-0.5rem',
-  
+
   // Z-Index
   'z-0': 'z-index:0',
   'z-10': 'z-index:10',
@@ -128,7 +128,7 @@ const TAILWIND_MAP: Record<string, string> = {
   'z-30': 'z-index:30',
   'z-40': 'z-index:40',
   'z-50': 'z-index:50',
-  
+
   // Width
   'w-0': 'width:0',
   'w-px': 'width:1px',
@@ -186,7 +186,7 @@ const TAILWIND_MAP: Record<string, string> = {
   'max-w-6xl': 'max-width:72rem',
   'max-w-7xl': 'max-width:80rem',
   'max-w-full': 'max-width:100%',
-  
+
   // Height
   'h-0': 'height:0',
   'h-px': 'height:1px',
@@ -255,7 +255,7 @@ const TAILWIND_MAP: Record<string, string> = {
   'max-h-96': 'max-height:24rem',
   'max-h-full': 'max-height:100%',
   'max-h-screen': 'max-height:100vh',
-  
+
   // Padding
   'p-0': 'padding:0',
   'p-0.5': 'padding:0.125rem',
@@ -333,7 +333,7 @@ const TAILWIND_MAP: Record<string, string> = {
   'pl-2': 'padding-left:0.5rem',
   'pl-3': 'padding-left:0.75rem',
   'pl-4': 'padding-left:1rem',
-  
+
   // Margin
   'm-0': 'margin:0',
   'm-0.5': 'margin:0.125rem',
@@ -397,7 +397,7 @@ const TAILWIND_MAP: Record<string, string> = {
   '-mb-1': 'margin-bottom:-0.25rem',
   '-ml-1': 'margin-left:-0.25rem',
   '-mr-1': 'margin-right:-0.25rem',
-  
+
   // Gap
   'gap-0': 'gap:0',
   'gap-0.5': 'gap:0.125rem',
@@ -413,7 +413,7 @@ const TAILWIND_MAP: Record<string, string> = {
   'gap-8': 'gap:2rem',
   'gap-10': 'gap:2.5rem',
   'gap-12': 'gap:3rem',
-  
+
   // Border Radius
   'rounded-none': 'border-radius:0',
   'rounded-sm': 'border-radius:0.125rem',
@@ -424,7 +424,7 @@ const TAILWIND_MAP: Record<string, string> = {
   'rounded-2xl': 'border-radius:1rem',
   'rounded-3xl': 'border-radius:1.5rem',
   'rounded-full': 'border-radius:9999px',
-  
+
   // Border Width
   'border': 'border-width:1px',
   'border-0': 'border-width:0',
@@ -435,13 +435,13 @@ const TAILWIND_MAP: Record<string, string> = {
   'border-r': 'border-right-width:1px',
   'border-b': 'border-bottom-width:1px',
   'border-l': 'border-left-width:1px',
-  
+
   // Border Style
   'border-solid': 'border-style:solid',
   'border-dashed': 'border-style:dashed',
   'border-dotted': 'border-style:dotted',
   'border-none': 'border-style:none',
-  
+
   // Border Color
   'border-transparent': 'border-color:transparent',
   'border-white': 'border-color:#fff',
@@ -454,18 +454,18 @@ const TAILWIND_MAP: Record<string, string> = {
   'border-neutral-600': 'border-color:rgb(82 82 82)',
   'border-neutral-700': 'border-color:rgb(64 64 64)',
   'border-neutral-800': 'border-color:rgb(38 38 38)',
-  
+
   // Background Color
   'bg-transparent': 'background-color:transparent',
   'bg-current': 'background-color:currentColor',
   'bg-white': 'background-color:#fff',
   'bg-black': 'background-color:#000',
-  
+
   // Text Color
   'text-transparent': 'color:transparent',
   'text-white': 'color:#fff',
   'text-black': 'color:#000',
-  
+
   // Typography
   'text-xs': 'font-size:0.75rem;line-height:1rem',
   'text-sm': 'font-size:0.875rem;line-height:1.25rem',
@@ -476,7 +476,7 @@ const TAILWIND_MAP: Record<string, string> = {
   'text-3xl': 'font-size:1.875rem;line-height:2.25rem',
   'text-4xl': 'font-size:2.25rem;line-height:2.5rem',
   'text-5xl': 'font-size:3rem;line-height:1',
-  
+
   // Font Weight
   'font-thin': 'font-weight:100',
   'font-extralight': 'font-weight:200',
@@ -487,40 +487,40 @@ const TAILWIND_MAP: Record<string, string> = {
   'font-bold': 'font-weight:700',
   'font-extrabold': 'font-weight:800',
   'font-black': 'font-weight:900',
-  
+
   // Font Family
   'font-sans': 'font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif',
   'font-serif': 'font-family:ui-serif,Georgia,Cambria,"Times New Roman",Times,serif',
   'font-mono': 'font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace',
-  
+
   // Text Align
   'text-left': 'text-align:left',
   'text-center': 'text-align:center',
   'text-right': 'text-align:right',
   'text-justify': 'text-align:justify',
-  
+
   // Text Overflow
   'truncate': 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap',
   'overflow-ellipsis': 'text-overflow:ellipsis',
   'overflow-clip': 'text-overflow:clip',
-  
+
   // Whitespace
   'whitespace-normal': 'white-space:normal',
   'whitespace-nowrap': 'white-space:nowrap',
   'whitespace-pre': 'white-space:pre',
   'whitespace-pre-line': 'white-space:pre-line',
   'whitespace-pre-wrap': 'white-space:pre-wrap',
-  
+
   // Word Break
   'break-normal': 'overflow-wrap:normal;word-break:normal',
   'break-words': 'overflow-wrap:break-word',
   'break-all': 'word-break:break-all',
-  
+
   // Line Clamp
   'line-clamp-1': 'overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1',
   'line-clamp-2': 'overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2',
   'line-clamp-3': 'overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3',
-  
+
   // Opacity
   'opacity-0': 'opacity:0',
   'opacity-5': 'opacity:0.05',
@@ -537,7 +537,7 @@ const TAILWIND_MAP: Record<string, string> = {
   'opacity-90': 'opacity:0.9',
   'opacity-95': 'opacity:0.95',
   'opacity-100': 'opacity:1',
-  
+
   // Overflow
   'overflow-auto': 'overflow:auto',
   'overflow-hidden': 'overflow:hidden',
@@ -547,11 +547,11 @@ const TAILWIND_MAP: Record<string, string> = {
   'overflow-y-auto': 'overflow-y:auto',
   'overflow-x-hidden': 'overflow-x:hidden',
   'overflow-y-hidden': 'overflow-y:hidden',
-  
+
   // Visibility
   'visible': 'visibility:visible',
   'invisible': 'visibility:hidden',
-  
+
   // Cursor
   'cursor-auto': 'cursor:auto',
   'cursor-default': 'cursor:default',
@@ -560,27 +560,27 @@ const TAILWIND_MAP: Record<string, string> = {
   'cursor-text': 'cursor:text',
   'cursor-move': 'cursor:move',
   'cursor-not-allowed': 'cursor:not-allowed',
-  
+
   // Pointer Events
   'pointer-events-none': 'pointer-events:none',
   'pointer-events-auto': 'pointer-events:auto',
-  
+
   // User Select
   'select-none': 'user-select:none',
   'select-text': 'user-select:text',
   'select-all': 'user-select:all',
   'select-auto': 'user-select:auto',
-  
+
   // Outline
   'outline-none': 'outline:2px solid transparent;outline-offset:2px',
   'outline': 'outline-style:solid',
-  
+
   // Resize
   'resize-none': 'resize:none',
   'resize-y': 'resize:vertical',
   'resize-x': 'resize:horizontal',
   'resize': 'resize:both',
-  
+
   // Shadow
   'shadow-sm': 'box-shadow:0 1px 2px 0 rgb(0 0 0/0.05)',
   'shadow': 'box-shadow:0 1px 3px 0 rgb(0 0 0/0.1),0 1px 2px -1px rgb(0 0 0/0.1)',
@@ -589,7 +589,7 @@ const TAILWIND_MAP: Record<string, string> = {
   'shadow-xl': 'box-shadow:0 20px 25px -5px rgb(0 0 0/0.1),0 8px 10px -6px rgb(0 0 0/0.1)',
   'shadow-2xl': 'box-shadow:0 25px 50px -12px rgb(0 0 0/0.25)',
   'shadow-none': 'box-shadow:none',
-  
+
   // Transition
   'transition-none': 'transition-property:none',
   'transition-all': 'transition-property:all;transition-timing-function:cubic-bezier(0.4,0,0.2,1);transition-duration:150ms',
@@ -597,7 +597,7 @@ const TAILWIND_MAP: Record<string, string> = {
   'transition-colors': 'transition-property:color,background-color,border-color,text-decoration-color,fill,stroke;transition-timing-function:cubic-bezier(0.4,0,0.2,1);transition-duration:150ms',
   'transition-opacity': 'transition-property:opacity;transition-timing-function:cubic-bezier(0.4,0,0.2,1);transition-duration:150ms',
   'transition-transform': 'transition-property:transform;transition-timing-function:cubic-bezier(0.4,0,0.2,1);transition-duration:150ms',
-  
+
   // Duration
   'duration-75': 'transition-duration:75ms',
   'duration-100': 'transition-duration:100ms',
@@ -608,7 +608,7 @@ const TAILWIND_MAP: Record<string, string> = {
   'duration-500': 'transition-duration:500ms',
   'duration-700': 'transition-duration:700ms',
   'duration-1000': 'transition-duration:1000ms',
-  
+
   // Transform
   'transform': 'transform:translate(var(--tw-translate-x,0),var(--tw-translate-y,0)) rotate(var(--tw-rotate,0)) skewX(var(--tw-skew-x,0)) skewY(var(--tw-skew-y,0)) scaleX(var(--tw-scale-x,1)) scaleY(var(--tw-scale-y,1))',
   'transform-gpu': 'transform:translate3d(var(--tw-translate-x,0),var(--tw-translate-y,0),0) rotate(var(--tw-rotate,0)) skewX(var(--tw-skew-x,0)) skewY(var(--tw-skew-y,0)) scaleX(var(--tw-scale-x,1)) scaleY(var(--tw-scale-y,1))',
@@ -637,7 +637,7 @@ const TAILWIND_MAP: Record<string, string> = {
   'scale-110': 'transform:scale(1.1)',
   'scale-125': 'transform:scale(1.25)',
   'scale-150': 'transform:scale(1.5)',
-  
+
   // Backdrop Filter
   'backdrop-blur-none': 'backdrop-filter:blur(0)',
   'backdrop-blur-sm': 'backdrop-filter:blur(4px)',
@@ -647,19 +647,19 @@ const TAILWIND_MAP: Record<string, string> = {
   'backdrop-blur-xl': 'backdrop-filter:blur(24px)',
   'backdrop-blur-2xl': 'backdrop-filter:blur(40px)',
   'backdrop-blur-3xl': 'backdrop-filter:blur(64px)',
-  
+
   // Object Fit
   'object-contain': 'object-fit:contain',
   'object-cover': 'object-fit:cover',
   'object-fill': 'object-fit:fill',
   'object-none': 'object-fit:none',
   'object-scale-down': 'object-fit:scale-down',
-  
+
   // Aspect Ratio
   'aspect-auto': 'aspect-ratio:auto',
   'aspect-square': 'aspect-ratio:1/1',
   'aspect-video': 'aspect-ratio:16/9',
-  
+
   // Space Between (using > :not([hidden]) ~ :not([hidden]) selector in generateOnDemandTailwindCSS)
   'space-x-0': '--tw-space-x-reverse:0',
   'space-x-1': '--tw-space-x-reverse:0',
@@ -671,7 +671,7 @@ const TAILWIND_MAP: Record<string, string> = {
   'space-y-2': '--tw-space-y-reverse:0',
   'space-y-3': '--tw-space-y-reverse:0',
   'space-y-4': '--tw-space-y-reverse:0',
-  
+
   // Grid (grid-cols, grid-rows, col-span, row-span)
   'grid-cols-1': 'grid-template-columns:repeat(1,minmax(0,1fr))',
   'grid-cols-2': 'grid-template-columns:repeat(2,minmax(0,1fr))',
@@ -692,12 +692,12 @@ const TAILWIND_MAP: Record<string, string> = {
   'row-span-2': 'grid-row:span 2/span 2',
   'row-span-3': 'grid-row:span 3/span 3',
   'row-span-full': 'grid-row:1/-1',
-  
+
   // Min/Max Content
   'min-h-min': 'min-height:min-content',
   'min-h-max': 'min-height:max-content',
   'min-h-fit': 'min-height:fit-content',
-  
+
   // Leading (Line Height)
   'leading-none': 'line-height:1',
   'leading-tight': 'line-height:1.25',
@@ -705,7 +705,7 @@ const TAILWIND_MAP: Record<string, string> = {
   'leading-normal': 'line-height:1.5',
   'leading-relaxed': 'line-height:1.625',
   'leading-loose': 'line-height:2',
-  
+
   // Animation
   'animate-none': 'animation:none',
   'animate-spin': 'animation:spin 1s linear infinite',
@@ -716,7 +716,7 @@ const TAILWIND_MAP: Record<string, string> = {
 
 /**
  * 从 HTML/CSS/JS 字符串中提取所有可能的 Tailwind 类名
- * 
+ *
  * 支持多种提取模式：
  * 1. HTML class 属性: class="..."
  * 2. JS className 设置: .className = '...' 或 className += '...'
@@ -725,45 +725,45 @@ const TAILWIND_MAP: Record<string, string> = {
  */
 function extractClassNames(source: string): Set<string> {
   const classes = new Set<string>()
-  
+
   // 辅助函数：添加从字符串中分割出的类名
   const addClasses = (classString: string) => {
-    classString.split(/\s+/).forEach(cls => {
+    classString.split(/\s+/).forEach((cls) => {
       const trimmed = cls.trim()
       // 过滤掉明显不是 Tailwind 类的内容
-      if (trimmed && 
-          !trimmed.includes('(') && 
-          !trimmed.includes('{') &&
-          !trimmed.includes('<') &&
-          !trimmed.includes(';') &&
-          !trimmed.includes('=') &&
-          !trimmed.includes('$') &&
-          !trimmed.includes('function') &&
-          trimmed.length < 80) {
+      if (trimmed
+        && !trimmed.includes('(')
+        && !trimmed.includes('{')
+        && !trimmed.includes('<')
+        && !trimmed.includes(';')
+        && !trimmed.includes('=')
+        && !trimmed.includes('$')
+        && !trimmed.includes('function')
+        && trimmed.length < 80) {
         classes.add(trimmed)
       }
     })
   }
-  
+
   // 1. 匹配 HTML class="..." 或 class='...'
   const htmlClassRegex = /class=["']([^"']+)["']/g
   let match
   while ((match = htmlClassRegex.exec(source)) !== null) {
     addClasses(match[1])
   }
-  
+
   // 2. 匹配 JS .className = '...' 或 .className = "..."（赋值或拼接）
-  const classNameAssignRegex = /\.className\s*(?:\+?=)\s*["'`]([^"'`]+)["'`]/g
+  const classNameAssignRegex = /\.className\s*\+?=\s*["'`]([^"'`]+)["'`]/g
   while ((match = classNameAssignRegex.exec(source)) !== null) {
     addClasses(match[1])
   }
-  
+
   // 3. 匹配 JS classList.add('...') / classList.remove('...') / classList.toggle('...')
   const classListRegex = /classList\.(add|remove|toggle|contains)\s*\(\s*["'`]([^"'`]+)["'`]/g
   while ((match = classListRegex.exec(source)) !== null) {
     addClasses(match[2])
   }
-  
+
   // 4. 匹配三元表达式中的类名字符串
   // 例如: (role === 'user' ? 'flex-row-reverse msg-user-enter' : 'msg-ai-enter')
   const ternaryClassRegex = /\?\s*["'`]([^"'`]+)["'`]\s*:\s*["'`]([^"'`]*)["'`]/g
@@ -771,21 +771,21 @@ function extractClassNames(source: string): Set<string> {
     addClasses(match[1])
     addClasses(match[2])
   }
-  
+
   // 5. 匹配所有看起来像 Tailwind 类的字符串
   // 这是一个宽松的匹配，用于捕获各种场景下的类名
-  const looseClassRegex = /["'`]([-\w:\/\[\].!]+(?:\s+[-\w:\/\[\].!]+)*)["'`]/g
+  const looseClassRegex = /["'`]([-\w:/[\].!]+(?:\s+[-\w:/[\].!]+)*)["'`]/g
   while ((match = looseClassRegex.exec(source)) !== null) {
     const value = match[1]
     // 只添加看起来像 Tailwind 类的内容
-    if (value.match(/^[-\w:\/\[\].!\s]+$/) && 
-        !value.includes('http') &&
-        !value.includes('://') &&
-        value.length < 200) {
+    if (value.match(/^[-\w:/[\].!\s]+$/)
+      && !value.includes('http')
+      && !value.includes('://')
+      && value.length < 200) {
       addClasses(value)
     }
   }
-  
+
   return classes
 }
 
@@ -799,51 +799,274 @@ const COLORS: Record<string, string> = {
   'current': 'currentColor',
   'black': '#000',
   'white': '#fff',
-  'slate-50': '#f8fafc', 'slate-100': '#f1f5f9', 'slate-200': '#e2e8f0', 'slate-300': '#cbd5e1', 'slate-400': '#94a3b8', 'slate-500': '#64748b', 'slate-600': '#475569', 'slate-700': '#334155', 'slate-800': '#1e293b', 'slate-900': '#0f172a', 'slate-950': '#020617',
-  'gray-50': '#f9fafb', 'gray-100': '#f3f4f6', 'gray-200': '#e5e7eb', 'gray-300': '#d1d5db', 'gray-400': '#9ca3af', 'gray-500': '#6b7280', 'gray-600': '#4b5563', 'gray-700': '#374151', 'gray-800': '#1f2937', 'gray-900': '#111827', 'gray-950': '#030712',
-  'zinc-50': '#fafafa', 'zinc-100': '#f4f4f5', 'zinc-200': '#e4e4e7', 'zinc-300': '#d4d4d8', 'zinc-400': '#a1a1aa', 'zinc-500': '#71717a', 'zinc-600': '#52525b', 'zinc-700': '#3f3f46', 'zinc-800': '#27272a', 'zinc-900': '#18181b', 'zinc-950': '#09090b',
-  'neutral-50': '#fafafa', 'neutral-100': '#f5f5f5', 'neutral-200': '#e5e5e5', 'neutral-300': '#d4d4d4', 'neutral-400': '#a3a3a3', 'neutral-500': '#737373', 'neutral-600': '#525252', 'neutral-700': '#404040', 'neutral-800': '#262626', 'neutral-900': '#171717', 'neutral-950': '#0a0a0a',
-  'stone-50': '#fafaf9', 'stone-100': '#f5f5f4', 'stone-200': '#e7e5e4', 'stone-300': '#d6d3d1', 'stone-400': '#a8a29e', 'stone-500': '#78716c', 'stone-600': '#57534e', 'stone-700': '#44403c', 'stone-800': '#292524', 'stone-900': '#1c1917', 'stone-950': '#0c0a09',
-  'red-50': '#fef2f2', 'red-100': '#fee2e2', 'red-200': '#fecaca', 'red-300': '#fca5a5', 'red-400': '#f87171', 'red-500': '#ef4444', 'red-600': '#dc2626', 'red-700': '#b91c1c', 'red-800': '#991b1b', 'red-900': '#7f1d1d', 'red-950': '#450a0a',
-  'orange-50': '#fff7ed', 'orange-100': '#ffedd5', 'orange-200': '#fed7aa', 'orange-300': '#fdba74', 'orange-400': '#fb923c', 'orange-500': '#f97316', 'orange-600': '#ea580c', 'orange-700': '#c2410c', 'orange-800': '#9a3412', 'orange-900': '#7c2d12', 'orange-950': '#431407',
-  'amber-50': '#fffbeb', 'amber-100': '#fef3c7', 'amber-200': '#fde68a', 'amber-300': '#fcd34d', 'amber-400': '#fbbf24', 'amber-500': '#f59e0b', 'amber-600': '#d97706', 'amber-700': '#b45309', 'amber-800': '#92400e', 'amber-900': '#78350f', 'amber-950': '#451a03',
-  'yellow-50': '#fefce8', 'yellow-100': '#fef9c3', 'yellow-200': '#fef08a', 'yellow-300': '#fde047', 'yellow-400': '#facc15', 'yellow-500': '#eab308', 'yellow-600': '#ca8a04', 'yellow-700': '#a16207', 'yellow-800': '#854d0e', 'yellow-900': '#713f12', 'yellow-950': '#422006',
-  'lime-50': '#f7fee7', 'lime-100': '#ecfccb', 'lime-200': '#d9f99d', 'lime-300': '#bef264', 'lime-400': '#a3e635', 'lime-500': '#84cc16', 'lime-600': '#65a30d', 'lime-700': '#4d7c0f', 'lime-800': '#3f6212', 'lime-900': '#365314', 'lime-950': '#1a2e05',
-  'green-50': '#f0fdf4', 'green-100': '#dcfce7', 'green-200': '#bbf7d0', 'green-300': '#86efac', 'green-400': '#4ade80', 'green-500': '#22c55e', 'green-600': '#16a34a', 'green-700': '#15803d', 'green-800': '#166534', 'green-900': '#14532d', 'green-950': '#052e16',
-  'emerald-50': '#ecfdf5', 'emerald-100': '#d1fae5', 'emerald-200': '#a7f3d0', 'emerald-300': '#6ee7b7', 'emerald-400': '#34d399', 'emerald-500': '#10b981', 'emerald-600': '#059669', 'emerald-700': '#047857', 'emerald-800': '#065f46', 'emerald-900': '#064e3b', 'emerald-950': '#022c22',
-  'teal-50': '#f0fdfa', 'teal-100': '#ccfbf1', 'teal-200': '#99f6e4', 'teal-300': '#5eead4', 'teal-400': '#2dd4bf', 'teal-500': '#14b8a6', 'teal-600': '#0d9488', 'teal-700': '#0f766e', 'teal-800': '#115e59', 'teal-900': '#134e4a', 'teal-950': '#042f2e',
-  'cyan-50': '#ecfeff', 'cyan-100': '#cffafe', 'cyan-200': '#a5f3fc', 'cyan-300': '#67e8f9', 'cyan-400': '#22d3ee', 'cyan-500': '#06b6d4', 'cyan-600': '#0891b2', 'cyan-700': '#0e7490', 'cyan-800': '#155e75', 'cyan-900': '#164e63', 'cyan-950': '#083344',
-  'sky-50': '#f0f9ff', 'sky-100': '#e0f2fe', 'sky-200': '#bae6fd', 'sky-300': '#7dd3fc', 'sky-400': '#38bdf8', 'sky-500': '#0ea5e9', 'sky-600': '#0284c7', 'sky-700': '#0369a1', 'sky-800': '#075985', 'sky-900': '#0c4a6e', 'sky-950': '#082f49',
-  'blue-50': '#eff6ff', 'blue-100': '#dbeafe', 'blue-200': '#bfdbfe', 'blue-300': '#93c5fd', 'blue-400': '#60a5fa', 'blue-500': '#3b82f6', 'blue-600': '#2563eb', 'blue-700': '#1d4ed8', 'blue-800': '#1e40af', 'blue-900': '#1e3a8a', 'blue-950': '#172554',
-  'indigo-50': '#eef2ff', 'indigo-100': '#e0e7ff', 'indigo-200': '#c7d2fe', 'indigo-300': '#a5b4fc', 'indigo-400': '#818cf8', 'indigo-500': '#6366f1', 'indigo-600': '#4f46e5', 'indigo-700': '#4338ca', 'indigo-800': '#3730a3', 'indigo-900': '#312e81', 'indigo-950': '#1e1b4b',
-  'violet-50': '#f5f3ff', 'violet-100': '#ede9fe', 'violet-200': '#ddd6fe', 'violet-300': '#c4b5fd', 'violet-400': '#a78bfa', 'violet-500': '#8b5cf6', 'violet-600': '#7c3aed', 'violet-700': '#6d28d9', 'violet-800': '#5b21b6', 'violet-900': '#4c1d95', 'violet-950': '#2e1065',
-  'purple-50': '#faf5ff', 'purple-100': '#f3e8ff', 'purple-200': '#e9d5ff', 'purple-300': '#d8b4fe', 'purple-400': '#c084fc', 'purple-500': '#a855f7', 'purple-600': '#9333ea', 'purple-700': '#7e22ce', 'purple-800': '#6b21a8', 'purple-900': '#581c87', 'purple-950': '#3b0764',
-  'fuchsia-50': '#fdf4ff', 'fuchsia-100': '#fae8ff', 'fuchsia-200': '#f5d0fe', 'fuchsia-300': '#f0abfc', 'fuchsia-400': '#e879f9', 'fuchsia-500': '#d946ef', 'fuchsia-600': '#c026d3', 'fuchsia-700': '#a21caf', 'fuchsia-800': '#86198f', 'fuchsia-900': '#701a75', 'fuchsia-950': '#4a044e',
-  'pink-50': '#fdf2f8', 'pink-100': '#fce7f3', 'pink-200': '#fbcfe8', 'pink-300': '#f9a8d4', 'pink-400': '#f472b6', 'pink-500': '#ec4899', 'pink-600': '#db2777', 'pink-700': '#be185d', 'pink-800': '#9d174d', 'pink-900': '#831843', 'pink-950': '#500724',
-  'rose-50': '#fff1f2', 'rose-100': '#ffe4e6', 'rose-200': '#fecdd3', 'rose-300': '#fda4af', 'rose-400': '#fb7185', 'rose-500': '#f43f5e', 'rose-600': '#e11d48', 'rose-700': '#be123c', 'rose-800': '#9f1239', 'rose-900': '#881337', 'rose-950': '#4c0519',
+  'slate-50': '#f8fafc',
+  'slate-100': '#f1f5f9',
+  'slate-200': '#e2e8f0',
+  'slate-300': '#cbd5e1',
+  'slate-400': '#94a3b8',
+  'slate-500': '#64748b',
+  'slate-600': '#475569',
+  'slate-700': '#334155',
+  'slate-800': '#1e293b',
+  'slate-900': '#0f172a',
+  'slate-950': '#020617',
+  'gray-50': '#f9fafb',
+  'gray-100': '#f3f4f6',
+  'gray-200': '#e5e7eb',
+  'gray-300': '#d1d5db',
+  'gray-400': '#9ca3af',
+  'gray-500': '#6b7280',
+  'gray-600': '#4b5563',
+  'gray-700': '#374151',
+  'gray-800': '#1f2937',
+  'gray-900': '#111827',
+  'gray-950': '#030712',
+  'zinc-50': '#fafafa',
+  'zinc-100': '#f4f4f5',
+  'zinc-200': '#e4e4e7',
+  'zinc-300': '#d4d4d8',
+  'zinc-400': '#a1a1aa',
+  'zinc-500': '#71717a',
+  'zinc-600': '#52525b',
+  'zinc-700': '#3f3f46',
+  'zinc-800': '#27272a',
+  'zinc-900': '#18181b',
+  'zinc-950': '#09090b',
+  'neutral-50': '#fafafa',
+  'neutral-100': '#f5f5f5',
+  'neutral-200': '#e5e5e5',
+  'neutral-300': '#d4d4d4',
+  'neutral-400': '#a3a3a3',
+  'neutral-500': '#737373',
+  'neutral-600': '#525252',
+  'neutral-700': '#404040',
+  'neutral-800': '#262626',
+  'neutral-900': '#171717',
+  'neutral-950': '#0a0a0a',
+  'stone-50': '#fafaf9',
+  'stone-100': '#f5f5f4',
+  'stone-200': '#e7e5e4',
+  'stone-300': '#d6d3d1',
+  'stone-400': '#a8a29e',
+  'stone-500': '#78716c',
+  'stone-600': '#57534e',
+  'stone-700': '#44403c',
+  'stone-800': '#292524',
+  'stone-900': '#1c1917',
+  'stone-950': '#0c0a09',
+  'red-50': '#fef2f2',
+  'red-100': '#fee2e2',
+  'red-200': '#fecaca',
+  'red-300': '#fca5a5',
+  'red-400': '#f87171',
+  'red-500': '#ef4444',
+  'red-600': '#dc2626',
+  'red-700': '#b91c1c',
+  'red-800': '#991b1b',
+  'red-900': '#7f1d1d',
+  'red-950': '#450a0a',
+  'orange-50': '#fff7ed',
+  'orange-100': '#ffedd5',
+  'orange-200': '#fed7aa',
+  'orange-300': '#fdba74',
+  'orange-400': '#fb923c',
+  'orange-500': '#f97316',
+  'orange-600': '#ea580c',
+  'orange-700': '#c2410c',
+  'orange-800': '#9a3412',
+  'orange-900': '#7c2d12',
+  'orange-950': '#431407',
+  'amber-50': '#fffbeb',
+  'amber-100': '#fef3c7',
+  'amber-200': '#fde68a',
+  'amber-300': '#fcd34d',
+  'amber-400': '#fbbf24',
+  'amber-500': '#f59e0b',
+  'amber-600': '#d97706',
+  'amber-700': '#b45309',
+  'amber-800': '#92400e',
+  'amber-900': '#78350f',
+  'amber-950': '#451a03',
+  'yellow-50': '#fefce8',
+  'yellow-100': '#fef9c3',
+  'yellow-200': '#fef08a',
+  'yellow-300': '#fde047',
+  'yellow-400': '#facc15',
+  'yellow-500': '#eab308',
+  'yellow-600': '#ca8a04',
+  'yellow-700': '#a16207',
+  'yellow-800': '#854d0e',
+  'yellow-900': '#713f12',
+  'yellow-950': '#422006',
+  'lime-50': '#f7fee7',
+  'lime-100': '#ecfccb',
+  'lime-200': '#d9f99d',
+  'lime-300': '#bef264',
+  'lime-400': '#a3e635',
+  'lime-500': '#84cc16',
+  'lime-600': '#65a30d',
+  'lime-700': '#4d7c0f',
+  'lime-800': '#3f6212',
+  'lime-900': '#365314',
+  'lime-950': '#1a2e05',
+  'green-50': '#f0fdf4',
+  'green-100': '#dcfce7',
+  'green-200': '#bbf7d0',
+  'green-300': '#86efac',
+  'green-400': '#4ade80',
+  'green-500': '#22c55e',
+  'green-600': '#16a34a',
+  'green-700': '#15803d',
+  'green-800': '#166534',
+  'green-900': '#14532d',
+  'green-950': '#052e16',
+  'emerald-50': '#ecfdf5',
+  'emerald-100': '#d1fae5',
+  'emerald-200': '#a7f3d0',
+  'emerald-300': '#6ee7b7',
+  'emerald-400': '#34d399',
+  'emerald-500': '#10b981',
+  'emerald-600': '#059669',
+  'emerald-700': '#047857',
+  'emerald-800': '#065f46',
+  'emerald-900': '#064e3b',
+  'emerald-950': '#022c22',
+  'teal-50': '#f0fdfa',
+  'teal-100': '#ccfbf1',
+  'teal-200': '#99f6e4',
+  'teal-300': '#5eead4',
+  'teal-400': '#2dd4bf',
+  'teal-500': '#14b8a6',
+  'teal-600': '#0d9488',
+  'teal-700': '#0f766e',
+  'teal-800': '#115e59',
+  'teal-900': '#134e4a',
+  'teal-950': '#042f2e',
+  'cyan-50': '#ecfeff',
+  'cyan-100': '#cffafe',
+  'cyan-200': '#a5f3fc',
+  'cyan-300': '#67e8f9',
+  'cyan-400': '#22d3ee',
+  'cyan-500': '#06b6d4',
+  'cyan-600': '#0891b2',
+  'cyan-700': '#0e7490',
+  'cyan-800': '#155e75',
+  'cyan-900': '#164e63',
+  'cyan-950': '#083344',
+  'sky-50': '#f0f9ff',
+  'sky-100': '#e0f2fe',
+  'sky-200': '#bae6fd',
+  'sky-300': '#7dd3fc',
+  'sky-400': '#38bdf8',
+  'sky-500': '#0ea5e9',
+  'sky-600': '#0284c7',
+  'sky-700': '#0369a1',
+  'sky-800': '#075985',
+  'sky-900': '#0c4a6e',
+  'sky-950': '#082f49',
+  'blue-50': '#eff6ff',
+  'blue-100': '#dbeafe',
+  'blue-200': '#bfdbfe',
+  'blue-300': '#93c5fd',
+  'blue-400': '#60a5fa',
+  'blue-500': '#3b82f6',
+  'blue-600': '#2563eb',
+  'blue-700': '#1d4ed8',
+  'blue-800': '#1e40af',
+  'blue-900': '#1e3a8a',
+  'blue-950': '#172554',
+  'indigo-50': '#eef2ff',
+  'indigo-100': '#e0e7ff',
+  'indigo-200': '#c7d2fe',
+  'indigo-300': '#a5b4fc',
+  'indigo-400': '#818cf8',
+  'indigo-500': '#6366f1',
+  'indigo-600': '#4f46e5',
+  'indigo-700': '#4338ca',
+  'indigo-800': '#3730a3',
+  'indigo-900': '#312e81',
+  'indigo-950': '#1e1b4b',
+  'violet-50': '#f5f3ff',
+  'violet-100': '#ede9fe',
+  'violet-200': '#ddd6fe',
+  'violet-300': '#c4b5fd',
+  'violet-400': '#a78bfa',
+  'violet-500': '#8b5cf6',
+  'violet-600': '#7c3aed',
+  'violet-700': '#6d28d9',
+  'violet-800': '#5b21b6',
+  'violet-900': '#4c1d95',
+  'violet-950': '#2e1065',
+  'purple-50': '#faf5ff',
+  'purple-100': '#f3e8ff',
+  'purple-200': '#e9d5ff',
+  'purple-300': '#d8b4fe',
+  'purple-400': '#c084fc',
+  'purple-500': '#a855f7',
+  'purple-600': '#9333ea',
+  'purple-700': '#7e22ce',
+  'purple-800': '#6b21a8',
+  'purple-900': '#581c87',
+  'purple-950': '#3b0764',
+  'fuchsia-50': '#fdf4ff',
+  'fuchsia-100': '#fae8ff',
+  'fuchsia-200': '#f5d0fe',
+  'fuchsia-300': '#f0abfc',
+  'fuchsia-400': '#e879f9',
+  'fuchsia-500': '#d946ef',
+  'fuchsia-600': '#c026d3',
+  'fuchsia-700': '#a21caf',
+  'fuchsia-800': '#86198f',
+  'fuchsia-900': '#701a75',
+  'fuchsia-950': '#4a044e',
+  'pink-50': '#fdf2f8',
+  'pink-100': '#fce7f3',
+  'pink-200': '#fbcfe8',
+  'pink-300': '#f9a8d4',
+  'pink-400': '#f472b6',
+  'pink-500': '#ec4899',
+  'pink-600': '#db2777',
+  'pink-700': '#be185d',
+  'pink-800': '#9d174d',
+  'pink-900': '#831843',
+  'pink-950': '#500724',
+  'rose-50': '#fff1f2',
+  'rose-100': '#ffe4e6',
+  'rose-200': '#fecdd3',
+  'rose-300': '#fda4af',
+  'rose-400': '#fb7185',
+  'rose-500': '#f43f5e',
+  'rose-600': '#e11d48',
+  'rose-700': '#be123c',
+  'rose-800': '#9f1239',
+  'rose-900': '#881337',
+  'rose-950': '#4c0519',
 }
 
 /** 将颜色+透明度转换为 rgba */
 function colorWithOpacity(colorValue: string, opacity: number): string {
-  if (colorValue === 'transparent') return 'transparent'
-  if (colorValue === 'currentColor') return 'currentColor'
-  
+  if (colorValue === 'transparent')
+    return 'transparent'
+  if (colorValue === 'currentColor')
+    return 'currentColor'
+
   // 处理 hex 颜色
   if (colorValue.startsWith('#')) {
     const hex = colorValue.slice(1)
     if (hex.length === 3) {
-      const r = parseInt(hex[0] + hex[0], 16)
-      const g = parseInt(hex[1] + hex[1], 16)
-      const b = parseInt(hex[2] + hex[2], 16)
+      const r = Number.parseInt(hex[0] + hex[0], 16)
+      const g = Number.parseInt(hex[1] + hex[1], 16)
+      const b = Number.parseInt(hex[2] + hex[2], 16)
       return `rgba(${r},${g},${b},${opacity})`
-    } else if (hex.length === 6) {
-      const r = parseInt(hex.slice(0, 2), 16)
-      const g = parseInt(hex.slice(2, 4), 16)
-      const b = parseInt(hex.slice(4, 6), 16)
+    }
+    else if (hex.length === 6) {
+      const r = Number.parseInt(hex.slice(0, 2), 16)
+      const g = Number.parseInt(hex.slice(2, 4), 16)
+      const b = Number.parseInt(hex.slice(4, 6), 16)
       return `rgba(${r},${g},${b},${opacity})`
     }
   }
-  
+
   return colorValue
 }
 
@@ -856,19 +1079,21 @@ function parseColorWithOpacity(value: string): string | null {
     const color = COLORS[value]
     return color || null
   }
-  
+
   const [, colorName, opacityStr] = match
   const color = COLORS[colorName]
-  if (!color) return null
-  
+  if (!color)
+    return null
+
   // 解析透明度
   let opacity: number
   if (opacityStr.startsWith('[') && opacityStr.endsWith(']')) {
-    opacity = parseFloat(opacityStr.slice(1, -1))
-  } else {
-    opacity = parseInt(opacityStr) / 100
+    opacity = Number.parseFloat(opacityStr.slice(1, -1))
   }
-  
+  else {
+    opacity = Number.parseInt(opacityStr) / 100
+  }
+
   return colorWithOpacity(color, opacity)
 }
 
@@ -880,23 +1105,23 @@ function parseArbitraryValue(value: string): string | null {
 
 /** 空间间距映射 */
 const SPACING: Record<string, string> = {
-  '0': '0',
-  '0.5': '0.125rem',
-  '1': '0.25rem',
-  '1.5': '0.375rem',
-  '2': '0.5rem',
-  '2.5': '0.625rem',
-  '3': '0.75rem',
-  '3.5': '0.875rem',
-  '4': '1rem',
-  '5': '1.25rem',
-  '6': '1.5rem',
-  '8': '2rem',
-  '10': '2.5rem',
-  '12': '3rem',
-  '16': '4rem',
-  '20': '5rem',
-  '24': '6rem',
+  0: '0',
+  0.5: '0.125rem',
+  1: '0.25rem',
+  1.5: '0.375rem',
+  2: '0.5rem',
+  2.5: '0.625rem',
+  3: '0.75rem',
+  3.5: '0.875rem',
+  4: '1rem',
+  5: '1.25rem',
+  6: '1.5rem',
+  8: '2rem',
+  10: '2.5rem',
+  12: '3rem',
+  16: '4rem',
+  20: '5rem',
+  24: '6rem',
 }
 
 /** 动态解析单个类名 */
@@ -905,7 +1130,7 @@ function parseDynamicClass(className: string): string | null {
   if (TAILWIND_MAP[className]) {
     return TAILWIND_MAP[className]
   }
-  
+
   // 渐变方向
   const gradientDirs: Record<string, string> = {
     'bg-gradient-to-t': 'background-image:linear-gradient(to top,var(--tw-gradient-stops))',
@@ -920,7 +1145,7 @@ function parseDynamicClass(className: string): string | null {
   if (gradientDirs[className]) {
     return gradientDirs[className]
   }
-  
+
   // 渐变起点 from-*
   if (className.startsWith('from-')) {
     const value = className.slice(5)
@@ -929,7 +1154,7 @@ function parseDynamicClass(className: string): string | null {
       return `--tw-gradient-from:${color};--tw-gradient-to:transparent;--tw-gradient-stops:var(--tw-gradient-from),var(--tw-gradient-to)`
     }
   }
-  
+
   // 渐变中点 via-*
   if (className.startsWith('via-')) {
     const value = className.slice(4)
@@ -938,7 +1163,7 @@ function parseDynamicClass(className: string): string | null {
       return `--tw-gradient-to:transparent;--tw-gradient-stops:var(--tw-gradient-from),${color},var(--tw-gradient-to)`
     }
   }
-  
+
   // 渐变终点 to-*
   if (className.startsWith('to-')) {
     const value = className.slice(3)
@@ -947,7 +1172,7 @@ function parseDynamicClass(className: string): string | null {
       return `--tw-gradient-to:${color}`
     }
   }
-  
+
   // 背景色 bg-*
   if (className.startsWith('bg-') && !className.startsWith('bg-gradient')) {
     const value = className.slice(3)
@@ -962,7 +1187,7 @@ function parseDynamicClass(className: string): string | null {
       return `background-color:${color}`
     }
   }
-  
+
   // 文字颜色 text-*
   if (className.startsWith('text-')) {
     const value = className.slice(5)
@@ -981,9 +1206,9 @@ function parseDynamicClass(className: string): string | null {
       return `color:${color}`
     }
   }
-  
+
   // 边框颜色 border-*
-  if (className.startsWith('border-') && !className.match(/^border-(t|r|b|l|x|y)?-?\d/)) {
+  if (className.startsWith('border-') && !className.match(/^border-([trblxy])?-?\d/)) {
     const value = className.slice(7)
     // 先检查任意值
     const arbitrary = parseArbitraryValue(value)
@@ -996,7 +1221,7 @@ function parseDynamicClass(className: string): string | null {
       return `border-color:${color}`
     }
   }
-  
+
   // placeholder 颜色
   if (className.startsWith('placeholder-')) {
     const value = className.slice(12)
@@ -1006,7 +1231,7 @@ function parseDynamicClass(className: string): string | null {
       return `--tw-placeholder-color:${color}`
     }
   }
-  
+
   // max-w-[*] 任意值
   if (className.startsWith('max-w-')) {
     const value = className.slice(6)
@@ -1015,7 +1240,7 @@ function parseDynamicClass(className: string): string | null {
       return `max-width:${arbitrary}`
     }
   }
-  
+
   // min-h-[*] 任意值
   if (className.startsWith('min-h-')) {
     const value = className.slice(6)
@@ -1024,7 +1249,7 @@ function parseDynamicClass(className: string): string | null {
       return `min-height:${arbitrary}`
     }
   }
-  
+
   // w-[*] 任意值
   if (className.startsWith('w-')) {
     const value = className.slice(2)
@@ -1033,7 +1258,7 @@ function parseDynamicClass(className: string): string | null {
       return `width:${arbitrary}`
     }
   }
-  
+
   // h-[*] 任意值
   if (className.startsWith('h-')) {
     const value = className.slice(2)
@@ -1042,7 +1267,7 @@ function parseDynamicClass(className: string): string | null {
       return `height:${arbitrary}`
     }
   }
-  
+
   // gap-[*] 任意值
   if (className.startsWith('gap-')) {
     const value = className.slice(4)
@@ -1051,7 +1276,7 @@ function parseDynamicClass(className: string): string | null {
       return `gap:${arbitrary}`
     }
   }
-  
+
   // p-[*], px-[*], py-[*], pt-[*], pr-[*], pb-[*], pl-[*] 任意值
   const paddingMatch = className.match(/^p([xytrbl])?-\[(.+)\]$/)
   if (paddingMatch) {
@@ -1066,7 +1291,7 @@ function parseDynamicClass(className: string): string | null {
       default: return `padding:${val}`
     }
   }
-  
+
   // m-[*], mx-[*], my-[*], mt-[*], mr-[*], mb-[*], ml-[*] 任意值
   const marginMatch = className.match(/^m([xytrbl])?-\[(.+)\]$/)
   if (marginMatch) {
@@ -1081,7 +1306,7 @@ function parseDynamicClass(className: string): string | null {
       default: return `margin:${val}`
     }
   }
-  
+
   // rounded-[*] 任意值
   if (className.startsWith('rounded-')) {
     const value = className.slice(8)
@@ -1090,7 +1315,7 @@ function parseDynamicClass(className: string): string | null {
       return `border-radius:${arbitrary}`
     }
   }
-  
+
   // max-h-[*] 任意值
   if (className.startsWith('max-h-')) {
     const value = className.slice(6)
@@ -1099,14 +1324,14 @@ function parseDynamicClass(className: string): string | null {
       return `max-height:${arbitrary}`
     }
   }
-  
+
   return null
 }
 
 /**
  * 生成按需 Tailwind CSS
  * 根据 HTML 中使用的类名生成对应的 CSS
- * 
+ *
  * @param html - HTML 字符串
  * @returns 仅包含使用到的类的 CSS
  */
@@ -1115,10 +1340,10 @@ export function generateOnDemandTailwindCSS(html: string): string {
   const cssRules: string[] = []
   const placeholderRules: string[] = []
   const spaceRules: string[] = []
-  
+
   // 添加渐变 CSS 变量基础
   cssRules.push('*,::before,::after{--tw-gradient-from:#fff;--tw-gradient-to:transparent;--tw-gradient-stops:var(--tw-gradient-from),var(--tw-gradient-to)}')
-  
+
   // 添加动画 keyframes（如果使用了动画类）
   const needsAnimations = Array.from(usedClasses).some(c => c.includes('animate-'))
   if (needsAnimations) {
@@ -1127,83 +1352,83 @@ export function generateOnDemandTailwindCSS(html: string): string {
     cssRules.push('@keyframes pulse{50%{opacity:.5}}')
     cssRules.push('@keyframes bounce{0%,100%{transform:translateY(-25%);animation-timing-function:cubic-bezier(0.8,0,1,1)}50%{transform:none;animation-timing-function:cubic-bezier(0,0,0.2,1)}}')
   }
-  
-  usedClasses.forEach(className => {
+
+  usedClasses.forEach((className) => {
     let baseClass = className
     let prefix = ''
     let selector = ''
     let isGroupHover = false
-    
+
     // 检测 dark: 前缀
     if (baseClass.startsWith('dark:')) {
       baseClass = baseClass.slice(5)
       prefix = '.dark '
     }
-    
+
     // 检测 group-hover: 前缀
     if (baseClass.startsWith('group-hover:')) {
       baseClass = baseClass.slice(12)
       isGroupHover = true
     }
-    
+
     // 检测 hover: 前缀
     if (baseClass.startsWith('hover:')) {
       baseClass = baseClass.slice(6)
       selector = ':hover'
     }
-    
+
     // 检测 focus: 前缀
     if (baseClass.startsWith('focus:')) {
       baseClass = baseClass.slice(6)
       selector = ':focus'
     }
-    
+
     // 检测 active: 前缀
     if (baseClass.startsWith('active:')) {
       baseClass = baseClass.slice(7)
       selector = ':active'
     }
-    
+
     // 检测 disabled: 前缀
     if (baseClass.startsWith('disabled:')) {
       baseClass = baseClass.slice(9)
       selector = ':disabled'
     }
-    
+
     // 检测 focus-within: 前缀
     if (baseClass.startsWith('focus-within:')) {
       baseClass = baseClass.slice(13)
       selector = ':focus-within'
     }
-    
+
     // 处理 space-y-* 特殊情况
     const spaceYMatch = baseClass.match(/^space-y-(\d+(?:\.\d+)?)$/)
     if (spaceYMatch) {
       const spacingValue = SPACING[spaceYMatch[1]]
       if (spacingValue) {
-        const escapedClass = className.replace(/[:.\[\]\/%]/g, '\\$&')
+        const escapedClass = className.replace(/[:.[\]/%]/g, '\\$&')
         spaceRules.push(`${prefix}.${escapedClass}>:not([hidden])~:not([hidden]){margin-top:${spacingValue}}`)
       }
       return
     }
-    
+
     // 处理 space-x-* 特殊情况
     const spaceXMatch = baseClass.match(/^space-x-(\d+(?:\.\d+)?)$/)
     if (spaceXMatch) {
       const spacingValue = SPACING[spaceXMatch[1]]
       if (spacingValue) {
-        const escapedClass = className.replace(/[:.\[\]\/%]/g, '\\$&')
+        const escapedClass = className.replace(/[:.[\]/%]/g, '\\$&')
         spaceRules.push(`${prefix}.${escapedClass}>:not([hidden])~:not([hidden]){margin-left:${spacingValue}}`)
       }
       return
     }
-    
+
     // 解析 CSS（静态映射或动态解析）
     const css = parseDynamicClass(baseClass)
     if (css) {
       // 转义类名中的特殊字符
-      const escapedClass = className.replace(/[:.\[\]\/%]/g, '\\$&')
-      
+      const escapedClass = className.replace(/[:.[\]/%]/g, '\\$&')
+
       // group-hover 需要特殊选择器
       if (isGroupHover) {
         cssRules.push(`${prefix}.group:hover .${escapedClass}{${css}}`)
@@ -1212,12 +1437,13 @@ export function generateOnDemandTailwindCSS(html: string): string {
       else if (baseClass.startsWith('placeholder-')) {
         placeholderRules.push(`${prefix}.${escapedClass}::placeholder{color:var(--tw-placeholder-color)}`)
         cssRules.push(`${prefix}.${escapedClass}${selector}{${css}}`)
-      } else {
+      }
+      else {
         cssRules.push(`${prefix}.${escapedClass}${selector}{${css}}`)
       }
     }
   })
-  
+
   return cssRules.concat(spaceRules).concat(placeholderRules).join('\n')
 }
 
@@ -1230,34 +1456,36 @@ const themeCSSCache = new Map<string, string>()
 
 /**
  * 生成主题 CSS 变量（带缓存）
- * 
+ *
  * @param isDark - 是否暗色主题
  * @param primaryColor - 主色调
  * @returns 主题 CSS 字符串
  */
 export function generateThemeCSS(isDark: boolean, primaryColor: string): string {
   const cacheKey = `${isDark ? 'd' : 'l'}-${primaryColor}`
-  
+
   const cached = themeCSSCache.get(cacheKey)
-  if (cached) return cached
-  
+  if (cached)
+    return cached
+
   // 限制缓存大小（最多保留 20 个主题组合）
   if (themeCSSCache.size > 20) {
     const firstKey = themeCSSCache.keys().next().value
-    if (firstKey) themeCSSCache.delete(firstKey)
+    if (firstKey)
+      themeCSSCache.delete(firstKey)
   }
-  
+
   // 将 hex 转换为 RGB 分量（用于 rgba 透明度计算）
   const hexToRgb = (hex: string): string => {
     const h = hex.replace('#', '')
-    const r = parseInt(h.length === 3 ? h[0]+h[0] : h.slice(0,2), 16)
-    const g = parseInt(h.length === 3 ? h[1]+h[1] : h.slice(2,4), 16)
-    const b = parseInt(h.length === 3 ? h[2]+h[2] : h.slice(4,6), 16)
+    const r = Number.parseInt(h.length === 3 ? h[0] + h[0] : h.slice(0, 2), 16)
+    const g = Number.parseInt(h.length === 3 ? h[1] + h[1] : h.slice(2, 4), 16)
+    const b = Number.parseInt(h.length === 3 ? h[2] + h[2] : h.slice(4, 6), 16)
     return `${r}, ${g}, ${b}`
   }
-  
+
   const primaryRgb = hexToRgb(primaryColor)
-  
+
   // 🎯 只提供壁纸色变量，不定义具体的文字/背景色
   // Tapp 的 CSS 应该使用 fallback 链条：var(--tapp-primary, var(--wallpaper-primary, #默认色))
   const css = `
@@ -1274,7 +1502,7 @@ export function generateThemeCSS(isDark: boolean, primaryColor: string): string 
 /* 暗色模式标识 */
 ${isDark ? '.dark { color-scheme: dark; }' : ''}
 `
-  
+
   themeCSSCache.set(cacheKey, css)
   return css
 }
@@ -1351,12 +1579,12 @@ export const PAGE_CSS = `
 // 🎯 预计算的组合 CSS（避免运行时拼接）
 // ========================
 
-/** 
+/**
  * Widget 模式的完整静态 CSS（不含主题变量）
  */
 export const WIDGET_STATIC_CSS = `${BASE_CSS}${WIDGET_CSS}` as const
 
-/** 
+/**
  * Page 模式的完整静态 CSS（不含主题变量）
  */
 export const PAGE_STATIC_CSS = `${BASE_CSS}${PAGE_CSS}` as const

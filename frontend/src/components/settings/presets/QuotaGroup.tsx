@@ -3,11 +3,11 @@
  * 预设组合：用于批量渲染配额数字输入
  */
 
-import React, { useCallback } from 'react';
-import type { QuotaGroupConfig } from '../types';
-import { NumberItem } from '../items/NumberItem';
-import '../SettingGroup.css';
-import './presets.css';
+import type { QuotaGroupConfig } from '../types'
+import React, { useCallback } from 'react'
+import { NumberItem } from '../items/NumberItem'
+import '../SettingGroup.css'
+import './presets.css'
 
 export interface QuotaGroupProps extends QuotaGroupConfig {}
 
@@ -21,16 +21,16 @@ export const QuotaGroup: React.FC<QuotaGroupProps> = ({
   loading = false,
 }) => {
   const handleChange = useCallback((key: string) => (value: number) => {
-    onChange(key, value);
-  }, [onChange]);
+    onChange(key, value)
+  }, [onChange])
 
   return (
     <div className="quota-config-section">
       {title && <h4 className="quota-section-title">{title}</h4>}
       {description && <p className="quota-section-desc">{description}</p>}
-      
+
       <div className="quota-config-grid">
-        {quotas.map((quota) => (
+        {quotas.map(quota => (
           <NumberItem
             key={quota.key}
             itemKey={quota.key}
@@ -50,7 +50,7 @@ export const QuotaGroup: React.FC<QuotaGroupProps> = ({
         ))}
       </div>
     </div>
-  );
-};
+  )
+}
 
-QuotaGroup.displayName = 'QuotaGroup';
+QuotaGroup.displayName = 'QuotaGroup'

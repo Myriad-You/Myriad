@@ -2,14 +2,14 @@
  * Brew 阅读器共享常量
  */
 
-import type { ThemeConfig, FontOption, LayoutOption, ThemeKey, LayoutKey } from './types';
+import type { FontOption, LayoutOption, ThemeConfig, ThemeKey } from './types'
 
 // 字体选项
 export const FONT_OPTIONS: FontOption[] = [
   { id: 'serif', labelKey: 'fontSerif', family: '"Noto Serif SC", "Source Han Serif SC", "Songti SC", serif' },
   { id: 'sans', labelKey: 'fontSans', family: '"Noto Sans SC", "Source Han Sans SC", "PingFang SC", sans-serif' },
   { id: 'system', labelKey: 'fontSystem', family: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' },
-];
+]
 
 // 主题配置
 export const THEMES: Record<ThemeKey, ThemeConfig> = {
@@ -53,42 +53,42 @@ export const THEMES: Record<ThemeKey, ThemeConfig> = {
     accent: '#58a6ff',
     icon: '🌑',
   },
-};
+}
 
-export const THEME_ORDER: ThemeKey[] = ['light', 'sepia', 'dark', 'night'];
+export const THEME_ORDER: ThemeKey[] = ['light', 'sepia', 'dark', 'night']
 
 // 布局宽度选项
 export const LAYOUT_OPTIONS: LayoutOption[] = [
   { id: 'narrow', labelKey: 'layoutNarrow', width: 'max-w-3xl' },
   { id: 'wide', labelKey: 'layoutWide', width: 'max-w-4xl' },
-];
+]
 
 // Framer Motion transition 配置常量
-export const TRANSITION_FAST = { duration: 0.1 } as const;
-export const TRANSITION_NORMAL = { duration: 0.15 } as const;
-export const TRANSITION_SLOW = { duration: 0.2, ease: 'easeOut' as const } as const;
-export const TRANSITION_PANEL = { duration: 0.25, ease: 'easeOut' as const } as const;
+export const TRANSITION_FAST = { duration: 0.1 } as const
+export const TRANSITION_NORMAL = { duration: 0.15 } as const
+export const TRANSITION_SLOW = { duration: 0.2, ease: 'easeOut' as const } as const
+export const TRANSITION_PANEL = { duration: 0.25, ease: 'easeOut' as const } as const
 
 // 日期格式化选项常量
 export const DATE_FORMAT_SHORT: Intl.DateTimeFormatOptions = {
   month: 'short',
   day: 'numeric',
-};
+}
 
 export const DATE_FORMAT_FULL: Intl.DateTimeFormatOptions = {
   month: 'short',
   day: 'numeric',
   hour: '2-digit',
   minute: '2-digit',
-};
+}
 
 // 静态 style 常量
-export const STYLE_TRANSFORM_ORIGIN = { transformOrigin: 'center bottom' } as const;
+export const STYLE_TRANSFORM_ORIGIN = { transformOrigin: 'center bottom' } as const
 // WebKit 优化：添加 will-change 提示 GPU 加速
-export const STYLE_READER_CONTAINER = { 
+export const STYLE_READER_CONTAINER = {
   transformOrigin: 'center bottom',
   willChange: 'opacity, transform',
-} as const;
-export const STYLE_SCROLL_SMOOTH = { scrollBehavior: 'smooth' as const } as const;
-export const STYLE_MAX_HEIGHT_320 = { maxHeight: 'min(320px, 60vh)' } as const;
-export const STYLE_MAX_HEIGHT_60VH = { maxHeight: '60vh' } as const;
+} as const
+export const STYLE_SCROLL_SMOOTH = { scrollBehavior: 'smooth' as const } as const
+export const STYLE_MAX_HEIGHT_320 = { maxHeight: 'min(320px, 60vh)' } as const
+export const STYLE_MAX_HEIGHT_60VH = { maxHeight: '60vh' } as const

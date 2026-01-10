@@ -1,7 +1,7 @@
 /**
  * Brew 文章列表组件
  * 设计参考 TappCard 风格 - 瀑布流卡片展示
- * 
+ *
  * 性能优化（WebKit 重点优化）：
  * - 移除 framer-motion，使用纯 CSS 动画
  * - 减少 transition 属性数量
@@ -9,30 +9,30 @@
  * - 图片懒加载 + decoding="async"
  */
 
-import { useRef, useCallback, useState, useMemo, useEffect } from 'react';
-import { LuFileText as FileText } from '@lib/icons';
-import type { BrewItem } from '../../types/brew';
-import { useI18n } from '../../contexts/I18nContext';
-import { ItemCard } from './cards';
-import type { TimeTranslations } from './types';
-import { DEFAULT_THEME_COLOR, getPlainText } from './constants';
+import type { BrewItem } from '../../types/brew'
+import type { TimeTranslations } from './types'
+import { LuFileText as FileText } from '@lib/icons'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useI18n } from '../../contexts/I18nContext'
+import { ItemCard } from './cards'
+import { DEFAULT_THEME_COLOR, getPlainText } from './constants'
 
 interface BrewFeedListProps {
-  items: BrewItem[];
-  selectedItem: BrewItem | null;
-  loading: boolean;
-  hasMore: boolean;
-  total: number;
-  onItemSelect: (item: BrewItem) => void;
-  onToggleStar: (item: BrewItem) => void;
-  onLoadMore: () => void;
-  sourceColors?: Map<number, string>;
+  items: BrewItem[]
+  selectedItem: BrewItem | null
+  loading: boolean
+  hasMore: boolean
+  total: number
+  onItemSelect: (item: BrewItem) => void
+  onToggleStar: (item: BrewItem) => void
+  onLoadMore: () => void
+  sourceColors?: Map<number, string>
   // 编辑模式相关
-  editMode?: boolean;
-  selectedIds?: Set<number>;
-  onItemSelectToggle?: (id: number) => void;
+  editMode?: boolean
+  selectedIds?: Set<number>
+  onItemSelectToggle?: (id: number) => void
   // 是否已登录（游客隐藏收藏按钮）
-  isAuthenticated?: boolean;
+  isAuthenticated?: boolean
 }
 
 // ==================== BrewFeedList 主组件 ====================
@@ -50,11 +50,11 @@ export default function BrewFeedList({
   editMode,
   selectedIds,
   onItemSelectToggle,
-  isAuthenticated = false,  // 默认游客模式
+  isAuthenticated = false, // 默认游客模式
 }: BrewFeedListProps) {
-  const { t, locale } = useI18n();
-  const observerRef = useRef<IntersectionObserver | null>(null);
-  const [columnCount, setColumnCount] = useState(2);
+  const { t, locale } = useI18n()
+  const observerRef = useRef<IntersectionObserver | null>(null)
+  const [columnCount, setColumnCount] = useState(2)
 
   // 缓存翻译对象
   const timeTranslations = useMemo<TimeTranslations>(() => ({
@@ -62,7 +62,7 @@ export default function BrewFeedList({
     minutesAgo: t.brew.minutesAgo,
     hoursAgo: t.brew.hoursAgo,
     daysAgo: t.brew.daysAgo,
-  }), [t.brew]);
+  }), [t.brew])
 
   const brewTranslations = useMemo(() => ({
     hasAnnotations: t.brew.hasAnnotations,
@@ -72,99 +72,102 @@ export default function BrewFeedList({
     unstarArticle: t.brew.unstarArticle,
     starArticle: t.brew.starArticle,
     openInNewTab: t.brew.openInNewTab,
-  }), [t.brew]);
+  }), [t.brew])
 
   // 响应式列数 - 使用 ResizeObserver 替代 resize 事件（更高效，避免防抖）
-  const containerRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const updateColumnCount = (width: number) => {
-      setColumnCount(width < 640 ? 1 : 2);
-    };
-    
+      setColumnCount(width < 640 ? 1 : 2)
+    }
+
     // 初始设置
-    updateColumnCount(window.innerWidth);
-    
+    updateColumnCount(window.innerWidth)
+
     // 使用 ResizeObserver 监听容器宽度变化
     if (containerRef.current && typeof ResizeObserver !== 'undefined') {
       const observer = new ResizeObserver((entries) => {
-        const entry = entries[0];
+        const entry = entries[0]
         if (entry) {
-          updateColumnCount(entry.contentRect.width);
+          updateColumnCount(entry.contentRect.width)
         }
-      });
-      observer.observe(containerRef.current);
-      return () => observer.disconnect();
+      })
+      observer.observe(containerRef.current)
+      return () => observer.disconnect()
     }
-    
+
     // 降级方案：使用 resize 事件
-    const handleResize = () => updateColumnCount(window.innerWidth);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+    const handleResize = () => updateColumnCount(window.innerWidth)
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
 
   // 缓存主题色获取函数
   const getItemThemeColor = useCallback((item: BrewItem): string => {
-    return sourceColors?.get(item.source_id) || DEFAULT_THEME_COLOR;
-  }, [sourceColors]);
+    return sourceColors?.get(item.source_id) || DEFAULT_THEME_COLOR
+  }, [sourceColors])
 
   // 瀑布流列分配 - 最短列优先算法（根据预估高度平衡列）
   const columns = useMemo(() => {
-    const cols: BrewItem[][] = Array.from({ length: columnCount }, () => []);
-    const colHeights: number[] = Array(columnCount).fill(0);
-    
+    const cols: BrewItem[][] = Array.from({ length: columnCount }, () => [])
+    const colHeights: number[] = new Array(columnCount).fill(0)
+
     // 预估卡片高度：基础高度 + 封面图高度 + 摘要行数
     const estimateHeight = (item: BrewItem): number => {
-      let height = 140; // 基础高度（标题、元信息、padding）
-      if (item.image) height += 80; // 封面图
+      let height = 140 // 基础高度（标题、元信息、padding）
+      if (item.image)
+        height += 80 // 封面图
       if (item.summary) {
-        const textLen = getPlainText(item.summary).length;
-        height += Math.min(Math.ceil(textLen / 40) * 22, 66); // 每行约22px，最多3行
+        const textLen = getPlainText(item.summary).length
+        height += Math.min(Math.ceil(textLen / 40) * 22, 66) // 每行约22px，最多3行
       }
-      return height;
-    };
-    
+      return height
+    }
+
     items.forEach((item) => {
       // 找到当前最短的列
-      let shortestCol = 0;
-      let minHeight = colHeights[0];
+      let shortestCol = 0
+      let minHeight = colHeights[0]
       for (let i = 1; i < columnCount; i++) {
         if (colHeights[i] < minHeight) {
-          minHeight = colHeights[i];
-          shortestCol = i;
+          minHeight = colHeights[i]
+          shortestCol = i
         }
       }
-      
-      cols[shortestCol].push(item);
-      colHeights[shortestCol] += estimateHeight(item);
-    });
-    
-    return cols;
-  }, [items, columnCount]);
+
+      cols[shortestCol].push(item)
+      colHeights[shortestCol] += estimateHeight(item)
+    })
+
+    return cols
+  }, [items, columnCount])
 
   // 缓存最后一项 ID
-  const lastItemId = useMemo(() => 
-    items.length > 0 ? items[items.length - 1].id : null,
-  [items]);
+  const lastItemId = useMemo(() =>
+    items.length > 0 ? items[items.length - 1].id : null, [items])
 
   // 无限滚动加载 - 使用 IntersectionObserver
   const lastItemRef = useCallback(
     (node: HTMLDivElement | null) => {
-      if (loading) return;
-      if (observerRef.current) observerRef.current.disconnect();
+      if (loading)
+        return
+      if (observerRef.current)
+        observerRef.current.disconnect()
 
       observerRef.current = new IntersectionObserver(
         (entries) => {
           if (entries[0].isIntersecting && hasMore) {
-            onLoadMore();
+            onLoadMore()
           }
         },
-        { rootMargin: '100px' } // 提前 100px 开始加载
-      );
+        { rootMargin: '100px' }, // 提前 100px 开始加载
+      )
 
-      if (node) observerRef.current.observe(node);
+      if (node)
+        observerRef.current.observe(node)
     },
-    [loading, hasMore, onLoadMore]
-  );
+    [loading, hasMore, onLoadMore],
+  )
 
   // 空状态
   if (items.length === 0 && !loading) {
@@ -176,7 +179,7 @@ export default function BrewFeedList({
         <p className="text-lg font-medium text-gray-700 dark:text-gray-300">{t.brew.noArticles}</p>
         <p className="text-sm mt-1 opacity-70">{t.brew.subscribeMoreSources}</p>
       </div>
-    );
+    )
   }
 
   return (
@@ -223,5 +226,5 @@ export default function BrewFeedList({
         </p>
       )}
     </div>
-  );
+  )
 }

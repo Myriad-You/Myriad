@@ -45,63 +45,63 @@ export enum ScheduleStrategy {
 /** 动画配置 */
 export interface AnimationConfig {
   /** 唯一标识 */
-  id: string;
+  id: string
   /** 优先级 */
-  priority: AnimationPriority;
+  priority: AnimationPriority
   /** 分组ID（用于交错动画） */
-  groupId?: string;
+  groupId?: string
   /** 在组内的索引 */
-  index?: number;
+  index?: number
   /** 延迟时间(ms) */
-  delay?: number;
+  delay?: number
   /** 持续时间(ms) */
-  duration?: number;
+  duration?: number
   /** 是否可跳过 */
-  canSkip?: boolean;
+  canSkip?: boolean
 }
 
 /** 元素动画选项 */
 export interface ElementAnimationOptions {
   /** 分组ID */
-  groupId?: string;
+  groupId?: string
   /** 在组内的索引 */
-  index?: number;
+  index?: number
   /** 交错延迟基数(ms) */
-  staggerDelay?: number;
+  staggerDelay?: number
   /** 是否等待页面就绪 */
-  waitForPage?: boolean;
+  waitForPage?: boolean
 }
 
 /** 监听器类型 */
-export type AnimationListener = (state: AnimationState) => void;
+export type AnimationListener = (state: AnimationState) => void
 
 /** 取消订阅函数 */
-export type Unsubscribe = () => void;
+export type Unsubscribe = () => void
 
 /** 协调器配置 */
 export interface CoordinatorConfig {
   /** 基础并发数（稳态） */
-  baseConcurrent: number;
+  baseConcurrent: number
   /** 爆发并发数（页面切换/首次加载） */
-  burstConcurrent: number;
+  burstConcurrent: number
   /** 爆发持续时间(ms) */
-  burstDuration: number;
+  burstDuration: number
   /** 最小间隔(ms) */
-  minInterval: number;
+  minInterval: number
   /** 默认交错延迟(ms) */
-  defaultStaggerDelay: number;
+  defaultStaggerDelay: number
   /** 刷新间隔(ms)，限制RAF频率 */
-  flushInterval: number;
+  flushInterval: number
   /** 循环动画最大槽位数 */
-  maxLoopSlots?: number;
+  maxLoopSlots?: number
 }
 
 /** 默认配置 */
 export const DEFAULT_CONFIG: CoordinatorConfig = {
-  baseConcurrent: 16,       // 稳态最多 16 个并发（从 12 提升）
-  burstConcurrent: 48,      // 爆发时最多 48 个并发（从 32 提升）
-  burstDuration: 5000,      // 爆发持续 5 秒
+  baseConcurrent: 16, // 稳态最多 16 个并发（从 12 提升）
+  burstConcurrent: 48, // 爆发时最多 48 个并发（从 32 提升）
+  burstDuration: 5000, // 爆发持续 5 秒
   minInterval: 16,
-  defaultStaggerDelay: 35,  // 略微减少交错延迟，加快首屏
+  defaultStaggerDelay: 35, // 略微减少交错延迟，加快首屏
   flushInterval: 16,
-};
+}

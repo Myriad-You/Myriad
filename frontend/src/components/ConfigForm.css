@@ -68,9 +68,7 @@
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg,
-    rgba(255, 255, 255, 0.2) 0%,
-    rgba(255, 255, 255, 0) 100%);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0) 100%);
   opacity: 0;
   transition: opacity 0.3s;
 }
@@ -94,7 +92,8 @@
 
 /* 主要按钮 - 使用主题渐变色 */
 .btn-primary {
-  background: linear-gradient(135deg,
+  background: linear-gradient(
+    135deg,
     color-mix(in srgb, var(--color-primary) 20%, transparent),
     color-mix(in srgb, var(--color-secondary) 20%, transparent)
   );
@@ -104,7 +103,8 @@
 }
 
 .btn-primary:hover {
-  background: linear-gradient(135deg,
+  background: linear-gradient(
+    135deg,
     color-mix(in srgb, var(--color-primary) 30%, transparent),
     color-mix(in srgb, var(--color-secondary) 30%, transparent)
   );
@@ -114,7 +114,8 @@
 }
 
 html.dark .btn-primary {
-  background: linear-gradient(135deg,
+  background: linear-gradient(
+    135deg,
     color-mix(in srgb, var(--color-primary) 25%, transparent),
     color-mix(in srgb, var(--color-secondary) 25%, transparent)
   );
@@ -122,7 +123,8 @@ html.dark .btn-primary {
 }
 
 html.dark .btn-primary:hover {
-  background: linear-gradient(135deg,
+  background: linear-gradient(
+    135deg,
     color-mix(in srgb, var(--color-primary) 35%, transparent),
     color-mix(in srgb, var(--color-secondary) 35%, transparent)
   );
@@ -254,24 +256,28 @@ html.dark .btn-icon:hover {
   padding: 0.75rem 2rem;
   border-radius: 9999px; /* Pill shape */
   font-size: 1rem;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12),
-              0 2px 8px rgba(0, 0, 0, 0.08);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.12),
+    0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
 .floating-save-btn:hover {
   transform: translateY(-4px);
-  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.16),
-              0 4px 12px rgba(0, 0, 0, 0.1);
+  box-shadow:
+    0 12px 48px rgba(0, 0, 0, 0.16),
+    0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 html.dark .floating-save-btn {
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4),
-              0 2px 8px rgba(0, 0, 0, 0.3);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.4),
+    0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 html.dark .floating-save-btn:hover {
-  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6),
-              0 4px 12px rgba(0, 0, 0, 0.4);
+  box-shadow:
+    0 12px 48px rgba(0, 0, 0, 0.6),
+    0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
 @keyframes slideUpFade {
@@ -394,8 +400,9 @@ html.dark .search-clear:hover {
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   backdrop-filter: blur(20px) saturate(180%);
   border: 1px solid rgba(255, 255, 255, 0.5);
-  box-shadow: 0 10px 40px -10px rgba(31, 38, 135, 0.15),
-              0 4px 12px -4px rgba(31, 38, 135, 0.1);
+  box-shadow:
+    0 10px 40px -10px rgba(31, 38, 135, 0.15),
+    0 4px 12px -4px rgba(31, 38, 135, 0.1);
   /* 更大的圆角 */
   border-radius: 1.25rem;
   /* 增加内边距 */
@@ -407,21 +414,24 @@ html.dark .search-clear:hover {
 }
 
 .config-nav-card:hover {
-  box-shadow: 0 14px 48px -12px rgba(31, 38, 135, 0.2),
-              0 6px 16px -6px rgba(31, 38, 135, 0.15);
+  box-shadow:
+    0 14px 48px -12px rgba(31, 38, 135, 0.2),
+    0 6px 16px -6px rgba(31, 38, 135, 0.15);
   border-color: rgba(255, 255, 255, 0.6);
 }
 
 html.dark .config-nav-card {
   background: rgba(20, 20, 20, 0.85);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.6),
-              0 4px 12px -4px rgba(0, 0, 0, 0.4);
+  box-shadow:
+    0 10px 40px -10px rgba(0, 0, 0, 0.6),
+    0 4px 12px -4px rgba(0, 0, 0, 0.4);
 }
 
 html.dark .config-nav-card:hover {
-  box-shadow: 0 14px 48px -12px rgba(0, 0, 0, 0.7),
-              0 6px 16px -6px rgba(0, 0, 0, 0.5);
+  box-shadow:
+    0 14px 48px -12px rgba(0, 0, 0, 0.7),
+    0 6px 16px -6px rgba(0, 0, 0, 0.5);
   border-color: rgba(255, 255, 255, 0.18);
 }
 
@@ -498,9 +508,7 @@ html.dark .config-nav-card:hover {
   border-radius: 1rem; /* rounded-xl */
   font-size: 1.5rem; /* text-2xl */
   line-height: 1;
-  background: linear-gradient(135deg,
-    rgba(156, 163, 175, 0.2),
-    rgba(156, 163, 175, 0.1));
+  background: linear-gradient(135deg, rgba(156, 163, 175, 0.2), rgba(156, 163, 175, 0.1));
   box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.1);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
@@ -511,9 +519,7 @@ html.dark .config-nav-card:hover {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg,
-    rgba(255, 255, 255, 0.4) 0%,
-    rgba(255, 255, 255, 0) 100%);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.4) 0%, rgba(255, 255, 255, 0) 100%);
   opacity: 0.5;
 }
 
@@ -523,9 +529,7 @@ html.dark .config-nav-card:hover {
 }
 
 html.dark .nav-icon {
-  background: linear-gradient(135deg,
-    rgba(156, 163, 175, 0.25),
-    rgba(156, 163, 175, 0.15));
+  background: linear-gradient(135deg, rgba(156, 163, 175, 0.25), rgba(156, 163, 175, 0.15));
   box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.3);
 }
 
@@ -851,10 +855,19 @@ html.dark .card-label {
 }
 
 @keyframes heartbeat {
-  0%, 100% { transform: scale(1); }
-  25% { transform: scale(1.3); }
-  50% { transform: scale(1.1); }
-  75% { transform: scale(1.25); }
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  25% {
+    transform: scale(1.3);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+  75% {
+    transform: scale(1.25);
+  }
 }
 
 /* 配置内容区域 */
@@ -869,8 +882,9 @@ html.dark .card-label {
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   backdrop-filter: blur(20px) saturate(180%);
   border: 1px solid rgba(255, 255, 255, 0.5);
-  box-shadow: 0 10px 40px -10px rgba(31, 38, 135, 0.15),
-              0 4px 12px -4px rgba(31, 38, 135, 0.1);
+  box-shadow:
+    0 10px 40px -10px rgba(31, 38, 135, 0.15),
+    0 4px 12px -4px rgba(31, 38, 135, 0.1);
   border-radius: 1.25rem; /* rounded-2xl */
   padding: 1.5rem; /* p-6 */
   margin-bottom: 1rem; /* mb-4 */
@@ -878,20 +892,23 @@ html.dark .card-label {
 }
 
 .config-section:hover {
-  box-shadow: 0 14px 48px -12px rgba(31, 38, 135, 0.2),
-              0 6px 16px -6px rgba(31, 38, 135, 0.15);
+  box-shadow:
+    0 14px 48px -12px rgba(31, 38, 135, 0.2),
+    0 6px 16px -6px rgba(31, 38, 135, 0.15);
 }
 
 html.dark .config-section {
   background: rgba(20, 20, 20, 0.85);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.6),
-              0 4px 12px -4px rgba(0, 0, 0, 0.4);
+  box-shadow:
+    0 10px 40px -10px rgba(0, 0, 0, 0.6),
+    0 4px 12px -4px rgba(0, 0, 0, 0.4);
 }
 
 html.dark .config-section:hover {
-  box-shadow: 0 14px 48px -12px rgba(0, 0, 0, 0.7),
-              0 6px 16px -6px rgba(0, 0, 0, 0.5);
+  box-shadow:
+    0 14px 48px -12px rgba(0, 0, 0, 0.7),
+    0 6px 16px -6px rgba(0, 0, 0, 0.5);
 }
 
 @media (min-width: 768px) {
@@ -943,9 +960,7 @@ html.dark .config-section:hover {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg,
-    rgba(255, 255, 255, 0.3) 0%,
-    rgba(255, 255, 255, 0) 100%);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.3) 0%, rgba(255, 255, 255, 0) 100%);
   opacity: 0.5;
 }
 
@@ -963,7 +978,8 @@ html.dark .config-section:hover {
 .section-icon.icon-pet,
 .section-icon.icon-music,
 .section-icon.icon-permissions {
-  background: linear-gradient(135deg,
+  background: linear-gradient(
+    135deg,
     color-mix(in srgb, var(--color-primary) 40%, transparent),
     color-mix(in srgb, var(--color-secondary) 40%, transparent)
   );
@@ -978,7 +994,8 @@ html.dark .section-icon.icon-oauth,
 html.dark .section-icon.icon-pet,
 html.dark .section-icon.icon-music,
 html.dark .section-icon.icon-permissions {
-  background: linear-gradient(135deg,
+  background: linear-gradient(
+    135deg,
     color-mix(in srgb, var(--color-primary) 30%, transparent),
     color-mix(in srgb, var(--color-secondary) 30%, transparent)
   );
@@ -1063,9 +1080,11 @@ html.dark .evocative-desc {
   top: 0;
   bottom: 0;
   width: 4px;
-  background: linear-gradient(to bottom,
+  background: linear-gradient(
+    to bottom,
     var(--color-primary),
-    color-mix(in srgb, var(--color-primary) 50%, transparent));
+    color-mix(in srgb, var(--color-primary) 50%, transparent)
+  );
   opacity: 0;
   transition: opacity 0.3s;
 }
@@ -1123,9 +1142,7 @@ html.dark .config-item-card:hover {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg,
-    rgba(255, 255, 255, 0.3) 0%,
-    rgba(255, 255, 255, 0) 100%);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.3) 0%, rgba(255, 255, 255, 0) 100%);
   opacity: 0.4;
 }
 
@@ -1225,7 +1242,9 @@ html.dark .config-item-desc {
   max-height: 90vh;
   background: white;
   border-radius: 1rem;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.1);
+  box-shadow:
+    0 20px 25px -5px rgba(0, 0, 0, 0.2),
+    0 10px 10px -5px rgba(0, 0, 0, 0.1);
   display: flex;
   flex-direction: column;
   animation: slideUp 0.3s ease-out;
@@ -1235,7 +1254,9 @@ html.dark .config-item-desc {
 
 html.dark .config-detail-card {
   background: rgba(31, 41, 55, 0.98);
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.3);
+  box-shadow:
+    0 20px 25px -5px rgba(0, 0, 0, 0.5),
+    0 10px 10px -5px rgba(0, 0, 0, 0.3);
 }
 
 .config-detail-header {
@@ -1495,7 +1516,7 @@ html.dark .platform-desc {
 
 .toggle-slider:before {
   position: absolute;
-  content: "";
+  content: '';
   height: 14px;
   width: 14px;
   left: 4px;
@@ -1718,8 +1739,9 @@ html.dark .field-hint {
 .field-select:focus {
   outline: none;
   border-color: color-mix(in srgb, var(--color-primary) 60%, transparent);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-primary) 12%, transparent),
-              0 4px 12px -3px color-mix(in srgb, var(--color-primary) 20%, transparent);
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--color-primary) 12%, transparent),
+    0 4px 12px -3px color-mix(in srgb, var(--color-primary) 20%, transparent);
   background: rgba(255, 255, 255, 0.9);
 }
 
@@ -1745,8 +1767,9 @@ html.dark .field-select:hover {
 html.dark .field-input:focus,
 html.dark .field-select:focus {
   border-color: color-mix(in srgb, var(--color-primary) 70%, transparent);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-primary) 15%, transparent),
-              0 4px 12px -3px color-mix(in srgb, var(--color-primary) 30%, transparent);
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--color-primary) 15%, transparent),
+    0 4px 12px -3px color-mix(in srgb, var(--color-primary) 30%, transparent);
   background: rgba(55, 65, 81, 0.9);
 }
 
@@ -1863,8 +1886,9 @@ html.dark .toggle-switch.disabled .toggle-slider {
   font-weight: 600;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 4px 12px -2px color-mix(in srgb, var(--color-primary) 30%, transparent),
-              0 2px 6px -1px color-mix(in srgb, var(--color-primary) 20%, transparent);
+  box-shadow:
+    0 4px 12px -2px color-mix(in srgb, var(--color-primary) 30%, transparent),
+    0 2px 6px -1px color-mix(in srgb, var(--color-primary) 20%, transparent);
   position: relative;
   overflow: hidden;
   -webkit-backdrop-filter: blur(8px);
@@ -1875,9 +1899,7 @@ html.dark .toggle-switch.disabled .toggle-slider {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg,
-    rgba(255, 255, 255, 0.2) 0%,
-    rgba(255, 255, 255, 0) 100%);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0) 100%);
   opacity: 0;
   transition: opacity 0.3s;
 }
@@ -1897,8 +1919,9 @@ html.dark .toggle-switch.disabled .toggle-slider {
 
 .test-button:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 8px 20px -4px rgba(var(--primary-rgb), 0.4),
-              0 4px 10px -2px rgba(var(--primary-rgb), 0.3);
+  box-shadow:
+    0 8px 20px -4px rgba(var(--primary-rgb), 0.4),
+    0 4px 10px -2px rgba(var(--primary-rgb), 0.3);
 }
 
 .test-button:active:not(:disabled) {
@@ -2181,7 +2204,10 @@ html.dark .status-badge.unconfigured {
 .quick-access-card,
 .search-result-item,
 .provider-option {
-  transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+  transition:
+    background-color 0.2s,
+    border-color 0.2s,
+    color 0.2s;
 }
 
 /* 自定义 textarea */
@@ -2240,7 +2266,8 @@ html.dark .provider-option:hover {
 }
 
 .provider-option.active {
-  background: linear-gradient(135deg,
+  background: linear-gradient(
+    135deg,
     color-mix(in srgb, var(--color-primary) 15%, transparent),
     color-mix(in srgb, var(--color-secondary) 15%, transparent)
   );
@@ -2251,7 +2278,8 @@ html.dark .provider-option:hover {
 }
 
 html.dark .provider-option.active {
-  background: linear-gradient(135deg,
+  background: linear-gradient(
+    135deg,
     color-mix(in srgb, var(--color-primary) 20%, transparent),
     color-mix(in srgb, var(--color-secondary) 20%, transparent)
   );
@@ -2454,9 +2482,10 @@ html.dark .pet-preview-container {
   backdrop-filter: blur(20px) saturate(180%);
   border-radius: 1.5rem;
   border: 1px solid rgba(255, 255, 255, 0.3);
-  box-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.25),
-              0 12px 24px -8px rgba(0, 0, 0, 0.15),
-              0 0 0 1px rgba(255, 255, 255, 0.5);
+  box-shadow:
+    0 24px 48px -12px rgba(0, 0, 0, 0.25),
+    0 12px 24px -8px rgba(0, 0, 0, 0.15),
+    0 0 0 1px rgba(255, 255, 255, 0.5);
   max-width: 600px;
   width: 100%;
   max-height: 90vh;
@@ -2469,9 +2498,10 @@ html.dark .pet-preview-container {
 html.dark .modal-content {
   background: rgba(20, 20, 20, 0.95);
   border-color: rgba(255, 255, 255, 0.15);
-  box-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.6),
-              0 12px 24px -8px rgba(0, 0, 0, 0.4),
-              0 0 0 1px rgba(255, 255, 255, 0.1);
+  box-shadow:
+    0 24px 48px -12px rgba(0, 0, 0, 0.6),
+    0 12px 24px -8px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(255, 255, 255, 0.1);
 }
 
 /* slideUp 动画已移至 animations.css */
@@ -2757,14 +2787,30 @@ html.dark .test-button-inline:hover:not(:disabled) {
 }
 
 /* 常见颜色的徽章样式 */
-.report-category-badge[data-color="#3b82f6"] { background-color: #3b82f6; }
-.report-category-badge[data-color="#10b981"] { background-color: #10b981; }
-.report-category-badge[data-color="#f59e0b"] { background-color: #f59e0b; }
-.report-category-badge[data-color="#ef4444"] { background-color: #ef4444; }
-.report-category-badge[data-color="#8b5cf6"] { background-color: #8b5cf6; }
-.report-category-badge[data-color="#ec4899"] { background-color: #ec4899; }
-.report-category-badge[data-color="#06b6d4"] { background-color: #06b6d4; }
-.report-category-badge[data-color="#84cc16"] { background-color: #84cc16; }
+.report-category-badge[data-color='#3b82f6'] {
+  background-color: #3b82f6;
+}
+.report-category-badge[data-color='#10b981'] {
+  background-color: #10b981;
+}
+.report-category-badge[data-color='#f59e0b'] {
+  background-color: #f59e0b;
+}
+.report-category-badge[data-color='#ef4444'] {
+  background-color: #ef4444;
+}
+.report-category-badge[data-color='#8b5cf6'] {
+  background-color: #8b5cf6;
+}
+.report-category-badge[data-color='#ec4899'] {
+  background-color: #ec4899;
+}
+.report-category-badge[data-color='#06b6d4'] {
+  background-color: #06b6d4;
+}
+.report-category-badge[data-color='#84cc16'] {
+  background-color: #84cc16;
+}
 
 .report-card-summary {
   margin-top: 0.5rem;
@@ -3030,7 +3076,7 @@ html.dark .quota-input {
   margin: 0;
 }
 
-.quota-input[type="number"] {
+.quota-input[type='number'] {
   -moz-appearance: textfield;
   appearance: textfield;
 }

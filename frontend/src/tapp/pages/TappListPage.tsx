@@ -1,42 +1,43 @@
-﻿/**
+/**
  * Tapp 鍟嗗簵/鍒楄〃椤甸潰
  * 鏄剧ず宸插畨瑁呯殑 Tapp 鍜屽彲鐢ㄧ殑 Tapp
  */
 
-import { useState, useEffect, useCallback, forwardRef, useRef } from 'react'
+import type { TappInstance, TappManifest } from '../types'
+import type { IconStyle } from '../utils/tappColors'
+import {
+  FaCog,
+  FaFileAlt,
+  FaFolder,
+  FaLock,
+  FaPause,
+  FaPlay,
+  FaPlus,
+  FaTh,
+  FaTimes,
+  FaTrash,
+  FaUpload,
+  SiAppstore,
+} from '@lib/icons'
+import { AnimatePresenceShim as AnimatePresence, motionShim as motion } from '@lib/motionShim'
+import { forwardRef, useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { motionShim as motion, AnimatePresenceShim as AnimatePresence } from '@lib/motionShim'
 import AnimatedView from '../../components/AnimatedView'
-import { useAnimationLevel } from '../../hooks/useAnimationLevel'
+import Toast from '../../components/Toast'
+import { useAuth } from '../../contexts/AuthContext'
+import { useI18n } from '../../contexts/I18nContext'
 import { useTappScheduler, useTappStagger } from '../../hooks/animation/pages/tapp'
+import { useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { usePerformanceProfile } from '../../hooks/usePerformanceProfile'
 import { useBreakpoints } from '../../hooks/useSharedEventListener'
 import { useTitleFont } from '../../hooks/useTitleFont'
-import { 
-  FaPlus, 
-  FaPlay, 
-  FaPause, 
-  FaTrash, 
-  FaCog, 
-  FaFolder,
-  FaLock,
-  FaUpload,
-  FaTimes,
-  FaFileAlt,
-  FaTh,
-  SiAppstore,
-} from '@lib/icons'
-import { getTappRuntime } from '../runtime'
-import { getTappIconStyle as getTappIconStyleFromManifest, type IconStyle } from '../utils/tappColors'
-import * as TappApiService from '../services/TappApiService'
-import type { TappInstance, TappManifest } from '../types'
+import { hasSessionHint } from '../../utils/sessionDetection'
+import { TappIcon } from '../components/TappIcon'
 import { TappStore } from '../components/TappStore'
 import { UninstallConfirmDialog } from '../components/UninstallConfirmDialog'
-import { TappIcon } from '../components/TappIcon'
-import { useI18n } from '../../contexts/I18nContext'
-import { useAuth } from '../../contexts/AuthContext'
-import Toast from '../../components/Toast'
-import { hasSessionHint } from '../../utils/sessionDetection'
+import { getTappRuntime } from '../runtime'
+import * as TappApiService from '../services/TappApiService'
+import { getTappIconStyle as getTappIconStyleFromManifest } from '../utils/tappColors'
 
 // 使用 TappIcon 组件统一处理图标渲染
 
@@ -55,21 +56,23 @@ function getPermissionCounts(permissions: string[]): {
   const adminPermissions = ['component:theme', 'component:agent', 'platform:write', 'platform:register']
   // 鎻愬崌鏉冮檺锛氭秹鍙婃晱鎰熸暟鎹垨鎵╁睍鍔熻兘
   const elevatedPermissions = ['ai:generate', 'ai:analyze', 'ai:chat', 'network:fetch', 'report:write', 'media:control']
-  
+
   let basic = 0
   let elevated = 0
   let admin = 0
-  
+
   for (const p of permissions) {
     if (adminPermissions.includes(p)) {
       admin++
-    } else if (elevatedPermissions.includes(p)) {
+    }
+    else if (elevatedPermissions.includes(p)) {
       elevated++
-    } else {
+    }
+    else {
       basic++
     }
   }
-  
+
   return { basic, elevated, admin }
 }
 
@@ -79,10 +82,13 @@ function getTappCategoryKey(manifest: TappManifest): string {
   const hasWidget = manifest.widgets && manifest.widgets.length > 0
   const hasAI = manifest.permissions?.some(p => p.startsWith('ai:'))
   const hasPlatform = manifest.permissions?.some(p => p.startsWith('platform:'))
-  
-  if (hasAI) return 'categoryAI'
-  if (hasPlatform) return 'categoryDataExtension'
-  if (hasWidget) return 'categoryWidget'
+
+  if (hasAI)
+    return 'categoryAI'
+  if (hasPlatform)
+    return 'categoryDataExtension'
+  if (hasWidget)
+    return 'categoryWidget'
   return 'categoryTool'
 }
 
@@ -113,13 +119,14 @@ const TappCard = forwardRef<HTMLDivElement, TappCardProps>(({
   const perf = usePerformanceProfile()
   const animConfig = useAnimationLevel()
   const [isHovered, setIsHovered] = useState(false)
-  
+
   // 浣跨敤缁熶竴鍔ㄧ敾鍗忚皟绯荤粺
   const { canAnimate, delay, onComplete } = useTappStagger(index)
   const hasCompletedRef = useRef(false)
 
   const handleAnimationComplete = () => {
-    if (hasCompletedRef.current) return
+    if (hasCompletedRef.current)
+      return
     hasCompletedRef.current = true
     onComplete()
   }
@@ -129,14 +136,14 @@ const TappCard = forwardRef<HTMLDivElement, TappCardProps>(({
 
   // 鑾峰彇鏉冮檺缁熻鍜屽簲鐢ㄧ被鍒?
   const permissionCounts = getPermissionCounts(tapp.grantedPermissions)
-  const categoryKey = getTappCategoryKey(manifest)  
+  const categoryKey = getTappCategoryKey(manifest)
   // 权限检查：判断当前用户是否可以执行操作
   // - admin: 可以操作所有 Tapp
   // - user: 只能操作自己临时安装的 Tapp（isTemporary=true），不能操作管理员的 Tapp
   // - guest: 只能查看，不能操作
   const canStartStop = tapp.userRole === 'admin' || (tapp.userRole === 'user' && tapp.isTemporary === true)
   const canUninstall = tapp.userRole === 'admin' || (tapp.userRole === 'user' && tapp.isTemporary === true)
-  const canConfigure = tapp.userRole === 'admin' || (tapp.userRole === 'user' && tapp.isTemporary === true)  // 使用类型安全的方式获取分类翻译
+  const canConfigure = tapp.userRole === 'admin' || (tapp.userRole === 'user' && tapp.isTemporary === true) // 使用类型安全的方式获取分类翻译
   const categoryTranslations: Record<string, string> = {
     categoryAI: t.tapp.categoryAI,
     categoryDataExtension: t.tapp.categoryDataExtension,
@@ -159,7 +166,7 @@ const TappCard = forwardRef<HTMLDivElement, TappCardProps>(({
   }
   const category = categoryTranslations[categoryKey] || categoryKey
   const totalPermissions = permissionCounts.basic + permissionCounts.elevated + permissionCounts.admin
-  
+
   // 是否有页面模块可打开
   const hasPage = manifest.hasPage === true
 
@@ -173,10 +180,12 @@ const TappCard = forwardRef<HTMLDivElement, TappCardProps>(({
   // 切换运行状态
   const handleToggleRun = (e: React.MouseEvent) => {
     e.stopPropagation()
-    if (!canStartStop) return
+    if (!canStartStop)
+      return
     if (isRunning) {
       onStop()
-    } else {
+    }
+    else {
       onStart()
     }
   }
@@ -194,46 +203,45 @@ const TappCard = forwardRef<HTMLDivElement, TappCardProps>(({
       onAnimationComplete={handleAnimationComplete}
       transition={perf.lowEndDevice
         ? { type: 'tween', duration: 0.25, delay: staggerDelay }
-        : { type: 'spring', stiffness: 400, damping: 28, delay: staggerDelay }
-      }
+        : { type: 'spring', stiffness: 400, damping: 28, delay: staggerDelay }}
       whileHover={!perf.lowEndDevice ? { y: -4 } : {}}
       whileTap={{ scale: 0.98 }}
       onClick={handleCardClick}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       className={`group relative aspect-[2/1] rounded-2xl overflow-hidden bg-white/70 dark:bg-black/80 backdrop-blur-xl ${
-        isRunning && hasPage 
-          ? 'cursor-pointer' 
+        isRunning && hasPage
+          ? 'cursor-pointer'
           : ''
       }`}
     >
       {/* 动态渐变背景 - 基于图标颜色 */}
-      <div 
+      <div
         className={`absolute inset-0 opacity-[0.08] transition-opacity duration-500 ${isHovered ? 'opacity-[0.15]' : ''}`}
         style={{ background: `linear-gradient(135deg, ${iconStyle.style?.background ? iconStyle.style.background : 'var(--color-primary)'}, transparent 60%)` }}
       />
-      
+
       {/* 瑁呴グ鍏夋晥 - 鍙充笂 */}
-      <div 
+      <div
         className={`absolute -right-8 -top-8 w-24 h-24 rounded-full blur-2xl transition-all duration-500 ${
           isRunning ? 'opacity-40' : 'opacity-20'
         } ${isHovered ? 'scale-150 opacity-50' : ''}`}
         style={{ background: 'linear-gradient(180deg, var(--color-primary), transparent)' }}
       />
-      
+
       {/* 瑁呴グ鍏夋晥 - 宸︿笅 */}
-      <div 
+      <div
         className={`absolute -left-6 -bottom-6 w-16 h-16 rounded-full blur-xl opacity-10 transition-all duration-500 ${isHovered ? 'scale-125 opacity-20' : ''}`}
         style={{ background: 'var(--color-primary)' }}
       />
 
       {/* ===== 涓诲唴瀹瑰尯鍩?===== */}
       <div className="relative z-10 h-full flex flex-col p-3">
-        
-        {/* 椤堕儴鍖哄煙锛氬浘鏍?+ 鍚嶇О + 鐘舵€?*/}
+
+        {/* 椤堕儴鍖哄煙锛氬浘鏍?+ 鍚嶇О + 鐘舵€? */}
         <div className="flex items-start gap-2.5 mb-auto">
           {/* 应用图标 */}
-          <div 
+          <div
             className={`w-14 h-14 rounded-xl ${iconStyle.className} flex items-center justify-center text-white shadow-lg relative overflow-hidden flex-shrink-0`}
             style={iconStyle.style}
           >
@@ -252,7 +260,7 @@ const TappCard = forwardRef<HTMLDivElement, TappCardProps>(({
             )}
           </div>
 
-          {/* 鍚嶇О + 鍏冧俊鎭?*/}
+          {/* 鍚嶇О + 鍏冧俊鎭? */}
           <div className="flex-1 min-w-0 pt-1">
             <div className="flex items-center gap-2">
               <h3 className="font-bold text-gray-800 dark:text-gray-100 truncate text-base leading-tight">
@@ -267,12 +275,13 @@ const TappCard = forwardRef<HTMLDivElement, TappCardProps>(({
                 {category}
               </span>
               <span className="text-xs text-gray-400 dark:text-gray-500">
-                v{manifest.version}
+                v
+                {manifest.version}
               </span>
             </div>
           </div>
 
-          {/* 鍙充笂瑙掓搷浣滃尯 - 鎮诞鏄剧ず瀹屾暣锛岄粯璁ゅ彧鏄剧ず涓绘寜閽?*/}
+          {/* 鍙充笂瑙掓搷浣滃尯 - 鎮诞鏄剧ず瀹屾暣锛岄粯璁ゅ彧鏄剧ず涓绘寜閽? */}
           <div className="flex items-center gap-0.5 flex-shrink-0">
             {/* 涓绘搷浣滄寜閽細鍚姩/鍋滄 - 仅有权限时显示 */}
             {canStartStop && (
@@ -290,36 +299,36 @@ const TappCard = forwardRef<HTMLDivElement, TappCardProps>(({
                 {isRunning ? <FaPause className="w-3 h-3" /> : <FaPlay className="w-3 h-3" />}
               </motion.button>
             )}
-            
+
             {/* 次要操作：悬浮时展开 - 仅有权限时显示 */}
             {(canConfigure || canUninstall) && (
-              <motion.div 
+              <motion.div
                 className="flex items-center gap-0.5 overflow-hidden"
-              initial={{ width: 0, opacity: 0 }}
-              animate={{ 
-                width: isHovered ? 'auto' : 0, 
-                opacity: isHovered ? 1 : 0 
-              }}
-              transition={{ duration: 0.2 }}
-            >
-              {canConfigure && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onConfigure() }}
-                  className="p-2 rounded-xl transition-all text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-500/10"
-                  title={t.tapp.settings}
-                >
-                  <FaCog className="w-3 h-3" />
-                </button>
-              )}
-              {canUninstall && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onUninstall() }}
-                  className="p-2 rounded-xl transition-all text-gray-400 hover:text-red-500 hover:bg-red-500/10"
-                  title={t.tapp.uninstall}
-                >
-                  <FaTrash className="w-3 h-3" />
-                </button>
-              )}
+                initial={{ width: 0, opacity: 0 }}
+                animate={{
+                  width: isHovered ? 'auto' : 0,
+                  opacity: isHovered ? 1 : 0,
+                }}
+                transition={{ duration: 0.2 }}
+              >
+                {canConfigure && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onConfigure() }}
+                    className="p-2 rounded-xl transition-all text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-500/10"
+                    title={t.tapp.settings}
+                  >
+                    <FaCog className="w-3 h-3" />
+                  </button>
+                )}
+                {canUninstall && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onUninstall() }}
+                    className="p-2 rounded-xl transition-all text-gray-400 hover:text-red-500 hover:bg-red-500/10"
+                    title={t.tapp.uninstall}
+                  >
+                    <FaTrash className="w-3 h-3" />
+                  </button>
+                )}
               </motion.div>
             )}
           </div>
@@ -335,44 +344,46 @@ const TappCard = forwardRef<HTMLDivElement, TappCardProps>(({
               </p>
             </div>
           )}
-          
+
           {/* 搴曢儴淇℃伅鏉★細鏉冮檺鎽樿 + 鍙墦寮€鎻愮ず */}
           <div className="flex items-center justify-between">
             {/* 鏉冮檺鎽樿 */}
             <div className="flex items-center gap-1">
-              {totalPermissions > 0 ? (
-                <>
-                  <FaLock className="w-2.5 h-2.5 text-gray-400" />
-                  <div className="flex items-center gap-0.5 text-[9px]">
-                    {permissionCounts.admin > 0 && (
-                      <span className="px-1 py-0.5 rounded bg-red-500/10 text-red-500 dark:text-red-400 font-medium">
-                        {permissionCounts.admin}
-                      </span>
-                    )}
-                    {permissionCounts.elevated > 0 && (
-                      <span className="px-1 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-medium">
-                        {permissionCounts.elevated}
-                      </span>
-                    )}
-                    {permissionCounts.basic > 0 && (
-                      <span className="px-1 py-0.5 rounded bg-green-500/10 text-green-600 dark:text-green-400 font-medium">
-                        {permissionCounts.basic}
-                      </span>
-                    )}
-                    <span className="text-gray-400 dark:text-gray-500 ml-0.5">{t.tapp.permissions}</span>
-                  </div>
-                </>
-              ) : (
-                <span className="text-[9px] text-gray-400 dark:text-gray-500 flex items-center gap-1">
-                  <FaLock className="w-2.5 h-2.5" />
-                  {t.tapp.noPermissions}
-                </span>
-              )}
+              {totalPermissions > 0
+                ? (
+                    <>
+                      <FaLock className="w-2.5 h-2.5 text-gray-400" />
+                      <div className="flex items-center gap-0.5 text-[9px]">
+                        {permissionCounts.admin > 0 && (
+                          <span className="px-1 py-0.5 rounded bg-red-500/10 text-red-500 dark:text-red-400 font-medium">
+                            {permissionCounts.admin}
+                          </span>
+                        )}
+                        {permissionCounts.elevated > 0 && (
+                          <span className="px-1 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-medium">
+                            {permissionCounts.elevated}
+                          </span>
+                        )}
+                        {permissionCounts.basic > 0 && (
+                          <span className="px-1 py-0.5 rounded bg-green-500/10 text-green-600 dark:text-green-400 font-medium">
+                            {permissionCounts.basic}
+                          </span>
+                        )}
+                        <span className="text-gray-400 dark:text-gray-500 ml-0.5">{t.tapp.permissions}</span>
+                      </div>
+                    </>
+                  )
+                : (
+                    <span className="text-[9px] text-gray-400 dark:text-gray-500 flex items-center gap-1">
+                      <FaLock className="w-2.5 h-2.5" />
+                      {t.tapp.noPermissions}
+                    </span>
+                  )}
             </div>
 
             {/* 可点击提示 */}
             {isRunning && hasPage && (
-              <motion.span 
+              <motion.span
                 className="text-[9px] text-gray-400 dark:text-gray-500 flex items-center gap-1"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: isHovered ? 1 : 0.5 }}
@@ -387,13 +398,13 @@ const TappCard = forwardRef<HTMLDivElement, TappCardProps>(({
 
       {/* 杈规鏁堟灉 */}
       <div className="absolute inset-0 rounded-2xl ring-1 ring-inset ring-black/5 dark:ring-white/10 pointer-events-none" />
-      
+
       {/* 鎮诞鏃剁殑楂樺厜杈规 */}
-      <motion.div 
+      <motion.div
         className="absolute inset-0 rounded-2xl pointer-events-none"
         initial={{ opacity: 0 }}
         animate={{ opacity: isHovered ? 1 : 0 }}
-        style={{ 
+        style={{
           boxShadow: 'inset 0 0 0 1px rgba(var(--color-primary-rgb, 99, 102, 241), 0.3)',
         }}
       />
@@ -406,7 +417,7 @@ TappCard.displayName = 'TappCard'
 /**
  * 瀹夎 Tapp 妯℃€佹
  */
-const InstallTappModal = ({
+function InstallTappModal({
   onClose,
   onInstall,
   onSuccess,
@@ -414,7 +425,7 @@ const InstallTappModal = ({
   onClose: () => void
   onInstall: () => void
   onSuccess?: (name: string) => void
-}) => {
+}) {
   const { t } = useI18n()
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -436,9 +447,11 @@ const InstallTappModal = ({
       onInstall()
       onSuccess?.(result.name || file.name.replace('.tapp', ''))
       onClose()
-    } catch (err) {
+    }
+    catch (err) {
       setError(err instanceof Error ? err.message : t.tapp.installFailed)
-    } finally {
+    }
+    finally {
       setLoading(false)
     }
   }
@@ -448,13 +461,15 @@ const InstallTappModal = ({
     e.preventDefault()
     setDragOver(false)
     const file = e.dataTransfer.files[0]
-    if (file) handleFileUpload(file)
+    if (file)
+      handleFileUpload(file)
   }
 
   // 澶勭悊鏂囦欢閫夋嫨
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (file) handleFileUpload(file)
+    if (file)
+      handleFileUpload(file)
   }
 
   return (
@@ -518,22 +533,24 @@ const InstallTappModal = ({
               disabled={loading}
               aria-label={t.tapp.selectTappFile}
             />
-            {loading ? (
-              <>
-                <span className="w-12 h-12 mx-auto mb-4 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin block" />
-                <p className="text-gray-600 dark:text-gray-300 font-medium">{t.tapp.installing}</p>
-              </>
-            ) : (
-              <>
-                <FaFileAlt className="w-12 h-12 mx-auto mb-4 text-gray-400 dark:text-gray-500" />
-                <p className="text-gray-600 dark:text-gray-300 font-medium mb-2">
-                  {t.tapp.dropTappFile}
-                </p>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  {t.tapp.orClickToSelect}
-                </p>
-              </>
-            )}
+            {loading
+              ? (
+                  <>
+                    <span className="w-12 h-12 mx-auto mb-4 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin block" />
+                    <p className="text-gray-600 dark:text-gray-300 font-medium">{t.tapp.installing}</p>
+                  </>
+                )
+              : (
+                  <>
+                    <FaFileAlt className="w-12 h-12 mx-auto mb-4 text-gray-400 dark:text-gray-500" />
+                    <p className="text-gray-600 dark:text-gray-300 font-medium mb-2">
+                      {t.tapp.dropTappFile}
+                    </p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      {t.tapp.orClickToSelect}
+                    </p>
+                  </>
+                )}
           </div>
         </div>
 
@@ -554,14 +571,14 @@ const InstallTappModal = ({
 /**
  * Tapp 鍒楄〃椤甸潰缁勪欢
  */
-export const TappListPage = () => {
+export function TappListPage() {
   const navigate = useNavigate()
   const { t } = useI18n()
   const { isMobile } = useBreakpoints()
   const { isAuthenticated, isAdmin, hasChecked, checkAuth } = useAuth()
   // 🆕 标题字体 Hook
   const { currentFont, titleFontSize, titleColor } = useTitleFont()
-  
+
   // 检测深色模式
   const [isDark, setIsDark] = useState(false)
   useEffect(() => {
@@ -573,24 +590,24 @@ export const TappListPage = () => {
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
     return () => observer.disconnect()
   }, [])
-  
+
   // 计算标题颜色
   const getTitleColor = () => {
     if (titleColor === 'adaptive') {
-      return isDark 
+      return isDark
         ? 'color-mix(in srgb, var(--color-primary) 50%, #ffffff)'
         : 'color-mix(in srgb, var(--color-primary) 50%, #000000)'
     }
     const colorMap: Record<string, string> = {
-      'primary': 'var(--color-primary)',
-      'secondary': 'var(--color-secondary)',
-      'accent': 'var(--color-accent)',
-      'light': 'var(--color-light)',
-      'dark': 'var(--color-dark)',
+      primary: 'var(--color-primary)',
+      secondary: 'var(--color-secondary)',
+      accent: 'var(--color-accent)',
+      light: 'var(--color-light)',
+      dark: 'var(--color-dark)',
     }
     return `color-mix(in srgb, ${colorMap[titleColor] || 'var(--color-primary)'} 70%, transparent)`
   }
-  
+
   const [tapps, setTapps] = useState<TappInstance[]>([])
   const [runningTapps, setRunningTapps] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
@@ -603,7 +620,7 @@ export const TappListPage = () => {
   const [uninstallTargetId, setUninstallTargetId] = useState<string | null>(null)
   const [uninstallTargetName, setUninstallTargetName] = useState('')
   const runtime = getTappRuntime()
-  
+
   // 馃幀 鍒濆鍖?Tapp 椤甸潰璋冨害鍣紙缁熶竴鍔ㄧ敾鍗忚皟锛?
   useTappScheduler()
 
@@ -613,13 +630,13 @@ export const TappListPage = () => {
     if (forceSync) {
       await runtime.syncFromBackend(true)
     }
-    
+
     const allTapps = runtime.getAllTapps()
     setTapps(allTapps)
     setLoading(false)
 
     const running = new Set<string>()
-    allTapps.forEach(tapp => {
+    allTapps.forEach((tapp) => {
       if (runtime.isRunning(tapp.id)) {
         running.add(tapp.id)
       }
@@ -634,19 +651,20 @@ export const TappListPage = () => {
         setShowEmpty(true)
       }, 150) // 150ms 延迟，确认确实没有应用
       return () => clearTimeout(timer)
-    } else {
+    }
+    else {
       setShowEmpty(false)
     }
   }, [loading, tapps.length])
 
   useEffect(() => {
     let mounted = true
-    
+
     // 首次访问时检查认证状态
     if (!hasChecked && hasSessionHint()) {
       checkAuth()
     }
-    
+
     // 初始加载：等待同步完成后再获取 Tapp 列表
     const initLoad = async () => {
       await runtime.waitForSync()
@@ -654,7 +672,7 @@ export const TappListPage = () => {
         loadTapps()
       }
     }
-    
+
     initLoad()
 
     // 鐩戝惉浜嬩欢
@@ -678,7 +696,8 @@ export const TappListPage = () => {
   const handleStart = async (tappId: string) => {
     try {
       await runtime.startTapp(tappId)
-    } catch (error) {
+    }
+    catch (error) {
       console.error('Failed to start Tapp:', error)
     }
   }
@@ -686,7 +705,8 @@ export const TappListPage = () => {
   const handleStop = async (tappId: string) => {
     try {
       await runtime.stopTapp(tappId)
-    } catch (error) {
+    }
+    catch (error) {
       console.error('Failed to stop Tapp:', error)
     }
   }
@@ -701,12 +721,14 @@ export const TappListPage = () => {
 
   // 确认卸载
   const handleConfirmUninstall = async (keepData: boolean) => {
-    if (!uninstallTargetId) return
+    if (!uninstallTargetId)
+      return
     try {
       await runtime.uninstallTapp(uninstallTargetId, { keepData })
       setShowUninstallDialog(false)
       setUninstallTargetId(null)
-    } catch (error) {
+    }
+    catch (error) {
       console.error('Failed to uninstall Tapp:', error)
       setToastMessage(t.tapp.uninstallFailed || 'Uninstall failed')
       throw error // 让组件处理 loading 状态
@@ -733,13 +755,13 @@ export const TappListPage = () => {
         <div className="flex-1 max-w-7xl mx-auto w-full flex flex-col gap-3 p-2 relative min-h-0">
           {/* 涓婂崐閮ㄥ垎鐣欑櫧锛屼笌棣栭〉 Widget 鍖哄煙瀵归綈 */}
           <div className="hidden lg:block flex-1 min-h-[30vh]" />
-          
-          {/* 椤堕儴淇℃伅鏉?- 涓庨椤靛竷灞€涓€鑷?*/}
+
+          {/* 椤堕儴淇℃伅鏉?- 涓庨椤靛竷灞€涓€鑷? */}
           <div className="relative h-[48px] flex-shrink-0 z-10">
             {/* 鑳屾櫙鏍囬 */}
-            <div 
-              className="absolute left-0 whitespace-nowrap pointer-events-none z-0 hidden md:block" 
-              style={{ 
+            <div
+              className="absolute left-0 whitespace-nowrap pointer-events-none z-0 hidden md:block"
+              style={{
                 top: `calc(24px - ${7.5 * titleFontSize}rem)`,
                 fontSize: `${6 * titleFontSize}rem`,
                 color: getTitleColor(),
@@ -764,7 +786,7 @@ export const TappListPage = () => {
                   </div>
                 </div>
 
-                {/* 鍒嗛殧绾?*/}
+                {/* 鍒嗛殧绾? */}
                 <div className="hidden sm:block h-6 w-px bg-gray-200 dark:bg-white/10 mx-1" />
 
                 {/* 鎿嶄綔鎸夐挳 */}
@@ -803,7 +825,7 @@ export const TappListPage = () => {
                 </div>
               </div>
 
-              {/* 鍙充晶绉诲姩绔寜閽?*/}
+              {/* 鍙充晶绉诲姩绔寜閽? */}
               <div className="flex sm:hidden items-center gap-2">
                 <button
                   onClick={() => setShowStore(true)}
@@ -827,21 +849,21 @@ export const TappListPage = () => {
 
           {/* 鍐呭鍖哄煙 */}
           {tapps.length === 0 && showEmpty ? (
-            /* 绌虹姸鎬?- 涓庡崱鐗囪璁￠鏍间竴鑷?*/
+            /* 绌虹姸鎬?- 涓庡崱鐗囪璁￠鏍间竴鑷? */
             <div className="relative rounded-2xl overflow-hidden">
               {/* 鑳屾櫙 */}
               <div className="absolute inset-0 bg-white/70 dark:bg-black/80 backdrop-blur-xl" />
-              
+
               {/* 瑁呴グ鍏夋晥 */}
-              <div 
+              <div
                 className="absolute -right-20 -top-20 w-48 h-48 rounded-full blur-3xl opacity-20"
                 style={{ background: 'var(--color-primary)' }}
               />
-              <div 
+              <div
                 className="absolute -left-16 -bottom-16 w-32 h-32 rounded-full blur-2xl opacity-15"
                 style={{ background: 'var(--color-primary)' }}
               />
-              
+
               {/* 鍐呭 */}
               <div className="relative z-10 p-8 md:p-12 text-center">
                 <div className="w-20 h-20 mx-auto mb-5 rounded-2xl bg-gradient-to-br from-gray-100 to-gray-200 dark:from-white/10 dark:to-white/5 flex items-center justify-center shadow-lg">
@@ -857,9 +879,9 @@ export const TappListPage = () => {
                   <motion.button
                     onClick={() => setShowStore(true)}
                     className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition-all shadow-sm"
-                    style={{ 
+                    style={{
                       background: 'linear-gradient(135deg, var(--color-primary), color-mix(in srgb, var(--color-primary) 80%, black))',
-                      color: 'white'
+                      color: 'white',
                     }}
                     whileHover={{ scale: 1.02, y: -1 }}
                     whileTap={{ scale: 0.98 }}
@@ -882,12 +904,12 @@ export const TappListPage = () => {
                   )}
                 </div>
               </div>
-              
+
               {/* 杈规 */}
               <div className="absolute inset-0 rounded-2xl ring-1 ring-inset ring-black/5 dark:ring-white/10 pointer-events-none" />
             </div>
           ) : (
-            /* Tapp 鍒楄〃 - 2:1 瀹介珮姣斿崱鐗囷紝4鍒楃綉鏍?*/
+            /* Tapp 鍒楄〃 - 2:1 瀹介珮姣斿崱鐗囷紝4鍒楃綉鏍? */
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
               <AnimatePresence mode="popLayout">
                 {tapps.map((tapp, index) => (
@@ -915,7 +937,7 @@ export const TappListPage = () => {
           <InstallTappModal
             onClose={() => setShowInstallModal(false)}
             onInstall={() => loadTapps(true)}
-            onSuccess={(name) => setToastMessage(`✓ ${t.tapp.installSuccess.replace('{name}', name)}`)}
+            onSuccess={name => setToastMessage(`✓ ${t.tapp.installSuccess.replace('{name}', name)}`)}
           />
         )}
       </AnimatePresence>
@@ -941,9 +963,9 @@ export const TappListPage = () => {
 
       {/* Toast 提示 */}
       {toastMessage && (
-        <Toast 
-          message={toastMessage} 
-          onClose={() => setToastMessage('')} 
+        <Toast
+          message={toastMessage}
+          onClose={() => setToastMessage('')}
         />
       )}
     </AnimatedView>
@@ -951,7 +973,3 @@ export const TappListPage = () => {
 }
 
 export default TappListPage
-
-
-
-

@@ -3,79 +3,80 @@
  * 显示可视化编辑的小组件网格
  */
 
-import AnimatedView from '../components/AnimatedView';
-import { API_URL } from '../config';
-import { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { motionShim as motion } from '@lib/motionShim';
-import { FaEdit } from '@lib/icons';
-import WidgetGrid, { WidgetConfig, WidgetType } from '../components/WidgetGrid';
-import { TitleFontSelector } from '../components/TitleFontSelector';
-import { useTitleFont, getTitleFontFamily } from '../hooks/useTitleFont';
-import { WelcomeWidget } from '../components/widgets/WelcomeWidget';
-import { QuickStatsWidget } from '../components/widgets/QuickStatsWidget';
-import { RecentActivityWidget } from '../components/widgets/RecentActivityWidget';
-import { PlatformCardWidget } from '../components/widgets/PlatformCardWidget';
-import { WeatherWidget } from '../components/widgets/WeatherWidget';
-import { QuoteWidget } from '../components/widgets/QuoteWidget';
-import { MusicPlayerWidget } from '../components/widgets/MusicPlayerWidget';
-import { ReportCardWidget } from '../components/widgets/ReportCardWidget';
-import { SocialNetworkWidget } from '../components/widgets/SocialNetworkWidget';
-import { usePageReady } from '../hooks/animation';
-import { useHomeScheduler } from '../hooks/animation/pages/home';
-import { getUserInfoWithCache, getCsrfTokenWithCache, UserInfo } from '../utils/userInfoCache';
-import { useAuth } from '../contexts/AuthContext';
-import { hasSessionHint } from '../utils/sessionDetection';
-import { useI18n } from '../contexts/I18nContext';
-import { getUIConfigDeduped } from '../utils/requestDedup';
-import { useTappWidgets } from '../hooks/useTappWidgets';
+import type { WidgetConfig, WidgetType } from '../components/WidgetGrid'
+import type { UserInfo } from '../utils/userInfoCache'
+import { FaEdit } from '@lib/icons'
+import { motionShim as motion } from '@lib/motionShim'
+import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import AnimatedView from '../components/AnimatedView'
+import { TitleFontSelector } from '../components/TitleFontSelector'
+import WidgetGrid from '../components/WidgetGrid'
+import { MusicPlayerWidget } from '../components/widgets/MusicPlayerWidget'
+import { QuickStatsWidget } from '../components/widgets/QuickStatsWidget'
+import { QuoteWidget } from '../components/widgets/QuoteWidget'
+import { RecentActivityWidget } from '../components/widgets/RecentActivityWidget'
+import { ReportCardWidget } from '../components/widgets/ReportCardWidget'
+import { SocialNetworkWidget } from '../components/widgets/SocialNetworkWidget'
+import { WeatherWidget } from '../components/widgets/WeatherWidget'
+import { WelcomeWidget } from '../components/widgets/WelcomeWidget'
+import { API_URL } from '../config'
+import { useAuth } from '../contexts/AuthContext'
+import { useI18n } from '../contexts/I18nContext'
+import { usePageReady } from '../hooks/animation'
+import { useHomeScheduler } from '../hooks/animation/pages/home'
+import { useTappWidgets } from '../hooks/useTappWidgets'
+import { useTitleFont } from '../hooks/useTitleFont'
+import { getUIConfigDeduped } from '../utils/requestDedup'
+import { hasSessionHint } from '../utils/sessionDetection'
+import { getCsrfTokenWithCache, getUserInfoWithCache } from '../utils/userInfoCache'
 
 export default function Home() {
   // 🆕 初始化首页调度器（Visibility + Resize + RAF + Idle）
-  useHomeScheduler();
+  useHomeScheduler()
 
-  const navigate = useNavigate();
-  const { isAuthenticated, hasChecked, checkAuth, isAdmin } = useAuth();
-  const { t } = useI18n();
-  const isPageReady = usePageReady();
-  const [widgets, setWidgets] = useState<WidgetConfig[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isEditMode, setIsEditMode] = useState(false);
-  const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
-  const [dashboardTitle, setDashboardTitle] = useState('Dashboard');
-  const [csrfToken, setCsrfToken] = useState<string>('');
+  const navigate = useNavigate()
+  const { isAuthenticated, hasChecked, checkAuth, isAdmin } = useAuth()
+  const { t } = useI18n()
+  const isPageReady = usePageReady()
+  const [widgets, setWidgets] = useState<WidgetConfig[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [isEditMode, setIsEditMode] = useState(false)
+  const [userInfo, setUserInfo] = useState<UserInfo | null>(null)
+  const [dashboardTitle, setDashboardTitle] = useState('Dashboard')
+  const [csrfToken, setCsrfToken] = useState<string>('')
 
   // 标题字体 Hook
-  const { currentFont, titleFontSize, titleColor } = useTitleFont();
+  const { currentFont, titleFontSize, titleColor } = useTitleFont()
 
   // 检测深色模式
-  const [isDark, setIsDark] = useState(false);
+  const [isDark, setIsDark] = useState(false)
   useEffect(() => {
     const checkDarkMode = () => {
-      setIsDark(document.documentElement.classList.contains('dark'));
-    };
-    checkDarkMode();
-    const observer = new MutationObserver(checkDarkMode);
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-    return () => observer.disconnect();
-  }, []);
+      setIsDark(document.documentElement.classList.contains('dark'))
+    }
+    checkDarkMode()
+    const observer = new MutationObserver(checkDarkMode)
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+    return () => observer.disconnect()
+  }, [])
 
   // 计算标题颜色
   const getTitleColor = () => {
     if (titleColor === 'adaptive') {
       return isDark
         ? 'color-mix(in srgb, var(--color-primary) 50%, #ffffff)'
-        : 'color-mix(in srgb, var(--color-primary) 50%, #000000)';
+        : 'color-mix(in srgb, var(--color-primary) 50%, #000000)'
     }
     const colorMap: Record<string, string> = {
-      'primary': 'var(--color-primary)',
-      'secondary': 'var(--color-secondary)',
-      'accent': 'var(--color-accent)',
-      'light': 'var(--color-light)',
-      'dark': 'var(--color-dark)',
-    };
-    return `color-mix(in srgb, ${colorMap[titleColor] || 'var(--color-primary)'} 70%, transparent)`;
-  };
+      primary: 'var(--color-primary)',
+      secondary: 'var(--color-secondary)',
+      accent: 'var(--color-accent)',
+      light: 'var(--color-light)',
+      dark: 'var(--color-dark)',
+    }
+    return `color-mix(in srgb, ${colorMap[titleColor] || 'var(--color-primary)'} 70%, transparent)`
+  }
 
   // 默认小组件布局
   const DEFAULT_WIDGETS: WidgetConfig[] = useMemo(() => [
@@ -97,7 +98,7 @@ export default function Home() {
       size: '2x2',
       position: { x: 6, y: 0 },
     },
-  ], []);
+  ], [])
 
   // 使用 useMemo 生成 AVAILABLE_WIDGETS 以支持 i18n
   const AVAILABLE_WIDGETS: WidgetType[] = useMemo(() => [
@@ -178,125 +179,133 @@ export default function Home() {
       component: SocialNetworkWidget,
       supportedSizes: ['1x1', '2x1', '2x2'],
     },
-  ], [t]);
+  ], [t])
 
   // 获取 Tapp 注册的小组件
-  const { tappWidgets, isLoading: isTappWidgetsLoading } = useTappWidgets();
+  const { tappWidgets, isLoading: isTappWidgetsLoading } = useTappWidgets()
 
   // 合并系统小组件和 Tapp 小组件
   const ALL_AVAILABLE_WIDGETS = useMemo(() => {
-    return [...AVAILABLE_WIDGETS, ...tappWidgets];
-  }, [AVAILABLE_WIDGETS, tappWidgets]);
+    return [...AVAILABLE_WIDGETS, ...tappWidgets]
+  }, [AVAILABLE_WIDGETS, tappWidgets])
 
   // 智能检测：如果有登录迹象（会话提示标志），主动检查认证状态
   useEffect(() => {
     if (!hasChecked && hasSessionHint()) {
       // 检测到可能存在活跃会话，触发认证检查
-      checkAuth();
+      checkAuth()
     }
-  }, [hasChecked, checkAuth]);
+  }, [hasChecked, checkAuth])
 
   // 获取用户信息（使用缓存）
   useEffect(() => {
     async function fetchUserInfo() {
       try {
         // 总是获取公开用户信息（站长资料），不需要等待认证检查
-        const info = await getUserInfoWithCache(true); // 跳过认证检查
-        setUserInfo(info);
-      } catch {
+        const info = await getUserInfoWithCache(true) // 跳过认证检查
+        setUserInfo(info)
+      }
+      catch {
         // 设置默认访客信息
         setUserInfo({
           name: 'Myriad Dashboard',
           avatar: 'https://ui-avatars.com/api/?name=Myriad&background=random',
           bio: t.home.defaultBio,
           is_admin: false,
-        });
+        })
       }
     }
-    fetchUserInfo();
-  }, [t]);
+    fetchUserInfo()
+  }, [t])
 
   // 登录后获取 CSRF Token
   useEffect(() => {
     async function fetchCsrfToken() {
       if (isAuthenticated && hasChecked) {
         try {
-          const token = await getCsrfTokenWithCache();
+          const token = await getCsrfTokenWithCache()
           if (token) {
-            setCsrfToken(token);
+            setCsrfToken(token)
           }
-        } catch {
+        }
+        catch {
           // CSRF Token 获取失败时静默处理
         }
       }
     }
-    fetchCsrfToken();
-  }, [isAuthenticated, hasChecked]);
+    fetchCsrfToken()
+  }, [isAuthenticated, hasChecked])
 
   // 从后端加载小组件配置（使用去重机制）
   // 存储原始布局数据，用于 Tapp widgets 加载后重新验证
-  const [rawLayoutData, setRawLayoutData] = useState<WidgetConfig[] | null>(null);
+  const [rawLayoutData, setRawLayoutData] = useState<WidgetConfig[] | null>(null)
 
   useEffect(() => {
     async function loadDashboardConfig() {
       try {
-        const data = await getUIConfigDeduped();
+        const data = await getUIConfigDeduped()
 
         if (data.dashboard_layout) {
           try {
-            const parsedLayout = JSON.parse(data.dashboard_layout);
+            const parsedLayout = JSON.parse(data.dashboard_layout)
             if (Array.isArray(parsedLayout)) {
               // 保存原始布局，待 Tapp widgets 加载后再过滤
-              setRawLayoutData(parsedLayout);
+              setRawLayoutData(parsedLayout)
               // 先用当前可用的组件过滤
-              const registeredWidgetIds = new Set(ALL_AVAILABLE_WIDGETS.map(w => w.id));
-              const loadedWidgets = parsedLayout.filter((w: WidgetConfig) => registeredWidgetIds.has(w.type));
-              setWidgets(loadedWidgets.length > 0 ? loadedWidgets : DEFAULT_WIDGETS);
+              const registeredWidgetIds = new Set(ALL_AVAILABLE_WIDGETS.map(w => w.id))
+              const loadedWidgets = parsedLayout.filter((w: WidgetConfig) => registeredWidgetIds.has(w.type))
+              setWidgets(loadedWidgets.length > 0 ? loadedWidgets : DEFAULT_WIDGETS)
             }
-          } catch (e) {
-            console.error('解析仪表盘布局失败:', e);
-            setWidgets(DEFAULT_WIDGETS);
           }
-        } else {
-          setWidgets(DEFAULT_WIDGETS);
+          catch (e) {
+            console.error('解析仪表盘布局失败:', e)
+            setWidgets(DEFAULT_WIDGETS)
+          }
+        }
+        else {
+          setWidgets(DEFAULT_WIDGETS)
         }
 
         if (data.dashboard_title) {
-          setDashboardTitle(data.dashboard_title);
+          setDashboardTitle(data.dashboard_title)
         }
-      } catch (err) {
-        console.error('加载配置失败:', err);
-        setWidgets(DEFAULT_WIDGETS);
-      } finally {
-        setIsLoading(false);
+      }
+      catch (err) {
+        console.error('加载配置失败:', err)
+        setWidgets(DEFAULT_WIDGETS)
+      }
+      finally {
+        setIsLoading(false)
       }
     }
-    loadDashboardConfig();
-  }, []);
+    loadDashboardConfig()
+  }, [])
 
   // 当 Tapp widgets 加载完成后，重新验证布局中的小组件
   useEffect(() => {
-    if (isTappWidgetsLoading || !rawLayoutData || tappWidgets.length === 0) return;
+    if (isTappWidgetsLoading || !rawLayoutData || tappWidgets.length === 0)
+      return
 
     // 使用完整的可用组件列表重新过滤
-    const registeredWidgetIds = new Set(ALL_AVAILABLE_WIDGETS.map(w => w.id));
-    const validWidgets = rawLayoutData.filter((w: WidgetConfig) => registeredWidgetIds.has(w.type));
+    const registeredWidgetIds = new Set(ALL_AVAILABLE_WIDGETS.map(w => w.id))
+    const validWidgets = rawLayoutData.filter((w: WidgetConfig) => registeredWidgetIds.has(w.type))
 
     if (validWidgets.length > 0) {
-      setWidgets(validWidgets);
+      setWidgets(validWidgets)
     }
-  }, [isTappWidgetsLoading, tappWidgets, rawLayoutData, ALL_AVAILABLE_WIDGETS]);
+  }, [isTappWidgetsLoading, tappWidgets, rawLayoutData, ALL_AVAILABLE_WIDGETS])
 
   // 保存小组件配置到后端
   const handleWidgetsChange = async (newWidgets: WidgetConfig[]) => {
     // 过滤掉未注册的小组件（已丢失/删除的组件，包括 Tapp 小组件）
-    const registeredWidgetIds = new Set(ALL_AVAILABLE_WIDGETS.map(w => w.id));
-    const validWidgets = newWidgets.filter(w => registeredWidgetIds.has(w.type));
+    const registeredWidgetIds = new Set(ALL_AVAILABLE_WIDGETS.map(w => w.id))
+    const validWidgets = newWidgets.filter(w => registeredWidgetIds.has(w.type))
 
-    setWidgets(validWidgets);
+    setWidgets(validWidgets)
 
     // 只有管理员可以保存
-    if (!isAdmin) return;
+    if (!isAdmin)
+      return
 
     try {
       await fetch(`${API_URL}/api/config/dashboard`, {
@@ -307,20 +316,22 @@ export default function Home() {
         },
         credentials: 'include',
         body: JSON.stringify({
-          layout: JSON.stringify(validWidgets) // 序列化为字符串存储
+          layout: JSON.stringify(validWidgets), // 序列化为字符串存储
         }),
-      });
-    } catch (err) {
-      console.error('保存小组件配置失败:', err);
+      })
     }
-  };
+    catch (err) {
+      console.error('保存小组件配置失败:', err)
+    }
+  }
 
   // 保存标题
   const handleTitleChange = async (newTitle: string) => {
-    setDashboardTitle(newTitle);
+    setDashboardTitle(newTitle)
 
     // 只有管理员可以保存
-    if (!isAdmin) return;
+    if (!isAdmin)
+      return
 
     try {
       await fetch(`${API_URL}/api/config/dashboard`, {
@@ -331,20 +342,22 @@ export default function Home() {
         },
         credentials: 'include',
         body: JSON.stringify({
-          title: newTitle
+          title: newTitle,
         }),
-      });
-    } catch (err) {
-      console.error('保存标题失败:', err);
+      })
     }
-  };
+    catch (err) {
+      console.error('保存标题失败:', err)
+    }
+  }
 
   // 监听自定义平台更新事件
   useEffect(() => {
     const handleCustomPlatformsUpdate = async (event: Event) => {
-      const customEvent = event as CustomEvent<{ platforms: any[] }>;
+      const customEvent = event as CustomEvent<{ platforms: any[] }>
       // 只有管理员可以保存
-      if (!isAdmin) return;
+      if (!isAdmin)
+        return
 
       try {
         await fetch(`${API_URL}/api/config/dashboard`, {
@@ -355,19 +368,20 @@ export default function Home() {
           },
           credentials: 'include',
           body: JSON.stringify({
-            custom_platforms: JSON.stringify(customEvent.detail.platforms)
+            custom_platforms: JSON.stringify(customEvent.detail.platforms),
           }),
-        });
-      } catch (err) {
-        console.error('保存自定义平台失败:', err);
+        })
       }
-    };
+      catch (err) {
+        console.error('保存自定义平台失败:', err)
+      }
+    }
 
-    window.addEventListener('custom-platforms-update', handleCustomPlatformsUpdate);
+    window.addEventListener('custom-platforms-update', handleCustomPlatformsUpdate)
     return () => {
-      window.removeEventListener('custom-platforms-update', handleCustomPlatformsUpdate);
-    };
-  }, [isAdmin, csrfToken]);
+      window.removeEventListener('custom-platforms-update', handleCustomPlatformsUpdate)
+    }
+  }, [isAdmin, csrfToken])
 
   return (
     <AnimatedView className="min-h-screen lg:h-screen lg:overflow-hidden">
@@ -384,44 +398,46 @@ export default function Home() {
             {/* 顶部信息条 - 作为 children 传入 WidgetGrid */}
             <div className="relative h-[60px] flex-shrink-0 z-10 mb-2 p-1">
               {/* 背景标题 */}
-              {isEditMode ? (
-                <input
-                  type="text"
-                  aria-label="Dashboard Title"
-                  value={dashboardTitle}
-                  onChange={(e) => handleTitleChange(e.target.value)}
-                  className="absolute left-1 whitespace-nowrap z-0 hidden md:block bg-transparent border-none outline-none p-0 m-0 w-full"
-                  style={{
-                    top: `calc(30px - ${7.5 * titleFontSize}rem)`,
-                    fontSize: `${6 * titleFontSize}rem`,
-                    color: getTitleColor(),
-                    WebkitTextStroke: `0.5px color-mix(in srgb, ${getTitleColor()} 30%, transparent)`,
-                    lineHeight: 1,
-                    fontFamily: currentFont.family,
-                    fontWeight: 700,
-                  }}
-                />
-              ) : (
-                <div
-                  className="absolute left-1 whitespace-nowrap pointer-events-none z-0 hidden md:block"
-                  style={{
-                    top: `calc(30px - ${7.5 * titleFontSize}rem)`,
-                    fontSize: `${6 * titleFontSize}rem`,
-                    color: getTitleColor(),
-                    WebkitTextStroke: `0.5px color-mix(in srgb, ${getTitleColor()} 30%, transparent)`,
-                    fontFamily: currentFont.family,
-                    fontWeight: 700,
-                  }}
-                >
-                  {dashboardTitle}
-                </div>
-              )}
+              {isEditMode
+                ? (
+                    <input
+                      type="text"
+                      aria-label="Dashboard Title"
+                      value={dashboardTitle}
+                      onChange={e => handleTitleChange(e.target.value)}
+                      className="absolute left-1 whitespace-nowrap z-0 hidden md:block bg-transparent border-none outline-none p-0 m-0 w-full"
+                      style={{
+                        top: `calc(30px - ${7.5 * titleFontSize}rem)`,
+                        fontSize: `${6 * titleFontSize}rem`,
+                        color: getTitleColor(),
+                        WebkitTextStroke: `0.5px color-mix(in srgb, ${getTitleColor()} 30%, transparent)`,
+                        lineHeight: 1,
+                        fontFamily: currentFont.family,
+                        fontWeight: 700,
+                      }}
+                    />
+                  )
+                : (
+                    <div
+                      className="absolute left-1 whitespace-nowrap pointer-events-none z-0 hidden md:block"
+                      style={{
+                        top: `calc(30px - ${7.5 * titleFontSize}rem)`,
+                        fontSize: `${6 * titleFontSize}rem`,
+                        color: getTitleColor(),
+                        WebkitTextStroke: `0.5px color-mix(in srgb, ${getTitleColor()} 30%, transparent)`,
+                        fontFamily: currentFont.family,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {dashboardTitle}
+                    </div>
+                  )}
 
               <motion.div
                 className="h-full flex items-center justify-between"
                 initial={{ opacity: 0, x: -20 }}
                 animate={isPageReady ? { opacity: 1, x: 0 } : { opacity: 0, x: -20 }}
-                transition={{ duration: 0.3, ease: "easeOut", delay: isPageReady ? 0.1 : 0 }}
+                transition={{ duration: 0.3, ease: 'easeOut', delay: isPageReady ? 0.1 : 0 }}
               >
                 {/* 用户信息卡片 */}
                 <motion.div
@@ -429,35 +445,37 @@ export default function Home() {
                   whileHover={{ scale: 1.02 }}
                   transition={{ duration: 0.2 }}
                 >
-                  {userInfo ? (
-                    <>
-                      <div className="w-8 h-8 rounded-full overflow-hidden border border-gray-200 dark:border-white/10">
-                        <img
-                          src={userInfo.avatar}
-                          alt={userInfo.name}
-                          className="w-full h-full object-cover"
-                        />
-                      </div>
-                      <div className="flex flex-col justify-center">
-                        <div className="text-sm font-bold text-gray-800 dark:text-gray-200 leading-tight">
-                          {userInfo.name}
-                        </div>
-                        {userInfo.bio && (
-                          <div className="text-[10px] text-gray-500 dark:text-gray-400 max-w-[200px] truncate leading-tight">
-                            {userInfo.bio}
+                  {userInfo
+                    ? (
+                        <>
+                          <div className="w-8 h-8 rounded-full overflow-hidden border border-gray-200 dark:border-white/10">
+                            <img
+                              src={userInfo.avatar}
+                              alt={userInfo.name}
+                              className="w-full h-full object-cover"
+                            />
                           </div>
-                        )}
-                      </div>
-                    </>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-white/5 animate-pulse" />
-                      <div className="flex flex-col gap-1">
-                        <div className="w-20 h-3 bg-gray-200 dark:bg-white/5 rounded animate-pulse" />
-                        <div className="w-32 h-2 bg-gray-200 dark:bg-white/5 rounded animate-pulse" />
-                      </div>
-                    </div>
-                  )}
+                          <div className="flex flex-col justify-center">
+                            <div className="text-sm font-bold text-gray-800 dark:text-gray-200 leading-tight">
+                              {userInfo.name}
+                            </div>
+                            {userInfo.bio && (
+                              <div className="text-[10px] text-gray-500 dark:text-gray-400 max-w-[200px] truncate leading-tight">
+                                {userInfo.bio}
+                              </div>
+                            )}
+                          </div>
+                        </>
+                      )
+                    : (
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-white/5 animate-pulse" />
+                          <div className="flex flex-col gap-1">
+                            <div className="w-20 h-3 bg-gray-200 dark:bg-white/5 rounded animate-pulse" />
+                            <div className="w-32 h-2 bg-gray-200 dark:bg-white/5 rounded animate-pulse" />
+                          </div>
+                        </div>
+                      )}
 
                   {/* 编辑按钮 - 仅管理员可见，且仅在桌面端显示 */}
                   {isAdmin && (
@@ -474,9 +492,9 @@ export default function Home() {
                         className={`
                           hidden lg:flex px-4 py-1.5 rounded-lg text-xs font-bold items-center gap-2 transition-all
                           ${isEditMode
-                            ? 'text-white shadow-md hover:opacity-90'
-                            : 'bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10'
-                          }
+                      ? 'text-white shadow-md hover:opacity-90'
+                      : 'bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10'
+                    }
                         `}
                         style={{
                           backgroundColor: isEditMode ? 'var(--color-primary)' : undefined,
@@ -502,5 +520,5 @@ export default function Home() {
         </div>
       </div>
     </AnimatedView>
-  );
+  )
 }

@@ -3,9 +3,9 @@
  */
 
 // Main components
-export { default as ControlIsland } from './ControlIsland';
-export { default as EditModal } from './EditModal';
-export { default as RSSHubConfig } from './RSSHubConfig';
-
+export { default as ControlIsland } from './ControlIsland'
 // Type exports
-export type { SortMode } from './ControlIsland';
+export type { SortMode } from './ControlIsland'
+export { default as EditModal } from './EditModal'
+
+export { default as RSSHubConfig } from './RSSHubConfig'

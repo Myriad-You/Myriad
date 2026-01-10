@@ -1,14 +1,14 @@
 /**
  * Tapp SDK 代码生成器
- * 
+ *
  * 生成注入到沙箱的 SDK 代码
- * 
+ *
  * 安全特性：
  * - 所有 API 对象被冻结，防止篡改
  * - 使用 session token 验证消息来源
  * - 存储 key 验证防止路径遍历
  * - 完整的对象冻结包括 widgets/pages
- * 
+ *
  * 🎯 性能优化：
  * - SDK 模板预生成（静态部分只计算一次）
  * - 使用占位符替换而非字符串拼接
@@ -61,7 +61,7 @@ function generateStorageKeyValidator(): string {
 
 /**
  * 生成完整版 SDK（用于 Page 模式）
- * 
+ *
  * @param tappInstance - Tapp 实例
  * @param sessionToken - 会话 token（用于消息验证）
  */
@@ -467,7 +467,7 @@ export function generateFullSDK(tappInstance: TappInstance, sessionToken?: strin
 
 /**
  * 生成精简版 SDK（用于 Widget 模式）
- * 
+ *
  * @param tappInstance - Tapp 实例
  * @param sessionToken - 会话 token（用于消息验证）
  */

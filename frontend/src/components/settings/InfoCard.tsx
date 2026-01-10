@@ -3,9 +3,9 @@
  * 用于显示提示、警告等信息
  */
 
-import React from 'react';
-import type { InfoCardConfig } from './types';
-import './InfoCard.css';
+import type { InfoCardConfig } from './types'
+import React from 'react'
+import './InfoCard.css'
 
 export interface InfoCardProps extends InfoCardConfig {}
 
@@ -17,12 +17,13 @@ export const InfoCard: React.FC<InfoCardProps> = ({
   className = '',
 }) => {
   const renderIcon = () => {
-    if (!icon) return null;
+    if (!icon)
+      return null
     if (typeof icon === 'string') {
-      return <span className="info-card-icon">{icon}</span>;
+      return <span className="info-card-icon">{icon}</span>
     }
-    return <span className="info-card-icon">{icon}</span>;
-  };
+    return <span className="info-card-icon">{icon}</span>
+  }
 
   return (
     <div className={`info-card info-card-${variant} ${className}`}>
@@ -34,7 +35,7 @@ export const InfoCard: React.FC<InfoCardProps> = ({
       )}
       <div className="info-text">{content}</div>
     </div>
-  );
-};
+  )
+}
 
-InfoCard.displayName = 'InfoCard';
+InfoCard.displayName = 'InfoCard'

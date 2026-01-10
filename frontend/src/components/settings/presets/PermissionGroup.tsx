@@ -3,11 +3,11 @@
  * 预设组合：用于批量渲染权限开关
  */
 
-import React, { useCallback } from 'react';
-import type { PermissionGroupConfig, PermissionItem } from '../types';
-import { SwitchItem } from '../items/SwitchItem';
-import '../SettingGroup.css';
-import './presets.css';
+import type { PermissionGroupConfig, PermissionItem } from '../types'
+import React, { useCallback } from 'react'
+import { SwitchItem } from '../items/SwitchItem'
+import '../SettingGroup.css'
+import './presets.css'
 
 export interface PermissionGroupProps extends PermissionGroupConfig {}
 
@@ -21,27 +21,29 @@ export const PermissionGroup: React.FC<PermissionGroupProps> = ({
   loading = false,
 }) => {
   const handleChange = useCallback((key: string) => (value: boolean) => {
-    onChange(key, value);
-  }, [onChange]);
+    onChange(key, value)
+  }, [onChange])
 
   const renderPermissionLabel = (permission: PermissionItem) => {
     if (permission.code) {
       return (
         <>
-          <code>{permission.code}</code> {permission.label}
+          <code>{permission.code}</code>
+          {' '}
+          {permission.label}
         </>
-      );
+      )
     }
-    return permission.label;
-  };
+    return permission.label
+  }
 
   return (
     <div className="permission-group">
       {title && <h3 className="permission-group-title">{title}</h3>}
       {description && <p className="permission-group-desc">{description}</p>}
-      
+
       <div className="permission-items">
-        {permissions.map((permission) => (
+        {permissions.map(permission => (
           <SwitchItem
             key={permission.key}
             itemKey={permission.key}
@@ -57,7 +59,7 @@ export const PermissionGroup: React.FC<PermissionGroupProps> = ({
         ))}
       </div>
     </div>
-  );
-};
+  )
+}
 
-PermissionGroup.displayName = 'PermissionGroup';
+PermissionGroup.displayName = 'PermissionGroup'

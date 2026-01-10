@@ -2,8 +2,8 @@
  * 空状态组件
  */
 
-import React from 'react';
-import type { EmptyStateProps } from '../types';
+import type { EmptyStateProps } from '../types'
+import React from 'react'
 
 export const EmptyState: React.FC<EmptyStateProps> = ({
   icon,
@@ -36,7 +36,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
         </button>
       )}
     </div>
-  );
-};
+  )
+}
 
-EmptyState.displayName = 'EmptyState';
+EmptyState.displayName = 'EmptyState'

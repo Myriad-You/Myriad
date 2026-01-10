@@ -1,13 +1,13 @@
-import { loadImagePooled } from './objectPool';
-import { 
-  startFpsMonitor as _startFpsMonitor, 
-  stopFpsMonitor as _stopFpsMonitor, 
-  isLowFps,
+import {
+  startFpsMonitor as _startFpsMonitor,
+  stopFpsMonitor as _stopFpsMonitor,
   batchRead,
   batchWrite,
-  yieldToMain,
+  isLowFps,
   shouldYield,
-} from '../hooks/animation';
+  yieldToMain,
+} from '../hooks/animation'
+import { loadImagePooled } from './objectPool'
 
 /**
  * 性能优化工具函数库
@@ -20,21 +20,21 @@ import {
 
 /** 检查是否处于低帧率模式 */
 export function isLowFpsMode(): boolean {
-  return isLowFps();
+  return isLowFps()
 }
 
 /** 启动 FPS 监控（自动降级） */
 export function startFpsMonitor(): void {
-  _startFpsMonitor();
+  _startFpsMonitor()
 }
 
 /** 停止 FPS 监控 */
 export function stopFpsMonitor(): void {
-  _stopFpsMonitor();
+  _stopFpsMonitor()
 }
 
 // 重新导出 DOM 批量操作
-export { batchRead, batchWrite, yieldToMain, shouldYield };
+export { batchRead, batchWrite, shouldYield, yieldToMain }
 
 /**
  * 防抖函数 - 延迟执行
@@ -43,20 +43,20 @@ export { batchRead, batchWrite, yieldToMain, shouldYield };
  */
 export function debounce<T extends (...args: any[]) => any>(
   fn: T,
-  delay: number = 300
+  delay: number = 300,
 ): (...args: Parameters<T>) => void {
-  let timeoutId: ReturnType<typeof setTimeout> | null = null;
-  
-  return function(this: any, ...args: Parameters<T>) {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null
+
+  return function (this: any, ...args: Parameters<T>) {
     if (timeoutId) {
-      clearTimeout(timeoutId);
+      clearTimeout(timeoutId)
     }
-    
+
     timeoutId = setTimeout(() => {
-      fn.apply(this, args);
-      timeoutId = null;
-    }, delay);
-  };
+      fn.apply(this, args)
+      timeoutId = null
+    }, delay)
+  }
 }
 
 /**
@@ -66,66 +66,66 @@ export function debounce<T extends (...args: any[]) => any>(
  */
 export function throttle<T extends (...args: any[]) => any>(
   fn: T,
-  limit: number = 300
+  limit: number = 300,
 ): (...args: Parameters<T>) => void {
-  let inThrottle: boolean = false;
-  let lastResult: ReturnType<T>;
-  
-  return function(this: any, ...args: Parameters<T>) {
+  let inThrottle: boolean = false
+  let lastResult: ReturnType<T>
+
+  return function (this: any, ...args: Parameters<T>) {
     if (!inThrottle) {
-      inThrottle = true;
-      lastResult = fn.apply(this, args);
-      
+      inThrottle = true
+      lastResult = fn.apply(this, args)
+
       setTimeout(() => {
-        inThrottle = false;
-      }, limit);
+        inThrottle = false
+      }, limit)
     }
-    
-    return lastResult;
-  };
+
+    return lastResult
+  }
 }
 
 /**
  * RAF节流 - 使用requestAnimationFrame限制执行
  * 增强版：支持取消和帧率感知
- * 
+ *
  * @param fn 要优化的函数
  * @param options 选项
  */
 export function rafThrottle<T extends (...args: any[]) => any>(
   fn: T,
-  options?: { 
+  options?: {
     /** 低帧率时是否跳过执行 */
-    skipOnLowFps?: boolean;
-  }
+    skipOnLowFps?: boolean
+  },
 ): ((...args: Parameters<T>) => void) & { cancel: () => void } {
-  let rafId: number | null = null;
-  const { skipOnLowFps = false } = options || {};
-  
-  const throttled = function(this: any, ...args: Parameters<T>) {
+  let rafId: number | null = null
+  const { skipOnLowFps = false } = options || {}
+
+  const throttled = function (this: any, ...args: Parameters<T>) {
     if (rafId !== null) {
-      return;
+      return
     }
-    
+
     // 🔧 修复：使用正确的函数调用而非未定义变量
     if (skipOnLowFps && isLowFps()) {
-      return;
+      return
     }
-    
+
     rafId = requestAnimationFrame(() => {
-      fn.apply(this, args);
-      rafId = null;
-    });
-  } as ((...args: Parameters<T>) => void) & { cancel: () => void };
-  
+      fn.apply(this, args)
+      rafId = null
+    })
+  } as ((...args: Parameters<T>) => void) & { cancel: () => void }
+
   throttled.cancel = () => {
     if (rafId !== null) {
-      cancelAnimationFrame(rafId);
-      rafId = null;
+      cancelAnimationFrame(rafId)
+      rafId = null
     }
-  };
-  
-  return throttled;
+  }
+
+  return throttled
 }
 
 /**
@@ -134,8 +134,8 @@ export function rafThrottle<T extends (...args: any[]) => any>(
  */
 export function doubleRaf(callback: () => void): void {
   requestAnimationFrame(() => {
-    requestAnimationFrame(callback);
-  });
+    requestAnimationFrame(callback)
+  })
 }
 
 /**
@@ -144,46 +144,46 @@ export function doubleRaf(callback: () => void): void {
  */
 export function rafThrottleWithMaxWait<T extends (...args: any[]) => any>(
   fn: T,
-  maxWait: number = 100
+  maxWait: number = 100,
 ): (...args: Parameters<T>) => void {
-  let rafId: number | null = null;
-  let lastExecute = 0;
-  let pendingArgs: Parameters<T> | null = null;
-  let context: any = null;
-  
-  return function(this: any, ...args: Parameters<T>) {
-    context = this;
-    pendingArgs = args;
-    
-    const now = performance.now();
-    const timeSinceLastExecute = now - lastExecute;
-    
+  let rafId: number | null = null
+  let lastExecute = 0
+  let pendingArgs: Parameters<T> | null = null
+  let context: any = null
+
+  return function (this: any, ...args: Parameters<T>) {
+    context = this
+    pendingArgs = args
+
+    const now = performance.now()
+    const timeSinceLastExecute = now - lastExecute
+
     // 如果超过最大等待时间，立即执行
     if (timeSinceLastExecute >= maxWait) {
       if (rafId !== null) {
-        cancelAnimationFrame(rafId);
-        rafId = null;
+        cancelAnimationFrame(rafId)
+        rafId = null
       }
-      lastExecute = now;
-      fn.apply(context, pendingArgs);
-      pendingArgs = null;
-      return;
+      lastExecute = now
+      fn.apply(context, pendingArgs)
+      pendingArgs = null
+      return
     }
-    
+
     // 否则使用 RAF 节流
     if (rafId !== null) {
-      return;
+      return
     }
-    
+
     rafId = requestAnimationFrame(() => {
-      rafId = null;
-      lastExecute = performance.now();
+      rafId = null
+      lastExecute = performance.now()
       if (pendingArgs) {
-        fn.apply(context, pendingArgs);
-        pendingArgs = null;
+        fn.apply(context, pendingArgs)
+        pendingArgs = null
       }
-    });
-  };
+    })
+  }
 }
 
 /**
@@ -193,13 +193,14 @@ export function rafThrottleWithMaxWait<T extends (...args: any[]) => any>(
  */
 export function runWhenIdle(
   fn: () => void,
-  options?: { timeout?: number }
+  options?: { timeout?: number },
 ): void {
   if ('requestIdleCallback' in window) {
-    requestIdleCallback(fn, options);
-  } else {
+    requestIdleCallback(fn, options)
+  }
+  else {
     // 降级为setTimeout
-    setTimeout(fn, 1);
+    setTimeout(fn, 1)
   }
 }
 
@@ -212,19 +213,19 @@ export function runWhenIdle(
 export async function processBatched<T>(
   array: T[],
   batchSize: number,
-  processor: (item: T, index: number) => void | Promise<void>
+  processor: (item: T, index: number) => void | Promise<void>,
 ): Promise<void> {
   for (let i = 0; i < array.length; i += batchSize) {
-    const batch = array.slice(i, i + batchSize);
-    
+    const batch = array.slice(i, i + batchSize)
+
     await Promise.all(
-      batch.map((item, batchIndex) => 
-        processor(item, i + batchIndex)
-      )
-    );
-    
+      batch.map((item, batchIndex) =>
+        processor(item, i + batchIndex),
+      ),
+    )
+
     // 让出主线程
-    await new Promise(resolve => setTimeout(resolve, 0));
+    await new Promise(resolve => setTimeout(resolve, 0))
   }
 }
 
@@ -235,32 +236,34 @@ export async function processBatched<T>(
  */
 export async function measurePerformance<T>(
   name: string,
-  fn: () => T | Promise<T>
+  fn: () => T | Promise<T>,
 ): Promise<T> {
   if (typeof performance === 'undefined') {
-    return await fn();
+    return await fn()
   }
-  
-  const startMark = `${name}-start`;
-  const endMark = `${name}-end`;
-  const measureName = name;
-  
-  performance.mark(startMark);
-  
+
+  const startMark = `${name}-start`
+  const endMark = `${name}-end`
+  const measureName = name
+
+  performance.mark(startMark)
+
   try {
-    const result = await fn();
-    performance.mark(endMark);
-    performance.measure(measureName, startMark, endMark);
-    
-    return result;
-  } catch (error) {
-    performance.mark(endMark);
-    throw error;
-  } finally {
+    const result = await fn()
+    performance.mark(endMark)
+    performance.measure(measureName, startMark, endMark)
+
+    return result
+  }
+  catch (error) {
+    performance.mark(endMark)
+    throw error
+  }
+  finally {
     // 清理标记
-    performance.clearMarks(startMark);
-    performance.clearMarks(endMark);
-    performance.clearMeasures(measureName);
+    performance.clearMarks(startMark)
+    performance.clearMarks(endMark)
+    performance.clearMeasures(measureName)
   }
 }
 
@@ -269,11 +272,11 @@ export async function measurePerformance<T>(
  * @param src 图片URL
  */
 export function preloadImage(src: string): Promise<void> {
-  return loadImagePooled(src).then(success => {
+  return loadImagePooled(src).then((success) => {
     if (!success) {
-      throw new Error(`Failed to preload image: ${src}`);
+      throw new Error(`Failed to preload image: ${src}`)
     }
-  });
+  })
 }
 
 /**
@@ -281,42 +284,42 @@ export function preloadImage(src: string): Promise<void> {
  * @param srcs 图片URL数组
  */
 export async function preloadImages(srcs: string[]): Promise<void> {
-  await Promise.all(srcs.map(src => preloadImage(src)));
+  await Promise.all(srcs.map(src => preloadImage(src)))
 }
 
 /**
  * 内存管理 - 清理未使用的对象
  */
 export class MemoryManager {
-  private static cache = new Map<string, any>();
-  private static maxSize = 50;
-  
+  private static cache = new Map<string, any>()
+  private static maxSize = 50
+
   static set(key: string, value: any): void {
     // LRU策略 - 超过限制删除最早的
     if (this.cache.size >= this.maxSize) {
-      const firstKey = this.cache.keys().next().value;
+      const firstKey = this.cache.keys().next().value
       if (firstKey !== undefined) {
-        this.cache.delete(firstKey);
+        this.cache.delete(firstKey)
       }
     }
-    
-    this.cache.set(key, value);
+
+    this.cache.set(key, value)
   }
-  
+
   static get(key: string): any {
-    return this.cache.get(key);
+    return this.cache.get(key)
   }
-  
+
   static has(key: string): boolean {
-    return this.cache.has(key);
+    return this.cache.has(key)
   }
-  
+
   static clear(): void {
-    this.cache.clear();
+    this.cache.clear()
   }
-  
+
   static getSize(): number {
-    return this.cache.size;
+    return this.cache.size
   }
 }
 
@@ -325,10 +328,10 @@ export class MemoryManager {
  */
 export function createWorker(fn: Function): Worker {
   const blob = new Blob([`(${fn.toString()})()`], {
-    type: 'application/javascript'
-  });
-  const url = URL.createObjectURL(blob);
-  return new Worker(url);
+    type: 'application/javascript',
+  })
+  const url = URL.createObjectURL(blob)
+  return new Worker(url)
 }
 
 /**
@@ -341,4 +344,4 @@ export const performanceSupport = {
   resource: typeof PerformanceResourceTiming !== 'undefined',
   requestIdleCallback: 'requestIdleCallback' in window,
   intersectionObserver: 'IntersectionObserver' in window,
-};
+}

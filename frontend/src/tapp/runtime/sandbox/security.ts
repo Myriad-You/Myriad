@@ -1,26 +1,26 @@
 /**
  * 沙箱安全策略
- * 
+ *
  * 提供 CSP 和安全包装代码
- * 
+ *
  * 安全设计：
  * 1. CSP 严格限制脚本执行来源
  * 2. 使用 nonce 代替 unsafe-inline（当可行时）
  * 3. 禁止 eval 和动态代码执行
  * 4. 阻止所有外部连接
- * 
+ *
  * 🎯 性能优化：
  * - CSP 字符串预计算
  * - 安全包装代码缓存
  */
 
-/** 
+/**
  * 生成随机 nonce（用于 CSP script-src）
- * 
+ *
  * 每个沙箱实例应该生成唯一的 nonce，然后：
  * 1. 将 nonce 传递给 generateCSP(nonce) 生成 CSP 策略
  * 2. 给所有 <script> 标签添加 nonce="${nonce}" 属性
- * 
+ *
  * 这样只有带正确 nonce 的脚本才能执行，防止 XSS 攻击
  */
 export function generateNonce(): string {
@@ -42,29 +42,29 @@ export function generateSessionToken(): string {
 
 /**
  * CSP 基础策略片段（不包含 script-src）
- * 
+ *
  * 安全说明：
  * - 严格限制所有外部资源加载
  * - 🔒 img-src 移除 https: 防止通过图片泄露数据
  * - 🔒 font-src 允许 data: URI 和 Google Fonts
  */
 const CSP_BASE_DIRECTIVES = [
-  "default-src 'none'",
+  'default-src \'none\'',
   // style-src 允许 unsafe-inline 和 Google Fonts CSS
-  "style-src 'unsafe-inline' https://fonts.googleapis.com",
+  'style-src \'unsafe-inline\' https://fonts.googleapis.com',
   // 🔒 安全加强：只允许 data:、blob: 和可信图片源
   // 网易云音乐图片域名：p1.music.126.net, p2.music.126.net 等
-  "img-src data: blob: https://*.music.126.net https://*.netease.com",
+  'img-src data: blob: https://*.music.126.net https://*.netease.com',
   // font-src 允许 data: URI 和 Google Fonts 字体文件
-  "font-src data: https://fonts.gstatic.com",
-  "connect-src 'none'",
-  "frame-src 'none'",
-  "object-src 'none'",
-  "media-src 'none'",
-  "worker-src 'none'",
-  "form-action 'none'",
-  "base-uri 'none'",
-  "manifest-src 'none'",
+  'font-src data: https://fonts.gstatic.com',
+  'connect-src \'none\'',
+  'frame-src \'none\'',
+  'object-src \'none\'',
+  'media-src \'none\'',
+  'worker-src \'none\'',
+  'form-action \'none\'',
+  'base-uri \'none\'',
+  'manifest-src \'none\'',
   // 注意：prefetch-src 已在现代浏览器中废弃，不再需要
 ]
 
@@ -73,36 +73,36 @@ const TAILWIND_CDN = 'https://cdn.tailwindcss.com'
 
 /**
  * 生成带 nonce 的 CSP 策略
- * 
+ *
  * 🔒 安全加强：使用 nonce 替代 unsafe-inline
  * - 每个沙箱实例生成唯一的 nonce
  * - 只有带正确 nonce 属性的 script 标签才能执行
  * - 防止注入的恶意脚本执行
- * 
+ *
  * @param nonce - 唯一的 nonce 值（由 generateNonce() 生成）
  * @returns 完整的 CSP 策略字符串
  */
 export function generateCSP(nonce?: string, allowTailwindCDN = true): string {
   // 🔒 script-src: 使用 nonce + 可选 Tailwind CDN
   const cdnPart = allowTailwindCDN ? ` ${TAILWIND_CDN}` : ''
-  const scriptSrc = nonce 
-    ? `script-src 'nonce-${nonce}'${cdnPart}`  // 🔒 使用 nonce，更安全
-    : `script-src 'unsafe-inline'${cdnPart}`   // 回退到 unsafe-inline
-  
+  const scriptSrc = nonce
+    ? `script-src 'nonce-${nonce}'${cdnPart}` // 🔒 使用 nonce，更安全
+    : `script-src 'unsafe-inline'${cdnPart}` // 回退到 unsafe-inline
+
   return [scriptSrc, ...CSP_BASE_DIRECTIVES].join('; ')
 }
 
 /**
  * 生成安全包装代码
  * 冻结全局对象，防止沙箱逃逸
- * 
+ *
  * 安全特性：
  * 1. 冻结 window.parent/top/opener，防止父窗口访问
  * 2. 禁用所有对话框（alert/confirm/prompt）
  * 3. 禁用本地存储和网络 API
  * 4. 禁用 eval 和 Function 构造器
  * 5. 冻结原型链防止原型污染攻击
- * 
+ *
  * @param sessionToken 会话 token，用于消息验证
  */
 export function generateSecurityWrapper(sessionToken: string): string {
@@ -437,16 +437,16 @@ export function generateSecurityWrapper(sessionToken: string): string {
 
 /**
  * iframe sandbox 属性值
- * 
+ *
  * 安全说明：
  * - allow-scripts: 允许脚本执行（必需）
  * - allow-pointer-lock: 允许指针锁定（用于游戏等交互）
  * - 不使用 allow-same-origin 以获得更强的隔离
  * - 使用 blob: URL 时，sandbox 内容的 origin 为 'null'
- * 
+ *
  * 注意：移除 allow-same-origin 可能导致某些功能受限，
  * 但显著提高安全性（防止沙箱逃逸）
- * 
+ *
  * iOS/iPadOS 兼容性：
  * - allow-pointer-lock: 确保触摸交互正常工作
  */
@@ -454,43 +454,43 @@ export const IFRAME_SANDBOX_ATTRS = 'allow-scripts allow-pointer-lock'
 
 /**
  * 验证存储 key 格式（防止路径遍历攻击）
- * 
+ *
  * 规则：
  * - 只允许字母、数字、下划线、连字符、点
  * - 不允许连续的点（..）
  * - 不允许以点开头或结尾
  * - 长度限制 1-256 字符
  */
-export function validateStorageKey(key: string): { valid: boolean; reason?: string } {
+export function validateStorageKey(key: string): { valid: boolean, reason?: string } {
   if (!key || typeof key !== 'string') {
     return { valid: false, reason: 'Key must be a non-empty string' }
   }
-  
+
   if (key.length > 256) {
     return { valid: false, reason: 'Key too long (max 256 chars)' }
   }
-  
+
   // 禁止路径遍历字符
   if (key.includes('..') || key.includes('/') || key.includes('\\')) {
     return { valid: false, reason: 'Key contains invalid path characters' }
   }
-  
+
   // 禁止以点开头或结尾
   if (key.startsWith('.') || key.endsWith('.')) {
     return { valid: false, reason: 'Key cannot start or end with a dot' }
   }
-  
+
   // 只允许安全字符
   if (!/^[\w.\-:]+$/.test(key)) {
     return { valid: false, reason: 'Key contains invalid characters (allowed: a-z, A-Z, 0-9, _, -, ., :)' }
   }
-  
+
   return { valid: true }
 }
 
 /**
  * 清理存储 value（防止 XSS 和数据注入）
- * 
+ *
  * 注意：这是基本的清理，实际存储时后端也应该验证
  */
 export function sanitizeStorageValue(value: unknown): unknown {
@@ -498,12 +498,12 @@ export function sanitizeStorageValue(value: unknown): unknown {
   if (value === null || value === undefined) {
     return value
   }
-  
+
   // 基本类型原样返回
   if (typeof value === 'number' || typeof value === 'boolean') {
     return value
   }
-  
+
   // 字符串：限制长度
   if (typeof value === 'string') {
     const MAX_STRING_LENGTH = 1024 * 1024 // 1MB
@@ -512,7 +512,7 @@ export function sanitizeStorageValue(value: unknown): unknown {
     }
     return value
   }
-  
+
   // 对象/数组：序列化后检查大小
   if (typeof value === 'object') {
     const serialized = JSON.stringify(value)
@@ -522,6 +522,6 @@ export function sanitizeStorageValue(value: unknown): unknown {
     }
     return value
   }
-  
+
   return value
 }

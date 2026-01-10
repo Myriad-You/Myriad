@@ -19,7 +19,7 @@
 }
 
 /* 拖拽元素：在拖拽期间开启加速 */
-[data-dragging="true"],
+[data-dragging='true'],
 .is-dragging {
   will-change: transform;
   transform: translateZ(0);
@@ -28,7 +28,7 @@
 
 /* 滚动容器优化 */
 .scroll-container,
-[data-scroll-optimized="true"] {
+[data-scroll-optimized='true'] {
   /* 启用原生惯性滚动 */
   -webkit-overflow-scrolling: touch;
   /* 提示浏览器该区域会滚动 */
@@ -120,7 +120,7 @@
  * - margin, padding
  * - border-width
  * - font-size
- * 
+ *
  * 推荐动画的属性（仅 Composite）:
  * - transform: translate, scale, rotate
  * - opacity
@@ -143,15 +143,15 @@
   .hide-while-scrolling {
     transition: opacity 0.15s ease-out;
   }
-  
-  [data-scrolling="true"] .hide-while-scrolling {
+
+  [data-scrolling='true'] .hide-while-scrolling {
     opacity: 0;
     pointer-events: none;
   }
 }
 
 /* 滚动时简化的元素 */
-[data-scrolling="true"] .simplify-while-scrolling {
+[data-scrolling='true'] .simplify-while-scrolling {
   /* 禁用昂贵的效果 */
   box-shadow: none !important;
   backdrop-filter: none !important;
@@ -195,7 +195,7 @@
 }
 
 /* 异步解码提示 */
-img[loading="lazy"] {
+img[loading='lazy'] {
   /* 提示浏览器异步解码图片 */
   image-rendering: auto;
 }
@@ -214,7 +214,7 @@ img[loading="lazy"] {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
-  
+
   /* 禁用昂贵的视觉效果 */
   .complex-animation,
   .expensive-effect {
@@ -226,17 +226,17 @@ img[loading="lazy"] {
 }
 
 /* 低端设备优化 */
-[data-low-end-device="true"] {
+[data-low-end-device='true'] {
   /* 禁用模糊效果 */
   backdrop-filter: none !important;
-  
+
   /* 使用更简单的阴影 */
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
-  
+
   /* 禁用复杂渐变 */
 }
 
-[data-low-end-device="true"] .blur-effect {
+[data-low-end-device='true'] .blur-effect {
   backdrop-filter: none !important;
   background-color: rgba(255, 255, 255, 0.95) !important;
 }
@@ -250,7 +250,7 @@ img[loading="lazy"] {
 .animating {
   /* 提示浏览器即将发生变化 */
   will-change: transform, opacity;
-  
+
   /* 简化渲染 */
   text-rendering: optimizeSpeed;
   image-rendering: optimizeSpeed;
@@ -267,16 +267,11 @@ img[loading="lazy"] {
 
 @media (prefers-color-scheme: dark) {
   .lazy-image {
-    background: linear-gradient(
-      90deg,
-      #1f1f1f 0%,
-      #2a2a2a 50%,
-      #1f1f1f 100%
-    );
+    background: linear-gradient(90deg, #1f1f1f 0%, #2a2a2a 50%, #1f1f1f 100%);
     background-size: 200% 100%;
   }
-  
-  [data-low-end-device="true"] .blur-effect {
+
+  [data-low-end-device='true'] .blur-effect {
     background-color: rgba(0, 0, 0, 0.95) !important;
   }
 }
@@ -293,7 +288,7 @@ img[loading="lazy"] {
     animation: none !important;
     transition: none !important;
   }
-  
+
   /* 移除阴影和模糊 */
   * {
     box-shadow: none !important;
@@ -372,5 +367,5 @@ img[loading="lazy"] {
 
 /* 🔧 弹幕文字颜色 */
 .danmaku-text-color {
-  color: #B3E5FF;
+  color: #b3e5ff;
 }

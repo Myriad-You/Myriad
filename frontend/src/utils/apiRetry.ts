@@ -5,33 +5,33 @@
 
 interface RetryOptions {
   /** 最大重试次数，默认 3 */
-  maxRetries?: number;
+  maxRetries?: number
   /** 初始延迟（毫秒），默认 1000ms */
-  initialDelay?: number;
+  initialDelay?: number
   /** 最大延迟（毫秒），默认 10000ms */
-  maxDelay?: number;
+  maxDelay?: number
   /** 超时时间（毫秒），默认 30000ms */
-  timeout?: number;
+  timeout?: number
   /** 是否使用指数退避，默认 true */
-  exponentialBackoff?: boolean;
+  exponentialBackoff?: boolean
   /** 退避倍数，默认 2 */
-  backoffMultiplier?: number;
+  backoffMultiplier?: number
   /** 自定义错误判断函数（返回 true 表示应该重试） */
-  shouldRetry?: (error: Error, attempt: number) => boolean;
+  shouldRetry?: (error: Error, attempt: number) => boolean
   /** 重试前的回调 */
-  onRetry?: (error: Error, attempt: number, delay: number) => void;
+  onRetry?: (error: Error, attempt: number, delay: number) => void
 }
 
 interface FetchWithRetryOptions extends RetryOptions {
   /** fetch 的 RequestInit 选项 */
-  fetchOptions?: RequestInit;
+  fetchOptions?: RequestInit
 }
 
 /**
  * 延迟指定毫秒数
  */
 function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 /**
@@ -42,16 +42,16 @@ function calculateDelay(
   initialDelay: number,
   maxDelay: number,
   exponentialBackoff: boolean,
-  backoffMultiplier: number
+  backoffMultiplier: number,
 ): number {
   if (!exponentialBackoff) {
-    return Math.min(initialDelay, maxDelay);
+    return Math.min(initialDelay, maxDelay)
   }
 
-  const exponentialDelay = initialDelay * Math.pow(backoffMultiplier, attempt);
+  const exponentialDelay = initialDelay * backoffMultiplier ** attempt
   // 添加随机抖动（±25%）减少并发冲突
-  const jitter = exponentialDelay * (0.75 + Math.random() * 0.5);
-  return Math.min(Math.floor(jitter), maxDelay);
+  const jitter = exponentialDelay * (0.75 + Math.random() * 0.5)
+  return Math.min(Math.floor(jitter), maxDelay)
 }
 
 /**
@@ -60,30 +60,30 @@ function calculateDelay(
 function defaultShouldRetry(error: Error, attempt: number): boolean {
   // 网络错误总是重试
   if (error.message.includes('Failed to fetch') || error.message.includes('Network')) {
-    return true;
+    return true
   }
 
   // HTTP 5xx 错误重试
   if (error.message.includes('5')) {
-    return true;
+    return true
   }
 
   // 429 Too Many Requests 重试
   if (error.message.includes('429')) {
-    return true;
+    return true
   }
 
   // 408 Request Timeout 重试
   if (error.message.includes('408')) {
-    return true;
+    return true
   }
 
   // 503 Service Unavailable 重试
   if (error.message.includes('503')) {
-    return true;
+    return true
   }
 
-  return false;
+  return false
 }
 
 /**
@@ -92,24 +92,25 @@ function defaultShouldRetry(error: Error, attempt: number): boolean {
 async function fetchWithTimeout(
   url: string,
   options: RequestInit = {},
-  timeoutMs: number
+  timeoutMs: number,
 ): Promise<Response> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
 
   try {
     const response = await fetch(url, {
       ...options,
       signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
-    return response;
-  } catch (error) {
-    clearTimeout(timeoutId);
+    })
+    clearTimeout(timeoutId)
+    return response
+  }
+  catch (error) {
+    clearTimeout(timeoutId)
     if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error(`Request timeout after ${timeoutMs}ms`);
+      throw new Error(`Request timeout after ${timeoutMs}ms`)
     }
-    throw error;
+    throw error
   }
 }
 
@@ -131,7 +132,7 @@ async function fetchWithTimeout(
  */
 export async function fetchWithRetry(
   url: string,
-  options: FetchWithRetryOptions = {}
+  options: FetchWithRetryOptions = {},
 ): Promise<Response> {
   const {
     maxRetries = 3,
@@ -143,83 +144,86 @@ export async function fetchWithRetry(
     shouldRetry = defaultShouldRetry,
     onRetry,
     fetchOptions = {},
-  } = options;
+  } = options
 
-  let lastError: Error | null = null;
+  let lastError: Error | null = null
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const response = await fetchWithTimeout(url, fetchOptions, timeout);
+      const response = await fetchWithTimeout(url, fetchOptions, timeout)
 
       // 检查 HTTP 状态码
       if (!response.ok) {
         const error = new Error(
-          `HTTP ${response.status}: ${response.statusText}`
-        );
+          `HTTP ${response.status}: ${response.statusText}`,
+        )
 
         // 判断是否应该重试
         if (attempt < maxRetries && shouldRetry(error, attempt)) {
-          lastError = error;
+          lastError = error
           const delay = calculateDelay(
             attempt,
             initialDelay,
             maxDelay,
             exponentialBackoff,
-            backoffMultiplier
-          );
+            backoffMultiplier,
+          )
 
           if (onRetry) {
-            onRetry(error, attempt + 1, delay);
-          } else {
+            onRetry(error, attempt + 1, delay)
+          }
+          else {
             console.warn(
-              `Request failed (attempt ${attempt + 1}/${maxRetries + 1}): ${error.message}. Retrying in ${delay}ms...`
-            );
+              `Request failed (attempt ${attempt + 1}/${maxRetries + 1}): ${error.message}. Retrying in ${delay}ms...`,
+            )
           }
 
-          await sleep(delay);
-          continue;
+          await sleep(delay)
+          continue
         }
 
-        throw error;
+        throw error
       }
 
-      return response;
-    } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
+      return response
+    }
+    catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error))
 
       // 最后一次尝试，直接抛出错误
       if (attempt === maxRetries) {
-        throw err;
+        throw err
       }
 
       // 判断是否应该重试
       if (!shouldRetry(err, attempt)) {
-        throw err;
+        throw err
       }
 
-      lastError = err;
+      lastError = err
       const delay = calculateDelay(
         attempt,
         initialDelay,
         maxDelay,
         exponentialBackoff,
-        backoffMultiplier
-      );
+        backoffMultiplier,
+      )
 
       if (onRetry) {
-        onRetry(err, attempt + 1, delay);
-      } else {
+        onRetry(err, attempt + 1, delay)
+      }
+      else {
         console.warn(
-          `Request failed (attempt ${attempt + 1}/${maxRetries + 1}): ${err.message}. Retrying in ${delay}ms...`
-        );
+          `Request failed (attempt ${attempt + 1}/${maxRetries + 1}): ${err.message}. Retrying in ${delay}ms...`,
+        )
       }
 
-      await sleep(delay);
+      await sleep(delay)
     }
   }
 
   // 理论上不会到达这里，但为了类型安全
-  throw lastError || new Error('Request failed after all retries');
+  throw lastError || new Error('Request failed after all retries')
 }
 
 /**
@@ -234,10 +238,10 @@ export async function fetchWithRetry(
  */
 export async function fetchJsonWithRetry<T = any>(
   url: string,
-  options: FetchWithRetryOptions = {}
+  options: FetchWithRetryOptions = {},
 ): Promise<T> {
-  const response = await fetchWithRetry(url, options);
-  return response.json();
+  const response = await fetchWithRetry(url, options)
+  return response.json()
 }
 
 /**
@@ -259,7 +263,7 @@ export async function fetchJsonWithRetry<T = any>(
  */
 export async function retryAsync<T>(
   fn: () => Promise<T>,
-  options: RetryOptions = {}
+  options: RetryOptions = {},
 ): Promise<T> {
   const {
     maxRetries = 3,
@@ -269,46 +273,48 @@ export async function retryAsync<T>(
     backoffMultiplier = 2,
     shouldRetry = defaultShouldRetry,
     onRetry,
-  } = options;
+  } = options
 
-  let lastError: Error | null = null;
+  let lastError: Error | null = null
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      return await fn();
-    } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
+      return await fn()
+    }
+    catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error))
 
       // 最后一次尝试，直接抛出错误
       if (attempt === maxRetries) {
-        throw err;
+        throw err
       }
 
       // 判断是否应该重试
       if (!shouldRetry(err, attempt)) {
-        throw err;
+        throw err
       }
 
-      lastError = err;
+      lastError = err
       const delay = calculateDelay(
         attempt,
         initialDelay,
         maxDelay,
         exponentialBackoff,
-        backoffMultiplier
-      );
+        backoffMultiplier,
+      )
 
       if (onRetry) {
-        onRetry(err, attempt + 1, delay);
-      } else {
+        onRetry(err, attempt + 1, delay)
+      }
+      else {
         console.warn(
-          `Operation failed (attempt ${attempt + 1}/${maxRetries + 1}): ${err.message}. Retrying in ${delay}ms...`
-        );
+          `Operation failed (attempt ${attempt + 1}/${maxRetries + 1}): ${err.message}. Retrying in ${delay}ms...`,
+        )
       }
 
-      await sleep(delay);
+      await sleep(delay)
     }
   }
 
-  throw lastError || new Error('Operation failed after all retries');
+  throw lastError || new Error('Operation failed after all retries')
 }

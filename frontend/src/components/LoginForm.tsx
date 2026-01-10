@@ -1,65 +1,66 @@
-import React, { useState, useEffect } from 'react';
-import { API_URL } from '../config';
-import { FaUser, FaLock, FaGithub } from '@lib/icons';
-import { Spinner } from './Spinner';
-import { fetchJson } from '../utils/apiHelper';
-import { RateLimitError } from '../utils/rateLimiter';
-import { sanitizeUsername } from '../utils/inputSanitizer';
-import { setSessionHint } from '../utils/sessionDetection';
-import { useI18n } from '../contexts/I18nContext';
+import { FaGithub, FaLock, FaUser } from '@lib/icons'
+import React, { useEffect, useState } from 'react'
+import { API_URL } from '../config'
+import { useI18n } from '../contexts/I18nContext'
+import { fetchJson } from '../utils/apiHelper'
+import { sanitizeUsername } from '../utils/inputSanitizer'
+import { RateLimitError } from '../utils/rateLimiter'
+import { setSessionHint } from '../utils/sessionDetection'
+import { Spinner } from './Spinner'
 
 const LoginForm: React.FC = () => {
-  const { t, format } = useI18n();
+  const { t, format } = useI18n()
   const [formData, setFormData] = useState({
     username: '',
     password: '',
-  });
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
-  const [githubEnabled, setGithubEnabled] = useState(false);
+  })
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const [githubEnabled, setGithubEnabled] = useState(false)
 
   useEffect(() => {
-    checkGithubOAuth();
-  }, []);
+    checkGithubOAuth()
+  }, [])
 
   const checkGithubOAuth = async () => {
     try {
-      const data = await fetchJson(`${API_URL}/api/setup/config`);
-      setGithubEnabled(data.github_oauth?.client_id_set || false);
-    } catch (err) {
+      const data = await fetchJson(`${API_URL}/api/setup/config`)
+      setGithubEnabled(data.github_oauth?.client_id_set || false)
+    }
+    catch (err) {
       // Failed to check GitHub OAuth config
     }
-  };
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
+    e.preventDefault()
+    setError('')
 
     // 输入验证
     if (!formData.username || !formData.password) {
-      setError(t.auth.fillUsernameAndPassword);
-      return;
+      setError(t.auth.fillUsernameAndPassword)
+      return
     }
 
     // 验证用户名格式
     if (formData.username.length < 3 || formData.username.length > 50) {
-      setError(t.auth.usernameLengthError);
-      return;
+      setError(t.auth.usernameLengthError)
+      return
     }
 
     // 验证用户名只包含字母、数字、下划线
-    if (!/^[a-zA-Z0-9_]+$/.test(formData.username)) {
-      setError(t.auth.usernameFormatError);
-      return;
+    if (!/^\w+$/.test(formData.username)) {
+      setError(t.auth.usernameFormatError)
+      return
     }
 
     // 验证密码长度
     if (formData.password.length < 8 || formData.password.length > 128) {
-      setError(t.auth.passwordLengthError);
-      return;
+      setError(t.auth.passwordLengthError)
+      return
     }
 
-    setSubmitting(true);
+    setSubmitting(true)
 
     try {
       const data = await fetchJson(
@@ -71,22 +72,22 @@ const LoginForm: React.FC = () => {
           },
           body: JSON.stringify(formData),
         },
-        t.auth.loginFailed
-      );
-      
+        t.auth.loginFailed,
+      )
+
       // Validate response data
       if (!data.token || typeof data.token !== 'string' || data.token.length < 10) {
-        throw new Error(t.auth.loginResponseIncomplete);
+        throw new Error(t.auth.loginResponseIncomplete)
       }
 
       if (!data.user || typeof data.user !== 'object') {
-        throw new Error(t.auth.userInfoIncomplete);
+        throw new Error(t.auth.userInfoIncomplete)
       }
 
       // Validate token format (should be JWT)
-      const tokenParts = data.token.split('.');
+      const tokenParts = data.token.split('.')
       if (tokenParts.length !== 3) {
-        throw new Error(t.auth.invalidTokenFormat);
+        throw new Error(t.auth.invalidTokenFormat)
       }
 
       // ✅ 安全修复 P0: 不再将 token 存入 localStorage（防止 XSS 窃取）
@@ -95,40 +96,43 @@ const LoginForm: React.FC = () => {
 
       // 🔒 安全修复 P1: 只存储会话提示标志，不存储用户信息
       // 用户信息（包括 is_admin）将通过后端 API 实时验证
-      setSessionHint();
+      setSessionHint()
 
       // 触发自定义事件通知Layout更新用户信息（携带管理员状态）
-      window.dispatchEvent(new CustomEvent('auth-login-success', { 
-        detail: { 
+      window.dispatchEvent(new CustomEvent('auth-login-success', {
+        detail: {
           user: data.user,
-          isAdmin: data.user?.is_admin || false
-        }
-      }));
-      
+          isAdmin: data.user?.is_admin || false,
+        },
+      }))
+
       // 同时触发认证状态变化事件
-      window.dispatchEvent(new CustomEvent('auth-state-changed', { 
-        detail: { 
+      window.dispatchEvent(new CustomEvent('auth-state-changed', {
+        detail: {
           isAuthenticated: true,
-          isAdmin: data.user?.is_admin || false
-        }
-      }));
+          isAdmin: data.user?.is_admin || false,
+        },
+      }))
 
       // 延迟一下再跳转，让事件处理器先执行
       setTimeout(() => {
-        window.location.href = '/';
-      }, 100);
-    } catch (err: any) {
+        window.location.href = '/'
+      }, 100)
+    }
+    catch (err: any) {
       // 处理 Rate Limit 错误
       if (err instanceof RateLimitError) {
-        const seconds = Math.ceil(err.retryAfter / 1000);
-        setError(format(t.auth.rateLimitError, { seconds }));
-      } else {
-        setError(err.message || t.auth.loginFailed);
+        const seconds = Math.ceil(err.retryAfter / 1000)
+        setError(format(t.auth.rateLimitError, { seconds }))
       }
-    } finally {
-      setSubmitting(false);
+      else {
+        setError(err.message || t.auth.loginFailed)
+      }
     }
-  };
+    finally {
+      setSubmitting(false)
+    }
+  }
 
   return (
     <div className="w-full max-w-md">
@@ -154,8 +158,8 @@ const LoginForm: React.FC = () => {
                 type="text"
                 value={formData.username}
                 onChange={(e) => {
-                  const sanitized = sanitizeUsername(e.target.value);
-                  setFormData({ ...formData, username: sanitized });
+                  const sanitized = sanitizeUsername(e.target.value)
+                  setFormData({ ...formData, username: sanitized })
                 }}
                 className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                 placeholder={t.auth.enterUsername}
@@ -177,7 +181,7 @@ const LoginForm: React.FC = () => {
               <input
                 type="password"
                 value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                onChange={e => setFormData({ ...formData, password: e.target.value })}
                 className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                 placeholder={t.auth.enterPassword}
                 maxLength={128}
@@ -192,14 +196,16 @@ const LoginForm: React.FC = () => {
             disabled={submitting}
             className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed font-semibold shadow-lg"
           >
-            {submitting ? (
-              <>
-                <Spinner size="sm" variant="white" />
-                <span>{t.auth.loggingIn}</span>
-              </>
-            ) : (
-              <span>{t.auth.login}</span>
-            )}
+            {submitting
+              ? (
+                  <>
+                    <Spinner size="sm" variant="white" />
+                    <span>{t.auth.loggingIn}</span>
+                  </>
+                )
+              : (
+                  <span>{t.auth.login}</span>
+                )}
           </button>
         </form>
 
@@ -226,7 +232,7 @@ const LoginForm: React.FC = () => {
         )}
       </div>
     </div>
-  );
-};
+  )
+}
 
-export default LoginForm;
+export default LoginForm

@@ -1,13 +1,13 @@
 /**
  * Tapp 配额管理服务
  * 管理 Tapp 的 API 调用配额和使用统计
- * 
+ *
  * 安全特性：
  * - 滑动窗口速率限制，防止突发请求
  * - 配额数据使用内存缓存，页面刷新后会重置
  * - 这是安全设计，防止用户绕过前端配额检查
  * - 真正的配额限制应该在后端实现
- * 
+ *
  * 性能特性：
  * - 高效的滑动窗口算法
  * - 自动清理过期记录
@@ -18,22 +18,22 @@ import type { TappQuotaConfig, TappUsageStats } from '../types'
 /** 默认配额配置 */
 const DEFAULT_QUOTA: TappQuotaConfig = {
   ai: {
-    dailyLimit: 100,        // 每日 AI 调用次数限制
-    monthlyLimit: 2000,     // 每月 AI 调用次数限制
+    dailyLimit: 100, // 每日 AI 调用次数限制
+    monthlyLimit: 2000, // 每月 AI 调用次数限制
     maxTokensPerRequest: 2000, // 每次请求最大 token
   },
   platform: {
-    readPerMinute: 60,      // 每分钟读取次数
-    writePerMinute: 10,     // 每分钟写入次数
-    maxItemsPerBatch: 100,  // 批量操作最大条目数
+    readPerMinute: 60, // 每分钟读取次数
+    writePerMinute: 10, // 每分钟写入次数
+    maxItemsPerBatch: 100, // 批量操作最大条目数
   },
   storage: {
-    maxKeys: 1000,          // 最大键数量
+    maxKeys: 1000, // 最大键数量
     maxValueSize: 1024 * 1024, // 单个值最大大小 (1MB)
     maxTotalSize: 10 * 1024 * 1024, // 总存储大小 (10MB)
   },
   widget: {
-    maxRegistrations: 10,   // 最大注册小组件数
+    maxRegistrations: 10, // 最大注册小组件数
     minRefreshInterval: 1000, // 最小刷新间隔 (ms)
   },
 }
@@ -53,7 +53,7 @@ class SlidingWindowRateLimiter {
    * 检查是否允许请求
    * @returns 是否允许，以及剩余配额
    */
-  check(): { allowed: boolean; remaining: number; retryAfter?: number } {
+  check(): { allowed: boolean, remaining: number, retryAfter?: number } {
     const now = Date.now()
     this.cleanup(now)
 
@@ -93,7 +93,8 @@ class SlidingWindowRateLimiter {
       const mid = Math.floor((left + right) / 2)
       if (this.timestamps[mid] <= cutoff) {
         left = mid + 1
-      } else {
+      }
+      else {
         right = mid
       }
     }
@@ -122,7 +123,7 @@ class SlidingWindowRateLimiter {
 interface UsageRecord {
   count: number
   lastReset: number
-  history: { timestamp: number; count: number }[]
+  history: { timestamp: number, count: number }[]
   rateLimiter?: SlidingWindowRateLimiter
 }
 
@@ -130,17 +131,17 @@ interface UsageRecord {
 class TappQuotaManager {
   private quotaConfig: TappQuotaConfig
   private usageByTapp: Map<string, Record<string, UsageRecord>>
-  
+
   /** 全局速率限制器（防止单个 Tapp 滥用） */
   private globalRateLimiters: Map<string, SlidingWindowRateLimiter> = new Map()
-  
+
   /** 自动清理定时器 */
   private cleanupInterval: ReturnType<typeof setInterval> | null = null
 
   constructor() {
     this.quotaConfig = { ...DEFAULT_QUOTA }
     this.usageByTapp = new Map()
-    
+
     // 启动自动清理（每 5 分钟清理一次过期数据）
     this.cleanupInterval = setInterval(() => this.cleanupExpiredRecords(), 5 * 60 * 1000)
   }
@@ -194,19 +195,22 @@ class TappQuotaManager {
     if (!usage[type]) {
       // 根据类型创建对应的速率限制器
       let rateLimiter: SlidingWindowRateLimiter | undefined
-      
+
       if (type === 'platform.read') {
         rateLimiter = new SlidingWindowRateLimiter(60 * 1000, this.quotaConfig.platform.readPerMinute)
-      } else if (type === 'platform.write') {
+      }
+      else if (type === 'platform.write') {
         rateLimiter = new SlidingWindowRateLimiter(60 * 1000, this.quotaConfig.platform.writePerMinute)
-      } else if (type.startsWith('ai.')) {
+      }
+      else if (type.startsWith('ai.')) {
         // AI 请求使用更严格的短期限制（10秒内最多5次）
         rateLimiter = new SlidingWindowRateLimiter(10 * 1000, 5)
-      } else if (type === 'http.fetch') {
+      }
+      else if (type === 'http.fetch') {
         // HTTP 请求限制（每分钟30次）
         rateLimiter = new SlidingWindowRateLimiter(60 * 1000, 30)
       }
-      
+
       usage[type] = {
         count: 0,
         lastReset: Date.now(),
@@ -245,14 +249,14 @@ class TappQuotaManager {
   /**
    * 检查配额是否允许操作（增强版：包含滑动窗口检查）
    */
-  checkQuota(tappId: string, type: string, amount: number = 1): { 
+  checkQuota(tappId: string, type: string, amount: number = 1): {
     allowed: boolean
     remaining: number
     reason?: string
-    retryAfter?: number 
+    retryAfter?: number
   } {
     const record = this.getTypeUsage(tappId, type)
-    
+
     // 首先检查滑动窗口速率限制
     if (record.rateLimiter) {
       const rateCheck = record.rateLimiter.check()
@@ -265,7 +269,7 @@ class TappQuotaManager {
         }
       }
     }
-    
+
     let limit: number
     let period: 'minute' | 'day' | 'month'
 
@@ -284,7 +288,7 @@ class TappQuotaManager {
         period = 'minute'
         break
       case 'http.fetch':
-        limit = 30  // 每分钟30次 HTTP 请求
+        limit = 30 // 每分钟30次 HTTP 请求
         period = 'minute'
         break
       default:
@@ -312,7 +316,7 @@ class TappQuotaManager {
   recordUsage(tappId: string, type: string, amount: number = 1): void {
     const record = this.getTypeUsage(tappId, type)
     record.count += amount
-    
+
     // 记录到滑动窗口
     if (record.rateLimiter) {
       for (let i = 0; i < amount; i++) {
@@ -324,15 +328,15 @@ class TappQuotaManager {
   /**
    * 批量检查多个操作的配额
    */
-  checkMultipleQuotas(tappId: string, operations: Array<{ type: string; amount?: number }>): {
+  checkMultipleQuotas(tappId: string, operations: Array<{ type: string, amount?: number }>): {
     allowed: boolean
-    results: Array<{ type: string; allowed: boolean; remaining: number; reason?: string }>
+    results: Array<{ type: string, allowed: boolean, remaining: number, reason?: string }>
   } {
     const results = operations.map(op => ({
       type: op.type,
       ...this.checkQuota(tappId, op.type, op.amount || 1),
     }))
-    
+
     return {
       allowed: results.every(r => r.allowed),
       results,
@@ -344,7 +348,7 @@ class TappQuotaManager {
    */
   getStats(tappId: string): TappUsageStats {
     const usage = this.getUsage(tappId)
-    
+
     const aiRecord = this.getTypeUsage(tappId, 'ai.generate')
     const readRecord = this.getTypeUsage(tappId, 'platform.read')
     const writeRecord = this.getTypeUsage(tappId, 'platform.write')
@@ -401,7 +405,8 @@ class TappQuotaManager {
       const record = this.getTypeUsage(tappId, type)
       record.count = 0
       record.lastReset = Date.now()
-    } else {
+    }
+    else {
       this.usageByTapp.delete(tappId)
     }
     // 不再保存到 localStorage
@@ -442,5 +447,5 @@ export function getQuotaManager(): TappQuotaManager {
   return quotaManagerInstance
 }
 
-export { TappQuotaManager, DEFAULT_QUOTA }
+export { DEFAULT_QUOTA, TappQuotaManager }
 export type { TappQuotaConfig, TappUsageStats }

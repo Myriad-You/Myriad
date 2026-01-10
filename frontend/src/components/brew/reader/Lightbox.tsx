@@ -3,72 +3,72 @@
  * 支持深浅双模式，优雅的动画效果
  */
 
-import { useEffect, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { LuX as X, LuZoomIn as ZoomIn, LuZoomOut as ZoomOut, LuRotateCw as RotateCw, LuDownload as Download } from '@lib/icons';
-import { useState } from 'react';
+import { LuDownload as Download, LuRotateCw as RotateCw, LuX as X, LuZoomIn as ZoomIn, LuZoomOut as ZoomOut } from '@lib/icons'
+import { AnimatePresence, motion } from 'framer-motion'
+import { useCallback, useEffect, useState } from 'react'
 
 interface LightboxProps {
-  src: string | null;
-  alt?: string;
-  isDark: boolean;
-  onClose: () => void;
-  t: Record<string, any>;
+  src: string | null
+  alt?: string
+  isDark: boolean
+  onClose: () => void
+  t: Record<string, any>
 }
 
 export function Lightbox({ src, alt = '', isDark, onClose, t }: LightboxProps) {
-  const [scale, setScale] = useState(1);
-  const [rotation, setRotation] = useState(0);
+  const [scale, setScale] = useState(1)
+  const [rotation, setRotation] = useState(0)
 
   // ESC 键关闭
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose();
+        onClose()
       }
-    };
+    }
 
     if (src) {
-      document.addEventListener('keydown', handleKeyDown);
+      document.addEventListener('keydown', handleKeyDown)
       // 防止背景滚动
-      document.body.style.overflow = 'hidden';
+      document.body.style.overflow = 'hidden'
     }
 
     return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = '';
-    };
-  }, [src, onClose]);
+      document.removeEventListener('keydown', handleKeyDown)
+      document.body.style.overflow = ''
+    }
+  }, [src, onClose])
 
   // 缩放控制
   const handleZoomIn = useCallback(() => {
-    setScale(prev => Math.min(prev + 0.25, 3));
-  }, []);
+    setScale(prev => Math.min(prev + 0.25, 3))
+  }, [])
 
   const handleZoomOut = useCallback(() => {
-    setScale(prev => Math.max(prev - 0.25, 0.5));
-  }, []);
+    setScale(prev => Math.max(prev - 0.25, 0.5))
+  }, [])
 
   // 旋转控制
   const handleRotate = useCallback(() => {
-    setRotation(prev => (prev + 90) % 360);
-  }, []);
+    setRotation(prev => (prev + 90) % 360)
+  }, [])
 
   // 下载图片
   const handleDownload = useCallback(() => {
-    if (!src) return;
-    const link = document.createElement('a');
-    link.href = src;
-    link.download = alt || 'image';
-    link.click();
-  }, [src, alt]);
+    if (!src)
+      return
+    const link = document.createElement('a')
+    link.href = src
+    link.download = alt || 'image'
+    link.click()
+  }, [src, alt])
 
   // 重置状态
   const handleClose = useCallback(() => {
-    setScale(1);
-    setRotation(0);
-    onClose();
-  }, [onClose]);
+    setScale(1)
+    setRotation(0)
+    onClose()
+  }, [onClose])
 
   return (
     <AnimatePresence>
@@ -99,7 +99,7 @@ export function Lightbox({ src, alt = '', isDark, onClose, t }: LightboxProps) {
                 ? 'bg-neutral-900/80 border-neutral-700 text-white'
                 : 'bg-white/80 border-gray-200 text-gray-900'
             }`}
-            onClick={(e) => e.stopPropagation()}
+            onClick={e => e.stopPropagation()}
           >
             {/* 缩小 */}
             <button
@@ -109,8 +109,8 @@ export function Lightbox({ src, alt = '', isDark, onClose, t }: LightboxProps) {
                 scale <= 0.5
                   ? 'opacity-30 cursor-not-allowed'
                   : isDark
-                  ? 'hover:bg-white/10'
-                  : 'hover:bg-black/5'
+                    ? 'hover:bg-white/10'
+                    : 'hover:bg-black/5'
               }`}
               title={t.brew.lightboxZoomOut}
             >
@@ -120,8 +120,10 @@ export function Lightbox({ src, alt = '', isDark, onClose, t }: LightboxProps) {
             {/* 缩放比例 */}
             <span className={`text-sm font-medium tabular-nums min-w-[3.5rem] text-center ${
               isDark ? 'text-gray-300' : 'text-gray-600'
-            }`}>
-              {Math.round(scale * 100)}%
+            }`}
+            >
+              {Math.round(scale * 100)}
+              %
             </span>
 
             {/* 放大 */}
@@ -132,8 +134,8 @@ export function Lightbox({ src, alt = '', isDark, onClose, t }: LightboxProps) {
                 scale >= 3
                   ? 'opacity-30 cursor-not-allowed'
                   : isDark
-                  ? 'hover:bg-white/10'
-                  : 'hover:bg-black/5'
+                    ? 'hover:bg-white/10'
+                    : 'hover:bg-black/5'
               }`}
               title={t.brew.lightboxZoomIn}
             >
@@ -189,7 +191,7 @@ export function Lightbox({ src, alt = '', isDark, onClose, t }: LightboxProps) {
                 ? 'bg-neutral-900/80 border-neutral-700 text-white'
                 : 'bg-white/80 border-gray-200 text-gray-900'
             }`}
-            onClick={(e) => e.stopPropagation()}
+            onClick={e => e.stopPropagation()}
           >
             {/* 关闭 */}
             <button
@@ -225,7 +227,7 @@ export function Lightbox({ src, alt = '', isDark, onClose, t }: LightboxProps) {
             exit={{ opacity: 0, scale: 0.9 }}
             transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
             className="relative flex items-center justify-center"
-            onClick={(e) => e.stopPropagation()}
+            onClick={e => e.stopPropagation()}
           >
             <motion.img
               src={src}
@@ -259,5 +261,5 @@ export function Lightbox({ src, alt = '', isDark, onClose, t }: LightboxProps) {
         </motion.div>
       )}
     </AnimatePresence>
-  );
+  )
 }

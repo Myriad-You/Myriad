@@ -1,7 +1,7 @@
 /**
  * 远程应用商店服务
  * 从 GitHub 托管的远程商店获取和安装 Tapp
- * 
+ *
  * 商店源配置存储在后端数据库中，通过 API 进行管理
  * 缓存仅保存在内存中，刷新页面后重新获取
  */
@@ -186,17 +186,20 @@ class RemoteStoreServiceImpl {
           if (this.sources.length === 0) {
             this.sources = [OFFICIAL_STORE]
           }
-        } else {
+        }
+        else {
           console.warn('[RemoteStore] Invalid API response, using default store')
           this.sources = [OFFICIAL_STORE]
         }
         this.sourcesLoaded = true
-      } catch (error) {
+      }
+      catch (error) {
         console.error('[RemoteStore] Failed to load sources from API:', error)
         // 降级：使用默认官方商店
         this.sources = [OFFICIAL_STORE]
         this.sourcesLoaded = true
-      } finally {
+      }
+      finally {
         this.loadingPromise = null
       }
     })()
@@ -233,7 +236,7 @@ class RemoteStoreServiceImpl {
         enabled: source.enabled,
         icon: source.icon,
       })
-      
+
       if (!response.data?.success) {
         throw new Error(response.data?.error || '添加商店源失败')
       }
@@ -249,7 +252,8 @@ class RemoteStoreServiceImpl {
         icon: response.data.data.icon,
       }
       this.sources.push(newSource)
-    } catch (error: any) {
+    }
+    catch (error: any) {
       if (error.response?.status === 403) {
         throw new Error('需要管理员权限')
       }
@@ -269,7 +273,7 @@ class RemoteStoreServiceImpl {
 
     try {
       const response = await api.delete(`/api/tapps/store/sources/${sourceId}`)
-      
+
       if (!response.data?.success) {
         throw new Error(response.data?.error || '删除商店源失败')
       }
@@ -281,7 +285,8 @@ class RemoteStoreServiceImpl {
       if (cachedSource) {
         this.cache.delete(cachedSource.url)
       }
-    } catch (error: any) {
+    }
+    catch (error: any) {
       if (error.response?.status === 403) {
         throw new Error('需要管理员权限或无法删除官方商店')
       }
@@ -298,7 +303,7 @@ class RemoteStoreServiceImpl {
       const response = await api.post(`/api/tapps/store/sources/${sourceId}`, {
         enabled,
       })
-      
+
       if (!response.data?.success) {
         throw new Error(response.data?.error || '更新商店源失败')
       }
@@ -308,7 +313,8 @@ class RemoteStoreServiceImpl {
       if (source) {
         source.enabled = enabled
       }
-    } catch (error: any) {
+    }
+    catch (error: any) {
       if (error.response?.status === 403) {
         throw new Error('需要管理员权限')
       }
@@ -344,7 +350,7 @@ class RemoteStoreServiceImpl {
     try {
       const response = await fetch(source.url, {
         headers: {
-          'Accept': 'application/json',
+          Accept: 'application/json',
         },
         cache: 'no-cache',
       })
@@ -354,7 +360,7 @@ class RemoteStoreServiceImpl {
       }
 
       const data = await response.json() as RemoteStoreIndex
-      
+
       // 验证数据
       if (!data.name || !data.apps || !Array.isArray(data.apps)) {
         throw new Error('无效的商店索引格式')
@@ -368,7 +374,8 @@ class RemoteStoreServiceImpl {
       })
 
       return data
-    } catch (error) {
+    }
+    catch (error) {
       console.error(`[RemoteStore] Failed to fetch index from ${source.url}:`, error)
       throw new Error(`无法获取商店数据: ${error instanceof Error ? error.message : '未知错误'}`)
     }
@@ -376,11 +383,11 @@ class RemoteStoreServiceImpl {
 
   /** 获取所有启用商店的应用列表 */
   async fetchAllApps(forceRefresh = false): Promise<{
-    apps: Array<RemoteApp & { sourceUrl: string; sourceName: string }>
-    sources: Array<{ source: RemoteStoreSource; error?: string }>
+    apps: Array<RemoteApp & { sourceUrl: string, sourceName: string }>
+    sources: Array<{ source: RemoteStoreSource, error?: string }>
   }> {
     const enabledSources = await this.getEnabledSources()
-    const results: Array<{ source: RemoteStoreSource; index?: RemoteStoreIndex; error?: string }> = []
+    const results: Array<{ source: RemoteStoreSource, index?: RemoteStoreIndex, error?: string }> = []
 
     // 并行获取所有商店数据
     await Promise.all(
@@ -388,14 +395,15 @@ class RemoteStoreServiceImpl {
         try {
           const index = await this.fetchStoreIndex(source, forceRefresh)
           results.push({ source, index })
-        } catch (error) {
+        }
+        catch (error) {
           results.push({ source, error: error instanceof Error ? error.message : '未知错误' })
         }
-      })
+      }),
     )
 
     // 合并应用列表
-    const apps: Array<RemoteApp & { sourceUrl: string; sourceName: string }> = []
+    const apps: Array<RemoteApp & { sourceUrl: string, sourceName: string }> = []
     for (const result of results) {
       if (result.index) {
         for (const app of result.index.apps) {
@@ -425,7 +433,7 @@ class RemoteStoreServiceImpl {
   /** 下载应用的 manifest */
   async downloadManifest(app: RemoteApp, storeIndex: RemoteStoreIndex): Promise<TappManifest> {
     const manifestUrl = this.resolveUrl(app.download.manifest, storeIndex.base_url)
-    
+
     const response = await fetch(manifestUrl)
     if (!response.ok) {
       throw new Error(`无法下载 manifest: HTTP ${response.status}`)
@@ -438,7 +446,7 @@ class RemoteStoreServiceImpl {
   /** 下载应用代码 */
   async downloadCode(app: RemoteApp, storeIndex: RemoteStoreIndex): Promise<string> {
     const codeUrl = this.resolveUrl(app.download.code, storeIndex.base_url)
-    
+
     const response = await fetch(codeUrl)
     if (!response.ok) {
       throw new Error(`无法下载代码: HTTP ${response.status}`)
@@ -450,14 +458,17 @@ class RemoteStoreServiceImpl {
 
   /** 下载应用的 README */
   async downloadReadme(app: RemoteApp, storeIndex: RemoteStoreIndex): Promise<string | null> {
-    if (!app.download.readme) return null
+    if (!app.download.readme)
+      return null
 
     try {
       const readmeUrl = this.resolveUrl(app.download.readme, storeIndex.base_url)
       const response = await fetch(readmeUrl)
-      if (!response.ok) return null
+      if (!response.ok)
+        return null
       return await response.text()
-    } catch {
+    }
+    catch {
       return null
     }
   }
@@ -469,7 +480,7 @@ class RemoteStoreServiceImpl {
       return relativePath
     }
     // 组合基础 URL 和相对路径
-    const base = baseUrl.endsWith('/') ? baseUrl : baseUrl + '/'
+    const base = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`
     return base + relativePath
   }
 
@@ -481,12 +492,12 @@ class RemoteStoreServiceImpl {
   }
 
   /** 获取缓存状态 */
-  getCacheStatus(): { count: number; oldestEntry: number | null } {
+  getCacheStatus(): { count: number, oldestEntry: number | null } {
     const entries = Array.from(this.cache.values())
     const oldestEntry = entries.length > 0
       ? Math.min(...entries.map(e => e.timestamp))
       : null
-    
+
     return {
       count: entries.length,
       oldestEntry,

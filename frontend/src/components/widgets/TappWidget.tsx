@@ -1,33 +1,32 @@
 /**
  * Tapp Widget 组件
  * 用于在 Dashboard 中渲染 Tapp 提供的小组件
- * 
+ *
  * 使用 TappSandbox 实现，支持完整的 Tapp SDK API（storage, AI, notifications 等）
- * 
+ *
  * 架构说明：
  * - Widget 从 manifest 预注册，安装后即可在 Dashboard 中添加
  * - 只有当 Tapp 运行中时，Widget 才会真正渲染
  * - 未运行时显示提示，引导用户启动 Tapp
- * 
+ *
  * 预览模式优化：
  * - 预览模式下渲染美观的 Glass 风格预览卡片
  * - 支持图标、名称、主题色
  * - 添加光晕背景效果，与普通小组件保持一致
  */
 
-import { memo, useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { WidgetComponentProps } from '../WidgetGrid'
-import { getTappRuntime, TappWidgetSandbox } from '../../tapp/runtime'
-import { loadWidgetResources, getResourceLoader, type WidgetResources } from '../../tapp/runtime/sandbox/resourceLoader'
-import type { RegisteredWidget, TappInstance } from '../../tapp/types'
 import type { TappCodeStructure } from '../../tapp/examples/tapps/types'
+import type { RegisteredWidget, TappInstance } from '../../tapp/types'
+import type { WidgetComponentProps } from '../WidgetGrid'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useI18n } from '../../contexts/I18nContext'
 import { isPageVisible, onVisibility } from '../../hooks/animation/core'
-import { GlowBackground } from './shared/GlowBackground'
 import { useAnimationLevel } from '../../hooks/useAnimationLevel'
-import { getTappIconStyle } from '../../tapp/utils/tappColors'
 import { TappIcon } from '../../tapp/components/TappIcon'
+import { getTappRuntime, TappWidgetSandbox } from '../../tapp/runtime'
+import { getResourceLoader, loadWidgetResources } from '../../tapp/runtime/sandbox/resourceLoader'
+import { GlowBackground } from './shared/GlowBackground'
 
 export interface TappWidgetProps extends WidgetComponentProps {
   /** Tapp Widget 完整 ID (tapp.{tappId}.{widgetId}) */
@@ -50,7 +49,7 @@ function getTappWidgetPreviewInfo(tappWidgetId: string): {
     const runtime = getTappRuntime()
     const widgets = runtime.getRegisteredWidgets()
     const widget = widgets.find(w => w.id === tappWidgetId)
-    
+
     if (!widget) {
       // 从 ID 提取基本信息
       const parts = tappWidgetId.split('.')
@@ -61,10 +60,10 @@ function getTappWidgetPreviewInfo(tappWidgetId: string): {
         iconSvg: undefined,
       }
     }
-    
+
     // 获取 Tapp 实例以获取主题色
     const tapp = runtime.getTapp(widget.tappId)
-    
+
     return {
       name: widget.config.name || 'Widget',
       icon: widget.config.icon || tapp?.manifest.icon,
@@ -73,7 +72,8 @@ function getTappWidgetPreviewInfo(tappWidgetId: string): {
       description: widget.config.description,
       tappName: tapp?.manifest.name,
     }
-  } catch {
+  }
+  catch {
     // 返回默认值
     const parts = tappWidgetId.split('.')
     const widgetName = parts.pop() || 'Widget'
@@ -88,7 +88,7 @@ function getTappWidgetPreviewInfo(tappWidgetId: string): {
 /**
  * Tapp Widget 预览组件
  * 用于在小组件库中显示实际的 widget 渲染效果
- * 
+ *
  * 优化策略：
  * - 尝试渲染实际的 widget HTML 内容
  * - 只渲染一次，不监听任何更新事件（节约性能）
@@ -104,7 +104,7 @@ const TappWidgetPreview = memo(({
   animLevel: 'none' | 'light' | 'standard'
 }) => {
   const { locale } = useI18n()
-  
+
   // 使用 ref 确保只加载一次（但尺寸变化时需要重新加载）
   const loadedRef = useRef(false)
   const prevSizeRef = useRef(config?.size)
@@ -131,7 +131,8 @@ const TappWidgetPreview = memo(({
 
   // 加载预览数据（尺寸变化时会重新触发）
   useEffect(() => {
-    if (loadedRef.current) return
+    if (loadedRef.current)
+      return
     loadedRef.current = true
 
     const loadPreviewData = async () => {
@@ -172,7 +173,7 @@ const TappWidgetPreview = memo(({
 
         try {
           const resources = await loadWidgetResources(tapp, widgetSize)
-          
+
           // 转换为 TappCodeStructure 格式以兼容 TappWidgetSandbox
           const tappCode: TappCodeStructure = {
             core: resources.core,
@@ -181,25 +182,27 @@ const TappWidgetPreview = memo(({
             styles: resources.styles,
             widgetCSS: resources.css,
           }
-          
+
           setPreviewData({ tappInstance: tapp, code: tappCode, widget })
-        } catch {
-          setFallback(true)
-          return
         }
-      } catch {
+        catch {
+          setFallback(true)
+        }
+      }
+      catch {
         setFallback(true)
       }
     }
-    
+
     loadPreviewData()
   }, [tappWidgetId, config?.size])
-  
+
   // 构造 widgetProps - 只计算一次
   const widgetProps = useMemo(() => {
     const isDark = document.documentElement.classList.contains('dark')
     const primaryColor = getComputedStyle(document.documentElement)
-      .getPropertyValue('--color-primary').trim() || '#8b5cf6'
+      .getPropertyValue('--color-primary')
+      .trim() || '#8b5cf6'
     return {
       size: config.size,
       config: config.config || {},
@@ -210,7 +213,7 @@ const TappWidgetPreview = memo(({
       locale,
     }
   }, [config.size, config.config, locale])
-  
+
   // 如果有预览数据，渲染实际的 TappWidgetSandbox
   if (previewData) {
     return (
@@ -230,16 +233,16 @@ const TappWidgetPreview = memo(({
       </div>
     )
   }
-  
+
   // 回退：显示静态预览
   // 获取主题色
-  const themeColor = previewInfo?.themeColor || 
-    getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim() || '#8b5cf6'
-  
+  const themeColor = previewInfo?.themeColor
+    || getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim() || '#8b5cf6'
+
   // 根据尺寸判断布局
   const isCompact = config.size === '1x1' || config.size === '2x1'
   const isLarge = config.size === '4x2' || config.size === '4x4' || config.size === '2x4'
-  
+
   // 图标样式
   const iconBgStyle = previewInfo?.themeColor
     ? { background: `linear-gradient(to bottom right, ${previewInfo.themeColor}, ${previewInfo.themeColor}99)` }
@@ -247,18 +250,18 @@ const TappWidgetPreview = memo(({
   const iconBgClass = previewInfo?.themeColor
     ? 'bg-gradient-to-br'
     : 'bg-gradient-to-br from-indigo-500 to-purple-600'
-  
+
   return (
     <div
       className="relative w-full h-full rounded-xl overflow-hidden glass"
       style={{ pointerEvents: 'none' }}
     >
       {/* 背景渐变 */}
-      <div 
+      <div
         className="absolute inset-0 opacity-[0.03]"
         style={{ background: `linear-gradient(135deg, ${themeColor}, transparent 60%)` }}
       />
-      
+
       {/* 光晕背景 */}
       <GlowBackground
         color={themeColor}
@@ -268,11 +271,11 @@ const TappWidgetPreview = memo(({
         size={isLarge ? 'lg' : 'md'}
         opacity={0.15}
       />
-      
+
       {/* 主内容 */}
       <div className={`relative z-10 h-full flex ${isCompact ? 'items-center justify-center' : 'flex-col justify-center items-center'} p-3`}>
         {/* 图标 */}
-        <div 
+        <div
           className={`${iconBgClass} flex items-center justify-center text-white shadow-lg relative overflow-hidden flex-shrink-0 ${
             isCompact ? 'w-8 h-8 rounded-lg' : isLarge ? 'w-14 h-14 rounded-xl mb-3' : 'w-10 h-10 rounded-xl mb-2'
           }`}
@@ -288,21 +291,21 @@ const TappWidgetPreview = memo(({
             className="relative z-10"
           />
         </div>
-        
+
         {/* 文本信息 - 紧凑模式不显示 */}
         {!isCompact && (
           <div className="text-center w-full px-2">
             <div className={`font-bold text-gray-800 dark:text-gray-100 truncate ${isLarge ? 'text-base mb-1' : 'text-sm'}`}>
               {previewInfo?.name || 'Widget'}
             </div>
-            
+
             {/* 大尺寸显示描述 */}
             {isLarge && previewInfo?.description && (
               <div className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 leading-relaxed">
                 {previewInfo.description}
               </div>
             )}
-            
+
             {/* Tapp 名称 - 仅大尺寸显示 */}
             {isLarge && previewInfo?.tappName && (
               <div className="mt-2 flex items-center justify-center gap-1.5">
@@ -314,7 +317,7 @@ const TappWidgetPreview = memo(({
           </div>
         )}
       </div>
-      
+
       {/* 边框效果 */}
       <div className="absolute inset-0 rounded-xl ring-1 ring-inset ring-black/5 dark:ring-white/10 pointer-events-none" />
     </div>
@@ -333,13 +336,13 @@ export const TappWidgetComponent = memo(({
   tappWidgetId,
 }: TappWidgetProps) => {
   const anim = useAnimationLevel()
-  
+
   // 🎯 预览模式优化：渲染美观的 Glass 风格预览卡片
   // 预览用于小组件库中显示，使用与普通小组件一致的视觉风格
   if (isPreview) {
     return (
-      <TappWidgetPreview 
-        tappWidgetId={tappWidgetId} 
+      <TappWidgetPreview
+        tappWidgetId={tappWidgetId}
         config={config}
         animLevel={anim.level}
       />
@@ -435,14 +438,14 @@ export const TappWidgetComponent = memo(({
           setWidget(found)
           setTappInstance(tapp)
           setIsRunning(running)
-          
+
           // 只有运行中才获取代码
           if (running) {
             // 🎯 使用新的资源加载器获取 Widget 专用资源
             const widgetSize = config?.size || found.config.defaultSize || '4x2'
             try {
               const resources = await loadWidgetResources(tapp, widgetSize)
-              
+
               // 转换为 TappCodeStructure 格式以兼容 TappWidgetSandbox
               const tappCode: TappCodeStructure = {
                 core: resources.core,
@@ -451,9 +454,10 @@ export const TappWidgetComponent = memo(({
                 styles: resources.styles,
                 widgetCSS: resources.css,
               }
-              
+
               setCode(tappCode)
-            } catch {
+            }
+            catch {
               setError('Tapp code not found')
               setLoading(false)
               return
@@ -464,7 +468,8 @@ export const TappWidgetComponent = memo(({
           setLoading(false)
           initializedRef.current = true
         }
-      } catch (err) {
+      }
+      catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : 'Failed to load widget')
           setLoading(false)
@@ -481,7 +486,8 @@ export const TappWidgetComponent = memo(({
 
   // 监听 Tapp 启动/停止事件
   useEffect(() => {
-    if (!widget) return
+    if (!widget)
+      return
 
     const handleStarted = (data: unknown) => {
       const eventData = data as { id: string }
@@ -512,18 +518,19 @@ export const TappWidgetComponent = memo(({
 
   // 重新加载时获取代码
   useEffect(() => {
-    if (!loading || !isRunning || !widget || !tappInstance) return
+    if (!loading || !isRunning || !widget || !tappInstance)
+      return
 
     const loadCode = async () => {
       try {
         // 🎯 使用新的资源加载器获取 Widget 专用资源
         const widgetSize = config?.size || widget.config.defaultSize || '4x2'
-        
+
         // 清除资源加载器缓存以确保获取最新资源
         getResourceLoader().clearCache(widget.tappId)
-        
+
         const resources = await loadWidgetResources(tappInstance, widgetSize)
-        
+
         // 转换为 TappCodeStructure 格式
         const tappCode: TappCodeStructure = {
           core: resources.core,
@@ -532,11 +539,12 @@ export const TappWidgetComponent = memo(({
           styles: resources.styles,
           widgetCSS: resources.css,
         }
-        
+
         setCode(tappCode)
         setLoading(false)
         initializedRef.current = true
-      } catch (err) {
+      }
+      catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load code')
         setLoading(false)
       }
@@ -569,17 +577,20 @@ export const TappWidgetComponent = memo(({
 
   // 启动 Tapp
   const handleStartTapp = useCallback(async () => {
-    if (!widget) return
+    if (!widget)
+      return
     try {
       await runtime.startTapp(widget.tappId)
-    } catch {
+    }
+    catch {
       // Tapp 启动失败，静默处理
     }
   }, [widget, runtime])
 
   // 跳转到 Tapp 详情
   const handleGoToTapp = useCallback(() => {
-    if (!widget) return
+    if (!widget)
+      return
     navigate(`/tapp/detail/${widget.tappId}`)
   }, [widget, navigate])
 
@@ -619,9 +630,9 @@ export const TappWidgetComponent = memo(({
   // Tapp 未运行 - 显示启动提示（使用 Glass 风格）
   if (!isRunning || !code) {
     // 获取主题色
-    const themeColor = tappInstance.manifest.themeColor || 
-      getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim() || '#8b5cf6'
-    
+    const themeColor = tappInstance.manifest.themeColor
+      || getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim() || '#8b5cf6'
+
     // 图标样式
     const iconBgStyle = tappInstance.manifest.themeColor
       ? { background: `linear-gradient(to bottom right, ${tappInstance.manifest.themeColor}, ${tappInstance.manifest.themeColor}99)` }
@@ -629,7 +640,7 @@ export const TappWidgetComponent = memo(({
     const iconBgClass = tappInstance.manifest.themeColor
       ? 'bg-gradient-to-br'
       : 'bg-gradient-to-br from-indigo-500 to-purple-600'
-    
+
     return (
       <div
         ref={containerRef}
@@ -637,11 +648,11 @@ export const TappWidgetComponent = memo(({
         style={pointerEventsStyle}
       >
         {/* 背景渐变 */}
-        <div 
+        <div
           className="absolute inset-0 opacity-[0.05]"
           style={{ background: `linear-gradient(135deg, ${themeColor}, transparent 60%)` }}
         />
-        
+
         {/* 光晕背景 */}
         <GlowBackground
           color={themeColor}
@@ -651,11 +662,11 @@ export const TappWidgetComponent = memo(({
           size="md"
           opacity={0.12}
         />
-        
+
         {/* 主内容 */}
         <div className="relative z-10 h-full flex flex-col items-center justify-center px-4">
           {/* 图标 */}
-          <div 
+          <div
             className={`w-12 h-12 ${iconBgClass} rounded-xl flex items-center justify-center text-white shadow-lg relative overflow-hidden mb-3`}
             style={iconBgStyle}
           >
@@ -669,17 +680,17 @@ export const TappWidgetComponent = memo(({
               className="relative z-10"
             />
           </div>
-          
+
           {/* 名称 */}
           <div className="text-sm font-bold text-gray-800 dark:text-gray-100 mb-1 text-center">
             {widget.config.name}
           </div>
-          
+
           {/* 提示 */}
           <div className="text-xs text-gray-500 dark:text-gray-400 mb-4 text-center">
             需要启动 Tapp 以显示
           </div>
-          
+
           {/* 操作按钮 */}
           {!isEditMode && (
             <div className="flex gap-2 justify-center">
@@ -699,7 +710,7 @@ export const TappWidgetComponent = memo(({
             </div>
           )}
         </div>
-        
+
         {/* 边框效果 */}
         <div className="absolute inset-0 rounded-xl ring-1 ring-inset ring-black/5 dark:ring-white/10 pointer-events-none" />
       </div>
@@ -733,12 +744,12 @@ export const TappWidgetComponent = memo(({
   }
   // 非预览模式下进行更详细的比较
   return (
-    prevProps.tappWidgetId === nextProps.tappWidgetId &&
-    prevProps.isEditMode === nextProps.isEditMode &&
-    prevProps.isPreview === nextProps.isPreview &&
-    prevProps.config.size === nextProps.config.size &&
-    prevProps.config.type === nextProps.config.type &&
-    JSON.stringify(prevProps.config.config) === JSON.stringify(nextProps.config.config)
+    prevProps.tappWidgetId === nextProps.tappWidgetId
+    && prevProps.isEditMode === nextProps.isEditMode
+    && prevProps.isPreview === nextProps.isPreview
+    && prevProps.config.size === nextProps.config.size
+    && prevProps.config.type === nextProps.config.type
+    && JSON.stringify(prevProps.config.config) === JSON.stringify(nextProps.config.config)
   )
 })
 

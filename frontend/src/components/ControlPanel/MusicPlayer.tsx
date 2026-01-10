@@ -3,21 +3,21 @@
  * 从 GlobalControlPanel 分离出来的音乐播放器 UI
  */
 
-import React, { useEffect, useState, useCallback, useMemo, memo } from 'react';
-import { formatTime, getSongVipStatus, highlightText } from '../../utils/musicPlayer';
-import { UseMusicPlayerReturn } from '../../hooks/useMusicPlayer';
-import { useI18n } from '../../contexts/I18nContext';
-import '../MusicPlayer.css';
+import type { UseMusicPlayerReturn } from '../../hooks/useMusicPlayer'
+import React, { memo, useCallback, useEffect, useMemo, useState } from 'react'
+import { useI18n } from '../../contexts/I18nContext'
+import { formatTime, getSongVipStatus, highlightText } from '../../utils/musicPlayer'
+import '../MusicPlayer.css'
 
 interface MusicPlayerProps {
-  player: UseMusicPlayerReturn;
+  player: UseMusicPlayerReturn
 }
 
 /**
  * 音乐信息视图
  */
 const MusicInfoView: React.FC<MusicPlayerProps> = ({ player }) => {
-  const { t } = useI18n();
+  const { t } = useI18n()
   const {
     currentSong,
     isPlaying,
@@ -45,11 +45,11 @@ const MusicInfoView: React.FC<MusicPlayerProps> = ({ player }) => {
     showVolumePopup,
     setShowVolumePopup,
     musicErrorKey,
-  } = player;
+  } = player
 
   // 获取翻译后的错误消息
-  const musicError = musicErrorKey ? (t.music as Record<string, string>)[musicErrorKey] || musicErrorKey : '';
-  
+  const musicError = musicErrorKey ? (t.music as Record<string, string>)[musicErrorKey] || musicErrorKey : ''
+
   if (!currentSong) {
     return (
       <div className="music-no-song">
@@ -58,12 +58,12 @@ const MusicInfoView: React.FC<MusicPlayerProps> = ({ player }) => {
           {musicError || (playlist.length === 0 ? t.music.noPlaylist : t.music.noPlaying)}
         </div>
       </div>
-    );
+    )
   }
-  
-  const vipStatus = getSongVipStatus(currentSong);
-  const playModeInfo = getPlayModeInfo();
-  
+
+  const vipStatus = getSongVipStatus(currentSong)
+  const playModeInfo = getPlayModeInfo()
+
   return (
     <>
       {/* 临时播放模式：右上角关闭按钮 */}
@@ -75,39 +75,41 @@ const MusicInfoView: React.FC<MusicPlayerProps> = ({ player }) => {
           title={t.music.stopTempAndRestore}
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
           </svg>
         </button>
       )}
-      
+
       {/* 封面和歌曲信息 + 进度条 */}
       <div className="music-info-main">
         <div className="music-album-cover-large">
-          {currentSong.cover ? (
-            <img
-              key={currentSong.cover}
-              src={currentSong.cover}
-              alt={currentSong.name}
-              onError={(e) => {
-                e.currentTarget.style.display = 'none';
-                e.currentTarget.nextElementSibling?.classList.remove('hidden');
-              }}
-            />
-          ) : null}
+          {currentSong.cover
+            ? (
+                <img
+                  key={currentSong.cover}
+                  src={currentSong.cover}
+                  alt={currentSong.name}
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none'
+                    e.currentTarget.nextElementSibling?.classList.remove('hidden')
+                  }}
+                />
+              )
+            : null}
           <div className={`music-cover-placeholder ${currentSong.cover ? 'hidden' : ''}`}>
             <svg width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+              <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
             </svg>
           </div>
           {isPlaying && (
             <div className="music-playing-indicator">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+                <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
               </svg>
             </div>
           )}
         </div>
-        
+
         <div className="music-info-right">
           <div className="music-song-info">
             <div className="music-song-name-row">
@@ -120,7 +122,7 @@ const MusicInfoView: React.FC<MusicPlayerProps> = ({ player }) => {
             </div>
             <div className="music-song-artist">{currentSong.artist}</div>
           </div>
-          
+
           <div className="music-progress-container">
             <span className="music-time">{formatTime(currentTime)}</span>
             <input
@@ -133,11 +135,14 @@ const MusicInfoView: React.FC<MusicPlayerProps> = ({ player }) => {
               onMouseUp={handleSeekEnd}
               onTouchStart={handleSeekStart}
               onTouchEnd={handleSeekEnd}
-              onInput={(e) => handleSeek(parseFloat(e.currentTarget.value))}
+              onInput={e => handleSeek(Number.parseFloat(e.currentTarget.value))}
               className={`music-progress-bar ${isAudioLoading ? 'loading' : ''}`}
               aria-label={t.music.progress}
             />
-            <span className="music-time">-{formatTime((audioDuration || currentSong.duration || 0) - currentTime)}</span>
+            <span className="music-time">
+              -
+              {formatTime((audioDuration || currentSong.duration || 0) - currentTime)}
+            </span>
           </div>
         </div>
       </div>
@@ -188,15 +193,17 @@ const MusicInfoView: React.FC<MusicPlayerProps> = ({ player }) => {
             className="music-play-btn"
             aria-label={isPlaying ? t.music.pause : t.music.play}
           >
-            {isPlaying ? (
-              <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" />
-              </svg>
-            ) : (
-              <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M8 5v14l11-7z" />
-              </svg>
-            )}
+            {isPlaying
+              ? (
+                  <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" />
+                  </svg>
+                )
+              : (
+                  <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                )}
           </button>
 
           <button
@@ -233,7 +240,7 @@ const MusicInfoView: React.FC<MusicPlayerProps> = ({ player }) => {
                 max="1"
                 step="0.01"
                 value={volume}
-                onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
+                onChange={e => handleVolumeChange(Number.parseFloat(e.target.value))}
                 className="music-volume-slider"
                 aria-label={t.music.volume}
               />
@@ -256,58 +263,59 @@ const MusicInfoView: React.FC<MusicPlayerProps> = ({ player }) => {
         </div>
       </div>
     </>
-  );
-};
+  )
+}
 
 /**
  * 歌词视图
  */
 const MusicLyricsView: React.FC<{ player: UseMusicPlayerReturn }> = ({ player }) => {
-  const { t } = useI18n();
+  const { t } = useI18n()
   const {
     currentSong,
     lyrics,
     currentLyricIndex,
     setMusicPlayerView,
     lyricsScrollRef,
-  } = player;
-  
+  } = player
+
   // 歌词自动滚动
   useEffect(() => {
     if (!lyricsScrollRef.current || lyrics.length === 0) {
-      return;
+      return
     }
-    
-    const container = lyricsScrollRef.current;
-    
+
+    const container = lyricsScrollRef.current
+
     if (currentLyricIndex < 0) {
       container.scrollTo({
         top: 0,
-        behavior: 'smooth'
-      });
-      return;
+        behavior: 'smooth',
+      })
+      return
     }
-    
-    const activeElement = container.children[currentLyricIndex] as HTMLElement;
-    if (!activeElement) return;
-    
-    const containerHeight = container.clientHeight;
-    const elementTop = activeElement.offsetTop;
-    const elementHeight = activeElement.clientHeight;
-    const scrollTop = elementTop - (containerHeight / 2) + (elementHeight / 2);
-    
+
+    const activeElement = container.children[currentLyricIndex] as HTMLElement
+    if (!activeElement)
+      return
+
+    const containerHeight = container.clientHeight
+    const elementTop = activeElement.offsetTop
+    const elementHeight = activeElement.clientHeight
+    const scrollTop = elementTop - (containerHeight / 2) + (elementHeight / 2)
+
     container.scrollTo({
       top: Math.max(0, scrollTop),
-      behavior: 'smooth'
-    });
-  }, [currentLyricIndex, lyrics.length, lyricsScrollRef]);
-  
+      behavior: 'smooth',
+    })
+  }, [currentLyricIndex, lyrics.length, lyricsScrollRef])
+
   if (!currentSong || lyrics.length === 0) {
-    return null;
+    return null
   }
-  
-  const vipStatus = getSongVipStatus(currentSong);
-  
+
+  const vipStatus = getSongVipStatus(currentSong)
+
   return (
     <div className="music-view music-view-lyrics">
       <div className="music-lyrics-header">
@@ -333,8 +341,8 @@ const MusicLyricsView: React.FC<{ player: UseMusicPlayerReturn }> = ({ player })
         </div>
       </div>
 
-      <div 
-        className="music-lyrics-scroll" 
+      <div
+        className="music-lyrics-scroll"
         ref={lyricsScrollRef}
         data-total-lyrics={lyrics.length}
         data-current-index={currentLyricIndex}
@@ -356,28 +364,28 @@ const MusicLyricsView: React.FC<{ player: UseMusicPlayerReturn }> = ({ player })
         ))}
       </div>
     </div>
-  );
-};
+  )
+}
 
 /**
  * 单个播放列表项 - 使用 memo 避免不必要的重渲染
  */
 const PlaylistItem = memo<{
-  song: { id: string; name: string; artist: string; isVip?: boolean; vipType?: string };
-  originalIndex: number;
-  isActive: boolean;
-  isPlaying: boolean;
-  searchQuery: string;
-  onSelect: (song: any, index: number, autoPlay: boolean) => void;
-  onClose: () => void;
+  song: { id: string, name: string, artist: string, isVip?: boolean, vipType?: string }
+  originalIndex: number
+  isActive: boolean
+  isPlaying: boolean
+  searchQuery: string
+  onSelect: (song: any, index: number, autoPlay: boolean) => void
+  onClose: () => void
 }>(({ song, originalIndex, isActive, isPlaying, searchQuery, onSelect, onClose }) => {
-  const vipStatus = getSongVipStatus(song);
-  
+  const vipStatus = getSongVipStatus(song)
+
   const handleClick = useCallback(() => {
-    onSelect(song, originalIndex, true);
-    onClose();
-  }, [song, originalIndex, onSelect, onClose]);
-  
+    onSelect(song, originalIndex, true)
+    onClose()
+  }, [song, originalIndex, onSelect, onClose])
+
   return (
     <div
       onClick={handleClick}
@@ -386,12 +394,12 @@ const PlaylistItem = memo<{
       <span className="music-playlist-index">{originalIndex + 1}</span>
       <div className="music-playlist-info">
         <div className="music-playlist-name-row">
-          <div 
+          <div
             className="music-playlist-name"
-            dangerouslySetInnerHTML={{ 
-              __html: searchQuery 
+            dangerouslySetInnerHTML={{
+              __html: searchQuery
                 ? highlightText(song.name, searchQuery)
-                : song.name 
+                : song.name,
             }}
           />
           {vipStatus.displayText && (
@@ -400,12 +408,12 @@ const PlaylistItem = memo<{
             </span>
           )}
         </div>
-        <div 
+        <div
           className="music-playlist-artist"
-          dangerouslySetInnerHTML={{ 
-            __html: searchQuery 
+          dangerouslySetInnerHTML={{
+            __html: searchQuery
               ? highlightText(song.artist, searchQuery)
-              : song.artist 
+              : song.artist,
           }}
         />
       </div>
@@ -415,16 +423,16 @@ const PlaylistItem = memo<{
         </span>
       )}
     </div>
-  );
-});
+  )
+})
 
-PlaylistItem.displayName = 'PlaylistItem';
+PlaylistItem.displayName = 'PlaylistItem'
 
 /**
  * 播放列表视图
  */
 const MusicPlaylistView: React.FC<{ player: UseMusicPlayerReturn }> = ({ player }) => {
-  const { t } = useI18n();
+  const { t } = useI18n()
   const {
     playlist,
     currentSongIndex,
@@ -437,103 +445,105 @@ const MusicPlaylistView: React.FC<{ player: UseMusicPlayerReturn }> = ({ player 
     setExcludeVipSongs,
     selectSong,
     playlistScrollRef,
-  } = player;
-  
+  } = player
+
   // 🔧 监听面板动画状态，动画期间简化渲染
-  const [isPanelAnimating, setIsPanelAnimating] = useState(false);
-  
+  const [isPanelAnimating, setIsPanelAnimating] = useState(false)
+
   // 🔧 监听面板动画事件
   useEffect(() => {
-    const handleAnimationStart = () => setIsPanelAnimating(true);
-    const handleAnimationEnd = () => setIsPanelAnimating(false);
-    
-    window.addEventListener('gcp-animation-start', handleAnimationStart);
-    window.addEventListener('gcp-animation-end', handleAnimationEnd);
-    
+    const handleAnimationStart = () => setIsPanelAnimating(true)
+    const handleAnimationEnd = () => setIsPanelAnimating(false)
+
+    window.addEventListener('gcp-animation-start', handleAnimationStart)
+    window.addEventListener('gcp-animation-end', handleAnimationEnd)
+
     return () => {
-      window.removeEventListener('gcp-animation-start', handleAnimationStart);
-      window.removeEventListener('gcp-animation-end', handleAnimationEnd);
-    };
-  }, []);
-  
+      window.removeEventListener('gcp-animation-start', handleAnimationStart)
+      window.removeEventListener('gcp-animation-end', handleAnimationEnd)
+    }
+  }, [])
+
   // 播放列表自动滚动到当前歌曲
   useEffect(() => {
     // 动画期间不滚动
-    if (isPanelAnimating) return;
+    if (isPanelAnimating)
+      return
     if (!playlistScrollRef.current || playlist.length === 0) {
-      return;
+      return
     }
-    
-    const container = playlistScrollRef.current;
-    
+
+    const container = playlistScrollRef.current
+
     if (playlistSearchQuery.trim()) {
-      return;
+      return
     }
-    
+
     setTimeout(() => {
-      const activeElement = container.querySelector('.music-playlist-item.active') as HTMLElement;
-      if (!activeElement) return;
-      
-      const containerHeight = container.clientHeight;
-      const elementTop = activeElement.offsetTop;
-      const elementHeight = activeElement.clientHeight;
-      const scrollTop = elementTop - (containerHeight / 2) + (elementHeight / 2);
-      
+      const activeElement = container.querySelector('.music-playlist-item.active') as HTMLElement
+      if (!activeElement)
+        return
+
+      const containerHeight = container.clientHeight
+      const elementTop = activeElement.offsetTop
+      const elementHeight = activeElement.clientHeight
+      const scrollTop = elementTop - (containerHeight / 2) + (elementHeight / 2)
+
       container.scrollTo({
         top: Math.max(0, scrollTop),
-        behavior: 'smooth'
-      });
-    }, 100);
-  }, [currentSongIndex, playlist.length, playlistSearchQuery, playlistScrollRef, isPanelAnimating]);
-  
+        behavior: 'smooth',
+      })
+    }, 100)
+  }, [currentSongIndex, playlist.length, playlistSearchQuery, playlistScrollRef, isPanelAnimating])
+
   // 🔧 预计算歌曲 ID 到索引的映射，避免 O(n²) 查找
   const songIdToIndex = useMemo(() => {
-    const map = new Map<string, number>();
+    const map = new Map<string, number>()
     playlist.forEach((song, index) => {
-      map.set(song.id, index);
-    });
-    return map;
-  }, [playlist]);
-  
+      map.set(song.id, index)
+    })
+    return map
+  }, [playlist])
+
   // 关闭播放列表的回调
   const handleClosePlaylist = useCallback(() => {
-    setMusicPlayerView('info');
-    setPlaylistSearchQuery('');
-  }, [setMusicPlayerView, setPlaylistSearchQuery]);
-  
+    setMusicPlayerView('info')
+    setPlaylistSearchQuery('')
+  }, [setMusicPlayerView, setPlaylistSearchQuery])
+
   if (playlist.length === 0) {
-    return null;
+    return null
   }
-  
+
   // 过滤播放列表
   const displayPlaylist = playlistSearchQuery.trim()
     ? playlist.filter((song) => {
-        const query = playlistSearchQuery.toLowerCase();
-        return song.name.toLowerCase().includes(query) || 
-               song.artist.toLowerCase().includes(query);
+        const query = playlistSearchQuery.toLowerCase()
+        return song.name.toLowerCase().includes(query)
+          || song.artist.toLowerCase().includes(query)
       })
-    : playlist;
-  
+    : playlist
+
   // 🔧 动画期间只显示简化视图（当前歌曲附近的几首）
   const visiblePlaylist = isPanelAnimating && displayPlaylist.length > 20
     ? displayPlaylist.slice(
         Math.max(0, currentSongIndex - 3),
-        Math.min(displayPlaylist.length, currentSongIndex + 7)
+        Math.min(displayPlaylist.length, currentSongIndex + 7),
       )
-    : displayPlaylist;
-  
+    : displayPlaylist
+
   // 计算动画期间的偏移索引
   const indexOffset = isPanelAnimating && displayPlaylist.length > 20
     ? Math.max(0, currentSongIndex - 3)
-    : 0;
-  
+    : 0
+
   return (
     <div className="music-view music-view-playlist">
       <div className="music-playlist-header">
         <button
           onClick={() => {
-            setMusicPlayerView('info');
-            setPlaylistSearchQuery('');
+            setMusicPlayerView('info')
+            setPlaylistSearchQuery('')
           }}
           className="music-back-btn"
           aria-label={t.music.back}
@@ -543,9 +553,15 @@ const MusicPlaylistView: React.FC<{ player: UseMusicPlayerReturn }> = ({ player 
           </svg>
         </button>
         <div className="music-playlist-title">
-          {t.music.playlistTitle} ({displayPlaylist.length}/{playlist.length})
+          {t.music.playlistTitle}
+          {' '}
+          (
+          {displayPlaylist.length}
+          /
+          {playlist.length}
+          )
         </div>
-        
+
         {/* 排除VIP开关 */}
         <button
           onClick={() => setExcludeVipSongs(!excludeVipSongs)}
@@ -553,17 +569,19 @@ const MusicPlaylistView: React.FC<{ player: UseMusicPlayerReturn }> = ({ player 
           aria-label={excludeVipSongs ? t.music.showVipSongs : t.music.hideVipSongs}
           title={excludeVipSongs ? t.music.showVipSongs : t.music.hideVipSongs}
         >
-          {excludeVipSongs ? (
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/>
-            </svg>
-          ) : (
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M8 5v14l11-7z"/>
-            </svg>
-          )}
+          {excludeVipSongs
+            ? (
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z" />
+                </svg>
+              )
+            : (
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              )}
         </button>
-        
+
         {/* 搜索框 */}
         <div className="music-playlist-search-compact">
           <svg className="music-search-icon" fill="currentColor" viewBox="0 0 20 20">
@@ -573,7 +591,7 @@ const MusicPlaylistView: React.FC<{ player: UseMusicPlayerReturn }> = ({ player 
             type="text"
             placeholder={t.music.searchPlaceholder}
             value={playlistSearchQuery}
-            onChange={(e) => setPlaylistSearchQuery(e.target.value)}
+            onChange={e => setPlaylistSearchQuery(e.target.value)}
             className="music-search-input"
           />
           {playlistSearchQuery && (
@@ -590,15 +608,15 @@ const MusicPlaylistView: React.FC<{ player: UseMusicPlayerReturn }> = ({ player 
         </div>
       </div>
 
-      <div 
-        className={`music-playlist-scroll ${isPanelAnimating ? 'animating' : ''}`} 
+      <div
+        className={`music-playlist-scroll ${isPanelAnimating ? 'animating' : ''}`}
         ref={playlistScrollRef}
       >
         {visiblePlaylist.length > 0 ? (
           visiblePlaylist.map((song, idx) => {
             // 使用 Map 查找，O(1) 复杂度
-            const originalIndex = songIdToIndex.get(song.id) ?? (indexOffset + idx);
-            
+            const originalIndex = songIdToIndex.get(song.id) ?? (indexOffset + idx)
+
             return (
               <PlaylistItem
                 key={song.id}
@@ -610,7 +628,7 @@ const MusicPlaylistView: React.FC<{ player: UseMusicPlayerReturn }> = ({ player 
                 onSelect={selectSong}
                 onClose={handleClosePlaylist}
               />
-            );
+            )
           })
         ) : (
           <div className="music-no-results">
@@ -620,46 +638,46 @@ const MusicPlaylistView: React.FC<{ player: UseMusicPlayerReturn }> = ({ player 
         )}
       </div>
     </div>
-  );
-};
+  )
+}
 
 /**
  * 主音乐播放器组件
  */
 export const MusicPlayer: React.FC<MusicPlayerProps> = (props) => {
-  const { player } = props;
-  const { musicEnabled, musicPlayerView, currentSong, lyrics, musicContainerRef } = player;
-  
+  const { player } = props
+  const { musicEnabled, musicPlayerView, currentSong, lyrics, musicContainerRef } = player
+
   // 🔧 视图切换时触发父容器重测高度
   useEffect(() => {
     // 延迟触发，等待 DOM 更新完成
     const timer = setTimeout(() => {
-      window.dispatchEvent(new CustomEvent('gcp-remeasure'));
-    }, 50);
-    return () => clearTimeout(timer);
-  }, [musicPlayerView]);
-  
+      window.dispatchEvent(new CustomEvent('gcp-remeasure'))
+    }, 50)
+    return () => clearTimeout(timer)
+  }, [musicPlayerView])
+
   // 歌词视图自动返回：当歌词不存在时延迟检测后返回默认界面
   useEffect(() => {
     if (musicPlayerView !== 'lyrics') {
-      return;
+      return
     }
-    
+
     if (!currentSong || lyrics.length === 0) {
       const timer = setTimeout(() => {
         if (musicPlayerView === 'lyrics' && (!currentSong || lyrics.length === 0)) {
-          player.setMusicPlayerView('info');
+          player.setMusicPlayerView('info')
         }
-      }, 800);
-      
-      return () => clearTimeout(timer);
+      }, 800)
+
+      return () => clearTimeout(timer)
     }
-  }, [musicPlayerView, currentSong, lyrics.length, player]);
-  
+  }, [musicPlayerView, currentSong, lyrics.length, player])
+
   if (!musicEnabled) {
-    return null;
+    return null
   }
-  
+
   return (
     <div ref={musicContainerRef} className="music-player-container">
       {musicPlayerView === 'info' && (
@@ -667,16 +685,16 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = (props) => {
           <MusicInfoView {...props} />
         </div>
       )}
-      
+
       {musicPlayerView === 'lyrics' && currentSong && lyrics.length > 0 && (
         <MusicLyricsView player={player} />
       )}
-      
+
       {musicPlayerView === 'playlist' && player.playlist.length > 0 && (
         <MusicPlaylistView player={player} />
       )}
     </div>
-  );
-};
+  )
+}
 
-export default MusicPlayer;
+export default MusicPlayer

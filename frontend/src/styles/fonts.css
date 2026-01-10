@@ -2,10 +2,10 @@
    字体定义 - 标题装饰字体 from Google Fonts
    ============================================ */
 
-/* 
+/*
  * ⚠️ 字体按需动态加载，由 useTitleFont hook 管理
  * 避免 CSS @import 阻塞渲染（Lighthouse: "渲染屏蔽请求"）
- * 
+ *
  * 支持的字体：
  * 1. Qwitcher Grypen (默认)
  * 2. Codystar
@@ -23,19 +23,19 @@
    Qwitcher Grypen - 原始默认字体
    ============================================ */
 .qwitcher-grypen-regular {
-  font-family: "Qwitcher Grypen", cursive;
+  font-family: 'Qwitcher Grypen', cursive;
   font-weight: 400;
   font-style: normal;
 }
 
 .qwitcher-grypen-bold {
-  font-family: "Qwitcher Grypen", cursive;
+  font-family: 'Qwitcher Grypen', cursive;
   font-weight: 700;
   font-style: normal;
 }
 
 .qwitcher-grypen {
-  font-family: "Qwitcher Grypen", cursive;
+  font-family: 'Qwitcher Grypen', cursive;
 }
 
 /* ============================================
@@ -43,51 +43,51 @@
    ============================================ */
 
 .title-font-qwitcher-grypen {
-  font-family: "Qwitcher Grypen", cursive;
+  font-family: 'Qwitcher Grypen', cursive;
   font-weight: 700;
 }
 
 .title-font-codystar {
-  font-family: "Codystar", system-ui;
+  font-family: 'Codystar', system-ui;
   font-weight: 400;
 }
 
 .title-font-henny-penny {
-  font-family: "Henny Penny", system-ui;
+  font-family: 'Henny Penny', system-ui;
   font-weight: 400;
 }
 
 .title-font-srisakdi {
-  font-family: "Srisakdi", system-ui;
+  font-family: 'Srisakdi', system-ui;
   font-weight: 700;
 }
 
 .title-font-fleur-de-leah {
-  font-family: "Fleur De Leah", cursive;
+  font-family: 'Fleur De Leah', cursive;
   font-weight: 400;
 }
 
 .title-font-league-script {
-  font-family: "League Script", cursive;
+  font-family: 'League Script', cursive;
   font-weight: 400;
 }
 
 .title-font-megrim {
-  font-family: "Megrim", system-ui;
+  font-family: 'Megrim', system-ui;
   font-weight: 400;
 }
 
 .title-font-silkscreen {
-  font-family: "Silkscreen", system-ui;
+  font-family: 'Silkscreen', system-ui;
   font-weight: 700;
 }
 
 .title-font-unifraktur-maguntia {
-  font-family: "UnifrakturMaguntia", serif;
+  font-family: 'UnifrakturMaguntia', serif;
   font-weight: 400;
 }
 
 .title-font-cinzel {
-  font-family: "Cinzel", serif;
+  font-family: 'Cinzel', serif;
   font-weight: 700;
 }

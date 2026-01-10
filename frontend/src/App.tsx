@@ -4,96 +4,98 @@
  * 优化: 代码分割 + 预加载 + 性能监控
  */
 
-import React, { Suspense, lazy, useEffect, useState } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { AnimatePresenceShim as AnimatePresence, motionShim as motion } from '@lib/motionShim';
-import { AppLayout } from './layouts/AppLayout';
-import { recordNavigation } from './router/navigationHistory';
-import RouteLoader from './components/RouteLoader';
-import { NotificationProvider } from './contexts/NotificationContext';
-import { MusicPlayerProvider } from './contexts/MusicPlayerContext';
-import { AuthProvider } from './contexts/AuthContext';
-import { AnimationPreferenceProvider } from './contexts/AnimationPreferenceContext';
-import { I18nProvider } from './contexts/I18nContext';
-import { NavigationProvider } from './contexts/NavigationContext';
-import CustomScrollbar from './components/CustomScrollbar';
-import { preloadCriticalRoutes } from './utils/codeSplitting';
-import { useRouteScheduler } from './hooks/animation';
+import { AnimatePresenceShim as AnimatePresence, motionShim as motion } from '@lib/motionShim'
+import React, { lazy, Suspense, useEffect, useState } from 'react'
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import CustomScrollbar from './components/CustomScrollbar'
+import RouteLoader from './components/RouteLoader'
+import { AnimationPreferenceProvider } from './contexts/AnimationPreferenceContext'
+import { AuthProvider } from './contexts/AuthContext'
+import { I18nProvider } from './contexts/I18nContext'
+import { MusicPlayerProvider } from './contexts/MusicPlayerContext'
+import { NavigationProvider } from './contexts/NavigationContext'
+import { NotificationProvider } from './contexts/NotificationContext'
+import { useRouteScheduler } from './hooks/animation'
+import { AppLayout } from './layouts/AppLayout'
+import { recordNavigation } from './router/navigationHistory'
+import { preloadCriticalRoutes } from './utils/codeSplitting'
+import './styles/fonts.css'
+import './styles/theme.css'
+import './styles/animations.css'
+import './styles/page-transitions.css'
+import './styles/navigation-island.css'
+import './styles/utility.css'
+import './styles/modals.css'
+import './styles/overrides.css'
+import './styles/performance.css'
 // TappBackgroundRunner 懒加载，避免其错误阻塞主应用
-const TappBackgroundRunner = lazy(() => import('./tapp/components/TappBackgroundRunner'));
-import './styles/fonts.css';
-import './styles/theme.css';
-import './styles/animations.css';
-import './styles/page-transitions.css';
-import './styles/navigation-island.css';
-import './styles/utility.css';
-import './styles/modals.css';
-import './styles/overrides.css';
-import './styles/performance.css'; // 🔧 性能优化 CSS
+const TappBackgroundRunner = lazy(() => import('./tapp/components/TappBackgroundRunner')) // 🔧 性能优化 CSS
 
 // 懒加载视图组件 - 使用代码分割
-const Home = lazy(() => import('./views/Home.tsx'));
-const Library = lazy(() => import('./views/Library.tsx'));
-const Brew = lazy(() => import('./views/Brew.tsx'));
-const Reports = lazy(() => import('./views/Reports.tsx'));
-const Config = lazy(() => import('./views/Config.tsx'));
-const DataManagement = lazy(() => import('./views/DataManagement.tsx'));
-const Login = lazy(() => import('./views/Login.tsx'));
-const Setup = lazy(() => import('./views/Setup.tsx'));
+const Home = lazy(() => import('./views/Home.tsx'))
+const Library = lazy(() => import('./views/Library.tsx'))
+const Brew = lazy(() => import('./views/Brew.tsx'))
+const Reports = lazy(() => import('./views/Reports.tsx'))
+const Config = lazy(() => import('./views/Config.tsx'))
+const DataManagement = lazy(() => import('./views/DataManagement.tsx'))
+const Login = lazy(() => import('./views/Login.tsx'))
+const Setup = lazy(() => import('./views/Setup.tsx'))
 
 // Tapp 页面
-const TappList = lazy(() => import('./tapp/pages/TappListPage.tsx'));
-const TappRun = lazy(() => import('./views/TappRunView.tsx'));
-const TappDetail = lazy(() => import('./views/TappDetailView.tsx'));
+const TappList = lazy(() => import('./tapp/pages/TappListPage.tsx'))
+const TappRun = lazy(() => import('./views/TappRunView.tsx'))
+const TappDetail = lazy(() => import('./views/TappDetailView.tsx'))
 
 /**
  * 路由守卫：检查认证状态
  * ✅ 使用 API 验证（HttpOnly Cookie 无法被 JS 读取）
  */
-function RequireAuth({ children, requiresAdmin }: { children: JSX.Element; requiresAdmin?: boolean }) {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
+function RequireAuth({ children, requiresAdmin }: { children: JSX.Element, requiresAdmin?: boolean }) {
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
 
   useEffect(() => {
     async function checkAuth() {
       try {
         const response = await fetch('/api/auth/me', {
           credentials: 'include',
-        });
+        })
 
         if (response.ok) {
-          const userData = await response.json();
-          setIsAuthenticated(true);
-          setIsAdmin(userData.is_admin || false);
-        } else {
-          // 401 是正常的未登录状态，静默处理
-          setIsAuthenticated(false);
+          const userData = await response.json()
+          setIsAuthenticated(true)
+          setIsAdmin(userData.is_admin || false)
         }
-      } catch {
+        else {
+          // 401 是正常的未登录状态，静默处理
+          setIsAuthenticated(false)
+        }
+      }
+      catch {
         // 网络错误时静默处理
-        setIsAuthenticated(false);
+        setIsAuthenticated(false)
       }
     }
 
-    checkAuth();
-  }, []);
+    checkAuth()
+  }, [])
 
   // 加载中
   if (isAuthenticated === null) {
-    return <LoadingFallback />;
+    return <LoadingFallback />
   }
 
   // 未认证
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/login" replace />
   }
 
   // 需要管理员权限但不是管理员
   if (requiresAdmin && !isAdmin) {
-    return <Navigate to="/" replace />;
+    return <Navigate to="/" replace />
   }
 
-  return children;
+  return children
 }
 
 /**
@@ -107,7 +109,7 @@ function LoadingFallback() {
       {/* 纯光效 - 跟随壁纸色 */}
       <div className="loading-fallback-light" />
     </div>
-  );
+  )
 }
 
 /**
@@ -119,22 +121,22 @@ function SuspensePage({ children }: { children: React.ReactNode }) {
     <Suspense fallback={<LoadingFallback />}>
       {children}
     </Suspense>
-  );
+  )
 }
 
 /**
  * 带动画的页面包装器
  * 确保 AnimatePresence 直接包裹 motion 组件
  */
-function AnimatedPage({ children, useFixedWrapper = false }: { children: React.ReactNode; useFixedWrapper?: boolean }) {
-  const location = useLocation();
-  
+function AnimatedPage({ children, useFixedWrapper = false }: { children: React.ReactNode, useFixedWrapper?: boolean }) {
+  const location = useLocation()
+
   // 🎯 根据页面类型选择不同的动画配置
-  const variants = useFixedWrapper ? fixedPageVariants : pageVariants;
+  const variants = useFixedWrapper ? fixedPageVariants : pageVariants
   const wrapperStyle = useFixedWrapper
     ? { position: 'absolute' as const, inset: 0 }
-    : { width: '100%' };
-  
+    : { width: '100%' }
+
   return (
     <AnimatePresence mode="wait">
       <motion.div
@@ -148,7 +150,7 @@ function AnimatedPage({ children, useFixedWrapper = false }: { children: React.R
         {children}
       </motion.div>
     </AnimatePresence>
-  );
+  )
 }
 
 /**
@@ -178,7 +180,7 @@ const pageVariants = {
       ease: [0.4, 0, 0.6, 1],
     },
   },
-};
+}
 
 /**
  * 🎯 Fixed 布局页面动画配置 - 只用 opacity，不用 transform
@@ -202,31 +204,31 @@ const fixedPageVariants = {
       ease: [0.4, 0, 0.6, 1],
     },
   },
-};
+}
 
 /**
  * 路由内容组件
  */
 function AppRoutes() {
-  const location = useLocation();
-  
+  const location = useLocation()
+
   // 🎯 判断是否是 fixed 布局页面（如 TappRunPage、多任务模式）
-  const isFixedLayoutPage = location.pathname.startsWith('/tapp/run/') || location.pathname === '/tapp/run';
+  const isFixedLayoutPage = location.pathname.startsWith('/tapp/run/') || location.pathname === '/tapp/run'
 
   // 🔧 原子化调度器：在路由变化时自动管理页面生命周期
   // 这会在路由切换时清理旧页面的订阅并初始化新页面
-  useRouteScheduler();
+  useRouteScheduler()
 
   // 记录每次路由变化
   // 页面动画状态由 AnimatedView 中的 usePageTransition 自动管理
   useEffect(() => {
-    recordNavigation(location.pathname);
-  }, [location.pathname]);
+    recordNavigation(location.pathname)
+  }, [location.pathname])
 
   // 路由切换时恢复到顶部
   useEffect(() => {
-    window.scrollTo(0, 0);
-  }, [location.pathname]);
+    window.scrollTo(0, 0)
+  }, [location.pathname])
 
   return (
     <AnimatedPage useFixedWrapper={isFixedLayoutPage}>
@@ -238,23 +240,23 @@ function AppRoutes() {
         <Route path="/reports" element={<SuspensePage><Reports /></SuspensePage>} />
         <Route
           path="/config"
-          element={
+          element={(
             <RequireAuth requiresAdmin>
               <SuspensePage><Config /></SuspensePage>
             </RequireAuth>
-          }
+          )}
         />
         <Route
           path="/data-management"
-          element={
+          element={(
             <RequireAuth requiresAdmin>
               <SuspensePage><DataManagement /></SuspensePage>
             </RequireAuth>
-          }
+          )}
         />
         <Route path="/login" element={<SuspensePage><Login /></SuspensePage>} />
         <Route path="/setup" element={<SuspensePage><Setup /></SuspensePage>} />
-        
+
         {/* Tapp 路由 */}
         <Route path="/tapp" element={<SuspensePage><TappList /></SuspensePage>} />
         <Route path="/tapp/run" element={<SuspensePage><TappRun /></SuspensePage>} />
@@ -265,44 +267,44 @@ function AppRoutes() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AnimatedPage>
-  );
+  )
 }
 
 /**
  * 主应用组件
  */
 export function App() {
-  console.debug('[App] App component rendering...');
-  const [isLayoutReady, setIsLayoutReady] = useState(false);
-  
+  console.debug('[App] App component rendering...')
+  const [isLayoutReady, setIsLayoutReady] = useState(false)
+
   // 在 React 应用挂载完成后标记就绪状态
   // 注意：这只是通知基本框架已加载，各个组件会独立控制自己的淡入显示
   useEffect(() => {
-    console.debug('[App] App useEffect running...');
+    console.debug('[App] App useEffect running...')
     // 使用双帧延迟确保基础布局已渲染
     const rafId = requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        setIsLayoutReady(true);
-        
+        setIsLayoutReady(true)
+
         // 通知 PageLoader 应用已就绪
         if ((window as any).pageLoader) {
-          (window as any).pageLoader.markAppReady();
+          (window as any).pageLoader.markAppReady()
         }
-      });
-    });
-    
-    return () => cancelAnimationFrame(rafId);
-  }, []);
+      })
+    })
+
+    return () => cancelAnimationFrame(rafId)
+  }, [])
 
   // 预加载关键路由 - 在空闲时加载Library和Config
   useEffect(() => {
     // 延迟2秒后预加载,确保首屏已渲染完成
     const timer = setTimeout(() => {
-      preloadCriticalRoutes();
-    }, 2000);
+      preloadCriticalRoutes()
+    }, 2000)
 
-    return () => clearTimeout(timer);
-  }, []);
+    return () => clearTimeout(timer)
+  }, [])
 
   return (
     <BrowserRouter>
@@ -333,7 +335,7 @@ export function App() {
         </AnimationPreferenceProvider>
       </I18nProvider>
     </BrowserRouter>
-  );
+  )
 }
 
-export default App;
+export default App

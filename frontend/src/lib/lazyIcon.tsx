@@ -1,4 +1,4 @@
-import React from 'react';
+import React from 'react'
 
 /**
  * 图标加载工具
@@ -6,5 +6,5 @@ import React from 'react';
  */
 
 export function IconFallback({ size = 16 }: { size?: number }) {
-  return <div style={{ width: size, height: size }} className="inline-block align-middle animate-pulse bg-gray-200/40 dark:bg-white/5 rounded" />;
+  return <div style={{ width: size, height: size }} className="inline-block align-middle animate-pulse bg-gray-200/40 dark:bg-white/5 rounded" />
 }

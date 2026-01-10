@@ -1,22 +1,22 @@
-import React from 'react';
+import React from 'react'
 
 interface ConfigField {
-  key: string;
-  label: string;
-  field_type: string;
-  value: string;
-  placeholder: string;
-  required: boolean;
+  key: string
+  label: string
+  field_type: string
+  value: string
+  placeholder: string
+  required: boolean
 }
 
 interface GenericConfigSectionProps {
-  title: string;
-  icon: string;
-  description: string;
-  fields: ConfigField[];
-  onUpdateField: (fieldKey: string, value: string) => void;
-  providerField?: ConfigField;
-  providerOptions?: Array<{ value: string; label: string; icon: string }>;
+  title: string
+  icon: string
+  description: string
+  fields: ConfigField[]
+  onUpdateField: (fieldKey: string, value: string) => void
+  providerField?: ConfigField
+  providerOptions?: Array<{ value: string, label: string, icon: string }>
 }
 
 const GenericConfigSection = React.memo<GenericConfigSectionProps>(({
@@ -26,9 +26,9 @@ const GenericConfigSection = React.memo<GenericConfigSectionProps>(({
   fields,
   onUpdateField,
   providerField,
-  providerOptions
+  providerOptions,
 }) => {
-  const otherFields = providerField ? fields.filter(f => f.key !== providerField.key) : fields;
+  const otherFields = providerField ? fields.filter(f => f.key !== providerField.key) : fields
 
   return (
     <div className="config-section">
@@ -50,7 +50,7 @@ const GenericConfigSection = React.memo<GenericConfigSectionProps>(({
               {providerField.required && <span className="required-mark">*</span>}
             </label>
             <div className="provider-selector">
-              {providerOptions.map((option) => (
+              {providerOptions.map(option => (
                 <button
                   key={option.value}
                   type="button"
@@ -76,12 +76,12 @@ const GenericConfigSection = React.memo<GenericConfigSectionProps>(({
                 <input
                   type="number"
                   value={field.value}
-                  onChange={(e) => onUpdateField(field.key, e.target.value)}
+                  onChange={e => onUpdateField(field.key, e.target.value)}
                   placeholder={field.placeholder}
                   className="form-input"
                 />
               </div>
-            );
+            )
           }
 
           if (field.field_type === 'checkbox') {
@@ -91,13 +91,13 @@ const GenericConfigSection = React.memo<GenericConfigSectionProps>(({
                   <input
                     type="checkbox"
                     checked={field.value === 'true'}
-                    onChange={(e) => onUpdateField(field.key, e.target.checked ? 'true' : 'false')}
+                    onChange={e => onUpdateField(field.key, e.target.checked ? 'true' : 'false')}
                     className="form-checkbox"
                   />
                   <span>{field.label}</span>
                 </label>
               </div>
-            );
+            )
           }
 
           return (
@@ -109,19 +109,19 @@ const GenericConfigSection = React.memo<GenericConfigSectionProps>(({
               <input
                 type={field.field_type === 'password' ? 'password' : 'text'}
                 value={field.value}
-                onChange={(e) => onUpdateField(field.key, e.target.value)}
+                onChange={e => onUpdateField(field.key, e.target.value)}
                 placeholder={field.placeholder}
                 className="form-input"
                 autoComplete="off"
               />
             </div>
-          );
+          )
         })}
       </div>
     </div>
-  );
-});
+  )
+})
 
-GenericConfigSection.displayName = 'GenericConfigSection';
+GenericConfigSection.displayName = 'GenericConfigSection'
 
-export default GenericConfigSection;
+export default GenericConfigSection

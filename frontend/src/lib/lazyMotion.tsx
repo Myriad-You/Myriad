@@ -1,44 +1,46 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useSyncExternalStore } from 'react'
 
 /**
  * 全局 framer-motion 加载状态
  * 使用单例模式确保所有组件共享同一份加载状态
  */
-let globalFM: { motion: any; AnimatePresence: any } | null = null;
-let isLoading = false;
-let loadPromise: Promise<void> | null = null;
-const listeners = new Set<() => void>();
+let globalFM: { motion: any, AnimatePresence: any } | null = null
+let isLoading = false
+let loadPromise: Promise<void> | null = null
+const listeners = new Set<() => void>()
 
 function subscribe(listener: () => void) {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
+  listeners.add(listener)
+  return () => listeners.delete(listener)
 }
 
 function getSnapshot() {
-  return globalFM;
+  return globalFM
 }
 
 function notifyListeners() {
-  listeners.forEach(listener => listener());
+  listeners.forEach(listener => listener())
 }
 
 function loadFramerMotion() {
-  if (globalFM) return Promise.resolve();
-  if (loadPromise) return loadPromise;
-  
-  isLoading = true;
+  if (globalFM)
+    return Promise.resolve()
+  if (loadPromise)
+    return loadPromise
+
+  isLoading = true
   loadPromise = import('framer-motion')
     .then((mod) => {
-      globalFM = { motion: mod.motion, AnimatePresence: mod.AnimatePresence };
-      isLoading = false;
-      notifyListeners();
+      globalFM = { motion: mod.motion, AnimatePresence: mod.AnimatePresence }
+      isLoading = false
+      notifyListeners()
     })
     .catch(() => {
-      isLoading = false;
+      isLoading = false
       // 忽略加载失败，保持静态渲染
-    });
-  
-  return loadPromise;
+    })
+
+  return loadPromise
 }
 
 /**
@@ -47,16 +49,16 @@ function loadFramerMotion() {
  * 返回占位元素：未加载时使用原生标签，已加载时使用 motion.*
  */
 export function useLazyMotion(shouldAnimate: boolean) {
-  const FM = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  const FM = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 
   useEffect(() => {
     if (shouldAnimate && !globalFM && !isLoading) {
-      loadFramerMotion();
+      loadFramerMotion()
     }
-  }, [shouldAnimate]);
+  }, [shouldAnimate])
 
-  const MDiv: any = FM ? FM.motion.div : 'div';
-  const MSpan: any = FM ? FM.motion.span : 'span';
+  const MDiv: any = FM ? FM.motion.div : 'div'
+  const MSpan: any = FM ? FM.motion.span : 'span'
 
-  return { motion: FM?.motion, AnimatePresence: FM?.AnimatePresence, MDiv, MSpan } as const;
+  return { motion: FM?.motion, AnimatePresence: FM?.AnimatePresence, MDiv, MSpan } as const
 }

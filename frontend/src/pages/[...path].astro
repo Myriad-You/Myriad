@@ -4,8 +4,8 @@
  * 捕获所有未匹配的路由，返回主应用页面
  * 让 React Router 处理客户端路由
  */
-import PageLoader from '@components/PageLoader.astro';
-import App from '../App';
+import PageLoader from '@components/PageLoader.astro'
+import App from '../App'
 
 // 导出 getStaticPaths 以支持静态路由
 // 在开发模式下，Astro 需要知道所有可能的路径
@@ -23,30 +23,27 @@ export function getStaticPaths() {
     'tapp',
     'tapp/run', // 多任务模式入口
     'brew', // Brew 阅读
-  ];
-  
+  ]
+
   // 动态路由前缀 - 这些路由有动态参数
   // 生成 placeholder 路径用于开发模式，生产模式由 serve -s 处理
-  const dynamicPrefixes = [
-    'tapp/run',
-    'tapp/detail',
-  ];
-  
+  const dynamicPrefixes = ['tapp/run', 'tapp/detail']
+
   // 为动态路由生成通用占位路径（开发模式下允许任意 ID）
   // 使用特殊标记 "_" 作为占位符，实际 ID 由 React Router 解析
-  const dynamicRoutes = dynamicPrefixes.map(prefix => `${prefix}/_`);
-  
+  const dynamicRoutes = dynamicPrefixes.map((prefix) => `${prefix}/_`)
+
   // 合并所有路由
-  const allRoutes = [...staticRoutes, ...dynamicRoutes];
-  
-  return allRoutes.map(route => ({
-    params: { path: route }
-  }));
+  const allRoutes = [...staticRoutes, ...dynamicRoutes]
+
+  return allRoutes.map((route) => ({
+    params: { path: route },
+  }))
 }
 
-const title = 'Myriad - 数字自我发现';
-const description = '一键聚合你的多平台数据，生成AI个人分析报告';
-const apiUrl = import.meta.env.PUBLIC_API_URL || '';
+const title = 'Myriad - 数字自我发现'
+const description = '一键聚合你的多平台数据，生成AI个人分析报告'
+const apiUrl = import.meta.env.PUBLIC_API_URL || ''
 ---
 
 <!doctype html>
@@ -59,10 +56,10 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
     <meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" id="favicon-link" />
     <title>{title}</title>
-    
+
     <!-- 安全策略 -->
     <meta name="referrer" content="strict-origin-when-cross-origin" />
-    
+
     <!-- Resource Hints优化 - DNS预解析和预连接 -->
     <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
     <link rel="dns-prefetch" href="https://fonts.gstatic.com" />
@@ -95,19 +92,107 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
         rel="stylesheet"
       />
     </noscript>
-    
+
     <!-- 关键CSS内联 - 优化FCP -->
     <style>
-      :root{--color-primary:#94a3b8;--bg-primary:#f5f5f5;--bg-card:rgba(255,255,255,.9);--text-primary:#1f2937;--text-secondary:#4b5563;--border-color:rgba(0,0,0,.1)}html.dark{--bg-primary:#0a0a0a;--bg-card:rgba(26,26,26,.9);--text-primary:#f9fafb;--text-secondary:#d1d5db;--border-color:rgba(255,255,255,.1)}html{scroll-behavior:smooth;overflow-x:hidden}body{background:var(--bg-primary);color:var(--text-primary);font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;margin:0;padding:0}html::-webkit-scrollbar,body::-webkit-scrollbar{display:none;width:0;height:0}@keyframes spin{from{transform:rotate(0deg) translateZ(0)}to{transform:rotate(360deg) translateZ(0)}}@keyframes fadeIn{from{opacity:0}to{opacity:1}}.glass{background:rgba(255,255,255,.7);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.3)}html.dark .glass{background:rgba(26,26,26,.8);border:1px solid rgba(255,255,255,.1)}.nav-container{position:fixed;bottom:1rem;left:50%;transform:translateX(-50%);z-index:50}@media (min-width:768px){.nav-container{left:1.5rem;top:50%;bottom:auto;transform:translateY(-50%)}}@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+      :root {
+        --color-primary: #94a3b8;
+        --bg-primary: #f5f5f5;
+        --bg-card: rgba(255, 255, 255, 0.9);
+        --text-primary: #1f2937;
+        --text-secondary: #4b5563;
+        --border-color: rgba(0, 0, 0, 0.1);
+      }
+      html.dark {
+        --bg-primary: #0a0a0a;
+        --bg-card: rgba(26, 26, 26, 0.9);
+        --text-primary: #f9fafb;
+        --text-secondary: #d1d5db;
+        --border-color: rgba(255, 255, 255, 0.1);
+      }
+      html {
+        scroll-behavior: smooth;
+        overflow-x: hidden;
+      }
+      body {
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        font-family:
+          Inter,
+          -apple-system,
+          BlinkMacSystemFont,
+          Segoe UI,
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        margin: 0;
+        padding: 0;
+      }
+      html::-webkit-scrollbar,
+      body::-webkit-scrollbar {
+        display: none;
+        width: 0;
+        height: 0;
+      }
+      @keyframes spin {
+        from {
+          transform: rotate(0deg) translateZ(0);
+        }
+        to {
+          transform: rotate(360deg) translateZ(0);
+        }
+      }
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+      .glass {
+        background: rgba(255, 255, 255, 0.7);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+      }
+      html.dark .glass {
+        background: rgba(26, 26, 26, 0.8);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      .nav-container {
+        position: fixed;
+        bottom: 1rem;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 50;
+      }
+      @media (min-width: 768px) {
+        .nav-container {
+          left: 1.5rem;
+          top: 50%;
+          bottom: auto;
+          transform: translateY(-50%);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
     </style>
-    
+
     <!-- 动态加载网站元数据 - 使用新的元数据管理工具 -->
     <script>
       // 导入元数据管理工具（需要在构建时处理）
-      import { initSiteMetadata } from '../utils/siteMetadata';
-      
+      import { initSiteMetadata } from '../utils/siteMetadata'
+
       // 立即初始化元数据（优先使用缓存，避免闪烁）
-      initSiteMetadata();
+      initSiteMetadata()
     </script>
   </head>
   <body class="antialiased">
@@ -122,54 +207,55 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
     <!-- 初始化主题 -->
     <script>
       function initializeTheme() {
-        const html = document.documentElement;
-        const stored = localStorage.getItem('theme');
-        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        const theme = stored || (prefersDark ? 'dark' : 'light');
+        const html = document.documentElement
+        const stored = localStorage.getItem('theme')
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+        const theme = stored || (prefersDark ? 'dark' : 'light')
 
         if (theme === 'dark') {
-          html.classList.add('dark');
-          html.classList.remove('light');
+          html.classList.add('dark')
+          html.classList.remove('light')
         } else {
-          html.classList.add('light');
-          html.classList.remove('dark');
+          html.classList.add('light')
+          html.classList.remove('dark')
         }
 
         // 使用壁纸颜色（--color-primary）作为浏览器主题色
         const updateThemeColor = () => {
-          const primaryColor = getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim() || '#94a3b8';
-          const metaThemeColor = document.querySelector('meta[name="theme-color"]');
+          const primaryColor =
+            getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim() || '#94a3b8'
+          const metaThemeColor = document.querySelector('meta[name="theme-color"]')
           if (metaThemeColor) {
-            metaThemeColor.setAttribute('content', primaryColor);
+            metaThemeColor.setAttribute('content', primaryColor)
           }
-        };
+        }
 
-        updateThemeColor();
+        updateThemeColor()
 
         // 监听 CSS 变量变化，实时更新浏览器主题色
-        const observer = new MutationObserver(updateThemeColor);
+        const observer = new MutationObserver(updateThemeColor)
         observer.observe(document.documentElement, {
           attributes: true,
-          attributeFilter: ['style']
-        });
+          attributeFilter: ['style'],
+        })
 
         window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
           if (!localStorage.getItem('theme')) {
-            const newTheme = e.matches ? 'dark' : 'light';
+            const newTheme = e.matches ? 'dark' : 'light'
             if (newTheme === 'dark') {
-              html.classList.add('dark');
-              html.classList.remove('light');
+              html.classList.add('dark')
+              html.classList.remove('light')
             } else {
-              html.classList.add('light');
-              html.classList.remove('dark');
+              html.classList.add('light')
+              html.classList.remove('dark')
             }
             // 更新主题色
-            updateThemeColor();
+            updateThemeColor()
           }
-        });
+        })
       }
 
-      initializeTheme();
+      initializeTheme()
     </script>
 
     <!-- Service Worker 注册 -->
@@ -178,8 +264,8 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('/sw.js').catch(() => {
             // Service Worker registration failed
-          });
-        });
+          })
+        })
       }
     </script>
 
@@ -191,7 +277,7 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
         --color-accent: #cbd5e1;
         --color-light: #cbd5e1;
         --color-dark: #475569;
-        
+
         /* 浅色模式背景色 - 纯色透明 */
         --bg-primary: #f5f5f5;
         --bg-secondary: #ffffff;
@@ -207,15 +293,16 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
         --shadow-color: rgba(0, 0, 0, 0.1);
         --input-bg: rgba(255, 255, 255, 0.8);
         --input-border: rgba(0, 0, 0, 0.15);
-        
+
         /* 颜色切换平滑过渡 */
-        transition: --color-primary 0.6s ease-in-out,
-                    --color-secondary 0.6s ease-in-out,
-                    --color-accent 0.6s ease-in-out,
-                    --color-light 0.6s ease-in-out,
-                    --color-dark 0.6s ease-in-out;
+        transition:
+          --color-primary 0.6s ease-in-out,
+          --color-secondary 0.6s ease-in-out,
+          --color-accent 0.6s ease-in-out,
+          --color-light 0.6s ease-in-out,
+          --color-dark 0.6s ease-in-out;
       }
-      
+
       /* 深色模式变量 */
       html.dark {
         --bg-primary: #0a0a0a;
@@ -233,30 +320,36 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
         --input-bg: rgba(10, 10, 10, 0.85);
         --input-border: rgba(255, 255, 255, 0.15);
       }
-      
+
       /* 全局过渡 */
       html {
-        transition: background-color 0.3s ease, color 0.3s ease;
+        transition:
+          background-color 0.3s ease,
+          color 0.3s ease;
       }
-      
+
       body {
         background: var(--bg-primary);
         color: var(--text-primary);
-        transition: background-color 0.3s ease, color 0.3s ease;
+        transition:
+          background-color 0.3s ease,
+          color 0.3s ease;
       }
-      
+
       @supports not (transition: --color-primary 0.6s) {
         /* 对于不支持 CSS 变量过渡的浏览器，使用通配符 */
         * {
-          transition: color 0.6s ease-in-out,
-                      background-color 0.6s ease-in-out,
-                      border-color 0.6s ease-in-out,
-                      box-shadow 0.6s ease-in-out;
+          transition:
+            color 0.6s ease-in-out,
+            background-color 0.6s ease-in-out,
+            border-color 0.6s ease-in-out,
+            box-shadow 0.6s ease-in-out;
         }
       }
 
       @keyframes blob {
-        0%, 100% {
+        0%,
+        100% {
           transform: translate(0, 0) scale(1);
         }
         33% {
@@ -320,7 +413,7 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
       }
 
       .bg-grid-pattern {
-        background-image: 
+        background-image:
           linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
           linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
         background-size: 50px 50px;
@@ -335,13 +428,13 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
 
       /* Qwitcher Grypen 字体 - Google Fonts 官方 CSS 类 */
       .qwitcher-grypen-regular {
-        font-family: "Qwitcher Grypen", cursive;
+        font-family: 'Qwitcher Grypen', cursive;
         font-weight: 400;
         font-style: normal;
       }
 
       .qwitcher-grypen-bold {
-        font-family: "Qwitcher Grypen", cursive;
+        font-family: 'Qwitcher Grypen', cursive;
         font-weight: 700;
         font-style: normal;
       }
@@ -354,26 +447,31 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
         border: 1px solid rgba(255, 255, 255, 0.3);
         box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.1);
       }
-      
+
       /* Glass effect - 深色模式 */
       html.dark .glass {
         background: rgba(10, 10, 10, 0.85);
         border: 1px solid rgba(255, 255, 255, 0.08);
         box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.7);
       }
-      
+
       /* 深色模式背景 - 纯色 */
       html.dark #bg-container {
         background: #0a0a0a;
       }
-      
+
       html.dark #bg-gradient {
-        background: linear-gradient(to bottom, transparent 45%, rgba(10, 10, 10, 0.6) 50%, rgba(10, 10, 10, 0.95) 100%) !important;
+        background: linear-gradient(
+          to bottom,
+          transparent 45%,
+          rgba(10, 10, 10, 0.6) 50%,
+          rgba(10, 10, 10, 0.95) 100%
+        ) !important;
       }
-      
+
       /* 深色模式下的背景网格 */
       html.dark .bg-grid-pattern {
-        background-image: 
+        background-image:
           linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
           linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
       }
@@ -387,7 +485,7 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
         transform: translateX(-50%);
         z-index: 50;
       }
-      
+
       /* 桌面端样式 */
       @media (min-width: 768px) {
         .nav-container {
@@ -397,7 +495,7 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
           transform: translateY(-50%);
         }
       }
-      
+
       /* Dynamic Island - 灵动岛样式 */
       .dynamic-island {
         background: rgba(255, 255, 255, 0.75);
@@ -406,8 +504,9 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
         border-radius: 26px;
         padding: 10px 14px;
         border: 2px solid color-mix(in srgb, var(--color-primary) 40%, transparent);
-        box-shadow: 0 8px 32px 0 color-mix(in srgb, var(--color-primary) 15%, transparent),
-                    inset 0 1px 0 0 rgba(255, 255, 255, 0.8);
+        box-shadow:
+          0 8px 32px 0 color-mix(in srgb, var(--color-primary) 15%, transparent),
+          inset 0 1px 0 0 rgba(255, 255, 255, 0.8);
         transition: all 0.3s ease;
         position: relative;
         max-width: 95vw;
@@ -429,7 +528,9 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
 
       /* 主岛内容容器 - 用于淡入淡出动画 */
       .dynamic-island > div:first-child {
-        transition: opacity 0.3s ease, transform 0.3s ease;
+        transition:
+          opacity 0.3s ease,
+          transform 0.3s ease;
         opacity: 1;
         transform: scale(1);
       }
@@ -441,7 +542,7 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
         pointer-events: none;
         position: absolute;
       }
-      
+
       /* 关键帧动画定义 - 供 JS 使用 */
       @keyframes expandContent {
         from {
@@ -453,7 +554,7 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
           transform: scale(1) translateZ(0);
         }
       }
-      
+
       @keyframes fadeInScale {
         from {
           opacity: 0;
@@ -464,7 +565,7 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
           transform: scale(1) rotate(0deg) translateZ(0);
         }
       }
-      
+
       @keyframes slideInSecondary {
         from {
           opacity: 0;
@@ -475,7 +576,7 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
           transform: translateY(0) scale(1) translateZ(0);
         }
       }
-      
+
       /* 桌面端样式 */
       @media (min-width: 768px) {
         .dynamic-island {
@@ -483,12 +584,12 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
           max-height: 85vh;
           max-width: none;
         }
-        
+
         .dynamic-island.collapsed {
           padding: 10px;
         }
       }
-      
+
       /* Secondary Island - 副岛样式（纵向排列） */
       .secondary-island {
         background: rgba(255, 255, 255, 0.75);
@@ -497,8 +598,9 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
         border-radius: 26px;
         padding: 10px 14px; /* 移动端横向padding - 与主岛同步 */
         border: 2px solid color-mix(in srgb, var(--color-primary) 40%, transparent);
-        box-shadow: 0 8px 32px 0 color-mix(in srgb, var(--color-primary) 15%, transparent),
-                    inset 0 1px 0 0 rgba(255, 255, 255, 0.8);
+        box-shadow:
+          0 8px 32px 0 color-mix(in srgb, var(--color-primary) 15%, transparent),
+          inset 0 1px 0 0 rgba(255, 255, 255, 0.8);
         overflow: hidden;
         max-width: 95vw;
         will-change: padding;
@@ -506,14 +608,17 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
         -webkit-transform: translateZ(0);
         margin-top: 8px; /* 在主岛下方，间隔8px */
         position: relative;
-        transition: padding 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
-                    background 0.3s ease,
-                    box-shadow 0.3s ease;
+        transition:
+          padding 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+          background 0.3s ease,
+          box-shadow 0.3s ease;
       }
 
       /* 副岛内容容器 - 用于淡入淡出动画 */
       .secondary-island > div:first-child {
-        transition: opacity 0.3s ease, transform 0.3s ease;
+        transition:
+          opacity 0.3s ease,
+          transform 0.3s ease;
         opacity: 1;
         transform: scale(1);
       }
@@ -530,17 +635,17 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
         pointer-events: none;
         position: absolute;
       }
-      
+
       @media (min-width: 768px) {
         .secondary-island {
           padding: 14px 10px; /* 桌面端纵向padding - 与主岛同步 */
           max-height: 85vh;
         }
-        
+
         .secondary-island.collapsed {
           padding: 10px;
         }
-        
+
         /* 桌面端出现动画 - 从下方弹出 */
         @keyframes slideInSecondary {
           from {
@@ -553,39 +658,42 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
           }
         }
       }
-      
+
       /* 深色模式下的副岛 */
       html.dark .secondary-island {
         background: rgba(10, 10, 10, 0.85);
         border: 2px solid color-mix(in srgb, var(--color-primary) 50%, transparent);
-        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.7),
-                    inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
+        box-shadow:
+          0 8px 32px 0 rgba(0, 0, 0, 0.7),
+          inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
       }
-      
+
       /* 副岛导航项样式 */
       .secondary-nav-item {
         /* 继承主岛导航项的基础样式 */
       }
-      
+
       /* 副岛激活状态 */
       .secondary-nav-item.active-secondary {
         color: var(--color-primary);
         background: color-mix(in srgb, var(--color-primary) 15%, white);
         box-shadow: 0 2px 10px color-mix(in srgb, var(--color-primary) 25%, transparent);
       }
-      
+
       html.dark .secondary-nav-item.active-secondary {
         background: color-mix(in srgb, var(--color-primary) 25%, transparent);
-        box-shadow: 0 2px 10px color-mix(in srgb, var(--color-primary) 35%, transparent),
-                    inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+        box-shadow:
+          0 2px 10px color-mix(in srgb, var(--color-primary) 35%, transparent),
+          inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
       }
-      
+
       /* 深色模式下的灵动岛 */
       html.dark .dynamic-island {
         background: rgba(10, 10, 10, 0.85);
         border: 2px solid color-mix(in srgb, var(--color-primary) 50%, transparent);
-        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.7),
-                    inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
+        box-shadow:
+          0 8px 32px 0 rgba(0, 0, 0, 0.7),
+          inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
       }
 
       /* 动态渐变边框动画 */
@@ -595,13 +703,16 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
         inset: -2px;
         border-radius: 26px;
         padding: 2px;
-        background: linear-gradient(135deg, 
+        background: linear-gradient(
+          135deg,
           color-mix(in srgb, var(--color-primary) 60%, transparent),
           color-mix(in srgb, var(--color-secondary) 40%, transparent),
           color-mix(in srgb, var(--color-accent) 40%, transparent),
           color-mix(in srgb, var(--color-primary) 60%, transparent)
         );
-        -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+        -webkit-mask:
+          linear-gradient(#fff 0 0) content-box,
+          linear-gradient(#fff 0 0);
         -webkit-mask-composite: xor;
         mask-composite: exclude;
         animation: border-flow 8s linear infinite;
@@ -612,7 +723,8 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
       }
 
       @keyframes border-flow {
-        0%, 100% {
+        0%,
+        100% {
           background-position: 0% 50%;
         }
         50% {
@@ -622,15 +734,17 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
 
       .dynamic-island:hover {
         background: rgba(255, 255, 255, 0.85);
-        box-shadow: 0 12px 48px 0 color-mix(in srgb, var(--color-primary) 25%, transparent),
-                    inset 0 1px 0 0 rgba(255, 255, 255, 0.9);
+        box-shadow:
+          0 12px 48px 0 color-mix(in srgb, var(--color-primary) 25%, transparent),
+          inset 0 1px 0 0 rgba(255, 255, 255, 0.9);
         border-color: color-mix(in srgb, var(--color-primary) 50%, transparent);
       }
-      
+
       html.dark .dynamic-island:hover {
         background: rgba(10, 10, 10, 0.95);
-        box-shadow: 0 12px 48px 0 rgba(0, 0, 0, 0.9),
-                    inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+        box-shadow:
+          0 12px 48px 0 rgba(0, 0, 0, 0.9),
+          inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
       }
 
       .dynamic-island:hover::before {
@@ -643,7 +757,7 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
         flex-direction: row;
         align-items: center;
       }
-      
+
       @media (min-width: 768px) {
         .nav-group {
           flex-direction: column;
@@ -654,7 +768,7 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
       .nav-group-spaced {
         margin-left: 8px;
       }
-      
+
       @media (min-width: 768px) {
         .nav-group-spaced {
           margin-left: 0;
@@ -665,7 +779,7 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
       .nav-group-large-spaced {
         margin-left: 8px;
       }
-      
+
       @media (min-width: 768px) {
         .nav-group-large-spaced {
           margin-left: 0;
@@ -677,22 +791,24 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
       .nav-separator {
         width: 1px;
         height: 32px;
-        background: linear-gradient(to bottom, 
-          transparent, 
-          color-mix(in srgb, var(--color-primary) 30%, transparent) 50%, 
+        background: linear-gradient(
+          to bottom,
+          transparent,
+          color-mix(in srgb, var(--color-primary) 30%, transparent) 50%,
           transparent
         );
         margin: 0 8px 0 0;
         transition: all 0.3s ease;
       }
-      
+
       @media (min-width: 768px) {
         .nav-separator {
           width: 32px;
           height: 1px;
-          background: linear-gradient(to right, 
-            transparent, 
-            color-mix(in srgb, var(--color-primary) 30%, transparent) 50%, 
+          background: linear-gradient(
+            to right,
+            transparent,
+            color-mix(in srgb, var(--color-primary) 30%, transparent) 50%,
             transparent
           );
           margin: 0 0 8px 0;
@@ -700,9 +816,10 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
       }
 
       .nav-group:hover .nav-separator {
-        background: linear-gradient(to right, 
-          transparent, 
-          color-mix(in srgb, var(--color-primary) 50%, transparent) 50%, 
+        background: linear-gradient(
+          to right,
+          transparent,
+          color-mix(in srgb, var(--color-primary) 50%, transparent) 50%,
           transparent
         );
       }
@@ -724,7 +841,7 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
         align-items: center;
         justify-content: center;
       }
-      
+
       @media (min-width: 768px) {
         .nav-item {
           padding: 10px;
@@ -744,12 +861,12 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
         transform: scale(1.02) translateZ(0);
         box-shadow: 0 2px 6px color-mix(in srgb, var(--color-primary) 15%, transparent);
       }
-      
+
       /* 深色模式下的导航按钮 */
       html.dark .nav-item {
         color: var(--text-secondary);
       }
-      
+
       html.dark .nav-item:hover {
         background: color-mix(in srgb, var(--color-primary) 18%, transparent);
         box-shadow: 0 3px 12px color-mix(in srgb, var(--color-primary) 25%, transparent);
@@ -761,20 +878,21 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
       }
 
       /* Active nav item indicator */
-      [aria-current="page"].nav-item {
+      [aria-current='page'].nav-item {
         color: var(--color-primary);
         background: color-mix(in srgb, var(--color-primary) 15%, white);
         box-shadow: 0 2px 10px color-mix(in srgb, var(--color-primary) 25%, transparent);
       }
 
       /* 深色模式下的选中状态 */
-      html.dark [aria-current="page"].nav-item {
+      html.dark [aria-current='page'].nav-item {
         background: color-mix(in srgb, var(--color-primary) 25%, transparent);
-        box-shadow: 0 2px 10px color-mix(in srgb, var(--color-primary) 35%, transparent),
-                    inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+        box-shadow:
+          0 2px 10px color-mix(in srgb, var(--color-primary) 35%, transparent),
+          inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
       }
 
-      [aria-current="page"].nav-item::after {
+      [aria-current='page'].nav-item::after {
         content: '';
         position: absolute;
         left: -8px;
@@ -787,26 +905,27 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
         box-shadow: 0 0 8px color-mix(in srgb, var(--color-primary) 60%, transparent);
       }
 
-      html.dark [aria-current="page"].nav-item::after {
+      html.dark [aria-current='page'].nav-item::after {
         box-shadow: 0 0 12px var(--color-primary);
       }
-      
+
       /* 副岛导航项样式 */
       .secondary-nav-item {
         /* 继承主岛导航项的基础样式 */
       }
-      
+
       /* 副岛激活状态 */
       .secondary-nav-item.active-secondary {
         color: var(--color-primary);
         background: color-mix(in srgb, var(--color-primary) 15%, white);
         box-shadow: 0 2px 10px color-mix(in srgb, var(--color-primary) 25%, transparent);
       }
-      
+
       html.dark .secondary-nav-item.active-secondary {
         background: color-mix(in srgb, var(--color-primary) 25%, transparent);
-        box-shadow: 0 2px 10px color-mix(in srgb, var(--color-primary) 35%, transparent),
-                    inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+        box-shadow:
+          0 2px 10px color-mix(in srgb, var(--color-primary) 35%, transparent),
+          inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
       }
 
       /* 用户头像特殊样式 */
@@ -831,8 +950,9 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
       /* Generate button with gradient border - 简洁旋转版 */
       .generate-btn {
         position: relative;
-        background: linear-gradient(135deg, 
-          color-mix(in srgb, var(--color-primary) 18%, transparent), 
+        background: linear-gradient(
+          135deg,
+          color-mix(in srgb, var(--color-primary) 18%, transparent),
           color-mix(in srgb, var(--color-secondary) 18%, transparent)
         );
         border: 2px solid transparent;
@@ -852,7 +972,8 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
       }
 
       @keyframes pulse-glow {
-        0%, 100% {
+        0%,
+        100% {
           box-shadow: 0 0 20px color-mix(in srgb, var(--color-primary) 40%, transparent);
         }
         50% {
@@ -876,7 +997,8 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
       }
 
       @keyframes icon-pulse {
-        0%, 100% {
+        0%,
+        100% {
           transform: scale(1);
           opacity: 1;
         }
@@ -913,15 +1035,17 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
         pointer-events: none;
         background: conic-gradient(
           from 0deg,
-          rgba(34, 197, 94, 0.9),    /* 绿 */
-          rgba(251, 191, 36, 0.9),   /* 黄 */
-          rgba(236, 72, 153, 0.9),   /* 粉 */
-          rgba(139, 92, 246, 0.9),   /* 紫 */
-          rgba(59, 130, 246, 0.9),   /* 蓝 */
-          rgba(16, 185, 129, 0.9),   /* 青绿 */
-          rgba(34, 197, 94, 0.9)     /* 绿（循环） */
+          rgba(34, 197, 94, 0.9),
+          /* 绿 */ rgba(251, 191, 36, 0.9),
+          /* 黄 */ rgba(236, 72, 153, 0.9),
+          /* 粉 */ rgba(139, 92, 246, 0.9),
+          /* 紫 */ rgba(59, 130, 246, 0.9),
+          /* 蓝 */ rgba(16, 185, 129, 0.9),
+          /* 青绿 */ rgba(34, 197, 94, 0.9) /* 绿（循环） */
         );
-        -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+        -webkit-mask:
+          linear-gradient(#fff 0 0) content-box,
+          linear-gradient(#fff 0 0);
         -webkit-mask-composite: xor;
         mask-composite: exclude;
         /* 硬件加速 */
@@ -953,8 +1077,9 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
       }
 
       .generate-btn:hover {
-        background: linear-gradient(135deg, 
-          color-mix(in srgb, var(--color-primary) 28%, transparent), 
+        background: linear-gradient(
+          135deg,
+          color-mix(in srgb, var(--color-primary) 28%, transparent),
           color-mix(in srgb, var(--color-secondary) 28%, transparent)
         );
         transform: scale(1.15) translateZ(0);
@@ -1009,7 +1134,8 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
           width: 1px !important;
           height: 28px !important;
           margin: 0 6px !important;
-          background: linear-gradient(to bottom,
+          background: linear-gradient(
+            to bottom,
             transparent,
             color-mix(in srgb, var(--color-primary) 30%, transparent) 50%,
             transparent
@@ -1034,7 +1160,7 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
         }
 
         /* 选中指示器位置 - 移到底部 */
-        [aria-current="page"].nav-item::after {
+        [aria-current='page'].nav-item::after {
           left: 50% !important;
           top: auto !important;
           bottom: -6px !important;
@@ -1131,11 +1257,11 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
       /* 移动端优化 */
       @media (max-width: 767px) {
         /* 移动端样式优化 */
-        [data-group="theme"] .nav-separator {
+        [data-group='theme'] .nav-separator {
           display: none;
         }
 
-        [data-group="theme"] {
+        [data-group='theme'] {
           margin-left: 8px;
         }
       }
@@ -1268,7 +1394,8 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
       }
 
       @keyframes pulse-slow {
-        0%, 100% {
+        0%,
+        100% {
           opacity: 1;
         }
         50% {
@@ -1318,8 +1445,9 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
 
       /* 平台链接样式 */
       .platform-link {
-        background: linear-gradient(135deg, 
-          color-mix(in srgb, var(--brand-color) 7%, transparent), 
+        background: linear-gradient(
+          135deg,
+          color-mix(in srgb, var(--brand-color) 7%, transparent),
           color-mix(in srgb, var(--brand-color) 4%, transparent)
         );
         border: 1.5px solid color-mix(in srgb, var(--brand-color) 20%, transparent);
@@ -1345,14 +1473,16 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
       }
 
       .platform-link:hover {
-        background: linear-gradient(135deg, 
-          color-mix(in srgb, var(--brand-color) 13%, transparent), 
+        background: linear-gradient(
+          135deg,
+          color-mix(in srgb, var(--brand-color) 13%, transparent),
           color-mix(in srgb, var(--brand-color) 9%, transparent)
         );
         border-color: color-mix(in srgb, var(--brand-color) 35%, transparent);
         transform: translateY(-1px);
-        box-shadow: 0 4px 12px color-mix(in srgb, var(--brand-color) 20%, transparent), 
-                    0 0 0 1px color-mix(in srgb, var(--brand-color) 9%, transparent);
+        box-shadow:
+          0 4px 12px color-mix(in srgb, var(--brand-color) 20%, transparent),
+          0 0 0 1px color-mix(in srgb, var(--brand-color) 9%, transparent);
       }
 
       .platform-link:active {
@@ -1536,7 +1666,9 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
 
       /* 萌宠走动动画 - 精灵图 */
       .pet-walker {
-        transition: left 0.05s linear, transform 0.3s ease;
+        transition:
+          left 0.05s linear,
+          transform 0.3s ease;
         display: flex;
         align-items: flex-end; /* 底部对齐 */
       }
@@ -1549,7 +1681,7 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
         image-rendering: pixelated;
         image-rendering: -moz-crisp-edges;
         image-rendering: crisp-edges;
-        filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
+        filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
         transition: transform 0.3s ease;
         width: 100%;
         height: 100%;
@@ -1570,7 +1702,8 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
       }
 
       @keyframes pet-walk-bounce {
-        0%, 100% {
+        0%,
+        100% {
           transform: translateY(0) scaleY(1);
         }
         25% {
@@ -1604,18 +1737,19 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
       }
 
       @keyframes pet-walk-shadow {
-        0%, 100% {
-          filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
+        0%,
+        100% {
+          filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
         }
         50% {
-          filter: drop-shadow(0 3px 6px rgba(0,0,0,0.25));
+          filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.25));
         }
       }
 
       /* ========================================
          Library Grid - Waterfall Layout Styles
          ======================================== */
-      
+
       @keyframes fadeInUp {
         from {
           opacity: 0;
@@ -1648,28 +1782,62 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
          ======================================== */
 
       /* 文本颜色覆盖 */
-      .text-gray-700 { color: var(--text-primary) !important; }
-      .text-gray-800 { color: var(--text-primary) !important; }
-      .text-gray-600 { color: var(--text-secondary) !important; }
-      .text-gray-500 { color: var(--text-tertiary) !important; }
-      .text-gray-400 { color: var(--text-muted) !important; }
-      .text-gray-300 { color: var(--text-secondary) !important; }
+      .text-gray-700 {
+        color: var(--text-primary) !important;
+      }
+      .text-gray-800 {
+        color: var(--text-primary) !important;
+      }
+      .text-gray-600 {
+        color: var(--text-secondary) !important;
+      }
+      .text-gray-500 {
+        color: var(--text-tertiary) !important;
+      }
+      .text-gray-400 {
+        color: var(--text-muted) !important;
+      }
+      .text-gray-300 {
+        color: var(--text-secondary) !important;
+      }
 
-      html.dark .dark\:text-gray-100 { color: var(--text-primary) !important; }
-      html.dark .dark\:text-gray-300 { color: var(--text-secondary) !important; }
-      html.dark .dark\:text-gray-400 { color: var(--text-tertiary) !important; }
-      html.dark .dark\:text-gray-500 { color: var(--text-muted) !important; }
+      html.dark .dark\:text-gray-100 {
+        color: var(--text-primary) !important;
+      }
+      html.dark .dark\:text-gray-300 {
+        color: var(--text-secondary) !important;
+      }
+      html.dark .dark\:text-gray-400 {
+        color: var(--text-tertiary) !important;
+      }
+      html.dark .dark\:text-gray-500 {
+        color: var(--text-muted) !important;
+      }
 
       /* 背景颜色覆盖 */
-      html.dark .dark\:bg-gray-700 { background-color: var(--bg-tertiary) !important; }
-      html.dark .dark\:bg-gray-800\/50 { background-color: color-mix(in srgb, var(--bg-tertiary) 50%, transparent) !important; }
-      html.dark .dark\:hover\:bg-gray-700:hover { background-color: var(--bg-hover) !important; }
+      html.dark .dark\:bg-gray-700 {
+        background-color: var(--bg-tertiary) !important;
+      }
+      html.dark .dark\:bg-gray-800\/50 {
+        background-color: color-mix(in srgb, var(--bg-tertiary) 50%, transparent) !important;
+      }
+      html.dark .dark\:hover\:bg-gray-700:hover {
+        background-color: var(--bg-hover) !important;
+      }
 
       /* 边框颜色覆盖 */
-      .border-gray-200\/50 { border-color: color-mix(in srgb, var(--border-color) 50%, transparent) !important; }
-      .border-gray-300 { border-color: var(--border-color) !important; }
-      html.dark .dark\:border-gray-600 { border-color: var(--border-color) !important; }
-      html.dark .dark\:border-gray-700\/50 { border-color: color-mix(in srgb, var(--border-color) 50%, transparent) !important; }
+      .border-gray-200\/50 {
+        border-color: color-mix(in srgb, var(--border-color) 50%, transparent) !important;
+      }
+      .border-gray-300 {
+        border-color: var(--border-color) !important;
+      }
+      html.dark .dark\:border-gray-600 {
+        border-color: var(--border-color) !important;
+      }
+      html.dark .dark\:border-gray-700\/50 {
+        border-color: color-mix(in srgb, var(--border-color) 50%, transparent) !important;
+      }
 
       /* 主题色覆盖 */
       .bg-indigo-500,
@@ -1687,9 +1855,11 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
         background: linear-gradient(135deg, var(--color-primary), var(--color-secondary)) !important;
       }
       .hover\:bg-gray-800:hover {
-        background: linear-gradient(135deg,
+        background: linear-gradient(
+          135deg,
           color-mix(in srgb, var(--color-primary) 90%, black),
-          color-mix(in srgb, var(--color-secondary) 90%, black)) !important;
+          color-mix(in srgb, var(--color-secondary) 90%, black)
+        ) !important;
       }
 
       /* ========================================
@@ -1697,11 +1867,11 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
          ======================================== */
 
       /* 输入框通用样式 */
-      input[type="text"],
-      input[type="email"],
-      input[type="password"],
-      input[type="url"],
-      input[type="number"],
+      input[type='text'],
+      input[type='email'],
+      input[type='password'],
+      input[type='url'],
+      input[type='number'],
       textarea,
       select {
         background: var(--input-bg);
@@ -1710,11 +1880,11 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
         transition: all 0.2s ease;
       }
 
-      input[type="text"]:focus,
-      input[type="email"]:focus,
-      input[type="password"]:focus,
-      input[type="url"]:focus,
-      input[type="number"]:focus,
+      input[type='text']:focus,
+      input[type='email']:focus,
+      input[type='password']:focus,
+      input[type='url']:focus,
+      input[type='number']:focus,
       textarea:focus,
       select:focus {
         background: var(--bg-secondary);
@@ -1898,7 +2068,8 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
         }
 
         /* 防止过度滚动 */
-        html, body {
+        html,
+        body {
           overscroll-behavior-y: contain;
         }
       }
@@ -1913,7 +2084,6 @@ const apiUrl = import.meta.env.PUBLIC_API_URL || '';
           -webkit-touch-callout: none;
         }
       }
-
     </style>
-  </head>
+  </body>
 </html>

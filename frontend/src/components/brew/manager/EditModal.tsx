@@ -3,104 +3,104 @@
  * 使用 Portal 渲染到 document.body，确保全局层叠上下文
  */
 
-import { useState, useEffect } from 'react';
-import { createPortal } from 'react-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import type { BrewSource, SourceType } from '../../../types/brew'
 import {
-  LuX as X,
-  LuRss as Rss,
-  LuRefreshCw as RefreshCw,
-  LuCheck as Check,
   LuAlertCircle as AlertCircle,
-  LuUpload as Upload,
-  LuTrash2 as Trash2,
+  LuCheck as Check,
   LuChevronDown as ChevronDown,
   LuEdit3 as Edit3,
-  LuPalette as Palette,
+  LuEyeOff as EyeOff,
+  LuRefreshCw as RefreshCw,
+  LuRss as Rss,
   LuSparkles as Sparkles,
   LuTag as Tag,
-  LuEyeOff as EyeOff,
-} from '@lib/icons';
-import type { BrewSource, SourceType, RSSHubConfig } from '../../../types/brew';
-import { generateStyleTags } from '../../../services/brewApi';
-import RSSHubConfigComponent from './RSSHubConfig';
-import { useI18n } from '../../../contexts/I18nContext';
+  LuTrash2 as Trash2,
+  LuUpload as Upload,
+  LuX as X,
+} from '@lib/icons'
+import { AnimatePresence, motion } from 'framer-motion'
+import { useState } from 'react'
+import { createPortal } from 'react-dom'
+import { useI18n } from '../../../contexts/I18nContext'
+import { generateStyleTags } from '../../../services/brewApi'
 
 // Framer Motion transition 配置常量
-const TRANSITION_FAST = { duration: 0.1 } as const;
-const TRANSITION_NORMAL = { duration: 0.15 } as const;
+const TRANSITION_FAST = { duration: 0.1 } as const
+const TRANSITION_NORMAL = { duration: 0.15 } as const
 
 export interface EditModalProps {
-  source: BrewSource;
-  categories: string[];
-  onClose: () => void;
+  source: BrewSource
+  categories: string[]
+  onClose: () => void
   onSave: (id: number, data: {
-    name?: string;
-    category?: string;
-    update_interval?: number;
-    enabled?: boolean;
-    icon?: string;
-    theme_color?: string | null;
-    source_type?: SourceType;
-    ai_style_tags?: string[];
-    admin_only?: boolean;
-  }) => Promise<void>;
+    name?: string
+    category?: string
+    update_interval?: number
+    enabled?: boolean
+    icon?: string
+    theme_color?: string | null
+    source_type?: SourceType
+    ai_style_tags?: string[]
+    admin_only?: boolean
+  }) => Promise<void>
 }
 
 export default function EditModal({ source, categories, onClose, onSave }: EditModalProps) {
-  const { t } = useI18n();
-  const [name, setName] = useState(source.name);
+  const { t } = useI18n()
+  const [name, setName] = useState(source.name)
   // 支持多分类：用逗号分隔的字符串解析为数组
   const [selectedCategories, setSelectedCategories] = useState<string[]>(
-    source.category ? source.category.split(',').map(c => c.trim()).filter(Boolean) : []
-  );
-  const [newCategory, setNewCategory] = useState('');
-  const [updateInterval, setUpdateInterval] = useState(source.update_interval);
-  const [enabled, setEnabled] = useState(source.enabled);
-  const [customIcon, setCustomIcon] = useState<string | null>(null);
-  const [iconPreview, setIconPreview] = useState<string | null>(source.icon);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
-  const [showIntervalDropdown, setShowIntervalDropdown] = useState(false);
-  const [isEditingInfo, setIsEditingInfo] = useState(false); // 名称/分类编辑模式
-  const [themeColor, setThemeColor] = useState<string>(source.theme_color || '#f97316');
-  const [sourceType, setSourceType] = useState<SourceType>(source.source_type || 'rss');
+    source.category ? source.category.split(',').map(c => c.trim()).filter(Boolean) : [],
+  )
+  const [newCategory, setNewCategory] = useState('')
+  const [updateInterval, setUpdateInterval] = useState(source.update_interval)
+  const [enabled, setEnabled] = useState(source.enabled)
+  const [customIcon, setCustomIcon] = useState<string | null>(null)
+  const [iconPreview, setIconPreview] = useState<string | null>(source.icon)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false)
+  const [showIntervalDropdown, setShowIntervalDropdown] = useState(false)
+  const [isEditingInfo, setIsEditingInfo] = useState(false) // 名称/分类编辑模式
+  const [themeColor, setThemeColor] = useState<string>(source.theme_color || '#f97316')
+  const [sourceType, setSourceType] = useState<SourceType>(source.source_type || 'rss')
   // AI 风格标签状态
-  const [styleTags, setStyleTags] = useState<string[]>(source.ai_style_tags || []);
-  const [generatingTags, setGeneratingTags] = useState(false);
+  const [styleTags, setStyleTags] = useState<string[]>(source.ai_style_tags || [])
+  const [generatingTags, setGeneratingTags] = useState(false)
   // 用户手动输入标签状态
-  const [newTagInput, setNewTagInput] = useState('');
+  const [newTagInput, setNewTagInput] = useState('')
   // 仅管理员可见
-  const [adminOnly, setAdminOnly] = useState(source.admin_only || false);
+  const [adminOnly, setAdminOnly] = useState(source.admin_only || false)
 
   // 判断原始订阅类型（基于 feed_type 和 source_type）
   // feed_type 表示实际的订阅协议：rss/atom/json_feed/notion/rsshub
   // source_type 表示订阅模式：link/rss/brewlia/rsshub
-  const isRssHub = source.feed_type === 'rsshub';
-  const isNotion = source.feed_type === 'notion';
-  const isLink = source.source_type === 'link';
+  const isRssHub = source.feed_type === 'rsshub'
+  const isNotion = source.feed_type === 'notion'
+  const isLink = source.source_type === 'link'
   // 原始 Feed 类型用于显示
-  const feedTypeLabel = isLink ? t.brew.pureLink : isRssHub ? 'RSSHub' : isNotion ? 'Notion' : 'RSS';
-  
+  const feedTypeLabel = isLink ? t.brew.pureLink : isRssHub ? 'RSSHub' : isNotion ? 'Notion' : 'RSS'
+
   // 订阅模式：停止订阅 / 普通订阅 / AI增强订阅
   // 只有 rss/notion/rsshub 类型才有这个选项
-  type SubscriptionMode = 'disabled' | 'normal' | 'brewlia';
+  type SubscriptionMode = 'disabled' | 'normal' | 'brewlia'
   const getInitialMode = (): SubscriptionMode => {
-    if (!source.enabled) return 'disabled';
-    if (source.source_type === 'brewlia') return 'brewlia';
-    return 'normal';
-  };
-  const [subscriptionMode, setSubscriptionMode] = useState<SubscriptionMode>(getInitialMode);
+    if (!source.enabled)
+      return 'disabled'
+    if (source.source_type === 'brewlia')
+      return 'brewlia'
+    return 'normal'
+  }
+  const [subscriptionMode, setSubscriptionMode] = useState<SubscriptionMode>(getInitialMode)
 
   // 预置分类（只有选中这些分类才能添加第二个分类）
-  const presetCategories = [t.brew.friendLink, t.brew.categoryMe];
-  const allCategories = [...new Set([...presetCategories, ...categories])];
-  
+  const presetCategories = [t.brew.friendLink, t.brew.categoryMe]
+  const allCategories = [...new Set([...presetCategories, ...categories])]
+
   // 检查是否已选中预置分类
-  const hasPresetCategory = selectedCategories.some(cat => presetCategories.includes(cat));
+  const hasPresetCategory = selectedCategories.some(cat => presetCategories.includes(cat))
   // 只有选中预置分类才能选择第二个分类
-  const canAddSecondCategory = selectedCategories.length === 0 || (selectedCategories.length === 1 && hasPresetCategory);
+  const canAddSecondCategory = selectedCategories.length === 0 || (selectedCategories.length === 1 && hasPresetCategory)
 
   // 更新间隔选项
   const intervalOptions = [
@@ -111,118 +111,122 @@ export default function EditModal({ source, categories, onClose, onSave }: EditM
     { value: 360, label: t.brew.interval6hour },
     { value: 720, label: t.brew.interval12hour },
     { value: 1440, label: t.brew.intervalDaily },
-  ];
+  ]
 
-  const currentIntervalLabel = intervalOptions.find(o => o.value === updateInterval)?.label || '1 小时';
+  const currentIntervalLabel = intervalOptions.find(o => o.value === updateInterval)?.label || '1 小时'
 
   // 处理图标上传
   const handleIconUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const file = e.target.files?.[0]
+    if (!file)
+      return
 
     if (!file.type.startsWith('image/')) {
-      setError(t.brew.errorSelectImage);
-      return;
+      setError(t.brew.errorSelectImage)
+      return
     }
 
     if (file.size > 500 * 1024) {
-      setError(t.brew.errorImageSize);
-      return;
+      setError(t.brew.errorImageSize)
+      return
     }
 
-    const reader = new FileReader();
+    const reader = new FileReader()
     reader.onload = (event) => {
-      const base64 = event.target?.result as string;
-      setCustomIcon(base64);
-      setIconPreview(base64);
+      const base64 = event.target?.result as string
+      setCustomIcon(base64)
+      setIconPreview(base64)
       // 图标变化时清除主题色，让系统重新提取
-      setThemeColor('');
-      setError(null);
-    };
+      setThemeColor('')
+      setError(null)
+    }
     reader.onerror = () => {
-      setError(t.brew.errorImageRead);
-    };
-    reader.readAsDataURL(file);
-  };
+      setError(t.brew.errorImageRead)
+    }
+    reader.readAsDataURL(file)
+  }
 
   const handleClearIcon = () => {
-    setCustomIcon('');
-    setIconPreview(null);
+    setCustomIcon('')
+    setIconPreview(null)
     // 清除图标时也清除主题色
-    setThemeColor('');
-  };
+    setThemeColor('')
+  }
 
   const handleRestoreIcon = () => {
-    setCustomIcon(null);
-    setIconPreview(source.icon);
+    setCustomIcon(null)
+    setIconPreview(source.icon)
     // 恢复原始图标时恢复原始主题色
-    setThemeColor(source.theme_color || '#f97316');
-  };
+    setThemeColor(source.theme_color || '#f97316')
+  }
 
   // 生成 AI 风格标签
   const handleGenerateStyleTags = async () => {
-    setGeneratingTags(true);
-    setError(null);
+    setGeneratingTags(true)
+    setError(null)
     try {
-      const result = await generateStyleTags(source.id);
+      const result = await generateStyleTags(source.id)
       if (result.success && result.tags) {
-        setStyleTags(result.tags);
+        setStyleTags(result.tags)
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t.brew.errorGenerateStyleTags);
-    } finally {
-      setGeneratingTags(false);
     }
-  };
+    catch (err) {
+      setError(err instanceof Error ? err.message : t.brew.errorGenerateStyleTags)
+    }
+    finally {
+      setGeneratingTags(false)
+    }
+  }
 
   // 删除风格标签
   const handleRemoveTag = (tagToRemove: string) => {
-    setStyleTags(prev => prev.filter(tag => tag !== tagToRemove));
-  };
+    setStyleTags(prev => prev.filter(tag => tag !== tagToRemove))
+  }
 
   // 添加用户自定义标签
   const handleAddTag = () => {
-    const trimmedTag = newTagInput.trim();
+    const trimmedTag = newTagInput.trim()
     if (trimmedTag && !styleTags.includes(trimmedTag) && styleTags.length < 3) {
-      setStyleTags(prev => [...prev, trimmedTag]);
-      setNewTagInput('');
+      setStyleTags(prev => [...prev, trimmedTag])
+      setNewTagInput('')
     }
-  };
+  }
 
   // 回车添加标签
   const handleTagInputKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
-      e.preventDefault();
-      handleAddTag();
+      e.preventDefault()
+      handleAddTag()
     }
-  };
+  }
 
   const handleSave = async () => {
-    setSaving(true);
-    setError(null);
+    setSaving(true)
+    setError(null)
     try {
       // 根据订阅模式确定 enabled 和 source_type
-      let finalEnabled = enabled;
-      let finalSourceType: SourceType = sourceType;
-      
+      let finalEnabled = enabled
+      let finalSourceType: SourceType = sourceType
+
       if (!isLink) {
         // rss 或 rsshub 类型
-        finalEnabled = subscriptionMode !== 'disabled';
+        finalEnabled = subscriptionMode !== 'disabled'
         if (subscriptionMode === 'brewlia') {
-          finalSourceType = 'brewlia';
-        } else if (subscriptionMode === 'normal') {
+          finalSourceType = 'brewlia'
+        }
+        else if (subscriptionMode === 'normal') {
           // 恢复原始类型
-          finalSourceType = isRssHub ? 'rsshub' : 'rss';
+          finalSourceType = isRssHub ? 'rsshub' : 'rss'
         }
       }
-      
+
       // 合并分类：已选分类 + 新分类（如果有）
-      const finalCategories = [...selectedCategories];
+      const finalCategories = [...selectedCategories]
       if (newCategory.trim() && !finalCategories.includes(newCategory.trim()) && finalCategories.length < 2) {
-        finalCategories.push(newCategory.trim());
+        finalCategories.push(newCategory.trim())
       }
-      const categoryString = finalCategories.length > 0 ? finalCategories.join(', ') : undefined;
-      
+      const categoryString = finalCategories.length > 0 ? finalCategories.join(', ') : undefined
+
       await onSave(source.id, {
         name: name.trim() || undefined,
         category: categoryString,
@@ -236,14 +240,16 @@ export default function EditModal({ source, categories, onClose, onSave }: EditM
         ai_style_tags: styleTags,
         // 传递仅管理员可见选项
         admin_only: adminOnly,
-      });
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t.brew.errorSaveFailed);
-    } finally {
-      setSaving(false);
+      })
+      onClose()
     }
-  };
+    catch (err) {
+      setError(err instanceof Error ? err.message : t.brew.errorSaveFailed)
+    }
+    finally {
+      setSaving(false)
+    }
+  }
 
   // 使用 Portal 渲染到 body
   const modalContent = (
@@ -281,15 +287,17 @@ export default function EditModal({ source, categories, onClose, onSave }: EditM
             {/* 图标预览 - 悬浮操作 */}
             <div className="relative group mb-4 w-24 h-24">
               <div className="w-24 h-24 rounded-2xl bg-gray-100 dark:bg-neutral-800 flex items-center justify-center overflow-hidden border-2 border-dashed border-gray-200 dark:border-neutral-600">
-                {iconPreview ? (
-                  <img src={iconPreview} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  <Rss className="w-10 h-10 text-gray-400" />
-                )}
+                {iconPreview
+                  ? (
+                      <img src={iconPreview} alt="" className="w-full h-full object-cover" />
+                    )
+                  : (
+                      <Rss className="w-10 h-10 text-gray-400" />
+                    )}
               </div>
               {/* 悬浮操作层 */}
               <div className="absolute top-0 left-0 w-24 h-24 rounded-2xl bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col p-2 gap-1.5">
-                <label 
+                <label
                   className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-white/20 hover:bg-white/30 cursor-pointer transition-colors text-white text-xs font-medium"
                   title={t.brew.uploadIconHint}
                 >
@@ -310,7 +318,7 @@ export default function EditModal({ source, categories, onClose, onSave }: EditM
                 )}
               </div>
             </div>
-            
+
             {/* 名称和分类 */}
             <div className="mb-4">
               {isEditingInfo ? (
@@ -356,9 +364,11 @@ export default function EditModal({ source, categories, onClose, onSave }: EditM
                         className={`w-full px-3 py-2 text-sm rounded-lg bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 text-left flex items-center justify-between ${!canAddSecondCategory && selectedCategories.length >= 1 ? 'opacity-50 cursor-not-allowed' : ''}`}
                       >
                         <span className="text-gray-400">
-                          {selectedCategories.length >= 2 ? t.brew.maxCategories : 
-                           selectedCategories.length === 1 && !hasPresetCategory ? t.brew.needFriendLinkFirst : 
-                           t.brew.addCategory}
+                          {selectedCategories.length >= 2
+                            ? t.brew.maxCategories
+                            : selectedCategories.length === 1 && !hasPresetCategory
+                              ? t.brew.needFriendLinkFirst
+                              : t.brew.addCategory}
                         </span>
                         <ChevronDown className="w-4 h-4 text-gray-400" />
                       </button>
@@ -376,11 +386,11 @@ export default function EditModal({ source, categories, onClose, onSave }: EditM
                                 type="text"
                                 value={newCategory}
                                 onChange={e => setNewCategory(e.target.value)}
-                                onKeyDown={e => {
+                                onKeyDown={(e) => {
                                   if (e.key === 'Enter' && newCategory.trim() && !selectedCategories.includes(newCategory.trim())) {
-                                    setSelectedCategories(prev => [...prev, newCategory.trim()]);
-                                    setNewCategory('');
-                                    setShowCategoryDropdown(false);
+                                    setSelectedCategories(prev => [...prev, newCategory.trim()])
+                                    setNewCategory('')
+                                    setShowCategoryDropdown(false)
                                   }
                                 }}
                                 placeholder={t.brew.enterCategoryHint}
@@ -392,7 +402,7 @@ export default function EditModal({ source, categories, onClose, onSave }: EditM
                               {selectedCategories.length > 0 && (
                                 <button
                                   type="button"
-                                  onClick={() => { setSelectedCategories([]); setShowCategoryDropdown(false); }}
+                                  onClick={() => { setSelectedCategories([]); setShowCategoryDropdown(false) }}
                                   className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-neutral-700 text-red-500"
                                 >
                                   {t.brew.clearAllCategories}
@@ -405,8 +415,8 @@ export default function EditModal({ source, categories, onClose, onSave }: EditM
                                     key={cat}
                                     type="button"
                                     onClick={() => {
-                                      setSelectedCategories(prev => [...prev, cat]);
-                                      setShowCategoryDropdown(false);
+                                      setSelectedCategories(prev => [...prev, cat])
+                                      setShowCategoryDropdown(false)
                                     }}
                                     className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-neutral-700 text-gray-600 dark:text-gray-300"
                                   >
@@ -421,7 +431,10 @@ export default function EditModal({ source, categories, onClose, onSave }: EditM
                     <p className="text-xs text-gray-400">
                       {t.brew.categoryCount.replace('{count}', String(selectedCategories.length))}
                       {selectedCategories.length === 1 && !hasPresetCategory && (
-                        <span className="text-orange-500 ml-1">· {t.brew.selectFriendLinkHint}</span>
+                        <span className="text-orange-500 ml-1">
+                          ·
+                          {t.brew.selectFriendLinkHint}
+                        </span>
                       )}
                     </p>
                   </div>
@@ -430,7 +443,7 @@ export default function EditModal({ source, categories, onClose, onSave }: EditM
                     <input
                       type="color"
                       value={themeColor}
-                      onChange={(e) => setThemeColor(e.target.value)}
+                      onChange={e => setThemeColor(e.target.value)}
                       className="w-10 h-10 rounded-lg cursor-pointer border border-gray-200 dark:border-neutral-700 bg-transparent flex-shrink-0 p-0"
                       title={t.brew.selectThemeColor}
                       aria-label={t.brew.selectThemeColor}
@@ -438,7 +451,7 @@ export default function EditModal({ source, categories, onClose, onSave }: EditM
                     <input
                       type="text"
                       value={themeColor}
-                      onChange={(e) => setThemeColor(e.target.value)}
+                      onChange={e => setThemeColor(e.target.value)}
                       placeholder="#f97316"
                       className="min-w-0 flex-1 px-3 py-2 text-sm rounded-lg bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 focus:outline-none focus:ring-2 focus:ring-orange-500/50 text-gray-800 dark:text-gray-100 font-mono"
                     />
@@ -484,27 +497,34 @@ export default function EditModal({ source, categories, onClose, onSave }: EditM
             <div className="pt-3">
               <label className="block text-xs font-medium text-gray-400 dark:text-gray-500 mb-1.5">{t.brew.sourceType}</label>
               <div className={`inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium ${
-                isLink 
+                isLink
                   ? 'bg-gray-100 dark:bg-neutral-800 text-gray-500 dark:text-gray-400'
-                  : isRssHub 
-                  ? 'bg-teal-50 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400'
-                  : isNotion
-                  ? 'bg-sky-50 dark:bg-sky-900/30 text-sky-600 dark:text-sky-400'
-                  : 'bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400'
-              }`}>
-                {isLink ? (
-                  <span className="w-1.5 h-1.5 rounded-full bg-gray-400" />
-                ) : isRssHub ? (
-                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
-                  </svg>
-                ) : isNotion ? (
-                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M4.459 4.208c.746.606 1.026.56 2.428.466l13.215-.793c.28 0 .047-.28-.046-.326L17.86 1.968c-.42-.326-.98-.7-2.055-.607L3.01 2.295c-.466.046-.56.28-.374.466zm.793 3.08v13.904c0 .747.373 1.027 1.214.98l14.523-.84c.841-.046.935-.56.935-1.167V6.354c0-.606-.233-.933-.748-.886l-15.177.887c-.56.047-.747.327-.747.933zm14.337.745c.093.42 0 .84-.42.888l-.7.14v10.264c-.608.327-1.168.514-1.635.514-.748 0-.935-.234-1.495-.933l-4.577-7.186v6.952l1.448.327s0 .84-1.168.84l-3.22.186c-.094-.187 0-.653.327-.746l.84-.233V9.854L7.822 9.76c-.094-.42.14-1.026.793-1.073l3.454-.233 4.764 7.279v-6.44l-1.215-.14c-.093-.514.28-.886.747-.933zM2.62 1.108l13.496-.934c1.635-.14 2.055-.047 3.08.7l4.25 2.987c.7.513.934.653.934 1.213v16.378c0 1.026-.373 1.634-1.68 1.726l-15.458.934c-.98.047-1.448-.093-1.962-.747l-3.127-4.06c-.56-.747-.793-1.306-.793-1.96V2.788c0-.84.374-1.54 1.26-1.68z"/>
-                  </svg>
-                ) : (
-                  <Rss className="w-3.5 h-3.5" />
-                )}
+                  : isRssHub
+                    ? 'bg-teal-50 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400'
+                    : isNotion
+                      ? 'bg-sky-50 dark:bg-sky-900/30 text-sky-600 dark:text-sky-400'
+                      : 'bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400'
+              }`}
+              >
+                {isLink
+                  ? (
+                      <span className="w-1.5 h-1.5 rounded-full bg-gray-400" />
+                    )
+                  : isRssHub
+                    ? (
+                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" />
+                        </svg>
+                      )
+                    : isNotion
+                      ? (
+                          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M4.459 4.208c.746.606 1.026.56 2.428.466l13.215-.793c.28 0 .047-.28-.046-.326L17.86 1.968c-.42-.326-.98-.7-2.055-.607L3.01 2.295c-.466.046-.56.28-.374.466zm.793 3.08v13.904c0 .747.373 1.027 1.214.98l14.523-.84c.841-.046.935-.56.935-1.167V6.354c0-.606-.233-.933-.748-.886l-15.177.887c-.56.047-.747.327-.747.933zm14.337.745c.093.42 0 .84-.42.888l-.7.14v10.264c-.608.327-1.168.514-1.635.514-.748 0-.935-.234-1.495-.933l-4.577-7.186v6.952l1.448.327s0 .84-1.168.84l-3.22.186c-.094-.187 0-.653.327-.746l.84-.233V9.854L7.822 9.76c-.094-.42.14-1.026.793-1.073l3.454-.233 4.764 7.279v-6.44l-1.215-.14c-.093-.514.28-.886.747-.933zM2.62 1.108l13.496-.934c1.635-.14 2.055-.047 3.08.7l4.25 2.987c.7.513.934.653.934 1.213v16.378c0 1.026-.373 1.634-1.68 1.726l-15.458.934c-.98.047-1.448-.093-1.962-.747l-3.127-4.06c-.56-.747-.793-1.306-.793-1.96V2.788c0-.84.374-1.54 1.26-1.68z" />
+                          </svg>
+                        )
+                      : (
+                          <Rss className="w-3.5 h-3.5" />
+                        )}
                 {feedTypeLabel}
               </div>
             </div>
@@ -542,218 +562,224 @@ export default function EditModal({ source, categories, onClose, onSave }: EditM
 
             {/* 订阅模式切换（仅 RSS/Notion/RSSHub 显示） */}
             {!isLink && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t.brew.subscriptionMode}</label>
-              <div className="grid grid-cols-4 gap-1.5">
-                {/* 停止订阅 */}
-                <button
-                  type="button"
-                  onClick={() => setSubscriptionMode('disabled')}
-                  className={`px-2.5 py-2 rounded-lg text-left transition-colors border ${
-                    subscriptionMode === 'disabled'
-                      ? 'bg-gray-200/80 dark:bg-neutral-700 border-gray-300 dark:border-neutral-600'
-                      : 'bg-gray-50 dark:bg-neutral-800/50 border-transparent hover:bg-gray-100 dark:hover:bg-neutral-800'
-                  }`}
-                >
-                  <div className="flex items-center gap-1.5">
-                    <X className={`w-3.5 h-3.5 flex-shrink-0 ${subscriptionMode === 'disabled' ? 'text-gray-700 dark:text-gray-200' : 'text-gray-400 dark:text-gray-500'}`} />
-                    <span className={`text-xs font-medium ${subscriptionMode === 'disabled' ? 'text-gray-700 dark:text-gray-200' : 'text-gray-500 dark:text-gray-400'}`}>{t.brew.stop}</span>
-                  </div>
-                  <p className={`text-[10px] mt-0.5 ${subscriptionMode === 'disabled' ? 'text-gray-600 dark:text-gray-300' : 'text-gray-400 dark:text-gray-500'}`}>{t.brew.pauseFetch}</p>
-                </button>
-                
-                {/* 普通订阅 */}
-                <button
-                  type="button"
-                  onClick={() => setSubscriptionMode('normal')}
-                  className={`px-2.5 py-2 rounded-lg text-left transition-colors border ${
-                    subscriptionMode === 'normal'
-                      ? (isRssHub ? 'bg-teal-50 dark:bg-teal-900/30 border-teal-200 dark:border-teal-700' : isNotion ? 'bg-sky-50 dark:bg-sky-900/30 border-sky-200 dark:border-sky-700' : 'bg-orange-50 dark:bg-orange-900/30 border-orange-200 dark:border-orange-700')
-                      : 'bg-gray-50 dark:bg-neutral-800/50 border-transparent hover:bg-gray-100 dark:hover:bg-neutral-800'
-                  }`}
-                >
-                  <div className="flex items-center gap-1.5">
-                    <Rss className={`w-3.5 h-3.5 flex-shrink-0 ${subscriptionMode === 'normal' ? (isRssHub ? 'text-teal-500' : isNotion ? 'text-sky-500' : 'text-orange-500') : 'text-gray-400 dark:text-gray-500'}`} />
-                    <span className={`text-xs font-medium ${subscriptionMode === 'normal' ? (isRssHub ? 'text-teal-600 dark:text-teal-400' : isNotion ? 'text-sky-600 dark:text-sky-400' : 'text-orange-600 dark:text-orange-400') : 'text-gray-500 dark:text-gray-400'}`}>{t.brew.subscribe}</span>
-                  </div>
-                  <p className={`text-[10px] mt-0.5 ${subscriptionMode === 'normal' ? (isRssHub ? 'text-teal-600/70 dark:text-teal-400/70' : isNotion ? 'text-sky-600/70 dark:text-sky-400/70' : 'text-orange-600/70 dark:text-orange-400/70') : 'text-gray-400 dark:text-gray-500'}`}>{t.brew.standardMode}</p>
-                </button>
-                
-                {/* Brewlia AI 订阅 - 2倍宽度 */}
-                <button
-                  type="button"
-                  onClick={() => setSubscriptionMode('brewlia')}
-                  className={`col-span-2 px-2.5 py-2 rounded-lg text-left transition-colors border ${
-                    subscriptionMode === 'brewlia'
-                      ? 'bg-purple-50 dark:bg-purple-900/30 border-purple-200 dark:border-purple-700'
-                      : 'bg-gray-50 dark:bg-neutral-800/50 border-transparent hover:bg-gray-100 dark:hover:bg-neutral-800'
-                  }`}
-                >
-                  <div className="flex items-center gap-1.5">
-                    <Sparkles className={`w-3.5 h-3.5 flex-shrink-0 ${subscriptionMode === 'brewlia' ? 'text-purple-500' : 'text-gray-400 dark:text-gray-500'}`} />
-                    <span className={`text-xs font-medium ${subscriptionMode === 'brewlia' ? 'text-purple-600 dark:text-purple-400' : 'text-gray-500 dark:text-gray-400'}`}>Brewlia AI</span>
-                  </div>
-                  <p className={`text-[10px] mt-0.5 ${subscriptionMode === 'brewlia' ? 'text-purple-600/70 dark:text-purple-400/70' : 'text-gray-400 dark:text-gray-500'}`}>{t.brew.brewliaFeatures}</p>
-                </button>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t.brew.subscriptionMode}</label>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {/* 停止订阅 */}
+                  <button
+                    type="button"
+                    onClick={() => setSubscriptionMode('disabled')}
+                    className={`px-2.5 py-2 rounded-lg text-left transition-colors border ${
+                      subscriptionMode === 'disabled'
+                        ? 'bg-gray-200/80 dark:bg-neutral-700 border-gray-300 dark:border-neutral-600'
+                        : 'bg-gray-50 dark:bg-neutral-800/50 border-transparent hover:bg-gray-100 dark:hover:bg-neutral-800'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <X className={`w-3.5 h-3.5 flex-shrink-0 ${subscriptionMode === 'disabled' ? 'text-gray-700 dark:text-gray-200' : 'text-gray-400 dark:text-gray-500'}`} />
+                      <span className={`text-xs font-medium ${subscriptionMode === 'disabled' ? 'text-gray-700 dark:text-gray-200' : 'text-gray-500 dark:text-gray-400'}`}>{t.brew.stop}</span>
+                    </div>
+                    <p className={`text-[10px] mt-0.5 ${subscriptionMode === 'disabled' ? 'text-gray-600 dark:text-gray-300' : 'text-gray-400 dark:text-gray-500'}`}>{t.brew.pauseFetch}</p>
+                  </button>
+
+                  {/* 普通订阅 */}
+                  <button
+                    type="button"
+                    onClick={() => setSubscriptionMode('normal')}
+                    className={`px-2.5 py-2 rounded-lg text-left transition-colors border ${
+                      subscriptionMode === 'normal'
+                        ? (isRssHub ? 'bg-teal-50 dark:bg-teal-900/30 border-teal-200 dark:border-teal-700' : isNotion ? 'bg-sky-50 dark:bg-sky-900/30 border-sky-200 dark:border-sky-700' : 'bg-orange-50 dark:bg-orange-900/30 border-orange-200 dark:border-orange-700')
+                        : 'bg-gray-50 dark:bg-neutral-800/50 border-transparent hover:bg-gray-100 dark:hover:bg-neutral-800'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <Rss className={`w-3.5 h-3.5 flex-shrink-0 ${subscriptionMode === 'normal' ? (isRssHub ? 'text-teal-500' : isNotion ? 'text-sky-500' : 'text-orange-500') : 'text-gray-400 dark:text-gray-500'}`} />
+                      <span className={`text-xs font-medium ${subscriptionMode === 'normal' ? (isRssHub ? 'text-teal-600 dark:text-teal-400' : isNotion ? 'text-sky-600 dark:text-sky-400' : 'text-orange-600 dark:text-orange-400') : 'text-gray-500 dark:text-gray-400'}`}>{t.brew.subscribe}</span>
+                    </div>
+                    <p className={`text-[10px] mt-0.5 ${subscriptionMode === 'normal' ? (isRssHub ? 'text-teal-600/70 dark:text-teal-400/70' : isNotion ? 'text-sky-600/70 dark:text-sky-400/70' : 'text-orange-600/70 dark:text-orange-400/70') : 'text-gray-400 dark:text-gray-500'}`}>{t.brew.standardMode}</p>
+                  </button>
+
+                  {/* Brewlia AI 订阅 - 2倍宽度 */}
+                  <button
+                    type="button"
+                    onClick={() => setSubscriptionMode('brewlia')}
+                    className={`col-span-2 px-2.5 py-2 rounded-lg text-left transition-colors border ${
+                      subscriptionMode === 'brewlia'
+                        ? 'bg-purple-50 dark:bg-purple-900/30 border-purple-200 dark:border-purple-700'
+                        : 'bg-gray-50 dark:bg-neutral-800/50 border-transparent hover:bg-gray-100 dark:hover:bg-neutral-800'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <Sparkles className={`w-3.5 h-3.5 flex-shrink-0 ${subscriptionMode === 'brewlia' ? 'text-purple-500' : 'text-gray-400 dark:text-gray-500'}`} />
+                      <span className={`text-xs font-medium ${subscriptionMode === 'brewlia' ? 'text-purple-600 dark:text-purple-400' : 'text-gray-500 dark:text-gray-400'}`}>Brewlia AI</span>
+                    </div>
+                    <p className={`text-[10px] mt-0.5 ${subscriptionMode === 'brewlia' ? 'text-purple-600/70 dark:text-purple-400/70' : 'text-gray-400 dark:text-gray-500'}`}>{t.brew.brewliaFeatures}</p>
+                  </button>
+                </div>
               </div>
-            </div>
             )}
 
             {/* 更新间隔 - 纯链接类型和停止订阅模式不显示 */}
             {!isLink && subscriptionMode !== 'disabled' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t.brew.updateInterval}</label>
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowIntervalDropdown(!showIntervalDropdown)}
-                  className="w-full px-3 py-2.5 rounded-xl bg-gray-50 dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 focus:outline-none focus:ring-2 focus:ring-orange-500/50 text-left flex items-center justify-between text-sm text-gray-800 dark:text-gray-100"
-                >
-                  <span>{currentIntervalLabel}</span>
-                  <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${showIntervalDropdown ? 'rotate-180' : ''}`} />
-                </button>
-                <AnimatePresence>
-                  {showIntervalDropdown && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -8 }}
-                      transition={TRANSITION_NORMAL}
-                      className="absolute z-50 w-full mt-1 bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 rounded-xl shadow-lg overflow-hidden py-1"
-                    >
-                      {intervalOptions.map(opt => (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          onClick={() => { setUpdateInterval(opt.value); setShowIntervalDropdown(false); }}
-                          className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-neutral-700 flex items-center ${updateInterval === opt.value ? 'text-orange-500 bg-orange-50 dark:bg-orange-900/20' : 'text-gray-600 dark:text-gray-300'}`}
-                        >
-                          {opt.label}
-                          {updateInterval === opt.value && <Check className="w-4 h-4 ml-auto" />}
-                        </button>
-                      ))}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t.brew.updateInterval}</label>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowIntervalDropdown(!showIntervalDropdown)}
+                    className="w-full px-3 py-2.5 rounded-xl bg-gray-50 dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 focus:outline-none focus:ring-2 focus:ring-orange-500/50 text-left flex items-center justify-between text-sm text-gray-800 dark:text-gray-100"
+                  >
+                    <span>{currentIntervalLabel}</span>
+                    <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${showIntervalDropdown ? 'rotate-180' : ''}`} />
+                  </button>
+                  <AnimatePresence>
+                    {showIntervalDropdown && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -8 }}
+                        transition={TRANSITION_NORMAL}
+                        className="absolute z-50 w-full mt-1 bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 rounded-xl shadow-lg overflow-hidden py-1"
+                      >
+                        {intervalOptions.map(opt => (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => { setUpdateInterval(opt.value); setShowIntervalDropdown(false) }}
+                            className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-neutral-700 flex items-center ${updateInterval === opt.value ? 'text-orange-500 bg-orange-50 dark:bg-orange-900/20' : 'text-gray-600 dark:text-gray-300'}`}
+                          >
+                            {opt.label}
+                            {updateInterval === opt.value && <Check className="w-4 h-4 ml-auto" />}
+                          </button>
+                        ))}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
               </div>
-            </div>
             )}
 
             {/* AI 风格标签 - 仅 Brewlia 模式显示 */}
             {subscriptionMode === 'brewlia' && (
-            <div className="p-3 rounded-xl bg-purple-50 dark:bg-purple-900/20 border border-purple-200/50 dark:border-purple-700/50">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <Tag className="w-4 h-4 text-purple-500" />
-                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t.brew.aiStyleTags}</span>
+              <div className="p-3 rounded-xl bg-purple-50 dark:bg-purple-900/20 border border-purple-200/50 dark:border-purple-700/50">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Tag className="w-4 h-4 text-purple-500" />
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t.brew.aiStyleTags}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleGenerateStyleTags}
+                    disabled={generatingTags}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-purple-500 text-white hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {generatingTags
+                      ? (
+                          <>
+                            <RefreshCw className="w-3 h-3 animate-spin" />
+                            {t.brew.generating}
+                          </>
+                        )
+                      : (
+                          <>
+                            <Sparkles className="w-3 h-3" />
+                            {styleTags.length > 0 ? t.brew.regenerate : t.brew.generateTags}
+                          </>
+                        )}
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleGenerateStyleTags}
-                  disabled={generatingTags}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-purple-500 text-white hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  {generatingTags ? (
-                    <>
-                      <RefreshCw className="w-3 h-3 animate-spin" />
-                      {t.brew.generating}
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-3 h-3" />
-                      {styleTags.length > 0 ? t.brew.regenerate : t.brew.generateTags}
-                    </>
-                  )}
-                </button>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                  {t.brew.styleTagsDesc}
+                </p>
+                {/* 已有标签展示 */}
+                {styleTags.length > 0
+                  ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {styleTags.map((tag, index) => (
+                          <span
+                            key={index}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md bg-purple-100 dark:bg-purple-800/40 text-purple-700 dark:text-purple-300"
+                          >
+                            {tag}
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveTag(tag)}
+                              className="w-3.5 h-3.5 flex items-center justify-center rounded-full hover:bg-purple-200 dark:hover:bg-purple-700 transition-colors"
+                              title={t.brew.deleteTag}
+                            >
+                              <X className="w-2.5 h-2.5" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )
+                  : (
+                      <div className="text-xs text-gray-400 dark:text-gray-500 italic">
+                        {t.brew.noTagsHint}
+                      </div>
+                    )}
               </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                {t.brew.styleTagsDesc}
-              </p>
-              {/* 已有标签展示 */}
-              {styleTags.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5">
-                  {styleTags.map((tag, index) => (
-                    <span
-                      key={index}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md bg-purple-100 dark:bg-purple-800/40 text-purple-700 dark:text-purple-300"
-                    >
-                      {tag}
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveTag(tag)}
-                        className="w-3.5 h-3.5 flex items-center justify-center rounded-full hover:bg-purple-200 dark:hover:bg-purple-700 transition-colors"
-                        title={t.brew.deleteTag}
-                      >
-                        <X className="w-2.5 h-2.5" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-xs text-gray-400 dark:text-gray-500 italic">
-                  {t.brew.noTagsHint}
-                </div>
-              )}
-            </div>
             )}
 
             {/* 自定义标签 - 纯链接类型显示（用户手动输入） */}
             {isLink && (
-            <div className="p-3 rounded-xl bg-orange-50 dark:bg-orange-900/20 border border-orange-200/50 dark:border-orange-700/50">
-              <div className="flex items-center gap-2 mb-2">
-                <Tag className="w-4 h-4 text-orange-500" />
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t.brew.customTag}</span>
-              </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                {t.brew.customTagDesc}
-              </p>
-              {/* 标签输入框 */}
-              <div className="flex gap-2 mb-2">
-                <input
-                  type="text"
-                  value={newTagInput}
-                  onChange={(e) => setNewTagInput(e.target.value)}
-                  onKeyDown={handleTagInputKeyDown}
-                  placeholder={t.brew.tagInputPlaceholder}
-                  maxLength={10}
-                  className="flex-1 px-3 py-1.5 text-sm rounded-lg border border-gray-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-orange-500/30"
-                  disabled={styleTags.length >= 3}
-                />
-                <button
-                  type="button"
-                  onClick={handleAddTag}
-                  disabled={!newTagInput.trim() || styleTags.length >= 3}
-                  className="px-3 py-1.5 text-xs font-medium rounded-lg bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  {t.brew.addTag}
-                </button>
-              </div>
-              {/* 已有标签展示 */}
-              {styleTags.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5">
-                  {styleTags.map((tag, index) => (
-                    <span
-                      key={index}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md bg-orange-100 dark:bg-orange-800/40 text-orange-700 dark:text-orange-300"
-                    >
-                      {tag}
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveTag(tag)}
-                        className="w-3.5 h-3.5 flex items-center justify-center rounded-full hover:bg-orange-200 dark:hover:bg-orange-700 transition-colors"
-                        title={t.brew.deleteTag}
-                      >
-                        <X className="w-2.5 h-2.5" />
-                      </button>
-                    </span>
-                  ))}
+              <div className="p-3 rounded-xl bg-orange-50 dark:bg-orange-900/20 border border-orange-200/50 dark:border-orange-700/50">
+                <div className="flex items-center gap-2 mb-2">
+                  <Tag className="w-4 h-4 text-orange-500" />
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t.brew.customTag}</span>
                 </div>
-              ) : (
-                <div className="text-xs text-gray-400 dark:text-gray-500 italic">
-                  {t.brew.noCustomTagHint}
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                  {t.brew.customTagDesc}
+                </p>
+                {/* 标签输入框 */}
+                <div className="flex gap-2 mb-2">
+                  <input
+                    type="text"
+                    value={newTagInput}
+                    onChange={e => setNewTagInput(e.target.value)}
+                    onKeyDown={handleTagInputKeyDown}
+                    placeholder={t.brew.tagInputPlaceholder}
+                    maxLength={10}
+                    className="flex-1 px-3 py-1.5 text-sm rounded-lg border border-gray-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-orange-500/30"
+                    disabled={styleTags.length >= 3}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddTag}
+                    disabled={!newTagInput.trim() || styleTags.length >= 3}
+                    className="px-3 py-1.5 text-xs font-medium rounded-lg bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {t.brew.addTag}
+                  </button>
                 </div>
-              )}
-            </div>
+                {/* 已有标签展示 */}
+                {styleTags.length > 0
+                  ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {styleTags.map((tag, index) => (
+                          <span
+                            key={index}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md bg-orange-100 dark:bg-orange-800/40 text-orange-700 dark:text-orange-300"
+                          >
+                            {tag}
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveTag(tag)}
+                              className="w-3.5 h-3.5 flex items-center justify-center rounded-full hover:bg-orange-200 dark:hover:bg-orange-700 transition-colors"
+                              title={t.brew.deleteTag}
+                            >
+                              <X className="w-2.5 h-2.5" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )
+                  : (
+                      <div className="text-xs text-gray-400 dark:text-gray-500 italic">
+                        {t.brew.noCustomTagHint}
+                      </div>
+                    )}
+              </div>
             )}
 
             {/* 错误提示 */}
@@ -805,26 +831,28 @@ export default function EditModal({ source, categories, onClose, onSave }: EditM
             disabled={saving}
             className="px-5 py-2.5 rounded-xl bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-50 flex items-center gap-2 font-medium shadow-sm transition-colors"
           >
-            {saving ? (
-              <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                {t.brew.saving}
-              </>
-            ) : (
-              <>
-                <Check className="w-4 h-4" />
-                {t.brew.saveChanges}
-              </>
-            )}
+            {saving
+              ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    {t.brew.saving}
+                  </>
+                )
+              : (
+                  <>
+                    <Check className="w-4 h-4" />
+                    {t.brew.saveChanges}
+                  </>
+                )}
           </button>
         </div>
       </motion.div>
     </motion.div>
-  );
+  )
 
   // 渲染到 body，将 AnimatePresence 放在 Portal 内部
   return createPortal(
     <AnimatePresence>{modalContent}</AnimatePresence>,
-    document.body
-  );
+    document.body,
+  )
 }

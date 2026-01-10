@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react';
+import { useCallback, useRef } from 'react'
 
 /**
  * 节流 Hook - 限制函数在指定时间内最多执行一次
@@ -8,29 +8,30 @@ import { useRef, useCallback } from 'react';
  */
 export function useThrottle<T extends (...args: any[]) => any>(
   callback: T,
-  delay: number = 300
+  delay: number = 300,
 ): (...args: Parameters<T>) => void {
-  const lastRun = useRef<number>(Date.now());
-  const timeoutRef = useRef<NodeJS.Timeout>();
+  const lastRun = useRef<number>(Date.now())
+  const timeoutRef = useRef<NodeJS.Timeout>()
 
   return useCallback(
     (...args: Parameters<T>) => {
-      const now = Date.now();
-      const timeSinceLastRun = now - lastRun.current;
+      const now = Date.now()
+      const timeSinceLastRun = now - lastRun.current
 
       if (timeSinceLastRun >= delay) {
-        callback(...args);
-        lastRun.current = now;
-      } else {
+        callback(...args)
+        lastRun.current = now
+      }
+      else {
         if (timeoutRef.current) {
-          clearTimeout(timeoutRef.current);
+          clearTimeout(timeoutRef.current)
         }
         timeoutRef.current = setTimeout(() => {
-          callback(...args);
-          lastRun.current = Date.now();
-        }, delay - timeSinceLastRun);
+          callback(...args)
+          lastRun.current = Date.now()
+        }, delay - timeSinceLastRun)
       }
     },
-    [callback, delay]
-  );
+    [callback, delay],
+  )
 }

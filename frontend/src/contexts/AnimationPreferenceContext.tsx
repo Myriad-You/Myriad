@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, ReactNode } from 'react';
+import type { ReactNode } from 'react'
+import { createContext, useContext, useState } from 'react'
 
 /**
  * 动效偏好设置类型
@@ -6,59 +7,59 @@ import { createContext, useContext, useState, ReactNode } from 'react';
  * - 'standard': 强制使用标准动效（中高性能）
  * - 'light': 强制使用轻量动效（低性能）
  */
-export type AnimationPreference = 'auto' | 'standard' | 'light';
+export type AnimationPreference = 'auto' | 'standard' | 'light'
 
 interface AnimationPreferenceContextType {
-  preference: AnimationPreference;
-  setPreference: (pref: AnimationPreference) => void;
-  togglePerformanceMode: () => void; // 在 standard 和 light 之间切换
+  preference: AnimationPreference
+  setPreference: (pref: AnimationPreference) => void
+  togglePerformanceMode: () => void // 在 standard 和 light 之间切换
 }
 
-const AnimationPreferenceContext = createContext<AnimationPreferenceContextType | undefined>(undefined);
+const AnimationPreferenceContext = createContext<AnimationPreferenceContextType | undefined>(undefined)
 
 // Export the context for direct useContext access
-export { AnimationPreferenceContext };
+export { AnimationPreferenceContext }
 
-const STORAGE_KEY = 'animation-preference';
+const STORAGE_KEY = 'animation-preference'
 
 export function AnimationPreferenceProvider({ children }: { children: ReactNode }) {
   const [preference, setPreferenceState] = useState<AnimationPreference>(() => {
     // 从 localStorage 读取用户偏好
     if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem(STORAGE_KEY);
+      const stored = localStorage.getItem(STORAGE_KEY)
       if (stored === 'auto' || stored === 'standard' || stored === 'light') {
-        return stored;
+        return stored
       }
     }
-    return 'auto'; // 默认自动检测
-  });
+    return 'auto' // 默认自动检测
+  })
 
   // 保存偏好到 localStorage
   const setPreference = (pref: AnimationPreference) => {
-    setPreferenceState(pref);
+    setPreferenceState(pref)
     if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEY, pref);
+      localStorage.setItem(STORAGE_KEY, pref)
     }
-  };
+  }
 
   // 切换性能模式（在 standard 和 light 之间）
   const togglePerformanceMode = () => {
-    const currentMode = preference === 'auto' ? 'standard' : preference;
-    const newMode = currentMode === 'standard' ? 'light' : 'standard';
-    setPreference(newMode);
-  };
+    const currentMode = preference === 'auto' ? 'standard' : preference
+    const newMode = currentMode === 'standard' ? 'light' : 'standard'
+    setPreference(newMode)
+  }
 
   return (
     <AnimationPreferenceContext.Provider value={{ preference, setPreference, togglePerformanceMode }}>
       {children}
     </AnimationPreferenceContext.Provider>
-  );
+  )
 }
 
 export function useAnimationPreference() {
-  const context = useContext(AnimationPreferenceContext);
+  const context = useContext(AnimationPreferenceContext)
   if (context === undefined) {
-    throw new Error('useAnimationPreference must be used within AnimationPreferenceProvider');
+    throw new Error('useAnimationPreference must be used within AnimationPreferenceProvider')
   }
-  return context;
+  return context
 }

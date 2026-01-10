@@ -3,11 +3,11 @@
  * 管理 Tapp 注册的小组件并提供给 WidgetGrid 使用
  */
 
-import { useState, useEffect, useMemo, useCallback, createElement } from 'react'
-import { getTappRuntime } from '../tapp/runtime'
+import type { WidgetComponentProps, WidgetSize, WidgetType } from '../components/WidgetGrid'
 import type { RegisteredWidget } from '../tapp/types'
-import type { WidgetType, WidgetSize, WidgetComponentProps } from '../components/WidgetGrid'
+import { createElement, useCallback, useEffect, useMemo, useState } from 'react'
 import { TappWidgetComponent } from '../components/widgets/TappWidget'
+import { getTappRuntime } from '../tapp/runtime'
 
 // Tapp WidgetSize 到 WidgetGrid WidgetSize 的映射
 const TAPP_SIZE_MAP: Record<string, WidgetSize> = {
@@ -23,7 +23,8 @@ const TAPP_SIZE_MAP: Record<string, WidgetSize> = {
 
 // 将 Tapp WidgetSize 转换为 WidgetGrid 兼容的尺寸
 function mapTappSize(size: string | undefined): WidgetSize {
-  if (!size) return '2x2'
+  if (!size)
+    return '2x2'
   return TAPP_SIZE_MAP[size] || '2x2'
 }
 
@@ -54,7 +55,7 @@ function createTappWidgetType(widget: RegisteredWidget): TappWidgetType {
   const config = widget.config || {}
 
   // 创建一个包装组件 - 使用 createElement 而不是 JSX
-  const WrappedComponent = (props: WidgetComponentProps) => 
+  const WrappedComponent = (props: WidgetComponentProps) =>
     createElement(TappWidgetComponent, {
       ...props,
       tappWidgetId: widget.id,
@@ -77,7 +78,7 @@ function createTappWidgetType(widget: RegisteredWidget): TappWidgetType {
 /**
  * useTappWidgets Hook
  * 监听 Tapp Runtime 的 Widget 注册事件并返回可用的 Widget 类型
- * 
+ *
  * 重要：会等待 TappRuntime 同步完成后再加载小组件
  */
 export function useTappWidgets(): {
@@ -95,14 +96,16 @@ export function useTappWidgets(): {
     try {
       const runtime = getTappRuntime()
       const registeredWidgets = runtime.getRegisteredWidgets()
-      
+
       const widgetTypes = registeredWidgets.map(createTappWidgetType)
       setTappWidgets(widgetTypes)
       setError(null)
-    } catch (err) {
+    }
+    catch (err) {
       console.error('[useTappWidgets] Failed to load widgets:', err)
       setError(err instanceof Error ? err.message : 'Failed to load widgets')
-    } finally {
+    }
+    finally {
       setIsLoading(false)
     }
   }, [])
@@ -112,18 +115,20 @@ export function useTappWidgets(): {
     try {
       setIsLoading(true)
       const runtime = getTappRuntime()
-      
+
       // 等待 runtime 同步完成
       await runtime.waitForSync()
-      
+
       const registeredWidgets = runtime.getRegisteredWidgets()
       const widgetTypes = registeredWidgets.map(createTappWidgetType)
       setTappWidgets(widgetTypes)
       setError(null)
-    } catch (err) {
+    }
+    catch (err) {
       console.error('[useTappWidgets] Failed to load widgets:', err)
       setError(err instanceof Error ? err.message : 'Failed to load widgets')
-    } finally {
+    }
+    finally {
       setIsLoading(false)
     }
   }, [])

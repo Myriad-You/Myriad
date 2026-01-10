@@ -1,8 +1,8 @@
 /**
  * Tapp Widget 沙箱组件
- * 
+ *
  * 用于渲染 Tapp 的小组件模式（Dashboard 中的 Widget）
- * 
+ *
  * 🎯 设计目标：
  * - 专为 Widget 渲染优化，结构简单
  * - 开发者友好：容器有正确尺寸，直接渲染即可
@@ -11,39 +11,40 @@
  * - 响应式主题：实时响应主题和主色调变化
  */
 
-import { memo, useRef, useEffect, useState, useCallback, useMemo } from 'react'
-import type { TappInstance } from '../types'
 import type { TappCodeStructure } from '../examples/tapps/types'
-import { getCodeForMode } from '../examples/tapps/types'
-import { useIframeResize, sendResizeMessage, calculateWidgetDimensions } from '../utils/iframeResize'
-import { TappBridge } from './TappBridge'
-import { TappPermissionController } from './TappPermission'
-import { subscribeToTheme } from '../../utils/themeSubscriber'
-import { subscribeToPrimaryColor, getPrimaryColor } from '../../utils/colorSubscriber'
+import type { TappInstance } from '../types'
+import type { WidgetRenderProps } from './sandbox'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isPageVisible, onVisibility } from '../../hooks/animation/core'
+import { getPrimaryColor, subscribeToPrimaryColor } from '../../utils/colorSubscriber'
+import { subscribeToTheme } from '../../utils/themeSubscriber'
+import { getCodeForMode } from '../examples/tapps/types'
+import { getQuotaManager } from '../services/QuotaManager'
+import * as TappApiService from '../services/TappApiService'
 
+import { calculateWidgetDimensions, sendResizeMessage, useIframeResize } from '../utils/iframeResize'
 // 核心模块
 import {
   generateCSP,
   generateNonce,
-  generateWidgetSDK,
   generateThemeCSS,
-  WIDGET_STATIC_CSS,
+  generateWidgetSDK,
   IFRAME_SANDBOX_ATTRS,
-  type WidgetRenderProps,
+  WIDGET_STATIC_CSS,
+
 } from './sandbox'
 
 // 处理器（Widget 只需要基础处理器）
 import {
-  registerLifecycleHandlers,
-  registerUIHandlers,
-  registerStorageHandlers,
-  registerFileHandlers,
   registerContextHandlers,
+  registerFileHandlers,
+  registerLifecycleHandlers,
+  registerStorageHandlers,
+  registerUIHandlers,
 } from './sandbox/handlers'
 
-import * as TappApiService from '../services/TappApiService'
-import { getQuotaManager } from '../services/QuotaManager'
+import { TappBridge } from './TappBridge'
+import { TappPermissionController } from './TappPermission'
 
 export interface TappWidgetSandboxProps {
   /** Tapp 实例 */
@@ -66,19 +67,19 @@ export interface TappWidgetSandboxProps {
 
 /**
  * 生成 Widget 沙箱 HTML
- * 
+ *
  * 支持三种渲染方式：
  * 1. 纯 JS 模式：Tapp.widgets[id].render(container, props)
  * 2. 纯 HTML 模式：widgetHtml 直接渲染（适合静态展示）
  * 3. 混合模式：widgetHtml 定义结构 + JS 处理交互（性能最优）
- * 
+ *
  * 🔒 安全特性：
  * - 使用 CSP nonce 替代 unsafe-inline，只有带正确 nonce 的脚本才能执行
- * 
+ *
  * 🎯 CSS 策略：
  * - 优先使用安装时预编译的 CSS（零运行时开销）
  * - 如果预编译 CSS 不可用，降级到动态生成
- * 
+ *
  * @param tappInstance - Tapp 实例
  * @param code - Tapp 代码结构
  * @param widgetId - Widget ID
@@ -90,7 +91,7 @@ function generateWidgetHTML(
   code: TappCodeStructure,
   widgetId: string,
   widgetProps: WidgetRenderProps,
-  sessionToken: string
+  sessionToken: string,
 ): string {
   const { manifest } = tappInstance
   const isDark = widgetProps.theme === 'dark'
@@ -101,20 +102,20 @@ function generateWidgetHTML(
   const csp = generateCSP(nonce)
   const sdkCode = generateWidgetSDK(tappInstance, sessionToken)
   const themeCSS = generateThemeCSS(isDark, primaryColor)
-  
+
   // 自定义 CSS
   const customCSS = code.styles || ''
-  
+
   // HTML 模板（如果有）
   const hasHtmlTemplate = !!code.widgetHtml
   const widgetHtmlContent = code.widgetHtml || ''
-  
+
   // JS 代码 - 混合模式下也会加载
   const widgetCode = getCodeForMode(code, 'widget')
-  
+
   // 🎯 使用安装时预编译的 CSS
   const tailwindCSS = code.widgetCSS || ''
-  
+
   // 是否需要调用 Tapp.widgets.render()
   // 仅在没有 HTML 模板时才需要（纯 JS 模式）
   const needsJsRender = !hasHtmlTemplate
@@ -178,7 +179,8 @@ function generateWidgetHTML(
     })();
   </script>
   
-  ${needsJsRender ? `
+  ${needsJsRender
+    ? `
   <!-- 纯 JS 模式：调用 render 函数 -->
   <script nonce="${nonce}">
     (function() {
@@ -209,38 +211,39 @@ function generateWidgetHTML(
       }, 16);
     })();
   </script>
-  ` : '<!-- 混合/HTML 模式：HTML 已渲染，JS 用于交互 -->'}
+  `
+    : '<!-- 混合/HTML 模式：HTML 已渲染，JS 用于交互 -->'}
 </body>
 </html>`
 }
 
 /**
  * 注册 Widget 专用的 AI 处理器（精简版）
- * 
+ *
  * 安全增强：添加配额检查
  */
 function registerWidgetAIHandler(
   bridge: TappBridge,
   permission: TappPermissionController,
-  tappId: string
+  tappId: string,
 ): void {
   const quotaManager = getQuotaManager()
-  
+
   bridge.registerHandler('ai.chat', async (message) => {
     // 🔒 权限检查
     if (!permission.hasPermission('ai:chat')) {
       return { success: false, error: 'Permission denied: ai:chat' }
     }
-    
+
     // 🔒 配额检查
     const quotaCheck = quotaManager.checkQuota(tappId, 'ai.generate')
     if (!quotaCheck.allowed) {
       return { success: false, error: quotaCheck.reason || 'Quota exceeded', code: 'QUOTA_EXCEEDED' }
     }
-    
+
     const [params] = (message.payload as { args: unknown[] }).args || []
     const { messages, context, options } = (params || {}) as {
-      messages?: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>
+      messages?: Array<{ role: 'user' | 'assistant' | 'system', content: string }>
       context?: Record<string, unknown>
       options?: Record<string, unknown>
     }
@@ -251,12 +254,13 @@ function registerWidgetAIHandler(
         context,
         options,
       })
-      
+
       // 记录配额使用
       quotaManager.recordUsage(tappId, 'ai.generate')
-      
+
       return { success: true, data: result }
-    } catch (error) {
+    }
+    catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'AI error' }
     }
   })
@@ -265,7 +269,7 @@ function registerWidgetAIHandler(
 /**
  * Tapp Widget 沙箱组件
  */
-export const TappWidgetSandbox = memo(function TappWidgetSandbox({
+export const TappWidgetSandbox = memo(({
   tappInstance,
   code,
   widgetId,
@@ -274,22 +278,22 @@ export const TappWidgetSandbox = memo(function TappWidgetSandbox({
   onReady,
   className,
   style,
-}: TappWidgetSandboxProps) {
+}: TappWidgetSandboxProps) => {
   const { containerRef, dimensions } = useIframeResize<HTMLDivElement>()
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const bridgeRef = useRef<TappBridge | null>(null)
   const [isReady, setIsReady] = useState(false)
-  
+
   // 🎯 性能优化：使用 ref 存储对象引用，避免依赖变化触发 iframe 重建
   // 这些对象的内容变化通过 ID 来追踪，而不是对象引用
   const tappInstanceRef = useRef(tappInstance)
   const codeRef = useRef(code)
   tappInstanceRef.current = tappInstance
   codeRef.current = code
-  
+
   // 🎯 使用动画调度器的页面可见性感知，页面隐藏时跳过非必要更新
   const pageVisibleRef = useRef(isPageVisible())
-  
+
   // 稳定化核心 widgetProps（不包含 theme 和 primaryColor，因为它们通过事件更新）
   // 这样主题/颜色变化不会触发整个沙箱重建
   const configString = JSON.stringify(widgetProps.config || {})
@@ -309,18 +313,18 @@ export const TappWidgetSandbox = memo(function TappWidgetSandbox({
     widgetProps.locale,
     // 使用字符串比较稳定 config 依赖
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    configString
+    configString,
   ])
-  
+
   // 保存初始渲染用的主题/颜色
   const initialThemeRef = useRef(widgetProps.theme)
   const initialColorRef = useRef(widgetProps.primaryColor)
-  
+
   const handleReady = useCallback(() => {
     setIsReady(true)
     onReady?.()
   }, [onReady])
-  
+
   // 🎯 订阅页面可见性变化（用于优化后台渲染 + 通知 iframe 冻结/恢复）
   useEffect(() => {
     return onVisibility((visible) => {
@@ -331,7 +335,7 @@ export const TappWidgetSandbox = memo(function TappWidgetSandbox({
       }
     })
   }, [isReady])
-  
+
   // 🎯 生成稳定的代码指纹，只有代码实际变化时才重建 iframe
   // 使用 widgetHtml 长度 + styles 长度 + widgetCSS 长度作为简单指纹，避免大字符串比较
   const codeFingerprint = useMemo(() => {
@@ -341,39 +345,40 @@ export const TappWidgetSandbox = memo(function TappWidgetSandbox({
     const css = code.widgetCSS || ''
     return `${wh.length}:${st.length}:${js.length}:${css.length}`
   }, [code])
-  
+
   // 初始化（不依赖 theme/primaryColor 变化）
   // 🎯 依赖优化：只使用稳定的 ID 和指纹，不使用对象引用
   useEffect(() => {
     const iframe = iframeRef.current
-    if (!iframe) return
-    
+    if (!iframe)
+      return
+
     // 🎯 从 ref 获取当前对象，避免闭包陈旧问题
     const currentTappInstance = tappInstanceRef.current
     const currentCode = codeRef.current
-    
+
     // 使用 ref 中的初始值，避免闪烁
     const propsForHtml = {
       ...stableWidgetProps,
       theme: initialThemeRef.current,
       primaryColor: initialColorRef.current,
     }
-    
+
     // 创建 Bridge（在生成 HTML 之前，以获取 session token）
     const bridge = new TappBridge()
     bridge.initialize(iframe, currentTappInstance)
     bridgeRef.current = bridge
-    
+
     // 获取 session token（用于消息验证）
     const sessionToken = bridge.getSessionToken()
-    
+
     // 生成 HTML（传递 session token）
     const html = generateWidgetHTML(currentTappInstance, currentCode, widgetId, propsForHtml, sessionToken)
-    
+
     const blob = new Blob([html], { type: 'text/html' })
     const url = URL.createObjectURL(blob)
     iframe.src = url
-    
+
     // 注册处理器（Widget 只需要基础 API）
     const permission = new TappPermissionController(currentTappInstance)
     registerLifecycleHandlers(bridge, currentTappInstance, handleReady)
@@ -383,12 +388,12 @@ export const TappWidgetSandbox = memo(function TappWidgetSandbox({
     registerWidgetAIHandler(bridge, permission, currentTappInstance.id)
     // 🎯 注册 Context 处理器（包含 api.execute 和 context.getGeo）
     registerContextHandlers(bridge, currentTappInstance)
-    
+
     // 监听 tapp.ready 事件（Widget HTML 发送的早期 ready 事件）
     const unsubscribeReady = bridge.on('tapp.ready', () => {
       handleReady()
     })
-    
+
     return () => {
       URL.revokeObjectURL(url)
       unsubscribeReady()
@@ -398,17 +403,18 @@ export const TappWidgetSandbox = memo(function TappWidgetSandbox({
     }
   // 🎯 稳定依赖：只有这些真正改变时才重建 iframe
   // - tappInstance.id: Tapp 实例 ID
-  // - widgetId: Widget ID  
+  // - widgetId: Widget ID
   // - codeFingerprint: 代码指纹（内容变化才会变）
   // - stableWidgetProps: 已稳定化的 props
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tappInstance.id, widgetId, codeFingerprint, handleReady, stableWidgetProps])
-  
+
   // 主题变化监听（通过事件通知 iframe，而不是重建）
   // 🎯 优化：使用共享订阅器，确保所有 widget 都能响应变化
   useEffect(() => {
-    if (!isReady) return
-    
+    if (!isReady)
+      return
+
     return subscribeToTheme((isDark) => {
       // 直接使用 bridgeRef.current，确保获取最新的 bridge 实例
       const bridge = bridgeRef.current
@@ -417,20 +423,21 @@ export const TappWidgetSandbox = memo(function TappWidgetSandbox({
       }
     })
   }, [isReady])
-  
+
   // 主色调变化监听（通过事件通知 iframe，而不是重建）
   // 🎯 优化：使用共享的 colorSubscriber，避免每个组件都创建 MutationObserver
   // 🎯 修复：isReady 时立即发送当前颜色，确保多窗口/多组件场景下正确初始化
   useEffect(() => {
-    if (!isReady) return
-    
+    if (!isReady)
+      return
+
     // 立即发送当前主色调，确保新创建的组件能获取到
     const bridge = bridgeRef.current
     const currentColor = getPrimaryColor()
     if (bridge && currentColor) {
       bridge.emit('primaryColor:change', currentColor)
     }
-    
+
     // 订阅后续变化
     return subscribeToPrimaryColor((color) => {
       const bridge = bridgeRef.current
@@ -439,27 +446,29 @@ export const TappWidgetSandbox = memo(function TappWidgetSandbox({
       }
     })
   }, [isReady])
-  
+
   // 语言变化监听
   useEffect(() => {
-    if (!isReady || !bridgeRef.current) return
+    if (!isReady || !bridgeRef.current)
+      return
     bridgeRef.current.emit('locale:change', widgetProps.locale)
   }, [widgetProps.locale, isReady])
-  
+
   // 尺寸更新
   useEffect(() => {
-    if (!isReady || !iframeRef.current) return
-    
+    if (!isReady || !iframeRef.current)
+      return
+
     const widgetDims = calculateWidgetDimensions(
       stableWidgetProps.size,
       dimensions.width,
-      dimensions.height
+      dimensions.height,
     )
     sendResizeMessage(iframeRef.current, widgetDims)
   }, [isReady, dimensions, stableWidgetProps.size])
-  
+
   return (
-    <div 
+    <div
       ref={containerRef}
       className={`tapp-widget-sandbox ${className || ''}`}
       style={{

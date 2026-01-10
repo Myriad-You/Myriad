@@ -1,5 +1,5 @@
 /* ==========================================
-   13. 音乐播放�?
+   13. 音乐播放�?
    ========================================== */
 
 .music-player-container {
@@ -8,14 +8,15 @@
   flex-direction: column;
   padding: 1rem;
   min-width: 0;
-  /* 使用动态颜色变量，未设置时回退到默认粉紫渐�?*/
+  /* 使用动态颜色变量，未设置时回退到默认粉紫渐�?*/
   --music-base-primary: var(--music-primary, #ec4899);
   --music-base-secondary: var(--music-secondary, #a855f7);
   --music-base-accent: var(--music-accent, #fbbf24);
   --music-base-light: var(--music-light, #f9a8d4);
   --music-base-dark: var(--music-dark, #831843);
-  
-  background: linear-gradient(135deg,
+
+  background: linear-gradient(
+    135deg,
     color-mix(in srgb, var(--music-base-primary) 3%, transparent),
     color-mix(in srgb, var(--music-base-secondary) 3%, transparent)
   );
@@ -27,8 +28,8 @@
   height: 160px;
   overflow: hidden;
   box-shadow: 0 4px 16px color-mix(in srgb, var(--music-base-primary) 4%, rgba(0, 0, 0, 0.04));
-  /* 只为必要的属性添加过渡，不使�?all 以避免影�?CSS 变量 */
-  transition: 
+  /* 只为必要的属性添加过渡，不使�?all 以避免影�?CSS 变量 */
+  transition:
     background 0.4s cubic-bezier(0.4, 0, 0.2, 1),
     border-color 0.4s cubic-bezier(0.4, 0, 0.2, 1),
     box-shadow 0.4s cubic-bezier(0.4, 0, 0.2, 1),
@@ -36,14 +37,15 @@
     transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* 颜色过渡状�?- 淡出效果（优化：更快的响应速度�?*/
+/* 颜色过渡状�?- 淡出效果（优化：更快的响应速度�?*/
 .music-player-container.color-transitioning {
   opacity: 0.75;
   transform: scale(0.99);
 }
 
 html.dark .music-player-container {
-  background: linear-gradient(135deg,
+  background: linear-gradient(
+    135deg,
     color-mix(in srgb, var(--music-base-primary) 6%, transparent),
     color-mix(in srgb, var(--music-base-secondary) 6%, transparent)
   );
@@ -80,7 +82,7 @@ html.dark .music-player-container:hover {
   }
 }
 
-/* ========== 状�?: 音乐信息视图 ========== */
+/* ========== 状�?: 音乐信息视图 ========== */
 .music-view-info {
   gap: 0.75rem;
   height: 100%;
@@ -112,11 +114,12 @@ html.dark .music-player-container:hover {
   border-radius: 0.625rem;
   overflow: hidden;
   box-shadow: 0 4px 12px color-mix(in srgb, var(--music-base-primary) 12%, rgba(0, 0, 0, 0.12));
-  background: linear-gradient(135deg, 
-    color-mix(in srgb, var(--music-base-primary) 8%, transparent), 
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--music-base-primary) 8%, transparent),
     color-mix(in srgb, var(--music-base-secondary) 8%, transparent)
   );
-  transition: 
+  transition:
     transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
     background 0.6s cubic-bezier(0.4, 0, 0.2, 1),
     box-shadow 0.6s cubic-bezier(0.4, 0, 0.2, 1);
@@ -209,7 +212,7 @@ html.dark .music-song-artist {
   color: rgba(255, 255, 255, 0.65);
 }
 
-/* 当前歌曲信息（旧样式保留用于兼容�?*/
+/* 当前歌曲信息（旧样式保留用于兼容�?*/
 .music-current-song {
   display: flex;
   align-items: center;
@@ -249,7 +252,7 @@ html.dark .music-song-artist {
   transform: translateZ(0);
 }
 
-/* 只在播放状态时激活动�?*/
+/* 只在播放状态时激活动�?*/
 .music-playing-indicator.is-playing,
 .music-player.is-playing .music-playing-indicator {
   animation-play-state: running;
@@ -261,7 +264,7 @@ html.dark .music-song-artist {
   filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.3));
 }
 
-/* 播放器临时播放模式关闭按�?- 位于播放器容器右上角，与其他按钮风格统一 */
+/* 播放器临时播放模式关闭按�?- 位于播放器容器右上角，与其他按钮风格统一 */
 .music-player-temp-close-btn {
   position: absolute;
   top: 12px;
@@ -279,7 +282,7 @@ html.dark .music-song-artist {
   color: var(--text-secondary);
   cursor: pointer;
   flex-shrink: 0;
-  transition: 
+  transition:
     transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
     background 0.6s cubic-bezier(0.4, 0, 0.2, 1),
     color 0.25s ease;
@@ -291,8 +294,9 @@ html.dark .music-player-temp-close-btn {
 }
 
 .music-player-temp-close-btn:hover {
-  background: linear-gradient(135deg, 
-    color-mix(in srgb, var(--music-base-primary) 12%, transparent), 
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--music-base-primary) 12%, transparent),
     color-mix(in srgb, var(--music-base-secondary) 12%, transparent)
   );
   color: var(--music-base-primary);
@@ -300,8 +304,9 @@ html.dark .music-player-temp-close-btn {
 }
 
 html.dark .music-player-temp-close-btn:hover {
-  background: linear-gradient(135deg, 
-    color-mix(in srgb, var(--music-base-primary) 18%, transparent), 
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--music-base-primary) 18%, transparent),
     color-mix(in srgb, var(--music-base-secondary) 18%, transparent)
   );
   color: var(--music-base-light);
@@ -317,7 +322,8 @@ html.dark .music-player-temp-close-btn:hover {
 }
 
 @keyframes music-pulse {
-  0%, 100% {
+  0%,
+  100% {
     transform: scale(1);
     opacity: 0.8;
   }
@@ -358,7 +364,7 @@ html.dark .music-song-artist {
   color: rgba(255, 255, 255, 0.5);
 }
 
-/* 无歌曲状�?*/
+/* 无歌曲状�?*/
 .music-no-song {
   display: flex;
   flex-direction: column;
@@ -386,7 +392,7 @@ html.dark .music-no-song-text {
   color: #f59e0b;
 }
 
-/* 播放控制�?*/
+/* 播放控制�?*/
 .music-control-row {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
@@ -418,7 +424,7 @@ html.dark .music-no-song-text {
   color: var(--text-secondary);
   cursor: pointer;
   flex-shrink: 0;
-  transition: 
+  transition:
     transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
     background 0.6s cubic-bezier(0.4, 0, 0.2, 1),
     border-color 0.6s cubic-bezier(0.4, 0, 0.2, 1),
@@ -433,8 +439,9 @@ html.dark .music-control-btn {
 }
 
 .music-control-btn:hover {
-  background: linear-gradient(135deg, 
-    color-mix(in srgb, var(--music-base-primary) 12%, transparent), 
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--music-base-primary) 12%, transparent),
     color-mix(in srgb, var(--music-base-secondary) 12%, transparent)
   );
   border-color: color-mix(in srgb, var(--music-base-primary) 25%, transparent);
@@ -444,8 +451,9 @@ html.dark .music-control-btn {
 }
 
 html.dark .music-control-btn:hover {
-  background: linear-gradient(135deg, 
-    color-mix(in srgb, var(--music-base-primary) 18%, transparent), 
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--music-base-primary) 18%, transparent),
     color-mix(in srgb, var(--music-base-secondary) 18%, transparent)
   );
   border-color: color-mix(in srgb, var(--music-base-primary) 35%, transparent);
@@ -471,11 +479,12 @@ html.dark .music-control-btn:hover {
   color: white;
   cursor: pointer;
   flex-shrink: 0;
-  transition: 
+  transition:
     transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
     background 0.6s cubic-bezier(0.4, 0, 0.2, 1),
     box-shadow 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--music-base-primary) 35%, transparent), 
+  box-shadow:
+    0 4px 12px color-mix(in srgb, var(--music-base-primary) 35%, transparent),
     0 0 0 0 color-mix(in srgb, var(--music-base-primary) 40%, transparent);
   position: relative;
 }
@@ -487,7 +496,7 @@ html.dark .music-control-btn:hover {
   border-radius: 50%;
   background: linear-gradient(135deg, var(--music-base-primary), var(--music-base-secondary));
   opacity: 0;
-  transition: 
+  transition:
     opacity 0.3s ease,
     background 0.6s cubic-bezier(0.4, 0, 0.2, 1);
   z-index: -1;
@@ -496,7 +505,8 @@ html.dark .music-control-btn:hover {
 
 .music-play-btn:hover {
   transform: translateY(-3px) scale(1.08);
-  box-shadow: 0 6px 16px color-mix(in srgb, var(--music-base-primary) 45%, transparent), 
+  box-shadow:
+    0 6px 16px color-mix(in srgb, var(--music-base-primary) 45%, transparent),
     0 0 0 8px color-mix(in srgb, var(--music-base-primary) 10%, transparent);
 }
 
@@ -523,7 +533,7 @@ html.dark .music-control-btn:hover {
     color 0.25s ease;
 }
 
-/* 音量控制（弹出式�?*/
+/* 音量控制（弹出式�?*/
 .music-volume-control {
   position: relative;
 }
@@ -546,7 +556,8 @@ html.dark .music-volume-btn {
 }
 
 .music-volume-btn:hover {
-  background: linear-gradient(135deg,
+  background: linear-gradient(
+    135deg,
     color-mix(in srgb, var(--music-base-primary) 12%, transparent),
     color-mix(in srgb, var(--music-base-secondary) 12%, transparent)
   );
@@ -555,7 +566,8 @@ html.dark .music-volume-btn {
 }
 
 html.dark .music-volume-btn:hover {
-  background: linear-gradient(135deg,
+  background: linear-gradient(
+    135deg,
     color-mix(in srgb, var(--music-base-primary) 18%, transparent),
     color-mix(in srgb, var(--music-base-secondary) 18%, transparent)
   );
@@ -642,7 +654,7 @@ html.dark .music-volume-slider:hover {
   border-radius: 50%;
   background: linear-gradient(135deg, var(--music-base-primary), var(--music-base-secondary));
   cursor: pointer;
-  transition: 
+  transition:
     transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
     background 0.6s cubic-bezier(0.4, 0, 0.2, 1),
     box-shadow 0.6s cubic-bezier(0.4, 0, 0.2, 1);
@@ -661,7 +673,7 @@ html.dark .music-volume-slider:hover {
   background: linear-gradient(135deg, var(--music-base-primary), var(--music-base-secondary));
   cursor: pointer;
   border: none;
-  transition: 
+  transition:
     transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
     background 0.6s cubic-bezier(0.4, 0, 0.2, 1),
     box-shadow 0.6s cubic-bezier(0.4, 0, 0.2, 1);
@@ -704,7 +716,7 @@ html.dark .music-volume-slider:hover {
   color: var(--text-secondary);
   cursor: pointer;
   flex-shrink: 0;
-  transition: 
+  transition:
     transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
     background 0.6s cubic-bezier(0.4, 0, 0.2, 1),
     color 0.25s ease;
@@ -715,8 +727,9 @@ html.dark .music-view-switch-btn {
 }
 
 .music-view-switch-btn:hover {
-  background: linear-gradient(135deg, 
-    color-mix(in srgb, var(--music-base-primary) 12%, transparent), 
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--music-base-primary) 12%, transparent),
     color-mix(in srgb, var(--music-base-secondary) 12%, transparent)
   );
   color: var(--music-base-primary);
@@ -724,8 +737,9 @@ html.dark .music-view-switch-btn {
 }
 
 html.dark .music-view-switch-btn:hover {
-  background: linear-gradient(135deg, 
-    color-mix(in srgb, var(--music-base-primary) 18%, transparent), 
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--music-base-primary) 18%, transparent),
     color-mix(in srgb, var(--music-base-secondary) 18%, transparent)
   );
   color: var(--music-base-light);
@@ -740,7 +754,7 @@ html.dark .music-view-switch-btn:hover {
   height: 1.125rem;
 }
 
-/* 播放控制（旧样式保留�?*/
+/* 播放控制（旧样式保留�?*/
 .music-controls {
   display: flex;
   flex-direction: column;
@@ -808,11 +822,11 @@ html.dark .music-progress-bar:hover {
   border-radius: 50%;
   background: linear-gradient(135deg, var(--music-base-primary), var(--music-base-secondary));
   cursor: pointer;
-  /* 使用CSS变量支持JS动态控�?*/
+  /* 使用CSS变量支持JS动态控�?*/
   transform: scale(var(--thumb-scale, 1));
   opacity: var(--thumb-opacity, 1);
   box-shadow: var(--thumb-shadow, 0 2px 6px color-mix(in srgb, var(--music-base-primary) 30%, transparent));
-  transition: 
+  transition:
     transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
     background 0.6s cubic-bezier(0.4, 0, 0.2, 1),
     box-shadow 0.6s cubic-bezier(0.4, 0, 0.2, 1),
@@ -835,11 +849,11 @@ html.dark .music-progress-bar:hover {
   background: linear-gradient(135deg, var(--music-base-primary), var(--music-base-secondary));
   cursor: pointer;
   border: none;
-  /* 使用CSS变量支持JS动态控�?*/
+  /* 使用CSS变量支持JS动态控�?*/
   transform: scale(var(--thumb-scale, 1));
   opacity: var(--thumb-opacity, 1);
   box-shadow: var(--thumb-shadow, 0 2px 6px color-mix(in srgb, var(--music-base-primary) 30%, transparent));
-  transition: 
+  transition:
     transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
     background 0.6s cubic-bezier(0.4, 0, 0.2, 1),
     box-shadow 0.6s cubic-bezier(0.4, 0, 0.2, 1),
@@ -855,9 +869,10 @@ html.dark .music-progress-bar:hover {
   box-shadow: 0 3px 8px color-mix(in srgb, var(--music-base-primary) 45%, transparent);
 }
 
-/* 呼吸动画关键�?*/
+/* 呼吸动画关键�?*/
 @keyframes progress-thumb-breathe {
-  0%, 100% {
+  0%,
+  100% {
     transform: scale(1);
     opacity: 1;
     box-shadow: 0 2px 6px rgba(99, 102, 241, 0.3);
@@ -865,12 +880,13 @@ html.dark .music-progress-bar:hover {
   50% {
     transform: scale(1.3);
     opacity: 0.85;
-    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.55),
-                0 0 20px rgba(99, 102, 241, 0.35);
+    box-shadow:
+      0 4px 12px rgba(99, 102, 241, 0.55),
+      0 0 20px rgba(99, 102, 241, 0.35);
   }
 }
 
-/* 加载状态的进度条滑�?- WebKit */
+/* 加载状态的进度条滑�?- WebKit */
 .music-progress-bar.loading::-webkit-slider-thumb {
   animation: progress-thumb-breathe 1.5s ease-in-out infinite !important;
   transition: none !important; /* 禁用transition避免冲突 */
@@ -882,7 +898,7 @@ html.dark .music-progress-bar:hover {
   animation: progress-thumb-breathe 1.5s ease-in-out infinite !important;
 }
 
-/* 加载状态的进度条滑�?- Firefox */
+/* 加载状态的进度条滑�?- Firefox */
 .music-progress-bar.loading::-moz-range-thumb {
   animation: progress-thumb-breathe 1.5s ease-in-out infinite !important;
   transition: none !important; /* 禁用transition避免冲突 */
@@ -933,7 +949,7 @@ html.dark .music-control-icon-btn:hover {
   transform: scale(0.95);
 }
 
-/* 播放按钮样式已在�?332定义，此处删除重�?*/
+/* 播放按钮样式已在�?332定义，此处删除重�?*/
 
 .music-volume-container {
   display: flex;
@@ -984,7 +1000,7 @@ html.dark .music-volume-bar {
   border: none;
 }
 
-/* ========== 状�?: 歌词滚动视图 ========== */
+/* ========== 状�?: 歌词滚动视图 ========== */
 .music-view-lyrics {
   height: 100%;
   display: flex;
@@ -1012,7 +1028,7 @@ html.dark .music-volume-bar {
   border-radius: 0.25rem;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: 
+  transition:
     transform 0.2s ease,
     background 0.6s cubic-bezier(0.4, 0, 0.2, 1),
     color 0.2s ease;
@@ -1091,7 +1107,7 @@ html.dark .music-lyrics-artist {
   position: relative;
 }
 
-/* 通用滚动条样�?*/
+/* 通用滚动条样�?*/
 .music-lyrics-scroll::-webkit-scrollbar,
 .music-playlist-scroll::-webkit-scrollbar {
   width: 4px;
@@ -1147,7 +1163,7 @@ html.dark .music-lyric-line.active {
   opacity: 0.25;
 }
 
-/* 无歌词状�?*/
+/* 无歌词状�?*/
 .music-no-lyrics {
   display: flex;
   flex-direction: column;
@@ -1197,7 +1213,7 @@ html.dark .music-lyrics-control {
   border-radius: 50%;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: 
+  transition:
     transform 0.2s ease,
     background 0.6s cubic-bezier(0.4, 0, 0.2, 1),
     color 0.2s ease;
@@ -1230,7 +1246,7 @@ html.dark .music-mini-btn:hover {
   border-radius: 50%;
   color: white;
   cursor: pointer;
-  transition: 
+  transition:
     transform 0.2s ease,
     background 0.6s cubic-bezier(0.4, 0, 0.2, 1),
     box-shadow 0.6s cubic-bezier(0.4, 0, 0.2, 1);
@@ -1246,7 +1262,7 @@ html.dark .music-mini-btn:hover {
   transform: scale(0.95);
 }
 
-/* ========== 状�?: 播放列表视图 ========== */
+/* ========== 状�?: 播放列表视图 ========== */
 .music-view-playlist {
   height: 100%;
   justify-content: space-between;
@@ -1270,7 +1286,7 @@ html.dark .music-playlist-title {
   color: rgba(255, 255, 255, 0.9);
 }
 
-/* VIP过滤开�?*/
+/* VIP过滤开�?*/
 .music-vip-filter-toggle {
   display: flex;
   align-items: center;
@@ -1330,7 +1346,7 @@ html.dark .music-vip-filter-toggle.active:hover {
   color: var(--music-light, #91d5ff);
 }
 
-/* 播放列表搜索�?- 紧凑版，与标题在同一�?*/
+/* 播放列表搜索�?- 紧凑版，与标题在同一�?*/
 .music-playlist-search-compact {
   position: relative;
   display: flex;
@@ -1421,7 +1437,7 @@ html.dark .music-playlist-search-compact .music-search-clear {
   height: 0.625rem;
 }
 
-/* 无搜索结果状�?*/
+/* 无搜索结果状�?*/
 .music-no-results {
   display: flex;
   flex-direction: column;
@@ -1476,7 +1492,7 @@ html.dark .music-no-results-text {
 
 /* 滚动条样式已在行1887合并定义 */
 
-/* 歌词显示（旧样式保留�?*/
+/* 歌词显示（旧样式保留�?*/
 .music-lyrics-display {
   display: flex;
   flex-direction: column;
@@ -1669,7 +1685,7 @@ html.dark .music-back-btn:hover {
   font-weight: 600;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: 
+  transition:
     background 0.6s cubic-bezier(0.4, 0, 0.2, 1),
     border-color 0.6s cubic-bezier(0.4, 0, 0.2, 1),
     color 0.2s ease;
@@ -1749,7 +1765,7 @@ html.dark .music-search-input::placeholder {
   font-weight: 600;
   color: white;
   cursor: pointer;
-  transition: 
+  transition:
     transform 0.2s ease,
     background 0.6s cubic-bezier(0.4, 0, 0.2, 1),
     box-shadow 0.6s cubic-bezier(0.4, 0, 0.2, 1);
@@ -1921,7 +1937,7 @@ html.dark .music-playlist-items::-webkit-scrollbar-thumb {
   border: 1px solid rgba(0, 0, 0, 0.06);
   border-radius: 0.5rem;
   cursor: pointer;
-  transition: 
+  transition:
     transform 0.2s ease,
     background 0.6s cubic-bezier(0.4, 0, 0.2, 1),
     border-color 0.6s cubic-bezier(0.4, 0, 0.2, 1);
@@ -1944,16 +1960,18 @@ html.dark .music-playlist-item:hover {
 }
 
 .music-playlist-item.active {
-  background: linear-gradient(135deg, 
-    color-mix(in srgb, var(--music-base-primary) 10%, transparent), 
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--music-base-primary) 10%, transparent),
     color-mix(in srgb, var(--music-base-secondary) 10%, transparent)
   );
   border-color: color-mix(in srgb, var(--music-base-primary) 30%, transparent);
 }
 
 html.dark .music-playlist-item.active {
-  background: linear-gradient(135deg, 
-    color-mix(in srgb, var(--music-base-primary) 15%, transparent), 
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--music-base-primary) 15%, transparent),
     color-mix(in srgb, var(--music-base-secondary) 15%, transparent)
   );
   border-color: color-mix(in srgb, var(--music-base-primary) 40%, transparent);
@@ -2068,15 +2086,18 @@ html.dark .music-vip-badge.trial {
 }
 
 @keyframes vip-glow {
-  0%, 100% {
+  0%,
+  100% {
     box-shadow: 0 1px 3px rgba(255, 215, 0, 0.3);
   }
   50% {
-    box-shadow: 0 1px 6px rgba(255, 215, 0, 0.6), 0 0 8px rgba(255, 215, 0, 0.3);
+    box-shadow:
+      0 1px 6px rgba(255, 215, 0, 0.6),
+      0 0 8px rgba(255, 215, 0, 0.3);
   }
 }
 
-/* 确保歌名不会因为VIP标识而溢�?*/
+/* 确保歌名不会因为VIP标识而溢�?*/
 .music-playlist-name,
 .music-song-name {
   min-width: 0;
@@ -2157,4 +2178,3 @@ html.dark .music-vip-badge.trial {
     max-height: 150px;
   }
 }
-

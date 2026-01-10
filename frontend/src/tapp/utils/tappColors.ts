@@ -6,7 +6,7 @@
 import type { TappManifest } from '../types'
 
 /** 类别颜色配置 */
-export const CATEGORY_COLORS: Record<string, { from: string; to: string }> = {
+export const CATEGORY_COLORS: Record<string, { from: string, to: string }> = {
   // 演示
   demo: { from: 'from-blue-500', to: 'to-cyan-500' },
   // 工具
@@ -61,12 +61,12 @@ export function getTappIconStyle(manifest: TappManifest): IconStyle {
   if (manifest.themeColor) {
     return {
       className: '',
-      style: { 
-        background: `linear-gradient(to bottom right, ${manifest.themeColor}, ${manifest.themeColor}99)`
-      }
+      style: {
+        background: `linear-gradient(to bottom right, ${manifest.themeColor}, ${manifest.themeColor}99)`,
+      },
     }
   }
-  
+
   // 2. 使用分类渐变色
   return { className: getTappIconGradient(manifest) }
 }
@@ -77,18 +77,18 @@ export function getTappIconStyle(manifest: TappManifest): IconStyle {
  */
 export function getTappIconGradient(manifest: TappManifest): string {
   // 注意：themeColor 不能通过 Tailwind 动态类名支持，需使用 getTappIconStyle
-  
+
   // 1. 尝试从 ID 推断类别 (如 com.example.demo-xxx → demo)
   const idParts = manifest.id.split('.')
   const lastPart = idParts[idParts.length - 1]?.toLowerCase() || ''
-  
+
   // 检查 ID 中是否包含类别关键词
   for (const [category, colors] of Object.entries(CATEGORY_COLORS)) {
     if (lastPart.includes(category) || manifest.id.toLowerCase().includes(category)) {
       return `bg-gradient-to-br ${colors.from} ${colors.to}`
     }
   }
-  
+
   // 2. 尝试从权限推断类型
   const permissions = manifest.permissions || []
   if (permissions.includes('ai:generate') || permissions.includes('ai:chat') || permissions.includes('ai:image')) {
@@ -103,7 +103,7 @@ export function getTappIconGradient(manifest: TappManifest): string {
   if (permissions.includes('widget:register')) {
     return `bg-gradient-to-br ${CATEGORY_COLORS.widget.from} ${CATEGORY_COLORS.widget.to}`
   }
-  
+
   // 4. 默认使用全局壁纸色
   return DEFAULT_TAPP_BG
 }
@@ -112,13 +112,14 @@ export function getTappIconGradient(manifest: TappManifest): string {
  * 根据类别名称获取颜色
  */
 export function getCategoryGradient(category: string | undefined): string {
-  if (!category) return DEFAULT_TAPP_BG
-  
+  if (!category)
+    return DEFAULT_TAPP_BG
+
   const lowerCategory = category.toLowerCase()
   if (CATEGORY_COLORS[lowerCategory]) {
     const colors = CATEGORY_COLORS[lowerCategory]
     return `bg-gradient-to-br ${colors.from} ${colors.to}`
   }
-  
+
   return DEFAULT_TAPP_BG
 }

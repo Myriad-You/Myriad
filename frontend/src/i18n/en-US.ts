@@ -2,7 +2,7 @@
  * English translation file
  */
 
-import { TranslationKeys } from './index';
+import type { TranslationKeys } from './index'
 
 export const enUS: TranslationKeys = {
   // Common
@@ -32,7 +32,7 @@ export const enUS: TranslationKeys = {
     networkError: 'Network error',
     unknownError: 'Unknown error',
   },
-  
+
   // Navigation
   nav: {
     home: 'Home',
@@ -82,7 +82,7 @@ export const enUS: TranslationKeys = {
     tappStore: 'Tapp Store',
     openTappStore: 'Open Tapp Store',
   },
-  
+
   // Greetings
   greeting: {
     morning: 'Good morning',
@@ -93,7 +93,7 @@ export const enUS: TranslationKeys = {
     lateNight: 'Late night',
     welcome: 'Welcome back',
   },
-  
+
   // Control Panel
   controlPanel: {
     appearance: 'Appearance',
@@ -114,7 +114,7 @@ export const enUS: TranslationKeys = {
     language: 'Language',
     languageSwitch: 'Language Switch',
   },
-  
+
   // Authentication
   auth: {
     username: 'Username',
@@ -139,7 +139,7 @@ export const enUS: TranslationKeys = {
     logoutSuccess: 'Logged out successfully',
     logoutFailed: 'Logout failed',
   },
-  
+
   // Setup Wizard
   setup: {
     title: 'System Setup',
@@ -201,7 +201,7 @@ export const enUS: TranslationKeys = {
     atLeast8Chars: 'At least 8 characters',
     enterPasswordAgain: 'Enter password again',
   },
-  
+
   // Configuration
   config: {
     title: 'System Configuration',
@@ -482,7 +482,7 @@ export const enUS: TranslationKeys = {
     edgeone: 'EdgeOne',
     upyun: 'Upyun',
   },
-  
+
   // Widgets
   widgets: {
     welcome: 'Welcome',
@@ -511,7 +511,7 @@ export const enUS: TranslationKeys = {
     tappDesc: 'Extensions',
     tappFeature: 'Widgets, Tools, Extensions',
   },
-  
+
   // Title Style Selector
   titleStyle: {
     style: 'Style',
@@ -532,7 +532,7 @@ export const enUS: TranslationKeys = {
     sizeXLarge: 'X-Large',
     sizeXXLarge: 'XX-Large',
   },
-  
+
   // Home
   home: {
     dashboard: 'Dashboard',
@@ -546,7 +546,7 @@ export const enUS: TranslationKeys = {
     saveTitleFailed: 'Failed to save title',
     saveCustomPlatformsFailed: 'Failed to save custom platforms',
   },
-  
+
   // Library
   library: {
     title: 'Library',
@@ -569,7 +569,7 @@ export const enUS: TranslationKeys = {
     anime: 'Anime',
     tvSeries: 'TV Series',
   },
-  
+
   // Reports
   reports: {
     title: 'Data Reports',
@@ -578,7 +578,7 @@ export const enUS: TranslationKeys = {
     generating: 'Generating report...',
     generated: 'Report generated',
   },
-  
+
   // Account
   account: {
     title: 'Account Settings',
@@ -597,7 +597,7 @@ export const enUS: TranslationKeys = {
     passwordChanged: 'Password changed',
     passwordChangeFailed: 'Failed to change password',
   },
-  
+
   // Errors
   errors: {
     networkError: 'Network connection failed',
@@ -608,7 +608,7 @@ export const enUS: TranslationKeys = {
     timeout: 'Request timeout',
     unknown: 'Unknown error',
   },
-  
+
   weather: {
     humidity: 'Humidity',
     windSpeed: 'Wind',
@@ -640,7 +640,7 @@ export const enUS: TranslationKeys = {
     thunderstorm: 'Thunderstorm',
     unknown: 'Unknown',
   },
-  
+
   // Music Player
   music: {
     noSong: 'No song',
@@ -669,7 +669,7 @@ export const enUS: TranslationKeys = {
     loadPlaylistFailed: 'Failed to load playlist',
     playFailed: 'Playback failed, please check network or song availability',
   },
-  
+
   // Cache Management
   cache: {
     title: 'Cache Management',
@@ -694,7 +694,7 @@ export const enUS: TranslationKeys = {
     cacheHint3: 'After clearing cache, you need to reprocess to use platform data',
     cacheHint4: 'Processing won\'t block other operations',
   },
-  
+
   // Task Status
   task: {
     fetchFailed: 'Failed to fetch task status',
@@ -709,7 +709,7 @@ export const enUS: TranslationKeys = {
     createdTime: 'Created',
     completedTime: 'Completed',
   },
-  
+
   // User Modal
   userModal: {
     title: 'User Info',
@@ -752,7 +752,7 @@ export const enUS: TranslationKeys = {
     noRecentTapps: 'No recent apps',
     viewAllTapps: 'View all Tapps',
   },
-  
+
   // Widget Grid
   widgetGrid: {
     widgetLibrary: 'Widget Library',
@@ -762,7 +762,7 @@ export const enUS: TranslationKeys = {
     positionConflict: '✖ Position conflict',
     canPlace: '✓ Can place',
   },
-  
+
   // Social Network Widget
   socialNetwork: {
     platformName: 'Platform Name',
@@ -792,7 +792,7 @@ export const enUS: TranslationKeys = {
     clickToVisit: 'Click to visit profile',
     notConfigured: 'Not configured',
   },
-  
+
   // Report Card Widget
   reportCard: {
     noReportData: 'No report data',
@@ -805,14 +805,14 @@ export const enUS: TranslationKeys = {
     legendaryDev: 'Legendary Dev',
     danmakuDefault: ['Warning', 'Next time', 'LOL', 'Nostalgia', 'Tears'],
   },
-  
+
   // Performance Monitor
   performance: {
     animationDetected: 'Performance-affecting animations detected',
     collapse: 'Collapse',
     expand: 'Expand',
   },
-  
+
   // Reports Page
   reportsPage: {
     // Platform name
@@ -820,13 +820,13 @@ export const enUS: TranslationKeys = {
     bilibili: 'Bilibili',
     steam: 'Steam',
     github: 'GitHub',
-    
+
     // Danmaku defaults
     danmakuDefaults: ['Warning', 'Next time', 'LOL', 'Nostalgia', 'Tears'],
-    
+
     // Player type
     casualPlayer: 'Casual Player',
-    
+
     // Developer levels
     activeDeveloper: 'Active Developer',
     legendary: 'Legendary',
@@ -834,7 +834,7 @@ export const enUS: TranslationKeys = {
     senior: 'Senior',
     prolific: 'Prolific',
     active: 'Active',
-    
+
     // Stats labels
     library: 'LIBRARY',
     playtime: 'PLAYTIME',
@@ -842,11 +842,11 @@ export const enUS: TranslationKeys = {
     repos: 'Repos',
     fans: 'Fans',
     lists: 'Lists',
-    
+
     // Status text
     analyzingRepos: '> Analyzing repositories_',
     noReposFound: '> No repos found_',
-    
+
     // Toast messages
     noPlatformReports: 'No platform reports available',
     allPlaybackComplete: 'All platforms playback complete',
@@ -861,7 +861,7 @@ export const enUS: TranslationKeys = {
     generateFailedRetry: 'Generation failed, please try again',
     deleteFailed: 'Delete failed',
     deleteFailedRetry: 'Delete failed, please try again',
-    
+
     // UI text
     close: 'Close',
     regenerateReport: 'Regenerate report',
@@ -880,11 +880,13 @@ export const enUS: TranslationKeys = {
     noReport: 'No report',
     anime: 'Anime',
     tvSeries: 'TV Series',
-    video: 'Video',    game: 'Game',
+    video: 'Video',
+    game: 'Game',
     music: 'Music',
     content: 'Content',
     dataEcho: 'Data Echo',
-    deepInsight: 'Deep Insight',    unknownPlatform: 'Unknown platform',
+    deepInsight: 'Deep Insight',
+    unknownPlatform: 'Unknown platform',
     generating: 'Generating',
     generate: 'Generate',
     comprehensiveReport: 'Comprehensive Report',
@@ -898,7 +900,7 @@ export const enUS: TranslationKeys = {
     adminNotGenerated: 'Admin has not generated a comprehensive report yet',
     waitingGenerate: 'Waiting to generate',
   },
-  
+
   // Account page
   accountPage: {
     accountInfo: 'Account Info',
@@ -929,7 +931,7 @@ export const enUS: TranslationKeys = {
     changing: 'Changing...',
     changePasswordBtn: 'Change Password',
   },
-  
+
   // Data management page
   dataManagement: {
     neteaseMusic: 'NetEase Music',
@@ -964,7 +966,7 @@ export const enUS: TranslationKeys = {
     usageSmartFilter: 'Smart Filter: AI-processed data, click process to generate cache',
     usageBackground: 'Background Processing: Tasks run asynchronously, check progress at top',
   },
-  
+
   // Quick Stats Widget
   quickStats: {
     widgetTitle: 'Content Overview',
@@ -977,7 +979,7 @@ export const enUS: TranslationKeys = {
     saveCacheFailed: 'Failed to save cache',
     fetchStatsFailed: 'Failed to fetch library stats',
   },
-  
+
   // Recent Activity Widget
   recentActivity: {
     widgetTitle: 'Recent Activity',
@@ -1027,7 +1029,7 @@ export const enUS: TranslationKeys = {
     myMusicCollection: 'My Music Collection',
     techShareCollection: 'Tech Shares',
   },
-  
+
   // Weather Widget
   weatherWidget: {
     loadCacheFailed: 'Failed to load weather cache',
@@ -1036,7 +1038,7 @@ export const enUS: TranslationKeys = {
     sunny: 'Sunny',
     sampleCity: 'Sample City',
   },
-  
+
   // Quote Widget
   quoteWidget: {
     loadCacheFailed: 'Failed to load quote cache',
@@ -1046,7 +1048,7 @@ export const enUS: TranslationKeys = {
     anonymous: 'Anonymous',
     unavailable: 'Quote unavailable',
   },
-  
+
   // Music Player Widget
   musicPlayer: {
     sampleSong: 'Sample Song',
@@ -1056,12 +1058,12 @@ export const enUS: TranslationKeys = {
     sampleLyricNext: 'Sample Lyrics - Next',
     noLyrics: 'No lyrics',
   },
-  
+
   // Platform Card Widget
   platformCard: {
     neteaseMusic: 'NetEase',
   },
-  
+
   // Report Card Widget Extended
   reportCardWidget: {
     bilibili: 'Bilibili',
@@ -1082,7 +1084,7 @@ export const enUS: TranslationKeys = {
     samplePlaylist: 'Sample Playlist',
     fetchReportFailed: 'Failed to fetch report',
   },
-  
+
   // Social Network Widget Extended
   socialNetworkWidget: {
     fillPlatformName: 'Please enter platform name',
@@ -1095,7 +1097,7 @@ export const enUS: TranslationKeys = {
     delete: 'Delete',
     longPressToEdit: 'Long press widget to edit',
   },
-  
+
   // Tapp related
   tapp: {
     // Common
@@ -1112,7 +1114,7 @@ export const enUS: TranslationKeys = {
     installing: 'Installing...',
     version: 'Version',
     author: 'Author',
-    
+
     // Categories
     categoryAI: 'AI App',
     categoryDataExtension: 'Data Extension',
@@ -1132,7 +1134,7 @@ export const enUS: TranslationKeys = {
     categoryMusic: 'Music',
     categoryVisualization: 'Visualization',
     categoryData: 'Data',
-    
+
     // Permissions
     permissions: 'Permissions',
     noPermissions: 'No permissions required',
@@ -1140,7 +1142,7 @@ export const enUS: TranslationKeys = {
     elevatedPermission: 'Elevated',
     privilegedPermission: 'Privileged',
     grantedPermissions: 'Granted Permissions',
-    
+
     // Permission labels
     permRegisterWidget: 'Register Widget',
     permReadPlatform: 'Read Platform Data',
@@ -1164,7 +1166,7 @@ export const enUS: TranslationKeys = {
     permRegisterShortcut: 'Register Shortcut',
     permPublishEvent: 'Publish Event',
     permSubscribeEvent: 'Subscribe Event',
-    
+
     // Permission descriptions
     permRegisterWidgetDesc: 'Allow registering custom widgets to homepage',
     permReadPlatformDesc: 'Allow reading existing platform data',
@@ -1188,7 +1190,7 @@ export const enUS: TranslationKeys = {
     permRegisterShortcutDesc: 'Allow registering keyboard shortcuts',
     permPublishEventDesc: 'Allow publishing system events',
     permSubscribeEventDesc: 'Allow subscribing to system events',
-    
+
     // List page
     listTitle: 'Tapp Apps',
     listSubtitle: 'Manage and run your extension apps',
@@ -1203,7 +1205,7 @@ export const enUS: TranslationKeys = {
     loginRequiredToInstall: 'Please login to install apps',
     export: 'Export',
     exportFailed: 'Export failed',
-    
+
     // Install modal
     installTappTitle: 'Install Tapp App',
     dropTappFile: 'Drop .tapp file here',
@@ -1212,7 +1214,7 @@ export const enUS: TranslationKeys = {
     invalidTappFile: 'Please select a .tapp file',
     installFailed: 'Installation failed',
     installSuccess: 'Installed {name}',
-    
+
     // Run page
     loadingApp: 'Loading app...',
     pleaseWait: 'Please wait',
@@ -1225,7 +1227,7 @@ export const enUS: TranslationKeys = {
     fullscreen: 'Fullscreen',
     stopApp: 'Stop app',
     back: 'Back',
-    
+
     // Multi-window mode
     windowScheme: 'Window Scheme',
     scheme: 'Scheme',
@@ -1241,7 +1243,7 @@ export const enUS: TranslationKeys = {
     openFirstApp: 'Open first app',
     selectApp: 'Select App',
     noAvailableApps: 'No available apps',
-    
+
     // Detail page
     appSettings: 'App Settings',
     customizeBehavior: 'Customize app behavior',
@@ -1257,14 +1259,14 @@ export const enUS: TranslationKeys = {
     loading: 'Loading...',
     settingSaved: 'Settings saved',
     settingSaveFailed: 'Save failed',
-    
+
     // AI quota
     aiQuota: 'AI Quota',
     premiumQuota: 'Premium Quota',
     standardQuota: 'Standard Quota',
     dailyCalls: 'Daily Calls',
     tokenUsage: 'Token Usage',
-    
+
     // Store
     storeTitle: 'Tapp Store',
     storeSourceSettings: 'Store source settings',
@@ -1295,7 +1297,7 @@ export const enUS: TranslationKeys = {
     keepDataOnUninstallDesc: 'Preserve stored data and settings for recovery when reinstalling',
     uninstalling: 'Uninstalling...',
     confirmUninstallBtn: 'Confirm Uninstall',
-    
+
     // Store source settings
     sourceManagement: 'Source Management',
     addSource: 'Add Store Source',
@@ -1311,14 +1313,14 @@ export const enUS: TranslationKeys = {
     addSourceFailed: 'Add failed',
     refreshAllStores: 'Refresh all stores',
     confirmDeleteSource: 'Are you sure you want to delete this store source?',
-    
+
     // Dynamic content API
     dynamicContent: 'Dynamic Content',
     dynamicContentDesc: 'Display custom content in collapsed control island',
     dynamicContentSet: 'Dynamic content set',
     dynamicContentRemoved: 'Dynamic content removed',
   },
-  
+
   // Dynamic content
   dynamicContent: {
     unavailable: 'No content available',
@@ -1326,7 +1328,7 @@ export const enUS: TranslationKeys = {
     loading: 'Loading...',
     tappContent: 'Tapp Content',
   },
-  
+
   // Brew RSS Reader
   brew: {
     // Common
@@ -1345,13 +1347,13 @@ export const enUS: TranslationKeys = {
     friendLinks: 'Friend Links',
     me: 'Me',
     expandMenu: 'Expand Brew Menu',
-    
+
     // Time related
     justNow: 'Just now',
     minutesAgo: '{minutes} minutes ago',
     hoursAgo: '{hours} hours ago',
     daysAgo: '{days} days ago',
-    
+
     // Feed types
     feedTypeRss: 'RSS',
     feedTypeAtom: 'Atom',
@@ -1360,14 +1362,14 @@ export const enUS: TranslationKeys = {
     feedTypeRsshub: 'RSSHub',
     feedTypeLink: 'Link',
     feedTypeBrewlia: 'AI Enhanced',
-    
+
     // Feed type descriptions
     feedTypeRssDesc: 'Standard RSS/Atom/JSON Feed subscription',
     feedTypeLinkDesc: 'Save link only, no update subscription',
     feedTypeNotionDesc: 'Subscribe to Notion database or page content',
     feedTypeRsshubDesc: 'RSSHub multi-platform route subscription with instance switching',
     feedTypeBrewliaDesc: 'AI enhanced subscription: auto vocabulary annotation, pronoun analysis and more',
-    
+
     // Operations
     addSubscription: 'Add Subscription',
     editSubscription: 'Edit Source',
@@ -1385,7 +1387,7 @@ export const enUS: TranslationKeys = {
     importExportOpml: 'Import/Export OPML',
     keyboardShortcuts: 'Keyboard Shortcuts',
     moreOptions: 'More Options',
-    
+
     // Add subscription
     addLink: 'Add Link',
     addBrewlia: 'Add Brewlia',
@@ -1401,12 +1403,12 @@ export const enUS: TranslationKeys = {
     inputNewCategory: 'Enter new category...',
     detect: 'Detect',
     detecting: 'Detecting...',
-    
+
     // AI Enhancement
     enableAiEnhance: 'Enable AI Enhancement',
     disableAiEnhance: 'Disable AI Enhancement',
     aiEnhanceDesc: 'AI enhanced subscription: auto vocabulary annotation, pronoun analysis and more',
-    
+
     // Edit subscription
     uploadIcon: 'Upload Icon',
     uploadIconHint: 'Upload icon (JPG/PNG/GIF/SVG, max 500KB)',
@@ -1420,7 +1422,7 @@ export const enUS: TranslationKeys = {
     generateTags: 'Generate Tags',
     regenerateTags: 'Regenerate',
     deleteTag: 'Delete Tag',
-    
+
     // Update interval
     updateInterval: 'Update Interval',
     interval15min: '15 minutes',
@@ -1430,20 +1432,20 @@ export const enUS: TranslationKeys = {
     interval6hours: '6 hours',
     interval12hours: '12 hours',
     intervalDaily: 'Daily',
-    
+
     // Sorting
     sortByUpdate: 'By Update',
     sortByCustom: 'Custom Order',
     sortByCategory: 'By Category',
     sortByRandom: 'Random',
     sortByPinyin: 'By Name',
-    
+
     // Shortcut categories
     shortcutNavigation: 'Navigation',
     shortcutArticle: 'Article',
     shortcutSource: 'Source',
     shortcutOther: 'Other',
-    
+
     // Shortcut descriptions
     shortcutDescNextArticle: 'Next article',
     shortcutDescPrevArticle: 'Previous article',
@@ -1456,7 +1458,7 @@ export const enUS: TranslationKeys = {
     shortcutDescRefreshSource: 'Refresh current source',
     shortcutDescAddSource: 'Add new source',
     shortcutDescShowHelp: 'Show keyboard shortcuts',
-    
+
     // Tips
     tipJustUpdated: 'Just updated',
     tipUnreadCount: '{count} unread',
@@ -1469,7 +1471,7 @@ export const enUS: TranslationKeys = {
     tipRelaxReading: 'Perfect for light reading',
     tipEvening: 'Good Evening',
     tipQuietTime: 'Enjoy the quiet time',
-    
+
     // Error messages
     errorDetectFailed: 'Detection failed, please check network or URL',
     errorRsshubRouteRequired: 'Please configure RSSHub route',
@@ -1486,7 +1488,7 @@ export const enUS: TranslationKeys = {
     errorSaveFailed: 'Save failed',
     errorGenerateTagsFailed: 'Failed to generate style tags',
     errorInvalidFormat: 'Invalid import file format',
-    
+
     // Import/Export
     exportBrewpack: 'Export Subscriptions',
     importBrewpack: 'Import Subscriptions',
@@ -1496,18 +1498,18 @@ export const enUS: TranslationKeys = {
     importStepUnzipping: 'Extracting...',
     importStepParsing: 'Parsing...',
     importStepImporting: 'Importing: {name}',
-    
+
     // Empty states
     emptyNoSources: 'No sources yet',
     emptyCategoryNoSources: 'No sources in "{category}"',
-    
+
     // Search
     searchSources: 'Search sources...',
     closeSearch: 'Close Search',
-    
+
     // OPML
     selectOpmlFile: 'Select OPML File',
-    
+
     // RSSHub configuration
     rsshubInstanceStatus: 'Instance Status',
     rsshubStatusNormal: 'Normal',
@@ -1538,7 +1540,7 @@ export const enUS: TranslationKeys = {
     rsshubDefaultRss: 'Default (RSS)',
     rsshubAtom: 'Atom',
     rsshubJson: 'JSON',
-    
+
     // RSSHub categories
     rsshubCategorySocial: 'Social Media',
     rsshubCategoryVideo: 'Video Platforms',
@@ -1548,13 +1550,13 @@ export const enUS: TranslationKeys = {
     rsshubCategoryDesign: 'Design Resources',
     rsshubCategoryShopping: 'Shopping & Deals',
     rsshubCategoryOther: 'Other',
-    
+
     // Select articles
     selectArticles: 'Select Articles',
     cancelStarred: 'Unstar',
     returnToSourceList: 'Return to Sources',
     returnToAllSources: 'Return to All Sources',
-    
+
     // ControlIsland specific
     tipFromSource: 'From {source}',
     articlesCount: '{count} articles',
@@ -1584,7 +1586,7 @@ export const enUS: TranslationKeys = {
     exportOpml: 'Export OPML ({count} subscriptions)',
     importResult: 'Successfully imported {imported}{skipped}',
     skippedCount: ', skipped {count}',
-    
+
     // More ControlIsland keys
     sourceTypeLabel: 'Source Type',
     pureLink: 'Pure Link',
@@ -1616,7 +1618,7 @@ export const enUS: TranslationKeys = {
     addSuccess: 'Added successfully!',
     errorImageSize: 'Image size cannot exceed 500KB',
     errorImageRead: 'Failed to read image',
-    
+
     // BrewReader
     fontSerif: 'Serif',
     fontSans: 'Sans',
@@ -1770,7 +1772,7 @@ export const enUS: TranslationKeys = {
     noArticles: 'No articles',
     subscribeMoreSources: 'Subscribe to more sources to get content',
     loadedAllArticles: '— All {count} articles loaded —',
-    
+
     // BrewSidebar - UI text
     brewReader: 'Brew Reader',
     sourcesCount: '{count} sources',
@@ -1781,7 +1783,7 @@ export const enUS: TranslationKeys = {
     keyboardShortcutsHint: 'Keyboard shortcuts',
     refresh: 'Refresh',
     delete: 'Delete',
-    
+
     // EditModal - UI text
     friendLink: 'Friend Links',
     categoryMe: 'Me',
@@ -1820,7 +1822,7 @@ export const enUS: TranslationKeys = {
     adminOnlyVisible: 'Admin Only',
     adminOnlyVisibleHint: 'When enabled, non-admin users will not see this source',
     saveChanges: 'Save Changes',
-    
+
     // RSSHubConfig - Error messages
     errorLoadFailed: 'Load failed',
     errorNetworkRetry: 'Network error, please retry',
@@ -1829,7 +1831,7 @@ export const enUS: TranslationKeys = {
     errorDeleteFailed: 'Delete failed',
     errorHealthCheckFailed: 'Health check failed',
     errorResetFailed: 'Reset failed',
-    
+
     // RSSHubConfig - Instance management
     rsshubAccessKey: 'Access Key',
     rsshubAccessKeyKeep: 'Leave empty to keep unchanged',
@@ -1891,7 +1893,7 @@ export const enUS: TranslationKeys = {
     rsshubViewFullDocs: 'View full docs',
     save: 'Save',
     label: 'Label',
-    
+
     // Lightbox - Image lightbox
     lightboxZoomIn: 'Zoom in',
     lightboxZoomOut: 'Zoom out',
@@ -1900,4 +1902,4 @@ export const enUS: TranslationKeys = {
     lightboxClose: 'Close',
     lightboxCloseHint: 'Click background or press ESC to close',
   },
-};
+}

@@ -1,6 +1,6 @@
-﻿/**
+/**
  * 后台任务状态显示组件
- * 
+ *
  * 功能：
  * 1. 实时轮询任务状态
  * 2. 显示处理进度条
@@ -8,29 +8,29 @@
  * 4. 完成通知
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
-import { FaTimes, FaCheckCircle, FaExclamationCircle, FaSpinner } from '@lib/icons';
-import { useManagedFetch } from '../hooks/useManagedFetch';
-import { useI18n } from '../contexts/I18nContext';
+import { FaCheckCircle, FaExclamationCircle, FaSpinner, FaTimes } from '@lib/icons'
+import React, { useCallback, useEffect, useState } from 'react'
+import { useI18n } from '../contexts/I18nContext'
+import { useManagedFetch } from '../hooks/useManagedFetch'
 
 export interface Task {
-  id: string;
-  platform: string;
-  status: 'Pending' | 'Processing' | 'Completed' | 'Failed';
-  progress: number;
-  error?: string;
-  created_at: string;
-  updated_at: string;
-  completed_at?: string;
+  id: string
+  platform: string
+  status: 'Pending' | 'Processing' | 'Completed' | 'Failed'
+  progress: number
+  error?: string
+  created_at: string
+  updated_at: string
+  completed_at?: string
 }
 
 interface TaskStatusProps {
-  taskId: string;
-  onComplete?: (task: Task) => void;
-  onError?: (task: Task) => void;
-  onClose?: () => void;
-  autoClose?: boolean; // 完成后自动关闭
-  autoCloseDelay?: number; // 自动关闭延迟（毫秒）
+  taskId: string
+  onComplete?: (task: Task) => void
+  onError?: (task: Task) => void
+  onClose?: () => void
+  autoClose?: boolean // 完成后自动关闭
+  autoCloseDelay?: number // 自动关闭延迟（毫秒）
 }
 
 export function TaskStatus({
@@ -41,16 +41,16 @@ export function TaskStatus({
   autoClose = true,
   autoCloseDelay = 3000,
 }: TaskStatusProps) {
-  const [task, setTask] = useState<Task | null>(null);
-  const [isPolling, setIsPolling] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [pollCount, setPollCount] = useState(0);
-  const { fetch: managedFetch } = useManagedFetch();
-  const { t, locale } = useI18n();
+  const [task, setTask] = useState<Task | null>(null)
+  const [isPolling, setIsPolling] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [pollCount, setPollCount] = useState(0)
+  const { fetch: managedFetch } = useManagedFetch()
+  const { t, locale } = useI18n()
 
   const fetchTaskStatus = useCallback(async () => {
     try {
-      const data = await managedFetch<{ success: boolean; task?: Task; error?: string }>(
+      const data = await managedFetch<{ success: boolean, task?: Task, error?: string }>(
         `/api/tasks/${taskId}`,
         {
           credentials: 'include',
@@ -58,80 +58,91 @@ export function TaskStatus({
         {
           key: `task-status-${taskId}`,
           priority: 1, // 任务状态查询有较高优先级
-        }
-      );
+        },
+      )
 
       if (!data) {
         // 请求被取消或组件已卸载
-        return;
+        return
       }
 
       if (data.success && data.task) {
-        const updatedTask = data.task as Task;
-        setTask(updatedTask);
-        setPollCount(prev => prev + 1);
+        const updatedTask = data.task as Task
+        setTask(updatedTask)
+        setPollCount(prev => prev + 1)
 
         // 任务完成或失败时停止轮询
         if (updatedTask.status === 'Completed') {
-          setIsPolling(false);
-          onComplete?.(updatedTask);
+          setIsPolling(false)
+          onComplete?.(updatedTask)
 
           if (autoClose) {
             setTimeout(() => {
-              onClose?.();
-            }, autoCloseDelay);
+              onClose?.()
+            }, autoCloseDelay)
           }
-        } else if (updatedTask.status === 'Failed') {
-          setIsPolling(false);
-          onError?.(updatedTask);
         }
-      } else {
-        throw new Error(data.error || 'Failed to fetch task status');
+        else if (updatedTask.status === 'Failed') {
+          setIsPolling(false)
+          onError?.(updatedTask)
+        }
       }
-    } catch (err) {
+      else {
+        throw new Error(data.error || 'Failed to fetch task status')
+      }
+    }
+    catch (err) {
       // 静默处理取消错误
       if (err instanceof Error && err.message.includes('cancelled')) {
-        return;
+        return
       }
 
-      console.error('Error fetching task status:', err);
-      setError(err instanceof Error ? err.message : 'Unknown error');
-      setIsPolling(false);
+      console.error('Error fetching task status:', err)
+      setError(err instanceof Error ? err.message : 'Unknown error')
+      setIsPolling(false)
     }
-  }, [taskId, onComplete, onError, onClose, autoClose, autoCloseDelay, managedFetch]);
+  }, [taskId, onComplete, onError, onClose, autoClose, autoCloseDelay, managedFetch])
 
   // 智能轮询间隔：根据轮询次数和任务状态动态调整
   const getPollingInterval = useCallback(() => {
-    if (!task) return 1000; // 初始：1秒
+    if (!task)
+      return 1000 // 初始：1秒
 
     // 根据任务状态调整
     if (task.status === 'Processing') {
       // 处理中：根据进度调整频率
-      if (task.progress < 10) return 1000;      // 刚开始：1秒
-      if (task.progress < 50) return 1500;      // 进行中：1.5秒
-      if (task.progress < 90) return 2000;      // 快完成：2秒
-      return 1000;                               // 即将完成：1秒（加快检测）
-    } else if (task.status === 'Pending') {
+      if (task.progress < 10)
+        return 1000 // 刚开始：1秒
+      if (task.progress < 50)
+        return 1500 // 进行中：1.5秒
+      if (task.progress < 90)
+        return 2000 // 快完成：2秒
+      return 1000 // 即将完成：1秒（加快检测）
+    }
+    else if (task.status === 'Pending') {
       // 等待中：逐渐降低频率避免过多请求
-      if (pollCount < 5) return 1000;           // 前5次：1秒
-      if (pollCount < 15) return 2000;          // 6-15次：2秒
-      return 3000;                               // 15次后：3秒
+      if (pollCount < 5)
+        return 1000 // 前5次：1秒
+      if (pollCount < 15)
+        return 2000 // 6-15次：2秒
+      return 3000 // 15次后：3秒
     }
 
-    return 1000; // 默认1秒
-  }, [task, pollCount]);
+    return 1000 // 默认1秒
+  }, [task, pollCount])
 
   useEffect(() => {
     // 立即执行一次
-    fetchTaskStatus();
+    fetchTaskStatus()
 
-    if (!isPolling) return;
+    if (!isPolling)
+      return
 
     // 使用动态间隔轮询
-    const interval = setInterval(fetchTaskStatus, getPollingInterval());
+    const interval = setInterval(fetchTaskStatus, getPollingInterval())
 
-    return () => clearInterval(interval);
-  }, [fetchTaskStatus, isPolling, getPollingInterval]);
+    return () => clearInterval(interval)
+  }, [fetchTaskStatus, isPolling, getPollingInterval])
 
   if (error) {
     return (
@@ -156,7 +167,7 @@ export function TaskStatus({
           )}
         </div>
       </div>
-    );
+    )
   }
 
   if (!task) {
@@ -167,7 +178,7 @@ export function TaskStatus({
           <span className="text-gray-600 dark:text-gray-300">{t.task.loadingInfo}</span>
         </div>
       </div>
-    );
+    )
   }
 
   const statusConfig = {
@@ -199,11 +210,11 @@ export function TaskStatus({
       border: 'border-red-200 dark:border-red-800',
       label: t.task.failed,
     },
-  };
+  }
 
-  const config = statusConfig[task.status];
-  const Icon = config.icon;
-  const shouldAnimate = task.status === 'Pending' || task.status === 'Processing';
+  const config = statusConfig[task.status]
+  const Icon = config.icon
+  const shouldAnimate = task.status === 'Pending' || task.status === 'Processing'
 
   return (
     <div className={`${config.bg} border ${config.border} rounded-lg p-4 transition-all`}>
@@ -216,7 +227,10 @@ export function TaskStatus({
           />
           <div>
             <h3 className="font-medium text-gray-900 dark:text-gray-100">
-              {task.platform} - {config.label}
+              {task.platform}
+              {' '}
+              -
+              {config.label}
             </h3>
             {task.error && (
               <p className="text-sm text-red-600 dark:text-red-400 mt-1">{task.error}</p>
@@ -240,7 +254,10 @@ export function TaskStatus({
         <div className="space-y-1">
           <div className="flex items-center justify-between text-xs text-gray-600 dark:text-gray-400">
             <span>{t.task.progress}</span>
-            <span>{task.progress.toFixed(0)}%</span>
+            <span>
+              {task.progress.toFixed(0)}
+              %
+            </span>
           </div>
           <div className="w-full bg-gray-200 dark:bg-neutral-800 rounded-full h-2 overflow-hidden">
             <div
@@ -253,11 +270,21 @@ export function TaskStatus({
 
       {/* 时间信息 */}
       <div className="mt-3 text-xs text-gray-500 dark:text-gray-400 space-y-1">
-        <div>{t.task.createdTime}: {new Date(task.created_at).toLocaleString(locale)}</div>
+        <div>
+          {t.task.createdTime}
+          :
+          {' '}
+          {new Date(task.created_at).toLocaleString(locale)}
+        </div>
         {task.completed_at && (
-          <div>{t.task.completedTime}: {new Date(task.completed_at).toLocaleString(locale)}</div>
+          <div>
+            {t.task.completedTime}
+            :
+            {' '}
+            {new Date(task.completed_at).toLocaleString(locale)}
+          </div>
         )}
       </div>
     </div>
-  );
+  )
 }

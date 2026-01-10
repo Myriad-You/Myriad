@@ -1,44 +1,41 @@
-import { API_URL } from '../config';
-import { dedupedFetch } from './requestDedup';
-import { 
-  getClientGeoLocation, 
-  getClientIdentifier, 
-  getGeoLocationWithLocalCache,
+import {
   getBrowserGeolocation,
-  type GeoLocationData 
-} from './geoLocation';
+  getClientIdentifier,
+  getGeoLocationWithLocalCache,
+} from './geoLocation'
+import { dedupedFetch } from './requestDedup'
 
 export interface ForecastDay {
-  date: string;
-  maxTemp: number;
-  minTemp: number;
-  weather: string;
-  weatherCode: number;
-  icon: string;
+  date: string
+  maxTemp: number
+  minTemp: number
+  weather: string
+  weatherCode: number
+  icon: string
 }
 
 export interface WeatherData {
-  city: string;
-  weather: string;
-  temperature: string;
-  icon: string;
-  weatherCode: number;
+  city: string
+  weather: string
+  temperature: string
+  icon: string
+  weatherCode: number
   // 扩展信息（用于展开面板）
-  humidity?: number;
-  windSpeed?: number;
-  feelsLike?: number;
-  aqi?: number;
-  forecast?: ForecastDay[];
+  humidity?: number
+  windSpeed?: number
+  feelsLike?: number
+  aqi?: number
+  forecast?: ForecastDay[]
 }
 
 /**
  * 获取天气信息 - 完全重构版（改进缓存策略）
- * 
+ *
  * 缓存策略：
  * 1. IP→地理位置：缓存24小时（位置很少变化）
  * 2. 位置→天气：缓存30分钟（天气会变化）
  * 3. 每个用户根据自己的IP获取对应位置的天气
- * 
+ *
  * 工作流程：
  * 1. 获取客户端IP
  * 2. 检查IP→地理位置缓存（24小时）
@@ -49,27 +46,28 @@ export interface WeatherData {
 export async function getWeatherInfo(): Promise<WeatherData | null> {
   try {
     // 步骤1: 获取客户端IP
-    const clientIP = await getClientIP();
+    const clientIP = await getClientIP()
     if (!clientIP) {
-      return null;
+      return null
     }
 
     // 步骤2: 获取地理位置（带缓存）
-    const location = await getGeolocationWithCache(clientIP);
+    const location = await getGeolocationWithCache(clientIP)
     if (!location) {
-      return null;
+      return null
     }
 
     // 步骤3: 获取天气数据（带缓存）
-    const weatherData = await getWeatherDataWithCache(location);
+    const weatherData = await getWeatherDataWithCache(location)
     if (!weatherData) {
-      return null;
+      return null
     }
 
-    return weatherData;
-  } catch (error) {
-    console.warn('[天气] 获取失败:', error);
-    return null;
+    return weatherData
+  }
+  catch (error) {
+    console.warn('[天气] 获取失败:', error)
+    return null
   }
 }
 
@@ -78,57 +76,57 @@ export async function getWeatherInfo(): Promise<WeatherData | null> {
  * 使用统一的地理位置服务
  */
 async function getClientIP(): Promise<string | null> {
-  return getClientIdentifier();
+  return getClientIdentifier()
 }
 
 /**
  * 获取地理位置（带IP缓存）
  * 使用统一的地理位置服务
  */
-async function getGeolocationWithCache(clientIP: string): Promise<{ latitude: number; longitude: number; city: string } | null> {
-  const location = await getGeoLocationWithLocalCache(clientIP);
-  
+async function getGeolocationWithCache(clientIP: string): Promise<{ latitude: number, longitude: number, city: string } | null> {
+  const location = await getGeoLocationWithLocalCache(clientIP)
+
   if (location) {
     return {
       latitude: location.latitude,
       longitude: location.longitude,
-      city: location.city
-    };
+      city: location.city,
+    }
   }
-  
+
   // 最后尝试浏览器地理位置 API
-  const browserLocation = await getBrowserGeolocation();
+  const browserLocation = await getBrowserGeolocation()
   if (browserLocation) {
     return {
       latitude: browserLocation.latitude,
       longitude: browserLocation.longitude,
-      city: browserLocation.city
-    };
+      city: browserLocation.city,
+    }
   }
-  
-  return null;
+
+  return null
 }
 
 /**
  * 获取天气数据（带位置缓存）
  * 位置→天气的映射缓存30分钟
  */
-async function getWeatherDataWithCache(location: { latitude: number; longitude: number; city: string }): Promise<WeatherData | null> {
+async function getWeatherDataWithCache(location: { latitude: number, longitude: number, city: string }): Promise<WeatherData | null> {
   // 使用经纬度作为缓存key（精确到小数点后2位）
-  const locationKey = `${location.latitude.toFixed(2)},${location.longitude.toFixed(2)}`;
-  const cacheKey = `weather_data_${locationKey}`;
-  const cacheTimeKey = `weather_time_${locationKey}`;
+  const locationKey = `${location.latitude.toFixed(2)},${location.longitude.toFixed(2)}`
+  const cacheKey = `weather_data_${locationKey}`
+  const cacheTimeKey = `weather_time_${locationKey}`
 
   // 检查缓存
-  const cached = localStorage.getItem(cacheKey);
-  const cacheTime = localStorage.getItem(cacheTimeKey);
+  const cached = localStorage.getItem(cacheKey)
+  const cacheTime = localStorage.getItem(cacheTimeKey)
 
   // 启用缓存（30分钟）
   if (cached && cacheTime) {
-    const cacheAge = Date.now() - parseInt(cacheTime);
+    const cacheAge = Date.now() - Number.parseInt(cacheTime)
     // 天气数据缓存30分钟（天气会变化）
     if (cacheAge < 30 * 60 * 1000) {
-      return JSON.parse(cached);
+      return JSON.parse(cached)
     }
   }
 
@@ -136,38 +134,40 @@ async function getWeatherDataWithCache(location: { latitude: number; longitude: 
 
   try {
     // 使用去重机制获取天气和空气质量数据，避免并发重复请求
-    const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${location.latitude}&longitude=${location.longitude}&current=temperature_2m,weather_code,relative_humidity_2m,apparent_temperature,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto`;
-    const aqiUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${location.latitude}&longitude=${location.longitude}&current=us_aqi`;
+    const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${location.latitude}&longitude=${location.longitude}&current=temperature_2m,weather_code,relative_humidity_2m,apparent_temperature,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto`
+    const aqiUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${location.latitude}&longitude=${location.longitude}&current=us_aqi`
 
     const [weatherData, aqiData] = await Promise.all([
       dedupedFetch(weatherUrl, async () => {
-        const response = await fetch(weatherUrl, { signal: AbortSignal.timeout(10000) });
-        if (!response.ok) throw new Error('Weather fetch failed');
-        return response.json();
+        const response = await fetch(weatherUrl, { signal: AbortSignal.timeout(10000) })
+        if (!response.ok)
+          throw new Error('Weather fetch failed')
+        return response.json()
       }, { cacheTTL: 30 * 60 * 1000 }), // 30分钟缓存
-      
-      dedupedFetch(aqiUrl, async () => {
-        const response = await fetch(aqiUrl, { signal: AbortSignal.timeout(10000) });
-        if (!response.ok) return null;
-        return response.json();
-      }, { cacheTTL: 30 * 60 * 1000 }).catch(() => null) // AQI 失败不影响天气
-    ]);
 
-    const current = weatherData.current;
-    const daily = weatherData.daily;
+      dedupedFetch(aqiUrl, async () => {
+        const response = await fetch(aqiUrl, { signal: AbortSignal.timeout(10000) })
+        if (!response.ok)
+          return null
+        return response.json()
+      }, { cacheTTL: 30 * 60 * 1000 }).catch(() => null), // AQI 失败不影响天气
+    ])
+
+    const current = weatherData.current
+    const daily = weatherData.daily
 
     // 处理 AQI 数据
-    let aqi = undefined;
+    let aqi
     if (aqiData && aqiData.current && aqiData.current.us_aqi) {
-      aqi = aqiData.current.us_aqi;
+      aqi = aqiData.current.us_aqi
     }
 
     if (!current) {
-      return null;
+      return null
     }
 
     // 处理预报数据
-    const forecast: ForecastDay[] = [];
+    const forecast: ForecastDay[] = []
     if (daily && daily.time && daily.time.length > 0) {
       // 获取未来3天的数据 (跳过今天)
       for (let i = 1; i < Math.min(daily.time.length, 4); i++) {
@@ -177,8 +177,8 @@ async function getWeatherDataWithCache(location: { latitude: number; longitude: 
           minTemp: Math.round(daily.temperature_2m_min[i]),
           weather: getWeatherTextFromWMO(daily.weather_code[i]),
           weatherCode: daily.weather_code[i],
-          icon: getWeatherIconFromWMO(daily.weather_code[i])
-        });
+          icon: getWeatherIconFromWMO(daily.weather_code[i]),
+        })
       }
     }
 
@@ -191,18 +191,19 @@ async function getWeatherDataWithCache(location: { latitude: number; longitude: 
       humidity: current.relative_humidity_2m,
       windSpeed: current.wind_speed_10m,
       feelsLike: Math.round(current.apparent_temperature),
-      aqi: aqi,
-      forecast: forecast
-    };
+      aqi,
+      forecast,
+    }
 
     // 缓存结果
-    localStorage.setItem(cacheKey, JSON.stringify(result));
-    localStorage.setItem(cacheTimeKey, Date.now().toString());
+    localStorage.setItem(cacheKey, JSON.stringify(result))
+    localStorage.setItem(cacheTimeKey, Date.now().toString())
 
-    return result;
-  } catch (error) {
-    console.warn('[天气数据] 获取失败:', error);
-    return null;
+    return result
+  }
+  catch (error) {
+    console.warn('[天气数据] 获取失败:', error)
+    return null
   }
 }
 
@@ -239,10 +240,10 @@ function getWeatherTextFromWMO(code: number): string {
     86: '暴雪',
     95: '雷暴',
     96: '雷暴',
-    99: '雷暴'
-  };
+    99: '雷暴',
+  }
 
-  return weatherMap[code] || '未知';
+  return weatherMap[code] || '未知'
 }
 
 /**
@@ -277,8 +278,8 @@ function getWeatherIconFromWMO(code: number): string {
     86: '❄️',
     95: '⛈️',
     96: '⛈️',
-    99: '⛈️'
-  };
+    99: '⛈️',
+  }
 
-  return iconMap[code] || '🌤️';
+  return iconMap[code] || '🌤️'
 }

@@ -2,9 +2,9 @@
  * 下拉选择设置项组件
  */
 
-import React, { useCallback } from 'react';
-import type { SelectSettingConfig } from '../types';
-import './SettingItem.css';
+import type { SelectSettingConfig } from '../types'
+import React, { useCallback } from 'react'
+import './SettingItem.css'
 
 export interface SelectItemProps<T = string> extends Omit<SelectSettingConfig<T>, 'type'> {}
 
@@ -26,14 +26,14 @@ function SelectItemComponent<T extends string = string>({
 }: SelectItemProps<T>) {
   const handleChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
     if (!disabled && !loading) {
-      onChange(e.target.value as T);
+      onChange(e.target.value as T)
     }
-  }, [onChange, disabled, loading]);
+  }, [onChange, disabled, loading])
 
-  const id = `setting-select-${itemKey || label.replace(/\s+/g, '-').toLowerCase()}`;
+  const id = `setting-select-${itemKey || label.replace(/\s+/g, '-').toLowerCase()}`
 
   return (
-    <div 
+    <div
       className={`setting-item setting-item-select setting-${layout} setting-${size} ${className} ${disabled ? 'disabled' : ''}`}
     >
       <label htmlFor={id} className="setting-label">
@@ -45,7 +45,7 @@ function SelectItemComponent<T extends string = string>({
           <span className="setting-description">{description}</span>
         )}
       </label>
-      
+
       <div className="setting-control">
         <select
           id={id}
@@ -54,9 +54,9 @@ function SelectItemComponent<T extends string = string>({
           disabled={disabled || loading}
           className={`field-select ${error ? 'has-error' : ''}`}
         >
-          {options.map((option) => (
-            <option 
-              key={String(option.value)} 
+          {options.map(option => (
+            <option
+              key={String(option.value)}
               value={option.value as string}
               disabled={option.disabled}
             >
@@ -68,7 +68,7 @@ function SelectItemComponent<T extends string = string>({
         {hint && !error && <p className="setting-hint">{hint}</p>}
       </div>
     </div>
-  );
+  )
 }
 
-export const SelectItem = React.memo(SelectItemComponent) as typeof SelectItemComponent;
+export const SelectItem = React.memo(SelectItemComponent) as typeof SelectItemComponent

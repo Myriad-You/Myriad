@@ -1,44 +1,45 @@
 /**
  * Framer Motion 动画优化工具
- * 
+ *
  * 提供按需动画、视口检测、性能优化等功能
  */
 
-import { useMemo } from 'react';
-import type { Transition, TargetAndTransition } from 'framer-motion';
-import { useAnimationLevel, AnimationConfig } from './useAnimationLevel';
+import type { TargetAndTransition, Transition } from 'framer-motion'
+import type { AnimationConfig } from './useAnimationLevel'
+import { useMemo } from 'react'
+import { useAnimationLevel } from './useAnimationLevel'
 
 /**
  * 根据性能等级返回优化后的过渡配置
  */
 export function useOptimizedTransition(
-  baseTransition: Transition = {}
+  baseTransition: Transition = {},
 ): Transition {
-  const { level, durationScale } = useAnimationLevel();
-  
+  const { level, durationScale } = useAnimationLevel()
+
   return useMemo(() => {
     if (level === 'none') {
-      return { duration: 0 };
+      return { duration: 0 }
     }
-    
+
     const duration = typeof baseTransition.duration === 'number'
       ? baseTransition.duration * durationScale
-      : undefined;
-    
+      : undefined
+
     // 低端设备禁用弹簧动画
     if (level === 'light' && baseTransition.type === 'spring') {
       return {
         ...baseTransition,
         type: 'tween',
         duration: duration ?? 0.2,
-      };
+      }
     }
-    
+
     return {
       ...baseTransition,
       duration,
-    };
-  }, [baseTransition, level, durationScale]);
+    }
+  }, [baseTransition, level, durationScale])
 }
 
 /**
@@ -48,16 +49,16 @@ export function useOptimizedTransition(
 export function useConditionalAnimate(
   shouldAnimate: boolean,
   animate: TargetAndTransition,
-  fallback: TargetAndTransition = {}
+  fallback: TargetAndTransition = {},
 ): TargetAndTransition {
-  const { level } = useAnimationLevel();
-  
+  const { level } = useAnimationLevel()
+
   return useMemo(() => {
     if (level === 'none') {
-      return fallback;
+      return fallback
     }
-    return shouldAnimate ? animate : fallback;
-  }, [shouldAnimate, animate, fallback, level]);
+    return shouldAnimate ? animate : fallback
+  }, [shouldAnimate, animate, fallback, level])
 }
 
 /**
@@ -66,10 +67,10 @@ export function useConditionalAnimate(
  */
 export function useLoopAnimation(
   animation: TargetAndTransition,
-  transition: Transition & { repeat?: number }
-): { animate: TargetAndTransition; transition: Transition } {
-  const { loop, durationScale } = useAnimationLevel();
-  
+  transition: Transition & { repeat?: number },
+): { animate: TargetAndTransition, transition: Transition } {
+  const { loop, durationScale } = useAnimationLevel()
+
   return useMemo(() => {
     if (!loop) {
       // 禁用循环，执行一次后停止
@@ -82,24 +83,24 @@ export function useLoopAnimation(
             ? transition.duration * durationScale
             : undefined,
         },
-      };
+      }
     }
-    
-    return { animate: animation, transition };
-  }, [animation, transition, loop, durationScale]);
+
+    return { animate: animation, transition }
+  }, [animation, transition, loop, durationScale])
 }
 
 /**
  * 静态动画配置 - 禁用所有动画
  */
-export const STATIC_ANIMATE: TargetAndTransition = {};
-export const STATIC_TRANSITION: Transition = { duration: 0 };
+export const STATIC_ANIMATE: TargetAndTransition = {}
+export const STATIC_TRANSITION: Transition = { duration: 0 }
 
 /**
  * 快速淡入配置
  */
-export const FADE_IN_FAST: TargetAndTransition = { opacity: 1 };
-export const FADE_IN_FAST_TRANSITION: Transition = { duration: 0.15 };
+export const FADE_IN_FAST: TargetAndTransition = { opacity: 1 }
+export const FADE_IN_FAST_TRANSITION: Transition = { duration: 0.15 }
 
 /**
  * 获取动画配置的工具函数
@@ -116,5 +117,5 @@ export function getAnimationConfig(config: AnimationConfig) {
     isDisabled: config.level === 'none',
     /** 是否为低端设备 */
     isLowEnd: config.level === 'light',
-  };
+  }
 }

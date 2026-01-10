@@ -4,7 +4,9 @@
 
 .setup-retry-button {
   background-color: var(--color-dark);
-  transition: background-color 0.2s ease, transform 0.15s ease;
+  transition:
+    background-color 0.2s ease,
+    transform 0.15s ease;
   will-change: transform;
 }
 
@@ -19,7 +21,9 @@
 
 .setup-complete-link {
   background-color: var(--color-dark);
-  transition: background-color 0.2s ease, transform 0.15s ease;
+  transition:
+    background-color 0.2s ease,
+    transform 0.15s ease;
   will-change: transform;
 }
 
@@ -76,7 +80,9 @@ html.dark .setup-admin-icon-wrapper {
 
 .setup-save-button {
   background-color: var(--color-primary);
-  transition: background-color 0.2s ease, transform 0.15s ease;
+  transition:
+    background-color 0.2s ease,
+    transform 0.15s ease;
   will-change: transform;
 }
 
@@ -91,7 +97,9 @@ html.dark .setup-admin-icon-wrapper {
 
 .setup-migrate-button {
   background-color: var(--color-primary);
-  transition: background-color 0.2s ease, transform 0.15s ease;
+  transition:
+    background-color 0.2s ease,
+    transform 0.15s ease;
   will-change: transform;
 }
 
@@ -106,7 +114,9 @@ html.dark .setup-admin-icon-wrapper {
 
 .setup-create-admin-button {
   background-color: var(--color-dark);
-  transition: background-color 0.2s ease, transform 0.15s ease;
+  transition:
+    background-color 0.2s ease,
+    transform 0.15s ease;
   will-change: transform;
 }
 

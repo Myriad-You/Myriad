@@ -3,17 +3,13 @@
  */
 
 export {
-  registerLifecycleHandlers,
-  registerUIHandlers,
-  registerStorageHandlers,
-  registerUserHandlers,
-  registerFileHandlers,
-} from './baseHandlers'
-
-export {
-  registerWidgetHandlers,
-  registerPlatformHandlers,
-} from './platformHandlers'
+  registerAdvancedHandlers,
+  registerAnimationHandlers,
+  registerBackgroundHandlers,
+  registerContextHandlers,
+  registerDynamicContentHandlers,
+  registerMediaHandlers,
+} from './advancedHandlers'
 
 export {
   registerAIHandlers,
@@ -21,10 +17,14 @@ export {
 } from './aiHandlers'
 
 export {
-  registerMediaHandlers,
-  registerBackgroundHandlers,
-  registerAnimationHandlers,
-  registerDynamicContentHandlers,
-  registerAdvancedHandlers,
-  registerContextHandlers,
-} from './advancedHandlers'
+  registerFileHandlers,
+  registerLifecycleHandlers,
+  registerStorageHandlers,
+  registerUIHandlers,
+  registerUserHandlers,
+} from './baseHandlers'
+
+export {
+  registerPlatformHandlers,
+  registerWidgetHandlers,
+} from './platformHandlers'

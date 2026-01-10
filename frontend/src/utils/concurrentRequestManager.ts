@@ -8,22 +8,22 @@
  */
 
 interface QueuedRequest {
-  key: string;
-  fetcher: () => Promise<any>;
-  controller: AbortController;
-  priority: number;
-  resolve: (value: any) => void;
-  reject: (reason: any) => void;
+  key: string
+  fetcher: () => Promise<any>
+  controller: AbortController
+  priority: number
+  resolve: (value: any) => void
+  reject: (reason: any) => void
 }
 
 class ConcurrentRequestManager {
-  private activeRequests: Map<string, AbortController> = new Map();
-  private requestQueue: QueuedRequest[] = [];
-  private maxConcurrent: number;
-  private currentCount: number = 0;
+  private activeRequests: Map<string, AbortController> = new Map()
+  private requestQueue: QueuedRequest[] = []
+  private maxConcurrent: number
+  private currentCount: number = 0
 
   constructor(maxConcurrent: number = 6) {
-    this.maxConcurrent = maxConcurrent;
+    this.maxConcurrent = maxConcurrent
   }
 
   /**
@@ -37,23 +37,23 @@ class ConcurrentRequestManager {
     key: string,
     fetcher: (signal: AbortSignal) => Promise<T>,
     priority: number = 0,
-    timeout?: number
+    timeout?: number,
   ): Promise<T> {
     // 如果已有相同请求正在进行，取消旧请求
     if (this.activeRequests.has(key)) {
-      this.cancelRequest(key);
+      this.cancelRequest(key)
     }
 
-    const controller = new AbortController();
+    const controller = new AbortController()
 
     // 设置超时
     if (timeout) {
       setTimeout(() => {
         if (this.activeRequests.has(key)) {
-          controller.abort();
-          this.activeRequests.delete(key);
+          controller.abort()
+          this.activeRequests.delete(key)
         }
-      }, timeout);
+      }, timeout)
     }
 
     return new Promise<T>((resolve, reject) => {
@@ -64,39 +64,43 @@ class ConcurrentRequestManager {
         priority,
         resolve,
         reject,
-      };
+      }
 
       // 如果达到并发限制，加入队列
       if (this.currentCount >= this.maxConcurrent) {
-        this.requestQueue.push(request);
+        this.requestQueue.push(request)
         // 按优先级排序（高优先级在前）
-        this.requestQueue.sort((a, b) => b.priority - a.priority);
-      } else {
-        this.executeRequest(request);
+        this.requestQueue.sort((a, b) => b.priority - a.priority)
       }
-    });
+      else {
+        this.executeRequest(request)
+      }
+    })
   }
 
   /**
    * 执行单个请求
    */
   private async executeRequest(request: QueuedRequest) {
-    this.currentCount++;
-    this.activeRequests.set(request.key, request.controller);
+    this.currentCount++
+    this.activeRequests.set(request.key, request.controller)
 
     try {
-      const result = await request.fetcher();
-      request.resolve(result);
-    } catch (error) {
+      const result = await request.fetcher()
+      request.resolve(result)
+    }
+    catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        request.reject(new Error('Request was cancelled'));
-      } else {
-        request.reject(error);
+        request.reject(new Error('Request was cancelled'))
       }
-    } finally {
-      this.activeRequests.delete(request.key);
-      this.currentCount--;
-      this.processQueue();
+      else {
+        request.reject(error)
+      }
+    }
+    finally {
+      this.activeRequests.delete(request.key)
+      this.currentCount--
+      this.processQueue()
     }
   }
 
@@ -105,9 +109,9 @@ class ConcurrentRequestManager {
    */
   private processQueue() {
     if (this.requestQueue.length > 0 && this.currentCount < this.maxConcurrent) {
-      const nextRequest = this.requestQueue.shift();
+      const nextRequest = this.requestQueue.shift()
       if (nextRequest) {
-        this.executeRequest(nextRequest);
+        this.executeRequest(nextRequest)
       }
     }
   }
@@ -116,14 +120,14 @@ class ConcurrentRequestManager {
    * 取消指定请求
    */
   cancelRequest(key: string): void {
-    const controller = this.activeRequests.get(key);
+    const controller = this.activeRequests.get(key)
     if (controller) {
-      controller.abort();
-      this.activeRequests.delete(key);
+      controller.abort()
+      this.activeRequests.delete(key)
     }
 
     // 同时从队列中移除
-    this.requestQueue = this.requestQueue.filter(req => req.key !== key);
+    this.requestQueue = this.requestQueue.filter(req => req.key !== key)
   }
 
   /**
@@ -132,13 +136,13 @@ class ConcurrentRequestManager {
   cancelAll(): void {
     // 取消所有活动请求
     for (const [key, controller] of this.activeRequests) {
-      controller.abort();
+      controller.abort()
     }
-    this.activeRequests.clear();
+    this.activeRequests.clear()
 
     // 清空队列
-    this.requestQueue = [];
-    this.currentCount = 0;
+    this.requestQueue = []
+    this.currentCount = 0
   }
 
   /**
@@ -149,12 +153,12 @@ class ConcurrentRequestManager {
       active: this.currentCount,
       queued: this.requestQueue.length,
       maxConcurrent: this.maxConcurrent,
-    };
+    }
   }
 }
 
 // 创建全局实例
-export const requestManager = new ConcurrentRequestManager(6);
+export const requestManager = new ConcurrentRequestManager(6)
 
 /**
  * 简化的fetch封装（自动处理AbortSignal）
@@ -163,14 +167,14 @@ export async function managedFetch<T = any>(
   url: string,
   options: RequestInit = {},
   config: {
-    key?: string;
-    priority?: number;
-    timeout?: number;
-  } = {}
+    key?: string
+    priority?: number
+    timeout?: number
+  } = {},
 ): Promise<T> {
-  const key = config.key || url;
-  const priority = config.priority || 0;
-  const timeout = config.timeout;
+  const key = config.key || url
+  const priority = config.priority || 0
+  const timeout = config.timeout
 
   return requestManager.fetch(
     key,
@@ -178,32 +182,32 @@ export async function managedFetch<T = any>(
       const response = await fetch(url, {
         ...options,
         signal,
-      });
+      })
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
       }
 
-      return response.json();
+      return response.json()
     },
     priority,
-    timeout
-  );
+    timeout,
+  )
 }
 
 /**
  * Hook：在组件卸载时自动取消请求
  */
 export function useCancelOnUnmount() {
-  const requestKeys: string[] = [];
+  const requestKeys: string[] = []
 
   const registerRequest = (key: string) => {
-    requestKeys.push(key);
-  };
+    requestKeys.push(key)
+  }
 
   const cleanup = () => {
-    requestKeys.forEach(key => requestManager.cancelRequest(key));
-  };
+    requestKeys.forEach(key => requestManager.cancelRequest(key))
+  }
 
-  return { registerRequest, cleanup };
+  return { registerRequest, cleanup }
 }

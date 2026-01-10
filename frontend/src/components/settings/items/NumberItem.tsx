@@ -2,9 +2,9 @@
  * 数字输入设置项组件
  */
 
-import React, { useCallback } from 'react';
-import type { NumberSettingConfig } from '../types';
-import './SettingItem.css';
+import type { NumberSettingConfig } from '../types'
+import React, { useCallback } from 'react'
+import './SettingItem.css'
 
 export interface NumberItemProps extends Omit<NumberSettingConfig, 'type'> {}
 
@@ -29,16 +29,16 @@ export const NumberItem = React.memo<NumberItemProps>(({
 }) => {
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     if (!disabled && !loading) {
-      const numValue = parseFloat(e.target.value) || 0;
-      onChange(numValue);
+      const numValue = Number.parseFloat(e.target.value) || 0
+      onChange(numValue)
     }
-  }, [onChange, disabled, loading]);
+  }, [onChange, disabled, loading])
 
-  const id = `setting-number-${itemKey || label.replace(/\s+/g, '-').toLowerCase()}`;
-  const inputName = `myriad-number-${itemKey || label.replace(/\s+/g, '-').toLowerCase()}`;
+  const id = `setting-number-${itemKey || label.replace(/\s+/g, '-').toLowerCase()}`
+  const inputName = `myriad-number-${itemKey || label.replace(/\s+/g, '-').toLowerCase()}`
 
   return (
-    <div 
+    <div
       className={`setting-item setting-item-number setting-${layout} setting-${size} ${className} ${disabled ? 'disabled' : ''}`}
     >
       <div className="setting-item-content">
@@ -51,7 +51,7 @@ export const NumberItem = React.memo<NumberItemProps>(({
             <span className="setting-description">{description}</span>
           )}
         </label>
-        
+
         <div className="setting-control">
           <div className="number-input-wrapper">
             <input
@@ -78,7 +78,7 @@ export const NumberItem = React.memo<NumberItemProps>(({
       {error && <p className="setting-error">{error}</p>}
       {hint && !error && <p className="setting-hint">{hint}</p>}
     </div>
-  );
-});
+  )
+})
 
-NumberItem.displayName = 'NumberItem';
+NumberItem.displayName = 'NumberItem'

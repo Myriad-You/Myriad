@@ -1,51 +1,51 @@
 /**
  * Brew 侧边栏组件
  * 显示订阅源列表、分类、筛选器
- * 
+ *
  * 性能优化：
  * - useMemo 缓存分类计算
  * - useCallback 缓存回调函数
  * - memo 避免不必要的重渲染
  */
 
-import { useState, useMemo, useCallback, memo } from 'react';
+import type { BrewSource, BrewStats } from '../../types/brew'
 import {
-  LuRss as Rss,
-  LuStar as Star,
-  LuInbox as Inbox,
   LuChevronLeft as ChevronLeft,
   LuChevronRight as ChevronRight,
-  LuPlus as Plus,
-  LuRefreshCw as RefreshCw,
-  LuTrash2 as Trash2,
-  LuMoreHorizontal as MoreHorizontal,
+  LuFileText as FileText,
   LuFolder as Folder,
   LuGlobe as Globe,
-  LuFileText as FileText,
+  LuInbox as Inbox,
   LuKeyboard as Keyboard,
-} from '@lib/icons';
-import type { BrewSource, BrewStats } from '../../types/brew';
-import { useI18n } from '../../contexts/I18nContext';
+  LuMoreHorizontal as MoreHorizontal,
+  LuPlus as Plus,
+  LuRefreshCw as RefreshCw,
+  LuRss as Rss,
+  LuStar as Star,
+  LuTrash2 as Trash2,
+} from '@lib/icons'
+import { memo, useCallback, useMemo, useState } from 'react'
+import { useI18n } from '../../contexts/I18nContext'
 
 interface BrewSidebarProps {
-  sources: BrewSource[];
-  stats: BrewStats | null;
-  selectedSourceId: number | null;
-  selectedCategory: string | null;
-  filter: 'all' | 'unread' | 'starred';
-  collapsed: boolean;
-  onSourceSelect: (sourceId: number | null) => void;
-  onCategorySelect: (category: string | null) => void;
-  onFilterChange: (filter: 'all' | 'unread' | 'starred') => void;
-  onAddSource: () => void;
-  onDeleteSource: (sourceId: number) => void;
-  onRefreshSource: (sourceId: number) => void;
-  onToggleCollapse: () => void;
-  onOpenOpml: () => void;
-  onShowKeyboardHelp: () => void;
+  sources: BrewSource[]
+  stats: BrewStats | null
+  selectedSourceId: number | null
+  selectedCategory: string | null
+  filter: 'all' | 'unread' | 'starred'
+  collapsed: boolean
+  onSourceSelect: (sourceId: number | null) => void
+  onCategorySelect: (category: string | null) => void
+  onFilterChange: (filter: 'all' | 'unread' | 'starred') => void
+  onAddSource: () => void
+  onDeleteSource: (sourceId: number) => void
+  onRefreshSource: (sourceId: number) => void
+  onToggleCollapse: () => void
+  onOpenOpml: () => void
+  onShowKeyboardHelp: () => void
 }
 
-export default memo(function BrewSidebar({
+export default memo(({
   sources,
   stats,
   selectedSourceId,
@@ -61,42 +61,45 @@ export default memo(function BrewSidebar({
   onToggleCollapse,
   onOpenOpml,
   onShowKeyboardHelp,
-}: BrewSidebarProps) {
-  const { t } = useI18n();
-  const [contextMenu, setContextMenu] = useState<{ sourceId: number; x: number; y: number } | null>(null);
+}: BrewSidebarProps) => {
+  const { t } = useI18n()
+  const [contextMenu, setContextMenu] = useState<{ sourceId: number, x: number, y: number } | null>(null)
 
   // 获取分类列表 - 支持多分类（逗号分隔）- useMemo 缓存
   const categories = useMemo(() => [...new Set(
     sources
       .filter(s => s.category)
-      .flatMap(s => s.category!.split(',').map(c => c.trim()).filter(Boolean))
-  )], [sources]);
+      .flatMap(s => s.category!.split(',').map(c => c.trim()).filter(Boolean)),
+  )], [sources])
 
   // 按分类分组订阅源 - 支持多分类（一个源可能出现在多个分类下）- useMemo 缓存
   const sourcesByCategory = useMemo(() => sources.reduce((acc, source) => {
     if (source.category) {
-      const cats = source.category.split(',').map(c => c.trim()).filter(Boolean);
-      cats.forEach(cat => {
-        if (!acc[cat]) acc[cat] = [];
+      const cats = source.category.split(',').map(c => c.trim()).filter(Boolean)
+      cats.forEach((cat) => {
+        if (!acc[cat])
+          acc[cat] = []
         if (!acc[cat].find(s => s.id === source.id)) {
-          acc[cat].push(source);
+          acc[cat].push(source)
         }
-      });
-    } else {
-      if (!acc[t.brew.uncategorized]) acc[t.brew.uncategorized] = [];
-      acc[t.brew.uncategorized].push(source);
+      })
     }
-    return acc;
-  }, {} as Record<string, BrewSource[]>), [sources]);
+    else {
+      if (!acc[t.brew.uncategorized])
+        acc[t.brew.uncategorized] = []
+      acc[t.brew.uncategorized].push(source)
+    }
+    return acc
+  }, {} as Record<string, BrewSource[]>), [sources])
 
   // 处理右键菜单 - useCallback 缓存
   const handleContextMenu = useCallback((e: React.MouseEvent, sourceId: number) => {
-    e.preventDefault();
-    setContextMenu({ sourceId, x: e.clientX, y: e.clientY });
-  }, []);
+    e.preventDefault()
+    setContextMenu({ sourceId, x: e.clientX, y: e.clientY })
+  }, [])
 
   // 关闭右键菜单 - useCallback 缓存
-  const closeContextMenu = useCallback(() => setContextMenu(null), []);
+  const closeContextMenu = useCallback(() => setContextMenu(null), [])
 
   if (collapsed) {
     return (
@@ -108,10 +111,10 @@ export default memo(function BrewSidebar({
         >
           <ChevronRight className="w-5 h-5 text-gray-400" />
         </button>
-        
+
         <div className="flex flex-col gap-2">
           <button
-            onClick={() => { onSourceSelect(null); onCategorySelect(null); onFilterChange('all'); }}
+            onClick={() => { onSourceSelect(null); onCategorySelect(null); onFilterChange('all') }}
             className={`p-3 rounded-lg transition-all duration-200 ease-out ${
               filter === 'all' && !selectedSourceId && !selectedCategory
                 ? 'bg-blue-500/20 text-blue-400'
@@ -121,7 +124,7 @@ export default memo(function BrewSidebar({
           >
             <Inbox className="w-5 h-5" />
           </button>
-          
+
           <button
             onClick={() => onFilterChange('unread')}
             className={`p-3 rounded-lg transition-all duration-200 ease-out ${
@@ -131,7 +134,7 @@ export default memo(function BrewSidebar({
           >
             <Rss className="w-5 h-5" />
           </button>
-          
+
           <button
             onClick={() => onFilterChange('starred')}
             className={`p-3 rounded-lg transition-all duration-200 ease-out ${
@@ -142,7 +145,7 @@ export default memo(function BrewSidebar({
             <Star className="w-5 h-5" />
           </button>
         </div>
-        
+
         <div className="mt-auto">
           <button
             onClick={onAddSource}
@@ -153,7 +156,7 @@ export default memo(function BrewSidebar({
           </button>
         </div>
       </aside>
-    );
+    )
   }
 
   return (
@@ -187,7 +190,7 @@ export default memo(function BrewSidebar({
         {/* 快捷筛选 */}
         <div className="p-2 border-b border-white/10">
           <button
-            onClick={() => { onSourceSelect(null); onCategorySelect(null); onFilterChange('all'); }}
+            onClick={() => { onSourceSelect(null); onCategorySelect(null); onFilterChange('all') }}
             className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${
               filter === 'all' && !selectedSourceId && !selectedCategory
                 ? 'bg-blue-500/20 text-blue-400'
@@ -198,9 +201,9 @@ export default memo(function BrewSidebar({
             <span>{t.brew.allArticles}</span>
             <span className="ml-auto text-xs opacity-60">{stats?.total_items || 0}</span>
           </button>
-          
+
           <button
-            onClick={() => { onSourceSelect(null); onCategorySelect(null); onFilterChange('unread'); }}
+            onClick={() => { onSourceSelect(null); onCategorySelect(null); onFilterChange('unread') }}
             className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 ease-out ${
               filter === 'unread' && !selectedSourceId && !selectedCategory
                 ? 'bg-blue-500/20 text-blue-400'
@@ -211,9 +214,9 @@ export default memo(function BrewSidebar({
             <span>{t.brew.unread}</span>
             <span className="ml-auto text-xs opacity-60">{stats?.total_unread || 0}</span>
           </button>
-          
+
           <button
-            onClick={() => { onSourceSelect(null); onCategorySelect(null); onFilterChange('starred'); }}
+            onClick={() => { onSourceSelect(null); onCategorySelect(null); onFilterChange('starred') }}
             className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 ease-out ${
               filter === 'starred' && !selectedSourceId && !selectedCategory
                 ? 'bg-yellow-500/20 text-yellow-400'
@@ -243,32 +246,34 @@ export default memo(function BrewSidebar({
                 {category}
                 <span className="ml-auto">{catSources.length}</span>
               </button>
-              
+
               {/* 订阅源 */}
               <div className="mt-1 space-y-0.5">
                 {catSources.map(source => (
                   <button
                     key={source.id}
                     onClick={() => onSourceSelect(source.id)}
-                    onContextMenu={(e) => handleContextMenu(e, source.id)}
+                    onContextMenu={e => handleContextMenu(e, source.id)}
                     className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg transition-all duration-200 ease-out group ${
                       selectedSourceId === source.id
                         ? 'bg-blue-500/20 text-blue-400'
                         : 'hover:bg-white/5 text-gray-300'
                     }`}
                   >
-                    {source.icon ? (
-                      <img
-                        src={source.icon}
-                        alt=""
-                        className="w-4 h-4 rounded object-cover"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).style.display = 'none';
-                        }}
-                      />
-                    ) : (
-                      <Globe className="w-4 h-4 text-gray-500" />
-                    )}
+                    {source.icon
+                      ? (
+                          <img
+                            src={source.icon}
+                            alt=""
+                            className="w-4 h-4 rounded object-cover"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = 'none'
+                            }}
+                          />
+                        )
+                      : (
+                          <Globe className="w-4 h-4 text-gray-500" />
+                        )}
                     <span className="flex-1 truncate text-sm text-left">{source.name}</span>
                     {source.unread_count > 0 && (
                       <span className="px-1.5 py-0.5 text-xs bg-blue-500/30 text-blue-300 rounded">
@@ -277,8 +282,8 @@ export default memo(function BrewSidebar({
                     )}
                     <button
                       onClick={(e) => {
-                        e.stopPropagation();
-                        handleContextMenu(e, source.id);
+                        e.stopPropagation()
+                        handleContextMenu(e, source.id)
                       }}
                       className="opacity-0 group-hover:opacity-100 p-1 hover:bg-white/10 rounded transition-all"
                       aria-label={t.brew.moreOptions}
@@ -314,7 +319,7 @@ export default memo(function BrewSidebar({
             <Plus className="w-4 h-4" />
             <span>{t.brew.addSubscription}</span>
           </button>
-          
+
           <div className="flex gap-2">
             <button
               onClick={onOpenOpml}
@@ -349,8 +354,8 @@ export default memo(function BrewSidebar({
           >
             <button
               onClick={() => {
-                onRefreshSource(contextMenu.sourceId);
-                closeContextMenu();
+                onRefreshSource(contextMenu.sourceId)
+                closeContextMenu()
               }}
               className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-300 hover:bg-white/10"
             >
@@ -359,8 +364,8 @@ export default memo(function BrewSidebar({
             </button>
             <button
               onClick={() => {
-                onDeleteSource(contextMenu.sourceId);
-                closeContextMenu();
+                onDeleteSource(contextMenu.sourceId)
+                closeContextMenu()
               }}
               className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-400 hover:bg-white/10"
             >
@@ -371,5 +376,5 @@ export default memo(function BrewSidebar({
         </>
       )}
     </>
-  );
-});
+  )
+})

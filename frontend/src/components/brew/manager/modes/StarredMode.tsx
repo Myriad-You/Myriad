@@ -2,24 +2,24 @@
  * StarredMode - 收藏文章模式
  */
 
-import { motion } from 'framer-motion';
+import type { StarredModeConfig } from './types'
 import {
   LuChevronLeft as ChevronLeft,
-  LuStar as Star,
   LuEdit3 as Edit3,
-} from '@lib/icons';
-import { SPRING_SNAPPY } from './constants';
-import type { StarredModeConfig } from './types';
+  LuStar as Star,
+} from '@lib/icons'
+import { motion } from 'framer-motion'
+import { SPRING_SNAPPY } from './constants'
 
 export interface StarredModeProps {
-  variant: 'mobile' | 'desktop';
-  starredMode: StarredModeConfig;
+  variant: 'mobile' | 'desktop'
+  starredMode: StarredModeConfig
   t: {
-    backToSourceList: string;
-    starredArticles: string;
-    starredCount: string;
-    editMode: string;
-  };
+    backToSourceList: string
+    starredArticles: string
+    starredCount: string
+    editMode: string
+  }
 }
 
 export function StarredMode({
@@ -27,8 +27,8 @@ export function StarredMode({
   starredMode,
   t,
 }: StarredModeProps) {
-  const isMobile = variant === 'mobile';
-  
+  const isMobile = variant === 'mobile'
+
   return (
     <motion.div
       key={`starred-bar-${variant}`}
@@ -80,5 +80,5 @@ export function StarredMode({
         </>
       )}
     </motion.div>
-  );
+  )
 }

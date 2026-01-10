@@ -1,12 +1,12 @@
-import React from 'react';
-import type { BaseSettingItemConfig } from '../types';
-import './SettingItem.css';
+import type { BaseSettingItemConfig } from '../types'
+import React from 'react'
+import './SettingItem.css'
 
 export interface SettingItemWrapperProps extends Partial<BaseSettingItemConfig> {
-  children: React.ReactNode;
-  className?: string;
-  id?: string;
-  contentRight?: boolean;
+  children: React.ReactNode
+  className?: string
+  id?: string
+  contentRight?: boolean
 }
 
 export const SettingItemWrapper: React.FC<SettingItemWrapperProps> = ({
@@ -33,7 +33,7 @@ export const SettingItemWrapper: React.FC<SettingItemWrapperProps> = ({
         <span className="setting-description">{description}</span>
       )}
     </div>
-  );
+  )
 
   if (layout === 'horizontal') {
     return (
@@ -41,26 +41,28 @@ export const SettingItemWrapper: React.FC<SettingItemWrapperProps> = ({
         className={`setting-item setting-${layout} setting-${size} ${className} ${disabled ? 'disabled' : ''}`}
       >
         <div className="setting-item-content">
-          {contentRight ? (
-            <>
-              {labelContent}
-              <div className="setting-control">
-                {children}
-              </div>
-            </>
-          ) : (
-            <>
-              {labelContent}
-              <div className="setting-control">
-                {children}
-              </div>
-            </>
-          )}
+          {contentRight
+            ? (
+                <>
+                  {labelContent}
+                  <div className="setting-control">
+                    {children}
+                  </div>
+                </>
+              )
+            : (
+                <>
+                  {labelContent}
+                  <div className="setting-control">
+                    {children}
+                  </div>
+                </>
+              )}
         </div>
         {hint && <p className="setting-hint">{hint}</p>}
         {error && <p className="setting-error">{error}</p>}
       </div>
-    );
+    )
   }
 
   return (
@@ -86,5 +88,5 @@ export const SettingItemWrapper: React.FC<SettingItemWrapperProps> = ({
       {hint && <p className="setting-hint">{hint}</p>}
       {error && <p className="setting-error">{error}</p>}
     </div>
-  );
-};
+  )
+}

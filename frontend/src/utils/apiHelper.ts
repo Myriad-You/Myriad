@@ -5,19 +5,20 @@
  * @throws 抛出包含错误信息的 Error
  */
 export async function parseJsonResponse(response: Response): Promise<any> {
-  const contentType = response.headers.get('content-type');
-  const hasJson = contentType && contentType.includes('application/json');
+  const contentType = response.headers.get('content-type')
+  const hasJson = contentType && contentType.includes('application/json')
 
   if (!hasJson) {
     // 响应不是 JSON 格式
-    const text = await response.text();
-    throw new Error(text || response.statusText || `HTTP ${response.status}`);
+    const text = await response.text()
+    throw new Error(text || response.statusText || `HTTP ${response.status}`)
   }
 
   try {
-    return await response.json();
-  } catch (error) {
-    throw new Error(`服务器返回了无效的响应格式 (${response.status})`);
+    return await response.json()
+  }
+  catch (error) {
+    throw new Error(`服务器返回了无效的响应格式 (${response.status})`)
   }
 }
 
@@ -30,26 +31,28 @@ export async function parseJsonResponse(response: Response): Promise<any> {
  */
 export async function handleErrorResponse(
   response: Response,
-  defaultMessage: string = '操作失败'
+  defaultMessage: string = '操作失败',
 ): Promise<never> {
-  const contentType = response.headers.get('content-type');
-  const hasJson = contentType && contentType.includes('application/json');
+  const contentType = response.headers.get('content-type')
+  const hasJson = contentType && contentType.includes('application/json')
 
-  let errorMessage = defaultMessage;
+  let errorMessage = defaultMessage
 
   if (hasJson) {
     try {
-      const errorData = await response.json();
-      errorMessage = errorData.message || errorData.error || defaultMessage;
-    } catch (jsonError) {
-      errorMessage = `${defaultMessage} (${response.status})`;
+      const errorData = await response.json()
+      errorMessage = errorData.message || errorData.error || defaultMessage
     }
-  } else {
-    const text = await response.text();
-    errorMessage = text || response.statusText || `HTTP ${response.status}`;
+    catch (jsonError) {
+      errorMessage = `${defaultMessage} (${response.status})`
+    }
+  }
+  else {
+    const text = await response.text()
+    errorMessage = text || response.statusText || `HTTP ${response.status}`
   }
 
-  throw new Error(errorMessage);
+  throw new Error(errorMessage)
 }
 
 /**
@@ -63,20 +66,21 @@ export async function handleErrorResponse(
 export async function fetchJson<T = any>(
   url: string,
   options?: RequestInit,
-  errorMessage: string = '请求失败'
+  errorMessage: string = '请求失败',
 ): Promise<T> {
   try {
-    const response = await fetch(url, options);
+    const response = await fetch(url, options)
 
     if (!response.ok) {
-      await handleErrorResponse(response, errorMessage);
+      await handleErrorResponse(response, errorMessage)
     }
 
-    return await parseJsonResponse(response);
-  } catch (error) {
+    return await parseJsonResponse(response)
+  }
+  catch (error) {
     if (error instanceof Error) {
-      throw error;
+      throw error
     }
-    throw new Error(errorMessage);
+    throw new Error(errorMessage)
   }
 }

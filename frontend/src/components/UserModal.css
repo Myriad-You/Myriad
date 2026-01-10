@@ -33,7 +33,8 @@ html.dark .user-info-button:hover {
    ========================================== */
 
 @keyframes music-bar {
-  0%, 100% {
+  0%,
+  100% {
     transform: scaleY(0.5);
   }
   50% {
@@ -61,7 +62,7 @@ html.dark .user-info-button:hover {
   backdrop-filter: blur(24px) saturate(180%);
   border-radius: 1.75rem;
   border: 1px solid rgba(255, 255, 255, 0.3);
-  box-shadow: 
+  box-shadow:
     0 25px 80px rgba(0, 0, 0, 0.15),
     0 10px 30px rgba(0, 0, 0, 0.08),
     inset 0 1px 0 rgba(255, 255, 255, 0.5);
@@ -83,9 +84,10 @@ html.dark .user-info-button:hover {
   visibility: visible;
   transform: translate(-50%, -50%) scale(1);
   pointer-events: auto;
-  transition: opacity 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
-              transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
-              visibility 0s linear 0s;
+  transition:
+    opacity 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
+    transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
+    visibility 0s linear 0s;
 }
 
 /* 关闭状态 */
@@ -93,16 +95,17 @@ html.dark .user-info-button:hover {
   opacity: 0;
   visibility: visible;
   transform: translate(-50%, -50%) scale(0.92);
-  transition: opacity 0.25s ease-out,
-              transform 0.25s ease-out,
-              visibility 0s linear 0.25s;
+  transition:
+    opacity 0.25s ease-out,
+    transform 0.25s ease-out,
+    visibility 0s linear 0.25s;
   pointer-events: none;
 }
 
 html.dark .user-modal {
   background: rgba(30, 30, 35, 0.65);
   border-color: rgba(255, 255, 255, 0.08);
-  box-shadow: 
+  box-shadow:
     0 25px 80px rgba(0, 0, 0, 0.35),
     0 10px 30px rgba(0, 0, 0, 0.2),
     inset 0 1px 0 rgba(255, 255, 255, 0.05);
@@ -162,24 +165,54 @@ html.dark .user-modal-close-float {
   left: -20%;
   right: -20%;
   height: 200%;
-  background: 
-    radial-gradient(ellipse 80% 50% at 50% 0%, color-mix(in srgb, var(--color-primary, #94a3b8) 5%, transparent) 0%, transparent 50%),
-    radial-gradient(ellipse 60% 40% at 30% 20%, color-mix(in srgb, var(--color-secondary, #94a3b8) 3%, transparent) 0%, transparent 50%),
-    radial-gradient(ellipse 60% 40% at 70% 20%, color-mix(in srgb, var(--color-accent, #cbd5e1) 3%, transparent) 0%, transparent 50%);
+  background:
+    radial-gradient(
+      ellipse 80% 50% at 50% 0%,
+      color-mix(in srgb, var(--color-primary, #94a3b8) 5%, transparent) 0%,
+      transparent 50%
+    ),
+    radial-gradient(
+      ellipse 60% 40% at 30% 20%,
+      color-mix(in srgb, var(--color-secondary, #94a3b8) 3%, transparent) 0%,
+      transparent 50%
+    ),
+    radial-gradient(
+      ellipse 60% 40% at 70% 20%,
+      color-mix(in srgb, var(--color-accent, #cbd5e1) 3%, transparent) 0%,
+      transparent 50%
+    );
   pointer-events: none;
   animation: heroGlow 8s ease-in-out infinite alternate;
 }
 
 @keyframes heroGlow {
-  0% { opacity: 0.4; transform: translateY(0); }
-  100% { opacity: 0.6; transform: translateY(-10px); }
+  0% {
+    opacity: 0.4;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0.6;
+    transform: translateY(-10px);
+  }
 }
 
 html.dark .user-modal-hero-bg {
-  background: 
-    radial-gradient(ellipse 80% 50% at 50% 0%, color-mix(in srgb, var(--color-primary, #94a3b8) 6%, transparent) 0%, transparent 50%),
-    radial-gradient(ellipse 60% 40% at 30% 20%, color-mix(in srgb, var(--color-secondary, #94a3b8) 4%, transparent) 0%, transparent 50%),
-    radial-gradient(ellipse 60% 40% at 70% 20%, color-mix(in srgb, var(--color-accent, #cbd5e1) 4%, transparent) 0%, transparent 50%);
+  background:
+    radial-gradient(
+      ellipse 80% 50% at 50% 0%,
+      color-mix(in srgb, var(--color-primary, #94a3b8) 6%, transparent) 0%,
+      transparent 50%
+    ),
+    radial-gradient(
+      ellipse 60% 40% at 30% 20%,
+      color-mix(in srgb, var(--color-secondary, #94a3b8) 4%, transparent) 0%,
+      transparent 50%
+    ),
+    radial-gradient(
+      ellipse 60% 40% at 70% 20%,
+      color-mix(in srgb, var(--color-accent, #cbd5e1) 4%, transparent) 0%,
+      transparent 50%
+    );
 }
 
 /* 头像容器 */
@@ -190,8 +223,13 @@ html.dark .user-modal-hero-bg {
 }
 
 @keyframes avatarFloat {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-6px); }
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
 }
 
 .user-modal-avatar-lg {
@@ -200,22 +238,24 @@ html.dark .user-modal-hero-bg {
   border-radius: 50%;
   object-fit: cover;
   border: 4px solid white;
-  box-shadow: 
+  box-shadow:
     0 8px 32px color-mix(in srgb, var(--color-primary, #94a3b8) 25%, transparent),
     0 4px 12px rgba(0, 0, 0, 0.1);
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  transition:
+    transform 0.3s ease,
+    box-shadow 0.3s ease;
 }
 
 html.dark .user-modal-avatar-lg {
   border-color: rgba(50, 50, 55, 1);
-  box-shadow: 
+  box-shadow:
     0 8px 32px color-mix(in srgb, var(--color-primary, #94a3b8) 35%, transparent),
     0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
 .user-modal-avatar-lg:hover {
   transform: scale(1.05);
-  box-shadow: 
+  box-shadow:
     0 12px 40px color-mix(in srgb, var(--color-primary, #94a3b8) 35%, transparent),
     0 6px 16px rgba(0, 0, 0, 0.15);
 }
@@ -239,8 +279,15 @@ html.dark .user-modal-online-dot {
 }
 
 @keyframes onlinePulse {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.1); opacity: 0.8; }
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 0.8;
+  }
 }
 
 /* 用户身份信息 */
@@ -298,17 +345,21 @@ html.dark .badge-admin {
 }
 
 .badge-user {
-  background: linear-gradient(135deg, 
-    color-mix(in srgb, var(--color-primary, #94a3b8) 15%, transparent) 0%, 
-    color-mix(in srgb, var(--color-secondary, #94a3b8) 15%, transparent) 100%);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-primary, #94a3b8) 15%, transparent) 0%,
+    color-mix(in srgb, var(--color-secondary, #94a3b8) 15%, transparent) 100%
+  );
   color: var(--color-primary, #64748b);
   box-shadow: 0 2px 8px color-mix(in srgb, var(--color-primary, #94a3b8) 15%, transparent);
 }
 
 html.dark .badge-user {
-  background: linear-gradient(135deg, 
-    color-mix(in srgb, var(--color-primary, #94a3b8) 20%, transparent) 0%, 
-    color-mix(in srgb, var(--color-secondary, #94a3b8) 20%, transparent) 100%);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-primary, #94a3b8) 20%, transparent) 0%,
+    color-mix(in srgb, var(--color-secondary, #94a3b8) 20%, transparent) 100%
+  );
   color: var(--color-accent, #cbd5e1);
 }
 
@@ -423,9 +474,11 @@ html.dark .action-github:hover {
 }
 
 .action-password {
-  background: linear-gradient(135deg, 
-    color-mix(in srgb, var(--color-primary, #94a3b8) 20%, transparent) 0%, 
-    color-mix(in srgb, var(--color-secondary, #94a3b8) 20%, transparent) 100%);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-primary, #94a3b8) 20%, transparent) 0%,
+    color-mix(in srgb, var(--color-secondary, #94a3b8) 20%, transparent) 100%
+  );
   color: var(--color-primary, #64748b);
   border: 1px solid color-mix(in srgb, var(--color-primary, #94a3b8) 25%, transparent);
   box-shadow: 0 2px 8px color-mix(in srgb, var(--color-primary, #94a3b8) 15%, transparent);
@@ -433,9 +486,11 @@ html.dark .action-github:hover {
 
 .action-password:hover {
   transform: translateY(-2px);
-  background: linear-gradient(135deg, 
-    color-mix(in srgb, var(--color-primary, #94a3b8) 30%, transparent) 0%, 
-    color-mix(in srgb, var(--color-secondary, #94a3b8) 30%, transparent) 100%);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-primary, #94a3b8) 30%, transparent) 0%,
+    color-mix(in srgb, var(--color-secondary, #94a3b8) 30%, transparent) 100%
+  );
   box-shadow: 0 6px 20px color-mix(in srgb, var(--color-primary, #94a3b8) 25%, transparent);
 }
 
@@ -465,9 +520,11 @@ html.dark .action-logout:hover {
 }
 
 .action-confirm {
-  background: linear-gradient(135deg, 
-    color-mix(in srgb, var(--color-primary, #94a3b8) 25%, transparent) 0%, 
-    color-mix(in srgb, var(--color-secondary, #94a3b8) 25%, transparent) 100%);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-primary, #94a3b8) 25%, transparent) 0%,
+    color-mix(in srgb, var(--color-secondary, #94a3b8) 25%, transparent) 100%
+  );
   color: var(--color-primary, #64748b);
   border: 1px solid color-mix(in srgb, var(--color-primary, #94a3b8) 30%, transparent);
   box-shadow: 0 2px 8px color-mix(in srgb, var(--color-primary, #94a3b8) 15%, transparent);
@@ -475,9 +532,11 @@ html.dark .action-logout:hover {
 
 .action-confirm:hover {
   transform: translateY(-2px);
-  background: linear-gradient(135deg, 
-    color-mix(in srgb, var(--color-primary, #94a3b8) 35%, transparent) 0%, 
-    color-mix(in srgb, var(--color-secondary, #94a3b8) 35%, transparent) 100%);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-primary, #94a3b8) 35%, transparent) 0%,
+    color-mix(in srgb, var(--color-secondary, #94a3b8) 35%, transparent) 100%
+  );
   box-shadow: 0 6px 20px color-mix(in srgb, var(--color-primary, #94a3b8) 25%, transparent);
 }
 
@@ -622,9 +681,11 @@ html.dark .user-modal-tapps-count-btn:hover {
   min-width: 1.5rem;
   height: 1.5rem;
   padding: 0 0.5rem;
-  background: linear-gradient(135deg, 
-    color-mix(in srgb, var(--color-primary, #94a3b8) 30%, transparent) 0%, 
-    color-mix(in srgb, var(--color-secondary, #94a3b8) 30%, transparent) 100%);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-primary, #94a3b8) 30%, transparent) 0%,
+    color-mix(in srgb, var(--color-secondary, #94a3b8) 30%, transparent) 100%
+  );
   color: var(--color-primary, #64748b);
   border-radius: 9999px;
   font-size: 0.75rem;
@@ -647,7 +708,9 @@ html.dark .user-modal-tapps-count-btn:hover {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* 最近使用的 Tapp */
@@ -704,18 +767,22 @@ html.dark .user-modal-tapp-item:hover {
   justify-content: center;
   width: 2rem;
   height: 2rem;
-  background: linear-gradient(135deg, 
-    color-mix(in srgb, var(--color-primary, #94a3b8) 15%, transparent) 0%, 
-    color-mix(in srgb, var(--color-secondary, #94a3b8) 15%, transparent) 100%);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-primary, #94a3b8) 15%, transparent) 0%,
+    color-mix(in srgb, var(--color-secondary, #94a3b8) 15%, transparent) 100%
+  );
   border-radius: 0.5rem;
   font-size: 1rem;
   color: var(--color-primary, #64748b);
 }
 
 html.dark .user-modal-tapp-icon {
-  background: linear-gradient(135deg, 
-    color-mix(in srgb, var(--color-primary, #94a3b8) 20%, transparent) 0%, 
-    color-mix(in srgb, var(--color-secondary, #94a3b8) 20%, transparent) 100%);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-primary, #94a3b8) 20%, transparent) 0%,
+    color-mix(in srgb, var(--color-secondary, #94a3b8) 20%, transparent) 100%
+  );
   color: var(--color-accent, #cbd5e1);
 }
 
@@ -737,26 +804,29 @@ html.dark .user-modal-tapp-name {
 .user-modal-tapp-skeleton {
   min-width: 4.5rem;
   min-height: 4rem;
-  background: linear-gradient(90deg, 
-    rgba(0, 0, 0, 0.04) 25%, 
-    rgba(0, 0, 0, 0.08) 50%, 
-    rgba(0, 0, 0, 0.04) 75%);
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.04) 25%, rgba(0, 0, 0, 0.08) 50%, rgba(0, 0, 0, 0.04) 75%);
   background-size: 200% 100%;
   animation: skeleton-shimmer 1.5s ease-in-out infinite;
   pointer-events: none;
 }
 
 html.dark .user-modal-tapp-skeleton {
-  background: linear-gradient(90deg, 
-    rgba(255, 255, 255, 0.04) 25%, 
-    rgba(255, 255, 255, 0.08) 50%, 
-    rgba(255, 255, 255, 0.04) 75%);
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.04) 25%,
+    rgba(255, 255, 255, 0.08) 50%,
+    rgba(255, 255, 255, 0.04) 75%
+  );
   background-size: 200% 100%;
 }
 
 @keyframes skeleton-shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
 }
 
 /* 无最近使用时的空状态 */
@@ -826,10 +896,11 @@ html.dark .user-modal-recent-empty {
   visibility: visible;
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
-  transition: opacity 0.3s ease,
-              backdrop-filter 0.3s ease,
-              -webkit-backdrop-filter 0.3s ease,
-              visibility 0s linear 0s;
+  transition:
+    opacity 0.3s ease,
+    backdrop-filter 0.3s ease,
+    -webkit-backdrop-filter 0.3s ease,
+    visibility 0s linear 0s;
 }
 
 /* 关闭状态 */
@@ -838,10 +909,11 @@ html.dark .user-modal-recent-empty {
   visibility: visible;
   -webkit-backdrop-filter: blur(0);
   backdrop-filter: blur(0);
-  transition: opacity 0.25s ease,
-              backdrop-filter 0.25s ease,
-              -webkit-backdrop-filter 0.25s ease,
-              visibility 0s linear 0.25s;
+  transition:
+    opacity 0.25s ease,
+    backdrop-filter 0.25s ease,
+    -webkit-backdrop-filter 0.25s ease,
+    visibility 0s linear 0.25s;
 }
 
 html.dark .user-modal-overlay {
@@ -862,7 +934,7 @@ html.dark .user-modal-overlay {
   backdrop-filter: blur(24px) saturate(180%);
   border-radius: 1.75rem;
   border: 1px solid rgba(255, 255, 255, 0.3);
-  box-shadow: 
+  box-shadow:
     0 25px 80px rgba(0, 0, 0, 0.15),
     0 10px 30px rgba(0, 0, 0, 0.08),
     inset 0 1px 0 rgba(255, 255, 255, 0.5);
@@ -882,9 +954,10 @@ html.dark .user-modal-overlay {
   visibility: visible;
   transform: translate(-50%, -50%) scale(1);
   pointer-events: auto;
-  transition: opacity 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
-              transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
-              visibility 0s linear 0s;
+  transition:
+    opacity 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
+    transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
+    visibility 0s linear 0s;
 }
 
 /* 关闭状态 */
@@ -892,16 +965,17 @@ html.dark .user-modal-overlay {
   opacity: 0;
   visibility: visible;
   transform: translate(-50%, -50%) scale(0.92);
-  transition: opacity 0.25s ease-out,
-              transform 0.25s ease-out,
-              visibility 0s linear 0.25s;
+  transition:
+    opacity 0.25s ease-out,
+    transform 0.25s ease-out,
+    visibility 0s linear 0.25s;
   pointer-events: none;
 }
 
 html.dark .user-modal-login-only {
   background: rgba(30, 30, 35, 0.85);
   border-color: rgba(255, 255, 255, 0.08);
-  box-shadow: 
+  box-shadow:
     0 25px 80px rgba(0, 0, 0, 0.35),
     0 10px 30px rgba(0, 0, 0, 0.2),
     inset 0 1px 0 rgba(255, 255, 255, 0.05);

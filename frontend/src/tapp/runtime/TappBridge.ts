@@ -1,7 +1,7 @@
 /**
  * Tapp Bridge - 消息桥接层
  * 负责主应用与 Tapp 沙箱之间的安全通信
- * 
+ *
  * 安全特性：
  * - 严格的消息来源验证
  * - 细粒度权限检查（含用户角色验证）
@@ -11,12 +11,12 @@
  */
 
 import type {
-  TappMessage,
+  PermissionLevel,
   TappAPIRequest,
   TappAPIResponse,
-  TappPermission,
   TappInstance,
-  PermissionLevel,
+  TappMessage,
+  TappPermission,
 } from '../types'
 import { getQuotaManager } from '../services/QuotaManager'
 
@@ -80,7 +80,7 @@ interface PermissionCheckResult {
 
 /**
  * 静态权限映射表（性能优化：避免每次检查都创建对象）
- * 
+ *
  * 使用 Map 替代 Record 以获得更快的查找性能
  */
 const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> = new Map([
@@ -97,7 +97,7 @@ const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> = new Map([
   ['context.getPlayer', 'public'],
   ['context.getNavigation', 'public'],
   ['context.getSystem', 'public'],
-  ['context.getGeo', 'public'],  // 地理位置：公开 API
+  ['context.getGeo', 'public'], // 地理位置：公开 API
   ['user.getRole', 'public'],
   ['user.isAdmin', 'public'],
   ['user.isGuest', 'public'],
@@ -113,17 +113,17 @@ const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> = new Map([
   ['animation.getConfig', 'public'],
   ['animation.getStaggerDelay', 'public'],
   ['dynamicContent.get', 'public'],
-  
+
   // Tapp API 声明系统 - 权限由后端检查
-  ['api.execute', 'public'],  // 后端根据 manifest 中的 access 字段决定权限
-  ['api.list', 'public'],     // 列出可用 API
-  
+  ['api.execute', 'public'], // 后端根据 manifest 中的 access 字段决定权限
+  ['api.list', 'public'], // 列出可用 API
+
   // 小组件权限
   ['widget.register', 'widget:register'],
   ['widget.unregister', 'widget:register'],
   ['widget.listRegistered', 'widget:register'],
   ['widget.updateConfig', 'widget:register'],
-  
+
   // 平台数据权限
   ['platform.listEnabled', 'platform:read'],
   ['platform.getData', 'platform:read'],
@@ -133,7 +133,7 @@ const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> = new Map([
   ['platform.addItems', 'platform:write'],
   ['platform.registerPlatform', 'platform:register'],
   ['data.transform', 'platform:read'],
-  
+
   // AI 权限
   ['ai.generate', 'ai:generate'],
   ['ai.analyze', 'ai:analyze'],
@@ -141,7 +141,7 @@ const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> = new Map([
   ['ai.canGenerate', 'ai:generate'],
   ['ai.chat', 'ai:chat'],
   ['ai.image', 'ai:image'],
-  
+
   // 报告权限
   ['report.listReports', 'report:read'],
   ['report.getReport', 'report:read'],
@@ -151,7 +151,7 @@ const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> = new Map([
   ['report.get', 'report:read'],
   ['report.update', 'report:write'],
   ['report.delete', 'report:write'],
-  
+
   // 存储权限
   ['storage.get', 'storage'],
   ['storage.set', 'storage'],
@@ -159,7 +159,7 @@ const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> = new Map([
   ['storage.keys', 'storage'],
   ['storage.clear', 'storage'],
   ['storage.usage', 'storage'],
-  
+
   // UI 权限
   ['ui.showNotification', 'ui:notification'],
   ['ui.confirm', 'ui:confirm'],
@@ -167,7 +167,7 @@ const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> = new Map([
   ['ui.exitFullscreen', 'ui:fullscreen'],
   ['ui.toggleFullscreen', 'ui:fullscreen'],
   ['ui.isFullscreen', 'ui:fullscreen'],
-  
+
   // 媒体权限
   ['media.control', 'media:control'],
   ['media.getStatus', 'media:read'],
@@ -176,33 +176,33 @@ const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> = new Map([
   ['media.jumpToIndex', 'media:control'],
   ['media.getSpectrum', 'media:read'],
   ['media.loadNeteasePlaylist', 'media:control'],
-  
+
   // 组件权限
   ['component.registerTheme', 'component:theme'],
   ['component.registerAgent', 'component:agent'],
   ['component.unregister', 'component:theme'],
-  
+
   // 快捷键权限
   ['shortcut.register', 'shortcut:register'],
   ['shortcut.unregister', 'shortcut:register'],
-  
+
   // 事件权限
   ['event.publish', 'event:publish'],
   ['event.subscribe', 'event:subscribe'],
   ['event.unsubscribe', 'event:subscribe'],
-  
+
   // 后台权限
   ['background.require', 'event:subscribe'],
   ['background.release', 'event:subscribe'],
-  
+
   // 动态内容权限
   ['dynamicContent.set', 'ui:notification'],
   ['dynamicContent.update', 'ui:notification'],
   ['dynamicContent.remove', 'ui:notification'],
-  
+
   // 文件操作权限
   ['file.download', 'storage'],
-  
+
   // 定时任务权限
   ['scheduler.register', 'scheduler:register'],
   ['scheduler.unregister', 'scheduler:register'],
@@ -227,6 +227,7 @@ export class TappBridge {
     reject: (reason: Error) => void
     timeout: ReturnType<typeof setTimeout>
   }> = new Map()
+
   private eventListeners: Map<string, Set<(data: unknown) => void>> = new Map()
 
   /** 请求超时时间 */
@@ -234,13 +235,13 @@ export class TappBridge {
 
   /** 允许的 origin（安全检查） */
   private allowedOrigin: string = ''
-  
+
   /** 会话 token（用于验证消息来源） */
   private sessionToken: string = ''
 
   /** 最近请求时间戳（用于频率限制） */
   private lastRequestTime: number = 0
-  
+
   /** 最小请求间隔（毫秒） */
   private readonly MIN_REQUEST_INTERVAL = 10
 
@@ -265,7 +266,7 @@ export class TappBridge {
 
   /**
    * 初始化 Bridge，连接到 iframe
-   * 
+   *
    * @param iframe - 沙箱 iframe 元素
    * @param tappInstance - Tapp 实例
    * @param sessionToken - 会话 token（用于消息验证）
@@ -273,11 +274,12 @@ export class TappBridge {
   initialize(iframe: HTMLIFrameElement, tappInstance: TappInstance, sessionToken?: string): void {
     this.iframe = iframe
     this.tappInstance = tappInstance
-    
+
     // 设置会话 token（如果未提供则生成一个）
     if (sessionToken) {
       this.sessionToken = sessionToken
-    } else {
+    }
+    else {
       // 生成安全的随机 token
       const array = new Uint8Array(32)
       crypto.getRandomValues(array)
@@ -291,7 +293,7 @@ export class TappBridge {
     // 监听消息
     window.addEventListener('message', this.handleMessage)
   }
-  
+
   /**
    * 获取会话 token（供沙箱 HTML 生成时使用）
    */
@@ -401,7 +403,7 @@ export class TappBridge {
         return { valid: false, error: 'Payload too large' }
       }
     }
-    
+
     // 会话 token 验证（增强安全性）
     // 对于 request 类型的消息，验证 session token
     if (msg.type === 'request' && this.sessionToken) {
@@ -478,7 +480,7 @@ export class TappBridge {
     }
 
     // 验证 API 和 method 名称格式
-    if (!/^[a-zA-Z]+$/.test(payload.api) || !/^[a-zA-Z]+$/.test(payload.method)) {
+    if (!/^[a-z]+$/i.test(payload.api) || !/^[a-z]+$/i.test(payload.method)) {
       this.sendResponse(id, {
         success: false,
         error: 'Invalid API or method name format',
@@ -527,7 +529,7 @@ export class TappBridge {
 
     try {
       const response = await handler(message)
-      
+
       // 记录配额使用
       if (this.tappInstance) {
         const quotaManager = getQuotaManager()
@@ -535,7 +537,8 @@ export class TappBridge {
       }
 
       this.sendResponse(id, response)
-    } catch (error) {
+    }
+    catch (error) {
       console.error(`[TappBridge] Handler error for ${action}:`, error)
       this.sendResponse(id, {
         success: false,
@@ -560,7 +563,8 @@ export class TappBridge {
 
     if (message.error) {
       pending.reject(new Error(message.error))
-    } else {
+    }
+    else {
       pending.resolve(message.payload)
     }
   }
@@ -574,7 +578,8 @@ export class TappBridge {
       for (const listener of listeners) {
         try {
           listener(message.payload)
-        } catch (error) {
+        }
+        catch (error) {
           console.error(`[TappBridge] Event listener error:`, error)
         }
       }
@@ -603,7 +608,7 @@ export class TappBridge {
 
   /**
    * 详细权限检查（返回检查结果和原因）
-   * 
+   *
    * 性能优化：使用模块级别的静态 Map 避免每次调用都创建对象
    */
   private checkPermissionDetailed(action: string): PermissionCheckResult {
@@ -630,10 +635,10 @@ export class TappBridge {
     // 如果权限在列表中，说明后端已批准，前端无需再次验证角色
     const granted = this.tappInstance.grantedPermissions.includes(requiredPermission)
     if (!granted) {
-      return { 
-        allowed: false, 
+      return {
+        allowed: false,
         reason: `Missing permission: ${requiredPermission}`,
-        requiredPermission 
+        requiredPermission,
       }
     }
 
@@ -643,10 +648,10 @@ export class TappBridge {
   /**
    * 检查权限是否在用户角色允许范围内
    */
-  private checkPermissionForRole(permission: TappPermission): { allowed: boolean; reason?: string } {
+  private checkPermissionForRole(permission: TappPermission): { allowed: boolean, reason?: string } {
     const userRole = this.tappInstance?.userRole || 'guest'
     const permissionLevel = PERMISSION_LEVELS[permission]
-    
+
     if (!permissionLevel) {
       return { allowed: false, reason: `Unknown permission: ${permission}` }
     }
@@ -666,15 +671,15 @@ export class TappBridge {
 
     if (!allowedLevels.includes(permissionLevel)) {
       const roleNames: Record<string, string> = { guest: '游客', user: '普通用户', admin: '管理员' }
-      const levelNames: Record<PermissionLevel, string> = { 
-        public: '公开', 
-        basic: '基础', 
-        elevated: '高级', 
-        privileged: '特权' 
+      const levelNames: Record<PermissionLevel, string> = {
+        public: '公开',
+        basic: '基础',
+        elevated: '高级',
+        privileged: '特权',
       }
-      return { 
-        allowed: false, 
-        reason: `${roleNames[userRole] || '未知用户'}无权使用${levelNames[permissionLevel]}权限: ${permission}` 
+      return {
+        allowed: false,
+        reason: `${roleNames[userRole] || '未知用户'}无权使用${levelNames[permissionLevel]}权限: ${permission}`,
       }
     }
 

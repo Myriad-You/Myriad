@@ -2,9 +2,9 @@
  * 开关设置项组件
  */
 
-import React, { useCallback } from 'react';
-import type { SwitchSettingConfig } from '../types';
-import './SettingItem.css';
+import type { SwitchSettingConfig } from '../types'
+import React, { useCallback } from 'react'
+import './SettingItem.css'
 
 export interface SwitchItemProps extends Omit<SwitchSettingConfig, 'type'> {}
 
@@ -23,14 +23,14 @@ export const SwitchItem = React.memo<SwitchItemProps>(({
 }) => {
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     if (!disabled && !loading) {
-      onChange(e.target.checked);
+      onChange(e.target.checked)
     }
-  }, [onChange, disabled, loading]);
+  }, [onChange, disabled, loading])
 
-  const id = `setting-switch-${itemKey || label.replace(/\s+/g, '-').toLowerCase()}`;
+  const id = `setting-switch-${itemKey || label.replace(/\s+/g, '-').toLowerCase()}`
 
   return (
-    <div 
+    <div
       className={`setting-item setting-item-switch setting-${layout} setting-${size} ${className} ${disabled ? 'disabled' : ''}`}
     >
       <div className="setting-item-content">
@@ -56,7 +56,7 @@ export const SwitchItem = React.memo<SwitchItemProps>(({
       </div>
       {hint && <p className="setting-hint">{hint}</p>}
     </div>
-  );
-});
+  )
+})
 
-SwitchItem.displayName = 'SwitchItem';
+SwitchItem.displayName = 'SwitchItem'

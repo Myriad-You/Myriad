@@ -2,32 +2,32 @@
  * 综合报告卡片组件
  */
 
-import { memo, useCallback, useId } from 'react';
-import { motionShim as motion } from '@lib/motionShim';
+import type { ComprehensiveAnalysis } from './types'
 import {
-  FaRobot,
   FaBrain,
-  FaHeart,
-  FaMusic,
   FaCode,
   FaGamepad,
+  FaHeart,
+  FaLightbulb,
+  FaMusic,
   FaPalette,
+  FaRobot,
   FaRocket,
-  FaLightbulb
-} from '@lib/icons';
-import { useAnimationLevel } from '../../hooks/useAnimationLevel';
-import { useLoopAnimation } from '../../hooks/animation';
-import { useI18n } from '../../contexts/I18nContext';
-import type { ComprehensiveAnalysis } from './types';
+} from '@lib/icons'
+import { motionShim as motion } from '@lib/motionShim'
+import { memo, useCallback, useId } from 'react'
+import { useI18n } from '../../contexts/I18nContext'
+import { useLoopAnimation } from '../../hooks/animation'
+import { useAnimationLevel } from '../../hooks/useAnimationLevel'
 
 // 图标组件
 const ThemeIcon = memo(({ iconImageUrl, iconPrompt, iconName }: {
-  iconImageUrl?: string;
-  iconPrompt?: string;
-  iconName?: string;
+  iconImageUrl?: string
+  iconPrompt?: string
+  iconName?: string
 }) => {
   if (iconImageUrl) {
-    return <img src={iconImageUrl} alt="theme icon" className="w-24 h-24 object-contain drop-shadow-2xl" />;
+    return <img src={iconImageUrl} alt="theme icon" className="w-24 h-24 object-contain drop-shadow-2xl" />
   }
 
   if (iconPrompt) {
@@ -35,66 +35,63 @@ const ThemeIcon = memo(({ iconImageUrl, iconPrompt, iconName }: {
       <div className="w-20 h-20 flex items-center justify-center bg-white/20 rounded-lg text-2xl text-white/60" title={iconPrompt}>
         🎨
       </div>
-    );
+    )
   }
 
   switch (iconName) {
-    case 'FaRobot': return <FaRobot size={64} />;
-    case 'FaBrain': return <FaBrain size={64} />;
-    case 'FaHeart': return <FaHeart size={64} />;
-    case 'FaMusic': return <FaMusic size={64} />;
-    case 'FaCode': return <FaCode size={64} />;
-    case 'FaGamepad': return <FaGamepad size={64} />;
-    case 'FaPalette': return <FaPalette size={64} />;
-    case 'FaRocket': return <FaRocket size={64} />;
-    default: return <FaLightbulb size={64} />;
+    case 'FaRobot': return <FaRobot size={64} />
+    case 'FaBrain': return <FaBrain size={64} />
+    case 'FaHeart': return <FaHeart size={64} />
+    case 'FaMusic': return <FaMusic size={64} />
+    case 'FaCode': return <FaCode size={64} />
+    case 'FaGamepad': return <FaGamepad size={64} />
+    case 'FaPalette': return <FaPalette size={64} />
+    case 'FaRocket': return <FaRocket size={64} />
+    default: return <FaLightbulb size={64} />
   }
-});
+})
 
-const getThemeIcon = (
-  iconImageUrl?: string,
-  iconPrompt?: string,
-  iconName?: string
-): React.ReactNode => {
-  return <ThemeIcon iconImageUrl={iconImageUrl} iconPrompt={iconPrompt} iconName={iconName} />;
-};
+function getThemeIcon(iconImageUrl?: string, iconPrompt?: string, iconName?: string): React.ReactNode {
+  return <ThemeIcon iconImageUrl={iconImageUrl} iconPrompt={iconPrompt} iconName={iconName} />
+}
 
 interface ComprehensiveReportCardProps {
   compReport: {
-    id: number;
-    综合分析: ComprehensiveAnalysis;
-    created_at: string;
-  };
-  index: number;
-  onOpen: (analysis: any, id: number, createdAt: string) => void;
+    id: number
+    综合分析: ComprehensiveAnalysis
+    created_at: string
+  }
+  index: number
+  onOpen: (analysis: any, id: number, createdAt: string) => void
 }
 
 export const ComprehensiveReportCard = memo<ComprehensiveReportCardProps>(({
   compReport,
   index,
-  onOpen
+  onOpen,
 }) => {
-  const anim = useAnimationLevel();
-  const uniqueId = useId();
-  const { t } = useI18n();
-  
+  const anim = useAnimationLevel()
+  const uniqueId = useId()
+  const { t } = useI18n()
+
   // 🆕 使用触发式动画 - 组件挂载时播放一次装饰动画
   const { isAnimating } = useLoopAnimation({
     duration: 4000, // 装饰动画约4秒周期
     trigger: 'mount', // 固定值，组件首次渲染时触发一次
     enabled: anim.loop, // 低端设备禁用
-  });
-  
-  const canAnimate = anim.loop && isAnimating;
-  
-  if (!compReport.综合分析) return null;
+  })
 
-  const analysis = compReport.综合分析;
-  const themeColor = analysis.theme_color || '#6366f1';
+  const canAnimate = anim.loop && isAnimating
+
+  if (!compReport.综合分析)
+    return null
+
+  const analysis = compReport.综合分析
+  const themeColor = analysis.theme_color || '#6366f1'
 
   const handleClick = useCallback(() => {
-    onOpen(analysis, compReport.id, compReport.created_at);
-  }, [analysis, compReport.id, compReport.created_at, onOpen]);
+    onOpen(analysis, compReport.id, compReport.created_at)
+  }, [analysis, compReport.id, compReport.created_at, onOpen])
 
   return (
     <motion.div
@@ -105,24 +102,28 @@ export const ComprehensiveReportCard = memo<ComprehensiveReportCardProps>(({
       transition={{
         duration: 0.4,
         delay: index * 0.08,
-        ease: [0.4, 0, 0.2, 1]
+        ease: [0.4, 0, 0.2, 1],
       }}
     >
       <motion.div
         onClick={handleClick}
         whileHover={{ y: -4, scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
-        transition={{ duration: 0.2, ease: "easeOut" }}
+        transition={{ duration: 0.2, ease: 'easeOut' }}
         className="relative overflow-hidden rounded-2xl cursor-pointer glass flex-shrink-0 snap-center w-[280px] lg:w-full"
         style={{
           aspectRatio: '2 / 1',
-          willChange: 'transform'
+          willChange: 'transform',
         }}
       >
-        <div className="absolute -right-10 -top-10 w-40 h-40 rounded-full blur-3xl opacity-20"
-             style={{ background: themeColor }} />
-        <div className="absolute -left-10 -bottom-10 w-32 h-32 rounded-full blur-2xl opacity-15"
-             style={{ background: themeColor }} />
+        <div
+          className="absolute -right-10 -top-10 w-40 h-40 rounded-full blur-3xl opacity-20"
+          style={{ background: themeColor }}
+        />
+        <div
+          className="absolute -left-10 -bottom-10 w-32 h-32 rounded-full blur-2xl opacity-15"
+          style={{ background: themeColor }}
+        />
 
         <div className="relative z-10 h-full flex items-center justify-between px-6 py-3">
           {/* 左侧：图标区域 */}
@@ -133,28 +134,30 @@ export const ComprehensiveReportCard = memo<ComprehensiveReportCardProps>(({
                   const positions = [
                     { top: '20%', left: '2%' },
                     { bottom: '20%', left: '2%' },
-                  ];
-                  const pos = positions[i % positions.length];
+                  ]
+                  const pos = positions[i % positions.length]
 
                   return (
                     <motion.span
                       key={i}
                       className="absolute text-2xl opacity-25"
                       style={{ ...pos, willChange: canAnimate ? 'transform, opacity' : 'auto' }}
-                      animate={canAnimate ? {
-                        y: [0, -8, 0],
-                        opacity: [0.2, 0.3, 0.2],
-                      } : { y: 0, opacity: 0.25 }}
+                      animate={canAnimate
+                        ? {
+                            y: [0, -8, 0],
+                            opacity: [0.2, 0.3, 0.2],
+                          }
+                        : { y: 0, opacity: 0.25 }}
                       transition={canAnimate ? {
                         duration: 4 + i * 0.3,
                         repeat: 2, // ~10s
                         delay: i * 0.5,
-                        ease: "easeInOut"
+                        ease: 'easeInOut',
                       } : { duration: 0 }}
                     >
                       {emoji}
                     </motion.span>
-                  );
+                  )
                 })}
               </>
             )}
@@ -166,25 +169,29 @@ export const ComprehensiveReportCard = memo<ComprehensiveReportCardProps>(({
                   style={{
                     background: themeColor,
                     opacity: 0.25,
-                    willChange: canAnimate ? 'transform' : 'auto'
+                    willChange: canAnimate ? 'transform' : 'auto',
                   }}
-                  animate={canAnimate ? {
-                    scale: [1, 1.15, 1],
-                    opacity: [0.2, 0.35, 0.2]
-                  } : { scale: 1, opacity: 0.25 }}
-                  transition={canAnimate ? { duration: 4, repeat: 2, ease: "easeInOut" } : { duration: 0 }}
+                  animate={canAnimate
+                    ? {
+                        scale: [1, 1.15, 1],
+                        opacity: [0.2, 0.35, 0.2],
+                      }
+                    : { scale: 1, opacity: 0.25 }}
+                  transition={canAnimate ? { duration: 4, repeat: 2, ease: 'easeInOut' } : { duration: 0 }}
                 />
                 <motion.div
                   className="relative w-24 h-24 rounded-xl backdrop-blur-sm flex items-center justify-center shadow-2xl overflow-hidden"
                   style={{
                     background: 'var(--glass-bg)',
                     border: `2px solid ${themeColor}30`,
-                    willChange: canAnimate ? 'transform' : 'auto'
+                    willChange: canAnimate ? 'transform' : 'auto',
                   }}
-                  animate={canAnimate ? {
-                    y: [0, -5, 0],
-                  } : { y: 0 }}
-                  transition={canAnimate ? { duration: 4, repeat: 2, ease: "easeInOut" } : { duration: 0 }}
+                  animate={canAnimate
+                    ? {
+                        y: [0, -5, 0],
+                      }
+                    : { y: 0 }}
+                  transition={canAnimate ? { duration: 4, repeat: 2, ease: 'easeInOut' } : { duration: 0 }}
                 >
                   <div style={{ color: themeColor, fontSize: '56px' }}>
                     {getThemeIcon(analysis.icon_image_url, analysis.icon_prompt, analysis.theme_icon)}
@@ -244,35 +251,37 @@ export const ComprehensiveReportCard = memo<ComprehensiveReportCardProps>(({
                 const positions = [
                   { top: '20%', right: '3%' },
                   { bottom: '20%', right: '3%' },
-                ];
-                const pos = positions[i % positions.length];
+                ]
+                const pos = positions[i % positions.length]
 
                 return (
                   <motion.span
                     key={i + 2}
                     className="absolute text-2xl opacity-25"
                     style={{ ...pos, willChange: canAnimate ? 'transform, opacity' : 'auto' }}
-                    animate={canAnimate ? {
-                      y: [0, -8, 0],
-                      opacity: [0.2, 0.3, 0.2],
-                    } : { y: 0, opacity: 0.25 }}
+                    animate={canAnimate
+                      ? {
+                          y: [0, -8, 0],
+                          opacity: [0.2, 0.3, 0.2],
+                        }
+                      : { y: 0, opacity: 0.25 }}
                     transition={canAnimate ? {
                       duration: 4 + i * 0.3,
                       repeat: 2, // ~10s
                       delay: (i + 2) * 0.5,
-                      ease: "easeInOut"
+                      ease: 'easeInOut',
                     } : { duration: 0 }}
                   >
                     {emoji}
                   </motion.span>
-                );
+                )
               })}
             </>
           )}
         </div>
       </motion.div>
     </motion.div>
-  );
-});
+  )
+})
 
-ComprehensiveReportCard.displayName = 'ComprehensiveReportCard';
+ComprehensiveReportCard.displayName = 'ComprehensiveReportCard'

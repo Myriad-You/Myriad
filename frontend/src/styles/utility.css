@@ -5,17 +5,33 @@
 
 /* 动画类 */
 @keyframes blob {
-  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
-  33% { transform: translate3d(30px, -50px, 0) scale(1.1); }
-  66% { transform: translate3d(-20px, 20px, 0) scale(0.9); }
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  33% {
+    transform: translate3d(30px, -50px, 0) scale(1.1);
+  }
+  66% {
+    transform: translate3d(-20px, 20px, 0) scale(0.9);
+  }
 }
 
 /* 高性能 blob 动画 - 用于高端 GPU */
 @keyframes blob-fast {
-  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
-  25% { transform: translate3d(40px, -60px, 0) scale(1.15); }
-  50% { transform: translate3d(-30px, 30px, 0) scale(0.85); }
-  75% { transform: translate3d(20px, 40px, 0) scale(1.1); }
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  25% {
+    transform: translate3d(40px, -60px, 0) scale(1.15);
+  }
+  50% {
+    transform: translate3d(-30px, 30px, 0) scale(0.85);
+  }
+  75% {
+    transform: translate3d(20px, 40px, 0) scale(1.1);
+  }
 }
 
 @keyframes gradient-shift {
@@ -262,7 +278,9 @@
 
 .skeleton-to-content > .content-layer {
   position: relative;
-  transition: opacity 0.3s ease, transform 0.3s ease;
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s ease;
 }
 
 .skeleton-to-content.loading > .skeleton-layer {
@@ -317,7 +335,9 @@
 
 /* 预设 hover 状态的 GPU 层（用于频繁交互的元素） */
 .hover-optimized {
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .hover-optimized:hover {
@@ -354,8 +374,8 @@
   animation: none !important;
 }
 
-.low-fps-mode [class*="backdrop-blur"],
-.low-fps-mode [class*="blur-"] {
+.low-fps-mode [class*='backdrop-blur'],
+.low-fps-mode [class*='blur-'] {
   backdrop-filter: none !important;
   filter: none !important;
 }
@@ -365,7 +385,7 @@
   animation-play-state: paused;
 }
 
-.is-scrolling [class*="transition-"] {
+.is-scrolling [class*='transition-'] {
   transition-duration: 0s !important;
 }
 
@@ -374,7 +394,7 @@
   pointer-events: none !important;
 }
 
-.is-dragging [class*="transition-"]:not(.drag-item) {
+.is-dragging [class*='transition-']:not(.drag-item) {
   transition: none !important;
 }
 
@@ -490,16 +510,16 @@
     user-select: none;
     -webkit-touch-callout: none;
   }
-  
+
   .animate-blob {
     animation: none;
     opacity: 0.1;
   }
-  
+
   /* 移动端减少 blur */
-  [class*="backdrop-blur-xl"],
-  [class*="backdrop-blur-2xl"],
-  [class*="backdrop-blur-3xl"] {
+  [class*='backdrop-blur-xl'],
+  [class*='backdrop-blur-2xl'],
+  [class*='backdrop-blur-3xl'] {
     backdrop-filter: blur(8px) !important;
   }
 }
@@ -518,7 +538,7 @@
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
-  
+
   .animate-blob {
     animation: none !important;
   }

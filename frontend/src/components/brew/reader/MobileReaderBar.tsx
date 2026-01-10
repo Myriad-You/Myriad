@@ -3,41 +3,40 @@
  * 在小屏设备上替代左右两侧的控制栏
  */
 
-import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import type { MobileReaderBarProps } from './types'
 import {
-  LuChevronLeft as ChevronLeft,
-  LuChevronUp as ChevronUp,
-  LuChevronRight as ChevronRight,
-  LuList as List,
-  LuStar as Star,
-  LuMessageSquare as MessageSquare,
-  LuSparkles as Sparkles,
-  LuMic as Mic,
-  LuExternalLink as ExternalLink,
-  LuLoader2 as Loader2,
-  LuPalette as Palette,
-  LuType as Type,
-  LuMinus as Minus,
-  LuPlus as Plus,
   LuAlignJustify as AlignJustify,
-  LuX as X,
+  LuArrowRight as ArrowRight,
+  LuChevronLeft as ChevronLeft,
+  LuChevronRight as ChevronRight,
+  LuChevronUp as ChevronUp,
+  LuCloud as Cloud,
+  LuExternalLink as ExternalLink,
   LuEye as Eye,
   LuEyeOff as EyeOff,
-  LuRefreshCw as RefreshCw,
-  LuArrowRight as ArrowRight,
-  LuPlay as Play,
+  LuList as List,
+  LuLoader2 as Loader2,
+  LuMessageSquare as MessageSquare,
+  LuMic as Mic,
+  LuMinus as Minus,
+  LuMonitor as Monitor,
+  LuPalette as Palette,
   LuPause as Pause,
-  LuSquare as Square,
+  LuPlay as Play,
+  LuPlus as Plus,
+  LuRefreshCw as RefreshCw,
   LuSkipBack as SkipBack,
   LuSkipForward as SkipForward,
-  LuCloud as Cloud,
-  LuMonitor as Monitor,
-  LuSettings as Settings,
-} from '@lib/icons';
-import * as brewliaApi from '../../../services/brewliaApi';
-import type { MobileReaderBarProps, TocItem } from './types';
-import { THEMES, STYLE_MAX_HEIGHT_60VH } from './constants';
+  LuSparkles as Sparkles,
+  LuSquare as Square,
+  LuStar as Star,
+  LuType as Type,
+  LuX as X,
+} from '@lib/icons'
+import { AnimatePresence, motion } from 'framer-motion'
+import { useState } from 'react'
+import * as brewliaApi from '../../../services/brewliaApi'
+import { STYLE_MAX_HEIGHT_60VH, THEMES } from './constants'
 
 export function MobileReaderBar({
   item,
@@ -119,26 +118,26 @@ export function MobileReaderBar({
   t,
 }: MobileReaderBarProps) {
   // 当前激活的全屏面板
-  const [activePanel, setActivePanel] = useState<'toc' | 'annotations' | 'podcast' | 'comments' | null>(null);
+  const [activePanel, setActivePanel] = useState<'toc' | 'annotations' | 'podcast' | 'comments' | null>(null)
 
   // 打开面板
   const openPanel = (panel: 'toc' | 'annotations' | 'podcast' | 'comments') => {
-    setActivePanel(panel);
-    setShowMobileControls(false);
-  };
+    setActivePanel(panel)
+    setShowMobileControls(false)
+  }
 
   // 关闭面板
   const closePanel = () => {
-    setActivePanel(null);
-  };
+    setActivePanel(null)
+  }
 
   // 计算最小目录层级
-  const minTocLevel = toc.length > 0 ? Math.min(...toc.map(t => t.level)) : 1;
+  const minTocLevel = toc.length > 0 ? Math.min(...toc.map(t => t.level)) : 1
 
   return (
     <>
       {/* 移动端底栏控制条 */}
-      <div 
+      <div
         className="sm:hidden fixed bottom-0 left-0 right-0 z-30"
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
@@ -170,11 +169,12 @@ export function MobileReaderBar({
                     {item.source_name}
                   </span>
                 </div>
-                
+
                 {/* 右侧：进度 + 展开按钮 */}
                 <div className="flex items-center gap-2">
                   <span className={`text-xs font-medium ${currentTheme.secondary} tabular-nums`}>
-                    {readingProgress}%
+                    {readingProgress}
+                    %
                   </span>
                   <button
                     onClick={() => setShowMobileControls(!showMobileControls)}
@@ -185,7 +185,7 @@ export function MobileReaderBar({
                   </button>
                 </div>
               </div>
-              
+
               {/* 展开的控制面板（在主控制栏上方） */}
               <AnimatePresence>
                 {showMobileControls && (
@@ -210,7 +210,7 @@ export function MobileReaderBar({
                               <List className="w-5 h-5" />
                             </button>
                           )}
-                          
+
                           {/* 收藏 */}
                           {isAuthenticated && (
                             <button
@@ -221,7 +221,7 @@ export function MobileReaderBar({
                               <Star className={`w-5 h-5 ${item.is_starred ? 'fill-current' : ''}`} />
                             </button>
                           )}
-                          
+
                           {/* 评论 */}
                           {isAuthenticated && (
                             <button
@@ -237,7 +237,7 @@ export function MobileReaderBar({
                               )}
                             </button>
                           )}
-                          
+
                           {/* AI 注释 */}
                           {isBrewlia && (isAdmin || item.has_ai_annotations) && (
                             <button
@@ -253,30 +253,30 @@ export function MobileReaderBar({
                               {annotationsLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
                             </button>
                           )}
-                          
+
                           {/* AI 播客 */}
                           {isBrewlia && (isAdmin || item.has_ai_podcast) && (
                             <button
                               onClick={() => {
                                 if (podcastDialogues.length === 0) {
-                                  loadPodcast();
+                                  loadPodcast()
                                 }
-                                openPanel('podcast');
+                                openPanel('podcast')
                               }}
                               disabled={podcastLoading || cloudTtsLoading}
                               className={`p-2 rounded-xl ${
                                 podcastState === 'playing'
                                   ? 'text-emerald-500 bg-emerald-500/10 animate-pulse'
                                   : activePanel === 'podcast'
-                                  ? 'text-emerald-500 bg-emerald-500/10'
-                                  : `${currentTheme.secondary} hover:text-emerald-500`
+                                    ? 'text-emerald-500 bg-emerald-500/10'
+                                    : `${currentTheme.secondary} hover:text-emerald-500`
                               }`}
                               title={podcastLoading ? t.brew.generatingPodcast : t.brew.aiPodcast}
                             >
                               {podcastLoading || cloudTtsLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Mic className="w-5 h-5" />}
                             </button>
                           )}
-                          
+
                           {/* 外部链接 */}
                           <a
                             href={item.link}
@@ -288,7 +288,7 @@ export function MobileReaderBar({
                             <ExternalLink className="w-5 h-5" />
                           </a>
                         </div>
-                        
+
                         {/* 分享 */}
                         <button
                           onClick={handleShare}
@@ -302,7 +302,7 @@ export function MobileReaderBar({
                           </svg>
                         </button>
                       </div>
-                      
+
                       {/* 第二行：阅读设置 */}
                       <div className="flex items-center justify-between">
                         {/* 主题 */}
@@ -314,7 +314,7 @@ export function MobileReaderBar({
                           <Palette className="w-4 h-4" />
                           <span className="text-xs">{THEMES[theme].icon}</span>
                         </button>
-                        
+
                         {/* 字体 */}
                         <button
                           onClick={cycleFont}
@@ -325,7 +325,7 @@ export function MobileReaderBar({
                           <Type className="w-4 h-4" />
                           <span className="text-xs">{t.brew.fontLabel}</span>
                         </button>
-                        
+
                         {/* 字号调整 */}
                         <div className={`flex items-center gap-1 px-2 py-1 rounded-lg ${isDark ? 'bg-white/5' : 'bg-black/5'}`}>
                           <button
@@ -344,7 +344,7 @@ export function MobileReaderBar({
                             <Plus className="w-4 h-4" />
                           </button>
                         </div>
-                        
+
                         {/* 行高调整 */}
                         <div className={`flex items-center gap-1 px-2 py-1 rounded-lg ${isDark ? 'bg-white/5' : 'bg-black/5'}`}>
                           <button
@@ -384,11 +384,11 @@ export function MobileReaderBar({
             className="sm:hidden fixed inset-0 z-40 flex flex-col"
           >
             {/* 背景遮罩 */}
-            <div 
+            <div
               className="absolute inset-0 bg-black/50 backdrop-blur-sm"
               onClick={closePanel}
             />
-            
+
             {/* 面板内容 - 从底部滑出 */}
             <motion.div
               initial={{ y: '100%' }}
@@ -405,7 +405,11 @@ export function MobileReaderBar({
                     <>
                       <List className="w-5 h-5 text-amber-500" />
                       <span className={`font-medium ${currentTheme.text}`}>{t.brew.tocTitle}</span>
-                      <span className={`text-sm ${currentTheme.secondary}`}>({toc.length})</span>
+                      <span className={`text-sm ${currentTheme.secondary}`}>
+                        (
+                        {toc.length}
+                        )
+                      </span>
                     </>
                   )}
                   {activePanel === 'annotations' && (
@@ -413,7 +417,11 @@ export function MobileReaderBar({
                       <Sparkles className="w-5 h-5 text-purple-500" />
                       <span className={`font-medium ${currentTheme.text}`}>{t.brew.aiAnnotations}</span>
                       {annotations.length > 0 && (
-                        <span className={`text-sm ${currentTheme.secondary}`}>({annotations.length})</span>
+                        <span className={`text-sm ${currentTheme.secondary}`}>
+                          (
+                          {annotations.length}
+                          )
+                        </span>
                       )}
                     </>
                   )}
@@ -423,7 +431,9 @@ export function MobileReaderBar({
                       <span className={`font-medium ${currentTheme.text}`}>{t.brew.aiPodcast}</span>
                       {podcastDialogues.length > 0 && (
                         <span className={`text-sm ${currentTheme.secondary}`}>
-                          {podcastCurrentIndex + 1}/{podcastDialogues.length}
+                          {podcastCurrentIndex + 1}
+                          /
+                          {podcastDialogues.length}
                         </span>
                       )}
                     </>
@@ -437,22 +447,22 @@ export function MobileReaderBar({
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              
+
               {/* 面板内容区 */}
               <div className="overflow-y-auto" style={{ maxHeight: 'calc(60vh - 60px)' }}>
                 {/* 目录面板 */}
                 {activePanel === 'toc' && (
                   <nav className="p-3 space-y-0.5">
                     {toc.map((item) => {
-                      const isActive = item.id === activeHeadingId;
-                      const indent = (item.level - minTocLevel) * 12;
-                      
+                      const isActive = item.id === activeHeadingId
+                      const indent = (item.level - minTocLevel) * 12
+
                       return (
                         <button
                           key={item.id}
                           onClick={() => {
-                            scrollToHeading(item.id);
-                            closePanel();
+                            scrollToHeading(item.id)
+                            closePanel()
                           }}
                           className={`w-full text-left px-3 py-2 rounded-xl text-sm transition-all duration-200 ease-out ${
                             isActive
@@ -464,11 +474,11 @@ export function MobileReaderBar({
                           {isActive && <ChevronRight className="w-3 h-3 inline-block mr-1 -ml-1" />}
                           {item.text}
                         </button>
-                      );
+                      )
                     })}
                   </nav>
                 )}
-                
+
                 {/* AI 注释面板 */}
                 {activePanel === 'annotations' && (
                   <div className="p-3">
@@ -496,66 +506,70 @@ export function MobileReaderBar({
                         </button>
                       )}
                     </div>
-                    
+
                     {/* 注释列表 */}
-                    {annotations.length === 0 ? (
-                      <div className={`py-8 text-center ${currentTheme.secondary}`}>
-                        {annotationsLoading ? (
-                          <div className="flex flex-col items-center gap-2">
-                            <Loader2 className="w-8 h-8 animate-spin text-purple-500" />
-                            <p className="text-sm">{t.brew.analyzing}</p>
+                    {annotations.length === 0
+                      ? (
+                          <div className={`py-8 text-center ${currentTheme.secondary}`}>
+                            {annotationsLoading
+                              ? (
+                                  <div className="flex flex-col items-center gap-2">
+                                    <Loader2 className="w-8 h-8 animate-spin text-purple-500" />
+                                    <p className="text-sm">{t.brew.analyzing}</p>
+                                  </div>
+                                )
+                              : (
+                                  <div className="flex flex-col items-center gap-2">
+                                    <Sparkles className="w-8 h-8 opacity-30" />
+                                    <p className="text-sm">{t.brew.noAnnotations}</p>
+                                    {isAdmin && (
+                                      <button
+                                        onClick={loadAnnotations}
+                                        className="text-sm text-purple-500 hover:text-purple-600 font-medium"
+                                      >
+                                        {t.brew.regenerate}
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
                           </div>
-                        ) : (
-                          <div className="flex flex-col items-center gap-2">
-                            <Sparkles className="w-8 h-8 opacity-30" />
-                            <p className="text-sm">{t.brew.noAnnotations}</p>
-                            {isAdmin && (
-                              <button
-                                onClick={loadAnnotations}
-                                className="text-sm text-purple-500 hover:text-purple-600 font-medium"
-                              >
-                                {t.brew.regenerate}
-                              </button>
-                            )}
+                        )
+                      : (
+                          <div className="space-y-2">
+                            {annotations.map((annotation, index) => {
+                              const typeConfig = brewliaApi.ANNOTATION_TYPE_CONFIG[annotation.type] || brewliaApi.ANNOTATION_TYPE_CONFIG.term
+                              const isSelected = selectedAnnotation?.term === annotation.term
+
+                              return (
+                                <button
+                                  key={annotation.id || index}
+                                  onClick={() => {
+                                    setSelectedAnnotation(isSelected ? null : annotation)
+                                    scrollToAnnotation(annotation)
+                                    closePanel()
+                                  }}
+                                  className={`w-full text-left p-3 rounded-xl transition-all duration-200 ease-out ${
+                                    isSelected
+                                      ? `${typeConfig.bgColor} ${currentTheme.text}`
+                                      : `${isDark ? 'bg-white/5 hover:bg-white/10' : 'bg-black/[0.02] hover:bg-black/[0.05]'}`
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className={`text-xs px-1.5 py-0.5 rounded ${typeConfig.bgColor} ${typeConfig.color} shrink-0`}>
+                                      {typeConfig.icon}
+                                    </span>
+                                    <span className={`text-sm font-medium ${currentTheme.text}`}>{annotation.term}</span>
+                                    <ArrowRight className={`w-3 h-3 ${currentTheme.secondary} ml-auto shrink-0`} />
+                                  </div>
+                                  <p className={`text-xs ${currentTheme.secondary} leading-relaxed ${isSelected ? '' : 'line-clamp-2'}`}>
+                                    {annotation.explanation}
+                                  </p>
+                                </button>
+                              )
+                            })}
                           </div>
                         )}
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {annotations.map((annotation, index) => {
-                          const typeConfig = brewliaApi.ANNOTATION_TYPE_CONFIG[annotation.type] || brewliaApi.ANNOTATION_TYPE_CONFIG.term;
-                          const isSelected = selectedAnnotation?.term === annotation.term;
-                          
-                          return (
-                            <button
-                              key={annotation.id || index}
-                              onClick={() => {
-                                setSelectedAnnotation(isSelected ? null : annotation);
-                                scrollToAnnotation(annotation);
-                                closePanel();
-                              }}
-                              className={`w-full text-left p-3 rounded-xl transition-all duration-200 ease-out ${
-                                isSelected
-                                  ? `${typeConfig.bgColor} ${currentTheme.text}`
-                                  : `${isDark ? 'bg-white/5 hover:bg-white/10' : 'bg-black/[0.02] hover:bg-black/[0.05]'}`
-                              }`}
-                            >
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className={`text-xs px-1.5 py-0.5 rounded ${typeConfig.bgColor} ${typeConfig.color} shrink-0`}>
-                                  {typeConfig.icon}
-                                </span>
-                                <span className={`text-sm font-medium ${currentTheme.text}`}>{annotation.term}</span>
-                                <ArrowRight className={`w-3 h-3 ${currentTheme.secondary} ml-auto shrink-0`} />
-                              </div>
-                              <p className={`text-xs ${currentTheme.secondary} leading-relaxed ${isSelected ? '' : 'line-clamp-2'}`}>
-                                {annotation.explanation}
-                              </p>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                    
+
                     {/* 错误提示 */}
                     {annotationsError && (
                       <div className="mt-3 px-3 py-2 text-sm text-red-500 bg-red-500/10 rounded-lg">
@@ -564,7 +578,7 @@ export function MobileReaderBar({
                     )}
                   </div>
                 )}
-                
+
                 {/* AI 播客面板 */}
                 {activePanel === 'podcast' && (
                   <div className="p-3">
@@ -575,8 +589,8 @@ export function MobileReaderBar({
                           onClick={() => handleTtsEngineChange('system')}
                           disabled={cloudTtsLoading}
                           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                            ttsEngine === 'system' 
-                              ? 'bg-emerald-500/20 text-emerald-500' 
+                            ttsEngine === 'system'
+                              ? 'bg-emerald-500/20 text-emerald-500'
                               : `${currentTheme.secondary} ${isDark ? 'bg-white/5' : 'bg-black/5'}`
                           } disabled:opacity-50`}
                         >
@@ -587,8 +601,8 @@ export function MobileReaderBar({
                           onClick={() => handleTtsEngineChange('cloud')}
                           disabled={cloudTtsLoading}
                           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                            ttsEngine === 'cloud' 
-                              ? 'bg-emerald-500/20 text-emerald-500' 
+                            ttsEngine === 'cloud'
+                              ? 'bg-emerald-500/20 text-emerald-500'
                               : cloudTtsAvailable
                                 ? `${currentTheme.secondary} ${isDark ? 'bg-white/5' : 'bg-black/5'}`
                                 : `${currentTheme.secondary} ${isDark ? 'bg-white/5' : 'bg-black/5'} opacity-60`
@@ -599,15 +613,21 @@ export function MobileReaderBar({
                         </button>
                       </div>
                     </div>
-                    
+
                     {/* 云端 TTS 加载状态 */}
                     {cloudTtsLoading && (
                       <div className={`mb-3 px-3 py-2 text-sm ${currentTheme.secondary} bg-emerald-500/10 rounded-lg flex items-center gap-2`}>
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>{t.brew.loadingCloudVoice} {cloudTtsLoadProgress.loaded}/{cloudTtsLoadProgress.total}</span>
+                        <span>
+                          {t.brew.loadingCloudVoice}
+                          {' '}
+                          {cloudTtsLoadProgress.loaded}
+                          /
+                          {cloudTtsLoadProgress.total}
+                        </span>
                       </div>
                     )}
-                    
+
                     {/* 播放控制 */}
                     {podcastDialogues.length > 0 && (
                       <div className={`flex items-center justify-center gap-4 mb-4 p-3 rounded-xl ${isDark ? 'bg-white/5' : 'bg-black/[0.02]'}`}>
@@ -643,66 +663,71 @@ export function MobileReaderBar({
                         </button>
                       </div>
                     )}
-                    
+
                     {/* 对话列表 */}
-                    {podcastDialogues.length === 0 ? (
-                      <div className={`py-8 text-center ${currentTheme.secondary}`}>
-                        {podcastLoading ? (
-                          <div className="flex flex-col items-center gap-2">
-                            <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
-                            <p className="text-sm">{t.brew.generatingPodcast}</p>
+                    {podcastDialogues.length === 0
+                      ? (
+                          <div className={`py-8 text-center ${currentTheme.secondary}`}>
+                            {podcastLoading
+                              ? (
+                                  <div className="flex flex-col items-center gap-2">
+                                    <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
+                                    <p className="text-sm">{t.brew.generatingPodcast}</p>
+                                  </div>
+                                )
+                              : (
+                                  <div className="flex flex-col items-center gap-2">
+                                    <Mic className="w-8 h-8 opacity-30" />
+                                    <p className="text-sm">{t.brew.noPodcast || '暂无播客内容'}</p>
+                                    {isAdmin && (
+                                      <button
+                                        onClick={loadPodcast}
+                                        className="text-sm text-emerald-500 hover:text-emerald-600 font-medium"
+                                      >
+                                        {t.brew.generate || '生成播客'}
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
                           </div>
-                        ) : (
-                          <div className="flex flex-col items-center gap-2">
-                            <Mic className="w-8 h-8 opacity-30" />
-                            <p className="text-sm">{t.brew.noPodcast || '暂无播客内容'}</p>
-                            {isAdmin && (
-                              <button
-                                onClick={loadPodcast}
-                                className="text-sm text-emerald-500 hover:text-emerald-600 font-medium"
-                              >
-                                {t.brew.generate || '生成播客'}
-                              </button>
-                            )}
+                        )
+                      : (
+                          <div className="space-y-2">
+                            {podcastDialogues.map((dialogue, index) => {
+                              const isHost = dialogue.speaker === 'host_a'
+                              const isCurrent = index === podcastCurrentIndex
+                              const isPlaying = isCurrent && podcastState === 'playing'
+
+                              return (
+                                <button
+                                  key={index}
+                                  onClick={() => handleDialogueClick(index)}
+                                  className={`w-full text-left p-3 rounded-xl transition-all duration-200 ease-out ${
+                                    isCurrent
+                                      ? isPlaying
+                                        ? 'bg-emerald-500/20 ring-2 ring-emerald-500/50'
+                                        : `${isDark ? 'bg-white/10' : 'bg-black/5'}`
+                                      : `${isDark ? 'hover:bg-white/5' : 'hover:bg-black/[0.02]'}`
+                                  }`}
+                                >
+                                  <div className="flex items-start gap-2">
+                                    <span className={`shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
+                                      isHost
+                                        ? 'bg-blue-500/20 text-blue-500'
+                                        : 'bg-pink-500/20 text-pink-500'
+                                    }`}
+                                    >
+                                      {isHost ? (t.brew.podcastHostLabel || '主') : (t.brew.podcastGuestLabel || '嘉')}
+                                    </span>
+                                    <p className={`text-sm ${isCurrent ? currentTheme.text : currentTheme.secondary} leading-relaxed`}>
+                                      {dialogue.text}
+                                    </p>
+                                  </div>
+                                </button>
+                              )
+                            })}
                           </div>
                         )}
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {podcastDialogues.map((dialogue, index) => {
-                          const isHost = dialogue.speaker === 'host_a';
-                          const isCurrent = index === podcastCurrentIndex;
-                          const isPlaying = isCurrent && podcastState === 'playing';
-                          
-                          return (
-                            <button
-                              key={index}
-                              onClick={() => handleDialogueClick(index)}
-                              className={`w-full text-left p-3 rounded-xl transition-all duration-200 ease-out ${
-                                isCurrent
-                                  ? isPlaying
-                                    ? 'bg-emerald-500/20 ring-2 ring-emerald-500/50'
-                                    : `${isDark ? 'bg-white/10' : 'bg-black/5'}`
-                                  : `${isDark ? 'hover:bg-white/5' : 'hover:bg-black/[0.02]'}`
-                              }`}
-                            >
-                              <div className="flex items-start gap-2">
-                                <span className={`shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
-                                  isHost 
-                                    ? 'bg-blue-500/20 text-blue-500' 
-                                    : 'bg-pink-500/20 text-pink-500'
-                                }`}>
-                                  {isHost ? (t.brew.podcastHostLabel || '主') : (t.brew.podcastGuestLabel || '嘉')}
-                                </span>
-                                <p className={`text-sm ${isCurrent ? currentTheme.text : currentTheme.secondary} leading-relaxed`}>
-                                  {dialogue.text}
-                                </p>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
@@ -711,5 +736,5 @@ export function MobileReaderBar({
         )}
       </AnimatePresence>
     </>
-  );
+  )
 }

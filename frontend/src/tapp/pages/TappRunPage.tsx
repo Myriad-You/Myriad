@@ -1,7 +1,7 @@
-﻿/**
+/**
  * Tapp 运行页面
  * 在沙箱中运行 Tapp
- * 
+ *
  * 🎯 重要设计：
  * - TappPageSandbox 只渲染一次，通过 CSS 切换全屏/普通模式
  * - 这样避免了切换全屏时 iframe 被销毁重建，保持应用状态
@@ -10,33 +10,34 @@
  * - 支持多窗口模式，可同时运行最多3个应用
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
-import { motionShim as motion, AnimatePresenceShim as AnimatePresence } from '@lib/motionShim'
-import { useAnimationLevel } from '../../hooks/useAnimationLevel'
-import { TappToast, type ToastType } from '../../components/Toast'
-import { 
-  FaArrowLeft, 
-  FaExpand, 
-  FaCompress, 
-  FaCog, 
-  FaPause, 
-  FaExclamationTriangle,
-  FaSpinner,
-  FaRedo,
-  FaTh,
-} from '@lib/icons'
-import { getTappRuntime } from '../runtime'
-import { getTappIconStyle } from '../utils/tappColors'
-import { TappPageSandbox } from '../runtime/TappPageSandbox'
-import { loadPageResources } from '../runtime/sandbox/resourceLoader'
-import { TappIcon } from '../components/TappIcon'
-import { TappWindowManager } from '../components/TappWindowManager'
+import type { ToastType } from '../../components/Toast'
+import type { TappCodeStructure } from '../examples/tapps/types'
 import type { TappNotificationOptions } from '../runtime/sandbox/types'
 import type { TappInstance } from '../types'
-import type { TappCodeStructure } from '../examples/tapps/types'
+import {
+  FaArrowLeft,
+  FaCog,
+  FaCompress,
+  FaExclamationTriangle,
+  FaExpand,
+  FaPause,
+  FaRedo,
+  FaSpinner,
+  FaTh,
+} from '@lib/icons'
+import { AnimatePresenceShim as AnimatePresence, motionShim as motion } from '@lib/motionShim'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { TappToast } from '../../components/Toast'
 import { useI18n } from '../../contexts/I18nContext'
+import { useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { useBreakpoints } from '../../hooks/useSharedEventListener'
+import { TappIcon } from '../components/TappIcon'
+import { TappWindowManager } from '../components/TappWindowManager'
+import { getTappRuntime } from '../runtime'
+import { loadPageResources } from '../runtime/sandbox/resourceLoader'
+import { TappPageSandbox } from '../runtime/TappPageSandbox'
+import { getTappIconStyle } from '../utils/tappColors'
 
 interface TappRunPageProps {
   tappId: string
@@ -46,13 +47,13 @@ interface TappRunPageProps {
  * Tapp 运行页面入口
  * 支持单窗口模式和多窗口模式
  */
-export const TappRunPage = ({ tappId }: TappRunPageProps) => {
+export function TappRunPage({ tappId }: TappRunPageProps) {
   const [searchParams] = useSearchParams()
   const { isMobile } = useBreakpoints()
   // 多窗口模式仅限平板和PC端
   const isMultiWindow = searchParams.get('multi') === 'true' && !isMobile
   const navigate = useNavigate()
-  
+
   // 多窗口模式
   if (isMultiWindow) {
     return (
@@ -66,7 +67,7 @@ export const TappRunPage = ({ tappId }: TappRunPageProps) => {
       />
     )
   }
-  
+
   // 单窗口模式（默认）
   return <TappRunPageStandard tappId={tappId} isMobile={isMobile} />
 }
@@ -78,29 +79,29 @@ interface TappRunPageStandardProps extends TappRunPageProps {
 /**
  * 标准版 Tapp 运行页面组件（非 WebKit）
  */
-const TappRunPageStandard = ({ tappId, isMobile }: TappRunPageStandardProps) => {
+function TappRunPageStandard({ tappId, isMobile }: TappRunPageStandardProps) {
   const navigate = useNavigate()
   const { t } = useI18n()
-  
+
   // 动画配置
   const animConfig = useAnimationLevel()
   const noAnimation = animConfig.level === 'none'
-  
+
   const [tapp, setTapp] = useState<TappInstance | null>(null)
   const [code, setCode] = useState<TappCodeStructure | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [hasEntered, setHasEntered] = useState(false) // 追踪入场动画是否完成
-  const [notification, setNotification] = useState<{ 
+  const [notification, setNotification] = useState<{
     title?: string
     message: string
     type: ToastType
     tappName?: string
     tappIcon?: string
-    tappIconSvg?: string 
+    tappIconSvg?: string
   } | null>(null)
-  
+
   const runtime = getTappRuntime()
 
   // 处理 Tapp 通知
@@ -121,7 +122,7 @@ const TappRunPageStandard = ({ tappId, isMobile }: TappRunPageStandardProps) => 
     const loadTapp = async () => {
       try {
         await runtime.waitForSync()
-        
+
         const instance = runtime.getTapp(tappId)
         if (!instance) {
           setError(t.tapp.appNotExist)
@@ -130,7 +131,7 @@ const TappRunPageStandard = ({ tappId, isMobile }: TappRunPageStandardProps) => 
         }
 
         const resources = await loadPageResources(instance)
-        
+
         const tappCode: TappCodeStructure = {
           core: resources.core,
           page: resources.page,
@@ -146,7 +147,8 @@ const TappRunPageStandard = ({ tappId, isMobile }: TappRunPageStandardProps) => 
         setTapp(instance)
         setCode(tappCode)
         setLoading(false)
-      } catch (err) {
+      }
+      catch (err) {
         setError(err instanceof Error ? err.message : t.tapp.loadAppFailed)
         setLoading(false)
       }
@@ -173,7 +175,8 @@ const TappRunPageStandard = ({ tappId, isMobile }: TappRunPageStandardProps) => 
     try {
       await runtime.stopTapp(tappId)
       goBack()
-    } catch (err) {
+    }
+    catch (err) {
       console.error('Failed to stop Tapp:', err)
     }
   }, [runtime, tappId, goBack])
@@ -211,7 +214,7 @@ const TappRunPageStandard = ({ tappId, isMobile }: TappRunPageStandardProps) => 
   // 🎯 内容状态
   const isReady = !loading && !error && !!tapp && !!code
   const hasError = !loading && (error || !tapp || !code)
-  
+
   // 权限检查（只有在 tapp 存在时才有意义）
   const canStartStop = tapp?.userRole === 'admin' || (tapp?.userRole === 'user' && tapp?.isTemporary === true)
   const canConfigure = tapp?.userRole === 'admin' || (tapp?.userRole === 'user' && tapp?.isTemporary === true)
@@ -223,75 +226,76 @@ const TappRunPageStandard = ({ tappId, isMobile }: TappRunPageStandardProps) => 
     <div className="fixed inset-0 overflow-hidden">
       {/* 全屏模式工具栏 */}
       <AnimatePresence>
-          {isFullscreen && isReady && tapp && (
-            <motion.div
-              key="fullscreen-toolbar"
-              initial={{ opacity: 0, x: -16, scale: 0.92 }}
-              animate={{ opacity: 1, x: 0, scale: 1 }}
-              exit={{ opacity: 0, x: -16, scale: 0.92 }}
-              transition={transitions.elementEnter}
-              className="absolute top-4 left-4 z-[60] opacity-0 hover:opacity-100 transition-opacity duration-300"
-            >
-              <div className="glass rounded-xl px-3 py-2 flex items-center gap-3 shadow-lg">
-                <div className="flex items-center gap-2">
-                  {iconStyle && (
-                    <motion.div 
-                      className={`w-7 h-7 rounded-lg ${iconStyle.className} flex items-center justify-center text-white text-xs font-bold`}
-                      style={iconStyle.style}
-                      whileHover={noAnimation ? undefined : { scale: 1.1 }}
-                      whileTap={noAnimation ? undefined : { scale: 0.95 }}
-                    >
-                      <TappIcon
-                        icon={tapp.manifest.icon}
-                        iconSvg={tapp.manifest.iconSvg}
-                        name={tapp.manifest.name}
-                        sizeClass="w-4 h-4"
-                        textSizeClass="text-sm"
-                      />
-                    </motion.div>
-                  )}
-                  <div className="hidden sm:block">
-                    <h1 className="font-semibold text-gray-800 dark:text-gray-100 text-xs leading-tight">
-                      {tapp.manifest.name}
-                    </h1>
-                    <p className="text-[10px] text-gray-500 dark:text-gray-400">
-                      v{tapp.manifest.version}
-                    </p>
-                  </div>
+        {isFullscreen && isReady && tapp && (
+          <motion.div
+            key="fullscreen-toolbar"
+            initial={{ opacity: 0, x: -16, scale: 0.92 }}
+            animate={{ opacity: 1, x: 0, scale: 1 }}
+            exit={{ opacity: 0, x: -16, scale: 0.92 }}
+            transition={transitions.elementEnter}
+            className="absolute top-4 left-4 z-[60] opacity-0 hover:opacity-100 transition-opacity duration-300"
+          >
+            <div className="glass rounded-xl px-3 py-2 flex items-center gap-3 shadow-lg">
+              <div className="flex items-center gap-2">
+                {iconStyle && (
+                  <motion.div
+                    className={`w-7 h-7 rounded-lg ${iconStyle.className} flex items-center justify-center text-white text-xs font-bold`}
+                    style={iconStyle.style}
+                    whileHover={noAnimation ? undefined : { scale: 1.1 }}
+                    whileTap={noAnimation ? undefined : { scale: 0.95 }}
+                  >
+                    <TappIcon
+                      icon={tapp.manifest.icon}
+                      iconSvg={tapp.manifest.iconSvg}
+                      name={tapp.manifest.name}
+                      sizeClass="w-4 h-4"
+                      textSizeClass="text-sm"
+                    />
+                  </motion.div>
+                )}
+                <div className="hidden sm:block">
+                  <h1 className="font-semibold text-gray-800 dark:text-gray-100 text-xs leading-tight">
+                    {tapp.manifest.name}
+                  </h1>
+                  <p className="text-[10px] text-gray-500 dark:text-gray-400">
+                    v
+                    {tapp.manifest.version}
+                  </p>
                 </div>
-                <div className="w-px h-6 bg-gray-200 dark:bg-neutral-700" />
-                <div className="flex items-center gap-1">
+              </div>
+              <div className="w-px h-6 bg-gray-200 dark:bg-neutral-700" />
+              <div className="flex items-center gap-1">
+                <motion.button
+                  onClick={toggleFullscreen}
+                  className="p-1.5 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-700 rounded-lg transition-colors"
+                  title={t.tapp.exitFullscreen}
+                  whileHover={noAnimation ? undefined : { scale: 1.1 }}
+                  whileTap={noAnimation ? undefined : { scale: 0.9 }}
+                >
+                  <FaCompress className="w-3.5 h-3.5" />
+                </motion.button>
+                {canStartStop && (
                   <motion.button
-                    onClick={toggleFullscreen}
-                    className="p-1.5 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-700 rounded-lg transition-colors"
-                    title={t.tapp.exitFullscreen}
+                    onClick={handleStop}
+                    className="p-1.5 text-gray-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                    title={t.tapp.stopApp}
                     whileHover={noAnimation ? undefined : { scale: 1.1 }}
                     whileTap={noAnimation ? undefined : { scale: 0.9 }}
                   >
-                    <FaCompress className="w-3.5 h-3.5" />
+                    <FaPause className="w-3.5 h-3.5" />
                   </motion.button>
-                  {canStartStop && (
-                    <motion.button
-                      onClick={handleStop}
-                      className="p-1.5 text-gray-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
-                      title={t.tapp.stopApp}
-                      whileHover={noAnimation ? undefined : { scale: 1.1 }}
-                      whileTap={noAnimation ? undefined : { scale: 0.9 }}
-                    >
-                      <FaPause className="w-3.5 h-3.5" />
-                    </motion.button>
-                  )}
-                </div>
+                )}
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* 🎯 普通模式 - 控制栏 + 沙箱作为一个整体 */}
-      <motion.div 
+      <motion.div
         className="absolute inset-0 flex flex-col overflow-hidden pointer-events-none"
         initial={noAnimation ? false : { opacity: 0, y: 35, scale: 0.95 }}
-        animate={{ 
+        animate={{
           opacity: isFullscreen ? 0 : 1,
           y: isFullscreen ? -30 : 0,
           scale: isFullscreen ? 0.92 : 1,
@@ -306,12 +310,12 @@ const TappRunPageStandard = ({ tappId, isMobile }: TappRunPageStandardProps) => 
       >
         {/* 顶部间距 */}
         <div className="h-20 flex-shrink-0" />
-        
+
         {/* 控制栏 + 沙箱 整体容器 */}
         <div className="flex-1 flex flex-col px-4 sm:px-6 min-h-0 pb-6">
           <div className="max-w-6xl mx-auto w-full flex flex-col flex-1 min-h-0 max-h-[calc(100vh_-_8rem)]">
             {/* 头部卡片 - 紧凑单行 */}
-            <div 
+            <div
               className="glass rounded-t-xl px-3 py-2 flex items-center justify-between gap-2 shadow-sm min-h-[44px] flex-shrink-0 pointer-events-auto"
             >
               {/* 左侧：返回 + 状态/图标 + 名称 */}
@@ -326,93 +330,100 @@ const TappRunPageStandard = ({ tappId, isMobile }: TappRunPageStandardProps) => 
                 >
                   <FaArrowLeft className="w-4 h-4" />
                 </motion.button>
-                
+
                 {/* 根据状态显示不同内容 - 使用 AnimatePresence 实现平滑切换 */}
                 <AnimatePresence mode="wait" initial={false}>
-                  {loading ? (
-                    <motion.div
-                      key="header-loading"
-                      className="flex items-center gap-2"
-                      initial={{ opacity: 0, x: -8 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: 8 }}
-                      transition={transitions.stateSwitch}
-                    >
-                      <div className="w-7 h-7 rounded-lg bg-gray-200 dark:bg-neutral-700 flex items-center justify-center flex-shrink-0">
-                        <FaSpinner className="w-4 h-4 text-gray-400 animate-spin" />
-                      </div>
-                      <span className="text-sm text-gray-500 dark:text-gray-400">
-                        {t.tapp.loadingApp}
-                      </span>
-                    </motion.div>
-                  ) : hasError ? (
-                    <motion.div
-                      key="header-error"
-                      className="flex items-center gap-2 min-w-0"
-                      initial={{ opacity: 0, x: -8 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: 8 }}
-                      transition={transitions.stateSwitch}
-                    >
-                      <motion.div 
-                        className="w-7 h-7 rounded-lg bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0"
-                        initial={{ scale: 0.8 }}
-                        animate={{ scale: 1 }}
-                        transition={{ type: 'spring', stiffness: 400, damping: 20 }}
-                      >
-                        <FaExclamationTriangle className="w-4 h-4 text-red-500" />
-                      </motion.div>
-                      <span className="text-sm text-red-600 dark:text-red-400 truncate">
-                        {error || t.tapp.appNotExist}
-                      </span>
-                    </motion.div>
-                  ) : tapp && iconStyle ? (
-                    <motion.div
-                      key="header-ready"
-                      className="flex items-center gap-2 min-w-0"
-                      initial={{ opacity: 0, x: -8 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: 8 }}
-                      transition={transitions.stateSwitch}
-                    >
-                      <motion.div 
-                        className={`w-7 h-7 rounded-lg ${iconStyle.className} flex items-center justify-center text-white text-sm font-bold flex-shrink-0`}
-                        style={iconStyle.style}
-                        initial={{ scale: 0.8, rotate: -10 }}
-                        animate={{ scale: 1, rotate: 0 }}
-                        transition={{ type: 'spring', stiffness: 400, damping: 20 }}
-                        whileHover={noAnimation ? undefined : { scale: 1.1, rotate: 5 }}
-                        whileTap={noAnimation ? undefined : { scale: 0.95 }}
-                      >
-                        <TappIcon
-                          icon={tapp.manifest.icon}
-                          iconSvg={tapp.manifest.iconSvg}
-                          name={tapp.manifest.name}
-                          sizeClass="w-4 h-4"
-                          textSizeClass="text-sm"
-                        />
-                      </motion.div>
-                      <motion.span 
-                        className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        transition={{ delay: 0.1 }}
-                      >
-                        {tapp.manifest.name}
-                      </motion.span>
-                      <motion.span 
-                        className="text-[10px] text-gray-400 dark:text-gray-500 flex-shrink-0"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        transition={{ delay: 0.15 }}
-                      >
-                        v{tapp.manifest.version}
-                      </motion.span>
-                    </motion.div>
-                  ) : null}
+                  {loading
+                    ? (
+                        <motion.div
+                          key="header-loading"
+                          className="flex items-center gap-2"
+                          initial={{ opacity: 0, x: -8 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          exit={{ opacity: 0, x: 8 }}
+                          transition={transitions.stateSwitch}
+                        >
+                          <div className="w-7 h-7 rounded-lg bg-gray-200 dark:bg-neutral-700 flex items-center justify-center flex-shrink-0">
+                            <FaSpinner className="w-4 h-4 text-gray-400 animate-spin" />
+                          </div>
+                          <span className="text-sm text-gray-500 dark:text-gray-400">
+                            {t.tapp.loadingApp}
+                          </span>
+                        </motion.div>
+                      )
+                    : hasError
+                      ? (
+                          <motion.div
+                            key="header-error"
+                            className="flex items-center gap-2 min-w-0"
+                            initial={{ opacity: 0, x: -8 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: 8 }}
+                            transition={transitions.stateSwitch}
+                          >
+                            <motion.div
+                              className="w-7 h-7 rounded-lg bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0"
+                              initial={{ scale: 0.8 }}
+                              animate={{ scale: 1 }}
+                              transition={{ type: 'spring', stiffness: 400, damping: 20 }}
+                            >
+                              <FaExclamationTriangle className="w-4 h-4 text-red-500" />
+                            </motion.div>
+                            <span className="text-sm text-red-600 dark:text-red-400 truncate">
+                              {error || t.tapp.appNotExist}
+                            </span>
+                          </motion.div>
+                        )
+                      : tapp && iconStyle
+                        ? (
+                            <motion.div
+                              key="header-ready"
+                              className="flex items-center gap-2 min-w-0"
+                              initial={{ opacity: 0, x: -8 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              exit={{ opacity: 0, x: 8 }}
+                              transition={transitions.stateSwitch}
+                            >
+                              <motion.div
+                                className={`w-7 h-7 rounded-lg ${iconStyle.className} flex items-center justify-center text-white text-sm font-bold flex-shrink-0`}
+                                style={iconStyle.style}
+                                initial={{ scale: 0.8, rotate: -10 }}
+                                animate={{ scale: 1, rotate: 0 }}
+                                transition={{ type: 'spring', stiffness: 400, damping: 20 }}
+                                whileHover={noAnimation ? undefined : { scale: 1.1, rotate: 5 }}
+                                whileTap={noAnimation ? undefined : { scale: 0.95 }}
+                              >
+                                <TappIcon
+                                  icon={tapp.manifest.icon}
+                                  iconSvg={tapp.manifest.iconSvg}
+                                  name={tapp.manifest.name}
+                                  sizeClass="w-4 h-4"
+                                  textSizeClass="text-sm"
+                                />
+                              </motion.div>
+                              <motion.span
+                                className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                transition={{ delay: 0.1 }}
+                              >
+                                {tapp.manifest.name}
+                              </motion.span>
+                              <motion.span
+                                className="text-[10px] text-gray-400 dark:text-gray-500 flex-shrink-0"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                transition={{ delay: 0.15 }}
+                              >
+                                v
+                                {tapp.manifest.version}
+                              </motion.span>
+                            </motion.div>
+                          )
+                        : null}
                 </AnimatePresence>
               </div>
-              
+
               {/* 右侧：操作按钮 - 使用 AnimatePresence 实现平滑切换 */}
               <AnimatePresence mode="wait" initial={false}>
                 {hasError ? (
@@ -510,20 +521,20 @@ const TappRunPageStandard = ({ tappId, isMobile }: TappRunPageStandardProps) => 
                 )}
               </AnimatePresence>
             </div>
-            
+
             {/* 沙箱区域 - 与控制栏在同一容器内 */}
-            <div 
+            <div
               className="flex-1 min-h-0 rounded-b-xl overflow-hidden pointer-events-auto bg-gray-100 dark:bg-neutral-900"
             >
               {/* 根据状态显示不同内容 */}
               <AnimatePresence mode="wait" initial={false}>
                 {loading ? (
-                  <div 
+                  <div
                     key="sandbox-loading"
                     className="w-full h-full bg-gray-100 dark:bg-neutral-900"
                   />
                 ) : hasError ? (
-                  <motion.div 
+                  <motion.div
                     key="sandbox-error"
                     className="w-full h-full flex items-center justify-center bg-gray-100 dark:bg-neutral-900"
                     initial={{ opacity: 0 }}
@@ -565,8 +576,8 @@ const TappRunPageStandard = ({ tappId, isMobile }: TappRunPageStandardProps) => 
           className={`pointer-events-auto overflow-hidden ${
             hasEntered ? 'transition-all duration-300 ease-out' : ''
           } ${
-            isFullscreen 
-              ? 'fixed inset-0 z-50 rounded-none' 
+            isFullscreen
+              ? 'fixed inset-0 z-50 rounded-none'
               : 'absolute z-40 left-4 right-4 bottom-6 rounded-b-xl'
           }`}
           initial={noAnimation ? false : { opacity: 0, y: 35, scale: 0.95 }}
@@ -585,7 +596,7 @@ const TappRunPageStandard = ({ tappId, isMobile }: TappRunPageStandardProps) => 
             marginRight: isFullscreen ? undefined : 'auto',
           }}
         >
-          <div 
+          <div
             className="w-full h-full bg-gray-100 dark:bg-neutral-900"
             style={{
               borderTopLeftRadius: 0,
@@ -629,5 +640,3 @@ const TappRunPageStandard = ({ tappId, isMobile }: TappRunPageStandardProps) => 
 }
 
 export default TappRunPage
-
-

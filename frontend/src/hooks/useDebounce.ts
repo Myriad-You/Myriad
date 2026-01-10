@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { debounce, throttle } from '../utils/performance';
+import { useCallback, useEffect, useState } from 'react'
+import { debounce, throttle } from '../utils/performance'
 
 /**
  * 防抖 Hook - 延迟更新值直到指定时间内没有新的变化
@@ -8,19 +8,19 @@ import { debounce, throttle } from '../utils/performance';
  * @returns 防抖后的值
  */
 export function useDebounce<T>(value: T, delay: number = 300): T {
-  const [debouncedValue, setDebouncedValue] = useState<T>(value);
+  const [debouncedValue, setDebouncedValue] = useState<T>(value)
 
   useEffect(() => {
     const handler = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
+      setDebouncedValue(value)
+    }, delay)
 
     return () => {
-      clearTimeout(handler);
-    };
-  }, [value, delay]);
+      clearTimeout(handler)
+    }
+  }, [value, delay])
 
-  return debouncedValue;
+  return debouncedValue
 }
 
 /**
@@ -33,13 +33,13 @@ export function useDebounce<T>(value: T, delay: number = 300): T {
 export function useDebouncedCallback<T extends (...args: any[]) => any>(
   callback: T,
   delay: number = 300,
-  deps: React.DependencyList = []
+  deps: React.DependencyList = [],
 ): T {
   return useCallback(
     debounce(callback, delay) as T,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [delay, ...deps]
-  );
+    [delay, ...deps],
+  )
 }
 
 /**
@@ -52,13 +52,13 @@ export function useDebouncedCallback<T extends (...args: any[]) => any>(
 export function useThrottledCallback<T extends (...args: any[]) => any>(
   callback: T,
   limit: number = 300,
-  deps: React.DependencyList = []
+  deps: React.DependencyList = [],
 ): T {
   return useCallback(
     throttle(callback, limit) as T,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [limit, ...deps]
-  );
+    [limit, ...deps],
+  )
 }
 
 /**
@@ -68,36 +68,36 @@ export function useThrottledCallback<T extends (...args: any[]) => any>(
 export function useDebouncedInput(
   initialValue: string,
   onDebouncedChange: (value: string) => void,
-  delay: number = 300
+  delay: number = 300,
 ) {
-  const [value, setValue] = useState(initialValue);
+  const [value, setValue] = useState(initialValue)
 
   // 创建防抖的onChange
   const debouncedOnChange = useDebouncedCallback(
     (newValue: string) => {
-      onDebouncedChange(newValue);
+      onDebouncedChange(newValue)
     },
     delay,
-    [onDebouncedChange]
-  );
+    [onDebouncedChange],
+  )
 
   // 处理输入变化
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-      const newValue = e.target.value;
-      setValue(newValue);
-      debouncedOnChange(newValue);
+      const newValue = e.target.value
+      setValue(newValue)
+      debouncedOnChange(newValue)
     },
-    [debouncedOnChange]
-  );
+    [debouncedOnChange],
+  )
 
   // 当外部值改变时同步
   useEffect(() => {
-    setValue(initialValue);
-  }, [initialValue]);
+    setValue(initialValue)
+  }, [initialValue])
 
   return {
     value,
     onChange: handleChange,
-  };
+  }
 }

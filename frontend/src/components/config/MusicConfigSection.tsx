@@ -3,35 +3,35 @@
  * 使用通用设置组件重构
  */
 
-import React, { useCallback } from 'react';
-import { SiNeteasecloudmusic, FaHeadphones, FaTrash } from '@lib/icons';
-import { useI18n } from '../../contexts/I18nContext';
+import { FaHeadphones, FaTrash, SiNeteasecloudmusic } from '@lib/icons'
+import React, { useCallback } from 'react'
+import { useI18n } from '../../contexts/I18nContext'
+import { clearPlaylistCache } from '../../utils/musicPlayer'
 import {
-  SettingSection,
-  SettingGroup,
-  InfoCard,
-  SwitchItem,
-  ProviderItem,
-  InputItem,
   ButtonItem,
-} from '../settings';
-import { clearPlaylistCache } from '../../utils/musicPlayer';
+  InfoCard,
+  InputItem,
+  ProviderItem,
+  SettingGroup,
+  SettingSection,
+  SwitchItem,
+} from '../settings'
 
 interface ConfigField {
-  key: string;
-  value: string;
+  key: string
+  value: string
 }
 
 interface MusicConfigSectionProps {
   /** UI 配置字段数组 */
-  configFields: ConfigField[];
+  configFields: ConfigField[]
   /** 更新配置字段值 */
-  updateValue: (key: string, value: string) => void;
+  updateValue: (key: string, value: string) => void
   /** 消息回调 */
-  onMessage?: (message: string) => void;
-  title: string;
-  icon: React.ReactNode;
-  description: string;
+  onMessage?: (message: string) => void
+  title: string
+  icon: React.ReactNode
+  description: string
 }
 
 export const MusicConfigSection: React.FC<MusicConfigSectionProps> = ({
@@ -42,21 +42,21 @@ export const MusicConfigSection: React.FC<MusicConfigSectionProps> = ({
   icon,
   description,
 }) => {
-  const { t } = useI18n();
+  const { t } = useI18n()
 
   // 辅助函数：获取配置字段值
   const getFieldValue = useCallback((key: string) => {
-    return configFields.find(f => f.key === key)?.value || '';
-  }, [configFields]);
+    return configFields.find(f => f.key === key)?.value || ''
+  }, [configFields])
 
   const handleClearCache = useCallback(() => {
-    clearPlaylistCache();
-    onMessage?.(t.config.musicCacheCleared);
-  }, [onMessage, t]);
+    clearPlaylistCache()
+    onMessage?.(t.config.musicCacheCleared)
+  }, [onMessage, t])
 
-  const musicEnabled = getFieldValue('music_enabled') === 'true';
-  const musicSource = getFieldValue('music_source');
-  const playlistId = getFieldValue('music_playlist_id');
+  const musicEnabled = getFieldValue('music_enabled') === 'true'
+  const musicSource = getFieldValue('music_source')
+  const playlistId = getFieldValue('music_playlist_id')
 
   return (
     <SettingSection
@@ -76,7 +76,7 @@ export const MusicConfigSection: React.FC<MusicConfigSectionProps> = ({
         label={t.config.enableMusicPlayer}
         description={t.config.musicPlayerDesc}
         value={musicEnabled}
-        onChange={(v) => updateValue('music_enabled', v.toString())}
+        onChange={v => updateValue('music_enabled', v.toString())}
         layout="horizontal"
       />
 
@@ -84,17 +84,17 @@ export const MusicConfigSection: React.FC<MusicConfigSectionProps> = ({
         itemKey="music_source"
         label={t.config.musicPlatform}
         value={musicSource}
-        onChange={(v) => updateValue('music_source', v)}
+        onChange={v => updateValue('music_source', v)}
         options={[
           {
             value: 'netease',
             label: t.config.neteaseMusic,
-            icon: <SiNeteasecloudmusic />
+            icon: <SiNeteasecloudmusic />,
           },
           {
             value: 'qq',
             label: t.config.qqMusic,
-            icon: <FaHeadphones />
+            icon: <FaHeadphones />,
           },
         ]}
         layout="horizontal"
@@ -106,7 +106,7 @@ export const MusicConfigSection: React.FC<MusicConfigSectionProps> = ({
         label={t.config.playlistId}
         required
         value={playlistId}
-        onChange={(v) => updateValue('music_playlist_id', v)}
+        onChange={v => updateValue('music_playlist_id', v)}
         placeholder={
           musicSource === 'netease'
             ? t.config.neteasePlaylistExample
@@ -132,7 +132,7 @@ export const MusicConfigSection: React.FC<MusicConfigSectionProps> = ({
         />
       </SettingGroup>
     </SettingSection>
-  );
-};
+  )
+}
 
-export default MusicConfigSection;
+export default MusicConfigSection

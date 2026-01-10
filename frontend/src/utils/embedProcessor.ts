@@ -1,64 +1,65 @@
 /**
  * 嵌入内容处理器
  * 将文章中的 iframe 和特定链接转换为精美卡片
- * 
+ *
  * 支持：
  * - 网易云音乐 iframe → 音乐播放卡片（触发临时播放）
  * - Steam 链接 → 游戏卡片
- * - Bilibili 嵌入/链接 → 视频卡片  
+ * - Bilibili 嵌入/链接 → 视频卡片
  * - GitHub 链接 → 仓库卡片
- * 
+ *
  * 样式与资料库卡片风格一致
  */
 
 // ==================== 缓存系统 ====================
 // 简单的内存缓存，避免重复请求相同资源（尤其是 GitHub API 有速率限制）
-const CACHE_TTL = 5 * 60 * 1000; // 5分钟缓存
+const CACHE_TTL = 5 * 60 * 1000 // 5分钟缓存
 
 interface CacheEntry<T> {
-  data: T;
-  timestamp: number;
+  data: T
+  timestamp: number
 }
 
-const embedDataCache = new Map<string, CacheEntry<any>>();
+const embedDataCache = new Map<string, CacheEntry<any>>()
 
 function getCached<T>(key: string): T | null {
-  const entry = embedDataCache.get(key);
-  if (!entry) return null;
-  
+  const entry = embedDataCache.get(key)
+  if (!entry)
+    return null
+
   // 检查是否过期
   if (Date.now() - entry.timestamp > CACHE_TTL) {
-    embedDataCache.delete(key);
-    return null;
+    embedDataCache.delete(key)
+    return null
   }
-  
-  return entry.data;
+
+  return entry.data
 }
 
 function setCache<T>(key: string, data: T): void {
-  embedDataCache.set(key, { data, timestamp: Date.now() });
-  
+  embedDataCache.set(key, { data, timestamp: Date.now() })
+
   // 简单的缓存清理：超过100条时清理最旧的
   if (embedDataCache.size > 100) {
-    const entries = Array.from(embedDataCache.entries());
-    entries.sort((a, b) => a[1].timestamp - b[1].timestamp);
+    const entries = Array.from(embedDataCache.entries())
+    entries.sort((a, b) => a[1].timestamp - b[1].timestamp)
     // 删除最旧的 20 条
     for (let i = 0; i < 20; i++) {
-      embedDataCache.delete(entries[i][0]);
+      embedDataCache.delete(entries[i][0])
     }
   }
 }
 
 // ==================== 类型定义 ====================
 // 嵌入类型
-export type EmbedType = 'netease-music' | 'steam-game' | 'bilibili-video' | 'github-repo';
+export type EmbedType = 'netease-music' | 'steam-game' | 'bilibili-video' | 'github-repo'
 
 // 嵌入信息
 export interface EmbedInfo {
-  type: EmbedType;
-  id: string;
-  url?: string;
-  originalHtml: string;
+  type: EmbedType
+  id: string
+  url?: string
+  originalHtml: string
 }
 
 /**
@@ -67,8 +68,8 @@ export interface EmbedInfo {
  * - https://music.163.com/outchain/player?type=2&id=2114614108&auto=1&height=66
  */
 function extractNeteaseSongId(iframeSrc: string): string | null {
-  const match = iframeSrc.match(/music\.163\.com\/outchain\/player\?.*?id=(\d+)/);
-  return match ? match[1] : null;
+  const match = iframeSrc.match(/music\.163\.com\/outchain\/player\?.*?id=(\d+)/)
+  return match ? match[1] : null
 }
 
 /**
@@ -81,14 +82,16 @@ function extractNeteaseSongId(iframeSrc: string): string | null {
  */
 function extractNeteaseSongIdFromUrl(url: string): string | null {
   // 处理 ?id=xxx 格式
-  const queryMatch = url.match(/music\.163\.com\/(?:#\/)?(?:m\/)?song\?.*?id=(\d+)/);
-  if (queryMatch) return queryMatch[1];
-  
+  const queryMatch = url.match(/music\.163\.com\/(?:#\/)?(?:m\/)?song\?.*?id=(\d+)/)
+  if (queryMatch)
+    return queryMatch[1]
+
   // 处理 /song/xxx 格式
-  const pathMatch = url.match(/music\.163\.com\/(?:#\/)?(?:m\/)?song\/(\d+)/);
-  if (pathMatch) return pathMatch[1];
-  
-  return null;
+  const pathMatch = url.match(/music\.163\.com\/(?:#\/)?(?:m\/)?song\/(\d+)/)
+  if (pathMatch)
+    return pathMatch[1]
+
+  return null
 }
 
 /**
@@ -98,13 +101,15 @@ function extractNeteaseSongIdFromUrl(url: string): string | null {
  * - steam://store/1234567
  */
 function extractSteamAppId(url: string): string | null {
-  const storeMatch = url.match(/store\.steampowered\.com\/app\/(\d+)/);
-  if (storeMatch) return storeMatch[1];
-  
-  const steamMatch = url.match(/steam:\/\/store\/(\d+)/);
-  if (steamMatch) return steamMatch[1];
-  
-  return null;
+  const storeMatch = url.match(/store\.steampowered\.com\/app\/(\d+)/)
+  if (storeMatch)
+    return storeMatch[1]
+
+  const steamMatch = url.match(/steam:\/\/store\/(\d+)/)
+  if (steamMatch)
+    return steamMatch[1]
+
+  return null
 }
 
 /**
@@ -117,28 +122,32 @@ function extractSteamAppId(url: string): string | null {
  * - 纯 BV 号：BV1xx411c7XW
  * - 纯 av 号：av170001
  */
-function extractBilibiliVideoId(url: string): { type: 'bv' | 'av'; id: string } | null {
+function extractBilibiliVideoId(url: string): { type: 'bv' | 'av', id: string } | null {
   // 处理可能被破坏的 URL（RSS 有时会丢失分隔符）
   // 例如：amp;bvid=BV... 应该是 &bvid=BV...
-  const cleanUrl = url.replace(/amp;/gi, '&');
-  
+  const cleanUrl = url.replace(/amp;/gi, '&')
+
   // 优先匹配 BV 号（各种格式）
-  const bvMatch = cleanUrl.match(/(?:video\/|bvid=|[?&]bvid=)(BV[a-zA-Z0-9]+)/i);
-  if (bvMatch) return { type: 'bv', id: bvMatch[1] };
-  
+  const bvMatch = cleanUrl.match(/(?:video\/|bvid=|[?&]bvid=)(BV[a-z0-9]+)/i)
+  if (bvMatch)
+    return { type: 'bv', id: bvMatch[1] }
+
   // 匹配 AV 号（各种格式）
-  const avMatch = cleanUrl.match(/(?:video\/av|aid=|[?&]aid=)(\d+)/i);
-  if (avMatch) return { type: 'av', id: avMatch[1] };
-  
+  const avMatch = cleanUrl.match(/(?:video\/av|aid=|[?&]aid=)(\d+)/i)
+  if (avMatch)
+    return { type: 'av', id: avMatch[1] }
+
   // 匹配纯 BV 号（BV + 10-12 位字母数字）
-  const pureBvMatch = cleanUrl.match(/\b(BV[a-zA-Z0-9]{10,12})\b/i);
-  if (pureBvMatch) return { type: 'bv', id: pureBvMatch[1] };
-  
+  const pureBvMatch = cleanUrl.match(/\b(BV[a-z0-9]{10,12})\b/i)
+  if (pureBvMatch)
+    return { type: 'bv', id: pureBvMatch[1] }
+
   // 匹配纯 av 号（av + 数字）
-  const pureAvMatch = cleanUrl.match(/\bav(\d+)\b/i);
-  if (pureAvMatch) return { type: 'av', id: pureAvMatch[1] };
-  
-  return null;
+  const pureAvMatch = cleanUrl.match(/\bav(\d+)\b/i)
+  if (pureAvMatch)
+    return { type: 'av', id: pureAvMatch[1] }
+
+  return null
 }
 
 /**
@@ -146,10 +155,11 @@ function extractBilibiliVideoId(url: string): { type: 'bv' | 'av'; id: string } 
  * 支持格式：
  * - https://github.com/owner/repo
  */
-function extractGithubRepo(url: string): { owner: string; repo: string } | null {
-  const match = url.match(/github\.com\/([^\/]+)\/([^\/\?#]+)/);
-  if (match) return { owner: match[1], repo: match[2] };
-  return null;
+function extractGithubRepo(url: string): { owner: string, repo: string } | null {
+  const match = url.match(/github\.com\/([^/]+)\/([^/?#]+)/)
+  if (match)
+    return { owner: match[1], repo: match[2] }
+  return null
 }
 
 /**
@@ -189,7 +199,7 @@ function generateNeteaseMusicCard(songId: string, isDark: boolean): string {
         </div>
       </div>
     </div>
-  `;
+  `
 }
 
 /**
@@ -198,8 +208,8 @@ function generateNeteaseMusicCard(songId: string, isDark: boolean): string {
  * 使用 my-6 作为默认margin（大尺寸卡片）
  */
 function generateSteamGameCard(appId: string, isDark: boolean): string {
-  const storeUrl = `https://store.steampowered.com/app/${appId}`;
-  const headerImg = `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/header.jpg`;
+  const storeUrl = `https://store.steampowered.com/app/${appId}`
+  const headerImg = `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/header.jpg`
 
   return `
     <div class="brew-embed-card brew-steam-game brew-embed-exempt not-prose block group"
@@ -232,7 +242,7 @@ function generateSteamGameCard(appId: string, isDark: boolean): string {
         </div>
       </div>
     </div>
-  `;
+  `
 }
 
 /**
@@ -240,11 +250,11 @@ function generateSteamGameCard(appId: string, isDark: boolean): string {
  * 使用 B站官方播放器，响应式容器
  * margin 由 BrewReader 统一控制
  */
-function generateBilibiliIframe(videoId: { type: 'bv' | 'av'; id: string }): string {
+function generateBilibiliIframe(videoId: { type: 'bv' | 'av', id: string }): string {
   // 构建官方播放器 URL
   const playerUrl = videoId.type === 'bv'
     ? `//player.bilibili.com/player.html?bvid=${videoId.id}&autoplay=0`
-    : `//player.bilibili.com/player.html?aid=${videoId.id}&autoplay=0`;
+    : `//player.bilibili.com/player.html?aid=${videoId.id}&autoplay=0`
 
   return `
     <div class="brew-embed-card brew-bilibili-embed brew-embed-exempt not-prose block"
@@ -263,18 +273,18 @@ function generateBilibiliIframe(videoId: { type: 'bv' | 'av'; id: string }): str
         </iframe>
       </div>
     </div>
-  `;
+  `
 }
 
 /**
  * 生成 Bilibili 视频卡片 HTML - 与资料库视频卡片风格一致
  * 横版封面，悬停显示信息（保留但不再使用）
  */
-function generateBilibiliVideoCard(videoId: { type: 'bv' | 'av'; id: string }, isDark: boolean): string {
-  const videoUrl = videoId.type === 'bv' 
+function generateBilibiliVideoCard(videoId: { type: 'bv' | 'av', id: string }, isDark: boolean): string {
+  const videoUrl = videoId.type === 'bv'
     ? `https://www.bilibili.com/video/${videoId.id}`
-    : `https://www.bilibili.com/video/av${videoId.id}`;
-  
+    : `https://www.bilibili.com/video/av${videoId.id}`
+
   // 使用与其他卡片一致的结构：外层 div 作为 brew-embed-card
   return `
     <div class="brew-embed-card brew-bilibili-video brew-embed-exempt not-prose block group"
@@ -319,7 +329,7 @@ function generateBilibiliVideoCard(videoId: { type: 'bv' | 'av'; id: string }, i
         </div>
       </a>
     </div>
-  `;
+  `
 }
 
 /**
@@ -327,9 +337,9 @@ function generateBilibiliVideoCard(videoId: { type: 'bv' | 'av'; id: string }, i
  * 显示仓库基本信息，与阅读器风格统一
  * margin 由 BrewReader 统一控制
  */
-function generateGithubRepoCard(repo: { owner: string; repo: string }, isDark: boolean): string {
-  const repoUrl = `https://github.com/${repo.owner}/${repo.repo}`;
-  const ownerAvatar = `https://github.com/${repo.owner}.png?size=32`;
+function generateGithubRepoCard(repo: { owner: string, repo: string }, isDark: boolean): string {
+  const repoUrl = `https://github.com/${repo.owner}/${repo.repo}`
+  const ownerAvatar = `https://github.com/${repo.owner}.png?size=32`
 
   // 使用与 Steam 卡片一致的结构：外层 div 作为 brew-embed-card，内部包含可视样式和链接
   return `
@@ -400,7 +410,7 @@ function generateGithubRepoCard(repo: { owner: string; repo: string }, isDark: b
         </div>
       </a>
     </div>
-  `;
+  `
 }
 
 /**
@@ -410,81 +420,81 @@ function generateGithubRepoCard(repo: { owner: string; repo: string }, isDark: b
  * @returns 处理后的 HTML 内容
  */
 export function processEmbeds(content: string, isDark: boolean): string {
-  let result = content;
-  
+  let result = content
+
   // 1. 处理网易云音乐 iframe
   // 匹配: <iframe ... src="https://music.163.com/outchain/player?..." ...></iframe>
-  const neteaseIframeRegex = /<iframe[^>]*src=["']([^"']*music\.163\.com\/outchain\/player[^"']*)["'][^>]*>[\s\S]*?<\/iframe>/gi;
+  const neteaseIframeRegex = /<iframe[^>]*src=["']([^"']*music\.163\.com\/outchain\/player[^"']*)["'][^>]*>[\s\S]*?<\/iframe>/gi
   result = result.replace(neteaseIframeRegex, (match, src) => {
-    const songId = extractNeteaseSongId(src);
+    const songId = extractNeteaseSongId(src)
     if (songId) {
-      return generateNeteaseMusicCard(songId, isDark);
+      return generateNeteaseMusicCard(songId, isDark)
     }
-    return match; // 无法解析则保留原样
-  });
+    return match // 无法解析则保留原样
+  })
 
   // 1.1 处理网易云音乐链接（<a> 标签形式）
   // 匹配: <a href="https://music.163.com/song?id=xxx">...</a>
   // 支持多种格式：/song?id=xxx, /#/song?id=xxx, /m/song?id=xxx, /song/xxx
-  const neteaseLinkRegex = /<a[^>]*href=["'](https?:\/\/(?:y\.)?music\.163\.com\/(?:#\/)?(?:m\/)?song(?:\?[^"']*id=\d+|\/\d+)[^"']*)["'][^>]*>[\s\S]*?<\/a>/gi;
+  const neteaseLinkRegex = /<a[^>]*href=["'](https?:\/\/(?:y\.)?music\.163\.com\/(?:#\/)?(?:m\/)?song(?:\?[^"']*id=\d|\/\d)[^"']*)["'][^>]*>[\s\S]*?<\/a>/gi
   result = result.replace(neteaseLinkRegex, (match, url) => {
-    const songId = extractNeteaseSongIdFromUrl(url);
+    const songId = extractNeteaseSongIdFromUrl(url)
     if (songId) {
-      return generateNeteaseMusicCard(songId, isDark);
+      return generateNeteaseMusicCard(songId, isDark)
     }
-    return match;
-  });
-  
+    return match
+  })
+
   // 2. 处理 Steam 链接（不在已有链接标签内的纯 URL）
   // 只处理独立的链接，避免重复处理
-  const steamLinkRegex = /<a[^>]*href=["'](https?:\/\/store\.steampowered\.com\/app\/\d+[^"']*)["'][^>]*>[\s\S]*?<\/a>/gi;
+  const steamLinkRegex = /<a[^>]*href=["'](https?:\/\/store\.steampowered\.com\/app\/\d[^"']*)["'][^>]*>[\s\S]*?<\/a>/gi
   result = result.replace(steamLinkRegex, (match, url) => {
-    const appId = extractSteamAppId(url);
+    const appId = extractSteamAppId(url)
     if (appId) {
-      return generateSteamGameCard(appId, isDark);
+      return generateSteamGameCard(appId, isDark)
     }
-    return match;
-  });
-  
+    return match
+  })
+
   // 3. Bilibili 处理：不再处理官方 iframe，只把 AV/BV 号和链接转为官方 iframe
-  
+
   // 3.1 处理 Bilibili 视频链接 -> 转为官方 iframe
-  const bilibiliLinkRegex = /<a[^>]*href=["'](https?:\/\/(?:www\.)?bilibili\.com\/video\/(?:BV[a-zA-Z0-9]+|av\d+)[^"']*)["'][^>]*>[\s\S]*?<\/a>/gi;
+  const bilibiliLinkRegex = /<a[^>]*href=["'](https?:\/\/(?:www\.)?bilibili\.com\/video\/(?:BV[a-z0-9]|av\d)[^"']*)["'][^>]*>[\s\S]*?<\/a>/gi
   result = result.replace(bilibiliLinkRegex, (match, url) => {
-    const videoId = extractBilibiliVideoId(url);
+    const videoId = extractBilibiliVideoId(url)
     if (videoId) {
-      return generateBilibiliIframe(videoId);
+      return generateBilibiliIframe(videoId)
     }
-    return match;
-  });
-  
+    return match
+  })
+
   // 3.2 处理纯文本中的 BV 号或 AV 号（不在链接内的）-> 转为官方 iframe
   // 匹配独立的 BV1xxxxxxxxx 或 av12345678 格式
-  const bilibiliPlainTextRegex = /(?<!<[^>]*|href=["'][^"']*|>)\b(BV[a-zA-Z0-9]{10,12}|av\d{1,12})\b(?![^<]*<\/a>)/gi;
+  const bilibiliPlainTextRegex = /(?<!<[^>]*|href=["'][^"']*|>)\b(BV[a-z0-9]{10,12}|av\d{1,12})\b(?![^<]*<\/a>)/gi
   result = result.replace(bilibiliPlainTextRegex, (match) => {
-    const videoId = extractBilibiliVideoId(match);
+    const videoId = extractBilibiliVideoId(match)
     if (videoId) {
-      return generateBilibiliIframe(videoId);
+      return generateBilibiliIframe(videoId)
     }
-    return match;
-  });
-  
+    return match
+  })
+
   // 4. 处理 GitHub 仓库链接（仅处理指向仓库首页的链接）
-  const githubLinkRegex = /<a[^>]*href=["'](https?:\/\/github\.com\/[^\/]+\/[^\/\?#"']+)["'][^>]*>[\s\S]*?<\/a>/gi;
+  const githubLinkRegex = /<a[^>]*href=["'](https?:\/\/github\.com\/[^/]+\/[^/?#"']+)["'][^>]*>[\s\S]*?<\/a>/gi
   result = result.replace(githubLinkRegex, (match, url) => {
     // 排除 github.com/user/repo/xxx 这种子页面链接
-    const cleanUrl = url.split('?')[0].split('#')[0];
-    const parts = cleanUrl.replace(/^https?:\/\/github\.com\//, '').split('/');
+    const cleanUrl = url.split('?')[0].split('#')[0]
+    const parts = cleanUrl.replace(/^https?:\/\/github\.com\//, '').split('/')
     if (parts.length === 2 && parts[0] && parts[1]) {
-      const repo = extractGithubRepo(url);
+      const repo = extractGithubRepo(url)
       if (repo) {
-        return generateGithubRepoCard(repo, isDark);
+        return generateGithubRepoCard(repo, isDark)
       }
     }
-    return match;
-  });
-  
-  return result;
+    return match
+  })
+
+  return result
 }
 
 /**
@@ -498,7 +508,7 @@ export async function loadEmbedData(container: HTMLElement): Promise<void> {
     loadNeteaseMusicData(container),
     loadSteamGameData(container),
     loadGithubRepoData(container),
-  ]);
+  ])
 }
 
 /**
@@ -506,85 +516,87 @@ export async function loadEmbedData(container: HTMLElement): Promise<void> {
  * 使用并行加载提升性能
  */
 async function loadNeteaseMusicData(container: HTMLElement): Promise<void> {
-  const cards = Array.from(container.querySelectorAll('.brew-netease-music[data-song-id]'));
-  
+  const cards = Array.from(container.querySelectorAll('.brew-netease-music[data-song-id]'))
+
   // 过滤出未加载的卡片
-  const unloadedCards = cards.filter(card => 
-    card.getAttribute('data-song-id') && card.getAttribute('data-loaded') !== 'true'
-  );
-  
-  if (unloadedCards.length === 0) return;
-  
+  const unloadedCards = cards.filter(card =>
+    card.getAttribute('data-song-id') && card.getAttribute('data-loaded') !== 'true',
+  )
+
+  if (unloadedCards.length === 0)
+    return
+
   // 并行加载所有卡片数据
   await Promise.all(unloadedCards.map(async (card) => {
-    const songId = card.getAttribute('data-song-id');
-    if (!songId) return;
-    
+    const songId = card.getAttribute('data-song-id')
+    if (!songId)
+      return
+
     // 立即标记为加载中，防止重复请求
-    card.setAttribute('data-loaded', 'loading');
-    
+    card.setAttribute('data-loaded', 'loading')
+
     try {
-      const response = await fetch(`/api/proxy/music/netease/song/${songId}`);
+      const response = await fetch(`/api/proxy/music/netease/song/${songId}`)
       if (!response.ok) {
-        card.setAttribute('data-loaded', 'true');
-        return;
+        card.setAttribute('data-loaded', 'true')
+        return
       }
-      
-      const songData = await response.json();
+
+      const songData = await response.json()
       if (!songData || !songData.name) {
-        card.setAttribute('data-loaded', 'true');
-        return;
+        card.setAttribute('data-loaded', 'true')
+        return
       }
-      
+
       // 更新封面
-      const coverContainer = card.querySelector('.brew-embed-cover');
+      const coverContainer = card.querySelector('.brew-embed-cover')
       if (coverContainer && songData.album?.picUrl) {
-        const coverUrl = songData.album.picUrl || songData.al?.picUrl;
+        const coverUrl = songData.album.picUrl || songData.al?.picUrl
         if (coverUrl) {
           // 安全：使用 DOM API 创建元素，避免 XSS
-          const img = document.createElement('img');
-          img.src = coverUrl;
-          img.alt = songData.name || '';
-          img.className = 'w-full h-full object-cover transition-all duration-500 group-hover:scale-110';
-          img.loading = 'lazy';
-          coverContainer.innerHTML = '';
-          coverContainer.appendChild(img);
+          const img = document.createElement('img')
+          img.src = coverUrl
+          img.alt = songData.name || ''
+          img.className = 'w-full h-full object-cover transition-all duration-500 group-hover:scale-110'
+          img.loading = 'lazy'
+          coverContainer.innerHTML = ''
+          coverContainer.appendChild(img)
         }
       }
-      
+
       // 更新标题
-      const titleEl = card.querySelector('.brew-embed-title');
+      const titleEl = card.querySelector('.brew-embed-title')
       if (titleEl) {
-        titleEl.textContent = songData.name;
+        titleEl.textContent = songData.name
       }
-      
+
       // 更新艺术家
-      const artistEl = card.querySelector('.brew-embed-artist');
+      const artistEl = card.querySelector('.brew-embed-artist')
       if (artistEl) {
-        const artists = songData.artists || songData.ar || [];
-        const artistText = artists.map((a: any) => a.name).join(', ') || '未知艺术家';
-        artistEl.textContent = artistText;
+        const artists = songData.artists || songData.ar || []
+        const artistText = artists.map((a: any) => a.name).join(', ') || '未知艺术家'
+        artistEl.textContent = artistText
       }
-      
+
       // 添加 VIP 标记
       if (songData.isVip || songData.fee === 1 || songData.fee === 4) {
-        const titleContainer = card.querySelector('.brew-embed-title')?.parentElement;
+        const titleContainer = card.querySelector('.brew-embed-title')?.parentElement
         if (titleContainer && !titleContainer.querySelector('.vip-badge')) {
-          const vipBadge = document.createElement('span');
-          vipBadge.className = 'vip-badge inline-flex items-center px-1.5 py-0.5 rounded-md bg-gradient-to-r from-yellow-500 to-amber-600 text-[10px] font-semibold text-white shadow-md select-none ml-1';
-          vipBadge.textContent = 'VIP';
-          titleContainer.appendChild(vipBadge);
+          const vipBadge = document.createElement('span')
+          vipBadge.className = 'vip-badge inline-flex items-center px-1.5 py-0.5 rounded-md bg-gradient-to-r from-yellow-500 to-amber-600 text-[10px] font-semibold text-white shadow-md select-none ml-1'
+          vipBadge.textContent = 'VIP'
+          titleContainer.appendChild(vipBadge)
         }
       }
-      
+
       // 标记已加载
-      card.setAttribute('data-loaded', 'true');
-      
-    } catch (error) {
-      console.warn(`[embedProcessor] 加载网易云音乐 ${songId} 失败:`, error);
-      card.setAttribute('data-loaded', 'true');
+      card.setAttribute('data-loaded', 'true')
     }
-  }));
+    catch (error) {
+      console.warn(`[embedProcessor] 加载网易云音乐 ${songId} 失败:`, error)
+      card.setAttribute('data-loaded', 'true')
+    }
+  }))
 }
 
 /**
@@ -593,73 +605,76 @@ async function loadNeteaseMusicData(container: HTMLElement): Promise<void> {
  * 使用并行加载 + 缓存提升性能
  */
 async function loadSteamGameData(container: HTMLElement): Promise<void> {
-  const cards = Array.from(container.querySelectorAll('.brew-steam-game[data-app-id]'));
+  const cards = Array.from(container.querySelectorAll('.brew-steam-game[data-app-id]'))
 
   // 过滤出未加载的卡片
   const unloadedCards = cards.filter(card =>
-    card.getAttribute('data-app-id') && card.getAttribute('data-loaded') !== 'true'
-  );
+    card.getAttribute('data-app-id') && card.getAttribute('data-loaded') !== 'true',
+  )
 
-  if (unloadedCards.length === 0) return;
+  if (unloadedCards.length === 0)
+    return
 
   // 并行加载所有卡片数据
   await Promise.all(unloadedCards.map(async (card) => {
-    const appId = card.getAttribute('data-app-id');
-    if (!appId) return;
+    const appId = card.getAttribute('data-app-id')
+    if (!appId)
+      return
 
     // 立即标记为加载中
-    card.setAttribute('data-loaded', 'loading');
+    card.setAttribute('data-loaded', 'loading')
 
     try {
       // 检查缓存
-      const cacheKey = `steam:${appId}`;
-      let gameData = getCached<any>(cacheKey);
+      const cacheKey = `steam:${appId}`
+      let gameData = getCached<any>(cacheKey)
 
       if (!gameData) {
         // 使用后端代理API获取游戏详情
-        const response = await fetch(`/api/steam/game/${appId}`);
+        const response = await fetch(`/api/steam/game/${appId}`)
         if (!response.ok) {
-          card.setAttribute('data-loaded', 'true');
-          return;
+          card.setAttribute('data-loaded', 'true')
+          return
         }
 
-        const result = await response.json();
+        const result = await response.json()
         if (result.success && result.data) {
-          gameData = result.data;
-          setCache(cacheKey, gameData);
+          gameData = result.data
+          setCache(cacheKey, gameData)
         }
       }
 
       if (gameData) {
         // 更新游戏名称
-        const titleEl = card.querySelector('.brew-embed-title');
+        const titleEl = card.querySelector('.brew-embed-title')
         if (titleEl && gameData.name) {
-          titleEl.textContent = gameData.name;
+          titleEl.textContent = gameData.name
         }
 
         // 更新游戏描述
-        const descEl = card.querySelector('.brew-embed-desc');
+        const descEl = card.querySelector('.brew-embed-desc')
         if (descEl && gameData.short_description) {
           // 安全：使用 DOMParser 提取纯文本，避免 innerHTML 触发脚本
           try {
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(gameData.short_description, 'text/html');
-            const plainText = doc.body.textContent || '';
-            descEl.textContent = plainText;
-          } catch {
+            const parser = new DOMParser()
+            const doc = parser.parseFromString(gameData.short_description, 'text/html')
+            const plainText = doc.body.textContent || ''
+            descEl.textContent = plainText
+          }
+          catch {
             // 回退：直接移除所有 HTML 标签
-            descEl.textContent = gameData.short_description.replace(/<[^>]*>/g, '');
+            descEl.textContent = gameData.short_description.replace(/<[^>]*>/g, '')
           }
         }
       }
 
-      card.setAttribute('data-loaded', 'true');
-
-    } catch (error) {
-      console.warn(`[embedProcessor] 加载 Steam 游戏 ${appId} 失败:`, error);
-      card.setAttribute('data-loaded', 'true');
+      card.setAttribute('data-loaded', 'true')
     }
-  }));
+    catch (error) {
+      console.warn(`[embedProcessor] 加载 Steam 游戏 ${appId} 失败:`, error)
+      card.setAttribute('data-loaded', 'true')
+    }
+  }))
 }
 
 /**
@@ -668,94 +683,97 @@ async function loadSteamGameData(container: HTMLElement): Promise<void> {
  * 使用并行加载 + 缓存提升性能（GitHub API 有 60次/小时 的速率限制）
  */
 async function loadGithubRepoData(container: HTMLElement): Promise<void> {
-  const cards = Array.from(container.querySelectorAll('.brew-github-repo[data-owner][data-repo]'));
-  
-  // 过滤出未加载的卡片
-  const unloadedCards = cards.filter(card => {
-    const owner = card.getAttribute('data-owner');
-    const repo = card.getAttribute('data-repo');
-    return owner && repo && card.getAttribute('data-loaded') !== 'true';
-  });
+  const cards = Array.from(container.querySelectorAll('.brew-github-repo[data-owner][data-repo]'))
 
-  if (unloadedCards.length === 0) return;
+  // 过滤出未加载的卡片
+  const unloadedCards = cards.filter((card) => {
+    const owner = card.getAttribute('data-owner')
+    const repo = card.getAttribute('data-repo')
+    return owner && repo && card.getAttribute('data-loaded') !== 'true'
+  })
+
+  if (unloadedCards.length === 0)
+    return
 
   // 并行加载所有卡片数据
   await Promise.all(unloadedCards.map(async (card) => {
-    const owner = card.getAttribute('data-owner');
-    const repo = card.getAttribute('data-repo');
-    if (!owner || !repo) return;
+    const owner = card.getAttribute('data-owner')
+    const repo = card.getAttribute('data-repo')
+    if (!owner || !repo)
+      return
 
     // 立即标记为加载中
-    card.setAttribute('data-loaded', 'loading');
+    card.setAttribute('data-loaded', 'loading')
 
     try {
       // 检查缓存（GitHub API 有速率限制，缓存很重要）
-      const cacheKey = `github:${owner}/${repo}`;
-      let repoData = getCached<any>(cacheKey);
+      const cacheKey = `github:${owner}/${repo}`
+      let repoData = getCached<any>(cacheKey)
 
       if (!repoData) {
         // 使用 GitHub API（无需认证的公开接口，有速率限制）
-        const response = await fetch(`https://api.github.com/repos/${owner}/${repo}`);
+        const response = await fetch(`https://api.github.com/repos/${owner}/${repo}`)
         if (!response.ok) {
-          card.setAttribute('data-loaded', 'true');
-          return;
+          card.setAttribute('data-loaded', 'true')
+          return
         }
 
-        repoData = await response.json();
-        setCache(cacheKey, repoData);
+        repoData = await response.json()
+        setCache(cacheKey, repoData)
       }
-      
+
       // 更新仓库描述
-      const descEl = card.querySelector('.brew-embed-desc');
+      const descEl = card.querySelector('.brew-embed-desc')
       if (descEl) {
-        descEl.textContent = repoData.description || '暂无描述';
+        descEl.textContent = repoData.description || '暂无描述'
       }
-      
+
       // 更新 Star 数
-      const starsEl = card.querySelector('.brew-embed-stars span');
+      const starsEl = card.querySelector('.brew-embed-stars span')
       if (starsEl) {
-        const stars = repoData.stargazers_count || 0;
-        starsEl.textContent = formatCount(stars);
+        const stars = repoData.stargazers_count || 0
+        starsEl.textContent = formatCount(stars)
       }
-      
+
       // 更新 Fork 数
-      const forksEl = card.querySelector('.brew-embed-forks span');
+      const forksEl = card.querySelector('.brew-embed-forks span')
       if (forksEl) {
-        const forks = repoData.forks_count || 0;
-        forksEl.textContent = formatCount(forks);
+        const forks = repoData.forks_count || 0
+        forksEl.textContent = formatCount(forks)
       }
-      
+
       // 更新语言
-      const langEl = card.querySelector('.brew-embed-lang');
+      const langEl = card.querySelector('.brew-embed-lang')
       if (langEl && repoData.language) {
-        const langColor = getLanguageColor(repoData.language);
-        const colorDot = langEl.querySelector('span:first-child') as HTMLElement;
-        const langText = langEl.querySelector('span:last-child');
+        const langColor = getLanguageColor(repoData.language)
+        const colorDot = langEl.querySelector('span:first-child') as HTMLElement
+        const langText = langEl.querySelector('span:last-child')
         if (colorDot) {
-          colorDot.style.backgroundColor = langColor;
+          colorDot.style.backgroundColor = langColor
         }
         if (langText) {
-          langText.textContent = repoData.language;
+          langText.textContent = repoData.language
         }
-      } else if (langEl) {
+      }
+      else if (langEl) {
         // 没有语言信息，隐藏该元素
-        (langEl as HTMLElement).style.display = 'none';
+        (langEl as HTMLElement).style.display = 'none'
       }
-      
+
       // 标记已加载
-      card.setAttribute('data-loaded', 'true');
-      
-    } catch (error) {
-      console.warn(`[embedProcessor] 加载 GitHub 仓库 ${owner}/${repo} 失败:`, error);
-      
-      // 即使失败也标记，避免重复请求
-      const descEl = card.querySelector('.brew-embed-desc');
-      if (descEl) {
-        descEl.textContent = '仓库信息加载失败';
-      }
-      card.setAttribute('data-loaded', 'true');
+      card.setAttribute('data-loaded', 'true')
     }
-  }));
+    catch (error) {
+      console.warn(`[embedProcessor] 加载 GitHub 仓库 ${owner}/${repo} 失败:`, error)
+
+      // 即使失败也标记，避免重复请求
+      const descEl = card.querySelector('.brew-embed-desc')
+      if (descEl) {
+        descEl.textContent = '仓库信息加载失败'
+      }
+      card.setAttribute('data-loaded', 'true')
+    }
+  }))
 }
 
 /**
@@ -782,8 +800,8 @@ function getLanguageColor(language: string): string {
     'CSS': '#563d7c',
     'Shell': '#89e051',
     'Lua': '#000080',
-  };
-  return colors[language] || '#6b7280';
+  }
+  return colors[language] || '#6b7280'
 }
 
 /**
@@ -791,12 +809,12 @@ function getLanguageColor(language: string): string {
  */
 function formatCount(count: number): string {
   if (count >= 1000000) {
-    return (count / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+    return `${(count / 1000000).toFixed(1).replace(/\.0$/, '')}M`
   }
   if (count >= 1000) {
-    return (count / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+    return `${(count / 1000).toFixed(1).replace(/\.0$/, '')}k`
   }
-  return count.toString();
+  return count.toString()
 }
 
 /**
@@ -805,44 +823,45 @@ function formatCount(count: number): string {
  */
 export async function playNeteaseSong(songId: string): Promise<void> {
   try {
-    let songData: any = null;
-    
+    let songData: any = null
+
     // 通过后端代理 API 获取歌曲详情（避免跨域问题）
     try {
-      const detailResponse = await fetch(`/api/proxy/music/netease/song/${songId}`);
-      
+      const detailResponse = await fetch(`/api/proxy/music/netease/song/${songId}`)
+
       if (detailResponse.ok) {
-        songData = await detailResponse.json();
+        songData = await detailResponse.json()
       }
-    } catch (e) {
-      console.warn('[embedProcessor] 获取歌曲详情失败:', e);
     }
-    
+    catch (e) {
+      console.warn('[embedProcessor] 获取歌曲详情失败:', e)
+    }
+
     // 构建歌曲对象（即使没有详情也能播放）
     const song = {
       id: songId,
       name: songData?.name || `网易云音乐 #${songId}`,
-      artist: songData?.artists?.map((a: any) => a.name).join(', ') || 
-              songData?.ar?.map((a: any) => a.name).join(', ') || '未知艺术家',
+      artist: songData?.artists?.map((a: any) => a.name).join(', ')
+        || songData?.ar?.map((a: any) => a.name).join(', ') || '未知艺术家',
       album: songData?.album?.name || songData?.al?.name || '未知专辑',
-      cover: songData?.album?.picUrl || songData?.al?.picUrl || 
-             `https://p1.music.126.net/UeTuwE7pvjBpypWLudqukA==/3132508627578625.jpg`,
+      cover: songData?.album?.picUrl || songData?.al?.picUrl
+        || `https://p1.music.126.net/UeTuwE7pvjBpypWLudqukA==/3132508627578625.jpg`,
       url: `/api/proxy/music/netease/audio/${songId}`,
       duration: songData?.duration ? Math.floor(songData.duration / 1000) : 0,
       source: 'netease',
       isVip: songData?.isVip || songData?.fee === 1 || songData?.fee === 4,
-    };
-    
+    }
+
     // 触发播放事件
-    window.dispatchEvent(new CustomEvent('play-song', { 
-      detail: { song } 
-    }));
-    
+    window.dispatchEvent(new CustomEvent('play-song', {
+      detail: { song },
+    }))
+
     // 打开控制面板
-    window.dispatchEvent(new CustomEvent('open-control-panel'));
-    
-  } catch (error) {
-    console.error('[embedProcessor] 播放网易云音乐失败:', error);
-    throw error;
+    window.dispatchEvent(new CustomEvent('open-control-panel'))
+  }
+  catch (error) {
+    console.error('[embedProcessor] 播放网易云音乐失败:', error)
+    throw error
   }
 }

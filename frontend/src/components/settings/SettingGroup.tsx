@@ -3,10 +3,10 @@
  * 用于将相关设置项组织在一起
  */
 
-import React, { useRef, useEffect } from 'react';
-import type { SettingGroupConfig, SettingItemConfig } from './types';
-import { SettingItem } from './SettingItem';
-import './SettingGroup.css';
+import type { SettingGroupConfig } from './types'
+import React, { useEffect, useRef } from 'react'
+import { SettingItem } from './SettingItem'
+import './SettingGroup.css'
 
 export interface SettingGroupProps extends SettingGroupConfig {}
 
@@ -20,21 +20,21 @@ export const SettingGroup: React.FC<SettingGroupProps> = ({
   defaultExpanded = true,
   className = '',
 }) => {
-  const [isExpanded, setIsExpanded] = React.useState(defaultExpanded);
-  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
+  const buttonRef = useRef<HTMLButtonElement>(null)
 
   // 通过 ref 设置 aria-expanded 以绕过静态分析工具的误报
   useEffect(() => {
     if (buttonRef.current) {
-      buttonRef.current.setAttribute('aria-expanded', String(isExpanded));
+      buttonRef.current.setAttribute('aria-expanded', String(isExpanded))
     }
-  }, [isExpanded]);
+  }, [isExpanded])
 
   const handleToggle = React.useCallback(() => {
     if (collapsible) {
-      setIsExpanded((prev) => !prev);
+      setIsExpanded(prev => !prev)
     }
-  }, [collapsible]);
+  }, [collapsible])
 
   // 渲染头部内容
   const headerContent = (
@@ -58,28 +58,30 @@ export const SettingGroup: React.FC<SettingGroupProps> = ({
         </span>
       )}
     </>
-  );
+  )
 
   return (
     <div className={`setting-group ${className}`}>
       {(title || description) && (
-        collapsible ? (
-          <button
-            ref={buttonRef}
-            type="button"
-            className="setting-group-header collapsible"
-            onClick={handleToggle}
-            aria-label={title ? `${isExpanded ? '收起' : '展开'} ${title}` : undefined}
-          >
-            {headerContent}
-          </button>
-        ) : (
-          <div className="setting-group-header">
-            {headerContent}
-          </div>
-        )
+        collapsible
+          ? (
+              <button
+                ref={buttonRef}
+                type="button"
+                className="setting-group-header collapsible"
+                onClick={handleToggle}
+                aria-label={title ? `${isExpanded ? '收起' : '展开'} ${title}` : undefined}
+              >
+                {headerContent}
+              </button>
+            )
+          : (
+              <div className="setting-group-header">
+                {headerContent}
+              </div>
+            )
       )}
-      
+
       {(!collapsible || isExpanded) && (
         <div className="setting-group-content">
           {items?.map((itemProps, index) => (
@@ -89,7 +91,7 @@ export const SettingGroup: React.FC<SettingGroupProps> = ({
         </div>
       )}
     </div>
-  );
-};
+  )
+}
 
-SettingGroup.displayName = 'SettingGroup';
+SettingGroup.displayName = 'SettingGroup'

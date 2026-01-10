@@ -4,16 +4,17 @@
  */
 
 export class TokenManager {
-  private static readonly TOKEN_KEY = 'auth_token';
-  private static readonly COOKIE_NAME = 'auth_token';
-  
+  private static readonly TOKEN_KEY = 'auth_token'
+  private static readonly COOKIE_NAME = 'auth_token'
+
   /**
    * 验证 JWT Token 格式是否有效
    */
   private static isValidToken(token: string): boolean {
-    if (!token || typeof token !== 'string') return false;
-    const parts = token.split('.');
-    return parts.length === 3 && parts.every(part => part.length > 0);
+    if (!token || typeof token !== 'string')
+      return false
+    const parts = token.split('.')
+    return parts.length === 3 && parts.every(part => part.length > 0)
   }
 
   /**
@@ -24,16 +25,17 @@ export class TokenManager {
    */
   private static getTokenFromCookie(): string | null {
     try {
-      const cookies = document.cookie.split(';');
+      const cookies = document.cookie.split(';')
       for (const cookie of cookies) {
-        const [name, value] = cookie.trim().split('=');
+        const [name, value] = cookie.trim().split('=')
         if (name === this.COOKIE_NAME && value) {
-          return decodeURIComponent(value);
+          return decodeURIComponent(value)
         }
       }
-      return null;
-    } catch {
-      return null;
+      return null
+    }
+    catch {
+      return null
     }
   }
 
@@ -44,16 +46,17 @@ export class TokenManager {
   static getToken(): string | null {
     try {
       // ✅ 安全修复 P0: 仅从 HttpOnly Cookie 读取（XSS 无法窃取）
-      const cookieToken = this.getTokenFromCookie();
+      const cookieToken = this.getTokenFromCookie()
       if (cookieToken && this.isValidToken(cookieToken)) {
-        return cookieToken;
+        return cookieToken
       }
 
       // ✅ 安全修复 P0: 不再回退到 localStorage
       // 如果 Cookie 中没有 Token，说明用户未登录或 Token 已过期
-      return null;
-    } catch {
-      return null;
+      return null
+    }
+    catch {
+      return null
     }
   }
 
@@ -65,17 +68,18 @@ export class TokenManager {
   static setToken(token: string): void {
     try {
       if (!this.isValidToken(token)) {
-        throw new Error('Invalid token format');
+        throw new Error('Invalid token format')
       }
-      
+
       // ✅ 安全修复 P0: 不再保存到 localStorage（容易被 XSS 窃取）
       // localStorage.setItem(this.TOKEN_KEY, token);
-      
+
       // HttpOnly Cookie 由后端在 Set-Cookie 头中设置，前端无法设置
       // Token 仅存储在 HttpOnly Cookie 中，JavaScript 无法访问
-    } catch (e) {
-      console.error('Failed to validate token:', e);
-      throw e;
+    }
+    catch (e) {
+      console.error('Failed to validate token:', e)
+      throw e
     }
   }
 
@@ -85,12 +89,13 @@ export class TokenManager {
   static removeToken(): void {
     try {
       // 清除 localStorage
-      localStorage.removeItem(this.TOKEN_KEY);
-      
+      localStorage.removeItem(this.TOKEN_KEY)
+
       // 清除 Cookie（设置过期时间为过去）
-      document.cookie = `${this.COOKIE_NAME}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=Strict`;
-    } catch (e) {
-      console.error('Failed to remove token:', e);
+      document.cookie = `${this.COOKIE_NAME}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=Strict`
+    }
+    catch (e) {
+      console.error('Failed to remove token:', e)
     }
   }
 
@@ -98,8 +103,8 @@ export class TokenManager {
    * 检查用户是否已认证
    */
   static isAuthenticated(): boolean {
-    const token = this.getToken();
-    return token !== null && this.isValidToken(token);
+    const token = this.getToken()
+    return token !== null && this.isValidToken(token)
   }
 
   /**
@@ -107,17 +112,20 @@ export class TokenManager {
    */
   static decodeToken(token?: string): any {
     try {
-      const t = token || this.getToken();
-      if (!t) return null;
+      const t = token || this.getToken()
+      if (!t)
+        return null
 
-      const parts = t.split('.');
-      if (parts.length !== 3) return null;
+      const parts = t.split('.')
+      if (parts.length !== 3)
+        return null
 
-      const payload = parts[1];
-      const decoded = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
-      return JSON.parse(decoded);
-    } catch {
-      return null;
+      const payload = parts[1]
+      const decoded = atob(payload.replace(/-/g, '+').replace(/_/g, '/'))
+      return JSON.parse(decoded)
+    }
+    catch {
+      return null
     }
   }
 
@@ -126,14 +134,16 @@ export class TokenManager {
    */
   static isTokenExpiringSoon(thresholdMs: number = 300000): boolean {
     try {
-      const payload = this.decodeToken();
-      if (!payload || !payload.exp) return true;
+      const payload = this.decodeToken()
+      if (!payload || !payload.exp)
+        return true
 
-      const expirationTime = payload.exp * 1000; // JWT exp 是秒，转换为毫秒
-      const now = Date.now();
-      return expirationTime - now < thresholdMs;
-    } catch {
-      return true;
+      const expirationTime = payload.exp * 1000 // JWT exp 是秒，转换为毫秒
+      const now = Date.now()
+      return expirationTime - now < thresholdMs
+    }
+    catch {
+      return true
     }
   }
 
@@ -142,13 +152,15 @@ export class TokenManager {
    */
   static getTokenExpiration(): Date | null {
     try {
-      const payload = this.decodeToken();
-      if (!payload || !payload.exp) return null;
-      return new Date(payload.exp * 1000);
-    } catch {
-      return null;
+      const payload = this.decodeToken()
+      if (!payload || !payload.exp)
+        return null
+      return new Date(payload.exp * 1000)
+    }
+    catch {
+      return null
     }
   }
 }
 
-export default TokenManager;
+export default TokenManager

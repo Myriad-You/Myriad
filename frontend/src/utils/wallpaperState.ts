@@ -1,8 +1,8 @@
 /**
  * 壁纸状态管理模块 (Singleton)
- * 
+ *
  * 提供集中式的壁纸状态管理，确保壁纸URL和颜色提取的一致性
- * 
+ *
  * @module wallpaperState
  * @version 2.0
  */
@@ -13,35 +13,35 @@
 
 export interface WallpaperState {
   /** 当前活跃的壁纸URL（标准化后） */
-  activeUrl: string | null;
+  activeUrl: string | null
   /** 原始URL（未标准化） */
-  originalUrl: string | null;
+  originalUrl: string | null
   /** 壁纸应用时间戳 */
-  appliedAt: number;
+  appliedAt: number
   /** 壁纸模糊度 */
-  blur: number;
+  blur: number
   /** 是否正在加载中 */
-  isLoading: boolean;
+  isLoading: boolean
   /** 最后一次错误信息 */
-  lastError: string | null;
+  lastError: string | null
 }
 
 export interface WallpaperStateSnapshot extends Readonly<WallpaperState> {
   /** 获取状态的时间 */
-  snapshotAt: number;
+  snapshotAt: number
 }
 
-type WallpaperStateListener = (state: WallpaperStateSnapshot) => void;
+type WallpaperStateListener = (state: WallpaperStateSnapshot) => void
 
 // ============================================================================
 // 常量
 // ============================================================================
 
 /** 用于标准化URL时需要移除的缓存参数 */
-const CACHE_BUST_PARAMS = ['t', '_t', 'timestamp', 'cache', 'v', 'cachebust', 'nocache'] as const;
+const CACHE_BUST_PARAMS = ['t', '_t', 'timestamp', 'cache', 'v', 'cachebust', 'nocache'] as const
 
 /** 壁纸元素ID */
-const WALLPAPER_ELEMENT_ID = 'wallpaper';
+const WALLPAPER_ELEMENT_ID = 'wallpaper'
 
 // ============================================================================
 // 工具函数
@@ -53,15 +53,17 @@ const WALLPAPER_ELEMENT_ID = 'wallpaper';
  * @returns 标准化后的URL
  */
 export function normalizeWallpaperUrl(url: string): string {
-  if (!url) return '';
-  
+  if (!url)
+    return ''
+
   try {
-    const urlObj = new URL(url);
-    CACHE_BUST_PARAMS.forEach(param => urlObj.searchParams.delete(param));
-    return urlObj.toString();
-  } catch {
+    const urlObj = new URL(url)
+    CACHE_BUST_PARAMS.forEach(param => urlObj.searchParams.delete(param))
+    return urlObj.toString()
+  }
+  catch {
     // 如果URL无效，直接返回原始值
-    return url;
+    return url
   }
 }
 
@@ -72,8 +74,9 @@ export function normalizeWallpaperUrl(url: string): string {
  * @returns 是否相同
  */
 export function areUrlsEquivalent(url1: string | null, url2: string | null): boolean {
-  if (!url1 || !url2) return false;
-  return normalizeWallpaperUrl(url1) === normalizeWallpaperUrl(url2);
+  if (!url1 || !url2)
+    return false
+  return normalizeWallpaperUrl(url1) === normalizeWallpaperUrl(url2)
 }
 
 /**
@@ -82,15 +85,17 @@ export function areUrlsEquivalent(url1: string | null, url2: string | null): boo
  * @returns URL或null
  */
 export function extractBackgroundUrl(elementId: string = WALLPAPER_ELEMENT_ID): string | null {
-  const element = document.getElementById(elementId);
-  if (!element) return null;
-  
-  const bgImage = element.style.backgroundImage;
-  if (!bgImage || bgImage === 'none') return null;
-  
+  const element = document.getElementById(elementId)
+  if (!element)
+    return null
+
+  const bgImage = element.style.backgroundImage
+  if (!bgImage || bgImage === 'none')
+    return null
+
   // 匹配 url("...") 或 url('...') 或 url(...)
-  const match = bgImage.match(/url\(["']?([^"')]+)["']?\)/);
-  return match?.[1] ?? null;
+  const match = bgImage.match(/url\(["']?([^"')]+)["']?\)/)
+  return match?.[1] ?? null
 }
 
 // ============================================================================
@@ -105,10 +110,10 @@ class WallpaperStateManager {
     blur: 3,
     isLoading: false,
     lastError: null,
-  };
+  }
 
-  private listeners: Set<WallpaperStateListener> = new Set();
-  private pendingNotification: number | null = null;
+  private listeners: Set<WallpaperStateListener> = new Set()
+  private pendingNotification: number | null = null
 
   /**
    * 获取当前状态快照
@@ -117,21 +122,21 @@ class WallpaperStateManager {
     return {
       ...this.state,
       snapshotAt: Date.now(),
-    };
+    }
   }
 
   /**
    * 获取当前活跃的壁纸URL
    */
   getActiveUrl(): string | null {
-    return this.state.activeUrl;
+    return this.state.activeUrl
   }
 
   /**
    * 获取壁纸应用时间戳
    */
   getAppliedTimestamp(): number {
-    return this.state.appliedAt;
+    return this.state.appliedAt
   }
 
   /**
@@ -140,7 +145,7 @@ class WallpaperStateManager {
    * @returns 是否一致
    */
   isUrlActive(url: string): boolean {
-    return areUrlsEquivalent(url, this.state.activeUrl);
+    return areUrlsEquivalent(url, this.state.activeUrl)
   }
 
   /**
@@ -148,24 +153,24 @@ class WallpaperStateManager {
    * @returns 是否一致
    */
   isDOMConsistent(): boolean {
-    const domUrl = extractBackgroundUrl();
-    return areUrlsEquivalent(domUrl, this.state.activeUrl);
+    const domUrl = extractBackgroundUrl()
+    return areUrlsEquivalent(domUrl, this.state.activeUrl)
   }
 
   /**
    * 设置加载状态
    */
   setLoading(isLoading: boolean): void {
-    this.state.isLoading = isLoading;
-    this.notifyListeners();
+    this.state.isLoading = isLoading
+    this.notifyListeners()
   }
 
   /**
    * 设置错误信息
    */
   setError(error: string | null): void {
-    this.state.lastError = error;
-    this.notifyListeners();
+    this.state.lastError = error
+    this.notifyListeners()
   }
 
   /**
@@ -174,8 +179,8 @@ class WallpaperStateManager {
    * @param blur 模糊度
    */
   updateState(url: string, blur: number = 3): void {
-    const normalizedUrl = normalizeWallpaperUrl(url);
-    
+    const normalizedUrl = normalizeWallpaperUrl(url)
+
     this.state = {
       activeUrl: normalizedUrl,
       originalUrl: url,
@@ -183,9 +188,9 @@ class WallpaperStateManager {
       blur,
       isLoading: false,
       lastError: null,
-    };
-    
-    this.notifyListeners();
+    }
+
+    this.notifyListeners()
   }
 
   /**
@@ -199,8 +204,8 @@ class WallpaperStateManager {
       blur: 3,
       isLoading: false,
       lastError: null,
-    };
-    this.notifyListeners();
+    }
+    this.notifyListeners()
   }
 
   /**
@@ -209,10 +214,10 @@ class WallpaperStateManager {
    * @returns 取消订阅函数
    */
   subscribe(listener: WallpaperStateListener): () => void {
-    this.listeners.add(listener);
+    this.listeners.add(listener)
     return () => {
-      this.listeners.delete(listener);
-    };
+      this.listeners.delete(listener)
+    }
   }
 
   /**
@@ -221,38 +226,39 @@ class WallpaperStateManager {
   private notifyListeners(): void {
     // 使用微任务防抖，避免同步触发多次
     if (this.pendingNotification !== null) {
-      cancelAnimationFrame(this.pendingNotification);
+      cancelAnimationFrame(this.pendingNotification)
     }
-    
+
     this.pendingNotification = requestAnimationFrame(() => {
-      this.pendingNotification = null;
-      const snapshot = this.getSnapshot();
-      this.listeners.forEach(listener => {
+      this.pendingNotification = null
+      const snapshot = this.getSnapshot()
+      this.listeners.forEach((listener) => {
         try {
-          listener(snapshot);
-        } catch (error) {
-          console.error('壁纸状态监听器执行错误:', error);
+          listener(snapshot)
         }
-      });
-    });
+        catch (error) {
+          console.error('壁纸状态监听器执行错误:', error)
+        }
+      })
+    })
   }
 
   /**
    * 获取调试信息
    */
   getDebugInfo(): {
-    state: WallpaperStateSnapshot;
-    domUrl: string | null;
-    isConsistent: boolean;
-    listenerCount: number;
+    state: WallpaperStateSnapshot
+    domUrl: string | null
+    isConsistent: boolean
+    listenerCount: number
   } {
-    const domUrl = extractBackgroundUrl();
+    const domUrl = extractBackgroundUrl()
     return {
       state: this.getSnapshot(),
       domUrl,
       isConsistent: this.isDOMConsistent(),
       listenerCount: this.listeners.size,
-    };
+    }
   }
 }
 
@@ -261,7 +267,7 @@ class WallpaperStateManager {
 // ============================================================================
 
 /** 全局壁纸状态管理器实例 */
-export const wallpaperState = new WallpaperStateManager();
+export const wallpaperState = new WallpaperStateManager()
 
 // ============================================================================
 // 便捷导出函数（向后兼容）
@@ -272,7 +278,7 @@ export const wallpaperState = new WallpaperStateManager();
  * @deprecated 请使用 wallpaperState.getActiveUrl()
  */
 export function getActiveWallpaperUrl(): string | null {
-  return wallpaperState.getActiveUrl();
+  return wallpaperState.getActiveUrl()
 }
 
 /**
@@ -280,7 +286,7 @@ export function getActiveWallpaperUrl(): string | null {
  * @deprecated 请使用 wallpaperState.getAppliedTimestamp()
  */
 export function getWallpaperApplyTimestamp(): number {
-  return wallpaperState.getAppliedTimestamp();
+  return wallpaperState.getAppliedTimestamp()
 }
 
 /**
@@ -288,7 +294,7 @@ export function getWallpaperApplyTimestamp(): number {
  * @deprecated 请使用 wallpaperState.isUrlActive()
  */
 export function isWallpaperUrlActive(url: string): boolean {
-  return wallpaperState.isUrlActive(url);
+  return wallpaperState.isUrlActive(url)
 }
 
 /**
@@ -296,5 +302,5 @@ export function isWallpaperUrlActive(url: string): boolean {
  * @deprecated 请使用 extractBackgroundUrl()
  */
 export function getDOMWallpaperUrl(): string | null {
-  return extractBackgroundUrl();
+  return extractBackgroundUrl()
 }

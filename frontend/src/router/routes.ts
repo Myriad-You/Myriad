@@ -4,12 +4,12 @@
  */
 
 export interface RouteConfig {
-  path: string;
-  component: () => Promise<{ default: React.ComponentType<any> }>;
-  title: string;
-  description?: string;
-  requiresAuth?: boolean;
-  requiresAdmin?: boolean;
+  path: string
+  component: () => Promise<{ default: React.ComponentType<any> }>
+  title: string
+  description?: string
+  requiresAuth?: boolean
+  requiresAdmin?: boolean
 }
 
 export const routes: RouteConfig[] = [
@@ -85,7 +85,7 @@ export const routes: RouteConfig[] = [
     component: () => import('../views/TappDetailView.tsx'),
     title: 'Tapp 详情 - Myriad',
   },
-];
+]
 
 /**
  * 根据路径查找路由配置
@@ -93,22 +93,23 @@ export const routes: RouteConfig[] = [
  */
 export function findRoute(path: string): RouteConfig | undefined {
   // 先尝试精确匹配
-  const exactMatch = routes.find(route => route.path === path);
-  if (exactMatch) return exactMatch;
+  const exactMatch = routes.find(route => route.path === path)
+  if (exactMatch)
+    return exactMatch
 
   // 再尝试模式匹配
   for (const route of routes) {
     if (route.path.includes(':')) {
       // 转换路由模式为正则
-      const pattern = route.path.replace(/:\w+/g, '[^/]+');
-      const regex = new RegExp(`^${pattern}$`);
+      const pattern = route.path.replace(/:\w+/g, '[^/]+')
+      const regex = new RegExp(`^${pattern}$`)
       if (regex.test(path)) {
-        return route;
+        return route
       }
     }
   }
 
-  return undefined;
+  return undefined
 }
 
 /**
@@ -119,4 +120,4 @@ export const routeAnimations = {
   animate: { opacity: 1, x: 0 },
   exit: { opacity: 0, x: -20 },
   transition: { duration: 0.3, ease: 'easeInOut' },
-};
+}

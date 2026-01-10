@@ -3,50 +3,50 @@
  * 动态提示 + 排序 + 功能按钮
  */
 
-import { motion, AnimatePresence } from 'framer-motion';
+import type { ControlMode, DynamicTip, SortMode, SortOption } from './types'
 import {
-  LuSearch as Search,
+  LuArrowUpDown as ArrowUpDown,
+  LuCheck as Check,
+  LuChevronDown as ChevronDown,
   LuEdit3 as Edit3,
   LuKeyboard as Keyboard,
   LuPlus as Plus,
-  LuArrowUpDown as ArrowUpDown,
-  LuChevronDown as ChevronDown,
-  LuCheck as Check,
-} from '@lib/icons';
-import { SPRING_SNAPPY, TRANSITION_SLOW, TRANSITION_NORMAL } from './constants';
-import type { SortMode, ControlMode, DynamicTip, SortOption } from './types';
+  LuSearch as Search,
+} from '@lib/icons'
+import { AnimatePresence, motion } from 'framer-motion'
+import { SPRING_SNAPPY, TRANSITION_NORMAL, TRANSITION_SLOW } from './constants'
 
 export interface DefaultModeProps {
-  variant: 'mobile' | 'desktop';
+  variant: 'mobile' | 'desktop'
   // 动态提示
-  tip: DynamicTip;
-  tipKey: string | number;
+  tip: DynamicTip
+  tipKey: string | number
   // 排序
-  sortMode: SortMode;
-  sortOptions: SortOption[];
-  currentSortOption: SortOption;
-  showSortDropdown: boolean;
-  setShowSortDropdown: (show: boolean) => void;
-  sortDropdownRef: React.RefObject<HTMLDivElement>;
-  onSortModeChange?: (mode: SortMode) => void;
+  sortMode: SortMode
+  sortOptions: SortOption[]
+  currentSortOption: SortOption
+  showSortDropdown: boolean
+  setShowSortDropdown: (show: boolean) => void
+  sortDropdownRef: React.RefObject<HTMLDivElement>
+  onSortModeChange?: (mode: SortMode) => void
   // 模式切换
-  onModeChange: (mode: ControlMode) => void;
+  onModeChange: (mode: ControlMode) => void
   // 权限
-  isAdmin: boolean;
-  hasAddSource: boolean;
+  isAdmin: boolean
+  hasAddSource: boolean
   // 翻译
   t: {
-    sortMethod: string;
-    search: string;
-    editMode: string;
-    edit: string;
-    shortcuts: string;
-    addSubscription: string;
-    add: string;
-    [key: string]: string;
-  };
+    sortMethod: string
+    search: string
+    editMode: string
+    edit: string
+    shortcuts: string
+    addSubscription: string
+    add: string
+    [key: string]: string
+  }
   // 图标 URL 处理
-  getIconUrl?: (iconUrl: string | null | undefined) => string | null;
+  getIconUrl?: (iconUrl: string | null | undefined) => string | null
 }
 
 export function DefaultMode({
@@ -66,8 +66,8 @@ export function DefaultMode({
   t,
   getIconUrl,
 }: DefaultModeProps) {
-  const isMobile = variant === 'mobile';
-  
+  const isMobile = variant === 'mobile'
+
   // 移动端版本 - 简化（只保留动态信息和排序）
   if (isMobile) {
     return (
@@ -90,18 +90,20 @@ export function DefaultMode({
               transition={TRANSITION_SLOW}
               className="flex items-center gap-2"
             >
-              {tip.iconUrl && getIconUrl ? (
-                <img 
-                  src={getIconUrl(tip.iconUrl) || ''} 
-                  alt="" 
-                  className="w-5 h-5 rounded flex-shrink-0 object-cover"
-                  loading="lazy"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = 'none';
-                    (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
-                  }}
-                />
-              ) : null}
+              {tip.iconUrl && getIconUrl
+                ? (
+                    <img
+                      src={getIconUrl(tip.iconUrl) || ''}
+                      alt=""
+                      className="w-5 h-5 rounded flex-shrink-0 object-cover"
+                      loading="lazy"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                        (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden')
+                      }}
+                    />
+                  )
+                : null}
               <span className={`text-base flex-shrink-0 ${tip.iconUrl ? 'hidden' : ''}`}>
                 {tip.icon}
               </span>
@@ -128,7 +130,7 @@ export function DefaultMode({
           >
             <ArrowUpDown className="w-4 h-4" />
           </motion.button>
-          
+
           <AnimatePresence>
             {showSortDropdown && (
               <motion.div
@@ -138,16 +140,16 @@ export function DefaultMode({
                 transition={TRANSITION_NORMAL}
                 className="absolute top-full mt-2 right-0 w-36 bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 rounded-xl shadow-lg overflow-hidden py-1 z-[100]"
               >
-                {sortOptions.map((option) => (
+                {sortOptions.map(option => (
                   <button
                     key={option.value}
                     onClick={() => {
-                      onSortModeChange?.(option.value);
-                      setShowSortDropdown(false);
+                      onSortModeChange?.(option.value)
+                      setShowSortDropdown(false)
                     }}
                     className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors ${
-                      sortMode === option.value 
-                        ? 'text-orange-500 bg-orange-50 dark:bg-orange-900/20' 
+                      sortMode === option.value
+                        ? 'text-orange-500 bg-orange-50 dark:bg-orange-900/20'
                         : 'text-gray-600 dark:text-gray-300'
                     }`}
                   >
@@ -161,7 +163,7 @@ export function DefaultMode({
           </AnimatePresence>
         </div>
       </motion.div>
-    );
+    )
   }
 
   // 桌面端版本 - 完整功能
@@ -185,18 +187,20 @@ export function DefaultMode({
             transition={TRANSITION_SLOW}
             className="flex items-center gap-2"
           >
-            {tip.iconUrl && getIconUrl ? (
-              <img 
-                src={getIconUrl(tip.iconUrl) || ''} 
-                alt="" 
-                className="w-5 h-5 rounded flex-shrink-0 object-cover"
-                loading="lazy"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = 'none';
-                  (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
-                }}
-              />
-            ) : null}
+            {tip.iconUrl && getIconUrl
+              ? (
+                  <img
+                    src={getIconUrl(tip.iconUrl) || ''}
+                    alt=""
+                    className="w-5 h-5 rounded flex-shrink-0 object-cover"
+                    loading="lazy"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                      (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden')
+                    }}
+                  />
+                )
+              : null}
             <span className={`text-base flex-shrink-0 ${tip.iconUrl ? 'hidden' : ''}`}>
               {tip.icon}
             </span>
@@ -228,7 +232,7 @@ export function DefaultMode({
             <span className="text-xs font-medium hidden sm:inline">{t[currentSortOption.labelKey]}</span>
             <ChevronDown className={`w-3 h-3 transition-transform ${showSortDropdown ? 'rotate-180' : ''}`} />
           </motion.button>
-          
+
           <AnimatePresence>
             {showSortDropdown && (
               <motion.div
@@ -238,16 +242,16 @@ export function DefaultMode({
                 transition={TRANSITION_NORMAL}
                 className="absolute bottom-full mb-2 left-0 w-36 bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 rounded-xl shadow-lg overflow-hidden py-1"
               >
-                {sortOptions.map((option) => (
+                {sortOptions.map(option => (
                   <button
                     key={option.value}
                     onClick={() => {
-                      onSortModeChange?.(option.value);
-                      setShowSortDropdown(false);
+                      onSortModeChange?.(option.value)
+                      setShowSortDropdown(false)
                     }}
                     className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors ${
-                      sortMode === option.value 
-                        ? 'text-orange-500 bg-orange-50 dark:bg-orange-900/20' 
+                      sortMode === option.value
+                        ? 'text-orange-500 bg-orange-50 dark:bg-orange-900/20'
                         : 'text-gray-600 dark:text-gray-300'
                     }`}
                   >
@@ -318,5 +322,5 @@ export function DefaultMode({
         )}
       </div>
     </motion.div>
-  );
+  )
 }

@@ -2,25 +2,23 @@
  * 系统配置视图组件
  */
 
-import { useState, useEffect } from 'react';
-import AnimatedView from '../components/AnimatedView';
-import { useConfigScheduler } from '../hooks/animation/pages/simple';
+import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import AnimatedView from '../components/AnimatedView'
 
-import { useNavigate } from 'react-router-dom';
-import ConfigForm from '../components/ConfigForm';
-import { API_URL } from '../config';
-import TokenManager from '../utils/tokenManager';
-import { useAuth } from '../contexts/AuthContext';
-import { hasSessionHint } from '../utils/sessionDetection';
+import ConfigForm from '../components/ConfigForm'
+import { useAuth } from '../contexts/AuthContext'
+import { useConfigScheduler } from '../hooks/animation/pages/simple'
+import { hasSessionHint } from '../utils/sessionDetection'
 
 export default function Config() {
   // 🆕 初始化页面级调度器
-  useConfigScheduler();
-  
-  const navigate = useNavigate();
-  const { isAdmin: authIsAdmin, isAuthenticated, checkAuth } = useAuth();
-  const [loading, setLoading] = useState(true);
-  const [isAdmin, setIsAdmin] = useState(false);
+  useConfigScheduler()
+
+  const navigate = useNavigate()
+  const { isAdmin: authIsAdmin, isAuthenticated, checkAuth } = useAuth()
+  const [loading, setLoading] = useState(true)
+  const [isAdmin, setIsAdmin] = useState(false)
 
   // 使用 AuthContext 检查管理员权限
   useEffect(() => {
@@ -28,27 +26,29 @@ export default function Config() {
       // 智能检测：检查是否有登录迹象
       if (hasSessionHint()) {
         // 有登录迹象，触发认证检查
-        checkAuth();
-      } else {
+        checkAuth()
+      }
+      else {
         // 无登录迹象，直接重定向到登录页
-        navigate('/login', { replace: true });
+        navigate('/login', { replace: true })
       }
-    } else {
-      if (!authIsAdmin) {
-        navigate('/', { replace: true });
-        return;
-      }
-      setIsAdmin(true);
-      setLoading(false);
     }
-  }, [authIsAdmin, isAuthenticated, checkAuth, navigate]);
+    else {
+      if (!authIsAdmin) {
+        navigate('/', { replace: true })
+        return
+      }
+      setIsAdmin(true)
+      setLoading(false)
+    }
+  }, [authIsAdmin, isAuthenticated, checkAuth, navigate])
 
   if (loading) {
-    return null;
+    return null
   }
 
   if (!isAdmin) {
-    return null;
+    return null
   }
 
   return (
@@ -57,5 +57,5 @@ export default function Config() {
         <ConfigForm />
       </div>
     </AnimatedView>
-  );
+  )
 }

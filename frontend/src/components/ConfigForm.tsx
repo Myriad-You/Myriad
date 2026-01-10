@@ -1,116 +1,112 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { motionShim as motion } from '@lib/motionShim';
-import PlatformIcon from './PlatformIcon';
-import Toast from './Toast';
-import { ButtonSpinner } from './Spinner';
 import {
-  FaSearch,
-  FaTimes,
-  FaStar,
-  FaGlobe,
-  FaDatabase,
   FaCog,
-  FaMusic,
+  FaDatabase,
+  FaExclamationTriangle,
+  FaGlobe,
+  FaLink,
   FaLock,
+  FaMusic,
+  FaSearch,
+  FaStar,
+  FaTimes,
   FaUsers,
   FaWrench,
-  FaLink,
-  FaCheck,
-  FaExclamationTriangle,
-  LuSparkles
-} from '@lib/icons';
-import { SiNeteasecloudmusic } from '@lib/icons';
+  LuSparkles,
+} from '@lib/icons'
+import { motionShim as motion } from '@lib/motionShim'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useI18n } from '../contexts/I18nContext'
+import { useDebounce } from '../hooks/useDebounce'
 import {
+  checkSpeechStatus,
   fetchConfig,
-  updateConfig,
   fetchPermissionsConfig,
-  updatePermissionsConfig,
   reloadSystemConfig,
   testPlatformConfig,
-  checkSpeechStatus
-} from '../lib/api';
-import { useDebounce } from '../hooks/useDebounce';
-import { getCSRFToken } from '../utils/csrf';
-import { clearPlaylistCache } from '../utils/musicPlayer';
-import { useI18n } from '../contexts/I18nContext';
-import './ConfigForm.css';
-
+  updateConfig,
+  updatePermissionsConfig,
+} from '../lib/api'
+import { getCSRFToken } from '../utils/csrf'
 // 导入迁移后的配置区块组件
 import {
+  AdvancedConfigSection,
+  AiConfigSection,
   MusicConfigSection,
   NetworkConfigSection,
   OAuthConfigSection,
-  UiConfigSection,
   PermissionsConfigSection,
-  AiConfigSection,
-  AdvancedConfigSection,
-} from './config';
+  UiConfigSection,
+} from './config'
+import PlatformIcon from './PlatformIcon'
+import Toast from './Toast'
+
+import './ConfigForm.css'
 
 interface ConfigField {
-  key: string;
-  label: string;
-  field_type: string;
-  value: string;
-  placeholder: string;
-  required: boolean;
+  key: string
+  label: string
+  field_type: string
+  value: string
+  placeholder: string
+  required: boolean
 }
 
 interface PlatformConfig {
-  name: string;
-  enabled: boolean;
-  has_token: boolean;
-  config_fields: ConfigField[];
-  description: string;
-  icon: string;
+  name: string
+  enabled: boolean
+  has_token: boolean
+  config_fields: ConfigField[]
+  description: string
+  icon: string
 }
 
 interface AiConfig {
-  provider: string;
-  model: string;
-  api_key: string;
-  enabled: boolean;
+  provider: string
+  model: string
+  api_key: string
+  enabled: boolean
   // AI 图片生成配置
-  image_provider: string;
-  config_fields: ConfigField[];
+  image_provider: string
+  config_fields: ConfigField[]
 }
 
 interface ReportConfig {
-  topic_style: string;
-  config_fields: ConfigField[];
+  topic_style: string
+  config_fields: ConfigField[]
 }
 
 interface UiConfig {
-  wallpaper_url: string;
-  wallpaper_blur: number;
-  theme: string;
-  primary_color: string;
-  secondary_color: string;
-  config_fields: ConfigField[];
+  wallpaper_url: string
+  wallpaper_blur: number
+  theme: string
+  primary_color: string
+  secondary_color: string
+  config_fields: ConfigField[]
 }
 
 interface Config {
-  platforms: PlatformConfig[];
-  ai_config: AiConfig;
-  report_config: ReportConfig;
-  ui_config: UiConfig;
+  platforms: PlatformConfig[]
+  ai_config: AiConfig
+  report_config: ReportConfig
+  ui_config: UiConfig
 }
 
 interface QuickAccessItem {
-  id: string;
-  label: string;
-  icon: React.ReactNode;
-  section: string;
-  subsection?: string;
+  id: string
+  label: string
+  icon: React.ReactNode
+  section: string
+  subsection?: string
 }
 
 // 优化：提取为独立的 memo 组件避免不必要的重渲染
 interface QuickAccessCardProps {
-  item: QuickAccessItem;
-  isActive: boolean;
-  isFavorite: boolean;
-  onCardClick: (section: string) => void;
-  onToggleFavorite: (id: string) => void;
+  item: QuickAccessItem
+  isActive: boolean
+  isFavorite: boolean
+  onCardClick: (section: string) => void
+  onToggleFavorite: (id: string) => void
 }
 
 const QuickAccessCard = React.memo<QuickAccessCardProps>(({
@@ -118,16 +114,16 @@ const QuickAccessCard = React.memo<QuickAccessCardProps>(({
   isActive,
   isFavorite,
   onCardClick,
-  onToggleFavorite
+  onToggleFavorite,
 }) => {
   const handleCardClick = React.useCallback(() => {
-    onCardClick(item.section);
-  }, [onCardClick, item.section]);
+    onCardClick(item.section)
+  }, [onCardClick, item.section])
 
   const handleFavoriteClick = React.useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    onToggleFavorite(item.id);
-  }, [onToggleFavorite, item.id]);
+    e.stopPropagation()
+    onToggleFavorite(item.id)
+  }, [onToggleFavorite, item.id])
 
   return (
     <div
@@ -144,27 +140,28 @@ const QuickAccessCard = React.memo<QuickAccessCardProps>(({
         <FaStar />
       </button>
     </div>
-  );
-});
+  )
+})
 
-QuickAccessCard.displayName = 'QuickAccessCard';
+QuickAccessCard.displayName = 'QuickAccessCard'
 
 const ModernConfigForm: React.FC = () => {
-  const navigate = useNavigate();
-  const { t } = useI18n();
-  const [config, setConfig] = useState<Config | null>(null);
-  const [initialConfig, setInitialConfig] = useState<Config | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [testing, setTesting] = useState<string | null>(null);
-  const [message, setMessage] = useState('');
-  const [activeSection, setActiveSection] = useState<string>('platforms');
-  const [platformModalOpen, setPlatformModalOpen] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
+  const navigate = useNavigate()
+  const { t } = useI18n()
+  const [config, setConfig] = useState<Config | null>(null)
+  const [initialConfig, setInitialConfig] = useState<Config | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [testing, setTesting] = useState<string | null>(null)
+  const [message, setMessage] = useState('')
+  const [activeSection, setActiveSection] = useState<string>('platforms')
+  const [platformModalOpen, setPlatformModalOpen] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
   const [favorites, setFavorites] = useState<string[]>(() => {
-    if (typeof window === 'undefined') return ['platforms', 'ai'];
-    const saved = localStorage.getItem('config_favorites');
-    return saved ? JSON.parse(saved) : ['platforms', 'ai'];
-  });
+    if (typeof window === 'undefined')
+      return ['platforms', 'ai']
+    const saved = localStorage.getItem('config_favorites')
+    return saved ? JSON.parse(saved) : ['platforms', 'ai']
+  })
 
   // Tapp 权限下放配置状态（9个 elevated 权限 × 2 角色 + AI 限额配置）
   const [permissionConfig, setPermissionConfig] = useState({
@@ -195,42 +192,44 @@ const ModernConfigForm: React.FC = () => {
     guest_ai_daily_calls: 10,
     guest_ai_daily_tokens: 5000,
     guest_ai_cooldown_seconds: 10,
-  });
-  const [permissionLoading, setPermissionLoading] = useState(false);
+  })
+  const [permissionLoading, setPermissionLoading] = useState(false)
 
   // 更新权限配置
   const updatePermissionConfig = useCallback(async (key: string, value: boolean | number) => {
-    const prevValue = permissionConfig[key as keyof typeof permissionConfig];
-    setPermissionConfig(prev => ({ ...prev, [key]: value }));
+    const prevValue = permissionConfig[key as keyof typeof permissionConfig]
+    setPermissionConfig(prev => ({ ...prev, [key]: value }))
 
     // 自动保存权限配置
     try {
       // 强制刷新 CSRF Token 确保有效
-      await getCSRFToken(true);
-      const response = await updatePermissionsConfig({ [key]: value });
+      await getCSRFToken(true)
+      const response = await updatePermissionsConfig({ [key]: value })
 
       if (response.success) {
-        setMessage(t.config.permissionsSaved);
-        setTimeout(() => setMessage(''), 2000);
-      } else {
-        throw new Error(response.message || 'Failed');
+        setMessage(t.config.permissionsSaved)
+        setTimeout(() => setMessage(''), 2000)
       }
-    } catch (error) {
-      console.error('Failed to save permission:', error);
-      setMessage(t.config.permissionsSaveFailed);
-      // 回滚
-      setPermissionConfig(prev => ({ ...prev, [key]: prevValue }));
+      else {
+        throw new Error(response.message || 'Failed')
+      }
     }
-  }, [t, permissionConfig]);
+    catch (error) {
+      console.error('Failed to save permission:', error)
+      setMessage(t.config.permissionsSaveFailed)
+      // 回滚
+      setPermissionConfig(prev => ({ ...prev, [key]: prevValue }))
+    }
+  }, [t, permissionConfig])
 
   // 加载权限配置
   const loadPermissionConfig = useCallback(async () => {
     try {
-      setPermissionLoading(true);
-      const response = await fetchPermissionsConfig();
+      setPermissionLoading(true)
+      const response = await fetchPermissionsConfig()
 
       if (response.success && response.config) {
-        const { guest, user, user_ai_quota, guest_ai_quota } = response.config;
+        const { guest, user, user_ai_quota, guest_ai_quota } = response.config
         setPermissionConfig({
           // 普通用户权限 (9个 elevated)
           user_perm_ai_generate: user.ai_generate,
@@ -259,57 +258,60 @@ const ModernConfigForm: React.FC = () => {
           guest_ai_daily_calls: guest_ai_quota?.daily_calls ?? 10,
           guest_ai_daily_tokens: guest_ai_quota?.daily_tokens ?? 5000,
           guest_ai_cooldown_seconds: guest_ai_quota?.cooldown_seconds ?? 10,
-        });
+        })
       }
-    } catch (error) {
-      console.error('Failed to load permissions:', error);
-    } finally {
-      setPermissionLoading(false);
     }
-  }, []);
-
+    catch (error) {
+      console.error('Failed to load permissions:', error)
+    }
+    finally {
+      setPermissionLoading(false)
+    }
+  }, [])
 
   const isPlatformConfigured = useCallback((platform: PlatformConfig) => {
-    if (!platform.config_fields || platform.config_fields.length === 0) return true;
+    if (!platform.config_fields || platform.config_fields.length === 0)
+      return true
 
-    return platform.config_fields.every(field => {
-      if (!field.required) return true;
-      return field.value && String(field.value).trim().length > 0;
-    });
-  }, []);
+    return platform.config_fields.every((field) => {
+      if (!field.required)
+        return true
+      return field.value && String(field.value).trim().length > 0
+    })
+  }, [])
 
   // 获取翻译后的字段标签（覆盖后端返回的标签）
   const getFieldLabel = useCallback((fieldKey: string, originalLabel: string): string => {
     const fieldLabels: Record<string, string> = {
-      'wallpaper_url': t.config.fieldWallpaperUrl,
-      'wallpaper_blur': t.config.fieldWallpaperBlur,
-      'wallpaper_parallax': t.config.fieldWallpaperParallax,
-      'pet_enabled': t.config.fieldPetEnabled,
-      'pet_image_url': t.config.fieldPetImageUrl,
-      'site_title': t.config.fieldSiteTitle,
-      'site_description': t.config.fieldSiteDescription,
-      'site_favicon': t.config.fieldSiteFavicon,
-      'music_enabled': t.config.fieldMusicEnabled,
-      'music_source': t.config.fieldMusicSource,
-      'music_playlist_id': t.config.fieldMusicPlaylistId,
-    };
-    return fieldLabels[fieldKey] || originalLabel;
-  }, [t]);
+      wallpaper_url: t.config.fieldWallpaperUrl,
+      wallpaper_blur: t.config.fieldWallpaperBlur,
+      wallpaper_parallax: t.config.fieldWallpaperParallax,
+      pet_enabled: t.config.fieldPetEnabled,
+      pet_image_url: t.config.fieldPetImageUrl,
+      site_title: t.config.fieldSiteTitle,
+      site_description: t.config.fieldSiteDescription,
+      site_favicon: t.config.fieldSiteFavicon,
+      music_enabled: t.config.fieldMusicEnabled,
+      music_source: t.config.fieldMusicSource,
+      music_playlist_id: t.config.fieldMusicPlaylistId,
+    }
+    return fieldLabels[fieldKey] || originalLabel
+  }, [t])
 
   // 获取翻译后的占位符
   const getFieldPlaceholder = useCallback((fieldKey: string, originalPlaceholder: string): string => {
     const placeholders: Record<string, string> = {
-      'wallpaper_url': t.config.placeholderWallpaperUrl,
-      'site_title': t.config.placeholderSiteTitle,
-      'site_description': t.config.placeholderSiteDescription,
-      'site_favicon': t.config.placeholderSiteFavicon,
-      'pet_image_url': t.config.placeholderPetImageUrl,
-    };
-    return placeholders[fieldKey] || originalPlaceholder;
-  }, [t]);
+      wallpaper_url: t.config.placeholderWallpaperUrl,
+      site_title: t.config.placeholderSiteTitle,
+      site_description: t.config.placeholderSiteDescription,
+      site_favicon: t.config.placeholderSiteFavicon,
+      pet_image_url: t.config.placeholderPetImageUrl,
+    }
+    return placeholders[fieldKey] || originalPlaceholder
+  }, [t])
 
   // 使用防抖优化搜索性能 - 避免频繁搜索
-  const debouncedSearchQuery = useDebounce(searchQuery, 300);
+  const debouncedSearchQuery = useDebounce(searchQuery, 300)
 
   // 快速访问项（使用 useMemo 避免每次渲染重新创建数组）
   const quickAccessItems: QuickAccessItem[] = useMemo(() => [
@@ -322,24 +324,25 @@ const ModernConfigForm: React.FC = () => {
     { id: 'network', label: t.config.network, icon: <FaLink />, section: 'network' },
     { id: 'permissions', label: t.config.permissions, icon: <FaUsers />, section: 'permissions' },
     { id: 'advanced', label: t.config.advanced, icon: <FaWrench />, section: 'advanced' },
-  ], [t]);
+  ], [t])
 
   // 搜索功能
   const searchableContent = useMemo(() => {
-    if (!config) return [];
+    if (!config)
+      return []
 
-    const items: Array<{ type: string; section: string; title: string; description: string; keywords: string[] }> = [];
+    const items: Array<{ type: string, section: string, title: string, description: string, keywords: string[] }> = []
 
     // 平台配置
-    config.platforms.forEach(platform => {
+    config.platforms.forEach((platform) => {
       items.push({
         type: 'platform',
         section: 'platforms',
         title: platform.name,
         description: platform.description,
-        keywords: [platform.name.toLowerCase(), '平台', '数据源', 'token', 'api']
-      });
-    });
+        keywords: [platform.name.toLowerCase(), '平台', '数据源', 'token', 'api'],
+      })
+    })
 
     // AI配置
     items.push({
@@ -347,8 +350,8 @@ const ModernConfigForm: React.FC = () => {
       section: 'ai',
       title: t.config.ai,
       description: t.config.aiDesc,
-      keywords: ['ai', 'gemini', 'openai', 'api', '模型', '智能', '图片', '生成', 'image']
-    });
+      keywords: ['ai', 'gemini', 'openai', 'api', '模型', '智能', '图片', '生成', 'image'],
+    })
 
     // UI配置
     items.push({
@@ -356,8 +359,8 @@ const ModernConfigForm: React.FC = () => {
       section: 'ui',
       title: t.config.basic,
       description: t.config.basicDesc,
-      keywords: ['basic', '基础', '站点', '主题', '背景', '样式', 'theme', 'url']
-    });
+      keywords: ['basic', '基础', '站点', '主题', '背景', '样式', 'theme', 'url'],
+    })
 
     // OAuth配置
     items.push({
@@ -365,8 +368,8 @@ const ModernConfigForm: React.FC = () => {
       section: 'oauth',
       title: t.config.oauth,
       description: t.config.oauthDesc,
-      keywords: ['oauth', 'github', '登录', 'auth', '认证']
-    });
+      keywords: ['oauth', 'github', '登录', 'auth', '认证'],
+    })
 
     // 音乐播放器
     items.push({
@@ -374,8 +377,8 @@ const ModernConfigForm: React.FC = () => {
       section: 'music',
       title: t.config.music,
       description: t.config.musicDesc,
-      keywords: ['音乐', 'music', '歌单', '播放器', '网易云', 'qq音乐']
-    });
+      keywords: ['音乐', 'music', '歌单', '播放器', '网易云', 'qq音乐'],
+    })
 
     // 网络代理
     items.push({
@@ -383,8 +386,8 @@ const ModernConfigForm: React.FC = () => {
       section: 'network',
       title: t.config.network || '网络代理',
       description: t.config.networkDesc || '配置网络代理以访问外部服务',
-      keywords: ['proxy', '代理', '网络', 'gemini', 'github', 'api', '镜像', 'mirror', 'socks']
-    });
+      keywords: ['proxy', '代理', '网络', 'gemini', 'github', 'api', '镜像', 'mirror', 'socks'],
+    })
 
     // 高级配置
     items.push({
@@ -392,109 +395,112 @@ const ModernConfigForm: React.FC = () => {
       section: 'advanced',
       title: t.config.advanced,
       description: t.config.advancedDesc,
-      keywords: ['advanced', '高级', 'danger', 'reset', '重置', '危险']
-    });
+      keywords: ['advanced', '高级', 'danger', 'reset', '重置', '危险'],
+    })
 
-    return items;
-  }, [config, t]);
+    return items
+  }, [config, t])
 
   // 使用防抖后的搜索查询优化性能
   const filteredContent = useMemo(() => {
-    if (!debouncedSearchQuery.trim()) return searchableContent;
+    if (!debouncedSearchQuery.trim())
+      return searchableContent
 
-    const query = debouncedSearchQuery.toLowerCase();
+    const query = debouncedSearchQuery.toLowerCase()
     return searchableContent.filter(item =>
-      item.title.toLowerCase().includes(query) ||
-      item.description.toLowerCase().includes(query) ||
-      item.keywords.some(k => k.includes(query))
-    );
-  }, [debouncedSearchQuery, searchableContent]);
+      item.title.toLowerCase().includes(query)
+      || item.description.toLowerCase().includes(query)
+      || item.keywords.some(k => k.includes(query)),
+    )
+  }, [debouncedSearchQuery, searchableContent])
 
   // 切换收藏
   const toggleFavorite = React.useCallback((section: string) => {
-    setFavorites(prev => {
+    setFavorites((prev) => {
       const updated = prev.includes(section)
         ? prev.filter(s => s !== section)
-        : [...prev, section];
+        : [...prev, section]
       if (typeof window !== 'undefined') {
-        localStorage.setItem('config_favorites', JSON.stringify(updated));
+        localStorage.setItem('config_favorites', JSON.stringify(updated))
       }
-      return updated;
-    });
-  }, []);
+      return updated
+    })
+  }, [])
 
   // 处理节切换
   const handleSectionChange = React.useCallback((section: string) => {
     // 如果是数据管理，直接跳转到专门页面
     if (section === 'data') {
-      navigate('/data-management');
-      return;
+      navigate('/data-management')
+      return
     }
-    setActiveSection(section);
-    setSearchQuery('');
-  }, [navigate]);
+    setActiveSection(section)
+    setSearchQuery('')
+  }, [navigate])
 
   const handleSave = React.useCallback(async () => {
     if (!config) {
       window.dispatchEvent(
         new CustomEvent('config-save-result', {
           detail: { success: false, message: t.config.configEmpty },
-        })
-      );
-      return;
+        }),
+      )
+      return
     }
 
-    setMessage(t.config.savingConfig);
+    setMessage(t.config.savingConfig)
 
     try {
       // 获取 CSRF Token
-      await getCSRFToken(true);
+      await getCSRFToken(true)
 
-      const result = await updateConfig(config);
+      const result = await updateConfig(config)
 
-      setMessage(`✓ ${t.config.configSaved} ${t.config.refreshing}`);
-      setInitialConfig(JSON.parse(JSON.stringify(config)));
-      notifyDirtyState(false);
+      setMessage(`✓ ${t.config.configSaved} ${t.config.refreshing}`)
+      setInitialConfig(JSON.parse(JSON.stringify(config)))
+      notifyDirtyState(false)
       window.dispatchEvent(
         new CustomEvent('config-save-result', {
           detail: { success: true, message: result.message || t.config.configSaved },
-        })
-      );
+        }),
+      )
 
       try {
         // reload-config 也需要 CSRF Token
-        await getCSRFToken(true);
-        await reloadSystemConfig();
+        await getCSRFToken(true)
+        await reloadSystemConfig()
 
-        setMessage(`✓ ${t.config.savedSuccess}`);
+        setMessage(`✓ ${t.config.savedSuccess}`)
 
         // 等待后端完成配置保存和环境变量重新加载，然后刷新页面
         setTimeout(() => {
-          window.location.reload();
-        }, 2000);
-      } catch (restartError) {
-        setMessage(`✓ ${t.config.savedSuccess}`);
+          window.location.reload()
+        }, 2000)
+      }
+      catch (restartError) {
+        setMessage(`✓ ${t.config.savedSuccess}`)
         // 即使刷新配置失败，仍然刷新页面以应用数据库中的新配置
         setTimeout(() => {
-          window.location.reload();
-        }, 2000);
+          window.location.reload()
+        }, 2000)
       }
-    } catch (error) {
-      const errorMsg = `✗ ${t.config.configSaveFailed}: ` + (error instanceof Error ? error.message : t.errors.networkError);
-      setMessage(errorMsg);
+    }
+    catch (error) {
+      const errorMsg = `✗ ${t.config.configSaveFailed}: ${error instanceof Error ? error.message : t.errors.networkError}`
+      setMessage(errorMsg)
       window.dispatchEvent(
         new CustomEvent('config-save-result', {
           detail: { success: false, message: errorMsg },
-        })
-      );
+        }),
+      )
     }
-  }, [config]);
+  }, [config])
 
   const handleReset = React.useCallback(async () => {
-    setMessage(t.config.resettingConfig);
+    setMessage(t.config.resettingConfig)
 
     try {
-      const data = await fetchConfig();
+      const data = await fetchConfig()
 
       const clearedData = {
         ...data,
@@ -512,169 +518,185 @@ const ModernConfigForm: React.FC = () => {
           enabled: false,
           api_key: '',
           config_fields: data.ai_config.config_fields.map((field: any) => {
-            let defaultValue = '';
-            if (field.key === 'model') defaultValue = 'gemini-pro';
-            else if (field.key === 'ai_image_provider') defaultValue = 'pollinations';
-            else if (field.key === 'ai_image_model') defaultValue = 'flux-anime';
-            else if (field.key === 'ai_image_width') defaultValue = '512';
-            else if (field.key === 'ai_image_height') defaultValue = '768';
-            return { ...field, value: defaultValue };
+            let defaultValue = ''
+            if (field.key === 'model')
+              defaultValue = 'gemini-pro'
+            else if (field.key === 'ai_image_provider')
+              defaultValue = 'pollinations'
+            else if (field.key === 'ai_image_model')
+              defaultValue = 'flux-anime'
+            else if (field.key === 'ai_image_width')
+              defaultValue = '512'
+            else if (field.key === 'ai_image_height')
+              defaultValue = '768'
+            return { ...field, value: defaultValue }
           }),
         },
         ui_config: {
           ...data.ui_config,
           config_fields: data.ui_config.config_fields.map((field: any) => {
-            let defaultValue = '';
-            if (field.key === 'wallpaper_url') defaultValue = 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809';
-            else if (field.key === 'wallpaper_blur') defaultValue = '3';
-            return { ...field, value: defaultValue };
+            let defaultValue = ''
+            if (field.key === 'wallpaper_url')
+              defaultValue = 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809'
+            else if (field.key === 'wallpaper_blur')
+              defaultValue = '3'
+            return { ...field, value: defaultValue }
           }),
         },
-      };
+      }
 
-      setConfig(clearedData);
-      notifyDirtyState(false);
+      setConfig(clearedData)
+      notifyDirtyState(false)
 
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise(resolve => setTimeout(resolve, 200))
 
-      setMessage(t.config.savingDefault);
+      setMessage(t.config.savingDefault)
 
       // 获取 CSRF Token
-      await getCSRFToken(true);
+      await getCSRFToken(true)
 
-      const saveResult = await updateConfig(clearedData);
+      const saveResult = await updateConfig(clearedData)
 
-      setMessage(`✓ ${t.config.configReset}`);
-      setTimeout(() => setMessage(''), 5000);
+      setMessage(`✓ ${t.config.configReset}`)
+      setTimeout(() => setMessage(''), 5000)
 
       window.dispatchEvent(
         new CustomEvent('config-reset-result', {
           detail: { success: true, message: saveResult.message || t.config.configReset },
-        })
-      );
-    } catch (error) {
-      const errorMsg = `${t.config.resetFailed}` + (error instanceof Error ? error.message : t.errors.unknown);
-      setMessage(errorMsg);
+        }),
+      )
+    }
+    catch (error) {
+      const errorMsg = `${t.config.resetFailed}${error instanceof Error ? error.message : t.errors.unknown}`
+      setMessage(errorMsg)
       window.dispatchEvent(
         new CustomEvent('config-reset-result', {
           detail: { success: false, message: errorMsg },
-        })
-      );
+        }),
+      )
     }
-  }, []);
+  }, [])
 
   const notifyDirtyState = React.useCallback((dirty: boolean) => {
     window.dispatchEvent(
       new CustomEvent('config-dirty-state', {
         detail: { dirty },
-      })
-    );
-  }, []);
+      }),
+    )
+  }, [])
 
   const loadConfig = React.useCallback(async () => {
-    setLoading(true);
+    setLoading(true)
     try {
-      const data = await fetchConfig();
-      setConfig(data);
-      setInitialConfig(JSON.parse(JSON.stringify(data)));
-      notifyDirtyState(false);
+      const data = await fetchConfig()
+      setConfig(data)
+      setInitialConfig(JSON.parse(JSON.stringify(data)))
+      notifyDirtyState(false)
 
-      const event = new CustomEvent('config-loaded', { detail: data });
-      window.dispatchEvent(event);
-    } catch (error) {
-      setMessage(t.config.loadConfigFailed);
-    } finally {
-      setLoading(false);
+      const event = new CustomEvent('config-loaded', { detail: data })
+      window.dispatchEvent(event)
     }
-  }, [notifyDirtyState]);
+    catch (error) {
+      setMessage(t.config.loadConfigFailed)
+    }
+    finally {
+      setLoading(false)
+    }
+  }, [notifyDirtyState])
 
   useEffect(() => {
-    loadConfig();
-    loadPermissionConfig();
-  }, [loadConfig, loadPermissionConfig]);
+    loadConfig()
+    loadPermissionConfig()
+  }, [loadConfig, loadPermissionConfig])
 
   useEffect(() => {
-    const handleSaveEvent = () => handleSave();
-    const handleResetEvent = () => handleReset();
+    const handleSaveEvent = () => handleSave()
+    const handleResetEvent = () => handleReset()
 
-    window.addEventListener('request-config-save', handleSaveEvent);
-    window.addEventListener('config-reset', handleResetEvent);
+    window.addEventListener('request-config-save', handleSaveEvent)
+    window.addEventListener('config-reset', handleResetEvent)
 
     return () => {
-      window.removeEventListener('request-config-save', handleSaveEvent);
-      window.removeEventListener('config-reset', handleResetEvent);
-    };
-  }, [handleSave, handleReset]);
+      window.removeEventListener('request-config-save', handleSaveEvent)
+      window.removeEventListener('config-reset', handleResetEvent)
+    }
+  }, [handleSave, handleReset])
 
   const handleTest = React.useCallback(async (platformName: string) => {
-    const platform = config?.platforms.find(p => p.name === platformName);
-    if (!platform) return;
+    const platform = config?.platforms.find(p => p.name === platformName)
+    if (!platform)
+      return
 
-    setTesting(platformName);
-    setMessage('');
+    setTesting(platformName)
+    setMessage('')
 
     try {
-      const configObj: any = {};
-      platform.config_fields.forEach(field => {
-        configObj[field.key] = field.value;
-      });
+      const configObj: any = {}
+      platform.config_fields.forEach((field) => {
+        configObj[field.key] = field.value
+      })
 
       // 获取 CSRF Token
-      await getCSRFToken(true);
+      await getCSRFToken(true)
 
-      const result = await testPlatformConfig(platformName, configObj);
+      const result = await testPlatformConfig(platformName, configObj)
 
-      setMessage(result.message);
-      setTimeout(() => setMessage(''), 5000);
-    } catch (error) {
-      setMessage(`✗ ${t.config.testFailed}`);
-    } finally {
-      setTesting(null);
+      setMessage(result.message)
+      setTimeout(() => setMessage(''), 5000)
     }
-  }, [config]);
+    catch (error) {
+      setMessage(`✗ ${t.config.testFailed}`)
+    }
+    finally {
+      setTesting(null)
+    }
+  }, [config])
 
   // 测试语音服务可用性（返回 Promise 供组件使用）
-  const handleSpeechTest = React.useCallback(async (): Promise<{ success: boolean; message: string }> => {
+  const handleSpeechTest = React.useCallback(async (): Promise<{ success: boolean, message: string }> => {
     if (!config) {
-      return { success: false, message: 'Config not loaded' };
+      return { success: false, message: 'Config not loaded' }
     }
 
     try {
-      const result = await checkSpeechStatus();
+      const result = await checkSpeechStatus()
 
       return {
         success: result.available === true,
-        message: result.available ? t.config.speechTestSuccess : (result.error || t.config.speechTestFailed)
-      };
-    } catch (error) {
+        message: result.available ? t.config.speechTestSuccess : (result.error || t.config.speechTestFailed),
+      }
+    }
+    catch (error) {
       return {
         success: false,
-        message: t.config.speechTestFailed
-      };
+        message: t.config.speechTestFailed,
+      }
     }
-  }, [config, t]);
+  }, [config, t])
 
   const updateConfigField = React.useCallback((
     section: 'ai' | 'ui',
     fieldKey: string,
     value: string,
-    providerFieldKey?: string
+    providerFieldKey?: string,
   ) => {
-    if (!config) return;
+    if (!config)
+      return
 
-    const sectionKey = `${section}_config` as 'ai_config' | 'ui_config';
-    const sectionConfig = config[sectionKey];
-    const newFields = [...sectionConfig.config_fields];
-    const field = newFields.find(f => f.key === fieldKey);
+    const sectionKey = `${section}_config` as 'ai_config' | 'ui_config'
+    const sectionConfig = config[sectionKey]
+    const newFields = [...sectionConfig.config_fields]
+    const field = newFields.find(f => f.key === fieldKey)
 
     if (field) {
       // 🔒 安全措施：如果新值包含掩码字符，说明用户在掩码上直接输入，需要清除掩码
-      const isMasked = (val: string) => val.includes('••') || val.includes('**') || val === '********';
+      const isMasked = (val: string) => val.includes('••') || val.includes('**') || val === '********'
       if (isMasked(value) && value !== '••••••••' && value !== '********') {
         // 移除所有掩码字符，只保留用户新输入的内容
-        field.value = value.replace(/[•*]+/g, '');
-      } else {
-        field.value = value;
+        field.value = value.replace(/[•*]+/g, '')
+      }
+      else {
+        field.value = value
       }
 
       if (providerFieldKey && fieldKey === providerFieldKey) {
@@ -683,78 +705,84 @@ const ModernConfigForm: React.FC = () => {
           [sectionKey]: {
             ...sectionConfig,
             provider: value,
-            config_fields: newFields
-          }
-        });
-      } else {
+            config_fields: newFields,
+          },
+        })
+      }
+      else {
         setConfig({
           ...config,
-          [sectionKey]: { ...sectionConfig, config_fields: newFields }
-        });
+          [sectionKey]: { ...sectionConfig, config_fields: newFields },
+        })
       }
-      notifyDirtyState(true);
+      notifyDirtyState(true)
     }
-  }, [config, notifyDirtyState]);
+  }, [config, notifyDirtyState])
 
   const updateFieldValue = React.useCallback((platformIndex: number, fieldKey: string, value: string) => {
-    if (!config) return;
+    if (!config)
+      return
 
-    const newPlatforms = [...config.platforms];
-    const field = newPlatforms[platformIndex].config_fields.find(f => f.key === fieldKey);
+    const newPlatforms = [...config.platforms]
+    const field = newPlatforms[platformIndex].config_fields.find(f => f.key === fieldKey)
     if (field) {
       // 🔒 安全措施：如果新值包含掩码字符，说明用户在掩码上直接输入，需要清除掩码
       // 检测是否在掩码基础上输入（例如 "a••••••••"）
-      const isMasked = (val: string) => val.includes('••') || val.includes('**') || val === '********';
+      const isMasked = (val: string) => val.includes('••') || val.includes('**') || val === '********'
       if (isMasked(value) && value !== '••••••••' && value !== '********') {
         // 移除所有掩码字符，只保留用户新输入的内容
-        field.value = value.replace(/[•*]+/g, '');
-      } else {
-        field.value = value;
+        field.value = value.replace(/[•*]+/g, '')
       }
-      setConfig({ ...config, platforms: newPlatforms });
-      notifyDirtyState(true);
+      else {
+        field.value = value
+      }
+      setConfig({ ...config, platforms: newPlatforms })
+      notifyDirtyState(true)
     }
-  }, [config, notifyDirtyState]);
+  }, [config, notifyDirtyState])
 
   const updateAiFieldValue = React.useCallback((fieldKey: string, value: string) => {
-    updateConfigField('ai', fieldKey, value, 'provider');
-  }, [updateConfigField]);
+    updateConfigField('ai', fieldKey, value, 'provider')
+  }, [updateConfigField])
 
   const updateUiFieldValue = React.useCallback((fieldKey: string, value: string) => {
-    updateConfigField('ui', fieldKey, value);
-  }, [updateConfigField]);
+    updateConfigField('ui', fieldKey, value)
+  }, [updateConfigField])
 
   const togglePlatform = React.useCallback((platformIndex: number) => {
-    if (!config) return;
+    if (!config)
+      return
 
-    const newPlatforms = [...config.platforms];
-    newPlatforms[platformIndex].enabled = !newPlatforms[platformIndex].enabled;
-    setConfig({ ...config, platforms: newPlatforms });
-    notifyDirtyState(true);
-  }, [config]);
+    const newPlatforms = [...config.platforms]
+    newPlatforms[platformIndex].enabled = !newPlatforms[platformIndex].enabled
+    setConfig({ ...config, platforms: newPlatforms })
+    notifyDirtyState(true)
+  }, [config])
 
   const isConfigDirty = useMemo(() => {
-    if (!config || !initialConfig) return false;
-    return JSON.stringify(config) !== JSON.stringify(initialConfig);
-  }, [config, initialConfig]);
+    if (!config || !initialConfig)
+      return false
+    return JSON.stringify(config) !== JSON.stringify(initialConfig)
+  }, [config, initialConfig])
 
   const getSectionProps = (sectionId: string) => {
-    const item = quickAccessItems.find(i => i.id === sectionId);
+    const item = quickAccessItems.find(i => i.id === sectionId)
     if (!item) {
       // 理论上不会发生，因为 activeSection 总是有效的
-      return { title: '', icon: null, description: '' };
+      return { title: '', icon: null, description: '' }
     }
     return {
       title: item.label,
       icon: item.icon,
-      description: searchableContent.find(c => c.section === sectionId)?.description || ''
-    };
-  };
+      description: searchableContent.find(c => c.section === sectionId)?.description || '',
+    }
+  }
 
   const renderActiveSection = () => {
-    if (!config) return null;
+    if (!config)
+      return null
 
-    const props = getSectionProps(activeSection);
+    const props = getSectionProps(activeSection)
 
     switch (activeSection) {
       case 'platforms':
@@ -797,7 +825,7 @@ const ModernConfigForm: React.FC = () => {
                       </div>
                     </div>
                     <div className="platform-actions">
-                      <label className={`toggle-switch ${isPlatformConfigured(platform) ? '' : 'disabled'}`} onClick={(e) => e.stopPropagation()}>
+                      <label className={`toggle-switch ${isPlatformConfigured(platform) ? '' : 'disabled'}`} onClick={e => e.stopPropagation()}>
                         <input
                           type="checkbox"
                           checked={platform.enabled}
@@ -813,7 +841,7 @@ const ModernConfigForm: React.FC = () => {
               ))}
             </div>
           </div>
-        );
+        )
       case 'ai':
         return (
           <AiConfigSection
@@ -822,7 +850,7 @@ const ModernConfigForm: React.FC = () => {
             onSpeechTest={handleSpeechTest}
             {...props}
           />
-        );
+        )
       case 'ui':
         return (
           <UiConfigSection
@@ -832,7 +860,7 @@ const ModernConfigForm: React.FC = () => {
             getFieldPlaceholder={getFieldPlaceholder}
             {...props}
           />
-        );
+        )
       case 'oauth':
         return (
           <OAuthConfigSection
@@ -840,19 +868,19 @@ const ModernConfigForm: React.FC = () => {
             updateValue={updateUiFieldValue}
             {...props}
           />
-        );
+        )
       case 'music':
         return (
           <MusicConfigSection
             configFields={config.ui_config.config_fields}
             updateValue={updateUiFieldValue}
             onMessage={(msg) => {
-              setMessage(msg);
-              setTimeout(() => setMessage(''), 3000);
+              setMessage(msg)
+              setTimeout(() => setMessage(''), 3000)
             }}
             {...props}
           />
-        );
+        )
       case 'network':
         return (
           <NetworkConfigSection
@@ -860,7 +888,7 @@ const ModernConfigForm: React.FC = () => {
             updateValue={updateUiFieldValue}
             {...props}
           />
-        );
+        )
       case 'permissions':
         return (
           <PermissionsConfigSection
@@ -869,21 +897,21 @@ const ModernConfigForm: React.FC = () => {
             loading={permissionLoading}
             {...props}
           />
-        );
+        )
       case 'advanced':
         return (
           <AdvancedConfigSection
             onReset={handleReset}
             {...props}
           />
-        );
+        )
       default:
-        return null;
+        return null
     }
-  };
+  }
 
   if (loading) {
-    return null;
+    return null
   }
 
   if (!config) {
@@ -892,7 +920,7 @@ const ModernConfigForm: React.FC = () => {
         <FaExclamationTriangle className="error-icon" />
         <p>{t.config.loadConfigFailed}</p>
       </div>
-    );
+    )
   }
 
   return (
@@ -934,7 +962,7 @@ const ModernConfigForm: React.FC = () => {
               type="text"
               placeholder={t.config.searchConfig}
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={e => setSearchQuery(e.target.value)}
               className="search-input"
             />
             {searchQuery && (
@@ -953,30 +981,36 @@ const ModernConfigForm: React.FC = () => {
         {searchQuery ? (
           <div className="search-results">
             <h4 className="search-results-title">
-              {t.config.searchResults} ({filteredContent.length})
+              {t.config.searchResults}
+              {' '}
+              (
+              {filteredContent.length}
+              )
             </h4>
             <div className="search-results-list">
-              {filteredContent.length > 0 ? (
-                filteredContent.map((item, index) => (
-                  <button
-                    key={index}
-                    onClick={() => {
-                      handleSectionChange(item.section);
-                    }}
-                    className="search-result-item"
-                  >
-                    <div className="search-result-content">
-                      <h4>{item.title}</h4>
-                      <p>{item.description}</p>
+              {filteredContent.length > 0
+                ? (
+                    filteredContent.map((item, index) => (
+                      <button
+                        key={index}
+                        onClick={() => {
+                          handleSectionChange(item.section)
+                        }}
+                        className="search-result-item"
+                      >
+                        <div className="search-result-content">
+                          <h4>{item.title}</h4>
+                          <p>{item.description}</p>
+                        </div>
+                        <span className="search-result-arrow">→</span>
+                      </button>
+                    ))
+                  )
+                : (
+                    <div className="search-no-results">
+                      <p>{t.config.noMatchingConfig}</p>
                     </div>
-                    <span className="search-result-arrow">→</span>
-                  </button>
-                ))
-              ) : (
-                <div className="search-no-results">
-                  <p>{t.config.noMatchingConfig}</p>
-                </div>
-              )}
+                  )}
             </div>
           </div>
         ) : (
@@ -989,18 +1023,20 @@ const ModernConfigForm: React.FC = () => {
                   <span className="nav-section-title">{t.config.favorites}</span>
                 </div>
                 <div className="quick-access-grid">
-                  {favorites.map(fav => {
-                    const item = quickAccessItems.find(i => i.id === fav);
-                    return item ? (
-                      <QuickAccessCard
-                        key={item.id}
-                        item={item}
-                        isActive={activeSection === item.section}
-                        isFavorite={true}
-                        onCardClick={handleSectionChange}
-                        onToggleFavorite={toggleFavorite}
-                      />
-                    ) : null;
+                  {favorites.map((fav) => {
+                    const item = quickAccessItems.find(i => i.id === fav)
+                    return item
+                      ? (
+                          <QuickAccessCard
+                            key={item.id}
+                            item={item}
+                            isActive={activeSection === item.section}
+                            isFavorite={true}
+                            onCardClick={handleSectionChange}
+                            onToggleFavorite={toggleFavorite}
+                          />
+                        )
+                      : null
                   })}
                 </div>
               </div>
@@ -1037,13 +1073,14 @@ const ModernConfigForm: React.FC = () => {
 
       {/* 平台配置弹窗 */}
       {platformModalOpen && config && (() => {
-        const platformIndex = config.platforms.findIndex(p => p.name === platformModalOpen);
-        if (platformIndex === -1) return null;
-        const platform = config.platforms[platformIndex];
+        const platformIndex = config.platforms.findIndex(p => p.name === platformModalOpen)
+        if (platformIndex === -1)
+          return null
+        const platform = config.platforms[platformIndex]
 
         return (
           <div className="modal-overlay" onClick={() => setPlatformModalOpen(null)}>
-            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-content" onClick={e => e.stopPropagation()}>
               <div className="modal-header">
                 <div className="modal-title-section">
                   <div className="platform-icon-wrapper">
@@ -1064,7 +1101,7 @@ const ModernConfigForm: React.FC = () => {
               </div>
 
               <div className="modal-body">
-                {platform.config_fields.map((field) => (
+                {platform.config_fields.map(field => (
                   <div key={field.key} className="config-field">
                     <label htmlFor={`modal-platform-${platformIndex}-${field.key}`} className="field-label">
                       {field.label}
@@ -1074,12 +1111,12 @@ const ModernConfigForm: React.FC = () => {
                       id={`modal-platform-${platformIndex}-${field.key}`}
                       type={field.field_type}
                       value={field.value}
-                      onChange={(e) => updateFieldValue(platformIndex, field.key, e.target.value)}
+                      onChange={e => updateFieldValue(platformIndex, field.key, e.target.value)}
                       onFocus={(e) => {
                         // 🔒 如果是掩码值，自动选中全部内容，用户输入会直接替换
-                        const isMasked = e.target.value === '••••••••' || e.target.value === '********';
+                        const isMasked = e.target.value === '••••••••' || e.target.value === '********'
                         if (isMasked) {
-                          e.target.select();
+                          e.target.select()
                         }
                       }}
                       placeholder={field.placeholder}
@@ -1098,7 +1135,7 @@ const ModernConfigForm: React.FC = () => {
               </div>
             </div>
           </div>
-        );
+        )
       })()}
 
       {isConfigDirty && (
@@ -1116,7 +1153,7 @@ const ModernConfigForm: React.FC = () => {
         </div>
       )}
     </motion.div>
-  );
-};
+  )
+}
 
-export default ModernConfigForm;
+export default ModernConfigForm

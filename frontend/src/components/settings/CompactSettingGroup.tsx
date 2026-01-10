@@ -1,9 +1,9 @@
-import React from 'react';
-import './items/SettingItem.css';
+import React from 'react'
+import './items/SettingItem.css'
 
 export interface CompactSettingGroupProps {
-  children: React.ReactNode;
-  className?: string;
+  children: React.ReactNode
+  className?: string
 }
 
 export const CompactSettingGroup: React.FC<CompactSettingGroupProps> = ({
@@ -14,5 +14,5 @@ export const CompactSettingGroup: React.FC<CompactSettingGroupProps> = ({
     <div className={`config-compact-group ${className}`}>
       {children}
     </div>
-  );
-};
+  )
+}

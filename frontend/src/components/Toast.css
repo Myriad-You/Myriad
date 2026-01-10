@@ -1,6 +1,6 @@
 /**
  * Toast 提示组件样式
- * 
+ *
  * 设计理念：
  * - 采用 Glass Morphism 风格，与页面信息条（InfoBar）保持一致
  * - 使用主题色变量，支持亮/暗模式
@@ -40,17 +40,17 @@
   font-weight: 500;
   max-width: min(90vw, 420px);
   word-break: break-word;
-  
+
   /* Glass Morphism 效果 - 更高不透明度 */
   background: rgba(255, 255, 255, 0.95);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   backdrop-filter: blur(20px) saturate(180%);
   border: 1px solid rgba(200, 200, 200, 0.5);
-  box-shadow: 
+  box-shadow:
     0 8px 32px -8px rgba(0, 0, 0, 0.2),
     0 4px 12px -4px rgba(0, 0, 0, 0.1),
     inset 0 1px 0 rgba(255, 255, 255, 0.8);
-  
+
   color: #1f2937;
 }
 
@@ -64,7 +64,7 @@
 html.dark .toast-message {
   background: rgba(25, 25, 35, 0.98);
   border-color: rgba(255, 255, 255, 0.15);
-  box-shadow: 
+  box-shadow:
     0 8px 32px -8px rgba(0, 0, 0, 0.6),
     0 4px 12px -4px rgba(0, 0, 0, 0.4),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);

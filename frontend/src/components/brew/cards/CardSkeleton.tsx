@@ -2,23 +2,23 @@
  * 卡片骨架屏组件
  */
 
-import React from 'react';
-import type { CardSkeletonProps } from '../types';
-import { SIZE_TO_ROWS } from '../constants';
+import type { CardSkeletonProps } from '../types'
+import React from 'react'
+import { SIZE_TO_ROWS } from '../constants'
 
 export const CardSkeleton: React.FC<CardSkeletonProps> = ({
   type,
   count = 1,
   size = 'mini',
 }) => {
-  const items = Array.from({ length: count }, (_, i) => i);
+  const items = Array.from({ length: count }, (_, i) => i)
 
   if (type === 'source') {
-    const rowSpan = SIZE_TO_ROWS[size];
-    
+    const rowSpan = SIZE_TO_ROWS[size]
+
     return (
       <>
-        {items.map((i) => (
+        {items.map(i => (
           <div
             key={i}
             className="relative rounded-xl overflow-hidden bg-white/60 dark:bg-neutral-900/60 animate-pulse"
@@ -33,7 +33,7 @@ export const CardSkeleton: React.FC<CardSkeletonProps> = ({
                   <div className="h-3 w-16 bg-gray-200 dark:bg-neutral-700 rounded mt-1.5" />
                 </div>
               </div>
-              
+
               {/* 内容预览 */}
               {size !== 'tiny' && (
                 <div className="flex-1 mt-3 p-3 rounded-xl bg-gray-100 dark:bg-neutral-800/50">
@@ -45,13 +45,13 @@ export const CardSkeleton: React.FC<CardSkeletonProps> = ({
           </div>
         ))}
       </>
-    );
+    )
   }
 
   // item type
   return (
     <>
-      {items.map((i) => (
+      {items.map(i => (
         <div
           key={i}
           className="relative rounded-2xl overflow-hidden bg-white/60 dark:bg-neutral-900/60 animate-pulse"
@@ -62,11 +62,11 @@ export const CardSkeleton: React.FC<CardSkeletonProps> = ({
               <div className="h-6 w-20 bg-gray-200 dark:bg-neutral-700 rounded-full" />
               <div className="h-4 w-12 bg-gray-200 dark:bg-neutral-700 rounded" />
             </div>
-            
+
             {/* 标题 */}
             <div className="h-6 w-full bg-gray-200 dark:bg-neutral-700 rounded" />
             <div className="h-6 w-2/3 bg-gray-200 dark:bg-neutral-700 rounded mt-2" />
-            
+
             {/* 摘要 */}
             <div className="mt-4 space-y-2">
               <div className="h-4 w-full bg-gray-200 dark:bg-neutral-700 rounded" />
@@ -77,7 +77,7 @@ export const CardSkeleton: React.FC<CardSkeletonProps> = ({
         </div>
       ))}
     </>
-  );
-};
+  )
+}
 
-CardSkeleton.displayName = 'CardSkeleton';
+CardSkeleton.displayName = 'CardSkeleton'

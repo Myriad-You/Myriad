@@ -2,7 +2,7 @@
  * 中文翻译文件
  */
 
-import { TranslationKeys } from './index';
+import type { TranslationKeys } from './index'
 
 export const zhCN: TranslationKeys = {
   // 通用
@@ -1903,4 +1903,4 @@ export const zhCN: TranslationKeys = {
     lightboxClose: '关闭',
     lightboxCloseHint: '点击背景或按 ESC 关闭',
   },
-};
+}

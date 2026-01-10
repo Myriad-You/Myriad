@@ -1,143 +1,145 @@
 /**
  * 标题样式选择器组件
  * 用于在编辑模式下选择信息条标题的装饰字体、大小和颜色
- * 
+ *
  * 性能优化：
  * - useCallback 缓存事件处理函数
  * - useMemo 缓存计算结果
  * - 懒加载字体预览
  */
 
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { createPortal } from 'react-dom';
-import { motionShim as motion, AnimatePresenceShim as AnimatePresence } from '@lib/motionShim';
-import { FaPalette, FaCheck } from '@lib/icons';
-import { 
-  useTitleFont, 
-  AVAILABLE_FONTS, 
+import type { FontOption } from '../hooks/useTitleFont'
+import { FaCheck, FaPalette } from '@lib/icons'
+import { AnimatePresenceShim as AnimatePresence, motionShim as motion } from '@lib/motionShim'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { useI18n } from '../contexts/I18nContext'
+import {
   AVAILABLE_COLORS,
+  AVAILABLE_FONTS,
   FONT_SIZE_OPTIONS,
-  type FontOption,
-} from '../hooks/useTitleFont';
-import { useI18n } from '../contexts/I18nContext';
+
+  useTitleFont,
+} from '../hooks/useTitleFont'
 
 interface TitleFontSelectorProps {
-  csrfToken: string;
-  className?: string;
+  csrfToken: string
+  className?: string
 }
 
-type TabType = 'font' | 'size' | 'color';
+type TabType = 'font' | 'size' | 'color'
 
 export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(({
   csrfToken,
   className = '',
 }) => {
-  const { t } = useI18n();
-  
+  const { t } = useI18n()
+
   // 标签配置 - 使用 i18n
-  const TABS: { id: TabType; label: string }[] = [
+  const TABS: { id: TabType, label: string }[] = [
     { id: 'font', label: t.titleStyle.tabFont },
     { id: 'size', label: t.titleStyle.tabSize },
     { id: 'color', label: t.titleStyle.tabColor },
-  ];
-  
-  const { 
-    titleFont, 
+  ]
+
+  const {
+    titleFont,
     titleFontSize,
     titleColor,
-    setTitleFont, 
+    setTitleFont,
     setTitleFontSize,
     setTitleColor,
-    isLoading, 
-    preloadAllFonts 
-  } = useTitleFont();
-  
-  const [isOpen, setIsOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<TabType>('font');
-  const [panelPosition, setPanelPosition] = useState({ top: 0, left: 0 });
-  const [isDark, setIsDark] = useState(false);
-  
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
+    isLoading,
+    preloadAllFonts,
+  } = useTitleFont()
+
+  const [isOpen, setIsOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState<TabType>('font')
+  const [panelPosition, setPanelPosition] = useState({ top: 0, left: 0 })
+  const [isDark, setIsDark] = useState(false)
+
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
 
   // 检测深色模式
   useEffect(() => {
     const checkDarkMode = () => {
-      setIsDark(document.documentElement.classList.contains('dark'));
-    };
-    checkDarkMode();
-    
-    const observer = new MutationObserver(checkDarkMode);
-    observer.observe(document.documentElement, { 
-      attributes: true, 
-      attributeFilter: ['class'] 
-    });
-    
-    return () => observer.disconnect();
-  }, []);
+      setIsDark(document.documentElement.classList.contains('dark'))
+    }
+    checkDarkMode()
+
+    const observer = new MutationObserver(checkDarkMode)
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
+    })
+
+    return () => observer.disconnect()
+  }, [])
 
   // 计算面板位置
   useEffect(() => {
     if (isOpen && buttonRef.current) {
-      const rect = buttonRef.current.getBoundingClientRect();
+      const rect = buttonRef.current.getBoundingClientRect()
       setPanelPosition({
         top: rect.bottom + 8,
         left: Math.max(8, rect.left), // 确保不会超出左边界
-      });
+      })
     }
-  }, [isOpen]);
+  }, [isOpen])
 
   // 点击外部关闭
   useEffect(() => {
-    if (!isOpen) return;
-    
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (
-        buttonRef.current && !buttonRef.current.contains(target) &&
-        panelRef.current && !panelRef.current.contains(target)
-      ) {
-        setIsOpen(false);
-      }
-    };
+    if (!isOpen)
+      return
 
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isOpen]);
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (
+        buttonRef.current && !buttonRef.current.contains(target)
+        && panelRef.current && !panelRef.current.contains(target)
+      ) {
+        setIsOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [isOpen])
 
   // 打开选择器
   const handleOpen = useCallback(async () => {
-    const willOpen = !isOpen;
-    setIsOpen(willOpen);
+    const willOpen = !isOpen
+    setIsOpen(willOpen)
     if (willOpen) {
-      preloadAllFonts();
+      preloadAllFonts()
     }
-  }, [isOpen, preloadAllFonts]);
+  }, [isOpen, preloadAllFonts])
 
   // 选择字体
   const handleSelectFont = useCallback((font: FontOption) => {
-    setTitleFont(font.id, csrfToken);
-  }, [setTitleFont, csrfToken]);
+    setTitleFont(font.id, csrfToken)
+  }, [setTitleFont, csrfToken])
 
   // 选择字体大小
   const handleSelectSize = useCallback((size: number) => {
-    setTitleFontSize(size, csrfToken);
-  }, [setTitleFontSize, csrfToken]);
+    setTitleFontSize(size, csrfToken)
+  }, [setTitleFontSize, csrfToken])
 
   // 选择颜色
   const handleSelectColor = useCallback((colorId: string) => {
-    setTitleColor(colorId, csrfToken);
-  }, [setTitleColor, csrfToken]);
+    setTitleColor(colorId, csrfToken)
+  }, [setTitleColor, csrfToken])
 
   // 切换标签
   const handleTabChange = useCallback((tab: TabType) => {
-    setActiveTab(tab);
-  }, []);
+    setActiveTab(tab)
+  }, [])
 
   // 渲染标签按钮
   const renderTabs = useMemo(() => (
     <div className="flex border-b border-gray-200 dark:border-white/10">
-      {TABS.map((tab) => (
+      {TABS.map(tab => (
         <button
           key={tab.id}
           onClick={() => handleTabChange(tab.id)}
@@ -154,12 +156,12 @@ export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(({
         </button>
       ))}
     </div>
-  ), [activeTab, handleTabChange]);
+  ), [activeTab, handleTabChange])
 
   // 渲染字体列表
   const renderFontList = useMemo(() => (
     <div className="space-y-1 max-h-56 overflow-y-auto">
-      {AVAILABLE_FONTS.map((font) => (
+      {AVAILABLE_FONTS.map(font => (
         <button
           key={font.id}
           onClick={() => handleSelectFont(font)}
@@ -182,12 +184,12 @@ export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(({
         </button>
       ))}
     </div>
-  ), [titleFont, isLoading, handleSelectFont]);
+  ), [titleFont, isLoading, handleSelectFont])
 
   // 渲染大小列表
   const renderSizeList = useMemo(() => (
     <div className="space-y-1">
-      {FONT_SIZE_OPTIONS.map((size) => (
+      {FONT_SIZE_OPTIONS.map(size => (
         <button
           key={size.id}
           onClick={() => handleSelectSize(size.value)}
@@ -197,7 +199,7 @@ export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(({
           `}
         >
           <div className="flex items-center gap-3">
-            <span 
+            <span
               className="text-gray-800 dark:text-gray-200 w-8"
               style={{ fontSize: `${14 * size.value}px` }}
             >
@@ -213,12 +215,12 @@ export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(({
         </button>
       ))}
     </div>
-  ), [titleFontSize, handleSelectSize, t]);
+  ), [titleFontSize, handleSelectSize, t])
 
   // 渲染颜色列表
   const renderColorList = useMemo(() => (
     <div className="space-y-1">
-      {AVAILABLE_COLORS.map((color) => (
+      {AVAILABLE_COLORS.map(color => (
         <button
           key={color.id}
           onClick={() => handleSelectColor(color.id)}
@@ -228,12 +230,12 @@ export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(({
           `}
         >
           <div className="flex items-center gap-3">
-            <div 
+            <div
               className="w-5 h-5 rounded-full border border-gray-300 dark:border-gray-600"
-              style={{ 
-                background: color.id === 'adaptive' 
+              style={{
+                background: color.id === 'adaptive'
                   ? `linear-gradient(135deg, ${isDark ? '#fff' : '#000'} 0%, var(--color-primary) 100%)`
-                  : color.value 
+                  : color.value,
               }}
             />
             <span className="text-sm text-gray-600 dark:text-gray-400">
@@ -246,16 +248,16 @@ export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(({
         </button>
       ))}
     </div>
-  ), [titleColor, isDark, handleSelectColor, t]);
+  ), [titleColor, isDark, handleSelectColor, t])
 
   // 渲染当前标签内容
   const renderTabContent = useMemo(() => {
     switch (activeTab) {
-      case 'font': return renderFontList;
-      case 'size': return renderSizeList;
-      case 'color': return renderColorList;
+      case 'font': return renderFontList
+      case 'size': return renderSizeList
+      case 'color': return renderColorList
     }
-  }, [activeTab, renderFontList, renderSizeList, renderColorList]);
+  }, [activeTab, renderFontList, renderSizeList, renderColorList])
 
   return (
     <div className={className}>
@@ -282,7 +284,7 @@ export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(({
               exit={{ opacity: 0, y: -10, scale: 0.95 }}
               transition={{ duration: 0.15 }}
               className="fixed w-72 glass rounded-xl shadow-lg overflow-hidden"
-              style={{ 
+              style={{
                 zIndex: 99999,
                 top: panelPosition.top,
                 left: panelPosition.left,
@@ -295,12 +297,12 @@ export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(({
             </motion.div>
           )}
         </AnimatePresence>,
-        document.body
+        document.body,
       )}
     </div>
-  );
-});
+  )
+})
 
-TitleFontSelector.displayName = 'TitleFontSelector';
+TitleFontSelector.displayName = 'TitleFontSelector'
 
-export default TitleFontSelector;
+export default TitleFontSelector

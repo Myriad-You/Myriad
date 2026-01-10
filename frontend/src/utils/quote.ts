@@ -1,8 +1,8 @@
-﻿import { API_URL } from '../config';
+import { API_URL } from '../config'
 
 export interface QuoteData {
-  text: string;
-  author?: string;
+  text: string
+  author?: string
 }
 
 /**
@@ -11,40 +11,42 @@ export interface QuoteData {
 export async function getRandomQuote(locale?: string): Promise<QuoteData | null> {
   try {
     // 从 localStorage 读取缓存
-    const cachedQuote = localStorage.getItem('quote_cache');
-    const cacheTime = localStorage.getItem('quote_cache_time');
+    const cachedQuote = localStorage.getItem('quote_cache')
+    const cacheTime = localStorage.getItem('quote_cache_time')
 
     if (cachedQuote && cacheTime) {
-      const cacheAge = Date.now() - parseInt(cacheTime);
+      const cacheAge = Date.now() - Number.parseInt(cacheTime)
       // 缓存 10 分钟
       if (cacheAge < 10 * 60 * 1000) {
-        return JSON.parse(cachedQuote);
+        return JSON.parse(cachedQuote)
       }
     }
 
     // 使用后端代理访问一言 API（解决 CORS 问题）
     const response = await fetch(`${API_URL}/api/proxy/hitokoto`, {
-      signal: AbortSignal.timeout(10000)
-    });
+      signal: AbortSignal.timeout(10000),
+    })
 
-    if (!response.ok) throw new Error('Hitokoto API failed');
+    if (!response.ok)
+      throw new Error('Hitokoto API failed')
 
-    const data = await response.json();
+    const data = await response.json()
 
     const quoteData: QuoteData = {
       text: data.hitokoto,
-      author: data.from
-    };
+      author: data.from,
+    }
 
     // 缓存结果
-    localStorage.setItem('quote_cache', JSON.stringify(quoteData));
-    localStorage.setItem('quote_cache_time', Date.now().toString());
+    localStorage.setItem('quote_cache', JSON.stringify(quoteData))
+    localStorage.setItem('quote_cache_time', Date.now().toString())
 
-    return quoteData;
-  } catch (error) {
-    console.warn('Failed to fetch quote:', error);
+    return quoteData
+  }
+  catch (error) {
+    console.warn('Failed to fetch quote:', error)
     // 返回本地备用句子
-    return getLocalQuote(locale);
+    return getLocalQuote(locale)
   }
 }
 
@@ -60,17 +62,17 @@ function getLocalQuote(locale?: string): QuoteData {
     { text: '好的代码本身就是最好的文档', author: 'Steve McConnell' },
     { text: '先让它运行起来，再让它变得更好', author: 'Kent Beck' },
     { text: '代码是写给人看的，顺便让机器执行', author: 'Harold Abelson' },
-    { text: '测试不能证明程序没有 bug，只能证明 bug 的存在', author: 'Edsger Dijkstra' }
-  ];
+    { text: '测试不能证明程序没有 bug，只能证明 bug 的存在', author: 'Edsger Dijkstra' },
+  ]
 
   const quotesEnUS = [
-    { text: "Code is like humor. When you have to explain it, it's bad.", author: 'Cory House' },
+    { text: 'Code is like humor. When you have to explain it, it\'s bad.', author: 'Cory House' },
     { text: 'Simplicity is the soul of efficiency.', author: 'Austin Freeman' },
     { text: 'Make it work, make it right, make it fast.', author: 'Kent Beck' },
     { text: 'Talk is cheap. Show me the code.', author: 'Linus Torvalds' },
     { text: 'Software is eating the world.', author: 'Marc Andreessen' },
     { text: 'The best way to predict the future is to invent it.', author: 'Alan Kay' },
-  ];
+  ]
 
   const quotesJaJP = [
     { text: 'コードは詩のように、優雅であれ', author: 'プログラマーの格言' },
@@ -79,19 +81,19 @@ function getLocalQuote(locale?: string): QuoteData {
     { text: '動くようにしてから、正しくしてから、速くする', author: 'Kent Beck' },
     { text: '良いコードは最高のドキュメントである', author: 'Steve McConnell' },
     { text: '未来を予測する最良の方法は、それを発明することだ', author: 'Alan Kay' },
-  ];
+  ]
 
-  let quotes: QuoteData[];
+  let quotes: QuoteData[]
   switch (locale) {
     case 'en-US':
-      quotes = quotesEnUS;
-      break;
+      quotes = quotesEnUS
+      break
     case 'ja-JP':
-      quotes = quotesJaJP;
-      break;
+      quotes = quotesJaJP
+      break
     default:
-      quotes = quotesZhCN;
+      quotes = quotesZhCN
   }
 
-  return quotes[Math.floor(Math.random() * quotes.length)];
+  return quotes[Math.floor(Math.random() * quotes.length)]
 }

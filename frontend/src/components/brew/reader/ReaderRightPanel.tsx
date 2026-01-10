@@ -3,25 +3,25 @@
  * 包含: 评论、主题、字体、布局、字号、行高
  */
 
-import { motion, AnimatePresence } from 'framer-motion';
+import type { CommentItem } from '../../../services/brewApi'
+import type { ReaderRightPanelProps } from './types'
 import {
-  LuMessageSquare as MessageSquare,
-  LuPalette as Palette,
-  LuMinus as Minus,
-  LuPlus as Plus,
   LuAlignJustify as AlignJustify,
-} from '@lib/icons';
-import type { ReaderRightPanelProps } from './types';
-import { THEMES } from './constants';
-import type { CommentItem } from '../../../services/brewApi';
+  LuMessageSquare as MessageSquare,
+  LuMinus as Minus,
+  LuPalette as Palette,
+  LuPlus as Plus,
+} from '@lib/icons'
+import { AnimatePresence, motion } from 'framer-motion'
+import { THEMES } from './constants'
 
 interface ExtendedReaderRightPanelProps extends ReaderRightPanelProps {
   // 评论
-  isAuthenticated: boolean;
-  hasComments: boolean;
-  comments: CommentItem[];
-  showCommentsPanel: boolean;
-  setShowCommentsPanel: (show: boolean) => void;
+  isAuthenticated: boolean
+  hasComments: boolean
+  comments: CommentItem[]
+  showCommentsPanel: boolean
+  setShowCommentsPanel: (show: boolean) => void
 }
 
 export default function ReaderRightPanel({
@@ -50,7 +50,7 @@ export default function ReaderRightPanel({
   showCommentsPanel,
   setShowCommentsPanel,
 }: ExtendedReaderRightPanelProps) {
-  const layout = currentLayout.id;
+  const layout = currentLayout.id
 
   return (
     <AnimatePresence>
@@ -61,7 +61,7 @@ export default function ReaderRightPanel({
           exit={enableAnimations ? { opacity: 0, x: 24, scale: 0.92 } : undefined}
           transition={enableAnimations ? { duration: 0.3, ease: [0.16, 1, 0.3, 1] } : undefined}
           className="hidden sm:block sticky top-1/3 -translate-y-1/3 h-fit ml-4 z-20"
-          onClick={(e) => e.stopPropagation()}
+          onClick={e => e.stopPropagation()}
           onMouseEnter={onMouseEnter}
           onMouseLeave={onMouseLeave}
         >
@@ -170,5 +170,5 @@ export default function ReaderRightPanel({
         </motion.aside>
       )}
     </AnimatePresence>
-  );
+  )
 }

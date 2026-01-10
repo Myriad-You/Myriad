@@ -2,55 +2,55 @@
  * 编辑模式组件
  */
 
-import { motion, AnimatePresence } from 'framer-motion';
+import type { ImportProgress } from './types'
 import {
-  LuSquare as Square,
-  LuCheckSquare as CheckSquare,
-  LuMinusSquare as MinusSquare,
-  LuTrash2 as Trash2,
-  LuX as X,
-  LuRefreshCw as RefreshCw,
-  LuCheckCircle as CheckCircle,
-  LuDownload as Download,
-  LuUpload as Upload,
-  LuLoader2 as Loader2,
-  LuCheck as Check,
   LuAlertCircle as AlertCircle,
-} from '@lib/icons';
-import { SPRING_SNAPPY } from './constants';
-import type { ImportProgress } from './types';
+  LuCheck as Check,
+  LuCheckCircle as CheckCircle,
+  LuCheckSquare as CheckSquare,
+  LuDownload as Download,
+  LuLoader2 as Loader2,
+  LuMinusSquare as MinusSquare,
+  LuRefreshCw as RefreshCw,
+  LuSquare as Square,
+  LuTrash2 as Trash2,
+  LuUpload as Upload,
+  LuX as X,
+} from '@lib/icons'
+import { AnimatePresence, motion } from 'framer-motion'
+import { SPRING_SNAPPY } from './constants'
 
 export interface EditModeProps {
-  variant: 'mobile' | 'desktop';
-  selectedIds: Set<number>;
-  totalCount: number;
-  isDeleting: boolean;
-  isRefreshing: boolean;
-  isAuthenticated: boolean;
-  onSelectAll?: () => void;
-  onBatchDelete?: () => void;
-  onBatchRefresh?: () => void;
-  onMarkAllSourcesRead?: () => void;
-  onClose: () => void;
+  variant: 'mobile' | 'desktop'
+  selectedIds: Set<number>
+  totalCount: number
+  isDeleting: boolean
+  isRefreshing: boolean
+  isAuthenticated: boolean
+  onSelectAll?: () => void
+  onBatchDelete?: () => void
+  onBatchRefresh?: () => void
+  onMarkAllSourcesRead?: () => void
+  onClose: () => void
   // 导入导出
-  onBrewExport?: () => void;
-  onBrewImportFile?: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  importExportLoading?: boolean;
-  importProgress?: ImportProgress | null;
-  importExportSuccess?: string | null;
-  importExportError?: string | null;
-  brewExportInputRef?: React.RefObject<HTMLInputElement>;
-  sourcesCount?: number;
+  onBrewExport?: () => void
+  onBrewImportFile?: (e: React.ChangeEvent<HTMLInputElement>) => void
+  importExportLoading?: boolean
+  importProgress?: ImportProgress | null
+  importExportSuccess?: string | null
+  importExportError?: string | null
+  brewExportInputRef?: React.RefObject<HTMLInputElement>
+  sourcesCount?: number
   t: {
-    selectAll: string;
-    deselectAll: string;
-    deleteSelected: string;
-    refreshAllSources: string;
-    markAllAsRead: string;
-    exitEdit: string;
-    exportBrewpack: string;
-    importBrewpack: string;
-  };
+    selectAll: string
+    deselectAll: string
+    deleteSelected: string
+    refreshAllSources: string
+    markAllAsRead: string
+    exitEdit: string
+    exportBrewpack: string
+    importBrewpack: string
+  }
 }
 
 export function EditMode({
@@ -75,7 +75,7 @@ export function EditMode({
   sourcesCount = 0,
   t,
 }: EditModeProps) {
-  const isMobile = variant === 'mobile';
+  const isMobile = variant === 'mobile'
 
   // 移动端版本 - 简化
   if (isMobile) {
@@ -94,16 +94,23 @@ export function EditMode({
           title={selectedIds.size === totalCount ? t.deselectAll : t.selectAll}
           aria-label={selectedIds.size === totalCount ? t.deselectAll : t.selectAll}
         >
-          {selectedIds.size === totalCount ? (
-            <CheckSquare className="w-5 h-5" />
-          ) : selectedIds.size > 0 ? (
-            <MinusSquare className="w-5 h-5" />
-          ) : (
-            <Square className="w-5 h-5" />
-          )}
+          {selectedIds.size === totalCount
+            ? (
+                <CheckSquare className="w-5 h-5" />
+              )
+            : selectedIds.size > 0
+              ? (
+                  <MinusSquare className="w-5 h-5" />
+                )
+              : (
+                  <Square className="w-5 h-5" />
+                )}
         </button>
         <span className="text-sm font-medium text-gray-600 dark:text-gray-300 min-w-[4.5rem] text-center">
-          {selectedIds.size} / {totalCount}
+          {selectedIds.size}
+          {' '}
+          /
+          {totalCount}
         </span>
         <button
           onClick={onBatchDelete}
@@ -142,7 +149,7 @@ export function EditMode({
           <X className="w-5 h-5" />
         </button>
       </motion.div>
-    );
+    )
   }
 
   // 桌面端版本 - 完整功能
@@ -162,20 +169,27 @@ export function EditMode({
         title={selectedIds.size === totalCount ? t.deselectAll : t.selectAll}
         aria-label={selectedIds.size === totalCount ? t.deselectAll : t.selectAll}
       >
-        {selectedIds.size === totalCount ? (
-          <CheckSquare className="w-5 h-5" />
-        ) : selectedIds.size > 0 ? (
-          <MinusSquare className="w-5 h-5" />
-        ) : (
-          <Square className="w-5 h-5" />
-        )}
+        {selectedIds.size === totalCount
+          ? (
+              <CheckSquare className="w-5 h-5" />
+            )
+          : selectedIds.size > 0
+            ? (
+                <MinusSquare className="w-5 h-5" />
+              )
+            : (
+                <Square className="w-5 h-5" />
+              )}
       </button>
-      
+
       {/* 选中数量 */}
       <span className="text-sm font-medium text-gray-600 dark:text-gray-300 min-w-[4.5rem] text-center">
-        {selectedIds.size} / {totalCount}
+        {selectedIds.size}
+        {' '}
+        /
+        {totalCount}
       </span>
-      
+
       {/* 删除按钮 */}
       <button
         onClick={onBatchDelete}
@@ -186,7 +200,7 @@ export function EditMode({
       >
         <Trash2 className="w-5 h-5" />
       </button>
-      
+
       {/* 全部刷新按钮 */}
       <button
         onClick={onBatchRefresh}
@@ -197,7 +211,7 @@ export function EditMode({
       >
         <RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} />
       </button>
-      
+
       {/* 全部已读按钮 */}
       {isAuthenticated && onMarkAllSourcesRead && (
         <button
@@ -209,10 +223,10 @@ export function EditMode({
           <CheckCircle className="w-5 h-5" />
         </button>
       )}
-      
+
       {/* 分隔线 */}
       <div className="w-px h-6 bg-gray-200 dark:bg-neutral-700 mx-1" />
-      
+
       {/* 导出按钮 */}
       {onBrewExport && (
         <button
@@ -225,10 +239,10 @@ export function EditMode({
           <Download className={`w-5 h-5 ${importExportLoading ? 'animate-pulse' : ''}`} />
         </button>
       )}
-      
+
       {/* 导入按钮 */}
       {onBrewImportFile && (
-        <label 
+        <label
           className={`p-2.5 text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition-colors ${importExportLoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
           title={t.importBrewpack}
           aria-label={t.importBrewpack}
@@ -245,7 +259,7 @@ export function EditMode({
           />
         </label>
       )}
-      
+
       {/* 导入进度显示 */}
       <AnimatePresence>
         {importProgress && (
@@ -260,13 +274,15 @@ export function EditMode({
             <span className="truncate max-w-[10rem]">{importProgress.step}</span>
             {importProgress.total > 0 && (
               <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40">
-                {importProgress.current}/{importProgress.total}
+                {importProgress.current}
+                /
+                {importProgress.total}
               </span>
             )}
           </motion.div>
         )}
       </AnimatePresence>
-      
+
       {/* 导入/导出反馈提示 */}
       <AnimatePresence>
         {(importExportSuccess || importExportError) && !importProgress && (
@@ -276,21 +292,23 @@ export function EditMode({
             exit={{ opacity: 0, scale: 0.9, x: -10 }}
             transition={{ duration: 0.2 }}
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium ${
-              importExportSuccess 
+              importExportSuccess
                 ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-800/50'
                 : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-200/50 dark:border-red-800/50'
             }`}
           >
-            {importExportSuccess ? (
-              <Check className="w-3.5 h-3.5 flex-shrink-0" />
-            ) : (
-              <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
-            )}
+            {importExportSuccess
+              ? (
+                  <Check className="w-3.5 h-3.5 flex-shrink-0" />
+                )
+              : (
+                  <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                )}
             <span className="truncate max-w-[12rem]">{importExportSuccess || importExportError}</span>
           </motion.div>
         )}
       </AnimatePresence>
-      
+
       {/* 退出按钮 */}
       <button
         onClick={onClose}
@@ -301,5 +319,5 @@ export function EditMode({
         <X className="w-5 h-5" />
       </button>
     </motion.div>
-  );
+  )
 }

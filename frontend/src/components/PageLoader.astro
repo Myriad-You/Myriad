@@ -20,7 +20,7 @@
     transition: opacity 0.5s cubic-bezier(0.4, 0, 0.2, 1);
     transition-delay: 0.05s;
   }
-  
+
   /* 应用就绪后显示 */
   #app-root.app-ready {
     opacity: 1;
@@ -39,8 +39,9 @@
     background: var(--bg-primary, #f5f5f5);
     opacity: 1;
     pointer-events: all;
-    transition: opacity 0.5s cubic-bezier(0.4, 0, 0.2, 1), 
-                visibility 0s linear 0s;
+    transition:
+      opacity 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+      visibility 0s linear 0s;
 
     /* 性能优化 */
     will-change: opacity;
@@ -57,8 +58,9 @@
     opacity: 0;
     pointer-events: none;
     visibility: hidden;
-    transition: opacity 0.5s cubic-bezier(0.4, 0, 0.2, 1), 
-                visibility 0s linear 0.5s;
+    transition:
+      opacity 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+      visibility 0s linear 0.5s;
   }
 
   .loader-content {
@@ -117,36 +119,36 @@
    * 协调 PageLoader 隐藏和 React 应用显示的时序
    */
   class PageLoader {
-    private loader: HTMLElement | null;
-    private appRoot: HTMLElement | null;
-    private isShowing: boolean = true;
-    private hideTimeout: number | null = null;
-    private isAppReady: boolean = false;
+    private loader: HTMLElement | null
+    private appRoot: HTMLElement | null
+    private isShowing: boolean = true
+    private hideTimeout: number | null = null
+    private isAppReady: boolean = false
 
     constructor() {
-      this.loader = document.getElementById('page-loader');
-      this.appRoot = null; // 延迟获取，因为 React 可能还没挂载
+      this.loader = document.getElementById('page-loader')
+      this.appRoot = null // 延迟获取，因为 React 可能还没挂载
     }
 
     /**
      * 显示加载器
      */
     show(): void {
-      if (!this.loader) return;
+      if (!this.loader) return
 
       if (this.hideTimeout) {
-        clearTimeout(this.hideTimeout);
-        this.hideTimeout = null;
+        clearTimeout(this.hideTimeout)
+        this.hideTimeout = null
       }
 
-      this.loader.classList.remove('hidden');
-      this.loader.setAttribute('aria-busy', 'true');
-      this.isShowing = true;
-      this.isAppReady = false;
-      
+      this.loader.classList.remove('hidden')
+      this.loader.setAttribute('aria-busy', 'true')
+      this.isShowing = true
+      this.isAppReady = false
+
       // 同时隐藏应用
       if (this.appRoot) {
-        this.appRoot.classList.remove('app-ready');
+        this.appRoot.classList.remove('app-ready')
       }
     }
 
@@ -155,58 +157,58 @@
      * 各个组件会独立控制自己的淡入显示
      */
     markAppReady(): void {
-      if (this.isAppReady) return;
-      this.isAppReady = true;
-      
+      if (this.isAppReady) return
+      this.isAppReady = true
+
       // 获取应用根元素
-      this.appRoot = document.getElementById('app-root');
-      
+      this.appRoot = document.getElementById('app-root')
+
       // 使用双帧确保 DOM 已更新
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           // 显示应用容器
           if (this.appRoot) {
-            this.appRoot.classList.add('app-ready');
+            this.appRoot.classList.add('app-ready')
           }
-          
+
           // 立即开始隐藏加载器
-          this.hide(50);
-        });
-      });
+          this.hide(50)
+        })
+      })
     }
 
     /**
      * 隐藏加载器
      */
     hide(delay: number = 200): void {
-      if (!this.loader) return;
+      if (!this.loader) return
 
       this.hideTimeout = window.setTimeout(() => {
         if (this.loader) {
-          this.loader.classList.add('hidden');
-          this.loader.setAttribute('aria-busy', 'false');
-          this.isShowing = false;
+          this.loader.classList.add('hidden')
+          this.loader.setAttribute('aria-busy', 'false')
+          this.isShowing = false
         }
-      }, delay);
+      }, delay)
     }
 
     /**
      * 检查是否正在显示
      */
     isActive(): boolean {
-      return this.isShowing;
+      return this.isShowing
     }
-    
+
     /**
      * 检查应用是否已就绪
      */
     isReady(): boolean {
-      return this.isAppReady;
+      return this.isAppReady
     }
   }
 
   // 创建全局实例
   if (typeof window !== 'undefined') {
-    (window as any).pageLoader = new PageLoader();
+    ;(window as any).pageLoader = new PageLoader()
   }
 </script>

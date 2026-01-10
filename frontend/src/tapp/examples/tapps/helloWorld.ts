@@ -511,13 +511,13 @@ export const helloWorldTapp: ExampleTapp = {
     version: '1.0.0',
     description: '官方入门示例，展示 Tapp 核心功能。',
     main: 'index.js',
-    author: { 
+    author: {
       name: 'Myriad Team',
       email: 'tapp@myriad.app',
       url: 'https://github.com/Myriad-You',
     },
     permissions: ['storage', 'ui:theme'],
-    iconSvg: "<svg viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'><path d='M8 6L3 12l5 6M16 6l5 6-5 6' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/><path d='M14 4l-4 16' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg>",
+    iconSvg: '<svg viewBox=\'0 0 24 24\' fill=\'none\' xmlns=\'http://www.w3.org/2000/svg\'><path d=\'M8 6L3 12l5 6M16 6l5 6-5 6\' stroke=\'currentColor\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'/><path d=\'M14 4l-4 16\' stroke=\'currentColor\' stroke-width=\'2\' stroke-linecap=\'round\'/></svg>',
     themeColor: '#10B981',
     hasPage: true,
   },

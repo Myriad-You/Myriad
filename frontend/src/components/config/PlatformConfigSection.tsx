@@ -1,32 +1,32 @@
-import React from 'react';
-import PlatformIcon from '../PlatformIcon';
-import { useI18n } from '../../contexts/I18nContext';
+import React from 'react'
+import { useI18n } from '../../contexts/I18nContext'
+import PlatformIcon from '../PlatformIcon'
 
 interface ConfigField {
-  key: string;
-  label: string;
-  field_type: string;
-  value: string;
-  placeholder: string;
-  required: boolean;
+  key: string
+  label: string
+  field_type: string
+  value: string
+  placeholder: string
+  required: boolean
 }
 
 interface PlatformConfig {
-  name: string;
-  enabled: boolean;
-  has_token: boolean;
-  config_fields: ConfigField[];
-  description: string;
-  icon: string;
+  name: string
+  enabled: boolean
+  has_token: boolean
+  config_fields: ConfigField[]
+  description: string
+  icon: string
 }
 
 interface PlatformConfigSectionProps {
-  platforms: PlatformConfig[];
-  testing: string | null;
-  onTogglePlatform: (index: number) => void;
-  onUpdateField: (platformIndex: number, fieldKey: string, value: string) => void;
-  onTest: (platformName: string) => void;
-  onOpenModal: (platformName: string) => void;
+  platforms: PlatformConfig[]
+  testing: string | null
+  onTogglePlatform: (index: number) => void
+  onUpdateField: (platformIndex: number, fieldKey: string, value: string) => void
+  onTest: (platformName: string) => void
+  onOpenModal: (platformName: string) => void
 }
 
 const PlatformConfigSection = React.memo<PlatformConfigSectionProps>(({
@@ -35,9 +35,9 @@ const PlatformConfigSection = React.memo<PlatformConfigSectionProps>(({
   onTogglePlatform,
   onUpdateField,
   onTest,
-  onOpenModal
+  onOpenModal,
 }) => {
-  const { t } = useI18n();
+  const { t } = useI18n()
 
   return (
     <div className="config-section">
@@ -84,7 +84,7 @@ const PlatformConfigSection = React.memo<PlatformConfigSectionProps>(({
 
             {platform.enabled && (
               <div className="platform-config">
-                {platform.config_fields.map((field) => (
+                {platform.config_fields.map(field => (
                   <div key={field.key} className="form-group-inline">
                     <label className="form-label-inline">
                       {field.label}
@@ -94,7 +94,7 @@ const PlatformConfigSection = React.memo<PlatformConfigSectionProps>(({
                       <input
                         type={field.field_type === 'password' ? 'password' : 'text'}
                         value={field.value}
-                        onChange={(e) => onUpdateField(index, field.key, e.target.value)}
+                        onChange={e => onUpdateField(index, field.key, e.target.value)}
                         placeholder={field.placeholder}
                         className="form-input-inline"
                         autoComplete="off"
@@ -125,9 +125,9 @@ const PlatformConfigSection = React.memo<PlatformConfigSectionProps>(({
         ))}
       </div>
     </div>
-  );
-});
+  )
+})
 
-PlatformConfigSection.displayName = 'PlatformConfigSection';
+PlatformConfigSection.displayName = 'PlatformConfigSection'
 
-export default PlatformConfigSection;
+export default PlatformConfigSection

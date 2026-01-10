@@ -2,28 +2,28 @@
  * StarredEditMode - 收藏编辑模式
  */
 
-import { motion } from 'framer-motion';
+import type { StarredModeConfig } from './types'
 import {
-  LuX as X,
-  LuSquare as Square,
   LuCheckSquare as CheckSquare,
-  LuMinusSquare as MinusSquare,
-  LuStar as Star,
   LuLoader2 as Loader2,
-} from '@lib/icons';
-import { SPRING_SNAPPY } from './constants';
-import type { StarredModeConfig } from './types';
+  LuMinusSquare as MinusSquare,
+  LuSquare as Square,
+  LuStar as Star,
+  LuX as X,
+} from '@lib/icons'
+import { motion } from 'framer-motion'
+import { SPRING_SNAPPY } from './constants'
 
 export interface StarredEditModeProps {
-  variant: 'mobile' | 'desktop';
-  starredMode: StarredModeConfig;
+  variant: 'mobile' | 'desktop'
+  starredMode: StarredModeConfig
   t: {
-    exitEdit: string;
-    selectAllToggle: string;
-    selectedCount: string;
-    selectArticles: string;
-    unstar: string;
-  };
+    exitEdit: string
+    selectAllToggle: string
+    selectedCount: string
+    selectArticles: string
+    unstar: string
+  }
 }
 
 export function StarredEditMode({
@@ -31,8 +31,8 @@ export function StarredEditMode({
   starredMode,
   t,
 }: StarredEditModeProps) {
-  const isMobile = variant === 'mobile';
-  
+  const isMobile = variant === 'mobile'
+
   return (
     <motion.div
       key={`starred-edit-bar-${variant}`}
@@ -62,16 +62,20 @@ export function StarredEditMode({
           title={t.selectAllToggle}
           aria-label={t.selectAllToggle}
         >
-          {starredMode.selectedIds.size === starredMode.total ? (
-            <CheckSquare className="w-5 h-5 text-amber-500" />
-          ) : starredMode.selectedIds.size > 0 ? (
-            <MinusSquare className="w-5 h-5 text-amber-500" />
-          ) : (
-            <Square className="w-5 h-5" />
-          )}
+          {starredMode.selectedIds.size === starredMode.total
+            ? (
+                <CheckSquare className="w-5 h-5 text-amber-500" />
+              )
+            : starredMode.selectedIds.size > 0
+              ? (
+                  <MinusSquare className="w-5 h-5 text-amber-500" />
+                )
+              : (
+                  <Square className="w-5 h-5" />
+                )}
         </motion.button>
         <span className="text-sm text-gray-600 dark:text-gray-300">
-          {starredMode.selectedIds.size > 0 
+          {starredMode.selectedIds.size > 0
             ? t.selectedCount.replace('{count}', String(starredMode.selectedIds.size))
             : t.selectArticles}
         </span>
@@ -87,12 +91,14 @@ export function StarredEditMode({
         title={t.unstar}
         aria-label={t.unstar}
       >
-        {starredMode.isProcessing ? (
-          <Loader2 className="w-4 h-4 animate-spin" />
-        ) : (
-          <Star className="w-4 h-4" />
-        )}
+        {starredMode.isProcessing
+          ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            )
+          : (
+              <Star className="w-4 h-4" />
+            )}
       </motion.button>
     </motion.div>
-  );
+  )
 }

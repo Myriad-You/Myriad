@@ -1,22 +1,22 @@
-﻿import React, { useState, useEffect } from 'react';
-import { API_URL } from '../config';
-import { FaCheck, FaDatabase, FaUser, FaExclamationTriangle } from '@lib/icons';
-import { Spinner } from './Spinner';
-import { useI18n } from '../contexts/I18nContext';
-import './SetupWizard.css';
+import { FaCheck, FaDatabase, FaExclamationTriangle, FaUser } from '@lib/icons'
+import React, { useEffect, useState } from 'react'
+import { API_URL } from '../config'
+import { useI18n } from '../contexts/I18nContext'
+import { Spinner } from './Spinner'
+import './SetupWizard.css'
 
 interface SetupStatus {
-  is_setup_required: boolean;
-  has_database: boolean;
-  has_admin_user: boolean;
-  missing_configs: string[];
+  is_setup_required: boolean
+  has_database: boolean
+  has_admin_user: boolean
+  missing_configs: string[]
 }
 
 const SetupWizard: React.FC = () => {
-  const { t } = useI18n();
-  const [status, setStatus] = useState<SetupStatus | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { t } = useI18n()
+  const [status, setStatus] = useState<SetupStatus | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
   // 数据库配置
   const [dbConfig, setDbConfig] = useState({
@@ -25,35 +25,35 @@ const SetupWizard: React.FC = () => {
     database: 'myriad',
     username: 'postgres',
     password: '',
-  });
-  const [savingDb, setSavingDb] = useState(false);
-  const [migratingDb, setMigratingDb] = useState(false);
-  const [dbConfigured, setDbConfigured] = useState(false);
+  })
+  const [savingDb, setSavingDb] = useState(false)
+  const [migratingDb, setMigratingDb] = useState(false)
+  const [dbConfigured, setDbConfigured] = useState(false)
 
   // 管理员账户
   const [adminForm, setAdminForm] = useState({
     username: '',
     password: '',
     confirmPassword: '',
-  });
-  const [creatingAdmin, setCreatingAdmin] = useState(false);
-  const [adminCreated, setAdminCreated] = useState(false);
+  })
+  const [creatingAdmin, setCreatingAdmin] = useState(false)
+  const [adminCreated, setAdminCreated] = useState(false)
 
   useEffect(() => {
-    checkSetupStatus();
-  }, []);
+    checkSetupStatus()
+  }, [])
 
   const checkSetupStatus = async () => {
     try {
-      setLoading(true);
-      
+      setLoading(true)
+
       // 先检查健康状态,看是否处于配置模式
-      const healthResponse = await fetch(`${API_URL}/health`);
+      const healthResponse = await fetch(`${API_URL}/health`)
       if (!healthResponse.ok) {
-        throw new Error('Failed to connect to backend');
+        throw new Error('Failed to connect to backend')
       }
-      const healthData = await healthResponse.json();
-      
+      const healthData = await healthResponse.json()
+
       // 如果处于配置模式(数据库未连接),显示数据库配置界面
       if (healthData.mode === 'configuration' || !healthData.database_connected) {
         setStatus({
@@ -61,15 +61,15 @@ const SetupWizard: React.FC = () => {
           has_database: false,
           has_admin_user: false,
           missing_configs: ['Database not configured'],
-        });
-        setDbConfigured(false);
-        setAdminCreated(false);
-        setLoading(false);
-        return;
+        })
+        setDbConfigured(false)
+        setAdminCreated(false)
+        setLoading(false)
+        return
       }
-      
+
       // 如果数据库已连接,检查详细的设置状态
-      const response = await fetch(`${API_URL}/api/setup/status`);
+      const response = await fetch(`${API_URL}/api/setup/status`)
       if (!response.ok) {
         // 如果是 503，说明某些功能还未就绪，但不是连接问题
         if (response.status === 503) {
@@ -79,35 +79,37 @@ const SetupWizard: React.FC = () => {
             has_database: healthData.database_connected,
             has_admin_user: false,
             missing_configs: ['Checking configuration...'],
-          });
+          })
           // 数据库已连接，应该显示下一步
-          setDbConfigured(true);
-          setAdminCreated(false);
-          setLoading(false);
-          return;
+          setDbConfigured(true)
+          setAdminCreated(false)
+          setLoading(false)
+          return
         }
-        throw new Error('Failed to check setup status');
+        throw new Error('Failed to check setup status')
       }
-      const data = await response.json();
-      setStatus(data);
+      const data = await response.json()
+      setStatus(data)
       // 数据库连接成功就算配置完成，即使表还没初始化
       // 因为用户接下来就要初始化数据库
-      setDbConfigured(healthData.database_connected);
-      setAdminCreated(data.has_admin_user);
-    } catch (err) {
-      setError(t.setup.connectionFailedDesc);
-    } finally {
-      setLoading(false);
+      setDbConfigured(healthData.database_connected)
+      setAdminCreated(data.has_admin_user)
     }
-  };
+    catch (err) {
+      setError(t.setup.connectionFailedDesc)
+    }
+    finally {
+      setLoading(false)
+    }
+  }
 
   const handleSaveDbConfig = async () => {
     if (!dbConfig.password) {
-      alert(t.setup.enterDbPassword);
-      return;
+      alert(t.setup.enterDbPassword)
+      return
     }
 
-    setSavingDb(true);
+    setSavingDb(true)
 
     try {
       // 使用新的数据库配置 API
@@ -116,136 +118,142 @@ const SetupWizard: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           host: dbConfig.host,
-          port: parseInt(dbConfig.port),
+          port: Number.parseInt(dbConfig.port),
           username: dbConfig.username,
           password: dbConfig.password,
           database: dbConfig.database,
         }),
-      });
+      })
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || t.setup.saveConfigFailed);
+        const errorData = await response.json()
+        throw new Error(errorData.message || t.setup.saveConfigFailed)
       }
 
-      const result = await response.json();
-      
+      const result = await response.json()
+
       if (result.reload_triggered) {
-        alert(`${t.setup.dbConfigSaved}\n\n${t.setup.dbReconnecting}\n\n${t.setup.waitingForConnection}`);
-        
+        alert(`${t.setup.dbConfigSaved}\n\n${t.setup.dbReconnecting}\n\n${t.setup.waitingForConnection}`)
+
         // 开始轮询检查数据库连接状态
-        pollDatabaseConnection();
-      } else {
-        alert(`${t.setup.dbConfigSaved}\n\n${t.setup.restartRequired}`);
+        pollDatabaseConnection()
       }
-    } catch (err: any) {
-      alert('❌ ' + t.setup.saveConfigFailed + ': ' + err.message);
-      setSavingDb(false);
+      else {
+        alert(`${t.setup.dbConfigSaved}\n\n${t.setup.restartRequired}`)
+      }
     }
-  };
+    catch (err: any) {
+      alert(`❌ ${t.setup.saveConfigFailed}: ${err.message}`)
+      setSavingDb(false)
+    }
+  }
 
   // 轮询检查数据库连接状态
   const pollDatabaseConnection = async () => {
-    let attempts = 0;
-    const maxAttempts = 30; // 最多尝试30次（60秒）
-    const pollInterval = 2000; // 每2秒检查一次
+    let attempts = 0
+    const maxAttempts = 30 // 最多尝试30次（60秒）
+    const pollInterval = 2000 // 每2秒检查一次
 
     const checkConnection = async () => {
-      attempts++;
-      
+      attempts++
+
       try {
-        const healthResponse = await fetch(`${API_URL}/health`);
+        const healthResponse = await fetch(`${API_URL}/health`)
         if (healthResponse.ok) {
-          const healthData = await healthResponse.json();
-          
+          const healthData = await healthResponse.json()
+
           // 检查是否已经连接到数据库（不再是配置模式）
           if (healthData.database_connected && healthData.mode !== 'configuration') {
-            alert(`${t.setup.dbConnectionSuccess}\n\n${t.setup.systemSwitchedToNormal}`);
-            setSavingDb(false);
-            setDbConfigured(true);
-            checkSetupStatus();
-            return;
+            alert(`${t.setup.dbConnectionSuccess}\n\n${t.setup.systemSwitchedToNormal}`)
+            setSavingDb(false)
+            setDbConfigured(true)
+            checkSetupStatus()
+            return
           }
         }
-      } catch (err) {
+      }
+      catch (err) {
         // 轮询检查失败，继续尝试
       }
 
       // 如果还没成功且未超过最大尝试次数，继续轮询
       if (attempts < maxAttempts) {
-        setTimeout(checkConnection, pollInterval);
-      } else {
-        // 超时
-        alert(`${t.setup.dbConnectionTimeout}\n\n${t.setup.dbConnectionTimeoutDesc}`);
-        setSavingDb(false);
-        checkSetupStatus();
+        setTimeout(checkConnection, pollInterval)
       }
-    };
+      else {
+        // 超时
+        alert(`${t.setup.dbConnectionTimeout}\n\n${t.setup.dbConnectionTimeoutDesc}`)
+        setSavingDb(false)
+        checkSetupStatus()
+      }
+    }
 
     // 等待3秒后开始第一次检查（给后端一些处理时间）
-    setTimeout(checkConnection, 3000);
-  };
+    setTimeout(checkConnection, 3000)
+  }
 
   const handleMigrateDatabase = async () => {
-    setMigratingDb(true);
+    setMigratingDb(true)
 
     try {
       const response = await fetch(`${API_URL}/api/setup/init-database`, {
         method: 'POST',
-      });
+      })
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || t.setup.dbMigrationFailed);
+        const errorData = await response.json()
+        throw new Error(errorData.message || t.setup.dbMigrationFailed)
       }
 
-      const result = await response.json();
-      
+      const result = await response.json()
+
       // 显示详细的验证信息
-      let message = result.message;
+      let message = result.message
       if (result.verification) {
-        const v = result.verification;
-        message += `\n\n${t.setup.verificationResult}:`;
-        message += `\n• ${t.setup.totalTables}: ${v.total_tables}`;
-        message += `\n• ${t.setup.usersTable}: ${v.users_table ? t.setup.yes : t.setup.no}`;
-        message += `\n• ${t.setup.platformsTable}: ${v.platforms_table ? t.setup.yes : t.setup.no}`;
-        message += `\n• ${t.setup.configurationsTable}: ${v.configurations_table ? t.setup.yes : t.setup.no}`;
+        const v = result.verification
+        message += `\n\n${t.setup.verificationResult}:`
+        message += `\n• ${t.setup.totalTables}: ${v.total_tables}`
+        message += `\n• ${t.setup.usersTable}: ${v.users_table ? t.setup.yes : t.setup.no}`
+        message += `\n• ${t.setup.platformsTable}: ${v.platforms_table ? t.setup.yes : t.setup.no}`
+        message += `\n• ${t.setup.configurationsTable}: ${v.configurations_table ? t.setup.yes : t.setup.no}`
       }
-      
-      alert(message);
-      
+
+      alert(message)
+
       // 重新检查状态以更新 UI
-      await checkSetupStatus();
-    } catch (err: any) {
-      alert('❌ ' + t.setup.dbMigrationFailed + ': ' + err.message);
-    } finally {
-      setMigratingDb(false);
+      await checkSetupStatus()
     }
-  };
+    catch (err: any) {
+      alert(`❌ ${t.setup.dbMigrationFailed}: ${err.message}`)
+    }
+    finally {
+      setMigratingDb(false)
+    }
+  }
 
   const handleCreateAdmin = async () => {
     if (adminForm.username.length < 3 || adminForm.username.length > 20) {
-      alert(t.setup.usernameLengthError);
-      return;
+      alert(t.setup.usernameLengthError)
+      return
     }
 
-    const usernameRegex = /^[a-zA-Z0-9_]+$/;
+    const usernameRegex = /^\w+$/
     if (!usernameRegex.test(adminForm.username)) {
-      alert(t.setup.usernameFormatError);
-      return;
+      alert(t.setup.usernameFormatError)
+      return
     }
 
     if (adminForm.password.length < 8) {
-      alert(t.setup.passwordLengthError);
-      return;
+      alert(t.setup.passwordLengthError)
+      return
     }
 
     if (adminForm.password !== adminForm.confirmPassword) {
-      alert(t.setup.passwordMismatch);
-      return;
+      alert(t.setup.passwordMismatch)
+      return
     }
 
-    setCreatingAdmin(true);
+    setCreatingAdmin(true)
 
     try {
       const response = await fetch(`${API_URL}/api/setup/create-admin`, {
@@ -255,25 +263,27 @@ const SetupWizard: React.FC = () => {
           username: adminForm.username,
           password: adminForm.password,
         }),
-      });
+      })
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || t.setup.createAdminFailed);
+        const errorData = await response.json()
+        throw new Error(errorData.message || t.setup.createAdminFailed)
       }
 
-      alert(t.setup.adminCreated);
-      setAdminCreated(true);
-      checkSetupStatus();
-    } catch (err: any) {
-      alert(t.setup.createFailed + ': ' + err.message);
-    } finally {
-      setCreatingAdmin(false);
+      alert(t.setup.adminCreated)
+      setAdminCreated(true)
+      checkSetupStatus()
     }
-  };
+    catch (err: any) {
+      alert(`${t.setup.createFailed}: ${err.message}`)
+    }
+    finally {
+      setCreatingAdmin(false)
+    }
+  }
 
   if (loading) {
-    return null;
+    return null
   }
 
   if (error) {
@@ -293,10 +303,11 @@ const SetupWizard: React.FC = () => {
           </button>
         </div>
       </div>
-    );
+    )
   }
 
-  if (!status) return null;
+  if (!status)
+    return null
 
   // 如果设置完成，显示完成页面
   if (!status.is_setup_required) {
@@ -320,7 +331,7 @@ const SetupWizard: React.FC = () => {
           </div>
         </div>
       </div>
-    );
+    )
   }
 
   return (
@@ -363,7 +374,7 @@ const SetupWizard: React.FC = () => {
               <div className="flex flex-col md:flex-row items-start justify-between gap-4 md:gap-6">
                 <div className="flex-1 w-full md:w-auto">
                   <div className="flex items-center gap-3 mb-3 md:mb-4">
-                    <div 
+                    <div
                       className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center text-xl sm:text-2xl setup-db-icon-wrapper"
                     >
                       <FaDatabase />
@@ -382,7 +393,9 @@ const SetupWizard: React.FC = () => {
                           <FaExclamationTriangle className="text-amber-600 dark:text-amber-500 mt-0.5 flex-shrink-0" />
                           <div>
                             <p className="text-sm font-semibold text-amber-800 mb-1">
-                              🔧 {t.setup.configurationMode}
+                              🔧
+                              {' '}
+                              {t.setup.configurationMode}
                             </p>
                             <p className="text-xs text-amber-700">
                               {t.setup.configurationModeDesc}
@@ -391,7 +404,7 @@ const SetupWizard: React.FC = () => {
                         </div>
                       </div>
                     )}
-                    
+
                     {/* 配置表单 */}
                     <div className="bg-white/50 rounded-lg p-4 border border-gray-200/50">
                       <h3 className="font-semibold text-gray-800 mb-3 text-sm">{t.setup.connectionInfo}</h3>
@@ -401,7 +414,7 @@ const SetupWizard: React.FC = () => {
                           <input
                             type="text"
                             value={dbConfig.host}
-                            onChange={(e) => setDbConfig({ ...dbConfig, host: e.target.value })}
+                            onChange={e => setDbConfig({ ...dbConfig, host: e.target.value })}
                             className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                             placeholder="localhost"
                             autoComplete="off"
@@ -412,7 +425,7 @@ const SetupWizard: React.FC = () => {
                           <input
                             type="text"
                             value={dbConfig.port}
-                            onChange={(e) => setDbConfig({ ...dbConfig, port: e.target.value })}
+                            onChange={e => setDbConfig({ ...dbConfig, port: e.target.value })}
                             className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                             placeholder="5432"
                             autoComplete="off"
@@ -423,7 +436,7 @@ const SetupWizard: React.FC = () => {
                           <input
                             type="text"
                             value={dbConfig.database}
-                            onChange={(e) => setDbConfig({ ...dbConfig, database: e.target.value })}
+                            onChange={e => setDbConfig({ ...dbConfig, database: e.target.value })}
                             className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                             placeholder="myriad"
                             autoComplete="off"
@@ -434,7 +447,7 @@ const SetupWizard: React.FC = () => {
                           <input
                             type="text"
                             value={dbConfig.username}
-                            onChange={(e) => setDbConfig({ ...dbConfig, username: e.target.value })}
+                            onChange={e => setDbConfig({ ...dbConfig, username: e.target.value })}
                             className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                             placeholder="postgres"
                             autoComplete="off"
@@ -445,7 +458,7 @@ const SetupWizard: React.FC = () => {
                           <input
                             type="password"
                             value={dbConfig.password}
-                            onChange={(e) => setDbConfig({ ...dbConfig, password: e.target.value })}
+                            onChange={e => setDbConfig({ ...dbConfig, password: e.target.value })}
                             className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                             placeholder={t.auth.enterPassword}
                             autoComplete="off"
@@ -465,10 +478,12 @@ const SetupWizard: React.FC = () => {
                         <span>{savingDb ? t.setup.saving : t.setup.saveAndConnect}</span>
                       </button>
                     </div>
-                    
+
                     {/* 说明文字 */}
                     <div className="text-xs text-gray-500 text-center">
-                      💡 {t.setup.saveHint}
+                      💡
+                      {' '}
+                      {t.setup.saveHint}
                     </div>
                   </div>
                 </div>
@@ -482,7 +497,7 @@ const SetupWizard: React.FC = () => {
               <div className="flex items-start justify-between gap-6">
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-4">
-                    <div 
+                    <div
                       className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl setup-admin-icon-wrapper"
                     >
                       <FaUser />
@@ -501,7 +516,9 @@ const SetupWizard: React.FC = () => {
                           <FaDatabase className="text-blue-600 mt-0.5 flex-shrink-0" />
                           <div className="flex-1">
                             <p className="text-sm font-semibold text-blue-800 mb-2">
-                              📋 {t.setup.initDatabase}
+                              📋
+                              {' '}
+                              {t.setup.initDatabase}
                             </p>
                             <p className="text-xs text-blue-700 mb-3">
                               {t.setup.initDatabaseDesc}
@@ -518,7 +535,7 @@ const SetupWizard: React.FC = () => {
                         </div>
                       </div>
                     )}
-                    
+
                     {/* 管理员表单 - 仅在数据库已初始化后显示 */}
                     {status && status.has_database && (
                       <>
@@ -537,11 +554,15 @@ const SetupWizard: React.FC = () => {
                         <div className="bg-white/50 rounded-lg p-4 border border-gray-200/50">
                           <div className="space-y-3">
                             <div>
-                              <label className="block text-xs font-medium text-gray-700 mb-1">{t.auth.username} *</label>
+                              <label className="block text-xs font-medium text-gray-700 mb-1">
+                                {t.auth.username}
+                                {' '}
+                                *
+                              </label>
                               <input
                                 type="text"
                                 value={adminForm.username}
-                                onChange={(e) => setAdminForm({ ...adminForm, username: e.target.value })}
+                                onChange={e => setAdminForm({ ...adminForm, username: e.target.value })}
                                 className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                                 placeholder="admin"
                                 pattern="^[a-zA-Z0-9_]{3,20}$"
@@ -549,11 +570,15 @@ const SetupWizard: React.FC = () => {
                               />
                             </div>
                             <div>
-                              <label className="block text-xs font-medium text-gray-700 mb-1">{t.auth.password} *</label>
+                              <label className="block text-xs font-medium text-gray-700 mb-1">
+                                {t.auth.password}
+                                {' '}
+                                *
+                              </label>
                               <input
                                 type="password"
                                 value={adminForm.password}
-                                onChange={(e) => setAdminForm({ ...adminForm, password: e.target.value })}
+                                onChange={e => setAdminForm({ ...adminForm, password: e.target.value })}
                                 className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                                 placeholder={t.setup.atLeast8Chars}
                                 minLength={8}
@@ -561,11 +586,15 @@ const SetupWizard: React.FC = () => {
                               />
                             </div>
                             <div>
-                              <label className="block text-xs font-medium text-gray-700 mb-1">{t.auth.confirmPassword} *</label>
+                              <label className="block text-xs font-medium text-gray-700 mb-1">
+                                {t.auth.confirmPassword}
+                                {' '}
+                                *
+                              </label>
                               <input
                                 type="password"
                                 value={adminForm.confirmPassword}
-                                onChange={(e) => setAdminForm({ ...adminForm, confirmPassword: e.target.value })}
+                                onChange={e => setAdminForm({ ...adminForm, confirmPassword: e.target.value })}
                                 className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                                 placeholder={t.setup.enterPasswordAgain}
                                 minLength={8}
@@ -594,7 +623,7 @@ const SetupWizard: React.FC = () => {
         </div>
       </div>
     </div>
-  );
-};
+  )
+}
 
-export default SetupWizard;
+export default SetupWizard

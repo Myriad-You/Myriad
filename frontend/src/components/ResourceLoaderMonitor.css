@@ -67,10 +67,18 @@
   font-weight: bold;
 }
 
-.stat-box.queued { border-left: 3px solid #60a5fa; }
-.stat-box.active { border-left: 3px solid #34d399; }
-.stat-box.completed { border-left: 3px solid #10b981; }
-.stat-box.failed { border-left: 3px solid #ef4444; }
+.stat-box.queued {
+  border-left: 3px solid #60a5fa;
+}
+.stat-box.active {
+  border-left: 3px solid #34d399;
+}
+.stat-box.completed {
+  border-left: 3px solid #10b981;
+}
+.stat-box.failed {
+  border-left: 3px solid #ef4444;
+}
 
 .monitor-section {
   margin-bottom: 16px;

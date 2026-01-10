@@ -3,115 +3,118 @@
  * 管理字体、字号、行高、主题、布局等阅读偏好设置
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { subscribeToTheme, getIsDarkMode } from '../../../../utils/themeSubscriber';
-import { THEMES, THEME_ORDER, FONT_OPTIONS, LAYOUT_OPTIONS } from '../constants';
-import type { ThemeKey, LayoutKey, ThemeConfig, FontOption, LayoutOption } from '../types';
+import type { FontOption, LayoutKey, LayoutOption, ThemeConfig, ThemeKey } from '../types'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { subscribeToTheme } from '../../../../utils/themeSubscriber'
+import { FONT_OPTIONS, LAYOUT_OPTIONS, THEME_ORDER, THEMES } from '../constants'
 
 // 从 localStorage 读取设置
-const getStoredSettings = () => {
+function getStoredSettings() {
   try {
-    const stored = localStorage.getItem('brew-reader-settings');
-    if (stored) return JSON.parse(stored);
-  } catch {}
-  return null;
-};
+    const stored = localStorage.getItem('brew-reader-settings')
+    if (stored)
+      return JSON.parse(stored)
+  }
+  catch {}
+  return null
+}
 
 // 保存设置到 localStorage
-const saveSettings = (settings: object) => {
+function saveSettings(settings: object) {
   try {
-    localStorage.setItem('brew-reader-settings', JSON.stringify(settings));
-  } catch {}
-};
+    localStorage.setItem('brew-reader-settings', JSON.stringify(settings))
+  }
+  catch {}
+}
 
 export interface UseReaderSettingsReturn {
   // 状态
-  fontSize: number;
-  lineHeight: number;
-  fontFamily: string;
-  theme: ThemeKey;
-  layout: LayoutKey;
-  
+  fontSize: number
+  lineHeight: number
+  fontFamily: string
+  theme: ThemeKey
+  layout: LayoutKey
+
   // 计算值
-  currentTheme: ThemeConfig;
-  currentFont: FontOption;
-  currentLayout: LayoutOption;
-  isDark: boolean;
-  
+  currentTheme: ThemeConfig
+  currentFont: FontOption
+  currentLayout: LayoutOption
+  isDark: boolean
+
   // 操作
-  setFontSize: (size: number) => void;
-  setLineHeight: (height: number) => void;
-  setFontFamily: (family: string) => void;
-  setTheme: (theme: ThemeKey) => void;
-  setLayout: (layout: LayoutKey) => void;
-  adjustFontSize: (delta: number) => void;
-  adjustLineHeight: (delta: number) => void;
-  cycleTheme: () => void;
-  cycleFont: () => void;
-  cycleLayout: () => void;
+  setFontSize: (size: number) => void
+  setLineHeight: (height: number) => void
+  setFontFamily: (family: string) => void
+  setTheme: (theme: ThemeKey) => void
+  setLayout: (layout: LayoutKey) => void
+  adjustFontSize: (delta: number) => void
+  adjustLineHeight: (delta: number) => void
+  cycleTheme: () => void
+  cycleFont: () => void
+  cycleLayout: () => void
 }
 
 export function useReaderSettings(): UseReaderSettingsReturn {
-  const storedSettings = getStoredSettings();
-  
+  const storedSettings = getStoredSettings()
+
   // 阅读设置状态
-  const [fontSize, setFontSize] = useState(storedSettings?.fontSize ?? 18);
-  const [lineHeight, setLineHeight] = useState(storedSettings?.lineHeight ?? 1.8);
-  const [fontFamily, setFontFamily] = useState(storedSettings?.fontFamily ?? 'serif');
-  const [theme, setTheme] = useState<ThemeKey>('light'); // 初始值，会被 useEffect 覆盖
-  const [layout, setLayout] = useState<LayoutKey>(storedSettings?.layout ?? 'narrow');
+  const [fontSize, setFontSize] = useState(storedSettings?.fontSize ?? 18)
+  const [lineHeight, setLineHeight] = useState(storedSettings?.lineHeight ?? 1.8)
+  const [fontFamily, setFontFamily] = useState(storedSettings?.fontFamily ?? 'serif')
+  const [theme, setTheme] = useState<ThemeKey>('light') // 初始值，会被 useEffect 覆盖
+  const [layout, setLayout] = useState<LayoutKey>(storedSettings?.layout ?? 'narrow')
 
   // 监听应用主题变化，并在初始化时设置
   useEffect(() => {
     return subscribeToTheme((isDark) => {
-      setTheme(isDark ? 'dark' : 'light');
-    });
-  }, []);
+      setTheme(isDark ? 'dark' : 'light')
+    })
+  }, [])
 
   // 保存设置（主题不保存，每次跟随系统）
   useEffect(() => {
-    saveSettings({ fontSize, lineHeight, fontFamily, layout });
-  }, [fontSize, lineHeight, fontFamily, layout]);
+    saveSettings({ fontSize, lineHeight, fontFamily, layout })
+  }, [fontSize, lineHeight, fontFamily, layout])
 
   // 计算值 - useMemo 缓存
-  const currentTheme = useMemo(() => THEMES[theme], [theme]);
-  const currentFont = useMemo(() => FONT_OPTIONS.find(f => f.id === fontFamily) || FONT_OPTIONS[0], [fontFamily]);
-  const currentLayout = useMemo(() => LAYOUT_OPTIONS.find(l => l.id === layout) || LAYOUT_OPTIONS[0], [layout]);
-  const isDark = useMemo(() => theme === 'dark' || theme === 'night', [theme]);
+  const currentTheme = useMemo(() => THEMES[theme], [theme])
+  const currentFont = useMemo(() => FONT_OPTIONS.find(f => f.id === fontFamily) || FONT_OPTIONS[0], [fontFamily])
+  const currentLayout = useMemo(() => LAYOUT_OPTIONS.find(l => l.id === layout) || LAYOUT_OPTIONS[0], [layout])
+  const isDark = useMemo(() => theme === 'dark' || theme === 'night', [theme])
 
   // 字体大小调整
   const adjustFontSize = useCallback((delta: number) => {
-    setFontSize((prev: number) => Math.max(14, Math.min(28, prev + delta)));
-  }, []);
+    setFontSize((prev: number) => Math.max(14, Math.min(28, prev + delta)))
+  }, [])
 
   // 行高调整
   const adjustLineHeight = useCallback((delta: number) => {
-    setLineHeight((prev: number) => Math.max(1.4, Math.min(2.4, +(prev + delta).toFixed(1))));
-  }, []);
+    setLineHeight((prev: number) => Math.max(1.4, Math.min(2.4, +(prev + delta).toFixed(1))))
+  }, [])
 
   // 切换主题
   const cycleTheme = useCallback(() => {
-    setTheme(prev => {
-      const currentIndex = THEME_ORDER.indexOf(prev);
-      return THEME_ORDER[(currentIndex + 1) % THEME_ORDER.length];
-    });
-  }, []);
+    setTheme((prev) => {
+      const currentIndex = THEME_ORDER.indexOf(prev)
+      return THEME_ORDER[(currentIndex + 1) % THEME_ORDER.length]
+    })
+  }, [])
 
   // 切换字体
   const cycleFont = useCallback(() => {
     setFontFamily((prev: string) => {
-      const currentIndex = FONT_OPTIONS.findIndex(f => f.id === prev);
-      return FONT_OPTIONS[(currentIndex + 1) % FONT_OPTIONS.length].id;
-    });
-  }, []);
+      const currentIndex = FONT_OPTIONS.findIndex(f => f.id === prev)
+      return FONT_OPTIONS[(currentIndex + 1) % FONT_OPTIONS.length].id
+    })
+  }, [])
 
   // 切换布局宽度
   const cycleLayout = useCallback(() => {
-    setLayout(prev => {
-      const currentIndex = LAYOUT_OPTIONS.findIndex(l => l.id === prev);
-      return LAYOUT_OPTIONS[(currentIndex + 1) % LAYOUT_OPTIONS.length].id;
-    });
-  }, []);
+    setLayout((prev) => {
+      const currentIndex = LAYOUT_OPTIONS.findIndex(l => l.id === prev)
+      return LAYOUT_OPTIONS[(currentIndex + 1) % LAYOUT_OPTIONS.length].id
+    })
+  }, [])
 
   return {
     // 状态
@@ -120,13 +123,13 @@ export function useReaderSettings(): UseReaderSettingsReturn {
     fontFamily,
     theme,
     layout,
-    
+
     // 计算值
     currentTheme,
     currentFont,
     currentLayout,
     isDark,
-    
+
     // 操作
     setFontSize,
     setLineHeight,
@@ -138,5 +141,5 @@ export function useReaderSettings(): UseReaderSettingsReturn {
     cycleTheme,
     cycleFont,
     cycleLayout,
-  };
+  }
 }

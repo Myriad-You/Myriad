@@ -2,50 +2,50 @@
  * Tapp 模块主入口
  */
 
-// 类型导出
-export * from './types'
-
-// 运行时导出
-export {
-  TappBridge,
-  createTappBridge,
-  TappPermissionController,
-  createPermissionController,
-  TappSandbox,
-  TappRuntime,
-  getTappRuntime,
-  TappScheduler,
-  getTappScheduler,
-} from './runtime'
-export type {
-  ScheduleType,
-  ExecutionTarget,
-  MissedPolicy,
-  TaskExecutionStatus,
-  ScheduleConfig,
-  RetryConfig,
-  BackendAction,
-  TaskRegistrationOptions,
-  RegisteredTask,
-  TaskExecutionEvent,
-  TaskCallback,
-} from './runtime'
-
-// 页面导出
-export {
-  TappListPage,
-  TappRunPage,
-  TappDetailPage,
-} from './pages'
-
 // 示例 Tapp 导出
 export { EXAMPLE_TAPPS, helloWorldTapp } from './examples'
 
+// 页面导出
+export {
+  TappDetailPage,
+  TappListPage,
+  TappRunPage,
+} from './pages'
+// 运行时导出
+export {
+  createPermissionController,
+  createTappBridge,
+  getTappRuntime,
+  getTappScheduler,
+  TappBridge,
+  TappPermissionController,
+  TappRuntime,
+  TappSandbox,
+  TappScheduler,
+} from './runtime'
+
+export type {
+  BackendAction,
+  ExecutionTarget,
+  MissedPolicy,
+  RegisteredTask,
+  RetryConfig,
+  ScheduleConfig,
+  ScheduleType,
+  TaskCallback,
+  TaskExecutionEvent,
+  TaskExecutionStatus,
+  TaskRegistrationOptions,
+} from './runtime'
+
 // 服务导出
-export { RemoteStoreService, OFFICIAL_STORE } from './services/RemoteStoreService'
-export type { 
-  RemoteStoreSource, 
-  RemoteStoreIndex, 
-  RemoteApp, 
-  RemoteCategory 
+export { OFFICIAL_STORE, RemoteStoreService } from './services/RemoteStoreService'
+
+export type {
+  RemoteApp,
+  RemoteCategory,
+  RemoteStoreIndex,
+  RemoteStoreSource,
 } from './services/RemoteStoreService'
+// 类型导出
+export * from './types'

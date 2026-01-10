@@ -6,53 +6,54 @@
  * 重构后：约 80 行代码
  */
 
-import React from 'react';
-import { useI18n } from '../../contexts/I18nContext';
-import { FaLightbulb } from '@lib/icons';
+import type { PermissionItem, QuotaItem } from '../settings'
+import { FaLightbulb } from '@lib/icons'
+import React from 'react'
+import { useI18n } from '../../contexts/I18nContext'
 import {
-  SettingSection,
-  SettingGroup,
   InfoCard,
   PermissionGroup,
+
   QuotaGroup,
-  type PermissionItem,
-  type QuotaItem,
-} from '../settings';
+
+  SettingGroup,
+  SettingSection,
+} from '../settings'
 
 interface PermissionsConfigSectionProps {
   permissionConfig: {
-    user_perm_ai_generate: boolean;
-    user_perm_ai_analyze: boolean;
-    user_perm_ai_chat: boolean;
-    user_perm_report_write: boolean;
-    user_perm_network_fetch: boolean;
-    user_perm_media_control: boolean;
-    user_perm_component_theme: boolean;
-    user_perm_shortcut_register: boolean;
-    user_perm_event_publish: boolean;
+    user_perm_ai_generate: boolean
+    user_perm_ai_analyze: boolean
+    user_perm_ai_chat: boolean
+    user_perm_report_write: boolean
+    user_perm_network_fetch: boolean
+    user_perm_media_control: boolean
+    user_perm_component_theme: boolean
+    user_perm_shortcut_register: boolean
+    user_perm_event_publish: boolean
     // 游客权限
-    guest_perm_ai_generate: boolean;
-    guest_perm_ai_analyze: boolean;
-    guest_perm_ai_chat: boolean;
-    guest_perm_report_write: boolean;
-    guest_perm_network_fetch: boolean;
-    guest_perm_media_control: boolean;
-    guest_perm_component_theme: boolean;
-    guest_perm_shortcut_register: boolean;
-    guest_perm_event_publish: boolean;
+    guest_perm_ai_generate: boolean
+    guest_perm_ai_analyze: boolean
+    guest_perm_ai_chat: boolean
+    guest_perm_report_write: boolean
+    guest_perm_network_fetch: boolean
+    guest_perm_media_control: boolean
+    guest_perm_component_theme: boolean
+    guest_perm_shortcut_register: boolean
+    guest_perm_event_publish: boolean
     // AI 配额
-    user_ai_daily_calls: number;
-    user_ai_daily_tokens: number;
-    user_ai_cooldown_seconds: number;
-    guest_ai_daily_calls: number;
-    guest_ai_daily_tokens: number;
-    guest_ai_cooldown_seconds: number;
-  };
-  updatePermissionConfig: (key: string, value: boolean | number) => void;
-  loading?: boolean;
-  title: string;
-  icon: React.ReactNode;
-  description: string;
+    user_ai_daily_calls: number
+    user_ai_daily_tokens: number
+    user_ai_cooldown_seconds: number
+    guest_ai_daily_calls: number
+    guest_ai_daily_tokens: number
+    guest_ai_cooldown_seconds: number
+  }
+  updatePermissionConfig: (key: string, value: boolean | number) => void
+  loading?: boolean
+  title: string
+  icon: React.ReactNode
+  description: string
 }
 
 export const PermissionsConfigSection: React.FC<PermissionsConfigSectionProps> = ({
@@ -63,7 +64,7 @@ export const PermissionsConfigSection: React.FC<PermissionsConfigSectionProps> =
   icon,
   description,
 }) => {
-  const { t } = useI18n();
+  const { t } = useI18n()
 
   // 定义权限项列表（复用于用户和游客）
   const permissionItems: PermissionItem[] = [
@@ -76,43 +77,43 @@ export const PermissionsConfigSection: React.FC<PermissionsConfigSectionProps> =
     { key: 'component_theme', code: 'component:theme', label: t.config.permComponentTheme, hint: t.config.permComponentThemeHint },
     { key: 'shortcut_register', code: 'shortcut:register', label: t.config.permShortcutRegister, hint: t.config.permShortcutRegisterHint },
     { key: 'event_publish', code: 'event:publish', label: t.config.permEventPublish, hint: t.config.permEventPublishHint },
-  ];
+  ]
 
   // 定义配额项列表
   const quotaItems: QuotaItem[] = [
     { key: 'daily_calls', label: t.config.aiDailyCalls, hint: t.config.aiDailyCallsHint, min: 0, max: 10000 },
     { key: 'daily_tokens', label: t.config.aiDailyTokens, hint: t.config.aiDailyTokensHint, min: 0, max: 1000000 },
     { key: 'cooldown_seconds', label: t.config.aiCooldownSeconds, hint: t.config.aiCooldownSecondsHint, min: 0, max: 3600, unit: '秒' },
-  ];
+  ]
 
   // 转换权限值（添加前缀）
   const getUserPermValues = () => {
-    const values: Record<string, boolean> = {};
-    permissionItems.forEach(item => {
-      values[item.key] = permissionConfig[`user_perm_${item.key}` as keyof typeof permissionConfig] as boolean;
-    });
-    return values;
-  };
+    const values: Record<string, boolean> = {}
+    permissionItems.forEach((item) => {
+      values[item.key] = permissionConfig[`user_perm_${item.key}` as keyof typeof permissionConfig] as boolean
+    })
+    return values
+  }
 
   const getGuestPermValues = () => {
-    const values: Record<string, boolean> = {};
-    permissionItems.forEach(item => {
-      values[item.key] = permissionConfig[`guest_perm_${item.key}` as keyof typeof permissionConfig] as boolean;
-    });
-    return values;
-  };
+    const values: Record<string, boolean> = {}
+    permissionItems.forEach((item) => {
+      values[item.key] = permissionConfig[`guest_perm_${item.key}` as keyof typeof permissionConfig] as boolean
+    })
+    return values
+  }
 
   const getUserQuotaValues = () => ({
     daily_calls: permissionConfig.user_ai_daily_calls,
     daily_tokens: permissionConfig.user_ai_daily_tokens,
     cooldown_seconds: permissionConfig.user_ai_cooldown_seconds,
-  });
+  })
 
   const getGuestQuotaValues = () => ({
     daily_calls: permissionConfig.guest_ai_daily_calls,
     daily_tokens: permissionConfig.guest_ai_daily_tokens,
     cooldown_seconds: permissionConfig.guest_ai_cooldown_seconds,
-  });
+  })
 
   return (
     <SettingSection
@@ -173,7 +174,7 @@ export const PermissionsConfigSection: React.FC<PermissionsConfigSectionProps> =
         />
       </SettingGroup>
     </SettingSection>
-  );
-};
+  )
+}
 
-export default PermissionsConfigSection;
+export default PermissionsConfigSection

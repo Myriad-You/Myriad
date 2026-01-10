@@ -3,102 +3,103 @@
  * 包含单个添加和 OPML 导入两个标签页
  */
 
-import { useState, useRef, type ChangeEvent, type FormEvent, type RefObject } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import type { ChangeEvent, FormEvent } from 'react'
 import {
-  LuRss as Rss,
-  LuLink as Link,
-  LuExternalLink as ExternalLink,
-  LuSparkles as Sparkles,
-  LuCheck as Check,
-  LuStar as Star,
-  LuX as X,
-  LuChevronDown as ChevronDown,
-  LuLoader2 as Loader2,
   LuAlertCircle as AlertCircle,
-  LuUpload as Upload,
+  LuCheck as Check,
+  LuChevronDown as ChevronDown,
   LuDownload as Download,
-  LuFolderOpen as FolderOpen,
+  LuExternalLink as ExternalLink,
   LuFileText as FileText,
+  LuFolderOpen as FolderOpen,
+  LuLink as Link,
+  LuLoader2 as Loader2,
   NotionIcon,
+  LuRss as Rss,
   RSSHubIcon,
-} from '@lib/icons';
-import { SPRING_SMOOTH, TRANSITION_QUICK } from './constants';
+  LuSparkles as Sparkles,
+  LuStar as Star,
+  LuUpload as Upload,
+  LuX as X,
+} from '@lib/icons'
+import { AnimatePresence, motion } from 'framer-motion'
+import { useRef, useState } from 'react'
+import { SPRING_SMOOTH, TRANSITION_QUICK } from './constants'
 
 interface DiscoveredFeed {
-  title: string;
-  feed_type: string;
+  title: string
+  feed_type: string
 }
 
 export interface AddModeProps {
-  variant: 'mobile' | 'desktop';
-  onClose: () => void;
+  variant: 'mobile' | 'desktop'
+  onClose: () => void
   // 分类
-  allCategories: string[];
+  allCategories: string[]
   // 订阅源数量（用于导出）
-  sourcesCount: number;
+  sourcesCount: number
   // 回调
   onSubmit?: (data: {
-    sourceType: 'rss' | 'brewlia' | 'link' | 'rsshub';
-    feedType: string;
-    url: string;
-    name: string;
-    category: string;
-    customIcon: string | null;
-    notionToken?: string;
-    rsshubConfig?: unknown;
-    enableBrewlia?: boolean;
-  }) => Promise<{ success: boolean; error?: string; title?: string }>;
-  onDiscover?: (url: string) => Promise<DiscoveredFeed | null>;
-  onImportOpml?: (content: string) => Promise<{ imported: number; skipped: number }>;
-  onExportOpml?: () => void;
+    sourceType: 'rss' | 'brewlia' | 'link' | 'rsshub'
+    feedType: string
+    url: string
+    name: string
+    category: string
+    customIcon: string | null
+    notionToken?: string
+    rsshubConfig?: unknown
+    enableBrewlia?: boolean
+  }) => Promise<{ success: boolean, error?: string, title?: string }>
+  onDiscover?: (url: string) => Promise<DiscoveredFeed | null>
+  onImportOpml?: (content: string) => Promise<{ imported: number, skipped: number }>
+  onExportOpml?: () => void
   // RSSHub 配置组件（可选）
   RSSHubConfigComponent?: React.ComponentType<{
-    onConfigChange: (config: unknown, fullUrl: string) => void;
-    disabled?: boolean;
-  }>;
+    onConfigChange: (config: unknown, fullUrl: string) => void
+    disabled?: boolean
+  }>
   // 翻译
   t: {
-    sourceTypeLabel: string;
-    pureLink: string;
-    notionDesc: string;
-    rsshubDesc: string;
-    linkDesc: string;
-    rssDesc: string;
-    brewliaShortDesc: string;
-    brewliaFeatures: string;
-    disableAI: string;
-    enableAI: string;
-    notionUrlLabel: string;
-    linkUrlLabel: string;
-    subscriptionUrlLabel: string;
-    discover: string;
-    nameLabel: string;
-    enterName: string;
-    autoFetch: string;
-    category: string;
-    selectCategory: string;
-    inputNewCategory: string;
-    noCategory: string;
-    siteIcon: string;
-    upload: string;
-    deleteIcon: string;
-    deleteCustomIcon: string;
-    addLink: string;
-    addBrewlia: string;
-    addRsshub: string;
-    addSubscription: string;
-    dropOpmlHere: string;
-    supportedFormats: string;
-    selectOpmlFile: string;
-    startImport: string;
-    exportOpml: string;
-    importResult: string;
-    skippedCount: string;
-    singleAdd: string;
-    closeSearch: string;
-    close: string;
-  };
+    sourceTypeLabel: string
+    pureLink: string
+    notionDesc: string
+    rsshubDesc: string
+    linkDesc: string
+    rssDesc: string
+    brewliaShortDesc: string
+    brewliaFeatures: string
+    disableAI: string
+    enableAI: string
+    notionUrlLabel: string
+    linkUrlLabel: string
+    subscriptionUrlLabel: string
+    discover: string
+    nameLabel: string
+    enterName: string
+    autoFetch: string
+    category: string
+    selectCategory: string
+    inputNewCategory: string
+    noCategory: string
+    siteIcon: string
+    upload: string
+    deleteIcon: string
+    deleteCustomIcon: string
+    addLink: string
+    addBrewlia: string
+    addRsshub: string
+    addSubscription: string
+    dropOpmlHere: string
+    supportedFormats: string
+    selectOpmlFile: string
+    startImport: string
+    exportOpml: string
+    importResult: string
+    skippedCount: string
+    singleAdd: string
+    closeSearch: string
+    close: string
+  }
 }
 
 export function AddMode({
@@ -113,82 +114,87 @@ export function AddMode({
   RSSHubConfigComponent,
   t,
 }: AddModeProps) {
-  const isMobile = variant === 'mobile';
+  const isMobile = variant === 'mobile'
 
   // 标签页状态
-  const [activeTab, setActiveTab] = useState<'single' | 'opml'>('single');
-  
+  const [activeTab, setActiveTab] = useState<'single' | 'opml'>('single')
+
   // 单个添加相关状态
-  const [sourceType, setSourceType] = useState<'rss' | 'brewlia' | 'link' | 'rsshub'>('rss');
-  const [feedType, setFeedType] = useState<'rss' | 'atom' | 'notion' | 'rsshub'>('rss');
-  const [url, setUrl] = useState('');
-  const [name, setName] = useState('');
-  const [category, setCategory] = useState('');
-  const [customIcon, setCustomIcon] = useState<string | null>(null);
-  const [notionToken, setNotionToken] = useState('');
-  const [rsshubConfig, setRsshubConfig] = useState<unknown>(null);
-  const [rsshubFullUrl, setRsshubFullUrl] = useState('');
-  const [enableBrewliaForRsshub, setEnableBrewliaForRsshub] = useState(false);
-  
-  const [showAddCategoryDropdown, setShowAddCategoryDropdown] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [discovering, setDiscovering] = useState(false);
-  const [discovered, setDiscovered] = useState<DiscoveredFeed | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-  
+  const [sourceType, setSourceType] = useState<'rss' | 'brewlia' | 'link' | 'rsshub'>('rss')
+  const [feedType, setFeedType] = useState<'rss' | 'atom' | 'notion' | 'rsshub'>('rss')
+  const [url, setUrl] = useState('')
+  const [name, setName] = useState('')
+  const [category, setCategory] = useState('')
+  const [customIcon, setCustomIcon] = useState<string | null>(null)
+  const [notionToken, setNotionToken] = useState('')
+  const [rsshubConfig, setRsshubConfig] = useState<unknown>(null)
+  const [rsshubFullUrl, setRsshubFullUrl] = useState('')
+  const [enableBrewliaForRsshub, setEnableBrewliaForRsshub] = useState(false)
+
+  const [showAddCategoryDropdown, setShowAddCategoryDropdown] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [discovering, setDiscovering] = useState(false)
+  const [discovered, setDiscovered] = useState<DiscoveredFeed | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+
   // OPML 相关状态
-  const [opmlContent, setOpmlContent] = useState<string | null>(null);
-  const [opmlLoading, setOpmlLoading] = useState(false);
-  const [opmlResult, setOpmlResult] = useState<{ imported: number; skipped: number } | null>(null);
-  const [dragOver, setDragOver] = useState(false);
-  const [exporting, setExporting] = useState(false);
-  
-  const iconInputRef = useRef<HTMLInputElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [opmlContent, setOpmlContent] = useState<string | null>(null)
+  const [opmlLoading, setOpmlLoading] = useState(false)
+  const [opmlResult, setOpmlResult] = useState<{ imported: number, skipped: number } | null>(null)
+  const [dragOver, setDragOver] = useState(false)
+  const [exporting, setExporting] = useState(false)
+
+  const iconInputRef = useRef<HTMLInputElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // 计算显示图标
-  const displayIcon = customIcon || (discovered?.title ? `https://www.google.com/s2/favicons?sz=64&domain=${new URL(url).hostname}` : null);
+  const displayIcon = customIcon || (discovered?.title ? `https://www.google.com/s2/favicons?sz=64&domain=${new URL(url).hostname}` : null)
 
   // 处理探测
   const handleDiscover = async () => {
-    if (!url.trim() || !onDiscover) return;
-    setDiscovering(true);
-    setError(null);
+    if (!url.trim() || !onDiscover)
+      return
+    setDiscovering(true)
+    setError(null)
     try {
-      const result = await onDiscover(url);
-      setDiscovered(result);
+      const result = await onDiscover(url)
+      setDiscovered(result)
       if (result) {
-        setName(result.title);
+        setName(result.title)
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Discovery failed');
-    } finally {
-      setDiscovering(false);
     }
-  };
+    catch (err) {
+      setError(err instanceof Error ? err.message : 'Discovery failed')
+    }
+    finally {
+      setDiscovering(false)
+    }
+  }
 
   // 处理图标上传
   const handleIconUpload = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    
-    const reader = new FileReader();
+    const file = e.target.files?.[0]
+    if (!file)
+      return
+
+    const reader = new FileReader()
     reader.onload = (event) => {
-      setCustomIcon(event.target?.result as string);
-    };
-    reader.readAsDataURL(file);
-  };
+      setCustomIcon(event.target?.result as string)
+    }
+    reader.readAsDataURL(file)
+  }
 
   // 处理提交
   const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!onSubmit) return;
-    
-    setLoading(true);
-    setError(null);
-    setSuccess(null);
-    
+    e.preventDefault()
+    if (!onSubmit)
+      return
+
+    setLoading(true)
+    setError(null)
+    setSuccess(null)
+
     try {
       const result = await onSubmit({
         sourceType: sourceType === 'rsshub' && enableBrewliaForRsshub ? 'brewlia' : sourceType,
@@ -200,83 +206,92 @@ export function AddMode({
         notionToken: feedType === 'notion' ? notionToken : undefined,
         rsshubConfig: sourceType === 'rsshub' ? rsshubConfig : undefined,
         enableBrewlia: enableBrewliaForRsshub,
-      });
-      
+      })
+
       if (result.success) {
-        setSuccess(result.title || 'Added successfully');
+        setSuccess(result.title || 'Added successfully')
         // 重置表单
-        setUrl('');
-        setName('');
-        setCategory('');
-        setCustomIcon(null);
-        setDiscovered(null);
-        setNotionToken('');
-      } else {
-        setError(result.error || 'Failed to add');
+        setUrl('')
+        setName('')
+        setCategory('')
+        setCustomIcon(null)
+        setDiscovered(null)
+        setNotionToken('')
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add');
-    } finally {
-      setLoading(false);
+      else {
+        setError(result.error || 'Failed to add')
+      }
     }
-  };
+    catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add')
+    }
+    finally {
+      setLoading(false)
+    }
+  }
 
   // OPML 文件处理
   const handleFileSelect = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    
-    const reader = new FileReader();
+    const file = e.target.files?.[0]
+    if (!file)
+      return
+
+    const reader = new FileReader()
     reader.onload = (event) => {
-      setOpmlContent(event.target?.result as string);
-    };
-    reader.readAsText(file);
-  };
+      setOpmlContent(event.target?.result as string)
+    }
+    reader.readAsText(file)
+  }
 
   const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOver(false);
-    
-    const file = e.dataTransfer.files[0];
+    e.preventDefault()
+    setDragOver(false)
+
+    const file = e.dataTransfer.files[0]
     if (file && (file.name.endsWith('.opml') || file.name.endsWith('.xml'))) {
-      const reader = new FileReader();
+      const reader = new FileReader()
       reader.onload = (event) => {
-        setOpmlContent(event.target?.result as string);
-      };
-      reader.readAsText(file);
+        setOpmlContent(event.target?.result as string)
+      }
+      reader.readAsText(file)
     }
-  };
+  }
 
   const handleImport = async () => {
-    if (!opmlContent || !onImportOpml) return;
-    
-    setOpmlLoading(true);
-    setError(null);
-    
+    if (!opmlContent || !onImportOpml)
+      return
+
+    setOpmlLoading(true)
+    setError(null)
+
     try {
-      const result = await onImportOpml(opmlContent);
-      setOpmlResult(result);
-      setOpmlContent(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Import failed');
-    } finally {
-      setOpmlLoading(false);
+      const result = await onImportOpml(opmlContent)
+      setOpmlResult(result)
+      setOpmlContent(null)
     }
-  };
+    catch (err) {
+      setError(err instanceof Error ? err.message : 'Import failed')
+    }
+    finally {
+      setOpmlLoading(false)
+    }
+  }
 
   const handleExport = async () => {
-    if (!onExportOpml) return;
-    setExporting(true);
+    if (!onExportOpml)
+      return
+    setExporting(true)
     try {
-      await onExportOpml();
-    } finally {
-      setExporting(false);
+      await onExportOpml()
     }
-  };
+    finally {
+      setExporting(false)
+    }
+  }
 
   // 移动端不显示添加模式
   if (isMobile) {
-    return null;
+    return null
   }
 
   return (
@@ -301,7 +316,7 @@ export function AddMode({
                 {/* Link */}
                 <button
                   type="button"
-                  onClick={() => { setSourceType('link'); setFeedType('rss'); setDiscovered(null); setError(null); }}
+                  onClick={() => { setSourceType('link'); setFeedType('rss'); setDiscovered(null); setError(null) }}
                   disabled={loading}
                   className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${
                     sourceType === 'link'
@@ -314,11 +329,11 @@ export function AddMode({
                     {t.pureLink}
                   </span>
                 </button>
-                
+
                 {/* RSS */}
                 <button
                   type="button"
-                  onClick={() => { setSourceType('rss'); setFeedType('rss'); setError(null); }}
+                  onClick={() => { setSourceType('rss'); setFeedType('rss'); setError(null) }}
                   disabled={loading}
                   className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${
                     (sourceType === 'rss' || sourceType === 'brewlia') && feedType !== 'notion' && feedType !== 'rsshub'
@@ -331,11 +346,11 @@ export function AddMode({
                     RSS
                   </span>
                 </button>
-                
+
                 {/* RSSHub */}
                 <button
                   type="button"
-                  onClick={() => { setSourceType('rsshub'); setFeedType('rsshub'); setDiscovered(null); setError(null); setUrl(''); }}
+                  onClick={() => { setSourceType('rsshub'); setFeedType('rsshub'); setDiscovered(null); setError(null); setUrl('') }}
                   disabled={loading}
                   className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${
                     sourceType === 'rsshub'
@@ -348,11 +363,11 @@ export function AddMode({
                     RSSHub
                   </span>
                 </button>
-                
+
                 {/* Notion */}
                 <button
                   type="button"
-                  onClick={() => { setSourceType('rss'); setFeedType('notion'); setDiscovered(null); setError(null); }}
+                  onClick={() => { setSourceType('rss'); setFeedType('notion'); setDiscovered(null); setError(null) }}
                   disabled={loading}
                   className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${
                     feedType === 'notion'
@@ -367,12 +382,12 @@ export function AddMode({
                 </button>
               </div>
               <p className="mt-1 text-[10px] text-gray-400">
-                {feedType === 'notion' 
-                  ? t.notionDesc 
+                {feedType === 'notion'
+                  ? t.notionDesc
                   : sourceType === 'rsshub'
                     ? t.rsshubDesc
-                    : sourceType === 'link' 
-                      ? t.linkDesc 
+                    : sourceType === 'link'
+                      ? t.linkDesc
                       : t.rssDesc}
               </p>
             </div>
@@ -398,7 +413,8 @@ export function AddMode({
                 >
                   <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
                     sourceType === 'brewlia' ? 'translate-x-4' : 'translate-x-0'
-                  }`} />
+                  }`}
+                  />
                 </button>
               </div>
             )}
@@ -408,8 +424,8 @@ export function AddMode({
               <>
                 <RSSHubConfigComponent
                   onConfigChange={(config, fullUrl) => {
-                    setRsshubConfig(config);
-                    setRsshubFullUrl(fullUrl);
+                    setRsshubConfig(config)
+                    setRsshubFullUrl(fullUrl)
                   }}
                   disabled={loading}
                 />
@@ -433,7 +449,8 @@ export function AddMode({
                   >
                     <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
                       enableBrewliaForRsshub ? 'translate-x-4' : 'translate-x-0'
-                    }`} />
+                    }`}
+                    />
                   </button>
                 </div>
               </>
@@ -452,7 +469,7 @@ export function AddMode({
                     <input
                       type="url"
                       value={url}
-                      onChange={(e) => setUrl(e.target.value)}
+                      onChange={e => setUrl(e.target.value)}
                       placeholder={feedType === 'notion' ? 'notion://database/xxx' : sourceType === 'link' ? 'https://example.com' : 'https://example.com/feed.xml'}
                       className="w-full pl-8 pr-3 py-2 bg-gray-50/80 dark:bg-neutral-800/50 border border-gray-200/80 dark:border-neutral-700/80 rounded-xl text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500/30 transition-all"
                       disabled={loading}
@@ -476,12 +493,14 @@ export function AddMode({
             {feedType === 'notion' && (
               <div>
                 <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                  Notion Integration Token <span className="text-rose-500">*</span>
+                  Notion Integration Token
+                  {' '}
+                  <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="password"
                   value={notionToken}
-                  onChange={(e) => setNotionToken(e.target.value)}
+                  onChange={e => setNotionToken(e.target.value)}
                   placeholder="secret_xxx..."
                   className="w-full px-3 py-2 bg-gray-50/80 dark:bg-neutral-800/50 border border-gray-200/80 dark:border-neutral-700/80 rounded-xl text-xs placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-slate-500/30 transition-all font-mono"
                   disabled={loading}
@@ -503,7 +522,9 @@ export function AddMode({
                 </span>
                 {sourceType === 'brewlia' && (
                   <span className="text-[10px] px-1 py-0.5 bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 rounded flex-shrink-0 flex items-center gap-0.5">
-                    <Star className="w-2.5 h-2.5" /> AI
+                    <Star className="w-2.5 h-2.5" />
+                    {' '}
+                    AI
                   </span>
                 )}
               </motion.div>
@@ -513,12 +534,14 @@ export function AddMode({
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                  {t.nameLabel} {sourceType === 'link' && <span className="text-rose-500">*</span>}
+                  {t.nameLabel}
+                  {' '}
+                  {sourceType === 'link' && <span className="text-rose-500">*</span>}
                 </label>
                 <input
                   type="text"
                   value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  onChange={e => setName(e.target.value)}
                   placeholder={sourceType === 'link' ? t.enterName : t.autoFetch}
                   className="w-full px-2.5 py-2 bg-gray-50/80 dark:bg-neutral-800/50 border border-gray-200/80 dark:border-neutral-700/80 rounded-xl text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500/30 transition-all"
                   disabled={loading}
@@ -560,7 +583,7 @@ export function AddMode({
                         <div className="max-h-32 overflow-y-auto py-0.5">
                           <button
                             type="button"
-                            onClick={() => { setCategory(''); setShowAddCategoryDropdown(false); }}
+                            onClick={() => { setCategory(''); setShowAddCategoryDropdown(false) }}
                             className={`w-full px-2.5 py-1.5 text-left text-xs hover:bg-gray-50 dark:hover:bg-neutral-700 flex items-center ${!category ? 'text-orange-500 bg-orange-50 dark:bg-orange-900/20' : 'text-gray-600 dark:text-gray-300'}`}
                           >
                             {t.noCategory}
@@ -570,7 +593,7 @@ export function AddMode({
                             <button
                               key={cat}
                               type="button"
-                              onClick={() => { setCategory(cat); setShowAddCategoryDropdown(false); }}
+                              onClick={() => { setCategory(cat); setShowAddCategoryDropdown(false) }}
                               className={`w-full px-2.5 py-1.5 text-left text-xs hover:bg-gray-50 dark:hover:bg-neutral-700 flex items-center ${category === cat ? 'text-orange-500 bg-orange-50 dark:bg-orange-900/20' : 'text-gray-600 dark:text-gray-300'}`}
                             >
                               {cat}
@@ -590,11 +613,13 @@ export function AddMode({
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t.siteIcon}</label>
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg bg-gray-100 dark:bg-neutral-800 flex items-center justify-center overflow-hidden border border-dashed border-gray-300 dark:border-neutral-600">
-                  {displayIcon ? (
-                    <img src={displayIcon} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    <Rss className="w-3.5 h-3.5 text-gray-400" />
-                  )}
+                  {displayIcon
+                    ? (
+                        <img src={displayIcon} alt="" className="w-full h-full object-cover" />
+                      )
+                    : (
+                        <Rss className="w-3.5 h-3.5 text-gray-400" />
+                      )}
                 </div>
                 <label className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 text-xs font-medium cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors">
                   <Upload className="w-3 h-3" />
@@ -611,7 +636,10 @@ export function AddMode({
                 {customIcon && (
                   <button
                     type="button"
-                    onClick={() => { setCustomIcon(null); if (iconInputRef.current) iconInputRef.current.value = ''; }}
+                    onClick={() => {
+                      setCustomIcon(null); if (iconInputRef.current)
+                        iconInputRef.current.value = ''
+                    }}
                     className="p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
                     title={t.deleteIcon}
                   >
@@ -643,10 +671,10 @@ export function AddMode({
                 sourceType === 'brewlia'
                   ? 'bg-gradient-to-r from-purple-500 to-violet-500 hover:from-purple-600 hover:to-violet-600 disabled:from-purple-300 disabled:to-violet-300'
                   : sourceType === 'rsshub'
-                  ? 'bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 disabled:from-teal-300 disabled:to-cyan-300'
-                  : sourceType === 'link'
-                  ? 'bg-gradient-to-r from-gray-500 to-slate-500 hover:from-gray-600 hover:to-slate-600 disabled:from-gray-300 disabled:to-slate-300'
-                  : 'bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 disabled:from-orange-300 disabled:to-amber-300'
+                    ? 'bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 disabled:from-teal-300 disabled:to-cyan-300'
+                    : sourceType === 'link'
+                      ? 'bg-gradient-to-r from-gray-500 to-slate-500 hover:from-gray-600 hover:to-slate-600 disabled:from-gray-300 disabled:to-slate-300'
+                      : 'bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 disabled:from-orange-300 disabled:to-amber-300'
               }`}
             >
               {loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
@@ -658,7 +686,7 @@ export function AddMode({
           <div className="space-y-3">
             {/* 导入区域 */}
             <div
-              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
               onDragLeave={() => setDragOver(false)}
               onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
@@ -756,5 +784,5 @@ export function AddMode({
         </button>
       </div>
     </motion.div>
-  );
+  )
 }

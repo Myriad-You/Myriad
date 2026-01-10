@@ -2,95 +2,95 @@
  * ControlIsland 模式组件共享类型
  */
 
-import type { BrewSource, SourceType, FeedType } from '../../../../types/brew';
+import type { BrewSource, FeedType, SourceType } from '../../../../types/brew'
 
 /** 排序模式 */
-export type SortMode = 'update' | 'custom' | 'category' | 'random' | 'pinyin';
+export type SortMode = 'update' | 'custom' | 'category' | 'random' | 'pinyin'
 
 /** 控制岛模式 */
-export type ControlMode = 
-  | 'default' 
-  | 'search' 
-  | 'edit' 
-  | 'keyboard' 
-  | 'add' 
-  | 'feed' 
-  | 'category-feed' 
-  | 'starred' 
-  | 'starred-edit';
+export type ControlMode
+  = | 'default'
+    | 'search'
+    | 'edit'
+    | 'keyboard'
+    | 'add'
+    | 'feed'
+    | 'category-feed'
+    | 'starred'
+    | 'starred-edit'
 
 /** 动态提示信息 */
 export interface DynamicTip {
-  icon: string;
-  iconUrl?: string;
-  main: string;
-  sub: string;
+  icon: string
+  iconUrl?: string
+  main: string
+  sub: string
 }
 
 /** 排序选项 */
 export interface SortOption {
-  value: SortMode;
-  labelKey: string;
-  icon: React.ReactNode;
+  value: SortMode
+  labelKey: string
+  icon: React.ReactNode
 }
 
 /** 导入进度 */
 export interface ImportProgress {
-  step: string;
-  current: number;
-  total: number;
+  step: string
+  current: number
+  total: number
 }
 
 /** Feed 模式配置 */
 export interface FeedModeConfig {
-  source: BrewSource;
-  total: number;
-  onBack: () => void;
-  onRefresh: () => void;
-  onMarkAllRead: () => void;
-  isRefreshing?: boolean;
+  source: BrewSource
+  total: number
+  onBack: () => void
+  onRefresh: () => void
+  onMarkAllRead: () => void
+  isRefreshing?: boolean
 }
 
 /** 分类 Feed 模式配置 */
 export interface CategoryFeedModeConfig {
-  categoryName: string;
-  categoryLabel: string;
-  total: number;
-  unreadCount: number;
-  onBack: () => void;
-  onMarkAllRead: () => void;
+  categoryName: string
+  categoryLabel: string
+  total: number
+  unreadCount: number
+  onBack: () => void
+  onMarkAllRead: () => void
 }
 
 /** 收藏模式配置 */
 export interface StarredModeConfig {
-  total: number;
-  selectedIds: Set<number>;
-  isEditMode: boolean;
-  onBack: () => void;
-  onEnterEditMode: () => void;
-  onExitEditMode: () => void;
-  onSelectAll: () => void;
-  onBatchUnstar: () => void;
-  isProcessing?: boolean;
+  total: number
+  selectedIds: Set<number>
+  isEditMode: boolean
+  onBack: () => void
+  onEnterEditMode: () => void
+  onExitEditMode: () => void
+  onSelectAll: () => void
+  onBatchUnstar: () => void
+  isProcessing?: boolean
 }
 
 /** Brew 导出清单 */
 export interface BrewExportManifest {
-  version: string;
-  exported_at: string;
+  version: string
+  exported_at: string
   sources: Array<{
-    url: string;
-    name: string;
-    category: string | null;
-    icon_file: string | null;
-    icon_url: string | null;
-    source_type: SourceType;
-    feed_type: FeedType;
-    theme_color: string | null;
-    update_interval: number;
-    card_size: string | null;
-    rsshub_route: string | null;
-    ai_style_tags: string[] | null;
-    admin_only: boolean;
-  }>;
+    url: string
+    name: string
+    category: string | null
+    icon_file: string | null
+    icon_url: string | null
+    source_type: SourceType
+    feed_type: FeedType
+    theme_color: string | null
+    update_interval: number
+    card_size: string | null
+    rsshub_route: string | null
+    ai_style_tags: string[] | null
+    admin_only: boolean
+  }>
 }

@@ -108,7 +108,9 @@ html.dark .site-footer-content:hover {
   display: flex;
   align-items: center;
   opacity: 0.7;
-  transition: opacity 0.2s, transform 0.2s;
+  transition:
+    opacity 0.2s,
+    transform 0.2s;
   font-size: 0.875rem;
 }
 
@@ -124,7 +126,7 @@ html.dark .site-footer-content:hover {
 
 /* 云服务商颜色 */
 .sponsor-cloudflare {
-  color: #F6821F;
+  color: #f6821f;
 }
 
 .sponsor-edgeone {
@@ -132,7 +134,7 @@ html.dark .site-footer-content:hover {
 }
 
 .sponsor-upyun {
-  color: #00A0FF;
+  color: #00a0ff;
 }
 
 /* 又拍云 logo 稍小 */
@@ -231,7 +233,9 @@ html.dark .tooltip-content {
   align-items: center;
   color: inherit;
   opacity: 0.6;
-  transition: opacity 0.2s, transform 0.2s;
+  transition:
+    opacity 0.2s,
+    transform 0.2s;
 }
 
 .footer-icon-link:hover {
@@ -270,6 +274,6 @@ html.dark .tooltip-content {
 }
 
 /* Brew 阅读器模式时隐藏页尾 */
-body:has([data-brew-reader="true"]) .site-footer {
+body:has([data-brew-reader='true']) .site-footer {
   display: none;
 }

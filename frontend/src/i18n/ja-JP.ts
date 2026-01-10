@@ -2,7 +2,7 @@
  * 日本語翻訳ファイル
  */
 
-import { TranslationKeys } from './index';
+import type { TranslationKeys } from './index'
 
 export const jaJP: TranslationKeys = {
   // 共通
@@ -1913,4 +1913,4 @@ export const jaJP: TranslationKeys = {
     lightboxClose: '閉じる',
     lightboxCloseHint: '背景をクリックまたはESCで閉じる',
   },
-};
+}

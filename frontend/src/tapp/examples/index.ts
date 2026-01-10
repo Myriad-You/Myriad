@@ -2,19 +2,19 @@
  * Tapp 示例应用集合
  * 仅包含 Hello World 教学示例
  * 其他应用已迁移到远程商店：https://github.com/Myriad-You/tapp-store
- * 
+ *
  * 更新日期：2025-12
  */
 
 // 导出类型
-export type { ExampleTapp } from './tapps/types'
+// 导入用于聚合
+import type { ExampleTapp } from './tapps/types'
+import { helloWorldTapp } from './tapps/helloWorld'
 
 // 导出 Hello World 示例（用于教学演示）
 export { helloWorldTapp } from './tapps/helloWorld'
 
-// 导入用于聚合
-import type { ExampleTapp } from './tapps/types'
-import { helloWorldTapp } from './tapps/helloWorld'
+export type { ExampleTapp } from './tapps/types'
 
 /**
  * 内置示例 Tapp（仅 Hello World）
@@ -67,12 +67,12 @@ export function getCategoryName(categoryId: string): string {
 /**
  * 获取所有分类
  */
-export function getAllCategories(): { id: string; name: string; count: number }[] {
+export function getAllCategories(): { id: string, name: string, count: number }[] {
   const categories: Record<string, number> = {}
-  EXAMPLE_TAPPS.forEach(t => {
+  EXAMPLE_TAPPS.forEach((t) => {
     categories[t.category] = (categories[t.category] || 0) + 1
   })
-  
+
   return Object.entries(categories).map(([id, count]) => ({
     id,
     name: getCategoryName(id),

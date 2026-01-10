@@ -2,24 +2,24 @@
  * CategoryFeedMode - 分类合并文章列表模式
  */
 
-import { motion } from 'framer-motion';
+import type { CategoryFeedModeConfig } from './types'
 import {
-  LuChevronLeft as ChevronLeft,
   LuCheckCircle as CheckCircle,
-} from '@lib/icons';
-import { SPRING_SNAPPY } from './constants';
-import type { CategoryFeedModeConfig } from './types';
+  LuChevronLeft as ChevronLeft,
+} from '@lib/icons'
+import { motion } from 'framer-motion'
+import { SPRING_SNAPPY } from './constants'
 
 export interface CategoryFeedModeProps {
-  variant: 'mobile' | 'desktop';
-  categoryFeedMode: CategoryFeedModeConfig;
-  isAuthenticated?: boolean;
+  variant: 'mobile' | 'desktop'
+  categoryFeedMode: CategoryFeedModeConfig
+  isAuthenticated?: boolean
   t: {
-    backToAllSources: string;
-    totalArticles: string;
-    tipUnreadCount: string;
-    markAllAsRead: string;
-  };
+    backToAllSources: string
+    totalArticles: string
+    tipUnreadCount: string
+    markAllAsRead: string
+  }
 }
 
 export function CategoryFeedMode({
@@ -28,8 +28,8 @@ export function CategoryFeedMode({
   isAuthenticated = false,
   t,
 }: CategoryFeedModeProps) {
-  const isMobile = variant === 'mobile';
-  
+  const isMobile = variant === 'mobile'
+
   return (
     <motion.div
       key={`category-feed-bar-${variant}`}
@@ -88,5 +88,5 @@ export function CategoryFeedMode({
         </>
       )}
     </motion.div>
-  );
+  )
 }

@@ -3,53 +3,53 @@
  * 根据 type 自动选择渲染对应的设置项组件
  */
 
-import React from 'react';
-import type { SettingItemConfig, SettingType } from './types';
-import { SwitchItem } from './items/SwitchItem';
-import { InputItem } from './items/InputItem';
-import { NumberItem } from './items/NumberItem';
-import { SelectItem } from './items/SelectItem';
-import { ProviderItem } from './items/ProviderItem';
-import { ButtonItem } from './items/ButtonItem';
-import { CheckboxItem } from './items/CheckboxItem';
+import type { SettingItemConfig } from './types'
+import React from 'react'
+import { ButtonItem } from './items/ButtonItem'
+import { CheckboxItem } from './items/CheckboxItem'
+import { InputItem } from './items/InputItem'
+import { NumberItem } from './items/NumberItem'
+import { ProviderItem } from './items/ProviderItem'
+import { SelectItem } from './items/SelectItem'
+import { SwitchItem } from './items/SwitchItem'
 
-export type { SettingItemConfig } from './types';
+export type { SettingItemConfig } from './types'
 
 export const SettingItem: React.FC<SettingItemConfig> = (props) => {
   switch (props.type) {
     case 'switch':
-      return <SwitchItem {...props} />;
-    
+      return <SwitchItem {...props} />
+
     case 'checkbox':
-      return <CheckboxItem {...props} />;
-    
+      return <CheckboxItem {...props} />
+
     case 'input':
-      return <InputItem {...props} />;
-    
+      return <InputItem {...props} />
+
     case 'number':
-      return <NumberItem {...props} />;
-    
+      return <NumberItem {...props} />
+
     case 'select':
-      return <SelectItem {...props} />;
-    
+      return <SelectItem {...props} />
+
     case 'provider':
-      return <ProviderItem {...props} />;
-    
+      return <ProviderItem {...props} />
+
     case 'button':
-      return <ButtonItem {...props} />;
-    
+      return <ButtonItem {...props} />
+
     case 'custom':
-      return <>{props.render()}</>;
-    
+      return <>{props.render()}</>
+
     case 'slider':
       // TODO: 实现 SliderItem
-      console.warn('SliderItem not implemented yet');
-      return null;
-    
-    default:
-      const _exhaustive: never = props;
-      return null;
-  }
-};
+      console.warn('SliderItem not implemented yet')
+      return null
 
-SettingItem.displayName = 'SettingItem';
+    default:
+      const _exhaustive: never = props
+      return null
+  }
+}
+
+SettingItem.displayName = 'SettingItem'

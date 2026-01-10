@@ -1,26 +1,26 @@
 /**
  * Tapp iframe 自适应工具
  * 统一处理 iframe 在不同场景下的尺寸适配
- * 
+ *
  * 🚀 性能优化:
  * - 集成统一动画调度系统 (animation/core.ts)
  * - 复用全局 ResizeObserver，避免重复创建
  * - RAF 批量更新，防止布局抖动
  * - 自动节流，低帧率时跳过更新
- * 
+ *
  * 支持场景:
  * - Widget 模式: 小组件尺寸 (1x1 到 4x4)
  * - Page 模式: 全屏/嵌入页面
  * - 预览模式: 库中拖拽预览
- * 
+ *
  * 🎯 开发者零配置:
  * - 自动注入 CSS 变量和响应式工具类
  * - 自动发送尺寸消息到 iframe
  * - Tapp 代码可直接使用 CSS 变量或监听 tapp:resize 事件
  */
 
-import { useRef, useLayoutEffect, useState } from 'react'
-import { observeResize, isPageVisible } from '../../hooks/animation/core'
+import { useLayoutEffect, useRef, useState } from 'react'
+import { isPageVisible, observeResize } from '../../hooks/animation/core'
 
 /** iframe 容器尺寸信息 */
 export interface IframeDimensions {
@@ -74,11 +74,11 @@ function calculateDimensions(width: number, height: number): IframeDimensions {
   const minSize = width < height ? width : height
   const rawScale = minSize / BASE_CELL_SIZE
   const scale = rawScale < 0.1 ? 0.1 : rawScale
-  
+
   // 字体缩放：clamp(0.6, 0.2 + scale * 0.8, 1.2)
   const rawFontScale = 0.2 + scale * 0.8
   const fontScale = rawFontScale < 0.6 ? 0.6 : rawFontScale > 1.2 ? 1.2 : rawFontScale
-  
+
   return {
     width,
     height,
@@ -95,12 +95,12 @@ function calculateDimensions(width: number, height: number): IframeDimensions {
 
 /**
  * Hook: 监听容器尺寸变化
- * 
+ *
  * 🚀 性能特性:
  * - 复用全局 ResizeObserver (animation/core.ts)
  * - 自动节流，页面不可见时暂停
  * - 使用 batchWrite 批量更新，避免布局抖动
- * 
+ *
  * @example
  * ```tsx
  * function TappContainer() {
@@ -116,17 +116,18 @@ export function useIframeResize<T extends HTMLElement = HTMLDivElement>(): {
 } {
   const containerRef = useRef<T>(null!)
   const [dimensions, setDimensions] = useState<IframeDimensions>(DEFAULT_DIMENSIONS)
-  
+
   // 用于追踪是否已经完成初始化，避免 F12 等微小变化触发更新
   const initializedRef = useRef(false)
   const lastDimensionsRef = useRef<IframeDimensions>(DEFAULT_DIMENSIONS)
-  
+
   // useLayoutEffect 确保在 DOM 更新后、浏览器绘制前执行
   // 这样可以确保 ref 已经绑定到元素
   useLayoutEffect(() => {
     const element = containerRef.current
-    if (!element) return
-    
+    if (!element)
+      return
+
     // 立即计算初始尺寸
     // 注意：页面入场动画期间 getBoundingClientRect 可能返回动画中间状态的尺寸
     // 但这没关系，ResizeObserver 会在动画结束后提供正确的尺寸
@@ -137,25 +138,27 @@ export function useIframeResize<T extends HTMLElement = HTMLDivElement>(): {
       lastDimensionsRef.current = initial
       initializedRef.current = true
     }
-    
+
     // 设置 ResizeObserver 监听后续变化
     const unsubscribe = observeResize(element, (entry: ResizeObserverEntry) => {
       // 页面不可见时跳过更新
-      if (!isPageVisible()) return
-      
+      if (!isPageVisible())
+        return
+
       const { width, height } = entry.contentRect
-      
+
       // 跳过无效尺寸
-      if (width === 0 && height === 0) return
-      
+      if (width === 0 && height === 0)
+        return
+
       const prev = lastDimensionsRef.current
-      
+
       // 初始化时（prev 为默认值 0,0）无条件更新
       // 后续更新时使用阈值过滤 F12 等微小变化
       const isInitial = !initializedRef.current
       const widthChanged = Math.abs(prev.width - width) > RESIZE_THRESHOLD
       const heightChanged = Math.abs(prev.height - height) > RESIZE_THRESHOLD
-      
+
       if (isInitial || widthChanged || heightChanged) {
         const newDimensions = calculateDimensions(width, height)
         lastDimensionsRef.current = newDimensions
@@ -163,7 +166,7 @@ export function useIframeResize<T extends HTMLElement = HTMLDivElement>(): {
         setDimensions(newDimensions)
       }
     })
-    
+
     return () => {
       unsubscribe()
       initializedRef.current = false
@@ -178,7 +181,7 @@ const lastSentDimensions = new WeakMap<HTMLIFrameElement, string>()
 
 /**
  * 向 iframe 发送尺寸更新消息
- * 
+ *
  * 🚀 优化:
  * - 消息去重：相同尺寸不重复发送
  * - 使用整数 key 避免字符串拼接
@@ -186,15 +189,17 @@ const lastSentDimensions = new WeakMap<HTMLIFrameElement, string>()
  */
 export function sendResizeMessage(
   iframe: HTMLIFrameElement | null,
-  dimensions: IframeDimensions
+  dimensions: IframeDimensions,
 ): void {
-  if (!iframe?.contentWindow) return
-  
+  if (!iframe?.contentWindow)
+    return
+
   // 消息去重：包含尺寸和安全区域信息
   // 使用字符串 key 确保所有相关属性都被考虑
   const key = `${dimensions.width | 0},${dimensions.height | 0},${dimensions.safeInsetTop || 0},${dimensions.safeInsetRight || 0},${dimensions.safeInsetBottom || 0},${dimensions.safeInsetLeft || 0}`
   const lastKey = lastSentDimensions.get(iframe)
-  if (lastKey === key) return
+  if (lastKey === key)
+    return
   lastSentDimensions.set(iframe, key)
 
   try {
@@ -203,7 +208,8 @@ export function sendResizeMessage(
       action: 'container:resize',
       payload: dimensions,
     }, '*')
-  } catch {
+  }
+  catch {
     // iframe 可能未加载完成或已销毁
   }
 }
@@ -215,7 +221,7 @@ export function sendResizeMessage(
 export function calculateWidgetDimensions(
   widgetSize: string,
   containerWidth: number,
-  containerHeight: number
+  containerHeight: number,
 ): IframeDimensions {
   // 解析 widget size
   const [cols, rows] = widgetSize.split('x').map(Number)
@@ -250,7 +256,7 @@ export function calculateWidgetDimensions(
  */
 export function calculatePageDimensions(
   containerWidth: number,
-  containerHeight: number
+  containerHeight: number,
 ): IframeDimensions {
   return {
     width: containerWidth,
@@ -269,7 +275,7 @@ export function calculatePageDimensions(
 export function getIframeStyles(
   mode: 'widget' | 'page',
   dimensions: IframeDimensions,
-  isPreview?: boolean
+  isPreview?: boolean,
 ): React.CSSProperties {
   const baseStyles: React.CSSProperties = {
     width: '100%',
@@ -309,13 +315,13 @@ export function getIframeStyles(
 
 /**
  * 沙箱 HTML 中注入的自适应脚本
- * 
+ *
  * 🎯 开发者零配置:
  * - 自动接收父窗口尺寸消息
  * - 自动更新 CSS 变量
  * - 自动触发 tapp:resize 事件
  * - 支持容器查询 (Container Queries)
- * 
+ *
  * 🚀 性能优化:
  * - CSS 变量缓存避免重复设置
  * - RAF 节流事件派发
@@ -456,13 +462,13 @@ export const IFRAME_RESIZE_SCRIPT = `
 
 /**
  * 沙箱 HTML 中注入的自适应 CSS
- * 
+ *
  * 🎯 开发者零配置响应式:
  * - CSS 变量自动更新
  * - 响应式工具类（类似 Tailwind）
  * - 紧凑/迷你模式自动切换
  * - 容器查询支持
- * 
+ *
  * 🚀 性能优化:
  * - 使用 CSS 层叠 (@layer) 控制优先级
  * - GPU 加速动画 (transform, opacity)

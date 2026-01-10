@@ -4,12 +4,12 @@
  */
 
 import type {
-  TappPermission,
+  AIQuotaStatus,
+  PermissionLevel,
   TappInstance,
   TappManifest,
-  AIQuotaStatus,
+  TappPermission,
   UserRole,
-  PermissionLevel,
 } from '../types'
 
 /** 权限描述信息 */
@@ -141,10 +141,10 @@ const PERMISSION_INFO: Record<TappPermission, {
   },
 }
 
-/** 
+/**
  * 基于用户角色的 AI 配额配置
  * 管理员无限制，用户和游客使用后端配置的限额
- * 
+ *
  * 注意：这些只是前端的默认值，实际限额由后端 API 返回
  */
 const DEFAULT_AI_QUOTA_BY_ROLE = {
@@ -227,15 +227,16 @@ export class TappPermissionController {
    */
   isPermissionAllowedForRole(permission: TappPermission): boolean {
     const info = PERMISSION_INFO[permission]
-    if (!info) return false
-    
+    if (!info)
+      return false
+
     const allowedLevels = this.getAllowedPermissionLevels()
     return allowedLevels.includes(info.level)
   }
 
   /**
    * 检查是否拥有权限
-   * 
+   *
    * 后端已经根据权限下放配置过滤了 grantedPermissions，
    * 所以前端只需要检查权限是否在列表中即可，无需再次验证角色权限级别。
    */
@@ -261,7 +262,7 @@ export class TappPermissionController {
 
   /**
    * 获取用户角色实际可用的权限列表
-   * 
+   *
    * 由于后端已根据权限下放配置过滤了 grantedPermissions，
    * 这里直接返回所有已授权权限。
    */
@@ -271,7 +272,7 @@ export class TappPermissionController {
 
   /**
    * 获取因角色限制而不可用的权限列表
-   * 
+   *
    * 由于后端已经做了权限过滤，这里返回空数组。
    * 保留此方法是为了向后兼容。
    */
@@ -329,8 +330,8 @@ export class TappPermissionController {
 
     // 检查敏感权限组合
     if (
-      manifest.permissions.includes('platform:write') &&
-      manifest.permissions.includes('ai:generate')
+      manifest.permissions.includes('platform:write')
+      && manifest.permissions.includes('ai:generate')
     ) {
       warnings.push('同时请求写入数据和 AI 生成权限，请确保应用来源可信')
     }
@@ -344,10 +345,10 @@ export class TappPermissionController {
 
   /**
    * 获取 AI 配额限制（基于用户角色）
-   * 
+   *
    * 管理员无限制，普通用户和游客使用系统配置的限额
    * 注意：实际限额应该从后端 API 获取，这里只是前端的默认值
-   * 
+   *
    * @deprecated 应用不再声明 aiQuota，改用基于用户角色的统一限额
    */
   getAIQuotaLimits() {
@@ -368,7 +369,7 @@ export class TappPermissionController {
       const nextReset = new Date()
       nextReset.setDate(nextReset.getDate() + 1)
       nextReset.setHours(0, 0, 0, 0)
-      
+
       return {
         daily: {
           limit: Infinity,
@@ -413,8 +414,8 @@ export class TappPermissionController {
     const nextReset = new Date(today)
     nextReset.setDate(nextReset.getDate() + 1)
 
-    const isRestricted = this.aiQuotaUsage.calls >= limits.dailyCalls ||
-      this.aiQuotaUsage.tokens >= limits.dailyTokens
+    const isRestricted = this.aiQuotaUsage.calls >= limits.dailyCalls
+      || this.aiQuotaUsage.tokens >= limits.dailyTokens
 
     return {
       daily: {
@@ -444,11 +445,11 @@ export class TappPermissionController {
 
   /**
    * 检查是否可以进行 AI 调用
-   * 
+   *
    * 管理员始终可以调用（无限制）
    * 普通用户和游客受配额限制
    */
-  canMakeAICall(): { allowed: boolean; reason?: string } {
+  canMakeAICall(): { allowed: boolean, reason?: string } {
     // 检查是否有 AI 权限
     if (!this.hasAnyPermission(['ai:generate', 'ai:analyze', 'ai:chat', 'ai:image'])) {
       return { allowed: false, reason: '没有 AI 权限' }
@@ -486,7 +487,7 @@ export class TappPermissionController {
 
   /**
    * 验证 prompt 内容（内容审核 + Prompt 注入防护）
-   * 
+   *
    * 检测以下类型的攻击：
    * 1. 角色覆盖攻击（尝试覆盖系统 prompt）
    * 2. 指令注入（尝试绕过 AI 限制）
@@ -495,7 +496,7 @@ export class TappPermissionController {
    * 5. Unicode/编码绕过攻击
    * 6. 多语言混淆攻击
    */
-  validatePrompt(prompt: string): { valid: boolean; reason?: string; severity?: 'low' | 'medium' | 'high' } {
+  validatePrompt(prompt: string): { valid: boolean, reason?: string, severity?: 'low' | 'medium' | 'high' } {
     const limits = this.getAIQuotaLimits()
 
     // 长度检查
@@ -509,7 +510,7 @@ export class TappPermissionController {
 
     // 预处理：规范化 Unicode 字符（防止同形字符绕过）
     const normalizedPrompt = prompt.normalize('NFKC')
-    
+
     // 检测隐藏字符和零宽字符（可能用于绕过检测）
     const hiddenCharPattern = /[\u200B-\u200D\u2060\uFEFF\u00AD]/g
     if (hiddenCharPattern.test(prompt)) {
@@ -522,92 +523,54 @@ export class TappPermissionController {
     }
 
     // P0: Prompt 注入攻击检测模式（增强版）
-    const injectionPatterns: Array<{ pattern: RegExp; reason: string; severity: 'low' | 'medium' | 'high' }> = [
+    const injectionPatterns: Array<{ pattern: RegExp, reason: string, severity: 'low' | 'medium' | 'high' }> = [
       // 角色覆盖攻击
-      { pattern: /ignore\s+(all\s+)?(previous|above|prior)\s+(instructions?|prompts?|rules?)/gi, 
-        reason: '检测到角色覆盖攻击尝试', severity: 'high' },
-      { pattern: /forget\s+(everything|all|your)\s+(you\s+)?know/gi, 
-        reason: '检测到角色覆盖攻击尝试', severity: 'high' },
-      { pattern: /you\s+are\s+now\s+(a|an|the)\s+/gi, 
-        reason: '检测到角色覆盖攻击尝试', severity: 'high' },
-      { pattern: /disregard\s+(all|any|the)\s+(previous|prior|above)/gi, 
-        reason: '检测到角色覆盖攻击尝试', severity: 'high' },
-      { pattern: /new\s+instructions?:?\s*$/gim, 
-        reason: '检测到指令注入尝试', severity: 'high' },
-      { pattern: /system\s*prompt:?/gi, 
-        reason: '检测到系统提示词覆盖尝试', severity: 'high' },
-      { pattern: /\[system\]/gi, 
-        reason: '检测到系统标记注入', severity: 'high' },
-      { pattern: /\[\[.*\]\]/g, 
-        reason: '检测到特殊标记注入', severity: 'medium' },
-      { pattern: /\{\{.*\}\}/g, 
-        reason: '检测到模板注入尝试', severity: 'medium' },
-      { pattern: /<\|.*\|>/g, 
-        reason: '检测到特殊分隔符注入', severity: 'high' },
-      
+      { pattern: /ignore\s+(all\s+)?(previous|above|prior)\s+(instructions?|prompts?|rules?)/gi, reason: '检测到角色覆盖攻击尝试', severity: 'high' },
+      { pattern: /forget\s+(everything|all|your)\s+(you\s+)?know/gi, reason: '检测到角色覆盖攻击尝试', severity: 'high' },
+      { pattern: /you\s+are\s+now\s+(a|an|the)\s+/gi, reason: '检测到角色覆盖攻击尝试', severity: 'high' },
+      { pattern: /disregard\s+(all|any|the)\s+(previous|prior|above)/gi, reason: '检测到角色覆盖攻击尝试', severity: 'high' },
+      { pattern: /new\s+instructions?:?\s*$/gim, reason: '检测到指令注入尝试', severity: 'high' },
+      { pattern: /system\s*prompt:?/gi, reason: '检测到系统提示词覆盖尝试', severity: 'high' },
+      { pattern: /\[system\]/gi, reason: '检测到系统标记注入', severity: 'high' },
+      { pattern: /\[\[.*\]\]/g, reason: '检测到特殊标记注入', severity: 'medium' },
+      { pattern: /\{\{.*\}\}/g, reason: '检测到模板注入尝试', severity: 'medium' },
+      { pattern: /<\|.*\|>/g, reason: '检测到特殊分隔符注入', severity: 'high' },
+
       // 越狱尝试（扩展检测）
-      { pattern: /jailbreak/gi, 
-        reason: '检测到越狱关键词', severity: 'high' },
-      { pattern: /dan\s*mode/gi, 
-        reason: '检测到越狱关键词', severity: 'high' },
-      { pattern: /developer\s*mode/gi, 
-        reason: '检测到越狱关键词', severity: 'medium' },
-      { pattern: /bypass\s+(safety|content|filter|restriction)/gi, 
-        reason: '检测到绕过安全检测尝试', severity: 'high' },
-      { pattern: /pretend\s+(you\s+)?(are|to\s+be)/gi, 
-        reason: '检测到角色扮演绕过尝试', severity: 'medium' },
-      { pattern: /act\s+as\s+if\s+you\s+(have\s+)?no\s+(restrictions?|limitations?|rules?)/gi, 
-        reason: '检测到限制绕过尝试', severity: 'high' },
-      { pattern: /\buncensored\b/gi, 
-        reason: '检测到限制绕过关键词', severity: 'medium' },
-      { pattern: /\bunfiltered\b/gi, 
-        reason: '检测到限制绕过关键词', severity: 'medium' },
-        
+      { pattern: /jailbreak/gi, reason: '检测到越狱关键词', severity: 'high' },
+      { pattern: /dan\s*mode/gi, reason: '检测到越狱关键词', severity: 'high' },
+      { pattern: /developer\s*mode/gi, reason: '检测到越狱关键词', severity: 'medium' },
+      { pattern: /bypass\s+(safety|content|filter|restriction)/gi, reason: '检测到绕过安全检测尝试', severity: 'high' },
+      { pattern: /pretend\s+(you\s+)?(are|to\s+be)/gi, reason: '检测到角色扮演绕过尝试', severity: 'medium' },
+      { pattern: /act\s+as\s+if\s+you\s+(have\s+)?no\s+(restrictions?|limitations?|rules?)/gi, reason: '检测到限制绕过尝试', severity: 'high' },
+      { pattern: /\buncensored\b/gi, reason: '检测到限制绕过关键词', severity: 'medium' },
+      { pattern: /\bunfiltered\b/gi, reason: '检测到限制绕过关键词', severity: 'medium' },
+
       // 敏感信息探测
-      { pattern: /https?:\/\/[^\s]+/gi, 
-        reason: '提示词中不允许包含 URL', severity: 'medium' },
-      { pattern: /api[_-]?key/gi, 
-        reason: '检测到 API 密钥探测', severity: 'high' },
-      { pattern: /\bpassword\b/gi, 
-        reason: '检测到密码相关内容', severity: 'medium' },
-      { pattern: /\btoken\b/gi, 
-        reason: '检测到 Token 相关内容', severity: 'low' },
-      { pattern: /\bsecret\b/gi, 
-        reason: '检测到密钥相关内容', severity: 'medium' },
-      { pattern: /private[_-]?key/gi, 
-        reason: '检测到私钥探测', severity: 'high' },
-      { pattern: /credentials?/gi, 
-        reason: '检测到凭证探测', severity: 'medium' },
-      { pattern: /ssh[_-]?key/gi, 
-        reason: '检测到 SSH 密钥探测', severity: 'high' },
-      { pattern: /bearer\s+[a-z0-9_-]+/gi, 
-        reason: '检测到 Bearer Token 探测', severity: 'high' },
-        
+      { pattern: /https?:\/\/\S+/gi, reason: '提示词中不允许包含 URL', severity: 'medium' },
+      { pattern: /api[_-]?key/gi, reason: '检测到 API 密钥探测', severity: 'high' },
+      { pattern: /\bpassword\b/gi, reason: '检测到密码相关内容', severity: 'medium' },
+      { pattern: /\btoken\b/gi, reason: '检测到 Token 相关内容', severity: 'low' },
+      { pattern: /\bsecret\b/gi, reason: '检测到密钥相关内容', severity: 'medium' },
+      { pattern: /private[_-]?key/gi, reason: '检测到私钥探测', severity: 'high' },
+      { pattern: /credentials?/gi, reason: '检测到凭证探测', severity: 'medium' },
+      { pattern: /ssh[_-]?key/gi, reason: '检测到 SSH 密钥探测', severity: 'high' },
+      { pattern: /bearer\s+[\w-]+/gi, reason: '检测到 Bearer Token 探测', severity: 'high' },
+
       // 代码执行尝试（扩展检测）
-      { pattern: /eval\s*\(/gi, 
-        reason: '检测到代码执行尝试', severity: 'high' },
-      { pattern: /exec\s*\(/gi, 
-        reason: '检测到代码执行尝试', severity: 'high' },
-      { pattern: /__import__/gi, 
-        reason: '检测到代码执行尝试', severity: 'high' },
-      { pattern: /subprocess/gi, 
-        reason: '检测到系统命令执行尝试', severity: 'high' },
-      { pattern: /os\.system/gi, 
-        reason: '检测到系统命令执行尝试', severity: 'high' },
-      { pattern: /child_process/gi, 
-        reason: '检测到进程创建尝试', severity: 'high' },
-      { pattern: /spawn\s*\(/gi, 
-        reason: '检测到进程创建尝试', severity: 'high' },
-      { pattern: /\$\(.*\)/g, 
-        reason: '检测到命令替换尝试', severity: 'high' },
-        
+      { pattern: /eval\s*\(/gi, reason: '检测到代码执行尝试', severity: 'high' },
+      { pattern: /exec\s*\(/gi, reason: '检测到代码执行尝试', severity: 'high' },
+      { pattern: /__import__/gi, reason: '检测到代码执行尝试', severity: 'high' },
+      { pattern: /subprocess/gi, reason: '检测到系统命令执行尝试', severity: 'high' },
+      { pattern: /os\.system/gi, reason: '检测到系统命令执行尝试', severity: 'high' },
+      { pattern: /child_process/gi, reason: '检测到进程创建尝试', severity: 'high' },
+      { pattern: /spawn\s*\(/gi, reason: '检测到进程创建尝试', severity: 'high' },
+      { pattern: /\$\(.*\)/g, reason: '检测到命令替换尝试', severity: 'high' },
+
       // SQL 注入尝试
-      { pattern: /union\s+select/gi, 
-        reason: '检测到 SQL 注入尝试', severity: 'high' },
-      { pattern: /;\s*drop\s+/gi, 
-        reason: '检测到 SQL 注入尝试', severity: 'high' },
-      { pattern: /--\s*$/gm, 
-        reason: '检测到 SQL 注释注入', severity: 'medium' },
+      { pattern: /union\s+select/gi, reason: '检测到 SQL 注入尝试', severity: 'high' },
+      { pattern: /;\s*drop\s+/gi, reason: '检测到 SQL 注入尝试', severity: 'high' },
+      { pattern: /--\s*$/gm, reason: '检测到 SQL 注释注入', severity: 'medium' },
     ]
 
     for (const { pattern, reason, severity } of injectionPatterns) {
@@ -644,7 +607,7 @@ export class TappPermissionController {
     }
 
     // 检测 Base64 编码的内容（可能用于绕过检测）
-    const base64Pattern = /^[A-Za-z0-9+/]{50,}={0,2}$/
+    const base64Pattern = /^[A-Z0-9+/]{50,}={0,2}$/i
     const words = prompt.split(/\s+/)
     for (const word of words) {
       if (base64Pattern.test(word)) {
@@ -660,7 +623,8 @@ export class TappPermissionController {
               severity: 'high',
             }
           }
-        } catch {
+        }
+        catch {
           // 不是有效的 Base64，忽略
         }
       }
@@ -672,7 +636,7 @@ export class TappPermissionController {
     // 如果非 ASCII 字符过少但存在，可能是同形字符攻击
     if (nonAsciiCount > 0 && nonAsciiCount < 5 && asciiCount > 50) {
       // 检查是否是常见的同形字符（西里尔字母等）
-      const homoglyphs = /[\u0430\u0435\u043e\u0440\u0441\u0443\u0445\u0410\u0412\u0415\u041a\u041c\u041d\u041e\u0420\u0421\u0422\u0425]/g
+      const homoglyphs = /[\u0430\u0435\u043E\u0440\u0441\u0443\u0445\u0410\u0412\u0415\u041A\u041C\u041D\u041E\u0420\u0421\u0422\u0425]/g
       if (homoglyphs.test(prompt)) {
         console.warn('[Tapp Security] Homoglyph attack detected')
         return {
@@ -697,7 +661,7 @@ export class TappPermissionController {
       // 规范化 Unicode
       .normalize('NFKC')
       // 移除控制字符（保留换行和制表符）
-      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+      .replace(/[\x00-\x08\v\f\x0E-\x1F\x7F]/g, '')
       // 限制连续空白
       .replace(/ {3,}/g, '  ')
       .trim()

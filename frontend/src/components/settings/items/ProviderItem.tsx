@@ -3,9 +3,9 @@
  * 显示为带图标的按钮组
  */
 
-import React, { useCallback } from 'react';
-import type { ProviderSettingConfig, SettingOption } from '../types';
-import './SettingItem.css';
+import type { ProviderSettingConfig, SettingOption } from '../types'
+import React, { useCallback } from 'react'
+import './SettingItem.css'
 
 export interface ProviderItemProps<T = string> extends Omit<ProviderSettingConfig<T>, 'type'> {}
 
@@ -25,20 +25,21 @@ function ProviderItemComponent<T extends string = string>({
 }: ProviderItemProps<T>) {
   const handleSelect = useCallback((optionValue: T) => {
     if (!disabled && !loading) {
-      onChange(optionValue);
+      onChange(optionValue)
     }
-  }, [onChange, disabled, loading]);
+  }, [onChange, disabled, loading])
 
   const renderIcon = (icon: SettingOption['icon']) => {
-    if (!icon) return null;
+    if (!icon)
+      return null
     if (typeof icon === 'string') {
-      return <span className="provider-icon">{icon}</span>;
+      return <span className="provider-icon">{icon}</span>
     }
-    return <span className="provider-icon">{icon}</span>;
-  };
+    return <span className="provider-icon">{icon}</span>
+  }
 
   return (
-    <div 
+    <div
       className={`setting-item setting-item-provider setting-${layout} setting-${size} ${className} ${disabled ? 'disabled' : ''}`}
     >
       <div className="setting-item-content">
@@ -48,10 +49,10 @@ function ProviderItemComponent<T extends string = string>({
             <span className="setting-description">{description}</span>
           )}
         </div>
-        
+
         <div className="setting-control">
           <div className="provider-selector">
-            {options.map((option) => (
+            {options.map(option => (
               <button
                 key={String(option.value)}
                 type="button"
@@ -71,7 +72,7 @@ function ProviderItemComponent<T extends string = string>({
       </div>
       {hint && <p className="setting-hint">{hint}</p>}
     </div>
-  );
+  )
 }
 
-export const ProviderItem = React.memo(ProviderItemComponent) as typeof ProviderItemComponent;
+export const ProviderItem = React.memo(ProviderItemComponent) as typeof ProviderItemComponent

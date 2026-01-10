@@ -31,7 +31,9 @@
   -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
   border: 1px solid rgba(0, 0, 0, 0.1);
-  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.1), 0 1px 4px rgba(0, 0, 0, 0.06);
+  box-shadow:
+    0 3px 12px rgba(0, 0, 0, 0.1),
+    0 1px 4px rgba(0, 0, 0, 0.06);
   cursor: pointer;
   transform-origin: top right;
   overflow: hidden;
@@ -58,20 +60,26 @@
 html.dark .control-bar-trigger {
   background: rgba(26, 26, 26, 0.9);
   border-color: rgba(255, 255, 255, 0.1);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.4);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.6),
+    0 2px 6px rgba(0, 0, 0, 0.4);
 }
 
 /* 悬停 - 仅收缩状�?*/
 .control-bar-trigger:not(.expanded):hover {
   background: rgba(255, 255, 255, 0.95);
   transform: scale(1.03);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 4px 12px rgba(0, 0, 0, 0.08);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.12),
+    0 4px 12px rgba(0, 0, 0, 0.08);
   border-color: rgba(0, 0, 0, 0.15);
 }
 
 html.dark .control-bar-trigger:not(.expanded):hover {
   background: rgba(26, 26, 26, 0.95);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.8), 0 4px 12px rgba(0, 0, 0, 0.6);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.8),
+    0 4px 12px rgba(0, 0, 0, 0.6);
   border-color: rgba(255, 255, 255, 0.15);
 }
 
@@ -88,12 +96,16 @@ html.dark .control-bar-trigger:not(.expanded):hover {
   /* 高度通过 JS 动态设�?*/
   padding: 1.125rem 1.375rem;
   border-radius: 1.5rem;
-  box-shadow: 0 16px 56px rgba(0, 0, 0, 0.18), 0 6px 16px rgba(0, 0, 0, 0.12);
+  box-shadow:
+    0 16px 56px rgba(0, 0, 0, 0.18),
+    0 6px 16px rgba(0, 0, 0, 0.12);
   cursor: default;
 }
 
 html.dark .control-bar-trigger.expanded {
-  box-shadow: 0 16px 56px rgba(0, 0, 0, 0.75), 0 6px 16px rgba(0, 0, 0, 0.6);
+  box-shadow:
+    0 16px 56px rgba(0, 0, 0, 0.75),
+    0 6px 16px rgba(0, 0, 0, 0.6);
 }
 
 /* ==========================================
@@ -171,7 +183,9 @@ html.dark .control-bar-trigger.expanded {
   max-width: 100%;
   line-height: 1.3;
   /* 歌词切换时的淡入淡出效果 - 更柔和 */
-  transition: color 0.3s ease, opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  transition:
+    color 0.3s ease,
+    opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   opacity: 1;
   /* 性能优化 - 隔离布局计算 */
   contain: layout style paint;
@@ -199,7 +213,8 @@ html.dark .control-bar-trigger.expanded {
 
 @keyframes text-scroll-vertical {
   /* 起点停留 */
-  0%, 8% {
+  0%,
+  8% {
     transform: translateY(0) translateZ(0);
   }
   /* 缓慢滚动到底部并固定 */
@@ -433,18 +448,12 @@ html.dark .info-card-title {
 
 /* 天气卡片 */
 .weather-card {
-  background: linear-gradient(135deg,
-    rgba(59, 130, 246, 0.08),
-    rgba(147, 197, 253, 0.04)
-  );
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(147, 197, 253, 0.04));
   border-color: rgba(59, 130, 246, 0.2);
 }
 
 html.dark .weather-card {
-  background: linear-gradient(135deg,
-    rgba(59, 130, 246, 0.12),
-    rgba(147, 197, 253, 0.06)
-  );
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(147, 197, 253, 0.06));
   border-color: rgba(59, 130, 246, 0.3);
 }
 
@@ -732,18 +741,32 @@ html.dark .control-item:hover {
 }
 
 @keyframes icon-sway {
-  0%, 100% { transform: rotate(-8deg) translateZ(0); }
-  50% { transform: rotate(8deg) translateZ(0); }
+  0%,
+  100% {
+    transform: rotate(-8deg) translateZ(0);
+  }
+  50% {
+    transform: rotate(8deg) translateZ(0);
+  }
 }
 
 @keyframes icon-float {
-  0%, 100% { transform: translateY(0) translateZ(0); }
-  50% { transform: translateY(-2px) translateZ(0); }
+  0%,
+  100% {
+    transform: translateY(0) translateZ(0);
+  }
+  50% {
+    transform: translateY(-2px) translateZ(0);
+  }
 }
 
 @keyframes icon-spin {
-  from { transform: rotate(0deg) translateZ(0); }
-  to { transform: rotate(360deg) translateZ(0); }
+  from {
+    transform: rotate(0deg) translateZ(0);
+  }
+  to {
+    transform: rotate(360deg) translateZ(0);
+  }
 }
 
 .control-item-title {
@@ -846,7 +869,8 @@ html.dark .control-item:hover {
   font-weight: 600;
   border: 1px solid color-mix(in srgb, var(--color-primary, #94a3b8) 30%, transparent);
   border-radius: 0.375rem;
-  background: linear-gradient(135deg,
+  background: linear-gradient(
+    135deg,
     color-mix(in srgb, var(--color-primary, #94a3b8) 10%, transparent),
     color-mix(in srgb, var(--color-secondary, #94a3b8) 5%, transparent)
   );
@@ -856,7 +880,8 @@ html.dark .control-item:hover {
 }
 
 .language-switch-btn:hover {
-  background: linear-gradient(135deg,
+  background: linear-gradient(
+    135deg,
     color-mix(in srgb, var(--color-primary, #94a3b8) 20%, transparent),
     color-mix(in srgb, var(--color-secondary, #94a3b8) 15%, transparent)
   );
@@ -880,7 +905,8 @@ html.dark .control-item:hover {
   height: 2.5rem;
   min-width: 2.5rem;
   min-height: 2.5rem;
-  background: linear-gradient(135deg,
+  background: linear-gradient(
+    135deg,
     color-mix(in srgb, var(--color-primary, #94a3b8) 15%, transparent),
     color-mix(in srgb, var(--color-secondary, #94a3b8) 10%, transparent)
   );
@@ -909,7 +935,8 @@ html.dark .control-action-btn {
 }
 
 .control-action-btn:hover {
-  background: linear-gradient(135deg,
+  background: linear-gradient(
+    135deg,
     color-mix(in srgb, var(--color-primary, #94a3b8) 25%, transparent),
     color-mix(in srgb, var(--color-secondary, #94a3b8) 20%, transparent)
   );
@@ -1244,4 +1271,3 @@ html.dark .control-panel-overlay {
     font-size: 0.6875rem;
   }
 }
-

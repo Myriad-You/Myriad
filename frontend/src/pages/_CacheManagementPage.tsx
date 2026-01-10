@@ -1,11 +1,11 @@
-﻿/**
+/**
  * 缓存管理页面示例
- * 
+ *
  * 演示如何集成后台任务系统
  */
 
-import React from 'react';
-import { CacheManagement } from '../components/CacheManagement';
+import React from 'react'
+import { CacheManagement } from '../components/CacheManagement'
 
 export default function CacheManagementPage() {
   return (
@@ -23,5 +23,5 @@ export default function CacheManagementPage() {
         <CacheManagement />
       </div>
     </div>
-  );
+  )
 }

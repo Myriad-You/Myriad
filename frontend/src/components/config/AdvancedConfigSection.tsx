@@ -1,13 +1,13 @@
-import React, { useState } from 'react';
-import { useI18n } from '../../contexts/I18nContext';
-import { FaTimes } from '@lib/icons';
-import { SettingSection, SettingGroup, ButtonItem } from '../settings';
+import { FaTimes } from '@lib/icons'
+import React, { useState } from 'react'
+import { useI18n } from '../../contexts/I18nContext'
+import { ButtonItem, SettingGroup, SettingSection } from '../settings'
 
 interface AdvancedConfigSectionProps {
-  onReset: () => void;
-  title: string;
-  icon: React.ReactNode;
-  description: string;
+  onReset: () => void
+  title: string
+  icon: React.ReactNode
+  description: string
 }
 
 export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
@@ -16,8 +16,8 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
   icon,
   description,
 }) => {
-  const { t } = useI18n();
-  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const { t } = useI18n()
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
 
   return (
     <SettingSection
@@ -40,7 +40,7 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
       {/* Reset Confirmation Modal */}
       {resetConfirmOpen && (
         <div className="modal-overlay" onClick={() => setResetConfirmOpen(false)}>
-          <div className="modal-content modal-small" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content modal-small" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h3 className="modal-title text-danger">{t.config.resetConfig}</h3>
               <button onClick={() => setResetConfirmOpen(false)} className="modal-close-button">
@@ -61,8 +61,8 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
               </button>
               <button
                 onClick={() => {
-                  onReset();
-                  setResetConfirmOpen(false);
+                  onReset()
+                  setResetConfirmOpen(false)
                 }}
                 className="btn-base btn-danger"
               >
@@ -73,5 +73,5 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
         </div>
       )}
     </SettingSection>
-  );
-};
+  )
+}

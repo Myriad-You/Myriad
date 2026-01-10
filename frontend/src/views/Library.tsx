@@ -3,12 +3,13 @@
  * 显示用户的多平台数据收藏
  */
 
-import { useEffect, useCallback, useMemo } from 'react';
-import LibraryGrid from '../components/LibraryGrid';
-import AnimatedView from '../components/AnimatedView';
-import { useLibraryScheduler } from '../hooks/animation/pages/library';
-import { useSecondaryNav, type SecondaryNavItem } from '../contexts/NavigationContext';
-import { useI18n } from '../contexts/I18nContext';
+import type { SecondaryNavItem } from '../contexts/NavigationContext'
+import { useEffect, useMemo } from 'react'
+import AnimatedView from '../components/AnimatedView'
+import LibraryGrid from '../components/LibraryGrid'
+import { useI18n } from '../contexts/I18nContext'
+import { useSecondaryNav } from '../contexts/NavigationContext'
+import { useLibraryScheduler } from '../hooks/animation/pages/library'
 
 // 资料库筛选图标
 const FilterIcons = {
@@ -44,15 +45,15 @@ const FilterIcons = {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 20.25h12m-7.5-3v3m3-3v3m-10.125-3h17.25c.621 0 1.125-.504 1.125-1.125V4.875c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125z" />
     </svg>
   ),
-};
+}
 
-type FilterType = 'all' | 'game' | 'video' | 'music' | 'anime' | 'tv_series';
+type FilterType = 'all' | 'game' | 'video' | 'music' | 'anime' | 'tv_series'
 
 export default function Library() {
   // 🆕 初始化资料库调度器（Resize + Intersection + Idle）
-  useLibraryScheduler();
-  
-  const { t } = useI18n();
+  useLibraryScheduler()
+
+  const { t } = useI18n()
 
   // 构建二级导航项
   const navItems: SecondaryNavItem[] = useMemo(() => [
@@ -62,7 +63,7 @@ export default function Library() {
     { id: 'music', icon: FilterIcons.music, label: t.nav.music, title: t.nav.music, ariaLabel: t.nav.showMusic },
     { id: 'anime', icon: FilterIcons.anime, label: t.nav.anime, title: t.nav.anime, ariaLabel: t.nav.showAnime },
     { id: 'tv_series', icon: FilterIcons.tv_series, label: t.nav.tvSeries, title: t.nav.tvSeries, ariaLabel: t.nav.showTvSeries },
-  ], [t]);
+  ], [t])
 
   // 使用二级导航 Hook
   const { activeId, setActiveId, setExpanded } = useSecondaryNav({
@@ -70,21 +71,21 @@ export default function Library() {
     items: navItems,
     defaultActiveId: 'all',
     expandHint: t.nav.expandFilters,
-  });
+  })
 
   // 监听展开事件
   useEffect(() => {
     const handleExpandSecondary = (e: CustomEvent<{ path: string }>) => {
       if (e.detail.path === '/library') {
-        setExpanded(true);
+        setExpanded(true)
       }
-    };
+    }
 
-    window.addEventListener('nav-expand-secondary', handleExpandSecondary as EventListener);
+    window.addEventListener('nav-expand-secondary', handleExpandSecondary as EventListener)
     return () => {
-      window.removeEventListener('nav-expand-secondary', handleExpandSecondary as EventListener);
-    };
-  }, [setExpanded]);
+      window.removeEventListener('nav-expand-secondary', handleExpandSecondary as EventListener)
+    }
+  }, [setExpanded])
 
   return (
     <AnimatedView className="min-h-screen px-3 xs:px-4 sm:px-6 pt-20 pb-28 sm:pb-24 md:pb-12">
@@ -92,5 +93,5 @@ export default function Library() {
         <LibraryGrid filter={activeId as FilterType} />
       </div>
     </AnimatedView>
-  );
+  )
 }

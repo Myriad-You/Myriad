@@ -1,6 +1,6 @@
 /**
  * Tapp 多窗口管理器
- * 
+ *
  * 支持在页面中同时运行多个应用窗口
  * 特性：
  * - 最多支持3个应用窗口同时运行
@@ -9,35 +9,35 @@
  * - 窗口层级管理（点击置顶）
  */
 
-import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react'
-import { motionShim as motion, AnimatePresenceShim as AnimatePresence } from '@lib/motionShim'
-import { useAnimationLevel } from '../../hooks/useAnimationLevel'
-import {
-  FaTimes,
-  FaPlus,
-  FaGripVertical,
-  FaSpinner,
-  FaExclamationTriangle,
-  FaSave,
-  FaTh,
-  FaTrash,
-} from '@lib/icons'
-import { getTappRuntime } from '../runtime'
-import { getTappIconStyle } from '../utils/tappColors'
-import { TappPageSandbox } from '../runtime/TappPageSandbox'
-import { loadPageResources } from '../runtime/sandbox/resourceLoader'
-import { TappIcon } from './TappIcon'
-import type { TappInstance } from '../types'
 import type { TappCodeStructure } from '../examples/tapps/types'
 import type { TappNotificationOptions } from '../runtime/sandbox/types'
-import { useI18n } from '../../contexts/I18nContext'
+import type { TappInstance } from '../types'
+import {
+  FaExclamationTriangle,
+  FaGripVertical,
+  FaPlus,
+  FaSave,
+  FaSpinner,
+  FaTh,
+  FaTimes,
+  FaTrash,
+} from '@lib/icons'
+import { AnimatePresenceShim as AnimatePresence, motionShim as motion } from '@lib/motionShim'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
+import { useI18n } from '../../contexts/I18nContext'
 // 统一动画调度器
-import { startPage, scheduleIdle, isPageVisible } from '../../hooks/animation/core'
-// API 配置
-import { getUIConfigDeduped } from '../../utils/requestDedup'
+import { isPageVisible, scheduleIdle, startPage } from '../../hooks/animation/core'
+import { useAnimationLevel } from '../../hooks/useAnimationLevel'
 // CSRF 防护
 import { getCSRFToken } from '../../utils/csrf'
+// API 配置
+import { getUIConfigDeduped } from '../../utils/requestDedup'
+import { getTappRuntime } from '../runtime'
+import { loadPageResources } from '../runtime/sandbox/resourceLoader'
+import { TappPageSandbox } from '../runtime/TappPageSandbox'
+import { getTappIconStyle } from '../utils/tappColors'
+import { TappIcon } from './TappIcon'
 
 const API_URL = import.meta.env.PUBLIC_API_URL || ''
 
@@ -56,9 +56,9 @@ export interface TappWindow {
   /** 错误信息 */
   error: string | null
   /** 窗口位置 */
-  position: { x: number; y: number }
+  position: { x: number, y: number }
   /** 窗口尺寸 */
-  size: { width: number; height: number }
+  size: { width: number, height: number }
   /** 是否最大化 */
   isMaximized: boolean
   /** 层级 */
@@ -84,8 +84,8 @@ const DEFAULT_WINDOW_SIZE = { width: 600, height: 500 }
 /** 窗口方案中的窗口配置 */
 interface WindowSchemeItem {
   tappId: string
-  position: { x: number; y: number }
-  size: { width: number; height: number }
+  position: { x: number, y: number }
+  size: { width: number, height: number }
 }
 
 /** 保存的窗口方案 */
@@ -112,7 +112,7 @@ function generateWindowId(): string {
 /**
  * 计算新窗口的初始位置（级联效果）
  */
-function getInitialPosition(windowCount: number): { x: number; y: number } {
+function getInitialPosition(windowCount: number): { x: number, y: number } {
   const offset = windowCount * 30
   return {
     x: 100 + offset,
@@ -129,10 +129,10 @@ interface TappWindowComponentProps {
   isActive: boolean
   onClose: (windowId: string) => void
   onFocus: (windowId: string) => void
-  onMove: (windowId: string, position: { x: number; y: number }) => void
-  onResize: (windowId: string, size: { width: number; height: number }) => void
+  onMove: (windowId: string, position: { x: number, y: number }) => void
+  onResize: (windowId: string, size: { width: number, height: number }) => void
   onNotification?: (options: TappNotificationOptions) => void
-  containerBounds: { width: number; height: number }
+  containerBounds: { width: number, height: number }
 }
 
 const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(({
@@ -148,31 +148,30 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(({
   const { t } = useI18n()
   const animConfig = useAnimationLevel()
   const noAnimation = animConfig.level === 'none'
-  
+
   const windowRef = useRef<HTMLDivElement>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [isResizing, setIsResizing] = useState(false)
   const [resizeDirection, setResizeDirection] = useState<string | null>(null)
-  
+
   const dragStartRef = useRef({ x: 0, y: 0 })
   const positionStartRef = useRef({ x: 0, y: 0 })
   const sizeStartRef = useRef({ width: 0, height: 0 })
-  
+
   // 用于追踪交互过程中的实时位置和大小（直接操作 DOM 时使用）
   const currentPositionRef = useRef({ x: window.position.x, y: window.position.y })
   const currentSizeRef = useRef({ width: window.size.width, height: window.size.height })
-  
+
   // 始终同步 props 到 ref，确保方案保存时能获取最新值
   // 注意：交互过程中 ref 会被直接修改，但交互结束后会同步回 state
   useEffect(() => {
     currentPositionRef.current = { x: window.position.x, y: window.position.y }
     currentSizeRef.current = { width: window.size.width, height: window.size.height }
   }, [window.position.x, window.position.y, window.size.width, window.size.height])
-  
+
   // 缓存图标样式计算
-  const iconStyle = useMemo(() => 
-    window.tapp ? getTappIconStyle(window.tapp.manifest) : null
-  , [window.tapp])
+  const iconStyle = useMemo(() =>
+    window.tapp ? getTappIconStyle(window.tapp.manifest) : null, [window.tapp])
 
   // 拖拽处理 - 支持鼠标和触摸
   const handleDragStart = useCallback((e: React.MouseEvent | React.TouchEvent) => {
@@ -206,10 +205,12 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(({
 
   // 移动处理 - 使用 requestAnimationFrame 节流优化性能，支持鼠标和触摸
   useEffect(() => {
-    if (!isDragging && !isResizing) return
-    
+    if (!isDragging && !isResizing)
+      return
+
     // 页面不可见时不处理拖拽（由调度器可见性状态控制）
-    if (!isPageVisible()) return
+    if (!isPageVisible())
+      return
 
     let rafId: number | null = null
     let lastX = dragStartRef.current.x
@@ -219,18 +220,21 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(({
       // 获取坐标（支持鼠标和触摸）
       const clientX = 'touches' in e ? e.touches[0]?.clientX ?? lastX : e.clientX
       const clientY = 'touches' in e ? e.touches[0]?.clientY ?? lastY : e.clientY
-      
+
       // 避免重复计算相同位置
-      if (clientX === lastX && clientY === lastY) return
+      if (clientX === lastX && clientY === lastY)
+        return
       lastX = clientX
       lastY = clientY
 
       // 取消上一次未执行的 RAF
-      if (rafId) cancelAnimationFrame(rafId)
-      
+      if (rafId)
+        cancelAnimationFrame(rafId)
+
       rafId = requestAnimationFrame(() => {
-        if (!windowRef.current) return
-        
+        if (!windowRef.current)
+          return
+
         const deltaX = clientX - dragStartRef.current.x
         const deltaY = clientY - dragStartRef.current.y
 
@@ -238,15 +242,16 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(({
           // 拖拽移动 - 直接操作 DOM
           let newX = positionStartRef.current.x + deltaX
           let newY = positionStartRef.current.y + deltaY
-          
+
           // 边界限制
           newX = Math.max(0, Math.min(newX, containerBounds.width - currentSizeRef.current.width))
           newY = Math.max(0, Math.min(newY, containerBounds.height - currentSizeRef.current.height))
-          
+
           // 使用 transform 进行 GPU 加速定位
           windowRef.current.style.transform = `translate3d(${newX}px, ${newY}px, 0)`
           currentPositionRef.current = { x: newX, y: newY }
-        } else if (isResizing && resizeDirection) {
+        }
+        else if (isResizing && resizeDirection) {
           // 调整大小 - 直接操作 DOM
           let newWidth = sizeStartRef.current.width
           let newHeight = sizeStartRef.current.height
@@ -273,12 +278,12 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(({
           // 边界限制
           newWidth = Math.min(newWidth, containerBounds.width - newX)
           newHeight = Math.min(newHeight, containerBounds.height - newY)
-          
+
           // 使用 transform + width/height，transform 用于 GPU 加速位置变换
           windowRef.current.style.transform = `translate3d(${newX}px, ${newY}px, 0)`
           windowRef.current.style.width = `${newWidth}px`
           windowRef.current.style.height = `${newHeight}px`
-          
+
           currentSizeRef.current = { width: newWidth, height: newHeight }
           currentPositionRef.current = { x: newX, y: newY }
         }
@@ -286,18 +291,20 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(({
     }
 
     const handleEnd = () => {
-      if (rafId) cancelAnimationFrame(rafId)
-      
+      if (rafId)
+        cancelAnimationFrame(rafId)
+
       // 交互结束时一次性同步状态到 React
       if (isDragging) {
         onMove(window.windowId, currentPositionRef.current)
-      } else if (isResizing) {
+      }
+      else if (isResizing) {
         onResize(window.windowId, currentSizeRef.current)
         if (resizeDirection?.includes('w') || resizeDirection?.includes('n')) {
           onMove(window.windowId, currentPositionRef.current)
         }
       }
-      
+
       setIsDragging(false)
       setIsResizing(false)
       setResizeDirection(null)
@@ -312,7 +319,8 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(({
     document.addEventListener('touchcancel', handleEnd)
 
     return () => {
-      if (rafId) cancelAnimationFrame(rafId)
+      if (rafId)
+        cancelAnimationFrame(rafId)
       document.removeEventListener('mousemove', handleMove)
       document.removeEventListener('mouseup', handleEnd)
       document.removeEventListener('touchmove', handleMove)
@@ -339,8 +347,8 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(({
 
   // 缓存 boxShadow 样式 - 使用更简单的阴影以提升性能
   const boxShadowStyle = useMemo(() => ({
-    boxShadow: isActive 
-      ? '0 8px 24px rgba(0, 0, 0, 0.2)' 
+    boxShadow: isActive
+      ? '0 8px 24px rgba(0, 0, 0, 0.2)'
       : '0 4px 12px rgba(0, 0, 0, 0.1)',
     border: '1px solid var(--border-color)',
   }), [isActive])
@@ -397,56 +405,63 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(({
       >
         {/* 左侧：拖拽手柄 + 图标 + 名称 */}
         <div className="flex items-center gap-2 min-w-0">
-          <FaGripVertical 
-            className="w-3 h-3 flex-shrink-0" 
+          <FaGripVertical
+            className="w-3 h-3 flex-shrink-0"
             style={{ color: 'var(--text-muted)' }}
           />
-          
-          {window.loading ? (
-            <div className="flex items-center gap-2">
-              <div 
-                className="w-6 h-6 rounded-lg flex items-center justify-center"
-                style={{ backgroundColor: 'var(--bg-hover)' }}
-              >
-                <FaSpinner className="w-3 h-3 animate-spin" style={{ color: 'var(--text-muted)' }} />
-              </div>
-              <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{t.tapp.loadingApp}</span>
-            </div>
-          ) : window.error ? (
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-lg bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-                <FaExclamationTriangle className="w-3 h-3 text-red-500" />
-              </div>
-              <span className="text-xs text-red-500 truncate">{t.tapp.loadAppFailed}</span>
-            </div>
-          ) : window.tapp && iconStyle ? (
-            <div className="flex items-center gap-2 min-w-0">
-              <div 
-                className={`w-6 h-6 rounded-lg ${iconStyle.className} flex items-center justify-center text-white text-xs font-bold flex-shrink-0`}
-                style={iconStyle.style}
-              >
-                <TappIcon
-                  icon={window.tapp.manifest.icon}
-                  iconSvg={window.tapp.manifest.iconSvg}
-                  name={window.tapp.manifest.name}
-                  sizeClass="w-3 h-3"
-                  textSizeClass="text-xs"
-                />
-              </div>
-              <span 
-                className="text-xs font-medium truncate" 
-                style={{ color: 'var(--text-primary)' }}
-              >
-                {window.tapp.manifest.name}
-              </span>
-              <span 
-                className="text-[10px] flex-shrink-0" 
-                style={{ color: 'var(--text-muted)' }}
-              >
-                v{window.tapp.manifest.version}
-              </span>
-            </div>
-          ) : null}
+
+          {window.loading
+            ? (
+                <div className="flex items-center gap-2">
+                  <div
+                    className="w-6 h-6 rounded-lg flex items-center justify-center"
+                    style={{ backgroundColor: 'var(--bg-hover)' }}
+                  >
+                    <FaSpinner className="w-3 h-3 animate-spin" style={{ color: 'var(--text-muted)' }} />
+                  </div>
+                  <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{t.tapp.loadingApp}</span>
+                </div>
+              )
+            : window.error
+              ? (
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-lg bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+                      <FaExclamationTriangle className="w-3 h-3 text-red-500" />
+                    </div>
+                    <span className="text-xs text-red-500 truncate">{t.tapp.loadAppFailed}</span>
+                  </div>
+                )
+              : window.tapp && iconStyle
+                ? (
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div
+                        className={`w-6 h-6 rounded-lg ${iconStyle.className} flex items-center justify-center text-white text-xs font-bold flex-shrink-0`}
+                        style={iconStyle.style}
+                      >
+                        <TappIcon
+                          icon={window.tapp.manifest.icon}
+                          iconSvg={window.tapp.manifest.iconSvg}
+                          name={window.tapp.manifest.name}
+                          sizeClass="w-3 h-3"
+                          textSizeClass="text-xs"
+                        />
+                      </div>
+                      <span
+                        className="text-xs font-medium truncate"
+                        style={{ color: 'var(--text-primary)' }}
+                      >
+                        {window.tapp.manifest.name}
+                      </span>
+                      <span
+                        className="text-[10px] flex-shrink-0"
+                        style={{ color: 'var(--text-muted)' }}
+                      >
+                        v
+                        {window.tapp.manifest.version}
+                      </span>
+                    </div>
+                  )
+                : null}
         </div>
 
         {/* 右侧：关闭按钮 */}
@@ -464,36 +479,42 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(({
       </div>
 
       {/* 窗口内容 */}
-      <div 
+      <div
         className="flex-1 overflow-hidden relative"
         style={{ backgroundColor: 'var(--bg-primary)' }}
       >
         {/* 交互时显示遮罩层，防止 iframe 捕获事件并避免重绘 */}
         {isInteracting && (
-          <div 
-            className="absolute inset-0 z-50" 
+          <div
+            className="absolute inset-0 z-50"
             style={{ backgroundColor: 'transparent' }}
           />
         )}
-        {window.loading ? (
-          <div className="w-full h-full flex items-center justify-center">
-            <FaSpinner className="w-8 h-8 text-gray-400 animate-spin" />
-          </div>
-        ) : window.error ? (
-          <div className="w-full h-full flex items-center justify-center">
-            <div className="text-center max-w-xs mx-4">
-              <FaExclamationTriangle className="w-10 h-10 mx-auto text-red-500 mb-3" />
-              <p className="text-sm text-gray-500 dark:text-gray-400">{window.error}</p>
-            </div>
-          </div>
-        ) : window.tapp && window.code ? (
-          <TappPageSandbox
-            tappInstance={window.tapp}
-            code={window.code}
-            onError={(err) => console.error('[TappWindow] Error:', err)}
-            onNotification={onNotification}
-          />
-        ) : null}
+        {window.loading
+          ? (
+              <div className="w-full h-full flex items-center justify-center">
+                <FaSpinner className="w-8 h-8 text-gray-400 animate-spin" />
+              </div>
+            )
+          : window.error
+            ? (
+                <div className="w-full h-full flex items-center justify-center">
+                  <div className="text-center max-w-xs mx-4">
+                    <FaExclamationTriangle className="w-10 h-10 mx-auto text-red-500 mb-3" />
+                    <p className="text-sm text-gray-500 dark:text-gray-400">{window.error}</p>
+                  </div>
+                </div>
+              )
+            : window.tapp && window.code
+              ? (
+                  <TappPageSandbox
+                    tappInstance={window.tapp}
+                    code={window.code}
+                    onError={err => console.error('[TappWindow] Error:', err)}
+                    onNotification={onNotification}
+                  />
+                )
+              : null}
       </div>
 
       {/* 调整大小的手柄（支持鼠标和触摸） */}
@@ -501,8 +522,8 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(({
         <div
           key={direction}
           className={`absolute ${className} z-10`}
-          onMouseDown={(e) => handleResizeStart(e, direction)}
-          onTouchStart={(e) => handleResizeStart(e, direction)}
+          onMouseDown={e => handleResizeStart(e, direction)}
+          onTouchStart={e => handleResizeStart(e, direction)}
           onMouseEnter={(e) => {
             (e.target as HTMLElement).style.backgroundColor = 'color-mix(in srgb, var(--color-primary) 30%, transparent)'
           }}
@@ -516,19 +537,19 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(({
 }, (prevProps, nextProps) => {
   // 自定义比较函数，只在关键属性变化时重新渲染
   return (
-    prevProps.window.windowId === nextProps.window.windowId &&
-    prevProps.window.position.x === nextProps.window.position.x &&
-    prevProps.window.position.y === nextProps.window.position.y &&
-    prevProps.window.size.width === nextProps.window.size.width &&
-    prevProps.window.size.height === nextProps.window.size.height &&
-    prevProps.window.zIndex === nextProps.window.zIndex &&
-    prevProps.window.loading === nextProps.window.loading &&
-    prevProps.window.error === nextProps.window.error &&
-    prevProps.window.tapp === nextProps.window.tapp &&
-    prevProps.window.code === nextProps.window.code &&
-    prevProps.isActive === nextProps.isActive &&
-    prevProps.containerBounds.width === nextProps.containerBounds.width &&
-    prevProps.containerBounds.height === nextProps.containerBounds.height
+    prevProps.window.windowId === nextProps.window.windowId
+    && prevProps.window.position.x === nextProps.window.position.x
+    && prevProps.window.position.y === nextProps.window.position.y
+    && prevProps.window.size.width === nextProps.window.size.width
+    && prevProps.window.size.height === nextProps.window.size.height
+    && prevProps.window.zIndex === nextProps.window.zIndex
+    && prevProps.window.loading === nextProps.window.loading
+    && prevProps.window.error === nextProps.window.error
+    && prevProps.window.tapp === nextProps.window.tapp
+    && prevProps.window.code === nextProps.window.code
+    && prevProps.isActive === nextProps.isActive
+    && prevProps.containerBounds.width === nextProps.containerBounds.width
+    && prevProps.containerBounds.height === nextProps.containerBounds.height
   )
 })
 
@@ -548,7 +569,7 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
   const animConfig = useAnimationLevel()
   const noAnimation = animConfig.level === 'none'
   const runtime = getTappRuntime()
-  
+
   const containerRef = useRef<HTMLDivElement>(null)
   const schemeMenuRef = useRef<HTMLDivElement>(null)
   const [containerBounds, setContainerBounds] = useState({ width: 0, height: 0 })
@@ -559,7 +580,7 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
   const [availableTapps, setAvailableTapps] = useState<TappInstance[]>([])
   const [showSchemeMenu, setShowSchemeMenu] = useState(false)
   const [savedSchemes, setSavedSchemes] = useState<WindowScheme[]>([])
-  
+
   // 用于防抖的 ref
   const resizeTimeoutRef = useRef<number | null>(null)
   const [isSaving, setIsSaving] = useState(false)
@@ -571,25 +592,26 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
 
   // 点击外部关闭方案菜单
   useEffect(() => {
-    if (!showSchemeMenu) return
-    
+    if (!showSchemeMenu)
+      return
+
     const handleClickOutside = (e: MouseEvent) => {
       if (schemeMenuRef.current && !schemeMenuRef.current.contains(e.target as Node)) {
         setShowSchemeMenu(false)
       }
     }
-    
+
     // 延迟添加监听器，避免立即触发
     const timer = setTimeout(() => {
       document.addEventListener('mousedown', handleClickOutside)
     }, 0)
-    
+
     return () => {
       clearTimeout(timer)
       document.removeEventListener('mousedown', handleClickOutside)
     }
   }, [showSchemeMenu])
-  
+
   // 从云端加载已保存的方案
   useEffect(() => {
     const loadSchemes = async () => {
@@ -601,7 +623,8 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
             setSavedSchemes(schemes)
           }
         }
-      } catch (e) {
+      }
+      catch (e) {
         console.warn('Failed to load window schemes from cloud:', e)
       }
     }
@@ -616,14 +639,14 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
         setContainerBounds({ width: rect.width, height: rect.height })
       }
     }
-    
+
     const debouncedUpdateBounds = () => {
       if (resizeTimeoutRef.current) {
         cancelAnimationFrame(resizeTimeoutRef.current)
       }
       resizeTimeoutRef.current = requestAnimationFrame(updateBounds)
     }
-    
+
     updateBounds() // 初始化时立即执行
     window.addEventListener('resize', debouncedUpdateBounds, { passive: true })
     return () => {
@@ -642,7 +665,7 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
       const tapps = runtime.getAllTapps()
       setAvailableTapps(tapps.filter(t => t.manifest.hasPage))
     }, 'normal')
-    
+
     return cancelIdle
   }, [runtime])
 
@@ -663,7 +686,7 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
 
     const windowId = generateWindowId()
     const position = getInitialPosition(windows.length)
-    
+
     // 创建初始窗口状态
     const newWindow: TappWindow = {
       windowId,
@@ -686,13 +709,13 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
     // 异步加载 Tapp
     try {
       await runtime.waitForSync()
-      
+
       const instance = runtime.getTapp(tappId)
       if (!instance) {
-        setWindows(prev => prev.map(w => 
-          w.windowId === windowId 
+        setWindows(prev => prev.map(w =>
+          w.windowId === windowId
             ? { ...w, loading: false, error: t.tapp.appNotExist }
-            : w
+            : w,
         ))
         return
       }
@@ -710,29 +733,31 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
         await runtime.startTapp(tappId)
       }
 
-      setWindows(prev => prev.map(w => 
-        w.windowId === windowId 
+      setWindows(prev => prev.map(w =>
+        w.windowId === windowId
           ? { ...w, tapp: instance, code: tappCode, loading: false }
-          : w
+          : w,
       ))
-    } catch (err) {
-      setWindows(prev => prev.map(w => 
-        w.windowId === windowId 
+    }
+    catch (err) {
+      setWindows(prev => prev.map(w =>
+        w.windowId === windowId
           ? { ...w, loading: false, error: err instanceof Error ? err.message : t.tapp.loadAppFailed }
-          : w
+          : w,
       ))
     }
   }, [windows.length, nextZIndex, runtime, t.tapp.appNotExist, t.tapp.loadAppFailed])
 
   // 关闭窗口（不触发暂停应用逻辑，应用继续在后台运行）
   const closeWindow = useCallback((windowId: string) => {
-    setWindows(prev => {
+    setWindows((prev) => {
       const remaining = prev.filter(w => w.windowId !== windowId)
       // 如果关闭的是活动窗口，激活下一个
       if (activeWindowId === windowId && remaining.length > 0) {
         const topWindow = remaining.reduce((a, b) => a.zIndex > b.zIndex ? a : b)
         setActiveWindowId(topWindow.windowId)
-      } else if (remaining.length === 0) {
+      }
+      else if (remaining.length === 0) {
         setActiveWindowId(null)
       }
       return remaining
@@ -742,29 +767,29 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
   // 聚焦窗口
   const focusWindow = useCallback((windowId: string) => {
     setActiveWindowId(windowId)
-    setWindows(prev => prev.map(w => 
-      w.windowId === windowId 
+    setWindows(prev => prev.map(w =>
+      w.windowId === windowId
         ? { ...w, zIndex: nextZIndex }
-        : w
+        : w,
     ))
     setNextZIndex(prev => prev + 1)
   }, [nextZIndex])
 
   // 移动窗口
-  const moveWindow = useCallback((windowId: string, position: { x: number; y: number }) => {
-    setWindows(prev => prev.map(w => 
-      w.windowId === windowId 
+  const moveWindow = useCallback((windowId: string, position: { x: number, y: number }) => {
+    setWindows(prev => prev.map(w =>
+      w.windowId === windowId
         ? { ...w, position }
-        : w
+        : w,
     ))
   }, [])
 
   // 调整窗口大小
-  const resizeWindow = useCallback((windowId: string, size: { width: number; height: number }) => {
-    setWindows(prev => prev.map(w => 
-      w.windowId === windowId 
+  const resizeWindow = useCallback((windowId: string, size: { width: number, height: number }) => {
+    setWindows(prev => prev.map(w =>
+      w.windowId === windowId
         ? { ...w, size }
-        : w
+        : w,
     ))
   }, [])
 
@@ -777,7 +802,7 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
         console.warn('Failed to get CSRF token, skipping cloud save')
         return
       }
-      
+
       const response = await fetch(`${API_URL}/api/config/tapp-window-schemes`, {
         method: 'POST',
         headers: {
@@ -786,24 +811,26 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
         },
         credentials: 'include',
         body: JSON.stringify({
-          schemes: JSON.stringify(schemes)
+          schemes: JSON.stringify(schemes),
         }),
       })
-      
+
       if (!response.ok) {
         throw new Error('Failed to save to cloud')
       }
-    } catch (e) {
+    }
+    catch (e) {
       console.warn('Failed to save window schemes to cloud:', e)
     }
   }, [])
 
   // 保存当前窗口方案
   const saveCurrentScheme = useCallback(async () => {
-    if (windows.length === 0 || isSaving) return
-    
+    if (windows.length === 0 || isSaving)
+      return
+
     setIsSaving(true)
-    
+
     const schemeWindows: WindowSchemeItem[] = windows
       .filter(w => w.tapp) // 只保存已加载的窗口
       .map(w => ({
@@ -811,24 +838,24 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
         position: { ...w.position },
         size: { ...w.size },
       }))
-    
+
     if (schemeWindows.length === 0) {
       setIsSaving(false)
       return
     }
-    
+
     const newScheme: WindowScheme = {
       id: `scheme-${Date.now()}`,
       name: `${t.tapp.schemeNamePrefix} ${savedSchemes.length + 1}`,
       windows: schemeWindows,
       createdAt: Date.now(),
     }
-    
+
     const updatedSchemes = [...savedSchemes, newScheme]
     setSavedSchemes(updatedSchemes)
-    
+
     await saveToCloud(updatedSchemes)
-    
+
     setIsSaving(false)
     setShowSchemeMenu(false)
   }, [windows, savedSchemes, isSaving, saveToCloud, t.tapp.schemeNamePrefix])
@@ -837,9 +864,9 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
   const loadScheme = useCallback(async (scheme: WindowScheme) => {
     // 1. 先关闭菜单
     setShowSchemeMenu(false)
-    
+
     // 2. 清空所有当前窗口并等待状态更新完成
-    await new Promise<void>(resolve => {
+    await new Promise<void>((resolve) => {
       setWindows([])
       setActiveWindowId(null)
       // 使用 requestAnimationFrame 确保 React 状态更新完成
@@ -849,15 +876,15 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
         })
       })
     })
-    
+
     // 3. 准备所有新窗口的初始状态
     const newWindows: TappWindow[] = []
     const baseZIndex = nextZIndex
-    
+
     for (let i = 0; i < scheme.windows.length && i < MAX_WINDOWS; i++) {
       const schemeWindow = scheme.windows[i]
       const windowId = generateWindowId()
-      
+
       newWindows.push({
         windowId,
         tappId: schemeWindow.tappId,
@@ -871,27 +898,27 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
         zIndex: baseZIndex + i,
       })
     }
-    
+
     // 4. 一次性设置所有窗口（批量更新，减少重渲染）
     if (newWindows.length > 0) {
       setWindows(newWindows)
       setActiveWindowId(newWindows[newWindows.length - 1].windowId)
       setNextZIndex(baseZIndex + newWindows.length)
     }
-    
+
     // 5. 异步加载所有 Tapp 的资源
     await runtime.waitForSync()
-    
+
     for (const newWindow of newWindows) {
       const { windowId, tappId } = newWindow
-      
+
       try {
         const instance = runtime.getTapp(tappId)
         if (!instance) {
-          setWindows(prev => prev.map(w => 
-            w.windowId === windowId 
+          setWindows(prev => prev.map(w =>
+            w.windowId === windowId
               ? { ...w, loading: false, error: t.tapp.appNotExist }
-              : w
+              : w,
           ))
           continue
         }
@@ -909,16 +936,17 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
           await runtime.startTapp(tappId)
         }
 
-        setWindows(prev => prev.map(w => 
-          w.windowId === windowId 
+        setWindows(prev => prev.map(w =>
+          w.windowId === windowId
             ? { ...w, tapp: instance, code: tappCode, loading: false }
-            : w
+            : w,
         ))
-      } catch (err) {
-        setWindows(prev => prev.map(w => 
-          w.windowId === windowId 
+      }
+      catch (err) {
+        setWindows(prev => prev.map(w =>
+          w.windowId === windowId
             ? { ...w, loading: false, error: err instanceof Error ? err.message : t.tapp.loadAppFailed }
-            : w
+            : w,
         ))
       }
     }
@@ -928,11 +956,9 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
   const deleteScheme = useCallback(async (schemeId: string) => {
     const updatedSchemes = savedSchemes.filter(s => s.id !== schemeId)
     setSavedSchemes(updatedSchemes)
-    
+
     await saveToCloud(updatedSchemes)
   }, [savedSchemes, saveToCloud])
-
-
 
   // 可用于添加的 Tapps（允许打开同一应用的多个实例）
   const selectableTapps = useMemo(() => {
@@ -944,7 +970,7 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
     <div className="fixed inset-0 overflow-hidden" data-no-ripple>
       {/* 顶部工具栏 - 简化合并 */}
       <div className="absolute top-4 left-4 z-[1000]">
-        <div 
+        <div
           className="flex items-center gap-2 rounded-xl px-2 py-1.5 backdrop-blur-md"
           style={{
             backgroundColor: 'color-mix(in srgb, var(--bg-card) 80%, transparent)',
@@ -972,12 +998,12 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
           {isAuthenticated && (
             <>
               {onBack && (
-                <div 
-                  className="w-px h-6" 
-                  style={{ backgroundColor: 'var(--border-color)' }} 
+                <div
+                  className="w-px h-6"
+                  style={{ backgroundColor: 'var(--border-color)' }}
                 />
               )}
-              
+
               <div className="relative" ref={schemeMenuRef}>
                 <motion.button
                   onClick={() => setShowSchemeMenu(!showSchemeMenu)}
@@ -990,95 +1016,101 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
                   <FaTh className="w-4 h-4" />
                   <span className="text-xs font-medium">{t.tapp.scheme}</span>
                 </motion.button>
-            
+
                 {/* 方案下拉菜单 */}
                 <AnimatePresence>
                   {showSchemeMenu && (
-                      <motion.div
-                        className="absolute top-full left-0 mt-2 w-56 rounded-xl overflow-hidden z-[1001]"
-                        style={{
-                          backgroundColor: 'var(--bg-card)',
-                          border: '1px solid var(--border-color)',
-                          boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.15)',
-                        }}
-                        initial={{ opacity: 0, y: -8, scale: 0.95 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: -8, scale: 0.95 }}
-                        transition={{ duration: 0.15 }}
-                      >
-                        {/* 保存当前方案按钮 */}
-                        {windows.length > 0 && (
-                          <motion.button
-                            onClick={saveCurrentScheme}
-                            disabled={isSaving}
-                            className="w-full flex items-center gap-3 px-4 py-3 text-sm transition-colors disabled:opacity-50"
-                            style={{ color: 'var(--text-primary)' }}
-                            whileHover={isSaving ? undefined : { backgroundColor: 'var(--bg-hover)' }}
-                          >
-                            {isSaving ? (
-                              <FaSpinner className="w-4 h-4 animate-spin" style={{ color: 'var(--color-primary)' }} />
-                            ) : (
-                              <FaSave className="w-4 h-4" style={{ color: 'var(--color-primary)' }} />
-                            )}
-                            <span>{isSaving ? t.tapp.saving : t.tapp.saveCurrentScheme}</span>
-                          </motion.button>
-                        )}
-                        
-                        {/* 分隔线 */}
-                        {windows.length > 0 && savedSchemes.length > 0 && (
-                          <div 
-                            className="mx-3 my-1 h-px"
-                            style={{ backgroundColor: 'var(--border-color)' }}
-                          />
-                        )}
-                        
-                        {/* 已保存的方案列表 */}
-                        {savedSchemes.length > 0 ? (
-                          <div className="max-h-48 overflow-y-auto py-1">
-                            {savedSchemes.map(scheme => (
-                              <div
-                                key={scheme.id}
-                                className="flex items-center justify-between px-4 py-2.5 group transition-colors hover:bg-[var(--bg-hover)]"
-                              >
-                                <motion.button
-                                  onClick={() => loadScheme(scheme)}
-                                  className="flex-1 text-left text-sm truncate"
-                                  style={{ color: 'var(--text-primary)' }}
-                                  whileTap={{ scale: 0.98 }}
+                    <motion.div
+                      className="absolute top-full left-0 mt-2 w-56 rounded-xl overflow-hidden z-[1001]"
+                      style={{
+                        backgroundColor: 'var(--bg-card)',
+                        border: '1px solid var(--border-color)',
+                        boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.15)',
+                      }}
+                      initial={{ opacity: 0, y: -8, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -8, scale: 0.95 }}
+                      transition={{ duration: 0.15 }}
+                    >
+                      {/* 保存当前方案按钮 */}
+                      {windows.length > 0 && (
+                        <motion.button
+                          onClick={saveCurrentScheme}
+                          disabled={isSaving}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-sm transition-colors disabled:opacity-50"
+                          style={{ color: 'var(--text-primary)' }}
+                          whileHover={isSaving ? undefined : { backgroundColor: 'var(--bg-hover)' }}
+                        >
+                          {isSaving
+                            ? (
+                                <FaSpinner className="w-4 h-4 animate-spin" style={{ color: 'var(--color-primary)' }} />
+                              )
+                            : (
+                                <FaSave className="w-4 h-4" style={{ color: 'var(--color-primary)' }} />
+                              )}
+                          <span>{isSaving ? t.tapp.saving : t.tapp.saveCurrentScheme}</span>
+                        </motion.button>
+                      )}
+
+                      {/* 分隔线 */}
+                      {windows.length > 0 && savedSchemes.length > 0 && (
+                        <div
+                          className="mx-3 my-1 h-px"
+                          style={{ backgroundColor: 'var(--border-color)' }}
+                        />
+                      )}
+
+                      {/* 已保存的方案列表 */}
+                      {savedSchemes.length > 0
+                        ? (
+                            <div className="max-h-48 overflow-y-auto py-1">
+                              {savedSchemes.map(scheme => (
+                                <div
+                                  key={scheme.id}
+                                  className="flex items-center justify-between px-4 py-2.5 group transition-colors hover:bg-[var(--bg-hover)]"
                                 >
-                                  <span className="block truncate">{scheme.name}</span>
-                                  <span 
-                                    className="text-xs"
-                                    style={{ color: 'var(--text-muted)' }}
+                                  <motion.button
+                                    onClick={() => loadScheme(scheme)}
+                                    className="flex-1 text-left text-sm truncate"
+                                    style={{ color: 'var(--text-primary)' }}
+                                    whileTap={{ scale: 0.98 }}
                                   >
-                                    {t.tapp.windowCount.replace('{count}', String(scheme.windows.length))}
-                                  </span>
-                                </motion.button>
-                                <motion.button
-                                  onClick={(e: React.MouseEvent) => {
-                                    e.stopPropagation()
-                                    deleteScheme(scheme.id)
-                                  }}
-                                  className="p-1.5 opacity-0 group-hover:opacity-100 transition-opacity rounded"
-                                  style={{ color: 'var(--text-muted)' }}
-                                  whileHover={{ color: 'var(--color-error, #ef4444)' }}
-                                  whileTap={{ scale: 0.9 }}
-                                  title={t.tapp.deleteScheme}
-                                >
-                                  <FaTrash className="w-3.5 h-3.5" />
-                                </motion.button>
+                                    <span className="block truncate">{scheme.name}</span>
+                                    <span
+                                      className="text-xs"
+                                      style={{ color: 'var(--text-muted)' }}
+                                    >
+                                      {t.tapp.windowCount.replace('{count}', String(scheme.windows.length))}
+                                    </span>
+                                  </motion.button>
+                                  <motion.button
+                                    onClick={(e: React.MouseEvent) => {
+                                      e.stopPropagation()
+                                      deleteScheme(scheme.id)
+                                    }}
+                                    className="p-1.5 opacity-0 group-hover:opacity-100 transition-opacity rounded"
+                                    style={{ color: 'var(--text-muted)' }}
+                                    whileHover={{ color: 'var(--color-error, #ef4444)' }}
+                                    whileTap={{ scale: 0.9 }}
+                                    title={t.tapp.deleteScheme}
+                                  >
+                                    <FaTrash className="w-3.5 h-3.5" />
+                                  </motion.button>
+                                </div>
+                              ))}
+                            </div>
+                          )
+                        : windows.length === 0
+                          ? (
+                              <div
+                                className="px-4 py-5 text-center text-sm"
+                                style={{ color: 'var(--text-muted)' }}
+                              >
+                                {t.tapp.noSavedSchemes}
                               </div>
-                            ))}
-                          </div>
-                        ) : windows.length === 0 ? (
-                          <div 
-                            className="px-4 py-5 text-center text-sm"
-                            style={{ color: 'var(--text-muted)' }}
-                          >
-                            {t.tapp.noSavedSchemes}
-                          </div>
-                        ) : null}
-                      </motion.div>
+                            )
+                          : null}
+                    </motion.div>
                   )}
                 </AnimatePresence>
               </div>
@@ -1086,20 +1118,22 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
           )}
 
           {/* 分隔线 */}
-          <div 
-            className="w-px h-6" 
-            style={{ backgroundColor: 'var(--border-color)' }} 
+          <div
+            className="w-px h-6"
+            style={{ backgroundColor: 'var(--border-color)' }}
           />
 
           {/* 窗口计数 + 添加按钮 */}
           <div className="flex items-center gap-2">
-            <span 
+            <span
               className="px-2 py-1 text-sm font-medium"
               style={{ color: 'var(--text-muted)' }}
             >
-              {windows.length}/{MAX_WINDOWS}
+              {windows.length}
+              /
+              {MAX_WINDOWS}
             </span>
-            
+
             {windows.length < MAX_WINDOWS && (
               <motion.button
                 onClick={() => setShowTappSelector(true)}
@@ -1117,7 +1151,7 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
       </div>
 
       {/* 窗口容器 */}
-      <div 
+      <div
         ref={containerRef}
         className="absolute inset-0 overflow-hidden"
       >
@@ -1180,7 +1214,7 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
               exit={{ opacity: 0 }}
               onClick={() => setShowTappSelector(false)}
             />
-            
+
             {/* 选择器面板 - 使用 flex 居中 */}
             <div className="fixed inset-0 z-[2001] flex items-center justify-center pointer-events-none">
               <motion.div
@@ -1196,11 +1230,11 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
                 transition={{ type: 'spring', stiffness: 300, damping: 25 }}
               >
                 {/* 头部 */}
-                <div 
+                <div
                   className="px-5 py-4 flex items-center justify-between"
                   style={{ borderBottom: '1px solid var(--border-color)' }}
                 >
-                  <h3 
+                  <h3
                     className="text-lg font-semibold"
                     style={{ color: 'var(--text-primary)' }}
                   >
@@ -1219,50 +1253,52 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
 
                 {/* 应用列表 - 网格布局 */}
                 <div className="p-4 overflow-y-auto max-h-[calc(70vh-80px)]">
-                  {selectableTapps.length === 0 ? (
-                    <div className="text-center py-8">
-                      <p style={{ color: 'var(--text-muted)' }}>
-                        {t.tapp.noAvailableApps}
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-4 gap-3">
-                      {selectableTapps.map(tapp => {
-                        const style = getTappIconStyle(tapp.manifest)
-                        return (
-                          <motion.button
-                            key={tapp.id}
-                            onClick={() => openTappWindow(tapp.id)}
-                            className="flex flex-col items-center gap-2 p-3 rounded-xl transition-colors"
-                            whileHover={{ backgroundColor: 'var(--bg-hover)' }}
-                            whileTap={{ scale: 0.95 }}
-                            title={tapp.manifest.description}
-                          >
-                            {style && (
-                              <div 
-                                className={`w-12 h-12 rounded-xl ${style.className} flex items-center justify-center text-white font-bold`}
-                                style={style.style}
+                  {selectableTapps.length === 0
+                    ? (
+                        <div className="text-center py-8">
+                          <p style={{ color: 'var(--text-muted)' }}>
+                            {t.tapp.noAvailableApps}
+                          </p>
+                        </div>
+                      )
+                    : (
+                        <div className="grid grid-cols-4 gap-3">
+                          {selectableTapps.map((tapp) => {
+                            const style = getTappIconStyle(tapp.manifest)
+                            return (
+                              <motion.button
+                                key={tapp.id}
+                                onClick={() => openTappWindow(tapp.id)}
+                                className="flex flex-col items-center gap-2 p-3 rounded-xl transition-colors"
+                                whileHover={{ backgroundColor: 'var(--bg-hover)' }}
+                                whileTap={{ scale: 0.95 }}
+                                title={tapp.manifest.description}
                               >
-                                <TappIcon
-                                  icon={tapp.manifest.icon}
-                                  iconSvg={tapp.manifest.iconSvg}
-                                  name={tapp.manifest.name}
-                                  sizeClass="w-6 h-6"
-                                  textSizeClass="text-lg"
-                                />
-                              </div>
-                            )}
-                            <span 
-                              className="text-xs text-center w-full truncate"
-                              style={{ color: 'var(--text-primary)' }}
-                            >
-                              {tapp.manifest.name}
-                            </span>
-                          </motion.button>
-                        )
-                      })}
-                    </div>
-                  )}
+                                {style && (
+                                  <div
+                                    className={`w-12 h-12 rounded-xl ${style.className} flex items-center justify-center text-white font-bold`}
+                                    style={style.style}
+                                  >
+                                    <TappIcon
+                                      icon={tapp.manifest.icon}
+                                      iconSvg={tapp.manifest.iconSvg}
+                                      name={tapp.manifest.name}
+                                      sizeClass="w-6 h-6"
+                                      textSizeClass="text-lg"
+                                    />
+                                  </div>
+                                )}
+                                <span
+                                  className="text-xs text-center w-full truncate"
+                                  style={{ color: 'var(--text-primary)' }}
+                                >
+                                  {tapp.manifest.name}
+                                </span>
+                              </motion.button>
+                            )
+                          })}
+                        </div>
+                      )}
                 </div>
               </motion.div>
             </div>

@@ -16,38 +16,38 @@
 html,
 body,
 * {
-    -ms-overflow-style: none !important; /* IE/Edge */
+  -ms-overflow-style: none !important; /* IE/Edge */
 }
 
 html::-webkit-scrollbar,
 body::-webkit-scrollbar,
 *::-webkit-scrollbar {
-    display: none !important; /* Chrome/Safari/Opera */
-    width: 0 !important;
-    height: 0 !important;
+  display: none !important; /* Chrome/Safari/Opera */
+  width: 0 !important;
+  height: 0 !important;
 }
 
 html {
-    overflow-y: auto;
-    overflow-x: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 body {
-    overflow-x: hidden;
+  overflow-x: hidden;
 }
 
 /* CSS 变量 */
 :root {
-    --scrollbar-width: 6px;
-    --scrollbar-track-color: rgba(0, 0, 0, 0.1);
-    --scrollbar-thumb-color: rgba(0, 0, 0, 0.3);
-    --scrollbar-thumb-hover-color: rgba(0, 0, 0, 0.5);
+  --scrollbar-width: 6px;
+  --scrollbar-track-color: rgba(0, 0, 0, 0.1);
+  --scrollbar-thumb-color: rgba(0, 0, 0, 0.3);
+  --scrollbar-thumb-hover-color: rgba(0, 0, 0, 0.5);
 }
 
 html.dark {
-    --scrollbar-track-color: rgba(255, 255, 255, 0.1);
-    --scrollbar-thumb-color: rgba(255, 255, 255, 0.3);
-    --scrollbar-thumb-hover-color: rgba(255, 255, 255, 0.5);
+  --scrollbar-track-color: rgba(255, 255, 255, 0.1);
+  --scrollbar-thumb-color: rgba(255, 255, 255, 0.3);
+  --scrollbar-thumb-hover-color: rgba(255, 255, 255, 0.5);
 }
 
 /* ========================================
@@ -60,8 +60,8 @@ html.dark {
  * 需要让退出页面脱离文档流，不影响新页面布局
  */
 main.relative {
-    position: relative;
-    isolation: isolate;
+  position: relative;
+  isolation: isolate;
 }
 
 /*
@@ -69,17 +69,17 @@ main.relative {
  * 页面级动画由 App.tsx 的 PageWrapper 处理
  */
 .animated-view-container {
-    /* 容器继承父级尺寸 */
-    width: 100%;
+  /* 容器继承父级尺寸 */
+  width: 100%;
 }
 
 /* 移动端滚动修复 */
 @media (max-width: 767px) {
-    .animated-view-container {
-        /* 确保容器不限制高度，允许内容自然扩展 */
-        min-height: 0;
-        height: auto;
-    }
+  .animated-view-container {
+    /* 确保容器不限制高度，允许内容自然扩展 */
+    min-height: 0;
+    height: auto;
+  }
 }
 
 /* ========================================
@@ -87,9 +87,9 @@ main.relative {
    ======================================== */
 
 @media (prefers-reduced-motion: reduce) {
-    /* 简化 framer-motion 动画 */
-    * {
-        animation-duration: 0.01ms !important;
-        transition-duration: 0.01ms !important;
-    }
+  /* 简化 framer-motion 动画 */
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

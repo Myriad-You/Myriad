@@ -2,16 +2,16 @@
  * 综合报告空状态占位组件
  */
 
-import { motionShim as motion } from '@lib/motionShim';
-import { useI18n } from '../../contexts/I18nContext';
+import { motionShim as motion } from '@lib/motionShim'
+import { useI18n } from '../../contexts/I18nContext'
 
 interface EmptyComprehensiveReportProps {
-  isAdmin: boolean;
+  isAdmin: boolean
 }
 
 export function EmptyComprehensiveReport({ isAdmin }: EmptyComprehensiveReportProps) {
-  const { t } = useI18n();
-  
+  const { t } = useI18n()
+
   return (
     <motion.div
       className="flex-shrink-0 snap-center w-[280px] lg:w-full"
@@ -61,5 +61,5 @@ export function EmptyComprehensiveReport({ isAdmin }: EmptyComprehensiveReportPr
         </div>
       </div>
     </motion.div>
-  );
+  )
 }

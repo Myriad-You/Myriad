@@ -3,12 +3,13 @@
  * 封装 React Router 的 Link，添加额外功能
  */
 
-import { Link as RouterLink, LinkProps } from 'react-router-dom';
-import { forwardRef } from 'react';
+import type { LinkProps } from 'react-router-dom'
+import { forwardRef } from 'react'
+import { Link as RouterLink } from 'react-router-dom'
 
 interface CustomLinkProps extends Omit<LinkProps, 'to' | 'prefetch'> {
-  href: string;
-  prefetch?: boolean;
+  href: string
+  prefetch?: boolean
 }
 
 /**
@@ -18,10 +19,10 @@ interface CustomLinkProps extends Omit<LinkProps, 'to' | 'prefetch'> {
 export const Link = forwardRef<HTMLAnchorElement, CustomLinkProps>(
   ({ href, prefetch, ...props }, ref) => {
     // @ts-ignore - prefetch type mismatch between boolean and PrefetchBehavior
-    return <RouterLink ref={ref} to={href} {...props} />;
-  }
-);
+    return <RouterLink ref={ref} to={href} {...props} />
+  },
+)
 
-Link.displayName = 'Link';
+Link.displayName = 'Link'
 
-export default Link;
+export default Link

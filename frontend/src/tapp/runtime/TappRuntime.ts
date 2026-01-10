@@ -1,44 +1,44 @@
-﻿/**
+/**
  * Tapp Runtime - 运行时主控制器
  * 管理 Tapp 的生命周期、加载和执行
- * 
+ *
  * 数据存储策略：
  * - 所有数据存储在后端数据库
  * - 内存缓存用于快速访问
  * - 通过 API 同步状态
- * 
+ *
  * 性能优化：
  * - 请求去重防止并发重复请求
  * - 智能缓存策略减少 API 调用
  * - 懒加载按需获取 Tapp 详情
  */
 
+import type { TappCodeStructure } from '../examples/tapps/types'
 import type {
-  TappManifest,
+  BackgroundRequirement,
+  CustomPlatformConfig,
+  RegisteredWidget,
   TappInstance,
+  TappManifest,
   TappPermission,
   TappStatus,
-  RegisteredWidget,
-  CustomPlatformConfig,
   WidgetRegistration,
-  BackgroundRequirement,
 } from '../types'
-import { TappPermissionController } from './TappPermission'
 import * as TappApiService from '../services/TappApiService'
-import type { TappCodeStructure } from '../examples/tapps/types'
+import { TappPermissionController } from './TappPermission'
 
 /** 运行时事件类型 */
-type RuntimeEvent =
-  | 'tapp:installed'
-  | 'tapp:uninstalled'
-  | 'tapp:started'
-  | 'tapp:stopped'
-  | 'tapp:error'
-  | 'widget:registered'
-  | 'widget:unregistered'
-  | 'platform:registered'
-  | 'sync:complete'
-  | 'background:changed'  // 后台需求变化
+type RuntimeEvent
+  = | 'tapp:installed'
+    | 'tapp:uninstalled'
+    | 'tapp:started'
+    | 'tapp:stopped'
+    | 'tapp:error'
+    | 'widget:registered'
+    | 'widget:unregistered'
+    | 'platform:registered'
+    | 'sync:complete'
+    | 'background:changed' // 后台需求变化
 
 type RuntimeEventCallback = (data: unknown) => void
 
@@ -109,9 +109,9 @@ export class TappRuntime {
 
   /** 缓存 TTL（毫秒） */
   private static readonly CACHE_TTL = {
-    code: 5 * 60 * 1000,     // 代码缓存 5 分钟
-    tappList: 30 * 1000,     // Tapp 列表 30 秒
-    widgets: 60 * 1000,      // Widget 列表 60 秒
+    code: 5 * 60 * 1000, // 代码缓存 5 分钟
+    tappList: 30 * 1000, // Tapp 列表 30 秒
+    widgets: 60 * 1000, // Widget 列表 60 秒
   }
 
   /** 上次同步时间 */
@@ -119,7 +119,7 @@ export class TappRuntime {
 
   private constructor() {
     // 异步从后端同步状态
-    this.syncFromBackend().catch(err => {
+    this.syncFromBackend().catch((err) => {
       console.error('[TappRuntime] Initial sync failed:', err)
       this.syncError = err
       // 即使失败也标记为已同步，避免无限等待
@@ -148,7 +148,8 @@ export class TappRuntime {
 
     // 使用请求去重
     return this.deduplicator.dedupe('sync', async () => {
-      if (this.syncing) return
+      if (this.syncing)
+        return
       this.syncing = true
 
       try {
@@ -177,12 +178,13 @@ export class TappRuntime {
                 installedAt: detail.installed_at,
                 lastRunAt: detail.last_run_at,
                 grantedPermissions: detail.granted_permissions as TappPermission[],
-                userRole: userRole,
+                userRole,
                 isTemporary: detail.is_temporary ?? tapp.is_temporary ?? false,
                 isAdminTapp: detail.is_admin_tapp ?? tapp.is_admin_tapp ?? false,
               }
               return { success: true, tappId: tapp.id, instance, isRunning: detail.status === 'running' }
-            } catch (error) {
+            }
+            catch (error) {
               console.warn(`[TappRuntime] Failed to get details for ${tapp.id}:`, error)
               return { success: false, tappId: tapp.id }
             }
@@ -207,11 +209,12 @@ export class TappRuntime {
         }
 
         // 从 manifest 补充注册缺失的 widgets（批量处理优化）
-        const widgetsToSync: Array<{ tappId: string; widget: RegisteredWidget }> = []
-        
+        const widgetsToSync: Array<{ tappId: string, widget: RegisteredWidget }> = []
+
         for (const [tappId, instance] of this.installedTapps) {
           const { manifest } = instance
-          if (!manifest.widgets || manifest.widgets.length === 0) continue
+          if (!manifest.widgets || manifest.widgets.length === 0)
+            continue
 
           for (const widgetDef of manifest.widgets) {
             const fullId = `tapp.${tappId}.${widgetDef.id}`
@@ -246,18 +249,20 @@ export class TappRuntime {
           await Promise.allSettled(
             batch.map(({ tappId, widget }) =>
               TappApiService.registerTappWidget(tappId, widget.config as WidgetRegistration)
-                .catch(() => { /* 静默失败，widget 可在下次同步时重试 */ })
-            )
+                .catch(() => { /* 静默失败，widget 可在下次同步时重试 */ }),
+            ),
           )
         }
 
         this.synced = true
         this.lastSyncTime = Date.now()
         this.emit('sync:complete', { tapps: tapps.length, widgets: this.registeredWidgets.size })
-      } catch (error) {
+      }
+      catch (error) {
         console.error('[TappRuntime] Failed to sync from backend:', error)
         throw error
-      } finally {
+      }
+      finally {
         this.syncing = false
       }
     })
@@ -268,7 +273,8 @@ export class TappRuntime {
    * 包含超时保护（10秒）
    */
   async waitForSync(): Promise<void> {
-    if (this.synced) return
+    if (this.synced)
+      return
 
     return new Promise((resolve, reject) => {
       // 超时保护：10秒后自动解决
@@ -290,7 +296,8 @@ export class TappRuntime {
         unsubscribe()
         if (this.syncError) {
           reject(this.syncError)
-        } else {
+        }
+        else {
           resolve()
         }
       }
@@ -303,7 +310,7 @@ export class TappRuntime {
   async installTapp(
     manifest: TappManifest,
     code: TappCodeStructure,
-    requestedPermissions?: TappPermission[]
+    requestedPermissions?: TappPermission[],
   ): Promise<TappInstance> {
     // 验证 Manifest
     const validation = TappPermissionController.validateManifestPermissions(manifest)
@@ -319,7 +326,7 @@ export class TappRuntime {
     // 通过 API 安装（传递完整的代码结构，包括 CSS 和 HTML 模板）
     const result = await TappApiService.installFromCode(manifest, code)
     const detail = await TappApiService.getTapp(result.id)
-    
+
     // 将后端返回的 user_role 转换为 UserRole 类型
     const userRole = (detail.user_role as 'guest' | 'user' | 'admin') || 'guest'
     const instance: TappInstance = {
@@ -329,7 +336,7 @@ export class TappRuntime {
       installedAt: detail.installed_at,
       lastRunAt: detail.last_run_at,
       grantedPermissions: detail.granted_permissions as TappPermission[],
-      userRole: userRole,
+      userRole,
       isTemporary: detail.is_temporary ?? result.is_temporary ?? false,
       isAdminTapp: detail.is_admin_tapp ?? result.is_admin_tapp ?? false,
     }
@@ -364,7 +371,7 @@ export class TappRuntime {
 
     for (const widgetDef of manifest.widgets) {
       const fullId = `tapp.${manifest.id}.${widgetDef.id}`
-      
+
       // 检查是否已注册
       if (this.registeredWidgets.has(fullId)) {
         widgetsRegistered++
@@ -391,11 +398,12 @@ export class TappRuntime {
 
       this.registeredWidgets.set(fullId, widget)
       widgetsRegistered++
-      
+
       // 同步到后端
       try {
         await TappApiService.registerTappWidget(manifest.id, widget.config as WidgetRegistration)
-      } catch (error) {
+      }
+      catch (error) {
         console.error(`[TappRuntime] Failed to sync widget ${fullId} to backend:`, error)
       }
 
@@ -539,7 +547,7 @@ export class TappRuntime {
   async fetchTappCode(tappId: string, widgetSize?: string): Promise<TappCodeStructure> {
     // 缓存 key 包含 widgetSize，因为不同尺寸可能有不同的 HTML 模板
     const cacheKey = widgetSize ? `${tappId}:${widgetSize}` : tappId
-    
+
     // 优先从缓存获取（带 TTL 验证）
     const cached = this.codeCache.get(cacheKey)
     if (cached && Date.now() - cached.timestamp < cached.ttl) {
@@ -551,7 +559,7 @@ export class TappRuntime {
       try {
         // 尝试使用新的资源 API（获取完整结构）
         const resources = await TappApiService.getTappResources(tappId)
-        
+
         const codeStructure: TappCodeStructure = {
           core: resources.code,
           styles: resources.styles,
@@ -559,7 +567,7 @@ export class TappRuntime {
           widgetCSS: resources.widgetCSS,
           pageCSS: resources.pageCSS,
         }
-        
+
         // 🔍 调试：构建的代码结构
         console.log('[TappRuntime.fetchTappCode] 构建代码结构:', {
           tappId,
@@ -572,39 +580,41 @@ export class TappRuntime {
           hasPageCSS: !!codeStructure.pageCSS,
           pageCSSLength: codeStructure.pageCSS?.length || 0,
         })
-        
+
         // 根据 widgetSize 选择对应的 HTML 模板
         if (resources.widgetTemplates && widgetSize) {
           codeStructure.widgetHtml = resources.widgetTemplates[widgetSize]
-        } else if (resources.widgetTemplates) {
+        }
+        else if (resources.widgetTemplates) {
           // 如果没有指定尺寸，取第一个模板
           const firstKey = Object.keys(resources.widgetTemplates)[0]
           if (firstKey) {
             codeStructure.widgetHtml = resources.widgetTemplates[firstKey]
           }
         }
-        
+
         // 存入缓存（带 TTL）
         this.codeCache.set(cacheKey, {
           data: codeStructure,
           timestamp: Date.now(),
           ttl: TappRuntime.CACHE_TTL.code,
         })
-        
+
         return codeStructure
-      } catch {
+      }
+      catch {
         // 回退到旧 API（只获取代码）
         const codeString = await TappApiService.getTappCode(tappId)
         const codeStructure: TappCodeStructure = {
           core: codeString,
         }
-        
+
         this.codeCache.set(cacheKey, {
           data: codeStructure,
           timestamp: Date.now(),
           ttl: TappRuntime.CACHE_TTL.code,
         })
-        
+
         return codeStructure
       }
     })
@@ -633,7 +643,8 @@ export class TappRuntime {
           this.codeCache.delete(key)
         }
       }
-    } else {
+    }
+    else {
       this.codeCache.clear()
     }
   }
@@ -788,10 +799,11 @@ export class TappRuntime {
   private emit(event: RuntimeEvent, data: unknown): void {
     const listeners = this.eventListeners.get(event)
     if (listeners) {
-      listeners.forEach(callback => {
+      listeners.forEach((callback) => {
         try {
           callback(data)
-        } catch (error) {
+        }
+        catch (error) {
           console.error(`[TappRuntime] Event listener error:`, error)
         }
       })
@@ -825,10 +837,10 @@ export class TappRuntime {
       requirements = new Set()
       this.backgroundRequirements.set(tappId, requirements)
     }
-    
+
     const hadRequirements = requirements.size > 0
     requirements.add(requirement)
-    
+
     // 如果从无需求变为有需求，触发事件
     if (!hadRequirements && requirements.size > 0) {
       this.emit('background:changed', { tappId, requirements: Array.from(requirements), hasRequirements: true })
@@ -840,10 +852,11 @@ export class TappRuntime {
    */
   unregisterBackgroundRequirement(tappId: string, requirement: BackgroundRequirement): void {
     const requirements = this.backgroundRequirements.get(tappId)
-    if (!requirements) return
-    
+    if (!requirements)
+      return
+
     requirements.delete(requirement)
-    
+
     // 如果没有需求了，触发事件
     if (requirements.size === 0) {
       this.backgroundRequirements.delete(tappId)
@@ -857,7 +870,7 @@ export class TappRuntime {
   clearBackgroundRequirements(tappId: string): void {
     const had = this.backgroundRequirements.has(tappId)
     this.backgroundRequirements.delete(tappId)
-    
+
     if (had) {
       this.emit('background:changed', { tappId, requirements: [], hasRequirements: false })
     }
@@ -890,8 +903,8 @@ export class TappRuntime {
   /**
    * 获取所有需要后台运行的 Tapp（有任何后台需求的）
    */
-  getTappsWithBackgroundRequirements(): Array<{ tappId: string; requirements: BackgroundRequirement[] }> {
-    const result: Array<{ tappId: string; requirements: BackgroundRequirement[] }> = []
+  getTappsWithBackgroundRequirements(): Array<{ tappId: string, requirements: BackgroundRequirement[] }> {
+    const result: Array<{ tappId: string, requirements: BackgroundRequirement[] }> = []
     for (const [tappId, requirements] of this.backgroundRequirements) {
       if (requirements.size > 0) {
         result.push({ tappId, requirements: Array.from(requirements) })
@@ -933,4 +946,3 @@ export function getTappRuntime(): TappRuntime {
 }
 
 export default TappRuntime
-

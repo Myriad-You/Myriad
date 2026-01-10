@@ -5,10 +5,10 @@
  */
 
 import React from 'react'
-import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
-import { TappRunPage } from '../tapp/pages'
-import { TappWindowManager } from '../tapp/components/TappWindowManager'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useBreakpoints } from '../hooks/useSharedEventListener'
+import { TappWindowManager } from '../tapp/components/TappWindowManager'
+import { TappRunPage } from '../tapp/pages'
 
 const TappRunView: React.FC = () => {
   // 从路由参数中获取 tappId
@@ -17,7 +17,7 @@ const TappRunView: React.FC = () => {
   const navigate = useNavigate()
   const { isMobile } = useBreakpoints()
   const tappId = id ? decodeURIComponent(id) : ''
-  
+
   // 检查是否是多任务模式（无 tappId 但有 multi=true 参数）
   const isMultiWindowMode = !tappId && searchParams.get('multi') === 'true' && !isMobile
 

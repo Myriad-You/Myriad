@@ -1,6 +1,6 @@
-﻿/**
+/**
  * 缓存管理面板组件
- * 
+ *
  * 功能：
  * 1. 显示所有平台缓存状态
  * 2. 显示缓存大小和修改时间
@@ -8,112 +8,117 @@
  * 4. 触发后台处理任务
  */
 
-import React, { useEffect, useState } from 'react';
-import { FaTrash, FaSyncAlt, FaHdd, FaClock, FaExclamationCircle } from '@lib/icons';
-import { useBackgroundTasks } from '../hooks/useBackgroundTasks';
-import { TaskStatus } from './TaskStatus';
-import { useI18n } from '../contexts/I18nContext';
+import { FaClock, FaExclamationCircle, FaHdd, FaSyncAlt, FaTrash } from '@lib/icons'
+import React, { useEffect, useState } from 'react'
+import { useI18n } from '../contexts/I18nContext'
+import { useBackgroundTasks } from '../hooks/useBackgroundTasks'
+import { TaskStatus } from './TaskStatus'
 
 interface CacheInfo {
-  platform: string;
-  exists: boolean;
-  size_bytes?: number;
-  modified_at?: string;
-  path: string;
+  platform: string
+  exists: boolean
+  size_bytes?: number
+  modified_at?: string
+  path: string
 }
 
 export function CacheManagement() {
-  const [caches, setCaches] = useState<CacheInfo[]>([]);
-  const [totalSize, setTotalSize] = useState<string>('0.00');
-  const [isLoading, setIsLoading] = useState(true);
-  const [activeTask, setActiveTask] = useState<string | null>(null);
-  const [processingPlatform, setProcessingPlatform] = useState<string | null>(null);
-  const { t, locale } = useI18n();
-  
+  const [caches, setCaches] = useState<CacheInfo[]>([])
+  const [totalSize, setTotalSize] = useState<string>('0.00')
+  const [isLoading, setIsLoading] = useState(true)
+  const [activeTask, setActiveTask] = useState<string | null>(null)
+  const [processingPlatform, setProcessingPlatform] = useState<string | null>(null)
+  const { t, locale } = useI18n()
+
   const {
     getCacheStatus,
     clearPlatformCache,
     clearAllCaches,
     submitTask,
     isSubmitting,
-  } = useBackgroundTasks();
+  } = useBackgroundTasks()
 
   const loadCacheStatus = async () => {
-    setIsLoading(true);
-    const status = await getCacheStatus();
-    
+    setIsLoading(true)
+    const status = await getCacheStatus()
+
     if (status && status.caches) {
-      setCaches(status.caches);
-      setTotalSize(status.total_size_mb || '0.00');
+      setCaches(status.caches)
+      setTotalSize(status.total_size_mb || '0.00')
     }
-    
-    setIsLoading(false);
-  };
+
+    setIsLoading(false)
+  }
 
   useEffect(() => {
-    loadCacheStatus();
-  }, []);
+    loadCacheStatus()
+  }, [])
 
   const handleClearCache = async (platform: string) => {
     if (!confirm(t.cache.clearPlatformConfirm.replace('{platform}', platform))) {
-      return;
+      return
     }
 
-    const success = await clearPlatformCache(platform);
-    
+    const success = await clearPlatformCache(platform)
+
     if (success) {
-      await loadCacheStatus();
-    } else {
-      alert(t.cache.clearFailed.replace('{platform}', platform));
+      await loadCacheStatus()
     }
-  };
+    else {
+      alert(t.cache.clearFailed.replace('{platform}', platform))
+    }
+  }
 
   const handleClearAll = async () => {
     if (!confirm(t.cache.clearAllConfirm)) {
-      return;
+      return
     }
 
-    const success = await clearAllCaches();
-    
+    const success = await clearAllCaches()
+
     if (success) {
-      await loadCacheStatus();
-    } else {
-      alert(t.cache.clearFailed);
+      await loadCacheStatus()
     }
-  };
+    else {
+      alert(t.cache.clearFailed)
+    }
+  }
 
   const handleProcessPlatform = async (platform: string) => {
-    const taskId = await submitTask(platform);
-    
+    const taskId = await submitTask(platform)
+
     if (taskId) {
-      setActiveTask(taskId);
-      setProcessingPlatform(platform);
-    } else {
-      alert(t.cache.submitTaskFailed.replace('{platform}', platform));
+      setActiveTask(taskId)
+      setProcessingPlatform(platform)
     }
-  };
+    else {
+      alert(t.cache.submitTaskFailed.replace('{platform}', platform))
+    }
+  }
 
   const handleTaskComplete = () => {
-    setActiveTask(null);
-    setProcessingPlatform(null);
-    loadCacheStatus(); // 重新加载缓存状态
-  };
+    setActiveTask(null)
+    setProcessingPlatform(null)
+    loadCacheStatus() // 重新加载缓存状态
+  }
 
   const handleTaskClose = () => {
-    setActiveTask(null);
-    setProcessingPlatform(null);
-  };
+    setActiveTask(null)
+    setProcessingPlatform(null)
+  }
 
   const formatSize = (bytes?: number): string => {
-    if (!bytes) return '-';
-    const mb = bytes / 1024 / 1024;
-    return `${mb.toFixed(2)} MB`;
-  };
+    if (!bytes)
+      return '-'
+    const mb = bytes / 1024 / 1024
+    return `${mb.toFixed(2)} MB`
+  }
 
   const formatDate = (dateString?: string): string => {
-    if (!dateString) return '-';
-    return new Date(dateString).toLocaleString(locale);
-  };
+    if (!dateString)
+      return '-'
+    return new Date(dateString).toLocaleString(locale)
+  }
 
   if (isLoading) {
     return (
@@ -121,7 +126,7 @@ export function CacheManagement() {
         <FaSyncAlt className="w-6 h-6 animate-spin text-gray-400" />
         <span className="ml-2 text-gray-600 dark:text-gray-400">{t.cache.loading}</span>
       </div>
-    );
+    )
   }
 
   return (
@@ -146,7 +151,13 @@ export function CacheManagement() {
           <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">{t.cache.title}</h2>
           <div className="flex items-center gap-4">
             <div className="text-sm text-gray-600 dark:text-gray-400">
-              {t.cache.totalSize}: <span className="font-semibold text-gray-900 dark:text-gray-100">{totalSize} MB</span>
+              {t.cache.totalSize}
+              :
+              <span className="font-semibold text-gray-900 dark:text-gray-100">
+                {totalSize}
+                {' '}
+                MB
+              </span>
             </div>
             <button
               onClick={loadCacheStatus}
@@ -171,7 +182,7 @@ export function CacheManagement() {
 
         {/* 缓存列表 */}
         <div className="space-y-3">
-          {caches.map((cache) => (
+          {caches.map(cache => (
             <div
               key={cache.platform}
               className={`border rounded-lg p-4 transition-all ${
@@ -186,26 +197,38 @@ export function CacheManagement() {
                     <h3 className="font-medium text-gray-900 dark:text-gray-100 capitalize">
                       {cache.platform}
                     </h3>
-                    {cache.exists ? (
-                      <span className="px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs rounded-full">
-                        {t.cache.cached}
-                      </span>
-                    ) : (
-                      <span className="px-2 py-1 bg-gray-100 dark:bg-neutral-800 text-gray-600 dark:text-gray-400 text-xs rounded-full">
-                        {t.cache.notCached}
-                      </span>
-                    )}
+                    {cache.exists
+                      ? (
+                          <span className="px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs rounded-full">
+                            {t.cache.cached}
+                          </span>
+                        )
+                      : (
+                          <span className="px-2 py-1 bg-gray-100 dark:bg-neutral-800 text-gray-600 dark:text-gray-400 text-xs rounded-full">
+                            {t.cache.notCached}
+                          </span>
+                        )}
                   </div>
 
                   {cache.exists && (
                     <div className="space-y-1 text-sm text-gray-600 dark:text-gray-400">
                       <div className="flex items-center gap-2">
                         <FaHdd className="w-4 h-4" />
-                        <span>{t.cache.size}: {formatSize(cache.size_bytes)}</span>
+                        <span>
+                          {t.cache.size}
+                          :
+                          {' '}
+                          {formatSize(cache.size_bytes)}
+                        </span>
                       </div>
                       <div className="flex items-center gap-2">
                         <FaClock className="w-4 h-4" />
-                        <span>{t.cache.modifiedTime}: {formatDate(cache.modified_at)}</span>
+                        <span>
+                          {t.cache.modifiedTime}
+                          :
+                          {' '}
+                          {formatDate(cache.modified_at)}
+                        </span>
                       </div>
                     </div>
                   )}
@@ -255,14 +278,26 @@ export function CacheManagement() {
           <div className="text-sm text-blue-900 dark:text-blue-100">
             <p className="font-medium mb-2">{t.cache.aboutCaching}</p>
             <ul className="space-y-1 text-blue-800 dark:text-blue-200">
-              <li>• {t.cache.cacheHint1}</li>
-              <li>• {t.cache.cacheHint2}</li>
-              <li>• {t.cache.cacheHint3}</li>
-              <li>• {t.cache.cacheHint4}</li>
+              <li>
+                •
+                {t.cache.cacheHint1}
+              </li>
+              <li>
+                •
+                {t.cache.cacheHint2}
+              </li>
+              <li>
+                •
+                {t.cache.cacheHint3}
+              </li>
+              <li>
+                •
+                {t.cache.cacheHint4}
+              </li>
             </ul>
           </div>
         </div>
       </div>
     </div>
-  );
+  )
 }

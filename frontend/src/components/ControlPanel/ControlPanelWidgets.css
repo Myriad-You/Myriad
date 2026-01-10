@@ -1,5 +1,15 @@
-.pages-3{width:300%}
-.slider{transform:translateX(0)}
-.slider.page-0{transform:translateX(0)}
-.slider.page-1{transform:translateX(-33.333333%)}
-.slider.page-2{transform:translateX(-66.666667%)}
+.pages-3 {
+  width: 300%;
+}
+.slider {
+  transform: translateX(0);
+}
+.slider.page-0 {
+  transform: translateX(0);
+}
+.slider.page-1 {
+  transform: translateX(-33.333333%);
+}
+.slider.page-2 {
+  transform: translateX(-66.666667%);
+}
