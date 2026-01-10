@@ -1,73 +1,4 @@
-# ===========================================
-# Myriad Project .gitignore
-# ===========================================
-
-# -------------------------------------------
-# Rust / Backend
-# -------------------------------------------
-/backend/target/
-/backend/**/*.rs.bk
-/backend/migrations/target/
-/backend/migrations/Cargo.lock
-/backend/flycheck*/
-
-# Backend Cache & Data (runtime generated)
-/backend/cache/
-!/backend/cache/.gitkeep
-/backend/data/*.json
-!/backend/data/.gitkeep
-
-# -------------------------------------------
-# Node.js / Frontend
-# -------------------------------------------
-/frontend/node_modules/
-/frontend/dist/
-/frontend/.astro/
-/frontend/.cache/
-/frontend/.parcel-cache/
-/frontend/.next/
-/frontend/.nuxt/
-
-# -------------------------------------------
-# Environment Variables
-# -------------------------------------------
-.env
-.env.*
-!.env.example
-!.env.production.example
-.env.local
-.env.production
-.env.development
-.env.test
-
-# -------------------------------------------
-# Database
-# -------------------------------------------
-*.db
-*.db-shm
-*.db-wal
-*.sqlite
-*.sqlite3
-/database/
-/postgres-data/
-
-# -------------------------------------------
-# Docker
-# -------------------------------------------
-docker-compose.override.yml
-docker/data/
-docker/logs/
-docker/volumes/
-docker/nginx/certs/*
-!/docker/nginx/certs/.gitkeep
-docker/nginx/logs/*.log
-docker/nginx/conf.d/*
-!/docker/nginx/conf.d/.gitkeep
-
-# -------------------------------------------
-# IDE & Editor
-# -------------------------------------------
-.vscode/
+# General / Root
 .idea/
 *.swp
 *.swo
@@ -77,10 +8,6 @@ docker/nginx/conf.d/*
 .classpath
 .settings/
 .history/
-
-# -------------------------------------------
-# OS Generated
-# -------------------------------------------
 .DS_Store
 Thumbs.db
 Desktop.ini
@@ -92,69 +19,45 @@ $RECYCLE.BIN/
 .LSOverride
 nul
 
-# -------------------------------------------
-# Logs
-# -------------------------------------------
+# Docker
+docker-compose.override.yml
+docker/data/
+docker/logs/
+docker/volumes/
+docker/nginx/certs/*
+!docker/nginx/certs/.gitkeep
+docker/nginx/logs/*.log
+docker/nginx/conf.d/*
+!docker/nginx/conf.d/.gitkeep
+
+# Logs (General)
 *.log
 logs/
-*.log.*
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
 
-# -------------------------------------------
-# Build Artifacts
-# -------------------------------------------
+# Build Artifacts (General)
 /dist/
 /build/
 out/
 *.build
 *.pid
 
-# -------------------------------------------
-# Package Manager Lock Files (keep package-lock.json for reproducible builds)
-# -------------------------------------------
-yarn.lock
-pnpm-lock.yaml
-/frontend/yarn.lock
-/frontend/pnpm-lock.yaml
-.pnp.*
-.yarn/
-.pnpm-store/
-
-# -------------------------------------------
-# Testing & Coverage
-# -------------------------------------------
-coverage/
-.nyc_output/
-*.cover
-*.coverage
-.hypothesis/
-.pytest_cache/
-test-results/
-
-# -------------------------------------------
-# Temporary & Backup Files
-# -------------------------------------------
+# Temporary
 *.tmp
 *.temp
 *.bak
 *.backup
 *.old
-.temp/
-tmp/
-temp/
-.cache/
 *.cache
 
-# -------------------------------------------
+# Database
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+/database/
+/postgres-data/
+
 # Claude AI
-# -------------------------------------------
 /.claude/
 .claude/settings.local.json
-/backend/data/tapps
-/.astro
-/node_modules
-/backend/data

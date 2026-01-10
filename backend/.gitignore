@@ -1,0 +1,31 @@
+# Rust
+target/
+**/*.rs.bk
+migrations/target/
+migrations/Cargo.lock
+flycheck*/
+
+# Cache & Data
+cache/
+!cache/.gitkeep
+data/*.json
+!data/.gitkeep
+data/tapps
+
+# Brew icon cache (downloaded at runtime)
+data/brew/icons/*
+!data/brew/icons/.gitkeep
+
+# Environment Variables
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+# Logs
+*.log
+logs/
+
+# Temporary
+tmp/
+temp/

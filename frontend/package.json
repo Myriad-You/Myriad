@@ -1,16 +1,28 @@
 {
   "name": "myriad-frontend",
+  "type": "module",
   "version": "0.1.0",
   "description": "Frontend for Myriad - Multi-platform personal information aggregation and analysis",
-  "type": "module",
   "scripts": {
-    "dev": "astro dev",
-    "start": "astro dev",
-    "build": "astro build",
-    "build:check": "astro check && astro build",
-    "preview": "astro preview",
     "astro": "astro",
-    "format": "prettier --write ."
+    "dev": "astro dev",
+    "build": "astro build",
+    "build:check": "pnpm typecheck && pnpm build",
+    "clean": "node --input-type=module -e \"import fs from 'node:fs'; for (const p of ['dist', '.astro']) fs.rmSync(p, { recursive: true, force: true })\"",
+    "preview": "astro preview",
+    "format": "prettier --write .",
+    "lint": "eslint . --ignore-pattern '**/*.md'",
+    "stylelint": "stylelint \"src/**/*.css\"",
+    "test": "pnpm lint && pnpm stylelint && pnpm typecheck",
+    "typecheck": "astro check",
+    "eslint:debug": "eslint --debug .",
+    "eslint:inspect": "npx @eslint/config-inspector",
+    "prepare": "husky install"
+  },
+  "commitlint": {
+    "extends": [
+      "@commitlint/config-conventional"
+    ]
   },
   "dependencies": {
     "@astrojs/check": "^0.3.4",
@@ -34,10 +46,20 @@
     "typescript": "^5.3.3"
   },
   "devDependencies": {
+    "@antfu/eslint-config": "^6.7.3",
+    "@commitlint/cli": "^19.8.1",
+    "@commitlint/config-conventional": "^19.8.1",
     "@tailwindcss/typography": "^0.5.10",
+    "cross-env": "^10.1.0",
+    "eslint": "^9.39.2",
+    "eslint-plugin-format": "^1.2.0",
+    "husky": "^9.1.7",
     "prettier": "^3.1.1",
     "prettier-plugin-astro": "^0.12.3",
     "rollup-plugin-visualizer": "^5.14.0",
+    "stylelint": "^16.14.1",
+    "stylelint-config-standard": "^37.0.0",
+    "taze": "^19.9.2",
     "terser": "^5.36.0"
   }
 }

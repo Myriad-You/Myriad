@@ -1,0 +1,46 @@
+{
+  "cSpell.words": [
+    "antfu",
+    "astro",
+    "axios",
+    "brewlia",
+    "chartjs",
+    "framer",
+    "jszip",
+    "lucide",
+    "myriad",
+    "neteasecloudmusic",
+    "tailwindcss",
+    "tapp",
+    "typecheck",
+    "vite"
+  ],
+  "files.associations": {
+    "*.css": "postcss"
+  },
+  "svg.preview.background": "editor",
+
+  // Disable the default formatter, use eslint instead
+  "prettier.enable": false,
+  "editor.formatOnSave": false,
+
+  // Auto fix
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit",
+    "source.organizeImports": "never"
+  },
+
+  // Enable eslint for all supported languages
+  "eslint.validate": [
+    "astro",
+    "javascript",
+    "javascriptreact",
+    "typescript",
+    "typescriptreact",
+    "html",
+    "markdown",
+    "json",
+    "jsonc",
+    "yaml"
+  ]
+}

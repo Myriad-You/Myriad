@@ -1,0 +1,11 @@
+{
+  "recommendations": [
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "bradlc.vscode-tailwindcss",
+    "rust-lang.rust-analyzer",
+    "tamasfe.even-better-toml",
+    "astro-build.astro-vscode",
+    "serayuzgur.crates",
+  ]
+}
