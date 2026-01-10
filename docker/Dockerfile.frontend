@@ -1,14 +1,23 @@
 # Frontend Dockerfile - Multi-stage build
 ARG NODE_VERSION=20
+ARG PNPM_VERSION=9.15.4
+ARG PACKAGE_MANAGER=pnpm
 FROM node:${NODE_VERSION}-alpine AS builder
 
 WORKDIR /app
 
 # Copy package files
-COPY frontend/package.json frontend/package-lock.json* ./
+COPY frontend/package.json frontend/pnpm-lock.yaml* frontend/package-lock.json* ./
 
 # Install dependencies (use npm install if lock file doesn't exist)
-RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+ARG PNPM_VERSION
+ARG PACKAGE_MANAGER
+RUN if [ "$PACKAGE_MANAGER" = "pnpm" ]; then \
+      corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate && \
+      if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; else pnpm install; fi; \
+    else \
+      if [ -f package-lock.json ]; then npm ci; else npm install; fi; \
+    fi
 
 # Copy source code and config
 COPY frontend/ ./
@@ -19,7 +28,7 @@ ARG BACKEND_URL=
 ENV PUBLIC_API_URL=${BACKEND_URL}
 
 # Build the application
-RUN npm run build
+RUN if [ "$PACKAGE_MANAGER" = "pnpm" ]; then pnpm run build; else npm run build; fi
 
 # Runtime stage - lightweight server
 FROM node:${NODE_VERSION}-alpine
