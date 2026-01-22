@@ -31,7 +31,7 @@ pub struct ApiResponse<T> {
 pub async fn get_bilibili_user(
     Query(params): Query<BilibiliQuery>,
 ) -> Result<Json<ApiResponse<BilibiliUserResponse>>, StatusCode> {
-    let fetcher = PlatformFetcher::new();
+    let fetcher = PlatformFetcher::new().await;
     let uid = params.uid;
 
     // 获取用户信息
@@ -49,7 +49,8 @@ pub async fn get_bilibili_user(
 
     // 获取收藏夹
     let favorites = match fetcher.fetch_bilibili_favorites(uid).await {
-        Ok(favs) => favs.into_iter()
+        Ok(favs) => favs
+            .into_iter()
             .filter_map(|f| serde_json::to_value(f).ok())
             .collect(),
         Err(e) => {
@@ -60,7 +61,8 @@ pub async fn get_bilibili_user(
 
     // 获取追番/追剧
     let bangumi = match fetcher.fetch_all_bilibili_bangumi(uid).await {
-        Ok(items) => items.into_iter()
+        Ok(items) => items
+            .into_iter()
             .filter_map(|b| serde_json::to_value(b).ok())
             .collect(),
         Err(e) => {
@@ -84,7 +86,7 @@ pub async fn get_bilibili_user(
 pub async fn get_bilibili_user_info(
     Path(uid): Path<i64>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, StatusCode> {
-    let fetcher = PlatformFetcher::new();
+    let fetcher = PlatformFetcher::new().await;
 
     match fetcher.fetch_bilibili_user(uid).await {
         Ok(info) => {
@@ -110,14 +112,15 @@ pub async fn get_bilibili_user_info(
 pub async fn get_bilibili_favorites(
     Path(uid): Path<i64>,
 ) -> Result<Json<ApiResponse<Vec<serde_json::Value>>>, StatusCode> {
-    let fetcher = PlatformFetcher::new();
+    let fetcher = PlatformFetcher::new().await;
 
     match fetcher.fetch_bilibili_favorites(uid).await {
         Ok(favorites) => {
-            let data: Vec<serde_json::Value> = favorites.into_iter()
+            let data: Vec<serde_json::Value> = favorites
+                .into_iter()
                 .filter_map(|f| serde_json::to_value(f).ok())
                 .collect();
-            
+
             let count = data.len();
             Ok(Json(ApiResponse {
                 success: true,
@@ -141,15 +144,16 @@ pub async fn get_bilibili_bangumi(
     Path(uid): Path<i64>,
     Query(params): Query<BanguminQuery>,
 ) -> Result<Json<ApiResponse<Vec<serde_json::Value>>>, StatusCode> {
-    let fetcher = PlatformFetcher::new();
+    let fetcher = PlatformFetcher::new().await;
     let bangumi_type = params.bangumi_type.unwrap_or(1); // 默认获取动画
 
     match fetcher.fetch_bilibili_bangumi(uid, bangumi_type).await {
         Ok(bangumi) => {
-            let data: Vec<serde_json::Value> = bangumi.into_iter()
+            let data: Vec<serde_json::Value> = bangumi
+                .into_iter()
                 .filter_map(|b| serde_json::to_value(b).ok())
                 .collect();
-            
+
             let type_name = match bangumi_type {
                 1 => "动画",
                 2 => "电影",
@@ -158,7 +162,7 @@ pub async fn get_bilibili_bangumi(
                 5 => "电视剧",
                 _ => "其他",
             };
-            
+
             let count = data.len();
             Ok(Json(ApiResponse {
                 success: true,
@@ -186,14 +190,15 @@ pub struct BanguminQuery {
 pub async fn get_all_bilibili_bangumi(
     Path(uid): Path<i64>,
 ) -> Result<Json<ApiResponse<Vec<serde_json::Value>>>, StatusCode> {
-    let fetcher = PlatformFetcher::new();
+    let fetcher = PlatformFetcher::new().await;
 
     match fetcher.fetch_all_bilibili_bangumi(uid).await {
         Ok(bangumi) => {
-            let data: Vec<serde_json::Value> = bangumi.into_iter()
+            let data: Vec<serde_json::Value> = bangumi
+                .into_iter()
                 .filter_map(|b| serde_json::to_value(b).ok())
                 .collect();
-            
+
             let count = data.len();
             Ok(Json(ApiResponse {
                 success: true,

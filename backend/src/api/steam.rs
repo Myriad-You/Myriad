@@ -34,7 +34,7 @@ pub struct ApiResponse<T> {
 pub async fn get_steam_user(
     Query(params): Query<SteamQuery>,
 ) -> Result<Json<ApiResponse<SteamUserResponse>>, StatusCode> {
-    let fetcher = PlatformFetcher::new();
+    let fetcher = PlatformFetcher::new().await;
     let steam_id = params.steam_id;
     let api_key = params.api_key;
 
@@ -55,7 +55,8 @@ pub async fn get_steam_user(
     let (games_data, total_playtime) = match fetcher.fetch_steam_games(&api_key, &steam_id).await {
         Ok(games) => {
             let total_time: i32 = games.iter().map(|g| g.playtime_forever).sum();
-            let games_json: Vec<serde_json::Value> = games.into_iter()
+            let games_json: Vec<serde_json::Value> = games
+                .into_iter()
                 .filter_map(|g| serde_json::to_value(g).ok())
                 .collect();
             (games_json, total_time)
@@ -68,7 +69,8 @@ pub async fn get_steam_user(
 
     // 获取愿望单
     let wishlist = match fetcher.fetch_steam_wishlist(&steam_id).await {
-        Ok(items) => items.into_iter()
+        Ok(items) => items
+            .into_iter()
             .filter_map(|w| serde_json::to_value(w).ok())
             .collect(),
         Err(e) => {
@@ -96,9 +98,12 @@ pub async fn get_steam_user(
 pub async fn get_steam_user_info(
     Query(params): Query<SteamQuery>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, StatusCode> {
-    let fetcher = PlatformFetcher::new();
+    let fetcher = PlatformFetcher::new().await;
 
-    match fetcher.fetch_steam_user(&params.api_key, &params.steam_id).await {
+    match fetcher
+        .fetch_steam_user(&params.api_key, &params.steam_id)
+        .await
+    {
         Ok(info) => {
             let data = serde_json::to_value(info).unwrap_or_default();
             Ok(Json(ApiResponse {
@@ -122,16 +127,20 @@ pub async fn get_steam_user_info(
 pub async fn get_steam_games(
     Query(params): Query<SteamQuery>,
 ) -> Result<Json<ApiResponse<SteamGamesResponse>>, StatusCode> {
-    let fetcher = PlatformFetcher::new();
+    let fetcher = PlatformFetcher::new().await;
 
-    match fetcher.fetch_steam_games(&params.api_key, &params.steam_id).await {
+    match fetcher
+        .fetch_steam_games(&params.api_key, &params.steam_id)
+        .await
+    {
         Ok(games) => {
             let total_playtime: i32 = games.iter().map(|g| g.playtime_forever).sum();
             let total_games = games.len();
-            let games_data: Vec<serde_json::Value> = games.into_iter()
+            let games_data: Vec<serde_json::Value> = games
+                .into_iter()
                 .filter_map(|g| serde_json::to_value(g).ok())
                 .collect();
-            
+
             Ok(Json(ApiResponse {
                 success: true,
                 data: Some(SteamGamesResponse {
@@ -164,14 +173,15 @@ pub struct SteamGamesResponse {
 pub async fn get_steam_wishlist(
     Path(steam_id): Path<String>,
 ) -> Result<Json<ApiResponse<Vec<serde_json::Value>>>, StatusCode> {
-    let fetcher = PlatformFetcher::new();
+    let fetcher = PlatformFetcher::new().await;
 
     match fetcher.fetch_steam_wishlist(&steam_id).await {
         Ok(wishlist) => {
-            let data: Vec<serde_json::Value> = wishlist.into_iter()
+            let data: Vec<serde_json::Value> = wishlist
+                .into_iter()
                 .filter_map(|w| serde_json::to_value(w).ok())
                 .collect();
-            
+
             let count = data.len();
             Ok(Json(ApiResponse {
                 success: true,
@@ -201,16 +211,20 @@ pub struct GameStats {
 pub async fn get_steam_stats(
     Query(params): Query<SteamQuery>,
 ) -> Result<Json<ApiResponse<GameStats>>, StatusCode> {
-    let fetcher = PlatformFetcher::new();
+    let fetcher = PlatformFetcher::new().await;
 
-    match fetcher.fetch_steam_games(&params.api_key, &params.steam_id).await {
+    match fetcher
+        .fetch_steam_games(&params.api_key, &params.steam_id)
+        .await
+    {
         Ok(mut games) => {
             let total_minutes: i32 = games.iter().map(|g| g.playtime_forever).sum();
             let total_hours = total_minutes as f32 / 60.0;
 
             // 最多游玩的游戏（前10）
             games.sort_by(|a, b| b.playtime_forever.cmp(&a.playtime_forever));
-            let most_played: Vec<serde_json::Value> = games.iter()
+            let most_played: Vec<serde_json::Value> = games
+                .iter()
                 .take(10)
                 .filter_map(|g| serde_json::to_value(g).ok())
                 .collect();
@@ -219,9 +233,12 @@ pub async fn get_steam_stats(
             let mut recent_games = games.clone();
             recent_games.retain(|g| g.playtime_2weeks.is_some());
             recent_games.sort_by(|a, b| {
-                b.playtime_2weeks.unwrap_or(0).cmp(&a.playtime_2weeks.unwrap_or(0))
+                b.playtime_2weeks
+                    .unwrap_or(0)
+                    .cmp(&a.playtime_2weeks.unwrap_or(0))
             });
-            let recently_played: Vec<serde_json::Value> = recent_games.iter()
+            let recently_played: Vec<serde_json::Value> = recent_games
+                .iter()
                 .take(10)
                 .filter_map(|g| serde_json::to_value(g).ok())
                 .collect();
@@ -281,7 +298,10 @@ pub async fn get_steam_game_details(
                         if let Some(success) = app_data.get("success").and_then(|v| v.as_bool()) {
                             if success {
                                 if let Some(game_data) = app_data.get("data") {
-                                    tracing::info!("Successfully fetched Steam game details for app {}", app_id);
+                                    tracing::info!(
+                                        "Successfully fetched Steam game details for app {}",
+                                        app_id
+                                    );
                                     return Ok(Json(ApiResponse {
                                         success: true,
                                         data: Some(game_data.clone()),

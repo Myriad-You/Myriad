@@ -45,7 +45,7 @@ impl RateLimiter {
 
         // 清理过期的请求记录
         let times = self.requests.entry(key.to_string()).or_default();
-        
+
         // 如果无法计算一小时前的时间点，保留所有记录
         if let Some(hour_ago) = one_hour_ago {
             times.retain(|&t| t > hour_ago);
@@ -202,7 +202,7 @@ impl NeteaseService {
                     if track_count > loaded_tracks && loaded_tracks >= 1000 {
                         // 🚀 内存保护：限制最大获取数量，避免 OOM
                         let effective_track_count = std::cmp::min(track_count, MAX_TRACKS_LIMIT);
-                        
+
                         tracing::info!(
                             "🎵 Large playlist detected ({}/{}, capped at {}), fetching remaining songs...",
                             loaded_tracks,
@@ -213,7 +213,8 @@ impl NeteaseService {
                         if let Some(track_ids_array) = track_ids {
                             // 🚀 改进：不再克隆 tracks_array，直接收集新歌曲
                             let batch_size = 200; // 批次大小
-                            let target_count = std::cmp::min(track_ids_array.len(), effective_track_count);
+                            let target_count =
+                                std::cmp::min(track_ids_array.len(), effective_track_count);
                             let remaining_count = target_count.saturating_sub(loaded_tracks);
 
                             tracing::info!(
@@ -225,7 +226,7 @@ impl NeteaseService {
 
                             // 收集新歌曲
                             let mut new_tracks: Vec<Value> = Vec::with_capacity(
-                                std::cmp::min(remaining_count, 2000) // 预分配最多 2000 首的空间
+                                std::cmp::min(remaining_count, 2000), // 预分配最多 2000 首的空间
                             );
                             let mut offset = loaded_tracks;
                             let mut failed_batches = 0;
@@ -295,7 +296,7 @@ impl NeteaseService {
                                                             if is_vip {
                                                                 vip_count += 1;
                                                             }
-                                                            
+
                                                             // 克隆并添加 isVip 标记
                                                             let mut song_data = song.clone();
                                                             if let Some(obj) = song_data.as_object_mut() {
@@ -337,7 +338,7 @@ impl NeteaseService {
 
                             // 将新歌曲追加到原数组
                             tracks_array.extend(new_tracks);
-                            
+
                             tracing::info!(
                                 "✅ Playlist {} 完整加载: {} 首歌曲，{} 首VIP (失败批次: {})",
                                 playlist_id,
@@ -361,12 +362,12 @@ impl NeteaseService {
         // 🚀 存入缓存（添加缓存清理和内存保护）
         {
             let mut cache = MUSIC_CACHE.write().await;
-            
+
             // 缓存清理：如果缓存条目过多，删除过期条目
             if cache.len() >= MAX_CACHE_ENTRIES {
                 let now = Instant::now();
                 cache.retain(|_, entry| entry.expires_at > now);
-                
+
                 // 如果仍然过多，删除最旧的条目
                 if cache.len() >= MAX_CACHE_ENTRIES {
                     // 找到最旧的条目并删除
@@ -380,7 +381,7 @@ impl NeteaseService {
                     }
                 }
             }
-            
+
             cache.insert(
                 cache_key,
                 CacheEntry {
@@ -595,10 +596,7 @@ impl NeteaseService {
             .unwrap()
             .as_millis();
 
-        let url = format!(
-            "https://music.163.com/api/song/detail?ids=[{}]",
-            song_id
-        );
+        let url = format!("https://music.163.com/api/song/detail?ids=[{}]", song_id);
 
         let client_ip = get_random_china_ip();
         let proxy_ip = get_random_china_ip();
@@ -628,7 +626,7 @@ impl NeteaseService {
             .await?;
 
         let data: Value = response.json().await?;
-        
+
         // 检查返回码
         if data.get("code").and_then(|c| c.as_i64()) != Some(200) {
             return Err(anyhow!("Failed to fetch song detail: API returned error"));

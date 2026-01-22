@@ -111,16 +111,18 @@ impl AiService {
     /// 创建 AI 服务实例
     pub async fn new(_db: &DatabaseConnection) -> Result<Self, AiServiceError> {
         let config = GLOBAL_DYNAMIC_CONFIG.read().await;
-        
-        let api_key = config.gemini_api_key.clone()
+
+        let api_key = config
+            .gemini_api_key
+            .clone()
             .filter(|k| !k.is_empty())
             .ok_or(AiServiceError::ApiKeyNotConfigured)?;
-        
+
         let model = config.gemini_model.clone();
-        
+
         // 创建 HTTP 客户端（带代理支持）
         let proxy_config = ProxyConfig::from_dynamic_config().await;
-        
+
         // 设置更长的超时时间，因为 AI 请求可能较慢
         let client = if proxy_config.should_use_proxy() {
             if let Some(proxy_url) = &proxy_config.proxy_url {
@@ -128,7 +130,10 @@ impl AiService {
                     .timeout(Duration::from_secs(120))
                     .connect_timeout(Duration::from_secs(30))
                     .user_agent("Myriad/1.0")
-                    .proxy(reqwest::Proxy::all(proxy_url).map_err(|e| AiServiceError::NetworkError(e.to_string()))?)
+                    .proxy(
+                        reqwest::Proxy::all(proxy_url)
+                            .map_err(|e| AiServiceError::NetworkError(e.to_string()))?,
+                    )
                     .build()
                     .map_err(|e| AiServiceError::NetworkError(e.to_string()))?
             } else {
@@ -147,22 +152,26 @@ impl AiService {
                 .build()
                 .map_err(|e| AiServiceError::NetworkError(e.to_string()))?
         };
-        
+
         Ok(Self {
             client,
             api_key,
             model,
         })
     }
-    
+
     /// 生成文本
-    /// 
+    ///
     /// # Arguments
     /// * `prompt` - 提示文本
     /// * `max_tokens` - 最大输出 Token 数量
-    pub async fn generate_text(&self, prompt: &str, max_tokens: Option<i32>) -> Result<String, AiServiceError> {
+    pub async fn generate_text(
+        &self,
+        prompt: &str,
+        max_tokens: Option<i32>,
+    ) -> Result<String, AiServiceError> {
         let url = GeminiApiUrl::generate_content_url(&self.model).await;
-        
+
         let request_body = GeminiRequest {
             contents: vec![GeminiContent {
                 parts: vec![GeminiPart {
@@ -174,23 +183,26 @@ impl AiService {
                 temperature: Some(0.7),
             }),
         };
-        
+
         tracing::debug!("Calling Gemini API: {}", url);
-        
-        let response = self.client
+
+        let response = self
+            .client
             .post(&url)
             .query(&[("key", &self.api_key)])
             .json(&request_body)
             .send()
             .await
             .map_err(|e| AiServiceError::NetworkError(e.to_string()))?;
-        
+
         let status = response.status();
-        let body = response.text().await
+        let body = response
+            .text()
+            .await
             .map_err(|e| AiServiceError::NetworkError(e.to_string()))?;
-        
+
         tracing::debug!("Gemini API response status: {}", status);
-        
+
         if !status.is_success() {
             // 尝试解析错误
             if let Ok(error_response) = serde_json::from_str::<GeminiResponse>(&body) {
@@ -200,7 +212,7 @@ impl AiService {
                         error.message.unwrap_or_default(),
                         error.code
                     );
-                    
+
                     // 检查是否是速率限制或配额问题
                     if error.code == Some(429) {
                         return Err(AiServiceError::RateLimited);
@@ -210,26 +222,30 @@ impl AiService {
                             return Err(AiServiceError::QuotaExceeded);
                         }
                     }
-                    
+
                     return Err(AiServiceError::ApiError(error_msg));
                 }
             }
-            return Err(AiServiceError::ApiError(format!("HTTP {}: {}", status, body)));
+            return Err(AiServiceError::ApiError(format!(
+                "HTTP {}: {}",
+                status, body
+            )));
         }
-        
+
         // 解析成功响应
         let response: GeminiResponse = serde_json::from_str(&body)
             .map_err(|e| AiServiceError::ParseError(format!("Failed to parse response: {}", e)))?;
-        
+
         // 提取文本
-        let text = response.candidates
+        let text = response
+            .candidates
             .and_then(|c| c.into_iter().next())
             .and_then(|c| c.content)
             .and_then(|c| c.parts)
             .and_then(|p| p.into_iter().next())
             .and_then(|p| p.text)
             .ok_or_else(|| AiServiceError::ParseError("No text in response".to_string()))?;
-        
+
         Ok(text)
     }
 }

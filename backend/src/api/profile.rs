@@ -538,7 +538,7 @@ async fn fetch_fresh_platform_data(
         target_platform
     );
 
-    let fetcher = PlatformFetcher::new();
+    let fetcher = PlatformFetcher::new().await;
     let user_id = 1; // TODO: 从认证中获取真实用户ID
 
     // 获取动态配置
@@ -1358,7 +1358,8 @@ pub async fn generate_report(
         },
     };
 
-    let analyzer = crate::services::analyzer::AiAnalyzer::new(provider, api_key, model, base_url);
+    let analyzer =
+        crate::services::analyzer::AiAnalyzer::new(provider, api_key, model, base_url).await;
 
     // 获取话题风格配置
     let topic_style = dynamic_config.topic_style.clone();

@@ -1209,7 +1209,8 @@ pub async fn ai_generate(
         ai_config.api_key,
         ai_config.model,
         ai_config.base_url,
-    );
+    )
+    .await;
 
     // 构建系统提示（增强安全约束）
     let system_prompt = format!(
@@ -1415,7 +1416,8 @@ pub async fn ai_analyze(
         ai_config.api_key,
         ai_config.model,
         ai_config.base_url,
-    );
+    )
+    .await;
 
     match analyzer.analyze(&analysis_prompt).await {
         Ok(result) => {
@@ -2153,7 +2155,8 @@ pub async fn ai_chat(
         ai_config.api_key,
         ai_config.model,
         ai_config.base_url,
-    );
+    )
+    .await;
 
     // 将消息转换为提示对象
     let prompt_data = json!({

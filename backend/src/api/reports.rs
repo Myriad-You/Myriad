@@ -1063,7 +1063,7 @@ async fn generate_ai_report(
     }
 
     // 4. 初始化 Analyzer
-    let analyzer = AiAnalyzer::new(provider, api_key.unwrap(), model, base_url);
+    let analyzer = AiAnalyzer::new(provider, api_key.unwrap(), model, base_url).await;
 
     // 5. 构建 Prompt
     let (system_prompt, tone_desc, visual_req) = match platform {
@@ -1390,7 +1390,7 @@ async fn generate_ai_comprehensive_report(
     }
 
     // 4. 初始化 Analyzer
-    let analyzer = AiAnalyzer::new(provider, api_key.unwrap(), model, base_url);
+    let analyzer = AiAnalyzer::new(provider, api_key.unwrap(), model, base_url).await;
 
     // 5. 构建 Prompt
     // 提取每个平台的摘要和洞察，减少 Token 消耗
@@ -1536,7 +1536,7 @@ CRITICAL: 必须是图标(icon)设计，不是完整插画或场景！\n\
                         "🔍 Parsed content keys: {:?}",
                         res.content.keys().collect::<Vec<_>>()
                     );
-                    tracing::info!("🎨 Initial style fields - color: {}, style: {}, emojis: {:?}, subtitle: {}, metric: {}", 
+                    tracing::info!("🎨 Initial style fields - color: {}, style: {}, emojis: {:?}, subtitle: {}, metric: {}",
                         res.theme_color, res.visual_style, res.decorative_emojis, res.card_subtitle, res.key_metric);
 
                     // 检查是否使用了默认值（说明AI没有正确返回样式字段）

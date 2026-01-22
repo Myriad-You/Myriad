@@ -3,6 +3,7 @@ use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 
 use super::bilibili_utils::{generate_bilibili_cookie, get_random_china_ip, get_random_user_agent};
+use crate::services::http_client::{get_global_client, GitHubApiUrl};
 
 pub struct PlatformFetcher {
     client: reqwest::Client,
@@ -82,12 +83,9 @@ pub struct SteamWishlistItem {
 }
 
 impl PlatformFetcher {
-    pub fn new() -> Self {
+    pub async fn new() -> Self {
         Self {
-            client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(30))
-                .build()
-                .unwrap(),
+            client: get_global_client().await,
         }
     }
 
@@ -481,7 +479,7 @@ impl PlatformFetcher {
         username: &str,
         token: Option<&str>,
     ) -> Result<serde_json::Value> {
-        let url = format!("https://api.github.com/users/{}", username);
+        let url = GitHubApiUrl::user_url(username).await;
         let mut request = self
             .client
             .get(&url)
@@ -509,13 +507,10 @@ impl PlatformFetcher {
         token: Option<&str>,
     ) -> Result<Vec<serde_json::Value>> {
         let mut all_repos = Vec::new();
-        let mut page = 1;
+        let mut page: u32 = 1;
 
         loop {
-            let url = format!(
-                "https://api.github.com/users/{}/repos?per_page=100&page={}&sort=updated",
-                username, page
-            );
+            let url = GitHubApiUrl::user_repos_url(username, page).await;
             let mut request = self
                 .client
                 .get(&url)
@@ -733,11 +728,5 @@ impl PlatformFetcher {
     pub async fn fetch_netease_user(&self, user_id: i64) -> Result<serde_json::Value> {
         let netease_service = crate::services::netease_service::NeteaseService::new();
         netease_service.fetch_user_info(user_id).await
-    }
-}
-
-impl Default for PlatformFetcher {
-    fn default() -> Self {
-        Self::new()
     }
 }

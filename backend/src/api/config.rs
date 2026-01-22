@@ -1,4 +1,4 @@
-﻿use axum::{extract::State, http::StatusCode, Json};
+use axum::{extract::State, http::StatusCode, Json};
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -1441,7 +1441,7 @@ pub async fn test_platform(
             let token = config["token"].as_str().filter(|s| !s.is_empty());
 
             // 调用 GitHub API 验证
-            let fetcher = crate::services::fetcher::PlatformFetcher::new();
+            let fetcher = crate::services::fetcher::PlatformFetcher::new().await;
             match fetcher.fetch_github_user(username, token).await {
                 Ok(user_info) => {
                     let name = user_info["name"].as_str().unwrap_or(username);
@@ -1485,7 +1485,7 @@ pub async fn test_platform(
             };
 
             // 实际调用 Bilibili API 验证
-            let fetcher = crate::services::fetcher::PlatformFetcher::new();
+            let fetcher = crate::services::fetcher::PlatformFetcher::new().await;
             match fetcher.fetch_bilibili_user(uid_i64).await {
                 Ok(user_info) => (
                     StatusCode::OK,
@@ -1514,7 +1514,7 @@ pub async fn test_platform(
             }
 
             // 调用 Steam API 验证
-            let fetcher = crate::services::fetcher::PlatformFetcher::new();
+            let fetcher = crate::services::fetcher::PlatformFetcher::new().await;
             match fetcher.fetch_steam_user(api_key, steam_id).await {
                 Ok(user_info) => (
                     StatusCode::OK,
@@ -1553,7 +1553,7 @@ pub async fn test_platform(
             };
 
             // 调用网易云音乐 API 验证
-            let fetcher = crate::services::fetcher::PlatformFetcher::new();
+            let fetcher = crate::services::fetcher::PlatformFetcher::new().await;
             match fetcher.fetch_netease_user(user_id_i64).await {
                 Ok(user_info) => {
                     let nickname = user_info["profile"]["nickname"]

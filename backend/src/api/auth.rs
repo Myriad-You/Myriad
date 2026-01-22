@@ -286,9 +286,13 @@ pub async fn github_callback(
     tracing::info!("✅ Access token obtained");
 
     // Get user info from GitHub
-    let http_client = reqwest::Client::new();
+    let http_client = crate::services::http_client::get_global_client().await;
+    let user_url = format!(
+        "{}/user",
+        crate::services::http_client::GitHubApiUrl::get_api_base().await
+    );
     let user_info: GitHubUser = http_client
-        .get("https://api.github.com/user")
+        .get(user_url)
         .header("Authorization", format!("Bearer {}", access_token))
         .header("User-Agent", "Myriad-App")
         .send()
@@ -337,7 +341,7 @@ pub async fn github_callback(
         let admin_check = _db
             .query_one(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
-                "SELECT id, username, auth_provider, is_admin FROM users 
+                "SELECT id, username, auth_provider, is_admin FROM users
                  WHERE id = $1 AND auth_provider = 'local' AND is_admin = true",
                 vec![SeaValue::Int(Some(admin_user_id))],
             ))
@@ -724,7 +728,7 @@ pub async fn github_callback(
         if is_production { "; Secure" } else { "" } // 生产环境启用 Secure 标志
     );
 
-    tracing::info!("🍪 Set-Cookie header (token truncated): auth_token={}...; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000{}", 
+    tracing::info!("🍪 Set-Cookie header (token truncated): auth_token={}...; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000{}",
         &token[..20.min(token.len())],
         if is_production { "; Secure" } else { "" }
     );
@@ -841,8 +845,8 @@ pub async fn get_current_user(
     use sea_orm::Value as SeaValue;
 
     let query =
-        "SELECT id, username, auth_provider, is_admin, avatar_url, github_id, linked_github_id, bio 
-                 FROM users 
+        "SELECT id, username, auth_provider, is_admin, avatar_url, github_id, linked_github_id, bio
+                 FROM users
                  WHERE id = $1";
 
     let user_result = db

@@ -321,7 +321,11 @@ impl FeedParser {
                 Ok(Event::Start(ref e)) => {
                     let tag_name = String::from_utf8_lossy(e.name().as_ref()).to_string();
                     // 处理带命名空间的标签名（如 content:encoded -> encoded）
-                    let simple_tag = tag_name.split(':').next_back().unwrap_or(&tag_name).to_string();
+                    let simple_tag = tag_name
+                        .split(':')
+                        .next_back()
+                        .unwrap_or(&tag_name)
+                        .to_string();
                     current_tag = tag_name.clone();
                     text_buffer.clear(); // 新标签开始，清空缓冲区
 
@@ -1265,7 +1269,9 @@ fn detect_content_format(content: &str) -> ContentFormat {
         let l = line.trim();
 
         // 标题语法: # ## ### 等
-        if l.starts_with('#') && l.chars().skip_while(|c| *c == '#').find(|&c| c != '#') == Some(' ') {
+        if l.starts_with('#')
+            && l.chars().skip_while(|c| *c == '#').find(|&c| c != '#') == Some(' ')
+        {
             md_score += 3;
         }
 

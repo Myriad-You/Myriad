@@ -9,25 +9,25 @@ use serde::{Deserialize, Serialize};
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
-    
+
     /// 所属 Tapp ID
     #[sea_orm(column_type = "String(Some(255))")]
     pub tapp_id: String,
-    
+
     /// 所属用户 ID
     pub user_id: i32,
-    
+
     /// 键名
     #[sea_orm(column_type = "String(Some(255))")]
     pub key: String,
-    
+
     /// 值 (JSON)
     #[sea_orm(column_type = "Json")]
     pub value: serde_json::Value,
-    
+
     /// 创建时间
     pub created_at: DateTimeWithTimeZone,
-    
+
     /// 更新时间
     pub updated_at: DateTimeWithTimeZone,
 }

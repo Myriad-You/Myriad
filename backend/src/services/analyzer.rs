@@ -1,7 +1,10 @@
 // AI analysis service using Google Gemini API or OpenAI-compatible API
 use anyhow::{Context, Result};
-use reqwest::Client;
+use reqwest::{Client, Proxy};
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
+
+use crate::services::http_client::{GeminiApiUrl, ProxyConfig};
 
 // ============= Gemini API Structures =============
 #[derive(Debug, Serialize)]
@@ -92,18 +95,28 @@ pub struct AiAnalyzer {
 }
 
 impl AiAnalyzer {
-    pub fn new(
+    pub async fn new(
         provider: AiProvider,
         api_key: String,
         model: String,
         base_url: Option<String>,
     ) -> Self {
-        // 创建带超时的 HTTP 客户端，防止 AI 请求卡住
-        let client = Client::builder()
-            .timeout(std::time::Duration::from_secs(120)) // 2分钟超时
-            .connect_timeout(std::time::Duration::from_secs(30)) // 连接超时30秒
-            .build()
-            .unwrap_or_else(|_| Client::new());
+        let proxy_config = ProxyConfig::from_dynamic_config().await;
+
+        let mut builder = Client::builder()
+            .timeout(Duration::from_secs(120))
+            .connect_timeout(Duration::from_secs(30))
+            .user_agent("Myriad/1.0");
+
+        if proxy_config.should_use_proxy() {
+            if let Some(proxy_url) = proxy_config.proxy_url.as_deref() {
+                if let Ok(proxy) = Proxy::all(proxy_url) {
+                    builder = builder.proxy(proxy);
+                }
+            }
+        }
+
+        let client = builder.build().unwrap_or_else(|_| Client::new());
         Self {
             client,
             provider,
@@ -140,16 +153,14 @@ impl AiAnalyzer {
             }],
         };
 
-        let url = format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
-            self.model, self.api_key
-        );
+        let url = GeminiApiUrl::generate_content_url(&self.model).await;
 
         tracing::info!("🔗 Calling Gemini API (model: {})", self.model);
 
         let response = self
             .client
             .post(&url)
+            .query(&[("key", &self.api_key)])
             .json(&request_body)
             .send()
             .await
@@ -317,7 +328,11 @@ impl AiAnalyzer {
                         .text()
                         .await
                         .unwrap_or_else(|_| "Unknown error".to_string());
-                    return Err(anyhow::anyhow!("OpenAI API error {}: {}", status, error_text));
+                    return Err(anyhow::anyhow!(
+                        "OpenAI API error {}: {}",
+                        status,
+                        error_text
+                    ));
                 }
 
                 let openai_response: OpenAIResponse = response

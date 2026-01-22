@@ -59,12 +59,24 @@ impl SpoofHeaders {
 /// 生成伪装请求头
 pub fn generate_spoof_headers(config: &SpoofConfig) -> SpoofHeaders {
     match config.region.as_str() {
-        "china" | "cn" => generate_region_spoof(get_random_china_ip(), "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"),
-        "japan" | "jp" => generate_region_spoof(get_random_japan_ip(), "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7"),
+        "china" | "cn" => {
+            generate_region_spoof(get_random_china_ip(), "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7")
+        }
+        "japan" | "jp" => {
+            generate_region_spoof(get_random_japan_ip(), "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7")
+        }
         "us" | "usa" | "america" => generate_region_spoof(get_random_us_ip(), "en-US,en;q=0.9"),
-        "korea" | "kr" => generate_region_spoof(get_random_korea_ip(), "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"),
-        "taiwan" | "tw" => generate_region_spoof(get_random_taiwan_ip(), "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7"),
-        "hongkong" | "hk" => generate_region_spoof(get_random_hongkong_ip(), "zh-HK,zh;q=0.9,en-US;q=0.8,en;q=0.7"),
+        "korea" | "kr" => {
+            generate_region_spoof(get_random_korea_ip(), "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7")
+        }
+        "taiwan" | "tw" => generate_region_spoof(
+            get_random_taiwan_ip(),
+            "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+        ),
+        "hongkong" | "hk" => generate_region_spoof(
+            get_random_hongkong_ip(),
+            "zh-HK,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+        ),
         _ => SpoofHeaders {
             user_agent: Some(get_random_common_ua().to_string()),
             accept_language: Some("en-US,en;q=0.9".to_string()),

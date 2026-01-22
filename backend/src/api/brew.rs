@@ -12,9 +12,9 @@ use axum::{
 use chrono::Utc;
 use reqwest::Url;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseBackend,
-    DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
-    Statement, Value as SeaValue, sea_query::Expr,
+    sea_query::Expr, ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait,
+    DatabaseBackend, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect, Statement, Value as SeaValue,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -76,11 +76,23 @@ pub fn create_brew_routes() -> Router<DatabaseConnection> {
         // WebSocket（通知）
         .route("/ws", get(brew_websocket))
         // RSSHub 实例管理
-        .route("/rsshub/instances", get(list_rsshub_instances).post(add_rsshub_instance))
-        .route("/rsshub/instances/:id", put(update_rsshub_instance).delete(delete_rsshub_instance))
-        .route("/rsshub/instances/:id/health-check", post(health_check_rsshub_instance))
+        .route(
+            "/rsshub/instances",
+            get(list_rsshub_instances).post(add_rsshub_instance),
+        )
+        .route(
+            "/rsshub/instances/:id",
+            put(update_rsshub_instance).delete(delete_rsshub_instance),
+        )
+        .route(
+            "/rsshub/instances/:id/health-check",
+            post(health_check_rsshub_instance),
+        )
         .route("/rsshub/instances/:id/reset", post(reset_rsshub_instance))
-        .route("/rsshub/health-check-all", post(health_check_all_rsshub_instances))
+        .route(
+            "/rsshub/health-check-all",
+            post(health_check_all_rsshub_instances),
+        )
         // 图标静态文件服务（带缓存头和压缩支持）
         .nest_service(
             "/icons",
@@ -135,13 +147,12 @@ async fn list_sources(
     let (user_id, is_admin) = get_user_and_admin_status(&headers);
 
     // 获取订阅源（非管理员过滤掉 admin_only=true 的源）
-    let mut query = brew_sources::Entity::find()
-        .order_by_asc(brew_sources::Column::Name);
-    
+    let mut query = brew_sources::Entity::find().order_by_asc(brew_sources::Column::Name);
+
     if !is_admin {
         query = query.filter(brew_sources::Column::AdminOnly.eq(false));
     }
-    
+
     let sources = match query.all(&db).await {
         Ok(s) => s,
         Err(e) => {
@@ -199,8 +210,11 @@ async fn list_sources(
         std::collections::HashMap::new();
 
     for source_id in &source_ids {
-        let items = items_by_source.get(source_id).map(|v| v.as_slice()).unwrap_or(&[]);
-        
+        let items = items_by_source
+            .get(source_id)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
+
         // 游客不计算未读数（显示为0），登录用户计算实际未读数
         let unread_count = if user_id.is_some() {
             items
@@ -317,13 +331,15 @@ async fn add_source(
     };
 
     // 检查是否是 Notion 类型
-    let is_notion = req.feed_type.as_deref() == Some("notion") || 
-                    url.starts_with("notion://") || 
-                    url.contains("notion.so") || 
-                    url.contains("notion.site");
+    let is_notion = req.feed_type.as_deref() == Some("notion")
+        || url.starts_with("notion://")
+        || url.contains("notion.so")
+        || url.contains("notion.site");
 
     // 获取源信息
-    let (name, description, icon, site_url, feed_type, extra_config) = if source_type == brew_sources::SourceType::Link {
+    let (name, description, icon, site_url, feed_type, extra_config) = if source_type
+        == brew_sources::SourceType::Link
+    {
         // 纯链接类型不需要解析，直接添加
         (
             req.name.unwrap_or_else(|| url.to_string()),
@@ -339,9 +355,9 @@ async fn add_source(
         if extra_config.is_none() || extra_config.as_ref().and_then(|c| c.get("token")).is_none() {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(json!({ 
-                    "success": false, 
-                    "error": "Notion source requires extra_config with token" 
+                Json(json!({
+                    "success": false,
+                    "error": "Notion source requires extra_config with token"
                 })),
             )
                 .into_response();
@@ -350,18 +366,19 @@ async fn add_source(
         // 尝试验证 Notion 源
         let notion_service = crate::services::notion_service::NotionService::new();
         let token = extra_config.as_ref().unwrap()["token"].as_str().unwrap();
-        
+
         // 解析 Notion URL
-        let (resource_type, resource_id) = match crate::services::notion_service::NotionService::parse_notion_url(url) {
-            Ok(r) => r,
-            Err(e) => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({ "success": false, "error": e.to_string() })),
-                )
-                    .into_response();
-            }
-        };
+        let (resource_type, resource_id) =
+            match crate::services::notion_service::NotionService::parse_notion_url(url) {
+                Ok(r) => r,
+                Err(e) => {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({ "success": false, "error": e.to_string() })),
+                    )
+                        .into_response();
+                }
+            };
 
         let config = crate::services::notion_service::NotionConfig {
             token: token.to_string(),
@@ -395,9 +412,9 @@ async fn add_source(
                 } else {
                     return (
                         StatusCode::BAD_REQUEST,
-                        Json(json!({ 
-                            "success": false, 
-                            "error": format!("Failed to fetch Notion: {}. Please provide a name.", e) 
+                        Json(json!({
+                            "success": false,
+                            "error": format!("Failed to fetch Notion: {}. Please provide a name.", e)
                         })),
                     )
                         .into_response();
@@ -408,7 +425,7 @@ async fn add_source(
         // 标准 RSS/Atom/JSON Feed 或 RSSHub
         // 检查是否是 RSSHub 类型（由前端传入）
         let is_rsshub = req.feed_type.as_deref() == Some("rsshub");
-        
+
         let parser = FeedParser::new();
         match parser.fetch_and_parse(url).await {
             Ok(feed) => {
@@ -445,20 +462,13 @@ async fn add_source(
                 } else {
                     brew_sources::FeedType::Rss
                 };
-                (
-                    req.name.unwrap(),
-                    None,
-                    None,
-                    None,
-                    final_feed_type,
-                    None,
-                )
+                (req.name.unwrap(), None, None, None, final_feed_type, None)
             }
         }
     };
 
     let now = Utc::now();
-    
+
     // 对于 RSSHub 类型，提取路由路径
     let rsshub_route = if feed_type == brew_sources::FeedType::RssHub {
         // 优先使用前端传入的路由
@@ -469,7 +479,7 @@ async fn add_source(
     } else {
         None
     };
-    
+
     let new_source = brew_sources::ActiveModel {
         user_id: Set(user_id),
         name: Set(name),
@@ -878,7 +888,7 @@ async fn import_opml(
         .collect();
 
     let now = Utc::now();
-    
+
     // 收集需要插入的新订阅源
     let new_sources: Vec<brew_sources::ActiveModel> = feeds
         .into_iter()
@@ -1230,7 +1240,7 @@ async fn list_items(
                     .add(brew_sources::Column::Category.eq(category.clone()))
                     .add(brew_sources::Column::Category.starts_with(format!("{}, ", category)))
                     .add(brew_sources::Column::Category.ends_with(format!(", {}", category)))
-                    .add(brew_sources::Column::Category.contains(format!(", {}, ", category)))
+                    .add(brew_sources::Column::Category.contains(format!(", {}, ", category))),
             )
             .select_only()
             .column(brew_sources::Column::Id)
@@ -1270,7 +1280,7 @@ async fn list_items(
     match items {
         Ok(items) => {
             let item_ids: Vec<i32> = items.iter().map(|i| i.id).collect();
-            
+
             // 性能优化：并行执行多个独立查询
             let (states_result, sources_result, annotations_result, podcast_result) = tokio::join!(
                 // 查询用户状态（仅登录用户）
@@ -1306,16 +1316,19 @@ async fn list_items(
                     .into_tuple::<i32>()
                     .all(&db)
             );
-            
+
             let states_map: std::collections::HashMap<i32, brew_user_states::Model> =
                 states_result.into_iter().map(|s| (s.item_id, s)).collect();
-            
-            let sources_map: std::collections::HashMap<i32, brew_sources::Model> =
-                sources_result.unwrap_or_default().into_iter().map(|s| (s.id, s)).collect();
-            
+
+            let sources_map: std::collections::HashMap<i32, brew_sources::Model> = sources_result
+                .unwrap_or_default()
+                .into_iter()
+                .map(|s| (s.id, s))
+                .collect();
+
             let items_with_annotations: std::collections::HashSet<i32> =
                 annotations_result.unwrap_or_default().into_iter().collect();
-            
+
             let items_with_podcast: std::collections::HashSet<i32> =
                 podcast_result.unwrap_or_default().into_iter().collect();
 
@@ -1426,7 +1439,7 @@ async fn get_item(
                         .filter(brew_podcasts::Column::ItemId.eq(id))
                         .count(&db)
                 );
-                
+
                 let has_ai_annotations = annotations_result.unwrap_or(0) > 0;
                 let has_ai_podcast = podcast_result.unwrap_or(0) > 0;
 
@@ -1725,10 +1738,10 @@ async fn mark_all_read(
     }
 
     let now = Utc::now();
-    
+
     // 收集所有 item_id
     let item_ids: Vec<i32> = items.iter().map(|(id, _)| *id).collect();
-    
+
     // 构建 item_id -> source_id 映射
     let item_source_map: std::collections::HashMap<i32, i32> = items.into_iter().collect();
 
@@ -1740,16 +1753,16 @@ async fn mark_all_read(
         .await
         .unwrap_or_default();
 
-    let existing_item_ids: std::collections::HashSet<i32> = 
+    let existing_item_ids: std::collections::HashSet<i32> =
         existing_states.iter().map(|s| s.item_id).collect();
-    
+
     // 找出需要更新的（已存在但未读的）
     let unread_state_ids: Vec<i32> = existing_states
         .iter()
         .filter(|s| !s.is_read)
         .map(|s| s.id)
         .collect();
-    
+
     // 找出需要插入的（不存在的）
     let missing_item_ids: Vec<i32> = item_ids
         .iter()
@@ -1758,7 +1771,7 @@ async fn mark_all_read(
         .collect();
 
     let mut marked = 0;
-    let mut source_marked_counts: std::collections::HashMap<i32, i32> = 
+    let mut source_marked_counts: std::collections::HashMap<i32, i32> =
         std::collections::HashMap::new();
 
     // 批量更新已存在的未读状态
@@ -1770,7 +1783,7 @@ async fn mark_all_read(
             .filter(brew_user_states::Column::Id.is_in(unread_state_ids))
             .exec(&db)
             .await;
-        
+
         if let Ok(result) = update_result {
             marked += result.rows_affected as i32;
             // 统计每个 source 被标记的数量
@@ -1796,7 +1809,7 @@ async fn mark_all_read(
                 ..Default::default()
             })
             .collect();
-        
+
         let insert_count = new_states.len() as i32;
         if brew_user_states::Entity::insert_many(new_states)
             .exec(&db)
@@ -2295,7 +2308,7 @@ async fn list_comments(
     match comments {
         Ok(comments) => {
             let has_comments = !comments.is_empty();
-            
+
             if comments.is_empty() {
                 return (
                     StatusCode::OK,
@@ -2421,7 +2434,8 @@ async fn create_comment(
 
     // 验证 color 格式（仅允许十六进制颜色）
     let validated_color = req.color.and_then(|c| {
-        let color_regex = regex::Regex::new(r"^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$").ok()?;
+        let color_regex =
+            regex::Regex::new(r"^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$").ok()?;
         if color_regex.is_match(&c) {
             Some(c)
         } else {
@@ -2524,7 +2538,8 @@ async fn update_comment(
             }
             if let Some(color) = req.color {
                 // 验证 color 格式（仅允许十六进制颜色）
-                let color_regex = regex::Regex::new(r"^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$").ok();
+                let color_regex =
+                    regex::Regex::new(r"^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$").ok();
                 if color_regex.is_some_and(|r| r.is_match(&color)) {
                     active.color = Set(Some(color));
                 }
@@ -2723,19 +2738,17 @@ async fn list_rsshub_instances(
     };
 
     let rsshub_service = RsshubService::new(db);
-    
+
     // 确保默认实例存在
     if let Err(e) = rsshub_service.ensure_default_instances().await {
         tracing::warn!("[RSSHub] Failed to ensure default instances: {}", e);
     }
-    
+
     match rsshub_service.get_instances(Some(user_id)).await {
         Ok(instances) => {
-            let responses: Vec<rsshub_instances::InstanceResponse> = instances
-                .into_iter()
-                .map(|i| i.into())
-                .collect();
-            
+            let responses: Vec<rsshub_instances::InstanceResponse> =
+                instances.into_iter().map(|i| i.into()).collect();
+
             (
                 StatusCode::OK,
                 Json(json!({ "success": true, "instances": responses })),
@@ -2771,14 +2784,17 @@ async fn add_rsshub_instance(
     };
 
     let rsshub_service = RsshubService::new(db);
-    
-    match rsshub_service.add_instance(
-        Some(user_id),
-        req.name,
-        req.url,
-        req.access_key,
-        req.priority,
-    ).await {
+
+    match rsshub_service
+        .add_instance(
+            Some(user_id),
+            req.name,
+            req.url,
+            req.access_key,
+            req.priority,
+        )
+        .await
+    {
         Ok(instance) => {
             let response: rsshub_instances::InstanceResponse = instance.into();
             (
@@ -2818,16 +2834,19 @@ async fn update_rsshub_instance(
     };
 
     let rsshub_service = RsshubService::new(db);
-    
-    match rsshub_service.update_instance(
-        id,
-        Some(user_id),
-        req.name,
-        req.url,
-        req.access_key,
-        req.priority,
-        req.enabled,
-    ).await {
+
+    match rsshub_service
+        .update_instance(
+            id,
+            Some(user_id),
+            req.name,
+            req.url,
+            req.access_key,
+            req.priority,
+            req.enabled,
+        )
+        .await
+    {
         Ok(instance) => {
             let response: rsshub_instances::InstanceResponse = instance.into();
             (
@@ -2857,13 +2876,9 @@ async fn delete_rsshub_instance(
     };
 
     let rsshub_service = RsshubService::new(db);
-    
+
     match rsshub_service.delete_instance(id, Some(user_id)).await {
-        Ok(()) => (
-            StatusCode::OK,
-            Json(json!({ "success": true })),
-        )
-            .into_response(),
+        Ok(()) => (StatusCode::OK, Json(json!({ "success": true }))).into_response(),
         Err(e) => (
             StatusCode::BAD_REQUEST,
             Json(json!({ "success": false, "error": e })),
@@ -2885,21 +2900,24 @@ async fn health_check_rsshub_instance(
     };
 
     let rsshub_service = RsshubService::new(db.clone());
-    
+
     // 获取实例
-    let instance = match rsshub_instances::Entity::find_by_id(id)
-        .one(&db)
-        .await
-    {
+    let instance = match rsshub_instances::Entity::find_by_id(id).one(&db).await {
         Ok(Some(i)) => i,
-        Ok(None) => return (
-            StatusCode::NOT_FOUND,
-            Json(json!({ "success": false, "error": "Instance not found" })),
-        ).into_response(),
-        Err(e) => return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "success": false, "error": e.to_string() })),
-        ).into_response(),
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "success": false, "error": "Instance not found" })),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "success": false, "error": e.to_string() })),
+            )
+                .into_response()
+        }
     };
 
     // 检查权限
@@ -2907,26 +2925,29 @@ async fn health_check_rsshub_instance(
         return (
             StatusCode::FORBIDDEN,
             Json(json!({ "success": false, "error": "Permission denied" })),
-        ).into_response();
+        )
+            .into_response();
     }
 
     match rsshub_service.health_check(&instance).await {
         Ok(response_time) => (
             StatusCode::OK,
-            Json(json!({ 
-                "success": true, 
+            Json(json!({
+                "success": true,
                 "healthy": true,
-                "response_time_ms": response_time 
+                "response_time_ms": response_time
             })),
-        ).into_response(),
+        )
+            .into_response(),
         Err(e) => (
             StatusCode::OK,
-            Json(json!({ 
-                "success": true, 
+            Json(json!({
+                "success": true,
                 "healthy": false,
-                "error": e 
+                "error": e
             })),
-        ).into_response(),
+        )
+            .into_response(),
     }
 }
 
@@ -2943,16 +2964,14 @@ async fn reset_rsshub_instance(
     };
 
     let rsshub_service = RsshubService::new(db);
-    
+
     match rsshub_service.reset_instance_stats(id).await {
-        Ok(()) => (
-            StatusCode::OK,
-            Json(json!({ "success": true })),
-        ).into_response(),
+        Ok(()) => (StatusCode::OK, Json(json!({ "success": true }))).into_response(),
         Err(e) => (
             StatusCode::BAD_REQUEST,
             Json(json!({ "success": false, "error": e })),
-        ).into_response(),
+        )
+            .into_response(),
     }
 }
 
@@ -2968,15 +2987,17 @@ async fn health_check_all_rsshub_instances(
     };
 
     let rsshub_service = RsshubService::new(db);
-    
+
     match rsshub_service.check_all_instances(Some(user_id)).await {
         Ok(()) => (
             StatusCode::OK,
             Json(json!({ "success": true, "message": "Health check completed" })),
-        ).into_response(),
+        )
+            .into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "success": false, "error": e })),
-        ).into_response(),
+        )
+            .into_response(),
     }
 }

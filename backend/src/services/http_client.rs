@@ -219,6 +219,13 @@ impl GeminiApiUrl {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::GLOBAL_DYNAMIC_CONFIG;
+    use lazy_static::lazy_static;
+    use std::sync::Mutex;
+
+    lazy_static! {
+        static ref TEST_MUTEX: Mutex<()> = Mutex::new(());
+    }
 
     #[test]
     fn test_proxy_bypass() {
@@ -237,5 +244,43 @@ mod tests {
         assert!(config.should_bypass("http://127.0.0.1:8080"));
         assert!(!config.should_bypass("https://api.github.com"));
         assert!(!config.should_bypass("https://api.openai.com"));
+    }
+
+    #[tokio::test]
+    async fn github_api_base_url_should_follow_dynamic_config_runtime() {
+        let _guard = TEST_MUTEX.lock().unwrap();
+        let original = { GLOBAL_DYNAMIC_CONFIG.read().await.clone() };
+
+        {
+            let mut config = GLOBAL_DYNAMIC_CONFIG.write().await;
+            config.github_api_base_url = Some("https://mirror.example.com".to_string());
+        }
+
+        let base = GitHubApiUrl::get_api_base().await;
+        assert_eq!(base, "https://mirror.example.com");
+
+        {
+            let mut config = GLOBAL_DYNAMIC_CONFIG.write().await;
+            *config = original;
+        }
+    }
+
+    #[tokio::test]
+    async fn github_api_user_url_should_use_dynamic_base() {
+        let _guard = TEST_MUTEX.lock().unwrap();
+        let original = { GLOBAL_DYNAMIC_CONFIG.read().await.clone() };
+
+        {
+            let mut config = GLOBAL_DYNAMIC_CONFIG.write().await;
+            config.github_api_base_url = Some("https://mirror.local".to_string());
+        }
+
+        let url = GitHubApiUrl::user_url("octocat").await;
+        assert_eq!(url, "https://mirror.local/users/octocat");
+
+        {
+            let mut config = GLOBAL_DYNAMIC_CONFIG.write().await;
+            *config = original;
+        }
     }
 }
