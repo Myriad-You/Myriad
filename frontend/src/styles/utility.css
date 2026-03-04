@@ -503,8 +503,6 @@
 
 /* 移动端禁用选择 */
 @media (max-width: 767px) {
-  .nav-item,
-  .dynamic-island,
   button {
     -webkit-user-select: none;
     user-select: none;

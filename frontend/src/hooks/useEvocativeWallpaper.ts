@@ -248,7 +248,8 @@ async function captureWallpaperToCanvas(
       const imgRatio = img.width / img.height
       const canvasRatio = canvasW / canvasH
 
-      let drawW: number, drawH: number
+      let drawW: number
+      let drawH: number
 
       if (imgRatio > canvasRatio) {
         drawH = canvasH
@@ -901,7 +902,7 @@ export function useEvocativeWallpaper(
         // 可聚焦元素
         + '[tabindex]:not([tabindex="-1"]), '
         // 导航相关
-        + 'nav, .nav-item, .nav-container, .dynamic-island, '
+        + 'nav, [role="navigation"], '
         // 常见UI组件
         + '.card, .modal, .dialog, .dropdown, .menu, .popup, .tooltip, .toast, .panel, '
         // 媒体和嵌入

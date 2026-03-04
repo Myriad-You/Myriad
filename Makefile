@@ -1,7 +1,7 @@
 # Myriad Docker Deployment Makefile
 # Provides simplified commands to manage Docker deployment
 
-.PHONY: help deploy start stop restart logs status clean build ps
+.PHONY: help deploy start stop restart logs status clean build ps backend-test
 
 # Default target
 .DEFAULT_GOAL := help
@@ -110,3 +110,6 @@ shell-db:
 # Enter frontend container
 shell-frontend:
 	docker exec -it myriad-frontend sh
+
+backend-test:
+	@cd backend && cargo test --test $(TEST) -- $(ARGS)

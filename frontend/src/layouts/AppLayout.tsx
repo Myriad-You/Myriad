@@ -29,7 +29,6 @@ import {
   shouldApplyColorExtraction,
 } from '../utils/wallpaperColorCache'
 import { wallpaperState } from '../utils/wallpaperState'
-import './AppLayout.css'
 
 interface AppLayoutProps {
   children: React.ReactNode

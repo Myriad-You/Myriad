@@ -353,14 +353,22 @@ export function useMediaQuery(query: string): boolean {
   return matches
 }
 
+export const BREAKPOINT_QUERIES = {
+  mobile: '(max-width: 767px)',
+  mdUp: '(min-width: 768px)',
+  tablet: '(min-width: 768px) and (max-width: 1023px)',
+  desktop: '(min-width: 1024px)',
+  largeDesktop: '(min-width: 1280px)',
+} as const
+
 /**
  * 预定义的响应式断点 Hook
  */
 export function useBreakpoints() {
-  const isMobile = useMediaQuery('(max-width: 767px)')
-  const isTablet = useMediaQuery('(min-width: 768px) and (max-width: 1023px)')
-  const isDesktop = useMediaQuery('(min-width: 1024px)')
-  const isLargeDesktop = useMediaQuery('(min-width: 1280px)')
+  const isMobile = useMediaQuery(BREAKPOINT_QUERIES.mobile)
+  const isTablet = useMediaQuery(BREAKPOINT_QUERIES.tablet)
+  const isDesktop = useMediaQuery(BREAKPOINT_QUERIES.desktop)
+  const isLargeDesktop = useMediaQuery(BREAKPOINT_QUERIES.largeDesktop)
 
   return useMemo(() => ({
     isMobile,
