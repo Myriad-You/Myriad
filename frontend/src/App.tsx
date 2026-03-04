@@ -5,7 +5,7 @@
  */
 
 import { AnimatePresenceShim as AnimatePresence, motionShim as motion } from '@lib/motionShim'
-import React, { lazy, Suspense, useEffect, useState } from 'react'
+import React, { lazy, Suspense, useEffect, useLayoutEffect, useState } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import CustomScrollbar from './components/CustomScrollbar'
 import RouteLoader from './components/RouteLoader'
@@ -13,26 +13,23 @@ import { AgentGlobalActions } from './contexts/AgentGlobalActions'
 import { AnimationPreferenceProvider } from './contexts/AnimationPreferenceContext'
 import { AuthProvider } from './contexts/AuthContext'
 import { I18nProvider } from './contexts/I18nContext'
-
 import { MusicPlayerProvider } from './contexts/MusicPlayerContext'
-import { NavigationProvider } from './contexts/NavigationContext'
+import { NavigationProvider, useNavigation } from './contexts/NavigationContext'
 import { NotificationProvider } from './contexts/NotificationContext'
-
 import { PageContentProvider } from './contexts/PageContentContext'
 import { ReadingListProvider } from './contexts/ReadingListContext'
 import { useRouteScheduler } from './hooks/animation'
 import { AppLayout } from './layouts/AppLayout'
 import { recordNavigation } from './router/navigationHistory'
 import { preloadCriticalRoutes } from './utils/codeSplitting'
-import './styles/fonts.css'
-import './styles/theme.css'
 import './styles/animations.css'
-import './styles/page-transitions.css'
-import './styles/navigation-island.css'
-import './styles/utility.css'
+import './styles/fonts.css'
 import './styles/modals.css'
 import './styles/overrides.css'
+import './styles/page-transitions.css'
 import './styles/performance.css'
+import './styles/theme.css'
+import './styles/utility.css'
 
 // TappBackgroundRunner 懒加载，避免其错误阻塞主应用
 const TappBackgroundRunner = lazy(() => import('./tapp/components/TappBackgroundRunner')) // 🔧 性能优化 CSS
@@ -134,35 +131,6 @@ function SuspensePage({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * 带动画的页面包装器
- * 确保 AnimatePresence 直接包裹 motion 组件
- */
-function AnimatedPage({ children, useFixedWrapper = false }: { children: React.ReactNode, useFixedWrapper?: boolean }) {
-  const location = useLocation()
-
-  // 🎯 根据页面类型选择不同的动画配置
-  const variants = useFixedWrapper ? fixedPageVariants : pageVariants
-  const wrapperStyle = useFixedWrapper
-    ? { position: 'absolute' as const, inset: 0 }
-    : { width: '100%' }
-
-  return (
-    <AnimatePresence mode="wait">
-      <motion.div
-        key={location.pathname}
-        variants={variants}
-        initial="initial"
-        animate="enter"
-        exit="exit"
-        style={wrapperStyle}
-      >
-        {children}
-      </motion.div>
-    </AnimatePresence>
-  )
-}
-
-/**
  * 页面动画配置 - 普通页面（带 transform）
  */
 const pageVariants = {
@@ -215,11 +183,36 @@ const fixedPageVariants = {
   },
 }
 
+function AnimatedPage({ children, useFixedWrapper = false }: { children: React.ReactNode, useFixedWrapper?: boolean }) {
+  const location = useLocation()
+
+  const variants = useFixedWrapper ? fixedPageVariants : pageVariants
+  const wrapperStyle = useFixedWrapper
+    ? { position: 'absolute' as const, inset: 0 }
+    : { width: '100%' }
+
+  return (
+    <AnimatePresence mode="wait">
+      <motion.div
+        key={location.pathname}
+        variants={variants}
+        initial="initial"
+        animate="enter"
+        exit="exit"
+        style={wrapperStyle}
+      >
+        {children}
+      </motion.div>
+    </AnimatePresence>
+  )
+}
+
 /**
  * 路由内容组件
  */
 function AppRoutes() {
   const location = useLocation()
+  const { setSecondaryNavRoutePath } = useNavigation()
 
   // 🎯 判断是否是 fixed 布局页面（如 TappRunPage、多任务模式）
   const isFixedLayoutPage = location.pathname.startsWith('/tapp/run/') || location.pathname === '/tapp/run'
@@ -238,6 +231,12 @@ function AppRoutes() {
   useEffect(() => {
     window.scrollTo(0, 0)
   }, [location.pathname])
+
+  useLayoutEffect(() => {
+    const pathname = location.pathname
+    const routePath = ['/library', '/brew', '/reports'].find(path => pathname.startsWith(path)) ?? null
+    setSecondaryNavRoutePath(routePath)
+  }, [location.pathname, setSecondaryNavRoutePath])
 
   return (
     <AnimatedPage useFixedWrapper={isFixedLayoutPage}>
@@ -283,18 +282,12 @@ function AppRoutes() {
  * 主应用组件
  */
 export function App() {
-  console.debug('[App] App component rendering...')
-  const [_isLayoutReady, setIsLayoutReady] = useState(false)
-
   // 在 React 应用挂载完成后标记就绪状态
   // 注意：这只是通知基本框架已加载，各个组件会独立控制自己的淡入显示
   useEffect(() => {
-    console.debug('[App] App useEffect running...')
     // 使用双帧延迟确保基础布局已渲染
     const rafId = requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        setIsLayoutReady(true)
-
         // 通知 PageLoader 应用已就绪
         if ((window as any).pageLoader) {
           (window as any).pageLoader.markAppReady()
