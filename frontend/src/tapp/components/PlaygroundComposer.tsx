@@ -6,7 +6,7 @@
  * - 状态带：生成中为紧凑两行（标题+计时 / 阶段字幕），标题带流光扫字；
  *   失败时同构两行 + Retry；完成后显示验证徽标与可展开的 Agent 轨迹
  * - 输入区：多行输入独占一行（composer 范式）
- * - 工具栏：左侧版本导航与会话操作，右侧安装与生成主操作
+ * - 工具栏：左侧版本导航、历史/会话面板与清空，右侧安装与生成主操作
  */
 
 import type {
@@ -19,8 +19,11 @@ import {
   FaCheck,
   FaChevronDown,
   FaDownload,
+  FaHistory,
+  FaPlus,
   FaRedo,
   FaTimes,
+  FaTrash,
   FaUndo,
 } from '@lib/icons'
 import {
@@ -32,7 +35,7 @@ import { useI18n } from '../../contexts/I18nContext'
 import { useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { PlaygroundTraceIcon } from './PlaygroundIcons'
 
-/** Persisted generate failure for status-band + Retry (sessionStorage) */
+/** Persisted generate failure for status-band + Retry (localStorage via parent) */
 export interface PlaygroundLastFailedAttempt {
   instruction: string
   error: string
@@ -41,6 +44,22 @@ export interface PlaygroundLastFailedAttempt {
   origin: 'user' | 'runtime-repair'
   /** Frozen busy-phase index (plan/retrieve/code/validate) from elapsed time */
   phaseIndex?: number
+}
+
+export interface PlaygroundHistoryRevisionItem {
+  id: string
+  index: number
+  instruction: string
+  createdAt: number
+  origin?: 'user' | 'runtime-repair'
+  explanation?: string
+}
+
+export interface PlaygroundSessionSummary {
+  id: string
+  title: string
+  updatedAt: number
+  revisionCount: number
 }
 
 export interface PlaygroundComposerProps {
@@ -53,6 +72,11 @@ export interface PlaygroundComposerProps {
   instruction: string
   revisionIndex: number
   revisionCount: number
+  /** Current session revision timeline (for history panel) */
+  historyRevisions?: PlaygroundHistoryRevisionItem[]
+  /** Multi-session list (newest first) */
+  sessions?: PlaygroundSessionSummary[]
+  activeSessionId?: string
   error: string
   previewError: string
   notice: string
@@ -60,18 +84,53 @@ export interface PlaygroundComposerProps {
   agentTrace?: PlaygroundAgentStep[]
   knowledgeSources?: PlaygroundKnowledgeSource[]
   validation?: PlaygroundValidationReport
-  /** Persisted last failed generate attempt (sessionStorage via parent) */
+  /** Persisted last failed generate attempt (localStorage via parent) */
   lastFailedAttempt?: PlaygroundLastFailedAttempt | null
   onInstructionChange: (value: string) => void
   onSubmit: () => void
   onInstall: () => void
   onMoveRevision: (delta: number) => void
+  onJumpToRevision?: (index: number) => void
   onClear: () => void
+  onCreateSession?: () => void
+  onSwitchSession?: (sessionId: string) => void
+  onDeleteSession?: (sessionId: string) => void
   onDismissError: () => void
   onDismissPreviewError: () => void
   onDismissNotice: () => void
   onRetryFailed?: () => void
   onDismissFailed?: () => void
+}
+
+function formatRelativeTime(
+  timestamp: number,
+  labels: {
+    justNow: string
+    minutesAgo: string
+    hoursAgo: string
+    daysAgo: string
+  },
+  fmt: (template: string, params: Record<string, string | number>) => string,
+): string {
+  const diffMs = Date.now() - timestamp
+  const diffMin = Math.floor(diffMs / 60000)
+  if (diffMin < 1) return labels.justNow
+  if (diffMin < 60) return fmt(labels.minutesAgo, { n: diffMin })
+  const diffHour = Math.floor(diffMin / 60)
+  if (diffHour < 24) return fmt(labels.hoursAgo, { n: diffHour })
+  const diffDay = Math.floor(diffHour / 24)
+  if (diffDay < 7) return fmt(labels.daysAgo, { n: diffDay })
+  return new Date(timestamp).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+  })
+}
+
+function summarizeInstruction(text: string, max = 48): string {
+  const cleaned = text.replace(/\s+/g, ' ').trim()
+  if (!cleaned) return ''
+  if (cleaned.length <= max) return cleaned
+  return `${cleaned.slice(0, max - 1)}…`
 }
 
 /* ---------- 通知卡片 ---------- */
@@ -143,6 +202,9 @@ export function PlaygroundComposer({
   instruction,
   revisionIndex,
   revisionCount,
+  historyRevisions = [],
+  sessions = [],
+  activeSessionId,
   error,
   previewError,
   notice,
@@ -155,7 +217,11 @@ export function PlaygroundComposer({
   onSubmit,
   onInstall,
   onMoveRevision,
+  onJumpToRevision,
   onClear,
+  onCreateSession,
+  onSwitchSession,
+  onDeleteSession,
   onDismissError,
   onDismissPreviewError,
   onDismissNotice,
@@ -170,8 +236,20 @@ export function PlaygroundComposer({
     : ({ type: 'tween', duration: 0.25 * animConfig.durationScale } as const)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const historyPanelRef = useRef<HTMLDivElement>(null)
   const [traceOpen, setTraceOpen] = useState(false)
   const [failedDetailOpen, setFailedDetailOpen] = useState(true)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [historyTab, setHistoryTab] = useState<'revisions' | 'sessions'>(
+    'revisions',
+  )
+
+  const relativeLabels = {
+    justNow: t.tapp.playgroundTimeJustNow,
+    minutesAgo: t.tapp.playgroundTimeMinutesAgo,
+    hoursAgo: t.tapp.playgroundTimeHoursAgo,
+    daysAgo: t.tapp.playgroundTimeDaysAgo,
+  }
 
   // 输入框自适应高度
   useEffect(() => {
@@ -239,6 +317,30 @@ export function PlaygroundComposer({
     if (lastFailedAttempt) setFailedDetailOpen(true)
   }, [lastFailedAttempt?.finishedAt])
 
+  // Close history panel on outside click / Escape
+  useEffect(() => {
+    if (!historyOpen) return
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null
+      if (
+        historyPanelRef.current &&
+        target &&
+        !historyPanelRef.current.contains(target)
+      ) {
+        setHistoryOpen(false)
+      }
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setHistoryOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [historyOpen])
+
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (
       event.key === 'Enter' &&
@@ -249,6 +351,25 @@ export function PlaygroundComposer({
       onSubmit()
     }
   }
+
+  const handleClear = () => {
+    if (busy) return
+    if (
+      revisionCount > 0 &&
+      !window.confirm(t.tapp.playgroundClearConfirm)
+    ) {
+      return
+    }
+    onClear()
+  }
+
+  const handleDeleteSession = (sessionId: string) => {
+    if (busy || !onDeleteSession) return
+    if (!window.confirm(t.tapp.playgroundDeleteSessionConfirm)) return
+    onDeleteSession(sessionId)
+  }
+
+  const orderedRevisions = [...historyRevisions].reverse()
 
   return (
     <motion.div
@@ -322,7 +443,311 @@ export function PlaygroundComposer({
           )}
         </AnimatePresence>
 
-        <div className="relative rounded-[1.6rem] bg-white/90 dark:bg-[#1a1a1a]/90 backdrop-blur-xl shadow-2xl ring-1 ring-black/5 dark:ring-white/10 overflow-hidden">
+        <div
+          ref={historyPanelRef}
+          className="relative rounded-[1.6rem] bg-white/90 dark:bg-[#1a1a1a]/90 backdrop-blur-xl shadow-2xl ring-1 ring-black/5 dark:ring-white/10 overflow-hidden"
+        >
+          {/* ---------- 历史 / 会话面板 ---------- */}
+          <AnimatePresence initial={false}>
+            {historyOpen && (
+              <motion.div
+                key="history-panel"
+                initial={
+                  animationsEnabled
+                    ? { opacity: 0, height: 0 }
+                    : { opacity: 1, height: 'auto' }
+                }
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={
+                  animationsEnabled
+                    ? { opacity: 0, height: 0 }
+                    : { opacity: 0 }
+                }
+                transition={{ duration: 0.22, ease: 'easeOut' }}
+                className="overflow-hidden border-b border-black/5 dark:border-white/5"
+              >
+                <div className="px-3 pt-3 pb-2">
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <div className="flex items-center rounded-full bg-black/5 dark:bg-white/10 p-0.5">
+                      <button
+                        type="button"
+                        onClick={() => setHistoryTab('revisions')}
+                        className={`h-7 px-2.5 rounded-full text-[10px] font-semibold transition-colors ${
+                          historyTab === 'revisions'
+                            ? 'bg-white dark:bg-white/20 shadow-sm text-gray-900 dark:text-white'
+                            : 'text-gray-500 dark:text-gray-400'
+                        }`}
+                      >
+                        {t.tapp.playgroundHistory}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setHistoryTab('sessions')}
+                        className={`h-7 px-2.5 rounded-full text-[10px] font-semibold transition-colors ${
+                          historyTab === 'sessions'
+                            ? 'bg-white dark:bg-white/20 shadow-sm text-gray-900 dark:text-white'
+                            : 'text-gray-500 dark:text-gray-400'
+                        }`}
+                      >
+                        {t.tapp.playgroundSessions}
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setHistoryOpen(false)}
+                      className="ml-auto shrink-0 p-1.5 rounded-md text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+                      aria-label={t.common.close}
+                    >
+                      <FaTimes className="w-2.5 h-2.5" />
+                    </button>
+                  </div>
+
+                  {historyTab === 'revisions' ? (
+                    <div className="max-h-[min(42vh,16rem)] overflow-y-auto playground-history-scroll">
+                      {orderedRevisions.length === 0 ? (
+                        <p
+                          className="px-2 py-4 text-center text-[11px]"
+                          style={{ color: 'var(--text-muted)' }}
+                        >
+                          {t.tapp.playgroundHistoryEmpty}
+                        </p>
+                      ) : (
+                        <ul className="space-y-1">
+                          {orderedRevisions.map((rev) => {
+                            const isCurrent = rev.index === revisionIndex
+                            const summary =
+                              summarizeInstruction(rev.instruction) ||
+                              summarizeInstruction(rev.explanation || '') ||
+                              t.tapp.playgroundUntitledSession
+                            return (
+                              <li key={rev.id}>
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => {
+                                    onJumpToRevision?.(rev.index)
+                                  }}
+                                  title={t.tapp.playgroundJumpToRevision}
+                                  className={`w-full text-left rounded-xl px-2.5 py-2 transition-colors disabled:opacity-40 ${
+                                    isCurrent
+                                      ? 'playground-history-item--active'
+                                      : 'hover:bg-black/[0.04] dark:hover:bg-white/[0.05]'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <span
+                                      className="text-[10px] font-mono font-bold tabular-nums shrink-0"
+                                      style={{
+                                        color: isCurrent
+                                          ? 'var(--color-primary)'
+                                          : 'var(--text-muted)',
+                                      }}
+                                    >
+                                      v{rev.index + 1}
+                                    </span>
+                                    <span
+                                      className="min-w-0 flex-1 truncate text-[11px] font-medium"
+                                      style={{ color: 'var(--text-primary)' }}
+                                    >
+                                      {summary}
+                                    </span>
+                                    <span
+                                      className="text-[9px] shrink-0 tabular-nums"
+                                      style={{ color: 'var(--text-muted)' }}
+                                    >
+                                      {formatRelativeTime(
+                                        rev.createdAt,
+                                        relativeLabels,
+                                        format,
+                                      )}
+                                    </span>
+                                  </div>
+                                  <div className="mt-0.5 flex items-center gap-1.5 pl-[1.85rem]">
+                                    <span
+                                      className="text-[9px] font-semibold"
+                                      style={{ color: 'var(--text-muted)' }}
+                                    >
+                                      {rev.origin === 'runtime-repair'
+                                        ? t.tapp.playgroundOriginRepair
+                                        : t.tapp.playgroundOriginUser}
+                                    </span>
+                                    {isCurrent && (
+                                      <span
+                                        className="text-[9px] font-semibold"
+                                        style={{ color: 'var(--color-primary)' }}
+                                      >
+                                        · {t.tapp.playgroundCurrentRevision}
+                                      </span>
+                                    )}
+                                  </div>
+                                </button>
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      )}
+
+                      {lastFailedAttempt && (
+                        <div className="mt-2 rounded-xl border border-red-500/20 bg-red-500/5 px-2.5 py-2">
+                          <div className="flex items-center gap-2">
+                            <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
+                            <span className="text-[10px] font-semibold text-red-600 dark:text-red-300">
+                              {t.tapp.playgroundLastRunFailed}
+                            </span>
+                            <span
+                              className="ml-auto text-[9px] tabular-nums"
+                              style={{ color: 'var(--text-muted)' }}
+                            >
+                              {formatRelativeTime(
+                                lastFailedAttempt.finishedAt,
+                                relativeLabels,
+                                format,
+                              )}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-[10px] leading-relaxed text-red-600/90 dark:text-red-300/90 line-clamp-2">
+                            {lastFailedAttempt.error}
+                          </p>
+                          <div className="mt-1.5 flex items-center gap-1.5">
+                            {onRetryFailed && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setHistoryOpen(false)
+                                  onRetryFailed()
+                                }}
+                                disabled={busy}
+                                className="h-6 px-2 rounded-full text-[10px] font-semibold text-white disabled:opacity-40"
+                                style={{
+                                  background:
+                                    'linear-gradient(135deg, var(--color-primary), color-mix(in srgb, var(--color-primary) 80%, black))',
+                                }}
+                              >
+                                {t.tapp.playgroundRetry}
+                              </button>
+                            )}
+                            {onDismissFailed && (
+                              <button
+                                type="button"
+                                onClick={onDismissFailed}
+                                className="h-6 px-2 rounded-full text-[10px] font-semibold text-gray-500 hover:bg-black/5 dark:hover:bg-white/10"
+                              >
+                                {t.common.close}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="max-h-[min(42vh,16rem)] overflow-y-auto playground-history-scroll">
+                      <div className="mb-1.5 flex items-center gap-1.5 px-0.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (busy) return
+                            onCreateSession?.()
+                          }}
+                          disabled={busy || !onCreateSession}
+                          className="h-7 px-2.5 rounded-full text-[10px] font-semibold flex items-center gap-1 bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/15 transition-colors disabled:opacity-40"
+                          style={{ color: 'var(--text-primary)' }}
+                        >
+                          <FaPlus className="w-2.5 h-2.5" />
+                          {t.tapp.playgroundNewSession}
+                        </button>
+                      </div>
+                      {sessions.length === 0 ? (
+                        <p
+                          className="px-2 py-4 text-center text-[11px]"
+                          style={{ color: 'var(--text-muted)' }}
+                        >
+                          {t.tapp.playgroundSessionsEmpty}
+                        </p>
+                      ) : (
+                        <ul className="space-y-1">
+                          {sessions.map((sess) => {
+                            const isActive = sess.id === activeSessionId
+                            const title =
+                              sess.title.trim() || t.tapp.playgroundUntitledSession
+                            return (
+                              <li
+                                key={sess.id}
+                                className={`flex items-stretch gap-0.5 rounded-xl ${
+                                  isActive ? 'playground-history-item--active' : ''
+                                }`}
+                              >
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => {
+                                    if (!isActive) onSwitchSession?.(sess.id)
+                                  }}
+                                  className={`min-w-0 flex-1 text-left rounded-xl px-2.5 py-2 transition-colors disabled:opacity-40 ${
+                                    isActive
+                                      ? ''
+                                      : 'hover:bg-black/[0.04] dark:hover:bg-white/[0.05]'
+                                  }`}
+                                >
+                                  <div
+                                    className="truncate text-[11px] font-medium"
+                                    style={{ color: 'var(--text-primary)' }}
+                                  >
+                                    {title}
+                                  </div>
+                                  <div
+                                    className="mt-0.5 flex items-center gap-1.5 text-[9px]"
+                                    style={{ color: 'var(--text-muted)' }}
+                                  >
+                                    <span>
+                                      {formatRelativeTime(
+                                        sess.updatedAt,
+                                        relativeLabels,
+                                        format,
+                                      )}
+                                    </span>
+                                    <span>·</span>
+                                    <span>
+                                      {sess.revisionCount > 0
+                                        ? `${sess.revisionCount}`
+                                        : '—'}
+                                    </span>
+                                    {isActive && (
+                                      <>
+                                        <span>·</span>
+                                        <span
+                                          className="font-semibold"
+                                          style={{
+                                            color: 'var(--color-primary)',
+                                          }}
+                                        >
+                                          {t.tapp.playgroundActiveSession}
+                                        </span>
+                                      </>
+                                    )}
+                                  </div>
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => handleDeleteSession(sess.id)}
+                                  className="shrink-0 w-8 rounded-xl grid place-items-center text-red-400/80 hover:text-red-500 hover:bg-red-500/10 transition-colors disabled:opacity-30"
+                                  title={t.tapp.playgroundDeleteSession}
+                                  aria-label={t.tapp.playgroundDeleteSession}
+                                >
+                                  <FaTrash className="w-2.5 h-2.5" />
+                                </button>
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {/* ---------- 状态带 ---------- */}
           <AnimatePresence initial={false}>
             {busy ? (
@@ -695,11 +1120,29 @@ export function PlaygroundComposer({
               </div>
             )}
 
-            {revisionCount > 0 && (
+            <motion.button
+              type="button"
+              onClick={() => setHistoryOpen((open) => !open)}
+              whileTap={animationsEnabled ? { scale: 0.9 } : {}}
+              className={`w-7 h-7 shrink-0 rounded-full grid place-items-center transition-all ${
+                historyOpen
+                  ? 'playground-history-toggle--active'
+                  : 'text-gray-600 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/10'
+              }`}
+              title={t.tapp.playgroundHistory}
+              aria-label={t.tapp.playgroundHistory}
+              aria-expanded={historyOpen}
+            >
+              <FaHistory className="w-3 h-3" />
+            </motion.button>
+
+            {(revisionCount > 0 || lastFailedAttempt) && (
               <button
-                onClick={onClear}
+                type="button"
+                onClick={handleClear}
                 disabled={busy}
                 className="shrink-0 px-2.5 h-7 rounded-full text-[10px] font-semibold text-red-500/90 bg-red-500/10 hover:bg-red-500/15 hover:text-red-500 transition-colors disabled:opacity-30"
+                title={t.tapp.playgroundClear}
               >
                 {t.tapp.playgroundClear}
               </button>

@@ -6,12 +6,7 @@
  */
 
 import type { PlaygroundLastFailedAttempt } from '../components/PlaygroundComposer'
-import type {
-  PlaygroundAgentStep,
-  PlaygroundKnowledgeSource,
-  PlaygroundValidationReport,
-  TappPlaygroundProject,
-} from '../services/TappPlaygroundService'
+import type { TappPlaygroundProject } from '../services/TappPlaygroundService'
 import type { TappCodeStructure, TappInstance, WidgetSize } from '../types'
 import { FaArrowLeft, FaCode, FaGripVertical, FaLock } from '@lib/icons'
 import {
@@ -31,10 +26,20 @@ import { TappPageSandbox } from '../runtime/TappPageSandbox'
 import { TappWidgetSandbox } from '../runtime/TappWidgetSandbox'
 import { installFromCode } from '../services/TappApiService'
 import { generatePlaygroundProject } from '../services/TappPlaygroundService'
+import {
+  clearSessionContent,
+  createAndActivateSession,
+  deleteSession,
+  getActiveSession,
+  loadSessionsStore,
+  pushRevision,
+  saveSessionsStore,
+  switchSession,
+  updateActiveSession,
+  type PlaygroundSessionsStore,
+} from '../utils/playgroundSession'
 import 'prismjs/components/prism-json'
 import './TappPlaygroundPage.css'
-
-const SESSION_KEY = 'myriad:tapp-playground:session:v1'
 
 type FileId =
   | 'manifest'
@@ -47,24 +52,6 @@ type FileId =
   | 'widgetHtml'
   | 'modules'
   | 'assets'
-
-interface Revision {
-  project: TappPlaygroundProject
-  explanation: string
-  instruction: string
-  warnings: string[]
-  createdAt: number
-  origin?: 'user' | 'runtime-repair'
-  agentTrace?: PlaygroundAgentStep[]
-  knowledgeSources?: PlaygroundKnowledgeSource[]
-  validation?: PlaygroundValidationReport
-}
-
-interface StoredSession {
-  revisions: Revision[]
-  revisionIndex: number
-  lastFailedAttempt?: PlaygroundLastFailedAttempt | null
-}
 
 function phaseIndexFromElapsedMs(elapsedMs: number): number {
   const seconds = Math.floor(elapsedMs / 1000)
@@ -108,34 +95,6 @@ function mapPlaygroundGenerateError(
   if (isServer) return copy.playgroundServerErrorHint
 
   return raw
-}
-
-function loadSession(): StoredSession {
-  if (typeof window === 'undefined') return { revisions: [], revisionIndex: -1 }
-  try {
-    const value = JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null')
-    if (
-      value &&
-      Array.isArray(value.revisions) &&
-      Number.isInteger(value.revisionIndex)
-    ) {
-      const lastFailedAttempt =
-        value.lastFailedAttempt &&
-        typeof value.lastFailedAttempt === 'object' &&
-        typeof value.lastFailedAttempt.instruction === 'string' &&
-        typeof value.lastFailedAttempt.error === 'string'
-          ? (value.lastFailedAttempt as PlaygroundLastFailedAttempt)
-          : null
-      return {
-        revisions: value.revisions,
-        revisionIndex: value.revisionIndex,
-        lastFailedAttempt,
-      }
-    }
-  } catch {
-    // A malformed or stale session should never block the editor.
-  }
-  return { revisions: [], revisionIndex: -1 }
 }
 
 function fileContents(project: TappPlaygroundProject, file: FileId): string {
@@ -512,7 +471,7 @@ export function TappPlaygroundPage() {
   const { isMobile } = useBreakpoints()
   const { setImmersiveMode } = useNavigation()
   const animConfig = useAnimationLevel()
-  const [session, setSession] = useState<StoredSession>(loadSession)
+  const [store, setStore] = useState<PlaygroundSessionsStore>(loadSessionsStore)
   const [instruction, setInstruction] = useState('')
   const [busy, setBusy] = useState(false)
   const [busyMode, setBusyMode] = useState<'user' | 'runtime-repair'>('user')
@@ -539,8 +498,33 @@ export function TappPlaygroundPage() {
     ? ({ type: 'spring', stiffness: 400, damping: 30 } as const)
     : ({ type: 'tween', duration: 0.25 * animConfig.durationScale } as const)
 
+  const session = getActiveSession(store)
   const revision = session.revisions[session.revisionIndex]
   const project = revision?.project
+  const sessionSummaries = useMemo(
+    () =>
+      [...store.sessions]
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .map((s) => ({
+          id: s.id,
+          title: s.title,
+          updatedAt: s.updatedAt,
+          revisionCount: s.revisions.length,
+        })),
+    [store.sessions],
+  )
+  const historyRevisions = useMemo(
+    () =>
+      session.revisions.map((rev, index) => ({
+        id: rev.id,
+        index,
+        instruction: rev.instruction,
+        createdAt: rev.createdAt,
+        origin: rev.origin,
+        explanation: rev.explanation,
+      })),
+    [session.revisions],
+  )
 
   // 项目同时包含页面和小组件时，预览拆成两个独立窗格
   const manifestWidgets = project?.manifest.widgets || []
@@ -582,8 +566,8 @@ export function TappPlaygroundPage() {
   }, [setImmersiveMode])
 
   useEffect(() => {
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify(session))
-  }, [session])
+    saveSessionsStore(store)
+  }, [store])
 
   // 默认布局：预览居左约 55%，代码居右，底部为控制岛预留空间；
   // 存在小组件时左列上下拆分为页面预览 + 小组件预览两个窗格
@@ -654,10 +638,15 @@ export function TappPlaygroundPage() {
     setNotice('')
     if (origin === 'user') setPreviewError('')
     // Clear prior failure banner while a new attempt is in flight
-    setSession((current) =>
-      current.lastFailedAttempt
-        ? { ...current, lastFailedAttempt: null }
-        : current,
+    setStore((current) =>
+      updateActiveSession(
+        current,
+        (active) =>
+          active.lastFailedAttempt
+            ? { ...active, lastFailedAttempt: null }
+            : active,
+        false,
+      ),
     )
     const startedAt = Date.now()
     try {
@@ -666,26 +655,21 @@ export function TappPlaygroundPage() {
         currentProject: project,
         runtimeFeedback,
       })
-      setSession((current) => {
-        const retained = current.revisions.slice(0, current.revisionIndex + 1)
-        retained.push({
-          project: response.project,
-          explanation: response.explanation,
-          instruction: prompt.trim(),
-          warnings: response.warnings,
-          createdAt: Date.now(),
-          origin,
-          agentTrace: response.agentTrace,
-          knowledgeSources: response.knowledgeSources,
-          validation: response.validation,
-        })
-        const revisions = retained.slice(-20)
-        return {
-          revisions,
-          revisionIndex: revisions.length - 1,
-          lastFailedAttempt: null,
-        }
-      })
+      setStore((current) =>
+        updateActiveSession(current, (active) =>
+          pushRevision(active, {
+            project: response.project,
+            explanation: response.explanation,
+            instruction: prompt.trim(),
+            warnings: response.warnings,
+            createdAt: Date.now(),
+            origin,
+            agentTrace: response.agentTrace,
+            knowledgeSources: response.knowledgeSources,
+            validation: response.validation,
+          }),
+        ),
+      )
       if (origin === 'user') setInstruction('')
       setPreviewError('')
       setNotice(response.explanation)
@@ -716,10 +700,12 @@ export function TappPlaygroundPage() {
         origin,
         phaseIndex: phaseIndexFromElapsedMs(elapsedMs),
       }
-      setSession((current) => ({
-        ...current,
-        lastFailedAttempt: failed,
-      }))
+      setStore((current) =>
+        updateActiveSession(current, (active) => ({
+          ...active,
+          lastFailedAttempt: failed,
+        })),
+      )
       // Keep instruction text on failure (do not clear). Prefer the status
       // band over a duplicate floating error card for generate failures.
     } finally {
@@ -746,10 +732,15 @@ export function TappPlaygroundPage() {
   }
 
   const dismissFailedAttempt = () => {
-    setSession((current) =>
-      current.lastFailedAttempt
-        ? { ...current, lastFailedAttempt: null }
-        : current,
+    setStore((current) =>
+      updateActiveSession(
+        current,
+        (active) =>
+          active.lastFailedAttempt
+            ? { ...active, lastFailedAttempt: null }
+            : active,
+        false,
+      ),
     )
   }
 
@@ -772,17 +763,94 @@ export function TappPlaygroundPage() {
     }, 500)
   }
 
+  const showRevisionNotice = (rev: {
+    explanation?: string
+    instruction?: string
+  }) => {
+    const text = (rev.explanation || rev.instruction || '').trim()
+    if (text) {
+      setNotice(text.length > 160 ? `${text.slice(0, 159)}…` : text)
+    } else {
+      setNotice('')
+    }
+  }
+
   const moveRevision = (delta: number) => {
-    setSession((current) => ({
-      ...current,
-      revisionIndex: Math.max(
-        0,
-        Math.min(current.revisions.length - 1, current.revisionIndex + delta),
+    if (session.revisions.length === 0) return
+    const revisionIndex = Math.max(
+      0,
+      Math.min(session.revisions.length - 1, session.revisionIndex + delta),
+    )
+    if (revisionIndex === session.revisionIndex) return
+    const nextRev = session.revisions[revisionIndex]
+    setStore((current) =>
+      updateActiveSession(
+        current,
+        (active) => ({ ...active, revisionIndex }),
+        false,
       ),
-    }))
+    )
+    setError('')
+    setPreviewError('')
+    if (nextRev) showRevisionNotice(nextRev)
+    else setNotice('')
+  }
+
+  const jumpToRevision = (index: number) => {
+    if (session.revisions.length === 0) return
+    const revisionIndex = Math.max(
+      0,
+      Math.min(session.revisions.length - 1, index),
+    )
+    const nextRev = session.revisions[revisionIndex]
+    if (revisionIndex !== session.revisionIndex) {
+      setStore((current) =>
+        updateActiveSession(
+          current,
+          (active) => ({ ...active, revisionIndex }),
+          false,
+        ),
+      )
+    }
+    setError('')
+    setPreviewError('')
+    if (nextRev) showRevisionNotice(nextRev)
+    else setNotice('')
+  }
+
+  const handleCreateSession = () => {
+    if (busy) return
+    setStore((current) => createAndActivateSession(current))
+    setInstruction('')
     setError('')
     setNotice('')
     setPreviewError('')
+    runtimeRepairCountRef.current = 0
+    repairedRuntimeErrorsRef.current.clear()
+  }
+
+  const handleSwitchSession = (sessionId: string) => {
+    if (busy || sessionId === store.activeSessionId) return
+    setStore((current) => switchSession(current, sessionId))
+    setInstruction('')
+    setError('')
+    setNotice('')
+    setPreviewError('')
+    runtimeRepairCountRef.current = 0
+    repairedRuntimeErrorsRef.current.clear()
+  }
+
+  const handleDeleteSession = (sessionId: string) => {
+    if (busy) return
+    setStore((current) => deleteSession(current, sessionId))
+    if (sessionId === store.activeSessionId) {
+      setInstruction('')
+      setError('')
+      setNotice('')
+      setPreviewError('')
+      runtimeRepairCountRef.current = 0
+      repairedRuntimeErrorsRef.current.clear()
+    }
   }
 
   const installProject = async () => {
@@ -813,7 +881,9 @@ export function TappPlaygroundPage() {
   }
 
   const clearSession = () => {
-    setSession({ revisions: [], revisionIndex: -1, lastFailedAttempt: null })
+    setStore((current) =>
+      updateActiveSession(current, (active) => clearSessionContent(active)),
+    )
     setInstruction('')
     setError('')
     setNotice('')
@@ -855,45 +925,52 @@ export function TappPlaygroundPage() {
       return
     }
     setDraftInvalid(false)
-    setSession((current) => {
-      const rev = current.revisions[current.revisionIndex]
-      if (!rev) return current
-      const revProject = rev.project
-      let nextProject: TappPlaygroundProject
-      if (file === 'manifest') {
-        nextProject = {
-          ...revProject,
-          manifest: parsedJson as TappPlaygroundProject['manifest'],
-        }
-      } else if (file === 'i18n') {
-        nextProject = {
-          ...revProject,
-          code: {
-            ...revProject.code,
-            i18n: parsedJson as TappPlaygroundProject['code']['i18n'],
-          },
-        }
-      } else if (file === 'modules') {
-        nextProject = {
-          ...revProject,
-          code: {
-            ...revProject.code,
-            pageModules: parsedJson as TappPlaygroundProject['code']['pageModules'],
-          },
-        }
-      } else {
-        nextProject = {
-          ...revProject,
-          code: {
-            ...revProject.code,
-            [textKeys[file as keyof typeof textKeys]]: text,
-          },
-        }
-      }
-      const revisions = current.revisions.slice()
-      revisions[current.revisionIndex] = { ...rev, project: nextProject }
-      return { ...current, revisions }
-    })
+    setStore((current) =>
+      updateActiveSession(
+        current,
+        (active) => {
+          const rev = active.revisions[active.revisionIndex]
+          if (!rev) return active
+          const revProject = rev.project
+          let nextProject: TappPlaygroundProject
+          if (file === 'manifest') {
+            nextProject = {
+              ...revProject,
+              manifest: parsedJson as TappPlaygroundProject['manifest'],
+            }
+          } else if (file === 'i18n') {
+            nextProject = {
+              ...revProject,
+              code: {
+                ...revProject.code,
+                i18n: parsedJson as TappPlaygroundProject['code']['i18n'],
+              },
+            }
+          } else if (file === 'modules') {
+            nextProject = {
+              ...revProject,
+              code: {
+                ...revProject.code,
+                pageModules:
+                  parsedJson as TappPlaygroundProject['code']['pageModules'],
+              },
+            }
+          } else {
+            nextProject = {
+              ...revProject,
+              code: {
+                ...revProject.code,
+                [textKeys[file as keyof typeof textKeys]]: text,
+              },
+            }
+          }
+          const revisions = active.revisions.slice()
+          revisions[active.revisionIndex] = { ...rev, project: nextProject }
+          return { ...active, revisions }
+        },
+        true,
+      ),
+    )
   }, [])
 
   const handleCodeChange = (text: string) => {
@@ -1368,6 +1445,9 @@ export function TappPlaygroundPage() {
         instruction={instruction}
         revisionIndex={session.revisionIndex}
         revisionCount={session.revisions.length}
+        historyRevisions={historyRevisions}
+        sessions={sessionSummaries}
+        activeSessionId={store.activeSessionId}
         error={error}
         previewError={previewError}
         notice={notice}
@@ -1380,7 +1460,11 @@ export function TappPlaygroundPage() {
         onSubmit={() => void runGeneration()}
         onInstall={() => void installProject()}
         onMoveRevision={moveRevision}
+        onJumpToRevision={jumpToRevision}
         onClear={clearSession}
+        onCreateSession={handleCreateSession}
+        onSwitchSession={handleSwitchSession}
+        onDeleteSession={handleDeleteSession}
         onDismissError={() => setError('')}
         onDismissPreviewError={() => setPreviewError('')}
         onDismissNotice={() => setNotice('')}

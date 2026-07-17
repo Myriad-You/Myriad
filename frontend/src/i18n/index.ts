@@ -1740,6 +1740,24 @@ export interface TranslationKeys {
     playgroundIsolationTitle: string
     playgroundIsolationDesc: string
     playgroundClear: string
+    playgroundClearConfirm: string
+    playgroundHistory: string
+    playgroundSessions: string
+    playgroundNewSession: string
+    playgroundDeleteSession: string
+    playgroundDeleteSessionConfirm: string
+    playgroundUntitledSession: string
+    playgroundJumpToRevision: string
+    playgroundCurrentRevision: string
+    playgroundActiveSession: string
+    playgroundHistoryEmpty: string
+    playgroundSessionsEmpty: string
+    playgroundOriginUser: string
+    playgroundOriginRepair: string
+    playgroundTimeJustNow: string
+    playgroundTimeMinutesAgo: string
+    playgroundTimeHoursAgo: string
+    playgroundTimeDaysAgo: string
     playgroundPreview: string
     playgroundWidgetPreview: string
     playgroundPhasePlan: string
