@@ -4720,10 +4720,32 @@ async fn uninstall_tapp(
     Err(StatusCode::NOT_FOUND)
 }
 
+/// After a successful uninstall DB commit, choose which filesystem path to delete.
+///
+/// Prefer the quarantine directory when rename succeeded; otherwise fall back to
+/// the live install dir so a failed rename never blocks uninstall completion.
+fn uninstall_post_commit_cleanup_path(
+    quarantined_dir: Option<PathBuf>,
+    live_tapp_dir: PathBuf,
+    live_dir_exists: bool,
+) -> Option<PathBuf> {
+    if let Some(quarantine) = quarantined_dir {
+        Some(quarantine)
+    } else if live_dir_exists {
+        Some(live_tapp_dir)
+    } else {
+        None
+    }
+}
+
 /// 执行卸载 Tapp 的具体操作
 ///
 /// 参数：
 /// - keep_data: 是否保留应用数据（存储和设置），以便再次安装时恢复
+///
+/// Filesystem quarantine is best-effort: a failed rename must not leave the
+/// install row in place after DB cleanup has already been prepared. After a
+/// successful commit the install row is gone even if leftover files remain.
 async fn do_uninstall_tapp(
     db: &DatabaseConnection,
     tapp: &tapps::Model,
@@ -4733,19 +4755,25 @@ async fn do_uninstall_tapp(
     let tapp_id = &tapp.tapp_id;
     let is_public_install = find_admin_user_id(db).await? == Some(user_id);
 
-    let txn = db
-        .begin()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let txn = db.begin().await.map_err(|error| {
+        tracing::error!(tapp_id, user_id, %error, "Failed to begin uninstall transaction");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
     lock_tapp_lifecycle(&txn, tapp_id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|error| {
+            tracing::error!(tapp_id, user_id, %error, "Failed to acquire tapp lifecycle lock");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
     let still_installed = tapps::Entity::find_by_id(tapp.id)
         .filter(tapps::Column::UserId.eq(user_id))
         .filter(tapps::Column::TappId.eq(tapp_id))
         .one(&txn)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map_err(|error| {
+            tracing::error!(tapp_id, user_id, %error, "Failed to re-check tapp install under lock");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
         .is_some();
     if !still_installed {
         txn.rollback().await.ok();
@@ -4754,22 +4782,40 @@ async fn do_uninstall_tapp(
 
     crate::api::tapp_runtime::revoke_all_tapp_runtime_grants(tapp_id).await;
 
-    // First move files out of the live path. The rename is atomic and can be
-    // restored if any database cleanup fails.
+    // Prefer moving files out of the live path so a failed DB cleanup can restore
+    // them. Rename failures (permissions, busy mount, EXDEV) must not abort
+    // uninstall — DB cleanup still proceeds and post-commit best-effort deletes
+    // either the quarantine path or the live directory.
     let tapp_dir = tapp_dir_for(user_id, tapp_id).map_err(|_| StatusCode::BAD_REQUEST)?;
-    let quarantined_dir = if tapp_dir.exists() {
-        let parent = tapp_dir.parent().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    let quarantined_dir = if !tapp_dir.exists() {
+        None
+    } else if let Some(parent) = tapp_dir.parent() {
         let quarantine = parent.join(format!(
             ".{}.uninstall-{}",
             tapp_id,
             uuid::Uuid::new_v4().simple()
         ));
-        if fs::rename(&tapp_dir, &quarantine).await.is_err() {
-            txn.rollback().await.ok();
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        match fs::rename(&tapp_dir, &quarantine).await {
+            Ok(()) => Some(quarantine),
+            Err(error) => {
+                tracing::error!(
+                    tapp_id,
+                    user_id,
+                    from = %tapp_dir.display(),
+                    to = %quarantine.display(),
+                    kind = ?error.kind(),
+                    %error,
+                    "Failed to quarantine Tapp directory for uninstall; continuing with DB cleanup"
+                );
+                None
+            }
         }
-        Some(quarantine)
     } else {
+        tracing::error!(
+            tapp_id,
+            path = %tapp_dir.display(),
+            "Tapp directory has no parent; skipping quarantine rename"
+        );
         None
     };
 
@@ -4800,14 +4846,20 @@ async fn do_uninstall_tapp(
                 ],
             ))
             .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            .map_err(|error| {
+                tracing::error!(tapp_id, user_id, %error, "Failed to delete public-install widgets on uninstall");
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
         } else {
             tapp_widgets::Entity::delete_many()
                 .filter(tapp_widgets::Column::UserId.eq(user_id))
                 .filter(tapp_widgets::Column::TappId.eq(tapp_id))
                 .exec(&txn)
                 .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                .map_err(|error| {
+                    tracing::error!(tapp_id, user_id, %error, "Failed to delete private-install widgets on uninstall");
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
         }
 
         if !keep_data {
@@ -4816,7 +4868,10 @@ async fn do_uninstall_tapp(
                 .filter(tapp_storage::Column::TappId.eq(tapp_id))
                 .exec(&txn)
                 .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                .map_err(|error| {
+                    tracing::error!(tapp_id, user_id, %error, "Failed to delete tapp storage on uninstall");
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
         }
 
         let (task_scope, task_values) = if is_public_install {
@@ -4835,18 +4890,27 @@ async fn do_uninstall_tapp(
             task_values.clone(),
         ))
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|error| {
+            tracing::error!(tapp_id, user_id, %error, "Failed to delete task executions on uninstall");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
         txn.execute(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             format!("DELETE FROM tapp_scheduled_tasks WHERE {task_scope}"),
             task_values,
         ))
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|error| {
+            tracing::error!(tapp_id, user_id, %error, "Failed to delete scheduled tasks on uninstall");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
         tapps::Entity::delete_by_id(tapp.id)
             .exec(&txn)
             .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            .map_err(|error| {
+                tracing::error!(tapp_id, user_id, tapp_row_id = tapp.id, %error, "Failed to delete tapp install row on uninstall");
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
         txn.execute(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"DELETE FROM tapp_user_activities AS activity
@@ -4859,7 +4923,10 @@ async fn do_uninstall_tapp(
             vec![tapp_id.clone().into()],
         ))
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|error| {
+            tracing::error!(tapp_id, user_id, %error, "Failed to prune orphan activities on uninstall");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
         Ok(())
     }
     .await;
@@ -4867,22 +4934,70 @@ async fn do_uninstall_tapp(
     if let Err(status) = cleanup_result {
         txn.rollback().await.ok();
         if let Some(quarantine) = quarantined_dir {
-            let _ = fs::rename(quarantine, &tapp_dir).await;
+            if let Err(error) = fs::rename(&quarantine, &tapp_dir).await {
+                tracing::error!(
+                    tapp_id,
+                    from = %quarantine.display(),
+                    to = %tapp_dir.display(),
+                    kind = ?error.kind(),
+                    %error,
+                    "Failed to restore Tapp directory after uninstall DB cleanup failure"
+                );
+            }
         }
         return Err(status);
     }
-    if txn.commit().await.is_err() {
+    if let Err(error) = txn.commit().await {
+        tracing::error!(tapp_id, user_id, %error, "Failed to commit uninstall transaction");
         if let Some(quarantine) = quarantined_dir {
-            let _ = fs::rename(quarantine, &tapp_dir).await;
+            if let Err(restore_error) = fs::rename(&quarantine, &tapp_dir).await {
+                tracing::error!(
+                    tapp_id,
+                    from = %quarantine.display(),
+                    to = %tapp_dir.display(),
+                    kind = ?restore_error.kind(),
+                    %restore_error,
+                    "Failed to restore Tapp directory after uninstall commit failure"
+                );
+            }
         }
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 
-    if let Some(quarantine) = quarantined_dir {
-        if let Err(error) = fs::remove_dir_all(&quarantine).await {
-            tracing::warn!(path = %quarantine.display(), %error, "Failed to remove uninstalled Tapp files");
+    // Install row is gone. Best-effort filesystem cleanup must not fail uninstall.
+    let live_dir_exists = tapp_dir.exists();
+    if let Some(cleanup_path) =
+        uninstall_post_commit_cleanup_path(quarantined_dir, tapp_dir.clone(), live_dir_exists)
+    {
+        if let Err(error) = fs::remove_dir_all(&cleanup_path).await {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                tracing::warn!(
+                    tapp_id,
+                    path = %cleanup_path.display(),
+                    kind = ?error.kind(),
+                    %error,
+                    "Failed to remove uninstalled Tapp files"
+                );
+            }
         }
     }
+
+    // Best-effort: drop any remaining runtime registry rows for this tapp.
+    if let Err(error) = db
+        .execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "DELETE FROM tapp_runtime_registry WHERE tapp_id = $1",
+            vec![tapp_id.clone().into()],
+        ))
+        .await
+    {
+        tracing::warn!(
+            tapp_id,
+            %error,
+            "Failed to clean tapp_runtime_registry rows on uninstall"
+        );
+    }
+
     crate::api::tapp_runtime::invalidate_tapp_apis_cache(tapp_id).await;
 
     Ok(Json(ApiResponse::success(())))
@@ -6695,13 +6810,15 @@ mod manifest_tests {
     use super::{
         append_directory_to_zip, archive_entry_path, canonical_installation_owner_id,
         copy_regular_tapp_directory, installation_conflict_owner_ids, orphaned_tapp_directories,
-        recover_tapp_directory, tapp_dir_for, tapp_setting_value_is_valid, validate_asset_path,
-        validate_installed_resources, validate_resource_path, validate_store_manifest_category,
-        validate_tapp_archive, validate_tapp_id, validate_tapp_manifest,
-        validate_widget_template_contents, widget_template_path, write_install_generation,
-        RegisterWidgetRequest, TappCategory, TappDirStage, TappManifest, TappSettingDef,
-        TappStorageAccess, TappWidgetCategory, TappWidgetDef, WidgetTemplateContents,
+        recover_tapp_directory, tapp_dir_for, tapp_setting_value_is_valid,
+        uninstall_post_commit_cleanup_path, validate_asset_path, validate_installed_resources,
+        validate_resource_path, validate_store_manifest_category, validate_tapp_archive,
+        validate_tapp_id, validate_tapp_manifest, validate_widget_template_contents,
+        widget_template_path, write_install_generation, RegisterWidgetRequest, TappCategory,
+        TappDirStage, TappManifest, TappSettingDef, TappStorageAccess, TappWidgetCategory,
+        TappWidgetDef, WidgetTemplateContents,
     };
+    use std::path::PathBuf;
     use crate::models::entities::{tapp_widgets, tapps};
     use crate::services::permission_service::UserRole;
     use serde_json::json;
@@ -6768,6 +6885,33 @@ mod manifest_tests {
         assert_eq!(
             select_uninstall_target(false, false),
             UninstallTarget::NotFound
+        );
+    }
+
+    #[test]
+    fn uninstall_post_commit_prefers_quarantine_then_live_dir() {
+        let live = PathBuf::from("/data/tapps/1/com.example.app");
+        let quarantine =
+            PathBuf::from("/data/tapps/1/.com.example.app.uninstall-deadbeef");
+
+        // Rename succeeded: always clean quarantine, even if live path is gone.
+        assert_eq!(
+            uninstall_post_commit_cleanup_path(
+                Some(quarantine.clone()),
+                live.clone(),
+                false
+            ),
+            Some(quarantine.clone())
+        );
+        // Rename failed but live dir still present: best-effort delete live.
+        assert_eq!(
+            uninstall_post_commit_cleanup_path(None, live.clone(), true),
+            Some(live.clone())
+        );
+        // Nothing on disk after commit: no filesystem work.
+        assert_eq!(
+            uninstall_post_commit_cleanup_path(None, live, false),
+            None
         );
     }
 
