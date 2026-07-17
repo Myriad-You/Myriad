@@ -35,6 +35,7 @@ import { PlaygroundComposer } from '../components/PlaygroundComposer'
 import { TappPlaygroundIcon } from '../components/PlaygroundIcons'
 import { TappPageSandbox } from '../runtime/TappPageSandbox'
 import { TappWidgetSandbox } from '../runtime/TappWidgetSandbox'
+import { getTappRuntime } from '../runtime'
 import { installFromCode } from '../services/TappApiService'
 import { generatePlaygroundProject } from '../services/TappPlaygroundService'
 import { exportPlaygroundProjectAsTapp } from '../utils/exportPlaygroundTapp'
@@ -1197,7 +1198,30 @@ export function TappPlaygroundPage() {
         project.manifest,
         project.code as TappCodeStructure,
       )
-      setNotice(t.tapp.playgroundInstallSuccess)
+
+      // Sync runtime so the new install is in installedTapps, then enable it.
+      // Sync/start failures must not fail the install — user can enable on detail.
+      const runtime = getTappRuntime()
+      try {
+        await runtime.syncFromBackend(true)
+        await runtime.startTapp(installed.id)
+        setNotice(t.tapp.playgroundInstallStartedSuccess)
+      } catch (startError) {
+        console.error(
+          'Failed to sync/start Tapp after playground install:',
+          startError,
+        )
+        const detail =
+          startError instanceof Error && startError.message
+            ? startError.message
+            : ''
+        setNotice(
+          detail
+            ? t.tapp.playgroundInstallStartFailed.replace('{error}', detail)
+            : t.tapp.playgroundInstallSuccess,
+        )
+      }
+
       window.setTimeout(
         navigate,
         450,

@@ -1901,7 +1901,12 @@ export const enUS: TranslationKeys = {
     playgroundShortcut: 'Enter to send · Shift + Enter for a new line',
     playgroundCodeTitle: 'Code',
     playgroundInstall: 'Install',
-    playgroundInstallSuccess: 'Installed. Opening details…',
+    playgroundInstallSuccess:
+      'Installed. Could not enable automatically — enable it on the details page.',
+    playgroundInstallStartedSuccess:
+      'Installed and enabled. Opening details…',
+    playgroundInstallStartFailed:
+      'Installed, but could not enable automatically: {error}. Enable it on the details page.',
     playgroundExport: 'Export',
     playgroundExportSuccess: 'Downloaded {filename}',
     playgroundExportFailed: 'Export failed. Please try again.',

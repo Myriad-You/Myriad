@@ -1810,7 +1810,11 @@ export const zhCN: TranslationKeys = {
     playgroundShortcut: 'Enter 发送 · Shift + Enter 换行',
     playgroundCodeTitle: '代码',
     playgroundInstall: '安装',
-    playgroundInstallSuccess: '安装成功，正在打开详情页……',
+    playgroundInstallSuccess:
+      '安装成功，但未能自动启用——请在详情页手动启用。',
+    playgroundInstallStartedSuccess: '已安装并启用，正在打开详情页……',
+    playgroundInstallStartFailed:
+      '安装成功，但未能自动启用：{error}。请在详情页手动启用。',
     playgroundExport: '导出',
     playgroundExportSuccess: '已下载 {filename}',
     playgroundExportFailed: '导出失败，请重试。',

@@ -1735,6 +1735,10 @@ export interface TranslationKeys {
     playgroundShortcut: string
     playgroundInstall: string
     playgroundInstallSuccess: string
+    /** Install + auto-enable succeeded. */
+    playgroundInstallStartedSuccess: string
+    /** Install ok but start failed; `{error}` is the start error detail. */
+    playgroundInstallStartFailed: string
     playgroundExport: string
     playgroundExportSuccess: string
     playgroundExportFailed: string

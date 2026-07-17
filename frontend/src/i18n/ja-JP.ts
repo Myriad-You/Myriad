@@ -1885,7 +1885,12 @@ export const jaJP: TranslationKeys = {
     playgroundShortcut: 'Enter で送信 · Shift + Enter で改行',
     playgroundCodeTitle: 'コード',
     playgroundInstall: 'インストール',
-    playgroundInstallSuccess: 'インストールしました。詳細ページを開きます……',
+    playgroundInstallSuccess:
+      'インストールしましたが自動で有効化できませんでした。詳細ページで有効にしてください。',
+    playgroundInstallStartedSuccess:
+      'インストールして有効化しました。詳細ページを開きます……',
+    playgroundInstallStartFailed:
+      'インストールしましたが自動で有効化できませんでした：{error}。詳細ページで有効にしてください。',
     playgroundExport: 'エクスポート',
     playgroundExportSuccess: '{filename} をダウンロードしました',
     playgroundExportFailed: 'エクスポートに失敗しました。もう一度お試しください。',
