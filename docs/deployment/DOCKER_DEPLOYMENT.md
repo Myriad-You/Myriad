@@ -47,6 +47,8 @@ Networks:
 - Browser update requests go through backend admin routes:
   `/api/admin/updater/*`. The browser never receives `UPDATE_TOKEN`.
 - Migrating topology: see
+  [MIGRATION_V2_TO_V3.md](./MIGRATION_V2_TO_V3.md) (Chinese operator guide: old sock →
+  docker-guard + gateway + three nets; examples under `examples/`) and
   [MIGRATION_DOCKER_GUARD.md](./MIGRATION_DOCKER_GUARD.md) (host `compose pull && up -d`;
   UI alone cannot switch topology).
 
@@ -59,6 +61,9 @@ Networks:
 | `scripts/docker/deploy.sh` | Linux/macOS bootstrap and stack management |
 | `scripts/docker/deploy.ps1` | Windows bootstrap and stack management |
 | `docs/deployment/PORTS.md` | Development and production port map |
+| `docs/deployment/MIGRATION_V2_TO_V3.md` | Chinese v2→v3 migration (sock → guard + gateway + three nets) |
+| `docs/deployment/examples/v3-docker-compose.yml` | Documented v3 compose snapshot (matches root topology) |
+| `docs/deployment/examples/v3.env.example` | Redacted v3 `.env` example (kiseki.blog operator shape) |
 | `docs/deployment/MIGRATION_DOCKER_GUARD.md` | Migrate from updater+sock to docker-guard dual-net |
 | `docs/deployment/UPDATER_SECURITY_BASELINE.md` | Done-state security baseline + operator red lines |
 | `docs/UPDATER_QUICKSTART.md` | Operator guide for update, rollback, rescue |
