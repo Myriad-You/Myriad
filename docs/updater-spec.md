@@ -453,11 +453,21 @@ backend 必须实现此 schema，updater 严格校验。
 - index.html 包含 `<meta name="myriad-commit" content="<40-char sha>">`
 - updater 抓取并对比 target version
 
+### 11.2.1 two-phase probe (post-swap)
+
+After start_new, health probing is **two-phase** so frontend is checked on the live path (not only behind maintenance HTML):
+
+1. **Backend-only** while maintenance is still `active=true`: direct `http://backend:1103/health` (version / commit_sha / image tag identity + DB). Users still see the maintenance page.
+2. **Deactivate maintenance** (`active=false`) but **keep job id / phase** so rollback can re-enter maintenance if needed. Proxy cache settle ~2s.
+3. **Live frontend via proxy** `http://proxy:80/`: prefer real-page meta (`myriad-version` / commit); reject maintenance HTML; soft path allows dual image-tag match if stamps lag.
+
+Hard vs soft outcomes are logged with a `pass_kind` (e.g. `hard_backend`, `hard_fe_meta`, `soft_dual_image`). Needs **2** consecutive OK ticks per phase. Deadline recheck before destructive rollback uses live-via-proxy mode.
+
 ### 11.3 deadline
 
-- 初始等待 10s
-- 每 2s 探一次，连续 3 次通过算 healthy
-- 总超时 `max(300s, migrations.estimated_seconds × 3)`
+- 初始等待 ~5s（实现），再进入 phase loops
+- 每 2s 探一次；每 phase 连续 2 次 hard（或 soft 窗口后）算通过
+- 总超时 `max(300s, migrations.estimated_seconds × 3)`；phase1 约占总预算 55%（至少 60s）
 
 ## 12. proxy 维护页
 

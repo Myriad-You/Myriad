@@ -222,7 +222,7 @@ pub async fn run(
 
     rec.enter(Phase::HealthProbing, "updater.phase.health_probing")?;
     let deadline = Duration::from_secs(300u64.max((pre.estimated_seconds as u64) * 3));
-    let probe_result = health_probe(&worker, &target, deadline).await;
+    let probe_result = health_probe_phased(&worker, &target, deadline).await;
     if let Err(e) = probe_result {
         rec.finish_step_err(format!("health: {e}"))?;
         return finish_with_rollback(
@@ -259,6 +259,7 @@ pub async fn run(
     let _ = snap.prune(3);
 
     rec.finalize(JobStatus::Succeeded)?;
+    // Maintenance may already be inactive after frontend probe phase; full clear resets job pointer.
     crate::worker::machine::clear_maintenance(worker.state())?;
     worker
         .state()
@@ -324,12 +325,19 @@ async fn finish_with_rollback(
                 target = %target,
                 "health failure: re-checking before destructive rollback"
             );
-            // Force soft-pass window open (90s+) for this recheck.
-            let recheck = probe_one_tick(worker, &target, Duration::from_secs(120)).await;
+            // Force soft-pass window open (90s+) for this recheck; prefer live frontend via proxy.
+            let recheck = probe_one_tick(
+                worker,
+                &target,
+                Duration::from_secs(120),
+                FrontendProbe::LiveViaProxy,
+            )
+            .await;
             match recheck {
-                ProbeTick::HardOk { detail } | ProbeTick::SoftOk { detail } => {
+                ProbeTick::HardOk { detail, pass_kind } | ProbeTick::SoftOk { detail, pass_kind } => {
                     warn!(
                         %detail,
+                        %pass_kind,
                         target = %target,
                         "health re-check succeeded after timeout — treating update as SUCCESS \
                          (skipping rollback). Original probe was a false negative."
@@ -466,21 +474,89 @@ fn swap_tag(worker: &Arc<Worker>, new_tag: &str) -> Result<String> {
     Ok(prev)
 }
 
-/// Health probe after starting new backend/frontend.
+/// Two-phase health probe after starting new backend/frontend.
 ///
-/// Hardened against "business is up but probe lies":
-/// - Direct HTTP on the compose network; no Docker exec/container-create fallback
-/// - Identity: version string **or** commit_sha **or** container image tag
-/// - Frontend meta preferred; after 45s HTML 200 + backend identity is enough
-/// - After 90s soft-pass if containers running + DB + image tag match
-/// - Needs only **2** consecutive OK ticks (not 3) to reduce flakiness
-async fn health_probe(worker: &Arc<Worker>, target: &DeployTag, deadline: Duration) -> Result<()> {
-    const OK_STREAK_NEED: u32 = 2;
-    const SOFT_PASS_AFTER: Duration = Duration::from_secs(90);
-
+/// 1. **Backend-only** (maintenance still active): direct `http://backend:1103/health`
+///    so DB/migrations/version identity is verified without relying on proxy.
+/// 2. **Lift maintenance** (keep job id) so proxy serves real frontend HTML.
+/// 3. **Live frontend** via `http://proxy:80/`: prefer `myriad-version` / commit meta;
+///    soft-pass still allows image-tag match if stamps lag.
+///
+/// No Docker exec / probe containers. Needs **2** consecutive OK ticks per phase.
+async fn health_probe_phased(
+    worker: &Arc<Worker>,
+    target: &DeployTag,
+    deadline: Duration,
+) -> Result<()> {
     let start = std::time::Instant::now();
     // Spec §11.3 initial wait before first probe.
     tokio::time::sleep(Duration::from_secs(5)).await;
+
+    // Phase 1 — backend hard identity while users still see maintenance page.
+    let phase1_budget = deadline.mul_f32(0.55).max(Duration::from_secs(60));
+    run_probe_loop(
+        worker,
+        target,
+        start,
+        phase1_budget,
+        FrontendProbe::BackendOnly,
+        "phase1_backend",
+    )
+    .await?;
+
+    // Lift maintenance so proxy forwards to real frontend (keep job/phase for rollback).
+    deactivate_maintenance_for_frontend_probe(worker.state())?;
+    info!(
+        target = %target,
+        "health: maintenance inactive for live frontend probe via proxy"
+    );
+    let _ = worker.state().append_history(&format!(
+        "health: lift maintenance for frontend probe (target={})",
+        target.as_str()
+    ));
+
+    // Brief settle so proxy cache of maintenance.json expires (proxy caches ~1s).
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let remaining = deadline.saturating_sub(start.elapsed());
+    if remaining < Duration::from_secs(20) {
+        return Err(UpdaterError::Precondition(format!(
+            "health probe: insufficient time left for frontend phase ({}s)",
+            remaining.as_secs()
+        )));
+    }
+
+    run_probe_loop(
+        worker,
+        target,
+        start,
+        deadline,
+        FrontendProbe::LiveViaProxy,
+        "phase2_frontend",
+    )
+    .await
+}
+
+/// Set `active=false` without clearing job id so rollback can re-enter maintenance.
+fn deactivate_maintenance_for_frontend_probe(state: &crate::state::StateDir) -> Result<()> {
+    let mut m = state.read_maintenance()?;
+    m.active = false;
+    m.message_key = "updater.phase.health_probing_live".into();
+    m.bump_heartbeat();
+    state.write_maintenance(&m)?;
+    Ok(())
+}
+
+async fn run_probe_loop(
+    worker: &Arc<Worker>,
+    target: &DeployTag,
+    start: std::time::Instant,
+    deadline: Duration,
+    mode: FrontendProbe,
+    phase_label: &str,
+) -> Result<()> {
+    const OK_STREAK_NEED: u32 = 2;
+    const SOFT_PASS_AFTER: Duration = Duration::from_secs(90);
 
     let mut ok_streak = 0u32;
     let mut soft_streak = 0u32;
@@ -492,43 +568,55 @@ async fn health_probe(worker: &Arc<Worker>, target: &DeployTag, deadline: Durati
         attempts += 1;
         let elapsed = start.elapsed();
 
-        let tick = probe_one_tick(worker, target, elapsed).await;
+        let tick = probe_one_tick(worker, target, elapsed, mode).await;
         let diag = match &tick {
-            ProbeTick::HardOk { detail } => {
+            ProbeTick::HardOk { detail, pass_kind } => {
                 ok_streak += 1;
                 soft_streak = 0;
                 if ok_streak >= OK_STREAK_NEED {
                     info!(
                         target = %target,
+                        phase = phase_label,
+                        pass_kind = %pass_kind,
                         attempts,
                         elapsed_s = elapsed.as_secs(),
                         detail = %detail,
                         "health probe passed (hard)"
                     );
+                    let _ = worker.state().append_history(&format!(
+                        "health: pass hard phase={phase_label} kind={pass_kind} target={} detail={detail}",
+                        target.as_str()
+                    ));
                     return Ok(());
                 }
-                format!("hard ok streak={ok_streak}/{OK_STREAK_NEED} {detail}")
+                format!("hard ok streak={ok_streak}/{OK_STREAK_NEED} kind={pass_kind} {detail}")
             }
-            ProbeTick::SoftOk { detail } if elapsed >= SOFT_PASS_AFTER => {
+            ProbeTick::SoftOk { detail, pass_kind } if elapsed >= SOFT_PASS_AFTER => {
                 soft_streak += 1;
                 ok_streak = 0;
                 if soft_streak >= OK_STREAK_NEED {
                     warn!(
                         target = %target,
+                        phase = phase_label,
+                        pass_kind = %pass_kind,
                         attempts,
                         elapsed_s = elapsed.as_secs(),
                         detail = %detail,
-                        "health probe passed via soft criteria (image/db/running)"
+                        "health probe passed (soft)"
                     );
+                    let _ = worker.state().append_history(&format!(
+                        "health: pass soft phase={phase_label} kind={pass_kind} target={} detail={detail}",
+                        target.as_str()
+                    ));
                     return Ok(());
                 }
-                format!("soft ok streak={soft_streak}/{OK_STREAK_NEED} {detail}")
+                format!("soft ok streak={soft_streak}/{OK_STREAK_NEED} kind={pass_kind} {detail}")
             }
-            ProbeTick::SoftOk { detail } => {
+            ProbeTick::SoftOk { detail, pass_kind } => {
                 ok_streak = 0;
                 soft_streak = 0;
                 format!(
-                    "soft-eligible (wait {}s for soft pass): {detail}",
+                    "soft-eligible kind={pass_kind} (wait {}s): {detail}",
                     SOFT_PASS_AFTER.as_secs()
                 )
             }
@@ -542,6 +630,7 @@ async fn health_probe(worker: &Arc<Worker>, target: &DeployTag, deadline: Durati
         if diag != last_diag {
             warn!(
                 target = %target,
+                phase = phase_label,
                 attempt = attempts,
                 elapsed_s = elapsed.as_secs(),
                 %diag,
@@ -552,18 +641,32 @@ async fn health_probe(worker: &Arc<Worker>, target: &DeployTag, deadline: Durati
         let _ = crate::worker::machine::heartbeat(worker.state());
     }
     Err(UpdaterError::Precondition(format!(
-        "health probe deadline ({}s) exceeded; last={last_diag}",
+        "health probe deadline ({}s) exceeded phase={phase_label}; last={last_diag}",
         deadline.as_secs()
     )))
 }
 
+/// Whether this tick must verify real frontend HTML via proxy (post-maintenance).
+#[derive(Debug, Clone, Copy)]
+enum FrontendProbe {
+    /// Maintenance may still be active — only backend HTTP + image/running matter.
+    BackendOnly,
+    /// Maintenance lifted — proxy must serve real frontend (meta preferred).
+    LiveViaProxy,
+}
+
 enum ProbeTick {
-    HardOk { detail: String },
-    SoftOk { detail: String },
+    HardOk { detail: String, pass_kind: &'static str },
+    SoftOk { detail: String, pass_kind: &'static str },
     NotReady { detail: String },
 }
 
-async fn probe_one_tick(worker: &Arc<Worker>, target: &DeployTag, elapsed: Duration) -> ProbeTick {
+async fn probe_one_tick(
+    worker: &Arc<Worker>,
+    target: &DeployTag,
+    elapsed: Duration,
+    mode: FrontendProbe,
+) -> ProbeTick {
     const LOOSE_FRONTEND_AFTER: Duration = Duration::from_secs(45);
 
     let docker = worker.docker();
@@ -639,19 +742,48 @@ async fn probe_one_tick(worker: &Arc<Worker>, target: &DeployTag, elapsed: Durat
         };
     }
 
-    // Frontend stays on business-net only; updater is on admin-net. Probe via proxy
-    // (dual-homed on admin-net + business-net) rather than http://frontend:1102.
+    // --- Phase 1: backend only ---
+    if matches!(mode, FrontendProbe::BackendOnly) {
+        if backend_identity_ok {
+            return ProbeTick::HardOk {
+                pass_kind: "hard_backend",
+                detail: format!(
+                    "backend identity ok version={version:?} commit={commit_sha:?} \
+                     be_img_ok={backend_img_ok} fe_running={frontend_running} fe_img_ok={frontend_img_ok}"
+                ),
+            };
+        }
+        if backend_running && backend_img_ok {
+            return ProbeTick::SoftOk {
+                pass_kind: "soft_backend_image",
+                detail: format!(
+                    "backend running+image tag; version stamp weak version={version:?} want={}",
+                    target.as_str()
+                ),
+            };
+        }
+        return ProbeTick::NotReady {
+            detail: format!(
+                "backend identity incomplete: version={version:?} commit={commit_sha:?} \
+                 ver_ok={version_ok} be_img_ok={backend_img_ok} want={}",
+                target.as_str()
+            ),
+        };
+    }
+
+    // --- Phase 2: live frontend via proxy (maintenance inactive) ---
+    // Updater is on admin-net; proxy is dual-homed — do not use frontend:1102.
     let fe = docker
         .http_probe("http://proxy:80/", Duration::from_secs(10))
         .await;
     let (fe_code, fe_body) = match fe {
         Ok(v) => v,
         Err(e) => {
-            // Backend healthy — soft path may still apply later.
-            if backend_identity_ok && backend_running {
+            if backend_identity_ok && backend_running && frontend_img_ok && frontend_running {
                 return ProbeTick::SoftOk {
+                    pass_kind: "soft_backend_fe_img_proxy_down",
                     detail: format!(
-                        "backend OK identity but frontend (via proxy) unreachable ({e}); \
+                        "backend OK but proxy unreachable ({e}); \
                          fe_running={frontend_running} image={frontend_image}"
                     ),
                 };
@@ -664,37 +796,59 @@ async fn probe_one_tick(worker: &Arc<Worker>, target: &DeployTag, elapsed: Durat
         }
     };
 
+    let looks_like_maintenance = fe_body.contains("更新维护中")
+        || fe_body.contains("maintenance")
+        || fe_body.contains("updater.phase");
     let fe_html_ok = fe_code == 200
+        && !looks_like_maintenance
         && (fe_body.contains("<html")
             || fe_body.contains("<!DOCTYPE")
             || fe_body.contains("myriad")
             || !fe_body.is_empty());
     let fe_meta_ok = fe_code == 200
+        && !looks_like_maintenance
         && (fe_body.contains(&format!(
             r#"name="myriad-version" content="{}""#,
             target.as_str()
-        )) || frontend_meta_matches(&fe_body, target)
-            || frontend_img_ok);
+        )) || frontend_meta_matches(&fe_body, target));
 
-    // Hard pass: backend identity + db + (frontend meta or image, or loose HTML after grace).
-    let frontend_hard_ok =
-        fe_meta_ok || (elapsed >= LOOSE_FRONTEND_AFTER && fe_html_ok && backend_identity_ok);
+    // Hard: real page meta, or image match + non-maintenance HTML after grace.
+    let frontend_hard_ok = fe_meta_ok
+        || (elapsed >= LOOSE_FRONTEND_AFTER
+            && fe_html_ok
+            && frontend_img_ok
+            && backend_identity_ok);
 
     if backend_identity_ok && frontend_hard_ok {
+        let pass_kind = if fe_meta_ok {
+            "hard_fe_meta"
+        } else {
+            "hard_fe_html_image"
+        };
         return ProbeTick::HardOk {
+            pass_kind,
             detail: format!(
                 "version={version:?} commit={commit_sha:?} \
-                 be_img_ok={backend_img_ok} fe_meta_ok={fe_meta_ok} fe_img_ok={frontend_img_ok}"
+                 be_img_ok={backend_img_ok} fe_meta_ok={fe_meta_ok} fe_img_ok={frontend_img_ok} \
+                 fe_code={fe_code} maint_html={looks_like_maintenance}"
             ),
         };
     }
 
-    // Soft: everything alive with DB and image tag proves the new deploy even if stamps lag.
-    if db && mig && backend_running && frontend_running && fe_html_ok && backend_img_ok {
+    // Soft: containers + DB + both image tags; page may still be warming.
+    if db
+        && mig
+        && backend_running
+        && frontend_running
+        && backend_img_ok
+        && frontend_img_ok
+        && (fe_html_ok || looks_like_maintenance)
+    {
         return ProbeTick::SoftOk {
+            pass_kind: "soft_dual_image",
             detail: format!(
-                "running+db+image tag match; version stamp weak \
-                 version={version:?} want={} fe_meta_ok={fe_meta_ok}",
+                "running+db+image tags; fe_meta_ok={fe_meta_ok} maint_html={looks_like_maintenance} \
+                 version={version:?} want={}",
                 target.as_str()
             ),
         };
@@ -702,9 +856,10 @@ async fn probe_one_tick(worker: &Arc<Worker>, target: &DeployTag, elapsed: Durat
 
     ProbeTick::NotReady {
         detail: format!(
-            "identity incomplete: version={version:?} commit={commit_sha:?} \
+            "frontend identity incomplete: version={version:?} commit={commit_sha:?} \
              ver_ok={version_ok} be_img_ok={backend_img_ok} fe_code={fe_code} \
-             fe_meta_ok={fe_meta_ok} fe_img_ok={frontend_img_ok} want={}",
+             fe_meta_ok={fe_meta_ok} fe_img_ok={frontend_img_ok} maint_html={looks_like_maintenance} \
+             want={}",
             target.as_str()
         ),
     }
