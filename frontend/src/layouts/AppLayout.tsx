@@ -241,8 +241,10 @@ export function AppLayout({ children }: AppLayoutProps) {
       {/* 表面主题应用器：全站写入 html[data-surface]，渲染 null */}
       <SurfaceThemeApplier />
 
-      {/* 全局控制面板 */}
-      <div id="global-control-panel-root">
+      {/* 全局控制面板
+          relative z-9999：把 GCP 整棵子树抬到 host chrome 顶层 stacking context，
+          避免 main(z-10) 内全屏 TApp / fixed iframe 在移动端合成层上盖住面板 */}
+      <div id="global-control-panel-root" className="relative z-9999">
         <GlobalControlPanel />
       </div>
 

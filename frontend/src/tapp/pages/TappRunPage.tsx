@@ -31,6 +31,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useI18n } from '../../contexts/I18nContext'
+import { useNavigation } from '../../contexts/NavigationContext'
 import { useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { useBreakpoints } from '../../hooks/useSharedEventListener'
 import { TappIcon } from '../components/TappIcon'
@@ -80,6 +81,7 @@ interface TappRunPageStandardProps extends TappRunPageProps {
 function TappRunPageStandard({ tappId, isMobile }: TappRunPageStandardProps) {
   const navigate = useNavigate()
   const { t } = useI18n()
+  const { setImmersiveMode } = useNavigation()
 
   // 动画配置
   const animConfig = useAnimationLevel()
@@ -92,6 +94,15 @@ function TappRunPageStandard({ tappId, isMobile }: TappRunPageStandardProps) {
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [retryGeneration, setRetryGeneration] = useState(0)
   const runtime = getTappRuntime()
+
+  // 全屏时沉浸隐藏 NavigationIsland（z-50），而不是把 TApp 抬到 ≥998
+  // 与 host chrome z-ladder 一致：TApp shell 保持远低于 GCP overlay(998)/bar(9999)
+  useEffect(() => {
+    setImmersiveMode(isFullscreen)
+    return () => {
+      setImmersiveMode(false)
+    }
+  }, [isFullscreen, setImmersiveMode])
 
   // 加载 Tapp
   useEffect(() => {
@@ -237,8 +248,16 @@ function TappRunPageStandard({ tappId, isMobile }: TappRunPageStandardProps) {
 
   // 🎯 统一渲染：始终显示相同的页面结构，只是内容不同
   // 页面级动画由 App.tsx 的 FixedPageWrapper 提供（纯 opacity，不用 transform）
+  //
+  // Host chrome z-ladder（勿把 TApp 抬过 GCP）:
+  // - TApp shell / content: 40（本壳；仍在 main z-10 内）
+  // - NavigationIsland: 50 → 全屏时 immersive 隐藏，而不是抬 TApp z
+  // - TApp 全屏工具栏: 900（< GCP overlay 998 / bar 9999）
+  // - GCP overlay: 998 · GCP bar: 9999
+  // 面板展开时 html.gcp-panel-open 会关闭本壳 pointer-events，防止 iframe 吞触摸
   return (
     <div
+      data-tapp-run-shell=""
       style={{
         position: 'fixed',
         top: 0,
@@ -246,9 +265,8 @@ function TappRunPageStandard({ tappId, isMobile }: TappRunPageStandardProps) {
         bottom: 0,
         left: 0,
         overflow: 'hidden',
-        // z 60：tapp 运行页需整体高于全局 NavigationIsland（fixed z-50，移动端横在底部），
-        // 否则岛浮在页面上、挡住 tapp 底部控制区的点击（按钮可见但点不到）
-        zIndex: 60,
+        // 保持远低于 GCP（998/9999）。导航岛遮挡由全屏 immersive 解决，不用抬 z。
+        zIndex: 40,
       }}
     >
       {/* 全屏模式工具栏 */}
@@ -262,7 +280,8 @@ function TappRunPageStandard({ tappId, isMobile }: TappRunPageStandardProps) {
                 animate={{ opacity: 1, x: 0, scale: 1 }}
                 exit={{ opacity: 0, x: -16, scale: 0.92 }}
                 transition={transitions.elementEnter}
-                className="fixed top-4 left-4 z-9999 opacity-0 hover:opacity-100 transition-opacity duration-300"
+                // z-900：高于内容/导航岛，但低于 GCP overlay(998) 与 bar(9999)
+                className="fixed top-4 left-4 z-900 opacity-0 hover:opacity-100 transition-opacity duration-300"
               >
                 <div className="glass rounded-xl px-3 py-2 flex items-center gap-3 shadow-lg">
                   <div className="flex items-center gap-2">
@@ -617,12 +636,13 @@ function TappRunPageStandard({ tappId, isMobile }: TappRunPageStandardProps) {
           style={
             isFullscreen
               ? {
+                  // 全屏层：仍在 shell(z-40)/main(z-10) 内，绝不 ≥ GCP 998
                   position: 'fixed',
                   top: 0,
                   right: 0,
                   bottom: 0,
                   left: 0,
-                  zIndex: 50,
+                  zIndex: 1,
                 }
               : {
                   position: 'absolute',
@@ -630,12 +650,13 @@ function TappRunPageStandard({ tappId, isMobile }: TappRunPageStandardProps) {
                   right: '1rem',
                   bottom: '1.5rem',
                   left: '1rem',
-                  zIndex: 40,
+                  zIndex: 1,
                   maxWidth: '72rem',
                   marginLeft: 'auto',
                   marginRight: 'auto',
                   // 独立合成层：减轻 WebKit 在 overflow:hidden 祖先下的 iframe 绘制问题
                   // （页面级 opacity 动画已在 App.tsx 对 /tapp/run 关闭）
+                  // 仅非全屏使用 translateZ；全屏避免额外合成层干扰 host chrome hit-test
                   WebkitTransform: 'translateZ(0)',
                   transform: 'translateZ(0)',
                   isolation: 'isolate',

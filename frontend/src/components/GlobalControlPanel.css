@@ -1,18 +1,34 @@
 /* ==========================================
-   全局控制面板样式 - Apple 风格智能�?
-   单一容器 + JS 控制状�?
+   全局控制面板样式 - Apple 风格智能岛
+   单一容器 + JS 控制状态
+
+   Host chrome z-ladder（与 TappRunPage 对齐）:
+   - App 内容 / TApp shell: 远低于 998（main z-10 内，TApp shell ~40）
+   - NavigationIsland: 50
+   - TApp 全屏工具栏: 900（< overlay，避免与 GCP 同级）
+   - GCP overlay: 998
+   - GCP bar / 展开面板: 9999
    ========================================== */
 
 /* ==========================================
-   1. 容器与定�?
+   1. 容器与定位
    ========================================== */
 
 .global-control-bar {
   position: fixed;
   top: 1rem;
   right: 1rem;
-  z-index: 9999; /* 确保高于滚动条和大多数页面元�? */
+  z-index: 9999; /* host chrome 顶层：高于 overlay(998) 与 TApp 工具栏(900) */
   pointer-events: none;
+}
+
+/*
+ * 移动端 WebKit/Chrome：全屏 fixed iframe 即使 z-index 更低也可能抢 hit-test。
+ * 面板展开时（html.gcp-panel-open）关闭 TApp 运行壳指针事件，保证遮罩/面板可点。
+ * 不改 opacity/transform，避免破坏既有触摸/合成层修复。
+ */
+html.gcp-panel-open [data-tapp-run-shell] {
+  pointer-events: none !important;
 }
 
 .control-bar-content {

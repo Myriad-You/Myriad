@@ -1060,6 +1060,20 @@ const GlobalControlPanel: React.FC = () => {
     }
   }, [])
 
+  // 展开态写入 html.gcp-panel-open：全屏 TApp iframe 在移动端会抢 hit-test，
+  // 宿主侧用该 class 临时关闭 TApp 层 pointer-events（见 GlobalControlPanel.css）
+  useEffect(() => {
+    const root = document.documentElement
+    if (isExpanded) {
+      root.classList.add('gcp-panel-open')
+    } else {
+      root.classList.remove('gcp-panel-open')
+    }
+    return () => {
+      root.classList.remove('gcp-panel-open')
+    }
+  }, [isExpanded])
+
   // 收起动画（时序与曲线保持不变：0.7s 容器收缩，400ms 中点切换内容）
   const collapsePanel = useCallback(() => {
     // 🔧 通知子组件动画开始
