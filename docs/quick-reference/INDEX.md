@@ -27,6 +27,7 @@ docs/
 ├── deployment/               # Current deployment documentation
 │   ├── DOCKER_DEPLOYMENT.md # proxy + updater + docker-guard production stack
 │   ├── MIGRATION_DOCKER_GUARD.md # sock → docker-guard topology migration
+│   ├── UPDATER_SECURITY_BASELINE.md # done-state updater security + red lines
 │   └── PORTS.md             # dev/prod port map
 │
 ├── development/              # Development Documentation
@@ -190,6 +191,7 @@ docs/
 │
 ├── deployment/                 # 🚀 Current deployment guides
 │   ├── DOCKER_DEPLOYMENT.md   # proxy + updater production stack
+│   ├── UPDATER_SECURITY_BASELINE.md # updater security done-state
 │   └── PORTS.md               # dev/prod port map
 │
 ├── development/                # 💻 Developer Guides
@@ -274,6 +276,7 @@ make backup      # Backup PostgreSQL into ./backups
 | ---------------------------------------------------------- | -------------------------- | --------------------- |
 | [QUICKSTART.md](../QUICKSTART.md)                          | Quick start guide          | Everyone              |
 | [DOCKER_DEPLOYMENT.md](../deployment/DOCKER_DEPLOYMENT.md) | Current proxy + updater Docker stack | Operators |
+| [UPDATER_SECURITY_BASELINE.md](../deployment/UPDATER_SECURITY_BASELINE.md) | Updater security done-state + operator red lines | Operators |
 | [PORTS.md](../deployment/PORTS.md)                          | Development and production port map | Operators, Developers |
 | [UPDATER_QUICKSTART.md](../UPDATER_QUICKSTART.md)          | Update, rollback, rescue flow | Operators |
 
@@ -355,6 +358,10 @@ make backup      # Backup PostgreSQL into ./backups
 ### "How do I secure my deployment?"
 
 → [guides/SECURITY_HEADERS.md](../guides/SECURITY_HEADERS.md)
+
+### "What is the updater security baseline?"
+
+→ [deployment/UPDATER_SECURITY_BASELINE.md](../deployment/UPDATER_SECURITY_BASELINE.md)
 
 ### "Where are all the scripts?"
 

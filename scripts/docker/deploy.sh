@@ -606,6 +606,15 @@ cmd_doctor() {
         return 1
     fi
     ok "Doctor: all checks passed (skip=$skip)."
+    # Soft operator red lines (never fail doctor). Full list:
+    # docs/deployment/UPDATER_SECURITY_BASELINE.md
+    echo ""
+    info "Operator red lines (reminders — see docs/deployment/UPDATER_SECURITY_BASELINE.md):"
+    info "  1. Existing installs: host deploy upgrade / compose up -d so topology matches"
+    info "  2. Protect UPDATE_TOKEN and UPDATER_GATEWAY_SECRET (not frontend/tickets)"
+    info "  3. Keep PROXY_ALLOW_DIRECT_UPDATER=false except temporary rescue"
+    info "  4. Keep COSIGN_VERIFY=strict unless intentional dual-key off"
+    info "  5. Do not publish updater/gateway/guard ports on the host"
     return 0
 }
 

@@ -517,6 +517,15 @@ function Cmd-Doctor {
         exit 1
     }
     Write-Ok "Doctor: all checks passed (skip=$skip)."
+    # Soft operator red lines (never fail doctor). Full list:
+    # docs/deployment/UPDATER_SECURITY_BASELINE.md
+    Write-Host ""
+    Write-Info "Operator red lines (reminders — see docs/deployment/UPDATER_SECURITY_BASELINE.md):"
+    Write-Info "  1. Existing installs: host deploy upgrade / compose up -d so topology matches"
+    Write-Info "  2. Protect UPDATE_TOKEN and UPDATER_GATEWAY_SECRET (not frontend/tickets)"
+    Write-Info "  3. Keep PROXY_ALLOW_DIRECT_UPDATER=false except temporary rescue"
+    Write-Info "  4. Keep COSIGN_VERIFY=strict unless intentional dual-key off"
+    Write-Info "  5. Do not publish updater/gateway/guard ports on the host"
 }
 
 function Cmd-Upgrade {

@@ -60,6 +60,7 @@ Networks:
 | `scripts/docker/deploy.ps1` | Windows bootstrap and stack management |
 | `docs/deployment/PORTS.md` | Development and production port map |
 | `docs/deployment/MIGRATION_DOCKER_GUARD.md` | Migrate from updater+sock to docker-guard dual-net |
+| `docs/deployment/UPDATER_SECURITY_BASELINE.md` | Done-state security baseline + operator red lines |
 | `docs/UPDATER_QUICKSTART.md` | Operator guide for update, rollback, rescue |
 | `docs/updater-spec.md` | Updater protocol and failure-mode design |
 
@@ -114,10 +115,18 @@ container ports.
 
 For the full port map, see [PORTS.md](./PORTS.md).
 
-## Security defaults (short)
+## Security baseline
+
+Updater security for **single-tenant self-hosted** Myriad is treated as **done
+enough** on current topology. Operator red lines, deliberate accepts, and
+out-of-scope items live in:
+
+**[UPDATER_SECURITY_BASELINE.md](./UPDATER_SECURITY_BASELINE.md)**
+
+### Security defaults (short)
 
 - Keep **`COSIGN_VERIFY=strict`**, **`PROXY_ALLOW_DIRECT_UPDATER=false`**, and do **not**
-  publish updater `1101` or docker-guard `2375` on the host.
+  publish updater `1101`, updater-gateway `1104`, or docker-guard `2375` on the host.
 - `COSIGN_VERIFY=off` alone is refused: set `UPDATER_ALLOW_INSECURE_COSIGN=true`
   (or `COSIGN_INSECURE_OK=true`) only when you intentionally accept that risk.
 - Topology check (read-only; no auto-migrate):
@@ -127,7 +136,8 @@ bash scripts/docker/deploy.sh doctor
 ```
 
 - Optional host scan for unexpected privileged containers / `docker.sock` binds
-  (not run on every upgrade): `bash scripts/security/docker-audit-example.sh scan`.
+  (not run on every upgrade): `bash scripts/security/docker-audit-example.sh scan`
+  or `bash scripts/docker/deploy.sh doctor --host`.
 
 ### Hygiene (low-friction)
 

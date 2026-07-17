@@ -2,6 +2,7 @@
 
 如何在自托管 Myriad 实例上启用 updater，并执行第一次升级。
 完整设计参考 [docs/updater-spec.md](./updater-spec.md)。
+安全基线（已完成态 + 运维红线）：[deployment/UPDATER_SECURITY_BASELINE.md](./deployment/UPDATER_SECURITY_BASELINE.md)。
 
 > 运行模型：updater 不是 A/B 双活分区。Myriad 生产环境只有一套正在运行的
 > backend/frontend/postgres；更新时进入维护模式，停止业务容器，快照 `pgdata`，

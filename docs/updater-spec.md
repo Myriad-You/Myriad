@@ -598,6 +598,10 @@ docker compose up -d docker-guard updater updater-gateway
 
 ## 15. 安全
 
+运维「已完成」基线、红线与刻意接受项见
+[deployment/UPDATER_SECURITY_BASELINE.md](./deployment/UPDATER_SECURITY_BASELINE.md)
+（单租户自托管；后续加固仅事件驱动）。
+
 ### 15.1 信任边界
 
 - updater 不挂载 docker.sock，只能访问内部 docker-guard 网络。
