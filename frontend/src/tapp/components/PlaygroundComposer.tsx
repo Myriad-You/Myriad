@@ -335,16 +335,8 @@ export function PlaygroundComposer({
                 className="overflow-hidden"
               >
                 <div className="px-4 pt-3 pb-2.5 border-b border-black/5 dark:border-white/5">
-                  {/* Line 1: spinner + title · elapsed */}
+                  {/* Line 1: shimmer title · elapsed */}
                   <div className="flex items-center gap-2">
-                    <span
-                      className="w-3.5 h-3.5 border-2 rounded-full animate-spin shrink-0"
-                      style={{
-                        borderColor:
-                          'color-mix(in srgb, var(--color-primary) 25%, transparent)',
-                        borderTopColor: 'var(--color-primary)',
-                      }}
-                    />
                     <span
                       className={`text-xs font-semibold truncate playground-text-shimmer${
                         animationsEnabled ? '' : ' playground-text-shimmer--static'
