@@ -15,6 +15,7 @@
 | [安全沙箱](tapp/SANDBOX.md)           | CSP 策略、iframe 限制、权限系统           |
 | [图形与轻量游戏](tapp/GRAPHICS.md)    | Canvas/WebGL、assets、音频、pause 约定    |
 | [样式规范](tapp/STYLING.md)           | CSS 变量、Tailwind 集成、Glass 风格       |
+| [设计规范摘要](tapp/DESIGN_SPEC.md)   | 注入 Playground agent 的设计语言摘要      |
 | [REST API](tapp/REST_API.md)          | 后端 REST API 端点参考                    |
 | [故障排除](tapp/TROUBLESHOOTING.md)   | 常见问题、调试技巧、发布检查清单          |
 
@@ -53,6 +54,7 @@ docs/development/tapp/
 ├── WIDGET.md           # 小组件开发
 ├── SANDBOX.md          # 安全沙箱
 ├── STYLING.md          # 样式规范
+├── DESIGN_SPEC.md      # 设计语言摘要（无条件注入 Playground agent）
 ├── PAGE.md             # 页面样式规范
 ├── REST_API.md         # REST API 端点
 └── TROUBLESHOOTING.md  # 故障排除

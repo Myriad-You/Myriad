@@ -1893,6 +1893,20 @@ export const jaJP: TranslationKeys = {
       'プレビューは正式な Tapp と同じサンドボックスで動作しますが、実際の権限は一切付与されません。データはこのタブ内のみに保持され、インストールするまでシステムには影響しません。',
     playgroundClear: 'セッションを消去',
     playgroundPreview: 'ライブプレビュー',
+    playgroundWidgetPreview: 'ウィジェットプレビュー',
+    playgroundPhasePlan: 'プラン',
+    playgroundPhaseRetrieve: 'ドキュメント検索',
+    playgroundPhaseCode: 'コード作成',
+    playgroundPhaseValidate: '検証・修復',
+    playgroundPhasePlanDesc: '指示を分析し、参照するドキュメントを計画中',
+    playgroundPhaseRetrieveDesc:
+      'リポジトリから関連する Tapp 契約ドキュメントを検索中',
+    playgroundPhaseCodeDesc:
+      'プロジェクトコードを作成中——複雑な内容は数分かかることがあります',
+    playgroundPhaseValidateDesc:
+      'マニフェスト・リソース・権限を検証し、必要に応じて自動修復します',
+    playgroundBusyHint:
+      'Pro モデルがプロジェクト全体を生成しています。ページを開いたままにしてください',
     playgroundEmptyTitle: 'ひとことから始める',
     playgroundEmptyDesc:
       'アイデアを説明すると、AI が完全な Tapp プロジェクトを生成し、ここですぐに実行します。',

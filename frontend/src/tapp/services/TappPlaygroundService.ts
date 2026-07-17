@@ -58,7 +58,7 @@ export async function generatePlaygroundProject(
     },
     body: JSON.stringify(request),
     credentials: 'include',
-    signal: AbortSignal.timeout(360_000),
+    signal: AbortSignal.timeout(720_000),
   })
   if (!response.ok) {
     const error = await response.json().catch(() => ({}))

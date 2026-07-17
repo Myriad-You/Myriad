@@ -11,18 +11,8 @@ import type {
   PlaygroundValidationReport,
   TappPlaygroundProject,
 } from '../services/TappPlaygroundService'
-import type { TappCodeStructure, TappInstance } from '../types'
-import {
-  FaArrowLeft,
-  FaArrowUp,
-  FaCheck,
-  FaCode,
-  FaDownload,
-  FaGripVertical,
-  FaLock,
-  FaRedo,
-  FaUndo,
-} from '@lib/icons'
+import type { TappCodeStructure, TappInstance, WidgetSize } from '../types'
+import { FaArrowLeft, FaCode, FaGripVertical, FaLock } from '@lib/icons'
 import {
   AnimatePresenceShim as AnimatePresence,
   motionShim as motion,
@@ -34,11 +24,10 @@ import { useI18n } from '../../contexts/I18nContext'
 import { useNavigation } from '../../contexts/NavigationContext'
 import { useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { useBreakpoints } from '../../hooks/useSharedEventListener'
-import {
-  PlaygroundTraceIcon,
-  TappPlaygroundIcon,
-} from '../components/PlaygroundIcons'
+import { PlaygroundComposer } from '../components/PlaygroundComposer'
+import { TappPlaygroundIcon } from '../components/PlaygroundIcons'
 import { TappPageSandbox } from '../runtime/TappPageSandbox'
+import { TappWidgetSandbox } from '../runtime/TappWidgetSandbox'
 import { installFromCode } from '../services/TappApiService'
 import { generatePlaygroundProject } from '../services/TappPlaygroundService'
 import 'prismjs/components/prism-json'
@@ -501,7 +490,7 @@ function LogEntry({
 
 export function TappPlaygroundPage() {
   const navigate = useNavigate()
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const { isMobile } = useBreakpoints()
   const { setImmersiveMode } = useNavigation()
   const animConfig = useAnimationLevel()
@@ -514,14 +503,18 @@ export function TappPlaygroundPage() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [previewError, setPreviewError] = useState('')
-  const [activePane, setActivePane] = useState<'preview' | 'code'>('preview')
+  const [activePane, setActivePane] = useState<'preview' | 'code' | 'widget'>(
+    'preview',
+  )
+  // 小组件预览选择：无效值自动回退到首个声明的组件及其默认尺寸
+  const [widgetId, setWidgetId] = useState('')
+  const [widgetSize, setWidgetSize] = useState<WidgetSize | ''>('')
   // 手动编辑代码的草稿：为空表示未编辑，直接展示项目内容
   const [draft, setDraft] = useState<string | null>(null)
   const [draftInvalid, setDraftInvalid] = useState(false)
   const draftTimerRef = useRef<number | undefined>(undefined)
   const runtimeRepairCountRef = useRef(0)
   const repairedRuntimeErrorsRef = useRef(new Set<string>())
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const animationsEnabled = animConfig.level !== 'none'
   const springTransition = animConfig.spring
@@ -530,6 +523,21 @@ export function TappPlaygroundPage() {
 
   const revision = session.revisions[session.revisionIndex]
   const project = revision?.project
+
+  // 项目同时包含页面和小组件时，预览拆成两个独立窗格
+  const manifestWidgets = project?.manifest.widgets || []
+  const hasWidgetPreview =
+    manifestWidgets.length > 0 &&
+    !!(project?.code.widget || project?.code.widgetHtml)
+  const activeWidget =
+    manifestWidgets.find((widget) => widget.id === widgetId) ||
+    manifestWidgets[0]
+  const activeWidgetSize: WidgetSize =
+    (widgetSize && activeWidget?.sizes?.includes(widgetSize)
+      ? widgetSize
+      : activeWidget?.defaultSize) ||
+    activeWidget?.sizes?.[0] ||
+    '2x2'
 
   // 工作区尺寸（用于窗格默认布局与边界约束）
   // callback ref + ResizeObserver：motion 懒加载会重挂根节点，
@@ -559,7 +567,8 @@ export function TappPlaygroundPage() {
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(session))
   }, [session])
 
-  // 默认布局：预览居左约 55%，代码居右，底部为控制岛预留空间
+  // 默认布局：预览居左约 55%，代码居右，底部为控制岛预留空间；
+  // 存在小组件时左列上下拆分为页面预览 + 小组件预览两个窗格
   const defaultLayout = useMemo(() => {
     if (!bounds.width || !bounds.height) return null
     const margin = 14
@@ -576,8 +585,22 @@ export function TappPlaygroundPage() {
       Math.round(innerWidth * 0.55),
     )
     const codeWidth = Math.max(MIN_PANE_SIZE.width, innerWidth - previewWidth)
+    const canSplit =
+      hasWidgetPreview && height >= MIN_PANE_SIZE.height * 2 + gap
+    const widgetHeight = canSplit
+      ? Math.max(MIN_PANE_SIZE.height, Math.round(height * 0.4))
+      : 0
+    const previewHeight = canSplit ? height - widgetHeight - gap : height
     return {
-      preview: { x: margin, y: top, width: previewWidth, height },
+      preview: { x: margin, y: top, width: previewWidth, height: previewHeight },
+      widget: canSplit
+        ? {
+            x: margin,
+            y: top + previewHeight + gap,
+            width: previewWidth,
+            height: widgetHeight,
+          }
+        : null,
       code: {
         x: margin + previewWidth + gap,
         y: top,
@@ -585,7 +608,7 @@ export function TappPlaygroundPage() {
         height,
       },
     }
-  }, [bounds])
+  }, [bounds, hasWidgetPreview])
 
   const tappInstance = useMemo<TappInstance | null>(() => {
     if (!project) return null
@@ -725,15 +748,6 @@ export function TappPlaygroundPage() {
     repairedRuntimeErrorsRef.current.clear()
   }
 
-  // 输入框自适应高度（1-5 行）
-  const autoGrow = () => {
-    const el = textareaRef.current
-    if (!el) return
-    el.style.height = 'auto'
-    el.style.height = `${Math.min(el.scrollHeight, 132)}px`
-  }
-  useEffect(autoGrow, [instruction])
-
   // 切换文件或版本时丢弃未提交的编辑草稿；清理时取消待落盘的定时器
   useEffect(() => {
     setDraft(null)
@@ -836,14 +850,6 @@ export function TappPlaygroundPage() {
       ? ([{ id: 'assets', label: 'assets' }] as const)
       : []),
   ]
-
-  const hasLog = !!(
-    error ||
-    previewError ||
-    notice ||
-    revision?.warnings.length ||
-    revision?.agentTrace?.length
-  )
 
   const interactive = !isMobile
 
@@ -951,6 +957,112 @@ export function TappPlaygroundPage() {
       </AnimatePresence>
     </>
   )
+
+  const widgetRenderProps = useMemo(() => {
+    const isDark = document.documentElement.classList.contains('dark')
+    const primaryColor =
+      getComputedStyle(document.documentElement)
+        .getPropertyValue('--color-primary')
+        .trim() || '#8b5cf6'
+    return {
+      size: activeWidgetSize,
+      config: {},
+      isEditMode: false,
+      isPreview: true,
+      theme: (isDark ? 'dark' : 'light') as 'light' | 'dark',
+      primaryColor,
+      locale,
+    }
+  }, [activeWidgetSize, locale])
+
+  const widgetHeader = (
+    <div className="flex items-center gap-2 min-w-0 w-full px-3">
+      {interactive && (
+        <FaGripVertical
+          className="w-3 h-3 shrink-0"
+          style={{ color: 'var(--text-muted)' }}
+        />
+      )}
+      <span
+        className="text-xs font-medium truncate"
+        style={{ color: 'var(--text-primary)' }}
+      >
+        {t.tapp.playgroundWidgetPreview}
+      </span>
+      {activeWidget && (
+        <div
+          className="ml-auto flex items-center gap-1 shrink-0"
+          onMouseDown={(event) => event.stopPropagation()}
+          onTouchStart={(event) => event.stopPropagation()}
+        >
+          {manifestWidgets.length > 1 && (
+            <select
+              value={activeWidget.id}
+              onChange={(event) => setWidgetId(event.target.value)}
+              className="h-6 max-w-28 truncate rounded-md bg-black/5 dark:bg-white/10 px-1.5 text-[10px]"
+              style={{ color: 'var(--text-secondary)' }}
+              aria-label={t.tapp.playgroundWidgetPreview}
+            >
+              {manifestWidgets.map((widget) => (
+                <option key={widget.id} value={widget.id}>
+                  {widget.name || widget.id}
+                </option>
+              ))}
+            </select>
+          )}
+          {(activeWidget.sizes || []).map((size) => (
+            <button
+              key={size}
+              onClick={() => setWidgetSize(size)}
+              className={`h-6 px-1.5 rounded-md text-[10px] font-mono transition-colors ${
+                activeWidgetSize === size
+                  ? 'bg-black/10 dark:bg-white/15'
+                  : 'hover:bg-black/5 dark:hover:bg-white/10'
+              }`}
+              style={{
+                color:
+                  activeWidgetSize === size
+                    ? 'var(--text-primary)'
+                    : 'var(--text-muted)',
+              }}
+            >
+              {size}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+
+  const widgetAspect = useMemo(() => {
+    const [cols, rows] = activeWidgetSize
+      .split('x')
+      .map((part) => Number.parseInt(part, 10) || 1)
+    return { cols, rows }
+  }, [activeWidgetSize])
+
+  const widgetContent =
+    tappInstance && project && activeWidget ? (
+      <div className="absolute inset-0 grid place-items-center p-4 overflow-hidden">
+        <div
+          className="rounded-2xl overflow-hidden shadow-lg ring-1 ring-black/5 dark:ring-white/10"
+          style={{
+            width: `min(100%, ${widgetAspect.cols * 130}px)`,
+            aspectRatio: `${widgetAspect.cols} / ${widgetAspect.rows}`,
+            maxHeight: '100%',
+          }}
+        >
+          <TappWidgetSandbox
+            key={`${activeWidget.id}-${activeWidgetSize}`}
+            tappInstance={tappInstance}
+            code={project.code as TappCodeStructure}
+            widgetId={activeWidget.id}
+            widgetProps={widgetRenderProps}
+            className="w-full h-full"
+          />
+        </div>
+      </div>
+    ) : null
 
   const codeHeader = (
     <div className="flex items-center gap-2 min-w-0 w-full px-3">
@@ -1074,24 +1186,22 @@ export function TappPlaygroundPage() {
           >
             <TappPlaygroundIcon className="w-4 h-4" />
           </div>
-          <span
-            className="text-sm font-semibold whitespace-nowrap"
-            style={{ color: 'var(--text-primary)' }}
-          >
-            {t.tapp.playgroundTitle}
-          </span>
-          <div
-            className="hidden sm:block w-px h-5 mx-0.5"
-            style={{ backgroundColor: 'var(--border-color)' }}
-          />
-          <span
-            className="hidden sm:flex items-center gap-1.5 text-[10px] whitespace-nowrap cursor-help"
-            style={{ color: 'var(--text-muted)' }}
-            title={t.tapp.playgroundIsolationDesc}
-          >
-            <FaLock className="w-2.5 h-2.5" />
-            {t.tapp.playgroundIsolationTitle}
-          </span>
+          <div className="flex flex-col min-w-0">
+            <span
+              className="text-sm font-semibold leading-tight whitespace-nowrap"
+              style={{ color: 'var(--text-primary)' }}
+            >
+              {t.tapp.playgroundTitle}
+            </span>
+            <span
+              className="hidden sm:flex items-center gap-1 text-[10px] leading-tight whitespace-nowrap cursor-help"
+              style={{ color: 'var(--text-muted)' }}
+              title={t.tapp.playgroundIsolationDesc}
+            >
+              <FaLock className="w-2.5 h-2.5" />
+              {t.tapp.playgroundIsolationTitle}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -1100,6 +1210,7 @@ export function TappPlaygroundPage() {
         defaultLayout && (
           <>
             <FloatingPane
+              key={defaultLayout.widget ? 'preview-split' : 'preview-full'}
               defaultRect={defaultLayout.preview}
               bounds={bounds}
               isActive={activePane === 'preview'}
@@ -1109,6 +1220,18 @@ export function TappPlaygroundPage() {
             >
               {previewContent}
             </FloatingPane>
+            {defaultLayout.widget && (
+              <FloatingPane
+                defaultRect={defaultLayout.widget}
+                bounds={bounds}
+                isActive={activePane === 'widget'}
+                onFocus={() => setActivePane('widget')}
+                header={widgetHeader}
+                interactive
+              >
+                {widgetContent}
+              </FloatingPane>
+            )}
             <FloatingPane
               defaultRect={defaultLayout.code}
               bounds={bounds}
@@ -1134,6 +1257,19 @@ export function TappPlaygroundPage() {
           >
             {previewContent}
           </FloatingPane>
+          {hasWidgetPreview && (
+            <FloatingPane
+              defaultRect={{ x: 0, y: 0, width: 0, height: 0 }}
+              bounds={bounds}
+              isActive
+              onFocus={() => {}}
+              header={widgetHeader}
+              interactive={false}
+              staticClassName="h-[36vh]"
+            >
+              {widgetContent}
+            </FloatingPane>
+          )}
           <FloatingPane
             defaultRect={{ x: 0, y: 0, width: 0, height: 0 }}
             bounds={bounds}
@@ -1148,282 +1284,32 @@ export function TappPlaygroundPage() {
         </div>
       )}
 
-      {/* 底部控制岛：日志 + 输入 + 版本/安装 */}
-      <motion.div
-        initial={animationsEnabled ? { opacity: 0, y: 24 } : false}
-        animate={{ opacity: 1, y: 0 }}
-        transition={springTransition}
-        className={`z-50 ${
-          interactive
-            ? 'absolute bottom-4 left-1/2 -translate-x-1/2 w-[min(94vw,46rem)]'
-            : 'fixed bottom-3 inset-x-3'
-        }`}
-      >
-        <div className="rounded-[1.75rem] bg-white/90 dark:bg-[#1a1a1a]/90 backdrop-blur-xl shadow-2xl ring-1 ring-black/5 dark:ring-white/10 overflow-hidden">
-          {/* 日志区 */}
-          {hasLog && (
-            <div className="px-3 pt-3 max-h-44 overflow-y-auto">
-              <AnimatePresence initial={false}>
-                {error && (
-                  <LogEntry key="error" tone="error">
-                    {error}
-                  </LogEntry>
-                )}
-                {previewError && (
-                  <LogEntry key="preview-error" tone="warning">
-                    {previewError}
-                  </LogEntry>
-                )}
-                {notice && (
-                  <LogEntry
-                    key="notice"
-                    tone="success"
-                    icon={<FaCheck className="w-3 h-3" />}
-                  >
-                    {notice}
-                  </LogEntry>
-                )}
-                {revision?.warnings.map((warning) => (
-                  <LogEntry key={`warning-${warning}`} tone="warning">
-                    {warning}
-                  </LogEntry>
-                ))}
-              </AnimatePresence>
-
-              {/* Agent 工作轨迹 + 会话操作 */}
-              {revision?.agentTrace?.length ? (
-                <details
-                  className="mb-1.5 rounded-xl border px-3 py-2 group"
-                  style={{
-                    background:
-                      'color-mix(in srgb, var(--color-primary) 6%, transparent)',
-                    borderColor:
-                      'color-mix(in srgb, var(--color-primary) 15%, transparent)',
-                  }}
-                >
-                  <summary className="cursor-pointer list-none flex items-center gap-2 text-xs font-semibold text-gray-700 dark:text-gray-200">
-                    <PlaygroundTraceIcon
-                      className="w-3.5 h-3.5"
-                      style={{ color: 'var(--color-primary)' }}
-                    />
-                    {t.tapp.playgroundAgentTrace}
-                    <span
-                      className="ml-auto text-[10px] font-mono"
-                      style={{ color: 'var(--color-primary)' }}
-                    >
-                      {revision.validation?.passed
-                        ? `${t.tapp.playgroundValidated} · ${revision.validation.attempts}`
-                        : revision.agentTrace.length}
-                    </span>
-                  </summary>
-                  <div className="mt-2 space-y-1.5">
-                    {revision.agentTrace.map((step, index) => (
-                      <div
-                        key={`${step.tool}-${index}`}
-                        className="grid grid-cols-[8px_minmax(0,1fr)] gap-2 text-[10px] leading-relaxed"
-                      >
-                        <span
-                          className={`mt-1.5 w-2 h-2 rounded-full ${
-                            step.status === 'success'
-                              ? 'bg-emerald-500'
-                              : step.status === 'failed'
-                                ? 'bg-red-500'
-                                : 'bg-amber-500'
-                          }`}
-                        />
-                        <div className="min-w-0">
-                          <span
-                            className="font-mono font-bold"
-                            style={{ color: 'var(--color-primary)' }}
-                          >
-                            {step.tool}
-                          </span>
-                          <span className="text-gray-500 dark:text-gray-400">
-                            {' '}
-                            {step.summary}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  {revision.knowledgeSources?.length ? (
-                    <div
-                      className="mt-2 pt-2 border-t"
-                      style={{
-                        borderColor:
-                          'color-mix(in srgb, var(--color-primary) 10%, transparent)',
-                      }}
-                    >
-                      <div className="text-[10px] font-semibold text-gray-500 dark:text-gray-400">
-                        {t.tapp.playgroundKnowledgeSources}
-                      </div>
-                      <div className="mt-1.5 flex flex-wrap gap-1.5">
-                        {revision.knowledgeSources.slice(0, 10).map((source) => (
-                          <span
-                            key={`${source.document}-${source.section}`}
-                            title={source.section}
-                            className="max-w-full truncate rounded-lg bg-black/5 dark:bg-white/5 px-2 py-0.5 text-[9px] font-mono text-gray-600 dark:text-gray-300"
-                          >
-                            {source.document} · {source.section}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-                </details>
-              ) : null}
-            </div>
-          )}
-
-          {/* 输入行 */}
-          <div className="flex items-end gap-1.5 p-2">
-            <div
-              className="w-9 h-9 shrink-0 rounded-full grid place-items-center"
-              style={{
-                color: 'var(--color-primary)',
-                background:
-                  'color-mix(in srgb, var(--color-primary) 12%, transparent)',
-              }}
-            >
-              <TappPlaygroundIcon className="w-4 h-4" />
-            </div>
-            <textarea
-              ref={textareaRef}
-              value={instruction}
-              rows={1}
-              onChange={(event) => setInstruction(event.target.value)}
-              onKeyDown={(event) => {
-                if (
-                  event.key === 'Enter' &&
-                  !event.shiftKey &&
-                  !event.nativeEvent.isComposing
-                ) {
-                  event.preventDefault()
-                  void runGeneration()
-                }
-              }}
-              placeholder={
-                project
-                  ? t.tapp.playgroundModifyPlaceholder
-                  : t.tapp.playgroundCreatePlaceholder
-              }
-              title={t.tapp.playgroundShortcut}
-              className="flex-1 min-w-0 resize-none self-center py-2 px-1.5 text-sm leading-5 max-h-[132px] placeholder:text-gray-400 dark:placeholder:text-gray-500"
-              style={{
-                background: 'transparent',
-                border: 'none',
-                boxShadow: 'none',
-              }}
-              maxLength={8000}
-            />
-
-            {/* 版本切换 */}
-            {session.revisions.length > 0 && (
-              <div className="flex items-center rounded-full bg-black/5 dark:bg-white/10 p-0.5 shrink-0">
-                <motion.button
-                  onClick={() => moveRevision(-1)}
-                  disabled={session.revisionIndex <= 0 || busy}
-                  whileTap={animationsEnabled ? { scale: 0.9 } : {}}
-                  className="w-8 h-8 rounded-full grid place-items-center text-gray-600 dark:text-gray-300 hover:bg-white hover:shadow-sm dark:hover:bg-white/15 transition-all disabled:opacity-30 disabled:pointer-events-none"
-                  title={t.tapp.playgroundUndo}
-                  aria-label={t.tapp.playgroundUndo}
-                >
-                  <FaUndo className="w-3 h-3" />
-                </motion.button>
-                <motion.button
-                  onClick={() => moveRevision(1)}
-                  disabled={
-                    session.revisionIndex < 0 ||
-                    session.revisionIndex >= session.revisions.length - 1 ||
-                    busy
-                  }
-                  whileTap={animationsEnabled ? { scale: 0.9 } : {}}
-                  className="w-8 h-8 rounded-full grid place-items-center text-gray-600 dark:text-gray-300 hover:bg-white hover:shadow-sm dark:hover:bg-white/15 transition-all disabled:opacity-30 disabled:pointer-events-none"
-                  title={t.tapp.playgroundRedo}
-                  aria-label={t.tapp.playgroundRedo}
-                >
-                  <FaRedo className="w-3 h-3" />
-                </motion.button>
-              </div>
-            )}
-
-            {/* 安装 */}
-            <AnimatePresence>
-              {project && (
-                <motion.button
-                  initial={
-                    animationsEnabled ? { opacity: 0, scale: 0.8 } : false
-                  }
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={
-                    animationsEnabled ? { opacity: 0, scale: 0.8 } : undefined
-                  }
-                  transition={springTransition}
-                  whileTap={animationsEnabled ? { scale: 0.92 } : {}}
-                  onClick={installProject}
-                  disabled={installing || busy}
-                  className="w-9 h-9 shrink-0 rounded-full grid place-items-center text-white bg-gray-900 dark:bg-white dark:text-gray-900 shadow-sm disabled:opacity-40 transition-opacity"
-                  title={t.tapp.playgroundInstall}
-                  aria-label={t.tapp.playgroundInstall}
-                >
-                  {installing ? (
-                    <span className="w-3.5 h-3.5 border-2 border-current/30 border-t-current rounded-full animate-spin" />
-                  ) : (
-                    <FaDownload className="w-3.5 h-3.5" />
-                  )}
-                </motion.button>
-              )}
-            </AnimatePresence>
-
-            {/* 生成/发送 */}
-            <motion.button
-              onClick={runGeneration}
-              disabled={!instruction.trim() || busy}
-              whileTap={
-                animationsEnabled && instruction.trim() && !busy
-                  ? { scale: 0.92 }
-                  : {}
-              }
-              className="w-9 h-9 shrink-0 rounded-full grid place-items-center text-white shadow-md disabled:opacity-40 transition-opacity"
-              style={{
-                background:
-                  'linear-gradient(135deg, var(--color-primary), color-mix(in srgb, var(--color-primary) 80%, black))',
-              }}
-              title={
-                project ? t.tapp.playgroundApplyChange : t.tapp.playgroundGenerate
-              }
-              aria-label={
-                project ? t.tapp.playgroundApplyChange : t.tapp.playgroundGenerate
-              }
-            >
-              {busy ? (
-                <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              ) : (
-                <FaArrowUp className="w-3.5 h-3.5" />
-              )}
-            </motion.button>
-          </div>
-
-          {/* 底部信息行 */}
-          <div className="flex items-center justify-between px-4 pb-2 -mt-0.5">
-            <span className="text-[10px] text-gray-400 dark:text-gray-500 truncate">
-              {busy
-                ? busyMode === 'runtime-repair'
-                  ? t.tapp.playgroundRepairingRuntime
-                  : t.tapp.playgroundGenerating
-                : t.tapp.playgroundShortcut}
-            </span>
-            {session.revisions.length > 0 && (
-              <button
-                onClick={clearSession}
-                className="text-[10px] font-semibold text-red-500/80 hover:text-red-500 transition-colors shrink-0"
-              >
-                {t.tapp.playgroundClear}
-              </button>
-            )}
-          </div>
-        </div>
-      </motion.div>
+      {/* 底部控制岛（Composer） */}
+      <PlaygroundComposer
+        interactive={interactive}
+        busy={busy}
+        busyMode={busyMode}
+        installing={installing}
+        hasProject={!!project}
+        instruction={instruction}
+        revisionIndex={session.revisionIndex}
+        revisionCount={session.revisions.length}
+        error={error}
+        previewError={previewError}
+        notice={notice}
+        warnings={revision?.warnings || []}
+        agentTrace={revision?.agentTrace}
+        knowledgeSources={revision?.knowledgeSources}
+        validation={revision?.validation}
+        onInstructionChange={setInstruction}
+        onSubmit={() => void runGeneration()}
+        onInstall={() => void installProject()}
+        onMoveRevision={moveRevision}
+        onClear={clearSession}
+        onDismissError={() => setError('')}
+        onDismissPreviewError={() => setPreviewError('')}
+        onDismissNotice={() => setNotice('')}
+      />
     </motion.div>
   )
 }

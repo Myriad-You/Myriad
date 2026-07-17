@@ -1741,6 +1741,16 @@ export interface TranslationKeys {
     playgroundIsolationDesc: string
     playgroundClear: string
     playgroundPreview: string
+    playgroundWidgetPreview: string
+    playgroundPhasePlan: string
+    playgroundPhaseRetrieve: string
+    playgroundPhaseCode: string
+    playgroundPhaseValidate: string
+    playgroundPhasePlanDesc: string
+    playgroundPhaseRetrieveDesc: string
+    playgroundPhaseCodeDesc: string
+    playgroundPhaseValidateDesc: string
+    playgroundBusyHint: string
     playgroundEmptyTitle: string
     playgroundEmptyDesc: string
     playgroundCodeEmpty: string

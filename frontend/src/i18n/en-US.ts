@@ -1909,6 +1909,21 @@ export const enUS: TranslationKeys = {
       'The preview runs in the same sandbox as installed Tapps, but without any real permissions. Everything stays in this tab and nothing touches the system until you install.',
     playgroundClear: 'Clear session',
     playgroundPreview: 'Live Preview',
+    playgroundWidgetPreview: 'Widget Preview',
+    playgroundPhasePlan: 'Plan',
+    playgroundPhaseRetrieve: 'Retrieve docs',
+    playgroundPhaseCode: 'Write code',
+    playgroundPhaseValidate: 'Validate',
+    playgroundPhasePlanDesc:
+      'Analyzing the instruction and planning documentation queries',
+    playgroundPhaseRetrieveDesc:
+      'Retrieving relevant Tapp contract sections from the repository docs',
+    playgroundPhaseCodeDesc:
+      'Writing the full project code — complex requests can take a few minutes',
+    playgroundPhaseValidateDesc:
+      'Validating manifest, resources and permissions; auto-repairing if needed',
+    playgroundBusyHint:
+      'The Pro model is generating the full project — keep this page open',
     playgroundEmptyTitle: 'Start with an idea',
     playgroundEmptyDesc:
       'Describe what you want and AI will generate a complete Tapp project, then run it right here.',

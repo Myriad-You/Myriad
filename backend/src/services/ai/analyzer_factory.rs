@@ -13,6 +13,14 @@ pub async fn create_ai_analyzer() -> Option<AiAnalyzer> {
 
 /// 根据模型层级创建 AI 分析器
 pub async fn create_ai_analyzer_for_tier(tier: ModelTier) -> Option<AiAnalyzer> {
+    create_ai_analyzer_for_tier_with_timeout(tier, None).await
+}
+
+/// 根据模型层级创建 AI 分析器，可为长任务指定单次请求超时
+pub async fn create_ai_analyzer_for_tier_with_timeout(
+    tier: ModelTier,
+    request_timeout: Option<std::time::Duration>,
+) -> Option<AiAnalyzer> {
     let config = GLOBAL_DYNAMIC_CONFIG.read().await;
     let resolved = config.resolve_ai_config(tier);
 
@@ -24,5 +32,11 @@ pub async fn create_ai_analyzer_for_tier(tier: ModelTier) -> Option<AiAnalyzer> 
         Some(resolved.base_url)
     };
 
-    Some(AiAnalyzer::new(provider, api_key, resolved.model, base_url).await)
+    Some(match request_timeout {
+        Some(timeout) => {
+            AiAnalyzer::new_with_timeout(provider, api_key, resolved.model, base_url, timeout)
+                .await
+        }
+        None => AiAnalyzer::new(provider, api_key, resolved.model, base_url).await,
+    })
 }

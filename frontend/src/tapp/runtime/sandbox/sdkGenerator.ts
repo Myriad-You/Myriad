@@ -868,10 +868,9 @@ export function generateFullSDK(
   Object.freeze(Tapp.speech);
   Object.freeze(Tapp.federation);
 
-  // 🔒 冻结 widgets 和 pages 容器（Tapp 代码可以添加内容，但不能替换整个对象）
-  // 使用 Object.seal 允许添加属性但禁止删除
-  Object.seal(Tapp.widgets);
-  Object.seal(Tapp.pages);
+  // widgets/pages 容器保持可扩展：Tapp 代码需要向其注册定义
+  // （Object.seal 会禁止新增属性，strict 模式下注册直接抛 TypeError）。
+  // 整个容器不可被替换——Tapp 已被 freeze，属性绑定是只读的。
 
   // 防止通过原型链篡改
   Object.freeze(Object.getPrototypeOf(Tapp));
@@ -1508,9 +1507,8 @@ export function generateWidgetSDK(
   Object.freeze(Tapp.file);
   Object.freeze(Tapp.assets);
 
-  // 使用 seal 允许添加 widget/page 定义但禁止替换整个对象
-  Object.seal(Tapp.widgets);
-  Object.seal(Tapp.pages);
+  // widgets/pages 容器保持可扩展：Widget 代码需要向其注册 render 定义
+  // （Object.seal 会禁止新增属性，strict 模式下注册直接抛 TypeError）。
 
   // 防止重新定义 Tapp
   Object.defineProperty(window, 'Tapp', {

@@ -139,10 +139,29 @@ impl AiAnalyzer {
         model: String,
         base_url: Option<String>,
     ) -> Self {
+        Self::new_with_timeout(
+            provider,
+            api_key,
+            model,
+            base_url,
+            Duration::from_secs(120),
+        )
+        .await
+    }
+
+    /// 与 [`AiAnalyzer::new`] 相同，但允许长任务（如 Tapp Playground 生成）
+    /// 指定更长的单次请求超时。
+    pub async fn new_with_timeout(
+        provider: AiProvider,
+        api_key: String,
+        model: String,
+        base_url: Option<String>,
+        request_timeout: Duration,
+    ) -> Self {
         let proxy_config = ProxyConfig::from_dynamic_config().await;
 
         let mut builder = Client::builder()
-            .timeout(Duration::from_secs(120))
+            .timeout(request_timeout)
             .connect_timeout(Duration::from_secs(30))
             .user_agent("Myriad/1.0");
 

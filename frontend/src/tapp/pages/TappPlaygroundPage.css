@@ -111,3 +111,95 @@
 .playground-code-editor .token.italic {
   font-style: italic;
 }
+
+/* ============================================================
+   底部控制岛：生成中的进度反馈动效
+   ============================================================ */
+
+/* 忙碌时环绕岛的旋转光晕（放在岛背景层之下的兄弟元素上） */
+@property --playground-aura-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.playground-island-aura {
+  position: absolute;
+  inset: -3px;
+  border-radius: 2rem;
+  pointer-events: none;
+  background: conic-gradient(
+    from var(--playground-aura-angle),
+    transparent 0deg,
+    color-mix(in srgb, var(--color-primary) 80%, transparent) 45deg,
+    transparent 120deg,
+    transparent 190deg,
+    color-mix(in srgb, var(--color-primary) 45%, transparent) 240deg,
+    transparent 320deg
+  );
+  filter: blur(8px);
+  animation: playground-aura-spin 3.2s linear infinite;
+}
+
+@keyframes playground-aura-spin {
+  to {
+    --playground-aura-angle: 360deg;
+  }
+}
+
+/* 不确定进度条：流光往返 */
+.playground-progress-track {
+  height: 3px;
+  border-radius: 9999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+}
+
+.playground-progress-bar {
+  width: 38%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--color-primary),
+    transparent
+  );
+  animation: playground-progress-slide 1.5s ease-in-out infinite;
+}
+
+@keyframes playground-progress-slide {
+  from {
+    transform: translateX(-110%);
+  }
+
+  to {
+    transform: translateX(380%);
+  }
+}
+
+/* 当前阶段圆点的呼吸光环 */
+.playground-phase-dot-active {
+  animation: playground-phase-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes playground-phase-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0
+      color-mix(in srgb, var(--color-primary) 45%, transparent);
+  }
+
+  50% {
+    box-shadow: 0 0 0 4px
+      color-mix(in srgb, var(--color-primary) 12%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .playground-island-aura,
+  .playground-progress-bar,
+  .playground-phase-dot-active {
+    animation: none;
+  }
+}

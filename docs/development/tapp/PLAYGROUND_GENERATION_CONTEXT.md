@@ -8,7 +8,8 @@
 - `manifest.json` 描述身份、入口、资源、分类、权限和运行形态。
 - `main.js` 可以包含共享 `core` 与可见 `page` 代码。
 - `page.html` 只包含 body 内的静态语义结构；行为写在 `main.js`。
-- `styles.css` 使用普通 CSS，并通过 `var(--color-primary)` 读取宿主强调色。
+- `styles.css` 使用普通 CSS，并通过 `var(--tapp-primary)` 读取宿主强调色
+  （沙箱内没有 `--color-primary`）。
 - Page 运行在没有 `allow-same-origin` 的 sandboxed iframe 中，CSP 使用每实例 nonce。
 
 ## 生命周期
