@@ -749,6 +749,37 @@ export async function installFromStore(
 }
 
 /**
+ * One-time compatibility for store packages published before every HTTP API
+ * required `network:fetch`. Client store fallback installs as `direct`, so the
+ * backend store migration never runs on this path.
+ */
+function migrateLegacyStoreHttpApiPermissions(
+  manifest: TappManifest,
+): TappManifest {
+  const apis = manifest.apis
+  if (!apis) {
+    return manifest
+  }
+  const hasHttpApi = Object.values(apis).some(
+    (api) => (api.type ?? 'http') === 'http',
+  )
+  if (!hasHttpApi) {
+    return manifest
+  }
+  const permissions = manifest.permissions ?? []
+  if (permissions.includes('network:fetch')) {
+    return manifest
+  }
+  if (permissions.length >= 64) {
+    return manifest
+  }
+  return {
+    ...manifest,
+    permissions: [...permissions, 'network:fetch'],
+  }
+}
+
+/**
  * 浏览器侧下载远程商店资源后，以 direct 模式安装
  */
 async function installFromStoreViaClient(
@@ -783,11 +814,27 @@ async function installFromStoreViaClient(
 
   const pkg = await RemoteStoreService.downloadAppPackage(app, storeIndex)
 
+  // Compatibility for store packages published before every HTTP API required
+  // network:fetch. Client-side store fallback installs as `direct`, so it never
+  // hits backend fetch_from_store migration — backfill here to keep validation
+  // and approved permissions aligned with runtime NetworkFetch checks.
+  const manifest = migrateLegacyStoreHttpApiPermissions(pkg.manifest)
+  let permissions =
+    !request.permissions || request.permissions.length === 0
+      ? manifest.permissions
+      : [...request.permissions]
+  if (
+    manifest.permissions.includes('network:fetch') &&
+    !permissions.includes('network:fetch')
+  ) {
+    permissions = [...permissions, 'network:fetch']
+  }
+
   const requestBody: InstallTappRequest = {
     source: 'direct',
-    manifest: pkg.manifest,
+    manifest,
     code: pkg.code,
-    permissions: request.permissions ?? pkg.manifest.permissions,
+    permissions,
   }
 
   if (pkg.styles) requestBody.styles = pkg.styles

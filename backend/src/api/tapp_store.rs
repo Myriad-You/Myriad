@@ -683,6 +683,51 @@ fn decode_asset_base64(value: &str) -> Result<Vec<u8>, String> {
         .map_err(|_| "Invalid asset base64 encoding".to_string())
 }
 
+/// One-time compatibility for store packages published before every HTTP API
+/// required `network:fetch`. Public/protected only controls audience; outbound
+/// HTTP still needs NetworkFetch at runtime — backfill the install-time
+/// permission surface so validation and consent stay aligned.
+fn migrate_legacy_store_http_api_permissions(manifest: &mut TappManifest) -> bool {
+    let has_http_api = manifest.apis.as_ref().is_some_and(|apis| {
+        apis.values().any(|api| api.api_type == "http")
+    });
+    if !has_http_api {
+        return false;
+    }
+    if manifest
+        .permissions
+        .iter()
+        .any(|permission| permission == "network:fetch")
+    {
+        return false;
+    }
+    // Leave unchanged at the permissions cap so validation still fails cleanly.
+    if manifest.permissions.len() >= 64 {
+        return false;
+    }
+    manifest.permissions.push("network:fetch".to_string());
+    true
+}
+
+/// Ensure approved permissions retain `network:fetch` when the store UI sent a
+/// pre-migration list that omitted it after the manifest was backfilled.
+fn ensure_http_api_network_permission_approved(
+    manifest: &TappManifest,
+    approved: &mut Vec<String>,
+) {
+    let needs = manifest
+        .apis
+        .as_ref()
+        .is_some_and(|apis| apis.values().any(|api| api.api_type == "http"))
+        && manifest
+            .permissions
+            .iter()
+            .any(|permission| permission == "network:fetch");
+    if needs && !approved.iter().any(|permission| permission == "network:fetch") {
+        approved.push("network:fetch".to_string());
+    }
+}
+
 pub(crate) fn validate_tapp_manifest(manifest: &TappManifest) -> Result<(), String> {
     validate_tapp_id(&manifest.id)?;
     if manifest.name.trim().is_empty() || manifest.name.len() > 255 {
@@ -2925,12 +2970,18 @@ async fn fetch_from_store(
         )
     })?;
 
-    let manifest: TappManifest = manifest_resp.json().await.map_err(|e| {
+    let mut manifest: TappManifest = manifest_resp.json().await.map_err(|e| {
         (
             StatusCode::BAD_GATEWAY,
             api_error(format!("Invalid manifest: {}", e)),
         )
     })?;
+    if migrate_legacy_store_http_api_permissions(&mut manifest) {
+        tracing::info!(
+            tapp_id = %manifest.id,
+            "backfilled network:fetch for legacy store package with HTTP APIs"
+        );
+    }
     validate_store_manifest_category(app_info, &manifest)
         .map_err(|error| (StatusCode::BAD_GATEWAY, api_error(error)))?;
 
@@ -3476,7 +3527,7 @@ async fn install_tapp(
 
     // 确定授权的权限
     let permissions = req.permissions.unwrap_or_default();
-    let requested_permissions: Vec<String> = if permissions.is_empty() {
+    let mut requested_permissions: Vec<String> = if permissions.is_empty() {
         manifest.permissions.clone()
     } else {
         manifest
@@ -3486,6 +3537,8 @@ async fn install_tapp(
             .cloned()
             .collect()
     };
+    // Ensure HTTP network permission isn't dropped when store UI sent pre-migration lists
+    ensure_http_api_network_permission_approved(&manifest, &mut requested_permissions);
     let approved = requested_permissions;
     let granted = filter_install_permissions(role, approved.clone()).await;
 
@@ -5256,7 +5309,7 @@ async fn update_tapp(
         .ok_or_else(|| (StatusCode::NOT_FOUND, api_error("Tapp not installed")))?;
 
     // 确定授权的权限（保留原有权限或使用新权限）
-    let requested_permissions: Vec<String> = if let Some(perms) = permissions {
+    let mut requested_permissions: Vec<String> = if let Some(perms) = permissions {
         if perms.is_empty() {
             manifest.permissions.clone()
         } else {
@@ -5278,6 +5331,8 @@ async fn update_tapp(
             .cloned()
             .collect()
     };
+    // Ensure HTTP network permission isn't dropped when store UI sent pre-migration lists
+    ensure_http_api_network_permission_approved(&manifest, &mut requested_permissions);
     let approved = requested_permissions;
     let granted = filter_install_permissions(role, approved.clone()).await;
 
@@ -6690,13 +6745,15 @@ async fn update_separated_css(
 mod manifest_tests {
     use super::{
         append_directory_to_zip, archive_entry_path, canonical_installation_owner_id,
-        copy_regular_tapp_directory, installation_conflict_owner_ids, orphaned_tapp_directories,
-        recover_tapp_directory, tapp_dir_for, tapp_setting_value_is_valid, validate_asset_path,
-        validate_installed_resources, validate_resource_path, validate_store_manifest_category,
-        validate_tapp_archive, validate_tapp_id, validate_tapp_manifest,
-        validate_widget_template_contents, widget_template_path, write_install_generation,
-        RegisterWidgetRequest, TappCategory, TappDirStage, TappManifest, TappSettingDef,
-        TappStorageAccess, TappWidgetCategory, TappWidgetDef, WidgetTemplateContents,
+        copy_regular_tapp_directory, ensure_http_api_network_permission_approved,
+        installation_conflict_owner_ids, migrate_legacy_store_http_api_permissions,
+        orphaned_tapp_directories, recover_tapp_directory, tapp_dir_for,
+        tapp_setting_value_is_valid, validate_asset_path, validate_installed_resources,
+        validate_resource_path, validate_store_manifest_category, validate_tapp_archive,
+        validate_tapp_id, validate_tapp_manifest, validate_widget_template_contents,
+        widget_template_path, write_install_generation, RegisterWidgetRequest, TappCategory,
+        TappDirStage, TappManifest, TappSettingDef, TappStorageAccess, TappWidgetCategory,
+        TappWidgetDef, WidgetTemplateContents,
     };
     use crate::models::entities::{tapp_widgets, tapps};
     use crate::services::permission_service::UserRole;
@@ -7710,6 +7767,101 @@ mod manifest_tests {
             }]
         }));
         assert!(removed_min_refresh_interval.is_err());
+    }
+
+    #[test]
+    fn migrate_legacy_store_http_api_permissions_backfills_network_fetch() {
+        let mut legacy: TappManifest = serde_json::from_value(json!({
+            "id": "com.example.legacy-http",
+            "name": "Legacy HTTP",
+            "version": "1.0.0",
+            "main": "main.js",
+            "category": "developer",
+            "permissions": [],
+            "apis": {
+                "dockerHubTags": {
+                    "type": "http",
+                    "endpoint": "https://example.com/tags",
+                    "access": "public"
+                }
+            }
+        }))
+        .unwrap();
+
+        // Strict validation still rejects unmigrated public HTTP without network:fetch.
+        assert!(validate_tapp_manifest(&legacy).is_err());
+
+        assert!(migrate_legacy_store_http_api_permissions(&mut legacy));
+        assert!(legacy.permissions.iter().any(|p| p == "network:fetch"));
+        validate_tapp_manifest(&legacy).expect("migrated legacy HTTP API should validate");
+
+        // Idempotent when already present.
+        assert!(!migrate_legacy_store_http_api_permissions(&mut legacy));
+        assert_eq!(
+            legacy
+                .permissions
+                .iter()
+                .filter(|p| p.as_str() == "network:fetch")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn migrate_legacy_store_http_api_permissions_skips_builtin_only() {
+        let mut builtin_only: TappManifest = serde_json::from_value(json!({
+            "id": "com.example.geo-only",
+            "name": "Geo only",
+            "version": "1.0.0",
+            "main": "main.js",
+            "category": "utility",
+            "permissions": [],
+            "apis": {
+                "location": {
+                    "type": "builtin",
+                    "builtin": "geo"
+                }
+            }
+        }))
+        .unwrap();
+
+        assert!(!migrate_legacy_store_http_api_permissions(&mut builtin_only));
+        assert!(!builtin_only.permissions.iter().any(|p| p == "network:fetch"));
+        validate_tapp_manifest(&builtin_only).expect("builtin geo does not need network:fetch");
+    }
+
+    #[test]
+    fn ensure_http_api_network_permission_approved_restores_filtered_permission() {
+        let manifest: TappManifest = serde_json::from_value(json!({
+            "id": "com.example.api",
+            "name": "API app",
+            "version": "1.0.0",
+            "main": "main.js",
+            "category": "developer",
+            "permissions": ["network:fetch", "storage:read"],
+            "apis": {
+                "tags": {
+                    "type": "http",
+                    "endpoint": "https://example.com/tags"
+                }
+            }
+        }))
+        .unwrap();
+
+        // Store UI sent pre-migration permissions without network:fetch.
+        let mut approved = vec!["storage:read".to_string()];
+        ensure_http_api_network_permission_approved(&manifest, &mut approved);
+        assert!(approved.iter().any(|p| p == "network:fetch"));
+
+        // Idempotent.
+        ensure_http_api_network_permission_approved(&manifest, &mut approved);
+        assert_eq!(
+            approved
+                .iter()
+                .filter(|p| p.as_str() == "network:fetch")
+                .count(),
+            1
+        );
     }
 
     #[test]
