@@ -26,6 +26,7 @@ import { TappPageSandbox } from '../runtime/TappPageSandbox'
 import { TappWidgetSandbox } from '../runtime/TappWidgetSandbox'
 import { installFromCode } from '../services/TappApiService'
 import { generatePlaygroundProject } from '../services/TappPlaygroundService'
+import { exportPlaygroundProjectAsTapp } from '../utils/exportPlaygroundTapp'
 import {
   buildPlaygroundMemoryHistory,
   clearSessionContent,
@@ -477,6 +478,7 @@ export function TappPlaygroundPage() {
   const [busy, setBusy] = useState(false)
   const [busyMode, setBusyMode] = useState<'user' | 'runtime-repair'>('user')
   const [installing, setInstalling] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [selectedFile, setSelectedFile] = useState<FileId>('page')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -859,7 +861,7 @@ export function TappPlaygroundPage() {
   }
 
   const installProject = async () => {
-    if (!project || installing) return
+    if (!project || installing || exporting) return
     setInstalling(true)
     setError('')
     setNotice('')
@@ -882,6 +884,27 @@ export function TappPlaygroundPage() {
       )
     } finally {
       setInstalling(false)
+    }
+  }
+
+  const exportProject = async () => {
+    if (!project || exporting || installing || busy) return
+    setExporting(true)
+    setError('')
+    setNotice('')
+    try {
+      const filename = await exportPlaygroundProjectAsTapp(project)
+      setNotice(
+        t.tapp.playgroundExportSuccess.replace('{filename}', filename),
+      )
+    } catch (exportError) {
+      setError(
+        exportError instanceof Error
+          ? exportError.message
+          : t.tapp.playgroundExportFailed,
+      )
+    } finally {
+      setExporting(false)
     }
   }
 
@@ -1120,11 +1143,13 @@ export function TappPlaygroundPage() {
       getComputedStyle(document.documentElement)
         .getPropertyValue('--color-primary')
         .trim() || '#8b5cf6'
+    // Playground widget pane must receive clicks (buttons/inputs). Catalog
+    // previews keep isPreview:true → pointer-events:none; here we do not.
     return {
       size: activeWidgetSize,
       config: {},
       isEditMode: false,
-      isPreview: true,
+      isPreview: false,
       theme: (isDark ? 'dark' : 'light') as 'light' | 'dark',
       primaryColor,
       locale,
@@ -1446,6 +1471,7 @@ export function TappPlaygroundPage() {
         busy={busy}
         busyMode={busyMode}
         installing={installing}
+        exporting={exporting}
         hasProject={!!project}
         instruction={instruction}
         revisionIndex={session.revisionIndex}
@@ -1464,6 +1490,7 @@ export function TappPlaygroundPage() {
         onInstructionChange={setInstruction}
         onSubmit={() => void runGeneration()}
         onInstall={() => void installProject()}
+        onExport={() => void exportProject()}
         onMoveRevision={moveRevision}
         onJumpToRevision={jumpToRevision}
         onClear={clearSession}

@@ -68,6 +68,7 @@ export interface PlaygroundComposerProps {
   busy: boolean
   busyMode: 'user' | 'runtime-repair'
   installing: boolean
+  exporting?: boolean
   hasProject: boolean
   instruction: string
   revisionIndex: number
@@ -89,6 +90,7 @@ export interface PlaygroundComposerProps {
   onInstructionChange: (value: string) => void
   onSubmit: () => void
   onInstall: () => void
+  onExport?: () => void
   onMoveRevision: (delta: number) => void
   onJumpToRevision?: (index: number) => void
   onClear: () => void
@@ -198,6 +200,7 @@ export function PlaygroundComposer({
   busy,
   busyMode,
   installing,
+  exporting = false,
   hasProject,
   instruction,
   revisionIndex,
@@ -216,6 +219,7 @@ export function PlaygroundComposer({
   onInstructionChange,
   onSubmit,
   onInstall,
+  onExport,
   onMoveRevision,
   onJumpToRevision,
   onClear,
@@ -1334,6 +1338,42 @@ export function PlaygroundComposer({
             <span className="md:hidden flex-1" />
 
             <AnimatePresence>
+              {hasProject && onExport && (
+                <motion.button
+                  initial={
+                    animationsEnabled ? { opacity: 0, scale: 0.8 } : false
+                  }
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={
+                    animationsEnabled ? { opacity: 0, scale: 0.8 } : undefined
+                  }
+                  transition={springTransition}
+                  whileTap={animationsEnabled ? { scale: 0.92 } : {}}
+                  onClick={onExport}
+                  disabled={exporting || installing || busy}
+                  className="h-8 shrink-0 rounded-full px-3 flex items-center gap-1.5 text-xs font-semibold transition-opacity disabled:opacity-40"
+                  style={{
+                    color: 'var(--text-primary)',
+                    backgroundColor:
+                      'color-mix(in srgb, var(--bg-card) 90%, transparent)',
+                    border: '1px solid var(--border-color)',
+                  }}
+                  title={t.tapp.playgroundExport}
+                  aria-label={t.tapp.playgroundExport}
+                >
+                  {exporting ? (
+                    <span className="w-3 h-3 border-2 border-current/30 border-t-current rounded-full animate-spin" />
+                  ) : (
+                    <FaDownload className="w-3 h-3" />
+                  )}
+                  <span className="hidden sm:inline">
+                    {t.tapp.playgroundExport}
+                  </span>
+                </motion.button>
+              )}
+            </AnimatePresence>
+
+            <AnimatePresence>
               {hasProject && (
                 <motion.button
                   initial={
@@ -1346,7 +1386,7 @@ export function PlaygroundComposer({
                   transition={springTransition}
                   whileTap={animationsEnabled ? { scale: 0.92 } : {}}
                   onClick={onInstall}
-                  disabled={installing || busy}
+                  disabled={installing || exporting || busy}
                   className="h-8 shrink-0 rounded-full px-3 flex items-center gap-1.5 text-xs font-semibold text-white bg-gray-900 dark:bg-white dark:text-gray-900 shadow-sm disabled:opacity-40 transition-opacity"
                   title={t.tapp.playgroundInstall}
                   aria-label={t.tapp.playgroundInstall}

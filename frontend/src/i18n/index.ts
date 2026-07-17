@@ -1735,6 +1735,9 @@ export interface TranslationKeys {
     playgroundShortcut: string
     playgroundInstall: string
     playgroundInstallSuccess: string
+    playgroundExport: string
+    playgroundExportSuccess: string
+    playgroundExportFailed: string
     playgroundUndo: string
     playgroundRedo: string
     playgroundIsolationTitle: string
