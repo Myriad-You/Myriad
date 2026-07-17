@@ -80,7 +80,7 @@ cd Myriad
 
 cp .env.production.example .env
 # 编辑 .env：POSTGRES_PASSWORD / JWT_SECRET / CORS_ORIGINS
-# UPDATE_TOKEN 留空时会由 deploy 脚本生成
+# UPDATE_TOKEN / UPDATER_GATEWAY_SECRET 留空时会由 deploy 脚本生成
 
 bash scripts/docker/deploy.sh up
 ```

@@ -43,7 +43,7 @@ openssl rand -base64 32  # POSTGRES_PASSWORD
 openssl rand -base64 32  # JWT_SECRET
 ```
 
-`UPDATE_TOKEN` 可以留空；`scripts/docker/deploy.sh up` 会在首次启动时生成。
+`UPDATE_TOKEN` 与 `UPDATER_GATEWAY_SECRET` 可以留空；`scripts/docker/deploy.sh up` 会在首次启动时生成。
 
 `BASE_URL` 是联邦发现地址的来源。Aro 里显示的 Actor URL 会形如
 `https://yourdomain.com/users/<username>`，别人可以用这个 Actor URL 或
@@ -80,8 +80,8 @@ bash scripts/docker/deploy.sh upgrade
 ```
 
 日常更新应从管理员界面执行：`/config` -> `关于` -> `更新管理`。
-该面板通过 backend 的 `/api/admin/updater/*` 通道访问 updater，浏览器不会接触
-`UPDATE_TOKEN`。
+该面板通过 backend 的 `/api/admin/updater/*` 通道访问 updater-gateway，浏览器不会接触
+`UPDATE_TOKEN` 或 `UPDATER_GATEWAY_SECRET`。
 
 ## 开发环境
 
@@ -210,7 +210,7 @@ CORS_ORIGINS=http://localhost:1102,http://localhost:1103
 - `POSTGRES_PASSWORD` 长度至少 32 字符。
 - `JWT_SECRET` 长度至少 32 字符。
 - `CORS_ORIGINS` 是真实访问域名，不要用 `*`。
-- `UPDATE_TOKEN` 已由部署脚本生成，或已手动设置为 32+ 字符。
+- `UPDATE_TOKEN` 与 `UPDATER_GATEWAY_SECRET` 已由部署脚本生成，或已手动设置为 32+ 字符。
 - `pgdata` 使用仓库根目录下的 `./pgdata` bind mount。
 - 外层 HTTPS/TLS 入口代理到 Myriad `proxy` 的 `HTTP_PORT`，不是 backend `1103`。
 - `.env` 未提交到 Git，生产机上建议 `chmod 600 .env`。
