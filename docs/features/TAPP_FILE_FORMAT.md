@@ -22,11 +22,13 @@ com.example.app.tapp
   "name": "Example App",
   "version": "1.0.0",
   "description": "示例应用",
+  "category": "utility",
   "main": "main.js",
   "permissions": []
 }
 ```
 
+`category` 在安装时必填，取值见 [Manifest · 应用分类](../development/tapp/MANIFEST.md#应用分类)。
 `main` 是相对包根目录的入口路径。安装器会校验该路径并确认解包后文件真实存在，
 不会再默认猜测一个不存在的 `main.js` 或 `index.js`。
 
@@ -44,6 +46,9 @@ com.example.app.tapp
 ├── templates/
 │   ├── widget-2x2.html
 │   └── widget-4x2.html
+├── assets/
+│   ├── icon.png
+│   └── level.json
 ├── i18n/
 │   ├── zh-CN.json
 │   ├── en-US.json
@@ -58,6 +63,7 @@ com.example.app.tapp
 
 ```json
 {
+  "category": "utility",
   "main": "src/main.js",
   "cssMode": "separated",
   "styles": "styles.css",
@@ -65,6 +71,7 @@ com.example.app.tapp
   "pageStyles": "page.css",
   "pageTemplate": "page.html",
   "pageModules": ["state.js", "helpers.js", "index.js"],
+  "assets": ["assets/icon.png", "assets/level.json"],
   "widgets": [
     {
       "id": "summary",
@@ -125,9 +132,18 @@ Tapp ID 和 Manifest 资源路径用于构造安装目录，必须遵守严格�
 - `page/*.js` 按 `pageModules` 顺序组合；省略顺序时按文件名排序并把 `index.js`
   放到最后。
 
-任意放入 `assets/` 的文件不会自动获得公开 URL。需要图片时使用允许的远程 URL、
-`data:`/`blob:`，或先扩展经过权限和路径校验的资源 API；不要假设
-`<img src="assets/a.png">` 会读取后端安装目录。
+### 包内 `assets/`
+
+静态资源通过 Manifest `assets` 声明（路径必须在 `assets/` 下），安装后由沙箱 SDK
+`Tapp.assets` 读取，后端入口为 `GET /api/tapps/{tappId}/asset?path=...`（返回 base64，
+SDK 在 iframe 内转为 `blob:` / `data:`）。
+
+- 字段、数量与体积上限见 [Manifest 配置](../development/tapp/MANIFEST.md)（单文件 ≤ 5 MiB，
+  合计 ≤ 20 MiB，最多 64 项；禁止 `.js` / `.html` 作为 asset）。
+- 使用方式与 Canvas/音频示例见 [图形与轻量游戏](../development/tapp/GRAPHICS.md)。
+- 任意放入 `assets/` 但未写入 `manifest.assets` 的文件不会暴露给运行时。
+- 不要假设 `<img src="assets/a.png">` 会直接读后端安装目录；应使用
+  `Tapp.assets.getUrl(...)` 得到的 URL，或允许的远程 / `data:` / `blob:` 源。
 
 ## CSS 模式
 
@@ -231,5 +247,5 @@ Tapp ID 和 Manifest 资源路径用于构造安装目录，必须遵守严格�
 | Widget 模板为空                 | `templates` 路径不存在或尺寸 key 不匹配 | 核对 Manifest 与 ZIP 清单               |
 | Page 模块顺序错误               | `pageModules` 遗漏/拼写错误             | 显式声明顺序                            |
 | 样式被覆盖                      | separated 资源被当成 unified 重新生成   | 设置 `cssMode: separated`               |
-| 本地图片 404                    | 安装目录不是公开静态目录                | 使用受支持 URL/data/blob 或新增资源 API |
+| 本地图片 404                    | 未走 `Tapp.assets` 或未声明 `manifest.assets` | 用 `Tapp.assets.getUrl` 或受支持 URL/data/blob |
 | 权限少于 Manifest               | 当前用户角色不允许全部申请权限          | 以 `granted_permissions` 为准           |

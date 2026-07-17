@@ -14,6 +14,7 @@ Tapp (Third-party App) 是 Myriad 的扩展应用系统，允许开发者创建�
   "name": "我的应用",
   "version": "1.0.0",
   "description": "一个示例 Tapp 应用",
+  "category": "utility",
   "main": "index.js",
   "author": {
     "name": "Your Name",
@@ -71,14 +72,15 @@ TappCodeStructure {
 
 ### 代码加载规则
 
-| 模式          | 加载的代码                     | 执行内容                        |
-| ------------- | ------------------------------ | ------------------------------- |
-| Widget 模式   | `core + widget`                | Widget 精简 SDK、模板与渲染逻辑 |
-| Page 模式     | `core + page` 或 `pageModules` | 完整 SDK、生命周期和页面 UI     |
-| Headless 模式 | 仅 `core`                      | 完整 Bridge，无 Page/Widget UI  |
+| 模式          | 加载的代码                     | 执行内容                                      |
+| ------------- | ------------------------------ | --------------------------------------------- |
+| Widget 模式   | `core + widget`                | Widget 精简 SDK、生命周期、模板与 `render`    |
+| Page 模式     | `core + page` 或 `pageModules` | 完整 SDK、生命周期和页面 UI                   |
+| Headless 模式 | 仅 `core`                      | 完整 Bridge 与生命周期，无 Page/Widget UI     |
 
-三个模式都有各自的 iframe 生命周期，不能把 `onReady` 是否触发当作代码分层边界。
-共享和后台逻辑放在 `core`，可见界面逻辑分别放在 `widget` / `page`。
+**三个模式都会触发** `Tapp.lifecycle`（含 `onReady` / `onDestroy` / pause/resume），不能把
+“是否有 onReady”当作代码分层边界。共享与后台逻辑放在 `core`；可见界面放在
+`widget` / `page`（Widget 以 `Tapp.widgets[id].render` 为主，Page 可在 onReady 中挂载根 UI）。
 
 ### 代码结构示例
 
@@ -105,7 +107,7 @@ Tapp.widgets['my-widget'] = {
 };
 `;
 
-// Page 代码 - 页面渲染 + 生命周期
+// Page 代码 - 页面渲染（onReady 在所有模式都有；此处用它挂载 Page UI）
 const PAGE_CODE = `
 Tapp.pages['my-page'] = {
   render: async function(container) {
@@ -114,7 +116,6 @@ Tapp.pages['my-page'] = {
   }
 };
 
-// 生命周期（仅 Page 模式执行）
 Tapp.lifecycle.onReady(async function() {
   var container = document.getElementById('tapp-root');
   await Tapp.pages['my-page'].render(container);

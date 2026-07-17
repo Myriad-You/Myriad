@@ -85,11 +85,28 @@ Page、Widget 和 headless core 是运行形态，由 `hasPage`、`widgets` 和
 包版本比较；当前版本过低或字段格式无效时会拒绝写入，避免出现“安装成功但运行时才
 发现 API 不兼容”。最低版本只写在包内 Manifest；商店 index 不重复维护第二份版本来源。
 
-`id` 还属于管理员公开命名空间：普通用户不能安装与管理员公开 Tapp 同 ID 的包；管理员可
-发布与某个用户临时副本同 ID 的公共版本，公共版本会优先显示，但不会覆盖该用户的私有安装
-文件和 Manifest。用户 storage/settings 按“用户 + 稳定 Tapp ID”连续保留，因此同 ID 公共
-版本会沿用该用户已有数据；管理员不会直接取得这些值，代码仍在该用户会话与授权下运行。
-安装/更新采用 staging 校验和原子目录切换，失败不会把半份 Manifest 或资源留在在线目录。
+### 所有权、可见性与同 ID 并存
+
+完整模型以 [ARCHITECTURE.md · 所有权与可见性](./ARCHITECTURE.md#所有权与可见性) 为准；
+本处只固定与 Manifest / 安装相关的要点：
+
+- **公开与私有可并存**：站点管理员在规范公开 owner 命名空间安装的公开 Tapp，与普通用户
+  在自己命名空间安装的私有 Tapp，可以共用同一个 `tapp_id`，各自保留独立的文件、
+  Manifest 与 `approved_permissions`。
+- **冲突检查按可写命名空间**：安装冲突只检查操作者允许写入的 owner 集合——普通用户只
+  检查自己是否已安装该 ID；管理员只检查规范公开 owner。因此用户私有安装**不能**占用 ID
+  阻止管理员后续发布公开版；管理员公开安装也**不会**仅因同 ID 就擦掉用户私有副本。
+- **解析优先私有**：列表、详情、资源、运行时、Runtime Grant 与 Manifest 声明 API
+  （`apis`）对同一 `tapp_id` 一律优先当前 viewer 的私有安装；没有私有副本时再使用站点
+  公开安装。不要写成“公共版本优先显示”。
+- **Storage 与 Settings 不同命名空间**：
+  - `Tapp.storage` 的持久主体是 Runtime Grant **subject**（`user_id + tapp_id`）。打开
+    公开安装时，每个已登录用户仍读写自己的私有 storage，不会读取站点 owner 的数据。
+  - Manifest 声明的安装级设置（含沙箱 `_settings.*` 与宿主 settings 路由）挂在
+    **installation owner** 命名空间：owner 或管理员可写，其他已登录运行者只读声明过的键。
+  - 不要笼统说“用户 storage/settings 按用户 + 稳定 Tapp ID 连续保留并在公/私同 ID 间复用”；
+    storage 随 subject 私有，settings 随安装 owner，两者不可混为一谈。
+- 安装/更新采用 staging 校验和原子目录切换，失败不会把半份 Manifest 或资源留在在线目录。
 
 ## 完整示例
 
@@ -438,7 +455,7 @@ Manifest 设置属于安装级配置：安装 owner 或管理员可修改，运�
 | 字段          | 类型   | 必填 | 说明                                              |
 | ------------- | ------ | ---- | ------------------------------------------------- |
 | `type`        | string | ❌   | `http`（默认）或 `builtin`                        |
-| `access`      | string | ❌   | `protected`（默认）或 `public`                    |
+| `access`      | string | ❌   | 调用者范围：`protected`（默认，需登录）或 `public`（游客也可调用）；**不**表示可否免 `network:fetch` |
 | `endpoint`    | string | HTTP | HTTP URL，可使用 `{{params.*}}` 等模板            |
 | `method`      | string | ❌   | HTTP 方法，默认 `GET`                             |
 | `headers`     | object | ❌   | 请求头模板                                        |
@@ -486,10 +503,14 @@ const response = await Tapp.api("data", { region: "jp" });
 const summary = await Tapp.api("summarize", { prompt: "总结这些数据" });
 ```
 
-> `Tapp.api(name, params)` 只能调用当前解析到的 manifest 的 `apis[name]`。声明解析缓存键包含
-> owner 和 `apis` 内容指纹，其他副本更新 Manifest 后不会继续执行旧定义。响应缓存还包含
-> owner、当前用户/角色、客户端上下文、API 定义指纹和参数摘要，不会跨安装或旧 endpoint
-> 复用；进程内解析、响应和 Geo 缓存均有 TTL 与容量回收。同 ID 冲突时选择管理员公开版本。
+> `Tapp.api(name, params)` 只能调用当前解析到的 manifest 的 `apis[name]`。可见安装与
+> `resolve_accessible_tapp` 相同：viewer 有私有副本时用私有 Manifest，否则用站点公开版。
+> 声明解析缓存键包含 owner 和 `apis` 内容指纹，其他副本更新 Manifest 后不会继续执行旧定义。
+> 响应缓存还包含 owner、当前用户/角色、客户端上下文、API 定义指纹和参数摘要，不会跨安装或
+> 旧 endpoint 复用；进程内解析、响应和 Geo 缓存均有 TTL 与容量回收。
+>
+> 所有 `type: http` 的声明 API 都需要安装已授予 `network:fetch`；`access: public` 只放宽
+> 调用者范围（游客可调），**不能**代替 `network:fetch`。`access: protected` 额外要求登录主体。
 
 ---
 

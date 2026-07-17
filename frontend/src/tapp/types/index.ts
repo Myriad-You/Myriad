@@ -244,7 +244,10 @@ export interface TappDataImport {
 
 /** Manifest 中的命名 API 声明 */
 export interface TappApiDefinition {
-  /** public 无需 network:fetch；protected（默认）需要该权限 */
+  /**
+   * 调用者范围：`public` 允许游客；`protected`（默认）要求登录主体。
+   * 与 `network:fetch` 无关——所有 `type: http` 声明 API 仍必须获得 `network:fetch`。
+   */
   access?: 'public' | 'protected'
   /** HTTP 代理或平台内置能力 */
   type?: 'http' | 'builtin'

@@ -25,12 +25,14 @@
 | **实例设置**       | ✅ 当前 Widget 实例 API                        | ❌ 仅 Widget 沙箱        |
 | **UI/用户/上下文** | ✅ 主题、通知、语言、角色和运行上下文          | ✅ 另含 fullscreen/title |
 | **DOM**            | ✅ 与 Full 共用安全 helper                     | ✅ 相同                  |
+| **包内资源**       | ✅ `Tapp.assets`（list / getUrl / getArrayBuffer / revoke） | ✅ 相同       |
 | **AI**             | ✅ Manifest 声明的 AI Task                     | ✅ 相同                  |
 | **平台数据/报告**  | ✅ 只读                                        | ✅ 读写                  |
 | **媒体/语音/动画** | ✅ 按 Manifest 权限                            | ✅ 相同                  |
 | **事件/数据交换**  | ✅ Event、一次性授权 Data Exchange、Agent 交互 | ✅ 相同                  |
 | **后台需求/调度**  | ✅ 完整                                        | ✅ 相同                  |
 | **声明 API**       | ✅ `Tapp.api()` 与 `Tapp.api.list()`           | ✅ 相同                  |
+| **生命周期**       | ✅ `onReady` / `onDestroy` / pause / resume    | ✅ 相同                  |
 | **管理/联邦能力**  | ❌ Tapp/Brew 管理、组件、快捷键、Federation 等 | ✅ 按权限提供            |
 
 Widget 不是纯静态展示层：共享 core 可在其中使用事件、调度和数据交换。但宿主不会给 Widget
@@ -51,7 +53,10 @@ Tapp.widgets["my-widget"] = {
 };
 ```
 
-> **注意**：Widget 模式下不会执行 `Tapp.lifecycle.onReady()`。
+> **生命周期**：Widget SDK **会**在 document load 后触发 `Tapp.lifecycle.onReady`（以及
+> pause/resume/destroy）。可见 UI 仍应主要通过 `Tapp.widgets[id].render(container, props)`
+> 由宿主驱动；`onReady` 适合初始化订阅、预取数据或配合 core 的共享逻辑，不要假设只有
+> Page 模式才有 onReady。
 
 Manifest 顶层 `settings` 由整个 Tapp 共享；`widgets[].settings` 则为每个 Dashboard
 实例独立保存。Widget 可读取 `props.config` 或 `Tapp.widget.getInstanceSettings()`，并用
@@ -90,74 +95,6 @@ Manifest 顶层 `settings` 由整个 Tapp 共享；`widgets[].settings` 则为�
 | `4x2` | 宽幅展示、图表、音乐播放器 | 横向分区或上下分区  |
 | `4x4` | 大型展示、详细数据         | 自由布局            |
 | `2x4` | 垂直列表、时间线           | 纵向堆叠            |
-
----
-
-## 原生 CSS 示例（推荐）
-
-相比内联 Tailwind 类，使用语义化原生 CSS 更易维护：
-
-```css
-/* widget.css */
-.stats-widget {
-  position: relative;
-  height: 100%;
-  width: 100%;
-  border-radius: 12px;
-  overflow: hidden;
-  background: rgba(255, 255, 255, 0.6);
-  backdrop-filter: blur(12px);
-}
-
-.dark .stats-widget {
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.stats-widget-glow {
-  position: absolute;
-  right: -2rem;
-  top: -2rem;
-  width: 8rem;
-  height: 8rem;
-  border-radius: 50%;
-  filter: blur(64px);
-  opacity: 0.1;
-  pointer-events: none;
-}
-
-.stats-widget-content {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  padding: 12px;
-}
-
-.stats-widget-value {
-  font-size: 30px;
-  font-weight: 900;
-  color: #1f1f1f;
-  line-height: 1;
-}
-
-.dark .stats-widget-value {
-  color: #f5f5f5;
-}
-```
-
-```javascript
-// 简洁的 JS
-container.innerHTML = `
-  <div class="stats-widget">
-    <div class="stats-widget-glow" style="background: ${themeColor}"></div>
-    <div class="stats-widget-content">
-      <span class="stats-widget-value" style="font-size: ${30 * fontScale}px;">
-        ${value}
-      </span>
-    </div>
-  </div>
-`;
-```
 
 ---
 

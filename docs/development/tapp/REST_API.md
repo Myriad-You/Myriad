@@ -101,6 +101,14 @@ interface TappResources {
 }
 ```
 
+### 可选认证的 subject 路由
+
+以下路由挂在 `optional_auth` 上：始终注入真实用户 Claims 或稳定 guest Claims。
+
+| 方法 | 路径                                 | 说明 |
+| ---- | ------------------------------------ | ---- |
+| GET  | `/api/tapps/recent?limit=10`         | 可选认证：按 **当前 subject**（`tapp_user_activities.user_id`）返回最近运行；`limit` 默认 10（1–50）。游客 subject 无 start 活动，结果为 `[]`。 |
+
 ### 需要登录的变更路由
 
 | 方法   | 路径                                 | 说明                                    |
@@ -108,7 +116,6 @@ interface TappResources {
 | POST   | `/api/tapps/install`                 | direct/store 统一安装                   |
 | POST   | `/api/tapps/install-file`            | multipart 上传 `.tapp`，字段名 `file`   |
 | POST   | `/api/tapps/cleanup-temporary`       | 清理当前用户临时 Tapp                   |
-| GET    | `/api/tapps/recent?limit=10`         | 当前用户最近运行的 Tapp                 |
 | POST   | `/api/tapps/{tappId}/update`         | direct/store 更新，保留用户数据         |
 | POST   | `/api/tapps/{tappId}/start`          | 持久化 owner 自己的 running 状态        |
 | POST   | `/api/tapps/{tappId}/stop`           | 停止 owner 安装并撤销对应 Runtime Grant |
@@ -124,6 +131,7 @@ interface TappResources {
     "id": "com.example.app",
     "name": "App",
     "version": "1.0.0",
+    "category": "utility",
     "main": "main.js",
     "permissions": []
   },
@@ -298,6 +306,16 @@ accept 的 runtime 可提交结果，结果会恢复持久化的原 Agent 任务
 PostgreSQL TTL registry/mailbox；`pg_notify` 只作唤醒提示，消费者可从 mailbox 补读。
 Interaction 的动作截止时间独立于终态保留时间；所有副本都可运行过期扫描，但数据库 CAS 只
 允许一个副本写入 `expired` 并恢复原任务。
+
+### Federation
+
+| 方法 | 路径                         | 身份 | 说明 |
+| ---- | ---------------------------- | ---- | ---- |
+| GET  | `/api/tapp/federation/feed`  | 可选认证 + Runtime Grant | 需 Grant 含 `federation:read`。游客只返回公开活动（`audience: "public"`）；已登录用户返回公开 Feed 与个人时间线的合并结果（`audience: "public+personal"`，同 `activity_id` 时个人条目优先，整体按时间新到旧，条数有上限）。响应形如 `{ items, total, audience }`。 |
+
+联邦写操作、消息、私有 Room 与文件等仍走各自 SDK/宿主路径，且对游客不可用；见
+[ARCHITECTURE 所有权与可见性](ARCHITECTURE.md#所有权与可见性)。Brew/语音等宿主代理能力的
+Tapp 归因与独立 AI 成本账本仍有未闭环部分，勿写成已全量按 Grant 结算。
 
 ### 上下文与媒体
 
