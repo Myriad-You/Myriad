@@ -1834,6 +1834,13 @@ export const zhCN: TranslationKeys = {
     playgroundCodeEmpty: '// 生成后可在这里查看和编辑项目源码',
     playgroundInvalidJson: 'JSON 格式无效，修改未应用',
     playgroundGenerateFailed: '生成失败，请稍后重试',
+    playgroundLastRunFailed: '上次生成失败',
+    playgroundRetry: '重试',
+    playgroundFailedPhase: '失败阶段：{phase}',
+    playgroundTimeoutHint:
+      '生成超时。当前项目与输入内容已保留，可点击重试继续。',
+    playgroundServerErrorHint:
+      '服务暂时不可用。当前项目与输入内容已保留，可点击重试。',
     playgroundAgentTrace: '生成过程',
     playgroundKnowledgeSources: '参考文档',
     playgroundValidated: '已验证',

@@ -1913,6 +1913,13 @@ export const jaJP: TranslationKeys = {
     playgroundCodeEmpty: '// 生成されたソースコードはここで確認・編集できます',
     playgroundInvalidJson: 'JSON が無効のため変更は適用されません',
     playgroundGenerateFailed: '生成に失敗しました。もう一度お試しください。',
+    playgroundLastRunFailed: '前回の生成に失敗',
+    playgroundRetry: '再試行',
+    playgroundFailedPhase: '失敗した段階：{phase}',
+    playgroundTimeoutHint:
+      '生成がタイムアウトしました。プロジェクトと入力は保持されています。再試行を押してください。',
+    playgroundServerErrorHint:
+      'サービスが一時的に利用できません。プロジェクトと入力は保持されています。再試行を押してください。',
     playgroundAgentTrace: '生成プロセス',
     playgroundKnowledgeSources: '参照ドキュメント',
     playgroundValidated: '検証済み',

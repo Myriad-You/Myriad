@@ -5,6 +5,7 @@
  * 输入与日志收纳在底部控制岛。
  */
 
+import type { PlaygroundLastFailedAttempt } from '../components/PlaygroundComposer'
 import type {
   PlaygroundAgentStep,
   PlaygroundKnowledgeSource,
@@ -62,6 +63,51 @@ interface Revision {
 interface StoredSession {
   revisions: Revision[]
   revisionIndex: number
+  lastFailedAttempt?: PlaygroundLastFailedAttempt | null
+}
+
+function phaseIndexFromElapsedMs(elapsedMs: number): number {
+  const seconds = Math.floor(elapsedMs / 1000)
+  return seconds < 5 ? 0 : seconds < 14 ? 1 : seconds < 90 ? 2 : 3
+}
+
+function mapPlaygroundGenerateError(
+  message: string,
+  copy: {
+    playgroundTimeoutHint: string
+    playgroundServerErrorHint: string
+    playgroundGenerateFailed: string
+  },
+): string {
+  const raw = (message || '').trim()
+  if (!raw) return copy.playgroundGenerateFailed
+
+  const lower = raw.toLowerCase()
+  const isTimeout =
+    raw === 'AbortError' ||
+    lower === 'aborterror' ||
+    /timeout/i.test(raw) ||
+    /timed?\s*out/i.test(raw) ||
+    /the operation was aborted/i.test(raw) ||
+    /signal timed out/i.test(raw) ||
+    /backend proxy timeout/i.test(raw) ||
+    /pro ai agent generation failed/i.test(raw)
+
+  if (isTimeout) return copy.playgroundTimeoutHint
+
+  const isServer =
+    /\bHTTP\s*50[0234]\b/i.test(raw) ||
+    /\bHTTP\s*422\b/i.test(raw) ||
+    /bad gateway/i.test(raw) ||
+    /gateway timeout/i.test(raw) ||
+    /service unavailable/i.test(raw) ||
+    /failed to fetch/i.test(raw) ||
+    /networkerror/i.test(raw) ||
+    /load failed/i.test(raw)
+
+  if (isServer) return copy.playgroundServerErrorHint
+
+  return raw
 }
 
 function loadSession(): StoredSession {
@@ -73,7 +119,18 @@ function loadSession(): StoredSession {
       Array.isArray(value.revisions) &&
       Number.isInteger(value.revisionIndex)
     ) {
-      return value
+      const lastFailedAttempt =
+        value.lastFailedAttempt &&
+        typeof value.lastFailedAttempt === 'object' &&
+        typeof value.lastFailedAttempt.instruction === 'string' &&
+        typeof value.lastFailedAttempt.error === 'string'
+          ? (value.lastFailedAttempt as PlaygroundLastFailedAttempt)
+          : null
+      return {
+        revisions: value.revisions,
+        revisionIndex: value.revisionIndex,
+        lastFailedAttempt,
+      }
     }
   } catch {
     // A malformed or stale session should never block the editor.
@@ -446,45 +503,6 @@ function CodeEditor({
 }
 
 /* ============================================================
- * 控制岛内的日志条
- * ============================================================ */
-
-function LogEntry({
-  tone,
-  icon,
-  children,
-}: {
-  tone: 'error' | 'warning' | 'success'
-  icon?: React.ReactNode
-  children: React.ReactNode
-}) {
-  const toneClass = {
-    error: 'bg-red-500/10 text-red-600 dark:text-red-300',
-    warning: 'bg-amber-500/10 text-amber-700 dark:text-amber-300',
-    success: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
-  }[tone]
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, height: 0 }}
-      animate={{ opacity: 1, height: 'auto' }}
-      exit={{ opacity: 0, height: 0 }}
-      transition={{ duration: 0.22, ease: 'easeOut' }}
-      className="overflow-hidden"
-    >
-      <div className="pb-1.5">
-        <div
-          className={`rounded-xl px-3 py-2 text-xs leading-relaxed flex gap-2 ${toneClass}`}
-        >
-          {icon && <span className="mt-0.5 shrink-0">{icon}</span>}
-          <span className="min-w-0 break-words">{children}</span>
-        </div>
-      </div>
-    </motion.div>
-  )
-}
-
-/* ============================================================
  * 页面
  * ============================================================ */
 
@@ -635,6 +653,13 @@ export function TappPlaygroundPage() {
     setError('')
     setNotice('')
     if (origin === 'user') setPreviewError('')
+    // Clear prior failure banner while a new attempt is in flight
+    setSession((current) =>
+      current.lastFailedAttempt
+        ? { ...current, lastFailedAttempt: null }
+        : current,
+    )
+    const startedAt = Date.now()
     try {
       const response = await generatePlaygroundProject({
         instruction: prompt.trim(),
@@ -655,17 +680,48 @@ export function TappPlaygroundPage() {
           validation: response.validation,
         })
         const revisions = retained.slice(-20)
-        return { revisions, revisionIndex: revisions.length - 1 }
+        return {
+          revisions,
+          revisionIndex: revisions.length - 1,
+          lastFailedAttempt: null,
+        }
       })
       if (origin === 'user') setInstruction('')
       setPreviewError('')
       setNotice(response.explanation)
     } catch (requestError) {
-      setError(
+      const elapsedMs = Date.now() - startedAt
+      const rawMessage =
         requestError instanceof Error
           ? requestError.message
-          : t.tapp.playgroundGenerateFailed,
-      )
+          : requestError instanceof DOMException
+            ? requestError.name || requestError.message
+            : t.tapp.playgroundGenerateFailed
+      // AbortSignal.timeout often surfaces as DOMException name "TimeoutError"
+      // or Error with message "signal timed out" / "The operation was aborted."
+      const name =
+        requestError instanceof Error || requestError instanceof DOMException
+          ? requestError.name
+          : ''
+      const messageForMap =
+        name === 'AbortError' || name === 'TimeoutError'
+          ? name
+          : rawMessage || t.tapp.playgroundGenerateFailed
+      const friendly = mapPlaygroundGenerateError(messageForMap, t.tapp)
+      const failed: PlaygroundLastFailedAttempt = {
+        instruction: prompt.trim(),
+        error: friendly,
+        elapsedMs,
+        finishedAt: Date.now(),
+        origin,
+        phaseIndex: phaseIndexFromElapsedMs(elapsedMs),
+      }
+      setSession((current) => ({
+        ...current,
+        lastFailedAttempt: failed,
+      }))
+      // Keep instruction text on failure (do not clear). Prefer the status
+      // band over a duplicate floating error card for generate failures.
     } finally {
       setBusy(false)
     }
@@ -677,6 +733,24 @@ export function TappPlaygroundPage() {
     runtimeRepairCountRef.current = 0
     repairedRuntimeErrorsRef.current.clear()
     await executeGeneration(prompt, 'user')
+  }
+
+  const retryFailedAttempt = async () => {
+    const failed = session.lastFailedAttempt
+    if (!failed?.instruction.trim() || busy) return
+    // Restore the same prompt into the composer, then re-run as a user attempt
+    setInstruction(failed.instruction)
+    runtimeRepairCountRef.current = 0
+    repairedRuntimeErrorsRef.current.clear()
+    await executeGeneration(failed.instruction, 'user')
+  }
+
+  const dismissFailedAttempt = () => {
+    setSession((current) =>
+      current.lastFailedAttempt
+        ? { ...current, lastFailedAttempt: null }
+        : current,
+    )
   }
 
   const handleSandboxError = (sandboxError: Error) => {
@@ -739,7 +813,7 @@ export function TappPlaygroundPage() {
   }
 
   const clearSession = () => {
-    setSession({ revisions: [], revisionIndex: -1 })
+    setSession({ revisions: [], revisionIndex: -1, lastFailedAttempt: null })
     setInstruction('')
     setError('')
     setNotice('')
@@ -1301,6 +1375,7 @@ export function TappPlaygroundPage() {
         agentTrace={revision?.agentTrace}
         knowledgeSources={revision?.knowledgeSources}
         validation={revision?.validation}
+        lastFailedAttempt={session.lastFailedAttempt || null}
         onInstructionChange={setInstruction}
         onSubmit={() => void runGeneration()}
         onInstall={() => void installProject()}
@@ -1309,6 +1384,8 @@ export function TappPlaygroundPage() {
         onDismissError={() => setError('')}
         onDismissPreviewError={() => setPreviewError('')}
         onDismissNotice={() => setNotice('')}
+        onRetryFailed={() => void retryFailedAttempt()}
+        onDismissFailed={dismissFailedAttempt}
       />
     </motion.div>
   )

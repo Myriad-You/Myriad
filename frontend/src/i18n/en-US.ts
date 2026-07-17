@@ -1930,6 +1930,13 @@ export const enUS: TranslationKeys = {
     playgroundCodeEmpty: '// Generated source files appear here, ready to edit',
     playgroundInvalidJson: 'Invalid JSON — changes not applied',
     playgroundGenerateFailed: 'Generation failed. Please try again.',
+    playgroundLastRunFailed: 'Last run failed',
+    playgroundRetry: 'Retry',
+    playgroundFailedPhase: 'Failed during {phase}',
+    playgroundTimeoutHint:
+      'Generation timed out. Your project and prompt were kept — press Retry to try again.',
+    playgroundServerErrorHint:
+      'The service is temporarily unavailable. Your project and prompt were kept — press Retry.',
     playgroundAgentTrace: 'Build steps',
     playgroundKnowledgeSources: 'Referenced docs',
     playgroundValidated: 'Validated',

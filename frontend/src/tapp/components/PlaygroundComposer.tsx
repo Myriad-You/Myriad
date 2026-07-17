@@ -32,6 +32,17 @@ import { useI18n } from '../../contexts/I18nContext'
 import { useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { PlaygroundTraceIcon, TappPlaygroundIcon } from './PlaygroundIcons'
 
+/** Persisted generate failure for status-band + Retry (sessionStorage) */
+export interface PlaygroundLastFailedAttempt {
+  instruction: string
+  error: string
+  elapsedMs: number
+  finishedAt: number
+  origin: 'user' | 'runtime-repair'
+  /** Frozen busy-phase index (plan/retrieve/code/validate) from elapsed time */
+  phaseIndex?: number
+}
+
 export interface PlaygroundComposerProps {
   /** 桌面浮动布局（absolute）或移动端固定布局（fixed） */
   interactive: boolean
@@ -49,6 +60,8 @@ export interface PlaygroundComposerProps {
   agentTrace?: PlaygroundAgentStep[]
   knowledgeSources?: PlaygroundKnowledgeSource[]
   validation?: PlaygroundValidationReport
+  /** Persisted last failed generate attempt (sessionStorage via parent) */
+  lastFailedAttempt?: PlaygroundLastFailedAttempt | null
   onInstructionChange: (value: string) => void
   onSubmit: () => void
   onInstall: () => void
@@ -57,6 +70,8 @@ export interface PlaygroundComposerProps {
   onDismissError: () => void
   onDismissPreviewError: () => void
   onDismissNotice: () => void
+  onRetryFailed?: () => void
+  onDismissFailed?: () => void
 }
 
 /* ---------- 通知卡片 ---------- */
@@ -135,6 +150,7 @@ export function PlaygroundComposer({
   agentTrace,
   knowledgeSources,
   validation,
+  lastFailedAttempt,
   onInstructionChange,
   onSubmit,
   onInstall,
@@ -143,8 +159,10 @@ export function PlaygroundComposer({
   onDismissError,
   onDismissPreviewError,
   onDismissNotice,
+  onRetryFailed,
+  onDismissFailed,
 }: PlaygroundComposerProps) {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const animConfig = useAnimationLevel()
   const animationsEnabled = animConfig.level !== 'none'
   const springTransition = animConfig.spring
@@ -153,6 +171,7 @@ export function PlaygroundComposer({
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [traceOpen, setTraceOpen] = useState(false)
+  const [failedDetailOpen, setFailedDetailOpen] = useState(true)
 
   // 输入框自适应高度
   useEffect(() => {
@@ -191,9 +210,34 @@ export function PlaygroundComposer({
   ]
   const phaseIndex =
     busyElapsed < 5 ? 0 : busyElapsed < 14 ? 1 : busyElapsed < 90 ? 2 : 3
-  const elapsedLabel = `${Math.floor(busyElapsed / 60)}:${String(
-    busyElapsed % 60,
-  ).padStart(2, '0')}`
+  const formatElapsed = (totalSeconds: number) =>
+    `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')}`
+  const elapsedLabel = formatElapsed(busyElapsed)
+
+  const failedElapsedLabel = lastFailedAttempt
+    ? formatElapsed(Math.max(0, Math.floor(lastFailedAttempt.elapsedMs / 1000)))
+    : ''
+  const failedPhaseIndex = Math.min(
+    3,
+    Math.max(
+      0,
+      lastFailedAttempt?.phaseIndex ??
+        (lastFailedAttempt
+          ? lastFailedAttempt.elapsedMs < 5000
+            ? 0
+            : lastFailedAttempt.elapsedMs < 14000
+              ? 1
+              : lastFailedAttempt.elapsedMs < 90000
+                ? 2
+                : 3
+          : 0),
+    ),
+  )
+
+  // Collapse open detail when a new failure arrives so users see the error
+  useEffect(() => {
+    if (lastFailedAttempt) setFailedDetailOpen(true)
+  }, [lastFailedAttempt?.finishedAt])
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (
@@ -399,6 +443,172 @@ export function PlaygroundComposer({
                   >
                     {phases[phaseIndex].desc}
                   </motion.p>
+                </div>
+              </motion.div>
+            ) : lastFailedAttempt ? (
+              <motion.div
+                key="status-failed"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.25, ease: 'easeOut' }}
+                className="overflow-hidden"
+              >
+                <div className="border-b border-black/5 dark:border-white/5">
+                  <div className="flex items-center gap-2 px-4 py-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setFailedDetailOpen((open) => !open)}
+                      className="min-w-0 flex-1 flex items-center gap-2 text-left hover:opacity-90 transition-opacity"
+                      aria-expanded={failedDetailOpen}
+                    >
+                      <span className="mt-0.5 w-2 h-2 rounded-full shrink-0 bg-red-500" />
+                      <span className="text-xs font-semibold truncate text-red-600 dark:text-red-300">
+                        {t.tapp.playgroundLastRunFailed}
+                      </span>
+                      <span
+                        className="hidden sm:inline text-[10px] truncate"
+                        style={{ color: 'var(--text-muted)' }}
+                      >
+                        {format(t.tapp.playgroundFailedPhase, {
+                          phase: phases[failedPhaseIndex]?.label || '',
+                        })}
+                      </span>
+                      <span
+                        className="text-[10px] font-mono tabular-nums shrink-0"
+                        style={{ color: 'var(--text-muted)' }}
+                      >
+                        {failedElapsedLabel}
+                      </span>
+                      <motion.span
+                        animate={{ rotate: failedDetailOpen ? 180 : 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="shrink-0"
+                        style={{ color: 'var(--text-muted)' }}
+                      >
+                        <FaChevronDown className="w-2.5 h-2.5" />
+                      </motion.span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={onRetryFailed}
+                      disabled={!onRetryFailed}
+                      className="h-7 shrink-0 rounded-full px-2.5 flex items-center gap-1 text-[10px] font-semibold text-white shadow-sm disabled:opacity-40"
+                      style={{
+                        background:
+                          'linear-gradient(135deg, var(--color-primary), color-mix(in srgb, var(--color-primary) 80%, black))',
+                      }}
+                      title={t.tapp.playgroundRetry}
+                      aria-label={t.tapp.playgroundRetry}
+                    >
+                      <FaRedo className="w-2.5 h-2.5" />
+                      <span>{t.tapp.playgroundRetry}</span>
+                    </button>
+
+                    {onDismissFailed && (
+                      <button
+                        type="button"
+                        onClick={onDismissFailed}
+                        className="shrink-0 -m-0.5 p-1 rounded-md text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+                        aria-label={t.common.close}
+                      >
+                        <FaTimes className="w-2.5 h-2.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  <AnimatePresence initial={false}>
+                    {failedDetailOpen && (
+                      <motion.div
+                        key="failed-body"
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.22, ease: 'easeOut' }}
+                        className="overflow-hidden"
+                      >
+                        <div className="px-4 pb-3 space-y-2">
+                          {/* Frozen phase timeline at failure */}
+                          <div className="flex items-center">
+                            {phases.map((phase, index) => {
+                              const state =
+                                index < failedPhaseIndex
+                                  ? 'done'
+                                  : index === failedPhaseIndex
+                                    ? 'failed'
+                                    : 'pending'
+                              return (
+                                <div
+                                  key={`failed-${phase.label}`}
+                                  className="flex items-center flex-1 last:flex-none min-w-0"
+                                >
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    {state === 'done' ? (
+                                      <FaCheck
+                                        className="w-2.5 h-2.5"
+                                        style={{
+                                          color: 'var(--color-primary)',
+                                        }}
+                                      />
+                                    ) : (
+                                      <span
+                                        className="w-2 h-2 rounded-full"
+                                        style={{
+                                          backgroundColor:
+                                            state === 'failed'
+                                              ? '#ef4444'
+                                              : 'color-mix(in srgb, var(--text-muted) 35%, transparent)',
+                                        }}
+                                      />
+                                    )}
+                                    <span
+                                      className={`text-[10px] whitespace-nowrap ${
+                                        state === 'failed'
+                                          ? 'font-semibold'
+                                          : ''
+                                      }`}
+                                      style={{
+                                        color:
+                                          state === 'pending'
+                                            ? 'var(--text-muted)'
+                                            : state === 'failed'
+                                              ? '#ef4444'
+                                              : 'var(--color-primary)',
+                                      }}
+                                    >
+                                      {phase.label}
+                                    </span>
+                                  </div>
+                                  {index < phases.length - 1 && (
+                                    <span
+                                      className="mx-1.5 h-px flex-1 min-w-2"
+                                      style={{
+                                        background:
+                                          index < failedPhaseIndex
+                                            ? 'var(--color-primary)'
+                                            : 'color-mix(in srgb, var(--text-muted) 25%, transparent)',
+                                      }}
+                                    />
+                                  )}
+                                </div>
+                              )
+                            })}
+                          </div>
+
+                          <p className="sm:hidden text-[10px] leading-relaxed text-red-600/80 dark:text-red-300/80">
+                            {format(t.tapp.playgroundFailedPhase, {
+                              phase: phases[failedPhaseIndex]?.label || '',
+                            })}
+                          </p>
+
+                          <p className="text-xs leading-relaxed whitespace-pre-wrap break-words text-red-600 dark:text-red-300">
+                            {lastFailedAttempt.error}
+                          </p>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               </motion.div>
             ) : agentTrace?.length ? (

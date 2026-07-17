@@ -1757,6 +1757,11 @@ export interface TranslationKeys {
     playgroundCodeTitle: string
     playgroundInvalidJson: string
     playgroundGenerateFailed: string
+    playgroundLastRunFailed: string
+    playgroundRetry: string
+    playgroundFailedPhase: string
+    playgroundTimeoutHint: string
+    playgroundServerErrorHint: string
     playgroundAgentTrace: string
     playgroundKnowledgeSources: string
     playgroundValidated: string
