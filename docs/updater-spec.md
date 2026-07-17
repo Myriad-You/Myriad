@@ -131,9 +131,10 @@ jobs:
       - gh release create
 ```
 
-### 4.2 docker-publish.yml（仅 workflow_dispatch 手动触发）
+### 4.2 docker-publish.yml（push 条件打包 + workflow_dispatch）
 
-- 不随分支 push 自动运行；需在 Actions 中带参数手动触发
+- push 到 `main` / `preview` / `beta`：仅当**提交标题（第一行）包含子串 `-p`** 时才打包；否则跳过 build
+- 也可在 Actions 中 `workflow_dispatch` 手动触发（可选 `tag`、`components` 参数）
 - 仅推开发镜像，tag 使用 `dev-<sha>`、分支名，或输入的 `tag` 覆盖
 - 默认组件：`backend` / `frontend` / `proxy`（**不含 updater**；updater 仅 release.yml 打 tag 时打包，或手动传入 `components` 包含 updater）
 - **禁止再推 latest 到生产仓库**

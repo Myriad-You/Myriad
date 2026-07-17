@@ -1,12 +1,19 @@
 name: Build and Push Development Images
 
-# Manual-only packaging for commit/dev images (workflow_dispatch). Does not run
-# on branch push. Production releases are owned by release.yml on tag push.
+# Dev/commit image packaging:
+# - push to main/preview/beta: only builds when the commit title contains `-p`
+# - workflow_dispatch: always builds (optional tag / components inputs)
+# Production releases are owned by release.yml on tag push.
 #
 # NOTE: This workflow MUST NOT push the `latest` tag — the updater relies on
 # immutable version tags to roll back reliably.
 
 on:
+  push:
+    branches:
+      - main
+      - preview
+      - beta
   workflow_dispatch:
     inputs:
       tag:
@@ -24,18 +31,51 @@ env:
   DEFAULT_COMPONENTS: backend,frontend,proxy
 
 jobs:
+  should-build:
+    name: Check package trigger
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.check.outputs.should_build }}
+    steps:
+      - id: check
+        env:
+          # Full commit message (title + body); title is the first line.
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "should_build=true" >>"$GITHUB_OUTPUT"
+            echo "Manual dispatch — will package"
+            exit 0
+          fi
+          # Match rule: commit title (first line) contains substring `-p`.
+          TITLE=$(printf '%s\n' "$COMMIT_MSG" | head -n1)
+          echo "Commit title: $TITLE"
+          if printf '%s\n' "$TITLE" | grep -qF -- '-p'; then
+            echo "should_build=true" >>"$GITHUB_OUTPUT"
+            echo "Title contains -p — will package"
+          else
+            echo "should_build=false" >>"$GITHUB_OUTPUT"
+            echo "Title has no -p — skip package"
+          fi
+
   resolve:
     name: Resolve components
+    needs: should-build
+    if: needs.should-build.outputs.should_build == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.gen.outputs.matrix }}
     steps:
       - id: gen
         run: |
-          # Defaults to backend/frontend/proxy. Updater is packaged on release
-          # tags (release.yml); pass updater in `components` for a dev image.
-          INPUT="${{ inputs.components }}"
-          INPUT="${INPUT:-$DEFAULT_COMPONENTS}"
+          # Push defaults to backend/frontend/proxy. Updater is packaged on
+          # release tags (release.yml); workflow_dispatch may pass updater.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            INPUT="${{ inputs.components }}"
+            INPUT="${INPUT:-$DEFAULT_COMPONENTS}"
+          else
+            INPUT="$DEFAULT_COMPONENTS"
+          fi
           # Convert "backend,frontend,proxy" to JSON array.
           MATRIX=$(echo "$INPUT" | tr ',' '\n' | sed 's/[[:space:]]//g' | grep -v '^$' \
             | jq -R . | jq -s -c .)
@@ -44,7 +84,8 @@ jobs:
 
   build-and-push:
     name: Build ${{ matrix.component }}
-    needs: resolve
+    needs: [should-build, resolve]
+    if: needs.should-build.outputs.should_build == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
