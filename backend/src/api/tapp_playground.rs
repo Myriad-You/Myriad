@@ -102,6 +102,15 @@ You must follow the current Myriad Tapp contract:
   `code.styles`, and body markup only in `code.pageHtml`. Optional Widget and
   module resources use the other declared `code` fields. Never put `<script>`,
   inline event handlers, or external resources in HTML templates.
+- Never put HTML/JS entrypoints or Widget templates in `manifest.assets` or
+  `code.assets`. `assets` is only for package-static binary/data files under
+  `assets/` (png/jpg/webp/svg/wav/mp3/json/wasm/…), loaded via `Tapp.assets`.
+- Widget markup goes in `code.widgetHtml`. Optional `widgets[].templates` may
+  map sizes to `.html` paths (e.g. `widget-2x2.html` or `templates/widget-2x2.html`),
+  but those paths must not also appear in `assets`. Prefer a single shared
+  `code.widgetHtml` for Playground and either omit `templates` or point sizes
+  without inventing asset entries.
+- Prefer empty `assets: {}` unless the feature truly needs binary package assets.
 - Use `Tapp.lifecycle.onReady(...)` before querying the SDK or binding UI.
 - Use only SDK namespaces and methods present in retrieved documentation. For
   translations, use synchronous `Tapp.i18n.t(key, variables)` and
@@ -429,7 +438,7 @@ async fn generate_project(
                         tool: "normalize_project".to_string(),
                         status: "success".to_string(),
                         summary: format!(
-                            "Canonicalized {normalized_aliases} known generated setting alias(es)"
+                            "Normalized {normalized_aliases} known generator issue(s) (setting aliases / invalid asset paths)"
                         ),
                     });
                 }
@@ -453,7 +462,7 @@ async fn generate_project(
                 if attempt < MAX_AGENT_ATTEMPTS {
                     let previous = truncate_utf8(&raw, 96 * 1024);
                     next_prompt = format!(
-                        "The candidate failed the authoritative validation tool. Diagnose the root cause, repair the complete project, and return ONLY the required full JSON object. Use exact camelCase field names from the validator; setting definitions use `defaultValue`, never `default`. Do not repeat an alias or field named by the error as unknown.\n\nVALIDATION TOOL RESULT:\n<validation_error>{error}</validation_error>\n\nORIGINAL USER INSTRUCTION:\n<instruction>{instruction}</instruction>\n\nCURRENT PROJECT BEFORE THIS RUN:\n<current_project>{current}</current_project>\n\nFAILED CANDIDATE:\n<previous>{previous}</previous>"
+                        "The candidate failed the authoritative validation tool. Diagnose the root cause, repair the complete project, and return ONLY the required full JSON object. Use exact camelCase field names from the validator; setting definitions use `defaultValue`, never `default`. Do not place Widget templates or HTML/JS entrypoints under `manifest.assets` / `code.assets`; put Widget markup in `code.widgetHtml` and leave `assets` empty unless you need real binary files under `assets/`. Do not repeat an alias or field named by the error as unknown.\n\nVALIDATION TOOL RESULT:\n<validation_error>{error}</validation_error>\n\nORIGINAL USER INSTRUCTION:\n<instruction>{instruction}</instruction>\n\nCURRENT PROJECT BEFORE THIS RUN:\n<current_project>{current}</current_project>\n\nFAILED CANDIDATE:\n<previous>{previous}</previous>"
                     );
                     agent_trace.push(PlaygroundAgentStep {
                         tool: "repair_project".to_string(),
@@ -644,22 +653,68 @@ fn normalize_known_generator_aliases(value: &mut Value) -> usize {
             .sum()
     }
 
-    let Some(manifest) = value
-        .get_mut("project")
-        .and_then(|project| project.get_mut("manifest"))
-        .and_then(Value::as_object_mut)
-    else {
+    /// Drop paths that are not package-static assets under `assets/` (entrypoints,
+    /// Widget templates, styles). Production `validate_asset_path` rejects these;
+    /// Playground strips them so a candidate with correct `widgetHtml` still passes.
+    fn is_invalid_generated_asset_path(path: &str) -> bool {
+        !path.starts_with("assets/")
+            || path.ends_with(".html")
+            || path.ends_with(".js")
+            || path.ends_with(".css")
+    }
+
+    fn strip_invalid_asset_entries(project: &mut Value) -> usize {
+        let mut removed = 0usize;
+
+        if let Some(assets) = project
+            .get_mut("manifest")
+            .and_then(|manifest| manifest.get_mut("assets"))
+            .and_then(Value::as_array_mut)
+        {
+            let before = assets.len();
+            assets.retain(|entry| {
+                entry
+                    .as_str()
+                    .is_some_and(|path| !is_invalid_generated_asset_path(path))
+            });
+            removed += before.saturating_sub(assets.len());
+            if assets.is_empty() {
+                *assets = Vec::new();
+            }
+        }
+
+        if let Some(assets) = project
+            .get_mut("code")
+            .and_then(|code| code.get_mut("assets"))
+            .and_then(Value::as_object_mut)
+        {
+            let before = assets.len();
+            assets.retain(|path, _| !is_invalid_generated_asset_path(path));
+            removed += before.saturating_sub(assets.len());
+            if assets.is_empty() {
+                *assets = serde_json::Map::new();
+            }
+        }
+
+        removed
+    }
+
+    let Some(project) = value.get_mut("project") else {
         return 0;
     };
 
-    let mut normalized = normalize_settings(manifest.get_mut("settings"));
-    if let Some(widgets) = manifest.get_mut("widgets").and_then(Value::as_array_mut) {
-        normalized += widgets
-            .iter_mut()
-            .filter_map(Value::as_object_mut)
-            .map(|widget| normalize_settings(widget.get_mut("settings")))
-            .sum::<usize>();
+    let mut normalized = 0usize;
+    if let Some(manifest) = project.get_mut("manifest").and_then(Value::as_object_mut) {
+        normalized += normalize_settings(manifest.get_mut("settings"));
+        if let Some(widgets) = manifest.get_mut("widgets").and_then(Value::as_array_mut) {
+            normalized += widgets
+                .iter_mut()
+                .filter_map(Value::as_object_mut)
+                .map(|widget| normalize_settings(widget.get_mut("settings")))
+                .sum::<usize>();
+        }
     }
+    normalized += strip_invalid_asset_entries(project);
     normalized
 }
 
@@ -1093,5 +1148,97 @@ mod tests {
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("network:fetch"));
         assert!(!warnings[0].contains("storage,"));
+    }
+
+    #[test]
+    fn strips_widget_template_paths_from_assets_before_validate() {
+        let mut value: Value = serde_json::from_str(&project_json()).unwrap();
+        value["project"]["manifest"]["permissions"] = json!(["widget:register"]);
+        value["project"]["manifest"]["widgets"] = json!([{
+            "id": "summary",
+            "name": "Summary",
+            "defaultSize": "2x2",
+            "sizes": ["2x2"],
+            "category": "utility",
+            "templates": { "2x2": "templates/widget-2x2.html" }
+        }]);
+        value["project"]["manifest"]["assets"] = json!(["templates/widget-2x2.html"]);
+        value["project"]["code"]["widget"] =
+            json!("Tapp.lifecycle.onReady(function () {});");
+        value["project"]["code"]["widgetHtml"] = json!("<div class=\"widget\">Hi</div>");
+        value["project"]["code"]["assets"] = json!({
+            "templates/widget-2x2.html": "<div>should not be an asset</div>"
+        });
+
+        let (output, normalized) =
+            parse_and_validate_model_output(&value.to_string()).expect("normalized project");
+        assert!(
+            normalized >= 2,
+            "expected at least two asset path removals, got {normalized}"
+        );
+        assert!(
+            output
+                .project
+                .manifest
+                .assets
+                .as_ref()
+                .is_none_or(|assets| assets.is_empty()),
+            "manifest.assets should be empty after stripping template path"
+        );
+        assert!(
+            output.project.code.assets.is_empty(),
+            "code.assets should be empty after stripping template path"
+        );
+        assert_eq!(
+            output.project.code.widget_html.as_deref(),
+            Some("<div class=\"widget\">Hi</div>")
+        );
+    }
+
+    #[test]
+    fn keeps_valid_binary_assets_during_normalize() {
+        let mut value: Value = serde_json::from_str(&project_json()).unwrap();
+        // Minimal 1x1 PNG
+        let png_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+        value["project"]["manifest"]["assets"] = json!(["assets/icon.png"]);
+        value["project"]["code"]["assets"] = json!({
+            "assets/icon.png": png_b64
+        });
+
+        let (output, normalized) =
+            parse_and_validate_model_output(&value.to_string()).expect("valid binary asset");
+        assert_eq!(normalized, 0);
+        assert_eq!(
+            output.project.manifest.assets.as_deref(),
+            Some(vec!["assets/icon.png".to_string()].as_slice())
+        );
+        assert_eq!(
+            output.project.code.assets.get("assets/icon.png").map(String::as_str),
+            Some(png_b64)
+        );
+    }
+
+    #[test]
+    fn strips_entrypoint_asset_paths_but_keeps_real_assets() {
+        let mut value: Value = serde_json::from_str(&project_json()).unwrap();
+        let png_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+        value["project"]["manifest"]["assets"] =
+            json!(["assets/icon.png", "main.js", "styles.css", "assets/hack.js"]);
+        value["project"]["code"]["assets"] = json!({
+            "assets/icon.png": png_b64,
+            "main.js": "console.log(1)",
+            "styles.css": ".x{}",
+            "assets/hack.js": "evil"
+        });
+
+        let (output, normalized) =
+            parse_and_validate_model_output(&value.to_string()).expect("partial strip");
+        assert_eq!(normalized, 6); // 3 invalid on each side
+        assert_eq!(
+            output.project.manifest.assets.as_deref(),
+            Some(vec!["assets/icon.png".to_string()].as_slice())
+        );
+        assert_eq!(output.project.code.assets.len(), 1);
+        assert!(output.project.code.assets.contains_key("assets/icon.png"));
     }
 }
