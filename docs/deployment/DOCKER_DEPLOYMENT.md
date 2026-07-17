@@ -10,26 +10,39 @@ removed.
 host HTTP_PORT
   |
   v
-proxy ──┬── frontend:1102
+proxy ──┬── frontend:1102          [myriad-net]
         ├── backend:1103 ── postgres:5432
-        └── updater:1101 (internal only)
-               └── docker-guard:2375 ── host docker.sock
+        │       │
+        │       └── updater-gateway:1104 ──► updater:1101   [myriad-admin-net]
+        │                                         │
+        │                                         └── docker-guard:2375 ── sock
+        │                                               [myriad-docker-guard-net]
+        └── (rescue only) ──► updater:1101  when PROXY_ALLOW_DIRECT_UPDATER=true
 ```
 
+Networks:
+
+| Network | Members | Notes |
+| --- | --- | --- |
+| `myriad-net` | proxy, frontend, backend, postgres | Business L2. **Not** updater. |
+| `myriad-admin-net` | backend, updater, updater-gateway, proxy | Token hop + rescue DNS. |
+| `myriad-docker-guard-net` (internal) | updater, docker-guard | Only updater may join (guard policy). |
+
 - Only `proxy` publishes a host port.
-- `backend`, `frontend`, `postgres`, and `updater` stay on the Docker bridge
-  network.
+- **Frontend/postgres cannot reach updater** (no shared L2 with updater).
 - The updater is not an A/B dual-live system. It uses one running business slot,
   maintenance mode, `pgdata` snapshots, and immutable image tags.
 - Only `docker-guard` mounts the raw Docker socket. The updater reaches it over an
   internal-only network; the guard restricts methods, Compose project labels, image
   repositories, container-create privileges, and host bind mounts.
+- **`UPDATE_TOKEN` lives in updater + updater-gateway + docker-guard**, not in the
+  fat backend process. Gateway injects `X-Update-Token` on the admin-net hop.
 - **Backend runs as non-root** (image `USER myriad`, uid 1000). Deploy scripts chown
   named volumes `backend_cache` / `backend_data` so `/app/cache` and `/app/data`
   remain writable. Healthcheck stays on `localhost:1103/health` (no privileged ports).
 - Browser update requests go through backend admin routes:
   `/api/admin/updater/*`. The browser never receives `UPDATE_TOKEN`.
-- Migrating from the old updater-with-sock layout: see
+- Migrating topology: see
   [MIGRATION_DOCKER_GUARD.md](./MIGRATION_DOCKER_GUARD.md) (host `compose pull && up -d`;
   UI alone cannot switch topology).
 
@@ -37,7 +50,7 @@ proxy ──┬── frontend:1102
 
 | File | Role |
 | --- | --- |
-| `docker-compose.yml` | Production stack: postgres, backend, frontend, proxy, updater, docker-guard |
+| `docker-compose.yml` | Production stack: postgres, backend, frontend, proxy, updater, updater-gateway, docker-guard |
 | `.env.production.example` | Template for host `.env` |
 | `scripts/docker/deploy.sh` | Linux/macOS bootstrap and stack management |
 | `scripts/docker/deploy.ps1` | Windows bootstrap and stack management |
@@ -79,11 +92,12 @@ Open `http://localhost` or the port configured by `HTTP_PORT`.
 | `PROXY_TAG` | yes | Proxy image tag |
 | `UPDATER_TAG` | yes | Updater image tag |
 | `COMPOSE_PROJECT_NAME` | yes | Compose project name, default `myriad` |
-| `UPDATE_TOKEN` | yes | Server-side updater token; deploy script fills it if empty |
+| `UPDATE_TOKEN` | yes | Updater token for updater/gateway/guard; deploy script fills it if empty; **not** injected into backend |
 | `HTTP_PORT` | no | Published proxy port, default `80` |
 | `CHANNEL` | no | Release channel, default `stable` |
 | `MYRIAD_GITHUB_REPO` | no | Release source repo, default `Myriad-You/Myriad` |
-| `MYRIAD_DOCKER_NETWORK` | no | Docker network override, default `myriad-net` |
+| `MYRIAD_DOCKER_NETWORK` | no | Business network override, default `myriad-net` |
+| `MYRIAD_ADMIN_NETWORK` | no | Admin plane network override, default `myriad-admin-net` |
 | `MYRIAD_DOCKER_GUARD_NETWORK` | no | Internal updater/guard network override, default `myriad-docker-guard-net` |
 | `PROXY_TRUSTED_UPSTREAMS` | no | Comma-separated IP/CIDR allowlist for outer proxies allowed to pass the real client IP |
 | `PROXY_ALLOW_DIRECT_UPDATER` | no | Enables `/_updater/*` rescue path, default `false` |
@@ -117,7 +131,7 @@ bash scripts/docker/deploy.sh doctor
 - **Admin mutative updater** routes (`POST …/update|rollback|self-update|rescue/*`) use a
   stricter per-IP rate limit; status/jobs polling stays on the normal limit.
 - **Audit actor**: backend proxies pass `X-Update-Actor: admin:<id>:<user>` after admin
-  JWT + server-side `UPDATE_TOKEN` (included in updater `audit.log` when present).
+  JWT; gateway injects `UPDATE_TOKEN` (included in updater `audit.log` when present).
 - **Root**: backend warns once at boot if running as uid 0 (compose should stay non-root).
 - **Deploy soft-check**: `deploy.sh|ps1 up|upgrade` runs topology doctor in warn-only mode.
 - **Updater `/healthz`**: public and minimal (`{"ok":true}` only — no versions/token status).

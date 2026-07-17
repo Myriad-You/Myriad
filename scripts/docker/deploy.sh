@@ -38,7 +38,7 @@ Commands:
   pull      Pull images pinned by .env tags
   logs      docker compose logs -f
   status    docker compose ps + image versions
-  doctor    Read-only topology / security checks (docker-guard, sock mounts, cosign)
+  doctor    Read-only topology / security checks (nets, gateway, token placement, cosign)
   upgrade   Pull images pinned by .env tags + recreate (manual upgrade path)
   help      Show this help
 
@@ -232,10 +232,25 @@ cmd_status() {
 }
 
 # Read-only topology checks. Does not migrate or restart services.
-# Expected: docker-guard holds docker.sock; updater does not.
+# Expected: docker-guard holds docker.sock; updater on admin+guard nets (not business net);
+# updater-gateway injects token; backend has no UPDATE_TOKEN.
 cmd_doctor() {
     local fail=0
     local skip=0
+    local admin_net guard_net business_net
+    admin_net="${MYRIAD_ADMIN_NETWORK:-myriad-admin-net}"
+    guard_net="${MYRIAD_DOCKER_GUARD_NETWORK:-myriad-docker-guard-net}"
+    business_net="${MYRIAD_DOCKER_NETWORK:-myriad-net}"
+    if [ -f .env ]; then
+        local v
+        v="$(grep -E '^MYRIAD_ADMIN_NETWORK=' .env 2>/dev/null | head -1 | cut -d= -f2- | tr -d "\"'" || true)"
+        [ -n "$v" ] && admin_net="$v"
+        v="$(grep -E '^MYRIAD_DOCKER_GUARD_NETWORK=' .env 2>/dev/null | head -1 | cut -d= -f2- | tr -d "\"'" || true)"
+        [ -n "$v" ] && guard_net="$v"
+        v="$(grep -E '^MYRIAD_DOCKER_NETWORK=' .env 2>/dev/null | head -1 | cut -d= -f2- | tr -d "\"'" || true)"
+        [ -n "$v" ] && business_net="$v"
+    fi
+
     info "==> Deploy topology doctor (read-only)"
 
     container_exists() {
@@ -251,6 +266,29 @@ cmd_doctor() {
     container_health() {
         docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$1" 2>/dev/null \
             || echo "unknown"
+    }
+
+    # Space-separated network names the container is attached to.
+    container_networks() {
+        docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$1" 2>/dev/null \
+            || true
+    }
+
+    container_on_network() {
+        # $1=container $2=network name
+        printf '%s' "$(container_networks "$1")" | tr ' ' '\n' | grep -qx "$2"
+    }
+
+    container_env_has() {
+        # $1=container $2=env key prefix (e.g. UPDATE_TOKEN=)
+        docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$1" 2>/dev/null \
+            | grep -qE "^${2}"
+    }
+
+    container_env_value() {
+        # $1=container $2=KEY
+        docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$1" 2>/dev/null \
+            | grep -E "^${2}=" | head -1 | cut -d= -f2- || true
     }
 
     # --- docker-guard ---
@@ -273,12 +311,24 @@ cmd_doctor() {
             err "FAIL  docker-guard does not mount docker.sock"
             fail=$((fail + 1))
         fi
+        if container_on_network myriad-docker-guard "$guard_net"; then
+            ok "PASS  docker-guard is on $guard_net"
+        else
+            err "FAIL  docker-guard is not on $guard_net (networks: $(container_networks myriad-docker-guard))"
+            fail=$((fail + 1))
+        fi
+        if container_on_network myriad-docker-guard "$business_net"; then
+            err "FAIL  docker-guard must not be on business net $business_net"
+            fail=$((fail + 1))
+        else
+            ok "PASS  docker-guard is not on business net $business_net"
+        fi
     else
         err "FAIL  myriad-docker-guard not found (stack down or legacy pre-guard topology)"
         fail=$((fail + 1))
     fi
 
-    # --- updater: must NOT mount docker.sock ---
+    # --- updater: must NOT mount docker.sock; DOCKER_HOST → docker-guard; admin+guard only ---
     if container_exists myriad-updater; then
         ok "PASS  myriad-updater container exists"
         if container_mounts_sock myriad-updater; then
@@ -287,8 +337,127 @@ cmd_doctor() {
         else
             ok "PASS  myriad-updater does not mount docker.sock"
         fi
+        local dhost
+        dhost="$(container_env_value myriad-updater DOCKER_HOST)"
+        case "$dhost" in
+            *docker-guard*)
+                ok "PASS  updater DOCKER_HOST points at docker-guard ($dhost)"
+                ;;
+            "")
+                err "FAIL  updater DOCKER_HOST is unset (expected tcp://docker-guard:2375)"
+                fail=$((fail + 1))
+                ;;
+            *)
+                err "FAIL  updater DOCKER_HOST=$dhost (expected to contain docker-guard)"
+                fail=$((fail + 1))
+                ;;
+        esac
+        if container_on_network myriad-updater "$admin_net"; then
+            ok "PASS  updater is on admin-net $admin_net"
+        else
+            err "FAIL  updater is not on admin-net $admin_net (networks: $(container_networks myriad-updater))"
+            fail=$((fail + 1))
+        fi
+        if container_on_network myriad-updater "$guard_net"; then
+            ok "PASS  updater is on guard-net $guard_net"
+        else
+            err "FAIL  updater is not on guard-net $guard_net"
+            fail=$((fail + 1))
+        fi
+        if container_on_network myriad-updater "$business_net"; then
+            err "FAIL  updater must not be on business net $business_net (frontend/postgres isolation)"
+            fail=$((fail + 1))
+        else
+            ok "PASS  updater is not on business net $business_net"
+        fi
     else
         warn "SKIP  myriad-updater not running"
+        skip=$((skip + 1))
+    fi
+
+    # --- updater-gateway: exists, no docker.sock, admin-net only preferred ---
+    if container_exists myriad-updater-gateway; then
+        ok "PASS  myriad-updater-gateway container exists"
+        if container_mounts_sock myriad-updater-gateway; then
+            err "FAIL  updater-gateway mounts docker.sock (must not)"
+            fail=$((fail + 1))
+        else
+            ok "PASS  updater-gateway does not mount docker.sock"
+        fi
+        if container_on_network myriad-updater-gateway "$admin_net"; then
+            ok "PASS  updater-gateway is on admin-net $admin_net"
+        else
+            err "FAIL  updater-gateway is not on admin-net $admin_net"
+            fail=$((fail + 1))
+        fi
+        if container_on_network myriad-updater-gateway "$guard_net"; then
+            err "FAIL  updater-gateway must not be on guard-net $guard_net"
+            fail=$((fail + 1))
+        else
+            ok "PASS  updater-gateway is not on guard-net"
+        fi
+        if container_on_network myriad-updater-gateway "$business_net"; then
+            err "FAIL  updater-gateway must not be on business net $business_net"
+            fail=$((fail + 1))
+        else
+            ok "PASS  updater-gateway is not on business net"
+        fi
+    else
+        err "FAIL  myriad-updater-gateway not found (P0 topology requires gateway; token off backend)"
+        fail=$((fail + 1))
+    fi
+
+    # --- backend: non-root when inspectable; no UPDATE_TOKEN in Config.Env ---
+    if container_exists myriad-backend; then
+        ok "PASS  myriad-backend container exists"
+        local buser
+        buser="$(docker inspect -f '{{.Config.User}}' myriad-backend 2>/dev/null || true)"
+        case "$buser" in
+            ""|0|0:0|root)
+                # Empty often means image default; try runtime if possible
+                local uid
+                uid="$(docker exec myriad-backend id -u 2>/dev/null || echo "")"
+                if [ "$uid" = "0" ]; then
+                    warn "WARN  backend appears to run as uid 0 (prefer non-root / USER myriad)"
+                elif [ -n "$uid" ]; then
+                    ok "PASS  backend runtime uid=$uid (Config.User=${buser:-empty})"
+                else
+                    warn "SKIP  backend user not inspectable (Config.User=${buser:-empty})"
+                    skip=$((skip + 1))
+                fi
+                ;;
+            *)
+                ok "PASS  backend Config.User=$buser"
+                ;;
+        esac
+        if container_env_has myriad-backend 'UPDATE_TOKEN='; then
+            err "FAIL  backend Config.Env contains UPDATE_TOKEN (should use updater-gateway only)"
+            fail=$((fail + 1))
+        else
+            ok "PASS  backend Config.Env has no UPDATE_TOKEN"
+        fi
+        local up_url
+        up_url="$(container_env_value myriad-backend MYRIAD_UPDATER_URL)"
+        case "$up_url" in
+            *updater-gateway*|*updater*)
+                ok "PASS  backend MYRIAD_UPDATER_URL=$up_url"
+                ;;
+            "")
+                warn "WARN  backend MYRIAD_UPDATER_URL unset (defaults may still apply)"
+                ;;
+            *)
+                warn "WARN  backend MYRIAD_UPDATER_URL=$up_url (expected updater-gateway)"
+                ;;
+        esac
+        # Soft reachability: gateway /healthz when exec works
+        if docker exec myriad-backend wget --spider -q "http://updater-gateway:1104/healthz" 2>/dev/null \
+            || docker exec myriad-backend wget --spider -q "${up_url:-http://updater-gateway:1104}/healthz" 2>/dev/null; then
+            ok "PASS  backend can reach updater-gateway /healthz (soft)"
+        else
+            warn "WARN  backend cannot probe updater-gateway /healthz (soft; stack may still be starting)"
+        fi
+    else
+        warn "SKIP  myriad-backend not running"
         skip=$((skip + 1))
     fi
 

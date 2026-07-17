@@ -36,6 +36,8 @@ pub struct GuardConfig {
     pub socket_path: PathBuf,
     pub project: String,
     pub compose_network: String,
+    /// Admin plane (backend / updater / updater-gateway / proxy rescue). Not internal.
+    pub admin_network: String,
     pub guard_network: String,
     pub compose_dir: PathBuf,
     pub env_file: PathBuf,
@@ -57,6 +59,9 @@ impl GuardConfig {
         let compose_network =
             std::env::var("MYRIAD_DOCKER_NETWORK").unwrap_or_else(|_| "myriad-net".into());
         validate_simple_name("MYRIAD_DOCKER_NETWORK", &compose_network)?;
+        let admin_network =
+            std::env::var("MYRIAD_ADMIN_NETWORK").unwrap_or_else(|_| "myriad-admin-net".into());
+        validate_simple_name("MYRIAD_ADMIN_NETWORK", &admin_network)?;
         let guard_network = std::env::var("MYRIAD_DOCKER_GUARD_NETWORK")
             .unwrap_or_else(|_| "myriad-docker-guard-net".into());
         validate_simple_name("MYRIAD_DOCKER_GUARD_NETWORK", &guard_network)?;
@@ -96,6 +101,7 @@ impl GuardConfig {
             socket_path,
             project,
             compose_network,
+            admin_network,
             guard_network,
             compose_dir,
             env_file,
@@ -401,6 +407,7 @@ fn validate_container_create(state: &GuardState, body: &Bytes) -> std::result::R
         if !mode.is_empty()
             && !matches!(mode, "default" | "bridge" | "none")
             && mode != state.config.compose_network
+            && mode != state.config.admin_network
             && mode != state.config.guard_network
         {
             return Err("host or foreign network mode is not allowed".into());
@@ -449,7 +456,7 @@ fn validate_container_create(state: &GuardState, body: &Bytes) -> std::result::R
         .and_then(Value::as_object)
     {
         for network in endpoints.keys() {
-            if network != &state.config.compose_network && network != &state.config.guard_network {
+            if !is_allowlisted_network_name(network, &state.config) {
                 return Err(format!("network {network} is outside the Myriad allowlist"));
             }
             authorize_guard_network_attachment(service, network, &state.config)?;
@@ -458,8 +465,15 @@ fn validate_container_create(state: &GuardState, body: &Bytes) -> std::result::R
     Ok(())
 }
 
+fn is_allowlisted_network_name(name: &str, config: &GuardConfig) -> bool {
+    name == config.compose_network
+        || name == config.admin_network
+        || name == config.guard_network
+}
+
 /// Only the Compose `updater` service may join the docker-guard network. Business services
-/// remain free to attach to the project Compose network (`myriad-net`).
+/// may attach to the project Compose network (`myriad-net`) and the admin plane
+/// (`myriad-admin-net`); only `updater` may dual-home onto guard-net.
 fn authorize_guard_network_attachment(
     service: &str,
     network_name: &str,
@@ -679,7 +693,7 @@ fn managed_project_service(inspect: &Value, config: &GuardConfig) -> Option<Stri
 
 fn allowlisted_network_name(inspect: &Value, config: &GuardConfig) -> Option<String> {
     let name = inspect.get("Name").and_then(Value::as_str)?;
-    if name == config.compose_network || name == config.guard_network {
+    if is_allowlisted_network_name(name, config) {
         Some(name.to_string())
     } else {
         None
@@ -817,19 +831,19 @@ fn validate_self_update_tags(previous: &str, target: &str) -> std::result::Resul
 }
 
 /// Recreate both TCB services so `docker-guard` tracks `UPDATER_TAG` alongside
-/// `updater`.
+/// `updater` and `updater-gateway` (same `UPDATER_TAG` image).
 ///
 /// **Why the raw unix socket?** Container-create policy only allows Compose
-/// services `backend|frontend|postgres|updater`. Recreating `docker-guard`
-/// through the policy proxy on `:2375` would be denied. Self-update is a fixed
-/// argv TCB self-replace (not arbitrary Docker API), so compose talks to
-/// `unix:///var/run/docker.sock` directly. All other updater traffic still uses
-/// the policy proxy via `DOCKER_HOST=tcp://docker-guard:2375`.
+/// services `backend|frontend|postgres|updater`. Recreating `docker-guard` or
+/// `updater-gateway` through the policy proxy on `:2375` would be denied.
+/// Self-update is a fixed argv TCB self-replace (not arbitrary Docker API), so
+/// compose talks to `unix:///var/run/docker.sock` directly. All other updater
+/// traffic still uses the policy proxy via `DOCKER_HOST=tcp://docker-guard:2375`.
 ///
 /// **Why a one-shot helper?** Running `compose up docker-guard` from inside the
 /// live guard container races with killing that container mid-compose. A short
 /// helper (`myriad-tcb-self-update` on the target updater image) performs the
-/// dual recreate, restores `UPDATER_TAG` on failure, writes durable status, and
+/// recreate, restores `UPDATER_TAG` on failure, writes durable status, and
 /// exits. Compose dir is mounted **rw** only for this helper so it can rewrite
 /// `.env` and `state/self-update-last.json` after the old guard may be gone.
 async fn run_guarded_self_update(
@@ -920,7 +934,7 @@ async fn run_guarded_self_update(
         image = %helper_image,
         previous_tag,
         target_tag,
-        "TCB self-update recreated docker-guard and updater via direct unix socket"
+        "TCB self-update recreated docker-guard, updater, and updater-gateway via direct unix socket"
     );
     Ok(())
 }
@@ -1139,6 +1153,7 @@ mod tests {
                 socket_path: "/var/run/docker.sock".into(),
                 project: "myriad".into(),
                 compose_network: "myriad-net".into(),
+                admin_network: "myriad-admin-net".into(),
                 guard_network: "myriad-docker-guard-net".into(),
                 compose_dir: visible_root,
                 env_file: "/host/compose/.env".into(),
@@ -1406,13 +1421,67 @@ mod tests {
             "docker.io/example/updater:v1",
             json!({}),
             json!({
-                "myriad-net": {},
+                "myriad-admin-net": {},
                 "myriad-docker-guard-net": {},
             }),
         );
         assert!(
             validate_container_create(&s, &updater).is_ok(),
-            "updater dual-homing at create must remain allowed"
+            "updater dual-homing (admin + guard) at create must remain allowed"
+        );
+    }
+
+    #[test]
+    fn admin_network_is_allowlisted_but_guard_stays_updater_only() {
+        let s = state();
+        let backend = create_with_networking(
+            "backend",
+            "docker.io/example/backend:v1",
+            json!({}),
+            json!({
+                "myriad-net": {},
+                "myriad-admin-net": {},
+            }),
+        );
+        assert!(
+            validate_container_create(&s, &backend).is_ok(),
+            "backend may dual-home business + admin nets"
+        );
+
+        let backend_guard = create_with_networking(
+            "backend",
+            "docker.io/example/backend:v1",
+            json!({}),
+            json!({
+                "myriad-net": {},
+                "myriad-admin-net": {},
+                "myriad-docker-guard-net": {},
+            }),
+        );
+        assert!(
+            validate_container_create(&s, &backend_guard)
+                .unwrap_err()
+                .contains("only the updater service may attach to the docker-guard network"),
+            "backend must still be denied on guard-net"
+        );
+
+        let mode_admin = create(
+            "backend",
+            "docker.io/example/backend:v1",
+            json!({"NetworkMode": "myriad-admin-net"}),
+        );
+        assert!(validate_container_create(&s, &mode_admin).is_ok());
+
+        let foreign = create_with_networking(
+            "backend",
+            "docker.io/example/backend:v1",
+            json!({}),
+            json!({"bridge": {}}),
+        );
+        assert!(
+            validate_container_create(&s, &foreign)
+                .unwrap_err()
+                .contains("outside the Myriad allowlist")
         );
     }
 

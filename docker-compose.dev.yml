@@ -57,6 +57,7 @@ services:
       UPDATE_TOKEN: ${UPDATE_TOKEN:-9xQ3vN8mP2rT5wY7zA1bC4dF6hJ8kL0n}
       COMPOSE_PROJECT_NAME: myriad-dev-updater
       MYRIAD_DOCKER_NETWORK: myriad-dev-updater_default
+      MYRIAD_ADMIN_NETWORK: myriad-dev-admin-net
       MYRIAD_DOCKER_GUARD_NETWORK: myriad-dev-docker-guard-net
       DOCKER_GUARD_ALLOWED_IMAGES: example/myriad-backend,example/myriad-frontend,myriad-updater-dev,postgres
     volumes:
@@ -101,10 +102,36 @@ services:
     volumes:
       - ./.dev-updater:/host/compose
     ports:
+      # Legacy direct host hop (still with UPDATE_TOKEN on host backend).
       - "127.0.0.1:1101:1101"
-    networks: [default, docker-guard-net]
+    networks: [admin-net, docker-guard-net]
     depends_on:
       docker-guard: { condition: service_healthy }
+    restart: unless-stopped
+
+  updater-gateway:
+    profiles: ["updater"]
+    build:
+      context: .
+      dockerfile: updater/Dockerfile
+      args:
+        MYRIAD_VERSION: ${UPDATER_TAG:-v0.0.0-dev}
+    image: ${UPDATER_IMAGE:-myriad-updater-dev}:${UPDATER_TAG:-v0.0.0-dev}
+    container_name: myriad-updater-gateway-dev
+    entrypoint: ["/usr/bin/tini", "--", "/usr/local/bin/myriad-updater-gateway"]
+    environment:
+      UPDATE_TOKEN: ${UPDATE_TOKEN:-9xQ3vN8mP2rT5wY7zA1bC4dF6hJ8kL0n}
+      UPDATER_UPSTREAM: http://updater:1101
+      GATEWAY_LISTEN: 0.0.0.0:1104
+      TZ: Asia/Shanghai
+    ports:
+      # Host backend can use MYRIAD_UPDATER_URL=http://127.0.0.1:1104 without UPDATE_TOKEN.
+      - "127.0.0.1:1104:1104"
+    networks: [admin-net]
+    depends_on:
+      - updater
+    read_only: true
+    tmpfs: [/tmp, /run]
     restart: unless-stopped
 
 volumes:
@@ -112,6 +139,8 @@ volumes:
     driver: local
 
 networks:
+  admin-net:
+    name: myriad-dev-admin-net
   docker-guard-net:
     name: myriad-dev-docker-guard-net
     internal: true

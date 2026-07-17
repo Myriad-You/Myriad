@@ -205,7 +205,7 @@ function Start-Updater {
     $prevUpdateToken = $env:UPDATE_TOKEN
     try {
         $env:UPDATE_TOKEN = Get-DevUpdaterToken
-        docker compose -f docker-compose.dev.yml --profile updater up -d updater
+        docker compose -f docker-compose.dev.yml --profile updater up -d docker-guard updater updater-gateway
     }
     finally {
         $env:UPDATE_TOKEN = $prevUpdateToken
@@ -214,10 +214,10 @@ function Start-Updater {
 
     if (-not (Wait-Updater -TimeoutSeconds 120)) {
         Write-Error "Updater did not become ready within 120s"
-        Write-Info "Check logs with: docker compose -f docker-compose.dev.yml --profile updater logs -f updater"
+        Write-Info "Check logs with: docker compose -f docker-compose.dev.yml --profile updater logs -f docker-guard updater updater-gateway"
         return $false
     }
-    Write-Success "Updater harness started"
+    Write-Success "Updater harness started (gateway on 127.0.0.1:1104)"
     Write-Info "Backend will use it when started/restarted while the harness is running."
     return $true
 }
@@ -226,8 +226,8 @@ function Stop-Updater {
     Write-Info "Stopping updater dev harness..."
     Push-Location $projectRoot
     try {
-        docker compose -f docker-compose.dev.yml --profile updater stop updater 2>$null | Out-Null
-        docker compose -f docker-compose.dev.yml --profile updater rm -f updater 2>$null | Out-Null
+        docker compose -f docker-compose.dev.yml --profile updater stop updater-gateway updater docker-guard 2>$null | Out-Null
+        docker compose -f docker-compose.dev.yml --profile updater rm -f updater-gateway updater docker-guard 2>$null | Out-Null
     }
     finally {
         Pop-Location
@@ -289,8 +289,8 @@ function Start-Services {
             $backendCommand = "Write-Host '🦀 Myriad Backend' -ForegroundColor Cyan; Write-Host ''; Set-Location '$backendPath'; "
             if (Test-UpdaterRunning) {
                 Ensure-DevUpdaterFiles
-                $backendCommand += "`$env:MYRIAD_UPDATER_URL='http://127.0.0.1:1101'; `$env:UPDATE_TOKEN='$(Get-DevUpdaterToken)'; "
-                Write-Info "Backend updater proxy enabled: http://127.0.0.1:1101"
+                $backendCommand += "`$env:MYRIAD_UPDATER_URL='http://127.0.0.1:1104'; "
+                Write-Info "Backend updater proxy via gateway: http://127.0.0.1:1104 (no UPDATE_TOKEN in backend)"
             }
             $backendCommand += "cargo run"
 

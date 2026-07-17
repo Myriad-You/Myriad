@@ -639,8 +639,10 @@ async fn probe_one_tick(worker: &Arc<Worker>, target: &DeployTag, elapsed: Durat
         };
     }
 
+    // Frontend stays on business-net only; updater is on admin-net. Probe via proxy
+    // (dual-homed on admin-net + business-net) rather than http://frontend:1102.
     let fe = docker
-        .http_probe("http://frontend:1102/", Duration::from_secs(10))
+        .http_probe("http://proxy:80/", Duration::from_secs(10))
         .await;
     let (fe_code, fe_body) = match fe {
         Ok(v) => v,
@@ -649,14 +651,14 @@ async fn probe_one_tick(worker: &Arc<Worker>, target: &DeployTag, elapsed: Durat
             if backend_identity_ok && backend_running {
                 return ProbeTick::SoftOk {
                     detail: format!(
-                        "backend OK identity but frontend unreachable ({e}); \
+                        "backend OK identity but frontend (via proxy) unreachable ({e}); \
                          fe_running={frontend_running} image={frontend_image}"
                     ),
                 };
             }
             return ProbeTick::NotReady {
                 detail: format!(
-                    "frontend unreachable ({e}); backend identity ok={backend_identity_ok}"
+                    "frontend via proxy unreachable ({e}); backend identity ok={backend_identity_ok}"
                 ),
             };
         }

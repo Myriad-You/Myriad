@@ -4,8 +4,10 @@
 //! pasting `UPDATE_TOKEN` into a form field. That works but leaks the token to the browser
 //! and to anyone who can MITM the proxy.
 //!
-//! With this client:
-//!   - Backend reads `UPDATE_TOKEN` from its environment on startup.
+//! With this client (recommended production path):
+//!   - Backend talks to `updater-gateway` via `MYRIAD_UPDATER_URL` only.
+//!   - Gateway injects `X-Update-Token` server-side; backend process need not hold
+//!     `UPDATE_TOKEN` (optional for legacy/dev direct-to-updater setups).
 //!   - Admin-gated `/api/admin/updater/*` routes proxy requests through here.
 //!   - Token never crosses the user→backend boundary.
 //!
@@ -46,7 +48,7 @@ impl std::fmt::Display for UpdaterClientError {
         // Never echo UPDATE_TOKEN / JWT_SECRET / etc. into logs or JSON error bodies.
         match self {
             Self::NotConfigured => {
-                f.write_str("updater not configured (set MYRIAD_UPDATER_URL and UPDATE_TOKEN)")
+                f.write_str("updater not configured (set MYRIAD_UPDATER_URL)")
             }
             Self::Upstream(s, body) => {
                 write!(
@@ -86,9 +88,9 @@ impl UpdaterClient {
             .ok()
             .filter(|s| !s.trim().is_empty());
 
-        // We accept a configuration in which only the base URL is set so admins can still
-        // call read-only endpoints like /status from the backend. Mutating calls will fail
-        // at the auth layer.
+        // URL-only is the recommended production shape: updater-gateway injects
+        // X-Update-Token. Optional UPDATE_TOKEN remains for legacy/dev direct hops
+        // (host backend → published updater port without a gateway).
         let http = Client::builder()
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(30))
@@ -248,7 +250,8 @@ fn default_container_updater_url() -> Option<String> {
         || std::env::var("KUBERNETES_SERVICE_HOST").is_ok();
 
     if production || in_container {
-        Some("http://updater:1101".to_string())
+        // Preferred production hop: thin gateway injects the token on admin-net.
+        Some("http://updater-gateway:1104".to_string())
     } else {
         None
     }

@@ -35,19 +35,28 @@ tag，而不是并行保留 A/B 两套在线分区。
 ┌──────────────────────────────────────────────────────┐
 │ 用户宿主机 (docker compose)                           │
 │                                                        │
-│   proxy (only published port) ─┬─► frontend            │
-│                                └─► backend ─► postgres │
-│                                                        │
-│   updater (internal; pgdata + state) ─► docker-guard   │
-│                                      └─► docker.sock   │
+│  [myriad-net]                                          │
+│   proxy ─┬─► frontend                                  │
+│          └─► backend ─► postgres                       │
+│                │                                       │
+│  [myriad-admin-net]                                    │
+│                └──► updater-gateway ──► updater        │
+│                                        │               │
+│  [myriad-docker-guard-net internal]                    │
+│                                        └──► docker-guard
+│                                              └── sock  │
 └──────────────────────────────────────────────────────┘
 ```
 
-- `proxy`：唯一对外暴露端口的组件，负责维护页与反向代理。极少更新。
-- `updater`：接收更新指令，执行更新/回滚流程；不挂载 docker.sock。
+- `proxy`：唯一对外暴露端口的组件，负责维护页与反向代理。极少更新；兼入 admin-net 以便
+  rescue 解析 `updater`。
+- `updater-gateway`：同 updater 镜像的薄反代，注入 `X-Update-Token`；**仅** admin-net；
+  不持 compose 挂载、不挂 docker.sock。
+- `updater`：接收更新指令，执行更新/回滚流程；不挂载 docker.sock；**不在**业务 `myriad-net`。
 - `docker-guard`：唯一挂载 docker.sock 的内部服务，按 API、Compose 项目标签、镜像仓库和
   `containers/create` 请求体执行白名单策略。
-- `backend` / `frontend`：业务组件，由 updater 拉取并启停。
+- `backend` / `frontend`：业务组件，由 updater 拉取并启停；backend 双宿 business+admin，
+  **生产 compose 不注入 `UPDATE_TOKEN`**。
 - `postgres`：数据存储。更新前后由 updater 做文件级快照。
 
 ## 2. 仓库产物
@@ -176,6 +185,8 @@ services:
       UPDATE_TOKEN: ${UPDATE_TOKEN}
       COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-myriad}
       MYRIAD_DOCKER_NETWORK: ${MYRIAD_DOCKER_NETWORK:-myriad-net}
+      MYRIAD_ADMIN_NETWORK: ${MYRIAD_ADMIN_NETWORK:-myriad-admin-net}
+      MYRIAD_DOCKER_GUARD_NETWORK: ${MYRIAD_DOCKER_GUARD_NETWORK:-myriad-docker-guard-net}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./:/host/compose:ro
@@ -196,11 +207,21 @@ services:
       MYRIAD_DOCKER_NETWORK: ${MYRIAD_DOCKER_NETWORK:-myriad-net}
     volumes:
       - ./:/host/compose
-    networks: [myriad-net, myriad-docker-guard-net]
+    networks: [myriad-admin-net, myriad-docker-guard-net]
+
+  updater-gateway:
+    image: <registry>/myriad-updater:${UPDATER_TAG}
+    entrypoint: ["/usr/local/bin/myriad-updater-gateway"]
+    environment:
+      UPDATE_TOKEN: ${UPDATE_TOKEN}
+      UPDATER_UPSTREAM: http://updater:1101
+    networks: [myriad-admin-net]
 
 networks:
   myriad-net:
     name: ${MYRIAD_DOCKER_NETWORK:-myriad-net}
+  myriad-admin-net:
+    name: ${MYRIAD_ADMIN_NETWORK:-myriad-admin-net}
   myriad-docker-guard-net:
     internal: true
 ```
@@ -467,10 +488,11 @@ UI 与 updater 之间有两条通道：
 
 | 通道 | 路径前缀 | 鉴权 | 默认状态 | 用途 |
 |---|---|---|---|---|
-| **backend** | `/api/admin/updater/*` | admin session + 服务器持有 `UPDATE_TOKEN` | 总是开启 | 默认通道，浏览器不接触 token |
+| **backend** | `/api/admin/updater/*` | admin session；backend → `updater-gateway`（网关注入 token） | 总是开启 | 默认通道，浏览器不接触 token；backend **不**持 `UPDATE_TOKEN` |
 | **direct** | `/_updater/*` (proxy → updater) | `X-Update-Token` header | 默认**关闭**，需 `PROXY_ALLOW_DIRECT_UPDATER=true` | 运维 fallback（backend 挂掉时用） |
 
-backend 通道实现：`backend/src/services/updater_client.rs` 持有 token，`backend/src/api/updater_admin.rs` 提供 admin 鉴权的代理路由。
+backend 通道实现：`UpdaterClient` 仅需 `MYRIAD_UPDATER_URL`（默认 `http://updater-gateway:1104`）；
+token 由 gateway 注入。可选 `UPDATE_TOKEN` 仅用于无 gateway 的遗留/开发直连。
 
 proxy 通道开关：proxy 启动时读 `PROXY_ALLOW_DIRECT_UPDATER`，未开启时 `/_updater/*` 直接 404。
 
@@ -534,36 +556,36 @@ proxy 通道开关：proxy 启动时读 `PROXY_ALLOW_DIRECT_UPDATER`，未开启
    b. 改 .env 的 UPDATER_TAG
    c. 调用 docker-guard 的鉴权 self-update 端点（X-Update-Token）
    d. docker-guard 延迟后执行 **固定 argv** 的 TCB 自替换：
-        docker compose up -d --no-deps docker-guard updater
+        docker compose up -d --no-deps docker-guard updater updater-gateway
       该次 compose 走 **unix:///var/run/docker.sock**（直连宿主 daemon），
       不经过 guard 的 policy proxy。原因：create 白名单只有
-      backend|frontend|postgres|updater，无法经 API 创建 `docker-guard`
-      服务本身；自替换是固定 compose 服务列表，不是任意 Docker API。
+      backend|frontend|postgres|updater，无法经 API 创建 `docker-guard` /
+      `updater-gateway`；自替换是固定 compose 服务列表，不是任意 Docker API。
       为避免「在 guard 容器内 recreate 自己」中途被杀，compose 由短生命周期
       helper 容器（同一 updater 镜像、entrypoint=`myriad-tcb-self-update`）执行。
       请求体携带 `previous_tag` / `target_tag`（安全字符集校验）。
 ```
 
-**必须同时重建 `docker-guard` 与 `updater`**：二者共用 `UPDATER_TAG` 镜像；
-只重建 updater 会使 guard 二进制落后于 tag，TCB 策略与业务脱节。
+**必须同时重建 `docker-guard`、`updater` 与 `updater-gateway`**：三者共用
+`UPDATER_TAG` 镜像；只重建 updater 会使 guard/gateway 二进制落后于 tag。
 
 其余 updater 日常流量仍经 `DOCKER_HOST=tcp://docker-guard:2375` 受请求体策略约束。
 
 调度仍是异步（HTTP 202）：updater 改写 `.env` 后请求 docker-guard，guard 延迟后启动
 短生命周期 helper（`myriad-tcb-self-update`，compose 目录 **rw** 挂载、`network=none`）。
 - **调度 HTTP 失败**：updater 进程立即把 `UPDATER_TAG` 恢复为旧值。
-- **helper 的 `compose up docker-guard updater` 失败**：helper 将 `UPDATER_TAG` 恢复为
-  请求体中的 `previous_tag`，并写入部署卷上的耐久状态
+- **helper 的 `compose up docker-guard updater updater-gateway` 失败**：helper 将
+  `UPDATER_TAG` 恢复为请求体中的 `previous_tag`，并写入部署卷上的耐久状态
   `state/self-update-last.json`（`status: succeeded|failed`、tags、`at`、可选 `error`）。
-- **成功路径**：仍重建 `docker-guard` + `updater`，并写 `status: succeeded`。
+- **成功路径**：重建三者并写 `status: succeeded`。
 
 ### 14.2 兜底
 
 用户可在部署目录手动执行（宿主机管理员路径）：
 
 ```
-# 先修改 .env 中的 UPDATER_TAG，再由宿主 Docker CLI 重建 guard + updater
-docker compose up -d docker-guard updater
+# 先修改 .env 中的 UPDATER_TAG，再由宿主 Docker CLI 重建 TCB 服务
+docker compose up -d docker-guard updater updater-gateway
 ```
 
 ### 14.3 前向兼容
@@ -585,12 +607,19 @@ docker compose up -d docker-guard updater
   默认 `myriad-docker-guard-net`）：`networks/{id}/connect|disconnect`、create 时的
   `NetworkingConfig.EndpointsConfig` 与 `HostConfig.NetworkMode` 均强制该规则。backend /
   frontend / postgres 不得 dual-home 到 guard 网，避免在 updater 被攻破后把业务容器拉进
-  未鉴权的 Docker API（`:2375`）。业务 Compose 网（`myriad-net`）仍允许托管服务附着。
+  未鉴权的 Docker API（`:2375`）。
+- **允许的网络名**（create/connect）：业务 `myriad-net`、管理平面 `myriad-admin-net`
+  （`MYRIAD_ADMIN_NETWORK`）、guard-net。其它网络名拒绝。
+- **updater 不在业务 `myriad-net`**：frontend/postgres 与 updater HTTP 无共享 L2；
+  backend 经 admin-net 访问 `updater-gateway`。
+- **推荐部署中 backend 进程不持有 `UPDATE_TOKEN`**：token 仅在 updater、updater-gateway、
+  docker-guard（自更新鉴权）环境中；gateway 在 admin-net 上注入 header。攻击面从
+  胖 backend 进程剥离。
 - updater 重建只允许单一部署根 bind；postgres pgdata bind 会逐级拒绝符号链接、异常文件
   类型和共享/从属 mount propagation。
 - 健康探测只走 Compose 内网 HTTP，不使用 Docker exec，也不临时创建探测容器。
 - 所有外部输入严格校验
-- backend → updater 也要校验 token
+- updater 侧仍强制 token；backend→gateway 信任 admin-net 成员关系（无浏览器鉴权）
 
 ### 15.2 输入校验
 
@@ -603,6 +632,7 @@ docker compose up -d docker-guard updater
 - `UPDATE_TOKEN` 必须 ≥ 32 字符
 - 启动时检查不在弱密码列表
 - 5 次/min 401 后封 10min
+- 生产 compose：注入 updater / updater-gateway / docker-guard；**不**注入 backend
 
 ### 15.4 release.json 校验
 
@@ -744,13 +774,13 @@ E2E 实际覆盖（11 项 / 全过，2026-07-17）：
 当前仓库只保留 proxy + updater 生产布局：
 
 1. `pgdata` 使用 `./pgdata` bind mount
-2. `.env` 包含 `MYRIAD_TAG`、`PROXY_TAG`、`UPDATER_TAG`、`COMPOSE_PROJECT_NAME`、`UPDATE_TOKEN`，可选 `MYRIAD_DOCKER_NETWORK` / `MYRIAD_DOCKER_GUARD_NETWORK`
+2. `.env` 包含 `MYRIAD_TAG`、`PROXY_TAG`、`UPDATER_TAG`、`COMPOSE_PROJECT_NAME`、`UPDATE_TOKEN`，可选 `MYRIAD_DOCKER_NETWORK` / `MYRIAD_ADMIN_NETWORK` / `MYRIAD_DOCKER_GUARD_NETWORK`
 3. compose 文件 image 使用 immutable tag 变量，不使用 `:latest`
 4. 只有 `proxy` 暴露宿主端口
 5. 只有 `docker-guard` 挂载原始 docker.sock；updater 仅通过内部策略代理访问 Docker API
 6. updater 只挂载一次部署根目录；pgdata、state、快照和 `.env` 均从该目录下访问
-7. `updater`、`backend`、`frontend`、`postgres` 都在 Docker 网络内
+7. 网络三分：business / admin / guard；`updater-gateway` 在 admin-net 为 backend 注入 token
 8. `./state` 和 `./backups` 由部署脚本创建
-9. `UPDATE_TOKEN` 保存在同一个 `.env`，不暴露给浏览器
+9. `UPDATE_TOKEN` 保存在同一个 `.env`，不暴露给浏览器，也不进入 backend 容器 env
 
 `scripts/docker/deploy.sh` 和 `scripts/docker/deploy.ps1` 是当前生产布局的 bootstrap 入口。

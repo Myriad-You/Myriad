@@ -134,3 +134,44 @@ If the new compose file fails to start:
 - [DOCKER_DEPLOYMENT.md](./DOCKER_DEPLOYMENT.md) — current topology
 - [UPDATER_QUICKSTART.md](../UPDATER_QUICKSTART.md) — operator update / rescue
 - [updater-spec.md §14](../updater-spec.md) — self-update (guard + direct sock)
+
+---
+
+## Follow-on: admin-net + updater-gateway (P0 token / network isolation)
+
+If you already run the docker-guard layout above and are upgrading to a release that
+adds **`myriad-admin-net`** and **`updater-gateway`**:
+
+### What changes
+
+| Before | After |
+| --- | --- |
+| `updater` dual-homes `myriad-net` + guard-net | `updater` on **admin-net + guard-net** only (leaves business net) |
+| Backend holds `UPDATE_TOKEN` | Backend has **no** `UPDATE_TOKEN`; talks to `updater-gateway:1104` |
+| No admin plane network | `myriad-admin-net` for backend / gateway / updater / proxy rescue |
+| Self-update recreates `docker-guard` + `updater` | Also recreates **`updater-gateway`** (same `UPDATER_TAG` image) |
+
+### Steps (same deploy directory — one recreate)
+
+1. Pull or unpack the release that includes `myriad-updater-gateway` in the updater
+   image and the new `docker-compose.yml` shape.
+2. Keep `.env` as-is (`UPDATE_TOKEN` still required for gateway/updater/guard).
+   Optional: `MYRIAD_ADMIN_NETWORK=myriad-admin-net`.
+3. From the deployment root:
+
+   ```bash
+   docker compose pull
+   docker compose up -d
+   # or: bash scripts/docker/deploy.sh upgrade
+   ```
+
+4. Verify:
+
+   ```bash
+   bash scripts/docker/deploy.sh doctor
+   # backend Config.Env has no UPDATE_TOKEN
+   # updater not on myriad-net; gateway on admin-net; no sock on gateway
+   ```
+
+UI-only update **cannot** create the new network or gateway service definition;
+host compose is required once, same as the original guard migration.

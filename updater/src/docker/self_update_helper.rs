@@ -1,7 +1,7 @@
 //! One-shot TCB self-update helper (runs inside a short-lived container).
 //!
 //! Responsibilities:
-//! 1. `docker compose up -d --no-deps docker-guard updater` via fixed argv
+//! 1. `docker compose up -d --no-deps docker-guard updater updater-gateway` via fixed argv
 //! 2. On failure: restore `UPDATER_TAG` in the deployment `.env` to `previous_tag`
 //! 3. Always write durable status to `state/self-update-last.json`
 //!
@@ -228,7 +228,14 @@ pub fn run_helper(cfg: &HelperConfig) -> Result<()> {
     command
         .arg("--env-file")
         .arg(env_path)
-        .args(["up", "-d", "--no-deps", "docker-guard", "updater"]);
+        .args([
+            "up",
+            "-d",
+            "--no-deps",
+            "docker-guard",
+            "updater",
+            "updater-gateway",
+        ]);
 
     let output = command.output().map_err(|e| {
         UpdaterError::Docker(format!("spawn docker compose for TCB self-update: {e}"))

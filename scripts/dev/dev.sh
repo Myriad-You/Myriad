@@ -575,23 +575,23 @@ start_updater() {
 
     ensure_dev_updater_files
     cd "$PROJECT_ROOT"
-    UPDATE_TOKEN="$(dev_updater_token)" docker compose -f docker-compose.dev.yml --profile updater up -d updater
+    UPDATE_TOKEN="$(dev_updater_token)" docker compose -f docker-compose.dev.yml --profile updater up -d docker-guard updater updater-gateway
 
     if ! wait_for_updater 120; then
         print_warning "Updater did not become ready within 120s"
-        print_info "Check logs with: docker compose -f docker-compose.dev.yml --profile updater logs -f docker-guard updater"
+        print_info "Check logs with: docker compose -f docker-compose.dev.yml --profile updater logs -f docker-guard updater updater-gateway"
         return 1
     fi
 
-    print_success "Updater harness started"
+    print_success "Updater harness started (gateway on 127.0.0.1:1104)"
     print_info "Backend will use it when started/restarted while the harness is running."
 }
 
 stop_updater() {
     print_step "Stopping updater dev harness..."
     cd "$PROJECT_ROOT"
-    docker compose -f docker-compose.dev.yml --profile updater stop updater docker-guard 2>/dev/null || true
-    docker compose -f docker-compose.dev.yml --profile updater rm -f updater docker-guard 2>/dev/null || true
+    docker compose -f docker-compose.dev.yml --profile updater stop updater-gateway updater docker-guard 2>/dev/null || true
+    docker compose -f docker-compose.dev.yml --profile updater rm -f updater-gateway updater docker-guard 2>/dev/null || true
     print_success "Updater harness stopped"
 }
 
@@ -618,11 +618,12 @@ start_backend() {
     cd "$BACKEND_DIR"
 
     local cargo_cmd="cargo run"
-    local updater_url="http://127.0.0.1:1101"
+    # Prefer gateway (token injection) when harness is up; no UPDATE_TOKEN in backend env.
+    local updater_url="http://127.0.0.1:1104"
     if dev_updater_enabled; then
         ensure_dev_updater_files
-        cargo_cmd="MYRIAD_UPDATER_URL=$updater_url UPDATE_TOKEN=$(dev_updater_token) cargo run"
-        print_info "Backend updater proxy enabled: $updater_url"
+        cargo_cmd="MYRIAD_UPDATER_URL=$updater_url cargo run"
+        print_info "Backend updater proxy via gateway: $updater_url (no UPDATE_TOKEN in backend)"
     fi
 
     if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -632,7 +633,7 @@ start_backend() {
             gnome-terminal -- bash -c "cd '$BACKEND_DIR' && echo '🦀 Myriad Backend' && $cargo_cmd; exec bash" 2>/dev/null
         else
             if dev_updater_enabled; then
-                MYRIAD_UPDATER_URL="$updater_url" UPDATE_TOKEN="$(dev_updater_token)" nohup cargo run > "$PROJECT_ROOT/backend.log" 2>&1 &
+                MYRIAD_UPDATER_URL="$updater_url" nohup cargo run > "$PROJECT_ROOT/backend.log" 2>&1 &
             else
                 nohup cargo run > "$PROJECT_ROOT/backend.log" 2>&1 &
             fi

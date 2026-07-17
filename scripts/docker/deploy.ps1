@@ -173,7 +173,7 @@ function Cmd-SoftDoctor {
     $prevEap = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     try {
-        # Run doctor logic without exiting the process on FAIL.
+        # Mirror critical doctor checks without exiting the process on FAIL.
         $fail = 0
         $skip = 0
         if (Test-ContainerExists "myriad-docker-guard") {
@@ -185,6 +185,14 @@ function Cmd-SoftDoctor {
             if (Test-ContainerMountsSock "myriad-updater") { $fail++ }
         } else {
             $skip++
+        }
+        if (-not (Test-ContainerExists "myriad-updater-gateway")) {
+            $fail++
+        } elseif (Test-ContainerMountsSock "myriad-updater-gateway") {
+            $fail++
+        }
+        if (Test-ContainerExists "myriad-backend") {
+            if (Test-ContainerEnvHas "myriad-backend" "UPDATE_TOKEN=") { $fail++ }
         }
         if ($fail -gt 0) {
             Write-Warn "Topology soft-check reported issues; run: .\deploy.ps1 doctor  for details"
@@ -236,6 +244,30 @@ function Get-ContainerHealth([string]$Name) {
     return $h.Trim()
 }
 
+function Get-ContainerNetworks([string]$Name) {
+    $nets = docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' $Name 2>$null
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($nets)) { return @() }
+    return @($nets.Trim() -split '\s+' | Where-Object { $_ })
+}
+
+function Test-ContainerOnNetwork([string]$Name, [string]$Network) {
+    return (Get-ContainerNetworks $Name) -contains $Network
+}
+
+function Test-ContainerEnvHas([string]$Name, [string]$Prefix) {
+    $envLines = docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' $Name 2>$null
+    if ($LASTEXITCODE -ne 0) { return $false }
+    return ($envLines -split "`n" | Where-Object { $_ -like "$Prefix*" }).Count -gt 0
+}
+
+function Get-ContainerEnvValue([string]$Name, [string]$Key) {
+    $envLines = docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' $Name 2>$null
+    if ($LASTEXITCODE -ne 0) { return $null }
+    $line = $envLines -split "`n" | Where-Object { $_ -like "$Key=*" } | Select-Object -First 1
+    if (-not $line) { return $null }
+    return $line.Substring($Key.Length + 1)
+}
+
 function Get-EnvValue([string]$Key) {
     if (-not (Test-Path ".env")) { return $null }
     $line = Select-String -Path .env -Pattern "^$Key=(.*)$" -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -253,6 +285,13 @@ function Test-EnvTruthy([string]$Key) {
 function Cmd-Doctor {
     $fail = 0
     $skip = 0
+    $adminNet = Get-EnvValue "MYRIAD_ADMIN_NETWORK"
+    if ([string]::IsNullOrWhiteSpace($adminNet)) { $adminNet = "myriad-admin-net" }
+    $guardNet = Get-EnvValue "MYRIAD_DOCKER_GUARD_NETWORK"
+    if ([string]::IsNullOrWhiteSpace($guardNet)) { $guardNet = "myriad-docker-guard-net" }
+    $businessNet = Get-EnvValue "MYRIAD_DOCKER_NETWORK"
+    if ([string]::IsNullOrWhiteSpace($businessNet)) { $businessNet = "myriad-net" }
+
     Write-Info "==> Deploy topology doctor (read-only)"
 
     if (Test-ContainerExists "myriad-docker-guard") {
@@ -270,6 +309,18 @@ function Cmd-Doctor {
             Write-Err "FAIL  docker-guard does not mount docker.sock"
             $fail++
         }
+        if (Test-ContainerOnNetwork "myriad-docker-guard" $guardNet) {
+            Write-Ok "PASS  docker-guard is on $guardNet"
+        } else {
+            Write-Err "FAIL  docker-guard is not on $guardNet"
+            $fail++
+        }
+        if (Test-ContainerOnNetwork "myriad-docker-guard" $businessNet) {
+            Write-Err "FAIL  docker-guard must not be on business net $businessNet"
+            $fail++
+        } else {
+            Write-Ok "PASS  docker-guard is not on business net $businessNet"
+        }
     } else {
         Write-Err "FAIL  myriad-docker-guard not found (stack down or legacy pre-guard topology)"
         $fail++
@@ -283,8 +334,104 @@ function Cmd-Doctor {
         } else {
             Write-Ok "PASS  myriad-updater does not mount docker.sock"
         }
+        $dhost = Get-ContainerEnvValue "myriad-updater" "DOCKER_HOST"
+        if ($dhost -and $dhost -match "docker-guard") {
+            Write-Ok "PASS  updater DOCKER_HOST points at docker-guard ($dhost)"
+        } elseif ([string]::IsNullOrWhiteSpace($dhost)) {
+            Write-Err "FAIL  updater DOCKER_HOST is unset (expected tcp://docker-guard:2375)"
+            $fail++
+        } else {
+            Write-Err "FAIL  updater DOCKER_HOST=$dhost (expected to contain docker-guard)"
+            $fail++
+        }
+        if (Test-ContainerOnNetwork "myriad-updater" $adminNet) {
+            Write-Ok "PASS  updater is on admin-net $adminNet"
+        } else {
+            Write-Err "FAIL  updater is not on admin-net $adminNet"
+            $fail++
+        }
+        if (Test-ContainerOnNetwork "myriad-updater" $guardNet) {
+            Write-Ok "PASS  updater is on guard-net $guardNet"
+        } else {
+            Write-Err "FAIL  updater is not on guard-net $guardNet"
+            $fail++
+        }
+        if (Test-ContainerOnNetwork "myriad-updater" $businessNet) {
+            Write-Err "FAIL  updater must not be on business net $businessNet (frontend/postgres isolation)"
+            $fail++
+        } else {
+            Write-Ok "PASS  updater is not on business net $businessNet"
+        }
     } else {
         Write-Warn "SKIP  myriad-updater not running"
+        $skip++
+    }
+
+    if (Test-ContainerExists "myriad-updater-gateway") {
+        Write-Ok "PASS  myriad-updater-gateway container exists"
+        if (Test-ContainerMountsSock "myriad-updater-gateway") {
+            Write-Err "FAIL  updater-gateway mounts docker.sock (must not)"
+            $fail++
+        } else {
+            Write-Ok "PASS  updater-gateway does not mount docker.sock"
+        }
+        if (Test-ContainerOnNetwork "myriad-updater-gateway" $adminNet) {
+            Write-Ok "PASS  updater-gateway is on admin-net $adminNet"
+        } else {
+            Write-Err "FAIL  updater-gateway is not on admin-net $adminNet"
+            $fail++
+        }
+        if (Test-ContainerOnNetwork "myriad-updater-gateway" $guardNet) {
+            Write-Err "FAIL  updater-gateway must not be on guard-net $guardNet"
+            $fail++
+        } else {
+            Write-Ok "PASS  updater-gateway is not on guard-net"
+        }
+        if (Test-ContainerOnNetwork "myriad-updater-gateway" $businessNet) {
+            Write-Err "FAIL  updater-gateway must not be on business net $businessNet"
+            $fail++
+        } else {
+            Write-Ok "PASS  updater-gateway is not on business net"
+        }
+    } else {
+        Write-Err "FAIL  myriad-updater-gateway not found (P0 topology requires gateway; token off backend)"
+        $fail++
+    }
+
+    if (Test-ContainerExists "myriad-backend") {
+        Write-Ok "PASS  myriad-backend container exists"
+        $buser = docker inspect -f '{{.Config.User}}' myriad-backend 2>$null
+        if ($LASTEXITCODE -ne 0) { $buser = "" }
+        $buser = if ($null -eq $buser) { "" } else { $buser.Trim() }
+        if ($buser -in @("", "0", "0:0", "root")) {
+            $uid = docker exec myriad-backend id -u 2>$null
+            if ($LASTEXITCODE -eq 0 -and $uid.Trim() -eq "0") {
+                Write-Warn "WARN  backend appears to run as uid 0 (prefer non-root / USER myriad)"
+            } elseif ($LASTEXITCODE -eq 0) {
+                Write-Ok "PASS  backend runtime uid=$($uid.Trim()) (Config.User=$buser)"
+            } else {
+                Write-Warn "SKIP  backend user not inspectable (Config.User=$buser)"
+                $skip++
+            }
+        } else {
+            Write-Ok "PASS  backend Config.User=$buser"
+        }
+        if (Test-ContainerEnvHas "myriad-backend" "UPDATE_TOKEN=") {
+            Write-Err "FAIL  backend Config.Env contains UPDATE_TOKEN (should use updater-gateway only)"
+            $fail++
+        } else {
+            Write-Ok "PASS  backend Config.Env has no UPDATE_TOKEN"
+        }
+        $upUrl = Get-ContainerEnvValue "myriad-backend" "MYRIAD_UPDATER_URL"
+        if ($upUrl -and ($upUrl -match "updater-gateway|updater")) {
+            Write-Ok "PASS  backend MYRIAD_UPDATER_URL=$upUrl"
+        } elseif ([string]::IsNullOrWhiteSpace($upUrl)) {
+            Write-Warn "WARN  backend MYRIAD_UPDATER_URL unset (defaults may still apply)"
+        } else {
+            Write-Warn "WARN  backend MYRIAD_UPDATER_URL=$upUrl (expected updater-gateway)"
+        }
+    } else {
+        Write-Warn "SKIP  myriad-backend not running"
         $skip++
     }
 

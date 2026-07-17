@@ -48,6 +48,7 @@ COPY --from=builder /work/updater/target/release/myriad-updater /usr/local/bin/m
 COPY --from=builder /work/updater/target/release/myriad-rescue  /usr/local/bin/myriad-rescue
 COPY --from=builder /work/updater/target/release/myriad-docker-guard /usr/local/bin/myriad-docker-guard
 COPY --from=builder /work/updater/target/release/myriad-tcb-self-update /usr/local/bin/myriad-tcb-self-update
+COPY --from=builder /work/updater/target/release/myriad-updater-gateway /usr/local/bin/myriad-updater-gateway
 
 # cosign CLI for release.json signature verification (M2). Single static binary, ~50 MB.
 ARG COSIGN_VERSION=v2.4.1

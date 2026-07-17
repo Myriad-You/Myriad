@@ -1,6 +1,7 @@
 //! Admin-only proxy to the Myriad updater. All routes require `admin_middleware`.
 //!
-//! The backend holds `UPDATE_TOKEN` server-side; the browser never sees it.
+//! Production: backend calls `updater-gateway` (no `UPDATE_TOKEN` in the fat process);
+//! the gateway injects the token. The browser never sees it.
 //! See docs/updater-spec.md §13 for the upstream contract.
 //!
 //! The `UpdaterClient` is stashed in a process-global `OnceLock` so handlers don't need to
