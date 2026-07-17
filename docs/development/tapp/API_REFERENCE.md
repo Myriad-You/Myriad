@@ -803,10 +803,14 @@ const shortcuts = await Tapp.shortcut.list();
 
 ## 事件 API
 
-**权限**: `event:subscribe`, `event:publish`
+**权限**:
+- `event:publish` — `Tapp.event.publish`（经宿主桥接到服务端 Broker）
+- `event:subscribe` — 服务端 SSE 流 / Broker 订阅路径（`GET /api/tapp/events/stream` 等）；
+  也用于 `Tapp.background.require` / `release`（见下方后台需求 API）
 
 ```javascript
-// 订阅范围来自 Manifest events.subscribe，运行期只注册回调。
+// 本地 iframe 内监听：Tapp.event.on 只在沙箱内注册回调，不单独占用 bridge 权限条目。
+// 订阅范围仍来自 Manifest events.subscribe；跨 runtime 投递走宿主/SSE 的 event:subscribe。
 const unsubscribe = Tapp.event.on(
   "tapp.com.example.player.track.changed",
   (event) => console.log(event.payload),
@@ -835,13 +839,14 @@ subject 数据空间内、Manifest 明确订阅 topic 的在线 Page/Widget/head
 
 ## 后台需求 API
 
-**无需权限** - 声明 Tapp 的后台运行需求
+**权限**: `event:subscribe` — `require` / `release` 经 bridge 映射到该权限（见
+`permissionConfig.ts`）。`list` / `has` 为本地查询，不额外申请权限。
 
 ```javascript
-// 声明后台运行需求
+// 声明后台运行需求（需 event:subscribe）
 await Tapp.background.require("sync", "每5分钟同步数据");
 
-// 释放后台运行需求
+// 释放后台运行需求（需 event:subscribe）
 await Tapp.background.release("sync");
 
 // 获取当前所有后台需求
@@ -1087,9 +1092,9 @@ Tapp.assets.revokeAll(); // 也会在 onDestroy 时自动调用
 | `media`                                    | 播放器读取和控制                                    | `media:*`                          |
 | `context`, `user`                          | 应用、用户、导航、系统和地理上下文                  | public                             |
 | `component`, `shortcut`                    | 主题/Agent 组件和快捷键注册                         | `component:*`, `shortcut:register` |
-| `event`, `background`, `scheduler`         | 在线 Event Broker、常驻需求和持久化任务             | `event:*`, `scheduler:register`    |
+| `event`, `background`, `scheduler`         | 在线 Event Broker、常驻需求和持久化任务             | `event:*`（含 background.require/release→`event:subscribe`）、`scheduler:register` |
 | `agent`                                    | schema 约束的 Agent Interaction                     | Manifest + Runtime Grant           |
-| `api`                                      | Manifest 声明的 HTTP/builtin 能力                   | 按 API access                      |
+| `api`                                      | Manifest 声明的 HTTP/builtin 能力                   | HTTP 需 `network:fetch`；`access` 仅控制调用者范围 |
 | `file`, `speech`                           | 文件下载、TTS 和 ASR                                | `storage`, `speech:*`              |
 | `assets`                                   | 包内静态资源 list/get/blob URL                      | public（限 manifest.assets）       |
 | `tappList`                                 | Tapp 查询、安装、启停、卸载与导出                   | `tappList:*`                       |

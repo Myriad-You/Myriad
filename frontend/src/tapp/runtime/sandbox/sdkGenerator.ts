@@ -562,9 +562,10 @@ export function generateFullSDK(
     data: { transform: (r) => sendRequest('data', 'transform', [r]) },
 
     // Tapp API 声明系统：调用 manifest 中声明的 API
-    // 支持两种访问级别：
+    // access 只控制调用者范围：
     // - public: 所有用户（包括游客）可调用
-    // - protected: 需要 network:fetch 权限
+    // - protected: 需登录（默认）
+    // 所有 type: "http" 均需 network:fetch；builtin 按 ai:* 等能力校验
     api: Object.assign(
       (name, params) => sendRequest('api', 'execute', [name, params]),
       { list: () => sendRequest('api', 'list', []) },
@@ -1410,9 +1411,10 @@ export function generateWidgetSDK(
     },
 
     // Tapp API 声明系统：调用 manifest 中声明的 API
-    // 支持两种访问级别：
+    // access 只控制调用者范围：
     // - public: 所有用户（包括游客）可调用
-    // - protected: 需要 network:fetch 权限
+    // - protected: 需登录（默认）
+    // 所有 type: "http" 均需 network:fetch；builtin 按 ai:* 等能力校验
     api: Object.assign(
       function(name, params) { return sendRequest('api', 'execute', [name, params]); },
       { list: function() { return sendRequest('api', 'list', []); } }

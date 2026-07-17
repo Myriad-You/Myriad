@@ -803,7 +803,9 @@ pub async fn verify_tapp_approved_permissions(
     Ok(())
 }
 
-fn tapp_owner_priority(owner_id: i32, user_id: i32, admin_id: i32) -> u8 {
+/// Priority for install selection: 0 = subject's private, 1 = site admin public, 2 = other.
+/// Used by `resolve_accessible_tapp` (and declared-API paths that call it).
+pub fn tapp_owner_priority(owner_id: i32, user_id: i32, admin_id: i32) -> u8 {
     // Prefer the subject's private install when both private and public copies exist so
     // runtime grants and code resolve deterministically. Sandbox storage is separately
     // subject-scoped. Guests only resolve the public admin install.

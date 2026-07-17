@@ -6,7 +6,7 @@ use axum::{
     Extension, Json,
 };
 use once_cell::sync::Lazy;
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
+use sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -16,12 +16,11 @@ use tokio::sync::RwLock;
 
 use crate::api::tapp_store::{TappApiAccess, TappApiDef};
 use crate::middleware::auth::{ensure_current_admin, Claims};
-use crate::models::entities::tapps;
 use crate::services::permission_service::{TappPermission, TappPermissionService, UserRole};
 use crate::services::tapp_api_service::{ApiExecutionContext, TappApiService};
 use crate::GLOBAL_DYNAMIC_CONFIG;
 
-use super::common::{check_rate_limit, get_admin_user_id, verify_tapp_ownership};
+use super::common::{check_rate_limit, resolve_accessible_tapp};
 use super::runtime_grant::RuntimeGrantContext;
 
 // ============ Manifest API 解析缓存 ============
@@ -107,67 +106,27 @@ pub async fn invalidate_tapp_apis_cache(tapp_id: &str) {
     cache.retain(|_, entry| entry.tapp_id != tapp_id);
 }
 
-async fn find_accessible_tapp(
+/// Resolve the install used for declared APIs, matching Runtime Grant issuance:
+/// private subject install first, then site-owner public install.
+/// When a Runtime Grant is present, require its owner_id to match so apis and
+/// approved_permissions come from the same install the grant was issued for.
+async fn resolve_declared_api_tapp(
     db: &DatabaseConnection,
     user_id: i32,
     tapp_id: &str,
-) -> Result<tapps::Model, (StatusCode, Json<Value>)> {
-    verify_tapp_ownership(db, user_id, tapp_id).await?;
-
-    let admin_id = get_admin_user_id(db).await?;
-    if let Some(tapp) = tapps::Entity::find()
-        .filter(tapps::Column::UserId.eq(admin_id))
-        .filter(tapps::Column::TappId.eq(tapp_id))
-        .one(db)
-        .await
-        .map_err(|error| {
-            tracing::error!(%error, "[TAPP API] Failed to resolve shared Tapp");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Database error" })),
-            )
-        })?
-    {
-        return Ok(tapp);
+    grant_owner_id: i32,
+) -> Result<crate::models::entities::tapps::Model, (StatusCode, Json<Value>)> {
+    let tapp = resolve_accessible_tapp(db, user_id, tapp_id).await?;
+    if tapp.user_id != grant_owner_id {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({
+                "error": "Runtime grant installation scope changed",
+                "code": "INVALID_RUNTIME_GRANT"
+            })),
+        ));
     }
-
-    if let Some(tapp) = tapps::Entity::find()
-        .filter(tapps::Column::UserId.eq(user_id))
-        .filter(tapps::Column::TappId.eq(tapp_id))
-        .one(db)
-        .await
-        .map_err(|error| {
-            tracing::error!(%error, "[TAPP API] Failed to resolve user Tapp");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Database error" })),
-            )
-        })?
-    {
-        return Ok(tapp);
-    }
-
-    // 管理员可访问其他 owner 的 Tapp；普通用户到这里说明既没有共享版本也没有自己的版本。
-    let mut query = tapps::Entity::find().filter(tapps::Column::TappId.eq(tapp_id));
-    if !crate::services::agent::user_is_current_admin(db, user_id).await {
-        query = query.filter(tapps::Column::UserId.eq(admin_id));
-    }
-    query
-        .one(db)
-        .await
-        .map_err(|error| {
-            tracing::error!(%error, "[TAPP API] Failed to resolve shared Tapp");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Database error" })),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(json!({ "error": "Tapp not found" })),
-            )
-        })
+    Ok(tapp)
 }
 
 #[derive(Debug, Deserialize)]
@@ -201,8 +160,9 @@ pub async fn execute_tapp_api(
         )
     })?;
 
-    // 1. Resolve the same administrator-first installation bound into the Runtime Grant.
-    let tapp = find_accessible_tapp(&db, user_id, &tapp_id).await?;
+    // 1. Resolve the same private-first installation bound into the Runtime Grant.
+    let tapp =
+        resolve_declared_api_tapp(&db, user_id, &tapp_id, runtime_grant.owner_id()).await?;
 
     // 2. 解析 manifest 中的 APIs（带缓存）
     let manifest_cache_key = format!("{}:{}", tapp.user_id, tapp_id);
@@ -325,7 +285,8 @@ pub async fn list_tapp_apis(
             Json(json!({ "error": "Invalid user" })),
         )
     })?;
-    let tapp = find_accessible_tapp(&db, user_id, &tapp_id).await?;
+    let tapp =
+        resolve_declared_api_tapp(&db, user_id, &tapp_id, runtime_grant.owner_id()).await?;
 
     let manifest_cache_key = format!("{}:{}", tapp.user_id, tapp_id);
     let apis = get_tapp_apis(&manifest_cache_key, &tapp_id, &tapp.manifest).await;
@@ -352,6 +313,7 @@ pub async fn list_tapp_apis(
 #[cfg(test)]
 mod tests {
     use super::manifest_apis_fingerprint;
+    use crate::api::tapp_runtime::common::tapp_owner_priority;
     use serde_json::json;
 
     #[test]
@@ -377,5 +339,17 @@ mod tests {
             manifest_apis_fingerprint(&first),
             manifest_apis_fingerprint(&changed_api)
         );
+    }
+
+    /// Declared API resolution uses `resolve_accessible_tapp`, which sorts by
+    /// `tapp_owner_priority`. Keep this contract aligned with common.rs:
+    /// private install precedes same-id admin public install.
+    #[test]
+    fn declared_api_install_priority_matches_runtime_private_first() {
+        assert_eq!(tapp_owner_priority(42, 42, 1), 0);
+        assert_eq!(tapp_owner_priority(1, 42, 1), 1);
+        assert_eq!(tapp_owner_priority(99, 42, 1), 2);
+        assert_eq!(tapp_owner_priority(1, -1, 1), 1);
+        assert_eq!(tapp_owner_priority(99, -1, 1), 2);
     }
 }

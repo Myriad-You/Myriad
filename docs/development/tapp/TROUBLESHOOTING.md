@@ -349,15 +349,17 @@ const data = await Tapp.api("data", {});
 **原因**：
 
 1. 未在 manifest 的 `apis` 中声明对应名称
-2. `protected` API 未授予 `network:fetch`
+2. 任意 `type: "http"` API（含 `public` 与 `protected`）未授予 `network:fetch`
 3. 后端出站安全或参数模板校验拒绝了请求
 
 **解决方案**：
 
-在 `manifest.json` 中声明 API：
+在 `manifest.json` 中声明 API，并在 `permissions` 中申请 **`network:fetch`**（所有
+HTTP 声明式 API 都需要，不只是 `protected`）：
 
 ```json
 {
+  "permissions": ["network:fetch"],
   "apis": {
     "data": {
       "type": "http",
@@ -370,9 +372,8 @@ const data = await Tapp.api("data", {});
 }
 ```
 
-并在 `permissions` 中申请 `network:fetch`。如果 API 确实可匿名调用，可把 `access`
-明确设为 `public`；这只改变调用者范围，不会免除 `network:fetch`，并且仍会经过共享限流、
-Manifest 与后端出站安全校验。
+如果 API 确实可匿名调用，可把 `access` 明确设为 `public`；这只改变调用者范围，
+不会免除 `network:fetch`，并且仍会经过共享限流、Manifest 与后端出站安全校验。
 
 ---
 

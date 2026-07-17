@@ -2297,9 +2297,9 @@ pub struct TappDataImport {
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
 pub enum TappApiAccess {
-    /// 公开 API：所有用户（包括游客）可调用，无需权限
+    /// 公开 API：调用者范围含游客；HTTP 仍需 `network:fetch`
     Public,
-    /// 受保护 API：需要 network:fetch 权限
+    /// 受保护 API：调用者需登录（默认）；HTTP 仍需 `network:fetch`
     #[default]
     Protected,
 }

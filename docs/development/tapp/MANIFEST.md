@@ -463,7 +463,7 @@ Manifest 设置属于安装级配置：安装 owner 或管理员可修改，运�
 | `builtin`     | string | 内置 | `geo`、`ai:chat` 或 `ai:generate`                 |
 | `inject`      | object | ❌   | 将宿主模板值映射为可复用别名                      |
 | `cacheTtl`    | number | ❌   | 响应缓存秒数；缓存按 Tapp、用户、客户端上下文隔离 |
-| `spoof`       | string | ❌   | 区域伪装：`china`、`japan` 或 `us`                |
+| `spoof`       | string | ❌   | 区域伪装：`china`/`japan`/`us`/`korea`/`taiwan`/`hongkong`（及别名，见下表） |
 | `description` | string | ❌   | API 描述                                          |
 
 `inject` 的键是新别名，值是宿主上下文模板。例如
