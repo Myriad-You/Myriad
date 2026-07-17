@@ -113,7 +113,7 @@
 }
 
 /* ============================================================
-   底部控制岛：生成中的进度反馈动效
+   底部控制岛：生成中的反馈动效
    ============================================================ */
 
 /* 忙碌时环绕岛的旋转光晕（放在岛背景层之下的兄弟元素上） */
@@ -147,59 +147,58 @@
   }
 }
 
-/* 不确定进度条：流光往返 */
-.playground-progress-track {
-  height: 3px;
-  border-radius: 9999px;
-  overflow: hidden;
-  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
-}
-
-.playground-progress-bar {
-  width: 38%;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(
+/* 忙碌标题：水平流光扫字（primary accent over muted base） */
+.playground-text-shimmer {
+  background-image: linear-gradient(
     90deg,
-    transparent,
-    var(--color-primary),
-    transparent
+    color-mix(in srgb, var(--color-primary) 55%, var(--text-muted)) 0%,
+    color-mix(in srgb, var(--color-primary) 55%, var(--text-muted)) 35%,
+    color-mix(in srgb, var(--color-primary) 88%, white) 48%,
+    var(--color-primary) 50%,
+    color-mix(in srgb, var(--color-primary) 88%, white) 52%,
+    color-mix(in srgb, var(--color-primary) 55%, var(--text-muted)) 65%,
+    color-mix(in srgb, var(--color-primary) 55%, var(--text-muted)) 100%
   );
-  animation: playground-progress-slide 1.5s ease-in-out infinite;
+  background-size: 220% 100%;
+  background-position: 100% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: playground-text-shimmer-scan 2.2s linear infinite;
 }
 
-@keyframes playground-progress-slide {
-  from {
-    transform: translateX(-110%);
+/* animationsEnabled === false：静态主色标题，无扫光 */
+.playground-text-shimmer--static {
+  animation: none;
+  background-image: none;
+  background-clip: border-box;
+  -webkit-background-clip: border-box;
+  color: var(--color-primary);
+  -webkit-text-fill-color: var(--color-primary);
+}
+
+@keyframes playground-text-shimmer-scan {
+  0% {
+    background-position: 100% 0;
   }
 
-  to {
-    transform: translateX(380%);
-  }
-}
-
-/* 当前阶段圆点的呼吸光环 */
-.playground-phase-dot-active {
-  animation: playground-phase-pulse 1.6s ease-in-out infinite;
-}
-
-@keyframes playground-phase-pulse {
-  0%,
   100% {
-    box-shadow: 0 0 0 0
-      color-mix(in srgb, var(--color-primary) 45%, transparent);
-  }
-
-  50% {
-    box-shadow: 0 0 0 4px
-      color-mix(in srgb, var(--color-primary) 12%, transparent);
+    background-position: -100% 0;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .playground-island-aura,
-  .playground-progress-bar,
-  .playground-phase-dot-active {
+  .playground-island-aura {
     animation: none;
+  }
+
+  .playground-text-shimmer {
+    animation: none;
+    background-image: none;
+    background-clip: border-box;
+    -webkit-background-clip: border-box;
+    color: var(--color-primary);
+    -webkit-text-fill-color: var(--color-primary);
   }
 }

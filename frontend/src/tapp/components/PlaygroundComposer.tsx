@@ -3,7 +3,7 @@
  *
  * 重构后的信息架构，自上而下：
  * - 通知层：错误/警告/成功卡片浮在岛上方，独立卡片、可关闭
- * - 状态带：生成中为紧凑两行（标题+计时 / 阶段字幕）+ 流光进度条；
+ * - 状态带：生成中为紧凑两行（标题+计时 / 阶段字幕），标题带流光扫字；
  *   失败时同构两行 + Retry；完成后显示验证徽标与可展开的 Agent 轨迹
  * - 输入区：多行输入独占一行（composer 范式）
  * - 工具栏：左侧版本导航与会话操作，右侧安装与生成主操作
@@ -345,41 +345,21 @@ export function PlaygroundComposer({
                         borderTopColor: 'var(--color-primary)',
                       }}
                     />
-                    <motion.span
-                      className="text-xs font-semibold truncate"
-                      style={{ color: 'var(--text-primary)' }}
-                      animate={
-                        animationsEnabled
-                          ? { opacity: [0.85, 1, 0.85] }
-                          : undefined
-                      }
-                      transition={
-                        animationsEnabled
-                          ? {
-                              duration: 2.4,
-                              repeat: Infinity,
-                              ease: 'easeInOut',
-                            }
-                          : undefined
-                      }
+                    <span
+                      className={`text-xs font-semibold truncate playground-text-shimmer${
+                        animationsEnabled ? '' : ' playground-text-shimmer--static'
+                      }`}
                     >
                       {busyMode === 'runtime-repair'
                         ? t.tapp.playgroundRepairingRuntime
                         : t.tapp.playgroundGenerating}
-                    </motion.span>
+                    </span>
                     <span
                       className="ml-auto text-[10px] font-mono tabular-nums shrink-0"
                       style={{ color: 'var(--text-muted)' }}
                     >
                       {elapsedLabel}
                     </span>
-                  </div>
-
-                  {/* Flowing progress track (not a text line) */}
-                  <div className="mt-2 playground-progress-track">
-                    {animationsEnabled && (
-                      <div className="playground-progress-bar" />
-                    )}
                   </div>
 
                   {/* Line 2: cross-fading phase subtitle only */}
