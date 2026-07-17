@@ -156,9 +156,13 @@ container.textContent = userInput;
 转义，它不是 HTML sanitizer。
 
 存储 key 只允许字母、数字、下划线、连字符、点和冒号，长度上限为 256，并拒绝路径
-遍历形式。后端会拒绝超过 1 MiB 的单值，并在事务内对同一用户与 Tapp 串行计算写入后的
-总量；超过 5 MiB 会返回 413。数据库触发器执行相同的 5 MiB 硬限制，覆盖其他内部写入
-路径；`Tapp.storage.usage()` 返回的 quota 因而也是实际安全边界。
+遍历形式。后端会拒绝超过 1 MiB 的单值，并在事务内对同一安装 owner 与 Tapp 串行计算
+写入后的总量；超过 5 MiB 会返回 413。数据库触发器执行相同的 5 MiB 硬限制，覆盖其他
+内部写入路径；`Tapp.storage.usage()` 返回的 quota 因而也是实际安全边界。
+
+持久 storage 命名空间跟随**安装 owner**（Runtime Grant 的 `ownerId`），不是当前 viewer。
+打开站点公开安装时读写的是站点 owner 数据：已授权 viewer 可只读，仅 owner 可写/删/清空
+（否则 403）。个人数据需要用户安装自己的私有副本后才会进入该用户命名空间。
 
 ## 开发检查清单
 

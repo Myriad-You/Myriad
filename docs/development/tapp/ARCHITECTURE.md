@@ -99,14 +99,21 @@ Manifest 会经历 Rust 结构的反序列化和再序列化。因此新增 Mani
 
 - 站点首次创建的管理员 ID 是规范的公开安装 owner（按最小 ID 确定）；所有当前管理员都在
   这个单一命名空间中安装、更新和管理全局 Tapp，不会以各自账号产生多个公开副本。
-- 普通用户可拥有自己的临时 Tapp；列表由管理员 Tapp 加当前用户 Tapp 组成。
+- 普通用户可拥有自己的临时 Tapp；列表由当前用户私有 Tapp 与管理员公开 Tapp 组成。同一
+  `tapp_id` 若用户已安装私有副本，列表/详情/运行时一律优先打开私有安装；游客与未安装
+  私有副本的用户继续使用站点公开安装。
 - 游客只能运行管理员共享的 Tapp；Tapp 可通过 `Tapp.user.getRole()` 感知角色。对于
   Federation 内容，游客只获得公开 Feed，已登录用户获得公开内容与自己的个人内容；
   游客不能关注、发布、私聊、进入私有 Room 或传输文件。
-- 新安装会拒绝与管理员公开命名空间冲突的 ID；管理员发布新 ID 时也拒绝覆盖现有用户安装。
-  历史数据库若仍有同 ID 记录，读取兼容规则为管理员公开版本优先，详情、资源、Widget、
-  最终授权和 Manifest 声明 API 必须选择同一安装记录。storage/Widget 的 ORM 不提供仅按
-  `tappId` 的关联，查询必须显式携带 `user_id + tapp_id`。
+- 用户私有安装允许与站点公开安装并存（冲突检查只针对 actor 自己的 owner 命名空间）。
+  管理员公开安装仍拒绝与任何已有同 ID 安装冲突。详情、资源、Widget、最终授权和
+  Manifest 声明 API 必须选择同一安装记录。storage/Widget 的 ORM 不提供仅按 `tappId`
+  的关联，查询必须显式携带 `user_id + tapp_id`。
+- **Storage Option A（安装 owner 命名空间）**：`tapp_storage` 的 `user_id` 是安装
+  owner（`grant.owner_id` / `tapp.user_id`），不是 viewer subject。打开管理员公开安装时，
+  读写的是站点 owner 命名空间；viewer 只读，仅 owner 可写/删/清空。个人笔记等需要在
+  用户安装自己的私有副本后，才写入该用户命名空间。卸载安装（`keep_data=false`）会清除
+  该 owner 命名空间下的 storage。
 - 管理员控制面权限不等于普通用户私有安装的运行时访问权。代码、资源、Manifest、授权和
   Runtime Grant 只能解析到规范公开 owner 或当前主体自己的 owner，不能从其他用户同 ID
   记录中任意选择。
@@ -345,7 +352,7 @@ sequenceDiagram
   只能管理 `source=runtime` 项，不能覆盖或删除 Manifest Widget。
 
 `syncFromBackend` 通过 `GET /api/tapps/details` 一次读取当前会话可见的完整详情。后端固定
-查询管理员 Tapp 与当前用户 Tapp，并复用单项接口的角色权限过滤；同 ID 时管理员版本优先。
+查询管理员 Tapp 与当前用户 Tapp，并复用单项接口的角色权限过滤；同 ID 时优先用户私有安装。
 前端不再执行列表后逐项详情读取的 N+1 请求。
 
 Manifest 声明 API 的解析缓存以安装 owner、Tapp ID 和 `apis` 内容指纹寻址；每次请求仍从数据库
@@ -411,9 +418,10 @@ DNS 结果钉扎到本次客户端并禁止自动重定向；URL credentials、�
 若未来需要第三方凭据，应设计绑定 provider、目标域名与用途的专用 credential capability，不能
 恢复任意 endpoint 可引用的全局 secret map。
 
-当前 Tapp storage 按 `user_id + tapp_id` 隔离，单值上限 1 MiB，总量上限 5 MiB；写入在同一
-事务内加 subject/Tapp advisory lock、计算替换后的 JSONB 字节并 upsert，并发副本不能越过
-总量边界。Tapp 不能直接指定另一个 Tapp 的 key。已实现的
+当前 Tapp storage 按 **安装 owner** 的 `user_id + tapp_id` 隔离（不是 viewer subject），
+单值上限 1 MiB，总量上限 5 MiB；写入在同一事务内加 owner/Tapp advisory lock、计算替换后的
+JSONB 字节并 upsert，并发副本不能越过总量边界。非 owner 的已授权 viewer 可以读，写/删/清空
+返回只读 403。Tapp 不能直接指定另一个 Tapp 的 key。已实现的
 One-shot Data Exchange 使用 Manifest 具名 export/import、同 subject 隔离、宿主“仅本次”
 授权队列和绑定 provider 安装 owner 的服务端原子消费一次性 Data Access Grant。弹窗结构化
 显示双方 Tapp、export、参数范围、用途、上限和过期倒计时；拒绝为默认焦点，并发请求逐项

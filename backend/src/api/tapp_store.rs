@@ -87,9 +87,11 @@ async fn find_admin_user_id(db: &DatabaseConnection) -> Result<Option<i32>, Stat
 }
 
 /// One public-route lookup rule for details, code, resources and export.
-/// The deterministic site-owner installation wins; otherwise an authenticated
-/// viewer may resolve only their own installation. A fresh database has no
-/// site owner yet and therefore returns `None`, not a server error.
+///
+/// When the authenticated subject has a private install of the same `tapp_id`,
+/// that record wins so list/detail/runtime open the personal copy. Otherwise
+/// fall back to the site-owner public install. Guests only see public installs.
+/// A fresh database has no site owner yet and therefore returns `None`.
 struct VisibleTappInstallation {
     tapp: tapps::Model,
     is_site_owner: bool,
@@ -102,21 +104,8 @@ async fn find_visible_tapp(
 ) -> Result<Option<VisibleTappInstallation>, StatusCode> {
     validate_tapp_id(tapp_id).map_err(|_| StatusCode::BAD_REQUEST)?;
     let site_owner_id = find_admin_user_id(db).await?;
-    if let Some(site_owner_id) = site_owner_id {
-        let public_tapp = tapps::Entity::find()
-            .filter(tapps::Column::UserId.eq(site_owner_id))
-            .filter(tapps::Column::TappId.eq(tapp_id))
-            .one(db)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        if let Some(tapp) = public_tapp {
-            return Ok(Some(VisibleTappInstallation {
-                tapp,
-                is_site_owner: true,
-            }));
-        }
-    }
 
+    // Prefer the subject's private install when both private and public copies exist.
     if let Some(user_id) = user_id.filter(|user_id| Some(*user_id) != site_owner_id) {
         let tapp = tapps::Entity::find()
             .filter(tapps::Column::UserId.eq(user_id))
@@ -132,14 +121,28 @@ async fn find_visible_tapp(
         }
     }
 
+    if let Some(site_owner_id) = site_owner_id {
+        let public_tapp = tapps::Entity::find()
+            .filter(tapps::Column::UserId.eq(site_owner_id))
+            .filter(tapps::Column::TappId.eq(tapp_id))
+            .one(db)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        if let Some(tapp) = public_tapp {
+            return Ok(Some(VisibleTappInstallation {
+                tapp,
+                is_site_owner: true,
+            }));
+        }
+    }
+
     Ok(None)
 }
 
 /// Serialize every live-path or ownership mutation for one public Tapp ID.
 ///
-/// The lock is deliberately global across owner namespaces: an administrator
-/// install shadows ordinary-user installs, so those operations must not pass
-/// their conflict checks concurrently on different backend replicas.
+/// The lock is global across owner namespaces so admin public installs and user
+/// private installs of the same ID cannot race their conflict checks across replicas.
 async fn lock_tapp_lifecycle(db: &impl ConnectionTrait, tapp_id: &str) -> Result<(), DbErr> {
     db.execute(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
@@ -170,6 +173,76 @@ fn require_runtime_storage_grant(
         .map_err(|(status, _)| status)
 }
 
+/// Sandbox storage/settings namespace follows the installation owner, not the viewer.
+///
+/// Reads are allowed for any subject that can access the install and holds storage
+/// permission; writes/deletes/clears require `subject_id == owner_id`.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TappStorageAccess {
+    pub owner_id: i32,
+    pub subject_id: i32,
+}
+
+impl TappStorageAccess {
+    pub fn from_owner_and_subject(owner_id: i32, subject_id: i32) -> Self {
+        Self {
+            owner_id,
+            subject_id,
+        }
+    }
+
+    pub fn from_runtime_grant(
+        grant: &RuntimeGrantContext,
+        claims: &Claims,
+    ) -> Result<Self, StatusCode> {
+        let subject_id =
+            optional_authenticated_user_id(Some(claims)).ok_or(StatusCode::UNAUTHORIZED)?;
+        if grant.subject_id() != subject_id {
+            return Err(StatusCode::FORBIDDEN);
+        }
+        Ok(Self::from_owner_and_subject(grant.owner_id(), subject_id))
+    }
+
+    pub fn can_write(self) -> bool {
+        self.subject_id == self.owner_id
+    }
+
+    pub fn require_write(self) -> Result<(), StatusCode> {
+        if self.can_write() {
+            Ok(())
+        } else {
+            Err(StatusCode::FORBIDDEN)
+        }
+    }
+
+    pub fn storage_namespace(self) -> i32 {
+        self.owner_id
+    }
+}
+
+/// Authorize sandbox storage for a Runtime-Grant route and return owner-scoped access.
+async fn authorize_runtime_storage(
+    db: &DatabaseConnection,
+    claims: &Claims,
+    grant: &RuntimeGrantContext,
+    tapp_id: &str,
+) -> Result<TappStorageAccess, StatusCode> {
+    require_runtime_storage_grant(grant, tapp_id)?;
+    authorize_tapp_permission(db, claims, tapp_id, TappPermission::Storage).await?;
+    TappStorageAccess::from_runtime_grant(grant, claims)
+}
+
+pub(crate) fn storage_write_forbidden_error() -> (StatusCode, axum::Json<serde_json::Value>) {
+    (
+        StatusCode::FORBIDDEN,
+        axum::Json(serde_json::json!({
+            "error": "Read-only storage",
+            "message": "Only the installation owner can write, delete, or clear storage",
+            "code": "TAPP_STORAGE_READ_ONLY"
+        })),
+    )
+}
+
 async fn current_user_role(claims: &Claims) -> UserRole {
     if current_is_admin(claims).await {
         UserRole::Admin
@@ -183,6 +256,36 @@ fn canonical_installation_owner_id(role: UserRole, actor_id: i32, site_owner_id:
         site_owner_id
     } else {
         actor_id
+    }
+}
+
+/// Owner namespaces that block a new install for this actor/role.
+///
+/// - Admin public install: any existing install of the same `tapp_id` conflicts
+///   (returns `None` so the query is not filtered by owner).
+/// - User private install: only the actor's own install conflicts; a site-owner
+///   public install of the same ID is allowed alongside a personal copy.
+/// - Guest: cannot install in practice; still scoped to the actor id only.
+fn installation_conflict_owner_ids(
+    role: UserRole,
+    actor_id: i32,
+    _site_owner_id: i32,
+) -> Option<Vec<i32>> {
+    match role {
+        UserRole::Admin => None,
+        UserRole::User | UserRole::Guest => Some(vec![actor_id]),
+    }
+}
+
+fn apply_installation_conflict_filter(
+    query: sea_orm::Select<tapps::Entity>,
+    role: UserRole,
+    actor_id: i32,
+    site_owner_id: i32,
+) -> sea_orm::Select<tapps::Entity> {
+    match installation_conflict_owner_ids(role, actor_id, site_owner_id) {
+        Some(owner_ids) => query.filter(tapps::Column::UserId.is_in(owner_ids)),
+        None => query,
     }
 }
 
@@ -1835,41 +1938,7 @@ async fn list_tapps(
     let mut items: Vec<TappListItem> = Vec::new();
     let mut seen_tapp_ids = std::collections::HashSet::new();
 
-    // 1. 获取管理员的 Tapp 列表（所有人可见）
-    let admin_tapps = if let Some(admin_id) = admin_id {
-        tapps::Entity::find()
-            .filter(tapps::Column::UserId.eq(admin_id))
-            .all(&db)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    } else {
-        Vec::new()
-    };
-
-    for t in admin_tapps {
-        seen_tapp_ids.insert(t.tapp_id.clone());
-        // 从 manifest 中提取 iconSvg
-        let icon_svg = t
-            .manifest
-            .get("iconSvg")
-            .and_then(|v| v.as_str())
-            .map(String::from);
-        items.push(TappListItem {
-            id: t.tapp_id,
-            name: t.name,
-            version: t.version,
-            description: t.description,
-            icon: t.icon,
-            icon_svg,
-            status: format!("{:?}", t.status).to_lowercase(),
-            installed_at: t.installed_at.to_rfc3339(),
-            last_run_at: t.last_run_at.map(|dt| dt.to_rfc3339()),
-            is_temporary: false,
-            is_admin_tapp: true,
-        });
-    }
-
-    // 2. 已登录用户还可看到自己拥有的 Tapp；普通用户版本是临时安装。
+    // Prefer the subject's private install when both private and public copies exist.
     if let Some(uid) = user_id {
         if Some(uid) != admin_id {
             let user_tapps = tapps::Entity::find()
@@ -1879,10 +1948,7 @@ async fn list_tapps(
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
             for t in user_tapps {
-                if !seen_tapp_ids.insert(t.tapp_id.clone()) {
-                    continue;
-                }
-                // 从 manifest 中提取 iconSvg
+                seen_tapp_ids.insert(t.tapp_id.clone());
                 let icon_svg = t
                     .manifest
                     .get("iconSvg")
@@ -1906,6 +1972,42 @@ async fn list_tapps(
                 });
             }
         }
+    }
+
+    // Site-owner public installs are visible to everyone; skip IDs already covered
+    // by the subject's private copy.
+    let admin_tapps = if let Some(admin_id) = admin_id {
+        tapps::Entity::find()
+            .filter(tapps::Column::UserId.eq(admin_id))
+            .all(&db)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    } else {
+        Vec::new()
+    };
+
+    for t in admin_tapps {
+        if !seen_tapp_ids.insert(t.tapp_id.clone()) {
+            continue;
+        }
+        let icon_svg = t
+            .manifest
+            .get("iconSvg")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        items.push(TappListItem {
+            id: t.tapp_id,
+            name: t.name,
+            version: t.version,
+            description: t.description,
+            icon: t.icon,
+            icon_svg,
+            status: format!("{:?}", t.status).to_lowercase(),
+            installed_at: t.installed_at.to_rfc3339(),
+            last_run_at: t.last_run_at.map(|dt| dt.to_rfc3339()),
+            is_temporary: false,
+            is_admin_tapp: true,
+        });
     }
 
     Ok(Json(ApiResponse::success(items)))
@@ -1952,17 +2054,17 @@ async fn list_tapp_details(
         Vec::new()
     };
 
-    // 同一 tapp_id 同时存在时，管理员版本与单项详情接口一样拥有优先级。
+    // Prefer private install when subject has both; guests only see public installs.
     let mut seen = std::collections::HashSet::new();
     let config = GLOBAL_DYNAMIC_CONFIG.read().await;
     let mut details = Vec::with_capacity(admin_tapps.len() + user_tapps.len());
-    for tapp in admin_tapps {
-        seen.insert(tapp.tapp_id.clone());
-        details.push(tapp_detail_from_model(tapp, role, false, true, &config));
-    }
     for tapp in user_tapps {
+        seen.insert(tapp.tapp_id.clone());
+        details.push(tapp_detail_from_model(tapp, role, true, false, &config));
+    }
+    for tapp in admin_tapps {
         if seen.insert(tapp.tapp_id.clone()) {
-            details.push(tapp_detail_from_model(tapp, role, true, false, &config));
+            details.push(tapp_detail_from_model(tapp, role, false, true, &config));
         }
     }
 
@@ -2486,10 +2588,12 @@ async fn install_tapp(
     // Every current administrator operates the one canonical public namespace;
     // the actor account is not used as a second public installation owner.
     let installation_owner_id = canonical_installation_owner_id(role, user_id, admin_id);
-    let mut existing_query = tapps::Entity::find().filter(tapps::Column::TappId.eq(&manifest.id));
-    if !is_current_admin {
-        existing_query = existing_query.filter(tapps::Column::UserId.is_in([user_id, admin_id]));
-    }
+    let existing_query = apply_installation_conflict_filter(
+        tapps::Entity::find().filter(tapps::Column::TappId.eq(&manifest.id)),
+        role,
+        user_id,
+        admin_id,
+    );
     let existing = existing_query.one(&db).await.map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -2681,10 +2785,12 @@ async fn install_tapp(
             api_error("Failed to lock Tapp lifecycle"),
         )
     })?;
-    let mut conflict_query = tapps::Entity::find().filter(tapps::Column::TappId.eq(&manifest.id));
-    if !is_current_admin {
-        conflict_query = conflict_query.filter(tapps::Column::UserId.is_in([user_id, admin_id]));
-    }
+    let conflict_query = apply_installation_conflict_filter(
+        tapps::Entity::find().filter(tapps::Column::TappId.eq(&manifest.id)),
+        role,
+        user_id,
+        admin_id,
+    );
     if conflict_query
         .one(&txn)
         .await
@@ -2903,10 +3009,12 @@ async fn install_tapp_file(
         )
     })?;
     let installation_owner_id = canonical_installation_owner_id(role, user_id, admin_id);
-    let mut existing_query = tapps::Entity::find().filter(tapps::Column::TappId.eq(&manifest.id));
-    if !is_current_admin {
-        existing_query = existing_query.filter(tapps::Column::UserId.is_in([user_id, admin_id]));
-    }
+    let existing_query = apply_installation_conflict_filter(
+        tapps::Entity::find().filter(tapps::Column::TappId.eq(&manifest.id)),
+        role,
+        user_id,
+        admin_id,
+    );
     let existing = existing_query.one(&db).await.map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -3005,10 +3113,12 @@ async fn install_tapp_file(
             api_error("Failed to lock Tapp lifecycle"),
         )
     })?;
-    let mut conflict_query = tapps::Entity::find().filter(tapps::Column::TappId.eq(&manifest.id));
-    if !is_current_admin {
-        conflict_query = conflict_query.filter(tapps::Column::UserId.is_in([user_id, admin_id]));
-    }
+    let conflict_query = apply_installation_conflict_filter(
+        tapps::Entity::find().filter(tapps::Column::TappId.eq(&manifest.id)),
+        role,
+        user_id,
+        admin_id,
+    );
     if conflict_query
         .one(&txn)
         .await
@@ -4899,11 +5009,12 @@ async fn authorize_tapp_setting(
     claims: &Claims,
     tapp_id: &str,
     key: &str,
-) -> Result<(i32, String, TappSettingDef), StatusCode> {
+) -> Result<(TappStorageAccess, String, TappSettingDef), StatusCode> {
     validate_tapp_id(tapp_id).map_err(|_| StatusCode::BAD_REQUEST)?;
     validate_storage_key(key).map_err(|_| StatusCode::BAD_REQUEST)?;
-    let user_id = optional_authenticated_user_id(Some(claims)).ok_or(StatusCode::UNAUTHORIZED)?;
-    let tapp = tapp_common::resolve_accessible_tapp(db, user_id, tapp_id)
+    let subject_id =
+        optional_authenticated_user_id(Some(claims)).ok_or(StatusCode::UNAUTHORIZED)?;
+    let tapp = tapp_common::resolve_accessible_tapp(db, subject_id, tapp_id)
         .await
         .map_err(|(status, _)| status)?;
     let setting = tapp
@@ -4920,7 +5031,8 @@ async fn authorize_tapp_setting(
         .and_then(|setting| {
             serde_json::from_value(setting).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
         })?;
-    Ok((user_id, format!("_settings.{key}"), setting))
+    let access = TappStorageAccess::from_owner_and_subject(tapp.user_id, subject_id);
+    Ok((access, format!("_settings.{key}"), setting))
 }
 
 async fn read_storage_value(
@@ -5007,15 +5119,16 @@ ON CONFLICT (user_id, tapp_id, key) DO UPDATE SET
     Ok(())
 }
 
-/// Host settings editor: authenticated viewers may persist only keys declared
-/// by the accessible Tapp manifest. Sandbox storage remains Runtime-Grant-only.
+/// Host settings editor: authenticated viewers may read keys declared by the
+/// accessible Tapp manifest; only the installation owner may persist values.
+/// Sandbox storage remains Runtime-Grant-only and uses the same owner namespace.
 async fn get_tapp_setting(
     State(db): State<DatabaseConnection>,
     Extension(claims): Extension<Claims>,
     Path((tapp_id, key)): Path<(String, String)>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, StatusCode> {
-    let (user_id, storage_key, _) = authorize_tapp_setting(&db, &claims, &tapp_id, &key).await?;
-    let value = read_storage_value(&db, user_id, &tapp_id, &storage_key).await?;
+    let (access, storage_key, _) = authorize_tapp_setting(&db, &claims, &tapp_id, &key).await?;
+    let value = read_storage_value(&db, access.storage_namespace(), &tapp_id, &storage_key).await?;
     Ok(Json(ApiResponse::success(value)))
 }
 
@@ -5026,12 +5139,20 @@ async fn set_tapp_setting(
     Json(value): Json<serde_json::Value>,
 ) -> Result<Json<ApiResponse<()>>, StatusCode> {
     validate_storage_value_size(&value)?;
-    let (user_id, storage_key, setting) =
+    let (access, storage_key, setting) =
         authorize_tapp_setting(&db, &claims, &tapp_id, &key).await?;
+    access.require_write()?;
     if !tapp_setting_value_is_valid(&setting, &value) {
         return Err(StatusCode::BAD_REQUEST);
     }
-    write_storage_value(&db, user_id, &tapp_id, &storage_key, value).await?;
+    write_storage_value(
+        &db,
+        access.storage_namespace(),
+        &tapp_id,
+        &storage_key,
+        value,
+    )
+    .await?;
     Ok(Json(ApiResponse::success(())))
 }
 
@@ -5042,12 +5163,11 @@ async fn list_storage_keys(
     runtime_grant: RuntimeGrantContext,
     Path(tapp_id): Path<String>,
 ) -> Result<Json<ApiResponse<Vec<String>>>, StatusCode> {
-    require_runtime_storage_grant(&runtime_grant, &tapp_id)?;
-    let user_id =
-        authorize_tapp_permission(&db, &claims, &tapp_id, TappPermission::Storage).await?;
+    let access = authorize_runtime_storage(&db, &claims, &runtime_grant, &tapp_id).await?;
+    let owner_id = access.storage_namespace();
 
     let items = tapp_storage::Entity::find()
-        .filter(tapp_storage::Column::UserId.eq(user_id))
+        .filter(tapp_storage::Column::UserId.eq(owner_id))
         .filter(tapp_storage::Column::TappId.eq(&tapp_id))
         .all(&db)
         .await
@@ -5065,12 +5185,11 @@ async fn list_storage_entries(
     runtime_grant: RuntimeGrantContext,
     Path(tapp_id): Path<String>,
 ) -> Result<Json<ApiResponse<std::collections::BTreeMap<String, serde_json::Value>>>, StatusCode> {
-    require_runtime_storage_grant(&runtime_grant, &tapp_id)?;
-    let user_id =
-        authorize_tapp_permission(&db, &claims, &tapp_id, TappPermission::Storage).await?;
+    let access = authorize_runtime_storage(&db, &claims, &runtime_grant, &tapp_id).await?;
+    let owner_id = access.storage_namespace();
 
     let entries = tapp_storage::Entity::find()
-        .filter(tapp_storage::Column::UserId.eq(user_id))
+        .filter(tapp_storage::Column::UserId.eq(owner_id))
         .filter(tapp_storage::Column::TappId.eq(&tapp_id))
         .all(&db)
         .await
@@ -5095,10 +5214,8 @@ async fn get_storage_usage(
     runtime_grant: RuntimeGrantContext,
     Path(tapp_id): Path<String>,
 ) -> Result<Json<ApiResponse<TappStorageUsage>>, StatusCode> {
-    require_runtime_storage_grant(&runtime_grant, &tapp_id)?;
-    let user_id =
-        authorize_tapp_permission(&db, &claims, &tapp_id, TappPermission::Storage).await?;
-    let used = storage_bytes(&db, user_id, &tapp_id).await? as usize;
+    let access = authorize_runtime_storage(&db, &claims, &runtime_grant, &tapp_id).await?;
+    let used = storage_bytes(&db, access.storage_namespace(), &tapp_id).await? as usize;
 
     Ok(Json(ApiResponse::success(TappStorageUsage {
         used,
@@ -5113,16 +5230,13 @@ async fn get_storage(
     runtime_grant: RuntimeGrantContext,
     Path((tapp_id, key)): Path<(String, String)>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, StatusCode> {
-    require_runtime_storage_grant(&runtime_grant, &tapp_id)?;
     // 🔒 安全校验：验证 key 格式
     if let Err(_e) = validate_storage_key(&key) {
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    let user_id =
-        authorize_tapp_permission(&db, &claims, &tapp_id, TappPermission::Storage).await?;
-
-    let value = read_storage_value(&db, user_id, &tapp_id, &key).await?;
+    let access = authorize_runtime_storage(&db, &claims, &runtime_grant, &tapp_id).await?;
+    let value = read_storage_value(&db, access.storage_namespace(), &tapp_id, &key).await?;
     Ok(Json(ApiResponse::success(value)))
 }
 
@@ -5134,7 +5248,6 @@ async fn set_storage(
     Path((tapp_id, key)): Path<(String, String)>,
     Json(value): Json<serde_json::Value>,
 ) -> Result<Json<ApiResponse<()>>, StatusCode> {
-    require_runtime_storage_grant(&runtime_grant, &tapp_id)?;
     // 🔒 安全校验：验证 key 格式
     if let Err(_e) = validate_storage_key(&key) {
         return Err(StatusCode::BAD_REQUEST);
@@ -5143,10 +5256,9 @@ async fn set_storage(
     // 🔒 安全校验：限制值大小（1MB）
     validate_storage_value_size(&value)?;
 
-    let user_id =
-        authorize_tapp_permission(&db, &claims, &tapp_id, TappPermission::Storage).await?;
-
-    write_storage_value(&db, user_id, &tapp_id, &key, value).await?;
+    let access = authorize_runtime_storage(&db, &claims, &runtime_grant, &tapp_id).await?;
+    access.require_write()?;
+    write_storage_value(&db, access.storage_namespace(), &tapp_id, &key, value).await?;
 
     Ok(Json(ApiResponse::success(())))
 }
@@ -5158,17 +5270,17 @@ async fn delete_storage(
     runtime_grant: RuntimeGrantContext,
     Path((tapp_id, key)): Path<(String, String)>,
 ) -> Result<Json<ApiResponse<()>>, StatusCode> {
-    require_runtime_storage_grant(&runtime_grant, &tapp_id)?;
     // 🔒 安全校验：验证 key 格式
     if let Err(_e) = validate_storage_key(&key) {
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    let user_id =
-        authorize_tapp_permission(&db, &claims, &tapp_id, TappPermission::Storage).await?;
+    let access = authorize_runtime_storage(&db, &claims, &runtime_grant, &tapp_id).await?;
+    access.require_write()?;
+    let owner_id = access.storage_namespace();
 
     tapp_storage::Entity::delete_many()
-        .filter(tapp_storage::Column::UserId.eq(user_id))
+        .filter(tapp_storage::Column::UserId.eq(owner_id))
         .filter(tapp_storage::Column::TappId.eq(&tapp_id))
         .filter(tapp_storage::Column::Key.eq(&key))
         .exec(&db)
@@ -5185,12 +5297,12 @@ async fn clear_storage(
     runtime_grant: RuntimeGrantContext,
     Path(tapp_id): Path<String>,
 ) -> Result<Json<ApiResponse<()>>, StatusCode> {
-    require_runtime_storage_grant(&runtime_grant, &tapp_id)?;
-    let user_id =
-        authorize_tapp_permission(&db, &claims, &tapp_id, TappPermission::Storage).await?;
+    let access = authorize_runtime_storage(&db, &claims, &runtime_grant, &tapp_id).await?;
+    access.require_write()?;
+    let owner_id = access.storage_namespace();
 
     tapp_storage::Entity::delete_many()
-        .filter(tapp_storage::Column::UserId.eq(user_id))
+        .filter(tapp_storage::Column::UserId.eq(owner_id))
         .filter(tapp_storage::Column::TappId.eq(&tapp_id))
         .exec(&db)
         .await
@@ -5467,11 +5579,12 @@ async fn update_separated_css(
 #[cfg(test)]
 mod manifest_tests {
     use super::{
-        append_directory_to_zip, archive_entry_path, canonical_installation_owner_id, tapp_dir_for,
-        tapp_setting_value_is_valid, validate_installed_resources, validate_resource_path,
-        validate_tapp_archive, validate_tapp_id, validate_tapp_manifest,
-        validate_widget_template_contents, widget_template_path, TappDirStage, TappManifest,
-        TappSettingDef, TappWidgetDef, WidgetTemplateContents,
+        append_directory_to_zip, archive_entry_path, canonical_installation_owner_id,
+        installation_conflict_owner_ids, tapp_dir_for, tapp_setting_value_is_valid,
+        validate_installed_resources, validate_resource_path, validate_tapp_archive,
+        validate_tapp_id, validate_tapp_manifest, validate_widget_template_contents,
+        widget_template_path, TappDirStage, TappManifest, TappSettingDef, TappStorageAccess,
+        TappWidgetDef, WidgetTemplateContents,
     };
     use crate::models::entities::tapps;
     use crate::services::permission_service::UserRole;
@@ -5482,6 +5595,41 @@ mod manifest_tests {
         assert_eq!(canonical_installation_owner_id(UserRole::Admin, 9, 1), 1);
         assert_eq!(canonical_installation_owner_id(UserRole::User, 9, 1), 9);
         assert_eq!(canonical_installation_owner_id(UserRole::Guest, -9, 1), -9);
+    }
+
+    #[test]
+    fn user_private_install_does_not_conflict_with_site_owner_public_install() {
+        // Admin public install conflicts with any existing install of the same ID.
+        assert_eq!(
+            installation_conflict_owner_ids(UserRole::Admin, 9, 1),
+            None
+        );
+        // User private install only conflicts with the actor's own copy.
+        assert_eq!(
+            installation_conflict_owner_ids(UserRole::User, 42, 1),
+            Some(vec![42])
+        );
+        assert_eq!(
+            installation_conflict_owner_ids(UserRole::Guest, -5, 1),
+            Some(vec![-5])
+        );
+    }
+
+    #[test]
+    fn storage_namespace_follows_installation_owner_not_viewer() {
+        let viewer_of_admin = TappStorageAccess::from_owner_and_subject(1, 42);
+        assert_eq!(viewer_of_admin.storage_namespace(), 1);
+        assert!(!viewer_of_admin.can_write());
+        assert!(viewer_of_admin.require_write().is_err());
+
+        let private_owner = TappStorageAccess::from_owner_and_subject(42, 42);
+        assert_eq!(private_owner.storage_namespace(), 42);
+        assert!(private_owner.can_write());
+        assert!(private_owner.require_write().is_ok());
+
+        let site_owner = TappStorageAccess::from_owner_and_subject(1, 1);
+        assert_eq!(site_owner.storage_namespace(), 1);
+        assert!(site_owner.can_write());
     }
 
     #[test]

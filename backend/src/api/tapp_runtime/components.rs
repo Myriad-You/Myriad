@@ -15,6 +15,7 @@ use crate::services::permission_service::TappPermission;
 
 use super::common::{authorize_tapp_permission, parse_user_id, verify_tapp_ownership};
 use super::runtime_grant::RuntimeGrantContext;
+use crate::api::tapp_store::{storage_write_forbidden_error, TappStorageAccess};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "lowercase")]
@@ -132,7 +133,13 @@ pub async fn register_component(
     };
     runtime_grant.require_tapp_id(&req.tapp_id)?;
     runtime_grant.require(permission)?;
-    let user_id = authorize_tapp_permission(&db, &claims, &req.tapp_id, permission).await?;
+    authorize_tapp_permission(&db, &claims, &req.tapp_id, permission).await?;
+    let access = TappStorageAccess::from_runtime_grant(&runtime_grant, &claims)
+        .map_err(|status| (status, Json(json!({ "error": "Invalid runtime grant subject" }))))?;
+    access
+        .require_write()
+        .map_err(|_| storage_write_forbidden_error())?;
+    let owner_id = access.storage_namespace();
 
     tracing::info!(
         "[TAPP] register_component - User: {}, Tapp: {}, Type: {}",
@@ -159,7 +166,7 @@ pub async fn register_component(
     });
 
     let existing = tapp_storage::Entity::find()
-        .filter(tapp_storage::Column::UserId.eq(user_id))
+        .filter(tapp_storage::Column::UserId.eq(owner_id))
         .filter(tapp_storage::Column::TappId.eq(&req.tapp_id))
         .filter(tapp_storage::Column::Key.eq(&storage_key))
         .one(&db)
@@ -185,7 +192,7 @@ pub async fn register_component(
         let storage = tapp_storage::ActiveModel {
             id: NotSet,
             tapp_id: Set(req.tapp_id.clone()),
-            user_id: Set(user_id),
+            user_id: Set(owner_id),
             key: Set(storage_key),
             value: Set(component_data.clone()),
             created_at: Set(now),
@@ -229,7 +236,13 @@ pub async fn unregister_component(
     };
     runtime_grant.require_tapp_id(&tapp_id)?;
     runtime_grant.require(permission)?;
-    let user_id = authorize_tapp_permission(&db, &claims, &tapp_id, permission).await?;
+    authorize_tapp_permission(&db, &claims, &tapp_id, permission).await?;
+    let access = TappStorageAccess::from_runtime_grant(&runtime_grant, &claims)
+        .map_err(|status| (status, Json(json!({ "error": "Invalid runtime grant subject" }))))?;
+    access
+        .require_write()
+        .map_err(|_| storage_write_forbidden_error())?;
+    let owner_id = access.storage_namespace();
     tracing::info!(
         "[TAPP] unregister_component - User: {}, Tapp: {}, Type: {}, ID: {}",
         claims.username,
@@ -243,7 +256,7 @@ pub async fn unregister_component(
     let storage_key = format!("_component:{}:{}", component_type, component_id);
 
     let result = tapp_storage::Entity::delete_many()
-        .filter(tapp_storage::Column::UserId.eq(user_id))
+        .filter(tapp_storage::Column::UserId.eq(owner_id))
         .filter(tapp_storage::Column::TappId.eq(&tapp_id))
         .filter(tapp_storage::Column::Key.eq(&storage_key))
         .exec(&db)
@@ -279,6 +292,9 @@ pub async fn list_components(
     runtime_grant.require_tapp_id(&tapp_id)?;
     let user_id = parse_user_id(&claims)?;
     verify_tapp_ownership(&db, user_id, &tapp_id).await?;
+    let access = TappStorageAccess::from_runtime_grant(&runtime_grant, &claims)
+        .map_err(|status| (status, Json(json!({ "error": "Invalid runtime grant subject" }))))?;
+    let owner_id = access.storage_namespace();
     tracing::debug!(
         "[TAPP] list_components - User: {}, Tapp: {}",
         claims.username,
@@ -311,7 +327,7 @@ pub async fn list_components(
     };
 
     let items = tapp_storage::Entity::find()
-        .filter(tapp_storage::Column::UserId.eq(user_id))
+        .filter(tapp_storage::Column::UserId.eq(owner_id))
         .filter(tapp_storage::Column::TappId.eq(&tapp_id))
         .filter(tapp_storage::Column::Key.starts_with(&key_prefix))
         .order_by_asc(tapp_storage::Column::CreatedAt)

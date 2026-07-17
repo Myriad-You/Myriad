@@ -14,7 +14,10 @@ use super::common::{
     update_cached_platform_data, validate_platform_name, verify_tapp_ownership,
 };
 use super::runtime_grant::RuntimeGrantContext;
-use crate::api::tapp_store::{validate_storage_key, validate_storage_value_size};
+use crate::api::tapp_store::{
+    storage_write_forbidden_error, validate_storage_key, validate_storage_value_size,
+    TappStorageAccess,
+};
 
 #[derive(Debug, Deserialize)]
 pub struct DataTransformRequest {
@@ -159,13 +162,17 @@ pub async fn data_transform(
         runtime_grant.require(*permission)?;
     }
 
-    let user_id = if required_permissions.is_empty() {
+    if required_permissions.is_empty() {
         let user_id = parse_user_id(&claims)?;
         verify_tapp_ownership(&db, user_id, &req.tapp_id).await?;
-        user_id
     } else {
-        authorize_tapp_permissions(&db, &claims, &req.tapp_id, &required_permissions).await?
-    };
+        authorize_tapp_permissions(&db, &claims, &req.tapp_id, &required_permissions).await?;
+    }
+    let storage_access = TappStorageAccess::from_runtime_grant(&runtime_grant, &claims)
+        .map_err(|status| (status, Json(json!({ "error": "Invalid runtime grant subject" }))))?;
+    // Storage I/O is namespaced by installation owner even when the pipeline mixes
+    // other data sources. Non-owners may read but never write owner storage.
+    let storage_owner_id = storage_access.storage_namespace();
 
     tracing::debug!(
         "[TAPP] data_transform - User: {}, Tapp: {}, Steps: {}",
@@ -198,7 +205,7 @@ pub async fn data_transform(
         DataInput::Storage { key } => {
             use crate::models::entities::tapp_storage;
             let item = tapp_storage::Entity::find()
-                .filter(tapp_storage::Column::UserId.eq(user_id))
+                .filter(tapp_storage::Column::UserId.eq(storage_owner_id))
                 .filter(tapp_storage::Column::TappId.eq(&req.tapp_id))
                 .filter(tapp_storage::Column::Key.eq(&key))
                 .one(&db)
@@ -271,13 +278,16 @@ pub async fn data_transform(
                 use crate::models::entities::tapp_storage;
                 use sea_orm::{ActiveModelTrait, ActiveValue::NotSet, Set};
 
+                storage_access
+                    .require_write()
+                    .map_err(|_| storage_write_forbidden_error())?;
                 let storage_value = json!(items);
                 validate_storage_value_size(&storage_value).map_err(|status| {
                     (status, Json(json!({ "error": "Storage value too large" })))
                 })?;
                 let now = chrono::Utc::now().fixed_offset();
                 let existing = tapp_storage::Entity::find()
-                    .filter(tapp_storage::Column::UserId.eq(user_id))
+                    .filter(tapp_storage::Column::UserId.eq(storage_owner_id))
                     .filter(tapp_storage::Column::TappId.eq(&req.tapp_id))
                     .filter(tapp_storage::Column::Key.eq(&key))
                     .one(&db)
@@ -303,7 +313,7 @@ pub async fn data_transform(
                     let new_item = tapp_storage::ActiveModel {
                         id: NotSet,
                         tapp_id: Set(req.tapp_id.clone()),
-                        user_id: Set(user_id),
+                        user_id: Set(storage_owner_id),
                         key: Set(key),
                         value: Set(storage_value),
                         created_at: Set(now),

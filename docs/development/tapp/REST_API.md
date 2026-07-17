@@ -70,11 +70,14 @@ Tapp 管理接口大多返回：
 | GET  | `/api/tapps/{tappId}/resources` | 代码、CSS、HTML、i18n、Page 模块等资源对象   |
 | GET  | `/api/tapps/{tappId}/export`    | 导出 `.tapp` ZIP                             |
 
-读取与运行时授权先查管理员 owner；若未找到且用户已登录，再查当前用户 owner。新安装会
-拒绝管理员公开命名空间冲突；历史同 ID 数据仍按管理员版本优先处理。
+读取与运行时授权优先当前用户的私有安装；未安装私有副本时再使用站点公开（管理员）安装。
+用户可与公开安装并存私有副本；管理员公开安装仍拒绝覆盖任何已有同 ID 安装。
+
+Storage（Option A）按安装 owner 命名空间隔离：打开公开安装时读写站点 owner 数据，viewer
+只读；写/删/清空仅 owner。个人数据需用户安装自己的副本。
 
 `/details` 是 `TappRuntime` 的启动同步接口。它固定执行管理员集合与当前用户集合查询，
-同 ID 时保留管理员版本，并对每项应用与单项 `/api/tapps/{tappId}` 相同的动态角色权限过滤，
+同 ID 时保留用户私有版本，并对每项应用与单项 `/api/tapps/{tappId}` 相同的动态角色权限过滤，
 用于避免列表后逐项读取详情的 N+1 请求。列表项使用 camelCase；详情沿用历史 snake_case。
 
 `/resources` 当前返回 snake_case 字段，`TappApiService.getTappResources` 会转换为：

@@ -685,8 +685,9 @@ pub async fn verify_tapp_ownership(
 
 /// Resolve the exact installation record used to execute a Tapp for this subject.
 ///
-/// Shared administrator Tapps intentionally win over a same-id user installation so code,
-/// resources, declared APIs and granted permissions always come from one record.
+/// When the subject has a private install of the same `tapp_id`, that record wins over the
+/// site-owner public install so code, resources, APIs, grants and storage all come from the
+/// private copy. Guests and users without a private copy use the public admin install.
 pub async fn resolve_accessible_tapp(
     db: &DatabaseConnection,
     user_id: i32,
@@ -760,11 +761,12 @@ pub async fn verify_tapp_granted_permissions(
 }
 
 fn tapp_owner_priority(owner_id: i32, user_id: i32, admin_id: i32) -> u8 {
-    // 详情、资源和批量同步都优先管理员公开版本。授权必须选择同一安装记录，
-    // 否则执行管理员代码时可能错误读取用户同 ID Tapp 的授权集合。
-    if owner_id == admin_id {
+    // Prefer the subject's private install when both private and public copies exist so
+    // runtime grants, code and storage stay on the same owner-scoped record. Guests only
+    // resolve the public admin install.
+    if user_id >= 0 && owner_id == user_id {
         0
-    } else if owner_id == user_id {
+    } else if owner_id == admin_id {
         1
     } else {
         2
@@ -955,10 +957,14 @@ mod tests {
     use super::{rate_limit_key, rate_limit_record_id, tapp_owner_priority};
 
     #[test]
-    fn shared_admin_tapp_precedes_same_id_user_tapp() {
-        assert_eq!(tapp_owner_priority(1, 42, 1), 0);
-        assert_eq!(tapp_owner_priority(42, 42, 1), 1);
+    fn private_install_precedes_same_id_admin_tapp() {
+        // Subject's private install wins over site-owner public install.
+        assert_eq!(tapp_owner_priority(42, 42, 1), 0);
+        assert_eq!(tapp_owner_priority(1, 42, 1), 1);
         assert_eq!(tapp_owner_priority(99, 42, 1), 2);
+        // Guests never match a private owner_id; public admin still ranks above unrelated.
+        assert_eq!(tapp_owner_priority(1, -1, 1), 1);
+        assert_eq!(tapp_owner_priority(99, -1, 1), 2);
     }
 
     #[test]

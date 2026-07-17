@@ -15,6 +15,7 @@ use crate::services::permission_service::TappPermission;
 
 use super::common::authorize_tapp_permission;
 use super::runtime_grant::RuntimeGrantContext;
+use crate::api::tapp_store::{storage_write_forbidden_error, TappStorageAccess};
 
 #[derive(Debug, Deserialize)]
 pub struct RegisterShortcutRequest {
@@ -35,9 +36,13 @@ pub async fn register_shortcut(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     runtime_grant.require_tapp_id(&req.tapp_id)?;
     runtime_grant.require(TappPermission::ShortcutRegister)?;
-    let user_id =
-        authorize_tapp_permission(&db, &claims, &req.tapp_id, TappPermission::ShortcutRegister)
-            .await?;
+    authorize_tapp_permission(&db, &claims, &req.tapp_id, TappPermission::ShortcutRegister).await?;
+    let access = TappStorageAccess::from_runtime_grant(&runtime_grant, &claims)
+        .map_err(|status| (status, Json(json!({ "error": "Invalid runtime grant subject" }))))?;
+    access
+        .require_write()
+        .map_err(|_| storage_write_forbidden_error())?;
+    let owner_id = access.storage_namespace();
 
     tracing::info!(
         "[TAPP] register_shortcut - User: {}, Tapp: {}, Keys: {}",
@@ -70,9 +75,9 @@ pub async fn register_shortcut(
         "enabled": true
     });
 
-    // 检查快捷键冲突
+    // 检查快捷键冲突（同一安装 owner 命名空间内）
     let existing = tapp_storage::Entity::find()
-        .filter(tapp_storage::Column::UserId.eq(user_id))
+        .filter(tapp_storage::Column::UserId.eq(owner_id))
         .filter(tapp_storage::Column::Key.starts_with("_shortcut:"))
         .all(&db)
         .await
@@ -102,7 +107,7 @@ pub async fn register_shortcut(
 
     // Upsert
     let existing_item = tapp_storage::Entity::find()
-        .filter(tapp_storage::Column::UserId.eq(user_id))
+        .filter(tapp_storage::Column::UserId.eq(owner_id))
         .filter(tapp_storage::Column::TappId.eq(&req.tapp_id))
         .filter(tapp_storage::Column::Key.eq(&storage_key))
         .one(&db)
@@ -128,7 +133,7 @@ pub async fn register_shortcut(
         let storage = tapp_storage::ActiveModel {
             id: NotSet,
             tapp_id: Set(req.tapp_id.clone()),
-            user_id: Set(user_id),
+            user_id: Set(owner_id),
             key: Set(storage_key),
             value: Set(shortcut_data.clone()),
             created_at: Set(now),
@@ -154,8 +159,13 @@ pub async fn unregister_shortcut(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     runtime_grant.require_tapp_id(&tapp_id)?;
     runtime_grant.require(TappPermission::ShortcutRegister)?;
-    let user_id =
-        authorize_tapp_permission(&db, &claims, &tapp_id, TappPermission::ShortcutRegister).await?;
+    authorize_tapp_permission(&db, &claims, &tapp_id, TappPermission::ShortcutRegister).await?;
+    let access = TappStorageAccess::from_runtime_grant(&runtime_grant, &claims)
+        .map_err(|status| (status, Json(json!({ "error": "Invalid runtime grant subject" }))))?;
+    access
+        .require_write()
+        .map_err(|_| storage_write_forbidden_error())?;
+    let owner_id = access.storage_namespace();
     tracing::info!(
         "[TAPP] unregister_shortcut - User: {}, Tapp: {}, ID: {}",
         claims.username,
@@ -168,7 +178,7 @@ pub async fn unregister_shortcut(
     let storage_key = format!("_shortcut:{}", shortcut_id);
 
     let result = tapp_storage::Entity::delete_many()
-        .filter(tapp_storage::Column::UserId.eq(user_id))
+        .filter(tapp_storage::Column::UserId.eq(owner_id))
         .filter(tapp_storage::Column::TappId.eq(&tapp_id))
         .filter(tapp_storage::Column::Key.eq(&storage_key))
         .exec(&db)
@@ -204,15 +214,12 @@ pub async fn list_shortcuts(
 
     use crate::models::entities::tapp_storage;
 
-    let user_id: i32 = claims.sub.parse().map_err(|_| {
-        (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({ "error": "Invalid user" })),
-        )
-    })?;
+    let access = TappStorageAccess::from_runtime_grant(&runtime_grant, &claims)
+        .map_err(|status| (status, Json(json!({ "error": "Invalid runtime grant subject" }))))?;
+    let owner_id = access.storage_namespace();
 
     let mut query = tapp_storage::Entity::find()
-        .filter(tapp_storage::Column::UserId.eq(user_id))
+        .filter(tapp_storage::Column::UserId.eq(owner_id))
         .filter(tapp_storage::Column::Key.starts_with("_shortcut:"));
 
     if let Some(tapp_id) = params.get("tapp_id") {

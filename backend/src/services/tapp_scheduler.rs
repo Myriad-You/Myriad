@@ -1172,15 +1172,28 @@ impl TappSchedulerEngine {
             BackendAction::StorageSet { key, value } => {
                 let key = Self::resolve_template(key, context);
                 let value = Self::resolve_json_templates(value, context);
-                Self::action_storage_set(db, task.user_id, &task.tapp_id, &key, value).await
+                // Storage follows installation owner; only the owner may write.
+                if task.user_id != authority.owner_id {
+                    return Err(
+                        "Only the installation owner can write storage from scheduled actions"
+                            .to_string(),
+                    );
+                }
+                Self::action_storage_set(db, authority.owner_id, &task.tapp_id, &key, value).await
             }
             BackendAction::StorageGet { key } => {
                 let key = Self::resolve_template(key, context);
-                Self::action_storage_get(db, task.user_id, &task.tapp_id, &key).await
+                Self::action_storage_get(db, authority.owner_id, &task.tapp_id, &key).await
             }
             BackendAction::StorageDelete { key } => {
                 let key = Self::resolve_template(key, context);
-                Self::action_storage_delete(db, task.user_id, &task.tapp_id, &key).await
+                if task.user_id != authority.owner_id {
+                    return Err(
+                        "Only the installation owner can delete storage from scheduled actions"
+                            .to_string(),
+                    );
+                }
+                Self::action_storage_delete(db, authority.owner_id, &task.tapp_id, &key).await
             }
             BackendAction::AiGenerate { prompt } => {
                 let prompt = Self::resolve_template(prompt, context);
