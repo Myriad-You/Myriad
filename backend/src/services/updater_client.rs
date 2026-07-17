@@ -122,11 +122,6 @@ impl UpdaterClient {
         self.inner.gateway_secret.is_some() || self.inner.token.is_some()
     }
 
-    /// Back-compat alias used by older call sites / docs.
-    pub fn has_token(&self) -> bool {
-        self.can_mutate()
-    }
-
     pub fn base_url(&self) -> &str {
         &self.inner.base_url
     }
