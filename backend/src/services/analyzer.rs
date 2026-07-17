@@ -101,17 +101,95 @@ impl ChatMessage {
 
 #[derive(Debug, Deserialize)]
 struct OpenAIResponse {
+    #[serde(default)]
     choices: Vec<OpenAIChoice>,
+    /// OpenRouter and some gateways return HTTP 200 with a top-level error object.
+    #[serde(default)]
+    error: Option<OpenAIErrorBody>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIErrorBody {
+    #[serde(default)]
+    message: Option<String>,
+    #[serde(default)]
+    code: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
 struct OpenAIChoice {
+    #[serde(default)]
     message: OpenAIResponseMessage,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
 struct OpenAIResponseMessage {
-    content: String,
+    /// Providers may return `null` for content when only reasoning is filled.
+    #[serde(default)]
+    content: Option<String>,
+    /// OpenRouter / DeepSeek-style reasoning fields (optional, never required).
+    #[serde(default)]
+    reasoning_content: Option<String>,
+    #[serde(default)]
+    reasoning: Option<String>,
+}
+
+/// Extract assistant text from an OpenAI-compatible chat completion body.
+///
+/// Never panics: returns clear anyhow errors for playground 502 paths.
+fn extract_openai_completion_text(response: &OpenAIResponse) -> Result<String> {
+    if let Some(error) = &response.error {
+        let message = error
+            .message
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("OpenAI-compatible provider returned an error object");
+        let code = error
+            .code
+            .as_ref()
+            .map(|c| match c {
+                serde_json::Value::String(s) => s.clone(),
+                other => other.to_string(),
+            })
+            .filter(|s| !s.is_empty() && s != "null");
+        return match code {
+            Some(code) => Err(anyhow::anyhow!(
+                "OpenAI-compatible API error (code {code}): {message}"
+            )),
+            None => Err(anyhow::anyhow!("OpenAI-compatible API error: {message}")),
+        };
+    }
+
+    let message = response
+        .choices
+        .first()
+        .map(|choice| &choice.message)
+        .ok_or_else(|| anyhow::anyhow!("OpenAI-compatible API returned no choices"))?;
+
+    if let Some(content) = message
+        .content
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+    {
+        return Ok(content.to_string());
+    }
+
+    // Prefer non-empty content; fall back to common reasoning fields when
+    // providers put the payload only in reasoning_* (still never panic).
+    for candidate in [
+        message.reasoning_content.as_deref(),
+        message.reasoning.as_deref(),
+    ] {
+        if let Some(text) = candidate.map(str::trim).filter(|s| !s.is_empty()) {
+            return Ok(text.to_string());
+        }
+    }
+
+    Err(anyhow::anyhow!(
+        "OpenAI-compatible API returned empty message content"
+    ))
 }
 
 // ============= AI Provider Enum =============
@@ -389,13 +467,7 @@ impl AiAnalyzer {
             .await
             .context("Failed to parse OpenAI API response")?;
 
-        let analysis = openai_response
-            .choices
-            .first()
-            .map(|c| c.message.content.clone())
-            .unwrap_or_else(|| "No analysis generated".to_string());
-
-        Ok(analysis)
+        extract_openai_completion_text(&openai_response)
     }
 
     /// 简单的分析方法（用于 Tapp API）
@@ -481,13 +553,7 @@ impl AiAnalyzer {
                     .await
                     .context("Failed to parse OpenAI API response")?;
 
-                let analysis = openai_response
-                    .choices
-                    .first()
-                    .map(|c| c.message.content.clone())
-                    .unwrap_or_else(|| "No analysis generated".to_string());
-
-                Ok(analysis)
+                extract_openai_completion_text(&openai_response)
             }
         }
     }
@@ -655,7 +721,10 @@ impl AiAnalyzer {
 
 #[cfg(test)]
 mod tests {
-    use super::{flatten_messages_for_gemini, openai_chat_completions_url, ChatMessage};
+    use super::{
+        extract_openai_completion_text, flatten_messages_for_gemini, openai_chat_completions_url,
+        ChatMessage, OpenAIResponse,
+    };
 
     #[test]
     fn flattens_multi_turn_messages_for_gemini() {
@@ -695,5 +764,64 @@ mod tests {
             openai_chat_completions_url(Some("https://gateway.example.com/v1/chat/completions")),
             "https://gateway.example.com/v1/chat/completions"
         );
+    }
+
+    #[test]
+    fn openai_response_deserializes_null_content() {
+        let raw = r#"{
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "reasoning_content": "step by step: final answer HERE"
+                }
+            }]
+        }"#;
+        let parsed: OpenAIResponse = serde_json::from_str(raw).expect("deserialize");
+        let text = extract_openai_completion_text(&parsed).expect("fallback to reasoning");
+        assert!(text.contains("final answer HERE"));
+    }
+
+    #[test]
+    fn openai_response_top_level_error_is_err() {
+        let raw = r#"{
+            "error": {
+                "message": "Provider returned error",
+                "code": "model_not_found"
+            },
+            "choices": []
+        }"#;
+        let parsed: OpenAIResponse = serde_json::from_str(raw).expect("deserialize");
+        let err = extract_openai_completion_text(&parsed).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("Provider returned error"));
+        assert!(msg.contains("model_not_found"));
+    }
+
+    #[test]
+    fn openai_response_empty_content_without_reasoning_is_err() {
+        let raw = r#"{
+            "choices": [{
+                "message": { "role": "assistant", "content": null }
+            }]
+        }"#;
+        let parsed: OpenAIResponse = serde_json::from_str(raw).expect("deserialize");
+        let err = extract_openai_completion_text(&parsed).unwrap_err();
+        assert!(format!("{err:#}").contains("empty message content"));
+    }
+
+    #[test]
+    fn openai_response_prefers_non_empty_content() {
+        let raw = r#"{
+            "choices": [{
+                "message": {
+                    "content": "  visible payload  ",
+                    "reasoning_content": "hidden chain"
+                }
+            }]
+        }"#;
+        let parsed: OpenAIResponse = serde_json::from_str(raw).expect("deserialize");
+        let text = extract_openai_completion_text(&parsed).expect("content");
+        assert_eq!(text, "visible payload");
     }
 }

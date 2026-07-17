@@ -1935,6 +1935,7 @@ export const enUS: TranslationKeys = {
     playgroundSessionsEmpty: 'No other sessions.',
     playgroundOriginUser: 'You',
     playgroundOriginRepair: 'Auto-repair',
+    playgroundOriginManual: 'Manual edit',
     playgroundTimeJustNow: 'Just now',
     playgroundTimeMinutesAgo: '{n}m ago',
     playgroundTimeHoursAgo: '{n}h ago',
@@ -1968,6 +1969,9 @@ export const enUS: TranslationKeys = {
       'Generation timed out. Your project and prompt were kept — press Retry to try again.',
     playgroundServerErrorHint:
       'The service is temporarily unavailable. Your project and prompt were kept — press Retry.',
+    playgroundCancel: 'Cancel',
+    playgroundCancelled:
+      'Generation cancelled. Your project and prompt were kept — send again when ready.',
     playgroundAgentTrace: 'Build steps',
     playgroundKnowledgeSources: 'Referenced docs',
     playgroundValidated: 'Validated',

@@ -51,7 +51,7 @@ export interface PlaygroundHistoryRevisionItem {
   index: number
   instruction: string
   createdAt: number
-  origin?: 'user' | 'runtime-repair'
+  origin?: 'user' | 'runtime-repair' | 'manual'
   explanation?: string
 }
 
@@ -89,6 +89,8 @@ export interface PlaygroundComposerProps {
   lastFailedAttempt?: PlaygroundLastFailedAttempt | null
   onInstructionChange: (value: string) => void
   onSubmit: () => void
+  /** Cancel in-flight generation (shown while busy). */
+  onCancel?: () => void
   onInstall: () => void
   onExport?: () => void
   onMoveRevision: (delta: number) => void
@@ -102,6 +104,19 @@ export interface PlaygroundComposerProps {
   onDismissNotice: () => void
   onRetryFailed?: () => void
   onDismissFailed?: () => void
+}
+
+function originLabel(
+  origin: 'user' | 'runtime-repair' | 'manual' | undefined,
+  copy: {
+    playgroundOriginUser: string
+    playgroundOriginRepair: string
+    playgroundOriginManual: string
+  },
+): string {
+  if (origin === 'runtime-repair') return copy.playgroundOriginRepair
+  if (origin === 'manual') return copy.playgroundOriginManual
+  return copy.playgroundOriginUser
 }
 
 function formatRelativeTime(
@@ -218,6 +233,7 @@ export function PlaygroundComposer({
   lastFailedAttempt,
   onInstructionChange,
   onSubmit,
+  onCancel,
   onInstall,
   onExport,
   onMoveRevision,
@@ -549,9 +565,7 @@ export function PlaygroundComposer({
                                     className="text-[9px] font-semibold"
                                     style={{ color: 'var(--text-muted)' }}
                                   >
-                                    {rev.origin === 'runtime-repair'
-                                      ? t.tapp.playgroundOriginRepair
-                                      : t.tapp.playgroundOriginUser}
+                                    {originLabel(rev.origin, t.tapp)}
                                   </span>
                                   {isCurrent && (
                                     <span
@@ -572,7 +586,7 @@ export function PlaygroundComposer({
                                     )}
                                   </span>
                                 </div>
-                                {/* User turn */}
+                                {/* User / manual turn */}
                                 <button
                                   type="button"
                                   disabled={busy}
@@ -583,7 +597,9 @@ export function PlaygroundComposer({
                                     className="text-[9px] font-semibold mb-0.5"
                                     style={{ color: 'var(--color-primary)' }}
                                   >
-                                    {t.tapp.playgroundMemoryUser}
+                                    {rev.origin === 'manual'
+                                      ? t.tapp.playgroundOriginManual
+                                      : t.tapp.playgroundMemoryUser}
                                   </div>
                                   <p
                                     className="text-[11px] leading-relaxed whitespace-pre-wrap break-words"
@@ -592,22 +608,34 @@ export function PlaygroundComposer({
                                     {rev.instruction.trim() || '—'}
                                   </p>
                                 </button>
-                                {/* Agent turn */}
-                                <div className="rounded-xl px-2.5 py-2 bg-[color-mix(in_srgb,var(--color-primary),transparent_92%)] ring-1 ring-[color-mix(in_srgb,var(--color-primary),transparent_82%)]">
-                                  <div
-                                    className="text-[9px] font-semibold mb-0.5"
-                                    style={{ color: 'var(--color-primary)' }}
-                                  >
-                                    {t.tapp.playgroundMemoryAgent}
+                                {/* Agent turn (skip for pure manual edits — explanation is the edit note) */}
+                                {rev.origin === 'manual' ? (
+                                  <div className="rounded-xl px-2.5 py-2 bg-black/[0.02] dark:bg-white/[0.03]">
+                                    <p
+                                      className="text-[11px] leading-relaxed whitespace-pre-wrap break-words"
+                                      style={{ color: 'var(--text-muted)' }}
+                                    >
+                                      {(rev.explanation || '').trim() ||
+                                        t.tapp.playgroundMemoryNoExplanation}
+                                    </p>
                                   </div>
-                                  <p
-                                    className="text-[11px] leading-relaxed whitespace-pre-wrap break-words"
-                                    style={{ color: 'var(--text-primary)' }}
-                                  >
-                                    {(rev.explanation || '').trim() ||
-                                      t.tapp.playgroundMemoryNoExplanation}
-                                  </p>
-                                </div>
+                                ) : (
+                                  <div className="rounded-xl px-2.5 py-2 bg-[color-mix(in_srgb,var(--color-primary),transparent_92%)] ring-1 ring-[color-mix(in_srgb,var(--color-primary),transparent_82%)]">
+                                    <div
+                                      className="text-[9px] font-semibold mb-0.5"
+                                      style={{ color: 'var(--color-primary)' }}
+                                    >
+                                      {t.tapp.playgroundMemoryAgent}
+                                    </div>
+                                    <p
+                                      className="text-[11px] leading-relaxed whitespace-pre-wrap break-words"
+                                      style={{ color: 'var(--text-primary)' }}
+                                    >
+                                      {(rev.explanation || '').trim() ||
+                                        t.tapp.playgroundMemoryNoExplanation}
+                                    </p>
+                                  </div>
+                                )}
                               </li>
                             )
                           })}
@@ -748,9 +776,7 @@ export function PlaygroundComposer({
                                       className="text-[9px] font-semibold"
                                       style={{ color: 'var(--text-muted)' }}
                                     >
-                                      {rev.origin === 'runtime-repair'
-                                        ? t.tapp.playgroundOriginRepair
-                                        : t.tapp.playgroundOriginUser}
+                                      {originLabel(rev.origin, t.tapp)}
                                     </span>
                                     {isCurrent && (
                                       <span
@@ -1403,41 +1429,59 @@ export function PlaygroundComposer({
               )}
             </AnimatePresence>
 
-            <motion.button
-              onClick={onSubmit}
-              disabled={!instruction.trim() || busy}
-              whileTap={
-                animationsEnabled && instruction.trim() && !busy
-                  ? { scale: 0.92 }
-                  : {}
-              }
-              className="h-8 shrink-0 rounded-full px-3 flex items-center gap-1.5 text-xs font-semibold text-white shadow-md disabled:opacity-40 transition-opacity"
-              style={{
-                background:
-                  'linear-gradient(135deg, var(--color-primary), color-mix(in srgb, var(--color-primary) 80%, black))',
-              }}
-              title={
-                hasProject
-                  ? t.tapp.playgroundApplyChange
-                  : t.tapp.playgroundGenerate
-              }
-              aria-label={
-                hasProject
-                  ? t.tapp.playgroundApplyChange
-                  : t.tapp.playgroundGenerate
-              }
-            >
-              {busy ? (
-                <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              ) : (
-                <FaArrowUp className="w-3 h-3" />
-              )}
-              <span className="hidden sm:inline">
-                {hasProject
-                  ? t.tapp.playgroundApplyChange
-                  : t.tapp.playgroundGenerate}
-              </span>
-            </motion.button>
+            {busy && onCancel ? (
+              <motion.button
+                type="button"
+                onClick={onCancel}
+                whileTap={animationsEnabled ? { scale: 0.92 } : {}}
+                className="h-8 shrink-0 rounded-full px-3 flex items-center gap-1.5 text-xs font-semibold text-white shadow-md transition-opacity"
+                style={{
+                  background:
+                    'linear-gradient(135deg, #b45309, color-mix(in srgb, #b45309 80%, black))',
+                }}
+                title={t.tapp.playgroundCancel}
+                aria-label={t.tapp.playgroundCancel}
+              >
+                <FaTimes className="w-3 h-3" />
+                <span className="hidden sm:inline">{t.tapp.playgroundCancel}</span>
+              </motion.button>
+            ) : (
+              <motion.button
+                onClick={onSubmit}
+                disabled={!instruction.trim() || busy}
+                whileTap={
+                  animationsEnabled && instruction.trim() && !busy
+                    ? { scale: 0.92 }
+                    : {}
+                }
+                className="h-8 shrink-0 rounded-full px-3 flex items-center gap-1.5 text-xs font-semibold text-white shadow-md disabled:opacity-40 transition-opacity"
+                style={{
+                  background:
+                    'linear-gradient(135deg, var(--color-primary), color-mix(in srgb, var(--color-primary) 80%, black))',
+                }}
+                title={
+                  hasProject
+                    ? t.tapp.playgroundApplyChange
+                    : t.tapp.playgroundGenerate
+                }
+                aria-label={
+                  hasProject
+                    ? t.tapp.playgroundApplyChange
+                    : t.tapp.playgroundGenerate
+                }
+              >
+                {busy ? (
+                  <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <FaArrowUp className="w-3 h-3" />
+                )}
+                <span className="hidden sm:inline">
+                  {hasProject
+                    ? t.tapp.playgroundApplyChange
+                    : t.tapp.playgroundGenerate}
+                </span>
+              </motion.button>
+            )}
           </div>
         </div>
       </div>

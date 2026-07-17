@@ -34,6 +34,7 @@ import {
   deleteSession,
   getActiveSession,
   loadSessionsStore,
+  pushManualEditRevision,
   pushRevision,
   saveSessionsStore,
   switchSession,
@@ -60,29 +61,68 @@ function phaseIndexFromElapsedMs(elapsedMs: number): number {
   return seconds < 5 ? 0 : seconds < 14 ? 1 : seconds < 90 ? 2 : 3
 }
 
+function isAbortLikeError(error: unknown): {
+  aborted: boolean
+  timeout: boolean
+} {
+  const name =
+    error instanceof Error || error instanceof DOMException ? error.name : ''
+  const message =
+    error instanceof Error || error instanceof DOMException
+      ? error.message || ''
+      : String(error || '')
+  const lower = `${name} ${message}`.toLowerCase()
+  const timeout =
+    name === 'TimeoutError' ||
+    /timeout/i.test(name) ||
+    /timed?\s*out/i.test(message) ||
+    /aborted due to timeout/i.test(message) ||
+    /signal timed out/i.test(message)
+  const aborted =
+    name === 'AbortError' ||
+    /aborterror/i.test(lower) ||
+    /the operation was aborted/i.test(message)
+  return { aborted: aborted || timeout, timeout }
+}
+
 function mapPlaygroundGenerateError(
   message: string,
   copy: {
     playgroundTimeoutHint: string
     playgroundServerErrorHint: string
     playgroundGenerateFailed: string
+    playgroundCancelled?: string
   },
+  opts?: { userCancelled?: boolean },
 ): string {
+  if (opts?.userCancelled && copy.playgroundCancelled) {
+    return copy.playgroundCancelled
+  }
+
   const raw = (message || '').trim()
   if (!raw) return copy.playgroundGenerateFailed
 
   const lower = raw.toLowerCase()
   const isTimeout =
-    raw === 'AbortError' ||
-    lower === 'aborterror' ||
+    raw === 'TimeoutError' ||
+    lower === 'timeouterror' ||
     /timeout/i.test(raw) ||
     /timed?\s*out/i.test(raw) ||
-    /the operation was aborted/i.test(raw) ||
+    /aborted due to timeout/i.test(raw) ||
     /signal timed out/i.test(raw) ||
     /backend proxy timeout/i.test(raw) ||
     /pro ai agent generation failed/i.test(raw)
 
   if (isTimeout) return copy.playgroundTimeoutHint
+
+  // Non-user abort still treated as timeout/interrupt soft error
+  if (
+    raw === 'AbortError' ||
+    lower === 'aborterror' ||
+    /the operation was aborted/i.test(raw)
+  ) {
+    return copy.playgroundTimeoutHint
+  }
 
   const isServer =
     /\bHTTP\s*50[0234]\b/i.test(raw) ||
@@ -97,6 +137,19 @@ function mapPlaygroundGenerateError(
   if (isServer) return copy.playgroundServerErrorHint
 
   return raw
+}
+
+const FILE_LABELS: Record<FileId, string> = {
+  page: 'main.js · page',
+  html: 'page.html',
+  styles: 'styles.css',
+  core: 'main.js · core',
+  manifest: 'manifest.json',
+  i18n: 'i18n.json',
+  widget: 'main.js · widget',
+  widgetHtml: 'widget.html',
+  modules: 'page/modules',
+  assets: 'assets',
 }
 
 function fileContents(project: TappPlaygroundProject, file: FileId): string {
@@ -495,6 +548,10 @@ export function TappPlaygroundPage() {
   const draftTimerRef = useRef<number | undefined>(undefined)
   const runtimeRepairCountRef = useRef(0)
   const repairedRuntimeErrorsRef = useRef(new Set<string>())
+  /** In-flight generate AbortController (user Cancel). */
+  const generateAbortRef = useRef<AbortController | null>(null)
+  const userCancelledRef = useRef(false)
+  const generateRequestIdRef = useRef(0)
 
   const animationsEnabled = animConfig.level !== 'none'
   const springTransition = animConfig.spring
@@ -630,12 +687,29 @@ export function TappPlaygroundPage() {
     }
   }, [project])
 
+  const cancelGeneration = useCallback(() => {
+    const controller = generateAbortRef.current
+    if (!controller) return
+    userCancelledRef.current = true
+    controller.abort(
+      new DOMException('User cancelled generation', 'AbortError'),
+    )
+  }, [])
+
   const executeGeneration = async (
     prompt: string,
     origin: 'user' | 'runtime-repair',
     runtimeFeedback: string[] = [],
   ) => {
     if (!prompt.trim() || busy) return
+    // Cancel any leftover controller; start a fresh AbortController for this run.
+    generateAbortRef.current?.abort()
+    const abortController = new AbortController()
+    generateAbortRef.current = abortController
+    userCancelledRef.current = false
+    // Generation request id: ignore late responses after cancel/unmount.
+    const requestId = (generateRequestIdRef.current += 1)
+
     setBusy(true)
     setBusyMode(origin)
     setError('')
@@ -657,12 +731,22 @@ export function TappPlaygroundPage() {
     )
     const startedAt = Date.now()
     try {
-      const response = await generatePlaygroundProject({
-        instruction: prompt.trim(),
-        currentProject: project,
-        runtimeFeedback,
-        history,
-      })
+      const response = await generatePlaygroundProject(
+        {
+          instruction: prompt.trim(),
+          currentProject: project,
+          runtimeFeedback,
+          history,
+        },
+        { signal: abortController.signal },
+      )
+      if (
+        requestId !== generateRequestIdRef.current ||
+        userCancelledRef.current ||
+        abortController.signal.aborted
+      ) {
+        return
+      }
       setStore((current) =>
         updateActiveSession(current, (active) =>
           pushRevision(active, {
@@ -682,15 +766,18 @@ export function TappPlaygroundPage() {
       setPreviewError('')
       setNotice(response.explanation)
     } catch (requestError) {
+      if (requestId !== generateRequestIdRef.current) return
+
       const elapsedMs = Date.now() - startedAt
+      const { aborted, timeout } = isAbortLikeError(requestError)
+      const userCancelled = userCancelledRef.current && aborted && !timeout
+
       const rawMessage =
         requestError instanceof Error
           ? requestError.message
           : requestError instanceof DOMException
             ? requestError.name || requestError.message
             : t.tapp.playgroundGenerateFailed
-      // AbortSignal.timeout often surfaces as DOMException name "TimeoutError"
-      // or Error with message "signal timed out" / "The operation was aborted."
       const name =
         requestError instanceof Error || requestError instanceof DOMException
           ? requestError.name
@@ -699,7 +786,19 @@ export function TappPlaygroundPage() {
         name === 'AbortError' || name === 'TimeoutError'
           ? name
           : rawMessage || t.tapp.playgroundGenerateFailed
-      const friendly = mapPlaygroundGenerateError(messageForMap, t.tapp)
+      const friendly = mapPlaygroundGenerateError(messageForMap, t.tapp, {
+        userCancelled,
+      })
+
+      if (userCancelled) {
+        // Soft notice only — not the hard failure banner. Keep lastFailed so
+        // the user can still Retry the same prompt from the status band if set;
+        // we intentionally do NOT set lastFailed for cancel (distinct UX).
+        setNotice(friendly)
+        // Keep instruction for easy re-submit.
+        return
+      }
+
       const failed: PlaygroundLastFailedAttempt = {
         instruction: prompt.trim(),
         error: friendly,
@@ -717,7 +816,13 @@ export function TappPlaygroundPage() {
       // Keep instruction text on failure (do not clear). Prefer the status
       // band over a duplicate floating error card for generate failures.
     } finally {
-      setBusy(false)
+      if (requestId === generateRequestIdRef.current) {
+        setBusy(false)
+        if (generateAbortRef.current === abortController) {
+          generateAbortRef.current = null
+        }
+        userCancelledRef.current = false
+      }
     }
   }
 
@@ -910,6 +1015,7 @@ export function TappPlaygroundPage() {
   }
 
   const clearSession = () => {
+    if (busy) cancelGeneration()
     setStore((current) =>
       updateActiveSession(current, (active) => clearSessionContent(active)),
     )
@@ -930,7 +1036,7 @@ export function TappPlaygroundPage() {
     }
   }, [selectedFile, session.revisionIndex])
 
-  // 手动编辑落盘：文本文件直接写入当前版本，JSON 文件解析成功后写入
+  // 手动编辑落盘：解析成功后推入 manual 版本（防抖 600ms；无变更则跳过）
   const applyDraft = useCallback((file: FileId, text: string) => {
     const textKeys = {
       page: 'page',
@@ -954,6 +1060,7 @@ export function TappPlaygroundPage() {
       return
     }
     setDraftInvalid(false)
+    const fileLabel = FILE_LABELS[file] || file
     setStore((current) =>
       updateActiveSession(
         current,
@@ -993,9 +1100,7 @@ export function TappPlaygroundPage() {
               },
             }
           }
-          const revisions = active.revisions.slice()
-          revisions[active.revisionIndex] = { ...rev, project: nextProject }
-          return { ...active, revisions }
+          return pushManualEditRevision(active, nextProject, fileLabel)
         },
         true,
       ),
@@ -1495,6 +1600,7 @@ export function TappPlaygroundPage() {
         lastFailedAttempt={session.lastFailedAttempt || null}
         onInstructionChange={setInstruction}
         onSubmit={() => void runGeneration()}
+        onCancel={cancelGeneration}
         onInstall={() => void installProject()}
         onExport={() => void exportProject()}
         onMoveRevision={moveRevision}

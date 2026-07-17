@@ -38,12 +38,20 @@ const MAX_RETRIEVED_CONTEXT_CHARS: usize = 60_000;
 const MAX_CONCURRENT_AGENT_RUNS: usize = 2;
 /// Full multi-turn memory: prior successful revisions + optional failed tail.
 const MAX_HISTORY_TURNS: usize = 20;
+/// Adaptive wire format: only the last K *successful* turns keep full project
+/// JSON in model messages. Older turns send a compact summary (no source).
+/// Frontend may still store full projects in localStorage; only the model wire
+/// format is adaptive (see `build_codegen_messages` / `compact_project_summary`).
+const FULL_PROJECT_HISTORY_TURNS: usize = 2;
 /// Cap total request payload carefully (history may include many full project snapshots).
 const MAX_REQUEST_BODY_BYTES: usize = 12 * 1024 * 1024;
 const MAX_HISTORY_EXPLANATION_BYTES: usize = 4_000;
 const MAX_HISTORY_ERROR_BYTES: usize = 4_000;
 /// Pro 模型生成完整项目较慢；与前端 `TappPlaygroundService.ts` 的
-/// `AbortSignal.timeout(720_000)` 保持一致。
+/// 超时预算（约 20 分钟）保持一致。客户端 AbortController 断开连接时，
+/// 本 handler future 在 hyper/axum 丢弃响应兴趣后会被 drop；并发信号量
+/// permit 随 `_agent_permit` 的 Drop 释放。进行中的模型 HTTP 调用最多再
+/// 跑到 `MODEL_REQUEST_TIMEOUT`（reqwest client timeout），不会无限阻塞。
 const MODEL_REQUEST_TIMEOUT: Duration = Duration::from_secs(720);
 
 static PLAYGROUND_AGENT_CONCURRENCY: LazyLock<Semaphore> =
@@ -77,6 +85,10 @@ MULTI-TURN EDITING SESSION RULES:
 - Prior user/assistant turns are the chronological modification memory for this
   session. Treat them as authoritative history of what was already requested and
   produced, not as free-form chat.
+- Older turns may include a COMPACT PROJECT SUMMARY (manifest, file sizes,
+  widgets, permissions) without source code. Recent turns may include full
+  project JSON. The CURRENT PROJECT JSON on the final user message is always
+  complete and authoritative for the codebase as it stands now.
 - Preserve still-relevant prior requirements unless the latest instruction or
   runtime feedback explicitly overrides them.
 - When a failed attempt appears near the end of history, treat it as context
@@ -406,11 +418,13 @@ async fn generate_project(
         },
     ];
     if !request.history.is_empty() {
+        let full_turns = successful_history_count.min(FULL_PROJECT_HISTORY_TURNS);
+        let compact_turns = successful_history_count.saturating_sub(FULL_PROJECT_HISTORY_TURNS);
         agent_trace.push(PlaygroundAgentStep {
             tool: "load_session_memory".to_string(),
             status: "success".to_string(),
             summary: format!(
-                "Loaded multi-turn modification memory: {successful_history_count} successful turn(s), {failed_history_count} failed attempt(s)"
+                "Loaded multi-turn modification memory: {successful_history_count} successful turn(s) ({full_turns} full project, {compact_turns} compact summary), {failed_history_count} failed attempt(s)"
             ),
         });
     }
@@ -840,37 +854,134 @@ fn format_prior_instructions(history: &[PlaygroundHistoryTurn]) -> String {
     }
 }
 
+/// Compact, source-free project summary for older multi-turn memory turns.
+///
+/// Includes manifest identity, permissions, code/asset field byte sizes, and
+/// widget ids/sizes — never full source text.
+fn compact_project_summary(project: &PlaygroundProject) -> String {
+    let manifest = &project.manifest;
+    let code = &project.code;
+
+    let mut file_sizes: Vec<String> = vec![
+        format!("core={}B", code.core.len()),
+        format!("page={}B", code.page.len()),
+        format!("styles={}B", code.styles.len()),
+        format!("pageHtml={}B", code.page_html.len()),
+    ];
+    if let Some(widget) = &code.widget {
+        file_sizes.push(format!("widget={}B", widget.len()));
+    }
+    if let Some(widget_html) = &code.widget_html {
+        file_sizes.push(format!("widgetHtml={}B", widget_html.len()));
+    }
+    if let Some(widget_css) = &code.widget_css {
+        file_sizes.push(format!("widgetCSS={}B", widget_css.len()));
+    }
+    if let Some(page_css) = &code.page_css {
+        file_sizes.push(format!("pageCSS={}B", page_css.len()));
+    }
+    if !code.page_modules.is_empty() {
+        let module_bytes: usize = code.page_modules.values().map(String::len).sum();
+        file_sizes.push(format!(
+            "pageModules={}files/{}B",
+            code.page_modules.len(),
+            module_bytes
+        ));
+    }
+    if !code.assets.is_empty() {
+        let asset_bytes: usize = code.assets.values().map(String::len).sum();
+        file_sizes.push(format!(
+            "assets={}files/{}B",
+            code.assets.len(),
+            asset_bytes
+        ));
+    }
+    if !code.i18n.is_empty() {
+        file_sizes.push(format!("i18n={}locales", code.i18n.len()));
+    }
+
+    let permissions = if manifest.permissions.is_empty() {
+        "[]".to_string()
+    } else {
+        format!("[{}]", manifest.permissions.join(", "))
+    };
+
+    let widgets = match &manifest.widgets {
+        Some(widgets) if !widgets.is_empty() => widgets
+            .iter()
+            .map(|w| {
+                format!(
+                    "{}(default={},sizes=[{}])",
+                    w.id,
+                    w.default_size,
+                    w.sizes.join(",")
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; "),
+        _ => "(none)".to_string(),
+    };
+
+    format!(
+        "manifest.id={} name={:?} version={} category={:?} hasPage={} permissions={} widgets={} files=[{}]",
+        manifest.id,
+        manifest.name,
+        manifest.version,
+        manifest.category,
+        manifest.has_page,
+        permissions,
+        widgets,
+        file_sizes.join(", ")
+    )
+}
+
+/// Whether successful-turn index `success_index` (0-based among successful
+/// turns only) should carry full project JSON on the model wire.
+fn successful_turn_keeps_full_project(
+    success_index: usize,
+    successful_count: usize,
+) -> bool {
+    let full_start = successful_count.saturating_sub(FULL_PROJECT_HISTORY_TURNS);
+    success_index >= full_start
+}
+
 /// Build OpenAI-compatible multi-turn codegen messages from session history.
 ///
-/// For each successful history turn i:
-/// - user: instruction + previous project JSON (`null` on first)
-/// - assistant: explanation + project JSON after that turn
-///
-/// Optional failed tail becomes a user message with error + project context.
-/// `final_user_content` is the current MODE/plan/instruction/project contract.
+/// Adaptive wire format (anti context blow-up):
+/// - Last [`FULL_PROJECT_HISTORY_TURNS`] successful turns: full project JSON
+///   in user/assistant turns (previous behavior).
+/// - Older successful turns: instruction + explanation + compact summary only
+///   (no full source).
+/// - Failed tail: error + instruction; compact project context at most once
+///   (full CURRENT project is always on the final user message).
+/// - `final_user_content` always carries the full current project.
 fn build_codegen_messages(
     history: &[PlaygroundHistoryTurn],
     final_user_content: &str,
 ) -> Result<Vec<ChatMessage>, String> {
     let mut messages = Vec::new();
-    let mut previous_project_json = "null".to_string();
+    let mut previous_project_repr = "null".to_string();
+    let mut previous_was_full = true;
+
+    let successful_count = history.iter().filter(|turn| !turn.failed).count();
+    let mut success_index = 0usize;
 
     for turn in history {
         if turn.failed {
-            let project_json = turn
-                .project
-                .as_ref()
-                .map(serde_json::to_string)
-                .transpose()
-                .map_err(|_| "Invalid failed history project".to_string())?
-                .unwrap_or_else(|| previous_project_json.clone());
             let error = turn
                 .error
                 .as_deref()
                 .unwrap_or("Generation failed")
                 .trim();
+            // Prefer a compact snapshot when present; otherwise reuse the last
+            // successful turn representation. Full CURRENT project is on the
+            // final user message — avoid another full dump here.
+            let project_context = match &turn.project {
+                Some(project) => compact_project_summary(project),
+                None => previous_project_repr.clone(),
+            };
             messages.push(ChatMessage::user(format!(
-                "A previous attempt in this session failed. Do not repeat the same mistake.\n\nFAILED INSTRUCTION:\n<instruction>{}</instruction>\n\nERROR:\n<error>{error}</error>\n\nPROJECT AT FAILURE:\n<project>{project_json}</project>",
+                "A previous attempt in this session failed. Do not repeat the same mistake.\n\nFAILED INSTRUCTION:\n<instruction>{}</instruction>\n\nERROR:\n<error>{error}</error>\n\nPROJECT CONTEXT AT FAILURE (summary; full current project is in the final user message):\n<project_summary>{project_context}</project_summary>",
                 turn.instruction.trim()
             )));
             continue;
@@ -880,20 +991,48 @@ fn build_codegen_messages(
             .project
             .as_ref()
             .ok_or_else(|| "Successful history turn missing project".to_string())?;
-        let project_json = serde_json::to_string(project)
-            .map_err(|_| "Invalid history project".to_string())?;
+        let keep_full = successful_turn_keeps_full_project(success_index, successful_count);
         let origin = turn.origin.as_deref().unwrap_or("user");
 
-        messages.push(ChatMessage::user(format!(
-            "SESSION TURN (origin: {origin})\nINSTRUCTION:\n<instruction>{}</instruction>\n\nPREVIOUS PROJECT JSON:\n<previous_project>{previous_project_json}</previous_project>",
-            turn.instruction.trim()
-        )));
-        messages.push(ChatMessage::assistant(format!(
-            "EXPLANATION:\n{}\n\nPROJECT JSON:\n{}",
-            turn.explanation.trim(),
-            project_json
-        )));
-        previous_project_json = project_json;
+        if keep_full {
+            let previous_block = if previous_was_full {
+                format!(
+                    "PREVIOUS PROJECT JSON:\n<previous_project>{previous_project_repr}</previous_project>"
+                )
+            } else {
+                format!(
+                    "PREVIOUS PROJECT SUMMARY:\n<previous_project_summary>{previous_project_repr}</previous_project_summary>"
+                )
+            };
+            let project_json = serde_json::to_string(project)
+                .map_err(|_| "Invalid history project".to_string())?;
+            messages.push(ChatMessage::user(format!(
+                "SESSION TURN (origin: {origin})\nINSTRUCTION:\n<instruction>{}</instruction>\n\n{previous_block}",
+                turn.instruction.trim()
+            )));
+            messages.push(ChatMessage::assistant(format!(
+                "EXPLANATION:\n{}\n\nPROJECT JSON:\n{}",
+                turn.explanation.trim(),
+                project_json
+            )));
+            previous_project_repr = project_json;
+            previous_was_full = true;
+        } else {
+            let summary = compact_project_summary(project);
+            messages.push(ChatMessage::user(format!(
+                "SESSION TURN (origin: {origin}, compact memory)\nINSTRUCTION:\n<instruction>{}</instruction>\n\nPREVIOUS PROJECT SUMMARY:\n<previous_project_summary>{previous_project_repr}</previous_project_summary>",
+                turn.instruction.trim()
+            )));
+            messages.push(ChatMessage::assistant(format!(
+                "EXPLANATION:\n{}\n\nPROJECT SUMMARY (no source; full current project is in the final user message):\n<project_summary>{}</project_summary>",
+                turn.explanation.trim(),
+                summary
+            )));
+            previous_project_repr = summary;
+            previous_was_full = false;
+        }
+
+        success_index += 1;
     }
 
     messages.push(ChatMessage::user(final_user_content.to_string()));
@@ -1477,7 +1616,114 @@ mod tests {
         assert!(messages[2].content.contains("Add broken feature"));
         assert!(messages[2].content.contains("validation failed: bad field"));
         assert!(messages[2].content.contains(&p1.manifest.id));
+        // Failed tail uses compact summary, not a full source dump.
+        assert!(messages[2].content.contains("<project_summary>"));
+        assert!(!messages[2].content.contains("Tapp.lifecycle.onReady"));
         assert_eq!(messages[3].content, "FINAL retry");
+    }
+
+    #[test]
+    fn codegen_messages_older_turns_use_compact_summary_last_k_full() {
+        // 3 successful turns with K=2 → turn 0 compact; turns 1-2 full.
+        let p1 = sample_project("One");
+        let p2 = sample_project("Two");
+        let p3 = sample_project("Three");
+        // Distinct source markers so we can assert omission.
+        let mut p1 = p1;
+        p1.code.page = "/* SOURCE_TURN_1_UNIQUE */ Tapp.lifecycle.onReady(function () {});".into();
+        let mut p2 = p2;
+        p2.code.page = "/* SOURCE_TURN_2_UNIQUE */ Tapp.lifecycle.onReady(function () {});".into();
+        let mut p3 = p3;
+        p3.code.page = "/* SOURCE_TURN_3_UNIQUE */ Tapp.lifecycle.onReady(function () {});".into();
+
+        let history = vec![
+            PlaygroundHistoryTurn {
+                instruction: "Create one".into(),
+                explanation: "Made one".into(),
+                origin: Some("user".into()),
+                created_at: 1,
+                warnings: vec![],
+                validation: None,
+                project: Some(p1.clone()),
+                failed: false,
+                error: None,
+            },
+            PlaygroundHistoryTurn {
+                instruction: "Create two".into(),
+                explanation: "Made two".into(),
+                origin: Some("user".into()),
+                created_at: 2,
+                warnings: vec![],
+                validation: None,
+                project: Some(p2.clone()),
+                failed: false,
+                error: None,
+            },
+            PlaygroundHistoryTurn {
+                instruction: "Create three".into(),
+                explanation: "Made three".into(),
+                origin: Some("manual".into()),
+                created_at: 3,
+                warnings: vec![],
+                validation: None,
+                project: Some(p3.clone()),
+                failed: false,
+                error: None,
+            },
+        ];
+        let messages =
+            build_codegen_messages(&history, "FINAL: keep going").expect("messages");
+        // 3 pairs + final
+        assert_eq!(messages.len(), 7);
+
+        // Oldest successful turn: compact, no full source.
+        assert_eq!(messages[0].role, "user");
+        assert!(messages[0].content.contains("Create one"));
+        assert!(messages[0].content.contains("compact memory"));
+        assert!(messages[0].content.contains("<previous_project_summary>"));
+        assert!(!messages[0].content.contains("SOURCE_TURN_"));
+        assert_eq!(messages[1].role, "assistant");
+        assert!(messages[1].content.contains("Made one"));
+        assert!(messages[1].content.contains("<project_summary>"));
+        assert!(messages[1].content.contains(&p1.manifest.id));
+        assert!(messages[1].content.contains("page="));
+        assert!(!messages[1].content.contains("SOURCE_TURN_1_UNIQUE"));
+        assert!(!messages[1].content.contains("PROJECT JSON:"));
+
+        // Last K=2 turns keep full project JSON.
+        assert_eq!(messages[2].role, "user");
+        assert!(messages[2].content.contains("Create two"));
+        assert!(!messages[2].content.contains("compact memory"));
+        assert_eq!(messages[3].role, "assistant");
+        assert!(messages[3].content.contains("PROJECT JSON:"));
+        assert!(messages[3].content.contains("SOURCE_TURN_2_UNIQUE"));
+        assert!(messages[3].content.contains(&p2.manifest.id));
+
+        assert_eq!(messages[4].role, "user");
+        assert!(messages[4].content.contains("Create three"));
+        // Previous project for last-K turn should be full JSON of turn 2.
+        assert!(messages[4].content.contains("<previous_project>"));
+        assert!(messages[4].content.contains("SOURCE_TURN_2_UNIQUE"));
+        assert_eq!(messages[5].role, "assistant");
+        assert!(messages[5].content.contains("SOURCE_TURN_3_UNIQUE"));
+        assert!(messages[5].content.contains(&p3.manifest.id));
+
+        // Order preserved; final user content last.
+        assert_eq!(messages[6].role, "user");
+        assert_eq!(messages[6].content, "FINAL: keep going");
+    }
+
+    #[test]
+    fn compact_project_summary_omits_source_body() {
+        let mut project = sample_project("Summary");
+        project.code.page = "SECRET_SOURCE_BODY_SHOULD_NOT_APPEAR".into();
+        let summary = compact_project_summary(&project);
+        assert!(summary.contains(&project.manifest.id));
+        assert!(summary.contains("Summary"));
+        assert!(summary.contains("1.0.0"));
+        assert!(summary.contains("permissions="));
+        assert!(summary.contains("page="));
+        assert!(!summary.contains("SECRET_SOURCE_BODY_SHOULD_NOT_APPEAR"));
     }
 
     #[test]

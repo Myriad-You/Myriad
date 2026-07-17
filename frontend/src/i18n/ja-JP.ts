@@ -1919,6 +1919,7 @@ export const jaJP: TranslationKeys = {
     playgroundSessionsEmpty: '他のセッションはありません。',
     playgroundOriginUser: 'ユーザー',
     playgroundOriginRepair: '自動修復',
+    playgroundOriginManual: '手動編集',
     playgroundTimeJustNow: 'たった今',
     playgroundTimeMinutesAgo: '{n}分前',
     playgroundTimeHoursAgo: '{n}時間前',
@@ -1951,6 +1952,9 @@ export const jaJP: TranslationKeys = {
       '生成がタイムアウトしました。プロジェクトと入力は保持されています。再試行を押してください。',
     playgroundServerErrorHint:
       'サービスが一時的に利用できません。プロジェクトと入力は保持されています。再試行を押してください。',
+    playgroundCancel: 'キャンセル',
+    playgroundCancelled:
+      '生成をキャンセルしました。プロジェクトと入力は保持されています。準備ができたら再送してください。',
     playgroundAgentTrace: '生成プロセス',
     playgroundKnowledgeSources: '参照ドキュメント',
     playgroundValidated: '検証済み',

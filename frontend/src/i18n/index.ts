@@ -1763,6 +1763,7 @@ export interface TranslationKeys {
     playgroundSessionsEmpty: string
     playgroundOriginUser: string
     playgroundOriginRepair: string
+    playgroundOriginManual: string
     playgroundTimeJustNow: string
     playgroundTimeMinutesAgo: string
     playgroundTimeHoursAgo: string
@@ -1789,6 +1790,8 @@ export interface TranslationKeys {
     playgroundFailedPhase: string
     playgroundTimeoutHint: string
     playgroundServerErrorHint: string
+    playgroundCancel: string
+    playgroundCancelled: string
     playgroundAgentTrace: string
     playgroundKnowledgeSources: string
     playgroundValidated: string

@@ -11,6 +11,7 @@ import type {
   PlaygroundAgentStep,
   PlaygroundKnowledgeSource,
   PlaygroundMemoryTurn,
+  PlaygroundRevisionOrigin,
   PlaygroundValidationReport,
   TappPlaygroundProject,
 } from '../services/TappPlaygroundService'
@@ -27,6 +28,9 @@ export const MAX_STORE_BYTES = 4_500_000
 /** Title length from first user instruction. */
 export const TITLE_MAX_CHARS = 36
 
+/** Coalesce rapid manual edits into one revision when the last is also manual. */
+export const MANUAL_REVISION_MERGE_MS = 4_000
+
 export interface PlaygroundRevision {
   id: string
   project: TappPlaygroundProject
@@ -34,7 +38,7 @@ export interface PlaygroundRevision {
   instruction: string
   warnings: string[]
   createdAt: number
-  origin?: 'user' | 'runtime-repair'
+  origin?: PlaygroundRevisionOrigin
   agentTrace?: PlaygroundAgentStep[]
   knowledgeSources?: PlaygroundKnowledgeSource[]
   validation?: PlaygroundValidationReport
@@ -132,7 +136,11 @@ function normalizeRevision(raw: unknown): PlaygroundRevision | null {
       : [],
     createdAt,
     origin:
-      r.origin === 'user' || r.origin === 'runtime-repair' ? r.origin : undefined,
+      r.origin === 'user' ||
+      r.origin === 'runtime-repair' ||
+      r.origin === 'manual'
+        ? r.origin
+        : undefined,
     agentTrace: Array.isArray(r.agentTrace)
       ? (r.agentTrace as PlaygroundAgentStep[])
       : undefined,
@@ -444,7 +452,7 @@ export function pushRevision(
   const revisions = retained.slice(-MAX_REVISIONS)
   const nextTitle =
     session.title.trim() ||
-    (revision.origin !== 'runtime-repair'
+    (revision.origin !== 'runtime-repair' && revision.origin !== 'manual'
       ? titleFromInstruction(revision.instruction)
       : '') ||
     session.title
@@ -456,6 +464,68 @@ export function pushRevision(
     lastFailedAttempt: null,
     updatedAt: Date.now(),
   }
+}
+
+/**
+ * Apply a manual code edit as a new revision (or merge into the last manual
+ * revision when within {@link MANUAL_REVISION_MERGE_MS}).
+ *
+ * Returns the session unchanged when `nextProject` is structurally equal to
+ * the current revision project (no spam revisions).
+ */
+export function pushManualEditRevision(
+  session: PlaygroundSession,
+  nextProject: TappPlaygroundProject,
+  fileLabel: string,
+  now = Date.now(),
+): PlaygroundSession {
+  const current = session.revisions[session.revisionIndex]
+  if (!current) return session
+
+  try {
+    if (JSON.stringify(current.project) === JSON.stringify(nextProject)) {
+      return session
+    }
+  } catch {
+    // If stringify fails, still attempt to record the edit.
+  }
+
+  const instruction = `Manual edit: ${fileLabel}`
+  const explanation = `Updated ${fileLabel}`
+  const last = session.revisions[session.revisionIndex]
+  const canMerge =
+    last &&
+    last.origin === 'manual' &&
+    session.revisionIndex === session.revisions.length - 1 &&
+    now - last.createdAt <= MANUAL_REVISION_MERGE_MS
+
+  if (canMerge) {
+    const revisions = session.revisions.slice()
+    revisions[session.revisionIndex] = {
+      ...last,
+      project: nextProject,
+      instruction,
+      explanation,
+      createdAt: now,
+      origin: 'manual',
+      warnings: [],
+    }
+    return {
+      ...session,
+      revisions,
+      lastFailedAttempt: null,
+      updatedAt: now,
+    }
+  }
+
+  return pushRevision(session, {
+    project: nextProject,
+    explanation,
+    instruction,
+    warnings: [],
+    createdAt: now,
+    origin: 'manual',
+  })
 }
 
 export function loadSessionsStore(): PlaygroundSessionsStore {
