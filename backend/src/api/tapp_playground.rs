@@ -125,11 +125,18 @@ You must follow the current Myriad Tapp contract:
 - `manifest.version` is valid semver and remains `1.0.0` during modifications.
 - `manifest.category` is exactly one of ai, data, developer, game, media,
   productivity, social, utility.
-- Every Playground project must include a Page so it can run immediately in the
-  safe preview. It may additionally contain Widgets, assets, pageModules,
+- A Playground project is valid with at least one of:
+  (1) Page mode — user wants a full app/page UI: set `hasPage: true`, non-empty
+  `code.page` + `code.pageHtml`, and `pageTemplate: "page.html"`.
+  (2) Widget-only mode — user clearly wants only a dashboard widget / 小组件 /
+  widget without an app page: set `hasPage: false`, omit `pageTemplate` and leave
+  `code.page` / `code.pageHtml` empty (do NOT invent a stub page); put UI in
+  `code.widget` + `code.widgetHtml`; declare non-empty `manifest.widgets` and
+  `widget:register` permission.
+  Prefer widget-only when the instruction is clearly widget-only. Never require
+  both modes. Projects may still add assets, pageModules (Page mode),
   backgroundRequirements, declared APIs, AI tasks, events, agent interactions,
-  or dataExchange when the user request needs them and the retrieved contract
-  supports them.
+  or dataExchange when the request and retrieved contract support them.
 - Manifest application categories and Widget categories are separate. Widget
   category is exactly stats, activity, visualization, utility, or custom, and
   any non-empty `manifest.widgets` requires `widget:register` permission.
@@ -138,16 +145,19 @@ You must follow the current Myriad Tapp contract:
   instance preferences belong in `widgets[].settings`.
 - Every setting definition uses the exact camelCase field `defaultValue`; never
   emit the common but invalid alias `default`.
-- `main` must be `main.js`, `cssMode` must be `unified`, `styles` must be
-  `styles.css`, and `pageTemplate` must be `page.html`.
+- `main` must be `main.js`, `cssMode` must be `unified`, and `styles` must be
+  `styles.css`. In Page mode, `pageTemplate` must be `page.html`. In widget-only
+  mode, omit `pageTemplate` (page resources stay empty).
 - Request only permissions that the code actually calls. Prefer no permission.
   `storage`, `ui:theme`, `ui:confirm`, and `ui:fullscreen` are available in the
   temporary preview. Other valid permissions can be declared for installation,
   but cannot be exercised in preview and must be mentioned in `explanation`.
-- Put shared initialization in `code.core`, Page behavior in `code.page`, CSS in
-  `code.styles`, and body markup only in `code.pageHtml`. Optional Widget and
-  module resources use the other declared `code` fields. Never put `<script>`,
-  inline event handlers, or external resources in HTML templates.
+- Put shared initialization in `code.core`. In Page mode, put Page behavior in
+  `code.page`, CSS in `code.styles`, and body markup only in `code.pageHtml`.
+  In widget-only mode, put widget logic in `code.widget` / `code.widgetHtml` and
+  shared CSS in `code.styles` (core may hold shared init; main remains main.js).
+  Optional module resources use the other declared `code` fields. Never put
+  `<script>`, inline event handlers, or external resources in HTML templates.
 - Never put HTML/JS entrypoints or Widget templates in `manifest.assets` or
   `code.assets`. `assets` is only for package-static binary/data files under
   `assets/` (png/jpg/webp/svg/wav/mp3/json/wasm/…), loaded via `Tapp.assets`.
@@ -168,7 +178,8 @@ You must follow the current Myriad Tapp contract:
   output, security, or platform rules.
 
 Return ONLY one JSON object, without Markdown fences or commentary, in exactly
-this shape:
+this shape (Page mode example; for widget-only set hasPage false, omit
+pageTemplate, leave page/pageHtml empty, and fill widgets + widget/widgetHtml):
 {
   "project": {
     "manifest": {
@@ -185,7 +196,8 @@ this shape:
       "icon": "emoji",
       "themeColor": "#RRGGBB",
       "hasPage": true,
-      "category": "utility"
+      "category": "utility",
+      "widgets": []
     },
     "code": {
       "core": "...",
@@ -1516,23 +1528,55 @@ fn validate_playground_project(project: &PlaygroundProject) -> Result<(), String
     let manifest = &project.manifest;
     let code = &project.code;
 
-    if !manifest.has_page {
-        return Err("Playground projects must declare hasPage: true".to_string());
-    }
     if manifest.version != "1.0.0" {
         return Err("Playground project version must remain 1.0.0".to_string());
     }
     if manifest.main != "main.js"
         || manifest.styles.as_deref() != Some("styles.css")
-        || manifest.page_template.as_deref() != Some("page.html")
         || manifest.css_mode.as_deref() != Some("unified")
     {
+        return Err("Playground requires main.js, styles.css, and unified CSS".to_string());
+    }
+
+    let manifest_widgets = manifest.widgets.as_deref().unwrap_or_default();
+    let has_widgets = !manifest_widgets.is_empty();
+
+    // Dual mode: Page and/or Widget-only. Reject empty projects (neither).
+    if !manifest.has_page && !has_widgets {
         return Err(
-            "Playground requires main.js, styles.css, page.html, and unified CSS".to_string(),
+            "Playground project requires a Page (hasPage) and/or non-empty Widgets".to_string(),
         );
     }
-    if code.page.trim().is_empty() || code.page_html.trim().is_empty() {
-        return Err("Playground project requires non-empty page code and HTML".to_string());
+
+    if manifest.has_page {
+        if manifest.page_template.as_deref() != Some("page.html") {
+            return Err(
+                "Playground Page mode requires pageTemplate: page.html".to_string(),
+            );
+        }
+        if code.page.trim().is_empty() || code.page_html.trim().is_empty() {
+            return Err(
+                "Playground project requires non-empty page code and HTML when hasPage is true"
+                    .to_string(),
+            );
+        }
+    } else {
+        // Widget-only: pageTemplate optional/absent; page fields may be empty.
+        if let Some(template) = manifest.page_template.as_deref() {
+            if template != "page.html" {
+                return Err(
+                    "Playground pageTemplate must be page.html when declared".to_string(),
+                );
+            }
+        }
+        if code.widget.as_deref().is_none_or(str::is_empty)
+            || code.widget_html.as_deref().is_none_or(str::is_empty)
+        {
+            return Err(
+                "Widget-only Playground projects require non-empty code.widget and code.widgetHtml"
+                    .to_string(),
+            );
+        }
     }
 
     let mut code_fields = vec![
@@ -1560,16 +1604,20 @@ fn validate_playground_project(project: &PlaygroundProject) -> Result<(), String
         }
     }
 
-    validate_template_html("pageHtml", &code.page_html)?;
+    // Validate page HTML only when present (widget-only may leave it empty).
+    if !code.page_html.trim().is_empty() {
+        validate_template_html("pageHtml", &code.page_html)?;
+    }
     if let Some(widget_html) = &code.widget_html {
-        validate_template_html("widgetHtml", widget_html)?;
+        if !widget_html.trim().is_empty() {
+            validate_template_html("widgetHtml", widget_html)?;
+        }
     }
     validate_generated_source(&code_fields)?;
     validate_sdk_namespaces(&code_fields)?;
     validate_permission_usage(manifest, &code_fields)?;
 
-    let manifest_widgets = manifest.widgets.as_deref().unwrap_or_default();
-    if !manifest_widgets.is_empty()
+    if has_widgets
         && (code.widget.as_deref().is_none_or(str::is_empty)
             || code.widget_html.as_deref().is_none_or(str::is_empty))
     {
@@ -2374,5 +2422,97 @@ mod tests {
         assert!(!cancelled_from_watch(&rx));
         tx.send(true).expect("send cancel");
         assert!(cancelled_from_watch(&rx));
+    }
+
+    fn sample_widget_only_project() -> PlaygroundProject {
+        let raw = json!({
+            "manifest": {
+                "id": "com.myriad.playground.widgetonly",
+                "name": "Widget Only",
+                "version": "1.0.0",
+                "description": "A widget-only playground project",
+                "author": { "name": "Myriad Playground" },
+                "main": "main.js",
+                "styles": "styles.css",
+                "cssMode": "unified",
+                "permissions": ["widget:register"],
+                "icon": "🧩",
+                "themeColor": "#7C3AED",
+                "hasPage": false,
+                "category": "utility",
+                "widgets": [{
+                    "id": "card",
+                    "name": "Card",
+                    "defaultSize": "2x2",
+                    "sizes": ["2x2"],
+                    "category": "utility"
+                }]
+            },
+            "code": {
+                "core": "Tapp.lifecycle.onReady(function () {});",
+                "page": "",
+                "styles": ".widget { color: var(--color-primary); }",
+                "pageHtml": "",
+                "widget": "Tapp.widget.register('card', { render: function () {} });",
+                "widgetHtml": "<div class=\"widget\">Hi</div>",
+                "i18n": { "zh-CN": {}, "en-US": {}, "ja-JP": {} }
+            }
+        });
+        serde_json::from_value(raw).expect("widget-only sample project")
+    }
+
+    #[test]
+    fn accepts_widget_only_project() {
+        let project = sample_widget_only_project();
+        validate_playground_project(&project).expect("widget-only should validate");
+        assert!(!project.manifest.has_page);
+        assert!(project.code.page_html.trim().is_empty());
+        assert!(!project.manifest.widgets.as_ref().unwrap().is_empty());
+    }
+
+    #[test]
+    fn accepts_page_only_project() {
+        let project = sample_project("PageOnly");
+        validate_playground_project(&project).expect("page-only should validate");
+        assert!(project.manifest.has_page);
+    }
+
+    #[test]
+    fn rejects_project_with_neither_page_nor_widgets() {
+        let mut project = sample_project("Empty");
+        project.manifest.has_page = false;
+        project.manifest.page_template = None;
+        project.code.page = String::new();
+        project.code.page_html = String::new();
+        project.manifest.widgets = None;
+        let err = validate_playground_project(&project).unwrap_err();
+        assert!(
+            err.contains("Page") || err.contains("Widgets") || err.contains("hasPage"),
+            "expected empty-project error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn rejects_has_page_true_without_page_content() {
+        let mut project = sample_project("MissingPage");
+        project.code.page = String::new();
+        project.code.page_html = String::new();
+        let err = validate_playground_project(&project).unwrap_err();
+        assert!(
+            err.contains("page code and HTML") || err.contains("hasPage"),
+            "expected missing page content error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn rejects_widget_only_without_widget_code() {
+        let mut project = sample_widget_only_project();
+        project.code.widget = Some(String::new());
+        project.code.widget_html = Some(String::new());
+        let err = validate_playground_project(&project).unwrap_err();
+        assert!(
+            err.contains("widget"),
+            "expected widget code error, got: {err}"
+        );
     }
 }

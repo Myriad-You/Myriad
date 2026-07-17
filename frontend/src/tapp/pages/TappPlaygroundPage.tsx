@@ -635,11 +635,17 @@ export function TappPlaygroundPage() {
     [session.revisions],
   )
 
-  // 项目同时包含页面和小组件时，预览拆成两个独立窗格
+  // 项目同时包含页面和小组件时，预览拆成两个独立窗格；
+  // 仅小组件（无可用 Page）时不挂载页面沙箱，左列整列给小组件预览。
   const manifestWidgets = project?.manifest.widgets || []
   const hasWidgetPreview =
     manifestWidgets.length > 0 &&
     !!(project?.code.widget || project?.code.widgetHtml)
+  const hasUsablePage =
+    !!project &&
+    project.manifest.hasPage === true &&
+    !!(project.code.pageHtml && project.code.pageHtml.trim())
+  const isWidgetOnly = hasWidgetPreview && !hasUsablePage
   const activeWidget =
     manifestWidgets.find((widget) => widget.id === widgetId) ||
     manifestWidgets[0]
@@ -678,6 +684,24 @@ export function TappPlaygroundPage() {
   useEffect(() => {
     saveSessionsStore(store)
   }, [store])
+
+  // Widget-only: focus the widget pane (and prefer widget source tabs).
+  useEffect(() => {
+    if (!isWidgetOnly) return
+    setActivePane('widget')
+    setSelectedFile((current) => {
+      if (current === 'widget' || current === 'widgetHtml') return current
+      if (project?.code.widget) return 'widget'
+      if (project?.code.widgetHtml) return 'widgetHtml'
+      return current
+    })
+  }, [
+    isWidgetOnly,
+    project?.manifest.id,
+    revision?.id,
+    project?.code.widget,
+    project?.code.widgetHtml,
+  ])
 
   const applyPruneNotice = useCallback(
     (meta: PruneStoreMeta) => {
@@ -821,7 +845,7 @@ export function TappPlaygroundPage() {
   ])
 
   // 默认布局：预览居左约 55%，代码居右，底部为控制岛预留空间；
-  // 存在小组件时左列上下拆分为页面预览 + 小组件预览两个窗格
+  // 页面 + 小组件：左列上下拆分；仅小组件：左列整列给小组件预览。
   const defaultLayout = useMemo(() => {
     if (!bounds.width || !bounds.height) return null
     const margin = 14
@@ -838,30 +862,48 @@ export function TappPlaygroundPage() {
       Math.round(innerWidth * 0.55),
     )
     const codeWidth = Math.max(MIN_PANE_SIZE.width, innerWidth - previewWidth)
+    const leftCol = { x: margin, y: top, width: previewWidth }
+    const code = {
+      x: margin + previewWidth + gap,
+      y: top,
+      width: codeWidth,
+      height,
+    }
+
+    // Widget-only: full left column for widget; no page preview pane.
+    if (isWidgetOnly) {
+      return {
+        preview: null as {
+          x: number
+          y: number
+          width: number
+          height: number
+        } | null,
+        widget: { ...leftCol, height },
+        code,
+      }
+    }
+
     const canSplit =
-      hasWidgetPreview && height >= MIN_PANE_SIZE.height * 2 + gap
+      hasWidgetPreview &&
+      hasUsablePage &&
+      height >= MIN_PANE_SIZE.height * 2 + gap
     const widgetHeight = canSplit
       ? Math.max(MIN_PANE_SIZE.height, Math.round(height * 0.4))
       : 0
     const previewHeight = canSplit ? height - widgetHeight - gap : height
     return {
-      preview: { x: margin, y: top, width: previewWidth, height: previewHeight },
+      preview: { ...leftCol, height: previewHeight },
       widget: canSplit
         ? {
-            x: margin,
+            ...leftCol,
             y: top + previewHeight + gap,
-            width: previewWidth,
             height: widgetHeight,
           }
         : null,
-      code: {
-        x: margin + previewWidth + gap,
-        y: top,
-        width: codeWidth,
-        height,
-      },
+      code,
     }
-  }, [bounds, hasWidgetPreview])
+  }, [bounds, hasWidgetPreview, hasUsablePage, isWidgetOnly])
 
   const tappInstance = useMemo<TappInstance | null>(() => {
     if (!project) return null
@@ -1063,9 +1105,12 @@ export function TappPlaygroundPage() {
     )
   }
 
+  /** Page sandbox errors may auto-repair (existing behavior). */
   const handleSandboxError = (sandboxError: Error) => {
     const message = sandboxError.message || 'Unknown sandbox runtime error'
     setPreviewError(message)
+    // Widget-only projects have no page sandbox; never auto-repair for page absence.
+    if (isWidgetOnly || !hasUsablePage) return
     if (!project || busy || runtimeRepairCountRef.current >= 2) return
 
     const errorKey = `${revision?.createdAt || 0}:${message}`
@@ -1080,6 +1125,12 @@ export function TappPlaygroundPage() {
         [message],
       )
     }, 500)
+  }
+
+  /** Widget errors surface in the status band but do not trigger auto-repair. */
+  const handleWidgetError = (sandboxError: Error) => {
+    const message = sandboxError.message || 'Unknown widget runtime error'
+    setPreviewError(message)
   }
 
   const showRevisionNotice = (rev: {
@@ -1426,7 +1477,7 @@ export function TappPlaygroundPage() {
 
   const previewContent = (
     <>
-      {tappInstance && project ? (
+      {tappInstance && project && hasUsablePage ? (
         <TappPageSandbox
           tappInstance={tappInstance}
           code={project.code}
@@ -1435,6 +1486,17 @@ export function TappPlaygroundPage() {
           onReady={() => setPreviewError('')}
           style={{ borderRadius: 0 }}
         />
+      ) : project && isWidgetOnly ? (
+        <div className="absolute inset-0 grid place-items-center p-6 text-center overflow-y-auto">
+          <div>
+            <h2 className="font-semibold text-gray-800 dark:text-gray-100">
+              {t.tapp.playgroundNoPageTitle}
+            </h2>
+            <p className="mt-2 text-sm text-gray-500 dark:text-gray-400 max-w-sm leading-relaxed">
+              {t.tapp.playgroundNoPageDesc}
+            </p>
+          </div>
+        </div>
       ) : (
         <div className="absolute inset-0 grid place-items-center p-6 text-center overflow-y-auto">
           <motion.div
@@ -1620,6 +1682,8 @@ export function TappPlaygroundPage() {
             code={project.code as TappCodeStructure}
             widgetId={activeWidget.id}
             widgetProps={widgetRenderProps}
+            onError={handleWidgetError}
+            onReady={() => setPreviewError('')}
             className="w-full h-full"
           />
         </div>
@@ -1981,19 +2045,28 @@ export function TappPlaygroundPage() {
       {interactive ? (
         defaultLayout && (
           <>
-            <FloatingPane
-              key={defaultLayout.widget ? 'preview-split' : 'preview-full'}
-              defaultRect={defaultLayout.preview}
-              bounds={bounds}
-              isActive={activePane === 'preview'}
-              onFocus={() => setActivePane('preview')}
-              header={previewHeader}
-              interactive
-            >
-              {previewContent}
-            </FloatingPane>
+            {defaultLayout.preview && (
+              <FloatingPane
+                key={
+                  defaultLayout.widget
+                    ? 'preview-split'
+                    : isWidgetOnly
+                      ? 'preview-hidden'
+                      : 'preview-full'
+                }
+                defaultRect={defaultLayout.preview}
+                bounds={bounds}
+                isActive={activePane === 'preview'}
+                onFocus={() => setActivePane('preview')}
+                header={previewHeader}
+                interactive
+              >
+                {previewContent}
+              </FloatingPane>
+            )}
             {defaultLayout.widget && (
               <FloatingPane
+                key={isWidgetOnly ? 'widget-full' : 'widget-split'}
                 defaultRect={defaultLayout.widget}
                 bounds={bounds}
                 isActive={activePane === 'widget'}
@@ -2018,17 +2091,19 @@ export function TappPlaygroundPage() {
         )
       ) : (
         <div className="flex flex-col gap-3 px-3 pt-16 pb-48">
-          <FloatingPane
-            defaultRect={{ x: 0, y: 0, width: 0, height: 0 }}
-            bounds={bounds}
-            isActive
-            onFocus={() => {}}
-            header={previewHeader}
-            interactive={false}
-            staticClassName="h-[56vh]"
-          >
-            {previewContent}
-          </FloatingPane>
+          {hasUsablePage && (
+            <FloatingPane
+              defaultRect={{ x: 0, y: 0, width: 0, height: 0 }}
+              bounds={bounds}
+              isActive
+              onFocus={() => {}}
+              header={previewHeader}
+              interactive={false}
+              staticClassName="h-[56vh]"
+            >
+              {previewContent}
+            </FloatingPane>
+          )}
           {hasWidgetPreview && (
             <FloatingPane
               defaultRect={{ x: 0, y: 0, width: 0, height: 0 }}
@@ -2037,9 +2112,22 @@ export function TappPlaygroundPage() {
               onFocus={() => {}}
               header={widgetHeader}
               interactive={false}
-              staticClassName="h-[36vh]"
+              staticClassName={isWidgetOnly ? 'h-[56vh]' : 'h-[36vh]'}
             >
               {widgetContent}
+            </FloatingPane>
+          )}
+          {!project && (
+            <FloatingPane
+              defaultRect={{ x: 0, y: 0, width: 0, height: 0 }}
+              bounds={bounds}
+              isActive
+              onFocus={() => {}}
+              header={previewHeader}
+              interactive={false}
+              staticClassName="h-[56vh]"
+            >
+              {previewContent}
             </FloatingPane>
           )}
           <FloatingPane

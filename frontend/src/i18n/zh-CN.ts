@@ -1866,6 +1866,9 @@ export const zhCN: TranslationKeys = {
     playgroundEmptyTitle: '从一句话开始',
     playgroundEmptyDesc:
       '描述你的想法，AI 会生成完整的 Tapp 项目，并立即在这里运行预览。',
+    playgroundNoPageTitle: '无页面 — 仅小组件',
+    playgroundNoPageDesc:
+      '当前项目只有仪表盘小组件，未挂载应用页面；请在右侧/下方的小组件预览中查看。',
     playgroundCodeEmpty: '// 生成后可在这里查看和编辑项目源码',
     playgroundInvalidJson: 'JSON 格式无效，修改未应用',
     playgroundGenerateFailed: '生成失败，请稍后重试',

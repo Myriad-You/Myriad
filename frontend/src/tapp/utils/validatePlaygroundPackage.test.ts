@@ -68,6 +68,42 @@ function validWidgetProject(): {
   }
 }
 
+/** Widget-only: hasPage false, no page resources, widgets + widget code. */
+function validWidgetOnlyProject(): {
+  manifest: TappManifest
+  code: TappCodeStructure
+} {
+  return {
+    manifest: {
+      id: 'com.example.widgetonly',
+      name: 'Widget Only',
+      version: '1.0.0',
+      main: 'main.js',
+      permissions: ['widget:register'],
+      category: 'utility',
+      hasPage: false,
+      styles: 'styles.css',
+      cssMode: 'unified',
+      widgets: [
+        {
+          id: 'card',
+          name: 'Card',
+          defaultSize: '2x2',
+          sizes: ['2x2'],
+        },
+      ],
+    },
+    code: {
+      core: 'const core = 1;',
+      page: '',
+      styles: '.widget { color: red; }',
+      pageHtml: '',
+      widget: 'function renderWidget() {}',
+      widgetHtml: '<div class="widget">W</div>',
+    },
+  }
+}
+
 describe('validatePlaygroundPackage', () => {
   it('accepts a valid minimal page project', () => {
     const result = validatePlaygroundPackage(validPageProject())
@@ -84,6 +120,63 @@ describe('validatePlaygroundPackage', () => {
     assert.equal(result.ok, true)
     if (result.ok) {
       assert.ok(result.package.files['templates/card.html'])
+    }
+  })
+
+  it('accepts a widget-only project without page.html', () => {
+    const result = validatePlaygroundPackage(validWidgetOnlyProject())
+    assert.equal(result.ok, true)
+    if (result.ok) {
+      assert.equal(result.package.manifest.hasPage, false)
+      assert.equal(result.package.manifest.pageTemplate, undefined)
+      assert.ok(result.package.files['main.js'])
+      assert.ok(result.package.files['templates/card.html'])
+      assert.equal(result.package.files['page.html'], undefined)
+    }
+  })
+
+  it('rejects project with neither page nor widgets', () => {
+    const { manifest, code } = validPageProject()
+    const result = validatePlaygroundPackage({
+      manifest: {
+        ...manifest,
+        hasPage: false,
+        pageTemplate: undefined,
+        widgets: undefined,
+      },
+      code: { ...code, page: '', pageHtml: '' },
+    })
+    assert.equal(result.ok, false)
+    if (!result.ok) {
+      assert.ok(
+        result.errors.some(
+          (e) =>
+            e.includes('Page') ||
+            e.includes('Widgets') ||
+            e.includes('hasPage'),
+        ),
+        `expected empty-project error, got: ${result.errors.join('; ')}`,
+      )
+    }
+  })
+
+  it('rejects hasPage true without page content', () => {
+    const { manifest, code } = validPageProject()
+    const result = validatePlaygroundPackage({
+      manifest,
+      code: { ...code, page: '', pageHtml: '' },
+    })
+    assert.equal(result.ok, false)
+    if (!result.ok) {
+      assert.ok(
+        result.errors.some(
+          (e) =>
+            e.includes('page code and HTML') ||
+            e.includes('page.html') ||
+            e.includes('resource not found'),
+        ),
+        `expected page/html errors, got: ${result.errors.join('; ')}`,
+      )
     }
   })
 

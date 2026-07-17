@@ -133,6 +133,9 @@ export function validatePlaygroundPackage(
   const pkg = buildPlaygroundPackageFiles(project.manifest, project.code)
   const { manifest, files } = pkg
   const code = project.code
+  // Mode checks use the author-declared manifest so normalize (which may clear
+  // hasPage when pageHtml is empty) does not hide "hasPage without page" errors.
+  const declared = project.manifest
 
   // --- Manifest required fields (validate_tapp_manifest core) ---
   const idError = validateTappId(manifest.id || '')
@@ -159,18 +162,12 @@ export function validatePlaygroundPackage(
     if (mainExtError) push(mainExtError)
   }
 
-  // Playground install/export expectations (validate_playground_project)
-  if (!manifest.hasPage) {
-    push('Playground projects must declare hasPage: true')
-  }
+  // Playground install/export expectations (validate_playground_project dual-mode)
   if (manifest.main !== 'main.js') {
     push('Playground requires main entry main.js')
   }
   if (manifest.styles !== 'styles.css') {
     push('Playground requires styles.css')
-  }
-  if (manifest.pageTemplate !== 'page.html') {
-    push('Playground requires page.html')
   }
   if (manifest.cssMode && manifest.cssMode !== 'unified') {
     push('Playground requires unified CSS mode')
@@ -178,8 +175,40 @@ export function validatePlaygroundPackage(
 
   const pageCode = code.page ?? ''
   const pageHtml = code.pageHtml ?? ''
-  if (!pageCode.trim() || !pageHtml.trim()) {
-    push('Playground project requires non-empty page code and HTML')
+  const widgetsForMode = declared.widgets ?? manifest.widgets ?? []
+  const hasWidgets = widgetsForMode.length > 0
+  const hasPage = declared.hasPage === true
+
+  // Dual mode: Page and/or Widget-only. Reject empty projects (neither).
+  if (!hasPage && !hasWidgets) {
+    push('Playground project requires a Page (hasPage) and/or non-empty Widgets')
+  }
+
+  if (hasPage) {
+    const pageTemplate =
+      declared.pageTemplate ?? manifest.pageTemplate ?? undefined
+    if (pageTemplate !== 'page.html') {
+      push('Playground Page mode requires pageTemplate: page.html')
+    }
+    if (!pageCode.trim() || !pageHtml.trim()) {
+      push(
+        'Playground project requires non-empty page code and HTML when hasPage is true',
+      )
+    }
+  } else {
+    const pageTemplate =
+      declared.pageTemplate ?? manifest.pageTemplate ?? undefined
+    if (pageTemplate && pageTemplate !== 'page.html') {
+      push('Playground pageTemplate must be page.html when declared')
+    }
+  }
+
+  if (!hasPage && hasWidgets) {
+    if (!code.widget?.trim() || !code.widgetHtml?.trim()) {
+      push(
+        'Widget-only Playground projects require non-empty code.widget and code.widgetHtml',
+      )
+    }
   }
 
   // Optional path fields on normalized manifest

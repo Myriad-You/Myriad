@@ -1791,6 +1791,9 @@ export interface TranslationKeys {
     playgroundElapsedSuccess: string
     playgroundEmptyTitle: string
     playgroundEmptyDesc: string
+    /** Widget-only project: no page sandbox mounted. */
+    playgroundNoPageTitle: string
+    playgroundNoPageDesc: string
     playgroundCodeEmpty: string
     playgroundCodeTitle: string
     playgroundInvalidJson: string

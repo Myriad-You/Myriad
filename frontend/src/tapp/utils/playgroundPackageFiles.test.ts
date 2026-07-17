@@ -122,4 +122,51 @@ describe('buildPlaygroundPackageFiles', () => {
     )
     assert.deepEqual(body.assets, code.assets)
   })
+
+  it('widget-only package omits page.html and sets hasPage false', () => {
+    const manifest: TappManifest = {
+      id: 'com.example.widgetonly',
+      name: 'Widget Only',
+      version: '1.0.0',
+      main: 'main.js',
+      permissions: ['widget:register'],
+      category: 'utility',
+      hasPage: false,
+      widgets: [
+        {
+          id: 'card',
+          name: 'Card',
+          defaultSize: '2x2',
+          sizes: ['2x2'],
+        },
+      ],
+    }
+    const code: TappCodeStructure = {
+      core: 'const core = 1;',
+      page: '',
+      styles: '.w { color: red; }',
+      pageHtml: '',
+      widget: 'function renderWidget() {}',
+      widgetHtml: '<div class="w">W</div>',
+    }
+    const { files, manifest: normalized } = buildPlaygroundPackageFiles(
+      manifest,
+      code,
+    )
+    assert.equal(normalized.hasPage, false)
+    assert.equal(normalized.pageTemplate, undefined)
+    assert.equal(files['page.html'], undefined)
+    assert.ok(files['main.js'])
+    assert.ok(files['styles.css'])
+    assert.ok(files['templates/card.html'])
+    assert.match(String(files['main.js']), /Widget Code/)
+    assert.doesNotMatch(String(files['main.js']), /Page Code/)
+
+    const body = packageFilesToDirectInstallBody(
+      { manifest: normalized, files },
+      code.assets,
+    )
+    assert.equal(body.pageTemplate, undefined)
+    assert.equal(body.widgetTemplates?.card?.['2x2'], code.widgetHtml)
+  })
 })

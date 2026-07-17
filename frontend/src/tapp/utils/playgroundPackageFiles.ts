@@ -65,7 +65,8 @@ export function normalizeManifestForPackage(
     next.cssMode = 'unified'
   }
 
-  if (code.pageHtml && !next.pageTemplate) {
+  const hasUsablePageHtml = !!(code.pageHtml && code.pageHtml.trim())
+  if (hasUsablePageHtml && !next.pageTemplate) {
     next.pageTemplate = 'page.html'
   }
 
@@ -84,6 +85,14 @@ export function normalizeManifestForPackage(
       })
     next.pageModules = [...order, ...remaining]
     next.hasPage = true
+  } else if (hasUsablePageHtml) {
+    next.hasPage = true
+  } else {
+    // Widget-only / no page content: do not invent page.html or force hasPage.
+    next.hasPage = false
+    if (!hasUsablePageHtml) {
+      delete next.pageTemplate
+    }
   }
 
   if (code.widgetHtml && next.widgets && next.widgets.length > 0) {
@@ -173,7 +182,8 @@ export function buildPlaygroundPackageFiles(
     files[normalized.styles || 'styles.css'] = code.styles
   }
 
-  if (code.pageHtml) {
+  // Omit page.html for widget-only packages (no usable pageHtml).
+  if (code.pageHtml && code.pageHtml.trim()) {
     files[normalized.pageTemplate || 'page.html'] = code.pageHtml
   }
 

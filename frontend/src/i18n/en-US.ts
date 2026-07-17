@@ -1969,6 +1969,9 @@ export const enUS: TranslationKeys = {
     playgroundEmptyTitle: 'Start with an idea',
     playgroundEmptyDesc:
       'Describe what you want and AI will generate a complete Tapp project, then run it right here.',
+    playgroundNoPageTitle: 'No page — widget only',
+    playgroundNoPageDesc:
+      'This project has dashboard widgets only. Use the widget preview pane; no app page is mounted.',
     playgroundCodeEmpty: '// Generated source files appear here, ready to edit',
     playgroundInvalidJson: 'Invalid JSON — changes not applied',
     playgroundGenerateFailed: 'Generation failed. Please try again.',

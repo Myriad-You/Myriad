@@ -1952,6 +1952,9 @@ export const jaJP: TranslationKeys = {
     playgroundEmptyTitle: 'ひとことから始める',
     playgroundEmptyDesc:
       'アイデアを説明すると、AI が完全な Tapp プロジェクトを生成し、ここですぐに実行します。',
+    playgroundNoPageTitle: 'ページなし — ウィジェットのみ',
+    playgroundNoPageDesc:
+      'このプロジェクトはダッシュボードウィジェットのみです。ページはマウントせず、ウィジェットプレビューを使ってください。',
     playgroundCodeEmpty: '// 生成されたソースコードはここで確認・編集できます',
     playgroundInvalidJson: 'JSON が無効のため変更は適用されません',
     playgroundGenerateFailed: '生成に失敗しました。もう一度お試しください。',
