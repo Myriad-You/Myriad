@@ -403,10 +403,41 @@ export const TappWidgetSandbox = memo(
         const globalState =
           (window as { __musicPlayerState?: Record<string, unknown> })
             .__musicPlayerState || {}
-        bridgeRef.current.emit(
-          'mediaStateChange',
-          buildMediaState({ ...globalState, ...detail }),
-        )
+        const merged: Record<string, unknown> = { ...globalState, ...detail }
+        // 切歌时禁止沿用旧曲歌词/进度，避免标题与内容串曲
+        const detailSong = detail.currentSong as
+          | { id?: string | number }
+          | null
+          | undefined
+        const globalSong = globalState.currentSong as
+          | { id?: string | number }
+          | null
+          | undefined
+        const detailId = detailSong?.id
+        const globalId = globalSong?.id
+        if (
+          detailId != null &&
+          globalId != null &&
+          String(detailId) !== String(globalId)
+        ) {
+          if (!('lyrics' in detail)) {
+            merged.lyrics = []
+            merged.currentLyricIndex = -1
+          }
+          if (!('verbatimLyrics' in detail)) {
+            merged.verbatimLyrics = []
+            merged.hasVerbatimLyrics = false
+            merged.verbatimLyricsSource = ''
+          }
+          if (!('currentTime' in detail)) {
+            merged.currentTime = 0
+          }
+          if (!('audioDuration' in detail)) {
+            merged.audioDuration =
+              (detailSong as { duration?: number } | null)?.duration || 0
+          }
+        }
+        bridgeRef.current.emit('mediaStateChange', buildMediaState(merged))
       }
 
       // 先注册监听，再触发同步（确保不会错过同步事件）
@@ -453,7 +484,23 @@ export const TappWidgetSandbox = memo(
         const tapp = tappInstanceRef.current
         if (!tapp?.grantedPermissions?.includes('media:read')) return
 
-        const { currentTime, audioDuration } = (e as CustomEvent).detail
+        const { currentTime, audioDuration, songId } = (e as CustomEvent)
+          .detail
+        // 丢弃与当前曲目不一致的进度（快速切歌时旧 timeupdate 可能晚到）
+        if (songId != null) {
+          const globalState =
+            (window as { __musicPlayerState?: Record<string, unknown> })
+              .__musicPlayerState || {}
+          const currentId = (
+            globalState.currentSong as
+              | { id?: string | number }
+              | null
+              | undefined
+          )?.id
+          if (currentId != null && String(currentId) !== String(songId)) {
+            return
+          }
+        }
         const progress = {
           current: currentTime,
           duration: audioDuration,

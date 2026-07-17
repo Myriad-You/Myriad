@@ -261,8 +261,16 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
   const userWantsPlayingRef = useRef(false)
   const isPlayingRef = useRef(false)
   const currentSongRef = useRef<Song | null>(null)
+  /** 同步索引：连点 next/prev 时 React state 可能尚未提交，必须读 ref */
+  const currentSongIndexRef = useRef(0)
+  /** 每次 selectSong 递增；异步取色 / delayed play 用它丢弃过期结果 */
+  const selectGenerationRef = useRef(0)
+  const pendingPlayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  )
   isPlayingRef.current = isPlaying
   currentSongRef.current = currentSong
+  currentSongIndexRef.current = currentSongIndex
 
   // 过滤后的播放列表
   const filteredPlaylist = useMemo(() => {
@@ -724,43 +732,63 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
         return
       }
 
+      // 新一代切歌令牌：丢弃更早一次 select 的取色 / delayed play
+      const generation = ++selectGenerationRef.current
+      const isCurrentSelect = () => selectGenerationRef.current === generation
+
+      if (pendingPlayTimeoutRef.current !== null) {
+        clearTimeout(pendingPlayTimeoutRef.current)
+        pendingPlayTimeoutRef.current = null
+      }
+
       // 重置预加载状态
       currentSongLoadedRef.current = false
       currentSongStartTimeRef.current = 0
       preloadTriggeredRef.current = false
 
+      // 同步更新 ref，保证连点 next/prev 读到最新索引
+      currentSongIndexRef.current = index
+      currentSongRef.current = song
+
       setCurrentSong(song)
       setCurrentSongIndex(index)
       setAudioDuration(0)
+      setCurrentTime(0)
 
-      // 同步写入全局状态，供 Tapp media API 读取
-      setGlobalState({
+      // 切歌瞬间清空歌词/进度，避免 Tapp 合并全局态时「新歌 + 旧歌词」
+      resetLyrics()
+
+      const baseDetail = {
         currentSong: song,
         isEnabled: musicEnabled,
         isPlaying: false,
         musicColor: musicColors?.primary || '#ef4444',
+        musicColors,
         isTempPlay: tempPlayModeRef.current.enabled,
         currentSongIndex: index,
         playlistLength: playlist.length,
         playlist,
-      })
+        currentTime: 0,
+        audioDuration: 0,
+        volume,
+        playMode,
+        lyrics: [] as LyricLine[],
+        verbatimLyrics: [] as WordLyricLine[],
+        hasVerbatimLyrics: false,
+        verbatimLyricsSource: '' as VerbatimLyricsSource | '',
+        currentLyricIndex: -1,
+      }
+
+      // 同步写入全局状态，供 Tapp media API 读取
+      setGlobalState(baseDetail)
 
       // 加载歌词（低优先级）：逐字优先，逐行兜底；先重置，避免切歌时残留上一首
       loadLyricsForSong(song)
 
-      // 立即触发状态更新
+      // 立即触发状态更新（带空歌词/零进度，防止 bridge 合并出旧曲内容）
       window.dispatchEvent(
         new CustomEvent('music-player-state-change', {
-          detail: {
-            currentSong: song,
-            isEnabled: musicEnabled,
-            isPlaying: false,
-            musicColor: musicColors?.primary || '#ef4444',
-            isTempPlay: tempPlayModeRef.current.enabled,
-            currentSongIndex: index,
-            playlistLength: playlist.length,
-            playlist,
-          },
+          detail: { ...baseDetail },
         }),
       )
 
@@ -770,6 +798,7 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
           const musicContainer = musicContainerRef.current
 
           if (colorCacheRef.current.has(song.cover)) {
+            if (!isCurrentSelect()) return
             const cachedColors = colorCacheRef.current.get(song.cover)!
             setMusicColors(cachedColors)
           } else {
@@ -781,6 +810,14 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
               context: 'music',
             })
 
+            // 快速切歌：丢弃过期取色结果，避免主题色串曲
+            if (!isCurrentSelect()) {
+              if (musicContainer) {
+                musicContainer.classList.remove('color-transitioning')
+              }
+              return
+            }
+
             if (colorCacheRef.current.size >= 50) {
               const firstKey = colorCacheRef.current.keys().next().value
               if (firstKey !== undefined) {
@@ -790,9 +827,11 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
             colorCacheRef.current.set(song.cover, colors)
 
             const tid1 = window.setTimeout(() => {
+              if (!isCurrentSelect()) return
               setMusicColors(colors)
               if (musicContainer) {
                 const tid2 = window.setTimeout(() => {
+                  if (!isCurrentSelect()) return
                   musicContainer.classList.remove('color-transitioning')
                 }, 50)
                 timeoutIdsRef.current.push(tid2)
@@ -801,6 +840,7 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
             timeoutIdsRef.current.push(tid1)
           }
         } catch (error) {
+          if (!isCurrentSelect()) return
           console.warn('Failed to extract colors from cover:', error)
           setMusicColors(null)
           const musicContainer = musicContainerRef.current
@@ -811,6 +851,8 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
       } else {
         setMusicColors(null)
       }
+
+      if (!isCurrentSelect()) return
 
       // 加载歌曲
       if (audioRef.current) {
@@ -826,13 +868,19 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
         if (autoPlay) {
           userWantsPlayingRef.current = true
           // 延迟后尝试播放，状态由 audio 事件处理器同步
-          setTimeout(async () => {
+          pendingPlayTimeoutRef.current = setTimeout(async () => {
+            pendingPlayTimeoutRef.current = null
+            // 期间又切歌了：不要 play 旧曲
+            if (!isCurrentSelect()) return
+            if (currentSongRef.current?.id !== song.id) return
             try {
               await audioRef.current?.play()
+              if (!isCurrentSelect()) return
               // 播放成功后才设置状态（handlePlay 事件也会设置，这里确保一致）
               setIsPlaying(true)
               audioManager.setPlaybackState('playing')
             } catch (_error) {
+              if (!isCurrentSelect()) return
               // 播放失败
               userWantsPlayingRef.current = false
               setIsPlaying(false)
@@ -844,7 +892,6 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
           setIsPlaying(false)
           audioManager.setPlaybackState('paused')
         }
-        setCurrentTime(0)
       }
 
       // 随机模式需要提前确定下一首
@@ -855,13 +902,21 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
         }
       }
 
-      // 更新全局状态
+      if (!isCurrentSelect()) return
+
+      // 更新全局状态（仍显式带上清空后的进度/歌词，防止被旧字段回填）
       setGlobalState({
         playlist,
         currentSongIndex: index,
         currentSong: song,
         isEnabled: musicEnabled,
         musicColor: musicColors?.primary || '#ef4444',
+        musicColors,
+        currentTime: 0,
+        audioDuration: 0,
+        isPlaying: autoPlay,
+        volume,
+        playMode,
       })
 
       // 触发状态更新事件
@@ -872,10 +927,15 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
             isEnabled: musicEnabled,
             isPlaying: autoPlay,
             musicColor: musicColors?.primary || '#ef4444',
+            musicColors,
             isTempPlay: tempPlayModeRef.current.enabled,
             currentSongIndex: index,
             playlistLength: playlist.length,
             playlist,
+            currentTime: 0,
+            audioDuration: 0,
+            volume,
+            playMode,
           },
         }),
       )
@@ -885,9 +945,11 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
       musicColors,
       playlist,
       playMode,
+      volume,
       excludeVipSongs,
       generateNextShuffleIndex,
       loadLyricsForSong,
+      resetLyrics,
     ],
   )
 
@@ -1080,13 +1142,14 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
   const playPrevious = useCallback(() => {
     if (playlist.length === 0) return
 
+    // 读同步 ref：连点时 React 的 currentSongIndex 可能还是上一次的
+    const fromIndex = currentSongIndexRef.current
     let newIndex: number
 
     if (playMode === 'shuffle') {
-      newIndex = generateNextShuffleIndex(currentSongIndex)
+      newIndex = generateNextShuffleIndex(fromIndex)
     } else {
-      newIndex =
-        currentSongIndex === 0 ? playlist.length - 1 : currentSongIndex - 1
+      newIndex = fromIndex === 0 ? playlist.length - 1 : fromIndex - 1
       let attempts = 0
 
       if (excludeVipSongs) {
@@ -1102,10 +1165,11 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
       }
     }
 
+    // 乐观推进 ref，使紧随其后的 next/prev 基于最新位置
+    currentSongIndexRef.current = newIndex
     selectSong(playlist[newIndex], newIndex, true)
   }, [
     playlist,
-    currentSongIndex,
     selectSong,
     excludeVipSongs,
     playMode,
@@ -1116,15 +1180,19 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
   const playNext = useCallback(() => {
     if (playlist.length === 0) return
 
+    // 读同步 ref：连点时 React 的 currentSongIndex 可能还是上一次的
+    const fromIndex = currentSongIndexRef.current
     let newIndex: number
 
     if (playMode === 'shuffle') {
       newIndex =
         nextShuffleIndexRef.current !== -1
           ? nextShuffleIndexRef.current
-          : generateNextShuffleIndex(currentSongIndex)
+          : generateNextShuffleIndex(fromIndex)
+      // 消费预计算的下一首，避免连点反复落到同一预选索引
+      nextShuffleIndexRef.current = -1
     } else {
-      newIndex = (currentSongIndex + 1) % playlist.length
+      newIndex = (fromIndex + 1) % playlist.length
       let attempts = 0
 
       if (excludeVipSongs) {
@@ -1140,10 +1208,11 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
       }
     }
 
+    // 乐观推进 ref，使紧随其后的 next/prev 基于最新位置
+    currentSongIndexRef.current = newIndex
     selectSong(playlist[newIndex], newIndex, true)
   }, [
     playlist,
-    currentSongIndex,
     selectSong,
     excludeVipSongs,
     playMode,
@@ -1287,10 +1356,15 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
         globalState.audioDuration = audio.duration || 0
       }
 
-      // 直接 dispatch 轻量进度事件，绕过 broadcastStateChange 节流链
+      // 直接 dispatch 轻量进度事件，绕过 broadcastStateChange 节流链。
+      // 带上 songId：切歌瞬间旧 audio 的 timeupdate 可被下游丢弃，避免进度串曲。
       window.dispatchEvent(
         new CustomEvent('music-player-progress', {
-          detail: { currentTime, audioDuration: audio.duration || 0 },
+          detail: {
+            currentTime,
+            audioDuration: audio.duration || 0,
+            songId: currentSongRef.current?.id ?? null,
+          },
         }),
       )
 
