@@ -42,8 +42,13 @@ export interface PlaygroundLastFailedAttempt {
   elapsedMs: number
   finishedAt: number
   origin: 'user' | 'runtime-repair'
-  /** Frozen busy-phase index (plan/retrieve/code/validate) from elapsed time */
+  /**
+   * Frozen busy-phase index (plan/retrieve/code/validate) from elapsed time.
+   * Kept for older sessions; prefer `lastStepSummary` when present.
+   */
   phaseIndex?: number
+  /** Latest real agent step summary observed before failure (stream path). */
+  lastStepSummary?: string
 }
 
 export interface PlaygroundHistoryRevisionItem {
@@ -73,6 +78,11 @@ export interface PlaygroundComposerProps {
   interactive: boolean
   busy: boolean
   busyMode: 'user' | 'runtime-repair'
+  /**
+   * Latest real agent step summary from the generate stream.
+   * When null/empty while busy, a short starting fallback is shown.
+   */
+  busyStepSummary?: string | null
   installing: boolean
   exporting?: boolean
   hasProject: boolean
@@ -242,6 +252,7 @@ export function PlaygroundComposer({
   interactive,
   busy,
   busyMode,
+  busyStepSummary = null,
   installing,
   exporting = false,
   hasProject,
@@ -328,7 +339,8 @@ export function PlaygroundComposer({
     return () => window.clearInterval(timer)
   }, [busy])
 
-  // 生成阶段（按典型耗时估算推进；最后一个阶段开放式等待响应）
+  // Fallback labels for failed runs that only stored a time-based phaseIndex
+  // (or no stream step). Busy UI uses real stream summaries, not these.
   const phases = [
     { label: t.tapp.playgroundPhasePlan, desc: t.tapp.playgroundPhasePlanDesc },
     {
@@ -341,9 +353,11 @@ export function PlaygroundComposer({
       desc: t.tapp.playgroundPhaseValidateDesc,
     },
   ]
-  const phaseIndex =
-    busyElapsed < 5 ? 0 : busyElapsed < 14 ? 1 : busyElapsed < 90 ? 2 : 3
   const elapsedLabel = formatElapsedClock(busyElapsed)
+
+  const liveStepText =
+    (busyStepSummary && busyStepSummary.trim()) ||
+    t.tapp.playgroundPhasePlanDesc
 
   const failedElapsedLabel = lastFailedAttempt
     ? formatElapsedClock(
@@ -370,6 +384,11 @@ export function PlaygroundComposer({
           : 0),
     ),
   )
+  const failedStepText =
+    (lastFailedAttempt?.lastStepSummary &&
+      lastFailedAttempt.lastStepSummary.trim()) ||
+    phases[failedPhaseIndex]?.label ||
+    ''
 
   // Collapse open detail when a new failure arrives so users see the error
   useEffect(() => {
@@ -1047,11 +1066,11 @@ export function PlaygroundComposer({
                     </span>
                   </div>
 
-                  {/* Line 2: cross-fading phase subtitle only */}
+                  {/* Line 2: latest real agent step (stream), still 2-line UI */}
                   <div className="mt-1.5 relative min-h-[1.25rem] overflow-hidden">
                     <AnimatePresence mode="wait" initial={false}>
                       <motion.p
-                        key={`phase-desc-${phaseIndex}`}
+                        key={`busy-step-${liveStepText}`}
                         initial={
                           animationsEnabled
                             ? { opacity: 0, y: 8, filter: 'blur(2px)' }
@@ -1070,7 +1089,7 @@ export function PlaygroundComposer({
                         className="text-[10px] leading-relaxed truncate"
                         style={{ color: 'var(--text-muted)' }}
                       >
-                        {phases[phaseIndex].desc}
+                        {liveStepText}
                       </motion.p>
                     </AnimatePresence>
                   </div>
@@ -1154,9 +1173,11 @@ export function PlaygroundComposer({
                       style={{ color: 'var(--text-muted)' }}
                     >
                       <span className="text-red-600/90 dark:text-red-300/90">
-                        {format(t.tapp.playgroundFailedPhase, {
-                          phase: phases[failedPhaseIndex]?.label || '',
-                        })}
+                        {lastFailedAttempt?.lastStepSummary
+                          ? failedStepText
+                          : format(t.tapp.playgroundFailedPhase, {
+                              phase: failedStepText,
+                            })}
                       </span>
                       {lastFailedAttempt.error ? (
                         <span className="text-red-600/70 dark:text-red-300/70">

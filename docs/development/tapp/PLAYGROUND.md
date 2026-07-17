@@ -54,6 +54,22 @@ Myriad 不在后端启动 Grok Build CLI，也不向生成模型开放 shell、G
 这条边界保证“能预览”不会等价于“已经安装”，也不会绕过 v0.2.3 的 Tapp
 权限、存储命名空间或访客运行语义。
 
+## 实时进度与取消
+
+- 兼容路径：`POST /api/tapp-playground/generate` 仍返回完整 JSON（含最终
+  `agentTrace`）。
+- 流式路径：`POST /api/tapp-playground/generate-stream`（同样仅管理员）以 SSE
+  推送真实 Agent 步骤：
+  - `{ "type": "step", "tool", "status", "summary" }` — 规划 / 检索 / 生成 /
+    校验 / 修复等步骤一完成即推送
+  - `{ "type": "done", "response": <GeneratePlaygroundResponse> }` — 最终结果
+  - `{ "type": "error", "message" }` — 失败或取消
+- 前端优先使用 stream，不可用时回退 one-shot；Composer 忙碌态第二行展示最新
+  `summary`，并保留耗时计时。
+- 客户端 Abort / 断开连接会取消 in-flight 模型 HTTP（reqwest future drop +
+  不再启动下一轮 attempt），并发信号量 permit 随任务结束 Drop 释放。整体超时
+  与 one-shot 一致（约 20 分钟；单次模型调用最长 720s）。
+
 ## 生成验证
 
 ## 知识检索

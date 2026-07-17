@@ -548,6 +548,9 @@ export function TappPlaygroundPage() {
   const [instruction, setInstruction] = useState('')
   const [busy, setBusy] = useState(false)
   const [busyMode, setBusyMode] = useState<'user' | 'runtime-repair'>('user')
+  /** Latest real agent step summary from generate-stream (busy band line 2). */
+  const [busyStepSummary, setBusyStepSummary] = useState<string | null>(null)
+  const lastStreamStepRef = useRef<string | null>(null)
   const [installing, setInstalling] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [selectedFile, setSelectedFile] = useState<FileId>('page')
@@ -893,6 +896,8 @@ export function TappPlaygroundPage() {
 
     setBusy(true)
     setBusyMode(origin)
+    setBusyStepSummary(null)
+    lastStreamStepRef.current = null
     setError('')
     setNotice('')
     setLastSuccessElapsedMs(null)
@@ -920,7 +925,16 @@ export function TappPlaygroundPage() {
           runtimeFeedback,
           history,
         },
-        { signal: abortController.signal },
+        {
+          signal: abortController.signal,
+          onStep: (step) => {
+            if (requestId !== generateRequestIdRef.current) return
+            const summary = step.summary?.trim()
+            if (!summary) return
+            lastStreamStepRef.current = summary
+            setBusyStepSummary(summary)
+          },
+        },
       )
       if (
         requestId !== generateRequestIdRef.current ||
@@ -990,6 +1004,7 @@ export function TappPlaygroundPage() {
         finishedAt: Date.now(),
         origin,
         phaseIndex: phaseIndexFromElapsedMs(elapsedMs),
+        lastStepSummary: lastStreamStepRef.current || undefined,
       }
       commitStore((current) =>
         updateActiveSessionWithMeta(current, (active) => ({
@@ -1002,6 +1017,7 @@ export function TappPlaygroundPage() {
     } finally {
       if (requestId === generateRequestIdRef.current) {
         setBusy(false)
+        setBusyStepSummary(null)
         if (generateAbortRef.current === abortController) {
           generateAbortRef.current = null
         }
@@ -1999,6 +2015,7 @@ export function TappPlaygroundPage() {
         interactive={interactive}
         busy={busy}
         busyMode={busyMode}
+        busyStepSummary={busyStepSummary}
         installing={installing}
         exporting={exporting}
         hasProject={!!project}

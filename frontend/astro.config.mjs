@@ -135,6 +135,105 @@ function proxyBackendRequest(targetUrl, method, headers, body, timeoutMs) {
 }
 
 /**
+ * Stream playground SSE (and similar long responses) without buffering the
+ * full body. Client abort closes the upstream request so the backend can cancel.
+ */
+function proxyBackendRequestStreaming(
+  targetUrl,
+  method,
+  headers,
+  body,
+  timeoutMs,
+  clientReq,
+  clientRes,
+) {
+  return new Promise((resolve, reject) => {
+    const requestHeaders = Object.fromEntries(headers.entries())
+    requestHeaders.connection = 'close'
+    if (body && body.length > 0) {
+      requestHeaders['content-length'] = String(body.length)
+    }
+
+    let settled = false
+    const settle = (fn, value) => {
+      if (settled) return
+      settled = true
+      fn(value)
+    }
+
+    const backendReq = http.request(
+      targetUrl,
+      {
+        method,
+        headers: requestHeaders,
+        agent: false,
+        timeout: timeoutMs,
+      },
+      (backendRes) => {
+        clientRes.statusCode = backendRes.statusCode || 502
+        if (backendRes.statusMessage) {
+          clientRes.statusMessage = backendRes.statusMessage
+        }
+        clientRes.setHeader('x-myriad-dev-proxy', 'http-stream')
+
+        for (const [name, value] of Object.entries(backendRes.headers)) {
+          const lowerName = name.toLowerCase()
+          if (value != null && !HOP_BY_HOP_HEADERS.has(lowerName)) {
+            clientRes.setHeader(name, value)
+          }
+        }
+
+        backendRes.on('error', (error) => {
+          if (!clientRes.writableEnded) {
+            clientRes.destroy(error)
+          }
+          settle(reject, error)
+        })
+        backendRes.on('end', () => settle(resolve, undefined))
+        backendRes.pipe(clientRes)
+      },
+    )
+
+    const abortUpstream = () => {
+      backendReq.destroy()
+      if (!clientRes.writableEnded) {
+        clientRes.destroy()
+      }
+    }
+
+    clientReq.on('aborted', abortUpstream)
+    clientReq.on('close', () => {
+      if (!clientRes.writableEnded) {
+        abortUpstream()
+      }
+    })
+    clientRes.on('close', () => {
+      if (!backendReq.destroyed) {
+        backendReq.destroy()
+      }
+    })
+
+    backendReq.on('timeout', () => {
+      const error = new Error('Backend proxy timeout')
+      backendReq.destroy(error)
+      if (!clientRes.headersSent) {
+        settle(reject, error)
+      } else {
+        clientRes.destroy(error)
+        settle(reject, error)
+      }
+    })
+    backendReq.on('error', (error) => settle(reject, error))
+
+    if (body && body.length > 0) {
+      backendReq.end(body)
+    } else {
+      backendReq.end()
+    }
+  })
+}
+
+/**
  * Dev-only backend proxy implemented with one-shot node:http requests.
  * This avoids Vite http-proxy and undici keep-alive socket reuse while
  * preserving same-origin API URLs during local development.
@@ -176,6 +275,22 @@ function backendDevProxyPlugin() {
           const timeoutMs = originalUrl.startsWith('/api/tapp-playground/')
             ? PLAYGROUND_PROXY_TIMEOUT_MS
             : 30000
+          // SSE must be piped; buffering would hide progressive agent steps.
+          const streamPlayground =
+            originalUrl.startsWith('/api/tapp-playground/generate-stream')
+
+          if (streamPlayground) {
+            await proxyBackendRequestStreaming(
+              targetUrl,
+              method,
+              headers,
+              body,
+              timeoutMs,
+              req,
+              res,
+            )
+            return
+          }
 
           let response
           let lastError

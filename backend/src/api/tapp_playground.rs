@@ -5,15 +5,23 @@
 //! the frontend preview sandbox until the user explicitly enters the regular
 //! Tapp installation flow.
 
-use axum::{http::StatusCode, middleware::from_fn, routing::post, Json, Router};
+use axum::{
+    http::StatusCode,
+    middleware::from_fn,
+    response::sse::{Event, KeepAlive, Sse},
+    routing::post,
+    Json, Router,
+};
+use futures::stream::Stream;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     collections::{HashMap, HashSet},
+    convert::Infallible,
     sync::LazyLock,
     time::Duration,
 };
-use tokio::sync::Semaphore;
+use tokio::sync::{mpsc, watch, Semaphore};
 
 use crate::{
     api::tapp_store::{validate_tapp_manifest, TappManifest},
@@ -48,10 +56,15 @@ const MAX_REQUEST_BODY_BYTES: usize = 12 * 1024 * 1024;
 const MAX_HISTORY_EXPLANATION_BYTES: usize = 4_000;
 const MAX_HISTORY_ERROR_BYTES: usize = 4_000;
 /// Pro 模型生成完整项目较慢；与前端 `TappPlaygroundService.ts` 的
-/// 超时预算（约 20 分钟）保持一致。客户端 AbortController 断开连接时，
-/// 本 handler future 在 hyper/axum 丢弃响应兴趣后会被 drop；并发信号量
-/// permit 随 `_agent_permit` 的 Drop 释放。进行中的模型 HTTP 调用最多再
-/// 跑到 `MODEL_REQUEST_TIMEOUT`（reqwest client timeout），不会无限阻塞。
+/// 超时预算（约 20 分钟）保持一致。
+///
+/// 取消语义：
+/// - 非流式 `/generate`：handler future 随客户端断开被 drop，信号量 permit
+///   随 `_agent_permit` Drop 释放；进行中的 reqwest future 一并 drop，尽量中止
+///   当前 HTTP（底层连接关闭）。
+/// - 流式 `/generate-stream`：SSE 消费端 drop 时将 cancel watch 置位；生成任务
+///   在下一次 AI 调用前与 `select!` 中止，不再启动后续 attempt。信号量 permit
+///   同样在任务结束时 Drop 释放。
 const MODEL_REQUEST_TIMEOUT: Duration = Duration::from_secs(720);
 
 static PLAYGROUND_AGENT_CONCURRENCY: LazyLock<Semaphore> =
@@ -314,17 +327,166 @@ pub struct PlaygroundGenerateResponse {
     pub validation: PlaygroundValidationReport,
 }
 
+/// Progressive feedback events for `POST /generate-stream` (SSE `data:` JSON).
+#[derive(Debug, Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum PlaygroundStreamEvent {
+    Step {
+        tool: String,
+        status: String,
+        summary: String,
+    },
+    Done {
+        response: PlaygroundGenerateResponse,
+    },
+    Error {
+        message: String,
+    },
+}
+
 type ApiError = (StatusCode, Json<Value>);
+
+#[derive(Debug)]
+enum GenerationError {
+    Cancelled,
+    Api(ApiError),
+}
+
+impl From<ApiError> for GenerationError {
+    fn from(value: ApiError) -> Self {
+        Self::Api(value)
+    }
+}
+
+/// Dropping the SSE consumer cancels the in-flight generation task.
+struct CancelOnDrop(Option<watch::Sender<bool>>);
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        if let Some(tx) = self.0.take() {
+            let _ = tx.send(true);
+        }
+    }
+}
 
 pub fn create_playground_routes() -> Router<sea_orm::DatabaseConnection> {
     Router::new()
         .route("/generate", post(generate_project))
+        .route("/generate-stream", post(generate_project_stream))
         .route_layer(from_fn(admin_middleware))
 }
 
 async fn generate_project(
     Json(request): Json<PlaygroundGenerateRequest>,
 ) -> Result<Json<PlaygroundGenerateResponse>, ApiError> {
+    validate_generate_request(&request)?;
+
+    let _agent_permit = PLAYGROUND_AGENT_CONCURRENCY.acquire().await.map_err(|_| {
+        api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Tapp Playground agent is shutting down",
+        )
+    })?;
+
+    // Inline future: client abort drops this handler (and in-flight AI) and
+    // releases the semaphore permit via `_agent_permit` Drop.
+    let response = run_playground_generation(request, None, None)
+        .await
+        .map_err(|error| match error {
+            // Non-stream path has no cancel watch; Cancelled is unexpected.
+            GenerationError::Cancelled => {
+                api_error(StatusCode::BAD_REQUEST, "Generation cancelled")
+            }
+            GenerationError::Api(api) => api,
+        })?;
+    Ok(Json(response))
+}
+
+/// SSE stream of real agent steps, then a final `done` (or `error`) event.
+///
+/// Admin-only (same route layer as `/generate`). Timeouts align with the
+/// one-shot path (per-model-call `MODEL_REQUEST_TIMEOUT`, client ~20m).
+/// Client disconnect / AbortController cancel sets the cancel watch so the
+/// worker stops after the current AI HTTP returns (or sooner if reqwest drop
+/// aborts) and does not start the next attempt.
+async fn generate_project_stream(
+    Json(request): Json<PlaygroundGenerateRequest>,
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
+    validate_generate_request(&request)?;
+
+    let (event_tx, mut event_rx) = mpsc::channel::<PlaygroundStreamEvent>(32);
+    let (cancel_tx, cancel_rx) = watch::channel(false);
+
+    tokio::spawn(async move {
+        let permit = match PLAYGROUND_AGENT_CONCURRENCY.acquire().await {
+            Ok(permit) => permit,
+            Err(_) => {
+                let _ = event_tx
+                    .send(PlaygroundStreamEvent::Error {
+                        message: "Tapp Playground agent is shutting down".to_string(),
+                    })
+                    .await;
+                return;
+            }
+        };
+
+        let result =
+            run_playground_generation(request, Some(event_tx.clone()), Some(cancel_rx)).await;
+        // Hold permit until generation fully stops (success, error, or cancel).
+        drop(permit);
+
+        match result {
+            Ok(response) => {
+                let _ = event_tx
+                    .send(PlaygroundStreamEvent::Done { response })
+                    .await;
+            }
+            Err(GenerationError::Cancelled) => {
+                let _ = event_tx
+                    .send(PlaygroundStreamEvent::Error {
+                        message: "Generation cancelled".to_string(),
+                    })
+                    .await;
+            }
+            Err(GenerationError::Api((status, Json(body)))) => {
+                let message = body
+                    .get("message")
+                    .or_else(|| body.get("error"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .unwrap_or_else(|| format!("Generation failed ({status})"));
+                let _ = event_tx
+                    .send(PlaygroundStreamEvent::Error { message })
+                    .await;
+            }
+        }
+    });
+
+    let stream = async_stream::stream! {
+        let _cancel_on_drop = CancelOnDrop(Some(cancel_tx));
+        while let Some(event) = event_rx.recv().await {
+            let terminal = matches!(
+                event,
+                PlaygroundStreamEvent::Done { .. } | PlaygroundStreamEvent::Error { .. }
+            );
+            let data = serde_json::to_string(&event).unwrap_or_else(|_| {
+                r#"{"type":"error","message":"Failed to serialize stream event"}"#.to_string()
+            });
+            yield Ok::<_, Infallible>(Event::default().data(data));
+            if terminal {
+                break;
+            }
+        }
+    };
+
+    Ok(Sse::new(stream).keep_alive(
+        KeepAlive::new()
+            .interval(Duration::from_secs(15))
+            .text("keepalive"),
+    ))
+}
+
+fn validate_generate_request(request: &PlaygroundGenerateRequest) -> Result<(), ApiError> {
     let instruction = request.instruction.trim();
     if instruction.is_empty() || instruction.len() > MAX_INSTRUCTION_BYTES {
         return Err(api_error(
@@ -376,24 +538,83 @@ async fn generate_project(
             ),
         ));
     }
+    Ok(())
+}
 
-    let _agent_permit = PLAYGROUND_AGENT_CONCURRENCY.acquire().await.map_err(|_| {
-        api_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "Tapp Playground agent is shutting down",
-        )
-    })?;
+fn cancelled_from_watch(rx: &watch::Receiver<bool>) -> bool {
+    *rx.borrow()
+}
+
+async fn await_or_cancel<T>(
+    cancel_rx: &mut Option<watch::Receiver<bool>>,
+    fut: impl std::future::Future<Output = T>,
+) -> Result<T, GenerationError> {
+    let Some(rx) = cancel_rx.as_mut() else {
+        return Ok(fut.await);
+    };
+    if cancelled_from_watch(rx) {
+        return Err(GenerationError::Cancelled);
+    }
+    tokio::pin!(fut);
+    loop {
+        tokio::select! {
+            result = &mut fut => return Ok(result),
+            changed = rx.changed() => {
+                // Sender dropped or value set true → treat as cancel.
+                match changed {
+                    Ok(()) if cancelled_from_watch(rx) => {
+                        return Err(GenerationError::Cancelled);
+                    }
+                    Ok(()) => continue,
+                    Err(_) => return Err(GenerationError::Cancelled),
+                }
+            }
+        }
+    }
+}
+
+async fn emit_step(
+    agent_trace: &mut Vec<PlaygroundAgentStep>,
+    step_tx: &Option<mpsc::Sender<PlaygroundStreamEvent>>,
+    step: PlaygroundAgentStep,
+) -> Result<(), GenerationError> {
+    if let Some(tx) = step_tx {
+        let event = PlaygroundStreamEvent::Step {
+            tool: step.tool.clone(),
+            status: step.status.clone(),
+            summary: step.summary.clone(),
+        };
+        if tx.send(event).await.is_err() {
+            return Err(GenerationError::Cancelled);
+        }
+    }
+    agent_trace.push(step);
+    Ok(())
+}
+
+async fn run_playground_generation(
+    request: PlaygroundGenerateRequest,
+    step_tx: Option<mpsc::Sender<PlaygroundStreamEvent>>,
+    mut cancel_rx: Option<watch::Receiver<bool>>,
+) -> Result<PlaygroundGenerateResponse, GenerationError> {
+    if cancel_rx
+        .as_ref()
+        .is_some_and(cancelled_from_watch)
+    {
+        return Err(GenerationError::Cancelled);
+    }
 
     let analyzer =
         create_ai_analyzer_for_tier_with_timeout(ModelTier::Pro, Some(MODEL_REQUEST_TIMEOUT))
             .await
-        .ok_or_else(|| {
-            api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "Pro AI model is not enabled or configured",
-            )
-        })?;
+            .ok_or_else(|| {
+                api_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Pro AI model is not enabled or configured",
+                )
+            })?;
 
+    let instruction = request.instruction.trim();
     let successful_history_count = request
         .history
         .iter()
@@ -401,7 +622,10 @@ async fn generate_project(
         .count();
     let failed_history_count = request.history.iter().filter(|turn| turn.failed).count();
 
-    let mut agent_trace = vec![
+    let mut agent_trace = Vec::new();
+    emit_step(
+        &mut agent_trace,
+        &step_tx,
         PlaygroundAgentStep {
             tool: "inspect_project".to_string(),
             status: "success".to_string(),
@@ -411,22 +635,33 @@ async fn generate_project(
                 "Started a new temporary Tapp workspace".to_string()
             },
         },
+    )
+    .await?;
+    emit_step(
+        &mut agent_trace,
+        &step_tx,
         PlaygroundAgentStep {
             tool: "load_design_spec".to_string(),
             status: "success".to_string(),
             summary: "Injected the Myriad UI design spec into the generation context".to_string(),
         },
-    ];
+    )
+    .await?;
     if !request.history.is_empty() {
         let full_turns = successful_history_count.min(FULL_PROJECT_HISTORY_TURNS);
         let compact_turns = successful_history_count.saturating_sub(FULL_PROJECT_HISTORY_TURNS);
-        agent_trace.push(PlaygroundAgentStep {
-            tool: "load_session_memory".to_string(),
-            status: "success".to_string(),
-            summary: format!(
-                "Loaded multi-turn modification memory: {successful_history_count} successful turn(s) ({full_turns} full project, {compact_turns} compact summary), {failed_history_count} failed attempt(s)"
-            ),
-        });
+        emit_step(
+            &mut agent_trace,
+            &step_tx,
+            PlaygroundAgentStep {
+                tool: "load_session_memory".to_string(),
+                status: "success".to_string(),
+                summary: format!(
+                    "Loaded multi-turn modification memory: {successful_history_count} successful turn(s) ({full_turns} full project, {compact_turns} compact summary), {failed_history_count} failed attempt(s)"
+                ),
+            },
+        )
+        .await?;
     }
 
     let manifest_for_planner = request
@@ -443,63 +678,110 @@ async fn generate_project(
         "AVAILABLE DOCUMENT CATALOG:\n{}\n\nPRIOR SESSION INSTRUCTIONS (ordered, full text):\n{prior_instructions}\n\nUSER INSTRUCTION:\n<instruction>{instruction}</instruction>\n\nCURRENT MANIFEST:\n<manifest>{manifest_for_planner}</manifest>\n\nRUNTIME FEEDBACK:\n<runtime_feedback>{runtime_feedback_json}</runtime_feedback>",
         tapp_playground_knowledge::catalog_for_prompt()
     );
-    let plan = match analyzer
-        .analyze_with_system(PLANNER_SYSTEM_PROMPT, &planner_prompt)
-        .await
+
+    emit_step(
+        &mut agent_trace,
+        &step_tx,
+        PlaygroundAgentStep {
+            tool: "plan_context".to_string(),
+            status: "running".to_string(),
+            summary: "Planning documentation queries for the requested capabilities".to_string(),
+        },
+    )
+    .await?;
+
+    let plan = match await_or_cancel(
+        &mut cancel_rx,
+        analyzer.analyze_with_system(PLANNER_SYSTEM_PROMPT, &planner_prompt),
+    )
+    .await?
     {
         Ok(raw) => match parse_agent_plan(&raw) {
             Ok(plan) => {
-                agent_trace.push(PlaygroundAgentStep {
-                    tool: "plan_context".to_string(),
-                    status: "success".to_string(),
-                    summary: format!(
-                        "Planned {} documentation queries for {} capabilities",
-                        plan.queries.len(),
-                        plan.capabilities.len()
-                    ),
-                });
+                emit_step(
+                    &mut agent_trace,
+                    &step_tx,
+                    PlaygroundAgentStep {
+                        tool: "plan_context".to_string(),
+                        status: "success".to_string(),
+                        summary: format!(
+                            "Planned {} documentation queries for {} capabilities",
+                            plan.queries.len(),
+                            plan.capabilities.len()
+                        ),
+                    },
+                )
+                .await?;
                 plan
             }
             Err(error) => {
                 tracing::warn!("Tapp Playground planner output was invalid: {error}");
-                agent_trace.push(PlaygroundAgentStep {
-                    tool: "plan_context".to_string(),
-                    status: "fallback".to_string(),
-                    summary: "Planner output was invalid; used deterministic contract queries"
-                        .to_string(),
-                });
+                emit_step(
+                    &mut agent_trace,
+                    &step_tx,
+                    PlaygroundAgentStep {
+                        tool: "plan_context".to_string(),
+                        status: "fallback".to_string(),
+                        summary: "Planner output was invalid; used deterministic contract queries"
+                            .to_string(),
+                    },
+                )
+                .await?;
                 fallback_agent_plan(instruction)
             }
         },
         Err(error) => {
             tracing::warn!("Tapp Playground planner request failed: {error:#}");
-            agent_trace.push(PlaygroundAgentStep {
-                tool: "plan_context".to_string(),
-                status: "fallback".to_string(),
-                summary: "Planner request failed; used deterministic contract queries".to_string(),
-            });
+            emit_step(
+                &mut agent_trace,
+                &step_tx,
+                PlaygroundAgentStep {
+                    tool: "plan_context".to_string(),
+                    status: "fallback".to_string(),
+                    summary: "Planner request failed; used deterministic contract queries"
+                        .to_string(),
+                },
+            )
+            .await?;
             fallback_agent_plan(instruction)
         }
     };
 
+    if cancel_rx
+        .as_ref()
+        .is_some_and(cancelled_from_watch)
+    {
+        return Err(GenerationError::Cancelled);
+    }
+
     let knowledge_sources = retrieve_agent_knowledge(&plan, instruction);
-    agent_trace.push(PlaygroundAgentStep {
-        tool: "search_docs".to_string(),
-        status: "success".to_string(),
-        summary: format!(
-            "Retrieved {} bounded sections from the repository Tapp contract",
-            knowledge_sources.len()
-        ),
-    });
-    if !request.runtime_feedback.is_empty() {
-        agent_trace.push(PlaygroundAgentStep {
-            tool: "inspect_runtime_feedback".to_string(),
+    emit_step(
+        &mut agent_trace,
+        &step_tx,
+        PlaygroundAgentStep {
+            tool: "search_docs".to_string(),
             status: "success".to_string(),
             summary: format!(
-                "Included {} sandbox runtime error(s) in the repair context",
-                request.runtime_feedback.len()
+                "Retrieved {} bounded sections from the repository Tapp contract",
+                knowledge_sources.len()
             ),
-        });
+        },
+    )
+    .await?;
+    if !request.runtime_feedback.is_empty() {
+        emit_step(
+            &mut agent_trace,
+            &step_tx,
+            PlaygroundAgentStep {
+                tool: "inspect_runtime_feedback".to_string(),
+                status: "success".to_string(),
+                summary: format!(
+                    "Included {} sandbox runtime error(s) in the repair context",
+                    request.runtime_feedback.len()
+                ),
+            },
+        )
+        .await?;
     }
 
     let mode = if !request.runtime_feedback.is_empty() {
@@ -535,57 +817,126 @@ async fn generate_project(
     let mut validation_attempts = 0usize;
     let mut last_validation_error = String::new();
     for attempt in 1..=MAX_AGENT_ATTEMPTS {
-        let raw = analyzer
-            .analyze_with_messages(&system_prompt, messages.clone())
-            .await
-            .map_err(|error| {
+        if cancel_rx
+            .as_ref()
+            .is_some_and(cancelled_from_watch)
+        {
+            return Err(GenerationError::Cancelled);
+        }
+
+        emit_step(
+            &mut agent_trace,
+            &step_tx,
+            PlaygroundAgentStep {
+                tool: if attempt == 1 {
+                    "generate_project".to_string()
+                } else {
+                    "repair_project".to_string()
+                },
+                status: "running".to_string(),
+                summary: if attempt == 1 {
+                    "Writing the full project with the Pro model".to_string()
+                } else {
+                    format!("Repairing project on attempt {attempt}")
+                },
+            },
+        )
+        .await?;
+
+        let raw = match await_or_cancel(
+            &mut cancel_rx,
+            analyzer.analyze_with_messages(&system_prompt, messages.clone()),
+        )
+        .await?
+        {
+            Ok(raw) => raw,
+            Err(error) => {
+                if cancel_rx
+                    .as_ref()
+                    .is_some_and(cancelled_from_watch)
+                {
+                    return Err(GenerationError::Cancelled);
+                }
                 tracing::error!(
                     "Tapp Playground agent request failed on attempt {attempt}: {error:#}"
                 );
-                api_error(StatusCode::BAD_GATEWAY, "Pro AI agent generation failed")
-            })?;
+                return Err(GenerationError::Api(api_error(
+                    StatusCode::BAD_GATEWAY,
+                    "Pro AI agent generation failed",
+                )));
+            }
+        };
         validation_attempts = attempt;
         match parse_and_validate_model_output(&raw) {
             Ok((validated, normalized_aliases)) => {
                 if normalized_aliases > 0 {
-                    agent_trace.push(PlaygroundAgentStep {
-                        tool: "normalize_project".to_string(),
+                    emit_step(
+                        &mut agent_trace,
+                        &step_tx,
+                        PlaygroundAgentStep {
+                            tool: "normalize_project".to_string(),
+                            status: "success".to_string(),
+                            summary: format!(
+                                "Normalized {normalized_aliases} known generator issue(s) (setting aliases / invalid asset paths)"
+                            ),
+                        },
+                    )
+                    .await?;
+                }
+                emit_step(
+                    &mut agent_trace,
+                    &step_tx,
+                    PlaygroundAgentStep {
+                        tool: "validate_project".to_string(),
                         status: "success".to_string(),
                         summary: format!(
-                            "Normalized {normalized_aliases} known generator issue(s) (setting aliases / invalid asset paths)"
+                            "Manifest, resources, permissions, HTML, and size checks passed on attempt {attempt}"
                         ),
-                    });
-                }
-                agent_trace.push(PlaygroundAgentStep {
-                    tool: "validate_project".to_string(),
-                    status: "success".to_string(),
-                    summary: format!(
-                        "Manifest, resources, permissions, HTML, and size checks passed on attempt {attempt}"
-                    ),
-                });
+                    },
+                )
+                .await?;
                 output = Some(validated);
                 break;
             }
             Err(error) => {
                 last_validation_error = error.clone();
-                agent_trace.push(PlaygroundAgentStep {
-                    tool: "validate_project".to_string(),
-                    status: "failed".to_string(),
-                    summary: format!("Attempt {attempt} failed: {}", truncate_utf8(&error, 320)),
-                });
+                emit_step(
+                    &mut agent_trace,
+                    &step_tx,
+                    PlaygroundAgentStep {
+                        tool: "validate_project".to_string(),
+                        status: "failed".to_string(),
+                        summary: format!(
+                            "Attempt {attempt} failed: {}",
+                            truncate_utf8(&error, 320)
+                        ),
+                    },
+                )
+                .await?;
                 if attempt < MAX_AGENT_ATTEMPTS {
+                    if cancel_rx
+                        .as_ref()
+                        .is_some_and(cancelled_from_watch)
+                    {
+                        return Err(GenerationError::Cancelled);
+                    }
                     let previous = truncate_utf8(&raw, 96 * 1024);
                     messages.push(ChatMessage::user(format!(
                         "The candidate failed the authoritative validation tool. Diagnose the root cause, repair the complete project, and return ONLY the required full JSON object. Use exact camelCase field names from the validator; setting definitions use `defaultValue`, never `default`. Do not place Widget templates or HTML/JS entrypoints under `manifest.assets` / `code.assets`; put Widget markup in `code.widgetHtml` and leave `assets` empty unless you need real binary files under `assets/`. Do not repeat an alias or field named by the error as unknown.\n\nVALIDATION TOOL RESULT:\n<validation_error>{error}</validation_error>\n\nORIGINAL USER INSTRUCTION:\n<instruction>{instruction}</instruction>\n\nCURRENT PROJECT BEFORE THIS RUN:\n<current_project>{current}</current_project>\n\nFAILED CANDIDATE:\n<previous>{previous}</previous>"
                     )));
-                    agent_trace.push(PlaygroundAgentStep {
-                        tool: "repair_project".to_string(),
-                        status: "running".to_string(),
-                        summary: format!(
-                            "Returned validation feedback for repair attempt {}",
-                            attempt + 1
-                        ),
-                    });
+                    emit_step(
+                        &mut agent_trace,
+                        &step_tx,
+                        PlaygroundAgentStep {
+                            tool: "repair_project".to_string(),
+                            status: "running".to_string(),
+                            summary: format!(
+                                "Returned validation feedback for repair attempt {}",
+                                attempt + 1
+                            ),
+                        },
+                    )
+                    .await?;
                 }
             }
         }
@@ -595,22 +946,29 @@ async fn generate_project(
         tracing::warn!(
             "Tapp Playground agent exhausted validation attempts: {last_validation_error}"
         );
-        api_error(
+        GenerationError::Api(api_error(
             StatusCode::UNPROCESSABLE_ENTITY,
             format!(
                 "Generated Tapp did not pass validation after {MAX_AGENT_ATTEMPTS} attempts: {last_validation_error}"
             ),
-        )
+        ))
     })?;
 
     let warnings = preview_warnings(&output.project.manifest.permissions);
-    agent_trace.push(PlaygroundAgentStep {
-        tool: "checkpoint".to_string(),
-        status: "success".to_string(),
-        summary: "Created a validated temporary project checkpoint; installation remains explicit"
-            .to_string(),
-    });
-    Ok(Json(PlaygroundGenerateResponse {
+    emit_step(
+        &mut agent_trace,
+        &step_tx,
+        PlaygroundAgentStep {
+            tool: "checkpoint".to_string(),
+            status: "success".to_string(),
+            summary:
+                "Created a validated temporary project checkpoint; installation remains explicit"
+                    .to_string(),
+        },
+    )
+    .await?;
+
+    Ok(PlaygroundGenerateResponse {
         project: output.project,
         explanation: output.explanation.trim().to_string(),
         warnings,
@@ -628,7 +986,7 @@ async fn generate_project(
                 "project_size".to_string(),
             ],
         },
-    }))
+    })
 }
 
 fn parse_agent_plan(raw: &str) -> Result<PlaygroundAgentPlan, String> {
@@ -1987,5 +2345,34 @@ mod tests {
         );
         assert_eq!(output.project.code.assets.len(), 1);
         assert!(output.project.code.assets.contains_key("assets/icon.png"));
+    }
+
+    #[test]
+    fn stream_events_serialize_with_type_tag() {
+        let step = PlaygroundStreamEvent::Step {
+            tool: "plan_context".into(),
+            status: "success".into(),
+            summary: "Planned 2 queries".into(),
+        };
+        let step_json = serde_json::to_value(&step).expect("step json");
+        assert_eq!(step_json["type"], "step");
+        assert_eq!(step_json["tool"], "plan_context");
+        assert_eq!(step_json["status"], "success");
+        assert_eq!(step_json["summary"], "Planned 2 queries");
+
+        let err = PlaygroundStreamEvent::Error {
+            message: "Generation cancelled".into(),
+        };
+        let err_json = serde_json::to_value(&err).expect("error json");
+        assert_eq!(err_json["type"], "error");
+        assert_eq!(err_json["message"], "Generation cancelled");
+    }
+
+    #[test]
+    fn cancelled_from_watch_reads_flag() {
+        let (tx, rx) = watch::channel(false);
+        assert!(!cancelled_from_watch(&rx));
+        tx.send(true).expect("send cancel");
+        assert!(cancelled_from_watch(&rx));
     }
 }

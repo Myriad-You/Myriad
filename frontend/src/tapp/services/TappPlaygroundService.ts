@@ -67,10 +67,40 @@ export interface GeneratePlaygroundResponse {
   validation: PlaygroundValidationReport
 }
 
+export type PlaygroundStreamStepEvent = {
+  type: 'step'
+  tool: string
+  status: string
+  summary: string
+}
+
+export type PlaygroundStreamDoneEvent = {
+  type: 'done'
+  response: GeneratePlaygroundResponse
+}
+
+export type PlaygroundStreamErrorEvent = {
+  type: 'error'
+  message: string
+}
+
+export type PlaygroundStreamEvent =
+  | PlaygroundStreamStepEvent
+  | PlaygroundStreamDoneEvent
+  | PlaygroundStreamErrorEvent
+
 export interface GeneratePlaygroundOptions {
   /** Optional abort signal (user cancel). Combined with the request timeout. */
   signal?: AbortSignal
   retryOnCsrf?: boolean
+  /**
+   * Prefer SSE `/generate-stream` for progressive agent steps.
+   * Falls back to one-shot `/generate` when stream is unavailable.
+   * Default: true.
+   */
+  preferStream?: boolean
+  /** Called for each real agent step when streaming is active. */
+  onStep?: (step: PlaygroundAgentStep) => void
 }
 
 /**
@@ -100,7 +130,12 @@ function combineAbortSignals(
   }
   const timeoutId = window.setTimeout(() => {
     if (!controller.signal.aborted) {
-      controller.abort(new DOMException('The operation was aborted due to timeout.', 'TimeoutError'))
+      controller.abort(
+        new DOMException(
+          'The operation was aborted due to timeout.',
+          'TimeoutError',
+        ),
+      )
     }
   }, timeoutMs)
   const cleanup = () => {
@@ -108,6 +143,197 @@ function combineAbortSignals(
     userSignal?.removeEventListener('abort', onUserAbort)
   }
   return { signal: controller.signal, cleanup }
+}
+
+function buildGenerateHeaders(csrfToken: string | null): HeadersInit {
+  return {
+    'Content-Type': 'application/json',
+    ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
+  }
+}
+
+async function throwIfGenerateHttpError(
+  response: Response,
+  retryOnCsrf: boolean,
+): Promise<never> {
+  const error = await response.json().catch(() => ({}))
+  const message = error.message || error.error || `HTTP ${response.status}`
+  if (
+    response.status === 403 &&
+    retryOnCsrf &&
+    /csrf/i.test(String(message))
+  ) {
+    await getCSRFToken(true)
+    // Caller re-enters generatePlaygroundProject with retryOnCsrf: false.
+    throw Object.assign(new Error(String(message)), {
+      __csrfRetry: true as const,
+    })
+  }
+  throw new Error(String(message))
+}
+
+function isPlaygroundStreamEvent(value: unknown): value is PlaygroundStreamEvent {
+  if (!value || typeof value !== 'object') return false
+  const type = (value as { type?: unknown }).type
+  return type === 'step' || type === 'done' || type === 'error'
+}
+
+/**
+ * Parse SSE frames from a growing text buffer.
+ * Returns complete events and the unconsumed remainder.
+ */
+export function consumeSseDataEvents(buffer: string): {
+  events: unknown[]
+  rest: string
+} {
+  const events: unknown[] = []
+  let rest = buffer
+  // Normalize CRLF; frames are separated by a blank line.
+  rest = rest.replace(/\r\n/g, '\n')
+  while (true) {
+    const sep = rest.indexOf('\n\n')
+    if (sep < 0) break
+    const frame = rest.slice(0, sep)
+    rest = rest.slice(sep + 2)
+    const dataLines: string[] = []
+    for (const line of frame.split('\n')) {
+      if (line.startsWith('data:')) {
+        dataLines.push(line.slice(5).trimStart())
+      }
+    }
+    if (dataLines.length === 0) continue
+    const payload = dataLines.join('\n')
+    if (!payload || payload === 'keepalive') continue
+    try {
+      events.push(JSON.parse(payload))
+    } catch {
+      // Ignore malformed frames; stream may still complete via done/error.
+    }
+  }
+  return { events, rest }
+}
+
+async function generateViaStream(
+  request: GeneratePlaygroundRequest,
+  opts: GeneratePlaygroundOptions,
+  signal: AbortSignal,
+): Promise<GeneratePlaygroundResponse> {
+  const csrfToken = await getCSRFToken()
+  const response = await fetch(
+    `${API_URL}/api/tapp-playground/generate-stream`,
+    {
+      method: 'POST',
+      headers: buildGenerateHeaders(csrfToken),
+      body: JSON.stringify(request),
+      credentials: 'include',
+      signal,
+    },
+  )
+
+  if (!response.ok) {
+    // 404 / 405 → caller falls back to one-shot generate.
+    if (response.status === 404 || response.status === 405) {
+      throw Object.assign(new Error(`HTTP ${response.status}`), {
+        __streamUnavailable: true as const,
+      })
+    }
+    await throwIfGenerateHttpError(response, opts.retryOnCsrf !== false)
+  }
+
+  if (!response.body) {
+    throw Object.assign(new Error('Stream body unavailable'), {
+      __streamUnavailable: true as const,
+    })
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let finalResponse: GeneratePlaygroundResponse | null = null
+  let streamError: string | null = null
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const { events, rest } = consumeSseDataEvents(buffer)
+    buffer = rest
+    for (const raw of events) {
+      if (!isPlaygroundStreamEvent(raw)) continue
+      if (raw.type === 'step') {
+        opts.onStep?.({
+          tool: raw.tool,
+          status: (raw.status as PlaygroundAgentStep['status']) || 'running',
+          summary: raw.summary,
+        })
+      } else if (raw.type === 'done') {
+        finalResponse = raw.response
+      } else if (raw.type === 'error') {
+        streamError = raw.message || 'Generation failed'
+      }
+    }
+    if (finalResponse || streamError) {
+      // Drain is optional; abort remaining body on terminal event.
+      try {
+        await reader.cancel()
+      } catch {
+        // ignore
+      }
+      break
+    }
+  }
+
+  // Flush trailing frame without trailing blank line.
+  if (buffer.trim()) {
+    const { events } = consumeSseDataEvents(`${buffer}\n\n`)
+    for (const raw of events) {
+      if (!isPlaygroundStreamEvent(raw)) continue
+      if (raw.type === 'step') {
+        opts.onStep?.({
+          tool: raw.tool,
+          status: (raw.status as PlaygroundAgentStep['status']) || 'running',
+          summary: raw.summary,
+        })
+      } else if (raw.type === 'done') {
+        finalResponse = raw.response
+      } else if (raw.type === 'error') {
+        streamError = raw.message || 'Generation failed'
+      }
+    }
+  }
+
+  if (streamError) {
+    if (/cancelled/i.test(streamError) && signal.aborted) {
+      throw new DOMException('The operation was aborted.', 'AbortError')
+    }
+    throw new Error(streamError)
+  }
+  if (!finalResponse) {
+    if (signal.aborted) {
+      throw new DOMException('The operation was aborted.', 'AbortError')
+    }
+    throw new Error('Playground stream ended without a final response')
+  }
+  return finalResponse
+}
+
+async function generateViaOneShot(
+  request: GeneratePlaygroundRequest,
+  opts: GeneratePlaygroundOptions,
+  signal: AbortSignal,
+): Promise<GeneratePlaygroundResponse> {
+  const csrfToken = await getCSRFToken()
+  const response = await fetch(`${API_URL}/api/tapp-playground/generate`, {
+    method: 'POST',
+    headers: buildGenerateHeaders(csrfToken),
+    body: JSON.stringify(request),
+    credentials: 'include',
+    signal,
+  })
+  if (!response.ok) {
+    await throwIfGenerateHttpError(response, opts.retryOnCsrf !== false)
+  }
+  return response.json()
 }
 
 export async function generatePlaygroundProject(
@@ -120,39 +346,74 @@ export async function generatePlaygroundProject(
       ? { retryOnCsrf: options }
       : { retryOnCsrf: true, ...options }
   const retryOnCsrf = opts.retryOnCsrf !== false
+  const preferStream = opts.preferStream !== false
 
-  const csrfToken = await getCSRFToken()
   // Keep equal to PLAYGROUND_PROXY_TIMEOUT_MS in frontend/astro.config.mjs
   // (planner + up to 3 repairs; each model call may take up to 720s).
   const { signal, cleanup } = combineAbortSignals(opts.signal, 20 * 60 * 1000)
   try {
-    const response = await fetch(`${API_URL}/api/tapp-playground/generate`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
-      },
-      body: JSON.stringify(request),
-      credentials: 'include',
-      signal,
-    })
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}))
-      const message = error.message || error.error || `HTTP ${response.status}`
+    if (preferStream) {
+      try {
+        return await generateViaStream(request, { ...opts, retryOnCsrf }, signal)
+      } catch (error) {
+        if (
+          error &&
+          typeof error === 'object' &&
+          '__csrfRetry' in error &&
+          retryOnCsrf
+        ) {
+          return generatePlaygroundProject(request, {
+            ...opts,
+            retryOnCsrf: false,
+          })
+        }
+        if (
+          error &&
+          typeof error === 'object' &&
+          '__streamUnavailable' in error
+        ) {
+          // Fall through to one-shot.
+        } else if (
+          error instanceof DOMException &&
+          (error.name === 'AbortError' || error.name === 'TimeoutError')
+        ) {
+          throw error
+        } else if (
+          // Network / CORS / missing route: fall back once.
+          error instanceof TypeError ||
+          (error instanceof Error &&
+            /failed to fetch|networkerror|load failed|HTTP 404|HTTP 405/i.test(
+              error.message,
+            ))
+        ) {
+          // Fall through.
+        } else {
+          throw error
+        }
+      }
+    }
+
+    try {
+      return await generateViaOneShot(
+        request,
+        { ...opts, retryOnCsrf },
+        signal,
+      )
+    } catch (error) {
       if (
-        response.status === 403 &&
-        retryOnCsrf &&
-        /csrf/i.test(String(message))
+        error &&
+        typeof error === 'object' &&
+        '__csrfRetry' in error &&
+        retryOnCsrf
       ) {
-        await getCSRFToken(true)
         return generatePlaygroundProject(request, {
           ...opts,
+          preferStream: false,
           retryOnCsrf: false,
         })
       }
-      throw new Error(String(message))
+      throw error
     }
-    return response.json()
   } finally {
     cleanup()
   }
