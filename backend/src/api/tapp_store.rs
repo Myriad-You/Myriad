@@ -4385,9 +4385,9 @@ async fn export_tapp(
 
 /// 启动 Tapp
 ///
-/// 权限模型：
-/// - 管理员可以启动自己的 Tapp（修改数据库状态）
-/// - 普通用户可以启动管理员的 Tapp（不修改数据库，运行状态在前端维护）
+/// 权限模型（private-first，与 list/detail/runtime 一致）：
+/// - 主体有同 `tapp_id` 的私有安装时：更新该私有行状态
+/// - 否则站点主公开安装：管理员写库；非管理员只记活动（前端会话态）
 /// - 普通用户可以启动自己临时安装的 Tapp
 ///
 /// 所有用户启动 Tapp 时都会记录到 tapp_user_activities 表
@@ -4398,38 +4398,12 @@ async fn start_tapp(
 ) -> Result<Json<ApiResponse<()>>, StatusCode> {
     let user_id: i32 = claims.sub.parse().map_err(|_| StatusCode::UNAUTHORIZED)?;
     validate_tapp_id(&tapp_id).map_err(|_| StatusCode::BAD_REQUEST)?;
-    let admin_id = get_admin_user_id(&db).await?;
+    let admin_id = find_admin_user_id(&db).await?;
     let now = Utc::now().fixed_offset();
     let is_current_admin = current_is_admin(&claims).await;
 
-    // 先尝试从管理员的 Tapp 中查找
-    let admin_tapp = tapps::Entity::find()
-        .filter(tapps::Column::UserId.eq(admin_id))
-        .filter(tapps::Column::TappId.eq(&tapp_id))
-        .one(&db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    if let Some(tapp) = admin_tapp {
-        // 管理员的 Tapp
-        if is_current_admin {
-            // 管理员启动自己的 Tapp，更新数据库状态
-            let mut active: tapps::ActiveModel = tapp.into();
-            active.status = Set(tapps::TappStatus::Running);
-            active.last_run_at = Set(Some(now));
-            active.updated_at = Set(now);
-            active
-                .update(&db)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        }
-        // 记录用户活动（所有用户都记录）
-        record_user_activity(&db, user_id, &tapp_id, now).await?;
-        return Ok(Json(ApiResponse::success(())));
-    }
-
-    // 尝试从用户自己的临时 Tapp 中查找
-    if user_id != admin_id {
+    // Prefer the subject's private install when both private and public copies exist.
+    if admin_id != Some(user_id) {
         let user_tapp = tapps::Entity::find()
             .filter(tapps::Column::UserId.eq(user_id))
             .filter(tapps::Column::TappId.eq(&tapp_id))
@@ -4446,7 +4420,31 @@ async fn start_tapp(
                 .update(&db)
                 .await
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-            // 记录用户活动
+            record_user_activity(&db, user_id, &tapp_id, now).await?;
+            return Ok(Json(ApiResponse::success(())));
+        }
+    }
+
+    // Pure-public session: non-owners may start without mutating the public row.
+    if let Some(admin_id) = admin_id {
+        let admin_tapp = tapps::Entity::find()
+            .filter(tapps::Column::UserId.eq(admin_id))
+            .filter(tapps::Column::TappId.eq(&tapp_id))
+            .one(&db)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        if let Some(tapp) = admin_tapp {
+            if is_current_admin {
+                let mut active: tapps::ActiveModel = tapp.into();
+                active.status = Set(tapps::TappStatus::Running);
+                active.last_run_at = Set(Some(now));
+                active.updated_at = Set(now);
+                active
+                    .update(&db)
+                    .await
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            }
             record_user_activity(&db, user_id, &tapp_id, now).await?;
             return Ok(Json(ApiResponse::success(())));
         }
@@ -4483,9 +4481,9 @@ async fn record_user_activity(
 
 /// 停止 Tapp
 ///
-/// 权限模型：
-/// - 管理员可以停止自己的 Tapp（修改数据库状态）
-/// - 普通用户可以停止管理员的 Tapp（不修改数据库，运行状态在前端维护）
+/// 权限模型（private-first，与 list/detail/runtime 一致）：
+/// - 主体有同 `tapp_id` 的私有安装时：更新该私有行状态并吊销 grant
+/// - 否则站点主公开安装：管理员写库；非管理员只吊销自身 grant（不改公开行）
 /// - 普通用户可以停止自己临时安装的 Tapp
 async fn stop_tapp(
     State(db): State<DatabaseConnection>,
@@ -4494,37 +4492,11 @@ async fn stop_tapp(
 ) -> Result<Json<ApiResponse<()>>, StatusCode> {
     let user_id: i32 = claims.sub.parse().map_err(|_| StatusCode::UNAUTHORIZED)?;
     validate_tapp_id(&tapp_id).map_err(|_| StatusCode::BAD_REQUEST)?;
-    let admin_id = get_admin_user_id(&db).await?;
+    let admin_id = find_admin_user_id(&db).await?;
     let is_current_admin = current_is_admin(&claims).await;
 
-    // 先尝试从管理员的 Tapp 中查找
-    let admin_tapp = tapps::Entity::find()
-        .filter(tapps::Column::UserId.eq(admin_id))
-        .filter(tapps::Column::TappId.eq(&tapp_id))
-        .one(&db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    if let Some(tapp) = admin_tapp {
-        // 管理员的 Tapp
-        if is_current_admin {
-            // 管理员停止自己的 Tapp，更新数据库状态
-            let now = Utc::now().fixed_offset();
-            let mut active: tapps::ActiveModel = tapp.into();
-            active.status = Set(tapps::TappStatus::Installed);
-            active.updated_at = Set(now);
-            active
-                .update(&db)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        }
-        // 普通用户停止管理员的 Tapp，不修改数据库（只读）
-        crate::api::tapp_runtime::revoke_tapp_runtime_grants(user_id, &tapp_id).await;
-        return Ok(Json(ApiResponse::success(())));
-    }
-
-    // 尝试从用户自己的临时 Tapp 中查找
-    if user_id != admin_id {
+    // Prefer the subject's private install when both private and public copies exist.
+    if admin_id != Some(user_id) {
         let user_tapp = tapps::Entity::find()
             .filter(tapps::Column::UserId.eq(user_id))
             .filter(tapps::Column::TappId.eq(&tapp_id))
@@ -4541,6 +4513,31 @@ async fn stop_tapp(
                 .update(&db)
                 .await
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            crate::api::tapp_runtime::revoke_tapp_runtime_grants(user_id, &tapp_id).await;
+            return Ok(Json(ApiResponse::success(())));
+        }
+    }
+
+    // Pure-public session: non-owners stop without mutating the public row.
+    if let Some(admin_id) = admin_id {
+        let admin_tapp = tapps::Entity::find()
+            .filter(tapps::Column::UserId.eq(admin_id))
+            .filter(tapps::Column::TappId.eq(&tapp_id))
+            .one(&db)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        if let Some(tapp) = admin_tapp {
+            if is_current_admin {
+                let now = Utc::now().fixed_offset();
+                let mut active: tapps::ActiveModel = tapp.into();
+                active.status = Set(tapps::TappStatus::Installed);
+                active.updated_at = Set(now);
+                active
+                    .update(&db)
+                    .await
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            }
             crate::api::tapp_runtime::revoke_tapp_runtime_grants(user_id, &tapp_id).await;
             return Ok(Json(ApiResponse::success(())));
         }
@@ -4673,9 +4670,12 @@ struct UninstallTappQuery {
 
 /// 卸载 Tapp
 ///
-/// 权限模型：
-/// - 管理员可以卸载自己的 Tapp
-/// - 普通用户只能卸载自己临时安装的 Tapp，不能卸载管理员的 Tapp
+/// 权限模型（private-first，与 list/detail 一致）：
+/// 1. 调用者自己的安装（claims.user_id + tapp_id）优先；找到则直接卸载，无需 admin
+/// 2. 否则若存在站点主公开安装，则 require_current_admin 后卸载公开行
+/// 3. 否则 NOT_FOUND
+///
+/// 这样 private+public 双装时，非管理员可卸载私有副本且不误触公开安装的 403。
 ///
 /// 查询参数：
 /// - keep_data: bool - 是否保留应用数据，以便再次安装时恢复
@@ -4687,33 +4687,37 @@ async fn uninstall_tapp(
 ) -> Result<Json<ApiResponse<()>>, StatusCode> {
     let user_id: i32 = claims.sub.parse().map_err(|_| StatusCode::UNAUTHORIZED)?;
     validate_tapp_id(&tapp_id).map_err(|_| StatusCode::BAD_REQUEST)?;
-    let admin_id = get_admin_user_id(&db).await?;
     let keep_data = query.keep_data;
 
-    // 检查是否是管理员的 Tapp
-    if let Some(tapp) = tapps::Entity::find()
-        .filter(tapps::Column::UserId.eq(admin_id))
-        .filter(tapps::Column::TappId.eq(&tapp_id))
-        .one(&db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    {
-        // 这是管理员的 Tapp
-        require_current_admin(&claims).await?;
-        // 管理员可以卸载自己的 Tapp
-        return do_uninstall_tapp(&db, &tapp, keep_data).await;
-    }
-
-    // 尝试从用户自己的临时 Tapp 中查找
-    let tapp = tapps::Entity::find()
+    // 1. Prefer the caller's own install (private or site-owner public under their id).
+    let own_tapp = tapps::Entity::find()
         .filter(tapps::Column::UserId.eq(user_id))
         .filter(tapps::Column::TappId.eq(&tapp_id))
         .one(&db)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if let Some(tapp) = own_tapp {
+        return do_uninstall_tapp(&db, &tapp, keep_data).await;
+    }
 
-    do_uninstall_tapp(&db, &tapp, keep_data).await
+    // 2. Site-owner public install only (other admins may remove it; non-admins get 403).
+    if let Some(site_owner_id) = find_admin_user_id(&db).await? {
+        if site_owner_id != user_id {
+            let public_tapp = tapps::Entity::find()
+                .filter(tapps::Column::UserId.eq(site_owner_id))
+                .filter(tapps::Column::TappId.eq(&tapp_id))
+                .one(&db)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            if let Some(tapp) = public_tapp {
+                require_current_admin(&claims).await?;
+                return do_uninstall_tapp(&db, &tapp, keep_data).await;
+            }
+        }
+    }
+
+    // 3. Nothing to uninstall.
+    Err(StatusCode::NOT_FOUND)
 }
 
 /// 执行卸载 Tapp 的具体操作
@@ -6702,6 +6706,24 @@ mod manifest_tests {
     use crate::services::permission_service::UserRole;
     use serde_json::json;
 
+    /// Pure mirror of `uninstall_tapp` branch order (own → public+admin → not found).
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum UninstallTarget {
+        OwnInstall,
+        PublicRequiresAdmin,
+        NotFound,
+    }
+
+    fn select_uninstall_target(has_own_install: bool, has_public_install: bool) -> UninstallTarget {
+        if has_own_install {
+            UninstallTarget::OwnInstall
+        } else if has_public_install {
+            UninstallTarget::PublicRequiresAdmin
+        } else {
+            UninstallTarget::NotFound
+        }
+    }
+
     #[test]
     fn every_admin_operates_the_canonical_public_owner_namespace() {
         assert_eq!(canonical_installation_owner_id(UserRole::Admin, 9, 1), 1);
@@ -6723,6 +6745,29 @@ mod manifest_tests {
         assert_eq!(
             installation_conflict_owner_ids(UserRole::Guest, -5, 1),
             vec![-5]
+        );
+    }
+
+    #[test]
+    fn uninstall_prefers_own_install_when_public_coexists() {
+        // Dual install: non-admin must hit own row (no admin required), not public 403 path.
+        assert_eq!(
+            select_uninstall_target(true, true),
+            UninstallTarget::OwnInstall
+        );
+        // Private only.
+        assert_eq!(
+            select_uninstall_target(true, false),
+            UninstallTarget::OwnInstall
+        );
+        // Public only: admin gate, then uninstall public.
+        assert_eq!(
+            select_uninstall_target(false, true),
+            UninstallTarget::PublicRequiresAdmin
+        );
+        assert_eq!(
+            select_uninstall_target(false, false),
+            UninstallTarget::NotFound
         );
     }
 
