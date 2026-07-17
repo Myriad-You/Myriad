@@ -15,6 +15,7 @@
 //! - declared_api: Tapp API 声明系统
 
 mod agent_interactions;
+mod ai_cost_ledger;
 mod ai_quota;
 mod ai_tasks;
 pub mod common;
@@ -25,6 +26,7 @@ mod data_exchange;
 mod declared_api;
 mod events;
 mod federation;
+mod host_attribution;
 mod media;
 mod metrics;
 mod notifications;
@@ -49,6 +51,7 @@ pub use agent_interactions::{
     request_agent_intent, spawn_agent_interaction_expiry_worker, stream_agent_interactions,
     submit_agent_interaction_result,
 };
+pub use ai_cost_ledger::ai_cost_ledger;
 pub use ai_tasks::{ai_usage, cancel_ai_task, create_ai_task, get_ai_task, stream_ai_task_events};
 pub(crate) use ai_tasks::{execute_governed_text, GovernedTextRequest};
 
@@ -57,6 +60,9 @@ pub use reports::{
     create_report, delete_tapp_report, get_runtime_platform_report, get_runtime_report,
     get_tapp_report, list_reports, list_runtime_reports, list_tapp_reports, update_tapp_report,
 };
+
+// Server-side attribution for host-proxied legacy routes
+pub use host_attribution::{brew_host_attribution, speech_host_attribution};
 
 // Runtime identity grants
 pub use runtime_grant::{

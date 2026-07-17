@@ -581,15 +581,18 @@ export function registerSpeechHandlers(
 
     try {
       const { textToSpeech } = await import('../../../../services/speechApi')
-      const result = await textToSpeech({
-        text,
-        voice_type,
-        speed,
-        volume,
-        codec,
-        sample_rate,
-        emotion,
-      })
+      const result = await textToSpeech(
+        {
+          text,
+          voice_type,
+          speed,
+          volume,
+          codec,
+          sample_rate,
+          emotion,
+        },
+        await bridge.hostAttributionHeaders(),
+      )
       return {
         success: result.success,
         data: result.success
@@ -612,7 +615,7 @@ export function registerSpeechHandlers(
   bridge.registerHandler('speech.getVoices', async () => {
     try {
       const { getVoiceList } = await import('../../../../services/speechApi')
-      const result = await getVoiceList()
+      const result = await getVoiceList(await bridge.hostAttributionHeaders())
       return { success: true, data: result.voices }
     } catch (error) {
       return {
@@ -625,7 +628,9 @@ export function registerSpeechHandlers(
   bridge.registerHandler('speech.getStatus', async () => {
     try {
       const { getSpeechStatus } = await import('../../../../services/speechApi')
-      const result = await getSpeechStatus()
+      const result = await getSpeechStatus(
+        await bridge.hostAttributionHeaders(),
+      )
       return { success: true, data: result }
     } catch (error) {
       return {
@@ -653,12 +658,15 @@ export function registerSpeechHandlers(
 
     try {
       const { speechToText } = await import('../../../../services/speechApi')
-      const result = await speechToText({
-        audio_data,
-        format,
-        engine,
-        word_info,
-      })
+      const result = await speechToText(
+        {
+          audio_data,
+          format,
+          engine,
+          word_info,
+        },
+        await bridge.hostAttributionHeaders(),
+      )
       return {
         success: result.success,
         data: result.success

@@ -1192,6 +1192,17 @@ struct AiTaskExecution {
     system_prompt: Option<String>,
     reservation: AiQuotaReservation,
     cancel: watch::Receiver<bool>,
+    /// Cost-ledger origin: "runtime" or "internal:<caller>".
+    ledger_source: String,
+}
+
+fn operation_name(operation: TappAiOperation) -> &'static str {
+    match operation {
+        TappAiOperation::Generate => "generate",
+        TappAiOperation::Analyze => "analyze",
+        TappAiOperation::Chat => "chat",
+        TappAiOperation::Image => "image",
+    }
 }
 
 async fn execute_task(execution: AiTaskExecution) {
@@ -1208,7 +1219,18 @@ async fn execute_task(execution: AiTaskExecution) {
         system_prompt,
         reservation,
         mut cancel,
+        ledger_source,
     } = execution;
+    let (ledger_provider, ledger_model) = match &model {
+        PreparedModel::Text(config) => (
+            match config.provider {
+                crate::services::analyzer::AiProvider::Gemini => "gemini".to_string(),
+                crate::services::analyzer::AiProvider::OpenAI => "openai".to_string(),
+            },
+            config.model.clone(),
+        ),
+        PreparedModel::Image(config) => (config.provider.clone(), config.model.clone()),
+    };
     let (events, mut event_receiver) = tokio::sync::mpsc::unbounded_channel::<TaskBroadcast>();
     let event_db = db.clone();
     let event_task_id = task_id.clone();
@@ -1264,12 +1286,14 @@ async fn execute_task(execution: AiTaskExecution) {
                         "AI provider failed to complete the task".to_string(),
                     )
                 })?;
-                let tokens = (system.len() + prepared.prompt.len() + raw.len()) / 4;
-                normalize_text_result(&prepared, raw).map(|value| (value, tokens))
+                let input_tokens = (system.len() + prepared.prompt.len()) / 4;
+                let output_tokens = raw.len() / 4;
+                normalize_text_result(&prepared, raw)
+                    .map(|value| (value, input_tokens, output_tokens))
             }
             PreparedModel::Image(config) => run_image_task(config, &prepared.prompt, &events)
                 .await
-                .map(|value| (value, 0)),
+                .map(|value| (value, 0, 0)),
         }
     };
 
@@ -1299,10 +1323,29 @@ async fn execute_task(execution: AiTaskExecution) {
     };
 
     match outcome {
-        Ok((result, actual_tokens)) => {
-            if let Err(error) = settle_ai_quota(&db, &reservation, actual_tokens).await {
+        Ok((result, input_tokens, output_tokens)) => {
+            if let Err(error) = settle_ai_quota(&db, &reservation, input_tokens + output_tokens).await
+            {
                 tracing::error!(?error, task_id, "[TAPP] Failed to settle AI Task quota");
             }
+            super::ai_cost_ledger::record_ai_cost(
+                &db,
+                super::ai_cost_ledger::AiCostLedgerEntry {
+                    subject_id,
+                    owner_id,
+                    tapp_id: &tapp_id,
+                    task_id: &task_id,
+                    source: &ledger_source,
+                    operation: operation_name(request.operation),
+                    provider: &ledger_provider,
+                    model: &ledger_model,
+                    input_tokens: i32::try_from(input_tokens).unwrap_or(i32::MAX),
+                    output_tokens: i32::try_from(output_tokens).unwrap_or(i32::MAX),
+                    status: "completed",
+                    error_code: None,
+                },
+            )
+            .await;
             let usage = get_ai_usage(&db, role, subject_id, owner_id, &tapp_id)
                 .await
                 .map_err(|error| {
@@ -1319,6 +1362,28 @@ async fn execute_task(execution: AiTaskExecution) {
                     "[TAPP] Failed to release AI Task reservation"
                 );
             }
+            super::ai_cost_ledger::record_ai_cost(
+                &db,
+                super::ai_cost_ledger::AiCostLedgerEntry {
+                    subject_id,
+                    owner_id,
+                    tapp_id: &tapp_id,
+                    task_id: &task_id,
+                    source: &ledger_source,
+                    operation: operation_name(request.operation),
+                    provider: &ledger_provider,
+                    model: &ledger_model,
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    status: if code == "AI_TASK_CANCELLED" {
+                        "cancelled"
+                    } else {
+                        "failed"
+                    },
+                    error_code: Some(&code),
+                },
+            )
+            .await;
             let usage = get_ai_usage(&db, role, subject_id, owner_id, &tapp_id)
                 .await
                 .map_err(|error| {
@@ -1531,6 +1596,7 @@ pub(crate) async fn execute_governed_text(
         system_prompt: Some(system_prompt.to_string()),
         reservation,
         cancel: cancel_receiver,
+        ledger_source: format!("internal:{source}"),
     })
     .await;
 
@@ -1855,6 +1921,7 @@ pub async fn create_ai_task(
         system_prompt: None,
         reservation,
         cancel: cancel_receiver,
+        ledger_source: "runtime".to_string(),
     }));
 
     Ok((StatusCode::ACCEPTED, Json(snapshot)))

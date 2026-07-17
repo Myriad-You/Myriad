@@ -168,7 +168,7 @@ fn intersect_current_permissions(issued: &mut Vec<String>, currently_allowed: &[
     });
 }
 
-async fn validate_runtime_grant(
+pub(crate) async fn validate_runtime_grant(
     token: &str,
     claims: &Claims,
 ) -> Result<RuntimeGrantContext, (StatusCode, Json<Value>)> {

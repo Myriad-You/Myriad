@@ -154,12 +154,15 @@ export function registerBrewListHandlers(
     const [options = {}] = getArgs(message) as [Record<string, unknown>?]
     try {
       const { getItems } = await import('../../../../services/brewApi')
-      const data = await getItems({
-        per_page: (options.limit as number) || 30,
-        page: (options.page as number) || 1,
-        filter: (options.filter as 'all' | 'unread' | 'starred') || 'all',
-        source_id: options.source_id as number | undefined,
-      })
+      const data = await getItems(
+        {
+          per_page: (options.limit as number) || 30,
+          page: (options.page as number) || 1,
+          filter: (options.filter as 'all' | 'unread' | 'starred') || 'all',
+          source_id: options.source_id as number | undefined,
+        },
+        await bridge.hostAttributionHeaders(),
+      )
       return {
         success: true,
         data: {
@@ -189,7 +192,7 @@ export function registerBrewListHandlers(
     const [id] = getArgs(message) as [number]
     try {
       const { getItem } = await import('../../../../services/brewApi')
-      const item = await getItem(id)
+      const item = await getItem(id, await bridge.hostAttributionHeaders())
       return {
         success: true,
         data: {
@@ -216,7 +219,7 @@ export function registerBrewListHandlers(
   bridge.registerHandler('brewList.sources', async () => {
     try {
       const { getSources } = await import('../../../../services/brewApi')
-      const sources = await getSources()
+      const sources = await getSources(await bridge.hostAttributionHeaders())
       return {
         success: true,
         data: sources.map((s) => ({
@@ -239,7 +242,9 @@ export function registerBrewListHandlers(
   bridge.registerHandler('brewList.categories', async () => {
     try {
       const { getCategories } = await import('../../../../services/brewApi')
-      const categories = await getCategories()
+      const categories = await getCategories(
+        await bridge.hostAttributionHeaders(),
+      )
       return { success: true, data: categories }
     } catch (error) {
       return fail(error)
@@ -250,7 +255,7 @@ export function registerBrewListHandlers(
   bridge.registerHandler('brewList.stats', async () => {
     try {
       const { getStats } = await import('../../../../services/brewApi')
-      const stats = await getStats()
+      const stats = await getStats(await bridge.hostAttributionHeaders())
       return { success: true, data: stats }
     } catch (error) {
       return fail(error)
@@ -262,7 +267,10 @@ export function registerBrewListHandlers(
     const [url] = getArgs(message) as [string]
     try {
       const { discoverSource } = await import('../../../../services/brewApi')
-      const result = await discoverSource(url)
+      const result = await discoverSource(
+        url,
+        await bridge.hostAttributionHeaders(),
+      )
       return { success: true, data: result }
     } catch (error) {
       return fail(error)
@@ -273,7 +281,7 @@ export function registerBrewListHandlers(
   bridge.registerHandler('brewList.exportOpml', async () => {
     try {
       const { exportOpml } = await import('../../../../services/brewApi')
-      const opml = await exportOpml()
+      const opml = await exportOpml(await bridge.hostAttributionHeaders())
       return { success: true, data: opml }
     } catch (error) {
       return fail(error)
@@ -286,7 +294,7 @@ export function registerBrewListHandlers(
     const [itemId] = getArgs(message) as [number]
     try {
       const { markRead } = await import('../../../../services/brewApi')
-      await markRead(itemId)
+      await markRead(itemId, await bridge.hostAttributionHeaders())
       return { success: true }
     } catch (error) {
       return fail(error)
@@ -297,7 +305,7 @@ export function registerBrewListHandlers(
     const [itemId] = getArgs(message) as [number]
     try {
       const { markUnread } = await import('../../../../services/brewApi')
-      await markUnread(itemId)
+      await markUnread(itemId, await bridge.hostAttributionHeaders())
       return { success: true }
     } catch (error) {
       return fail(error)
@@ -308,7 +316,7 @@ export function registerBrewListHandlers(
     const [itemId] = getArgs(message) as [number]
     try {
       const { starItem } = await import('../../../../services/brewApi')
-      await starItem(itemId)
+      await starItem(itemId, await bridge.hostAttributionHeaders())
       return { success: true }
     } catch (error) {
       return fail(error)
@@ -319,7 +327,7 @@ export function registerBrewListHandlers(
     const [itemId] = getArgs(message) as [number]
     try {
       const { unstarItem } = await import('../../../../services/brewApi')
-      await unstarItem(itemId)
+      await unstarItem(itemId, await bridge.hostAttributionHeaders())
       return { success: true }
     } catch (error) {
       return fail(error)
@@ -332,7 +340,10 @@ export function registerBrewListHandlers(
     ]
     try {
       const { markAllRead } = await import('../../../../services/brewApi')
-      const count = await markAllRead(options)
+      const count = await markAllRead(
+        options,
+        await bridge.hostAttributionHeaders(),
+      )
       return { success: true, data: { count } }
     } catch (error) {
       return fail(error)
@@ -345,7 +356,10 @@ export function registerBrewListHandlers(
     const [itemId] = getArgs(message) as [number]
     try {
       const { getComments } = await import('../../../../services/brewApi')
-      const result = await getComments(itemId)
+      const result = await getComments(
+        itemId,
+        await bridge.hostAttributionHeaders(),
+      )
       return { success: true, data: result }
     } catch (error) {
       return fail(error)
@@ -367,7 +381,11 @@ export function registerBrewListHandlers(
     ]
     try {
       const { createComment } = await import('../../../../services/brewApi')
-      const result = await createComment(itemId, req)
+      const result = await createComment(
+        itemId,
+        req,
+        await bridge.hostAttributionHeaders(),
+      )
       return { success: true, data: result }
     } catch (error) {
       return fail(error)
@@ -381,7 +399,11 @@ export function registerBrewListHandlers(
     ]
     try {
       const { updateComment } = await import('../../../../services/brewApi')
-      const result = await updateComment(commentId, req)
+      const result = await updateComment(
+        commentId,
+        req,
+        await bridge.hostAttributionHeaders(),
+      )
       return { success: true, data: result }
     } catch (error) {
       return fail(error)
@@ -392,7 +414,7 @@ export function registerBrewListHandlers(
     const [commentId] = getArgs(message) as [number]
     try {
       const { deleteComment } = await import('../../../../services/brewApi')
-      await deleteComment(commentId)
+      await deleteComment(commentId, await bridge.hostAttributionHeaders())
       return { success: true }
     } catch (error) {
       return fail(error)
@@ -403,7 +425,10 @@ export function registerBrewListHandlers(
     const [commentId] = getArgs(message) as [number]
     try {
       const { getCommentReplies } = await import('../../../../services/brewApi')
-      const result = await getCommentReplies(commentId)
+      const result = await getCommentReplies(
+        commentId,
+        await bridge.hostAttributionHeaders(),
+      )
       return { success: true, data: result }
     } catch (error) {
       return fail(error)
@@ -418,7 +443,12 @@ export function registerBrewListHandlers(
     ]
     try {
       const { createReply } = await import('../../../../services/brewApi')
-      const result = await createReply(itemId, parentId, content)
+      const result = await createReply(
+        itemId,
+        parentId,
+        content,
+        await bridge.hostAttributionHeaders(),
+      )
       return { success: true, data: result }
     } catch (error) {
       return fail(error)
@@ -431,7 +461,7 @@ export function registerBrewListHandlers(
     const [req] = getArgs(message) as [{ url: string; category?: string }]
     try {
       const { addSource } = await import('../../../../services/brewApi')
-      const source = await addSource(req)
+      const source = await addSource(req, await bridge.hostAttributionHeaders())
       return {
         success: true,
         data: { id: source.id, name: source.name, url: source.url },
@@ -448,7 +478,11 @@ export function registerBrewListHandlers(
     ]
     try {
       const { updateSource } = await import('../../../../services/brewApi')
-      const source = await updateSource(id, req)
+      const source = await updateSource(
+        id,
+        req,
+        await bridge.hostAttributionHeaders(),
+      )
       return { success: true, data: { id: source.id, name: source.name } }
     } catch (error) {
       return fail(error)
@@ -459,7 +493,7 @@ export function registerBrewListHandlers(
     const [id] = getArgs(message) as [number]
     try {
       const { deleteSource } = await import('../../../../services/brewApi')
-      await deleteSource(id)
+      await deleteSource(id, await bridge.hostAttributionHeaders())
       return { success: true }
     } catch (error) {
       return fail(error)
@@ -470,7 +504,10 @@ export function registerBrewListHandlers(
     const [id] = getArgs(message) as [number]
     try {
       const { refreshSource } = await import('../../../../services/brewApi')
-      const count = await refreshSource(id)
+      const count = await refreshSource(
+        id,
+        await bridge.hostAttributionHeaders(),
+      )
       return { success: true, data: { new_items: count } }
     } catch (error) {
       return fail(error)
@@ -481,7 +518,10 @@ export function registerBrewListHandlers(
     const [opml] = getArgs(message) as [string]
     try {
       const { importOpml } = await import('../../../../services/brewApi')
-      const result = await importOpml(opml)
+      const result = await importOpml(
+        opml,
+        await bridge.hostAttributionHeaders(),
+      )
       return { success: true, data: result }
     } catch (error) {
       return fail(error)
@@ -492,7 +532,7 @@ export function registerBrewListHandlers(
     const [req] = getArgs(message) as [{ name: string }]
     try {
       const { createCategory } = await import('../../../../services/brewApi')
-      await createCategory(req)
+      await createCategory(req, await bridge.hostAttributionHeaders())
       return { success: true }
     } catch (error) {
       return fail(error)
@@ -503,7 +543,7 @@ export function registerBrewListHandlers(
     const [id] = getArgs(message) as [number]
     try {
       const { deleteCategory } = await import('../../../../services/brewApi')
-      await deleteCategory(id)
+      await deleteCategory(id, await bridge.hostAttributionHeaders())
       return { success: true }
     } catch (error) {
       return fail(error)

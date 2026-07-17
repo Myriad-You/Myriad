@@ -839,6 +839,32 @@ CREATE INDEX IF NOT EXISTS idx_tapp_runtime_mailbox_recipient
 CREATE INDEX IF NOT EXISTS idx_tapp_runtime_mailbox_expiry
     ON tapp_runtime_mailbox (expires_at);
 
+-- 独立 AI 费用账本：逐次调用的 append-only 流水，与按日聚合的
+-- tapp_quota_usage 配额计数相互独立，不随每日重置。
+CREATE TABLE IF NOT EXISTS tapp_ai_cost_ledger (
+    id BIGSERIAL PRIMARY KEY,
+    occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    subject_id INTEGER NOT NULL,
+    owner_id INTEGER NOT NULL,
+    tapp_id VARCHAR(255) NOT NULL,
+    task_id VARCHAR(160) NOT NULL,
+    source VARCHAR(64) NOT NULL,
+    operation VARCHAR(32) NOT NULL,
+    provider VARCHAR(64) NOT NULL,
+    model VARCHAR(255) NOT NULL,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    tokens_estimated BOOLEAN NOT NULL DEFAULT TRUE,
+    cost_micro_usd BIGINT,
+    status VARCHAR(16) NOT NULL,
+    error_code VARCHAR(64)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tapp_ai_cost_subject_time
+    ON tapp_ai_cost_ledger (subject_id, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_tapp_ai_cost_tapp_time
+    ON tapp_ai_cost_ledger (tapp_id, occurred_at);
+
 CREATE OR REPLACE FUNCTION enforce_tapp_storage_quota()
 RETURNS TRIGGER AS $$
 DECLARE

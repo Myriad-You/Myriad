@@ -15,11 +15,12 @@ use std::collections::HashSet;
 /// 格式建议：YYYY.MM.DD 或语义版本 X.Y.Z
 ///
 /// 变更日志：
+/// - 2026.07.17.1: 新增 tapp_ai_cost_ledger 独立 AI 费用账本表与索引
 /// - 2026.07.16.2: 008 内容并入基础迁移，并由 schema 自愈补齐旧库
 /// - 2026.07.16.1: 补齐 activity_events 表与索引
 /// - 2026.07.11.1: 新增 Discord 数据平台种子
 /// - 2026.07.10.1: 默认平台种子同步（含 X），与 001 插入列表对齐
-const SCHEMA_VERSION: &str = "2026.07.16.2";
+const SCHEMA_VERSION: &str = "2026.07.17.1";
 
 /// 内置平台种子定义（与 migrations/001_initial_schema.rs 中 INSERT 保持同步）
 ///
@@ -1121,6 +1122,108 @@ fn get_expected_schema() -> Vec<TableDef> {
                     data_type: "timestamp with time zone".into(),
                     is_nullable: false,
                     default_value: Some("CURRENT_TIMESTAMP".into()),
+                },
+            ],
+        },
+        // ==================== tapp_ai_cost_ledger 表 ====================
+        TableDef {
+            name: "tapp_ai_cost_ledger".to_string(),
+            columns: vec![
+                ColumnDef {
+                    name: "id".into(),
+                    data_type: "bigint".into(),
+                    is_nullable: false,
+                    default_value: None,
+                },
+                ColumnDef {
+                    name: "occurred_at".into(),
+                    data_type: "timestamp with time zone".into(),
+                    is_nullable: false,
+                    default_value: Some("now()".into()),
+                },
+                ColumnDef {
+                    name: "subject_id".into(),
+                    data_type: "integer".into(),
+                    is_nullable: false,
+                    default_value: None,
+                },
+                ColumnDef {
+                    name: "owner_id".into(),
+                    data_type: "integer".into(),
+                    is_nullable: false,
+                    default_value: None,
+                },
+                ColumnDef {
+                    name: "tapp_id".into(),
+                    data_type: "character varying".into(),
+                    is_nullable: false,
+                    default_value: None,
+                },
+                ColumnDef {
+                    name: "task_id".into(),
+                    data_type: "character varying".into(),
+                    is_nullable: false,
+                    default_value: None,
+                },
+                ColumnDef {
+                    name: "source".into(),
+                    data_type: "character varying".into(),
+                    is_nullable: false,
+                    default_value: None,
+                },
+                ColumnDef {
+                    name: "operation".into(),
+                    data_type: "character varying".into(),
+                    is_nullable: false,
+                    default_value: None,
+                },
+                ColumnDef {
+                    name: "provider".into(),
+                    data_type: "character varying".into(),
+                    is_nullable: false,
+                    default_value: None,
+                },
+                ColumnDef {
+                    name: "model".into(),
+                    data_type: "character varying".into(),
+                    is_nullable: false,
+                    default_value: None,
+                },
+                ColumnDef {
+                    name: "input_tokens".into(),
+                    data_type: "integer".into(),
+                    is_nullable: false,
+                    default_value: Some("0".into()),
+                },
+                ColumnDef {
+                    name: "output_tokens".into(),
+                    data_type: "integer".into(),
+                    is_nullable: false,
+                    default_value: Some("0".into()),
+                },
+                ColumnDef {
+                    name: "tokens_estimated".into(),
+                    data_type: "boolean".into(),
+                    is_nullable: false,
+                    default_value: Some("true".into()),
+                },
+                ColumnDef {
+                    name: "cost_micro_usd".into(),
+                    data_type: "bigint".into(),
+                    is_nullable: true,
+                    default_value: None,
+                },
+                ColumnDef {
+                    name: "status".into(),
+                    data_type: "character varying".into(),
+                    is_nullable: false,
+                    default_value: None,
+                },
+                ColumnDef {
+                    name: "error_code".into(),
+                    data_type: "character varying".into(),
+                    is_nullable: true,
+                    default_value: None,
                 },
             ],
         },
@@ -3810,6 +3913,19 @@ fn get_expected_indexes() -> Vec<IndexDef> {
             ],
             is_unique: true,
         },
+        // tapp_ai_cost_ledger 索引
+        IndexDef {
+            name: "idx_tapp_ai_cost_subject_time".into(),
+            table: "tapp_ai_cost_ledger".into(),
+            columns: vec!["subject_id".into(), "occurred_at".into()],
+            is_unique: false,
+        },
+        IndexDef {
+            name: "idx_tapp_ai_cost_tapp_time".into(),
+            table: "tapp_ai_cost_ledger".into(),
+            columns: vec!["tapp_id".into(), "occurred_at".into()],
+            is_unique: false,
+        },
         // tapp_store_sources 索引
         IndexDef {
             name: "idx_tapp_store_sources_url".into(),
@@ -4208,6 +4324,29 @@ fn get_create_table_ddl() -> Vec<(&'static str, &'static str)> {
                 payload JSONB NOT NULL,
                 expires_at BIGINT NOT NULL,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            "#,
+        ),
+        (
+            "tapp_ai_cost_ledger",
+            r#"
+            CREATE TABLE IF NOT EXISTS tapp_ai_cost_ledger (
+                id BIGSERIAL PRIMARY KEY,
+                occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                subject_id INTEGER NOT NULL,
+                owner_id INTEGER NOT NULL,
+                tapp_id VARCHAR(255) NOT NULL,
+                task_id VARCHAR(160) NOT NULL,
+                source VARCHAR(64) NOT NULL,
+                operation VARCHAR(32) NOT NULL,
+                provider VARCHAR(64) NOT NULL,
+                model VARCHAR(255) NOT NULL,
+                input_tokens INTEGER NOT NULL DEFAULT 0,
+                output_tokens INTEGER NOT NULL DEFAULT 0,
+                tokens_estimated BOOLEAN NOT NULL DEFAULT TRUE,
+                cost_micro_usd BIGINT,
+                status VARCHAR(16) NOT NULL,
+                error_code VARCHAR(64)
             )
             "#,
         ),
@@ -4813,6 +4952,7 @@ async fn ensure_tables_exist(db: &DatabaseConnection) -> Result<u32, DbErr> {
     let creation_order = [
         "tapp_runtime_registry",
         "tapp_runtime_mailbox",
+        "tapp_ai_cost_ledger",
         "activity_events",
         "brew_sources",
         "brew_items",

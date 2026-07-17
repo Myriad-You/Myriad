@@ -256,6 +256,7 @@ Widget 注册 body 除 `id`、`name`、`default_size`、`sizes` 等元数据外�
 | DELETE | `/api/tapp/ai/v2/tasks/{taskId}`                         | 可选认证 | 取消非终态任务                  |
 | GET    | `/api/tapp/ai/v2/tasks/{taskId}/events`                  | 可选认证 | SSE token/progress/state        |
 | GET    | `/api/tapp/ai/v2/usage`                                  | 可选认证 | 权威 calls/tokens/cooldown      |
+| GET    | `/api/tapp/ai/v2/ledger`                                 | 登录     | 宿主 UI 专用，无 SDK 暴露       |
 | POST   | `/api/tapp/data/transform`                               | 登录     | `Tapp.data.transform`           |
 
 AI 权限、每分钟速率、每日 calls/tokens 与 cooldown 全由后端执行。配额在模型调用前事务预留、
@@ -265,6 +266,13 @@ Manifest operation/model tier/context/output 声明，并将任务绑定 subject
 服务端只保存单向摘要，不保存原始 IP。
 最终任务注册在 subject advisory-lock 事务中原子检查并发数、保留数和幂等键；未成功注册的
 请求完整回滚 calls/token 预留，不会留下只计费但未执行的任务。
+
+除按日聚合的配额计数外，每次受治理的 AI 调用（完成/失败/取消）都会追加一条
+`tapp_ai_cost_ledger` 流水：subject、安装 owner、Tapp、任务、来源（runtime 或
+internal 宿主适配器）、operation、provider/model、输入/输出 token 估算与终态。账本
+append-only、不随每日重置，`GET /api/tapp/ai/v2/ledger` 供登录用户读取本人逐次流水与
+按 Tapp 汇总；该端点是宿主 UI 能力，不进入沙箱 SDK。`cost_micro_usd` 列预留给后续
+接入定价源，当前为 NULL。
 
 ### One-shot Data Exchange
 
@@ -314,8 +322,10 @@ Interaction 的动作截止时间独立于终态保留时间；所有副本都�
 | GET  | `/api/tapp/federation/feed`  | 可选认证 + Runtime Grant | 需 Grant 含 `federation:read`。游客只返回公开活动（`audience: "public"`）；已登录用户返回公开 Feed 与个人时间线的合并结果（`audience: "public+personal"`，同 `activity_id` 时个人条目优先，整体按时间新到旧，条数有上限）。响应形如 `{ items, total, audience }`。 |
 
 联邦写操作、消息、私有 Room 与文件等仍走各自 SDK/宿主路径，且对游客不可用；见
-[ARCHITECTURE 所有权与可见性](ARCHITECTURE.md#所有权与可见性)。Brew/语音等宿主代理能力的
-Tapp 归因与独立 AI 成本账本仍有未闭环部分，勿写成已全量按 Grant 结算。
+[ARCHITECTURE 所有权与可见性](ARCHITECTURE.md#所有权与可见性)。Brew/语音宿主代理路径已按
+Grant 归因：带 `X-Tapp-Runtime-Grant` 的请求在服务端按路由强制 Tapp 权限并记录归因日志；
+独立 AI 费用账本见 `/api/tapp/ai/v2/ledger`。联邦宿主代理路径的 Tapp 归因仍未 Grant 化，
+勿写成已全量覆盖。
 
 ### 上下文与媒体
 

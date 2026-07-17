@@ -55,6 +55,10 @@ where
         // 文章缓存管理
         .route("/cache/article", get(get_article_cache_info))
         .route("/cache/article/voice", delete(clear_article_voice_cache))
+        // Tapp 运行时携带 Grant 头时做服务端归因与权限强制（在认证之后执行）
+        .route_layer(axum::middleware::from_fn(
+            crate::api::tapp_runtime::speech_host_attribution,
+        ))
         // 🔒 TTS/ASR 端点需要认证（调用付费 API）
         .route_layer(axum::middleware::from_fn(
             crate::middleware::auth::auth_middleware,

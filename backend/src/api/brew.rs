@@ -122,6 +122,8 @@ pub fn create_brew_routes() -> Router<DatabaseConnection> {
                 ))
                 .service(ServeDir::new(&paths().cache_images)),
         )
+        // Tapp 运行时携带 Grant 头时做服务端归因与权限强制；宿主 UI 请求不受影响
+        .route_layer(from_fn(crate::api::tapp_runtime::brew_host_attribution))
 }
 
 // ==================== 订阅源管理 ====================

@@ -45,8 +45,9 @@ Cookie 只能证明用户身份，不能证明调用来自哪个 Tapp。当前�
 - Runtime Grant 只约束 Tapp 运行时 API；公开 Tapp 列表和商店读取不需要它。
 
 这一步是跨 Tapp Data Exchange、Agent、Event、AI Task 的共同前置条件。当前 `/api/tapp`
-运行时路由和 Tapp storage 已迁移；Brew、语音和联邦等宿主代理旧服务仍需继续补服务端
-Tapp 归因。Grant 哈希与租约位于 PostgreSQL 共享 TTL registry，支持跨副本校验与撤销。
+运行时路由和 Tapp storage 已迁移；Brew 与语音宿主代理路径也已通过可选 Grant 头中间件
+接入服务端 Tapp 归因（带头强制、不带头保持宿主 UI 语义），联邦宿主代理路径仍待接入。
+Grant 哈希与租约位于 PostgreSQL 共享 TTL registry，支持跨副本校验与撤销。
 
 ## 跨 Tapp 数据：One-shot Data Exchange
 
@@ -103,7 +104,9 @@ const playlist = await Tapp.dataExchange.request({
 可访问的 React 弹窗清楚列出：调用方 Tapp、数据提供方 Tapp、export、请求参数/字段范围、
 用途、最大记录数或字节数、剩余有效时间，以及“仅本次”有效范围。弹窗默认聚焦“拒绝”，
 支持 Escape、点击遮罩和关闭按钮拒绝；并发请求逐项排队，不会用多个浏览器对话框抢占页面。
-当前版本不提供“始终允许”；关闭、拒绝、runtime 销毁或超时都返回明确错误。
+Data Exchange 刻意不提供“始终允许”——一次性授权是设计决策而非未完成项：跨 Tapp 数据
+流动必须每次可见、可拒绝，避免一次勾选变成永久静默通道；关闭、拒绝、runtime 销毁或
+超时都返回明确错误。
 
 ### 一次性 Data Access Grant
 
@@ -394,8 +397,8 @@ Manifest 只声明能力与预算层级，不暴露供应商参数：
 6. 删除无消费者的旧 SDK、Bridge handler 与后端端点，只保留当前协议。
 
 当前进度：1 已完成核心路由迁移和共享 Grant；2 已完成 Manifest round-trip、宿主授权队列与
-结构化弹窗、在线 Provider broker、一次性 Grant、同 subject 隔离、主动撤销及响应边界；3 已完成持久化用量账本、任务
-状态机、上下文/输出校验和 SSE；4 已完成在线 at-most-once 路由与 Manifest allowlist；5 已完成
+结构化弹窗、在线 Provider broker、一次性 Grant、同 subject 隔离、主动撤销及响应边界；3 已完成持久化用量账本、独立
+per-call AI 费用账本（`tapp_ai_cost_ledger`）、任务状态机、上下文/输出校验和 SSE；4 已完成在线 at-most-once 路由与 Manifest allowlist；5 已完成
 interaction schema、CAS 接受/提交/拒绝状态机、Executor 恢复以及
 `ui.open`、`report.create`、`dataExchange.request` 宿主 adapter。在线状态使用 PostgreSQL
 TTL registry、durable mailbox 与 `pg_notify` 提示；Agent run 元数据和最近 256 个 SSE 事件

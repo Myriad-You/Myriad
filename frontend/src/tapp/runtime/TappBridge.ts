@@ -50,10 +50,10 @@ interface PermissionCheckResult {
   requiredPermission?: TappPermission | 'public'
 }
 
+// 仅浏览器侧执行、没有可强制权限的后端端点的能力才需要行前 authorize。
+// speech/brew 走真实宿主端点并携带 Runtime Grant 头，由服务端就地强制。
 const SERVER_AUTHORITATIVE_HOST_PERMISSIONS = new Set<TappPermission>([
   'media:control',
-  'speech:tts',
-  'speech:asr',
 ])
 
 /**
@@ -131,6 +131,16 @@ export class TappBridge {
       throw new Error('Tapp runtime grant is not initialized')
     }
     return this.runtimeGrant.getToken()
+  }
+
+  /**
+   * 宿主 API 归因头：把 speech/brew 等宿主路径调用绑定到当前 Tapp 运行时，
+   * 由服务端校验 Grant 并强制权限。预览模式没有 Grant，返回 undefined
+   * （请求按宿主自身身份执行，与旧行为一致）。
+   */
+  async hostAttributionHeaders(): Promise<Record<string, string> | undefined> {
+    if (!this.runtimeGrant) return undefined
+    return { 'X-Tapp-Runtime-Grant': await this.runtimeGrant.getToken() }
   }
 
   async getRuntimeOwnerId(): Promise<number> {

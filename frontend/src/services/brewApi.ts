@@ -91,20 +91,27 @@ async function request<T>(
   return data
 }
 
+/**
+ * 附加请求头（Tapp 沙箱调用时携带 Runtime Grant，用于服务端归因与权限强制）
+ */
+export type BrewAttributionHeaders = Record<string, string>
+
 // ==================== 订阅源管理 ====================
 
 /**
- * 获取所有订阅源（带缓存）
+ * 获取所有订阅源（带缓存；Tapp 归因调用绕过缓存以保证服务端强制）
  */
-export async function getSources(): Promise<BrewSource[]> {
-  return requestCache.fetch(
-    'brew:sources',
-    async () => {
-      const data = await request<BrewSourcesResponse>('/sources')
-      return data.sources
-    },
-    CACHE_TTL.SOURCES,
-  )
+export async function getSources(
+  attributionHeaders?: BrewAttributionHeaders,
+): Promise<BrewSource[]> {
+  const fetchSources = async () => {
+    const data = await request<BrewSourcesResponse>('/sources', {
+      headers: attributionHeaders,
+    })
+    return data.sources
+  }
+  if (attributionHeaders) return fetchSources()
+  return requestCache.fetch('brew:sources', fetchSources, CACHE_TTL.SOURCES)
 }
 
 /**
@@ -118,7 +125,10 @@ export function invalidateSourcesCache(): void {
 /**
  * 添加订阅源
  */
-export async function addSource(req: AddSourceRequest): Promise<BrewSource> {
+export async function addSource(
+  req: AddSourceRequest,
+  attributionHeaders?: BrewAttributionHeaders,
+): Promise<BrewSource> {
   const data = await request<{
     success: boolean
     source: BrewSource
@@ -126,6 +136,7 @@ export async function addSource(req: AddSourceRequest): Promise<BrewSource> {
   }>('/sources', {
     method: 'POST',
     body: JSON.stringify(req),
+    headers: attributionHeaders,
   })
   invalidateSourcesCache()
   return data.source
@@ -137,12 +148,14 @@ export async function addSource(req: AddSourceRequest): Promise<BrewSource> {
 export async function updateSource(
   id: number,
   req: UpdateSourceRequest,
+  attributionHeaders?: BrewAttributionHeaders,
 ): Promise<BrewSource> {
   const data = await request<{ success: boolean; source: BrewSource }>(
     `/sources/${id}`,
     {
       method: 'PUT',
       body: JSON.stringify(req),
+      headers: attributionHeaders,
     },
   )
   invalidateSourcesCache()
@@ -152,18 +165,27 @@ export async function updateSource(
 /**
  * 删除订阅源
  */
-export async function deleteSource(id: number): Promise<void> {
-  await request(`/sources/${id}`, { method: 'DELETE' })
+export async function deleteSource(
+  id: number,
+  attributionHeaders?: BrewAttributionHeaders,
+): Promise<void> {
+  await request(`/sources/${id}`, {
+    method: 'DELETE',
+    headers: attributionHeaders,
+  })
   invalidateSourcesCache()
 }
 
 /**
  * 刷新订阅源
  */
-export async function refreshSource(id: number): Promise<number> {
+export async function refreshSource(
+  id: number,
+  attributionHeaders?: BrewAttributionHeaders,
+): Promise<number> {
   const data = await request<{ success: boolean; new_items: number }>(
     `/sources/${id}/refresh`,
-    { method: 'POST' },
+    { method: 'POST', headers: attributionHeaders },
   )
   invalidateSourcesCache()
   return data.new_items
@@ -172,7 +194,10 @@ export async function refreshSource(id: number): Promise<number> {
 /**
  * 探测订阅源信息
  */
-export async function discoverSource(url: string): Promise<{
+export async function discoverSource(
+  url: string,
+  attributionHeaders?: BrewAttributionHeaders,
+): Promise<{
   url: string
   autocompleted: boolean
   title: string
@@ -187,6 +212,7 @@ export async function discoverSource(url: string): Promise<{
     {
       method: 'POST',
       body: JSON.stringify({ url }),
+      headers: attributionHeaders,
     },
   )
   return data.feed
@@ -199,6 +225,7 @@ export async function discoverSource(url: string): Promise<{
  */
 export async function importOpml(
   opml: string,
+  attributionHeaders?: BrewAttributionHeaders,
 ): Promise<{ imported: number; skipped: number }> {
   const data = await request<{
     success: boolean
@@ -207,6 +234,7 @@ export async function importOpml(
   }>('/import-opml', {
     method: 'POST',
     body: JSON.stringify({ opml }),
+    headers: attributionHeaders,
   })
   invalidateSourcesCache()
   invalidateCategoriesCache()
@@ -216,9 +244,12 @@ export async function importOpml(
 /**
  * 导出 OPML
  */
-export async function exportOpml(): Promise<string> {
+export async function exportOpml(
+  attributionHeaders?: BrewAttributionHeaders,
+): Promise<string> {
   const response = await fetch(`${API_BASE}/export-opml`, {
     credentials: 'include',
+    headers: attributionHeaders,
   })
   return response.text()
 }
@@ -228,15 +259,19 @@ export async function exportOpml(): Promise<string> {
 /**
  * 获取所有分类（带缓存）
  */
-export async function getCategories(): Promise<
-  BrewCategoriesResponse['categories']
-> {
+export async function getCategories(
+  attributionHeaders?: BrewAttributionHeaders,
+): Promise<BrewCategoriesResponse['categories']> {
+  const fetchCategories = async () => {
+    const data = await request<BrewCategoriesResponse>('/categories', {
+      headers: attributionHeaders,
+    })
+    return data.categories
+  }
+  if (attributionHeaders) return fetchCategories()
   return requestCache.fetch(
     'brew:categories',
-    async () => {
-      const data = await request<BrewCategoriesResponse>('/categories')
-      return data.categories
-    },
+    fetchCategories,
     CACHE_TTL.CATEGORIES,
   )
 }
@@ -253,10 +288,12 @@ export function invalidateCategoriesCache(): void {
  */
 export async function createCategory(
   req: CreateCategoryRequest,
+  attributionHeaders?: BrewAttributionHeaders,
 ): Promise<void> {
   await request('/categories', {
     method: 'POST',
     body: JSON.stringify(req),
+    headers: attributionHeaders,
   })
   invalidateCategoriesCache()
 }
@@ -264,8 +301,14 @@ export async function createCategory(
 /**
  * 删除分类
  */
-export async function deleteCategory(id: number): Promise<void> {
-  await request(`/categories/${id}`, { method: 'DELETE' })
+export async function deleteCategory(
+  id: number,
+  attributionHeaders?: BrewAttributionHeaders,
+): Promise<void> {
+  await request(`/categories/${id}`, {
+    method: 'DELETE',
+    headers: attributionHeaders,
+  })
   invalidateCategoriesCache()
 }
 
@@ -276,6 +319,7 @@ export async function deleteCategory(id: number): Promise<void> {
  */
 export async function getItems(
   query: BrewItemsQuery = {},
+  attributionHeaders?: BrewAttributionHeaders,
 ): Promise<BrewItemsResponse> {
   const params = new URLSearchParams()
   if (query.source_id) params.set('source_id', String(query.source_id))
@@ -288,23 +332,25 @@ export async function getItems(
   const queryString = params.toString()
   const endpoint = queryString ? `/items?${queryString}` : '/items'
 
-  return request<BrewItemsResponse>(endpoint)
+  return request<BrewItemsResponse>(endpoint, { headers: attributionHeaders })
 }
 
 /**
  * 获取单篇文章（带缓存）
  */
-export async function getItem(id: number): Promise<BrewItem> {
-  return requestCache.fetch(
-    `brew:item:${id}`,
-    async () => {
-      const data = await request<{ success: boolean; item: BrewItem }>(
-        `/items/${id}`,
-      )
-      return data.item
-    },
-    CACHE_TTL.ITEM,
-  )
+export async function getItem(
+  id: number,
+  attributionHeaders?: BrewAttributionHeaders,
+): Promise<BrewItem> {
+  const fetchItem = async () => {
+    const data = await request<{ success: boolean; item: BrewItem }>(
+      `/items/${id}`,
+      { headers: attributionHeaders },
+    )
+    return data.item
+  }
+  if (attributionHeaders) return fetchItem()
+  return requestCache.fetch(`brew:item:${id}`, fetchItem, CACHE_TTL.ITEM)
 }
 
 /**
@@ -319,8 +365,14 @@ export function invalidateItemCache(id: number): void {
 /**
  * 标记为已读
  */
-export async function markRead(itemId: number): Promise<void> {
-  await request(`/items/${itemId}/read`, { method: 'POST' })
+export async function markRead(
+  itemId: number,
+  attributionHeaders?: BrewAttributionHeaders,
+): Promise<void> {
+  await request(`/items/${itemId}/read`, {
+    method: 'POST',
+    headers: attributionHeaders,
+  })
   invalidateItemCache(itemId)
   invalidateSourcesCache() // 更新未读计数
 }
@@ -328,8 +380,14 @@ export async function markRead(itemId: number): Promise<void> {
 /**
  * 标记为未读
  */
-export async function markUnread(itemId: number): Promise<void> {
-  await request(`/items/${itemId}/unread`, { method: 'POST' })
+export async function markUnread(
+  itemId: number,
+  attributionHeaders?: BrewAttributionHeaders,
+): Promise<void> {
+  await request(`/items/${itemId}/unread`, {
+    method: 'POST',
+    headers: attributionHeaders,
+  })
   invalidateItemCache(itemId)
   invalidateSourcesCache() // 更新未读计数
 }
@@ -337,16 +395,28 @@ export async function markUnread(itemId: number): Promise<void> {
 /**
  * 收藏文章
  */
-export async function starItem(itemId: number): Promise<void> {
-  await request(`/items/${itemId}/star`, { method: 'POST' })
+export async function starItem(
+  itemId: number,
+  attributionHeaders?: BrewAttributionHeaders,
+): Promise<void> {
+  await request(`/items/${itemId}/star`, {
+    method: 'POST',
+    headers: attributionHeaders,
+  })
   invalidateItemCache(itemId)
 }
 
 /**
  * 取消收藏
  */
-export async function unstarItem(itemId: number): Promise<void> {
-  await request(`/items/${itemId}/unstar`, { method: 'POST' })
+export async function unstarItem(
+  itemId: number,
+  attributionHeaders?: BrewAttributionHeaders,
+): Promise<void> {
+  await request(`/items/${itemId}/unstar`, {
+    method: 'POST',
+    headers: attributionHeaders,
+  })
   invalidateItemCache(itemId)
 }
 
@@ -359,12 +429,14 @@ export async function markAllRead(
     category?: string
     before?: number
   } = {},
+  attributionHeaders?: BrewAttributionHeaders,
 ): Promise<number> {
   const data = await request<{ success: boolean; marked: number }>(
     '/mark-all-read',
     {
       method: 'POST',
       body: JSON.stringify(options),
+      headers: attributionHeaders,
     },
   )
   invalidateSourcesCache() // 更新未读计数
@@ -376,15 +448,17 @@ export async function markAllRead(
 /**
  * 获取统计信息（带缓存）
  */
-export async function getStats(): Promise<BrewStats> {
-  return requestCache.fetch(
-    'brew:stats',
-    async () => {
-      const data = await request<BrewStatsResponse>('/stats')
-      return data.stats
-    },
-    CACHE_TTL.STATS,
-  )
+export async function getStats(
+  attributionHeaders?: BrewAttributionHeaders,
+): Promise<BrewStats> {
+  const fetchStats = async () => {
+    const data = await request<BrewStatsResponse>('/stats', {
+      headers: attributionHeaders,
+    })
+    return data.stats
+  }
+  if (attributionHeaders) return fetchStats()
+  return requestCache.fetch('brew:stats', fetchStats, CACHE_TTL.STATS)
 }
 
 // ==================== WebSocket ====================
@@ -496,8 +570,13 @@ export interface UpdateCommentRequest {
 /**
  * 获取文章的用户评论列表
  */
-export async function getComments(itemId: number): Promise<CommentsResponse> {
-  return request<CommentsResponse>(`/items/${itemId}/comments`)
+export async function getComments(
+  itemId: number,
+  attributionHeaders?: BrewAttributionHeaders,
+): Promise<CommentsResponse> {
+  return request<CommentsResponse>(`/items/${itemId}/comments`, {
+    headers: attributionHeaders,
+  })
 }
 
 /**
@@ -506,10 +585,12 @@ export async function getComments(itemId: number): Promise<CommentsResponse> {
 export async function createComment(
   itemId: number,
   req: CreateCommentRequest,
+  attributionHeaders?: BrewAttributionHeaders,
 ): Promise<{ success: boolean; comment: CommentItem; error?: string }> {
   return request(`/items/${itemId}/comments`, {
     method: 'POST',
     body: JSON.stringify(req),
+    headers: attributionHeaders,
   })
 }
 
@@ -519,10 +600,12 @@ export async function createComment(
 export async function updateComment(
   commentId: number,
   req: UpdateCommentRequest,
+  attributionHeaders?: BrewAttributionHeaders,
 ): Promise<{ success: boolean; comment: CommentItem; error?: string }> {
   return request(`/comments/${commentId}`, {
     method: 'PUT',
     body: JSON.stringify(req),
+    headers: attributionHeaders,
   })
 }
 
@@ -531,9 +614,11 @@ export async function updateComment(
  */
 export async function deleteComment(
   commentId: number,
+  attributionHeaders?: BrewAttributionHeaders,
 ): Promise<{ success: boolean; error?: string }> {
   return request(`/comments/${commentId}`, {
     method: 'DELETE',
+    headers: attributionHeaders,
   })
 }
 
@@ -551,8 +636,11 @@ export interface RepliesResponse {
  */
 export async function getCommentReplies(
   commentId: number,
+  attributionHeaders?: BrewAttributionHeaders,
 ): Promise<RepliesResponse> {
-  return request<RepliesResponse>(`/comments/${commentId}/replies`)
+  return request<RepliesResponse>(`/comments/${commentId}/replies`, {
+    headers: attributionHeaders,
+  })
 }
 
 /**
@@ -562,6 +650,7 @@ export async function createReply(
   itemId: number,
   parentId: number,
   comment: string,
+  attributionHeaders?: BrewAttributionHeaders,
 ): Promise<{ success: boolean; comment: CommentItem; error?: string }> {
   return request(`/items/${itemId}/comments`, {
     method: 'POST',
@@ -570,6 +659,7 @@ export async function createReply(
       comment,
       parent_id: parentId,
     }),
+    headers: attributionHeaders,
   })
 }
 

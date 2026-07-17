@@ -209,17 +209,28 @@ async function request<T>(
 }
 
 /**
+ * 附加请求头（Tapp 沙箱调用时携带 Runtime Grant，用于服务端归因）
+ */
+export type SpeechAttributionHeaders = Record<string, string>
+
+/**
  * 获取语音服务状态
  */
-export async function getSpeechStatus(): Promise<SpeechStatus> {
-  return request<SpeechStatus>('/status')
+export async function getSpeechStatus(
+  attributionHeaders?: SpeechAttributionHeaders,
+): Promise<SpeechStatus> {
+  return request<SpeechStatus>('/status', { headers: attributionHeaders })
 }
 
 /**
  * 获取可用音色列表
  */
-export async function getVoiceList(): Promise<{ voices: VoiceInfo[] }> {
-  return request<{ voices: VoiceInfo[] }>('/voices')
+export async function getVoiceList(
+  attributionHeaders?: SpeechAttributionHeaders,
+): Promise<{ voices: VoiceInfo[] }> {
+  return request<{ voices: VoiceInfo[] }>('/voices', {
+    headers: attributionHeaders,
+  })
 }
 
 // ==================== ASR 语音转文本 ====================
@@ -271,10 +282,14 @@ export interface ASRResponse {
 /**
  * 语音转文本（ASR）
  */
-export async function speechToText(req: ASRRequest): Promise<ASRResponse> {
+export async function speechToText(
+  req: ASRRequest,
+  attributionHeaders?: SpeechAttributionHeaders,
+): Promise<ASRResponse> {
   return request<ASRResponse>('/asr', {
     method: 'POST',
     body: JSON.stringify(req),
+    headers: attributionHeaders,
   })
 }
 
@@ -300,10 +315,14 @@ export function audioToBase64(blob: Blob): Promise<string> {
 /**
  * 单条文本转语音
  */
-export async function textToSpeech(req: TTSRequest): Promise<TTSResponse> {
+export async function textToSpeech(
+  req: TTSRequest,
+  attributionHeaders?: SpeechAttributionHeaders,
+): Promise<TTSResponse> {
   return request<TTSResponse>('/tts', {
     method: 'POST',
     body: JSON.stringify(req),
+    headers: attributionHeaders,
   })
 }
 

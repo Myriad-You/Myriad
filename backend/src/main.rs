@@ -4378,6 +4378,12 @@ async fn start_unified_server(config: AppConfig) -> anyhow::Result<()> {
                 get(api::tapp_runtime::ai_usage)
                     .route_layer(from_fn(middleware::auth::optional_auth_middleware)),
             )
+            // 独立 AI 费用账本（宿主 UI 专用，读取本人逐次调用流水）
+            .route(
+                "/api/tapp/ai/v2/ledger",
+                get(api::tapp_runtime::ai_cost_ledger)
+                    .route_layer(from_fn(middleware::auth::auth_middleware)),
+            )
             // ============ Tapp P0 扩展 API ============
             // Data Processing: inline transforms support guests; platform/storage
             // inputs and outputs are still denied without their Runtime Grant permissions.
