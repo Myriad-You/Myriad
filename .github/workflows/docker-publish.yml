@@ -18,13 +18,15 @@ on:
         description: "Override docker image tag (optional)"
         required: false
       components:
-        description: "Comma-separated components: backend,frontend,proxy,updater (default: all)"
+        description: "Comma-separated components (default: backend,frontend,proxy; pass updater to include it)"
         required: false
-        default: "backend,frontend,proxy,updater"
+        default: "backend,frontend,proxy"
 
 env:
   REGISTRY: docker.io
-  DEFAULT_COMPONENTS: backend,frontend,proxy,updater
+  # Updater is release-only by default (release.yml on tag push). Include via
+  # workflow_dispatch `components` input when a dev updater image is needed.
+  DEFAULT_COMPONENTS: backend,frontend,proxy
 
 jobs:
   resolve:
@@ -35,8 +37,9 @@ jobs:
     steps:
       - id: gen
         run: |
-          # Branch pushes and manual runs default to the same four-component
-          # DockerHub set as release.yml. workflow_dispatch can narrow it.
+          # Branch pushes default to backend/frontend/proxy only. Updater is
+          # packaged on release tags (release.yml); workflow_dispatch may still
+          # pass updater in `components` when a dev updater image is needed.
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             INPUT="${{ inputs.components }}"
             INPUT="${INPUT:-$DEFAULT_COMPONENTS}"

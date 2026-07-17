@@ -131,9 +131,10 @@ jobs:
       - gh release create
 ```
 
-### 4.2 docker-publish.yml（现有，main 分支触发）
+### 4.2 docker-publish.yml（main/preview/beta 分支触发）
 
-- 仅推开发镜像，tag 使用 `dev-<sha>` 或 `main`
+- 仅推开发镜像，tag 使用 `dev-<sha>` 或分支名
+- 默认组件：`backend` / `frontend` / `proxy`（**不含 updater**；updater 仅 release.yml 打 tag 时打包，或手动 `workflow_dispatch` 传入）
 - **禁止再推 latest 到生产仓库**
 
 ### 4.3 PR check
