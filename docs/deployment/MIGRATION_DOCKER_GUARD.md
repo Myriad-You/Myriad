@@ -156,7 +156,8 @@ adds **`myriad-admin-net`** and **`updater-gateway`**:
 1. Pull or unpack the release that includes `myriad-updater-gateway` in the updater
    image and the new `docker-compose.yml` shape.
 2. Keep `.env` as-is (`UPDATE_TOKEN` still required for gateway/updater/guard).
-   Optional: `MYRIAD_ADMIN_NETWORK=myriad-admin-net`.
+   Ensure `UPDATER_GATEWAY_SECRET` is set (deploy scripts fill it if empty) for
+   backend↔gateway caller auth. Optional: `MYRIAD_ADMIN_NETWORK=myriad-admin-net`.
 3. From the deployment root:
 
    ```bash

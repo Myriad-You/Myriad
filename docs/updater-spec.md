@@ -50,13 +50,13 @@ tag，而不是并行保留 A/B 两套在线分区。
 
 - `proxy`：唯一对外暴露端口的组件，负责维护页与反向代理。极少更新；兼入 admin-net 以便
   rescue 解析 `updater`。
-- `updater-gateway`：同 updater 镜像的薄反代，注入 `X-Update-Token`；**仅** admin-net；
-  不持 compose 挂载、不挂 docker.sock。
+- `updater-gateway`：同 updater 镜像的薄反代；校验 `X-Updater-Gateway-Secret` 后注入
+  `X-Update-Token`；**仅** admin-net；不持 compose 挂载、不挂 docker.sock。`/healthz` 不需 secret。
 - `updater`：接收更新指令，执行更新/回滚流程；不挂载 docker.sock；**不在**业务 `myriad-net`。
 - `docker-guard`：唯一挂载 docker.sock 的内部服务，按 API、Compose 项目标签、镜像仓库和
   `containers/create` 请求体执行白名单策略。
 - `backend` / `frontend`：业务组件，由 updater 拉取并启停；backend 双宿 business+admin，
-  **生产 compose 不注入 `UPDATE_TOKEN`**。
+  **生产 compose 不注入 `UPDATE_TOKEN`**，注入 `UPDATER_GATEWAY_SECRET` 以调用 gateway。
 - `postgres`：数据存储。更新前后由 updater 做文件级快照。
 
 ## 2. 仓库产物
@@ -578,6 +578,8 @@ proxy 通道开关：proxy 启动时读 `PROXY_ALLOW_DIRECT_UPDATER`，未开启
   `UPDATER_TAG` 恢复为请求体中的 `previous_tag`，并写入部署卷上的耐久状态
   `state/self-update-last.json`（`status: succeeded|failed`、tags、`at`、可选 `error`）。
 - **成功路径**：重建三者并写 `status: succeeded`。
+- **可见性**：`GET /status`（token）返回可选字段 `self_update_last`；亦可
+  `GET /self-update/last`。backend admin 代理原样转发 `/status`。
 
 ### 14.2 兜底
 
@@ -615,24 +617,32 @@ docker compose up -d docker-guard updater updater-gateway
 - **推荐部署中 backend 进程不持有 `UPDATE_TOKEN`**：token 仅在 updater、updater-gateway、
   docker-guard（自更新鉴权）环境中；gateway 在 admin-net 上注入 header。攻击面从
   胖 backend 进程剥离。
+- **backend→gateway 另需 `UPDATER_GATEWAY_SECRET`**（≥32）：admin-net 上的 peer 不能在
+  无 secret 时调用 gateway 代理路由。泄露 gateway secret ≈ 可驱动更新（仍优于
+  `UPDATE_TOKEN` 进入 backend 进程）。客户端若自带 `X-Update-Token`，gateway 拒绝并覆盖注入。
 - updater 重建只允许单一部署根 bind；postgres pgdata bind 会逐级拒绝符号链接、异常文件
   类型和共享/从属 mount propagation。
 - 健康探测只走 Compose 内网 HTTP，不使用 Docker exec，也不临时创建探测容器。
 - 所有外部输入严格校验
-- updater 侧仍强制 token；backend→gateway 信任 admin-net 成员关系（无浏览器鉴权）
+- updater 侧仍强制 `UPDATE_TOKEN`；backend→gateway 强制 `UPDATER_GATEWAY_SECRET`（不再仅靠
+  admin-net 成员关系）
 
 ### 15.2 输入校验
 
 - 所有 docker / shell 子进程调用使用参数数组，不拼 shell 字符串
 - version / tag 走白名单：`^v\d+\.\d+\.\d+(-[a-z0-9.]+)?$`
 - compose 路径限定预设路径
+- 高风险更新：当 body 含 `allow_risk` / `allow_downgrade` / `allow_diverged|unknown|irreversible`
+  为 true 时，另需 `confirm_risk: true` 或 header `X-Myriad-Confirm-Risk: true`。普通升级无额外字段。
 
-### 15.3 token
+### 15.3 token / gateway secret
 
 - `UPDATE_TOKEN` 必须 ≥ 32 字符
-- 启动时检查不在弱密码列表
-- 5 次/min 401 后封 10min
-- 生产 compose：注入 updater / updater-gateway / docker-guard；**不**注入 backend
+- `UPDATER_GATEWAY_SECRET` 必须 ≥ 32 字符（backend + updater-gateway）
+- 启动时检查不在弱密码列表（UPDATE_TOKEN）
+- 5 次/min 401 后封 10min（updater token）
+- 生产 compose：`UPDATE_TOKEN` 注入 updater / updater-gateway / docker-guard；**不**注入 backend
+- 生产 compose：`UPDATER_GATEWAY_SECRET` 注入 backend + updater-gateway；**不**注入 frontend
 
 ### 15.4 release.json 校验
 

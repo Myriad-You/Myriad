@@ -1,9 +1,13 @@
 //! Thin reverse proxy that injects `X-Update-Token` for the backend hop.
 //!
 //! Production topology: backend holds **no** `UPDATE_TOKEN`. It calls this gateway
-//! over `myriad-admin-net`; the gateway injects the token and forwards to
-//! `updater` (same admin network). Attack surface is intentionally tiny:
-//! no compose mounts, no Docker socket, no business logic.
+//! over `myriad-admin-net` with `X-Updater-Gateway-Secret`; the gateway injects the
+//! update token and forwards to `updater` (same admin network). Attack surface is
+//! intentionally tiny: no compose mounts, no Docker socket, no business logic.
+//!
+//! Trust note: leaking `UPDATER_GATEWAY_SECRET` lets an admin-net peer drive updates
+//! via the gateway (token still never leaves gateway→updater). Prefer not placing
+//! untrusted workloads on admin-net; protect the gateway secret like other secrets.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -20,11 +24,15 @@ use reqwest::Client;
 use tracing::{error, info, warn};
 
 const MAX_BODY: usize = 16 * 1024 * 1024;
+const GATEWAY_SECRET_MIN_LEN: usize = 32;
+const HEADER_GATEWAY_SECRET: &str = "x-updater-gateway-secret";
+const HEADER_UPDATE_TOKEN: &str = "x-update-token";
 
 #[derive(Clone)]
 struct GatewayState {
     upstream: String,
     token: String,
+    gateway_secret: String,
     http: Client,
 }
 
@@ -46,8 +54,16 @@ async fn main() -> Result<()> {
     }
 
     let token = std::env::var("UPDATE_TOKEN").context("UPDATE_TOKEN is required by updater-gateway")?;
-    if token.trim().len() < 32 {
-        return Err(anyhow!("UPDATE_TOKEN must be at least 32 characters"));
+    if token.trim().len() < GATEWAY_SECRET_MIN_LEN {
+        return Err(anyhow!("UPDATE_TOKEN must be at least {GATEWAY_SECRET_MIN_LEN} characters"));
+    }
+
+    let gateway_secret = std::env::var("UPDATER_GATEWAY_SECRET")
+        .context("UPDATER_GATEWAY_SECRET is required by updater-gateway")?;
+    if gateway_secret.trim().len() < GATEWAY_SECRET_MIN_LEN {
+        return Err(anyhow!(
+            "UPDATER_GATEWAY_SECRET must be at least {GATEWAY_SECRET_MIN_LEN} characters"
+        ));
     }
 
     let http = Client::builder()
@@ -61,6 +77,7 @@ async fn main() -> Result<()> {
     let state = GatewayState {
         upstream: upstream.clone(),
         token,
+        gateway_secret,
         http,
     };
 
@@ -78,7 +95,8 @@ async fn main() -> Result<()> {
 
 async fn local_healthz() -> impl IntoResponse {
     // Local liveness only — does not prove updater is up. Deep checks use
-    // proxied `/status` (token injected) from admin routes.
+    // proxied `/status` (token injected) from admin routes. No gateway secret:
+    // compose healthchecks hit localhost from the same container.
     (StatusCode::OK, axum::Json(serde_json::json!({"ok": true})))
 }
 
@@ -88,6 +106,22 @@ async fn proxy(State(state): State<Arc<GatewayState>>, req: Request<Body>) -> Re
     let headers = req.headers().clone();
     let (parts, body) = req.into_parts();
     let _ = parts; // method/uri/headers already cloned
+
+    // Caller auth: shared secret between backend and gateway (admin-net peers).
+    if let Err(resp) = authorize_gateway_caller(&headers, &state.gateway_secret) {
+        return resp;
+    }
+
+    // Never trust a client-supplied update token — reject if the caller tries to set one.
+    if headers.get(HEADER_UPDATE_TOKEN).is_some() {
+        return (
+            StatusCode::BAD_REQUEST,
+            axum::Json(serde_json::json!({
+                "message": "X-Update-Token must not be set by callers; gateway injects it"
+            })),
+        )
+            .into_response();
+    }
 
     let body = match to_bytes(body, MAX_BODY).await {
         Ok(b) => b,
@@ -106,12 +140,13 @@ async fn proxy(State(state): State<Arc<GatewayState>>, req: Request<Body>) -> Re
         .request(method_to_reqwest(&method), &target)
         .header("X-Update-Token", &state.token);
 
-    // Forward a narrow header allowlist. Never trust a client-supplied update token.
+    // Forward a narrow header allowlist. Never forward gateway secret or update token.
     for name in [
         header::CONTENT_TYPE,
         header::ACCEPT,
         HeaderName::from_static("idempotency-key"),
         HeaderName::from_static("x-update-actor"),
+        HeaderName::from_static("x-myriad-confirm-risk"),
     ] {
         if let Some(value) = headers.get(&name) {
             builder = builder.header(name.clone(), value.clone());
@@ -133,6 +168,44 @@ async fn proxy(State(state): State<Arc<GatewayState>>, req: Request<Body>) -> Re
                 .into_response()
         }
     }
+}
+
+/// Validate `X-Updater-Gateway-Secret` with a length-checked constant-time compare.
+fn authorize_gateway_caller(
+    headers: &HeaderMap,
+    expected: &str,
+) -> Result<(), Response> {
+    let provided = headers
+        .get(HEADER_GATEWAY_SECRET)
+        .and_then(|v| v.to_str().ok());
+    match provided {
+        Some(got) if constant_time_eq(got.as_bytes(), expected.as_bytes()) => Ok(()),
+        Some(_) => Err((
+            StatusCode::UNAUTHORIZED,
+            axum::Json(serde_json::json!({"message": "invalid gateway secret"})),
+        )
+            .into_response()),
+        None => Err((
+            StatusCode::UNAUTHORIZED,
+            axum::Json(serde_json::json!({
+                "message": "missing X-Updater-Gateway-Secret"
+            })),
+        )
+            .into_response()),
+    }
+}
+
+/// Constant-time equality for equal-length secrets. Different lengths return false
+/// immediately (length is not secret for our fixed ≥32 random secrets).
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
 }
 
 fn upstream_url(base: &str, uri: &Uri) -> String {
@@ -204,6 +277,7 @@ async fn forward_response(upstream: reqwest::Response) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::http::HeaderValue;
 
     #[test]
     fn upstream_url_joins_path_and_query() {
@@ -217,5 +291,46 @@ mod tests {
             upstream_url("http://updater:1101", &root),
             "http://updater:1101/"
         );
+    }
+
+    #[test]
+    fn constant_time_eq_accepts_match() {
+        assert!(constant_time_eq(b"same-secret-value-32chars-ok!!", b"same-secret-value-32chars-ok!!"));
+    }
+
+    #[test]
+    fn constant_time_eq_rejects_mismatch_and_len() {
+        assert!(!constant_time_eq(b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", b"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
+        assert!(!constant_time_eq(b"short", b"longer-than-short"));
+        assert!(!constant_time_eq(b"", b"x"));
+    }
+
+    #[test]
+    fn authorize_accepts_correct_secret() {
+        let secret = "abcdefghijklmnopqrstuvwxyz012345"; // 32
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            HEADER_GATEWAY_SECRET,
+            HeaderValue::from_static("abcdefghijklmnopqrstuvwxyz012345"),
+        );
+        assert!(authorize_gateway_caller(&headers, secret).is_ok());
+    }
+
+    #[test]
+    fn authorize_rejects_missing_secret() {
+        let headers = HeaderMap::new();
+        let err = authorize_gateway_caller(&headers, "abcdefghijklmnopqrstuvwxyz012345").unwrap_err();
+        assert_eq!(err.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn authorize_rejects_wrong_secret() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            HEADER_GATEWAY_SECRET,
+            HeaderValue::from_static("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+        );
+        let err = authorize_gateway_caller(&headers, "abcdefghijklmnopqrstuvwxyz012345").unwrap_err();
+        assert_eq!(err.status(), StatusCode::UNAUTHORIZED);
     }
 }

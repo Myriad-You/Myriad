@@ -38,9 +38,10 @@ Commands:
   pull      Pull images pinned by .env tags
   logs      docker compose logs -f
   status    docker compose ps + image versions
-  doctor    Read-only topology / security checks (nets, gateway, token placement, cosign)
-  upgrade   Pull images pinned by .env tags + recreate (manual upgrade path)
-  help      Show this help
+  doctor [--host]  Read-only topology / security checks (nets, gateway, secrets, cosign)
+                   --host also runs a non-fatal privileged/docker.sock scan
+  upgrade          Pull images pinned by .env tags + recreate (manual upgrade path)
+  help             Show this help
 
 Notes:
   - This script only handles bootstrap. Normal updates run through the admin UI.
@@ -48,12 +49,14 @@ Notes:
     run \`$0 upgrade\`.
   - Optional host audit (privileged / docker.sock binds):
       bash scripts/security/docker-audit-example.sh scan
+      $0 doctor --host
 
 Examples:
   $0                 # Bootstrap + start
   $0 down            # Stop
   $0 status          # See running versions
   $0 doctor          # Topology security checks
+  $0 doctor --host   # Topology + non-fatal host privilege scan
   $0 upgrade         # After editing .env, recreate with new tags
 EOF
 }
@@ -86,30 +89,40 @@ ensure_key() {
     fi
 }
 
-ensure_update_token() {
-    if grep -qE "^UPDATE_TOKEN=.+" .env 2>/dev/null; then
+# Fill empty or missing KEY with a generated secret (same pattern as UPDATE_TOKEN).
+ensure_secret_key() {
+    local key="$1"
+    if grep -qE "^${key}=.+" .env 2>/dev/null; then
         return 0
     fi
 
     local token
     token="$(generate_secret)"
-    if grep -qE "^UPDATE_TOKEN=" .env 2>/dev/null; then
+    if grep -qE "^${key}=" .env 2>/dev/null; then
         local tmp=".env.tmp.$$"
-        awk -v token="$token" '
-          BEGIN { replaced = 0 }
-          /^UPDATE_TOKEN=/ && replaced == 0 {
-            print "UPDATE_TOKEN=" token
+        awk -v key="$key" -v token="$token" '
+          BEGIN { replaced = 0; re = "^" key "=" }
+          $0 ~ re && replaced == 0 {
+            print key "=" token
             replaced = 1
             next
           }
           { print }
         ' .env > "$tmp"
         mv "$tmp" .env
-        info "  + filled empty UPDATE_TOKEN"
+        info "  + filled empty ${key}"
     else
-        echo "UPDATE_TOKEN=${token}" >> .env
-        info "  + appended UPDATE_TOKEN"
+        echo "${key}=${token}" >> .env
+        info "  + appended ${key}"
     fi
+}
+
+ensure_update_token() {
+    ensure_secret_key UPDATE_TOKEN
+}
+
+ensure_updater_gateway_secret() {
+    ensure_secret_key UPDATER_GATEWAY_SECRET
 }
 
 ensure_env() {
@@ -126,7 +139,7 @@ ensure_env() {
         warn "  - JWT_SECRET        (openssl rand -base64 32)"
         warn "  - CORS_ORIGINS      (your domain)"
         warn ""
-        warn "This script will create pgdata/state/backups and fill an empty UPDATE_TOKEN."
+        warn "This script will create pgdata/state/backups and fill empty UPDATE_TOKEN / UPDATER_GATEWAY_SECRET."
         warn ""
         read -r -p "Open .env in \$EDITOR now? (y/N): " r
         if [[ "$r" =~ ^[Yy]$ ]]; then
@@ -150,6 +163,7 @@ ensure_current_layout() {
     ensure_key CHECK_INTERVAL_SECS 3600
     ensure_key PROXY_ALLOW_DIRECT_UPDATER false
     ensure_update_token
+    ensure_updater_gateway_secret
 }
 
 # Backend runs as uid 1000 (USER myriad). Named volumes are root-owned on first
@@ -233,14 +247,21 @@ cmd_status() {
 
 # Read-only topology checks. Does not migrate or restart services.
 # Expected: docker-guard holds docker.sock; updater on admin+guard nets (not business net);
-# updater-gateway injects token; backend has no UPDATE_TOKEN.
+# updater-gateway injects token; backend has UPDATER_GATEWAY_SECRET but no UPDATE_TOKEN.
+# Optional: pass --host for a non-fatal privileged/docker.sock scan.
 cmd_doctor() {
     local fail=0
     local skip=0
+    local host_scan=0
     local admin_net guard_net business_net
     admin_net="${MYRIAD_ADMIN_NETWORK:-myriad-admin-net}"
     guard_net="${MYRIAD_DOCKER_GUARD_NETWORK:-myriad-docker-guard-net}"
     business_net="${MYRIAD_DOCKER_NETWORK:-myriad-net}"
+    for arg in "$@"; do
+        case "$arg" in
+            --host) host_scan=1 ;;
+        esac
+    done
     if [ -f .env ]; then
         local v
         v="$(grep -E '^MYRIAD_ADMIN_NETWORK=' .env 2>/dev/null | head -1 | cut -d= -f2- | tr -d "\"'" || true)"
@@ -436,6 +457,19 @@ cmd_doctor() {
         else
             ok "PASS  backend Config.Env has no UPDATE_TOKEN"
         fi
+        if container_env_has myriad-backend 'UPDATER_GATEWAY_SECRET='; then
+            local bsec
+            bsec="$(container_env_value myriad-backend UPDATER_GATEWAY_SECRET)"
+            if [ "${#bsec}" -ge 32 ]; then
+                ok "PASS  backend has UPDATER_GATEWAY_SECRET (≥32 chars)"
+            else
+                err "FAIL  backend UPDATER_GATEWAY_SECRET is set but shorter than 32 chars"
+                fail=$((fail + 1))
+            fi
+        else
+            err "FAIL  backend Config.Env missing UPDATER_GATEWAY_SECRET (required for gateway hop)"
+            fail=$((fail + 1))
+        fi
         local up_url
         up_url="$(container_env_value myriad-backend MYRIAD_UPDATER_URL)"
         case "$up_url" in
@@ -459,6 +493,23 @@ cmd_doctor() {
     else
         warn "SKIP  myriad-backend not running"
         skip=$((skip + 1))
+    fi
+
+    # --- updater-gateway secret presence ---
+    if container_exists myriad-updater-gateway; then
+        if container_env_has myriad-updater-gateway 'UPDATER_GATEWAY_SECRET='; then
+            local gsec
+            gsec="$(container_env_value myriad-updater-gateway UPDATER_GATEWAY_SECRET)"
+            if [ "${#gsec}" -ge 32 ]; then
+                ok "PASS  updater-gateway has UPDATER_GATEWAY_SECRET (≥32 chars)"
+            else
+                err "FAIL  updater-gateway UPDATER_GATEWAY_SECRET shorter than 32 chars"
+                fail=$((fail + 1))
+            fi
+        else
+            err "FAIL  updater-gateway missing UPDATER_GATEWAY_SECRET"
+            fail=$((fail + 1))
+        fi
     fi
 
     # --- .env cosign dual-key (optional, when file present) ---
@@ -500,9 +551,55 @@ cmd_doctor() {
     fi
 
     echo ""
-    info "Optional host audit (not run automatically):"
-    info "  bash scripts/security/docker-audit-example.sh scan"
-    info "  bash scripts/security/docker-audit-example.sh events"
+    info "Optional host audit tip:"
+    if [ -f scripts/security/docker-audit-example.sh ]; then
+        info "  path: scripts/security/docker-audit-example.sh"
+        info "  run:  bash scripts/security/docker-audit-example.sh scan"
+        info "  or:   $0 doctor --host   (non-fatal privileged / docker.sock scan)"
+    else
+        info "  scripts/security/docker-audit-example.sh not present in this tree"
+    fi
+
+    if [ "$host_scan" = "1" ]; then
+        echo ""
+        info "==> Optional host privilege scan (non-fatal; warn only)"
+        local found_priv=0 found_sock=0
+        if command -v docker >/dev/null 2>&1; then
+            while read -r id; do
+                [ -z "$id" ] && continue
+                local priv name
+                priv="$(docker inspect -f '{{.HostConfig.Privileged}}' "$id" 2>/dev/null || echo false)"
+                name="$(docker inspect -f '{{.Name}}' "$id" 2>/dev/null | sed 's#^/##')"
+                if [ "$priv" = "true" ]; then
+                    warn "WARN  privileged container: ${name:-$id}"
+                    found_priv=$((found_priv + 1))
+                fi
+                if docker inspect -f '{{range .Mounts}}{{.Source}}|{{.Destination}}{{"\n"}}{{end}}' "$id" 2>/dev/null \
+                    | grep -q 'docker\.sock'; then
+                    # Expected on docker-guard only in the recommended topology.
+                    case "$name" in
+                        myriad-docker-guard|myriad-docker-guard-dev)
+                            ok "PASS  docker.sock bind expected on $name"
+                            ;;
+                        *)
+                            warn "WARN  docker.sock bind on unexpected container: ${name:-$id}"
+                            found_sock=$((found_sock + 1))
+                            ;;
+                    esac
+                fi
+            done < <(docker ps -aq 2>/dev/null || true)
+            if [ "$found_priv" -eq 0 ]; then
+                ok "PASS  no Privileged=true containers found (scan)"
+            fi
+            if [ "$found_sock" -eq 0 ]; then
+                ok "PASS  no unexpected docker.sock binds (scan)"
+            fi
+        else
+            warn "SKIP  docker CLI unavailable for host scan"
+            skip=$((skip + 1))
+        fi
+    fi
+
     echo ""
     if [ "$fail" -gt 0 ]; then
         err "Doctor: $fail check(s) failed (skip=$skip). Fix topology; this command does not auto-migrate."
@@ -532,7 +629,7 @@ case "$COMMAND" in
     pull)     cmd_pull ;;
     logs)     cmd_logs ;;
     status)   cmd_status ;;
-    doctor)   cmd_doctor ;;
+    doctor)   shift || true; cmd_doctor "$@" ;;
     upgrade)  cmd_upgrade ;;
     help|-h|--help) show_usage ;;
     *) err "Unknown command: $COMMAND"; show_usage; exit 1 ;;

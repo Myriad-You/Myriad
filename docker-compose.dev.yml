@@ -121,11 +121,13 @@ services:
     entrypoint: ["/usr/bin/tini", "--", "/usr/local/bin/myriad-updater-gateway"]
     environment:
       UPDATE_TOKEN: ${UPDATE_TOKEN:-9xQ3vN8mP2rT5wY7zA1bC4dF6hJ8kL0n}
+      UPDATER_GATEWAY_SECRET: ${UPDATER_GATEWAY_SECRET:-dev-updater-gateway-secret-32chars!!}
       UPDATER_UPSTREAM: http://updater:1101
       GATEWAY_LISTEN: 0.0.0.0:1104
       TZ: Asia/Shanghai
     ports:
-      # Host backend can use MYRIAD_UPDATER_URL=http://127.0.0.1:1104 without UPDATE_TOKEN.
+      # Host backend: MYRIAD_UPDATER_URL=http://127.0.0.1:1104 + UPDATER_GATEWAY_SECRET
+      # (no UPDATE_TOKEN on backend).
       - "127.0.0.1:1104:1104"
     networks: [admin-net]
     depends_on:

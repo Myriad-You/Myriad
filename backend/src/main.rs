@@ -96,7 +96,7 @@ async fn main() -> anyhow::Result<()> {
     if let Some(c) = &updater_client {
         tracing::info!(
             base_url = %c.base_url(),
-            has_token = c.has_token(),
+            can_mutate = c.can_mutate(),
             "updater client configured"
         );
         // Best-effort reachability probe. Don't block startup — the updater container may
@@ -112,7 +112,7 @@ async fn main() -> anyhow::Result<()> {
         });
     } else {
         tracing::info!(
-            "no updater client configured (set MYRIAD_UPDATER_URL/UPDATE_TOKEN to enable)"
+            "no updater client configured (set MYRIAD_UPDATER_URL + UPDATER_GATEWAY_SECRET to enable)"
         );
     }
     api::updater_admin::init(updater_client);
@@ -4882,6 +4882,10 @@ async fn start_unified_server(config: AppConfig) -> anyhow::Result<()> {
             .route(
                 "/api/admin/updater/self-update",
                 post(api::updater_admin::self_update).route_layer(from_fn(admin_middleware)),
+            )
+            .route(
+                "/api/admin/updater/self-update/last",
+                get(api::updater_admin::self_update_last).route_layer(from_fn(admin_middleware)),
             );
     }
 

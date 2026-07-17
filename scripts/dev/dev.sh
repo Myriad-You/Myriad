@@ -456,6 +456,10 @@ dev_updater_token() {
     echo "${MYRIAD_DEV_UPDATE_TOKEN:-$DEV_UPDATER_TOKEN_DEFAULT}"
 }
 
+dev_updater_gateway_secret() {
+    echo "${MYRIAD_DEV_UPDATER_GATEWAY_SECRET:-dev-updater-gateway-secret-32chars!!}"
+}
+
 ensure_dev_updater_files() {
     mkdir -p "$DEV_UPDATER_DIR/state" "$DEV_UPDATER_DIR/pgdata" "$DEV_UPDATER_DIR/backups"
 
@@ -618,12 +622,14 @@ start_backend() {
     cd "$BACKEND_DIR"
 
     local cargo_cmd="cargo run"
-    # Prefer gateway (token injection) when harness is up; no UPDATE_TOKEN in backend env.
+    # Prefer gateway when harness is up; backend holds UPDATER_GATEWAY_SECRET, not UPDATE_TOKEN.
     local updater_url="http://127.0.0.1:1104"
+    local gw_secret
+    gw_secret="$(dev_updater_gateway_secret)"
     if dev_updater_enabled; then
         ensure_dev_updater_files
-        cargo_cmd="MYRIAD_UPDATER_URL=$updater_url cargo run"
-        print_info "Backend updater proxy via gateway: $updater_url (no UPDATE_TOKEN in backend)"
+        cargo_cmd="MYRIAD_UPDATER_URL=$updater_url UPDATER_GATEWAY_SECRET=$gw_secret cargo run"
+        print_info "Backend updater proxy via gateway: $updater_url (gateway secret; no UPDATE_TOKEN)"
     fi
 
     if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -633,7 +639,7 @@ start_backend() {
             gnome-terminal -- bash -c "cd '$BACKEND_DIR' && echo '🦀 Myriad Backend' && $cargo_cmd; exec bash" 2>/dev/null
         else
             if dev_updater_enabled; then
-                MYRIAD_UPDATER_URL="$updater_url" nohup cargo run > "$PROJECT_ROOT/backend.log" 2>&1 &
+                MYRIAD_UPDATER_URL="$updater_url" UPDATER_GATEWAY_SECRET="$gw_secret" nohup cargo run > "$PROJECT_ROOT/backend.log" 2>&1 &
             else
                 nohup cargo run > "$PROJECT_ROOT/backend.log" 2>&1 &
             fi

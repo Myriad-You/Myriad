@@ -6,10 +6,13 @@
 //!
 //! With this client (recommended production path):
 //!   - Backend talks to `updater-gateway` via `MYRIAD_UPDATER_URL` only.
-//!   - Gateway injects `X-Update-Token` server-side; backend process need not hold
-//!     `UPDATE_TOKEN` (optional for legacy/dev direct-to-updater setups).
+//!   - Backend holds `UPDATER_GATEWAY_SECRET` (not `UPDATE_TOKEN`) and sends
+//!     `X-Updater-Gateway-Secret` on every hop.
+//!   - Gateway injects `X-Update-Token` server-side toward updater.
 //!   - Admin-gated `/api/admin/updater/*` routes proxy requests through here.
-//!   - Token never crosses the user→backend boundary.
+//!   - `UPDATE_TOKEN` never crosses the user→backend boundary and is not in the fat process.
+//!
+//! Optional legacy/dev: set `UPDATE_TOKEN` when talking **directly** to updater (no gateway).
 //!
 //! See docs/updater-spec.md §13 for the upstream API.
 
@@ -30,6 +33,9 @@ pub struct UpdaterClient {
 #[derive(Debug)]
 struct Inner {
     base_url: String,
+    /// Shared secret for updater-gateway (`X-Updater-Gateway-Secret`).
+    gateway_secret: Option<String>,
+    /// Optional direct-updater token (legacy/dev). Prefer gateway secret in production.
     token: Option<String>,
     http: Client,
 }
@@ -84,13 +90,15 @@ impl UpdaterClient {
             .ok()
             .filter(|s| !s.trim().is_empty())
             .or_else(default_container_updater_url)?;
+        let gateway_secret = std::env::var("UPDATER_GATEWAY_SECRET")
+            .ok()
+            .filter(|s| !s.trim().is_empty());
         let token = std::env::var("UPDATE_TOKEN")
             .ok()
             .filter(|s| !s.trim().is_empty());
 
-        // URL-only is the recommended production shape: updater-gateway injects
-        // X-Update-Token. Optional UPDATE_TOKEN remains for legacy/dev direct hops
-        // (host backend → published updater port without a gateway).
+        // Production: gateway secret only. Optional UPDATE_TOKEN remains for legacy/dev
+        // direct hops (host backend → published updater port without a gateway).
         let http = Client::builder()
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(30))
@@ -101,21 +109,29 @@ impl UpdaterClient {
         Some(Self {
             inner: Arc::new(Inner {
                 base_url: base_url.trim_end_matches('/').to_string(),
+                gateway_secret,
                 token,
                 http,
             }),
         })
     }
 
+    /// True when the client can authenticate mutative calls: gateway secret (prod) or
+    /// direct UPDATE_TOKEN (legacy).
+    pub fn can_mutate(&self) -> bool {
+        self.inner.gateway_secret.is_some() || self.inner.token.is_some()
+    }
+
+    /// Back-compat alias used by older call sites / docs.
     pub fn has_token(&self) -> bool {
-        self.inner.token.is_some()
+        self.can_mutate()
     }
 
     pub fn base_url(&self) -> &str {
         &self.inner.base_url
     }
 
-    /// Forward a GET request. Token is attached if available.
+    /// Forward a GET request. Auth headers attached when available.
     pub async fn get_json(&self, path: &str) -> Result<serde_json::Value, UpdaterClientError> {
         self.call(Method::GET, path, Option::<&()>::None, None, None)
             .await
@@ -166,7 +182,17 @@ impl UpdaterClient {
         };
 
         let mut headers = HeaderMap::new();
-        if let Some(t) = &self.inner.token {
+        // Production hop: gateway secret. Do NOT send UPDATE_TOKEN toward the gateway
+        // (gateway rejects client-supplied X-Update-Token and injects its own).
+        if let Some(s) = &self.inner.gateway_secret {
+            match HeaderValue::from_str(s) {
+                Ok(v) => {
+                    headers.insert("X-Updater-Gateway-Secret", v);
+                }
+                Err(_) => return Err(UpdaterClientError::NotConfigured),
+            }
+        } else if let Some(t) = &self.inner.token {
+            // Legacy direct-to-updater only when no gateway secret is configured.
             match HeaderValue::from_str(t) {
                 Ok(v) => {
                     headers.insert("X-Update-Token", v);
@@ -224,6 +250,7 @@ impl UpdaterClient {
     }
 
     /// Convenience for the `/healthz` probe used by backend startup logs.
+    /// Gateway `/healthz` is intentionally unauthenticated for compose healthchecks.
     pub async fn ping(&self) -> Result<()> {
         let url = format!("{}/healthz", self.inner.base_url);
         let resp = self

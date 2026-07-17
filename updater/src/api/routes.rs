@@ -41,6 +41,8 @@ pub fn build(state: ApiState) -> Router {
         // because it only rolls back to the snapshot already associated with the stuck job.
         .route("/rescue/continue", post(rescue_continue))
         .route("/admin/self-update", post(self_update))
+        // Durable last self-update outcome (also embedded in GET /status as self_update_last).
+        .route("/self-update/last", get(self_update_last))
         .route("/diagnostics", get(diagnostics))
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -88,6 +90,9 @@ struct StatusResp {
     rollback_version: Option<DeployTag>,
     /// Channels valid for the current mode (for UI selectors).
     available_channels: Vec<&'static str>,
+    /// Last TCB self-update helper outcome from `state/self-update-last.json` (if any).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    self_update_last: Option<crate::docker::self_update_helper::SelfUpdateLastStatus>,
 }
 
 /// Public liveness probe. Intentionally minimal: no versions, token status, or secrets.
@@ -122,6 +127,7 @@ async fn status(State(st): State<ApiState>) -> Result<Json<StatusResp>, ApiError
     // Product tracks. Commit mode is only valid when channel == preview (enforced
     // in validate_channel_for_mode); the channel list itself does not change.
     let available_channels = vec!["stable", "preview"];
+    let self_update_last = read_self_update_last(st.state.root());
 
     Ok(Json(StatusResp {
         schema_version: 1,
@@ -142,7 +148,24 @@ async fn status(State(st): State<ApiState>) -> Result<Json<StatusResp>, ApiError
         rescue_source_version,
         rollback_version: u.rollback_version,
         available_channels,
+        self_update_last,
     }))
+}
+
+fn read_self_update_last(
+    state_root: &std::path::Path,
+) -> Option<crate::docker::self_update_helper::SelfUpdateLastStatus> {
+    let path = state_root.join("self-update-last.json");
+    let raw = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+/// Token-authenticated view of `state/self-update-last.json` (null when never run).
+async fn self_update_last(State(st): State<ApiState>) -> Result<Json<Value>, ApiError> {
+    match read_self_update_last(st.state.root()) {
+        Some(s) => Ok(Json(serde_json::to_value(s)?)),
+        None => Ok(Json(json!(null))),
+    }
 }
 
 /// Find the snapshot (and source version) to offer for one-click continue when stuck.
@@ -331,6 +354,9 @@ struct UpdateBody {
     allow_irreversible: Option<bool>,
     #[serde(default)]
     allow_skip_versions: bool,
+    /// Required when any risk/downgrade flag is true. Normal upgrades omit this.
+    #[serde(default)]
+    confirm_risk: bool,
 }
 
 /// Optional `X-Update-Actor` from the backend hop (after UPDATE_TOKEN auth).
@@ -342,12 +368,40 @@ fn extract_actor(headers: &axum::http::HeaderMap) -> Option<String> {
         .and_then(crate::redact::sanitize_actor)
 }
 
+fn risk_flags_set(body: &UpdateBody) -> bool {
+    body.allow_risk
+        || body.allow_downgrade
+        || body.allow_diverged == Some(true)
+        || body.allow_unknown == Some(true)
+        || body.allow_irreversible == Some(true)
+}
+
+fn confirm_risk_present(body: &UpdateBody, headers: &axum::http::HeaderMap) -> bool {
+    if body.confirm_risk {
+        return true;
+    }
+    headers
+        .get("X-Myriad-Confirm-Risk")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|s| s.eq_ignore_ascii_case("true") || s == "1")
+}
+
 async fn update(
     State(st): State<ApiState>,
     headers: axum::http::HeaderMap,
     Json(body): Json<UpdateBody>,
 ) -> Result<Json<Value>, ApiError> {
     let _ = body.allow_skip_versions;
+    // Soft gate: high-risk flags need an explicit confirm. Happy-path upgrades unchanged.
+    let confirmed = confirm_risk_present(&body, &headers);
+    if risk_flags_set(&body) && !confirmed {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "high-risk update requires confirm_risk=true (or X-Myriad-Confirm-Risk: true) \
+             alongside allow_risk / allow_downgrade / related flags"
+                .into(),
+        ));
+    }
     let mode = match body.mode.as_deref() {
         Some(s) => s.parse::<UpdateMode>().map_err(ApiError::from)?,
         None => st.worker.effective_mode(),
@@ -413,6 +467,7 @@ async fn update(
         "allow_diverged": body.allow_diverged,
         "allow_unknown": body.allow_unknown,
         "allow_irreversible": body.allow_irreversible,
+        "confirm_risk": confirmed,
     })))
 }
 
@@ -860,5 +915,45 @@ mod tests {
         assert_eq!(payload["relation"], "unknown");
         assert_eq!(payload["is_upgrade"], true);
         assert_eq!(payload["is_downgrade"], false);
+    }
+
+    fn sample_update(allow_risk: bool, allow_downgrade: bool, confirm_risk: bool) -> UpdateBody {
+        UpdateBody {
+            target_version: Some("v1.0.0".into()),
+            target_commit: None,
+            mode: None,
+            allow_downgrade,
+            allow_risk,
+            allow_diverged: None,
+            allow_unknown: None,
+            allow_irreversible: None,
+            allow_skip_versions: false,
+            confirm_risk,
+        }
+    }
+
+    #[test]
+    fn risk_soft_gate_only_when_flags_set() {
+        let clean = sample_update(false, false, false);
+        assert!(!risk_flags_set(&clean));
+
+        let risky = sample_update(true, false, false);
+        assert!(risk_flags_set(&risky));
+        assert!(!confirm_risk_present(&risky, &axum::http::HeaderMap::new()));
+
+        let confirmed = sample_update(false, true, true);
+        assert!(risk_flags_set(&confirmed));
+        assert!(confirm_risk_present(
+            &confirmed,
+            &axum::http::HeaderMap::new()
+        ));
+
+        let via_header = sample_update(false, true, false);
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(
+            "X-Myriad-Confirm-Risk",
+            axum::http::HeaderValue::from_static("true"),
+        );
+        assert!(confirm_risk_present(&via_header, &headers));
     }
 }

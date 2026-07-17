@@ -78,29 +78,37 @@ function Ensure-Key($key, $default) {
     }
 }
 
-function Ensure-UpdateToken {
-    if (Select-String -Path .env -Pattern "^UPDATE_TOKEN=.+" -Quiet -ErrorAction SilentlyContinue) {
+function Ensure-SecretKey([string]$Key) {
+    if (Select-String -Path .env -Pattern "^$Key=.+" -Quiet -ErrorAction SilentlyContinue) {
         return
     }
 
     $token = New-Secret
-    if (Select-String -Path .env -Pattern "^UPDATE_TOKEN=" -Quiet -ErrorAction SilentlyContinue) {
+    if (Select-String -Path .env -Pattern "^$Key=" -Quiet -ErrorAction SilentlyContinue) {
         $lines = Get-Content .env
         $replaced = $false
         $lines = $lines | ForEach-Object {
-            if (-not $replaced -and $_ -match "^UPDATE_TOKEN=") {
+            if (-not $replaced -and $_ -match "^$Key=") {
                 $replaced = $true
-                "UPDATE_TOKEN=$token"
+                "$Key=$token"
             } else {
                 $_
             }
         }
         Set-Content -Path .env -Value $lines
-        Write-Info "  + filled empty UPDATE_TOKEN"
+        Write-Info "  + filled empty $Key"
     } else {
-        Add-Content -Path .env -Value "UPDATE_TOKEN=$token"
-        Write-Info "  + appended UPDATE_TOKEN"
+        Add-Content -Path .env -Value "$Key=$token"
+        Write-Info "  + appended $Key"
     }
+}
+
+function Ensure-UpdateToken {
+    Ensure-SecretKey "UPDATE_TOKEN"
+}
+
+function Ensure-UpdaterGatewaySecret {
+    Ensure-SecretKey "UPDATER_GATEWAY_SECRET"
 }
 
 function Ensure-Env {
@@ -117,7 +125,7 @@ function Ensure-Env {
         Write-Warn "  - JWT_SECRET"
         Write-Warn "  - CORS_ORIGINS"
         Write-Warn ""
-        Write-Warn "This script will create pgdata/state/backups and fill an empty UPDATE_TOKEN."
+        Write-Warn "This script will create pgdata/state/backups and fill empty UPDATE_TOKEN / UPDATER_GATEWAY_SECRET."
         Write-Warn ""
         $r = Read-Host "Open .env in notepad? (y/N)"
         if ($r -match "^[Yy]$") {
@@ -138,6 +146,7 @@ function Ensure-CurrentLayout {
     Ensure-Key "CHECK_INTERVAL_SECS" "3600"
     Ensure-Key "PROXY_ALLOW_DIRECT_UPDATER" "false"
     Ensure-UpdateToken
+    Ensure-UpdaterGatewaySecret
 }
 
 # Backend runs as uid 1000 (USER myriad). Named volumes are root-owned on first
@@ -422,6 +431,18 @@ function Cmd-Doctor {
         } else {
             Write-Ok "PASS  backend Config.Env has no UPDATE_TOKEN"
         }
+        if (Test-ContainerEnvHas "myriad-backend" "UPDATER_GATEWAY_SECRET=") {
+            $bsec = Get-ContainerEnvValue "myriad-backend" "UPDATER_GATEWAY_SECRET"
+            if ($bsec -and $bsec.Length -ge 32) {
+                Write-Ok "PASS  backend has UPDATER_GATEWAY_SECRET (≥32 chars)"
+            } else {
+                Write-Err "FAIL  backend UPDATER_GATEWAY_SECRET is set but shorter than 32 chars"
+                $fail++
+            }
+        } else {
+            Write-Err "FAIL  backend Config.Env missing UPDATER_GATEWAY_SECRET (required for gateway hop)"
+            $fail++
+        }
         $upUrl = Get-ContainerEnvValue "myriad-backend" "MYRIAD_UPDATER_URL"
         if ($upUrl -and ($upUrl -match "updater-gateway|updater")) {
             Write-Ok "PASS  backend MYRIAD_UPDATER_URL=$upUrl"
@@ -433,6 +454,21 @@ function Cmd-Doctor {
     } else {
         Write-Warn "SKIP  myriad-backend not running"
         $skip++
+    }
+
+    if (Test-ContainerExists "myriad-updater-gateway") {
+        if (Test-ContainerEnvHas "myriad-updater-gateway" "UPDATER_GATEWAY_SECRET=") {
+            $gsec = Get-ContainerEnvValue "myriad-updater-gateway" "UPDATER_GATEWAY_SECRET"
+            if ($gsec -and $gsec.Length -ge 32) {
+                Write-Ok "PASS  updater-gateway has UPDATER_GATEWAY_SECRET (≥32 chars)"
+            } else {
+                Write-Err "FAIL  updater-gateway UPDATER_GATEWAY_SECRET shorter than 32 chars"
+                $fail++
+            }
+        } else {
+            Write-Err "FAIL  updater-gateway missing UPDATER_GATEWAY_SECRET"
+            $fail++
+        }
     }
 
     if (Test-Path ".env") {
@@ -468,8 +504,13 @@ function Cmd-Doctor {
     }
 
     Write-Host ""
-    Write-Info "Optional host audit (not run automatically):"
-    Write-Info "  bash scripts/security/docker-audit-example.sh scan"
+    Write-Info "Optional host audit tip:"
+    if (Test-Path "scripts/security/docker-audit-example.sh") {
+        Write-Info "  path: scripts/security/docker-audit-example.sh"
+        Write-Info "  run:  bash scripts/security/docker-audit-example.sh scan"
+    } else {
+        Write-Info "  scripts/security/docker-audit-example.sh not present in this tree"
+    }
     Write-Host ""
     if ($fail -gt 0) {
         Write-Err "Doctor: $fail check(s) failed (skip=$skip). Fix topology; this command does not auto-migrate."

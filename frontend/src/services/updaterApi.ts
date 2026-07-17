@@ -4,8 +4,9 @@
  * Two transports, selected by `mode` at call sites:
  *
  *  - 'backend' (default): goes through `/api/admin/updater/*`. The backend has admin-session
- *    auth + holds `UPDATE_TOKEN` server-side. Mutating calls go through the backend's
- *    `csrf_middleware`, so we attach `X-CSRF-Token` for POSTs.
+ *    auth and talks to updater-gateway with `UPDATER_GATEWAY_SECRET` (no `UPDATE_TOKEN` in
+ *    the fat process). Mutating calls go through the backend's `csrf_middleware`, so we
+ *    attach `X-CSRF-Token` for POSTs.
  *
  *  - 'direct': goes through `/_updater/*` on the proxy. Requires the caller to supply
  *    `UPDATE_TOKEN` manually. Kept as a fallback for when the backend is down or the user
@@ -110,6 +111,17 @@ export interface UpdaterStatus {
   /** Version pinned locally for rollback as `*:myriad-rollback`. */
   rollback_version?: string | null
   available_channels?: string[]
+  /** Last TCB self-update helper outcome (`state/self-update-last.json`), when present. */
+  self_update_last?: SelfUpdateLastStatus | null
+}
+
+export interface SelfUpdateLastStatus {
+  status: 'succeeded' | 'failed'
+  target_tag: string
+  previous_tag: string
+  /** RFC3339 UTC */
+  at: string
+  error?: string | null
 }
 
 export interface ImageRef {
@@ -403,8 +415,20 @@ export function makeUpdaterApi(
         allowUnknown?: boolean
         allowIrreversible?: boolean
       },
-    ) =>
-      wrap<{ job_id: string; mode?: string }>(
+    ) => {
+      const allowDowngrade = !!opts?.allowDowngrade
+      const allowRisk = !!opts?.allowRisk
+      const allowDiverged = opts?.allowDiverged
+      const allowUnknown = opts?.allowUnknown
+      const allowIrreversible = opts?.allowIrreversible
+      // Soft gate: only when risk/downgrade flags are set; normal upgrades omit confirm_risk.
+      const needsConfirm =
+        allowDowngrade ||
+        allowRisk ||
+        allowDiverged === true ||
+        allowUnknown === true ||
+        allowIrreversible === true
+      return wrap<{ job_id: string; mode?: string }>(
         'POST',
         '/update',
         {
@@ -414,14 +438,16 @@ export function makeUpdaterApi(
                 target_version: target,
                 mode: (opts?.mode ?? 'release') as UpdateMode,
               }),
-          allow_downgrade: !!opts?.allowDowngrade,
-          allow_risk: !!opts?.allowRisk,
-          allow_diverged: opts?.allowDiverged,
-          allow_unknown: opts?.allowUnknown,
-          allow_irreversible: opts?.allowIrreversible,
+          allow_downgrade: allowDowngrade,
+          allow_risk: allowRisk,
+          allow_diverged: allowDiverged,
+          allow_unknown: allowUnknown,
+          allow_irreversible: allowIrreversible,
+          ...(needsConfirm ? { confirm_risk: true } : {}),
         },
         opts?.idemKey,
-      ),
+      )
+    },
     rollback: (snapshotId: string) =>
       wrap<{ job_id: string }>('POST', '/rollback', {
         snapshot_id: snapshotId,

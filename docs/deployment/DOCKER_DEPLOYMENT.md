@@ -37,6 +37,10 @@ Networks:
   repositories, container-create privileges, and host bind mounts.
 - **`UPDATE_TOKEN` lives in updater + updater-gateway + docker-guard**, not in the
   fat backend process. Gateway injects `X-Update-Token` on the admin-net hop.
+- **`UPDATER_GATEWAY_SECRET` lives in backend + updater-gateway only.** Backend sends
+  `X-Updater-Gateway-Secret` on every proxied call. Admin-net peers without the secret
+  cannot drive the gateway. Leaking this secret is still sensitive (can trigger updates
+  via gateway) but better than placing `UPDATE_TOKEN` in the fat backend.
 - **Backend runs as non-root** (image `USER myriad`, uid 1000). Deploy scripts chown
   named volumes `backend_cache` / `backend_data` so `/app/cache` and `/app/data`
   remain writable. Healthcheck stays on `localhost:1103/health` (no privileged ports).
@@ -66,7 +70,7 @@ cp .env.production.example .env
 
 # Edit at minimum:
 # POSTGRES_PASSWORD, JWT_SECRET, CORS_ORIGINS
-# deploy.sh fills UPDATE_TOKEN if it is empty.
+# deploy.sh fills UPDATE_TOKEN and UPDATER_GATEWAY_SECRET if empty.
 
 bash scripts/docker/deploy.sh up
 ```
@@ -93,6 +97,7 @@ Open `http://localhost` or the port configured by `HTTP_PORT`.
 | `UPDATER_TAG` | yes | Updater image tag |
 | `COMPOSE_PROJECT_NAME` | yes | Compose project name, default `myriad` |
 | `UPDATE_TOKEN` | yes | Updater token for updater/gateway/guard; deploy script fills it if empty; **not** injected into backend |
+| `UPDATER_GATEWAY_SECRET` | yes | Shared secret for backend→gateway (`X-Updater-Gateway-Secret`); deploy fills if empty; backend + gateway only |
 | `HTTP_PORT` | no | Published proxy port, default `80` |
 | `CHANNEL` | no | Release channel, default `stable` |
 | `MYRIAD_GITHUB_REPO` | no | Release source repo, default `Myriad-You/Myriad` |
@@ -126,15 +131,23 @@ bash scripts/docker/deploy.sh doctor
 
 ### Hygiene (low-friction)
 
-- **Secrets**: `UPDATE_TOKEN` / `JWT_SECRET` / `POSTGRES_PASSWORD` / `GITHUB_TOKEN` are
-  redacted from updater/backend error bodies and log paths that might echo them.
+- **Secrets**: `UPDATE_TOKEN` / `UPDATER_GATEWAY_SECRET` / `JWT_SECRET` / `POSTGRES_PASSWORD` /
+  `GITHUB_TOKEN` are redacted from updater/backend error bodies and log paths that might echo them.
 - **Admin mutative updater** routes (`POST …/update|rollback|self-update|rescue/*`) use a
   stricter per-IP rate limit; status/jobs polling stays on the normal limit.
 - **Audit actor**: backend proxies pass `X-Update-Actor: admin:<id>:<user>` after admin
   JWT; gateway injects `UPDATE_TOKEN` (included in updater `audit.log` when present).
+- **High-risk updates**: when `allow_risk` / `allow_downgrade` / related flags are set,
+  request body must also include `confirm_risk: true` (or header `X-Myriad-Confirm-Risk: true`).
+  Normal upgrades without risk flags need no extra confirm field.
+- **Self-update visibility**: authenticated `GET /status` includes optional `self_update_last`
+  from `state/self-update-last.json`; also `GET /self-update/last` (token/gateway required).
 - **Root**: backend warns once at boot if running as uid 0 (compose should stay non-root).
 - **Deploy soft-check**: `deploy.sh|ps1 up|upgrade` runs topology doctor in warn-only mode.
+- **Doctor host tip**: `deploy.sh doctor` prints the optional host audit path; `doctor --host`
+  runs a non-fatal privileged / unexpected `docker.sock` scan.
 - **Updater `/healthz`**: public and minimal (`{"ok":true}` only — no versions/token status).
+  Gateway `/healthz` likewise needs no secret (compose healthcheck).
 
 ## Operations
 

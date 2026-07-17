@@ -1,12 +1,13 @@
 //! Best-effort secret redaction for logs and JSON error bodies.
 //!
-//! Replaces known env values (`UPDATE_TOKEN`, `JWT_SECRET`, `POSTGRES_PASSWORD`,
-//! `GITHUB_TOKEN`) and a few common header/URL patterns so accidental echo of
-//! secrets does not leak into operator-facing output.
+//! Replaces known env values (`UPDATE_TOKEN`, `UPDATER_GATEWAY_SECRET`, `JWT_SECRET`,
+//! `POSTGRES_PASSWORD`, `GITHUB_TOKEN`) and a few common header/URL patterns so
+//! accidental echo of secrets does not leak into operator-facing output.
 
 /// Env keys whose values must never appear in logs or error bodies.
 const SECRET_ENV_KEYS: &[&str] = &[
     "UPDATE_TOKEN",
+    "UPDATER_GATEWAY_SECRET",
     "JWT_SECRET",
     "POSTGRES_PASSWORD",
     "GITHUB_TOKEN",
@@ -27,6 +28,7 @@ pub fn redact_secrets(input: &str) -> String {
     // Bearer before Authorization so "Authorization: Bearer <token>" loses the token first.
     out = redact_pattern(&out, "Bearer ");
     out = redact_pattern(&out, "X-Update-Token:");
+    out = redact_pattern(&out, "X-Updater-Gateway-Secret:");
     out = redact_pattern(&out, "Authorization:");
     out = redact_kv_assignment(&out, "password");
     out = redact_kv_assignment(&out, "token");

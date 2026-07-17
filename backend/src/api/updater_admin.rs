@@ -1,8 +1,8 @@
 //! Admin-only proxy to the Myriad updater. All routes require `admin_middleware`.
 //!
-//! Production: backend calls `updater-gateway` (no `UPDATE_TOKEN` in the fat process);
-//! the gateway injects the token. The browser never sees it.
-//! See docs/updater-spec.md §13 for the upstream contract.
+//! Production: backend calls `updater-gateway` with `UPDATER_GATEWAY_SECRET` (no
+//! `UPDATE_TOKEN` in the fat process); the gateway injects the update token. The browser
+//! never sees either secret. See docs/updater-spec.md §13 for the upstream contract.
 //!
 //! The `UpdaterClient` is stashed in a process-global `OnceLock` so handlers don't need to
 //! thread axum `State` through — this matches the style of the rest of `backend/src/main.rs`,
@@ -180,12 +180,20 @@ fn require() -> Result<&'static UpdaterClient, Box<Response>> {
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(json!({
                     "error": "updater service is not configured on this backend",
-                    "hint": "set MYRIAD_UPDATER_URL and UPDATE_TOKEN in backend environment"
+                    "hint": "set MYRIAD_UPDATER_URL and UPDATER_GATEWAY_SECRET (production gateway hop)"
                 })),
             )
                 .into_response(),
         )
     })
+}
+
+fn require_mutate() -> Result<&'static UpdaterClient, Box<Response>> {
+    let c = require()?;
+    if !c.can_mutate() {
+        return Err(Box::new(auth_missing()));
+    }
+    Ok(c)
 }
 
 pub async fn status() -> Response {
@@ -412,15 +420,40 @@ pub struct UpdateBody {
     pub allow_irreversible: Option<bool>,
     #[serde(default)]
     pub allow_skip_versions: bool,
+    /// Explicit confirm when any risk / downgrade flags are set. Required by updater
+    /// soft gate; normal upgrades leave this false/omitted (no extra UX click).
+    #[serde(default)]
+    pub confirm_risk: bool,
+}
+
+fn update_requests_risk(body: &UpdateBody) -> bool {
+    body.allow_risk
+        || body.allow_downgrade
+        || body.allow_diverged == Some(true)
+        || body.allow_unknown == Some(true)
+        || body.allow_irreversible == Some(true)
 }
 
 pub async fn trigger_update(headers: HeaderMap, Json(body): Json<UpdateBody>) -> Response {
-    let c = match require() {
+    let c = match require_mutate() {
         Ok(c) => c,
         Err(r) => return *r,
     };
-    if !c.has_token() {
-        return token_missing();
+    // Soft gate: when risk flags are set, require explicit confirm_risk (body) or header.
+    // Happy-path upgrades (no risk flags) are unchanged.
+    let confirm_header = headers
+        .get("X-Myriad-Confirm-Risk")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|s| s.eq_ignore_ascii_case("true") || s == "1");
+    if update_requests_risk(&body) && !(body.confirm_risk || confirm_header) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "high-risk update requires confirm_risk=true (or X-Myriad-Confirm-Risk: true)",
+                "hint": "re-submit with the same risk flags plus confirm_risk after operator confirmation"
+            })),
+        )
+            .into_response();
     }
     log_admin_actor("update", &headers);
     let idem = headers
@@ -432,6 +465,7 @@ pub async fn trigger_update(headers: HeaderMap, Json(body): Json<UpdateBody>) ->
         "allow_skip_versions": body.allow_skip_versions,
         "allow_downgrade": body.allow_downgrade,
         "allow_risk": body.allow_risk,
+        "confirm_risk": body.confirm_risk || confirm_header,
     });
     if let Some(v) = body.target_version {
         payload["target_version"] = json!(v);
@@ -477,13 +511,10 @@ pub struct PrefsBody {
 }
 
 pub async fn set_prefs(Json(body): Json<PrefsBody>) -> Response {
-    let c = match require() {
+    let c = match require_mutate() {
         Ok(c) => c,
         Err(r) => return *r,
     };
-    if !c.has_token() {
-        return token_missing();
-    }
     let payload = json!({
         "channel": body.channel,
         "mode": body.mode,
@@ -500,13 +531,10 @@ pub struct RollbackBody {
 }
 
 pub async fn rollback(headers: HeaderMap, Json(body): Json<RollbackBody>) -> Response {
-    let c = match require() {
+    let c = match require_mutate() {
         Ok(c) => c,
         Err(r) => return *r,
     };
-    if !c.has_token() {
-        return token_missing();
-    }
     log_admin_actor("rollback", &headers);
     let actor = actor_from_headers(&headers);
     let payload = json!({ "snapshot_id": body.snapshot_id });
@@ -523,13 +551,10 @@ pub async fn rollback(headers: HeaderMap, Json(body): Json<RollbackBody>) -> Res
 }
 
 pub async fn diagnostics() -> Response {
-    let c = match require() {
+    let c = match require_mutate() {
         Ok(c) => c,
         Err(r) => return *r,
     };
-    if !c.has_token() {
-        return token_missing();
-    }
     match c.get_json("/diagnostics").await {
         Ok(v) => Json(v).into_response(),
         Err(e) => err_to_response(e),
@@ -537,13 +562,10 @@ pub async fn diagnostics() -> Response {
 }
 
 pub async fn exit_maintenance(headers: HeaderMap) -> Response {
-    let c = match require() {
+    let c = match require_mutate() {
         Ok(c) => c,
         Err(r) => return *r,
     };
-    if !c.has_token() {
-        return token_missing();
-    }
     log_admin_actor("rescue/exit-maintenance", &headers);
     let actor = actor_from_headers(&headers);
     match c
@@ -556,13 +578,10 @@ pub async fn exit_maintenance(headers: HeaderMap) -> Response {
 }
 
 pub async fn forget_current(headers: HeaderMap) -> Response {
-    let c = match require() {
+    let c = match require_mutate() {
         Ok(c) => c,
         Err(r) => return *r,
     };
-    if !c.has_token() {
-        return token_missing();
-    }
     log_admin_actor("rescue/forget-current", &headers);
     let actor = actor_from_headers(&headers);
     match c
@@ -576,13 +595,10 @@ pub async fn forget_current(headers: HeaderMap) -> Response {
 
 /// One-click recovery: roll back to the snapshot on the stuck needs_manual job.
 pub async fn rescue_continue(headers: HeaderMap) -> Response {
-    let c = match require() {
+    let c = match require_mutate() {
         Ok(c) => c,
         Err(r) => return *r,
     };
-    if !c.has_token() {
-        return token_missing();
-    }
     log_admin_actor("rescue/continue", &headers);
     let actor = actor_from_headers(&headers);
     match c
@@ -600,13 +616,10 @@ pub async fn rescue_continue(headers: HeaderMap) -> Response {
 /// Trigger the updater's self-update flow. Spawns a helper container that replaces
 /// the running updater after a short delay. See docs/updater-spec.md §14.
 pub async fn self_update(headers: HeaderMap) -> Response {
-    let c = match require() {
+    let c = match require_mutate() {
         Ok(c) => c,
         Err(r) => return *r,
     };
-    if !c.has_token() {
-        return token_missing();
-    }
     log_admin_actor("self-update", &headers);
     let actor = actor_from_headers(&headers);
     match c
@@ -618,12 +631,24 @@ pub async fn self_update(headers: HeaderMap) -> Response {
     }
 }
 
-fn token_missing() -> Response {
+/// Last TCB self-update helper outcome (`state/self-update-last.json`). Also on GET /status.
+pub async fn self_update_last() -> Response {
+    let c = match require() {
+        Ok(c) => c,
+        Err(r) => return *r,
+    };
+    match c.get_json("/self-update/last").await {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => err_to_response(e),
+    }
+}
+
+fn auth_missing() -> Response {
     (
         StatusCode::SERVICE_UNAVAILABLE,
         Json(json!({
-            "error": "backend is missing UPDATE_TOKEN; mutating updater requests are disabled",
-            "hint": "set UPDATE_TOKEN env var on the backend container"
+            "error": "backend cannot authenticate to updater-gateway; mutating requests disabled",
+            "hint": "set UPDATER_GATEWAY_SECRET on backend (and matching gateway). Legacy direct hops may set UPDATE_TOKEN instead."
         })),
     )
         .into_response()
