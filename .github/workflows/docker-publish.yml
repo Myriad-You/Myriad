@@ -1,17 +1,12 @@
 name: Build and Push Development Images
 
-# Builds dev/preview images for branch pushes. Production releases are owned by
-# release.yml on tag push.
+# Manual-only packaging for commit/dev images (workflow_dispatch). Does not run
+# on branch push. Production releases are owned by release.yml on tag push.
 #
 # NOTE: This workflow MUST NOT push the `latest` tag — the updater relies on
 # immutable version tags to roll back reliably.
 
 on:
-  push:
-    branches:
-      - main
-      - preview
-      - beta
   workflow_dispatch:
     inputs:
       tag:
@@ -25,7 +20,7 @@ on:
 env:
   REGISTRY: docker.io
   # Updater is release-only by default (release.yml on tag push). Include via
-  # workflow_dispatch `components` input when a dev updater image is needed.
+  # `components` input when a dev updater image is needed.
   DEFAULT_COMPONENTS: backend,frontend,proxy
 
 jobs:
@@ -37,15 +32,10 @@ jobs:
     steps:
       - id: gen
         run: |
-          # Branch pushes default to backend/frontend/proxy only. Updater is
-          # packaged on release tags (release.yml); workflow_dispatch may still
-          # pass updater in `components` when a dev updater image is needed.
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            INPUT="${{ inputs.components }}"
-            INPUT="${INPUT:-$DEFAULT_COMPONENTS}"
-          else
-            INPUT="$DEFAULT_COMPONENTS"
-          fi
+          # Defaults to backend/frontend/proxy. Updater is packaged on release
+          # tags (release.yml); pass updater in `components` for a dev image.
+          INPUT="${{ inputs.components }}"
+          INPUT="${INPUT:-$DEFAULT_COMPONENTS}"
           # Convert "backend,frontend,proxy" to JSON array.
           MATRIX=$(echo "$INPUT" | tr ',' '\n' | sed 's/[[:space:]]//g' | grep -v '^$' \
             | jq -R . | jq -s -c .)
