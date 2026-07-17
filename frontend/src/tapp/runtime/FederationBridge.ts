@@ -115,7 +115,8 @@ export function registerFederationHandlers(
 
   bridge.registerHandler('federation.getIdentity', async () => {
     try {
-      const data = await federationApi.getIdentity()
+      const runtimeGrant = await bridge.getRuntimeGrant()
+      const data = await federationApi.getIdentity(runtimeGrant)
       return { success: true, data }
     } catch (error) {
       return {
@@ -143,7 +144,8 @@ export function registerFederationHandlers(
 
   bridge.registerHandler('federation.getTimeline', async () => {
     try {
-      const data = await federationApi.getTimeline()
+      const runtimeGrant = await bridge.getRuntimeGrant()
+      const data = await federationApi.getTimeline(runtimeGrant)
       return { success: true, data }
     } catch (error) {
       return {
@@ -161,7 +163,8 @@ export function registerFederationHandlers(
     if (!target || typeof target !== 'string')
       return { success: false, error: 'Target actor URL is required' }
     try {
-      const data = await federationApi.follow(target)
+      const runtimeGrant = await bridge.getRuntimeGrant()
+      const data = await federationApi.follow(target, runtimeGrant)
       return { success: true, data }
     } catch (error) {
       return {
@@ -178,7 +181,8 @@ export function registerFederationHandlers(
       if (!target || typeof target !== 'string')
         return { success: false, error: 'Target actor URL is required' }
       try {
-        const data = await federationApi.unfollow(target)
+        const runtimeGrant = await bridge.getRuntimeGrant()
+        const data = await federationApi.unfollow(target, runtimeGrant)
         return { success: true, data }
       } catch (error) {
         return {
@@ -191,7 +195,8 @@ export function registerFederationHandlers(
 
   bridge.registerHandler('federation.getFollowing', async () => {
     try {
-      const data = await federationApi.getFollowing()
+      const runtimeGrant = await bridge.getRuntimeGrant()
+      const data = await federationApi.getFollowing(runtimeGrant)
       return { success: true, data }
     } catch (error) {
       return {
@@ -203,7 +208,8 @@ export function registerFederationHandlers(
 
   bridge.registerHandler('federation.getFollowers', async () => {
     try {
-      const data = await federationApi.getFollowers()
+      const runtimeGrant = await bridge.getRuntimeGrant()
+      const data = await federationApi.getFollowers(runtimeGrant)
       return { success: true, data }
     } catch (error) {
       return {
@@ -219,8 +225,10 @@ export function registerFederationHandlers(
     const [req] = (message.payload as { args: unknown[] }).args || []
     if (!req) return { success: false, error: 'Publish request is required' }
     try {
+      const runtimeGrant = await bridge.getRuntimeGrant()
       const data = await federationApi.publish(
         req as Parameters<typeof federationApi.publish>[0],
+        runtimeGrant,
       )
       return { success: true, data }
     } catch (error) {
@@ -238,8 +246,10 @@ export function registerFederationHandlers(
       if (!req)
         return { success: false, error: 'Unpublish request is required' }
       try {
+        const runtimeGrant = await bridge.getRuntimeGrant()
         const data = await federationApi.unpublish(
           req as Parameters<typeof federationApi.unpublish>[0],
+          runtimeGrant,
         )
         return { success: true, data }
       } catch (error) {
@@ -253,7 +263,8 @@ export function registerFederationHandlers(
 
   bridge.registerHandler('federation.getPublished', async () => {
     try {
-      const data = await federationApi.getPublished()
+      const runtimeGrant = await bridge.getRuntimeGrant()
+      const data = await federationApi.getPublished(runtimeGrant)
       return { success: true, data }
     } catch (error) {
       return {
@@ -267,7 +278,8 @@ export function registerFederationHandlers(
 
   bridge.registerHandler('federation.getChannels', async () => {
     try {
-      const data = await federationApi.getChannels()
+      const runtimeGrant = await bridge.getRuntimeGrant()
+      const data = await federationApi.getChannels(runtimeGrant)
       return { success: true, data }
     } catch (error) {
       return {
@@ -284,8 +296,10 @@ export function registerFederationHandlers(
       if (!req)
         return { success: false, error: 'Create channel request is required' }
       try {
+        const runtimeGrant = await bridge.getRuntimeGrant()
         const data = await federationApi.createChannel(
           req as Parameters<typeof federationApi.createChannel>[0],
+          runtimeGrant,
         )
         return { success: true, data }
       } catch (error) {
@@ -305,7 +319,8 @@ export function registerFederationHandlers(
       if (!channelId || typeof channelId !== 'string')
         return { success: false, error: 'Channel ID is required' }
       try {
-        const data = await federationApi.acceptChannel(channelId)
+        const runtimeGrant = await bridge.getRuntimeGrant()
+        const data = await federationApi.acceptChannel(channelId, runtimeGrant)
         return { success: true, data }
       } catch (error) {
         return {
@@ -324,7 +339,8 @@ export function registerFederationHandlers(
       if (!channelId || typeof channelId !== 'string')
         return { success: false, error: 'Channel ID is required' }
       try {
-        const data = await federationApi.closeChannel(channelId)
+        const runtimeGrant = await bridge.getRuntimeGrant()
+        const data = await federationApi.closeChannel(channelId, runtimeGrant)
         return { success: true, data }
       } catch (error) {
         return {
@@ -343,7 +359,8 @@ export function registerFederationHandlers(
       if (!channelId || typeof channelId !== 'string')
         return { success: false, error: 'Channel ID is required' }
       try {
-        const data = await federationApi.getChannel(channelId)
+        const runtimeGrant = await bridge.getRuntimeGrant()
+        const data = await federationApi.getChannel(channelId, runtimeGrant)
         return { success: true, data }
       } catch (error) {
         return {
@@ -362,10 +379,12 @@ export function registerFederationHandlers(
       if (!channelId || typeof channelId !== 'string')
         return { success: false, error: 'Channel ID is required' }
       try {
+        const runtimeGrant = await bridge.getRuntimeGrant()
         const data = await federationApi.getMessages(
           channelId,
           before as string | undefined,
           limit as number | undefined,
+          runtimeGrant,
         )
         return { success: true, data }
       } catch (error) {
@@ -385,9 +404,11 @@ export function registerFederationHandlers(
       if (!channelId || typeof channelId !== 'string' || !req)
         return { success: false, error: 'Channel ID and message are required' }
       try {
+        const runtimeGrant = await bridge.getRuntimeGrant()
         const data = await federationApi.sendMessage(
           channelId,
           req as Parameters<typeof federationApi.sendMessage>[1],
+          runtimeGrant,
         )
         return { success: true, data }
       } catch (error) {
@@ -403,7 +424,8 @@ export function registerFederationHandlers(
 
   bridge.registerHandler('federation.getRooms', async () => {
     try {
-      const data = await federationApi.getRooms()
+      const runtimeGrant = await bridge.getRuntimeGrant()
+      const data = await federationApi.getRooms(runtimeGrant)
       return { success: true, data }
     } catch (error) {
       return {
@@ -418,7 +440,8 @@ export function registerFederationHandlers(
     if (!roomId || typeof roomId !== 'string')
       return { success: false, error: 'Room ID is required' }
     try {
-      const data = await federationApi.getRoom(roomId)
+      const runtimeGrant = await bridge.getRuntimeGrant()
+      const data = await federationApi.getRoom(roomId, runtimeGrant)
       return { success: true, data }
     } catch (error) {
       return {
@@ -435,8 +458,10 @@ export function registerFederationHandlers(
       if (!req)
         return { success: false, error: 'Create room request is required' }
       try {
+        const runtimeGrant = await bridge.getRuntimeGrant()
         const data = await federationApi.createRoom(
           req as Parameters<typeof federationApi.createRoom>[0],
+          runtimeGrant,
         )
         return { success: true, data }
       } catch (error) {
@@ -458,9 +483,11 @@ export function registerFederationHandlers(
       if (!req)
         return { success: false, error: 'Update room request is required' }
       try {
+        const runtimeGrant = await bridge.getRuntimeGrant()
         const data = await federationApi.updateRoom(
           roomId,
           req as Parameters<typeof federationApi.updateRoom>[1],
+          runtimeGrant,
         )
         return { success: true, data }
       } catch (error) {
@@ -480,7 +507,8 @@ export function registerFederationHandlers(
       if (!roomId || typeof roomId !== 'string')
         return { success: false, error: 'Room ID is required' }
       try {
-        const data = await federationApi.getRoomMembers(roomId)
+        const runtimeGrant = await bridge.getRuntimeGrant()
+        const data = await federationApi.getRoomMembers(roomId, runtimeGrant)
         return { success: true, data }
       } catch (error) {
         return {
@@ -503,9 +531,11 @@ export function registerFederationHandlers(
         }
       }
       try {
+        const runtimeGrant = await bridge.getRuntimeGrant()
         const data = await federationApi.inviteMember(
           roomId,
           req as Parameters<typeof federationApi.inviteMember>[1],
+          runtimeGrant,
         )
         return { success: true, data }
       } catch (error) {
@@ -531,7 +561,8 @@ export function registerFederationHandlers(
         return { success: false, error: 'Room ID and actor URL are required' }
       }
       try {
-        const data = await federationApi.removeMember(roomId, actorUrl)
+        const runtimeGrant = await bridge.getRuntimeGrant()
+        const data = await federationApi.removeMember(roomId, actorUrl, runtimeGrant)
         return { success: true, data }
       } catch (error) {
         return {
@@ -550,7 +581,8 @@ export function registerFederationHandlers(
       if (!roomId || typeof roomId !== 'string')
         return { success: false, error: 'Room ID is required' }
       try {
-        const data = await federationApi.leaveRoom(roomId)
+        const runtimeGrant = await bridge.getRuntimeGrant()
+        const data = await federationApi.leaveRoom(roomId, runtimeGrant)
         return { success: true, data }
       } catch (error) {
         return {
@@ -569,7 +601,8 @@ export function registerFederationHandlers(
       if (!roomId || typeof roomId !== 'string')
         return { success: false, error: 'Room ID is required' }
       try {
-        const data = await federationApi.deleteRoom(roomId)
+        const runtimeGrant = await bridge.getRuntimeGrant()
+        const data = await federationApi.deleteRoom(roomId, runtimeGrant)
         return { success: true, data }
       } catch (error) {
         return {
@@ -589,10 +622,12 @@ export function registerFederationHandlers(
       if (!roomId || typeof roomId !== 'string')
         return { success: false, error: 'Room ID is required' }
       try {
+        const runtimeGrant = await bridge.getRuntimeGrant()
         const data = await federationApi.getRoomMessages(
           roomId,
           before as string | undefined,
           limit as number | undefined,
+          runtimeGrant,
         )
         return { success: true, data }
       } catch (error) {
@@ -611,9 +646,11 @@ export function registerFederationHandlers(
       if (!roomId || typeof roomId !== 'string' || !req)
         return { success: false, error: 'Room ID and message are required' }
       try {
+        const runtimeGrant = await bridge.getRuntimeGrant()
         const data = await federationApi.sendRoomMessage(
           roomId,
           req as Parameters<typeof federationApi.sendRoomMessage>[1],
+          runtimeGrant,
         )
         return { success: true, data }
       } catch (error) {
@@ -641,10 +678,12 @@ export function registerFederationHandlers(
         return { success: false, error: 'Room ID and Message ID are required' }
       }
       try {
+        const runtimeGrant = await bridge.getRuntimeGrant()
         const data = await federationApi.pinRoomMessage(
           roomId,
           messageId,
           !!pinned,
+          runtimeGrant,
         )
         return { success: true, data }
       } catch (error) {
@@ -660,7 +699,8 @@ export function registerFederationHandlers(
 
   bridge.registerHandler('federation.getRings', async () => {
     try {
-      const data = await federationApi.getRings()
+      const runtimeGrant = await bridge.getRuntimeGrant()
+      const data = await federationApi.getRings(runtimeGrant)
       return { success: true, data }
     } catch (error) {
       return {
@@ -675,7 +715,8 @@ export function registerFederationHandlers(
     if (!ringId || typeof ringId !== 'string')
       return { success: false, error: 'Ring ID is required' }
     try {
-      const data = await federationApi.getRing(ringId)
+      const runtimeGrant = await bridge.getRuntimeGrant()
+      const data = await federationApi.getRing(ringId, runtimeGrant)
       return { success: true, data }
     } catch (error) {
       return {
@@ -692,7 +733,8 @@ export function registerFederationHandlers(
       if (!ringId || typeof ringId !== 'string')
         return { success: false, error: 'Ring ID is required' }
       try {
-        const data = await federationApi.getRingPeers(ringId)
+        const runtimeGrant = await bridge.getRuntimeGrant()
+        const data = await federationApi.getRingPeers(ringId, runtimeGrant)
         return { success: true, data }
       } catch (error) {
         return {
@@ -710,7 +752,8 @@ export function registerFederationHandlers(
       if (!req || typeof req !== 'object')
         return { success: false, error: 'Ring request is required' }
       try {
-        const data = await federationApi.createRing(req as any)
+        const runtimeGrant = await bridge.getRuntimeGrant()
+        const data = await federationApi.createRing(req as any, runtimeGrant)
         return { success: true, data }
       } catch (error) {
         return {
@@ -728,7 +771,8 @@ export function registerFederationHandlers(
       if (!ringId || typeof ringId !== 'string')
         return { success: false, error: 'Ring ID is required' }
       try {
-        const data = await federationApi.leaveRing(ringId)
+        const runtimeGrant = await bridge.getRuntimeGrant()
+        const data = await federationApi.leaveRing(ringId, runtimeGrant)
         return { success: true, data }
       } catch (error) {
         return {
@@ -746,7 +790,8 @@ export function registerFederationHandlers(
     if (!req || typeof req !== 'object')
       return { success: false, error: 'Peer request is required' }
     try {
-      const data = await federationApi.addPeer(ringId, req as any)
+      const runtimeGrant = await bridge.getRuntimeGrant()
+      const data = await federationApi.addPeer(ringId, req as any, runtimeGrant)
       return { success: true, data }
     } catch (error) {
       return {
@@ -766,7 +811,8 @@ export function registerFederationHandlers(
       if (!peerUrl || typeof peerUrl !== 'string')
         return { success: false, error: 'Peer URL is required' }
       try {
-        const data = await federationApi.removePeer(ringId, peerUrl)
+        const runtimeGrant = await bridge.getRuntimeGrant()
+        const data = await federationApi.removePeer(ringId, peerUrl, runtimeGrant)
         return { success: true, data }
       } catch (error) {
         return {
@@ -784,7 +830,8 @@ export function registerFederationHandlers(
       if (!ringId || typeof ringId !== 'string')
         return { success: false, error: 'Ring ID is required' }
       try {
-        const data = await federationApi.triggerSync(ringId)
+        const runtimeGrant = await bridge.getRuntimeGrant()
+        const data = await federationApi.triggerSync(ringId, runtimeGrant)
         return { success: true, data }
       } catch (error) {
         return {
@@ -799,7 +846,8 @@ export function registerFederationHandlers(
 
   bridge.registerHandler('federation.getTrustPolicy', async () => {
     try {
-      const data = await federationApi.getTrustPolicy()
+      const runtimeGrant = await bridge.getRuntimeGrant()
+      const data = await federationApi.getTrustPolicy(runtimeGrant)
       return { success: true, data }
     } catch (error) {
       return {
@@ -811,7 +859,8 @@ export function registerFederationHandlers(
 
   bridge.registerHandler('federation.getInstances', async () => {
     try {
-      const data = await federationApi.getInstances()
+      const runtimeGrant = await bridge.getRuntimeGrant()
+      const data = await federationApi.getInstances(runtimeGrant)
       return { success: true, data }
     } catch (error) {
       return {
@@ -828,8 +877,10 @@ export function registerFederationHandlers(
       if (!req || typeof req !== 'object')
         return { success: false, error: 'Trust request is required' }
       try {
+        const runtimeGrant = await bridge.getRuntimeGrant()
         const data = await federationApi.updateInstanceTrust(
           req as Parameters<typeof federationApi.updateInstanceTrust>[0],
+          runtimeGrant,
         )
         return { success: true, data }
       } catch (error) {
@@ -848,8 +899,10 @@ export function registerFederationHandlers(
       if (!req || typeof req !== 'object')
         return { success: false, error: 'Block request is required' }
       try {
+        const runtimeGrant = await bridge.getRuntimeGrant()
         const data = await federationApi.toggleInstanceBlock(
           req as Parameters<typeof federationApi.toggleInstanceBlock>[0],
+          runtimeGrant,
         )
         return { success: true, data }
       } catch (error) {
@@ -880,9 +933,11 @@ export function registerFederationHandlers(
         }
       }
       try {
+        const runtimeGrant = await bridge.getRuntimeGrant()
         const data = await federationApi.initiateTransfer(
           channelId,
           req as Parameters<typeof federationApi.initiateTransfer>[1],
+          runtimeGrant,
         )
         return { success: true, data }
       } catch (error) {
@@ -901,7 +956,8 @@ export function registerFederationHandlers(
       if (!channelId || typeof channelId !== 'string')
         return { success: false, error: 'Channel ID is required' }
       try {
-        const data = await federationApi.listTransfers(channelId)
+        const runtimeGrant = await bridge.getRuntimeGrant()
+        const data = await federationApi.listTransfers(channelId, runtimeGrant)
         return { success: true, data }
       } catch (error) {
         return {
@@ -919,7 +975,8 @@ export function registerFederationHandlers(
       if (!transferId || typeof transferId !== 'string')
         return { success: false, error: 'Transfer ID is required' }
       try {
-        const data = await federationApi.getTransfer(transferId)
+        const runtimeGrant = await bridge.getRuntimeGrant()
+        const data = await federationApi.getTransfer(transferId, runtimeGrant)
         return { success: true, data }
       } catch (error) {
         return {
@@ -944,9 +1001,11 @@ export function registerFederationHandlers(
         return { success: false, error: 'Transfer ID and chunk are required' }
       }
       try {
+        const runtimeGrant = await bridge.getRuntimeGrant()
         const data = await federationApi.uploadChunk(
           transferId,
           req as Parameters<typeof federationApi.uploadChunk>[1],
+          runtimeGrant,
         )
         return { success: true, data }
       } catch (error) {
@@ -965,7 +1024,8 @@ export function registerFederationHandlers(
       if (!transferId || typeof transferId !== 'string')
         return { success: false, error: 'Transfer ID is required' }
       try {
-        const data = await federationApi.cancelTransfer(transferId)
+        const runtimeGrant = await bridge.getRuntimeGrant()
+        const data = await federationApi.cancelTransfer(transferId, runtimeGrant)
         return { success: true, data }
       } catch (error) {
         return {

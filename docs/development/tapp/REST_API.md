@@ -322,10 +322,11 @@ Interaction 的动作截止时间独立于终态保留时间；所有副本都�
 | GET  | `/api/tapp/federation/feed`  | 可选认证 + Runtime Grant | 需 Grant 含 `federation:read`。游客只返回公开活动（`audience: "public"`）；已登录用户返回公开 Feed 与个人时间线的合并结果（`audience: "public+personal"`，同 `activity_id` 时个人条目优先，整体按时间新到旧，条数有上限）。响应形如 `{ items, total, audience }`。 |
 
 联邦写操作、消息、私有 Room 与文件等仍走各自 SDK/宿主路径，且对游客不可用；见
-[ARCHITECTURE 所有权与可见性](ARCHITECTURE.md#所有权与可见性)。Brew/语音宿主代理路径已按
-Grant 归因：带 `X-Tapp-Runtime-Grant` 的请求在服务端按路由强制 Tapp 权限并记录归因日志；
-独立 AI 费用账本见 `/api/tapp/ai/v2/ledger`。联邦宿主代理路径的 Tapp 归因仍未 Grant 化，
-勿写成已全量覆盖。
+[ARCHITECTURE 所有权与可见性](ARCHITECTURE.md#所有权与可见性)。Brew / 语音 / 联邦 REST
+宿主代理路径已统一按 Grant 归因：带 `X-Tapp-Runtime-Grant` 的请求在服务端按路由强制 Tapp
+权限并记录归因日志（共享 `host_attribution` 中间件）；联邦 E2E 密钥交换与 Channel/Room
+WebSocket 升级对带 Grant 请求拒绝或保持文档豁免（浏览器 WS 无法带自定义头）。独立 AI 费用
+账本见 `/api/tapp/ai/v2/ledger`。
 
 ### 上下文与媒体
 

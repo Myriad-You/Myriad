@@ -3956,46 +3956,56 @@ async fn start_unified_server(config: AppConfig) -> anyhow::Result<()> {
         .route(
             "/api/federation/identity",
             get(federation_identity_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
             "/api/federation/follow",
-            post(federation_follow_wrapper).route_layer(from_fn(middleware::auth::auth_middleware)),
+            post(federation_follow_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
+                .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
             "/api/federation/unfollow",
             post(federation_unfollow_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
             "/api/federation/following",
             get(federation_following_list_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
             "/api/federation/followers",
             get(federation_followers_list_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
             "/api/federation/timeline",
             get(federation_timeline_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         // ==================== Phase 2: Content Publishing ====================
         .route(
             "/api/federation/publish",
             post(federation_publish_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
             "/api/federation/unpublish",
             post(federation_unpublish_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
             "/api/federation/published",
             get(federation_published_list_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         // ==================== Phase 3: Channel 实时通信 ====================
@@ -4003,37 +4013,44 @@ async fn start_unified_server(config: AppConfig) -> anyhow::Result<()> {
             "/api/federation/channels",
             get(federation_list_channels_wrapper)
                 .post(federation_create_channel_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
             "/api/federation/channels/{channel_id}",
             get(federation_get_channel_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
             "/api/federation/channels/{channel_id}/close",
             post(federation_close_channel_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
             "/api/federation/channels/{channel_id}/accept",
             post(federation_accept_channel_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
             "/api/federation/channels/{channel_id}/e2e/key-exchange",
             post(federation_e2e_key_exchange_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
             "/api/federation/channels/{channel_id}/messages",
             get(federation_get_messages_wrapper)
                 .post(federation_send_message_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
             "/api/federation/channels/{channel_id}/ws",
             get(federation::ws_gateway::channel_websocket)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         // ==================== Phase 4: Room 多方通信 ====================
@@ -4041,6 +4058,7 @@ async fn start_unified_server(config: AppConfig) -> anyhow::Result<()> {
             "/api/federation/rooms",
             get(federation_list_rooms_wrapper)
                 .post(federation_create_room_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
@@ -4048,47 +4066,56 @@ async fn start_unified_server(config: AppConfig) -> anyhow::Result<()> {
             get(federation_get_room_wrapper)
                 .put(federation_update_room_wrapper)
                 .delete(federation_delete_room_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
             "/api/federation/rooms/{room_id}/members",
             get(federation_get_room_members_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
             "/api/federation/rooms/{room_id}/invite",
             post(federation_invite_room_member_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
             "/api/federation/rooms/{room_id}/members/{actor}",
             delete(federation_remove_room_member_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
             "/api/federation/rooms/{room_id}/leave",
             post(federation_leave_room_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
             "/api/federation/rooms/{room_id}/messages",
             get(federation_get_room_messages_wrapper)
                 .post(federation_send_room_message_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
             "/api/federation/rooms/{room_id}/e2e/key-exchange",
             post(federation_room_e2e_key_exchange_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
             "/api/federation/rooms/{room_id}/messages/{message_id}/pin",
             post(federation_pin_room_message_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
             "/api/federation/rooms/{room_id}/ws",
             get(federation::ws_gateway::room_websocket)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         // ==================== Phase 5: Ring 去中心化环网 ====================
@@ -4096,43 +4123,51 @@ async fn start_unified_server(config: AppConfig) -> anyhow::Result<()> {
             "/api/federation/rings",
             get(federation_list_rings_wrapper)
                 .post(federation_create_ring_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
             "/api/federation/rings/{ring_id}",
             get(federation_get_ring_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
             "/api/federation/rings/{ring_id}/leave",
             post(federation_leave_ring_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
             "/api/federation/rings/{ring_id}/peers",
             get(federation_get_ring_peers_wrapper)
                 .post(federation_add_ring_peer_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
             "/api/federation/rings/{ring_id}/peers/{peer}",
             delete(federation_remove_ring_peer_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
             "/api/federation/rings/{ring_id}/sync",
             post(federation_trigger_ring_sync_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         // ==================== Phase 5 补全: Trust 策略管理 ====================
         .route(
             "/api/federation/trust/policy",
             get(federation_get_trust_policy_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
             "/api/federation/trust/instances",
             get(federation_list_instances_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
@@ -4150,21 +4185,25 @@ async fn start_unified_server(config: AppConfig) -> anyhow::Result<()> {
             "/api/federation/channels/{channel_id}/transfers",
             get(federation_list_transfers_wrapper)
                 .post(federation_initiate_transfer_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
             "/api/federation/transfers/{transfer_id}",
             get(federation_get_transfer_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
             "/api/federation/transfers/{transfer_id}/chunks",
             post(federation_upload_chunk_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(
             "/api/federation/transfers/{transfer_id}/cancel",
             post(federation_cancel_transfer_wrapper)
+                .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         );
 

@@ -1,5 +1,9 @@
 /**
  * 联邦 API 服务
+ *
+ * 所有 REST 方法接受可选的 runtimeGrant（Tapp 宿主代理归因）：
+ * 传入时请求携带 X-Tapp-Runtime-Grant 头，服务端归因中间件据此校验
+ * Runtime Grant 的 federation.* 权限。宿主自身 UI 调用不传该参数。
  */
 
 import type {
@@ -41,10 +45,20 @@ import type {
   UpdateTrustRequest,
   UploadChunkRequest,
 } from '../types/federation'
+import type { ApiRequestOptions } from './api'
 import { apiService } from './api'
 import { federationMock } from './federationMock'
 
 const PREFIX = '/federation'
+
+/** Tapp 宿主代理调用的归因请求选项 */
+function attributionOptions(
+  runtimeGrant?: string,
+): ApiRequestOptions | undefined {
+  return runtimeGrant
+    ? { headers: { 'X-Tapp-Runtime-Grant': runtimeGrant } }
+    : undefined
+}
 
 /**
  * 开发环境 mock 模式控制。
@@ -153,9 +167,13 @@ function createMockWs(): WebSocket {
 
 export const federationApi = {
   /** 获取当前用户联邦身份 */
-  getIdentity(): Promise<FederationIdentity> {
+  getIdentity(runtimeGrant?: string): Promise<FederationIdentity> {
     return withDevFallback(
-      () => apiService.get<FederationIdentity>(`${PREFIX}/identity`),
+      () =>
+        apiService.get<FederationIdentity>(
+          `${PREFIX}/identity`,
+          attributionOptions(runtimeGrant),
+        ),
       () => federationMock.getIdentity(),
     )
   },
@@ -163,31 +181,46 @@ export const federationApi = {
   // ==================== 关注管理 ====================
 
   /** 关注远程用户 */
-  follow(target: string): Promise<FollowResponse> {
-    return apiService.post<FollowResponse>(`${PREFIX}/follow`, {
-      target,
-    } satisfies FollowRequest)
+  follow(target: string, runtimeGrant?: string): Promise<FollowResponse> {
+    return apiService.post<FollowResponse>(
+      `${PREFIX}/follow`,
+      { target } satisfies FollowRequest,
+      attributionOptions(runtimeGrant),
+    )
   },
 
   /** 取消关注 */
-  unfollow(target: string): Promise<{ success: boolean }> {
-    return apiService.post<{ success: boolean }>(`${PREFIX}/unfollow`, {
-      target,
-    } satisfies FollowRequest)
+  unfollow(
+    target: string,
+    runtimeGrant?: string,
+  ): Promise<{ success: boolean }> {
+    return apiService.post<{ success: boolean }>(
+      `${PREFIX}/unfollow`,
+      { target } satisfies FollowRequest,
+      attributionOptions(runtimeGrant),
+    )
   },
 
   /** 获取我关注的远程用户 */
-  getFollowing(): Promise<FollowListResponse> {
+  getFollowing(runtimeGrant?: string): Promise<FollowListResponse> {
     return withDevFallback(
-      () => apiService.get<FollowListResponse>(`${PREFIX}/following`),
+      () =>
+        apiService.get<FollowListResponse>(
+          `${PREFIX}/following`,
+          attributionOptions(runtimeGrant),
+        ),
       () => federationMock.getFollowing(),
     )
   },
 
   /** 获取关注我的远程用户 */
-  getFollowers(): Promise<FollowListResponse> {
+  getFollowers(runtimeGrant?: string): Promise<FollowListResponse> {
     return withDevFallback(
-      () => apiService.get<FollowListResponse>(`${PREFIX}/followers`),
+      () =>
+        apiService.get<FollowListResponse>(
+          `${PREFIX}/followers`,
+          attributionOptions(runtimeGrant),
+        ),
       () => federationMock.getFollowers(),
     )
   },
@@ -195,9 +228,13 @@ export const federationApi = {
   // ==================== 时间线 ====================
 
   /** 获取联邦时间线 */
-  getTimeline(): Promise<TimelineResponse> {
+  getTimeline(runtimeGrant?: string): Promise<TimelineResponse> {
     return withDevFallback(
-      () => apiService.get<TimelineResponse>(`${PREFIX}/timeline`),
+      () =>
+        apiService.get<TimelineResponse>(
+          `${PREFIX}/timeline`,
+          attributionOptions(runtimeGrant),
+        ),
       () => federationMock.getTimeline(),
     )
   },
@@ -205,19 +242,34 @@ export const federationApi = {
   // ==================== 内容发布 ====================
 
   /** 发布内容到联邦网络 */
-  publish(req: PublishRequest): Promise<PublishResponse> {
-    return apiService.post<PublishResponse>(`${PREFIX}/publish`, req)
+  publish(req: PublishRequest, runtimeGrant?: string): Promise<PublishResponse> {
+    return apiService.post<PublishResponse>(
+      `${PREFIX}/publish`,
+      req,
+      attributionOptions(runtimeGrant),
+    )
   },
 
   /** 取消发布 */
-  unpublish(req: UnpublishRequest): Promise<{ success: boolean }> {
-    return apiService.post<{ success: boolean }>(`${PREFIX}/unpublish`, req)
+  unpublish(
+    req: UnpublishRequest,
+    runtimeGrant?: string,
+  ): Promise<{ success: boolean }> {
+    return apiService.post<{ success: boolean }>(
+      `${PREFIX}/unpublish`,
+      req,
+      attributionOptions(runtimeGrant),
+    )
   },
 
   /** 获取已发布内容列表 */
-  getPublished(): Promise<PublishedListResponse> {
+  getPublished(runtimeGrant?: string): Promise<PublishedListResponse> {
     return withDevFallback(
-      () => apiService.get<PublishedListResponse>(`${PREFIX}/published`),
+      () =>
+        apiService.get<PublishedListResponse>(
+          `${PREFIX}/published`,
+          attributionOptions(runtimeGrant),
+        ),
       () => federationMock.getPublished(),
     )
   },
@@ -225,48 +277,72 @@ export const federationApi = {
   // ==================== Channel 通信 ====================
 
   /** 获取 Channel 列表 */
-  getChannels(): Promise<ChannelListResponse> {
+  getChannels(runtimeGrant?: string): Promise<ChannelListResponse> {
     return withDevFallback(
-      () => apiService.get<ChannelListResponse>(`${PREFIX}/channels`),
+      () =>
+        apiService.get<ChannelListResponse>(
+          `${PREFIX}/channels`,
+          attributionOptions(runtimeGrant),
+        ),
       () => federationMock.getChannels(),
     )
   },
 
   /** 创建 Channel */
-  createChannel(req: CreateChannelRequest): Promise<ChannelDetail> {
+  createChannel(
+    req: CreateChannelRequest,
+    runtimeGrant?: string,
+  ): Promise<ChannelDetail> {
     return withDevFallback(
-      () => apiService.post<ChannelDetail>(`${PREFIX}/channels`, req),
+      () =>
+        apiService.post<ChannelDetail>(
+          `${PREFIX}/channels`,
+          req,
+          attributionOptions(runtimeGrant),
+        ),
       () => federationMock.createChannel(req) as Promise<ChannelDetail>,
     )
   },
 
   /** 获取 Channel 详情 */
-  getChannel(channelId: string): Promise<ChannelDetail> {
+  getChannel(channelId: string, runtimeGrant?: string): Promise<ChannelDetail> {
     return withDevFallback(
-      () => apiService.get<ChannelDetail>(`${PREFIX}/channels/${channelId}`),
+      () =>
+        apiService.get<ChannelDetail>(
+          `${PREFIX}/channels/${channelId}`,
+          attributionOptions(runtimeGrant),
+        ),
       () => federationMock.getChannel(channelId),
     )
   },
 
   /** 关闭 Channel */
-  closeChannel(channelId: string): Promise<{ success: boolean }> {
+  closeChannel(
+    channelId: string,
+    runtimeGrant?: string,
+  ): Promise<{ success: boolean }> {
     return withDevFallback(
       () =>
         apiService.post<{ success: boolean }>(
           `${PREFIX}/channels/${channelId}/close`,
           {},
+          attributionOptions(runtimeGrant),
         ),
       () => federationMock.closeChannel(channelId),
     )
   },
 
   /** 接受 Channel */
-  acceptChannel(channelId: string): Promise<{ success: boolean }> {
+  acceptChannel(
+    channelId: string,
+    runtimeGrant?: string,
+  ): Promise<{ success: boolean }> {
     return withDevFallback(
       () =>
         apiService.post<{ success: boolean }>(
           `${PREFIX}/channels/${channelId}/accept`,
           {},
+          attributionOptions(runtimeGrant),
         ),
       () => federationMock.acceptChannel(channelId),
     )
@@ -277,6 +353,7 @@ export const federationApi = {
     channelId: string,
     before?: string,
     limit?: number,
+    runtimeGrant?: string,
   ): Promise<MessageListResponse> {
     return withDevFallback(
       () => {
@@ -286,6 +363,7 @@ export const federationApi = {
         const qs = params.toString()
         return apiService.get<MessageListResponse>(
           `${PREFIX}/channels/${channelId}/messages${qs ? `?${qs}` : ''}`,
+          attributionOptions(runtimeGrant),
         )
       },
       () => federationMock.getMessages(channelId),
@@ -296,19 +374,27 @@ export const federationApi = {
   sendMessage(
     channelId: string,
     req: SendMessageRequest,
+    runtimeGrant?: string,
   ): Promise<SendMessageResponse> {
     return withDevFallback(
       () =>
         apiService.post<SendMessageResponse>(
           `${PREFIX}/channels/${channelId}/messages`,
           req,
+          attributionOptions(runtimeGrant),
         ),
       () =>
         federationMock.sendMessage(channelId, req.payload, req.message_type),
     )
   },
 
-  /** 创建 Channel WebSocket 连接 */
+  /**
+   * 创建 Channel WebSocket 连接
+   *
+   * 注意：浏览器 WebSocket 无法携带自定义头，因此该通道不参与
+   * X-Tapp-Runtime-Grant 归因（Tapp 宿主代理的 WS 订阅暂以文档豁免，
+   * 后续需设计 ticket 查询参数等一次性凭据方案）。
+   */
   connectChannelWs(channelId: string): WebSocket {
     if (shouldUseMock()) return createMockWs()
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -321,43 +407,72 @@ export const federationApi = {
   // ==================== Room 多方通信 ====================
 
   /** 获取 Room 列表 */
-  getRooms(): Promise<RoomListResponse> {
+  getRooms(runtimeGrant?: string): Promise<RoomListResponse> {
     return withDevFallback(
-      () => apiService.get<RoomListResponse>(`${PREFIX}/rooms`),
+      () =>
+        apiService.get<RoomListResponse>(
+          `${PREFIX}/rooms`,
+          attributionOptions(runtimeGrant),
+        ),
       () => federationMock.getRooms(),
     )
   },
 
   /** 创建 Room */
-  createRoom(req: CreateRoomRequest): Promise<RoomDetail> {
+  createRoom(
+    req: CreateRoomRequest,
+    runtimeGrant?: string,
+  ): Promise<RoomDetail> {
     return withDevFallback(
-      () => apiService.post<RoomDetail>(`${PREFIX}/rooms`, req),
+      () =>
+        apiService.post<RoomDetail>(
+          `${PREFIX}/rooms`,
+          req,
+          attributionOptions(runtimeGrant),
+        ),
       () => federationMock.createRoom(req) as Promise<RoomDetail>,
     )
   },
 
   /** 更新 Room */
-  updateRoom(roomId: string, req: UpdateRoomRequest): Promise<RoomDetail> {
+  updateRoom(
+    roomId: string,
+    req: UpdateRoomRequest,
+    runtimeGrant?: string,
+  ): Promise<RoomDetail> {
     return withDevFallback(
-      () => apiService.put<RoomDetail>(`${PREFIX}/rooms/${roomId}`, req),
+      () =>
+        apiService.put<RoomDetail>(
+          `${PREFIX}/rooms/${roomId}`,
+          req,
+          attributionOptions(runtimeGrant),
+        ),
       () => federationMock.updateRoom(roomId, req as Record<string, unknown>),
     )
   },
 
   /** 获取 Room 详情 */
-  getRoom(roomId: string): Promise<RoomDetail> {
+  getRoom(roomId: string, runtimeGrant?: string): Promise<RoomDetail> {
     return withDevFallback(
-      () => apiService.get<RoomDetail>(`${PREFIX}/rooms/${roomId}`),
+      () =>
+        apiService.get<RoomDetail>(
+          `${PREFIX}/rooms/${roomId}`,
+          attributionOptions(runtimeGrant),
+        ),
       () => federationMock.getRoom(roomId),
     )
   },
 
   /** 获取 Room 成员 */
-  getRoomMembers(roomId: string): Promise<RoomMembersResponse> {
+  getRoomMembers(
+    roomId: string,
+    runtimeGrant?: string,
+  ): Promise<RoomMembersResponse> {
     return withDevFallback(
       () =>
         apiService.get<RoomMembersResponse>(
           `${PREFIX}/rooms/${roomId}/members`,
+          attributionOptions(runtimeGrant),
         ),
       () => federationMock.getRoomMembers(roomId),
     )
@@ -367,12 +482,14 @@ export const federationApi = {
   inviteMember(
     roomId: string,
     req: InviteMemberRequest,
+    runtimeGrant?: string,
   ): Promise<{ success: boolean }> {
     return withDevFallback(
       () =>
         apiService.post<{ success: boolean }>(
           `${PREFIX}/rooms/${roomId}/invite`,
           req,
+          attributionOptions(runtimeGrant),
         ),
       () => federationMock.inviteMember(roomId, req),
     )
@@ -382,33 +499,45 @@ export const federationApi = {
   removeMember(
     roomId: string,
     actorUrl: string,
+    runtimeGrant?: string,
   ): Promise<{ success: boolean }> {
     return withDevFallback(
       () =>
         apiService.delete<{ success: boolean }>(
           `${PREFIX}/rooms/${roomId}/members/${encodeURIComponent(actorUrl)}`,
+          attributionOptions(runtimeGrant),
         ),
       () => federationMock.removeMember(roomId, actorUrl),
     )
   },
 
   /** 离开 Room */
-  leaveRoom(roomId: string): Promise<{ success: boolean }> {
+  leaveRoom(
+    roomId: string,
+    runtimeGrant?: string,
+  ): Promise<{ success: boolean }> {
     return withDevFallback(
       () =>
         apiService.post<{ success: boolean }>(
           `${PREFIX}/rooms/${roomId}/leave`,
           {},
+          attributionOptions(runtimeGrant),
         ),
       () => federationMock.leaveRoom(roomId),
     )
   },
 
   /** 解散 Room（仅 owner） */
-  deleteRoom(roomId: string): Promise<{ success: boolean }> {
+  deleteRoom(
+    roomId: string,
+    runtimeGrant?: string,
+  ): Promise<{ success: boolean }> {
     return withDevFallback(
       () =>
-        apiService.delete<{ success: boolean }>(`${PREFIX}/rooms/${roomId}`),
+        apiService.delete<{ success: boolean }>(
+          `${PREFIX}/rooms/${roomId}`,
+          attributionOptions(runtimeGrant),
+        ),
       () => federationMock.deleteRoom(roomId),
     )
   },
@@ -418,6 +547,7 @@ export const federationApi = {
     roomId: string,
     before?: string,
     limit?: number,
+    runtimeGrant?: string,
   ): Promise<RoomMessageListResponse> {
     return withDevFallback(
       () => {
@@ -427,6 +557,7 @@ export const federationApi = {
         const qs = params.toString()
         return apiService.get<RoomMessageListResponse>(
           `${PREFIX}/rooms/${roomId}/messages${qs ? `?${qs}` : ''}`,
+          attributionOptions(runtimeGrant),
         )
       },
       () => federationMock.getRoomMessages(roomId),
@@ -437,12 +568,14 @@ export const federationApi = {
   sendRoomMessage(
     roomId: string,
     req: SendRoomMessageRequest,
+    runtimeGrant?: string,
   ): Promise<SendRoomMessageResponse> {
     return withDevFallback(
       () =>
         apiService.post<SendRoomMessageResponse>(
           `${PREFIX}/rooms/${roomId}/messages`,
           req,
+          attributionOptions(runtimeGrant),
         ),
       () =>
         federationMock.sendRoomMessage(roomId, req.payload, req.message_type),
@@ -454,18 +587,24 @@ export const federationApi = {
     roomId: string,
     messageId: string,
     pinned: boolean,
+    runtimeGrant?: string,
   ): Promise<import('../types/federation').PinRoomMessageResponse> {
     return withDevFallback(
       () =>
         apiService.post<import('../types/federation').PinRoomMessageResponse>(
           `${PREFIX}/rooms/${roomId}/messages/${messageId}/pin`,
           { pinned },
+          attributionOptions(runtimeGrant),
         ),
       () => federationMock.pinRoomMessage(roomId, messageId, pinned),
     )
   },
 
-  /** 创建 Room WebSocket 连接 */
+  /**
+   * 创建 Room WebSocket 连接
+   *
+   * 注意：浏览器 WebSocket 无法携带自定义头，归因豁免同 connectChannelWs。
+   */
   connectRoomWs(roomId: string): WebSocket {
     if (shouldUseMock()) return createMockWs()
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -476,60 +615,95 @@ export const federationApi = {
   // ==================== Ring ====================
 
   /** 获取 Ring 列表 */
-  getRings(): Promise<RingListResponse> {
+  getRings(runtimeGrant?: string): Promise<RingListResponse> {
     return withDevFallback(
-      () => apiService.get<RingListResponse>(`${PREFIX}/rings`),
+      () =>
+        apiService.get<RingListResponse>(
+          `${PREFIX}/rings`,
+          attributionOptions(runtimeGrant),
+        ),
       () => federationMock.getRings(),
     )
   },
 
   /** 创建 Ring */
-  createRing(req: CreateRingRequest): Promise<RingDetail> {
-    return apiService.post<RingDetail>(`${PREFIX}/rings`, req)
+  createRing(req: CreateRingRequest, runtimeGrant?: string): Promise<RingDetail> {
+    return apiService.post<RingDetail>(
+      `${PREFIX}/rings`,
+      req,
+      attributionOptions(runtimeGrant),
+    )
   },
 
   /** 获取 Ring 详情 */
-  getRing(ringId: string): Promise<RingDetail> {
+  getRing(ringId: string, runtimeGrant?: string): Promise<RingDetail> {
     return withDevFallback(
-      () => apiService.get<RingDetail>(`${PREFIX}/rings/${ringId}`),
+      () =>
+        apiService.get<RingDetail>(
+          `${PREFIX}/rings/${ringId}`,
+          attributionOptions(runtimeGrant),
+        ),
       () => federationMock.getRing(ringId),
     )
   },
 
   /** 离开 Ring */
-  leaveRing(ringId: string): Promise<{ success: boolean }> {
+  leaveRing(
+    ringId: string,
+    runtimeGrant?: string,
+  ): Promise<{ success: boolean }> {
     return apiService.post<{ success: boolean }>(
       `${PREFIX}/rings/${ringId}/leave`,
       {},
+      attributionOptions(runtimeGrant),
     )
   },
 
   /** 获取 Ring Peer 列表 */
-  getRingPeers(ringId: string): Promise<RingPeersResponse> {
+  getRingPeers(
+    ringId: string,
+    runtimeGrant?: string,
+  ): Promise<RingPeersResponse> {
     return withDevFallback(
       () =>
-        apiService.get<RingPeersResponse>(`${PREFIX}/rings/${ringId}/peers`),
+        apiService.get<RingPeersResponse>(
+          `${PREFIX}/rings/${ringId}/peers`,
+          attributionOptions(runtimeGrant),
+        ),
       () => federationMock.getRingPeers(ringId),
     )
   },
 
   /** 添加 Peer */
-  addPeer(ringId: string, req: AddPeerRequest): Promise<{ success: boolean }> {
+  addPeer(
+    ringId: string,
+    req: AddPeerRequest,
+    runtimeGrant?: string,
+  ): Promise<{ success: boolean }> {
     return apiService.post<{ success: boolean }>(
       `${PREFIX}/rings/${ringId}/peers`,
       req,
+      attributionOptions(runtimeGrant),
     )
   },
 
   /** 移除 Peer */
-  removePeer(ringId: string, peerUrl: string): Promise<{ success: boolean }> {
+  removePeer(
+    ringId: string,
+    peerUrl: string,
+    runtimeGrant?: string,
+  ): Promise<{ success: boolean }> {
     return apiService.delete<{ success: boolean }>(
       `${PREFIX}/rings/${ringId}/peers/${encodeURIComponent(peerUrl)}`,
+      attributionOptions(runtimeGrant),
     )
   },
 
   /** 触发 Gossip 同步 */
-  triggerSync(ringId: string): Promise<{
+  triggerSync(
+    ringId: string,
+    runtimeGrant?: string,
+  ): Promise<{
     success: boolean
     synced_peers: number
     entries_count: number
@@ -540,7 +714,11 @@ export const federationApi = {
           success: boolean
           synced_peers: number
           entries_count: number
-        }>(`${PREFIX}/rings/${ringId}/sync`, {}),
+        }>(
+          `${PREFIX}/rings/${ringId}/sync`,
+          {},
+          attributionOptions(runtimeGrant),
+        ),
       () => federationMock.triggerSync(ringId),
     )
   },
@@ -548,23 +726,43 @@ export const federationApi = {
   // ==================== Trust 策略管理 ====================
 
   /** 获取信任策略 */
-  getTrustPolicy(): Promise<TrustPolicyResponse> {
-    return apiService.get<TrustPolicyResponse>(`${PREFIX}/trust/policy`)
+  getTrustPolicy(runtimeGrant?: string): Promise<TrustPolicyResponse> {
+    return apiService.get<TrustPolicyResponse>(
+      `${PREFIX}/trust/policy`,
+      attributionOptions(runtimeGrant),
+    )
   },
 
   /** 列出所有已知实例 */
-  getInstances(): Promise<InstanceListResponse> {
-    return apiService.get<InstanceListResponse>(`${PREFIX}/trust/instances`)
+  getInstances(runtimeGrant?: string): Promise<InstanceListResponse> {
+    return apiService.get<InstanceListResponse>(
+      `${PREFIX}/trust/instances`,
+      attributionOptions(runtimeGrant),
+    )
   },
 
   /** 更新实例信任层级 */
-  updateInstanceTrust(req: UpdateTrustRequest): Promise<{ success: boolean }> {
-    return apiService.post<{ success: boolean }>(`${PREFIX}/trust/update`, req)
+  updateInstanceTrust(
+    req: UpdateTrustRequest,
+    runtimeGrant?: string,
+  ): Promise<{ success: boolean }> {
+    return apiService.post<{ success: boolean }>(
+      `${PREFIX}/trust/update`,
+      req,
+      attributionOptions(runtimeGrant),
+    )
   },
 
   /** 封禁/解封实例 */
-  toggleInstanceBlock(req: ToggleBlockRequest): Promise<{ success: boolean }> {
-    return apiService.post<{ success: boolean }>(`${PREFIX}/trust/block`, req)
+  toggleInstanceBlock(
+    req: ToggleBlockRequest,
+    runtimeGrant?: string,
+  ): Promise<{ success: boolean }> {
+    return apiService.post<{ success: boolean }>(
+      `${PREFIX}/trust/block`,
+      req,
+      attributionOptions(runtimeGrant),
+    )
   },
 
   // ==================== 文件传输 ====================
@@ -573,41 +771,59 @@ export const federationApi = {
   initiateTransfer(
     channelId: string,
     req: InitTransferRequest,
+    runtimeGrant?: string,
   ): Promise<TransferDetail> {
     return apiService.post<TransferDetail>(
       `${PREFIX}/channels/${channelId}/transfers`,
       req,
+      attributionOptions(runtimeGrant),
     )
   },
 
   /** 列出 Channel 的文件传输 */
-  listTransfers(channelId: string): Promise<TransferListResponse> {
+  listTransfers(
+    channelId: string,
+    runtimeGrant?: string,
+  ): Promise<TransferListResponse> {
     return apiService.get<TransferListResponse>(
       `${PREFIX}/channels/${channelId}/transfers`,
+      attributionOptions(runtimeGrant),
     )
   },
 
   /** 获取传输详情 */
-  getTransfer(transferId: string): Promise<TransferDetail> {
-    return apiService.get<TransferDetail>(`${PREFIX}/transfers/${transferId}`)
+  getTransfer(
+    transferId: string,
+    runtimeGrant?: string,
+  ): Promise<TransferDetail> {
+    return apiService.get<TransferDetail>(
+      `${PREFIX}/transfers/${transferId}`,
+      attributionOptions(runtimeGrant),
+    )
   },
 
   /** 上传文件分块 */
   uploadChunk(
     transferId: string,
     req: UploadChunkRequest,
+    runtimeGrant?: string,
   ): Promise<{ success: boolean; progress: number }> {
     return apiService.post<{ success: boolean; progress: number }>(
       `${PREFIX}/transfers/${transferId}/chunks`,
       req,
+      attributionOptions(runtimeGrant),
     )
   },
 
   /** 取消传输 */
-  cancelTransfer(transferId: string): Promise<{ success: boolean }> {
+  cancelTransfer(
+    transferId: string,
+    runtimeGrant?: string,
+  ): Promise<{ success: boolean }> {
     return apiService.post<{ success: boolean }>(
       `${PREFIX}/transfers/${transferId}/cancel`,
       {},
+      attributionOptions(runtimeGrant),
     )
   },
 }

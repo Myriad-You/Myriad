@@ -45,8 +45,9 @@ Cookie 只能证明用户身份，不能证明调用来自哪个 Tapp。当前�
 - Runtime Grant 只约束 Tapp 运行时 API；公开 Tapp 列表和商店读取不需要它。
 
 这一步是跨 Tapp Data Exchange、Agent、Event、AI Task 的共同前置条件。当前 `/api/tapp`
-运行时路由和 Tapp storage 已迁移；Brew 与语音宿主代理路径也已通过可选 Grant 头中间件
-接入服务端 Tapp 归因（带头强制、不带头保持宿主 UI 语义），联邦宿主代理路径仍待接入。
+运行时路由和 Tapp storage 已迁移；Brew、语音与联邦 REST 宿主代理路径也已通过可选 Grant 头
+中间件接入统一服务端 Tapp 归因（带头强制、不带头保持宿主 UI 语义；共享
+`host_attribution` 路由映射）。联邦 WebSocket 升级因浏览器无法带自定义头暂作豁免。
 Grant 哈希与租约位于 PostgreSQL 共享 TTL registry，支持跨副本校验与撤销。
 
 ## 跨 Tapp 数据：One-shot Data Exchange

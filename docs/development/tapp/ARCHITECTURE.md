@@ -225,12 +225,14 @@ runtime ID 和最终权限；停止、更新、卸载或 Bridge 销毁会撤销�
 第二次失败直接返回，避免无限重试。SSE 被撤销后重连也走同一规则。
 
 公开商店/Tapp 列表读取和 scheduler 的宿主共享 WebSocket 不属于
-单个沙箱请求，不要求 Runtime Grant。Brew 与语音这两类宿主代理路径已接入服务端归因：
-沙箱 handler 调用 `/api/brew`、`/api/speech` 时附带 `X-Tapp-Runtime-Grant`，宿主中间件
-校验 Grant、按"方法 + 路由"映射强制对应 Tapp 权限（映射与沙箱 `PERMISSION_MAP` 一致），
-未映射的宿主专用路由（WebSocket、RSSHub 实例管理、缓存管理、离线同步等）对带 Grant 的
-请求直接拒绝；不带 Grant 头的宿主 UI 请求不受影响。联邦宿主代理路径尚未接入该中间件，
-仍依赖 Bridge 权限与 `connect-src 'none'` 隔离。
+单个沙箱请求，不要求 Runtime Grant。Brew、语音与联邦这三类宿主代理路径已接入统一服务端归因：
+沙箱 handler 调用 `/api/brew`、`/api/speech`、`/api/federation` 时附带
+`X-Tapp-Runtime-Grant`，宿主中间件校验 Grant、按“方法 + 路由”映射强制对应 Tapp 权限
+（映射与沙箱 `PERMISSION_MAP` / `permissionConfig` 一致），未映射的宿主专用路由
+（Brew WebSocket、RSSHub 实例管理、缓存管理、离线同步，以及联邦 E2E 密钥交换等）对带 Grant 的
+请求直接拒绝；不带 Grant 头的宿主 UI 请求不受影响。联邦 Channel/Room 的浏览器 WebSocket
+升级无法携带自定义头，暂不走 Grant 归因，仍依赖 Bridge 权限与 `connect-src 'none'` 隔离，
+后续需 ticket 查询参数等一次性凭据方案。
 
 ### Page 与 Widget 的 handler 不对称
 

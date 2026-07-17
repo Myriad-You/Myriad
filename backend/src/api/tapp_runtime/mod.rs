@@ -62,7 +62,9 @@ pub use reports::{
 };
 
 // Server-side attribution for host-proxied legacy routes
-pub use host_attribution::{brew_host_attribution, speech_host_attribution};
+pub use host_attribution::{
+    brew_host_attribution, federation_host_attribution, speech_host_attribution,
+};
 
 // Runtime identity grants
 pub use runtime_grant::{
