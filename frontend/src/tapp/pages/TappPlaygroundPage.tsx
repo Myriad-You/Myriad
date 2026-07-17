@@ -39,6 +39,11 @@ import { installFromCode } from '../services/TappApiService'
 import { generatePlaygroundProject } from '../services/TappPlaygroundService'
 import { exportPlaygroundProjectAsTapp } from '../utils/exportPlaygroundTapp'
 import {
+  formatPlaygroundPackageErrors,
+  PlaygroundPackageValidationError,
+  validatePlaygroundPackage,
+} from '../utils/validatePlaygroundPackage'
+import {
   computeLineDiff,
   countDiffChanges,
   toSideBySide,
@@ -1169,12 +1174,25 @@ export function TappPlaygroundPage() {
     }
   }
 
+  const packageValidationErrorMessage = (errors: string[]): string => {
+    const detail = formatPlaygroundPackageErrors(errors)
+    const template = t.tapp.playgroundPackageInvalid
+    return template.includes('{errors}')
+      ? template.replace('{errors}', detail)
+      : `${template}\n${detail}`
+  }
+
   const installProject = async () => {
     if (!project || installing || exporting) return
     setInstalling(true)
     setError('')
     setNotice('')
     try {
+      const validation = validatePlaygroundPackage(project)
+      if (!validation.ok) {
+        setError(packageValidationErrorMessage(validation.errors))
+        return
+      }
       const installed = await installFromCode(
         project.manifest,
         project.code as TappCodeStructure,
@@ -1207,11 +1225,15 @@ export function TappPlaygroundPage() {
         t.tapp.playgroundExportSuccess.replace('{filename}', filename),
       )
     } catch (exportError) {
-      setError(
-        exportError instanceof Error
-          ? exportError.message
-          : t.tapp.playgroundExportFailed,
-      )
+      if (exportError instanceof PlaygroundPackageValidationError) {
+        setError(packageValidationErrorMessage(exportError.errors))
+      } else {
+        setError(
+          exportError instanceof Error
+            ? exportError.message
+            : t.tapp.playgroundExportFailed,
+        )
+      }
     } finally {
       setExporting(false)
     }

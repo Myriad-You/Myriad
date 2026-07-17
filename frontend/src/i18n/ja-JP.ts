@@ -1889,6 +1889,8 @@ export const jaJP: TranslationKeys = {
     playgroundExport: 'エクスポート',
     playgroundExportSuccess: '{filename} をダウンロードしました',
     playgroundExportFailed: 'エクスポートに失敗しました。もう一度お試しください。',
+    playgroundPackageInvalid:
+      'このパッケージはまだインストールできません：\n{errors}',
     playgroundUndo: '前のバージョン',
     playgroundRedo: '次のバージョン',
     playgroundIsolationTitle: 'サンドボックスで実行',

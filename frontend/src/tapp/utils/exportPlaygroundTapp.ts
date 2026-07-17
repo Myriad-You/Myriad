@@ -2,10 +2,16 @@
  * Client-side .tapp export from Playground project state.
  * Zips the shared package file map from `buildPlaygroundPackageFiles` so the
  * archive matches direct-install staging (reinstall via install-file).
+ *
+ * Runs installability preflight first so we never download a package that
+ * would fail backend resource / manifest validation.
  */
 
 import type { TappPlaygroundProject } from '../services/TappPlaygroundService'
-import { buildPlaygroundPackageFiles } from './playgroundPackageFiles'
+import {
+  PlaygroundPackageValidationError,
+  validatePlaygroundPackage,
+} from './validatePlaygroundPackage'
 
 function sanitizeFilename(id: string): string {
   const cleaned = id
@@ -29,16 +35,19 @@ function triggerDownload(blob: Blob, filename: string): void {
 
 /**
  * Build a .tapp ZIP from the current playground project and download it.
+ * @throws Error with human-readable validation messages when preflight fails
  */
 export async function exportPlaygroundProjectAsTapp(
   project: TappPlaygroundProject,
 ): Promise<string> {
+  const validation = validatePlaygroundPackage(project)
+  if (!validation.ok) {
+    throw new PlaygroundPackageValidationError(validation.errors)
+  }
+
   const JSZip = (await import('jszip')).default
   const zip = new JSZip()
-  const { manifest, files } = buildPlaygroundPackageFiles(
-    project.manifest,
-    project.code,
-  )
+  const { manifest, files } = validation.package
 
   for (const [path, content] of Object.entries(files)) {
     zip.file(path, content)

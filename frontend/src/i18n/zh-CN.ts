@@ -1814,6 +1814,7 @@ export const zhCN: TranslationKeys = {
     playgroundExport: '导出',
     playgroundExportSuccess: '已下载 {filename}',
     playgroundExportFailed: '导出失败，请重试。',
+    playgroundPackageInvalid: '当前包尚不可安装：\n{errors}',
     playgroundUndo: '上一个版本',
     playgroundRedo: '下一个版本',
     playgroundIsolationTitle: '沙箱隔离运行',

@@ -1738,6 +1738,8 @@ export interface TranslationKeys {
     playgroundExport: string
     playgroundExportSuccess: string
     playgroundExportFailed: string
+    /** Preflight failed; `{errors}` is replaced with validation detail. */
+    playgroundPackageInvalid: string
     playgroundUndo: string
     playgroundRedo: string
     playgroundIsolationTitle: string

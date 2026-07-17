@@ -1905,6 +1905,8 @@ export const enUS: TranslationKeys = {
     playgroundExport: 'Export',
     playgroundExportSuccess: 'Downloaded {filename}',
     playgroundExportFailed: 'Export failed. Please try again.',
+    playgroundPackageInvalid:
+      'This package is not installable yet:\n{errors}',
     playgroundUndo: 'Previous version',
     playgroundRedo: 'Next version',
     playgroundIsolationTitle: 'Sandboxed preview',

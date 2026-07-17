@@ -217,7 +217,7 @@ function NotificationCard({
           <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${dotClass}`} />
         )}
         <span
-          className={`min-w-0 flex-1 break-words text-xs leading-relaxed ${textClass}`}
+          className={`min-w-0 flex-1 break-words whitespace-pre-line text-xs leading-relaxed ${textClass}`}
         >
           {children}
         </span>
