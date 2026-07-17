@@ -1,7 +1,7 @@
 {
   "name": "myriad-frontend",
   "type": "module",
-  "version": "0.2.3",
+  "version": "0.2.5",
   "description": "Frontend for Myriad — a myriad of lights, in one place.",
   "engines": {
     "node": ">=25 <26"
