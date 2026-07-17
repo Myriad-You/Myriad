@@ -8,7 +8,10 @@ RUN apt-get update && apt-get install -y \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+# Monorepo layout: playground sources use include_str!("../../../docs/...")
+# relative to backend/src/{api,services}, so the build tree must be
+# /build/backend/src/... with docs at /build/docs/...
+WORKDIR /build
 
 # Build-time version stamp consumed by /health (see api/mod.rs).
 ARG MYRIAD_VERSION=v0.0.0-dev
@@ -17,11 +20,17 @@ ARG MYRIAD_COMMIT_SHA=unknown
 ENV MYRIAD_COMMIT_SHA=${MYRIAD_COMMIT_SHA}
 
 # Copy manifests first
-COPY backend/Cargo.toml backend/Cargo.lock ./
-COPY backend/migrations ./migrations
+COPY backend/Cargo.toml backend/Cargo.lock ./backend/
+COPY backend/migrations ./backend/migrations
 
 # Copy actual source code early to avoid dummy build issues
-COPY backend/src ./src
+COPY backend/src ./backend/src
+
+# Docs embedded at compile time via include_str! in tapp_playground*.rs
+COPY docs/development ./docs/development
+COPY docs/features/TAPP_FILE_FORMAT.md ./docs/features/TAPP_FILE_FORMAT.md
+
+WORKDIR /build/backend
 
 # Build the application
 RUN cargo build --release
@@ -47,7 +56,7 @@ RUN apt-get update && \
 WORKDIR /app
 
 # Copy binary from builder
-COPY --from=builder /app/target/release/myriad-backend /app/myriad-backend
+COPY --from=builder /build/backend/target/release/myriad-backend /app/myriad-backend
 
 # Create cache directory
 RUN mkdir -p /app/cache

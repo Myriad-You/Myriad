@@ -3,10 +3,17 @@
 .gitignore
 .gitattributes
 
-# Documentation
+# Documentation — allow only playground include_str! docs into backend Docker build.
+# Note: *.md matches repo-root markdown only; docs/** controls the docs tree.
+# Parent dirs must be un-excluded before files (Docker cannot re-include under a banned parent).
 *.md
 !README.md
-docs/
+docs/**
+!docs/development/
+!docs/development/**
+!docs/features/
+docs/features/**
+!docs/features/TAPP_FILE_FORMAT.md
 LICENSE
 
 # Environment files
