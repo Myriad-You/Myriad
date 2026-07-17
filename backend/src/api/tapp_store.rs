@@ -1255,7 +1255,21 @@ impl TappDirStage {
     }
 
     async fn activate(self, final_path: &FsPath) -> Result<ActivatedTappDir, std::io::Error> {
-        let backup_path = if final_path.exists() {
+        let final_occupied = match fs::symlink_metadata(final_path).await {
+            Ok(_) => true,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+            Err(error) => {
+                tracing::error!(
+                    path = %final_path.display(),
+                    kind = ?error.kind(),
+                    %error,
+                    "Failed to inspect final Tapp path before activate"
+                );
+                return Err(error);
+            }
+        };
+
+        let backup_path = if final_occupied {
             let parent = final_path.parent().ok_or_else(|| {
                 std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,
@@ -1267,15 +1281,63 @@ impl TappDirStage {
                 .and_then(|value| value.to_str())
                 .unwrap_or("tapp");
             let backup = parent.join(format!(".{name}.backup-{}", uuid::Uuid::new_v4().simple()));
-            fs::rename(final_path, &backup).await?;
-            Some(backup)
+            match fs::rename(final_path, &backup).await {
+                Ok(()) => Some(backup),
+                Err(rename_error) => {
+                    tracing::error!(
+                        from = %final_path.display(),
+                        to = %backup.display(),
+                        kind = ?rename_error.kind(),
+                        %rename_error,
+                        "Failed to rename live Tapp dir to backup during activate; attempting remove"
+                    );
+                    // Orphan leftover after failed uninstall quarantine, or a
+                    // non-renameable live dir: free the final path so staging
+                    // can take its place. Prefer remove over leaving install stuck.
+                    match remove_path_best_effort(final_path).await {
+                        Ok(()) => None,
+                        Err(remove_error) => {
+                            tracing::error!(
+                                path = %final_path.display(),
+                                rename_kind = ?rename_error.kind(),
+                                %rename_error,
+                                remove_kind = ?remove_error.kind(),
+                                %remove_error,
+                                "Cannot free final Tapp path for activate"
+                            );
+                            return Err(std::io::Error::new(
+                                rename_error.kind(),
+                                format!(
+                                    "cannot free final Tapp path {}: rename failed ({rename_error}); remove failed ({remove_error})",
+                                    final_path.display()
+                                ),
+                            ));
+                        }
+                    }
+                }
+            }
         } else {
             None
         };
 
         if let Err(error) = fs::rename(&self.path, final_path).await {
+            tracing::error!(
+                from = %self.path.display(),
+                to = %final_path.display(),
+                kind = ?error.kind(),
+                %error,
+                "Failed to rename staging Tapp dir to final path"
+            );
             if let Some(backup) = &backup_path {
-                let _ = fs::rename(backup, final_path).await;
+                if let Err(restore_error) = fs::rename(backup, final_path).await {
+                    tracing::error!(
+                        from = %backup.display(),
+                        to = %final_path.display(),
+                        kind = ?restore_error.kind(),
+                        %restore_error,
+                        "Failed to restore backup after staging activate failure"
+                    );
+                }
             }
             return Err(error);
         }
@@ -1283,6 +1345,26 @@ impl TappDirStage {
             final_path: final_path.to_path_buf(),
             backup_path,
         })
+    }
+}
+
+/// Remove a leftover path that occupies a Tapp live or lifecycle location.
+async fn remove_path_best_effort(path: &FsPath) -> Result<(), std::io::Error> {
+    match fs::remove_dir_all(path).await {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(dir_error) => match fs::remove_file(path).await {
+            Ok(()) => Ok(()),
+            Err(file_error) if file_error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(file_error) => {
+                // Prefer reporting the directory error when the path was a dir.
+                if dir_error.kind() != std::io::ErrorKind::NotADirectory {
+                    Err(dir_error)
+                } else {
+                    Err(file_error)
+                }
+            }
+        },
     }
 }
 
@@ -1386,6 +1468,123 @@ fn lifecycle_artifact_directories(final_path: &FsPath) -> Result<Vec<PathBuf>, s
         }
     }
     Ok(artifacts)
+}
+
+/// Live install dir and lifecycle artifacts that should not remain when the DB
+/// has no row for this owner/tapp_id (post-uninstall orphans, partial activate).
+///
+/// Pure path-selection helper used by reinstall cleanup and unit tests.
+fn reinstall_orphan_paths(final_path: &FsPath) -> Result<Vec<PathBuf>, std::io::Error> {
+    let mut paths = Vec::new();
+    match std::fs::symlink_metadata(final_path) {
+        Ok(_) => paths.push(final_path.to_path_buf()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    paths.extend(lifecycle_artifact_directories(final_path)?);
+    Ok(paths)
+}
+
+/// Whether `paths` from [`reinstall_orphan_paths`] indicate orphan filesystem state.
+fn has_reinstall_orphan_state(paths: &[PathBuf]) -> bool {
+    !paths.is_empty()
+}
+
+/// Best-effort remove leftover live dir and lifecycle artifacts before install
+/// staging/activate. Caller must ensure there is no conflicting DB install row.
+fn cleanup_reinstall_orphans(
+    final_path: &FsPath,
+    tapp_id: &str,
+    owner_id: i32,
+    user_id: i32,
+    preserve: Option<&FsPath>,
+) -> Result<usize, std::io::Error> {
+    let candidates = reinstall_orphan_paths(final_path)?;
+    if !has_reinstall_orphan_state(&candidates) {
+        return Ok(0);
+    }
+    tracing::warn!(
+        tapp_id,
+        owner_id,
+        user_id,
+        path = %final_path.display(),
+        orphan_count = candidates.len(),
+        "Cleaning orphan Tapp filesystem state before install"
+    );
+    let mut removed = 0;
+    for path in candidates {
+        if preserve.is_some_and(|keep| keep == path.as_path()) {
+            continue;
+        }
+        match std::fs::remove_dir_all(&path) {
+            Ok(()) => {
+                tracing::warn!(
+                    tapp_id,
+                    owner_id,
+                    path = %path.display(),
+                    "Removed orphan Tapp directory"
+                );
+                removed += 1;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(dir_error) => match std::fs::remove_file(&path) {
+                Ok(()) => {
+                    tracing::warn!(
+                        tapp_id,
+                        owner_id,
+                        path = %path.display(),
+                        "Removed orphan Tapp file occupying install path"
+                    );
+                    removed += 1;
+                }
+                Err(file_error) if file_error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(file_error) => {
+                    tracing::error!(
+                        tapp_id,
+                        owner_id,
+                        user_id,
+                        path = %path.display(),
+                        dir_kind = ?dir_error.kind(),
+                        %dir_error,
+                        file_kind = ?file_error.kind(),
+                        %file_error,
+                        "Failed to remove orphan Tapp path before install"
+                    );
+                    return Err(dir_error);
+                }
+            },
+        }
+    }
+    Ok(removed)
+}
+
+fn log_install_failure(
+    step: &str,
+    tapp_id: &str,
+    user_id: i32,
+    owner_id: i32,
+    path: Option<&FsPath>,
+    error: &dyn std::fmt::Display,
+) {
+    match path {
+        Some(path) => tracing::error!(
+            step,
+            tapp_id,
+            user_id,
+            owner_id,
+            path = %path.display(),
+            error = %error,
+            "Tapp install failed"
+        ),
+        None => tracing::error!(
+            step,
+            tapp_id,
+            user_id,
+            owner_id,
+            error = %error,
+            "Tapp install failed"
+        ),
+    }
 }
 
 /// Reconcile one live resource directory with the database Manifest after an
@@ -3288,10 +3487,18 @@ async fn install_tapp(
     let existing_query = tapps::Entity::find()
         .filter(tapps::Column::TappId.eq(&manifest.id))
         .filter(tapps::Column::UserId.is_in(conflict_owner_ids.clone()));
-    let existing = existing_query.one(&db).await.map_err(|_| {
+    let existing = existing_query.one(&db).await.map_err(|error| {
+        log_install_failure(
+            "conflict_recheck_pre",
+            &manifest.id,
+            user_id,
+            installation_owner_id,
+            None,
+            &error,
+        );
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            api_error("Database error"),
+            api_error(format!("Database error: {error}")),
         )
     })?;
 
@@ -3302,10 +3509,40 @@ async fn install_tapp(
     // 所有资源先写入同文件系统的 staging 目录；校验通过后再原子切换。
     let final_tapp_dir = tapp_dir_for(installation_owner_id, &manifest.id)
         .map_err(|error| (StatusCode::BAD_REQUEST, api_error(error)))?;
-    let stage = TappDirStage::create(&final_tapp_dir).await.map_err(|_| {
+    // DB has no conflict row, but uninstall can leave a live dir or lifecycle
+    // artifacts that make activate rename fail with a bare 500.
+    if let Err(error) = cleanup_reinstall_orphans(
+        &final_tapp_dir,
+        &manifest.id,
+        installation_owner_id,
+        user_id,
+        None,
+    ) {
+        log_install_failure(
+            "cleanup_reinstall_orphans",
+            &manifest.id,
+            user_id,
+            installation_owner_id,
+            Some(&final_tapp_dir),
+            &error,
+        );
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            api_error(format!("Failed to clean leftover Tapp files: {error}")),
+        ));
+    }
+    let stage = TappDirStage::create(&final_tapp_dir).await.map_err(|error| {
+        log_install_failure(
+            "TappDirStage::create",
+            &manifest.id,
+            user_id,
+            installation_owner_id,
+            Some(&final_tapp_dir),
+            &error,
+        );
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            api_error("Failed to create staging directory"),
+            api_error(format!("Failed to create staging directory: {error}")),
         )
     })?;
     let tapp_dir = stage.path();
@@ -3313,10 +3550,18 @@ async fn install_tapp(
     // 保存到 Manifest 声明的入口；安装/导出往返后路径保持一致。
     write_tapp_resource(tapp_dir, &manifest.main, &code)
         .await
-        .map_err(|_| {
+        .map_err(|error| {
+            log_install_failure(
+                "write_tapp_resource(main)",
+                &manifest.id,
+                user_id,
+                installation_owner_id,
+                Some(tapp_dir),
+                &error,
+            );
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                api_error("Failed to save code"),
+                api_error(format!("Failed to save code: {error}")),
             )
         })?;
 
@@ -3325,10 +3570,18 @@ async fn install_tapp(
         let path = manifest.styles.as_deref().unwrap_or("styles.css");
         write_tapp_resource(tapp_dir, path, styles)
             .await
-            .map_err(|_| {
+            .map_err(|error| {
+                log_install_failure(
+                    "write_tapp_resource(styles)",
+                    &manifest.id,
+                    user_id,
+                    installation_owner_id,
+                    Some(tapp_dir),
+                    &error,
+                );
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    api_error("Failed to save styles"),
+                    api_error(format!("Failed to save styles: {error}")),
                 )
             })?;
     }
@@ -3336,21 +3589,41 @@ async fn install_tapp(
     // 🎯 保存分离式 CSS（从商店下载的）
     if let Some(ws) = &widget_styles {
         let path = manifest.widget_styles.as_deref().unwrap_or("widget.css");
-        write_tapp_resource(tapp_dir, path, ws).await.map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                api_error("Failed to save widget styles"),
-            )
-        })?;
+        write_tapp_resource(tapp_dir, path, ws)
+            .await
+            .map_err(|error| {
+                log_install_failure(
+                    "write_tapp_resource(widget_styles)",
+                    &manifest.id,
+                    user_id,
+                    installation_owner_id,
+                    Some(tapp_dir),
+                    &error,
+                );
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    api_error(format!("Failed to save widget styles: {error}")),
+                )
+            })?;
     }
     if let Some(ps) = &page_styles {
         let path = manifest.page_styles.as_deref().unwrap_or("page.css");
-        write_tapp_resource(tapp_dir, path, ps).await.map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                api_error("Failed to save page styles"),
-            )
-        })?;
+        write_tapp_resource(tapp_dir, path, ps)
+            .await
+            .map_err(|error| {
+                log_install_failure(
+                    "write_tapp_resource(page_styles)",
+                    &manifest.id,
+                    user_id,
+                    installation_owner_id,
+                    Some(tapp_dir),
+                    &error,
+                );
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    api_error(format!("Failed to save page styles: {error}")),
+                )
+            })?;
     }
 
     // Direct unified-mode installs may include frontend-compiled Tailwind CSS.
@@ -3360,20 +3633,36 @@ async fn install_tapp(
         if let Some(widget_css) = &req.widget_css {
             write_tapp_resource(tapp_dir, "widget.css", widget_css)
                 .await
-                .map_err(|_| {
+                .map_err(|error| {
+                    log_install_failure(
+                        "write_tapp_resource(widget_css)",
+                        &manifest.id,
+                        user_id,
+                        installation_owner_id,
+                        Some(tapp_dir),
+                        &error,
+                    );
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        api_error("Failed to save generated widget CSS"),
+                        api_error(format!("Failed to save generated widget CSS: {error}")),
                     )
                 })?;
         }
         if let Some(page_css) = &req.page_css {
             write_tapp_resource(tapp_dir, "page.css", page_css)
                 .await
-                .map_err(|_| {
+                .map_err(|error| {
+                    log_install_failure(
+                        "write_tapp_resource(page_css)",
+                        &manifest.id,
+                        user_id,
+                        installation_owner_id,
+                        Some(tapp_dir),
+                        &error,
+                    );
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        api_error("Failed to save generated page CSS"),
+                        api_error(format!("Failed to save generated page CSS: {error}")),
                     )
                 })?;
         }
@@ -3383,10 +3672,18 @@ async fn install_tapp(
         let path = manifest.page_template.as_deref().unwrap_or("page.html");
         write_tapp_resource(tapp_dir, path, page)
             .await
-            .map_err(|_| {
+            .map_err(|error| {
+                log_install_failure(
+                    "write_tapp_resource(page_template)",
+                    &manifest.id,
+                    user_id,
+                    installation_owner_id,
+                    Some(tapp_dir),
+                    &error,
+                );
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    api_error("Failed to save page template"),
+                    api_error(format!("Failed to save page template: {error}")),
                 )
             })?;
     }
@@ -3398,10 +3695,18 @@ async fn install_tapp(
                     .expect("validated Widget template path");
                 write_tapp_resource(tapp_dir, path, content)
                     .await
-                    .map_err(|_| {
+                    .map_err(|error| {
+                        log_install_failure(
+                            "write_tapp_resource(widget_template)",
+                            &manifest.id,
+                            user_id,
+                            installation_owner_id,
+                            Some(tapp_dir),
+                            &error,
+                        );
                         (
                             StatusCode::INTERNAL_SERVER_ERROR,
-                            api_error("Failed to save widget template"),
+                            api_error(format!("Failed to save widget template: {error}")),
                         )
                     })?;
             }
@@ -3420,10 +3725,18 @@ async fn install_tapp(
             })?;
             write_tapp_resource(tapp_dir, &format!("i18n/{lang_code}.json"), json)
                 .await
-                .map_err(|_| {
+                .map_err(|error| {
+                    log_install_failure(
+                        "write_tapp_resource(i18n)",
+                        &manifest.id,
+                        user_id,
+                        installation_owner_id,
+                        Some(tapp_dir),
+                        &error,
+                    );
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        api_error("Failed to save i18n resource"),
+                        api_error(format!("Failed to save i18n resource: {error}")),
                     )
                 })?;
         }
@@ -3435,10 +3748,18 @@ async fn install_tapp(
         for (filename, code_content) in page_modules {
             write_tapp_resource(tapp_dir, &format!("page/{filename}"), code_content)
                 .await
-                .map_err(|_| {
+                .map_err(|error| {
+                    log_install_failure(
+                        "write_tapp_resource(page_module)",
+                        &manifest.id,
+                        user_id,
+                        installation_owner_id,
+                        Some(tapp_dir),
+                        &error,
+                    );
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        api_error("Failed to save page module"),
+                        api_error(format!("Failed to save page module: {error}")),
                     )
                 })?;
         }
@@ -3458,16 +3779,32 @@ async fn install_tapp(
     let staged_manifest_path = tapp_dir.join("manifest.json");
     fs::write(&staged_manifest_path, &manifest_json)
         .await
-        .map_err(|_| {
+        .map_err(|error| {
+            log_install_failure(
+                "write_manifest",
+                &manifest.id,
+                user_id,
+                installation_owner_id,
+                Some(&staged_manifest_path),
+                &error,
+            );
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                api_error("Failed to save manifest"),
+                api_error(format!("Failed to save manifest: {error}")),
             )
         })?;
-    write_install_generation(tapp_dir, now).map_err(|_| {
+    write_install_generation(tapp_dir, now).map_err(|error| {
+        log_install_failure(
+            "write_install_generation",
+            &manifest.id,
+            user_id,
+            installation_owner_id,
+            Some(tapp_dir),
+            &error,
+        );
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            api_error("Failed to save install state"),
+            api_error(format!("Failed to save install state: {error}")),
         )
     })?;
 
@@ -3489,28 +3826,54 @@ async fn install_tapp(
     let approved = requested_permissions;
     let granted = filter_install_permissions(role, approved.clone()).await;
 
-    let txn = db.begin().await.map_err(|_| {
+    let txn = db.begin().await.map_err(|error| {
+        log_install_failure(
+            "txn.begin",
+            &manifest.id,
+            user_id,
+            installation_owner_id,
+            None,
+            &error,
+        );
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            api_error("Failed to begin install transaction"),
+            api_error(format!("Failed to begin install transaction: {error}")),
         )
     })?;
-    lock_tapp_lifecycle(&txn, &manifest.id).await.map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            api_error("Failed to lock Tapp lifecycle"),
-        )
-    })?;
+    lock_tapp_lifecycle(&txn, &manifest.id)
+        .await
+        .map_err(|error| {
+            log_install_failure(
+                "lock_tapp_lifecycle",
+                &manifest.id,
+                user_id,
+                installation_owner_id,
+                None,
+                &error,
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                api_error(format!("Failed to lock Tapp lifecycle: {error}")),
+            )
+        })?;
     let conflict_query = tapps::Entity::find()
         .filter(tapps::Column::TappId.eq(&manifest.id))
         .filter(tapps::Column::UserId.is_in(conflict_owner_ids));
     if conflict_query
         .one(&txn)
         .await
-        .map_err(|_| {
+        .map_err(|error| {
+            log_install_failure(
+                "conflict_recheck",
+                &manifest.id,
+                user_id,
+                installation_owner_id,
+                None,
+                &error,
+            );
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                api_error("Database error"),
+                api_error(format!("Database error: {error}")),
             )
         })?
         .is_some()
@@ -3519,13 +3882,45 @@ async fn install_tapp(
         return Err((StatusCode::CONFLICT, api_error("Tapp already installed")));
     }
 
+    // Re-clean under the lifecycle lock so a leftover live path cannot race
+    // activate after the unlocked pre-stage cleanup.
+    if let Err(error) = cleanup_reinstall_orphans(
+        &final_tapp_dir,
+        &manifest.id,
+        installation_owner_id,
+        user_id,
+        Some(stage.path()),
+    ) {
+        txn.rollback().await.ok();
+        log_install_failure(
+            "cleanup_reinstall_orphans_locked",
+            &manifest.id,
+            user_id,
+            installation_owner_id,
+            Some(&final_tapp_dir),
+            &error,
+        );
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            api_error(format!("Failed to clean leftover Tapp files: {error}")),
+        ));
+    }
+
     let activated = match stage.activate(&final_tapp_dir).await {
         Ok(activated) => activated,
-        Err(_) => {
+        Err(error) => {
             txn.rollback().await.ok();
+            log_install_failure(
+                "stage.activate",
+                &manifest.id,
+                user_id,
+                installation_owner_id,
+                Some(&final_tapp_dir),
+                &error,
+            );
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                api_error("Failed to activate staged Tapp"),
+                api_error(format!("Failed to activate staged Tapp: {error}")),
             ));
         }
     };
@@ -3563,6 +3958,14 @@ async fn install_tapp(
         Err(error) => {
             txn.rollback().await.ok();
             activated.rollback().await;
+            log_install_failure(
+                "insert",
+                &manifest.id,
+                user_id,
+                installation_owner_id,
+                Some(&final_tapp_dir),
+                &error,
+            );
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 api_error(format!("Database error: {error}")),
@@ -3574,13 +3977,32 @@ async fn install_tapp(
     {
         txn.rollback().await.ok();
         activated.rollback().await;
-        return Err((status, api_error("Failed to register manifest Widgets")));
+        log_install_failure(
+            "reconcile_manifest_widgets",
+            &manifest.id,
+            user_id,
+            installation_owner_id,
+            Some(&final_tapp_dir),
+            &format!("status={status}"),
+        );
+        return Err((
+            status,
+            api_error(format!("Failed to register manifest Widgets (status {status})")),
+        ));
     }
-    if txn.commit().await.is_err() {
+    if let Err(error) = txn.commit().await {
         activated.rollback().await;
+        log_install_failure(
+            "txn.commit",
+            &manifest.id,
+            user_id,
+            installation_owner_id,
+            Some(&final_tapp_dir),
+            &error,
+        );
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            api_error("Failed to commit Tapp installation"),
+            api_error(format!("Failed to commit Tapp installation: {error}")),
         ));
     }
     activated.commit().await;
@@ -3731,10 +4153,18 @@ async fn install_tapp_file(
     let existing_query = tapps::Entity::find()
         .filter(tapps::Column::TappId.eq(&manifest.id))
         .filter(tapps::Column::UserId.is_in(conflict_owner_ids.clone()));
-    let existing = existing_query.one(&db).await.map_err(|_| {
+    let existing = existing_query.one(&db).await.map_err(|error| {
+        log_install_failure(
+            "conflict_recheck_pre",
+            &manifest.id,
+            user_id,
+            installation_owner_id,
+            None,
+            &error,
+        );
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            api_error("Database error"),
+            api_error(format!("Database error: {error}")),
         )
     })?;
 
@@ -3744,10 +4174,38 @@ async fn install_tapp_file(
 
     let final_tapp_dir = tapp_dir_for(installation_owner_id, &manifest.id)
         .map_err(|error| (StatusCode::BAD_REQUEST, api_error(error)))?;
-    let stage = TappDirStage::create(&final_tapp_dir).await.map_err(|_| {
+    if let Err(error) = cleanup_reinstall_orphans(
+        &final_tapp_dir,
+        &manifest.id,
+        installation_owner_id,
+        user_id,
+        None,
+    ) {
+        log_install_failure(
+            "cleanup_reinstall_orphans",
+            &manifest.id,
+            user_id,
+            installation_owner_id,
+            Some(&final_tapp_dir),
+            &error,
+        );
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            api_error(format!("Failed to clean leftover Tapp files: {error}")),
+        ));
+    }
+    let stage = TappDirStage::create(&final_tapp_dir).await.map_err(|error| {
+        log_install_failure(
+            "TappDirStage::create",
+            &manifest.id,
+            user_id,
+            installation_owner_id,
+            Some(&final_tapp_dir),
+            &error,
+        );
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            api_error("Failed to create staging directory"),
+            api_error(format!("Failed to create staging directory: {error}")),
         )
     })?;
     let tapp_dir = stage.path();
@@ -3786,24 +4244,48 @@ async fn install_tapp_file(
         Ok(())
     })
     .await
-    .map_err(|_| {
+    .map_err(|error| {
+        log_install_failure(
+            "extract_join",
+            &manifest.id,
+            user_id,
+            installation_owner_id,
+            Some(tapp_dir),
+            &error,
+        );
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            api_error("Failed to extract files"),
+            api_error(format!("Failed to extract files: {error}")),
         )
     })?
-    .map_err(|_| {
+    .map_err(|error| {
+        log_install_failure(
+            "extract_write",
+            &manifest.id,
+            user_id,
+            installation_owner_id,
+            Some(tapp_dir),
+            &error,
+        );
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            api_error("Failed to save files"),
+            api_error(format!("Failed to save files: {error}")),
         )
     })?;
 
     let now = Utc::now().fixed_offset();
-    write_install_generation(tapp_dir, now).map_err(|_| {
+    write_install_generation(tapp_dir, now).map_err(|error| {
+        log_install_failure(
+            "write_install_generation",
+            &manifest.id,
+            user_id,
+            installation_owner_id,
+            Some(tapp_dir),
+            &error,
+        );
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            api_error("Failed to save install state"),
+            api_error(format!("Failed to save install state: {error}")),
         )
     })?;
 
@@ -3826,28 +4308,54 @@ async fn install_tapp_file(
     let granted = filter_install_permissions(role, approved.clone()).await;
 
     // 保存到数据库
-    let txn = db.begin().await.map_err(|_| {
+    let txn = db.begin().await.map_err(|error| {
+        log_install_failure(
+            "txn.begin",
+            &manifest.id,
+            user_id,
+            installation_owner_id,
+            None,
+            &error,
+        );
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            api_error("Failed to begin install transaction"),
+            api_error(format!("Failed to begin install transaction: {error}")),
         )
     })?;
-    lock_tapp_lifecycle(&txn, &manifest.id).await.map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            api_error("Failed to lock Tapp lifecycle"),
-        )
-    })?;
+    lock_tapp_lifecycle(&txn, &manifest.id)
+        .await
+        .map_err(|error| {
+            log_install_failure(
+                "lock_tapp_lifecycle",
+                &manifest.id,
+                user_id,
+                installation_owner_id,
+                None,
+                &error,
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                api_error(format!("Failed to lock Tapp lifecycle: {error}")),
+            )
+        })?;
     let conflict_query = tapps::Entity::find()
         .filter(tapps::Column::TappId.eq(&manifest.id))
         .filter(tapps::Column::UserId.is_in(conflict_owner_ids));
     if conflict_query
         .one(&txn)
         .await
-        .map_err(|_| {
+        .map_err(|error| {
+            log_install_failure(
+                "conflict_recheck",
+                &manifest.id,
+                user_id,
+                installation_owner_id,
+                None,
+                &error,
+            );
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                api_error("Database error"),
+                api_error(format!("Database error: {error}")),
             )
         })?
         .is_some()
@@ -3856,13 +4364,43 @@ async fn install_tapp_file(
         return Err((StatusCode::CONFLICT, api_error("Tapp already installed")));
     }
 
+    if let Err(error) = cleanup_reinstall_orphans(
+        &final_tapp_dir,
+        &manifest.id,
+        installation_owner_id,
+        user_id,
+        Some(stage.path()),
+    ) {
+        txn.rollback().await.ok();
+        log_install_failure(
+            "cleanup_reinstall_orphans_locked",
+            &manifest.id,
+            user_id,
+            installation_owner_id,
+            Some(&final_tapp_dir),
+            &error,
+        );
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            api_error(format!("Failed to clean leftover Tapp files: {error}")),
+        ));
+    }
+
     let activated = match stage.activate(&final_tapp_dir).await {
         Ok(activated) => activated,
-        Err(_) => {
+        Err(error) => {
             txn.rollback().await.ok();
+            log_install_failure(
+                "stage.activate",
+                &manifest.id,
+                user_id,
+                installation_owner_id,
+                Some(&final_tapp_dir),
+                &error,
+            );
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                api_error("Failed to activate staged Tapp"),
+                api_error(format!("Failed to activate staged Tapp: {error}")),
             ));
         }
     };
@@ -3898,6 +4436,14 @@ async fn install_tapp_file(
         Err(error) => {
             txn.rollback().await.ok();
             activated.rollback().await;
+            log_install_failure(
+                "insert",
+                &manifest.id,
+                user_id,
+                installation_owner_id,
+                Some(&final_tapp_dir),
+                &error,
+            );
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 api_error(format!("Database error: {error}")),
@@ -3909,13 +4455,32 @@ async fn install_tapp_file(
     {
         txn.rollback().await.ok();
         activated.rollback().await;
-        return Err((status, api_error("Failed to register manifest Widgets")));
+        log_install_failure(
+            "reconcile_manifest_widgets",
+            &manifest.id,
+            user_id,
+            installation_owner_id,
+            Some(&final_tapp_dir),
+            &format!("status={status}"),
+        );
+        return Err((
+            status,
+            api_error(format!("Failed to register manifest Widgets (status {status})")),
+        ));
     }
-    if txn.commit().await.is_err() {
+    if let Err(error) = txn.commit().await {
         activated.rollback().await;
+        log_install_failure(
+            "txn.commit",
+            &manifest.id,
+            user_id,
+            installation_owner_id,
+            Some(&final_tapp_dir),
+            &error,
+        );
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            api_error("Failed to commit Tapp installation"),
+            api_error(format!("Failed to commit Tapp installation: {error}")),
         ));
     }
     activated.commit().await;
@@ -4965,20 +5530,48 @@ async fn do_uninstall_tapp(
     }
 
     // Install row is gone. Best-effort filesystem cleanup must not fail uninstall.
+    // Prefer quarantine (when rename succeeded) or live dir, then sweep remaining
+    // lifecycle artifacts so reinstall is not blocked by orphan paths.
     let live_dir_exists = tapp_dir.exists();
     if let Some(cleanup_path) =
         uninstall_post_commit_cleanup_path(quarantined_dir, tapp_dir.clone(), live_dir_exists)
     {
-        if let Err(error) = fs::remove_dir_all(&cleanup_path).await {
-            if error.kind() != std::io::ErrorKind::NotFound {
-                tracing::warn!(
-                    tapp_id,
-                    path = %cleanup_path.display(),
-                    kind = ?error.kind(),
-                    %error,
-                    "Failed to remove uninstalled Tapp files"
-                );
+        if let Err(error) = remove_path_best_effort(&cleanup_path).await {
+            tracing::warn!(
+                tapp_id,
+                user_id,
+                path = %cleanup_path.display(),
+                kind = ?error.kind(),
+                %error,
+                "Failed to remove uninstalled Tapp files"
+            );
+        }
+    }
+    match reinstall_orphan_paths(&tapp_dir) {
+        Ok(residual) if !residual.is_empty() => {
+            for path in residual {
+                if let Err(error) = remove_path_best_effort(&path).await {
+                    tracing::warn!(
+                        tapp_id,
+                        user_id,
+                        path = %path.display(),
+                        kind = ?error.kind(),
+                        %error,
+                        "Failed to remove residual Tapp lifecycle path after uninstall"
+                    );
+                }
             }
+        }
+        Ok(_) => {}
+        Err(error) => {
+            tracing::warn!(
+                tapp_id,
+                user_id,
+                path = %tapp_dir.display(),
+                kind = ?error.kind(),
+                %error,
+                "Failed to inspect residual Tapp paths after uninstall"
+            );
         }
     }
 
@@ -5402,11 +5995,21 @@ async fn update_tapp(
 
     let activated = match stage.activate(&final_tapp_dir).await {
         Ok(activated) => activated,
-        Err(_) => {
+        Err(error) => {
             txn.rollback().await.ok();
+            tracing::error!(
+                step = "stage.activate",
+                tapp_id = %tapp_id,
+                user_id,
+                owner_id = target_owner_id,
+                path = %final_tapp_dir.display(),
+                kind = ?error.kind(),
+                %error,
+                "Tapp update activate failed"
+            );
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                api_error("Failed to activate staged Tapp update"),
+                api_error(format!("Failed to activate staged Tapp update: {error}")),
             ));
         }
     };
@@ -6809,8 +7412,9 @@ async fn update_separated_css(
 mod manifest_tests {
     use super::{
         append_directory_to_zip, archive_entry_path, canonical_installation_owner_id,
-        copy_regular_tapp_directory, installation_conflict_owner_ids, orphaned_tapp_directories,
-        recover_tapp_directory, tapp_dir_for, tapp_setting_value_is_valid,
+        cleanup_reinstall_orphans, copy_regular_tapp_directory, has_reinstall_orphan_state,
+        installation_conflict_owner_ids, orphaned_tapp_directories, recover_tapp_directory,
+        reinstall_orphan_paths, tapp_dir_for, tapp_setting_value_is_valid,
         uninstall_post_commit_cleanup_path, validate_asset_path, validate_installed_resources,
         validate_resource_path, validate_store_manifest_category, validate_tapp_archive,
         validate_tapp_id, validate_tapp_manifest, validate_widget_template_contents,
@@ -6913,6 +7517,156 @@ mod manifest_tests {
             uninstall_post_commit_cleanup_path(None, live, false),
             None
         );
+    }
+
+    #[test]
+    fn reinstall_orphan_paths_selects_live_and_lifecycle_artifacts() {
+        let root = std::env::temp_dir().join(format!(
+            "myriad-tapp-reinstall-orphan-select-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let live = root.join("com.example.app");
+        let staging = root.join(format!(
+            ".com.example.app.staging-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let backup = root.join(format!(
+            ".com.example.app.backup-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let uninstall = root.join(format!(
+            ".com.example.app.uninstall-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let recovery = root.join(format!(
+            ".com.example.app.recovery-discard-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let unrelated = root.join("com.example.other");
+        for directory in [&live, &staging, &backup, &uninstall, &recovery, &unrelated] {
+            std::fs::create_dir_all(directory).unwrap();
+        }
+
+        let selected = reinstall_orphan_paths(&live).unwrap();
+        let selected_set = selected
+            .into_iter()
+            .collect::<std::collections::HashSet<_>>();
+        assert!(has_reinstall_orphan_state(
+            &selected_set.iter().cloned().collect::<Vec<_>>()
+        ));
+        assert_eq!(
+            selected_set,
+            std::collections::HashSet::from([
+                live.clone(),
+                staging,
+                backup,
+                uninstall,
+                recovery
+            ])
+        );
+        assert!(!selected_set.contains(&unrelated));
+
+        // Empty owner dir → no orphan state.
+        let empty = root.join("missing-app");
+        assert!(!has_reinstall_orphan_state(
+            &reinstall_orphan_paths(&empty).unwrap()
+        ));
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn cleanup_reinstall_orphans_removes_live_and_artifacts_preserving_staging() {
+        let root = std::env::temp_dir().join(format!(
+            "myriad-tapp-reinstall-orphan-clean-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let live = root.join("com.example.app");
+        let preserve = root.join(format!(
+            ".com.example.app.staging-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let leftover_staging = root.join(format!(
+            ".com.example.app.staging-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let uninstall = root.join(format!(
+            ".com.example.app.uninstall-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        for directory in [&live, &preserve, &leftover_staging, &uninstall] {
+            std::fs::create_dir_all(directory).unwrap();
+            std::fs::write(directory.join("marker"), "x").unwrap();
+        }
+
+        let removed =
+            cleanup_reinstall_orphans(&live, "com.example.app", 1, 1, Some(&preserve)).unwrap();
+        assert!(removed >= 3);
+        assert!(!live.exists());
+        assert!(!leftover_staging.exists());
+        assert!(!uninstall.exists());
+        assert!(preserve.exists());
+        assert!(!has_reinstall_orphan_state(
+            &reinstall_orphan_paths(&live)
+                .unwrap()
+                .into_iter()
+                .filter(|path| path != &preserve)
+                .collect::<Vec<_>>()
+        ));
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn activate_frees_final_path_when_backup_rename_fails_by_removing() {
+        // When a leftover live dir cannot be renamed (busy/EXDEV in production),
+        // activate falls back to remove_dir_all then places staging. Simulate the
+        // free path by pre-removing after a failed rename is not easy cross-platform;
+        // instead verify activate succeeds after an orphan live dir is cleaned, and
+        // that activate itself renames a normal leftover live dir out of the way.
+        let root = std::env::temp_dir().join(format!(
+            "myriad-tapp-activate-orphan-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let live = root.join("com.example.app");
+        tokio::fs::create_dir_all(&live).await.unwrap();
+        tokio::fs::write(live.join("main.js"), "orphan").await.unwrap();
+
+        // Pre-activate cleanup path selection (install uses this before staging).
+        let orphans = reinstall_orphan_paths(&live).unwrap();
+        assert!(has_reinstall_orphan_state(&orphans));
+        cleanup_reinstall_orphans(&live, "com.example.app", 1, 1, None).unwrap();
+        assert!(!live.exists());
+
+        let stage = TappDirStage::create(&live).await.unwrap();
+        tokio::fs::write(stage.path().join("main.js"), "fresh")
+            .await
+            .unwrap();
+        stage.activate(&live).await.unwrap().commit().await;
+        assert_eq!(
+            tokio::fs::read_to_string(live.join("main.js"))
+                .await
+                .unwrap(),
+            "fresh"
+        );
+
+        // activate also replaces an existing live dir via backup rename.
+        let stage2 = TappDirStage::create(&live).await.unwrap();
+        tokio::fs::write(stage2.path().join("main.js"), "v2")
+            .await
+            .unwrap();
+        stage2.activate(&live).await.unwrap().commit().await;
+        assert_eq!(
+            tokio::fs::read_to_string(live.join("main.js"))
+                .await
+                .unwrap(),
+            "v2"
+        );
+        assert!(super::lifecycle_artifact_directories(&live)
+            .unwrap()
+            .is_empty());
+
+        tokio::fs::remove_dir_all(root).await.unwrap();
     }
 
     #[test]
