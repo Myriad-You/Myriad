@@ -58,6 +58,12 @@ function spaFallbackPlugin() {
 
 const BACKEND_TARGET = 'http://127.0.0.1:1103'
 
+// Must stay >= TappPlaygroundService AbortSignal and cover planner + up to 3
+// repair model calls (each may use backend MODEL_REQUEST_TIMEOUT of 720s).
+// Node http.request timeout is socket-idle; playground holds the connection
+// with no response bytes until generation finishes.
+const PLAYGROUND_PROXY_TIMEOUT_MS = 20 * 60 * 1000
+
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
   'keep-alive',
@@ -168,7 +174,7 @@ function backendDevProxyPlugin() {
           const body = hasBody ? await readRequestBody(req) : undefined
           const retryable = method === 'GET' || method === 'HEAD'
           const timeoutMs = originalUrl.startsWith('/api/tapp-playground/')
-            ? 360000
+            ? PLAYGROUND_PROXY_TIMEOUT_MS
             : 30000
 
           let response

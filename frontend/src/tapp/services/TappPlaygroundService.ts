@@ -58,7 +58,9 @@ export async function generatePlaygroundProject(
     },
     body: JSON.stringify(request),
     credentials: 'include',
-    signal: AbortSignal.timeout(720_000),
+    // Keep equal to PLAYGROUND_PROXY_TIMEOUT_MS in frontend/astro.config.mjs
+    // (planner + up to 3 repairs; each model call may take up to 720s).
+    signal: AbortSignal.timeout(20 * 60 * 1000),
   })
   if (!response.ok) {
     const error = await response.json().catch(() => ({}))
