@@ -7,7 +7,7 @@
 | 文档                                  | 说明                                      |
 | ------------------------------------- | ----------------------------------------- |
 | [架构总览](tapp/ARCHITECTURE.md)      | 安装态、运行态、沙箱、后台 core 与调度器  |
-| [Tapp Playground](tapp/PLAYGROUND.md) | Pro AI 临时生成、预览、迭代与安装边界     |
+| [Tapp Playground](tapp/PLAYGROUND.md) | Pro AI 双模式（Page / Widget-only）生成、预览、导出与安装边界 |
 | [快速入门](tapp/QUICKSTART.md)        | 5 分钟创建第一个 Tapp，代码架构，生命周期 |
 | [Manifest 配置](tapp/MANIFEST.md)     | 完整的 manifest.json 配置参考             |
 | [SDK API 参考](tapp/API_REFERENCE.md) | 所有 Tapp SDK API 详细文档                |
@@ -46,7 +46,7 @@
 ```
 docs/development/tapp/
 ├── ARCHITECTURE.md     # 架构与数据流总览
-├── PLAYGROUND.md       # Pro AI 临时开发环境
+├── PLAYGROUND.md       # Pro AI 临时开发环境（Page / Widget-only、会话、导出）
 ├── PLAYGROUND_GENERATION_CONTEXT.md # Playground 的模型开发上下文
 ├── QUICKSTART.md       # 快速入门
 ├── MANIFEST.md         # Manifest 配置

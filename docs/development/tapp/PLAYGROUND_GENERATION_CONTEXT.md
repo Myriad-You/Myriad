@@ -5,12 +5,19 @@
 
 ## 文件与运行模式
 
+Playground 项目至少需要 **Page** 或 **Widgets** 之一（允许 Widget-only，不强制 Page）。
+
 - `manifest.json` 描述身份、入口、资源、分类、权限和运行形态。
-- `main.js` 可以包含共享 `core` 与可见 `page` 代码。
-- `page.html` 只包含 body 内的静态语义结构；行为写在 `main.js`。
+- **Page 模式**（`hasPage: true`）：`main.js` 可含共享 `core` 与可见 `page`；`page.html`
+  只含 body 内静态语义结构；行为写在 `code.page` / `main.js` 对应段；
+  `pageTemplate` 为 `page.html`。
+- **Widget-only**（`hasPage: false`）：不要发明 stub 页面；UI 放在 `code.widget` 与
+  `code.widgetHtml`；声明非空 `manifest.widgets` 与 `widget:register`；可省略
+  `pageTemplate`，保持 `page` / `pageHtml` 为空。详见 [WIDGET.md](./WIDGET.md)。
 - `styles.css` 使用普通 CSS，并通过 `var(--tapp-primary)` 读取宿主强调色
   （沙箱内没有 `--color-primary`）。
-- Page 运行在没有 `allow-same-origin` 的 sandboxed iframe 中，CSP 使用每实例 nonce。
+- Page 沙箱（有可用 Page 时）运行在没有 `allow-same-origin` 的 sandboxed iframe 中，
+  CSP 使用每实例 nonce。Widget-only 预览不挂载 Page 沙箱。
 
 ## 生命周期
 
@@ -58,7 +65,7 @@ await Tapp.storage.clear();
 ## 安全与兼容性
 
 - 不使用 `fetch`、XHR、WebSocket 或外链脚本；外部访问必须在正式 Manifest 中声明并由
-  宿主代理，但首版 Playground 不生成此类声明。
+  宿主代理；Playground 生成侧通常不依赖此类声明，预览中也不可用。
 - 不使用 `eval`、`Function`、`document.write`、动态脚本、inline event handler 或
   `javascript:` URL。
 - 不读取 Cookie、localStorage、sessionStorage、父窗口 DOM 或宿主 token。
@@ -72,3 +79,5 @@ await Tapp.storage.clear();
 - 所有设置定义的默认值字段都必须写成 `defaultValue`；`default` 不是合法别名。
 - 应用用途分类只使用 `ai`、`data`、`developer`、`game`、`media`、`productivity`、
   `social`、`utility`。
+- `manifest.assets` / `code.assets` 仅用于 `assets/` 下的静态二进制或数据文件；
+  不要把 `page.html`、`*.js`、Widget 模板（如 `templates/*.html`）放进 assets。
