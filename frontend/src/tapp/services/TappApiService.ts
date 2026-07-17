@@ -24,6 +24,10 @@ import type {
 import { API_URL } from '../../config'
 import { getCSRFToken } from '../../utils/csrf'
 import { generateOnDemandTailwindCSS } from '../runtime/sandbox/styles'
+import {
+  buildPlaygroundPackageFiles,
+  packageFilesToDirectInstallBody,
+} from '../utils/playgroundPackageFiles'
 
 /** Tapp 列表项 */
 export interface TappListItem {
@@ -490,76 +494,44 @@ export async function installTapp(
   })
 }
 
+/**
+ * Map structured code → direct-install JSON body using the same package file
+ * map as Playground .tapp export (`buildPlaygroundPackageFiles`).
+ * Install API shape is unchanged; only the source of path/content mapping is shared.
+ */
 function buildDirectTappRequest(
   manifest: TappManifest,
   code: TappCodeStructure,
   permissions?: string[],
   compiledCss?: SeparatedCSSRequest,
 ): InstallTappRequest {
-  // 有 pageModules 时，main.js 只存 widget 相关代码（模块化的页面代码已在 pageModules 中）
-  // 无 pageModules 时，main.js 存完整合并代码（core + widget + page 单体回退）
-  const hasPageModules =
-    code.pageModules && Object.keys(code.pageModules).length > 0
-  let jsCode: string
-  if (hasPageModules) {
-    // 模块化模式：main.js 仅保留 widget 部分（如果有的话）
-    jsCode = [
-      code.widget ? `// ========== Widget Code ==========\n${code.widget}` : '',
-    ]
-      .filter(Boolean)
-      .join('\n')
-  } else {
-    // 单体模式：合并所有代码
-    jsCode = [
-      code.core,
-      code.widget
-        ? `\n// ========== Widget Code ==========\n${code.widget}`
-        : '',
-      code.page ? `\n// ========== Page Code ==========\n${code.page}` : '',
-    ].join('')
-  }
+  const pkg = buildPlaygroundPackageFiles(manifest, code)
+  const mapped = packageFilesToDirectInstallBody(pkg, code.assets)
 
   const requestBody: InstallTappRequest = {
     source: 'direct',
-    manifest,
-    code: jsCode,
+    manifest: mapped.manifest,
+    code: mapped.code,
     permissions,
   }
 
-  // 添加可选资源
-  if (code.styles) {
-    requestBody.styles = code.styles
+  if (mapped.styles !== undefined) {
+    requestBody.styles = mapped.styles
   }
-  if (code.pageHtml) {
-    requestBody.pageTemplate = code.pageHtml
+  if (mapped.pageTemplate !== undefined) {
+    requestBody.pageTemplate = mapped.pageTemplate
   }
-  if (code.widgetHtml && manifest.widgets && manifest.widgets.length > 0) {
-    const templates: Record<string, Record<string, string>> = {}
-    for (const widget of manifest.widgets) {
-      if (widget.templates) {
-        const widgetTemplates: Record<string, string> = {}
-        for (const size of Object.keys(widget.templates)) {
-          widgetTemplates[size] = code.widgetHtml
-        }
-        if (Object.keys(widgetTemplates).length > 0) {
-          templates[widget.id] = widgetTemplates
-        }
-      }
-    }
-    if (Object.keys(templates).length > 0) {
-      requestBody.widgetTemplates = templates
-    }
+  if (mapped.widgetTemplates) {
+    requestBody.widgetTemplates = mapped.widgetTemplates
   }
-
-  // 添加 i18n 和 pageModules
-  if (code.i18n && Object.keys(code.i18n).length > 0) {
-    requestBody.i18n = code.i18n
+  if (mapped.i18n) {
+    requestBody.i18n = mapped.i18n
   }
-  if (code.pageModules && Object.keys(code.pageModules).length > 0) {
-    requestBody.pageModules = code.pageModules
+  if (mapped.pageModules) {
+    requestBody.pageModules = mapped.pageModules
   }
-  if (code.assets && Object.keys(code.assets).length > 0) {
-    requestBody.assets = code.assets
+  if (mapped.assets) {
+    requestBody.assets = mapped.assets
   }
   // Generated Tailwind CSS is part of the installation generation. Include
   // empty strings as well so an update can remove previously generated CSS.
