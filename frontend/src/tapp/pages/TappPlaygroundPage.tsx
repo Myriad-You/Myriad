@@ -15,7 +15,7 @@ import {
 } from '@lib/motionShim'
 import Prism from 'prismjs'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Navigate, useNavigate } from 'react-router-dom'
 import { useI18n } from '../../contexts/I18nContext'
 import { useNavigation } from '../../contexts/NavigationContext'
 import { useAnimationLevel } from '../../hooks/useAnimationLevel'
@@ -562,11 +562,12 @@ export function TappPlaygroundPage() {
   }, [])
   useEffect(() => () => workspaceObserverRef.current?.disconnect(), [])
 
-  // 进入沉浸模式，隐藏底部导航岛给控制岛让位
+  // 进入沉浸模式，隐藏底部导航岛给控制岛让位（桌面端 only；移动端会立刻重定向）
   useEffect(() => {
+    if (isMobile) return
     setImmersiveMode(true)
     return () => setImmersiveMode(false)
-  }, [setImmersiveMode])
+  }, [isMobile, setImmersiveMode])
 
   useEffect(() => {
     saveSessionsStore(store)
@@ -1277,6 +1278,11 @@ export function TappPlaygroundPage() {
       ) : null}
     </div>
   )
+
+  // Playground is desktop-admin only; redirect mobile direct/bookmark URLs.
+  if (isMobile) {
+    return <Navigate to="/tapp" replace />
+  }
 
   const codeValue =
     draft ??

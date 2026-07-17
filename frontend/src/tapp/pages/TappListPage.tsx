@@ -831,20 +831,8 @@ export function TappListPage() {
                 </div>
               </div>
 
-              {/* 鍙充晶绉诲姩绔寜閽? */}
+              {/* 右侧移动端按钮 — Playground 仅桌面端入口 */}
               <div className="flex sm:hidden items-center gap-2">
-                {isAdmin && (
-                  <button
-                    onClick={() => navigate('/tapp/playground')}
-                    className="p-2 rounded-lg glass shadow-sm"
-                    title={t.tapp.playgroundTitle}
-                  >
-                    <TappPlaygroundIcon
-                      className="w-5 h-5"
-                      style={{ color: 'var(--color-primary)' }}
-                    />
-                  </button>
-                )}
                 <button
                   onClick={() => setShowStore(true)}
                   className="p-2 rounded-lg glass shadow-sm"
@@ -914,7 +902,7 @@ export function TappListPage() {
                     <MyriadStoreIcon className="w-4 h-4" />
                     {t.tapp.browseStore}
                   </motion.button>
-                  {isAdmin && (
+                  {!isMobile && isAdmin && (
                     <motion.button
                       onClick={() => navigate('/tapp/playground')}
                       className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition-all bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/15"
