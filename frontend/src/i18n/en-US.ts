@@ -1896,6 +1896,10 @@ export const enUS: TranslationKeys = {
       'Example: Make the timer larger, add pause, and move today’s history to the right…',
     playgroundGenerating: 'Generating…',
     playgroundRepairingRuntime: 'Auto-fixing a runtime error…',
+    playgroundRepairInstruction:
+      'Fix the sandbox runtime error while keeping the user requirements and existing working behavior unchanged.',
+    playgroundManualEditInstruction: 'Manual edit: {file}',
+    playgroundManualEditExplanation: 'Updated {file}',
     playgroundGenerate: 'Generate & Run',
     playgroundApplyChange: 'Apply Changes',
     playgroundShortcut: 'Enter to send · Shift + Enter for a new line',

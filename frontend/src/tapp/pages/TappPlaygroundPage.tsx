@@ -1120,7 +1120,7 @@ export function TappPlaygroundPage() {
 
     window.setTimeout(() => {
       void executeGeneration(
-        '修复沙箱运行错误，保持用户要求和现有正常功能不变。',
+        t.tapp.playgroundRepairInstruction,
         'runtime-repair',
         [message],
       )
@@ -1403,12 +1403,19 @@ export function TappPlaygroundPage() {
               },
             }
           }
-          return pushManualEditRevision(active, nextProject, fileLabel)
+          return pushManualEditRevision(active, nextProject, fileLabel, {
+            instruction: format(t.tapp.playgroundManualEditInstruction, {
+              file: fileLabel,
+            }),
+            explanation: format(t.tapp.playgroundManualEditExplanation, {
+              file: fileLabel,
+            }),
+          })
         },
         true,
       ),
     )
-  }, [commitStore])
+  }, [commitStore, format, t])
 
   const handleCodeChange = (text: string) => {
     if (!project || busy) return

@@ -545,11 +545,18 @@ export function pushRevision(
  *
  * Returns the session unchanged when `nextProject` is structurally equal to
  * the current revision project (no spam revisions).
+ *
+ * Pass localized `labels` from the page (i18n); English fallbacks keep the
+ * pure helper usable without React context.
  */
 export function pushManualEditRevision(
   session: PlaygroundSession,
   nextProject: TappPlaygroundProject,
   fileLabel: string,
+  labels?: {
+    instruction?: string
+    explanation?: string
+  },
   now = Date.now(),
 ): PlaygroundSession {
   const current = session.revisions[session.revisionIndex]
@@ -563,8 +570,8 @@ export function pushManualEditRevision(
     // If stringify fails, still attempt to record the edit.
   }
 
-  const instruction = `Manual edit: ${fileLabel}`
-  const explanation = `Updated ${fileLabel}`
+  const instruction = labels?.instruction ?? `Manual edit: ${fileLabel}`
+  const explanation = labels?.explanation ?? `Updated ${fileLabel}`
   const last = session.revisions[session.revisionIndex]
   const canMerge =
     last &&

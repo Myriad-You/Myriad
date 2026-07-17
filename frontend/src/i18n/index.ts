@@ -1730,6 +1730,12 @@ export interface TranslationKeys {
     playgroundModifyPlaceholder: string
     playgroundGenerating: string
     playgroundRepairingRuntime: string
+    /** Auto-repair agent instruction when sandbox runtime errors. */
+    playgroundRepairInstruction: string
+    /** Manual edit revision instruction; `{file}` is the edited file label. */
+    playgroundManualEditInstruction: string
+    /** Manual edit revision explanation; `{file}` is the edited file label. */
+    playgroundManualEditExplanation: string
     playgroundGenerate: string
     playgroundApplyChange: string
     playgroundShortcut: string
