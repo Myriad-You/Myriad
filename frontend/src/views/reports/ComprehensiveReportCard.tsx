@@ -2,7 +2,10 @@
  * 综合报告卡片组件
  */
 
-import type { ComprehensiveAnalysis } from './types'
+import {
+  REPORT_CARD_FLEX_BASIS,
+  type ComprehensiveAnalysis,
+} from './types'
 import {
   FaBrain,
   FaCode,
@@ -139,9 +142,8 @@ export const ComprehensiveReportCard = memo<ComprehensiveReportCardProps>(
         }}
         className="relative aspect-2/1 rounded-2xl overflow-hidden cursor-pointer group glass hover:shadow-xl transition-shadow shrink-0 min-w-0 snap-start"
         style={{
-          // 卡片宽度以 80rem 内容盒为上限，与首页 max-w-7xl 小组件网格的 4x2 卡片尺寸对齐
-          flexBasis:
-            'calc((min(100dvw - 2 * var(--report-page-padding), 80rem) - (var(--report-visible-cards) - 1) * 1rem) / var(--report-visible-cards))',
+          // Matches home 4x2 at all breakpoints (1 / sm:2 / lg:4); see REPORT_CARD_FLEX_BASIS
+          flexBasis: REPORT_CARD_FLEX_BASIS,
           willChange: 'transform, opacity',
         }}
         initial={{ opacity: 0, y: 20, scale: 0.95 }}

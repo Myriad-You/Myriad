@@ -54,6 +54,10 @@ import { notifyRecentActivityUpdated } from '../utils/recentActivity'
 import { hasSessionHint } from '../utils/sessionDetection'
 import { ComprehensiveReportCard } from './reports/ComprehensiveReportCard'
 import { EmptyComprehensiveReport } from './reports/EmptyComprehensiveReport'
+import {
+  REPORT_CARD_FLEX_BASIS,
+  REPORT_CAROUSEL_CSS_VARS,
+} from './reports/types'
 
 // 🚀 性能优化：防抖Hook
 function useDebounce<T>(value: T, delay: number): T {
@@ -1380,7 +1384,7 @@ export default function Reports() {
                   </motion.div>
                   {hasEnabledPlatforms && (
                     <motion.div
-                      className={`${isStageMode ? 'hidden md:flex' : 'flex'} relative left-1/2 w-dvw max-w-none -translate-x-1/2 gap-4 overflow-x-auto scrollbar-hide snap-x snap-mandatory pt-8 pb-12 -mt-7 -mb-11 pr-3 xs:pr-4 sm:pr-6 md:pr-8 [--report-page-padding:0.75rem] xs:[--report-page-padding:1rem] sm:[--report-page-padding:1.5rem] [--report-right-padding:0.75rem] xs:[--report-right-padding:1rem] sm:[--report-right-padding:1.5rem] md:[--report-right-padding:2rem] [--report-visible-cards:1] sm:[--report-visible-cards:2] md:[--report-visible-cards:3] lg:[--report-visible-cards:4]`}
+                      className={`${isStageMode ? 'hidden md:flex' : 'flex'} relative left-1/2 w-dvw max-w-none -translate-x-1/2 gap-4 overflow-x-auto scrollbar-hide snap-x snap-mandatory pt-8 pb-12 -mt-7 -mb-11 pr-3 xs:pr-4 sm:pr-6 md:pr-8 ${REPORT_CAROUSEL_CSS_VARS}`}
                       style={
                         {
                           paddingLeft:
@@ -1432,9 +1436,8 @@ export default function Reports() {
                     shrink-0 min-w-0 snap-start
                   `}
                             style={{
-                              // 卡片宽度以 80rem 内容盒为上限，与首页 max-w-7xl 小组件网格的 4x2 卡片尺寸对齐
-                              flexBasis:
-                                'calc((min(100dvw - 2 * var(--report-page-padding), 80rem) - (var(--report-visible-cards) - 1) * 1rem) / var(--report-visible-cards))',
+                              // Matches home 4x2 at all breakpoints (1 / sm:2 / lg:4); see REPORT_CARD_FLEX_BASIS
+                              flexBasis: REPORT_CARD_FLEX_BASIS,
                               willChange: 'transform, opacity',
                             }} // 🚀 GPU加速
                             onClick={() => {
@@ -1768,7 +1771,7 @@ export default function Reports() {
                   </motion.div>
                   {displayedComprehensiveReports.length > 0 ? (
                     <motion.div
-                      className={`${isStageMode ? 'hidden md:flex' : 'flex'} relative left-1/2 w-dvw max-w-none -translate-x-1/2 gap-4 overflow-x-auto scrollbar-hide snap-x snap-mandatory pt-8 pb-12 -mt-7 -mb-11 pr-3 xs:pr-4 sm:pr-6 md:pr-8 [--report-page-padding:0.75rem] xs:[--report-page-padding:1rem] sm:[--report-page-padding:1.5rem] [--report-right-padding:0.75rem] xs:[--report-right-padding:1rem] sm:[--report-right-padding:1.5rem] md:[--report-right-padding:2rem] [--report-visible-cards:1] sm:[--report-visible-cards:2] md:[--report-visible-cards:3] lg:[--report-visible-cards:4]`}
+                      className={`${isStageMode ? 'hidden md:flex' : 'flex'} relative left-1/2 w-dvw max-w-none -translate-x-1/2 gap-4 overflow-x-auto scrollbar-hide snap-x snap-mandatory pt-8 pb-12 -mt-7 -mb-11 pr-3 xs:pr-4 sm:pr-6 md:pr-8 ${REPORT_CAROUSEL_CSS_VARS}`}
                       style={
                         {
                           paddingLeft:

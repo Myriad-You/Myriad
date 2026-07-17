@@ -77,3 +77,21 @@ export interface PlatformConfig {
   icon: React.ComponentType<{ size?: number; className?: string }>
   color: string
 }
+
+/**
+ * Report carousel card width — matches home WidgetGrid 4x2 at all breakpoints.
+ *
+ * Home columns: <640 → 4 cols (4x2 = 100%), <1024 → 8 cols (4x2 = 50%), else 16 cols (4x2 = 25%).
+ * Home shell: max-w-7xl (80rem) + p-2 (−1rem total) inside page padding.
+ * --report-visible-cards is 1 / sm:2 / lg:4 (no md:3; tablet stays 50% like home).
+ * gap-4 is spacing only and must not be baked into card width.
+ */
+export const REPORT_CARD_FLEX_BASIS =
+  'calc((min(100dvw - 2 * var(--report-page-padding), 80rem) - 1rem) / var(--report-visible-cards))'
+
+/**
+ * Shared carousel strip CSS vars for platform + comprehensive strips.
+ * Padding mirrors page gutters; visible-cards tracks home 4x2 fractions (1/2/4).
+ */
+export const REPORT_CAROUSEL_CSS_VARS =
+  '[--report-page-padding:0.75rem] xs:[--report-page-padding:1rem] sm:[--report-page-padding:1.5rem] [--report-visible-cards:1] sm:[--report-visible-cards:2] lg:[--report-visible-cards:4]'
