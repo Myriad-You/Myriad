@@ -1,6 +1,6 @@
 /**
  * Hello World Tapp
- * 官方入门示例，展示 Tapp 核心功能
+ * 官方入门示例，演示 Tapp 生命周期与常用 API
  * @version 1.0.0
  */
 
@@ -510,7 +510,7 @@ export const helloWorldTapp: ExampleTapp = {
     name: 'Hello World',
     version: '1.0.0',
     minSystemVersion: '0.2.1',
-    description: '官方入门示例，展示 Tapp 核心功能。',
+    description: '官方入门示例，演示 Tapp 生命周期与常用 API',
     category: 'utility',
     main: 'index.js',
     author: {

@@ -134,7 +134,7 @@ export interface RemoteCategory {
 /** 官方远程商店 */
 export const OFFICIAL_STORE: RemoteStoreSource = {
   name: 'Myriad 官方商店',
-  description: '官方应用商店，提供经过审核的高质量应用',
+  description: '官方应用源，托管经审核的 Tapp',
   url: 'https://raw.githubusercontent.com/Myriad-You/tapp-store/main/index.json',
   enabled: true,
   official: true,
