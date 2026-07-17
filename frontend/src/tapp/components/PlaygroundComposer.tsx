@@ -3,8 +3,8 @@
  *
  * 重构后的信息架构，自上而下：
  * - 通知层：错误/警告/成功卡片浮在岛上方，独立卡片、可关闭
- * - 状态带：生成中显示阶段时间线 + 计时 + 流光进度条；
- *   完成后显示验证徽标与可展开的 Agent 轨迹时间线
+ * - 状态带：生成中为紧凑两行（标题+计时 / 阶段字幕）+ 流光进度条；
+ *   失败时同构两行 + Retry；完成后显示验证徽标与可展开的 Agent 轨迹
  * - 输入区：多行输入独占一行（composer 范式）
  * - 工具栏：左侧版本导航与会话操作，右侧安装与生成主操作
  */
@@ -334,7 +334,8 @@ export function PlaygroundComposer({
                 transition={{ duration: 0.25, ease: 'easeOut' }}
                 className="overflow-hidden"
               >
-                <div className="px-4 pt-3.5 pb-3 border-b border-black/5 dark:border-white/5">
+                <div className="px-4 pt-3 pb-2.5 border-b border-black/5 dark:border-white/5">
+                  {/* Line 1: spinner + title · elapsed */}
                   <div className="flex items-center gap-2">
                     <span
                       className="w-3.5 h-3.5 border-2 rounded-full animate-spin shrink-0"
@@ -344,14 +345,28 @@ export function PlaygroundComposer({
                         borderTopColor: 'var(--color-primary)',
                       }}
                     />
-                    <span
+                    <motion.span
                       className="text-xs font-semibold truncate"
                       style={{ color: 'var(--text-primary)' }}
+                      animate={
+                        animationsEnabled
+                          ? { opacity: [0.85, 1, 0.85] }
+                          : undefined
+                      }
+                      transition={
+                        animationsEnabled
+                          ? {
+                              duration: 2.4,
+                              repeat: Infinity,
+                              ease: 'easeInOut',
+                            }
+                          : undefined
+                      }
                     >
                       {busyMode === 'runtime-repair'
                         ? t.tapp.playgroundRepairingRuntime
                         : t.tapp.playgroundGenerating}
-                    </span>
+                    </motion.span>
                     <span
                       className="ml-auto text-[10px] font-mono tabular-nums shrink-0"
                       style={{ color: 'var(--text-muted)' }}
@@ -360,89 +375,40 @@ export function PlaygroundComposer({
                     </span>
                   </div>
 
-                  {/* 阶段时间线 */}
-                  <div className="mt-2.5 flex items-center">
-                    {phases.map((phase, index) => {
-                      const state =
-                        index < phaseIndex
-                          ? 'done'
-                          : index === phaseIndex
-                            ? 'active'
-                            : 'pending'
-                      return (
-                        <div
-                          key={phase.label}
-                          className="flex items-center flex-1 last:flex-none min-w-0"
-                        >
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            {state === 'done' ? (
-                              <FaCheck
-                                className="w-2.5 h-2.5"
-                                style={{ color: 'var(--color-primary)' }}
-                              />
-                            ) : (
-                              <span
-                                className={`w-2 h-2 rounded-full ${
-                                  state === 'active' && animationsEnabled
-                                    ? 'playground-phase-dot-active'
-                                    : ''
-                                }`}
-                                style={{
-                                  backgroundColor:
-                                    state === 'active'
-                                      ? 'var(--color-primary)'
-                                      : 'color-mix(in srgb, var(--text-muted) 35%, transparent)',
-                                }}
-                              />
-                            )}
-                            <span
-                              className={`text-[10px] whitespace-nowrap ${
-                                state === 'active' ? 'font-semibold' : ''
-                              }`}
-                              style={{
-                                color:
-                                  state === 'pending'
-                                    ? 'var(--text-muted)'
-                                    : state === 'active'
-                                      ? 'var(--text-primary)'
-                                      : 'var(--color-primary)',
-                              }}
-                            >
-                              {phase.label}
-                            </span>
-                          </div>
-                          {index < phases.length - 1 && (
-                            <span
-                              className="mx-1.5 h-px flex-1 min-w-2 transition-colors duration-500"
-                              style={{
-                                background:
-                                  index < phaseIndex
-                                    ? 'var(--color-primary)'
-                                    : 'color-mix(in srgb, var(--text-muted) 25%, transparent)',
-                              }}
-                            />
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-
-                  <div className="mt-2.5 playground-progress-track">
+                  {/* Flowing progress track (not a text line) */}
+                  <div className="mt-2 playground-progress-track">
                     {animationsEnabled && (
                       <div className="playground-progress-bar" />
                     )}
                   </div>
 
-                  <motion.p
-                    key={`phase-desc-${phaseIndex}`}
-                    initial={animationsEnabled ? { opacity: 0, y: 3 } : false}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.3 }}
-                    className="mt-2 text-[10px] leading-relaxed"
-                    style={{ color: 'var(--text-muted)' }}
-                  >
-                    {phases[phaseIndex].desc}
-                  </motion.p>
+                  {/* Line 2: cross-fading phase subtitle only */}
+                  <div className="mt-1.5 relative min-h-[1.25rem] overflow-hidden">
+                    <AnimatePresence mode="wait" initial={false}>
+                      <motion.p
+                        key={`phase-desc-${phaseIndex}`}
+                        initial={
+                          animationsEnabled
+                            ? { opacity: 0, y: 8, filter: 'blur(2px)' }
+                            : false
+                        }
+                        animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+                        exit={
+                          animationsEnabled
+                            ? { opacity: 0, y: -6, filter: 'blur(2px)' }
+                            : undefined
+                        }
+                        transition={{
+                          duration: 0.32,
+                          ease: [0.22, 1, 0.36, 1],
+                        }}
+                        className="text-[10px] leading-relaxed truncate"
+                        style={{ color: 'var(--text-muted)' }}
+                      >
+                        {phases[phaseIndex].desc}
+                      </motion.p>
+                    </AnimatePresence>
+                  </div>
                 </div>
               </motion.div>
             ) : lastFailedAttempt ? (
@@ -454,28 +420,21 @@ export function PlaygroundComposer({
                 transition={{ duration: 0.25, ease: 'easeOut' }}
                 className="overflow-hidden"
               >
-                <div className="border-b border-black/5 dark:border-white/5">
-                  <div className="flex items-center gap-2 px-4 py-2.5">
+                <div className="border-b border-black/5 dark:border-white/5 px-4 pt-3 pb-2.5">
+                  {/* Line 1: failed title + elapsed · Retry */}
+                  <div className="flex items-center gap-2">
                     <button
                       type="button"
                       onClick={() => setFailedDetailOpen((open) => !open)}
                       className="min-w-0 flex-1 flex items-center gap-2 text-left hover:opacity-90 transition-opacity"
                       aria-expanded={failedDetailOpen}
                     >
-                      <span className="mt-0.5 w-2 h-2 rounded-full shrink-0 bg-red-500" />
+                      <span className="w-2 h-2 rounded-full shrink-0 bg-red-500" />
                       <span className="text-xs font-semibold truncate text-red-600 dark:text-red-300">
                         {t.tapp.playgroundLastRunFailed}
                       </span>
                       <span
-                        className="hidden sm:inline text-[10px] truncate"
-                        style={{ color: 'var(--text-muted)' }}
-                      >
-                        {format(t.tapp.playgroundFailedPhase, {
-                          phase: phases[failedPhaseIndex]?.label || '',
-                        })}
-                      </span>
-                      <span
-                        className="text-[10px] font-mono tabular-nums shrink-0"
+                        className="ml-auto text-[10px] font-mono tabular-nums shrink-0"
                         style={{ color: 'var(--text-muted)' }}
                       >
                         {failedElapsedLabel}
@@ -518,6 +477,31 @@ export function PlaygroundComposer({
                     )}
                   </div>
 
+                  {/* Line 2: failed phase / error summary (no 4-dot timeline) */}
+                  <button
+                    type="button"
+                    onClick={() => setFailedDetailOpen((open) => !open)}
+                    className="mt-1.5 w-full text-left min-h-[1.25rem]"
+                    aria-expanded={failedDetailOpen}
+                  >
+                    <p
+                      className="text-[10px] leading-relaxed truncate"
+                      style={{ color: 'var(--text-muted)' }}
+                    >
+                      <span className="text-red-600/90 dark:text-red-300/90">
+                        {format(t.tapp.playgroundFailedPhase, {
+                          phase: phases[failedPhaseIndex]?.label || '',
+                        })}
+                      </span>
+                      {lastFailedAttempt.error ? (
+                        <span className="text-red-600/70 dark:text-red-300/70">
+                          {' · '}
+                          {lastFailedAttempt.error}
+                        </span>
+                      ) : null}
+                    </p>
+                  </button>
+
                   <AnimatePresence initial={false}>
                     {failedDetailOpen && (
                       <motion.div
@@ -528,84 +512,9 @@ export function PlaygroundComposer({
                         transition={{ duration: 0.22, ease: 'easeOut' }}
                         className="overflow-hidden"
                       >
-                        <div className="px-4 pb-3 space-y-2">
-                          {/* Frozen phase timeline at failure */}
-                          <div className="flex items-center">
-                            {phases.map((phase, index) => {
-                              const state =
-                                index < failedPhaseIndex
-                                  ? 'done'
-                                  : index === failedPhaseIndex
-                                    ? 'failed'
-                                    : 'pending'
-                              return (
-                                <div
-                                  key={`failed-${phase.label}`}
-                                  className="flex items-center flex-1 last:flex-none min-w-0"
-                                >
-                                  <div className="flex items-center gap-1.5 shrink-0">
-                                    {state === 'done' ? (
-                                      <FaCheck
-                                        className="w-2.5 h-2.5"
-                                        style={{
-                                          color: 'var(--color-primary)',
-                                        }}
-                                      />
-                                    ) : (
-                                      <span
-                                        className="w-2 h-2 rounded-full"
-                                        style={{
-                                          backgroundColor:
-                                            state === 'failed'
-                                              ? '#ef4444'
-                                              : 'color-mix(in srgb, var(--text-muted) 35%, transparent)',
-                                        }}
-                                      />
-                                    )}
-                                    <span
-                                      className={`text-[10px] whitespace-nowrap ${
-                                        state === 'failed'
-                                          ? 'font-semibold'
-                                          : ''
-                                      }`}
-                                      style={{
-                                        color:
-                                          state === 'pending'
-                                            ? 'var(--text-muted)'
-                                            : state === 'failed'
-                                              ? '#ef4444'
-                                              : 'var(--color-primary)',
-                                      }}
-                                    >
-                                      {phase.label}
-                                    </span>
-                                  </div>
-                                  {index < phases.length - 1 && (
-                                    <span
-                                      className="mx-1.5 h-px flex-1 min-w-2"
-                                      style={{
-                                        background:
-                                          index < failedPhaseIndex
-                                            ? 'var(--color-primary)'
-                                            : 'color-mix(in srgb, var(--text-muted) 25%, transparent)',
-                                      }}
-                                    />
-                                  )}
-                                </div>
-                              )
-                            })}
-                          </div>
-
-                          <p className="sm:hidden text-[10px] leading-relaxed text-red-600/80 dark:text-red-300/80">
-                            {format(t.tapp.playgroundFailedPhase, {
-                              phase: phases[failedPhaseIndex]?.label || '',
-                            })}
-                          </p>
-
-                          <p className="text-xs leading-relaxed whitespace-pre-wrap break-words text-red-600 dark:text-red-300">
-                            {lastFailedAttempt.error}
-                          </p>
-                        </div>
+                        <p className="mt-2 text-xs leading-relaxed whitespace-pre-wrap break-words text-red-600 dark:text-red-300">
+                          {lastFailedAttempt.error}
+                        </p>
                       </motion.div>
                     )}
                   </AnimatePresence>
