@@ -1743,6 +1743,12 @@ export interface TranslationKeys {
     playgroundClearConfirm: string
     playgroundHistory: string
     playgroundSessions: string
+    playgroundMemoryChain: string
+    playgroundMemoryChainEmpty: string
+    playgroundMemoryUser: string
+    playgroundMemoryAgent: string
+    playgroundMemoryFailed: string
+    playgroundMemoryNoExplanation: string
     playgroundNewSession: string
     playgroundDeleteSession: string
     playgroundDeleteSessionConfirm: string

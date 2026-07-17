@@ -1912,6 +1912,13 @@ export const enUS: TranslationKeys = {
       'Clear all versions in the current session? This cannot be undone.',
     playgroundHistory: 'History',
     playgroundSessions: 'Sessions',
+    playgroundMemoryChain: 'Edit trail',
+    playgroundMemoryChainEmpty:
+      'No modification trail yet. User and agent turns will appear here after you generate or edit.',
+    playgroundMemoryUser: 'You',
+    playgroundMemoryAgent: 'Agent',
+    playgroundMemoryFailed: 'Failed',
+    playgroundMemoryNoExplanation: '(no explanation)',
     playgroundNewSession: 'New session',
     playgroundDeleteSession: 'Delete session',
     playgroundDeleteSessionConfirm:

@@ -21,6 +21,7 @@ use crate::{
     middleware::auth::admin_middleware,
     services::{
         ai::create_ai_analyzer_for_tier_with_timeout,
+        analyzer::ChatMessage,
         tapp_playground_knowledge::{self, KnowledgeExcerpt},
     },
 };
@@ -35,6 +36,12 @@ const MAX_AGENT_QUERIES: usize = 6;
 const MAX_AGENT_ATTEMPTS: usize = 3;
 const MAX_RETRIEVED_CONTEXT_CHARS: usize = 60_000;
 const MAX_CONCURRENT_AGENT_RUNS: usize = 2;
+/// Full multi-turn memory: prior successful revisions + optional failed tail.
+const MAX_HISTORY_TURNS: usize = 20;
+/// Cap total request payload carefully (history may include many full project snapshots).
+const MAX_REQUEST_BODY_BYTES: usize = 12 * 1024 * 1024;
+const MAX_HISTORY_EXPLANATION_BYTES: usize = 4_000;
+const MAX_HISTORY_ERROR_BYTES: usize = 4_000;
 /// Pro 模型生成完整项目较慢；与前端 `TappPlaygroundService.ts` 的
 /// `AbortSignal.timeout(720_000)` 保持一致。
 const MODEL_REQUEST_TIMEOUT: Duration = Duration::from_secs(720);
@@ -63,6 +70,20 @@ Queries should name exact contracts such as widget sizes and templates,
 Tapp.storage permissions, declared APIs, AI tasks, event topics, agent
 interactions, data exchange, page modules, background core, sandbox CSP, or
 responsive styling. Do not write code in this stage.
+"#;
+
+const MULTI_TURN_SESSION_RULES: &str = r#"
+MULTI-TURN EDITING SESSION RULES:
+- Prior user/assistant turns are the chronological modification memory for this
+  session. Treat them as authoritative history of what was already requested and
+  produced, not as free-form chat.
+- Preserve still-relevant prior requirements unless the latest instruction or
+  runtime feedback explicitly overrides them.
+- When a failed attempt appears near the end of history, treat it as context
+  about what did not work; do not repeat the same mistake.
+- Always return a complete project JSON for the final answer (full project, not
+  a partial patch). Identifiers and working behavior stay stable across turns
+  unless the user asks to change them.
 "#;
 
 const PLAYGROUND_SYSTEM_PROMPT: &str = r##"
@@ -172,6 +193,35 @@ pub struct PlaygroundGenerateRequest {
     pub current_project: Option<PlaygroundProject>,
     #[serde(default)]
     pub runtime_feedback: Vec<String>,
+    /// Chronological multi-turn memory (successful revisions + optional failed tail).
+    #[serde(default)]
+    pub history: Vec<PlaygroundHistoryTurn>,
+}
+
+/// One turn in the playground modification memory chain.
+///
+/// Successful turns include a full project snapshot. A failed tail entry may omit
+/// `project` / `explanation` and set `failed` with an `error` string.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PlaygroundHistoryTurn {
+    pub instruction: String,
+    #[serde(default)]
+    pub explanation: String,
+    #[serde(default)]
+    pub origin: Option<String>,
+    #[serde(default)]
+    pub created_at: i64,
+    #[serde(default)]
+    pub warnings: Vec<String>,
+    #[serde(default)]
+    pub validation: Option<PlaygroundValidationReport>,
+    #[serde(default)]
+    pub project: Option<PlaygroundProject>,
+    #[serde(default)]
+    pub failed: bool,
+    #[serde(default)]
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -232,8 +282,8 @@ pub struct PlaygroundAgentStep {
     pub summary: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PlaygroundValidationReport {
     pub passed: bool,
     pub attempts: usize,
@@ -286,6 +336,34 @@ async fn generate_project(
 
     validate_runtime_feedback(&request.runtime_feedback)
         .map_err(|message| api_error(StatusCode::BAD_REQUEST, message))?;
+    validate_history(&request.history).map_err(|(status, message)| api_error(status, message))?;
+
+    // Total body budget: instruction + current project + history projects (multi-MB ok, clear 413).
+    let request_bytes = serde_json::to_vec(&json!({
+        "instruction": instruction,
+        "currentProject": request.current_project,
+        "runtimeFeedback": request.runtime_feedback,
+        "history": request.history.iter().map(|turn| json!({
+            "instruction": turn.instruction,
+            "explanation": turn.explanation,
+            "origin": turn.origin,
+            "createdAt": turn.created_at,
+            "warnings": turn.warnings,
+            "validation": turn.validation,
+            "project": turn.project,
+            "failed": turn.failed,
+            "error": turn.error,
+        })).collect::<Vec<_>>(),
+    }))
+    .map_err(|_| api_error(StatusCode::BAD_REQUEST, "Invalid request payload"))?;
+    if request_bytes.len() > MAX_REQUEST_BODY_BYTES {
+        return Err(api_error(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            format!(
+                "Playground request body exceeds {MAX_REQUEST_BODY_BYTES} bytes (history with full project snapshots is too large; reduce revisions)"
+            ),
+        ));
+    }
 
     let _agent_permit = PLAYGROUND_AGENT_CONCURRENCY.acquire().await.map_err(|_| {
         api_error(
@@ -304,6 +382,13 @@ async fn generate_project(
             )
         })?;
 
+    let successful_history_count = request
+        .history
+        .iter()
+        .filter(|turn| !turn.failed)
+        .count();
+    let failed_history_count = request.history.iter().filter(|turn| turn.failed).count();
+
     let mut agent_trace = vec![
         PlaygroundAgentStep {
             tool: "inspect_project".to_string(),
@@ -320,6 +405,15 @@ async fn generate_project(
             summary: "Injected the Myriad UI design spec into the generation context".to_string(),
         },
     ];
+    if !request.history.is_empty() {
+        agent_trace.push(PlaygroundAgentStep {
+            tool: "load_session_memory".to_string(),
+            status: "success".to_string(),
+            summary: format!(
+                "Loaded multi-turn modification memory: {successful_history_count} successful turn(s), {failed_history_count} failed attempt(s)"
+            ),
+        });
+    }
 
     let manifest_for_planner = request
         .current_project
@@ -330,8 +424,9 @@ async fn generate_project(
         .unwrap_or_else(|| "null".to_string());
     let runtime_feedback_json = serde_json::to_string(&request.runtime_feedback)
         .map_err(|_| api_error(StatusCode::BAD_REQUEST, "Invalid runtime feedback"))?;
+    let prior_instructions = format_prior_instructions(&request.history);
     let planner_prompt = format!(
-        "AVAILABLE DOCUMENT CATALOG:\n{}\n\nUSER INSTRUCTION:\n<instruction>{instruction}</instruction>\n\nCURRENT MANIFEST:\n<manifest>{manifest_for_planner}</manifest>\n\nRUNTIME FEEDBACK:\n<runtime_feedback>{runtime_feedback_json}</runtime_feedback>",
+        "AVAILABLE DOCUMENT CATALOG:\n{}\n\nPRIOR SESSION INSTRUCTIONS (ordered, full text):\n{prior_instructions}\n\nUSER INSTRUCTION:\n<instruction>{instruction}</instruction>\n\nCURRENT MANIFEST:\n<manifest>{manifest_for_planner}</manifest>\n\nRUNTIME FEEDBACK:\n<runtime_feedback>{runtime_feedback_json}</runtime_feedback>",
         tapp_playground_knowledge::catalog_for_prompt()
     );
     let plan = match analyzer
@@ -411,18 +506,23 @@ async fn generate_project(
     let plan_json = serde_json::to_string(&plan)
         .map_err(|_| api_error(StatusCode::INTERNAL_SERVER_ERROR, "Invalid agent plan"))?;
     let system_prompt = format!(
-        "{PLAYGROUND_SYSTEM_PROMPT}\n\nUI DESIGN SPEC (ALWAYS IN EFFECT, NOT SUBJECT TO RETRIEVAL):\n{UI_DESIGN_SPEC}\n\nAUTHORITATIVE TAPP CONTRACT EXCERPTS RETRIEVED BY THE AGENT:\n{retrieved_context}"
+        "{PLAYGROUND_SYSTEM_PROMPT}\n\n{MULTI_TURN_SESSION_RULES}\n\nUI DESIGN SPEC (ALWAYS IN EFFECT, NOT SUBJECT TO RETRIEVAL):\n{UI_DESIGN_SPEC}\n\nAUTHORITATIVE TAPP CONTRACT EXCERPTS RETRIEVED BY THE AGENT:\n{retrieved_context}"
     );
-    let mut next_prompt = format!(
-        "MODE:\n{mode}\n\nAGENT PLAN:\n<plan>{plan_json}</plan>\n\nUSER INSTRUCTION:\n<instruction>{instruction}</instruction>\n\nRUNTIME FEEDBACK:\n<runtime_feedback>{runtime_feedback_json}</runtime_feedback>\n\nCURRENT PROJECT JSON:\n<current_project>{current}</current_project>"
+
+    let final_user_content = format!(
+        "MODE:\n{mode}\n\nAGENT PLAN:\n<plan>{plan_json}</plan>\n\nUSER INSTRUCTION:\n<instruction>{instruction}</instruction>\n\nRUNTIME FEEDBACK:\n<runtime_feedback>{runtime_feedback_json}</runtime_feedback>\n\nCURRENT PROJECT JSON:\n<current_project>{current}</current_project>\n\nReturn ONLY the required full JSON object for this turn (no Markdown fences)."
     );
+    let base_messages = build_codegen_messages(&request.history, &final_user_content)
+        .map_err(|message| api_error(StatusCode::BAD_REQUEST, message))?;
+    // Validation repair keeps the full multi-turn history and only appends repair notes.
+    let mut messages = base_messages;
 
     let mut output = None;
     let mut validation_attempts = 0usize;
     let mut last_validation_error = String::new();
     for attempt in 1..=MAX_AGENT_ATTEMPTS {
         let raw = analyzer
-            .analyze_with_system(&system_prompt, &next_prompt)
+            .analyze_with_messages(&system_prompt, messages.clone())
             .await
             .map_err(|error| {
                 tracing::error!(
@@ -461,9 +561,9 @@ async fn generate_project(
                 });
                 if attempt < MAX_AGENT_ATTEMPTS {
                     let previous = truncate_utf8(&raw, 96 * 1024);
-                    next_prompt = format!(
+                    messages.push(ChatMessage::user(format!(
                         "The candidate failed the authoritative validation tool. Diagnose the root cause, repair the complete project, and return ONLY the required full JSON object. Use exact camelCase field names from the validator; setting definitions use `defaultValue`, never `default`. Do not place Widget templates or HTML/JS entrypoints under `manifest.assets` / `code.assets`; put Widget markup in `code.widgetHtml` and leave `assets` empty unless you need real binary files under `assets/`. Do not repeat an alias or field named by the error as unknown.\n\nVALIDATION TOOL RESULT:\n<validation_error>{error}</validation_error>\n\nORIGINAL USER INSTRUCTION:\n<instruction>{instruction}</instruction>\n\nCURRENT PROJECT BEFORE THIS RUN:\n<current_project>{current}</current_project>\n\nFAILED CANDIDATE:\n<previous>{previous}</previous>"
-                    );
+                    )));
                     agent_trace.push(PlaygroundAgentStep {
                         tool: "repair_project".to_string(),
                         status: "running".to_string(),
@@ -616,6 +716,188 @@ fn validate_runtime_feedback(feedback: &[String]) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+/// Validate multi-turn history limits (count, field sizes, per-project 512KiB).
+fn validate_history(history: &[PlaygroundHistoryTurn]) -> Result<(), (StatusCode, String)> {
+    if history.len() > MAX_HISTORY_TURNS {
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            format!("History accepts at most {MAX_HISTORY_TURNS} turns"),
+        ));
+    }
+
+    let mut saw_failed = false;
+    for (index, turn) in history.iter().enumerate() {
+        if saw_failed {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Failed history entries may only appear as a trailing tail".to_string(),
+            ));
+        }
+        let instruction = turn.instruction.trim();
+        if instruction.is_empty() || instruction.len() > MAX_INSTRUCTION_BYTES {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!(
+                    "History turn {index} instruction must contain 1-{MAX_INSTRUCTION_BYTES} bytes"
+                ),
+            ));
+        }
+        if turn.explanation.len() > MAX_HISTORY_EXPLANATION_BYTES {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!(
+                    "History turn {index} explanation exceeds {MAX_HISTORY_EXPLANATION_BYTES} bytes"
+                ),
+            ));
+        }
+        if let Some(error) = &turn.error {
+            if error.len() > MAX_HISTORY_ERROR_BYTES {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    format!("History turn {index} error exceeds {MAX_HISTORY_ERROR_BYTES} bytes"),
+                ));
+            }
+        }
+        if turn.failed {
+            saw_failed = true;
+            // Failed tail: project optional; if present still size-checked.
+            if let Some(project) = &turn.project {
+                validate_playground_project(project).map_err(|message| {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        format!("History turn {index} project invalid: {message}"),
+                    )
+                })?;
+                let bytes = serde_json::to_vec(project).map_err(|_| {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        format!("History turn {index} project cannot be serialized"),
+                    )
+                })?;
+                if bytes.len() > MAX_PROJECT_BYTES {
+                    return Err((
+                        StatusCode::PAYLOAD_TOO_LARGE,
+                        format!(
+                            "History turn {index} project exceeds {MAX_PROJECT_BYTES} bytes"
+                        ),
+                    ));
+                }
+            }
+            continue;
+        }
+
+        // Successful turns require a full project snapshot.
+        let project = turn.project.as_ref().ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("History turn {index} is missing project snapshot"),
+            )
+        })?;
+        validate_playground_project(project).map_err(|message| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("History turn {index} project invalid: {message}"),
+            )
+        })?;
+        let bytes = serde_json::to_vec(project).map_err(|_| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("History turn {index} project cannot be serialized"),
+            )
+        })?;
+        if bytes.len() > MAX_PROJECT_BYTES {
+            return Err((
+                StatusCode::PAYLOAD_TOO_LARGE,
+                format!("History turn {index} project exceeds {MAX_PROJECT_BYTES} bytes"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Ordered full-text prior instructions for the planner (successful turns only).
+fn format_prior_instructions(history: &[PlaygroundHistoryTurn]) -> String {
+    let lines: Vec<String> = history
+        .iter()
+        .filter(|turn| !turn.failed)
+        .enumerate()
+        .map(|(index, turn)| {
+            let origin = turn.origin.as_deref().unwrap_or("user");
+            format!(
+                "{}. [{}] {}",
+                index + 1,
+                origin,
+                turn.instruction.trim()
+            )
+        })
+        .collect();
+    if lines.is_empty() {
+        "(none)".to_string()
+    } else {
+        lines.join("\n")
+    }
+}
+
+/// Build OpenAI-compatible multi-turn codegen messages from session history.
+///
+/// For each successful history turn i:
+/// - user: instruction + previous project JSON (`null` on first)
+/// - assistant: explanation + project JSON after that turn
+///
+/// Optional failed tail becomes a user message with error + project context.
+/// `final_user_content` is the current MODE/plan/instruction/project contract.
+fn build_codegen_messages(
+    history: &[PlaygroundHistoryTurn],
+    final_user_content: &str,
+) -> Result<Vec<ChatMessage>, String> {
+    let mut messages = Vec::new();
+    let mut previous_project_json = "null".to_string();
+
+    for turn in history {
+        if turn.failed {
+            let project_json = turn
+                .project
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()
+                .map_err(|_| "Invalid failed history project".to_string())?
+                .unwrap_or_else(|| previous_project_json.clone());
+            let error = turn
+                .error
+                .as_deref()
+                .unwrap_or("Generation failed")
+                .trim();
+            messages.push(ChatMessage::user(format!(
+                "A previous attempt in this session failed. Do not repeat the same mistake.\n\nFAILED INSTRUCTION:\n<instruction>{}</instruction>\n\nERROR:\n<error>{error}</error>\n\nPROJECT AT FAILURE:\n<project>{project_json}</project>",
+                turn.instruction.trim()
+            )));
+            continue;
+        }
+
+        let project = turn
+            .project
+            .as_ref()
+            .ok_or_else(|| "Successful history turn missing project".to_string())?;
+        let project_json = serde_json::to_string(project)
+            .map_err(|_| "Invalid history project".to_string())?;
+        let origin = turn.origin.as_deref().unwrap_or("user");
+
+        messages.push(ChatMessage::user(format!(
+            "SESSION TURN (origin: {origin})\nINSTRUCTION:\n<instruction>{}</instruction>\n\nPREVIOUS PROJECT JSON:\n<previous_project>{previous_project_json}</previous_project>",
+            turn.instruction.trim()
+        )));
+        messages.push(ChatMessage::assistant(format!(
+            "EXPLANATION:\n{}\n\nPROJECT JSON:\n{}",
+            turn.explanation.trim(),
+            project_json
+        )));
+        previous_project_json = project_json;
+    }
+
+    messages.push(ChatMessage::user(final_user_content.to_string()));
+    Ok(messages)
 }
 
 fn parse_and_validate_model_output(raw: &str) -> Result<(PlaygroundModelOutput, usize), String> {
@@ -1040,6 +1322,35 @@ fn api_error(status: StatusCode, message: impl Into<String>) -> ApiError {
 mod tests {
     use super::*;
 
+    fn sample_project(name: &str) -> PlaygroundProject {
+        let raw = json!({
+            "manifest": {
+                "id": format!("com.myriad.playground.{}", name.to_ascii_lowercase()),
+                "name": name,
+                "version": "1.0.0",
+                "description": format!("A {name}"),
+                "author": { "name": "Myriad Playground" },
+                "main": "main.js",
+                "styles": "styles.css",
+                "pageTemplate": "page.html",
+                "cssMode": "unified",
+                "permissions": ["storage"],
+                "icon": "🧪",
+                "themeColor": "#7C3AED",
+                "hasPage": true,
+                "category": "developer"
+            },
+            "code": {
+                "core": "",
+                "page": "Tapp.lifecycle.onReady(function () {});",
+                "styles": ".app { color: var(--color-primary); }",
+                "pageHtml": format!("<main class=\"app\">{name}</main>"),
+                "i18n": { "zh-CN": {}, "en-US": {}, "ja-JP": {} }
+            }
+        });
+        serde_json::from_value(raw).expect("sample project")
+    }
+
     fn project_json() -> String {
         json!({
             "project": {
@@ -1070,6 +1381,196 @@ mod tests {
             "explanation": "Created a counter."
         })
         .to_string()
+    }
+
+    #[test]
+    fn codegen_messages_empty_history_is_create_only() {
+        let messages =
+            build_codegen_messages(&[], "FINAL USER CONTENT").expect("messages");
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].role, "user");
+        assert_eq!(messages[0].content, "FINAL USER CONTENT");
+    }
+
+    #[test]
+    fn codegen_messages_two_turn_modify_order() {
+        let p1 = sample_project("One");
+        let p2 = sample_project("Two");
+        let history = vec![
+            PlaygroundHistoryTurn {
+                instruction: "Create a counter".into(),
+                explanation: "Created counter v1".into(),
+                origin: Some("user".into()),
+                created_at: 1,
+                warnings: vec![],
+                validation: None,
+                project: Some(p1.clone()),
+                failed: false,
+                error: None,
+            },
+            PlaygroundHistoryTurn {
+                instruction: "Make it blue".into(),
+                explanation: "Theme is now blue".into(),
+                origin: Some("user".into()),
+                created_at: 2,
+                warnings: vec![],
+                validation: None,
+                project: Some(p2.clone()),
+                failed: false,
+                error: None,
+            },
+        ];
+        let messages =
+            build_codegen_messages(&history, "FINAL: add reset button").expect("messages");
+        // 2 successful turns => 4 messages + final user
+        assert_eq!(messages.len(), 5);
+        assert_eq!(messages[0].role, "user");
+        assert!(messages[0].content.contains("Create a counter"));
+        assert!(messages[0].content.contains("<previous_project>null</previous_project>"));
+        assert_eq!(messages[1].role, "assistant");
+        assert!(messages[1].content.contains("Created counter v1"));
+        assert!(messages[1].content.contains(&p1.manifest.id));
+        assert_eq!(messages[2].role, "user");
+        assert!(messages[2].content.contains("Make it blue"));
+        // Second user turn should carry previous project (turn 1 output)
+        assert!(messages[2].content.contains(&p1.manifest.id));
+        assert_eq!(messages[3].role, "assistant");
+        assert!(messages[3].content.contains("Theme is now blue"));
+        assert!(messages[3].content.contains(&p2.manifest.id));
+        assert_eq!(messages[4].role, "user");
+        assert_eq!(messages[4].content, "FINAL: add reset button");
+    }
+
+    #[test]
+    fn codegen_messages_include_failed_attempt_tail() {
+        let p1 = sample_project("Base");
+        let history = vec![
+            PlaygroundHistoryTurn {
+                instruction: "Create app".into(),
+                explanation: "Done".into(),
+                origin: Some("user".into()),
+                created_at: 1,
+                warnings: vec![],
+                validation: None,
+                project: Some(p1.clone()),
+                failed: false,
+                error: None,
+            },
+            PlaygroundHistoryTurn {
+                instruction: "Add broken feature".into(),
+                explanation: String::new(),
+                origin: Some("user".into()),
+                created_at: 2,
+                warnings: vec![],
+                validation: None,
+                project: Some(p1.clone()),
+                failed: true,
+                error: Some("validation failed: bad field".into()),
+            },
+        ];
+        let messages =
+            build_codegen_messages(&history, "FINAL retry").expect("messages");
+        // success pair (2) + failed user (1) + final (1)
+        assert_eq!(messages.len(), 4);
+        assert_eq!(messages[2].role, "user");
+        assert!(messages[2].content.contains("previous attempt"));
+        assert!(messages[2].content.contains("Add broken feature"));
+        assert!(messages[2].content.contains("validation failed: bad field"));
+        assert!(messages[2].content.contains(&p1.manifest.id));
+        assert_eq!(messages[3].content, "FINAL retry");
+    }
+
+    #[test]
+    fn validation_repair_appends_without_dropping_history() {
+        let p1 = sample_project("Base");
+        let history = vec![PlaygroundHistoryTurn {
+            instruction: "Create app".into(),
+            explanation: "Done".into(),
+            origin: Some("user".into()),
+            created_at: 1,
+            warnings: vec![],
+            validation: None,
+            project: Some(p1),
+            failed: false,
+            error: None,
+        }];
+        let mut messages =
+            build_codegen_messages(&history, "FINAL modify").expect("base");
+        let base_len = messages.len();
+        assert_eq!(base_len, 3); // user+assistant+final
+        messages.push(ChatMessage::user(
+            "VALIDATION TOOL RESULT:\n<validation_error>missing field</validation_error>"
+                .to_string(),
+        ));
+        assert_eq!(messages.len(), base_len + 1);
+        // History pair still present at the front
+        assert_eq!(messages[0].role, "user");
+        assert!(messages[0].content.contains("Create app"));
+        assert_eq!(messages[1].role, "assistant");
+        assert!(messages[base_len].content.contains("missing field"));
+    }
+
+    #[test]
+    fn history_rejects_too_many_turns() {
+        let project = sample_project("Many");
+        let history: Vec<PlaygroundHistoryTurn> = (0..MAX_HISTORY_TURNS + 1)
+            .map(|i| PlaygroundHistoryTurn {
+                instruction: format!("turn {i}"),
+                explanation: "ok".into(),
+                origin: Some("user".into()),
+                created_at: i as i64,
+                warnings: vec![],
+                validation: None,
+                project: Some(project.clone()),
+                failed: false,
+                error: None,
+            })
+            .collect();
+        let err = validate_history(&history).unwrap_err();
+        assert_eq!(err.0, StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[test]
+    fn prior_instructions_list_is_ordered_full_text() {
+        let history = vec![
+            PlaygroundHistoryTurn {
+                instruction: "First full instruction text".into(),
+                explanation: "a".into(),
+                origin: Some("user".into()),
+                created_at: 1,
+                warnings: vec![],
+                validation: None,
+                project: Some(sample_project("A")),
+                failed: false,
+                error: None,
+            },
+            PlaygroundHistoryTurn {
+                instruction: "Second full instruction text".into(),
+                explanation: "b".into(),
+                origin: Some("runtime-repair".into()),
+                created_at: 2,
+                warnings: vec![],
+                validation: None,
+                project: Some(sample_project("B")),
+                failed: false,
+                error: None,
+            },
+            PlaygroundHistoryTurn {
+                instruction: "failed not listed".into(),
+                explanation: String::new(),
+                origin: Some("user".into()),
+                created_at: 3,
+                warnings: vec![],
+                validation: None,
+                project: None,
+                failed: true,
+                error: Some("boom".into()),
+            },
+        ];
+        let text = format_prior_instructions(&history);
+        assert!(text.contains("1. [user] First full instruction text"));
+        assert!(text.contains("2. [runtime-repair] Second full instruction text"));
+        assert!(!text.contains("failed not listed"));
     }
 
     #[test]

@@ -10,6 +10,7 @@ import type { PlaygroundLastFailedAttempt } from '../components/PlaygroundCompos
 import type {
   PlaygroundAgentStep,
   PlaygroundKnowledgeSource,
+  PlaygroundMemoryTurn,
   PlaygroundValidationReport,
   TappPlaygroundProject,
 } from '../services/TappPlaygroundService'
@@ -379,6 +380,52 @@ export function clearSessionContent(
     lastFailedAttempt: null,
     updatedAt: Date.now(),
   }
+}
+
+/**
+ * Build full multi-turn modification memory for the generate API.
+ *
+ * Uses `revisions.slice(0, revisionIndex + 1)` so redo-stack versions after the
+ * active checkpoint are excluded. Each successful turn carries the full project
+ * snapshot. When `lastFailedAttempt` is present it is appended as a failed tail.
+ */
+export function buildPlaygroundMemoryHistory(
+  session: PlaygroundSession,
+): PlaygroundMemoryTurn[] {
+  const upToCurrent =
+    session.revisionIndex < 0
+      ? []
+      : session.revisions.slice(0, session.revisionIndex + 1)
+
+  const turns: PlaygroundMemoryTurn[] = upToCurrent.map((rev) => ({
+    instruction: rev.instruction,
+    explanation: rev.explanation,
+    origin: rev.origin,
+    createdAt: rev.createdAt,
+    warnings: rev.warnings?.length ? rev.warnings : undefined,
+    validation: rev.validation,
+    project: rev.project,
+  }))
+
+  const failed = session.lastFailedAttempt
+  if (failed?.instruction?.trim()) {
+    const baseProject =
+      upToCurrent.length > 0
+        ? upToCurrent[upToCurrent.length - 1].project
+        : undefined
+    turns.push({
+      instruction: failed.instruction,
+      explanation: '',
+      origin: failed.origin,
+      createdAt: failed.finishedAt,
+      project: baseProject,
+      failed: true,
+      error: failed.error,
+    })
+  }
+
+  // Backend accepts at most 20 turns; keep the most recent window.
+  return turns.slice(-MAX_REVISIONS)
 }
 
 /**

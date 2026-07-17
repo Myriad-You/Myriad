@@ -240,9 +240,9 @@ export function PlaygroundComposer({
   const [traceOpen, setTraceOpen] = useState(false)
   const [failedDetailOpen, setFailedDetailOpen] = useState(true)
   const [historyOpen, setHistoryOpen] = useState(false)
-  const [historyTab, setHistoryTab] = useState<'revisions' | 'sessions'>(
-    'revisions',
-  )
+  const [historyTab, setHistoryTab] = useState<
+    'revisions' | 'sessions' | 'memory'
+  >('revisions')
 
   const relativeLabels = {
     justNow: t.tapp.playgroundTimeJustNow,
@@ -370,6 +370,8 @@ export function PlaygroundComposer({
   }
 
   const orderedRevisions = [...historyRevisions].reverse()
+  // Modification chain: chronological user→agent turns (oldest first) + failed tail
+  const memoryChain = historyRevisions
 
   return (
     <motion.div
@@ -468,11 +470,11 @@ export function PlaygroundComposer({
               >
                 <div className="px-3 pt-3 pb-2">
                   <div className="flex items-center gap-1.5 mb-2">
-                    <div className="flex items-center rounded-full bg-black/5 dark:bg-white/10 p-0.5">
+                    <div className="flex items-center rounded-full bg-black/5 dark:bg-white/10 p-0.5 max-w-full overflow-x-auto">
                       <button
                         type="button"
                         onClick={() => setHistoryTab('revisions')}
-                        className={`h-7 px-2.5 rounded-full text-[10px] font-semibold transition-colors ${
+                        className={`h-7 px-2.5 rounded-full text-[10px] font-semibold transition-colors whitespace-nowrap ${
                           historyTab === 'revisions'
                             ? 'bg-white dark:bg-white/20 shadow-sm text-gray-900 dark:text-white'
                             : 'text-gray-500 dark:text-gray-400'
@@ -482,8 +484,19 @@ export function PlaygroundComposer({
                       </button>
                       <button
                         type="button"
+                        onClick={() => setHistoryTab('memory')}
+                        className={`h-7 px-2.5 rounded-full text-[10px] font-semibold transition-colors whitespace-nowrap ${
+                          historyTab === 'memory'
+                            ? 'bg-white dark:bg-white/20 shadow-sm text-gray-900 dark:text-white'
+                            : 'text-gray-500 dark:text-gray-400'
+                        }`}
+                      >
+                        {t.tapp.playgroundMemoryChain}
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => setHistoryTab('sessions')}
-                        className={`h-7 px-2.5 rounded-full text-[10px] font-semibold transition-colors ${
+                        className={`h-7 px-2.5 rounded-full text-[10px] font-semibold transition-colors whitespace-nowrap ${
                           historyTab === 'sessions'
                             ? 'bg-white dark:bg-white/20 shadow-sm text-gray-900 dark:text-white'
                             : 'text-gray-500 dark:text-gray-400'
@@ -502,7 +515,171 @@ export function PlaygroundComposer({
                     </button>
                   </div>
 
-                  {historyTab === 'revisions' ? (
+                  {historyTab === 'memory' ? (
+                    <div className="max-h-[min(42vh,16rem)] overflow-y-auto playground-history-scroll">
+                      {memoryChain.length === 0 && !lastFailedAttempt ? (
+                        <p
+                          className="px-2 py-4 text-center text-[11px]"
+                          style={{ color: 'var(--text-muted)' }}
+                        >
+                          {t.tapp.playgroundMemoryChainEmpty}
+                        </p>
+                      ) : (
+                        <ul className="space-y-2.5 px-0.5">
+                          {memoryChain.map((rev) => {
+                            const isCurrent = rev.index === revisionIndex
+                            return (
+                              <li key={`mem-${rev.id}`} className="space-y-1">
+                                <div className="flex items-center gap-1.5 px-1">
+                                  <span
+                                    className="text-[9px] font-mono font-bold tabular-nums"
+                                    style={{
+                                      color: isCurrent
+                                        ? 'var(--color-primary)'
+                                        : 'var(--text-muted)',
+                                    }}
+                                  >
+                                    v{rev.index + 1}
+                                  </span>
+                                  <span
+                                    className="text-[9px] font-semibold"
+                                    style={{ color: 'var(--text-muted)' }}
+                                  >
+                                    {rev.origin === 'runtime-repair'
+                                      ? t.tapp.playgroundOriginRepair
+                                      : t.tapp.playgroundOriginUser}
+                                  </span>
+                                  {isCurrent && (
+                                    <span
+                                      className="text-[9px] font-semibold"
+                                      style={{ color: 'var(--color-primary)' }}
+                                    >
+                                      · {t.tapp.playgroundCurrentRevision}
+                                    </span>
+                                  )}
+                                  <span
+                                    className="ml-auto text-[9px] tabular-nums"
+                                    style={{ color: 'var(--text-muted)' }}
+                                  >
+                                    {formatRelativeTime(
+                                      rev.createdAt,
+                                      relativeLabels,
+                                      format,
+                                    )}
+                                  </span>
+                                </div>
+                                {/* User turn */}
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => onJumpToRevision?.(rev.index)}
+                                  className="w-full text-left rounded-xl px-2.5 py-2 bg-black/[0.03] dark:bg-white/[0.04] hover:bg-black/[0.05] dark:hover:bg-white/[0.07] transition-colors disabled:opacity-50"
+                                >
+                                  <div
+                                    className="text-[9px] font-semibold mb-0.5"
+                                    style={{ color: 'var(--color-primary)' }}
+                                  >
+                                    {t.tapp.playgroundMemoryUser}
+                                  </div>
+                                  <p
+                                    className="text-[11px] leading-relaxed whitespace-pre-wrap break-words"
+                                    style={{ color: 'var(--text-primary)' }}
+                                  >
+                                    {rev.instruction.trim() || '—'}
+                                  </p>
+                                </button>
+                                {/* Agent turn */}
+                                <div className="rounded-xl px-2.5 py-2 bg-[color-mix(in_srgb,var(--color-primary),transparent_92%)] ring-1 ring-[color-mix(in_srgb,var(--color-primary),transparent_82%)]">
+                                  <div
+                                    className="text-[9px] font-semibold mb-0.5"
+                                    style={{ color: 'var(--color-primary)' }}
+                                  >
+                                    {t.tapp.playgroundMemoryAgent}
+                                  </div>
+                                  <p
+                                    className="text-[11px] leading-relaxed whitespace-pre-wrap break-words"
+                                    style={{ color: 'var(--text-primary)' }}
+                                  >
+                                    {(rev.explanation || '').trim() ||
+                                      t.tapp.playgroundMemoryNoExplanation}
+                                  </p>
+                                </div>
+                              </li>
+                            )
+                          })}
+                          {lastFailedAttempt && (
+                            <li className="space-y-1">
+                              <div className="flex items-center gap-1.5 px-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
+                                <span className="text-[9px] font-semibold text-red-600 dark:text-red-300">
+                                  {t.tapp.playgroundMemoryFailed}
+                                </span>
+                                <span
+                                  className="ml-auto text-[9px] tabular-nums"
+                                  style={{ color: 'var(--text-muted)' }}
+                                >
+                                  {formatRelativeTime(
+                                    lastFailedAttempt.finishedAt,
+                                    relativeLabels,
+                                    format,
+                                  )}
+                                </span>
+                              </div>
+                              <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-2.5 py-2">
+                                <div
+                                  className="text-[9px] font-semibold mb-0.5"
+                                  style={{ color: 'var(--color-primary)' }}
+                                >
+                                  {t.tapp.playgroundMemoryUser}
+                                </div>
+                                <p className="text-[11px] leading-relaxed whitespace-pre-wrap break-words text-red-700/90 dark:text-red-200/90">
+                                  {lastFailedAttempt.instruction}
+                                </p>
+                                <div className="mt-1.5 pt-1.5 border-t border-red-500/15">
+                                  <div className="text-[9px] font-semibold mb-0.5 text-red-600 dark:text-red-300">
+                                    {t.tapp.playgroundMemoryFailed}
+                                  </div>
+                                  <p className="text-[10px] leading-relaxed text-red-600/90 dark:text-red-300/90">
+                                    {lastFailedAttempt.error}
+                                  </p>
+                                </div>
+                                {(onRetryFailed || onDismissFailed) && (
+                                  <div className="mt-1.5 flex items-center gap-1.5">
+                                    {onRetryFailed && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setHistoryOpen(false)
+                                          onRetryFailed()
+                                        }}
+                                        disabled={busy}
+                                        className="h-6 px-2 rounded-full text-[10px] font-semibold text-white disabled:opacity-40"
+                                        style={{
+                                          background:
+                                            'linear-gradient(135deg, var(--color-primary), color-mix(in srgb, var(--color-primary) 80%, black))',
+                                        }}
+                                      >
+                                        {t.tapp.playgroundRetry}
+                                      </button>
+                                    )}
+                                    {onDismissFailed && (
+                                      <button
+                                        type="button"
+                                        onClick={onDismissFailed}
+                                        className="h-6 px-2 rounded-full text-[10px] font-semibold text-gray-500 hover:bg-black/5 dark:hover:bg-white/10"
+                                      >
+                                        {t.common.close}
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </li>
+                          )}
+                        </ul>
+                      )}
+                    </div>
+                  ) : historyTab === 'revisions' ? (
                     <div className="max-h-[min(42vh,16rem)] overflow-y-auto playground-history-scroll">
                       {orderedRevisions.length === 0 ? (
                         <p

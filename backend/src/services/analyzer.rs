@@ -62,10 +62,41 @@ struct OpenAIRequest {
     messages: Vec<OpenAIMessage>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 struct OpenAIMessage {
     role: String,
     content: String,
+}
+
+/// OpenAI-compatible chat role/content pair for multi-turn analysis.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChatMessage {
+    pub role: String,
+    pub content: String,
+}
+
+impl ChatMessage {
+    pub fn user(content: impl Into<String>) -> Self {
+        Self {
+            role: "user".to_string(),
+            content: content.into(),
+        }
+    }
+
+    pub fn assistant(content: impl Into<String>) -> Self {
+        Self {
+            role: "assistant".to_string(),
+            content: content.into(),
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn system(content: impl Into<String>) -> Self {
+        Self {
+            role: "system".to_string(),
+            content: content.into(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -105,6 +136,23 @@ pub struct AiAnalyzer {
     api_key: String,
     model: String,
     base_url: Option<String>, // For OpenAI-compatible APIs
+}
+
+/// Flatten multi-turn messages into a single Gemini-compatible prompt.
+fn flatten_messages_for_gemini(system: &str, messages: &[ChatMessage]) -> String {
+    let mut parts = Vec::new();
+    if !system.trim().is_empty() {
+        parts.push(format!("SYSTEM:\n{system}"));
+    }
+    for message in messages {
+        let label = match message.role.as_str() {
+            "assistant" => "ASSISTANT",
+            "system" => "SYSTEM",
+            _ => "USER",
+        };
+        parts.push(format!("{label}:\n{}", message.content));
+    }
+    parts.join("\n\n")
 }
 
 fn openai_chat_completions_url(base_url: Option<&str>) -> String {
@@ -358,25 +406,49 @@ impl AiAnalyzer {
 
     /// 带系统提示的分析方法（用于 Tapp API）
     pub async fn analyze_with_system(&self, system: &str, prompt: &str) -> Result<String> {
+        self.analyze_with_messages(system, vec![ChatMessage::user(prompt.to_string())])
+            .await
+    }
+
+    /// Multi-turn analysis: system prompt + ordered role/content messages.
+    ///
+    /// OpenAI-compatible providers receive true multi-turn `messages`.
+    /// Gemini flattens the conversation into a single prompt (no native multi-turn
+    /// system+history support in this client).
+    pub async fn analyze_with_messages(
+        &self,
+        system: &str,
+        messages: Vec<ChatMessage>,
+    ) -> Result<String> {
         match self.provider {
             AiProvider::Gemini => {
-                let full_prompt = format!("{}\n\n{}", system, prompt);
+                let full_prompt = flatten_messages_for_gemini(system, &messages);
                 let data = serde_json::json!({ "prompt": full_prompt });
                 self.analyze_profile(&data).await
             }
             AiProvider::OpenAI => {
+                let mut openai_messages = Vec::with_capacity(messages.len() + 1);
+                if !system.trim().is_empty() {
+                    openai_messages.push(OpenAIMessage {
+                        role: "system".to_string(),
+                        content: system.to_string(),
+                    });
+                }
+                for message in messages {
+                    let role = match message.role.as_str() {
+                        "assistant" => "assistant",
+                        "system" => "system",
+                        _ => "user",
+                    };
+                    openai_messages.push(OpenAIMessage {
+                        role: role.to_string(),
+                        content: message.content,
+                    });
+                }
+
                 let request_body = OpenAIRequest {
                     model: self.model.clone(),
-                    messages: vec![
-                        OpenAIMessage {
-                            role: "system".to_string(),
-                            content: system.to_string(),
-                        },
-                        OpenAIMessage {
-                            role: "user".to_string(),
-                            content: prompt.to_string(),
-                        },
-                    ],
+                    messages: openai_messages,
                 };
 
                 let url = openai_chat_completions_url(self.base_url.as_deref());
@@ -583,7 +655,23 @@ impl AiAnalyzer {
 
 #[cfg(test)]
 mod tests {
-    use super::openai_chat_completions_url;
+    use super::{flatten_messages_for_gemini, openai_chat_completions_url, ChatMessage};
+
+    #[test]
+    fn flattens_multi_turn_messages_for_gemini() {
+        let flat = flatten_messages_for_gemini(
+            "rules",
+            &[
+                ChatMessage::user("first"),
+                ChatMessage::assistant("reply"),
+                ChatMessage::user("second"),
+            ],
+        );
+        assert!(flat.starts_with("SYSTEM:\nrules"));
+        assert!(flat.contains("USER:\nfirst"));
+        assert!(flat.contains("ASSISTANT:\nreply"));
+        assert!(flat.contains("USER:\nsecond"));
+    }
 
     #[test]
     fn normalizes_openai_compatible_chat_urls() {

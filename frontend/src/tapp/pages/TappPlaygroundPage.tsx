@@ -27,6 +27,7 @@ import { TappWidgetSandbox } from '../runtime/TappWidgetSandbox'
 import { installFromCode } from '../services/TappApiService'
 import { generatePlaygroundProject } from '../services/TappPlaygroundService'
 import {
+  buildPlaygroundMemoryHistory,
   clearSessionContent,
   createAndActivateSession,
   deleteSession,
@@ -637,6 +638,9 @@ export function TappPlaygroundPage() {
     setError('')
     setNotice('')
     if (origin === 'user') setPreviewError('')
+    // Snapshot multi-turn memory BEFORE clearing the failure banner so a prior
+    // failed attempt is still sent as a failed tail entry.
+    const history = buildPlaygroundMemoryHistory(session)
     // Clear prior failure banner while a new attempt is in flight
     setStore((current) =>
       updateActiveSession(
@@ -654,6 +658,7 @@ export function TappPlaygroundPage() {
         instruction: prompt.trim(),
         currentProject: project,
         runtimeFeedback,
+        history,
       })
       setStore((current) =>
         updateActiveSession(current, (active) =>

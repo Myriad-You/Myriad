@@ -11,12 +11,6 @@ export interface TappPlaygroundProject {
   }
 }
 
-export interface GeneratePlaygroundRequest {
-  instruction: string
-  currentProject?: TappPlaygroundProject
-  runtimeFeedback?: string[]
-}
-
 export interface PlaygroundAgentStep {
   tool: string
   status: 'success' | 'failed' | 'fallback' | 'running'
@@ -33,6 +27,32 @@ export interface PlaygroundValidationReport {
   passed: boolean
   attempts: number
   checks: string[]
+}
+
+/**
+ * One turn in the multi-turn modification memory chain sent to the agent.
+ * Successful turns include a full project snapshot; failed tails may omit it.
+ */
+export interface PlaygroundMemoryTurn {
+  instruction: string
+  explanation: string
+  origin?: 'user' | 'runtime-repair'
+  createdAt: number
+  warnings?: string[]
+  validation?: PlaygroundValidationReport
+  /** Full project snapshot after this turn (required for successful turns). */
+  project?: TappPlaygroundProject
+  /** Marks a failed attempt tail entry. */
+  failed?: boolean
+  error?: string
+}
+
+export interface GeneratePlaygroundRequest {
+  instruction: string
+  currentProject?: TappPlaygroundProject
+  runtimeFeedback?: string[]
+  /** Chronological multi-turn memory (revisions + optional failed tail). */
+  history?: PlaygroundMemoryTurn[]
 }
 
 export interface GeneratePlaygroundResponse {

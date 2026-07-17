@@ -1896,6 +1896,13 @@ export const jaJP: TranslationKeys = {
       '現在のセッションの全バージョンを消去しますか？この操作は取り消せません。',
     playgroundHistory: '履歴',
     playgroundSessions: 'セッション',
+    playgroundMemoryChain: '修正の流れ',
+    playgroundMemoryChainEmpty:
+      'まだ修正の流れはありません。生成や編集を行うと、ユーザーとエージェントの往復がここに表示されます。',
+    playgroundMemoryUser: 'ユーザー',
+    playgroundMemoryAgent: 'エージェント',
+    playgroundMemoryFailed: '失敗',
+    playgroundMemoryNoExplanation: '（説明なし）',
     playgroundNewSession: '新しいセッション',
     playgroundDeleteSession: 'セッションを削除',
     playgroundDeleteSessionConfirm:
