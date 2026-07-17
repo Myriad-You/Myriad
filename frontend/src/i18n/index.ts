@@ -1779,6 +1779,10 @@ export interface TranslationKeys {
     playgroundPhaseCodeDesc: string
     playgroundPhaseValidateDesc: string
     playgroundBusyHint: string
+    /** Idle/composer cost & duration hint (Pro model, several minutes). */
+    playgroundCostHint: string
+    /** Shown after a successful run with elapsed time. */
+    playgroundElapsedSuccess: string
     playgroundEmptyTitle: string
     playgroundEmptyDesc: string
     playgroundCodeEmpty: string
@@ -1795,6 +1799,40 @@ export interface TranslationKeys {
     playgroundAgentTrace: string
     playgroundKnowledgeSources: string
     playgroundValidated: string
+    /** One-click example prompt chip labels / fill text. */
+    playgroundExampleCountdown: string
+    playgroundExampleNotes: string
+    playgroundExampleWidgetStats: string
+    playgroundExampleTodo: string
+    playgroundExamplePomodoro: string
+    playgroundExampleMarkdown: string
+    playgroundExampleLabelCountdown: string
+    playgroundExampleLabelNotes: string
+    playgroundExampleLabelWidgetStats: string
+    playgroundExampleLabelTodo: string
+    playgroundExampleLabelPomodoro: string
+    playgroundExampleLabelMarkdown: string
+    playgroundExamplesLabel: string
+    /** Preview capability note (storage / ui basics only). */
+    playgroundPreviewCapabilities: string
+    playgroundPreviewCapabilitiesDismiss: string
+    /** localStorage prune one-shot notice. */
+    playgroundPruneNotice: string
+    playgroundPruneNoticeSessions: string
+    playgroundPruneNoticeRevisions: string
+    /** Version diff UI. */
+    playgroundDiff: string
+    playgroundDiffClose: string
+    playgroundDiffVsPrevious: string
+    playgroundDiffPickRevisions: string
+    playgroundDiffUnified: string
+    playgroundDiffSideBySide: string
+    playgroundDiffEmpty: string
+    playgroundDiffNoChanges: string
+    playgroundDiffBase: string
+    playgroundDiffCompare: string
+    playgroundDiffAdded: string
+    playgroundDiffRemoved: string
 
     // 安装弹窗
     installTappTitle: string

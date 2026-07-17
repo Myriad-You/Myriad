@@ -1938,7 +1938,10 @@ export const jaJP: TranslationKeys = {
     playgroundPhaseValidateDesc:
       'マニフェスト・リソース・権限を検証し、必要に応じて自動修復します',
     playgroundBusyHint:
-      'Pro モデルがプロジェクト全体を生成しています。ページを開いたままにしてください',
+      'Pro モデル · 数分かかることがあります。ページを開いたままにしてください',
+    playgroundCostHint:
+      'Pro モデルを使用します。複雑なアプリは数分かかることがあります',
+    playgroundElapsedSuccess: '{time} で完了',
     playgroundEmptyTitle: 'ひとことから始める',
     playgroundEmptyDesc:
       'アイデアを説明すると、AI が完全な Tapp プロジェクトを生成し、ここですぐに実行します。',
@@ -1958,6 +1961,46 @@ export const jaJP: TranslationKeys = {
     playgroundAgentTrace: '生成プロセス',
     playgroundKnowledgeSources: '参照ドキュメント',
     playgroundValidated: '検証済み',
+    playgroundExampleCountdown:
+      'フルスクリーンのカウントダウンを作って。5/15/25分プリセット、一時停止/リセット、終了時に軽い通知',
+    playgroundExampleNotes:
+      'シンプルなメモアプリ：作成/編集/削除、タイトル検索、storage で永続化',
+    playgroundExampleWidgetStats:
+      '統計ダッシュボードのページと 2x2 ウィジェット：今日の回数・連続日数・+1 ボタン',
+    playgroundExampleTodo:
+      'TODO リスト：優先度、フィルタ（すべて/未完了/完了）、ローカル storage で保存',
+    playgroundExamplePomodoro:
+      'ポモドーロタイマー：集中/休憩モード、タスク名、短いセッション履歴',
+    playgroundExampleMarkdown:
+      'Markdown メモ帳：ライブプレビュー、文字数、storage 自動保存',
+    playgroundExampleLabelCountdown: 'カウントダウン',
+    playgroundExampleLabelNotes: 'メモ',
+    playgroundExampleLabelWidgetStats: 'ウィジェット統計',
+    playgroundExampleLabelTodo: 'TODO',
+    playgroundExampleLabelPomodoro: 'ポモドーロ',
+    playgroundExampleLabelMarkdown: 'Markdown',
+    playgroundExamplesLabel: '例を試す',
+    playgroundPreviewCapabilities:
+      'プレビューでは storage・settings・ui:theme・ui:confirm・全画面などが使えます。その他の権限はインストール後に利用できます。',
+    playgroundPreviewCapabilitiesDismiss: '了解',
+    playgroundPruneNotice:
+      'ブラウザの保存容量がいっぱいだったため、古い履歴を整理しました。',
+    playgroundPruneNoticeSessions:
+      '容量確保のため、古いセッションを {n} 件削除しました。',
+    playgroundPruneNoticeRevisions:
+      '容量確保のため、古いリビジョンを {n} 件整理しました。',
+    playgroundDiff: '差分',
+    playgroundDiffClose: '差分を閉じる',
+    playgroundDiffVsPrevious: '現在 vs 直前',
+    playgroundDiffPickRevisions: 'バージョンを比較',
+    playgroundDiffUnified: '統合',
+    playgroundDiffSideBySide: '左右',
+    playgroundDiffEmpty: 'このファイルを比較する 2 つのバージョンを選んでください。',
+    playgroundDiffNoChanges: '選択したバージョン間で、このファイルに変更はありません。',
+    playgroundDiffBase: '基準',
+    playgroundDiffCompare: '比較',
+    playgroundDiffAdded: '+{n}',
+    playgroundDiffRemoved: '−{n}',
 
     // インストールモーダル
     installTappTitle: 'Tapp アプリをインストール',

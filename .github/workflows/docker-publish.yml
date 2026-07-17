@@ -36,6 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       should_build: ${{ steps.check.outputs.should_build }}
+      skip_reason: ${{ steps.check.outputs.skip_reason }}
     steps:
       - id: check
         env:
@@ -44,6 +45,7 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "should_build=true" >>"$GITHUB_OUTPUT"
+            echo "skip_reason=" >>"$GITHUB_OUTPUT"
             echo "Manual dispatch — will package"
             exit 0
           fi
@@ -52,11 +54,55 @@ jobs:
           echo "Commit title: $TITLE"
           if printf '%s\n' "$TITLE" | grep -qF -- '-p'; then
             echo "should_build=true" >>"$GITHUB_OUTPUT"
+            echo "skip_reason=" >>"$GITHUB_OUTPUT"
             echo "Title contains -p — will package"
           else
             echo "should_build=false" >>"$GITHUB_OUTPUT"
+            echo "skip_reason=commit title has no -p" >>"$GITHUB_OUTPUT"
             echo "Title has no -p — skip package"
           fi
+
+  # Always runs so GitHub UI shows an explicit skip (not a quiet green empty workflow).
+  packaging-status:
+    name: Packaging status
+    needs: should-build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report packaging decision
+        env:
+          SHOULD_BUILD: ${{ needs.should-build.outputs.should_build }}
+          SKIP_REASON: ${{ needs.should-build.outputs.skip_reason }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          {
+            echo "## Dev image packaging"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "Packaging will run: workflow_dispatch"
+            {
+              echo "**Result:** packaging **will run** (manual \`workflow_dispatch\`)."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if [ "$SHOULD_BUILD" = "true" ]; then
+            echo "Packaging will run: commit title contains -p"
+            {
+              echo "**Result:** packaging **will run** (commit title contains \`-p\`)."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          REASON="${SKIP_REASON:-commit title has no -p}"
+          echo "Packaging skipped: $REASON"
+          {
+            echo "**Result:** packaging **skipped** — $REASON"
+            echo ""
+            echo "No Docker images were built or pushed."
+            echo "To package on push, include \`-p\` in the **commit title**, or run this workflow via **workflow_dispatch**."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   resolve:
     name: Resolve components

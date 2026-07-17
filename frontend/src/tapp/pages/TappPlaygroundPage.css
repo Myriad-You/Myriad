@@ -215,6 +215,121 @@
   }
 }
 
+/* ============================================================
+   Version diff (code pane) — glass-friendly mono view
+   ============================================================ */
+
+.playground-diff {
+  font-family:
+    ui-monospace, sfmono-regular, menlo, monaco, consolas, monospace;
+  font-size: 0.7rem;
+  line-height: 1.35rem;
+  min-height: 100%;
+}
+
+.playground-diff--unified {
+  padding: 0.5rem 0;
+}
+
+.playground-diff-line {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0 0.75rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.playground-diff-line--add {
+  background: rgb(16 185 129 / 12%);
+  color: #86efac;
+}
+
+.playground-diff-line--remove {
+  background: rgb(239 68 68 / 12%);
+  color: #fca5a5;
+}
+
+.playground-diff-line--equal {
+  color: #9ca3af;
+}
+
+.playground-diff-ln {
+  width: 2.25rem;
+  flex-shrink: 0;
+  text-align: right;
+  color: #4b5563;
+  user-select: none;
+}
+
+.playground-diff-sign {
+  width: 0.75rem;
+  flex-shrink: 0;
+  user-select: none;
+  opacity: 0.8;
+}
+
+.playground-diff-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.playground-diff--side {
+  display: flex;
+  flex-direction: column;
+}
+
+.playground-diff-side-head {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: rgb(13 15 20 / 92%);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid rgb(255 255 255 / 8%);
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #9ca3af;
+  padding: 0.35rem 0.5rem;
+}
+
+.playground-diff-side-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: rgb(255 255 255 / 4%);
+}
+
+.playground-diff-cell {
+  display: flex;
+  gap: 0.35rem;
+  padding: 0 0.5rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-height: 1.35rem;
+  background: #0d0f14;
+}
+
+.playground-diff-cell--add {
+  background: rgb(16 185 129 / 12%);
+  color: #86efac;
+}
+
+.playground-diff-cell--remove {
+  background: rgb(239 68 68 / 12%);
+  color: #fca5a5;
+}
+
+.playground-diff-cell--equal {
+  color: #9ca3af;
+}
+
+.playground-diff-cell--empty {
+  background: rgb(255 255 255 / 2%);
+  color: transparent;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .playground-island-aura {
     animation: none;

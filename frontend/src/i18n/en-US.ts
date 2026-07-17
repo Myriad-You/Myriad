@@ -1955,7 +1955,10 @@ export const enUS: TranslationKeys = {
     playgroundPhaseValidateDesc:
       'Validating manifest, resources and permissions; auto-repairing if needed',
     playgroundBusyHint:
-      'The Pro model is generating the full project — keep this page open',
+      'Pro model · often several minutes — keep this page open',
+    playgroundCostHint:
+      'Uses the Pro model; complex apps may take several minutes',
+    playgroundElapsedSuccess: 'Done in {time}',
     playgroundEmptyTitle: 'Start with an idea',
     playgroundEmptyDesc:
       'Describe what you want and AI will generate a complete Tapp project, then run it right here.',
@@ -1975,6 +1978,46 @@ export const enUS: TranslationKeys = {
     playgroundAgentTrace: 'Build steps',
     playgroundKnowledgeSources: 'Referenced docs',
     playgroundValidated: 'Validated',
+    playgroundExampleCountdown:
+      'Build a full-screen countdown timer with presets (5/15/25 min), pause/reset, and a soft chime when done',
+    playgroundExampleNotes:
+      'Build a simple notes app: create/edit/delete notes, search by title, and persist with storage',
+    playgroundExampleWidgetStats:
+      'Build a stats dashboard page plus a 2x2 widget that shows today’s count, streak, and a quick +1 button',
+    playgroundExampleTodo:
+      'Build a todo list with priorities, filters (all/active/done), and local storage persistence',
+    playgroundExamplePomodoro:
+      'Build a Pomodoro timer with focus/break modes, a task name field, and a short session history',
+    playgroundExampleMarkdown:
+      'Build a markdown scratchpad with live preview, word count, and storage-backed autosave',
+    playgroundExampleLabelCountdown: 'Countdown',
+    playgroundExampleLabelNotes: 'Notes',
+    playgroundExampleLabelWidgetStats: 'Widget stats',
+    playgroundExampleLabelTodo: 'Todo list',
+    playgroundExampleLabelPomodoro: 'Pomodoro',
+    playgroundExampleLabelMarkdown: 'Markdown pad',
+    playgroundExamplesLabel: 'Try an example',
+    playgroundPreviewCapabilities:
+      'Preview supports storage, settings, ui:theme, ui:confirm, and fullscreen. Other permissions need Install.',
+    playgroundPreviewCapabilitiesDismiss: 'Got it',
+    playgroundPruneNotice:
+      'Browser storage was full — older history was trimmed to free space.',
+    playgroundPruneNoticeSessions:
+      'Removed {n} older session(s) to free browser storage.',
+    playgroundPruneNoticeRevisions:
+      'Trimmed {n} older revision(s) to free browser storage.',
+    playgroundDiff: 'Diff',
+    playgroundDiffClose: 'Close diff',
+    playgroundDiffVsPrevious: 'Current vs previous',
+    playgroundDiffPickRevisions: 'Compare versions',
+    playgroundDiffUnified: 'Unified',
+    playgroundDiffSideBySide: 'Side by side',
+    playgroundDiffEmpty: 'Pick two versions to compare this file.',
+    playgroundDiffNoChanges: 'No changes in this file between the selected versions.',
+    playgroundDiffBase: 'Base',
+    playgroundDiffCompare: 'Compare',
+    playgroundDiffAdded: '+{n}',
+    playgroundDiffRemoved: '−{n}',
 
     // Install modal
     installTappTitle: 'Install Tapp App',

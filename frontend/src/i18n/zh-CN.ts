@@ -1855,7 +1855,9 @@ export const zhCN: TranslationKeys = {
     playgroundPhaseRetrieveDesc: '从仓库文档检索相关的 Tapp 契约片段',
     playgroundPhaseCodeDesc: '编写完整项目代码，复杂需求可能需要几分钟',
     playgroundPhaseValidateDesc: '验证 manifest、资源与权限，必要时自动修复重试',
-    playgroundBusyHint: 'Pro 模型正在生成完整项目，请保持页面打开',
+    playgroundBusyHint: 'Pro 模型 · 可能需要数分钟，请保持页面打开',
+    playgroundCostHint: '使用 Pro 模型；复杂应用可能需要数分钟',
+    playgroundElapsedSuccess: '完成，用时 {time}',
     playgroundEmptyTitle: '从一句话开始',
     playgroundEmptyDesc:
       '描述你的想法，AI 会生成完整的 Tapp 项目，并立即在这里运行预览。',
@@ -1874,6 +1876,44 @@ export const zhCN: TranslationKeys = {
     playgroundAgentTrace: '生成过程',
     playgroundKnowledgeSources: '参考文档',
     playgroundValidated: '已验证',
+    playgroundExampleCountdown:
+      '做一个全屏倒计时：预设 5/15/25 分钟，支持暂停/重置，结束时轻声提示',
+    playgroundExampleNotes:
+      '做一个简单笔记应用：新建/编辑/删除笔记，按标题搜索，并用 storage 持久化',
+    playgroundExampleWidgetStats:
+      '做一个统计面板页面，并带 2x2 小组件：显示今日次数、连续天数和一键 +1',
+    playgroundExampleTodo:
+      '做一个待办清单：优先级、筛选（全部/进行中/已完成），并用本地 storage 保存',
+    playgroundExamplePomodoro:
+      '做一个番茄钟：专注/休息模式、任务名输入，以及简短的会话历史',
+    playgroundExampleMarkdown:
+      '做一个 Markdown 草稿本：实时预览、字数统计，并用 storage 自动保存',
+    playgroundExampleLabelCountdown: '倒计时',
+    playgroundExampleLabelNotes: '笔记',
+    playgroundExampleLabelWidgetStats: '小组件统计',
+    playgroundExampleLabelTodo: '待办清单',
+    playgroundExampleLabelPomodoro: '番茄钟',
+    playgroundExampleLabelMarkdown: 'Markdown',
+    playgroundExamplesLabel: '试试示例',
+    playgroundPreviewCapabilities:
+      '预览仅支持 storage、settings、ui:theme、ui:confirm 与全屏等能力；其他权限需安装后使用。',
+    playgroundPreviewCapabilitiesDismiss: '知道了',
+    playgroundPruneNotice:
+      '浏览器存储已满，已自动清理较早的历史以腾出空间。',
+    playgroundPruneNoticeSessions: '已移除 {n} 个较早会话以腾出存储空间。',
+    playgroundPruneNoticeRevisions: '已裁剪 {n} 个较早版本以腾出存储空间。',
+    playgroundDiff: '对比',
+    playgroundDiffClose: '关闭对比',
+    playgroundDiffVsPrevious: '当前 vs 上一版',
+    playgroundDiffPickRevisions: '选择版本对比',
+    playgroundDiffUnified: '统一视图',
+    playgroundDiffSideBySide: '并排',
+    playgroundDiffEmpty: '选择两个版本以对比当前文件。',
+    playgroundDiffNoChanges: '所选版本之间，该文件没有变化。',
+    playgroundDiffBase: '基准',
+    playgroundDiffCompare: '对比',
+    playgroundDiffAdded: '+{n}',
+    playgroundDiffRemoved: '−{n}',
 
     // 安装弹窗
     installTappTitle: '安装 Tapp 应用',

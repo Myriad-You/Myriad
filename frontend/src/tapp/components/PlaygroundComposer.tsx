@@ -62,6 +62,12 @@ export interface PlaygroundSessionSummary {
   revisionCount: number
 }
 
+export interface PlaygroundExamplePrompt {
+  id: string
+  label: string
+  prompt: string
+}
+
 export interface PlaygroundComposerProps {
   /** 桌面浮动布局（absolute）或移动端固定布局（fixed） */
   interactive: boolean
@@ -87,6 +93,14 @@ export interface PlaygroundComposerProps {
   validation?: PlaygroundValidationReport
   /** Persisted last failed generate attempt (localStorage via parent) */
   lastFailedAttempt?: PlaygroundLastFailedAttempt | null
+  /** Last successful generation elapsed ms (for status band). */
+  lastSuccessElapsedMs?: number | null
+  /** One-click example prompts (empty create state). */
+  examplePrompts?: PlaygroundExamplePrompt[]
+  /** Dismissible preview capability note (null/empty = hidden). */
+  capabilityNote?: string
+  /** One-shot localStorage prune notice. */
+  storageNotice?: string
   onInstructionChange: (value: string) => void
   onSubmit: () => void
   /** Cancel in-flight generation (shown while busy). */
@@ -104,6 +118,9 @@ export interface PlaygroundComposerProps {
   onDismissNotice: () => void
   onRetryFailed?: () => void
   onDismissFailed?: () => void
+  onPickExample?: (prompt: string) => void
+  onDismissCapabilityNote?: () => void
+  onDismissStorageNotice?: () => void
 }
 
 function originLabel(
@@ -210,6 +227,17 @@ function NotificationCard({
 
 /* ---------- 控制岛 ---------- */
 
+function formatElapsedClock(totalSeconds: number): string {
+  return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')}`
+}
+
+/** Short chip label from a full example prompt (first ~22 chars). */
+function exampleChipLabel(text: string, max = 22): string {
+  const cleaned = text.replace(/\s+/g, ' ').trim()
+  if (cleaned.length <= max) return cleaned
+  return `${cleaned.slice(0, max - 1)}…`
+}
+
 export function PlaygroundComposer({
   interactive,
   busy,
@@ -231,6 +259,10 @@ export function PlaygroundComposer({
   knowledgeSources,
   validation,
   lastFailedAttempt,
+  lastSuccessElapsedMs = null,
+  examplePrompts = [],
+  capabilityNote,
+  storageNotice,
   onInstructionChange,
   onSubmit,
   onCancel,
@@ -247,6 +279,9 @@ export function PlaygroundComposer({
   onDismissNotice,
   onRetryFailed,
   onDismissFailed,
+  onPickExample,
+  onDismissCapabilityNote,
+  onDismissStorageNotice,
 }: PlaygroundComposerProps) {
   const { t, format } = useI18n()
   const animConfig = useAnimationLevel()
@@ -308,13 +343,17 @@ export function PlaygroundComposer({
   ]
   const phaseIndex =
     busyElapsed < 5 ? 0 : busyElapsed < 14 ? 1 : busyElapsed < 90 ? 2 : 3
-  const formatElapsed = (totalSeconds: number) =>
-    `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')}`
-  const elapsedLabel = formatElapsed(busyElapsed)
+  const elapsedLabel = formatElapsedClock(busyElapsed)
 
   const failedElapsedLabel = lastFailedAttempt
-    ? formatElapsed(Math.max(0, Math.floor(lastFailedAttempt.elapsedMs / 1000)))
+    ? formatElapsedClock(
+        Math.max(0, Math.floor(lastFailedAttempt.elapsedMs / 1000)),
+      )
     : ''
+  const successElapsedLabel =
+    lastSuccessElapsedMs != null && lastSuccessElapsedMs >= 0
+      ? formatElapsedClock(Math.max(0, Math.floor(lastSuccessElapsedMs / 1000)))
+      : ''
   const failedPhaseIndex = Math.min(
     3,
     Math.max(
@@ -425,6 +464,28 @@ export function PlaygroundComposer({
               dismissLabel={t.common.close}
             >
               {previewError}
+            </NotificationCard>
+          )}
+          {capabilityNote && (
+            <NotificationCard
+              key="capability-note"
+              tone="warning"
+              onDismiss={onDismissCapabilityNote}
+              dismissLabel={
+                t.tapp.playgroundPreviewCapabilitiesDismiss || t.common.close
+              }
+            >
+              {capabilityNote}
+            </NotificationCard>
+          )}
+          {storageNotice && (
+            <NotificationCard
+              key="storage-notice"
+              tone="warning"
+              onDismiss={onDismissStorageNotice}
+              dismissLabel={t.common.close}
+            >
+              {storageNotice}
             </NotificationCard>
           )}
           {warnings.map((warning) => (
@@ -1124,7 +1185,7 @@ export function PlaygroundComposer({
                   </AnimatePresence>
                 </div>
               </motion.div>
-            ) : agentTrace?.length ? (
+            ) : agentTrace?.length || successElapsedLabel ? (
               <motion.div
                 key="status-trace"
                 initial={{ opacity: 0, height: 0 }}
@@ -1135,9 +1196,14 @@ export function PlaygroundComposer({
               >
                 <div className="border-b border-black/5 dark:border-white/5">
                   <button
-                    onClick={() => setTraceOpen((open) => !open)}
+                    onClick={() =>
+                      agentTrace?.length
+                        ? setTraceOpen((open) => !open)
+                        : undefined
+                    }
                     className="w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-black/[0.02] dark:hover:bg-white/[0.03] transition-colors"
-                    aria-expanded={traceOpen}
+                    aria-expanded={agentTrace?.length ? traceOpen : false}
+                    disabled={!agentTrace?.length}
                   >
                     <PlaygroundTraceIcon
                       className="w-3.5 h-3.5 shrink-0"
@@ -1147,7 +1213,11 @@ export function PlaygroundComposer({
                       className="text-xs font-semibold"
                       style={{ color: 'var(--text-primary)' }}
                     >
-                      {t.tapp.playgroundAgentTrace}
+                      {agentTrace?.length
+                        ? t.tapp.playgroundAgentTrace
+                        : format(t.tapp.playgroundElapsedSuccess, {
+                            time: successElapsedLabel,
+                          })}
                     </span>
                     {validation?.passed && (
                       <span
@@ -1162,24 +1232,43 @@ export function PlaygroundComposer({
                         {t.tapp.playgroundValidated} · {validation.attempts}
                       </span>
                     )}
-                    <span
-                      className="ml-auto text-[10px] font-mono"
-                      style={{ color: 'var(--text-muted)' }}
-                    >
-                      {agentTrace.length}
-                    </span>
-                    <motion.span
-                      animate={{ rotate: traceOpen ? 180 : 0 }}
-                      transition={{ duration: 0.2 }}
-                      className="shrink-0"
-                      style={{ color: 'var(--text-muted)' }}
-                    >
-                      <FaChevronDown className="w-2.5 h-2.5" />
-                    </motion.span>
+                    {successElapsedLabel && agentTrace?.length ? (
+                      <span
+                        className="text-[10px] font-mono tabular-nums"
+                        style={{ color: 'var(--text-muted)' }}
+                        title={format(t.tapp.playgroundElapsedSuccess, {
+                          time: successElapsedLabel,
+                        })}
+                      >
+                        {format(t.tapp.playgroundElapsedSuccess, {
+                          time: successElapsedLabel,
+                        })}
+                      </span>
+                    ) : null}
+                    {agentTrace?.length ? (
+                      <span
+                        className="ml-auto text-[10px] font-mono"
+                        style={{ color: 'var(--text-muted)' }}
+                      >
+                        {agentTrace.length}
+                      </span>
+                    ) : (
+                      <span className="ml-auto" />
+                    )}
+                    {agentTrace?.length ? (
+                      <motion.span
+                        animate={{ rotate: traceOpen ? 180 : 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="shrink-0"
+                        style={{ color: 'var(--text-muted)' }}
+                      >
+                        <FaChevronDown className="w-2.5 h-2.5" />
+                      </motion.span>
+                    ) : null}
                   </button>
 
                   <AnimatePresence initial={false}>
-                    {traceOpen && (
+                    {traceOpen && agentTrace?.length ? (
                       <motion.div
                         key="trace-body"
                         initial={{ opacity: 0, height: 0 }}
@@ -1262,7 +1351,7 @@ export function PlaygroundComposer({
                           ) : null}
                         </div>
                       </motion.div>
-                    )}
+                    ) : null}
                   </AnimatePresence>
                 </div>
               </motion.div>
@@ -1292,6 +1381,42 @@ export function PlaygroundComposer({
               }}
               maxLength={8000}
             />
+
+            {/* Example prompt chips — create / empty instruction only */}
+            {!hasProject &&
+              !busy &&
+              !instruction.trim() &&
+              examplePrompts.length > 0 &&
+              onPickExample && (
+                <div className="pb-1.5">
+                  <div
+                    className="mb-1.5 text-[10px] font-semibold"
+                    style={{ color: 'var(--text-muted)' }}
+                  >
+                    {t.tapp.playgroundExamplesLabel}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {examplePrompts.map((example) => (
+                      <button
+                        key={example.id}
+                        type="button"
+                        onClick={() => onPickExample(example.prompt)}
+                        title={example.prompt}
+                        className="max-w-full truncate rounded-full px-2.5 py-1 text-[10px] font-medium transition-colors hover:bg-black/10 dark:hover:bg-white/15"
+                        style={{
+                          color: 'var(--text-secondary)',
+                          background:
+                            'color-mix(in srgb, var(--color-primary) 10%, transparent)',
+                          border:
+                            '1px solid color-mix(in srgb, var(--color-primary) 18%, transparent)',
+                        }}
+                      >
+                        {example.label || exampleChipLabel(example.prompt)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
           </div>
 
           {/* ---------- 工具栏 ---------- */}
@@ -1355,11 +1480,16 @@ export function PlaygroundComposer({
               </button>
             )}
 
-            {/* 提示语：空闲时快捷键说明，生成时耐心提示 */}
+            {/* 提示语：空闲时成本/耗时 + 快捷键；生成时耐心提示 */}
             <span
               className="hidden md:block flex-1 min-w-0 truncate text-right pr-1 text-[10px] text-gray-400 dark:text-gray-500"
+              title={
+                busy
+                  ? t.tapp.playgroundBusyHint
+                  : `${t.tapp.playgroundCostHint} · ${t.tapp.playgroundShortcut}`
+              }
             >
-              {busy ? t.tapp.playgroundBusyHint : t.tapp.playgroundShortcut}
+              {busy ? t.tapp.playgroundBusyHint : t.tapp.playgroundCostHint}
             </span>
             <span className="md:hidden flex-1" />
 

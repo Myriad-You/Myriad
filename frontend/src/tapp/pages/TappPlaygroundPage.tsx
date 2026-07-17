@@ -8,7 +8,18 @@
 import type { PlaygroundLastFailedAttempt } from '../components/PlaygroundComposer'
 import type { TappPlaygroundProject } from '../services/TappPlaygroundService'
 import type { TappCodeStructure, TappInstance, WidgetSize } from '../types'
-import { FaArrowLeft, FaCode, FaGripVertical, FaLock } from '@lib/icons'
+import type {
+  PlaygroundSessionsStore,
+  PruneStoreMeta,
+} from '../utils/playgroundSession'
+import {
+  FaArrowLeft,
+  FaCode,
+  FaExchangeAlt,
+  FaGripVertical,
+  FaLock,
+  FaTimes,
+} from '@lib/icons'
 import {
   AnimatePresenceShim as AnimatePresence,
   motionShim as motion,
@@ -28,21 +39,28 @@ import { installFromCode } from '../services/TappApiService'
 import { generatePlaygroundProject } from '../services/TappPlaygroundService'
 import { exportPlaygroundProjectAsTapp } from '../utils/exportPlaygroundTapp'
 import {
+  computeLineDiff,
+  countDiffChanges,
+  toSideBySide,
+} from '../utils/playgroundDiff'
+import {
   buildPlaygroundMemoryHistory,
   clearSessionContent,
-  createAndActivateSession,
-  deleteSession,
+  createAndActivateSessionWithMeta,
+  deleteSessionWithMeta,
   getActiveSession,
   loadSessionsStore,
   pushManualEditRevision,
   pushRevision,
   saveSessionsStore,
   switchSession,
-  updateActiveSession,
-  type PlaygroundSessionsStore,
+  updateActiveSessionWithMeta,
 } from '../utils/playgroundSession'
 import 'prismjs/components/prism-json'
 import './TappPlaygroundPage.css'
+
+const CAPABILITY_NOTE_DISMISS_KEY =
+  'myriad:tapp-playground:capability-note-dismissed'
 
 type FileId =
   | 'manifest'
@@ -522,7 +540,7 @@ function CodeEditor({
 
 export function TappPlaygroundPage() {
   const navigate = useNavigate()
-  const { t, locale } = useI18n()
+  const { t, locale, format } = useI18n()
   const { isMobile } = useBreakpoints()
   const { setImmersiveMode } = useNavigation()
   const animConfig = useAnimationLevel()
@@ -535,7 +553,27 @@ export function TappPlaygroundPage() {
   const [selectedFile, setSelectedFile] = useState<FileId>('page')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  /** One-shot storage prune warning (separate from success notice). */
+  const [pruneNotice, setPruneNotice] = useState('')
   const [previewError, setPreviewError] = useState('')
+  const [lastSuccessElapsedMs, setLastSuccessElapsedMs] = useState<
+    number | null
+  >(null)
+  const [capabilityNoteVisible, setCapabilityNoteVisible] = useState(() => {
+    if (typeof window === 'undefined') return true
+    try {
+      return sessionStorage.getItem(CAPABILITY_NOTE_DISMISS_KEY) !== '1'
+    } catch {
+      return true
+    }
+  })
+  const [diffOpen, setDiffOpen] = useState(false)
+  const [diffMode, setDiffMode] = useState<'unified' | 'side-by-side'>(
+    'unified',
+  )
+  /** Base revision index for diff; -1 = previous of current when using quick mode. */
+  const [diffBaseIndex, setDiffBaseIndex] = useState<number | null>(null)
+  const [diffCompareIndex, setDiffCompareIndex] = useState<number | null>(null)
   const [activePane, setActivePane] = useState<'preview' | 'code' | 'widget'>(
     'preview',
   )
@@ -552,6 +590,8 @@ export function TappPlaygroundPage() {
   const generateAbortRef = useRef<AbortController | null>(null)
   const userCancelledRef = useRef(false)
   const generateRequestIdRef = useRef(0)
+  /** Avoid re-notifying the same prune event on every effect run. */
+  const lastPruneNoticeKeyRef = useRef('')
 
   const animationsEnabled = animConfig.level !== 'none'
   const springTransition = animConfig.spring
@@ -629,6 +669,147 @@ export function TappPlaygroundPage() {
   useEffect(() => {
     saveSessionsStore(store)
   }, [store])
+
+  const applyPruneNotice = useCallback(
+    (meta: PruneStoreMeta) => {
+      if (!meta.changed) return
+      const key = `${meta.sessionsDropped}:${meta.revisionsTrimmed}`
+      if (lastPruneNoticeKeyRef.current === key) return
+      lastPruneNoticeKeyRef.current = key
+      if (meta.sessionsDropped > 0 && meta.revisionsTrimmed > 0) {
+        setPruneNotice(t.tapp.playgroundPruneNotice)
+      } else if (meta.sessionsDropped > 0) {
+        setPruneNotice(
+          format(t.tapp.playgroundPruneNoticeSessions, {
+            n: meta.sessionsDropped,
+          }),
+        )
+      } else if (meta.revisionsTrimmed > 0) {
+        setPruneNotice(
+          format(t.tapp.playgroundPruneNoticeRevisions, {
+            n: meta.revisionsTrimmed,
+          }),
+        )
+      }
+      // Allow the same shape of prune to notify again later
+      window.setTimeout(() => {
+        if (lastPruneNoticeKeyRef.current === key) {
+          lastPruneNoticeKeyRef.current = ''
+        }
+      }, 1500)
+    },
+    [t, format],
+  )
+
+  /** Commit store mutation that may prune; surface one-shot prune notice. */
+  const commitStore = useCallback(
+    (
+      mutator: (
+        current: PlaygroundSessionsStore,
+      ) => { store: PlaygroundSessionsStore; meta: PruneStoreMeta },
+    ) => {
+      let meta: PruneStoreMeta = {
+        sessionsDropped: 0,
+        revisionsTrimmed: 0,
+        changed: false,
+      }
+      setStore((current) => {
+        const result = mutator(current)
+        meta = result.meta
+        return result.store
+      })
+      if (meta.changed) {
+        queueMicrotask(() => applyPruneNotice(meta))
+      }
+      return meta
+    },
+    [applyPruneNotice],
+  )
+
+  const examplePrompts = useMemo(
+    () => [
+      {
+        id: 'countdown',
+        label: t.tapp.playgroundExampleLabelCountdown,
+        prompt: t.tapp.playgroundExampleCountdown,
+      },
+      {
+        id: 'notes',
+        label: t.tapp.playgroundExampleLabelNotes,
+        prompt: t.tapp.playgroundExampleNotes,
+      },
+      {
+        id: 'widget-stats',
+        label: t.tapp.playgroundExampleLabelWidgetStats,
+        prompt: t.tapp.playgroundExampleWidgetStats,
+      },
+      {
+        id: 'todo',
+        label: t.tapp.playgroundExampleLabelTodo,
+        prompt: t.tapp.playgroundExampleTodo,
+      },
+      {
+        id: 'pomodoro',
+        label: t.tapp.playgroundExampleLabelPomodoro,
+        prompt: t.tapp.playgroundExamplePomodoro,
+      },
+      {
+        id: 'markdown',
+        label: t.tapp.playgroundExampleLabelMarkdown,
+        prompt: t.tapp.playgroundExampleMarkdown,
+      },
+    ],
+    [t],
+  )
+
+  const openDiffVsPrevious = useCallback(() => {
+    if (session.revisions.length < 2) return
+    const idx = session.revisionIndex
+    if (idx > 0) {
+      setDiffBaseIndex(idx - 1)
+      setDiffCompareIndex(idx)
+    } else {
+      setDiffBaseIndex(0)
+      setDiffCompareIndex(1)
+    }
+    setDiffOpen(true)
+  }, [session.revisionIndex, session.revisions.length])
+
+  const diffLines = useMemo(() => {
+    if (!diffOpen || session.revisions.length < 2) return null
+    const baseIdx =
+      diffBaseIndex ??
+      (session.revisionIndex > 0 ? session.revisionIndex - 1 : null)
+    const compareIdx = diffCompareIndex ?? session.revisionIndex
+    if (
+      baseIdx == null ||
+      compareIdx == null ||
+      baseIdx < 0 ||
+      compareIdx < 0 ||
+      baseIdx >= session.revisions.length ||
+      compareIdx >= session.revisions.length
+    ) {
+      return null
+    }
+    const beforeProj = session.revisions[baseIdx]?.project
+    const afterProj = session.revisions[compareIdx]?.project
+    if (!beforeProj || !afterProj) return null
+    return {
+      baseIdx,
+      compareIdx,
+      lines: computeLineDiff(
+        fileContents(beforeProj, selectedFile),
+        fileContents(afterProj, selectedFile),
+      ),
+    }
+  }, [
+    diffOpen,
+    diffBaseIndex,
+    diffCompareIndex,
+    session.revisions,
+    session.revisionIndex,
+    selectedFile,
+  ])
 
   // 默认布局：预览居左约 55%，代码居右，底部为控制岛预留空间；
   // 存在小组件时左列上下拆分为页面预览 + 小组件预览两个窗格
@@ -714,13 +895,14 @@ export function TappPlaygroundPage() {
     setBusyMode(origin)
     setError('')
     setNotice('')
+    setLastSuccessElapsedMs(null)
     if (origin === 'user') setPreviewError('')
     // Snapshot multi-turn memory BEFORE clearing the failure banner so a prior
     // failed attempt is still sent as a failed tail entry.
     const history = buildPlaygroundMemoryHistory(session)
     // Clear prior failure banner while a new attempt is in flight
-    setStore((current) =>
-      updateActiveSession(
+    commitStore((current) =>
+      updateActiveSessionWithMeta(
         current,
         (active) =>
           active.lastFailedAttempt
@@ -747,8 +929,9 @@ export function TappPlaygroundPage() {
       ) {
         return
       }
-      setStore((current) =>
-        updateActiveSession(current, (active) =>
+      const elapsedMs = Date.now() - startedAt
+      commitStore((current) =>
+        updateActiveSessionWithMeta(current, (active) =>
           pushRevision(active, {
             project: response.project,
             explanation: response.explanation,
@@ -764,6 +947,7 @@ export function TappPlaygroundPage() {
       )
       if (origin === 'user') setInstruction('')
       setPreviewError('')
+      setLastSuccessElapsedMs(elapsedMs)
       setNotice(response.explanation)
     } catch (requestError) {
       if (requestId !== generateRequestIdRef.current) return
@@ -807,8 +991,8 @@ export function TappPlaygroundPage() {
         origin,
         phaseIndex: phaseIndexFromElapsedMs(elapsedMs),
       }
-      setStore((current) =>
-        updateActiveSession(current, (active) => ({
+      commitStore((current) =>
+        updateActiveSessionWithMeta(current, (active) => ({
           ...active,
           lastFailedAttempt: failed,
         })),
@@ -845,8 +1029,8 @@ export function TappPlaygroundPage() {
   }
 
   const dismissFailedAttempt = () => {
-    setStore((current) =>
-      updateActiveSession(
+    commitStore((current) =>
+      updateActiveSessionWithMeta(
         current,
         (active) =>
           active.lastFailedAttempt
@@ -896,8 +1080,8 @@ export function TappPlaygroundPage() {
     )
     if (revisionIndex === session.revisionIndex) return
     const nextRev = session.revisions[revisionIndex]
-    setStore((current) =>
-      updateActiveSession(
+    commitStore((current) =>
+      updateActiveSessionWithMeta(
         current,
         (active) => ({ ...active, revisionIndex }),
         false,
@@ -917,8 +1101,8 @@ export function TappPlaygroundPage() {
     )
     const nextRev = session.revisions[revisionIndex]
     if (revisionIndex !== session.revisionIndex) {
-      setStore((current) =>
-        updateActiveSession(
+      commitStore((current) =>
+        updateActiveSessionWithMeta(
           current,
           (active) => ({ ...active, revisionIndex }),
           false,
@@ -933,11 +1117,12 @@ export function TappPlaygroundPage() {
 
   const handleCreateSession = () => {
     if (busy) return
-    setStore((current) => createAndActivateSession(current))
+    commitStore((current) => createAndActivateSessionWithMeta(current))
     setInstruction('')
     setError('')
     setNotice('')
     setPreviewError('')
+    setLastSuccessElapsedMs(null)
     runtimeRepairCountRef.current = 0
     repairedRuntimeErrorsRef.current.clear()
   }
@@ -949,18 +1134,20 @@ export function TappPlaygroundPage() {
     setError('')
     setNotice('')
     setPreviewError('')
+    setLastSuccessElapsedMs(null)
     runtimeRepairCountRef.current = 0
     repairedRuntimeErrorsRef.current.clear()
   }
 
   const handleDeleteSession = (sessionId: string) => {
     if (busy) return
-    setStore((current) => deleteSession(current, sessionId))
+    commitStore((current) => deleteSessionWithMeta(current, sessionId))
     if (sessionId === store.activeSessionId) {
       setInstruction('')
       setError('')
       setNotice('')
       setPreviewError('')
+      setLastSuccessElapsedMs(null)
       runtimeRepairCountRef.current = 0
       repairedRuntimeErrorsRef.current.clear()
     }
@@ -1016,13 +1203,16 @@ export function TappPlaygroundPage() {
 
   const clearSession = () => {
     if (busy) cancelGeneration()
-    setStore((current) =>
-      updateActiveSession(current, (active) => clearSessionContent(active)),
+    commitStore((current) =>
+      updateActiveSessionWithMeta(current, (active) =>
+        clearSessionContent(active),
+      ),
     )
     setInstruction('')
     setError('')
     setNotice('')
     setPreviewError('')
+    setLastSuccessElapsedMs(null)
     runtimeRepairCountRef.current = 0
     repairedRuntimeErrorsRef.current.clear()
   }
@@ -1061,8 +1251,8 @@ export function TappPlaygroundPage() {
     }
     setDraftInvalid(false)
     const fileLabel = FILE_LABELS[file] || file
-    setStore((current) =>
-      updateActiveSession(
+    commitStore((current) =>
+      updateActiveSessionWithMeta(
         current,
         (active) => {
           const rev = active.revisions[active.revisionIndex]
@@ -1105,7 +1295,7 @@ export function TappPlaygroundPage() {
         true,
       ),
     )
-  }, [])
+  }, [commitStore])
 
   const handleCodeChange = (text: string) => {
     if (!project || busy) return
@@ -1210,6 +1400,29 @@ export function TappPlaygroundPage() {
             <p className="mt-2 text-sm text-gray-500 dark:text-gray-400 max-w-sm leading-relaxed">
               {t.tapp.playgroundEmptyDesc}
             </p>
+            <p className="mt-2 text-[11px] text-gray-400 dark:text-gray-500 max-w-sm">
+              {t.tapp.playgroundCostHint}
+            </p>
+            <div className="mt-4 flex flex-wrap justify-center gap-1.5 max-w-md">
+              {examplePrompts.map((example) => (
+                <button
+                  key={example.id}
+                  type="button"
+                  onClick={() => setInstruction(example.prompt)}
+                  title={example.prompt}
+                  className="rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors"
+                  style={{
+                    color: 'var(--color-primary)',
+                    background:
+                      'color-mix(in srgb, var(--color-primary) 12%, transparent)',
+                    border:
+                      '1px solid color-mix(in srgb, var(--color-primary) 20%, transparent)',
+                  }}
+                >
+                  {example.label}
+                </button>
+              ))}
+            </div>
           </motion.div>
         </div>
       )}
@@ -1369,6 +1582,34 @@ export function TappPlaygroundPage() {
       >
         {t.tapp.playgroundCodeTitle}
       </span>
+      {session.revisions.length >= 2 && (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation()
+            if (diffOpen) {
+              setDiffOpen(false)
+            } else {
+              openDiffVsPrevious()
+            }
+          }}
+          onMouseDown={(event) => event.stopPropagation()}
+          className={`ml-1 shrink-0 h-6 px-2 rounded-md text-[10px] font-semibold flex items-center gap-1 transition-colors ${
+            diffOpen
+              ? 'bg-white/15 text-white'
+              : 'text-gray-400 hover:text-gray-200 hover:bg-white/10'
+          }`}
+          title={
+            diffOpen
+              ? t.tapp.playgroundDiffClose
+              : t.tapp.playgroundDiffVsPrevious
+          }
+          aria-pressed={diffOpen}
+        >
+          <FaExchangeAlt className="w-2.5 h-2.5" />
+          {t.tapp.playgroundDiff}
+        </button>
+      )}
       {draftInvalid ? (
         <span className="ml-auto text-[10px] text-amber-500 whitespace-nowrap truncate">
           {t.tapp.playgroundInvalidJson}
@@ -1392,7 +1633,15 @@ export function TappPlaygroundPage() {
   const codeValue =
     draft ??
     (project ? fileContents(project, selectedFile) : t.tapp.playgroundCodeEmpty)
-  const codeReadOnly = !project || busy || selectedFile === 'assets'
+  const codeReadOnly = !project || busy || selectedFile === 'assets' || diffOpen
+
+  const diffStats = diffLines
+    ? countDiffChanges(diffLines.lines)
+    : { added: 0, removed: 0 }
+  const sideBySideRows =
+    diffLines && diffMode === 'side-by-side'
+      ? toSideBySide(diffLines.lines)
+      : null
 
   const codeContent = (
     <div className="absolute inset-0 flex flex-col bg-[#0d0f14] text-gray-200">
@@ -1419,17 +1668,186 @@ export function TappPlaygroundPage() {
           </button>
         ))}
       </div>
+
+      {diffOpen && session.revisions.length >= 2 && (
+        <div className="shrink-0 flex flex-wrap items-center gap-2 px-2.5 py-1.5 border-b border-white/10 bg-white/[0.03] backdrop-blur-md">
+          <label className="flex items-center gap-1 text-[10px] text-gray-400">
+            <span>{t.tapp.playgroundDiffBase}</span>
+            <select
+              value={diffLines?.baseIdx ?? diffBaseIndex ?? Math.max(0, session.revisionIndex - 1)}
+              onChange={(event) => {
+                setDiffBaseIndex(Number(event.target.value))
+                setDiffOpen(true)
+              }}
+              className="h-6 rounded-md bg-black/40 border border-white/10 px-1.5 text-[10px] text-gray-200"
+            >
+              {session.revisions.map((rev, index) => (
+                <option key={`base-${rev.id}`} value={index}>
+                  v{index + 1}
+                  {index === session.revisionIndex
+                    ? ` · ${t.tapp.playgroundCurrentRevision}`
+                    : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-1 text-[10px] text-gray-400">
+            <span>{t.tapp.playgroundDiffCompare}</span>
+            <select
+              value={
+                diffLines?.compareIdx ??
+                diffCompareIndex ??
+                session.revisionIndex
+              }
+              onChange={(event) => {
+                setDiffCompareIndex(Number(event.target.value))
+                setDiffOpen(true)
+              }}
+              className="h-6 rounded-md bg-black/40 border border-white/10 px-1.5 text-[10px] text-gray-200"
+            >
+              {session.revisions.map((rev, index) => (
+                <option key={`cmp-${rev.id}`} value={index}>
+                  v{index + 1}
+                  {index === session.revisionIndex
+                    ? ` · ${t.tapp.playgroundCurrentRevision}`
+                    : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={openDiffVsPrevious}
+            disabled={session.revisions.length < 2}
+            className="h-6 px-2 rounded-md text-[10px] font-medium text-gray-300 bg-white/5 hover:bg-white/10 disabled:opacity-30"
+          >
+            {t.tapp.playgroundDiffVsPrevious}
+          </button>
+          <div className="flex items-center rounded-md bg-black/30 p-0.5">
+            <button
+              type="button"
+              onClick={() => setDiffMode('unified')}
+              className={`h-5 px-2 rounded text-[10px] font-medium ${
+                diffMode === 'unified'
+                  ? 'bg-white/15 text-white'
+                  : 'text-gray-400'
+              }`}
+            >
+              {t.tapp.playgroundDiffUnified}
+            </button>
+            <button
+              type="button"
+              onClick={() => setDiffMode('side-by-side')}
+              className={`h-5 px-2 rounded text-[10px] font-medium ${
+                diffMode === 'side-by-side'
+                  ? 'bg-white/15 text-white'
+                  : 'text-gray-400'
+              }`}
+            >
+              {t.tapp.playgroundDiffSideBySide}
+            </button>
+          </div>
+          {diffLines && (
+            <span className="text-[10px] font-mono text-gray-400">
+              <span className="text-emerald-400">
+                {format(t.tapp.playgroundDiffAdded, { n: diffStats.added })}
+              </span>
+              {' '}
+              <span className="text-red-400">
+                {format(t.tapp.playgroundDiffRemoved, {
+                  n: diffStats.removed,
+                })}
+              </span>
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => setDiffOpen(false)}
+            className="ml-auto h-6 w-6 rounded-md grid place-items-center text-gray-400 hover:text-white hover:bg-white/10"
+            aria-label={t.tapp.playgroundDiffClose}
+          >
+            <FaTimes className="w-2.5 h-2.5" />
+          </button>
+        </div>
+      )}
+
       <div className="flex-1 min-h-0 overflow-auto">
-        <CodeEditor
-          value={codeValue}
-          language={FILE_LANGUAGE[selectedFile]}
-          readOnly={codeReadOnly}
-          label={
-            files.find((file) => file.id === selectedFile)?.label ||
-            selectedFile
-          }
-          onChange={handleCodeChange}
-        />
+        {diffOpen ? (
+          !diffLines ? (
+            <div className="p-4 text-xs text-gray-500">
+              {t.tapp.playgroundDiffEmpty}
+            </div>
+          ) : diffStats.added === 0 && diffStats.removed === 0 ? (
+            <div className="p-4 text-xs text-gray-500">
+              {t.tapp.playgroundDiffNoChanges}
+            </div>
+          ) : diffMode === 'side-by-side' && sideBySideRows ? (
+            <div className="playground-diff playground-diff--side">
+              <div className="playground-diff-side-head">
+                <span>
+                  v{(diffLines.baseIdx ?? 0) + 1}
+                </span>
+                <span>
+                  v{(diffLines.compareIdx ?? 0) + 1}
+                </span>
+              </div>
+              {sideBySideRows.map((row, index) => (
+                <div key={`sbs-${index}`} className="playground-diff-side-row">
+                  <div
+                    className={`playground-diff-cell playground-diff-cell--${row.left.op}`}
+                  >
+                    <span className="playground-diff-ln">
+                      {row.left.line ?? ''}
+                    </span>
+                    <span className="playground-diff-text">
+                      {row.left.text}
+                    </span>
+                  </div>
+                  <div
+                    className={`playground-diff-cell playground-diff-cell--${row.right.op}`}
+                  >
+                    <span className="playground-diff-ln">
+                      {row.right.line ?? ''}
+                    </span>
+                    <span className="playground-diff-text">
+                      {row.right.text}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="playground-diff playground-diff--unified">
+              {diffLines.lines.map((line, index) => (
+                <div
+                  key={`u-${index}`}
+                  className={`playground-diff-line playground-diff-line--${line.op}`}
+                >
+                  <span className="playground-diff-ln">
+                    {line.op === 'add'
+                      ? line.newLine ?? ''
+                      : line.oldLine ?? ''}
+                  </span>
+                  <span className="playground-diff-sign">
+                    {line.op === 'add' ? '+' : line.op === 'remove' ? '−' : ' '}
+                  </span>
+                  <span className="playground-diff-text">{line.text}</span>
+                </div>
+              ))}
+            </div>
+          )
+        ) : (
+          <CodeEditor
+            value={codeValue}
+            language={FILE_LANGUAGE[selectedFile]}
+            readOnly={codeReadOnly}
+            label={
+              files.find((file) => file.id === selectedFile)?.label ||
+              selectedFile
+            }
+            onChange={handleCodeChange}
+          />
+        )}
       </div>
     </div>
   )
@@ -1598,6 +2016,12 @@ export function TappPlaygroundPage() {
         knowledgeSources={revision?.knowledgeSources}
         validation={revision?.validation}
         lastFailedAttempt={session.lastFailedAttempt || null}
+        lastSuccessElapsedMs={lastSuccessElapsedMs}
+        examplePrompts={examplePrompts}
+        capabilityNote={
+          capabilityNoteVisible ? t.tapp.playgroundPreviewCapabilities : ''
+        }
+        storageNotice={pruneNotice}
         onInstructionChange={setInstruction}
         onSubmit={() => void runGeneration()}
         onCancel={cancelGeneration}
@@ -1614,6 +2038,16 @@ export function TappPlaygroundPage() {
         onDismissNotice={() => setNotice('')}
         onRetryFailed={() => void retryFailedAttempt()}
         onDismissFailed={dismissFailedAttempt}
+        onPickExample={(prompt) => setInstruction(prompt)}
+        onDismissCapabilityNote={() => {
+          setCapabilityNoteVisible(false)
+          try {
+            sessionStorage.setItem(CAPABILITY_NOTE_DISMISS_KEY, '1')
+          } catch {
+            // ignore
+          }
+        }}
+        onDismissStorageNotice={() => setPruneNotice('')}
       />
     </motion.div>
   )
