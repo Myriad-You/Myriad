@@ -402,6 +402,11 @@ export const zhCN: TranslationKeys = {
     updaterNoSnapshots: '还没有备份。第一次更新后会出现。',
     updaterRollback: '回退到此版本',
     updaterRollbackDispatched: '回退已开始',
+    updaterDeleteSnapshot: '删除',
+    updaterDeleteSnapshotConfirm:
+      '永久删除 {version} 的备份？\n\n此操作不可撤销，之后将无法回退到该备份。',
+    updaterDeleteSnapshotDispatched: '备份已删除',
+    updaterDeleteSnapshotInUse: '此备份正被恢复流程使用，暂时不能删除。',
     updaterGroupAdvanced: '高级与诊断',
     updaterGroupAdvancedDesc: '运维细节，日常无需打开。',
     updaterUpdaterVersion: '更新器版本',

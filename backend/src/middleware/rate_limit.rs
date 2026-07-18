@@ -237,6 +237,8 @@ fn is_admin_updater_mutate(path: &str) -> bool {
         || p.ends_with("/api/admin/updater/self-update")
         || p.ends_with("/api/admin/updater/prefs")
         || p.contains("/api/admin/updater/rescue/")
+        // DELETE /api/admin/updater/snapshots/{id}
+        || p.contains("/api/admin/updater/snapshots/")
 }
 
 /// Check if endpoint is compute-intensive or abuse-prone
@@ -264,9 +266,13 @@ mod tests {
         assert!(is_admin_updater_mutate("/api/admin/updater/self-update"));
         assert!(is_admin_updater_mutate("/api/admin/updater/rescue/continue"));
         assert!(is_admin_updater_mutate("/api/admin/updater/prefs"));
+        assert!(is_admin_updater_mutate(
+            "/api/admin/updater/snapshots/snap-abc"
+        ));
         assert!(!is_admin_updater_mutate("/api/admin/updater/status"));
         assert!(!is_admin_updater_mutate("/api/admin/updater/jobs"));
         assert!(!is_admin_updater_mutate("/api/admin/updater/available"));
+        assert!(!is_admin_updater_mutate("/api/admin/updater/snapshots"));
     }
 
     #[tokio::test]

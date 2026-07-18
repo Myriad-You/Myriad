@@ -4801,6 +4801,11 @@ async fn start_unified_server(config: AppConfig) -> anyhow::Result<()> {
                 get(api::updater_admin::snapshots).route_layer(from_fn(admin_middleware)),
             )
             .route(
+                "/api/admin/updater/snapshots/{id}",
+                axum::routing::delete(api::updater_admin::delete_snapshot)
+                    .route_layer(from_fn(admin_middleware)),
+            )
+            .route(
                 "/api/admin/updater/commits",
                 get(api::updater_admin::commits).route_layer(from_fn(admin_middleware)),
             )

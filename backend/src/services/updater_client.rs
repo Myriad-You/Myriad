@@ -161,6 +161,16 @@ impl UpdaterClient {
             .await
     }
 
+    /// Forward a DELETE request. Same auth headers as other mutative calls.
+    pub async fn delete_json(
+        &self,
+        path: &str,
+        actor: Option<&str>,
+    ) -> Result<serde_json::Value, UpdaterClientError> {
+        self.call(Method::DELETE, path, Option::<&()>::None, None, actor)
+            .await
+    }
+
     async fn call<B: Serialize + ?Sized>(
         &self,
         method: Method,

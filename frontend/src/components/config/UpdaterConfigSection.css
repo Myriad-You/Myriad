@@ -898,6 +898,14 @@ html.dark .updater-snapshot-info {
   color: #9ca3af;
 }
 
+.updater-snapshot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
 .updater-empty {
   margin: 0;
   padding: 0.75rem;

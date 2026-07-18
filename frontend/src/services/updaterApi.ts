@@ -474,6 +474,12 @@ export function makeUpdaterApi(
       wrap<{ job_id: string }>('POST', '/rollback', {
         snapshot_id: snapshotId,
       }),
+    /** Permanently remove a single backup snapshot. */
+    deleteSnapshot: (snapshotId: string) =>
+      wrap<{ ok: boolean; id: string }>(
+        'DELETE',
+        `/snapshots/${encodeURIComponent(snapshotId)}`,
+      ),
     diagnostics: () => wrap<unknown>('GET', '/diagnostics'),
     exitMaintenance: () =>
       wrap<{ ok: boolean }>('POST', '/rescue/exit-maintenance'),

@@ -283,6 +283,32 @@ pub async fn snapshots() -> Response {
     }
 }
 
+pub async fn delete_snapshot(headers: HeaderMap, Path(id): Path<String>) -> Response {
+    let c = match require_mutate() {
+        Ok(c) => c,
+        Err(r) => return *r,
+    };
+    if !id
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "invalid snapshot id" })),
+        )
+            .into_response();
+    }
+    log_admin_actor("snapshot_delete", &headers);
+    let actor = actor_from_headers(&headers);
+    match c
+        .delete_json(&format!("/snapshots/{id}"), actor.as_deref())
+        .await
+    {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => err_to_response(e),
+    }
+}
+
 #[derive(Deserialize)]
 pub struct CommitsQuery {
     #[serde(default)]

@@ -569,6 +569,39 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     [api, refresh, tokenRequired, explain, u],
   )
 
+  const deleteSnapshot = useCallback(
+    async (snap: SnapshotMeta) => {
+      if (tokenRequired) {
+        setToast({ kind: 'error', text: u.updaterTokenRequiredDirect })
+        return
+      }
+      if (status?.rescue_snapshot_id === snap.id) {
+        setToast({ kind: 'error', text: u.updaterDeleteSnapshotInUse })
+        return
+      }
+      if (
+        !confirm(
+          format(u.updaterDeleteSnapshotConfirm, {
+            version: snap.source_version ?? snap.id,
+          }),
+        )
+      ) {
+        return
+      }
+      setBusy(`delete-${snap.id}`)
+      try {
+        await api.deleteSnapshot(snap.id)
+        setToast({ kind: 'ok', text: u.updaterDeleteSnapshotDispatched })
+        await refresh()
+      } catch (e) {
+        setToast({ kind: 'error', text: explain(e) })
+      } finally {
+        setBusy(null)
+      }
+    },
+    [api, refresh, tokenRequired, explain, u, status?.rescue_snapshot_id],
+  )
+
   const exitMaintenance = useCallback(async () => {
     if (tokenRequired) {
       setToast({ kind: 'error', text: u.updaterTokenRequiredDirect })
@@ -845,9 +878,20 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
                 key={s.id}
                 snapshot={s}
                 u={u}
-                busy={busy === `rollback-${s.id}`}
+                busy={
+                  busy === `rollback-${s.id}` || busy === `delete-${s.id}`
+                }
+                busyKind={
+                  busy === `delete-${s.id}`
+                    ? 'delete'
+                    : busy === `rollback-${s.id}`
+                      ? 'rollback'
+                      : null
+                }
                 disabled={tokenRequired}
+                deleteDisabled={status?.rescue_snapshot_id === s.id}
                 onRollback={() => rollbackTo(s)}
+                onDelete={() => deleteSnapshot(s)}
               />
             ))}
           </div>
@@ -1603,14 +1647,21 @@ function SnapshotRow({
   snapshot,
   u,
   busy,
+  busyKind,
   disabled,
+  deleteDisabled,
   onRollback,
+  onDelete,
 }: {
   snapshot: SnapshotMeta
   u: U
   busy: boolean
+  busyKind: 'rollback' | 'delete' | null
   disabled: boolean
+  /** Snapshot required for rescue/needs_manual recovery. */
+  deleteDisabled: boolean
   onRollback: () => void
+  onDelete: () => void
 }) {
   return (
     <div className="updater-snapshot-item">
@@ -1627,14 +1678,29 @@ function SnapshotRow({
           {formatBytes(snapshot.size_bytes)}
         </div>
       </div>
-      <button
-        type="button"
-        className="btn-base btn-secondary"
-        onClick={onRollback}
-        disabled={busy || disabled}
-      >
-        {busy ? u.updaterProcessing : u.updaterRollback}
-      </button>
+      <div className="updater-snapshot-actions">
+        <button
+          type="button"
+          className="btn-base btn-secondary"
+          onClick={onRollback}
+          disabled={busy || disabled}
+        >
+          {busyKind === 'rollback' ? u.updaterProcessing : u.updaterRollback}
+        </button>
+        <button
+          type="button"
+          className="btn-base btn-danger"
+          onClick={onDelete}
+          disabled={busy || disabled || deleteDisabled}
+          title={
+            deleteDisabled ? u.updaterDeleteSnapshotInUse : u.updaterDeleteSnapshot
+          }
+        >
+          {busyKind === 'delete'
+            ? u.updaterProcessing
+            : u.updaterDeleteSnapshot}
+        </button>
+      </div>
     </div>
   )
 }

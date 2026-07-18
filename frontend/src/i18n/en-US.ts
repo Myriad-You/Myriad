@@ -429,6 +429,12 @@ export const enUS: TranslationKeys = {
     updaterNoSnapshots: 'No backups yet. One appears after the first update.',
     updaterRollback: 'Roll back to this version',
     updaterRollbackDispatched: 'Rollback started',
+    updaterDeleteSnapshot: 'Delete',
+    updaterDeleteSnapshotConfirm:
+      'Permanently delete the backup for {version}?\n\nThis cannot be undone — you will not be able to roll back to this backup later.',
+    updaterDeleteSnapshotDispatched: 'Backup deleted',
+    updaterDeleteSnapshotInUse:
+      'This backup is needed for recovery and cannot be deleted yet.',
     updaterGroupAdvanced: 'Advanced & diagnostics',
     updaterGroupAdvancedDesc: 'Operator tools. Not needed day to day.',
     updaterUpdaterVersion: 'Updater version',

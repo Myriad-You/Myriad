@@ -5,7 +5,7 @@ use axum::{
     http::StatusCode,
     middleware,
     response::{IntoResponse, Json},
-    routing::{get, post},
+    routing::{delete, get, post},
     Router,
 };
 use serde::{Deserialize, Serialize};
@@ -33,6 +33,7 @@ pub fn build(state: ApiState) -> Router {
         .route("/jobs", get(list_jobs))
         .route("/jobs/{id}", get(get_job))
         .route("/snapshots", get(list_snapshots))
+        .route("/snapshots/{id}", delete(delete_snapshot))
         .route("/update", post(update))
         .route("/prefs", post(set_prefs))
         .route("/rollback", post(rollback))
@@ -345,6 +346,38 @@ async fn get_job(
 async fn list_snapshots(State(st): State<ApiState>) -> Result<Json<Value>, ApiError> {
     let s = st.state.read_snapshots()?;
     Ok(Json(serde_json::to_value(s)?))
+}
+
+async fn delete_snapshot(
+    State(st): State<ApiState>,
+    headers: axum::http::HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    if !id
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+    {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "invalid snapshot id".into(),
+        ));
+    }
+
+    let snap = crate::snapshot::SnapshotManager {
+        state: &st.state,
+        // delete only touches snapshots metadata/dirs; pgdata is unused.
+        pgdata: st.state.root().join("pgdata-unused"),
+    };
+    snap.delete(&id)?;
+
+    // Enrich history with API actor (core `delete` already wrote a base audit line).
+    if let Some(actor) = extract_actor(&headers) {
+        let line = format!("audit: snapshot_delete id={id} via=API actor={actor}");
+        st.state.append_history(&line)?;
+        let _ = st.state.append_audit(&line);
+    }
+
+    Ok(Json(json!({ "ok": true, "id": id })))
 }
 
 #[derive(Deserialize)]

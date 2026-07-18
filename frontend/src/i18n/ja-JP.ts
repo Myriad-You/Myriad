@@ -422,6 +422,12 @@ export const jaJP: TranslationKeys = {
     updaterNoSnapshots: 'バックアップはまだありません。初回更新後に作成されます。',
     updaterRollback: 'このバージョンに戻す',
     updaterRollbackDispatched: '巻き戻しを開始しました',
+    updaterDeleteSnapshot: '削除',
+    updaterDeleteSnapshotConfirm:
+      '{version} のバックアップを完全に削除しますか？\n\n元に戻せません。このバックアップへは以降ロールバックできません。',
+    updaterDeleteSnapshotDispatched: 'バックアップを削除しました',
+    updaterDeleteSnapshotInUse:
+      'このバックアップは復旧に必要なため、まだ削除できません。',
     updaterGroupAdvanced: '詳細と診断',
     updaterGroupAdvancedDesc: '運用ツール。普段は不要。',
     updaterUpdaterVersion: 'アップデーターのバージョン',
