@@ -234,6 +234,12 @@ runtime ID 和最终权限；停止、更新、卸载或 Bridge 销毁会撤销�
 升级无法携带自定义头，暂不走 Grant 归因，仍依赖 Bridge 权限与 `connect-src 'none'` 隔离，
 后续需 ticket 查询参数等一次性凭据方案。
 
+**跨栈一致性（fixtures）**：host 路由 → 权限与沙箱 action → 权限的权威数据在
+`docs/development/tapp/fixtures/host_route_permissions.json` 与
+`action_permissions.json`。**先改 fixture，再改** `host_attribution` 消费端与前端
+`PERMISSION_MAP`；Rust 单测与 `permissionMapConsistency.test.ts` 会在漂移时失败。权限字符串
+还必须能通过后端 `TappPermission::from_str` 与前端 `PERMISSION_LEVELS`。
+
 ### Page 与 Widget 的 handler 不对称
 
 Page 注册完整 handler 集合。Widget 为减少能力面和启动成本，只注册生命周期、UI、用户
@@ -254,8 +260,10 @@ handler、后端路由/服务和文档。
 | elevated   | 管理员可配置向普通用户/游客下放                                                            |
 | privileged | 仅管理员，例如 `widget:register`、`platform:write`、`platform:register`、`component:agent` |
 
-权限等级、SDK action 映射和后端枚举目前分别存在于 TypeScript 与 Rust 中；修改时必须
-同步并运行权限/类型检查。后端永远是授权判定的最终边界。
+权限等级、SDK action 映射和后端枚举目前分别存在于 TypeScript 与 Rust 中。宿主代理域
+（speech / brew / federation）以 `docs/development/tapp/fixtures/` 下 JSON 为 source of
+truth，由测试强制与 `PERMISSION_MAP`、`host_attribution`、`TappPermission` 对齐；其他域修改时
+仍须人工同步并运行权限/类型检查。后端永远是授权判定的最终边界。
 
 `Tapp.user.getAllowedPermissionLevels()` 查询后端当前动态下放配置，回答角色在系统层面
 能否使用某个等级；`Tapp.permissions` 才是当前安装实例实际获得的权限集合。两者不能

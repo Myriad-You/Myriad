@@ -1,0 +1,469 @@
+{
+  "description": "Host-proxied REST routes (method + Axum matched path template) → Tapp permission string. Source of truth for backend host_attribution mappers (speech / brew / federation). Edit this fixture first, then update host_attribution.rs; CI unit tests enforce lockstep. Host-only paths intentionally omitted so grant-bearing requests stay denied.",
+  "routes": [
+    {
+      "domain": "speech",
+      "method": "POST",
+      "path": "/api/speech/tts",
+      "permission": "speech:tts"
+    },
+    {
+      "domain": "speech",
+      "method": "POST",
+      "path": "/api/speech/tts/batch",
+      "permission": "speech:tts"
+    },
+    {
+      "domain": "speech",
+      "method": "POST",
+      "path": "/api/speech/asr",
+      "permission": "speech:asr"
+    },
+    {
+      "domain": "speech",
+      "method": "GET",
+      "path": "/api/speech/status",
+      "permission": "speech:tts"
+    },
+    {
+      "domain": "speech",
+      "method": "GET",
+      "path": "/api/speech/voices",
+      "permission": "speech:tts"
+    },
+
+    {
+      "domain": "brew",
+      "method": "GET",
+      "path": "/api/brew/sources",
+      "permission": "brew:read"
+    },
+    {
+      "domain": "brew",
+      "method": "GET",
+      "path": "/api/brew/sources/{id}",
+      "permission": "brew:read"
+    },
+    {
+      "domain": "brew",
+      "method": "GET",
+      "path": "/api/brew/export-opml",
+      "permission": "brew:read"
+    },
+    {
+      "domain": "brew",
+      "method": "GET",
+      "path": "/api/brew/categories",
+      "permission": "brew:read"
+    },
+    {
+      "domain": "brew",
+      "method": "GET",
+      "path": "/api/brew/items",
+      "permission": "brew:read"
+    },
+    {
+      "domain": "brew",
+      "method": "GET",
+      "path": "/api/brew/items/{id}",
+      "permission": "brew:read"
+    },
+    {
+      "domain": "brew",
+      "method": "GET",
+      "path": "/api/brew/items/{id}/fulltext",
+      "permission": "brew:read"
+    },
+    {
+      "domain": "brew",
+      "method": "GET",
+      "path": "/api/brew/stats",
+      "permission": "brew:read"
+    },
+    {
+      "domain": "brew",
+      "method": "POST",
+      "path": "/api/brew/items/{id}/read",
+      "permission": "brew:write"
+    },
+    {
+      "domain": "brew",
+      "method": "POST",
+      "path": "/api/brew/items/{id}/unread",
+      "permission": "brew:write"
+    },
+    {
+      "domain": "brew",
+      "method": "POST",
+      "path": "/api/brew/items/{id}/star",
+      "permission": "brew:write"
+    },
+    {
+      "domain": "brew",
+      "method": "POST",
+      "path": "/api/brew/items/{id}/unstar",
+      "permission": "brew:write"
+    },
+    {
+      "domain": "brew",
+      "method": "POST",
+      "path": "/api/brew/mark-all-read",
+      "permission": "brew:write"
+    },
+    {
+      "domain": "brew",
+      "method": "GET",
+      "path": "/api/brew/items/{id}/comments",
+      "permission": "brew:comment"
+    },
+    {
+      "domain": "brew",
+      "method": "POST",
+      "path": "/api/brew/items/{id}/comments",
+      "permission": "brew:comment"
+    },
+    {
+      "domain": "brew",
+      "method": "PUT",
+      "path": "/api/brew/comments/{id}",
+      "permission": "brew:comment"
+    },
+    {
+      "domain": "brew",
+      "method": "DELETE",
+      "path": "/api/brew/comments/{id}",
+      "permission": "brew:comment"
+    },
+    {
+      "domain": "brew",
+      "method": "GET",
+      "path": "/api/brew/comments/{id}/replies",
+      "permission": "brew:comment"
+    },
+    {
+      "domain": "brew",
+      "method": "POST",
+      "path": "/api/brew/sources",
+      "permission": "brew:manage"
+    },
+    {
+      "domain": "brew",
+      "method": "PUT",
+      "path": "/api/brew/sources/{id}",
+      "permission": "brew:manage"
+    },
+    {
+      "domain": "brew",
+      "method": "DELETE",
+      "path": "/api/brew/sources/{id}",
+      "permission": "brew:manage"
+    },
+    {
+      "domain": "brew",
+      "method": "POST",
+      "path": "/api/brew/sources/{id}/refresh",
+      "permission": "brew:manage"
+    },
+    {
+      "domain": "brew",
+      "method": "POST",
+      "path": "/api/brew/sources/discover",
+      "permission": "brew:manage"
+    },
+    {
+      "domain": "brew",
+      "method": "POST",
+      "path": "/api/brew/import-opml",
+      "permission": "brew:manage"
+    },
+    {
+      "domain": "brew",
+      "method": "POST",
+      "path": "/api/brew/categories",
+      "permission": "brew:manage"
+    },
+    {
+      "domain": "brew",
+      "method": "PUT",
+      "path": "/api/brew/categories/{id}",
+      "permission": "brew:manage"
+    },
+    {
+      "domain": "brew",
+      "method": "DELETE",
+      "path": "/api/brew/categories/{id}",
+      "permission": "brew:manage"
+    },
+
+    {
+      "domain": "federation",
+      "method": "GET",
+      "path": "/api/federation/identity",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "method": "GET",
+      "path": "/api/federation/timeline",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "method": "GET",
+      "path": "/api/federation/following",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "method": "GET",
+      "path": "/api/federation/followers",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "method": "GET",
+      "path": "/api/federation/published",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "method": "GET",
+      "path": "/api/federation/channels",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "method": "GET",
+      "path": "/api/federation/channels/{channel_id}",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "method": "GET",
+      "path": "/api/federation/channels/{channel_id}/messages",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "method": "GET",
+      "path": "/api/federation/rooms",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "method": "GET",
+      "path": "/api/federation/rooms/{room_id}",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "method": "GET",
+      "path": "/api/federation/rooms/{room_id}/members",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "method": "GET",
+      "path": "/api/federation/rooms/{room_id}/messages",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "method": "GET",
+      "path": "/api/federation/rings",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "method": "GET",
+      "path": "/api/federation/rings/{ring_id}",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "method": "GET",
+      "path": "/api/federation/rings/{ring_id}/peers",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "method": "POST",
+      "path": "/api/federation/follow",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "method": "POST",
+      "path": "/api/federation/unfollow",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "method": "POST",
+      "path": "/api/federation/publish",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "method": "POST",
+      "path": "/api/federation/unpublish",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "method": "POST",
+      "path": "/api/federation/channels",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "method": "POST",
+      "path": "/api/federation/channels/{channel_id}/accept",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "method": "POST",
+      "path": "/api/federation/channels/{channel_id}/close",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "method": "POST",
+      "path": "/api/federation/rooms",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "method": "PUT",
+      "path": "/api/federation/rooms/{room_id}",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "method": "DELETE",
+      "path": "/api/federation/rooms/{room_id}",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "method": "POST",
+      "path": "/api/federation/rooms/{room_id}/invite",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "method": "DELETE",
+      "path": "/api/federation/rooms/{room_id}/members/{actor}",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "method": "POST",
+      "path": "/api/federation/rooms/{room_id}/leave",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "method": "POST",
+      "path": "/api/federation/rooms/{room_id}/messages/{message_id}/pin",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "method": "POST",
+      "path": "/api/federation/rings",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "method": "POST",
+      "path": "/api/federation/rings/{ring_id}/leave",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "method": "POST",
+      "path": "/api/federation/rings/{ring_id}/peers",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "method": "DELETE",
+      "path": "/api/federation/rings/{ring_id}/peers/{peer}",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "method": "POST",
+      "path": "/api/federation/rings/{ring_id}/sync",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "method": "POST",
+      "path": "/api/federation/channels/{channel_id}/messages",
+      "permission": "federation:message"
+    },
+    {
+      "domain": "federation",
+      "method": "POST",
+      "path": "/api/federation/rooms/{room_id}/messages",
+      "permission": "federation:message"
+    },
+    {
+      "domain": "federation",
+      "method": "GET",
+      "path": "/api/federation/trust/policy",
+      "permission": "federation:trust"
+    },
+    {
+      "domain": "federation",
+      "method": "GET",
+      "path": "/api/federation/trust/instances",
+      "permission": "federation:trust"
+    },
+    {
+      "domain": "federation",
+      "method": "POST",
+      "path": "/api/federation/trust/update",
+      "permission": "federation:trust"
+    },
+    {
+      "domain": "federation",
+      "method": "POST",
+      "path": "/api/federation/trust/block",
+      "permission": "federation:trust"
+    },
+    {
+      "domain": "federation",
+      "method": "GET",
+      "path": "/api/federation/channels/{channel_id}/transfers",
+      "permission": "federation:files"
+    },
+    {
+      "domain": "federation",
+      "method": "POST",
+      "path": "/api/federation/channels/{channel_id}/transfers",
+      "permission": "federation:files"
+    },
+    {
+      "domain": "federation",
+      "method": "GET",
+      "path": "/api/federation/transfers/{transfer_id}",
+      "permission": "federation:files"
+    },
+    {
+      "domain": "federation",
+      "method": "POST",
+      "path": "/api/federation/transfers/{transfer_id}/chunks",
+      "permission": "federation:files"
+    },
+    {
+      "domain": "federation",
+      "method": "POST",
+      "path": "/api/federation/transfers/{transfer_id}/cancel",
+      "permission": "federation:files"
+    }
+  ]
+}

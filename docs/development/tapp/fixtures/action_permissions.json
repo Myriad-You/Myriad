@@ -1,0 +1,402 @@
+{
+  "description": "Sandbox bridge actions for host-proxied domains (speech / brewList / federation) → Tapp permission string. Source of truth for frontend PERMISSION_MAP entries in those domains. Edit this fixture first, then update permissionConfig.ts; node:test enforces lockstep with host_route_permissions.json permission strings.",
+  "actions": [
+    {
+      "domain": "speech",
+      "action": "speech.tts",
+      "permission": "speech:tts"
+    },
+    {
+      "domain": "speech",
+      "action": "speech.getVoices",
+      "permission": "speech:tts"
+    },
+    {
+      "domain": "speech",
+      "action": "speech.getStatus",
+      "permission": "speech:tts"
+    },
+    {
+      "domain": "speech",
+      "action": "speech.asr",
+      "permission": "speech:asr"
+    },
+
+    {
+      "domain": "brew",
+      "action": "brewList.list",
+      "permission": "brew:read"
+    },
+    {
+      "domain": "brew",
+      "action": "brewList.get",
+      "permission": "brew:read"
+    },
+    {
+      "domain": "brew",
+      "action": "brewList.sources",
+      "permission": "brew:read"
+    },
+    {
+      "domain": "brew",
+      "action": "brewList.categories",
+      "permission": "brew:read"
+    },
+    {
+      "domain": "brew",
+      "action": "brewList.stats",
+      "permission": "brew:read"
+    },
+    {
+      "domain": "brew",
+      "action": "brewList.exportOpml",
+      "permission": "brew:read"
+    },
+    {
+      "domain": "brew",
+      "action": "brewList.markRead",
+      "permission": "brew:write"
+    },
+    {
+      "domain": "brew",
+      "action": "brewList.markUnread",
+      "permission": "brew:write"
+    },
+    {
+      "domain": "brew",
+      "action": "brewList.star",
+      "permission": "brew:write"
+    },
+    {
+      "domain": "brew",
+      "action": "brewList.unstar",
+      "permission": "brew:write"
+    },
+    {
+      "domain": "brew",
+      "action": "brewList.markAllRead",
+      "permission": "brew:write"
+    },
+    {
+      "domain": "brew",
+      "action": "brewList.getComments",
+      "permission": "brew:comment"
+    },
+    {
+      "domain": "brew",
+      "action": "brewList.createComment",
+      "permission": "brew:comment"
+    },
+    {
+      "domain": "brew",
+      "action": "brewList.updateComment",
+      "permission": "brew:comment"
+    },
+    {
+      "domain": "brew",
+      "action": "brewList.deleteComment",
+      "permission": "brew:comment"
+    },
+    {
+      "domain": "brew",
+      "action": "brewList.getReplies",
+      "permission": "brew:comment"
+    },
+    {
+      "domain": "brew",
+      "action": "brewList.createReply",
+      "permission": "brew:comment"
+    },
+    {
+      "domain": "brew",
+      "action": "brewList.discover",
+      "permission": "brew:manage"
+    },
+    {
+      "domain": "brew",
+      "action": "brewList.addSource",
+      "permission": "brew:manage"
+    },
+    {
+      "domain": "brew",
+      "action": "brewList.updateSource",
+      "permission": "brew:manage"
+    },
+    {
+      "domain": "brew",
+      "action": "brewList.deleteSource",
+      "permission": "brew:manage"
+    },
+    {
+      "domain": "brew",
+      "action": "brewList.refreshSource",
+      "permission": "brew:manage"
+    },
+    {
+      "domain": "brew",
+      "action": "brewList.importOpml",
+      "permission": "brew:manage"
+    },
+    {
+      "domain": "brew",
+      "action": "brewList.createCategory",
+      "permission": "brew:manage"
+    },
+    {
+      "domain": "brew",
+      "action": "brewList.deleteCategory",
+      "permission": "brew:manage"
+    },
+
+    {
+      "domain": "federation",
+      "action": "federation.getIdentity",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.getFeed",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.getTimeline",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.getFollowing",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.getFollowers",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.getPublished",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.getChannels",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.getChannel",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.getMessages",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.getRooms",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.getRoom",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.getRoomMembers",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.getRoomMessages",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.getRings",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.getRing",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.getRingPeers",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.follow",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.unfollow",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.publish",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.unpublish",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.createChannel",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.acceptChannel",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.closeChannel",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.createRoom",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.updateRoom",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.deleteRoom",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.inviteMember",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.removeMember",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.leaveRoom",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.pinRoomMessage",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.createRing",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.leaveRing",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.addPeer",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.removePeer",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.triggerSync",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.sendMessage",
+      "permission": "federation:message"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.sendRoomMessage",
+      "permission": "federation:message"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.subscribeChannel",
+      "permission": "federation:message"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.unsubscribeChannel",
+      "permission": "federation:message"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.subscribeRoom",
+      "permission": "federation:message"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.unsubscribeRoom",
+      "permission": "federation:message"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.getTrustPolicy",
+      "permission": "federation:trust"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.getInstances",
+      "permission": "federation:trust"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.updateInstanceTrust",
+      "permission": "federation:trust"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.toggleInstanceBlock",
+      "permission": "federation:trust"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.initiateTransfer",
+      "permission": "federation:files"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.listTransfers",
+      "permission": "federation:files"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.getTransfer",
+      "permission": "federation:files"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.uploadChunk",
+      "permission": "federation:files"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.cancelTransfer",
+      "permission": "federation:files"
+    }
+  ]
+}

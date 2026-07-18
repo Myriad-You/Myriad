@@ -3,6 +3,16 @@
  *
  * 集中管理 API action → 权限映射和权限级别定义，
  * 便于维护和审计权限变更。
+ *
+ * Host-proxied domains (speech / brewList / federation) must stay in lockstep
+ * with:
+ * - `docs/development/tapp/fixtures/action_permissions.json` (this map)
+ * - `docs/development/tapp/fixtures/host_route_permissions.json` (backend
+ *   host_attribution route → permission)
+ * - backend `TappPermission` / this file's `PERMISSION_LEVELS`
+ *
+ * Edit the fixtures first, then update this file and host_attribution.
+ * Enforced by `permissionMapConsistency.test.ts` and Rust host_attribution tests.
  */
 
 import type { PermissionLevel, TappPermission } from '../types'

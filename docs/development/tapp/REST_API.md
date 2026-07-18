@@ -324,7 +324,8 @@ Interaction 的动作截止时间独立于终态保留时间；所有副本都�
 联邦写操作、消息、私有 Room 与文件等仍走各自 SDK/宿主路径，且对游客不可用；见
 [ARCHITECTURE 所有权与可见性](ARCHITECTURE.md#所有权与可见性)。Brew / 语音 / 联邦 REST
 宿主代理路径已统一按 Grant 归因：带 `X-Tapp-Runtime-Grant` 的请求在服务端按路由强制 Tapp
-权限并记录归因日志（共享 `host_attribution` 中间件）；联邦 E2E 密钥交换与 Channel/Room
+权限并记录归因日志（共享 `host_attribution` 中间件；路由→权限表见
+`docs/development/tapp/fixtures/host_route_permissions.json`，**先改 fixture 再改映射**）；联邦 E2E 密钥交换与 Channel/Room
 WebSocket 升级对带 Grant 请求拒绝或保持文档豁免（浏览器 WS 无法带自定义头）。独立 AI 费用
 账本见 `/api/tapp/ai/v2/ledger`。
 

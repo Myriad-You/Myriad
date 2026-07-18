@@ -6,6 +6,22 @@
 //! the permission mapped to the matched route and attributes the call to the
 //! issuing Tapp runtime. Requests without the header (host UI traffic) pass
 //! through unchanged.
+//!
+//! # Keeping maps consistent
+//!
+//! Route → permission facts live in the machine-readable fixture:
+//! `docs/development/tapp/fixtures/host_route_permissions.json`.
+//!
+//! **Edit the fixture first**, then update sandbox `PERMISSION_MAP` /
+//! `action_permissions.json` as needed. Unit tests (and the frontend
+//! consistency test) enforce that:
+//! - every fixture route is served by the domain mappers below;
+//! - every mapper-covered route appears in the fixture;
+//! - every permission string exists in [`TappPermission::from_str`].
+//!
+//! Comment-only sync is not enough: deliberate drift must fail CI.
+
+use std::sync::LazyLock;
 
 use axum::{
     extract::{MatchedPath, Request},
@@ -14,6 +30,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use serde::Deserialize;
 use serde_json::json;
 
 use crate::middleware::auth::{verify_jwt_token, Claims};
@@ -21,130 +38,134 @@ use crate::services::permission_service::TappPermission;
 
 use super::runtime_grant::{validate_runtime_grant, RUNTIME_GRANT_HEADER};
 
+/// Compiled fixture path relative to this source file (repo
+/// `docs/development/tapp/fixtures/host_route_permissions.json`).
+const HOST_ROUTE_PERMISSIONS_JSON: &str =
+    include_str!("../../../../docs/development/tapp/fixtures/host_route_permissions.json");
+
+/// Companion action → permission fixture (sandbox `PERMISSION_MAP` domains).
+#[cfg(test)]
+const ACTION_PERMISSIONS_JSON: &str =
+    include_str!("../../../../docs/development/tapp/fixtures/action_permissions.json");
+
 type PermissionMapper = fn(&Method, &str) -> Option<TappPermission>;
 
-/// Route → permission map for `/api/speech`, mirroring the sandbox
-/// `PERMISSION_MAP` (`speech.*` actions).
+#[derive(Debug, Deserialize)]
+struct HostRouteFixture {
+    routes: Vec<HostRouteEntry>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct HostRouteEntry {
+    domain: String,
+    method: String,
+    path: String,
+    permission: String,
+}
+
+/// One compiled fixture row used for O(n) lookup (n is small, ~80 routes).
+#[derive(Debug, Clone)]
+struct CompiledHostRoute {
+    method: String,
+    path: String,
+    permission: TappPermission,
+}
+
+/// method + matched path template → permission, keyed by host domain.
+struct HostRouteIndex {
+    speech: Vec<CompiledHostRoute>,
+    brew: Vec<CompiledHostRoute>,
+    federation: Vec<CompiledHostRoute>,
+    /// Full fixture rows (for reverse coverage tests).
+    #[cfg_attr(not(test), allow(dead_code))]
+    entries: Vec<HostRouteEntry>,
+}
+
+static HOST_ROUTE_INDEX: LazyLock<HostRouteIndex> = LazyLock::new(load_host_route_index);
+
+fn load_host_route_index() -> HostRouteIndex {
+    let fixture: HostRouteFixture = serde_json::from_str(HOST_ROUTE_PERMISSIONS_JSON)
+        .expect("host_route_permissions.json must be valid JSON");
+
+    let mut speech = Vec::new();
+    let mut brew = Vec::new();
+    let mut federation = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+
+    for entry in &fixture.routes {
+        let permission = TappPermission::from_str(&entry.permission).unwrap_or_else(|| {
+            panic!(
+                "host_route_permissions.json: unknown permission {:?} for {} {}",
+                entry.permission, entry.method, entry.path
+            )
+        });
+        let method = entry.method.to_ascii_uppercase();
+        let key = (method.clone(), entry.path.clone());
+        if !seen.insert(key) {
+            panic!(
+                "host_route_permissions.json: duplicate route {} {}",
+                entry.method, entry.path
+            );
+        }
+        let compiled = CompiledHostRoute {
+            method,
+            path: entry.path.clone(),
+            permission,
+        };
+        match entry.domain.as_str() {
+            "speech" => speech.push(compiled),
+            "brew" => brew.push(compiled),
+            "federation" => federation.push(compiled),
+            other => panic!(
+                "host_route_permissions.json: unknown domain {other:?} (expected speech|brew|federation)"
+            ),
+        }
+    }
+
+    HostRouteIndex {
+        speech,
+        brew,
+        federation,
+        entries: fixture.routes,
+    }
+}
+
+fn lookup_permission(
+    routes: &[CompiledHostRoute],
+    method: &Method,
+    path: &str,
+) -> Option<TappPermission> {
+    let method = method.as_str();
+    routes
+        .iter()
+        .find(|route| route.method.eq_ignore_ascii_case(method) && route.path == path)
+        .map(|route| route.permission)
+}
+
+/// Route → permission map for `/api/speech`, loaded from
+/// `host_route_permissions.json` (mirrors sandbox `speech.*` actions).
 fn speech_permission(method: &Method, path: &str) -> Option<TappPermission> {
-    match (method.as_str(), path) {
-        ("POST", "/api/speech/tts") | ("POST", "/api/speech/tts/batch") => {
-            Some(TappPermission::SpeechTts)
-        }
-        ("POST", "/api/speech/asr") => Some(TappPermission::SpeechAsr),
-        ("GET", "/api/speech/status") | ("GET", "/api/speech/voices") => {
-            Some(TappPermission::SpeechTts)
-        }
-        _ => None,
-    }
+    lookup_permission(&HOST_ROUTE_INDEX.speech, method, path)
 }
 
-/// Route → permission map for `/api/brew`, mirroring the sandbox
-/// `PERMISSION_MAP` (`brewList.*` actions). Paths that no sandbox handler
-/// exposes (WebSocket, RSSHub instance admin, cache management, offline sync)
-/// stay unmapped so grant-bearing requests to them are rejected.
+/// Route → permission map for `/api/brew`, loaded from
+/// `host_route_permissions.json` (mirrors sandbox `brewList.*` actions).
+/// Paths that no sandbox handler exposes (WebSocket, RSSHub instance admin,
+/// cache management, offline sync) stay unmapped so grant-bearing requests to
+/// them are rejected.
 fn brew_permission(method: &Method, path: &str) -> Option<TappPermission> {
-    use TappPermission::{BrewComment, BrewManage, BrewRead, BrewWrite};
-    match (method.as_str(), path) {
-        ("GET", "/api/brew/sources")
-        | ("GET", "/api/brew/sources/{id}")
-        | ("GET", "/api/brew/export-opml")
-        | ("GET", "/api/brew/categories")
-        | ("GET", "/api/brew/items")
-        | ("GET", "/api/brew/items/{id}")
-        | ("GET", "/api/brew/items/{id}/fulltext")
-        | ("GET", "/api/brew/stats") => Some(BrewRead),
-        ("POST", "/api/brew/items/{id}/read")
-        | ("POST", "/api/brew/items/{id}/unread")
-        | ("POST", "/api/brew/items/{id}/star")
-        | ("POST", "/api/brew/items/{id}/unstar")
-        | ("POST", "/api/brew/mark-all-read") => Some(BrewWrite),
-        ("GET", "/api/brew/items/{id}/comments")
-        | ("POST", "/api/brew/items/{id}/comments")
-        | ("PUT", "/api/brew/comments/{id}")
-        | ("DELETE", "/api/brew/comments/{id}")
-        | ("GET", "/api/brew/comments/{id}/replies") => Some(BrewComment),
-        ("POST", "/api/brew/sources")
-        | ("PUT", "/api/brew/sources/{id}")
-        | ("DELETE", "/api/brew/sources/{id}")
-        | ("POST", "/api/brew/sources/{id}/refresh")
-        | ("POST", "/api/brew/sources/discover")
-        | ("POST", "/api/brew/import-opml")
-        | ("POST", "/api/brew/categories")
-        | ("PUT", "/api/brew/categories/{id}")
-        | ("DELETE", "/api/brew/categories/{id}") => Some(BrewManage),
-        _ => None,
-    }
+    lookup_permission(&HOST_ROUTE_INDEX.brew, method, path)
 }
 
-/// Route → permission map for `/api/federation`, mirroring frontend
-/// `permissionConfig` / sandbox `PERMISSION_MAP` (`federation.*` actions).
+/// Route → permission map for `/api/federation`, loaded from
+/// `host_route_permissions.json` (mirrors sandbox `federation.*` actions).
 /// Host-only paths (E2E key exchange, WebSocket upgrades) stay unmapped so
 /// grant-bearing requests to them are rejected. Browser WebSockets cannot
 /// carry custom headers and are therefore outside the grant path until a
 /// ticket-based handshake exists; without a grant header they still
 /// passthrough as host UI traffic.
 fn federation_permission(method: &Method, path: &str) -> Option<TappPermission> {
-    use TappPermission::{
-        FederationFiles, FederationMessage, FederationRead, FederationTrust, FederationWrite,
-    };
-    match (method.as_str(), path) {
-        // federation:read
-        ("GET", "/api/federation/identity")
-        | ("GET", "/api/federation/timeline")
-        | ("GET", "/api/federation/following")
-        | ("GET", "/api/federation/followers")
-        | ("GET", "/api/federation/published")
-        | ("GET", "/api/federation/channels")
-        | ("GET", "/api/federation/channels/{channel_id}")
-        | ("GET", "/api/federation/channels/{channel_id}/messages")
-        | ("GET", "/api/federation/rooms")
-        | ("GET", "/api/federation/rooms/{room_id}")
-        | ("GET", "/api/federation/rooms/{room_id}/members")
-        | ("GET", "/api/federation/rooms/{room_id}/messages")
-        | ("GET", "/api/federation/rings")
-        | ("GET", "/api/federation/rings/{ring_id}")
-        | ("GET", "/api/federation/rings/{ring_id}/peers") => Some(FederationRead),
-
-        // federation:write
-        ("POST", "/api/federation/follow")
-        | ("POST", "/api/federation/unfollow")
-        | ("POST", "/api/federation/publish")
-        | ("POST", "/api/federation/unpublish")
-        | ("POST", "/api/federation/channels")
-        | ("POST", "/api/federation/channels/{channel_id}/accept")
-        | ("POST", "/api/federation/channels/{channel_id}/close")
-        | ("POST", "/api/federation/rooms")
-        | ("PUT", "/api/federation/rooms/{room_id}")
-        | ("DELETE", "/api/federation/rooms/{room_id}")
-        | ("POST", "/api/federation/rooms/{room_id}/invite")
-        | ("DELETE", "/api/federation/rooms/{room_id}/members/{actor}")
-        | ("POST", "/api/federation/rooms/{room_id}/leave")
-        | ("POST", "/api/federation/rooms/{room_id}/messages/{message_id}/pin")
-        | ("POST", "/api/federation/rings")
-        | ("POST", "/api/federation/rings/{ring_id}/leave")
-        | ("POST", "/api/federation/rings/{ring_id}/peers")
-        | ("DELETE", "/api/federation/rings/{ring_id}/peers/{peer}")
-        | ("POST", "/api/federation/rings/{ring_id}/sync") => Some(FederationWrite),
-
-        // federation:message
-        ("POST", "/api/federation/channels/{channel_id}/messages")
-        | ("POST", "/api/federation/rooms/{room_id}/messages") => Some(FederationMessage),
-
-        // federation:trust
-        ("GET", "/api/federation/trust/policy")
-        | ("GET", "/api/federation/trust/instances")
-        | ("POST", "/api/federation/trust/update")
-        | ("POST", "/api/federation/trust/block") => Some(FederationTrust),
-
-        // federation:files
-        ("GET", "/api/federation/channels/{channel_id}/transfers")
-        | ("POST", "/api/federation/channels/{channel_id}/transfers")
-        | ("GET", "/api/federation/transfers/{transfer_id}")
-        | ("POST", "/api/federation/transfers/{transfer_id}/chunks")
-        | ("POST", "/api/federation/transfers/{transfer_id}/cancel") => Some(FederationFiles),
-
-        _ => None,
-    }
+    lookup_permission(&HOST_ROUTE_INDEX.federation, method, path)
 }
 
 fn attribution_error(status: StatusCode, code: &str, message: &str) -> Response {
@@ -242,9 +263,191 @@ pub async fn federation_host_attribution(req: Request, next: Next) -> Response {
 
 #[cfg(test)]
 mod tests {
-    use super::{brew_permission, federation_permission, speech_permission};
+    use super::{
+        brew_permission, federation_permission, speech_permission, HostRouteFixture,
+        ACTION_PERMISSIONS_JSON, HOST_ROUTE_INDEX, HOST_ROUTE_PERMISSIONS_JSON,
+    };
     use crate::services::permission_service::TappPermission;
     use axum::http::Method;
+    use serde::Deserialize;
+    use std::collections::BTreeSet;
+
+    #[derive(Debug, Deserialize)]
+    struct ActionFixture {
+        actions: Vec<ActionEntry>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct ActionEntry {
+        domain: String,
+        action: String,
+        permission: String,
+    }
+
+    fn mapper_for_domain(domain: &str) -> fn(&Method, &str) -> Option<TappPermission> {
+        match domain {
+            "speech" => speech_permission,
+            "brew" => brew_permission,
+            "federation" => federation_permission,
+            other => panic!("unknown domain {other}"),
+        }
+    }
+
+    fn map_for_domain(domain: &str) -> &'static [super::CompiledHostRoute] {
+        match domain {
+            "speech" => &HOST_ROUTE_INDEX.speech,
+            "brew" => &HOST_ROUTE_INDEX.brew,
+            "federation" => &HOST_ROUTE_INDEX.federation,
+            other => panic!("unknown domain {other}"),
+        }
+    }
+
+    #[test]
+    fn fixture_loads_and_indexes_all_host_domains() {
+        assert!(
+            !HOST_ROUTE_INDEX.entries.is_empty(),
+            "host_route_permissions.json must list at least one route"
+        );
+        assert!(!HOST_ROUTE_INDEX.speech.is_empty());
+        assert!(!HOST_ROUTE_INDEX.brew.is_empty());
+        assert!(!HOST_ROUTE_INDEX.federation.is_empty());
+    }
+
+    #[test]
+    fn every_fixture_route_matches_domain_mapper() {
+        for entry in &HOST_ROUTE_INDEX.entries {
+            let method = Method::from_bytes(entry.method.as_bytes())
+                .unwrap_or_else(|_| panic!("invalid method {}", entry.method));
+            let mapper = mapper_for_domain(&entry.domain);
+            let expected = TappPermission::from_str(&entry.permission)
+                .unwrap_or_else(|| panic!("unknown permission {}", entry.permission));
+            assert_eq!(
+                mapper(&method, &entry.path),
+                Some(expected),
+                "fixture route {} {} (domain {}) must map to {}",
+                entry.method,
+                entry.path,
+                entry.domain,
+                entry.permission
+            );
+        }
+    }
+
+    #[test]
+    fn every_mapper_route_appears_in_fixture() {
+        // Reverse coverage: maps are built only from the fixture, so keys must
+        // match domain partitions. This still fails if load_host_route_index
+        // ever gains a second source of routes.
+        let fixture: HostRouteFixture =
+            serde_json::from_str(HOST_ROUTE_PERMISSIONS_JSON).expect("valid fixture");
+        for domain in ["speech", "brew", "federation"] {
+            let expected: BTreeSet<(String, String)> = fixture
+                .routes
+                .iter()
+                .filter(|r| r.domain == domain)
+                .map(|r| (r.method.to_ascii_uppercase(), r.path.clone()))
+                .collect();
+            let actual: BTreeSet<(String, String)> = map_for_domain(domain)
+                .iter()
+                .map(|r| (r.method.clone(), r.path.clone()))
+                .collect();
+            assert_eq!(
+                actual, expected,
+                "domain {domain}: mapper keys must equal fixture entries"
+            );
+        }
+    }
+
+    #[test]
+    fn fixture_permissions_exist_in_tapp_permission_enum() {
+        let fixture: HostRouteFixture =
+            serde_json::from_str(HOST_ROUTE_PERMISSIONS_JSON).expect("valid fixture");
+        for entry in &fixture.routes {
+            assert!(
+                TappPermission::from_str(&entry.permission).is_some(),
+                "permission {:?} is not in TappPermission::from_str ({} {})",
+                entry.permission,
+                entry.method,
+                entry.path
+            );
+            let perm = TappPermission::from_str(&entry.permission).unwrap();
+            assert_eq!(
+                perm.as_str(),
+                entry.permission.as_str(),
+                "as_str round-trip for {}",
+                entry.permission
+            );
+        }
+    }
+
+    #[test]
+    fn action_fixture_permissions_exist_in_tapp_permission_enum() {
+        let fixture: ActionFixture =
+            serde_json::from_str(ACTION_PERMISSIONS_JSON).expect("valid action fixture");
+        assert!(!fixture.actions.is_empty());
+        for entry in &fixture.actions {
+            assert!(
+                TappPermission::from_str(&entry.permission).is_some(),
+                "action {} permission {:?} missing from TappPermission::from_str",
+                entry.action,
+                entry.permission
+            );
+        }
+    }
+
+    #[test]
+    fn host_and_action_fixtures_share_permission_string_set_per_domain() {
+        // Every permission string used on a host-proxied route for a domain
+        // must also appear on at least one sandbox action in that domain
+        // (and vice versa for the domains we care about). Catches renames
+        // applied on only one side of the stack.
+        let host: HostRouteFixture =
+            serde_json::from_str(HOST_ROUTE_PERMISSIONS_JSON).expect("valid host fixture");
+        let actions: ActionFixture =
+            serde_json::from_str(ACTION_PERMISSIONS_JSON).expect("valid action fixture");
+
+        for domain in ["speech", "brew", "federation"] {
+            let host_perms: BTreeSet<&str> = host
+                .routes
+                .iter()
+                .filter(|r| r.domain == domain)
+                .map(|r| r.permission.as_str())
+                .collect();
+            let action_perms: BTreeSet<&str> = actions
+                .actions
+                .iter()
+                .filter(|a| a.domain == domain)
+                .map(|a| a.permission.as_str())
+                .collect();
+            assert_eq!(
+                host_perms, action_perms,
+                "domain {domain}: host route permission set must equal action permission set.\n\
+                 host-only: {:?}\naction-only: {:?}",
+                host_perms
+                    .difference(&action_perms)
+                    .copied()
+                    .collect::<Vec<_>>(),
+                action_perms
+                    .difference(&host_perms)
+                    .copied()
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn action_fixture_entries_are_unique() {
+        let fixture: ActionFixture =
+            serde_json::from_str(ACTION_PERMISSIONS_JSON).expect("valid action fixture");
+        let mut seen = BTreeSet::new();
+        for entry in &fixture.actions {
+            assert!(
+                seen.insert(entry.action.as_str()),
+                "duplicate action in action_permissions.json: {}",
+                entry.action
+            );
+        }
+    }
 
     #[test]
     fn speech_routes_map_to_sandbox_permissions() {
