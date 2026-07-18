@@ -975,6 +975,7 @@ export interface TranslationKeys {
     reportBangumi: string
     reportMal: string
     reportX: string
+    reportDiscord: string
     reportXbox: string
     reportPsn: string
     socialNetwork: string
@@ -1702,6 +1703,22 @@ export interface TranslationKeys {
     xPreviewDescIndie: string
     xPreviewDescTech: string
     xPreviewDescArt: string
+    discordGuilds: string
+    discordReach: string
+    discordConnections: string
+    discordMembers: string
+    discordOnline: string
+    discordRoleOwner: string
+    discordRoleAdmin: string
+    discordRoleMod: string
+    discordFeaturePartner: string
+    discordFeatureVerified: string
+    discordFeatureCommunity: string
+    discordVibeDefault: string
+    discordRoleDefault: string
+    discordTagOpenSource: string
+    discordTagIndieGame: string
+    discordTagAcg: string
   }
 
   // 社交网络小组件扩展

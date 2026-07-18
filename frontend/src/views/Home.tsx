@@ -185,6 +185,13 @@ export default function Home() {
         supportedSizes: ['4x2'],
       },
       {
+        id: 'report-discord',
+        name: t.widgets.reportDiscord,
+        defaultSize: '4x2',
+        component: ReportCardWidget,
+        supportedSizes: ['4x2'],
+      },
+      {
         id: 'report-xbox',
         name: t.widgets.reportXbox,
         defaultSize: '4x2',

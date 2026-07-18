@@ -561,6 +561,16 @@ async fn generate_platform_reports_internal(
                     &metadata.content_analysis
                 {
                     if let Some(obj) = card_visuals.as_object_mut() {
+                        // 归一化 AI 产出：clamp community_tags（AI 偶尔无视上限）
+                        if let Some(tags) =
+                            obj.get_mut("community_tags").and_then(|v| v.as_array_mut())
+                        {
+                            tags.truncate(4);
+                        }
+
+                        // 账号画像（概览卡 header）—— 全部实测，覆盖 AI 幻觉
+                        obj.insert("profile".to_string(), json!(analysis.profile));
+
                         obj.insert(
                             "stats".to_string(),
                             json!({
@@ -569,6 +579,8 @@ async fn generate_platform_reports_internal(
                                 "admin_guilds": analysis.guild_stats.admin_guild_count,
                                 "manage_guilds": analysis.guild_stats.manage_guild_count,
                                 "connections": analysis.connections.len(),
+                                "member_reach": analysis.guild_stats.total_member_reach,
+                                "online_reach": analysis.guild_stats.total_online_reach,
                             }),
                         );
                         obj.insert(
@@ -609,6 +621,9 @@ async fn generate_platform_reports_internal(
                                     "icon": g.icon_url,
                                     "owner": g.owner,
                                     "permissions": g.permissions_highlight,
+                                    "member_count": g.member_count,
+                                    "presence_count": g.presence_count,
+                                    "features": g.feature_highlight,
                                 })
                             })
                             .collect();
@@ -975,6 +990,12 @@ async fn generate_platform_reports_internal(
                             analysis.guild_stats.owned_guild_count,
                             analysis.guild_stats.manage_guild_count
                         ));
+                        if analysis.guild_stats.total_member_reach > 0 {
+                            insights.push(format!(
+                                "社区触达：约 {} 名成员",
+                                analysis.guild_stats.total_member_reach
+                            ));
+                        }
                         if !analysis.identity_graph.linked_platforms.is_empty() {
                             insights.push(format!(
                                 "已绑定：{}",
@@ -2231,6 +2252,11 @@ async fn generate_ai_report(
             "用白金猎人的口吻分析用户的奖杯柜：白金数量成色如何？是专注刷完一部再玩下一部，还是奖杯散落一地？最近哪部作品有奖杯动态？注意：PSN 没有游玩时长数据，一切从奖杯等级和完成度说话；数字字段系统会用实测值覆盖，你重点写准 hunter_type 人设标签。",
             "card_visuals必须包含 'hunter_type' (字符串，≤8字，如'白金收藏家'/'随缘奖杯党'/'单机通关派'/'深度奖杯党'/'周末主机党')。其余数字字段（trophy_level/platinum_count/hardcore_score/top_titles 等）由系统写入，可省略。"
         ),
+        "discord" => (
+            "你是一个懂 Discord 社区生态的观察者，擅长从一个人加入的服务器、担任的角色和绑定的第三方账号，读出他在网络社群里的位置与身份。服务器规模、自建/管理数量、账号年龄、跨平台绑定，共同拼出这个人的'社区人格'——是自建社群的主理人、深耕几个圈子的老玩家，还是广泛潜水的观察者。你只依据给定数据下结论，绝不编造服务器名、成员数或绑定关系。",
+            "用干净利落、有洞察力的口吻分析这个 Discord 账号。主线抓三件事：① 角色——自建/管理的服务器揭示 TA 是建设者还是参与者；② 社区触达——加入服务器的总成员规模说明 TA 活跃在大众广场还是垂直小圈；③ 跨平台身份——connections 绑定的 Steam/GitHub/YouTube 等暴露真实兴趣与职业线索。硬性要求：所有结论必须在数据里有出处，成员数/服务器数一律用原值不得虚构；summary 和 insights 正文里禁止出现 card_visuals、guilds_preview、identity_graph 等字段名或技术术语；禁止'很活跃''社交达人'这类放在谁身上都成立的空话；账号无绑定或全是路人服务器时，如实写成'低调潜水型'，不要拔高。",
+            "card_visuals必须包含以下字段，无数据时用空字符串/空数组占位，禁止缺字段：'role_profile'（字符串，≤8字社区角色定位，如'社群主理人'/'圈子老炮'/'潜水观察者'/'跨平台节点'，须与自建/管理数量相符）；'vibe'（字符串，一句话社区人格，≤20字，具体有锋芒不客套，不带引号）；'community_tags'（字符串数组，2-4个刻画 TA 所在圈子气质的短标签，每个≤6字，如'开源社区''二次元''独立游戏''硬核玩家'，须能从服务器名/绑定平台推得，无据可依时给 []）。其余结构化字段（stats/guild_stats/identity_graph/connections/library_items/profile 等）由系统写入，一律省略、不要生成。"
+        ),
         _ => (
             "你是一个专业的数据分析师，客观理性。",
             "用专业客观的口吻分析用户数据。",
@@ -2631,6 +2657,7 @@ fn generate_mock_report(
             )
         }
         crate::services::smart_filter::ContentAnalysis::Discord(analysis) => {
+            let gs = &analysis.guild_stats;
             let top_guild = analysis
                 .guilds_preview
                 .first()
@@ -2641,42 +2668,58 @@ fn generate_mock_report(
             } else {
                 analysis.identity_graph.linked_platforms.join("、")
             };
+            // 角色定位：自建 > 管理 > 触达规模 > 潜水
+            let role_profile = if gs.owned_guild_count > 0 {
+                "社群主理人"
+            } else if gs.admin_guild_count > 0 {
+                "社区管理员"
+            } else if gs.manage_guild_count > 0 {
+                "社区协作者"
+            } else if gs.total_member_reach >= 100_000 {
+                "社区广场党"
+            } else if !analysis.identity_graph.linked_platforms.is_empty() {
+                "跨平台节点"
+            } else {
+                "潜水观察者"
+            };
+            // 社区标签：绑定平台名做兜底标签（AI 缺席时的占位）
+            let community_tags: Vec<String> = analysis
+                .identity_graph
+                .linked_platforms
+                .iter()
+                .take(4)
+                .cloned()
+                .collect();
+
+            let mut insights = vec![
+                analysis.community_summary.clone(),
+                format!(
+                    "服务器：{} 个（自建 {} · 管理 {}）",
+                    gs.guild_count, gs.owned_guild_count, gs.manage_guild_count
+                ),
+                format!("代表服务器：{}", top_guild),
+                format!("绑定平台：{}", linked),
+            ];
+            if gs.total_member_reach > 0 {
+                insights.push(format!(
+                    "社区触达：约 {} 名成员（在线 {}）",
+                    gs.total_member_reach, gs.total_online_reach
+                ));
+            }
+            if !analysis.profile.badges.is_empty() {
+                insights.push(format!("账号徽章：{}", analysis.profile.badges.join("、")));
+            }
+
             (
                 format!(
                     "{} 在 Discord 上留下清晰的社区足迹与跨平台身份线。",
                     metadata.user_summary.username
                 ),
-                vec![
-                    analysis.community_summary.clone(),
-                    format!(
-                        "服务器：{} 个（自建 {} · 管理 {}）",
-                        analysis.guild_stats.guild_count,
-                        analysis.guild_stats.owned_guild_count,
-                        analysis.guild_stats.manage_guild_count
-                    ),
-                    format!("代表服务器：{}", top_guild),
-                    format!("绑定平台：{}", linked),
-                ],
+                insights,
                 json!({
                     "vibe": "社区节点",
-                    "role_profile": if analysis.guild_stats.owned_guild_count > 0 {
-                        "服务器主理人"
-                    } else if analysis.guild_stats.admin_guild_count > 0 {
-                        "社区管理员"
-                    } else if analysis.guild_stats.manage_guild_count > 0 {
-                        "社区协作者"
-                    } else {
-                        "社区旅人"
-                    },
-                    "stats": {
-                        "guilds": analysis.guild_stats.guild_count,
-                        "owned_guilds": analysis.guild_stats.owned_guild_count,
-                        "admin_guilds": analysis.guild_stats.admin_guild_count,
-                        "connections": analysis.connections.len(),
-                    },
-                    "linked_platforms": analysis.identity_graph.linked_platforms,
-                    "identity_graph": analysis.identity_graph,
-                    "guilds_preview": analysis.guilds_preview.iter().take(8).collect::<Vec<_>>(),
+                    "role_profile": role_profile,
+                    "community_tags": community_tags,
                 }),
             )
         }

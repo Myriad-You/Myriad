@@ -182,10 +182,37 @@ pub struct XAnalysis {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscordAnalysis {
     pub community_summary: String,
+    pub profile: DiscordProfile,
     pub guild_stats: DiscordGuildStats,
     pub guilds_preview: Vec<DiscordGuildItem>,
     pub connections: Vec<DiscordConnectionItem>,
     pub identity_graph: DiscordIdentityGraph,
+}
+
+/// 账号画像 —— 全部来自 identify scope，无需额外权限
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiscordProfile {
+    pub display_name: String,
+    pub username: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub banner_url: Option<String>,
+    /// #RRGGBB，取自 accent_color
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accent_color: Option<String>,
+    /// Nitro 等级（Nitro / Nitro Classic / Nitro Basic）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nitro: Option<String>,
+    /// 账号创建时间（从 snowflake 解出），RFC3339
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    /// 账号年龄（整年）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account_age_years: Option<i64>,
+    /// public_flags 解出的徽章（HypeSquad / Early Supporter / Active Developer 等）
+    pub badges: Vec<String>,
+    pub mfa_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -194,6 +221,13 @@ pub struct DiscordGuildStats {
     pub owned_guild_count: usize,
     pub admin_guild_count: usize,
     pub manage_guild_count: usize,
+    /// 加入社区的成员总触达（各服 approximate_member_count 之和）
+    pub total_member_reach: u64,
+    /// 各服在线人数之和（approximate_presence_count）
+    pub total_online_reach: u64,
+    /// 官方认证 / 合作 / 已开启社区功能的服务器数量
+    pub community_guild_count: usize,
+    pub partnered_or_verified_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -203,6 +237,14 @@ pub struct DiscordGuildItem {
     pub icon_url: Option<String>,
     pub owner: bool,
     pub permissions_highlight: Vec<String>,
+    /// approximate_member_count（with_counts=true 时可用）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub member_count: Option<u64>,
+    /// approximate_presence_count（在线人数）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub presence_count: Option<u64>,
+    /// 关注的服务器特性标签（PARTNERED / VERIFIED / COMMUNITY 等）
+    pub feature_highlight: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2162,6 +2204,44 @@ impl SmartFilter {
             _ => None,
         };
 
+        // 画像素材（均来自 identify scope）
+        let avatar_url = user
+            .get("avatar")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .filter(|_| !user_id.is_empty())
+            .map(|hash| {
+                let ext = if hash.starts_with("a_") { "gif" } else { "png" };
+                format!(
+                    "https://cdn.discordapp.com/avatars/{}/{}.{}?size=256",
+                    user_id, hash, ext
+                )
+            });
+        let banner_url = user
+            .get("banner")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .filter(|_| !user_id.is_empty())
+            .map(|hash| {
+                let ext = if hash.starts_with("a_") { "gif" } else { "png" };
+                format!(
+                    "https://cdn.discordapp.com/banners/{}/{}.{}?size=600",
+                    user_id, hash, ext
+                )
+            });
+        let accent_color = user
+            .get("accent_color")
+            .and_then(|v| v.as_u64())
+            .map(|c| format!("#{:06X}", c & 0xFF_FFFF));
+        let badges = Self::discord_public_flags_badges(
+            user.get("public_flags").and_then(|v| v.as_u64()).unwrap_or(0),
+        );
+        let mfa_enabled = user
+            .get("mfa_enabled")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let (created_at, account_age_years) = Self::discord_snowflake_created(&user_id);
+
         let guilds = data
             .get("guilds")
             .and_then(|v| v.as_array())
@@ -2176,6 +2256,10 @@ impl SmartFilter {
         let mut owned_guild_count = 0usize;
         let mut admin_guild_count = 0usize;
         let mut manage_guild_count = 0usize;
+        let mut community_guild_count = 0usize;
+        let mut partnered_or_verified_count = 0usize;
+        let mut total_member_reach: u64 = 0;
+        let mut total_online_reach: u64 = 0;
         let mut guilds_preview = Vec::new();
 
         for guild in &guilds {
@@ -2213,6 +2297,36 @@ impl SmartFilter {
                 manage_guild_count += 1;
             }
 
+            // with_counts=true 附带的真实规模 —— 用来排序有效社区、算总触达
+            let member_count = guild
+                .get("approximate_member_count")
+                .and_then(|v| v.as_u64());
+            let presence_count = guild
+                .get("approximate_presence_count")
+                .and_then(|v| v.as_u64());
+            total_member_reach = total_member_reach.saturating_add(member_count.unwrap_or(0));
+            total_online_reach = total_online_reach.saturating_add(presence_count.unwrap_or(0));
+
+            let features: Vec<String> = guild
+                .get("features")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|f| f.as_str().map(|s| s.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let feature_highlight = Self::discord_guild_feature_highlight(&features);
+            if feature_highlight.iter().any(|f| f == "COMMUNITY") {
+                community_guild_count += 1;
+            }
+            if feature_highlight
+                .iter()
+                .any(|f| f == "PARTNERED" || f == "VERIFIED")
+            {
+                partnered_or_verified_count += 1;
+            }
+
             let icon_url = match (
                 guild
                     .get("icon")
@@ -2236,10 +2350,14 @@ impl SmartFilter {
                 icon_url,
                 owner,
                 permissions_highlight: perms,
+                member_count,
+                presence_count,
+                feature_highlight,
             });
         }
 
-        // 所有者 / 管理员优先展示
+        // 展示优先级：自建 > 管理 > 规模（成员数）> 名称
+        // 把最能体现社区身份的服务器顶到前面，弱化只是路人成员的噪声小服。
         guilds_preview.sort_by(|a, b| {
             b.owner
                 .cmp(&a.owner)
@@ -2248,6 +2366,7 @@ impl SmartFilter {
                     let b_admin = b.permissions_highlight.iter().any(|p| p == "ADMINISTRATOR");
                     b_admin.cmp(&a_admin)
                 })
+                .then_with(|| b.member_count.unwrap_or(0).cmp(&a.member_count.unwrap_or(0)))
                 .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
         });
         guilds_preview.truncate(30);
@@ -2353,15 +2472,46 @@ impl SmartFilter {
             },
         );
 
+        // 触达用「万」更符合中文语感；不足 1 万时给具体数
+        let reach_phrase = if total_member_reach >= 10_000 {
+            format!("触达约 {:.1} 万人", total_member_reach as f64 / 10_000.0)
+        } else if total_member_reach > 0 {
+            format!("触达约 {} 人", total_member_reach)
+        } else {
+            String::new()
+        };
+        let age_phrase = account_age_years
+            .filter(|y| *y >= 1)
+            .map(|y| format!("，{} 年老号", y))
+            .unwrap_or_default();
         let community_summary = format!(
-            "Discord 用户 {} 加入 {} 个服务器（自建 {}，管理权限 {}），绑定 {} 个第三方账号（已验证 {}）",
+            "Discord 用户 {}{} 加入 {} 个服务器（自建 {}，管理 {}{}），绑定 {} 个第三方账号（已验证 {}）",
             display_name,
+            age_phrase,
             guilds.len(),
             owned_guild_count,
             manage_guild_count,
+            if reach_phrase.is_empty() {
+                String::new()
+            } else {
+                format!("，{}", reach_phrase)
+            },
             connections.len(),
             verified_connection_count
         );
+
+        let profile = DiscordProfile {
+            display_name: display_name.clone(),
+            username,
+            avatar_url,
+            banner_url,
+            accent_color,
+            nitro: level.clone(),
+            created_at,
+            account_age_years,
+            badges,
+            mfa_enabled,
+        };
 
         Ok(SmartFilteredData {
             platform: "discord".to_string(),
@@ -2377,11 +2527,16 @@ impl SmartFilter {
             },
             content_analysis: ContentAnalysis::Discord(DiscordAnalysis {
                 community_summary,
+                profile,
                 guild_stats: DiscordGuildStats {
                     guild_count: guilds.len(),
                     owned_guild_count,
                     admin_guild_count,
                     manage_guild_count,
+                    total_member_reach,
+                    total_online_reach,
+                    community_guild_count,
+                    partnered_or_verified_count,
                 },
                 guilds_preview,
                 connections,
@@ -2430,6 +2585,88 @@ impl SmartFilter {
         }
         if bits & BAN_MEMBERS != 0 {
             out.push("BAN_MEMBERS".to_string());
+        }
+        out
+    }
+
+    /// 从 Discord snowflake ID 解出创建时间（RFC3339）与账号年龄（整年）。
+    /// Discord ID 高 42 位是自 Discord epoch(2015-01-01) 起的毫秒时间戳，
+    /// 无需任何 API 调用即可得到账号/服务器的诞生日期。
+    fn discord_snowflake_created(id: &str) -> (Option<String>, Option<i64>) {
+        const DISCORD_EPOCH_MS: i64 = 1_420_070_400_000;
+        let Some(snowflake) = id.trim().parse::<u64>().ok().filter(|n| *n > 0) else {
+            return (None, None);
+        };
+        let ts_ms = (snowflake >> 22) as i64 + DISCORD_EPOCH_MS;
+        let Some(created) = chrono::DateTime::from_timestamp_millis(ts_ms) else {
+            return (None, None);
+        };
+        let now = chrono::Utc::now();
+        // 用天数换算年龄，避免闰年月份运算的边角
+        let years = ((now - created).num_days() / 365).max(0);
+        (Some(created.to_rfc3339()), Some(years))
+    }
+
+    /// 解 public_flags 位掩码 → 面向展示的徽章标签。
+    /// https://discord.com/developers/docs/resources/user#user-object-user-flags
+    fn discord_public_flags_badges(flags: u64) -> Vec<String> {
+        const HYPESQUAD_EVENTS: u64 = 1 << 2;
+        const BUG_HUNTER_1: u64 = 1 << 3;
+        const HOUSE_BRAVERY: u64 = 1 << 6;
+        const HOUSE_BRILLIANCE: u64 = 1 << 7;
+        const HOUSE_BALANCE: u64 = 1 << 8;
+        const EARLY_SUPPORTER: u64 = 1 << 9;
+        const BUG_HUNTER_2: u64 = 1 << 14;
+        const VERIFIED_DEVELOPER: u64 = 1 << 17;
+        const CERTIFIED_MODERATOR: u64 = 1 << 18;
+        const ACTIVE_DEVELOPER: u64 = 1 << 22;
+
+        let mut out = Vec::new();
+        if flags & HOUSE_BRAVERY != 0 {
+            out.push("HypeSquad Bravery".to_string());
+        }
+        if flags & HOUSE_BRILLIANCE != 0 {
+            out.push("HypeSquad Brilliance".to_string());
+        }
+        if flags & HOUSE_BALANCE != 0 {
+            out.push("HypeSquad Balance".to_string());
+        }
+        if flags & HYPESQUAD_EVENTS != 0 {
+            out.push("HypeSquad Events".to_string());
+        }
+        if flags & EARLY_SUPPORTER != 0 {
+            out.push("Early Supporter".to_string());
+        }
+        if flags & ACTIVE_DEVELOPER != 0 {
+            out.push("Active Developer".to_string());
+        }
+        if flags & VERIFIED_DEVELOPER != 0 {
+            out.push("Early Verified Bot Dev".to_string());
+        }
+        if flags & (BUG_HUNTER_1 | BUG_HUNTER_2) != 0 {
+            out.push("Bug Hunter".to_string());
+        }
+        if flags & CERTIFIED_MODERATOR != 0 {
+            out.push("Moderator Alumni".to_string());
+        }
+        out
+    }
+
+    /// 从 guild features 数组挑出能体现社区身份/规格的标签，忽略其余噪声特性。
+    fn discord_guild_feature_highlight(features: &[String]) -> Vec<String> {
+        // 仅保留有含义、面向读者的少量特性；其余（如 NEWS、THREADS_ENABLED）丢弃。
+        const KEEP: &[&str] = &[
+            "PARTNERED",
+            "VERIFIED",
+            "COMMUNITY",
+            "DISCOVERABLE",
+        ];
+        let mut out = Vec::new();
+        for f in features {
+            let upper = f.to_ascii_uppercase();
+            if KEEP.contains(&upper.as_str()) && !out.contains(&upper) {
+                out.push(upper);
+            }
         }
         out
     }
@@ -2780,13 +3017,18 @@ mod tests {
 
     #[test]
     fn test_filter_discord() {
-        // ADMINISTRATOR = 1<<3 = 8
+        // ADMINISTRATOR = 1<<3 = 8; public_flags: HypeSquad Balance(1<<8=256) | Active Developer(1<<22)
         let raw = serde_json::json!({
             "user": {
-                "id": "123456789",
+                // 真实 snowflake（2016 年注册），用于验证账号年龄解算
+                "id": "155149108183695360",
                 "username": "haru",
                 "global_name": "Haru",
-                "premium_type": 2
+                "premium_type": 2,
+                "public_flags": 256 | (1u64 << 22),
+                "avatar": "abcavatarhash",
+                "accent_color": 5793266,
+                "mfa_enabled": true
             },
             "guilds": [
                 {
@@ -2794,13 +3036,19 @@ mod tests {
                     "name": "Owned Server",
                     "owner": true,
                     "permissions": "8",
-                    "icon": "abc"
+                    "icon": "abc",
+                    "approximate_member_count": 1200,
+                    "approximate_presence_count": 300,
+                    "features": ["COMMUNITY", "NEWS"]
                 },
                 {
                     "id": "g2",
-                    "name": "Member Server",
+                    "name": "Big Partner Server",
                     "owner": false,
-                    "permissions": "0"
+                    "permissions": "0",
+                    "approximate_member_count": 50000,
+                    "approximate_presence_count": 8000,
+                    "features": ["PARTNERED", "VERIFIED"]
                 }
             ],
             "connections": [
@@ -2828,7 +3076,7 @@ mod tests {
         let filtered = SmartFilter::filter("discord", &raw).expect("filter discord");
         assert_eq!(filtered.platform, "discord");
         assert_eq!(filtered.user_summary.username, "Haru");
-        assert_eq!(filtered.user_summary.user_id, "123456789");
+        assert_eq!(filtered.user_summary.user_id, "155149108183695360");
         assert_eq!(filtered.user_summary.level.as_deref(), Some("Nitro"));
         assert_eq!(filtered.user_summary.stats.total_content, 2);
 
@@ -2837,6 +3085,7 @@ mod tests {
                 assert_eq!(analysis.guild_stats.guild_count, 2);
                 assert_eq!(analysis.guild_stats.owned_guild_count, 1);
                 assert_eq!(analysis.guild_stats.admin_guild_count, 1);
+                // Owner 服务器仍排首位，即使它成员数更少
                 assert_eq!(analysis.guilds_preview[0].name, "Owned Server");
                 assert!(analysis.guilds_preview[0]
                     .permissions_highlight
@@ -2853,6 +3102,39 @@ mod tests {
                 let github = analysis.identity_graph.cross_check.get("github").unwrap();
                 assert_eq!(github.name_match, Some(true));
                 assert!(analysis.community_summary.contains("Haru"));
+
+                // with_counts 派生：总触达 / 在线 / 社区规格计数
+                assert_eq!(analysis.guild_stats.total_member_reach, 51_200);
+                assert_eq!(analysis.guild_stats.total_online_reach, 8_300);
+                assert_eq!(analysis.guild_stats.community_guild_count, 1);
+                assert_eq!(analysis.guild_stats.partnered_or_verified_count, 1);
+                assert_eq!(
+                    analysis.guilds_preview[0].member_count,
+                    Some(1200)
+                );
+                assert!(analysis.guilds_preview[0]
+                    .feature_highlight
+                    .contains(&"COMMUNITY".to_string()));
+                // NEWS 属噪声特性，应被过滤
+                assert!(!analysis.guilds_preview[0]
+                    .feature_highlight
+                    .contains(&"NEWS".to_string()));
+
+                // identify 派生：徽章 / 头像 / accent / MFA / 账号年龄
+                assert!(analysis.profile.badges.contains(&"Active Developer".to_string()));
+                assert!(analysis
+                    .profile
+                    .badges
+                    .contains(&"HypeSquad Balance".to_string()));
+                assert!(analysis.profile.mfa_enabled);
+                assert_eq!(analysis.profile.accent_color.as_deref(), Some("#5865F2"));
+                assert!(analysis
+                    .profile
+                    .avatar_url
+                    .as_deref()
+                    .unwrap()
+                    .contains("155149108183695360"));
+                assert!(analysis.profile.account_age_years.unwrap() >= 8);
             }
             other => panic!("expected Discord analysis, got {:?}", other),
         }

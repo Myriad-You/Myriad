@@ -110,6 +110,11 @@ const WIDGET_BASE_CONFIG = {
     component: ReportCardWidget,
     supportedSizes: ['4x2'] as WidgetSize[],
   },
+  'report-discord': {
+    defaultSize: '4x2' as const,
+    component: ReportCardWidget,
+    supportedSizes: ['4x2'] as WidgetSize[],
+  },
   'report-xbox': {
     defaultSize: '4x2' as const,
     component: ReportCardWidget,

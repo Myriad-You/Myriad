@@ -17,6 +17,7 @@ import {
   LuStar,
   SiBangumi,
   SiBilibili,
+  SiDiscord,
   SiMyanimelist,
   SiNeteasecloudmusic,
   SiPlaystation,
@@ -158,6 +159,11 @@ const PLATFORM_SOCIAL: Record<
     fieldKey: 'online_id',
     getUserUrl: (u) =>
       `https://profile.playstation.com/me/profile/${encodeURIComponent(u)}`,
+  },
+  discord: {
+    publicName: 'Discord',
+    fieldKey: 'user_id',
+    getUserUrl: (u) => `https://discord.com/users/${u}`,
   },
 }
 
@@ -3452,6 +3458,14 @@ const PLATFORM_CONFIG: Record<
     label: 'PlayStation',
     textColor: 'text-[#0070D1]',
   },
+  discord: {
+    icon: <SiDiscord />,
+    color: '#5865F2',
+    bgColor: 'rgba(88, 101, 242, 0.15)',
+    borderColor: 'rgba(88, 101, 242, 0.3)',
+    label: 'Discord',
+    textColor: 'text-[#5865F2]',
+  },
 }
 
 // X 兴趣圈层构成条配色 — 固定顺序分配（圈层1→蓝 … 圈层4→粉），
@@ -3896,6 +3910,416 @@ function formatCompactNumber(n: number | undefined | null): string {
   if (num >= 1_000) return `${(num / 1_000).toFixed(1)}K`
   return String(num)
 }
+
+// ==================== Discord 社区身份卡 ====================
+// 概览面：账号画像 + 服务器图标墙 + 社区触达 / 角色定位
+// 详情面：代表服务器轮播（规模、角色、认证特性）
+const DISCORD_BLURPLE = '#5865F2'
+
+// 服务器无图标时的字母兜底底色（按名称 hash 取一组柔和 blurple 邻近色）
+const DISCORD_TILE_COLORS = [
+  '#5865F2',
+  '#7289DA',
+  '#4752C4',
+  '#949CF7',
+  '#3C45A5',
+]
+function discordTileColor(name: string): string {
+  let hash = 0
+  for (let i = 0; i < name.length; i++) {
+    hash = (hash * 31 + name.charCodeAt(i)) & 0xFFFFFFFF
+  }
+  return DISCORD_TILE_COLORS[Math.abs(hash) % DISCORD_TILE_COLORS.length]
+}
+
+// 从服务器权限 / 特性推出一个角色徽章
+function discordGuildBadge(
+  g: any,
+  t: any,
+): { label: string; color: string } | null {
+  const perms: string[] = Array.isArray(g?.permissions) ? g.permissions : []
+  const features: string[] = Array.isArray(g?.features) ? g.features : []
+  if (g?.owner) return { label: t.reportCardWidget.discordRoleOwner, color: '#F0B232' }
+  if (perms.includes('ADMINISTRATOR'))
+    return { label: t.reportCardWidget.discordRoleAdmin, color: '#5865F2' }
+  if (perms.includes('MANAGE_GUILD'))
+    return { label: t.reportCardWidget.discordRoleMod, color: '#3BA55D' }
+  if (features.includes('PARTNERED'))
+    return { label: t.reportCardWidget.discordFeaturePartner, color: '#5865F2' }
+  if (features.includes('VERIFIED'))
+    return { label: t.reportCardWidget.discordFeatureVerified, color: '#3BA55D' }
+  if (features.includes('COMMUNITY'))
+    return { label: t.reportCardWidget.discordFeatureCommunity, color: '#949CF7' }
+  return null
+}
+
+function DiscordGuildIcon({
+  icon,
+  name,
+  size,
+}: {
+  icon?: string | null
+  name: string
+  size: number
+}) {
+  const [failed, setFailed] = useState(false)
+  if (icon && !failed) {
+    return (
+      <img
+        src={icon}
+        alt={name}
+        className="w-full h-full object-cover"
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        onError={() => setFailed(true)}
+      />
+    )
+  }
+  // 兜底：取名称首字（含 emoji）铺底色
+  const letter = Array.from(name.trim())[0] || '#'
+  return (
+    <div
+      className="w-full h-full flex items-center justify-center font-bold text-white"
+      style={{
+        background: discordTileColor(name),
+        fontSize: Math.round(size * 0.42),
+      }}
+    >
+      {letter}
+    </div>
+  )
+}
+
+const DiscordWidget = memo(({ data, showOverview, onContentChange }: any) => {
+  const { t } = useI18n()
+  const profile = data?.profile || {}
+  const stats = data?.stats || {}
+  const guilds = useMemo(
+    () => (Array.isArray(data?.library_items) ? data.library_items : []),
+    [data?.library_items],
+  )
+  const badges: string[] = useMemo(
+    () => (Array.isArray(profile.badges) ? profile.badges.slice(0, 3) : []),
+    [profile.badges],
+  )
+  // 社区标签：优先 AI 的 community_tags，缺席时退回绑定平台
+  const tags: string[] = useMemo(() => {
+    const ct = Array.isArray(data?.community_tags) ? data.community_tags : []
+    if (ct.length > 0) return ct.slice(0, 4)
+    const lp = Array.isArray(data?.linked_platforms) ? data.linked_platforms : []
+    return lp.slice(0, 4)
+  }, [data?.community_tags, data?.linked_platforms])
+
+  // 图标墙素材（最多 7 个，后端已按 服主/管理/规模 排序）
+  const iconWall = useMemo(() => guilds.slice(0, 7), [guilds])
+  // 详情轮播只取前 8 个代表服务器
+  const flipItems = useMemo(() => guilds.slice(0, 8), [guilds])
+
+  const [slideIndex, setSlideIndex] = useState(0)
+  useEffect(() => {
+    if (!showOverview && flipItems.length > 1) {
+      const timer = setInterval(() => {
+        setSlideIndex((i) => (i + 1) % flipItems.length)
+      }, 4000)
+      return () => clearInterval(timer)
+    }
+  }, [showOverview, flipItems.length])
+
+  // 详情态：左下角药丸承载当前服务器名；概览态药丸保持纯图标
+  useEffect(() => {
+    if (!showOverview && flipItems[slideIndex % flipItems.length]) {
+      const g = flipItems[slideIndex % flipItems.length]
+      onContentChange?.({ title: String(g.name || g.title || '') })
+    } else {
+      onContentChange?.(null)
+    }
+  }, [showOverview, slideIndex, flipItems, onContentChange])
+
+  const memberReach = Number(stats.member_reach) || 0
+
+  if (showOverview) {
+    const displayName =
+      profile.display_name || profile.username || 'Discord'
+    const statsParts = (
+      [
+        [Number(stats.guilds) || 0, t.reportCardWidget.discordGuilds],
+        memberReach > 0
+          ? [memberReach, t.reportCardWidget.discordReach]
+          : null,
+        [Number(stats.connections) || 0, t.reportCardWidget.discordConnections],
+      ].filter(Boolean) as [number, string][]
+    ).filter(([value]) => value != null)
+
+    return (
+      <div className="relative h-full w-full overflow-hidden">
+        <div className="absolute inset-0 bg-linear-to-br from-[#5865F2]/10 to-transparent dark:from-[#5865F2]/[0.14] dark:to-transparent" />
+        {/* 右侧背景：服务器图标墙，向左渐隐 */}
+        {iconWall.length > 0 && (
+          <div
+            className="absolute inset-y-0 right-0 w-[55%] opacity-80 dark:opacity-70"
+            style={{
+              maskImage:
+                'linear-gradient(to left, rgba(0,0,0,1) 35%, transparent 88%)',
+              WebkitMaskImage:
+                'linear-gradient(to left, rgba(0,0,0,1) 35%, transparent 88%)',
+            }}
+          >
+            <div className="absolute inset-y-0 left-0 right-0 flex items-start pt-[42px] justify-end pr-3 -rotate-6">
+              {iconWall.map((g: any, i: number) => (
+                <motion.div
+                  key={g.id || i}
+                  className="w-9 h-9 shrink-0 -ml-2 rounded-2xl overflow-hidden shadow-md ring-2 ring-white/80 dark:ring-black/60"
+                  style={{ y: i % 2 === 0 ? -8 : 10 }}
+                  initial={{ x: 40, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  transition={{
+                    duration: 0.45,
+                    delay: 0.15 + i * 0.06,
+                    ease: 'easeOut',
+                  }}
+                >
+                  <DiscordGuildIcon
+                    icon={g.icon}
+                    name={String(g.name || g.title || '?')}
+                    size={36}
+                  />
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        )}
+        {/* 前景 */}
+        <div className="relative z-10 h-full flex flex-col p-3 pb-9">
+          {/* header：账号头像 + 名称 + 徽章 */}
+          <motion.div
+            className="flex items-center gap-2 min-w-0 max-w-[72%]"
+            initial={{ y: 8, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{ duration: 0.4, delay: 0.1 }}
+          >
+            {profile.avatar_url ? (
+              <img
+                src={profile.avatar_url}
+                alt={displayName}
+                className="w-8 h-8 rounded-full object-cover ring-2 ring-white/80 dark:ring-black/50 shadow-sm shrink-0"
+                loading="lazy"
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <div
+                className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0 ring-2 ring-white/80 dark:ring-black/50"
+                style={{ background: DISCORD_BLURPLE }}
+              >
+                {Array.from(String(displayName).trim())[0] || '#'}
+              </div>
+            )}
+            <div className="min-w-0">
+              <div className="text-[11px] font-bold text-gray-900 dark:text-gray-100 leading-tight truncate">
+                {displayName}
+              </div>
+              <div className="flex items-center gap-1">
+                {profile.username && (
+                  <span className="text-[9px] font-mono text-gray-500 dark:text-gray-400 truncate">
+                    @{profile.username}
+                  </span>
+                )}
+                {profile.nitro && (
+                  <span className="text-[8px] px-1 rounded bg-[#5865F2]/15 text-[#5865F2] font-bold shrink-0">
+                    {profile.nitro}
+                  </span>
+                )}
+              </div>
+            </div>
+          </motion.div>
+
+          {/* 徽章行 */}
+          {badges.length > 0 && (
+            <motion.div
+              className="mt-1 flex flex-wrap gap-1 max-w-[62%]"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.4, delay: 0.25 }}
+            >
+              {badges.map((b) => (
+                <span
+                  key={b}
+                  className="text-[8px] px-1.5 py-0.5 rounded-full bg-black/5 dark:bg-white/10 text-gray-600 dark:text-gray-300 truncate"
+                >
+                  {b}
+                </span>
+              ))}
+            </motion.div>
+          )}
+
+          {/* 主角：AI 社区人格 */}
+          {(data?.vibe || data?.role_profile) && (
+            <div className="flex-1 min-h-0 flex items-center pt-1.5 pb-4">
+              <motion.div
+                className="max-w-[64%]"
+                initial={{ y: 8, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ duration: 0.4, delay: 0.2 }}
+              >
+                <span className="block text-[16px] font-black text-gray-900 dark:text-gray-100 leading-snug line-clamp-2 text-balance">
+                  {data?.vibe || data?.role_profile}
+                </span>
+                {data?.vibe && data?.role_profile && (
+                  <span className="mt-1 inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-[#5865F2]/15 text-[#5865F2]">
+                    {data.role_profile}
+                  </span>
+                )}
+              </motion.div>
+            </div>
+          )}
+
+          {/* 右上角：一行小统计 */}
+          {statsParts.length > 0 && (
+            <motion.div
+              className="absolute top-3 right-3 flex items-baseline gap-2"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.4, delay: 0.3 }}
+            >
+              {statsParts.map(([value, label]) => (
+                <span key={label} className="flex items-baseline gap-0.5">
+                  <span className="text-[10px] font-black tabular-nums text-gray-900 dark:text-gray-100">
+                    {formatCompactNumber(value)}
+                  </span>
+                  <span className="text-[9px] font-medium text-gray-500 dark:text-gray-400">
+                    {label}
+                  </span>
+                </span>
+              ))}
+            </motion.div>
+          )}
+
+          {/* 右下角：社区标签 */}
+          {tags.length > 0 && (
+            <div className="absolute bottom-3 right-3 max-w-[55%] flex flex-wrap justify-end gap-1">
+              {tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#5865F2]/12 dark:bg-[#5865F2]/20 text-[#4752C4] dark:text-[#949CF7] font-medium"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // 详情面：代表服务器轮播
+  const item =
+    flipItems.length > 0 ? flipItems[slideIndex % flipItems.length] : null
+  if (!item) {
+    return (
+      <div className="h-full w-full flex items-center justify-center text-gray-400 text-xl">
+        <SiDiscord />
+      </div>
+    )
+  }
+  const badge = discordGuildBadge(item, t)
+  const guildName = String(item.name || item.title || '')
+
+  return (
+    <AnimatePresence mode="wait">
+      <motion.div
+        key={`dg-${slideIndex % flipItems.length}`}
+        initial={CONTENT_FADE_INITIAL}
+        animate={CONTENT_FADE_ANIMATE}
+        exit={CONTENT_FADE_EXIT}
+        transition={CONTENT_FADE_TRANSITION}
+        className="relative h-full w-full overflow-hidden"
+      >
+        <div
+          className="absolute inset-0"
+          style={{
+            background: `radial-gradient(circle at 76% 46%, ${DISCORD_BLURPLE}26, transparent 74%)`,
+          }}
+        />
+        {/* 服务器图标：贴右缘，径向渐隐 */}
+        <motion.div
+          className="absolute inset-y-0 right-0 w-[52%] flex items-center justify-center"
+          style={{
+            maskImage:
+              'radial-gradient(circle at 100% 50%, rgba(0,0,0,1) 42%, transparent 76%)',
+            WebkitMaskImage:
+              'radial-gradient(circle at 100% 50%, rgba(0,0,0,1) 42%, transparent 76%)',
+          }}
+          initial={{ opacity: 0, x: 14 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.6, ease: 'easeOut' }}
+        >
+          <div className="w-24 h-24 rounded-3xl overflow-hidden translate-x-[10%] shadow-xl">
+            <DiscordGuildIcon icon={item.icon} name={guildName} size={96} />
+          </div>
+        </motion.div>
+        {/* 前景：角色徽章 + 规模 */}
+        <div className="relative z-10 h-full p-3 pb-12 flex flex-col">
+          {badge && (
+            <motion.span
+              className="self-start text-[10px] font-bold px-2 py-0.5 rounded-full text-white shadow-sm"
+              style={{ background: badge.color }}
+              initial={{ y: 8, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ duration: 0.4, delay: 0.1 }}
+            >
+              {badge.label}
+            </motion.span>
+          )}
+          <motion.div
+            className="mt-2 min-w-0 max-w-[62%]"
+            initial={{ y: 8, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{ duration: 0.4, delay: 0.15 }}
+          >
+            <span className="block text-base font-black text-gray-900 dark:text-gray-100 leading-tight line-clamp-2">
+              {guildName}
+            </span>
+          </motion.div>
+          {Number(item.member_count) > 0 && (
+            <motion.div
+              className="mt-1 flex items-baseline gap-2 text-[10px] text-gray-500 dark:text-gray-400"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.4, delay: 0.22 }}
+            >
+              <span className="font-bold text-gray-700 dark:text-gray-200 tabular-nums">
+                {formatCompactNumber(Number(item.member_count))}
+              </span>
+              <span>{t.reportCardWidget.discordMembers}</span>
+              {Number(item.presence_count) > 0 && (
+                <span className="flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#3BA55D]" />
+                  {formatCompactNumber(Number(item.presence_count))}{' '}
+                  {t.reportCardWidget.discordOnline}
+                </span>
+              )}
+            </motion.div>
+          )}
+        </div>
+        {/* 轮播指示点 */}
+        {flipItems.length > 1 && (
+          <div className="absolute bottom-3 right-3 z-10 flex gap-1">
+            {flipItems.map((_: any, i: number) => (
+              <span
+                key={i}
+                className={`w-1 h-1 rounded-full transition-colors ${
+                  i === slideIndex % flipItems.length
+                    ? 'bg-[#5865F2] dark:bg-[#949CF7]'
+                    : 'bg-gray-400/60 dark:bg-white/30'
+                }`}
+              />
+            ))}
+          </div>
+        )}
+      </motion.div>
+    </AnimatePresence>
+  )
+})
 
 // Bangumi 类型构成条配色（动画/书/游戏/音乐/剧集）
 const BANGUMI_TYPE_COLORS: Record<string, string> = {
@@ -4558,6 +4982,111 @@ export const ReportCardWidget = memo(
           return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
         }
 
+        // Discord 卡片字段结构与其他平台差异较大（profile/stats/library_items
+        // 形状不同），单独给一份预览数据，避免与通用预览字段互相污染。
+        if (platformId === 'discord') {
+          const guildTile = (letter: string, bg: string) => {
+            const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" rx="24" fill="${bg}"/><text x="48" y="62" text-anchor="middle" fill="#fff" font-size="44" font-family="system-ui,sans-serif" font-weight="700">${letter}</text></svg>`
+            return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+          }
+          setReportData({
+            vibe: t.reportCardWidget.discordVibeDefault,
+            role_profile: t.reportCardWidget.discordRoleDefault,
+            community_tags: [
+              t.reportCardWidget.discordTagOpenSource,
+              t.reportCardWidget.discordTagIndieGame,
+              t.reportCardWidget.discordTagAcg,
+            ],
+            profile: {
+              display_name: 'PreviewUser',
+              username: 'preview',
+              avatar_url: previewAvatar('D', '#5865F2'),
+              nitro: 'Nitro',
+              account_age_years: 7,
+              badges: [
+                'Active Developer',
+                'HypeSquad Balance',
+                'Early Supporter',
+              ],
+              mfa_enabled: true,
+            },
+            stats: {
+              guilds: 42,
+              owned_guilds: 2,
+              admin_guilds: 5,
+              manage_guilds: 8,
+              connections: 4,
+              member_reach: 128000,
+              online_reach: 21000,
+            },
+            linked_platforms: ['github', 'steam', 'spotify', 'youtube'],
+            connections: [
+              { type: 'github', name: 'octocat', verified: true },
+              { type: 'steam', name: 'PreviewGamer', verified: true },
+              { type: 'spotify', name: 'preview', verified: false },
+            ],
+            library_items: [
+              {
+                id: 'g1',
+                name: 'Open Source Guild',
+                title: 'Open Source Guild',
+                icon: guildTile('O', '#5865F2'),
+                owner: true,
+                permissions: ['ADMINISTRATOR'],
+                member_count: 8200,
+                presence_count: 1400,
+                features: ['COMMUNITY'],
+              },
+              {
+                id: 'g2',
+                name: 'Indie Devs',
+                title: 'Indie Devs',
+                icon: guildTile('I', '#4752C4'),
+                owner: false,
+                permissions: ['MANAGE_GUILD'],
+                member_count: 25000,
+                presence_count: 3800,
+                features: ['PARTNERED'],
+              },
+              {
+                id: 'g3',
+                name: 'ACG Lounge',
+                title: 'ACG Lounge',
+                icon: guildTile('A', '#7289DA'),
+                owner: false,
+                permissions: [],
+                member_count: 61000,
+                presence_count: 9200,
+                features: ['VERIFIED'],
+              },
+              {
+                id: 'g4',
+                name: 'Pixel Art',
+                title: 'Pixel Art',
+                icon: guildTile('P', '#949CF7'),
+                owner: false,
+                permissions: [],
+                member_count: 4300,
+                presence_count: 700,
+                features: [],
+              },
+              {
+                id: 'g5',
+                name: 'Rust Nomads',
+                title: 'Rust Nomads',
+                icon: guildTile('R', '#3C45A5'),
+                owner: false,
+                permissions: [],
+                member_count: 12000,
+                presence_count: 1900,
+                features: ['COMMUNITY'],
+              },
+            ],
+          })
+          setLoading(false)
+          return
+        }
+
         const sampleGame = t.reportCardWidget.sampleGame
         const sampleAnime = t.reportCardWidget.sampleAnime
         const samplePlaylist = t.reportCardWidget.samplePlaylist
@@ -5143,6 +5672,13 @@ export const ReportCardWidget = memo(
           )}
           {platformId === 'x' && (
             <XWidget
+              data={reportData}
+              showOverview={showOverview}
+              onContentChange={handleContentChange}
+            />
+          )}
+          {platformId === 'discord' && (
+            <DiscordWidget
               data={reportData}
               showOverview={showOverview}
               onContentChange={handleContentChange}

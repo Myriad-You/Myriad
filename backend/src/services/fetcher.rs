@@ -1346,8 +1346,11 @@ impl PlatformFetcher {
     }
 
     pub async fn fetch_discord_guilds(&self, access_token: &str) -> Result<Vec<serde_json::Value>> {
+        // with_counts=true 让每个 guild 附带 approximate_member_count /
+        // approximate_presence_count —— 同一 scope（guilds）下的额外有效信号，
+        // 用来按真实规模/在线人数排序社区，无需任何新权限。
         let value = self
-            .discord_get_json("/users/@me/guilds", access_token)
+            .discord_get_json("/users/@me/guilds?with_counts=true", access_token)
             .await?;
         Ok(value.as_array().cloned().unwrap_or_default())
     }
