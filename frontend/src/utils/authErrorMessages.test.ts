@@ -1,3 +1,5 @@
+/* eslint-disable test/no-import-node-test -- node:test is the repository test runner */
+
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
@@ -44,11 +46,15 @@ const t = {
   },
 } as any
 
-const format = (template: string, params: Record<string, string | number>) =>
-  Object.entries(params).reduce(
+function format(
+  template: string,
+  params: Record<string, string | number>,
+): string {
+  return Object.entries(params).reduce(
     (s, [k, v]) => s.replaceAll(`{${k}}`, String(v)),
     template,
   )
+}
 
 describe('sanitizeOAuthDesc', () => {
   it('strips controls and truncates', () => {

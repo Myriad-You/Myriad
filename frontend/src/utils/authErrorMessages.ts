@@ -12,7 +12,7 @@ export function sanitizeOAuthDesc(raw: string | null | undefined): string | null
   if (!raw) return null
   let s = raw.trim()
   // URLSearchParams already decodes; still normalize whitespace / controls
-  s = s.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim()
+  s = s.replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim()
   s = s.replace(/[<>`]/g, '')
   if (!s) return null
   // Avoid echoing long opaque blobs or pure URLs as the primary message
