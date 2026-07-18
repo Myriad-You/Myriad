@@ -9,10 +9,14 @@
  * 交互与设置弹窗模式对齐 SocialNetworkWidget / GamePresenceWidget。
  */
 
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
+import type {
+  RecentTappItem,
+  TappListItem,
+} from '../../tapp/services/TappLifecycleApi'
 import type { WidgetComponentProps } from '../WidgetGrid'
 import { FaTimes } from '@lib/icons'
 import { motionShim as motion } from '@lib/motionShim'
-import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import {
   memo,
   useCallback,
@@ -27,10 +31,6 @@ import { useI18n } from '../../contexts/I18nContext'
 import { useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { useWidgetSize } from '../../hooks/useWidgetSize'
 import { TappIcon } from '../../tapp/components/TappIcon'
-import type {
-  RecentTappItem,
-  TappListItem,
-} from '../../tapp/services/TappLifecycleApi'
 import {
   getRecentTapps,
   listTapps,
