@@ -5,10 +5,14 @@ fn parse_forwarded_for(headers: &HeaderMap) -> Option<IpAddr> {
     headers
         .get("x-forwarded-for")
         .and_then(|value| value.to_str().ok())
-        // The rightmost address is the hop observed by the trusted edge proxy.
-        // Leftmost entries may have been supplied by the client.
-        .and_then(|value| value.split(',').next_back())
-        .and_then(|value| value.trim().parse::<IpAddr>().ok())
+        // Myriad proxy rewrites XFF to a single resolved client IP. Prefer the
+        // rightmost hop if a chain is still present (closest to our edge).
+        .and_then(|value| {
+            value
+                .split(',')
+                .rev()
+                .find_map(|entry| entry.trim().parse::<IpAddr>().ok())
+        })
 }
 
 fn parse_real_ip(headers: &HeaderMap) -> Option<IpAddr> {
@@ -35,8 +39,10 @@ pub fn client_ip_from_parts(
     trust_proxy_headers: bool,
 ) -> Option<IpAddr> {
     if trust_proxy_headers {
-        parse_forwarded_for(headers)
-            .or_else(|| parse_real_ip(headers))
+        // Prefer X-Real-IP: the Myriad proxy sets a single resolved client IP there.
+        // Then XFF, then the TCP peer (usually the docker network address of proxy).
+        parse_real_ip(headers)
+            .or_else(|| parse_forwarded_for(headers))
             .or(peer_ip)
     } else {
         peer_ip
@@ -82,6 +88,47 @@ mod tests {
         assert_eq!(
             client_ip_from_parts(&headers, None, true),
             Some("198.51.100.4".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn trusted_proxy_prefers_x_real_ip_over_xff() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-real-ip", HeaderValue::from_static("203.0.113.50"));
+        headers.insert(
+            "x-forwarded-for",
+            HeaderValue::from_static("198.51.100.4"),
+        );
+        let peer = "10.0.0.2".parse().unwrap();
+
+        assert_eq!(
+            client_ip_from_parts(&headers, Some(peer), true),
+            Some("203.0.113.50".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn trusted_proxy_falls_back_to_peer_without_headers() {
+        let headers = HeaderMap::new();
+        let peer = "10.0.0.2".parse().unwrap();
+
+        assert_eq!(
+            client_ip_from_parts(&headers, Some(peer), true),
+            Some(peer)
+        );
+    }
+
+    #[test]
+    fn trusted_proxy_skips_malformed_xff_tokens() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-forwarded-for",
+            HeaderValue::from_static("not-an-ip, 203.0.113.10"),
+        );
+
+        assert_eq!(
+            client_ip_from_parts(&headers, None, true),
+            Some("203.0.113.10".parse().unwrap())
         );
     }
 }

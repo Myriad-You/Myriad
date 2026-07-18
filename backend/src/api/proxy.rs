@@ -1069,7 +1069,7 @@ pub async fn get_client_geo(
     );
 
     if let Ok(resp) = client.get(&url1).send().await {
-        if let Ok(data) = resp.json::<Value>().await {
+        if let Ok(mut data) = resp.json::<Value>().await {
             if data.get("status").and_then(|s| s.as_str()) == Some("success") {
                 tracing::info!(
                     "Geolocation success via ip-api.com for IP {}: city={}, region={}, country={}",
@@ -1084,6 +1084,10 @@ pub async fn get_client_geo(
                         .and_then(|v| v.as_str())
                         .unwrap_or("unknown")
                 );
+                // Include resolved lookup IP for weather/geo debugging.
+                if let Some(obj) = data.as_object_mut() {
+                    obj.insert("ip".to_string(), json!(target_ip));
+                }
                 return (
                     StatusCode::OK,
                     [(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")],
@@ -1110,7 +1114,8 @@ pub async fn get_client_geo(
                     "lon": lon,
                     "city": data.get("city").and_then(|v| v.as_str()).unwrap_or(""),
                     "country": data.get("country_name").and_then(|v| v.as_str()).unwrap_or(""),
-                    "regionName": data.get("region").and_then(|v| v.as_str()).unwrap_or("")
+                    "regionName": data.get("region").and_then(|v| v.as_str()).unwrap_or(""),
+                    "ip": target_ip,
                 });
 
                 tracing::info!(
@@ -1151,7 +1156,8 @@ pub async fn get_client_geo(
                         "lon": lon,
                         "city": data.get("city").and_then(|v| v.as_str()).unwrap_or(""),
                         "country": data.get("country").and_then(|v| v.as_str()).unwrap_or(""),
-                        "regionName": data.get("region").and_then(|v| v.as_str()).unwrap_or("")
+                        "regionName": data.get("region").and_then(|v| v.as_str()).unwrap_or(""),
+                        "ip": target_ip,
                     });
 
                     tracing::info!(
@@ -1185,7 +1191,8 @@ pub async fn get_client_geo(
             "lon": 0.0,
             "city": "Localhost",
             "country": "Development",
-            "regionName": "Local"
+            "regionName": "Local",
+            "ip": client_ip,
         });
         return (
             StatusCode::OK,

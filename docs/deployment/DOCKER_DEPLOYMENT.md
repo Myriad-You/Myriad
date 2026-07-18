@@ -105,7 +105,7 @@ Open `http://localhost` or the port configured by `HTTP_PORT`.
 | `MYRIAD_DOCKER_NETWORK` | no | Business network override, default `myriad-net` |
 | `MYRIAD_ADMIN_NETWORK` | no | Admin plane network override, default `myriad-admin-net` |
 | `MYRIAD_DOCKER_GUARD_NETWORK` | no | Internal updater/guard network override, default `myriad-docker-guard-net` |
-| `PROXY_TRUSTED_UPSTREAMS` | no | Comma-separated IP/CIDR allowlist for outer proxies allowed to pass the real client IP |
+| `PROXY_TRUSTED_UPSTREAMS` | no | Comma-separated IP/CIDR allowlist for outer proxies; empty = auto-trust private/loopback peers only (Docker host reverse-proxy). Never `0.0.0.0/0` |
 | `PROXY_ALLOW_DIRECT_UPDATER` | no | Enables `/_updater/*` rescue path, default `false` |
 | `COSIGN_VERIFY` | no | Release signature policy: `strict` (default), `soft`, or `off` |
 | `UPDATER_ALLOW_INSECURE_COSIGN` | no | Required dual key when `COSIGN_VERIFY=off` (`true` / alias `COSIGN_INSECURE_OK`) |

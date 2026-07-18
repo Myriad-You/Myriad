@@ -295,7 +295,12 @@ fn is_hop_by_hop(name: &str) -> bool {
 fn is_proxy_managed_forwarded_header(name: &str) -> bool {
     matches!(
         name.to_ascii_lowercase().as_str(),
-        "x-forwarded-for" | "x-real-ip" | "x-forwarded-host" | "x-forwarded-proto"
+        "x-forwarded-for"
+            | "x-real-ip"
+            | "x-forwarded-host"
+            | "x-forwarded-proto"
+            | "cf-connecting-ip"
+            | "true-client-ip"
     )
 }
 
@@ -314,49 +319,88 @@ fn parse_trusted_upstreams(value: Option<&str>) -> anyhow::Result<Vec<IpNet>> {
         .collect()
 }
 
-fn is_trusted_upstream(ip: IpAddr, trusted_upstreams: &[IpNet]) -> bool {
+/// RFC1918 / loopback / link-local (and IPv6 ULA / link-local). Used when
+/// `PROXY_TRUSTED_UPSTREAMS` is empty so Docker bridge / host-network peers
+/// (e.g. 172.17.0.1 from host Nginx/Caddy) can pass XFF without an explicit list.
+fn is_private_or_local(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => v4.is_private() || v4.is_loopback() || v4.is_link_local(),
+        IpAddr::V6(v6) => {
+            v6.is_loopback() || v6.is_unique_local() || v6.is_unicast_link_local()
+        }
+    }
+}
+
+fn is_in_allowlist(ip: IpAddr, trusted_upstreams: &[IpNet]) -> bool {
     trusted_upstreams
         .iter()
         .any(|network| network.contains(&ip))
 }
 
-fn resolve_client_ip(headers: &HeaderMap, peer_ip: IpAddr, trusted_upstreams: &[IpNet]) -> IpAddr {
-    if !is_trusted_upstream(peer_ip, trusted_upstreams) {
-        return peer_ip;
+/// Whether a hop is trusted for consuming / stripping forwarded headers.
+/// - Empty allowlist: only private/loopback/link-local (Docker host reverse-proxy case).
+/// - Non-empty allowlist: explicit CIDRs only (public peers still cannot spoof).
+fn is_trusted_hop(ip: IpAddr, trusted_upstreams: &[IpNet]) -> bool {
+    if trusted_upstreams.is_empty() {
+        is_private_or_local(ip)
+    } else {
+        is_in_allowlist(ip, trusted_upstreams)
     }
+}
 
-    let forwarded_ips: Vec<IpAddr> = headers
+/// Parse X-Forwarded-For, skipping unparseable tokens instead of dropping the whole chain.
+fn parse_forwarded_for_ips(headers: &HeaderMap) -> Vec<IpAddr> {
+    headers
         .get("x-forwarded-for")
         .and_then(|value| value.to_str().ok())
         .map(|value| {
             value
                 .split(',')
-                .map(|entry| entry.trim().parse::<IpAddr>().ok())
-                .collect::<Option<Vec<_>>>()
-                .unwrap_or_default()
+                .filter_map(|entry| entry.trim().parse::<IpAddr>().ok())
+                .collect()
         })
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
 
-    // Walk from the trusted edge towards the client. This handles chains made by
-    // multiple explicitly trusted proxies without accepting a client-supplied
-    // address placed on the left of the real client address.
+fn parse_single_ip_header(headers: &HeaderMap, name: &str) -> Option<IpAddr> {
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.trim().parse::<IpAddr>().ok())
+}
+
+fn resolve_client_ip(headers: &HeaderMap, peer_ip: IpAddr, trusted_upstreams: &[IpNet]) -> IpAddr {
+    // Public (or otherwise untrusted) direct peers cannot inject forwarding headers.
+    if !is_trusted_hop(peer_ip, trusted_upstreams) {
+        return peer_ip;
+    }
+
+    let forwarded_ips = parse_forwarded_for_ips(headers);
+
+    // Walk from the trusted edge towards the client, stripping trusted hops.
+    // Client-supplied addresses on the left of the real client are not accepted
+    // as long as intermediate proxies append correctly.
     if let Some(client_ip) = forwarded_ips
         .iter()
         .rev()
         .copied()
-        .find(|ip| !is_trusted_upstream(*ip, trusted_upstreams))
+        .find(|ip| !is_trusted_hop(*ip, trusted_upstreams))
     {
         return client_ip;
     }
 
-    if let Some(real_ip) = headers
-        .get("x-real-ip")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.trim().parse::<IpAddr>().ok())
+    // CDN / edge provider headers (only consulted when peer is already trusted).
+    if let Some(cdn_ip) = parse_single_ip_header(headers, "cf-connecting-ip")
+        .or_else(|| parse_single_ip_header(headers, "true-client-ip"))
     {
+        return cdn_ip;
+    }
+
+    if let Some(real_ip) = parse_single_ip_header(headers, "x-real-ip") {
         return real_ip;
     }
 
+    // Entire XFF chain was trusted proxies (or empty); prefer leftmost original if any.
     forwarded_ips.first().copied().unwrap_or(peer_ip)
 }
 
@@ -546,18 +590,115 @@ mod tests {
     }
 
     #[test]
-    fn malformed_forwarded_chain_falls_back_to_x_real_ip() {
+    fn malformed_xff_skips_bad_tokens_without_dropping_chain() {
         let trusted = parse_trusted_upstreams(Some("10.0.0.5")).unwrap();
         let mut headers = HeaderMap::new();
+        // "spoofed" is not a valid IP; robust parse keeps the valid hop.
         headers.insert(
             "x-forwarded-for",
             HeaderValue::from_static("spoofed, 198.51.100.8"),
         );
-        headers.insert("x-real-ip", HeaderValue::from_static("198.51.100.8"));
+        headers.insert("x-real-ip", HeaderValue::from_static("203.0.113.1"));
 
         assert_eq!(
             resolve_client_ip(&headers, "10.0.0.5".parse().unwrap(), &trusted),
             "198.51.100.8".parse::<IpAddr>().unwrap()
+        );
+    }
+
+    #[test]
+    fn empty_allowlist_trusts_private_peer_xff() {
+        // Docker bridge peer (host Nginx/Caddy → published proxy port).
+        let trusted = parse_trusted_upstreams(None).unwrap();
+        assert!(trusted.is_empty());
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", HeaderValue::from_static("203.0.113.50"));
+
+        assert_eq!(
+            resolve_client_ip(&headers, "172.17.0.1".parse().unwrap(), &trusted),
+            "203.0.113.50".parse::<IpAddr>().unwrap()
+        );
+    }
+
+    #[test]
+    fn empty_allowlist_public_peer_cannot_spoof_xff() {
+        let trusted = parse_trusted_upstreams(Some("")).unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", HeaderValue::from_static("198.51.100.99"));
+
+        assert_eq!(
+            resolve_client_ip(&headers, "192.0.2.10".parse().unwrap(), &trusted),
+            "192.0.2.10".parse::<IpAddr>().unwrap()
+        );
+    }
+
+    #[test]
+    fn empty_allowlist_strips_private_hops_from_right() {
+        let trusted = Vec::new();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-forwarded-for",
+            HeaderValue::from_static("203.0.113.9, 10.0.0.5, 172.17.0.1"),
+        );
+
+        assert_eq!(
+            resolve_client_ip(&headers, "172.17.0.1".parse().unwrap(), &trusted),
+            "203.0.113.9".parse::<IpAddr>().unwrap()
+        );
+    }
+
+    #[test]
+    fn explicit_allowlist_ignores_private_peer_not_listed() {
+        // Non-empty list is explicit-only: private peer outside the list is not trusted.
+        let trusted = parse_trusted_upstreams(Some("192.0.2.10/32")).unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", HeaderValue::from_static("203.0.113.9"));
+
+        assert_eq!(
+            resolve_client_ip(&headers, "10.0.0.5".parse().unwrap(), &trusted),
+            "10.0.0.5".parse::<IpAddr>().unwrap()
+        );
+    }
+
+    #[test]
+    fn trusted_peer_accepts_cf_connecting_ip() {
+        let trusted = parse_trusted_upstreams(Some("10.0.0.0/8")).unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "cf-connecting-ip",
+            HeaderValue::from_static("198.51.100.42"),
+        );
+
+        assert_eq!(
+            resolve_client_ip(&headers, "10.0.0.5".parse().unwrap(), &trusted),
+            "198.51.100.42".parse::<IpAddr>().unwrap()
+        );
+    }
+
+    #[test]
+    fn trusted_peer_accepts_true_client_ip() {
+        let trusted = Vec::new();
+        let mut headers = HeaderMap::new();
+        headers.insert("true-client-ip", HeaderValue::from_static("198.51.100.77"));
+
+        assert_eq!(
+            resolve_client_ip(&headers, "127.0.0.1".parse().unwrap(), &trusted),
+            "198.51.100.77".parse::<IpAddr>().unwrap()
+        );
+    }
+
+    #[test]
+    fn untrusted_public_peer_cannot_spoof_cdn_headers() {
+        let trusted = Vec::new();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "cf-connecting-ip",
+            HeaderValue::from_static("198.51.100.42"),
+        );
+
+        assert_eq!(
+            resolve_client_ip(&headers, "192.0.2.10".parse().unwrap(), &trusted),
+            "192.0.2.10".parse::<IpAddr>().unwrap()
         );
     }
 

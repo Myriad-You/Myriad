@@ -31,9 +31,35 @@ client -> optional TLS entrypoint -> Myriad proxy:${HTTP_PORT:-80}
 
 外层 Nginx/Caddy/负载均衡器如果存在，应代理到 Myriad `proxy` 的宿主端口，
 不要直接代理到 backend `1103`，否则会绕过维护页和 updater 救援路径。
-同时在 `.env` 的 `PROXY_TRUSTED_UPSTREAMS` 中填写外层代理连接 Myriad 时使用的
-IP 或 CIDR；否则 Myriad 会有意忽略转发头，天气等按 IP 定位的功能只能看到代理地址。
 只应信任实际代理节点，并在防火墙中限制 `HTTP_PORT` 不能被客户端绕过代理直连。
+
+### Docker + 宿主反向代理（常见天气定位错误）
+
+典型拓扑：
+
+```text
+client → 宿主 Nginx/Caddy → Docker 发布的 proxy 端口 → backend
+```
+
+此时 proxy 容器看到的 TCP 对端往往是 Docker 网桥地址（例如 `172.17.0.1`），
+而不是真实客户端。若外层已正确设置 `X-Real-IP` / `X-Forwarded-For`：
+
+- **`PROXY_TRUSTED_UPSTREAMS` 为空（默认）**：proxy 会**仅对**私网 / loopback /
+  link-local 对端信任转发头（含上述 Docker 网桥场景），从 `X-Forwarded-For`
+  右侧剥离可信跳，得到真实客户端 IP。公网对端仍不能伪造头。
+- **显式填写 CIDR**：仅允许列表中的上游传递转发头（显式 allowlist，不再自动
+  信任私网对端）。例如外层代理源地址是 `192.0.2.10`：
+
+```env
+PROXY_TRUSTED_UPSTREAMS=192.0.2.10/32
+```
+
+存在多层可信代理时，把各层地址或网段都列出。Myriad 会从
+`X-Forwarded-For` 右侧依次剥离这些可信代理，得到最靠近用户的非代理地址。
+可信对端时也会读取 `CF-Connecting-IP` / `True-Client-IP`（CDN）。
+
+**切勿**将 `PROXY_TRUSTED_UPSTREAMS` 设为 `0.0.0.0/0`：那会允许任意客户端
+伪造 `X-Forwarded-For`。
 
 ## Nginx TLS 入口示例
 
@@ -58,16 +84,9 @@ server {
 ```
 
 如果 `.env` 中设置了 `HTTP_PORT=8080`，把 `proxy_pass` 改为
-`http://127.0.0.1:8080`。
-
-例如外层代理连接 Myriad 时的源地址是 `192.0.2.10`：
-
-```env
-PROXY_TRUSTED_UPSTREAMS=192.0.2.10/32
-```
-
-存在多层可信代理时，把各层地址或网段都列出。Myriad 会从
-`X-Forwarded-For` 右侧依次剥离这些可信代理，得到最靠近用户的非代理地址。
+`http://127.0.0.1:8080`。在 Docker 宿主 Nginx 场景下，默认空的
+`PROXY_TRUSTED_UPSTREAMS` 即可；仅在上游是公网 IP 或需要收紧信任范围时
+再填写显式 CIDR。
 
 ## 验证
 
@@ -99,6 +118,7 @@ curl -I http://localhost:1103/health
 - `CSP_CONNECT_SRC`：覆盖生产 CSP 的 `connect-src`，默认为 `'self' https:`。
 - `ENABLE_CSP_DEV=true`：开发环境也启用 CSP。
 - `PROXY_TRUSTED_UPSTREAMS`：允许传递真实客户端 IP 的外层代理 IP/CIDR 列表。
+  留空时仅自动信任私网/loopback/link-local 对端；切勿设为 `0.0.0.0/0`。
 
 更多部署细节见 [Docker 部署](../deployment/DOCKER_DEPLOYMENT.md) 和
 [端口清单](../deployment/PORTS.md)。
