@@ -3168,7 +3168,11 @@ pub(crate) fn apply_pre_param_answer_to_recipe(
             .steps
             .iter()
             .position(|s| !s.params.contains_key(&param_name))
-            .or_else(|| if recipe.steps.is_empty() { None } else { Some(0) });
+            .or(if recipe.steps.is_empty() {
+                None
+            } else {
+                Some(0)
+            });
         if let Some(i) = idx {
             recipe.steps[i].params.insert(param_name, value);
             return true;

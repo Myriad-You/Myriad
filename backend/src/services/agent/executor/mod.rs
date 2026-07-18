@@ -1266,7 +1266,7 @@ impl Executor {
                 // 动态分析：检查是否需要用户输入
                 if !_is_dynamic {
                     if let Some(question) = self
-                        .analyze_and_generate_dynamic_steps(&step, &output, &mut context, &recipe)
+                        .analyze_and_generate_dynamic_steps(&step, &output, &mut context, recipe)
                         .await
                     {
                         emitter

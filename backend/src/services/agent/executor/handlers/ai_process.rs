@@ -182,30 +182,6 @@ fn inject_steering_to_params(
     }
 }
 
-#[cfg(test)]
-mod steering_tests {
-    use super::*;
-
-    #[test]
-    fn steering_augments_existing_ai_instruction() {
-        let mut params = HashMap::from([(
-            "instruction".to_string(),
-            Value::String("旧计划".to_string()),
-        )]);
-        inject_steering_to_params("ai.analyze", "只看最近数据", &mut params);
-        let instruction = params["instruction"].as_str().unwrap();
-        assert!(instruction.contains("旧计划"));
-        assert!(instruction.contains("只看最近数据"));
-    }
-
-    #[test]
-    fn steering_updates_search_query() {
-        let mut params = HashMap::new();
-        inject_steering_to_params("ai.webSearch", "改查官方文档", &mut params);
-        assert_eq!(params["query"], json!("改查官方文档"));
-    }
-}
-
 /// 将主 Agent 的 directive 注入到对应 handler 的参数中
 ///
 /// 这解决了核心问题：Planner（主 Agent）通过 step.action 给出的具体指令
@@ -1635,4 +1611,28 @@ fn extract_pixai_image_url(task_data: &Value) -> String {
     }
 
     String::new()
+}
+
+#[cfg(test)]
+mod steering_tests {
+    use super::*;
+
+    #[test]
+    fn steering_augments_existing_ai_instruction() {
+        let mut params = HashMap::from([(
+            "instruction".to_string(),
+            Value::String("旧计划".to_string()),
+        )]);
+        inject_steering_to_params("ai.analyze", "只看最近数据", &mut params);
+        let instruction = params["instruction"].as_str().unwrap();
+        assert!(instruction.contains("旧计划"));
+        assert!(instruction.contains("只看最近数据"));
+    }
+
+    #[test]
+    fn steering_updates_search_query() {
+        let mut params = HashMap::new();
+        inject_steering_to_params("ai.webSearch", "改查官方文档", &mut params);
+        assert_eq!(params["query"], json!("改查官方文档"));
+    }
 }
