@@ -318,6 +318,7 @@ export interface TranslationKeys {
     usersMakeAdmin: string
     usersRevokeAdmin: string
     usersRevokeAdminConfirm: string
+    usersPrimaryAdminOnly: string
     usersEnableLocalLogin: string
     usersDisableLocalLogin: string
     usersLocalLoginRequiresOAuth: string

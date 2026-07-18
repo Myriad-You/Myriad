@@ -29,6 +29,9 @@ use crate::middleware::auth::{verify_jwt_token, Claims};
 /// 距最近活跃 ≤300s 视为在线（与 presence 跟踪的会话间隔一致）。
 const ONLINE_WINDOW_SECS: i64 = 300;
 
+/// 站点主管理员（user id = 1）。非 id=1 的管理员不得改动其他管理员权限/删除管理员。
+const PRIMARY_ADMIN_ID: i32 = 1;
+
 type ApiError = (StatusCode, Json<Value>);
 
 fn db_error(e: impl std::fmt::Debug) -> ApiError {
@@ -44,6 +47,39 @@ fn not_found() -> ApiError {
         StatusCode::NOT_FOUND,
         Json(json!({"error": "User not found"})),
     )
+}
+
+/// 非主管理员不得对「当前已是管理员」或「id=1」的用户改动 `is_admin`。
+/// 主管理员（actor_id == 1）返回 None；将非管理员提升为管理员对非主管理员是允许的。
+fn non_primary_is_admin_change_error(
+    actor_id: i32,
+    target_id: i32,
+    target_is_admin: bool,
+) -> Option<&'static str> {
+    if actor_id == PRIMARY_ADMIN_ID {
+        return None;
+    }
+    if target_is_admin || target_id == PRIMARY_ADMIN_ID {
+        return Some(
+            "Only the primary administrator (id=1) can modify other administrators",
+        );
+    }
+    None
+}
+
+/// 非主管理员不得删除管理员或 user id=1。
+fn non_primary_delete_error(
+    actor_id: i32,
+    target_id: i32,
+    target_is_admin: bool,
+) -> Option<&'static str> {
+    if actor_id == PRIMARY_ADMIN_ID {
+        return None;
+    }
+    if target_is_admin || target_id == PRIMARY_ADMIN_ID {
+        return Some("Only the primary administrator (id=1) can delete administrators");
+    }
+    None
 }
 
 async fn require_admin(headers: &axum::http::HeaderMap) -> Result<Claims, ApiError> {
@@ -248,29 +284,39 @@ pub async fn update_user(
     let target_is_admin = target.try_get::<bool>("", "is_admin").unwrap_or(false);
     let target_username = target.try_get::<String>("", "username").unwrap_or_default();
 
-    // 管理员降权保护：不能降级自己；不能降级最后一位管理员
-    if req.is_admin == Some(false) && target_is_admin {
-        if user_id == self_id {
+    // is_admin 变更保护
+    if req.is_admin.is_some() {
+        // 不能撤销自己的管理员
+        if req.is_admin == Some(false) && target_is_admin && user_id == self_id {
             return Err((
                 StatusCode::BAD_REQUEST,
                 Json(json!({"error": "Cannot revoke your own admin role"})),
             ));
         }
-        let admin_count = db
-            .query_one(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "SELECT COUNT(*) AS n FROM users WHERE is_admin = true",
-                vec![],
-            ))
-            .await
-            .map_err(db_error)?
-            .and_then(|r| r.try_get::<i64>("", "n").ok())
-            .unwrap_or(0);
-        if admin_count <= 1 {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(json!({"error": "Cannot demote the last administrator"})),
-            ));
+        // 非主管理员不得改动其他管理员（或 id=1）的 is_admin；提升非管理员仍允许
+        if let Some(msg) =
+            non_primary_is_admin_change_error(self_id, user_id, target_is_admin)
+        {
+            return Err((StatusCode::FORBIDDEN, Json(json!({"error": msg}))));
+        }
+        // 不能降级最后一位管理员
+        if req.is_admin == Some(false) && target_is_admin {
+            let admin_count = db
+                .query_one(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    "SELECT COUNT(*) AS n FROM users WHERE is_admin = true",
+                    vec![],
+                ))
+                .await
+                .map_err(db_error)?
+                .and_then(|r| r.try_get::<i64>("", "n").ok())
+                .unwrap_or(0);
+            if admin_count <= 1 {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "Cannot demote the last administrator"})),
+                ));
+            }
         }
     }
 
@@ -486,6 +532,7 @@ async fn cleanup_user_related_data(
 ///
 /// 安全规则：
 /// - 不能删除自己（JWT sub == target id）→ 400
+/// - 非主管理员（actor != 1）不得删除管理员或 id=1 → 403
 /// - 不能删除最后一位管理员 → 400
 pub async fn delete_user(
     State(db): State<DatabaseConnection>,
@@ -513,6 +560,11 @@ pub async fn delete_user(
         .ok_or_else(not_found)?;
     let target_is_admin = target.try_get::<bool>("", "is_admin").unwrap_or(false);
     let target_username = target.try_get::<String>("", "username").unwrap_or_default();
+
+    // 非主管理员不得删除其他管理员 / id=1
+    if let Some(msg) = non_primary_delete_error(self_id, user_id, target_is_admin) {
+        return Err((StatusCode::FORBIDDEN, Json(json!({"error": msg}))));
+    }
 
     if target_is_admin {
         let admin_count = db
@@ -566,6 +618,10 @@ pub async fn delete_user(
 
 #[cfg(test)]
 mod tests {
+    use super::{
+        non_primary_delete_error, non_primary_is_admin_change_error, PRIMARY_ADMIN_ID,
+    };
+
     /// 与 handler 中安全规则保持一致的纯函数，便于无 DB 单测。
     fn reject_self_delete(actor_id: i32, target_id: i32) -> bool {
         actor_id == target_id
@@ -573,6 +629,10 @@ mod tests {
 
     fn reject_last_admin_delete(target_is_admin: bool, admin_count: i64) -> bool {
         target_is_admin && admin_count <= 1
+    }
+
+    fn reject_last_admin_demote(target_is_admin: bool, new_is_admin: bool, admin_count: i64) -> bool {
+        target_is_admin && !new_is_admin && admin_count <= 1
     }
 
     #[test]
@@ -587,5 +647,46 @@ mod tests {
         assert!(reject_last_admin_delete(true, 0));
         assert!(!reject_last_admin_delete(true, 2));
         assert!(!reject_last_admin_delete(false, 1));
+    }
+
+    #[test]
+    fn non_primary_cannot_demote_admin() {
+        // actor 2 不得对管理员改 is_admin
+        assert!(non_primary_is_admin_change_error(2, 3, true).is_some());
+        // 也不得对 id=1 改 is_admin（即使假设 is_admin=false）
+        assert!(non_primary_is_admin_change_error(2, PRIMARY_ADMIN_ID, false).is_some());
+        assert!(non_primary_is_admin_change_error(2, PRIMARY_ADMIN_ID, true).is_some());
+    }
+
+    #[test]
+    fn non_primary_can_promote_non_admin() {
+        // 将非管理员提升为管理员允许
+        assert!(non_primary_is_admin_change_error(2, 10, false).is_none());
+    }
+
+    #[test]
+    fn primary_can_change_other_admin_is_admin() {
+        // id=1 不受 non_primary 限制（仍受 last-admin / self 规则约束）
+        assert!(non_primary_is_admin_change_error(PRIMARY_ADMIN_ID, 3, true).is_none());
+        assert!(non_primary_is_admin_change_error(PRIMARY_ADMIN_ID, 2, true).is_none());
+        // 主管理员在 admin_count > 1 时可 demote 其他管理员
+        assert!(!reject_last_admin_demote(true, false, 2));
+        assert!(reject_last_admin_demote(true, false, 1));
+    }
+
+    #[test]
+    fn non_primary_cannot_delete_admin_or_id1() {
+        assert!(non_primary_delete_error(2, 3, true).is_some());
+        assert!(non_primary_delete_error(2, PRIMARY_ADMIN_ID, true).is_some());
+        assert!(non_primary_delete_error(2, PRIMARY_ADMIN_ID, false).is_some());
+        // 删除普通用户允许
+        assert!(non_primary_delete_error(2, 10, false).is_none());
+    }
+
+    #[test]
+    fn primary_can_delete_other_admin_when_not_last() {
+        assert!(non_primary_delete_error(PRIMARY_ADMIN_ID, 3, true).is_none());
+        assert!(!reject_last_admin_delete(true, 2));
+        assert!(reject_last_admin_delete(true, 1));
     }
 }

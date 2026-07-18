@@ -127,6 +127,14 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
   const admins = useMemo(() => users.filter((u) => u.is_admin), [users])
   const registered = useMemo(() => users.filter((u) => !u.is_admin), [users])
 
+  /** 站点主管理员为 user id = 1；非主管理员不能改其他管理员权限或删除管理员 */
+  const isPrimaryAdmin = currentUser?.id === 1
+  const canManageAdminPrivileges = (target: AdminUser) =>
+    isPrimaryAdmin || (!target.is_admin && target.id !== 1)
+  const canDeleteUser = (target: AdminUser) =>
+    target.id !== currentUser?.id &&
+    (isPrimaryAdmin || (!target.is_admin && target.id !== 1))
+
   const formatDateTime = useCallback(
     (value: string | null) => {
       if (!value) return t.config.usersNever
@@ -421,17 +429,21 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
                       ? t.config.usersEnableLocalLogin
                       : t.config.usersDisableLocalLogin}
                   </button>
-                  <button
-                    type="button"
-                    className={`users-button${shown.is_admin ? ' danger' : ''}`}
-                    disabled={busy || shown.id === currentUser?.id}
-                    onClick={() => handleToggleAdmin(shown)}
-                  >
-                    {shown.is_admin
-                      ? t.config.usersRevokeAdmin
-                      : t.config.usersMakeAdmin}
-                  </button>
-                  {shown.id !== currentUser?.id && (
+                  {/* 非主管理员：对已是管理员 / id=1 的行隐藏 is_admin 切换；可提升普通用户 */}
+                  {(canManageAdminPrivileges(shown) ||
+                    shown.id === currentUser?.id) && (
+                    <button
+                      type="button"
+                      className={`users-button${shown.is_admin ? ' danger' : ''}`}
+                      disabled={busy || shown.id === currentUser?.id}
+                      onClick={() => handleToggleAdmin(shown)}
+                    >
+                      {shown.is_admin
+                        ? t.config.usersRevokeAdmin
+                        : t.config.usersMakeAdmin}
+                    </button>
+                  )}
+                  {canDeleteUser(shown) && (
                     <button
                       type="button"
                       className="users-button danger"
@@ -459,7 +471,11 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
     >
       <SettingGroup
         title={t.config.usersAdminGroup}
-        description={t.config.usersAdminGroupDesc}
+        description={
+          isPrimaryAdmin
+            ? t.config.usersAdminGroupDesc
+            : `${t.config.usersAdminGroupDesc}. ${t.config.usersPrimaryAdminOnly}`
+        }
       >
         <div className="users-list">
           {loading && users.length === 0 ? (

@@ -321,6 +321,7 @@ export const zhCN: TranslationKeys = {
     usersMakeAdmin: '设为管理员',
     usersRevokeAdmin: '取消管理员',
     usersRevokeAdminConfirm: '确定取消该用户的管理员权限？',
+    usersPrimaryAdminOnly: '仅主管理员可管理其他管理员',
     usersEnableLocalLogin: '启用本地登录',
     usersDisableLocalLogin: '禁用本地登录',
     usersLocalLoginRequiresOAuth:

@@ -348,6 +348,8 @@ export const enUS: TranslationKeys = {
     usersMakeAdmin: 'Make admin',
     usersRevokeAdmin: 'Revoke admin',
     usersRevokeAdminConfirm: "Revoke this user's admin privileges?",
+    usersPrimaryAdminOnly:
+      'Only the primary administrator can manage other admins',
     usersEnableLocalLogin: 'Enable local login',
     usersDisableLocalLogin: 'Disable local login',
     usersLocalLoginRequiresOAuth:
