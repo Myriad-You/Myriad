@@ -1659,10 +1659,30 @@ impl Executor {
             caps_desc
         };
 
-        // 构建用户上下文（原始请求 + 对话历史摘要）
+        // 构建用户上下文（原始请求 + 对话历史摘要 + 中途转向指令）
         let user_context = {
             let mut ctx_parts = Vec::new();
             ctx_parts.push(format!("用户原始请求: {}", context.original_request));
+            // Steering taken at the skill planning step boundary must reshape the plan.
+            if let Some(steering) = context
+                .variables
+                .get("_steering_instruction")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
+                ctx_parts.push(format!(
+                    "用户最新转向指令（优先遵循，调整后续步骤参数与目标）：{}",
+                    steering
+                ));
+            } else if !context.user_intent.is_empty()
+                && context.user_intent != context.original_request
+            {
+                // user_intent may already include "Steering: ..." from the step boundary.
+                if context.user_intent.contains("Steering:") {
+                    ctx_parts.push(format!("更新后的用户意图: {}", context.user_intent));
+                }
+            }
             if let Some(conv) = &context.conversation_context {
                 let recent: Vec<String> = conv
                     .iter()

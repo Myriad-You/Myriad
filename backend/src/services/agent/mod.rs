@@ -97,6 +97,21 @@ static PENDING_CONFIRMATIONS: Lazy<Arc<RwLock<HashMap<String, PendingRecipeConfi
     Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
 const CONFIRMATION_REGISTRY_NAMESPACE: &str = "agent_recipe_confirmation";
 
+/// Peek-only context for attaching a confirmation resume to its original session.
+#[derive(Debug, Clone)]
+pub struct ConfirmationResumeContext {
+    pub lane_key: Option<String>,
+    pub session_id: Option<String>,
+}
+
+/// Extract session id from a lane key of the form `user:{id}:session:{session_id}`.
+fn session_id_from_lane_key(lane_key: &str) -> Option<String> {
+    lane_key
+        .split_once(":session:")
+        .map(|(_, session_id)| session_id.to_string())
+        .filter(|session_id| !session_id.is_empty())
+}
+
 /// 待确认的配方信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PendingRecipeConfirmation {
@@ -108,6 +123,9 @@ struct PendingRecipeConfirmation {
     pub user_id: i32,
     /// 原始 PlannerOutput（用于升级重规划）
     pub planner_output: PlannerOutput,
+    /// 发起确认时的会话 ID（确认续跑需写回同一 session 历史）
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 /// Agent 主入口
@@ -265,8 +283,18 @@ impl Agent {
                 Some(Ok(())) => {} // 系统任务已自动确认，继续执行
                 Some(Err(blocked)) => return Ok(blocked),
                 None => {
+                    let session_id = request
+                        .context
+                        .as_ref()
+                        .and_then(|c| c.session_id.clone());
                     return self
-                        .request_confirmation_v2(&recipe, &planner_output, user_id, sensitive_steps)
+                        .request_confirmation_v2(
+                            &recipe,
+                            &planner_output,
+                            user_id,
+                            sensitive_steps,
+                            session_id,
+                        )
                         .await;
                 }
             }
@@ -637,14 +665,26 @@ impl Agent {
 
         // 4. 检查敏感操作（单步/多步共用：依赖 capability 元数据 requires_confirmation/risk，
         //    不能只靠 capability_id 字符串启发式，否则 tapp.interact / page.interact / MCP 会直通）
+        //    P1: gates run before fast path so sensitive/missing-param never bypass.
+        //    P2: carry session_id so confirm resume stays on the same conversation.
         let sensitive_steps = self.check_sensitive_steps(&recipe).await;
         if !sensitive_steps.is_empty() {
             match Self::system_sensitive_gate(user_id, &sensitive_steps) {
                 Some(Ok(())) => {} // 系统任务已自动确认，继续执行
                 Some(Err(blocked)) => return Ok(blocked),
                 None => {
+                    let session_id = request
+                        .context
+                        .as_ref()
+                        .and_then(|c| c.session_id.clone());
                     return self
-                        .request_confirmation_v2(&recipe, &planner_output, user_id, sensitive_steps)
+                        .request_confirmation_v2(
+                            &recipe,
+                            &planner_output,
+                            user_id,
+                            sensitive_steps,
+                            session_id,
+                        )
                         .await;
                 }
             }
@@ -1037,8 +1077,18 @@ impl Agent {
                 Some(Err(response)) => return Ok(response),
                 None => {
                     let planner_output = Self::planner_output_for_saved_recipe(&recipe);
+                    let session_id = recipe
+                        .lane_key
+                        .as_deref()
+                        .and_then(session_id_from_lane_key);
                     return self
-                        .request_confirmation_v2(&recipe, &planner_output, user_id, sensitive_steps)
+                        .request_confirmation_v2(
+                            &recipe,
+                            &planner_output,
+                            user_id,
+                            sensitive_steps,
+                            session_id,
+                        )
                         .await;
                 }
             }
@@ -1310,6 +1360,18 @@ impl Agent {
         confirmation_id: &str,
         user_id: i32,
     ) -> Result<Option<String>, String> {
+        Ok(self
+            .confirmation_resume_context(confirmation_id, user_id)
+            .await?
+            .and_then(|ctx| ctx.lane_key))
+    }
+
+    /// Peek confirmation resume context without consuming the pending entry.
+    pub async fn confirmation_resume_context(
+        &self,
+        confirmation_id: &str,
+        user_id: i32,
+    ) -> Result<Option<ConfirmationResumeContext>, String> {
         let pending = crate::api::tapp_runtime::shared_registry::get::<PendingRecipeConfirmation>(
             &self.db,
             CONFIRMATION_REGISTRY_NAMESPACE,
@@ -1319,7 +1381,17 @@ impl Agent {
         .map_err(|error| format!("Failed to load confirmation: {error}"))?;
         Ok(pending
             .filter(|pending| pending.user_id == user_id)
-            .and_then(|pending| pending.recipe.lane_key))
+            .map(|pending| ConfirmationResumeContext {
+                lane_key: pending.recipe.lane_key.clone(),
+                session_id: pending.session_id.clone().or_else(|| {
+                    // Older confirmations may only have session embedded in lane_key.
+                    pending
+                        .recipe
+                        .lane_key
+                        .as_deref()
+                        .and_then(session_id_from_lane_key)
+                }),
+            }))
     }
 
     /// 处理用户确认
@@ -1695,6 +1767,7 @@ impl Agent {
         planner_output: &PlannerOutput,
         user_id: i32,
         sensitive_steps: Vec<PendingConfirmation>,
+        session_id: Option<String>,
     ) -> Result<AgentResponse, String> {
         let confirmation_id = uuid::Uuid::new_v4().to_string();
 
@@ -1730,6 +1803,7 @@ impl Agent {
             recipe: recipe.clone(),
             user_id,
             planner_output: planner_output.clone(),
+            session_id: session_id.filter(|s| !s.is_empty()),
         };
         crate::api::tapp_runtime::shared_registry::put(
             &self.db,
@@ -3294,6 +3368,16 @@ mod tests {
             confirmation_message: String::new(),
             impact: Vec::new(),
         }
+    }
+
+    #[test]
+    fn session_id_is_parsed_from_lane_key() {
+        assert_eq!(
+            session_id_from_lane_key("user:42:session:ses_abc"),
+            Some("ses_abc".to_string())
+        );
+        assert_eq!(session_id_from_lane_key("user:42"), None);
+        assert_eq!(session_id_from_lane_key("user:42:session:"), None);
     }
 
     #[test]

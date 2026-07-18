@@ -2151,37 +2151,51 @@ pub async fn confirm_operation_stream(
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<Value>)> {
     let user_id = parse_user_id_with_agent_access(&claims, &db).await?;
     let confirmation = crate::services::agent::types::UserConfirmation {
-        confirmation_id: req.confirmation_id,
+        confirmation_id: req.confirmation_id.clone(),
         confirmed: req.confirmed,
         user_note: req.note,
         user_id,
     };
 
-    let run = create_run(user_id, None).await;
+    // Peek session/lane before consume so the resume run stays attached to the
+    // original conversation (history persistence + WAITING_TASKS answers).
+    let agent_for_lookup = Agent::new(db.clone()).await;
+    let resume_ctx = agent_for_lookup
+        .confirmation_resume_context(&req.confirmation_id, user_id)
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": error })),
+            )
+        })?;
+    let session_id = resume_ctx
+        .as_ref()
+        .and_then(|ctx| ctx.session_id.clone())
+        .filter(|s| !s.is_empty());
+    let lane_key = resume_ctx
+        .and_then(|ctx| ctx.lane_key)
+        .unwrap_or_else(|| LaneQueue::make_lane_key(user_id, session_id.as_deref()));
+
+    let run = create_run(user_id, session_id.clone()).await;
     let run_for_task = run.clone();
+    let db_clone = db.clone();
     tokio::spawn(async move {
-        let agent = Agent::new(db).await;
-        let lane_key = match agent
-            .confirmation_lane_key(&confirmation.confirmation_id, user_id)
-            .await
-        {
-            Ok(lane_key) => lane_key.unwrap_or_else(|| LaneQueue::make_lane_key(user_id, None)),
-            Err(error) => {
-                run_for_task
-                    .publish(AgentProgressEvent::Error {
-                        task_id: None,
-                        message: error,
-                        code: "CONFIRMATION_LOOKUP_FAILED".to_string(),
-                    })
-                    .await;
-                return;
+        // Agent/executor progress events share the same run hub as the SSE subscriber.
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentProgressEvent>(32);
+        let run_for_forwarder = run_for_task.clone();
+        tokio::spawn(async move {
+            while let Some(event) = rx.recv().await {
+                run_for_forwarder.publish(event).await;
             }
-        };
+        });
+
+        let agent = Agent::new(db_clone.clone()).await;
         let _guard = match LANE_QUEUE.acquire(&lane_key).await {
             Ok(guard) => guard,
             Err(error) => {
-                run_for_task
-                    .publish(AgentProgressEvent::Error {
+                let _ = tx
+                    .send(AgentProgressEvent::Error {
                         task_id: None,
                         message: error,
                         code: "QUEUE_FULL".to_string(),
@@ -2190,6 +2204,14 @@ pub async fn confirm_operation_stream(
                 return;
             }
         };
+
+        if let Some(ref sid) = session_id {
+            let _ = tx
+                .send(AgentProgressEvent::SessionCreated {
+                    session_id: sid.clone(),
+                })
+                .await;
+        }
 
         match agent.process_confirmation(confirmation).await {
             Ok(response) => {
@@ -2200,25 +2222,260 @@ pub async fn confirm_operation_stream(
                     .map(|task| task.task_id.clone())
                     .unwrap_or_default();
                 let success = api_response.success;
-                let mut response_value = serde_json::to_value(api_response).unwrap_or_else(
-                    |_| json!({ "success": false, "message": "Serialization failed" }),
-                );
-                if let Some(object) = response_value.as_object_mut() {
-                    // A confirmation run represents one continuation request.
-                    // A newly waiting task is resumed through the answer stream.
-                    object.insert("streamTerminal".to_string(), Value::Bool(true));
+                let is_waiting = api_response
+                    .task
+                    .as_ref()
+                    .map(|t| t.status == "waiting_for_input")
+                    .unwrap_or(false);
+
+                // Persist confirmation result (or missing-param question) into the
+                // original session history so refresh keeps the full thread.
+                if let Some(ref sid) = session_id {
+                    let metadata = json!({
+                        "suggestions": &api_response.suggestions,
+                        "dataDisplay": &api_response.data_display,
+                        "frontendAction": &api_response.frontend_action,
+                        "data": &api_response.data,
+                        "confirmationResume": true,
+                    });
+                    if let Err(e) = persist_assistant_message(
+                        &db_clone,
+                        sid,
+                        if task_id.is_empty() {
+                            None
+                        } else {
+                            Some(&task_id)
+                        },
+                        &api_response.message,
+                        Some(metadata),
+                    )
+                    .await
+                    {
+                        tracing::warn!(
+                            "[Agent API] Failed to persist confirmation result: {}",
+                            e
+                        );
+                    }
                 }
-                run_for_task
-                    .publish(AgentProgressEvent::TaskCompleted {
-                        task_id,
-                        success,
-                        response: Box::new(response_value),
-                    })
-                    .await;
+
+                if is_waiting && !task_id.is_empty() {
+                    // Surface the first missing-param / Q&A prompt on the run
+                    // hub, then keep the run alive for answer/resume rounds.
+                    let mut waiting_response = serde_json::to_value(&api_response)
+                        .unwrap_or_else(|_| json!({ "success": true, "message": "" }));
+                    if let Some(object) = waiting_response.as_object_mut() {
+                        object.insert("streamTerminal".to_string(), Value::Bool(false));
+                        if let Some(ref sid) = session_id {
+                            object.insert("sessionId".to_string(), Value::String(sid.clone()));
+                        }
+                    }
+                    let _ = tx
+                        .send(AgentProgressEvent::TaskCompleted {
+                            task_id: task_id.clone(),
+                            success: true,
+                            response: Box::new(waiting_response),
+                        })
+                        .await;
+
+                    // Keep run alive and register WAITING_TASKS so subsequent
+                    // answers (and final reply) stay on this session.
+                    loop {
+                        let (done_tx, done_rx) =
+                            tokio::sync::oneshot::channel::<serde_json::Value>();
+                        {
+                            let mut map = WAITING_TASKS.write().await;
+                            map.insert(
+                                task_id.clone(),
+                                WaitingTaskCtx {
+                                    user_id,
+                                    progress_tx: tx.clone(),
+                                    done_tx,
+                                    session_id: session_id.clone().unwrap_or_default(),
+                                },
+                            );
+                        }
+                        tracing::info!(
+                            task_id = %task_id,
+                            session_id = ?session_id,
+                            "[Agent API] Confirmation resume waiting for user input"
+                        );
+
+                        match tokio::time::timeout(tokio::time::Duration::from_secs(2), done_rx)
+                            .await
+                        {
+                            Ok(Ok(response_value)) => {
+                                let still_waiting = response_value
+                                    .pointer("/task/status")
+                                    .and_then(|s| s.as_str())
+                                    == Some("waiting_for_input");
+
+                                if still_waiting {
+                                    if let Some(ref sid) = session_id {
+                                        let msg = response_value
+                                            .get("message")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("需要更多信息");
+                                        let _ = persist_assistant_message(
+                                            &db_clone,
+                                            sid,
+                                            Some(&task_id),
+                                            msg,
+                                            Some(response_value.clone()),
+                                        )
+                                        .await;
+                                    }
+                                    continue;
+                                }
+
+                                if let Some(ref sid) = session_id {
+                                    let msg = response_value
+                                        .get("message")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("");
+                                    if !msg.is_empty() {
+                                        let _ = persist_assistant_message(
+                                            &db_clone,
+                                            sid,
+                                            Some(&task_id),
+                                            msg,
+                                            Some(response_value.clone()),
+                                        )
+                                        .await;
+                                    }
+                                }
+
+                                let task_success = response_value
+                                    .get("success")
+                                    .and_then(|v| v.as_bool())
+                                    .unwrap_or(true);
+                                let _ = tx
+                                    .send(AgentProgressEvent::TaskCompleted {
+                                        task_id: task_id.clone(),
+                                        success: task_success,
+                                        response: Box::new(response_value),
+                                    })
+                                    .await;
+                                break;
+                            }
+                            Ok(Err(_)) => {
+                                tracing::warn!(
+                                    "[Agent API] Confirmation answer sender dropped unexpectedly"
+                                );
+                                let _ = take_waiting_task(&task_id, user_id).await;
+                                break;
+                            }
+                            Err(_) => {
+                                let _ = take_waiting_task(&task_id, user_id).await;
+                                let current_task =
+                                    crate::services::agent::executor::refresh_task_for_user(
+                                        &task_id, user_id,
+                                    )
+                                    .await;
+                                if current_task.as_ref().is_some_and(|task| {
+                                    matches!(
+                                        task.status,
+                                        crate::services::agent::types::TaskStatus::Pending
+                                            | crate::services::agent::types::TaskStatus::Running
+                                            | crate::services::agent::types::TaskStatus::WaitingForInput
+                                            | crate::services::agent::types::TaskStatus::Paused
+                                    )
+                                }) {
+                                    continue;
+                                }
+
+                                let (response_value, task_success) =
+                                    if let Some(task) = current_task {
+                                        let task_success = task.status
+                                            == crate::services::agent::types::TaskStatus::Completed;
+                                        let message = task.error.clone().unwrap_or_else(|| {
+                                            if task_success {
+                                                "任务已完成".to_string()
+                                            } else {
+                                                "任务未完成".to_string()
+                                            }
+                                        });
+                                        (
+                                            json!({
+                                                "success": task_success,
+                                                "message": message,
+                                                "task": task,
+                                            }),
+                                            task_success,
+                                        )
+                                    } else {
+                                        (
+                                            json!({
+                                                "success": false,
+                                                "message": "任务状态已不可用",
+                                                "task": {
+                                                    "taskId": task_id.clone(),
+                                                    "status": "failed"
+                                                }
+                                            }),
+                                            false,
+                                        )
+                                    };
+
+                                if let Some(ref sid) = session_id {
+                                    let msg = response_value
+                                        .get("message")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("");
+                                    if !msg.is_empty() {
+                                        let _ = persist_assistant_message(
+                                            &db_clone,
+                                            sid,
+                                            Some(&task_id),
+                                            msg,
+                                            Some(response_value.clone()),
+                                        )
+                                        .await;
+                                    }
+                                }
+
+                                let _ = tx
+                                    .send(AgentProgressEvent::TaskCompleted {
+                                        task_id: task_id.clone(),
+                                        success: task_success,
+                                        response: Box::new(response_value),
+                                    })
+                                    .await;
+                                break;
+                            }
+                        }
+                    }
+                } else {
+                    let mut response_value = serde_json::to_value(api_response).unwrap_or_else(
+                        |_| json!({ "success": false, "message": "Serialization failed" }),
+                    );
+                    if let Some(object) = response_value.as_object_mut() {
+                        object.insert("streamTerminal".to_string(), Value::Bool(true));
+                        if let Some(ref sid) = session_id {
+                            object.insert("sessionId".to_string(), Value::String(sid.clone()));
+                        }
+                    }
+                    let _ = tx
+                        .send(AgentProgressEvent::TaskCompleted {
+                            task_id,
+                            success,
+                            response: Box::new(response_value),
+                        })
+                        .await;
+                }
             }
             Err(error) => {
-                run_for_task
-                    .publish(AgentProgressEvent::Error {
+                if let Some(ref sid) = session_id {
+                    let _ = persist_assistant_message(
+                        &db_clone,
+                        sid,
+                        None,
+                        &format!("确认执行失败: {}", error),
+                        Some(json!({ "error": true, "confirmationResume": true })),
+                    )
+                    .await;
+                }
+                let _ = tx
+                    .send(AgentProgressEvent::Error {
                         task_id: None,
                         message: error,
                         code: "CONFIRMATION_EXECUTION_FAILED".to_string(),

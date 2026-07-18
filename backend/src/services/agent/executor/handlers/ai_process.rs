@@ -166,19 +166,50 @@ fn append_instruction(params: &mut HashMap<String, Value>, key: &str, instructio
     params.insert(key.to_string(), Value::String(combined));
 }
 
+/// Prepend systemPrompt (role/memory/steer fallback) to a freeform model prompt.
+/// Handlers that already consume systemPrompt as a first-class channel (e.g. ai.chat)
+/// should not call this to avoid double-application.
+fn with_system_guidance(params: &HashMap<String, Value>, prompt: String) -> String {
+    match params
+        .get("systemPrompt")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        Some(sys) => format!(
+            "【补充指令 / 上下文（优先遵循）】\n{}\n\n{}",
+            sys, prompt
+        ),
+        None => prompt,
+    }
+}
+
 /// Steering is newer than the Planner output, so it must augment existing
 /// parameters rather than only filling empty fields.
+///
+/// Prefer the field each handler already reads. Always also leave a trail on
+/// `systemPrompt` so handlers that only build freeform prompts still honor
+/// steer via [`with_system_guidance`].
 fn inject_steering_to_params(
     capability_id: &str,
     instruction: &str,
     params: &mut HashMap<String, Value>,
 ) {
+    // Shared channel: consumed by ai.chat natively and by with_system_guidance.
+    append_instruction(params, "systemPrompt", instruction);
+
     match capability_id {
         "ai.summarize" => append_instruction(params, "focus", instruction),
         "ai.analyze" | "compare.content" => append_instruction(params, "instruction", instruction),
         "ai.chat" => append_instruction(params, "message", instruction),
         "ai.webSearch" | "ai.groundingSearch" => append_instruction(params, "query", instruction),
-        _ => append_instruction(params, "systemPrompt", instruction),
+        "prompt.generate" => append_instruction(params, "description", instruction),
+        "ai.image" => append_instruction(params, "prompt", instruction),
+        "translate.text" | "code.explain" | "ai.recommend" | "smart.filter"
+        | "brewlia.annotate" | "brewlia.podcast" => {
+            // systemPrompt trail + with_system_guidance in the handler is enough.
+        }
+        _ => {}
     }
 }
 
@@ -292,14 +323,26 @@ async fn execute_ai_summarize(
     let input_str = extract_semantic_text(&input);
     // 截断过长的输入，避免 token 溢出
     let truncated_input: String = input_str.chars().take(8000).collect();
+    let focus = params
+        .get("focus")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let focus_hint = focus
+        .map(|f| format!("额外关注点：{}\n", f))
+        .unwrap_or_default();
 
-    let prompt = format!(
-        "你是一个专业的内容分析师。请对以下内容进行{}。\n\n\
-        {}\n\
-        {}\n\n\
-        请使用与原文相同的语言回复。\n\n\
-        内容：\n{}",
-        style_instruction, format_guide, length_hint, truncated_input
+    let prompt = with_system_guidance(
+        params,
+        format!(
+            "你是一个专业的内容分析师。请对以下内容进行{}。\n\n\
+            {}\n\
+            {}\n\
+            {}\n\
+            请使用与原文相同的语言回复。\n\n\
+            内容：\n{}",
+            style_instruction, format_guide, length_hint, focus_hint, truncated_input
+        ),
     );
 
     let result = analyzer
@@ -336,58 +379,61 @@ async fn execute_ai_analyze(
     // 当 Planner 提供了具体 instruction 时，instruction 是主要驱动指令，
     // 数据分析模板仅作为无 instruction 时的 fallback。
     // 这避免了"介绍一个角色"被套进"数据分析报告"框架的问题。
-    let prompt = if let Some(inst) = instruction {
-        let safe_inst: String = sanitize_prompt_input(inst);
-        format!(
-            "请根据以下指示处理数据，直接回复用户需要的内容。\n\n\
-            指示：{}\n\n\
-            数据：\n{}",
-            safe_inst, truncated_input
-        )
-    } else {
-        match analysis_type {
-            "trend" => format!(
-                "你是一个数据分析专家。请分析以下数据中的趋势和模式。\n\n\
-                要求：\n\
-                1. 识别数据中的增长/下降趋势\n\
-                2. 指出异常值或转折点\n\
-                3. 提供可能的原因解释\n\
-                4. 给出趋势预测\n\n\
+    let prompt = with_system_guidance(
+        params,
+        if let Some(inst) = instruction {
+            let safe_inst: String = sanitize_prompt_input(inst);
+            format!(
+                "请根据以下指示处理数据，直接回复用户需要的内容。\n\n\
+                指示：{}\n\n\
                 数据：\n{}",
-                truncated_input
-            ),
-            "sentiment" => format!(
-                "你是一个情感分析专家。请分析以下内容的情感倾向。\n\n\
-                要求：\n\
-                1. 判断整体情感（正面/中性/负面）及置信度\n\
-                2. 识别关键情感词汇和表达\n\
-                3. 如果有多个主题，分别分析每个主题的情感\n\
-                4. 总结情感分布\n\n\
-                内容：\n{}",
-                truncated_input
-            ),
-            "compare" => format!(
-                "你是一个数据比较分析专家。请对以下数据进行对比分析。\n\n\
-                要求：\n\
-                1. 列出各项数据的关键维度\n\
-                2. 逐维度对比异同\n\
-                3. 总结主要差异和共同点\n\
-                4. 给出比较结论和建议\n\n\
-                数据：\n{}",
-                truncated_input
-            ),
-            _ => format!(
-                "你是一个数据分析专家。请深入分析以下数据并提供洞察。\n\n\
-                要求：\n\
-                1. 概括数据的整体特征\n\
-                2. 提取 3-5 个关键发现\n\
-                3. 指出值得注意的亮点或问题\n\
-                4. 给出可行的建议\n\n\
-                数据：\n{}",
-                truncated_input
-            ),
-        }
-    };
+                safe_inst, truncated_input
+            )
+        } else {
+            match analysis_type {
+                "trend" => format!(
+                    "你是一个数据分析专家。请分析以下数据中的趋势和模式。\n\n\
+                    要求：\n\
+                    1. 识别数据中的增长/下降趋势\n\
+                    2. 指出异常值或转折点\n\
+                    3. 提供可能的原因解释\n\
+                    4. 给出趋势预测\n\n\
+                    数据：\n{}",
+                    truncated_input
+                ),
+                "sentiment" => format!(
+                    "你是一个情感分析专家。请分析以下内容的情感倾向。\n\n\
+                    要求：\n\
+                    1. 判断整体情感（正面/中性/负面）及置信度\n\
+                    2. 识别关键情感词汇和表达\n\
+                    3. 如果有多个主题，分别分析每个主题的情感\n\
+                    4. 总结情感分布\n\n\
+                    内容：\n{}",
+                    truncated_input
+                ),
+                "compare" => format!(
+                    "你是一个数据比较分析专家。请对以下数据进行对比分析。\n\n\
+                    要求：\n\
+                    1. 列出各项数据的关键维度\n\
+                    2. 逐维度对比异同\n\
+                    3. 总结主要差异和共同点\n\
+                    4. 给出比较结论和建议\n\n\
+                    数据：\n{}",
+                    truncated_input
+                ),
+                _ => format!(
+                    "你是一个数据分析专家。请深入分析以下数据并提供洞察。\n\n\
+                    要求：\n\
+                    1. 概括数据的整体特征\n\
+                    2. 提取 3-5 个关键发现\n\
+                    3. 指出值得注意的亮点或问题\n\
+                    4. 给出可行的建议\n\n\
+                    数据：\n{}",
+                    truncated_input
+                ),
+            }
+        },
+    );
 
     let result = analyzer
         .analyze(&prompt)
@@ -420,16 +466,19 @@ async fn execute_ai_recommend(
         String::new()
     };
 
-    let prompt = format!(
-        "你是一个个性化推荐专家。基于以下用户数据，推荐 {} 个用户可能感兴趣的内容。\n\n\
-        要求：\n\
-        1. 每条推荐包含名称和推荐理由\n\
-        2. 推荐应多样化，覆盖用户的不同兴趣点\n\
-        3. 优先推荐与用户已有偏好相关但可能尚未发现的内容\n\
-        4. 请直接返回 JSON 数组格式：[{{\"name\": \"...\", \"reason\": \"...\"}}]\n\
-        {}\n\n\
-        用户数据：\n{}",
-        count, prefs_str, truncated_context
+    let prompt = with_system_guidance(
+        params,
+        format!(
+            "你是一个个性化推荐专家。基于以下用户数据，推荐 {} 个用户可能感兴趣的内容。\n\n\
+            要求：\n\
+            1. 每条推荐包含名称和推荐理由\n\
+            2. 推荐应多样化，覆盖用户的不同兴趣点\n\
+            3. 优先推荐与用户已有偏好相关但可能尚未发现的内容\n\
+            4. 请直接返回 JSON 数组格式：[{{\"name\": \"...\", \"reason\": \"...\"}}]\n\
+            {}\n\n\
+            用户数据：\n{}",
+            count, prefs_str, truncated_context
+        ),
     );
 
     let result = analyzer
@@ -1184,23 +1233,26 @@ async fn execute_prompt_generate(
     }
     context_parts.push(style_hint);
 
-    let prompt = format!(
-        "You are an expert AI image prompt engineer. Your task is to generate a highly detailed, \
-        accurate image generation prompt (for Stable Diffusion / DALL-E / Flux) based on the following request.\n\n\
-        {}\n\n\
-        CRITICAL INSTRUCTIONS:\n\
-        1. If the subject is a known character (from anime, games, manga, etc.), you MUST use your knowledge \
-        to include their EXACT visual features: specific hair color and style, eye color, signature outfit/clothing \
-        details, accessories, and any unique physical traits. Do NOT guess or generalize — be precise.\n\
-        2. Describe the character's appearance in meticulous detail: hairstyle, hair color, eye color (heterochromia if applicable), \
-        clothing (specific garments, colors, patterns, accessories like hats/ribbons/capes), body pose, and expression.\n\
-        3. Include composition details: background scene, lighting (e.g. dramatic rim lighting, soft sunlight), \
-        camera angle (close-up, full body, portrait), atmosphere and mood.\n\
-        4. Include quality boosting tags: masterpiece, best quality, highly detailed, sharp focus, etc.\n\
-        5. The prompt must be in English. Be as specific and descriptive as possible.\n\
-        6. Maximum 800 characters.\n\n\
-        Output ONLY the raw prompt text. No explanations, no markdown, no quotes, no formatting.",
-        context_parts.join("\n")
+    let prompt = with_system_guidance(
+        params,
+        format!(
+            "You are an expert AI image prompt engineer. Your task is to generate a highly detailed, \
+            accurate image generation prompt (for Stable Diffusion / DALL-E / Flux) based on the following request.\n\n\
+            {}\n\n\
+            CRITICAL INSTRUCTIONS:\n\
+            1. If the subject is a known character (from anime, games, manga, etc.), you MUST use your knowledge \
+            to include their EXACT visual features: specific hair color and style, eye color, signature outfit/clothing \
+            details, accessories, and any unique physical traits. Do NOT guess or generalize — be precise.\n\
+            2. Describe the character's appearance in meticulous detail: hairstyle, hair color, eye color (heterochromia if applicable), \
+            clothing (specific garments, colors, patterns, accessories like hats/ribbons/capes), body pose, and expression.\n\
+            3. Include composition details: background scene, lighting (e.g. dramatic rim lighting, soft sunlight), \
+            camera angle (close-up, full body, portrait), atmosphere and mood.\n\
+            4. Include quality boosting tags: masterpiece, best quality, highly detailed, sharp focus, etc.\n\
+            5. The prompt must be in English. Be as specific and descriptive as possible.\n\
+            6. Maximum 800 characters.\n\n\
+            Output ONLY the raw prompt text. No explanations, no markdown, no quotes, no formatting.",
+            context_parts.join("\n")
+        ),
     );
 
     let result = analyzer
@@ -1239,17 +1291,20 @@ async fn execute_translate_text(
         .unwrap_or("zh-CN");
     let source_lang = params.get("sourceLang").and_then(|v| v.as_str());
 
-    let prompt = format!(
-        "请将以下文本翻译成{}：\n\n{}\n\n直接输出翻译结果。",
-        match target_lang {
-            "zh-CN" | "zh" => "简体中文",
-            "zh-TW" => "繁体中文",
-            "en" => "英文",
-            "ja" => "日文",
-            "ko" => "韩文",
-            _ => target_lang,
-        },
-        text
+    let prompt = with_system_guidance(
+        params,
+        format!(
+            "请将以下文本翻译成{}：\n\n{}\n\n直接输出翻译结果。",
+            match target_lang {
+                "zh-CN" | "zh" => "简体中文",
+                "zh-TW" => "繁体中文",
+                "en" => "英文",
+                "ja" => "日文",
+                "ko" => "韩文",
+                _ => target_lang,
+            },
+            text
+        ),
     );
 
     let result = analyzer
@@ -1275,12 +1330,15 @@ async fn execute_code_explain(
         .ok_or("Missing code parameter")?;
     let language = params.get("language").and_then(|v| v.as_str());
 
-    let prompt = format!(
-        "请解释以下{}代码的功能和逻辑：\n\n```{}\n{}\n```\n\n\
-        请包含：代码整体功能、主要逻辑步骤、关键变量说明。",
-        language.unwrap_or(""),
-        language.unwrap_or(""),
-        code
+    let prompt = with_system_guidance(
+        params,
+        format!(
+            "请解释以下{}代码的功能和逻辑：\n\n```{}\n{}\n```\n\n\
+            请包含：代码整体功能、主要逻辑步骤、关键变量说明。",
+            language.unwrap_or(""),
+            language.unwrap_or(""),
+            code
+        ),
     );
 
     let result = analyzer
@@ -1627,6 +1685,10 @@ mod steering_tests {
         let instruction = params["instruction"].as_str().unwrap();
         assert!(instruction.contains("旧计划"));
         assert!(instruction.contains("只看最近数据"));
+        assert!(params["systemPrompt"]
+            .as_str()
+            .unwrap()
+            .contains("只看最近数据"));
     }
 
     #[test]
@@ -1634,5 +1696,45 @@ mod steering_tests {
         let mut params = HashMap::new();
         inject_steering_to_params("ai.webSearch", "改查官方文档", &mut params);
         assert_eq!(params["query"], json!("改查官方文档"));
+    }
+
+    #[test]
+    fn steering_injects_into_prompt_generate_description() {
+        let mut params = HashMap::from([(
+            "description".to_string(),
+            Value::String("a cat".to_string()),
+        )]);
+        inject_steering_to_params("prompt.generate", "水彩风格", &mut params);
+        let description = params["description"].as_str().unwrap();
+        assert!(description.contains("a cat"));
+        assert!(description.contains("水彩风格"));
+    }
+
+    #[test]
+    fn steering_injects_into_ai_image_prompt() {
+        let mut params =
+            HashMap::from([("prompt".to_string(), Value::String("sunset".to_string()))]);
+        inject_steering_to_params("ai.image", "更暗", &mut params);
+        let prompt = params["prompt"].as_str().unwrap();
+        assert!(prompt.contains("sunset"));
+        assert!(prompt.contains("更暗"));
+    }
+
+    #[test]
+    fn with_system_guidance_prepends_system_prompt() {
+        let params = HashMap::from([(
+            "systemPrompt".to_string(),
+            Value::String("改成简短要点".to_string()),
+        )]);
+        let out = with_system_guidance(&params, "原文提示".to_string());
+        assert!(out.contains("改成简短要点"));
+        assert!(out.contains("原文提示"));
+        assert!(out.find("改成简短要点").unwrap() < out.find("原文提示").unwrap());
+    }
+
+    #[test]
+    fn with_system_guidance_noop_when_absent() {
+        let params = HashMap::new();
+        assert_eq!(with_system_guidance(&params, "only".to_string()), "only");
     }
 }
