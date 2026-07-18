@@ -151,9 +151,9 @@ ensure_env() {
 ensure_current_layout() {
     info "==> Ensuring current proxy + updater layout"
     mkdir -p pgdata state state/snapshots state/cache backups
-    ensure_key MYRIAD_TAG v0.2.5
-    ensure_key PROXY_TAG v0.2.5
-    ensure_key UPDATER_TAG v0.2.5
+    ensure_key MYRIAD_TAG v0.2.6
+    ensure_key PROXY_TAG v0.2.6
+    ensure_key UPDATER_TAG v0.2.6
     ensure_key BACKEND_IMAGE docker.io/somekawahitomi/myriad-backend
     ensure_key FRONTEND_IMAGE docker.io/somekawahitomi/myriad-frontend
     ensure_key COMPOSE_PROJECT_NAME myriad
