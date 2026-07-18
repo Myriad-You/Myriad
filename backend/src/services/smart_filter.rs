@@ -1196,7 +1196,7 @@ impl SmartFilter {
         }
 
         let mut top_rated_subjects = subjects.clone();
-        top_rated_subjects.sort_by(|a, b| b.rate.cmp(&a.rate));
+        top_rated_subjects.sort_by_key(|b| std::cmp::Reverse(b.rate));
         top_rated_subjects.truncate(20);
 
         let watching_subjects = subjects
@@ -1376,7 +1376,7 @@ impl SmartFilter {
         }
 
         let mut top_rated_subjects = subjects.clone();
-        top_rated_subjects.sort_by(|a, b| b.rate.cmp(&a.rate));
+        top_rated_subjects.sort_by_key(|b| std::cmp::Reverse(b.rate));
         top_rated_subjects.truncate(20);
 
         let watching_subjects = subjects
@@ -2070,7 +2070,7 @@ impl SmartFilter {
                     .map(str::to_string),
             })
             .collect();
-        following_sample.sort_by(|a, b| b.follower_count.cmp(&a.follower_count));
+        following_sample.sort_by_key(|b| std::cmp::Reverse(b.follower_count));
         following_sample.truncate(MAX_FOLLOWING_SAMPLE);
 
         let following_summary = if following_fetched > 0 {

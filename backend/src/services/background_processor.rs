@@ -172,7 +172,7 @@ impl BackgroundProcessor {
             .map(|(id, t)| (id.clone(), t.completed_at.unwrap()))
             .collect();
 
-        task_vec.sort_by(|a, b| a.1.cmp(&b.1));
+        task_vec.sort_by_key(|a| a.1);
 
         // 删除最旧的任务
         let to_remove = task_vec.len().saturating_sub(50);

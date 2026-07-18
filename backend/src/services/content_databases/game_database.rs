@@ -165,7 +165,7 @@ impl GameDatabase {
 
                 // 选择代表性例子（最多5个，按游玩时间排序）
                 let mut sorted_games = games;
-                sorted_games.sort_by(|a, b| b.1.cmp(&a.1));
+                sorted_games.sort_by_key(|b| std::cmp::Reverse(b.1));
                 let examples: Vec<String> = sorted_games
                     .iter()
                     .take(5)
@@ -183,7 +183,7 @@ impl GameDatabase {
             .collect();
 
         // 按游玩时间排序
-        genre_analysis.sort_by(|a, b| b.total_playtime.cmp(&a.total_playtime));
+        genre_analysis.sort_by_key(|b| std::cmp::Reverse(b.total_playtime));
 
         // 生成摘要
         let top_genres: Vec<String> = genre_analysis

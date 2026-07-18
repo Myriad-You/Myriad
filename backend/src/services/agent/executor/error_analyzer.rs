@@ -325,13 +325,13 @@ impl ErrorAnalyzer {
                     );
                 }
             }
-            "brew.discover" => {
-                if error_lower.contains("url") || error_lower.contains("query") {
-                    param_fixes.insert(
-                        "query".to_string(),
-                        ParamFix::SetValue(serde_json::json!("*")),
-                    );
-                }
+            "brew.discover"
+                if error_lower.contains("url") || error_lower.contains("query") =>
+            {
+                param_fixes.insert(
+                    "query".to_string(),
+                    ParamFix::SetValue(serde_json::json!("*")),
+                );
             }
             _ => {}
         }

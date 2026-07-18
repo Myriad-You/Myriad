@@ -531,7 +531,7 @@ impl PlatformFetcher {
         }
 
         // 按优先级排序
-        wishlist.sort_by(|a, b| a.priority.cmp(&b.priority));
+        wishlist.sort_by_key(|a| a.priority);
 
         Ok(wishlist)
     }

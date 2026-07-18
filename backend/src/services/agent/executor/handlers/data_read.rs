@@ -361,7 +361,7 @@ fn analyze_steam_stats(data: &Value) -> Result<Value, String> {
     }
 
     // 排序（按游戏时间降序）
-    games_by_time.sort_by(|a, b| b.1.cmp(&a.1));
+    games_by_time.sort_by_key(|b| std::cmp::Reverse(b.1));
 
     // 计算时间段分布
     for (_, playtime) in &games_by_time {
@@ -2763,7 +2763,7 @@ async fn execute_netease_search_playlist(
         })
         .collect();
 
-    scored_playlists.sort_by(|a, b| b.1.cmp(&a.1));
+    scored_playlists.sort_by_key(|b| std::cmp::Reverse(b.1));
 
     // 格式化输出
     let formatted_playlists: Vec<Value> = scored_playlists
