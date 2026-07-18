@@ -1112,6 +1112,7 @@ export const jaJP: TranslationKeys = {
     reportXbox: 'Xboxレポート',
     reportPsn: 'PlayStationレポート',
     socialNetwork: 'ソーシャルネットワーク',
+    tappShortcut: 'Tapp ショートカット',
     gamePresence: 'miHoYoゲームカード',
     library: 'ライブラリ',
     dataReport: 'データレポート',
@@ -1892,6 +1893,20 @@ export const jaJP: TranslationKeys = {
     notConfigured: '未設定',
     fetchFailed: '取得に失敗',
     showcaseEmpty: 'ショーケースが非公開または空です',
+  },
+
+  // Tapp ショートカットウィジェット
+  tappShortcut: {
+    selectTapp: 'Tapp を選択',
+    longPressToEdit: 'ウィジェットを長押しして設定',
+    noTappSelected: 'Tapp 未選択',
+    emptyTapps: 'インストール済みの Tapp がありません',
+    notInstalled: 'この Tapp はアンインストール済みです',
+    clickToOpen: 'クリックして起動',
+    close: '閉じる',
+    loading: '読み込み中...',
+    loadFailed: '読み込みに失敗',
+    previewLabel: 'Tapp ショートカット',
   },
 
   // Tapp 関連

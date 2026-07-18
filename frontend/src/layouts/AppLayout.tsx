@@ -54,6 +54,11 @@ const GamePresenceSettingsModal = lazy(() =>
     default: m.GamePresenceSettingsModal,
   })),
 )
+const TappShortcutSettingsModal = lazy(() =>
+  import('../components/widgets/TappShortcutWidget').then((m) => ({
+    default: m.TappShortcutSettingsModal,
+  })),
+)
 
 interface AppLayoutProps {
   children: React.ReactNode
@@ -318,6 +323,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         <SocialNetworkSettingsModal />
         <ReportCardSettingsModal />
         <GamePresenceSettingsModal />
+        <TappShortcutSettingsModal />
       </Suspense>
 
       {/* 站点底部信息 */}

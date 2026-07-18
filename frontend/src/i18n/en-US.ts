@@ -1136,6 +1136,7 @@ export const enUS: TranslationKeys = {
     reportXbox: 'Xbox Report',
     reportPsn: 'PlayStation Report',
     socialNetwork: 'Social Network',
+    tappShortcut: 'Tapp Shortcut',
     gamePresence: 'HoYoverse Game Card',
     library: 'Library',
     dataReport: 'Data Report',
@@ -1908,6 +1909,20 @@ export const enUS: TranslationKeys = {
     notConfigured: 'Not configured',
     fetchFailed: 'Failed to load',
     showcaseEmpty: 'Showcase empty or private',
+  },
+
+  // Tapp shortcut widget
+  tappShortcut: {
+    selectTapp: 'Select Tapp',
+    longPressToEdit: 'Long press widget to configure',
+    noTappSelected: 'No Tapp selected',
+    emptyTapps: 'No installed Tapps',
+    notInstalled: 'Tapp uninstalled',
+    clickToOpen: 'Click to open',
+    close: 'Close',
+    loading: 'Loading...',
+    loadFailed: 'Failed to load',
+    previewLabel: 'Tapp Shortcut',
   },
 
   // Tapp related

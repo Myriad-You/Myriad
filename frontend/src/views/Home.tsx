@@ -20,6 +20,7 @@ import { QuoteWidget } from '../components/widgets/QuoteWidget'
 import { RecentActivityWidget } from '../components/widgets/RecentActivityWidget'
 import { ReportCardWidget } from '../components/widgets/ReportCardWidget'
 import { SocialNetworkWidget } from '../components/widgets/SocialNetworkWidget'
+import { TappShortcutWidget } from '../components/widgets/TappShortcutWidget'
 import { WeatherWidget } from '../components/widgets/WeatherWidget'
 import { WelcomeWidget } from '../components/widgets/WelcomeWidget'
 import { API_URL } from '../config'
@@ -202,6 +203,13 @@ export default function Home() {
         name: t.widgets.socialNetwork,
         defaultSize: '1x1',
         component: SocialNetworkWidget,
+        supportedSizes: ['1x1', '2x1', '2x2'],
+      },
+      {
+        id: 'tapp-shortcut',
+        name: t.widgets.tappShortcut,
+        defaultSize: '1x1',
+        component: TappShortcutWidget,
         supportedSizes: ['1x1', '2x1', '2x2'],
       },
       {

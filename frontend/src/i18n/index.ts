@@ -978,6 +978,7 @@ export interface TranslationKeys {
     reportXbox: string
     reportPsn: string
     socialNetwork: string
+    tappShortcut: string
     gamePresence: string
     library: string
     dataReport: string
@@ -1732,6 +1733,20 @@ export interface TranslationKeys {
     notConfigured: string
     fetchFailed: string
     showcaseEmpty: string
+  }
+
+  // Tapp 快捷方式小组件
+  tappShortcut: {
+    selectTapp: string
+    longPressToEdit: string
+    noTappSelected: string
+    emptyTapps: string
+    notInstalled: string
+    clickToOpen: string
+    close: string
+    loading: string
+    loadFailed: string
+    previewLabel: string
   }
 
   // Tapp 相关

@@ -1054,6 +1054,7 @@ export const zhCN: TranslationKeys = {
     reportXbox: 'Xbox报告',
     reportPsn: 'PlayStation报告',
     socialNetwork: '社交网络',
+    tappShortcut: 'Tapp 快捷方式',
     gamePresence: '米哈游游戏卡片',
     library: '资料库',
     dataReport: '数据报告',
@@ -1814,6 +1815,20 @@ export const zhCN: TranslationKeys = {
     notConfigured: '未配置',
     fetchFailed: '获取失败',
     showcaseEmpty: '展柜未公开或为空',
+  },
+
+  // Tapp 快捷方式小组件
+  tappShortcut: {
+    selectTapp: '选择 Tapp',
+    longPressToEdit: '长按小组件进行设置',
+    noTappSelected: '未选择 Tapp',
+    emptyTapps: '暂无已安装的 Tapp',
+    notInstalled: '该 Tapp 已卸载',
+    clickToOpen: '点击启动',
+    close: '关闭',
+    loading: '加载中...',
+    loadFailed: '加载失败',
+    previewLabel: 'Tapp 快捷方式',
   },
 
   // Tapp 相关
