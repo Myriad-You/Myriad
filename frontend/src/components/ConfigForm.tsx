@@ -1098,11 +1098,16 @@ const ModernConfigForm: React.FC = () => {
       let resultMessage = t.config.configSaved
 
       if (hasConfigChanges) {
-        // 获取 CSRF Token
+        // 获取 CSRF Token（stale sessionStorage / backend restart）
         await getCSRFToken(true)
 
+        // updateConfig throws on HTTP >= 400 or success !== true (incl. CSRF after retry)
         const result = await updateConfig(config)
+        if (result?.success === false) {
+          throw new Error(result.message || t.config.configSaveFailed)
+        }
         resultMessage = result.message || t.config.configSaved
+        // Only mark draft clean after a confirmed successful write
         setInitialConfig(JSON.parse(JSON.stringify(config)))
       }
 
@@ -1313,7 +1318,11 @@ const ModernConfigForm: React.FC = () => {
       // 获取 CSRF Token
       await getCSRFToken(true)
 
+      // updateConfig throws on failure — do not clean dirty / emit success otherwise
       const saveResult = await updateConfig(clearedData)
+      if (saveResult?.success === false) {
+        throw new Error(saveResult.message || t.config.resetFailed)
+      }
       setInitialConfig(JSON.parse(JSON.stringify(clearedData)))
 
       showMessage(t.config.configReset, 'success', 5000)

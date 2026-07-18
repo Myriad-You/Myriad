@@ -150,8 +150,14 @@ export const notificationPreferencesApi = {
   ): Promise<NotificationPreferences> {
     const response = await apiService.put<{
       success: boolean
+      message?: string
       preferences: NotificationPreferences
     }>(BASE, preferences)
+    if (!response.success || !response.preferences) {
+      throw new Error(
+        response.message || 'Failed to save notification preferences',
+      )
+    }
     window.dispatchEvent(
       new CustomEvent(NOTIFICATION_PREFERENCES_UPDATED_EVENT, {
         detail: { preferences: response.preferences, userId },

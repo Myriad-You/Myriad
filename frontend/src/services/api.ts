@@ -5,7 +5,7 @@
  */
 
 import { API_URL } from '../config'
-import { getCSRFToken } from '../utils/csrf'
+import { clearCSRFToken, getCSRFToken } from '../utils/csrf'
 
 const API_BASE = `${API_URL}/api`
 
@@ -59,12 +59,24 @@ function buildUrl(
   return url.toString()
 }
 
+function isCsrfErrorBody(body: {
+  message?: unknown
+  error?: unknown
+}): boolean {
+  const haystack =
+    `${String(body.error ?? '')} ${String(body.message ?? '')}`.toLowerCase()
+  return haystack.includes('csrf')
+}
+
 /**
  * 通用 API 请求
+ * State-changing calls retry once after CSRF rejection (stale sessionStorage /
+ * backend restart / token expiry), matching brewApi / speechApi / brewliaApi.
  */
 async function request<T>(
   endpoint: string,
   options: ApiRequestOptions = {},
+  retryOnCSRFError: boolean = true,
 ): Promise<T> {
   const {
     requireAuth: _requireAuth = false,
@@ -109,14 +121,40 @@ async function request<T>(
       let errorMessage = `API Error: ${response.status}`
       let errorCode: string | undefined
       let errorDetails: unknown
+      let errorBody: { message?: unknown; error?: unknown; code?: string; details?: unknown } | null =
+        null
 
       try {
-        const errorBody = await response.json()
-        errorMessage = errorBody.message || errorBody.error || errorMessage
-        errorCode = errorBody.code
-        errorDetails = errorBody.details
+        errorBody = await response.json()
+        errorMessage =
+          (typeof errorBody?.message === 'string' && errorBody.message) ||
+          (typeof errorBody?.error === 'string' && errorBody.error) ||
+          errorMessage
+        errorCode = errorBody?.code
+        errorDetails = errorBody?.details
       } catch {
         // 忽略 JSON 解析错误
+      }
+
+      // CSRF: clear cache, force-refresh, retry once (settings writers + others)
+      if (
+        response.status === 403 &&
+        needsCSRF &&
+        retryOnCSRFError &&
+        errorBody &&
+        isCsrfErrorBody(errorBody)
+      ) {
+        console.warn(
+          '[apiService] CSRF rejection on',
+          method,
+          endpoint,
+          '— refreshing token and retrying once',
+        )
+        clearCSRFToken()
+        const newToken = await getCSRFToken(true)
+        if (newToken) {
+          return request<T>(endpoint, options, false)
+        }
       }
 
       throw new ApiError(errorMessage, response.status, errorCode, errorDetails)

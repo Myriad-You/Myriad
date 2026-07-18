@@ -1,4 +1,4 @@
-import type { AxiosError } from 'axios'
+import type { AxiosError, AxiosRequestConfig, InternalAxiosRequestConfig } from 'axios'
 import axios from 'axios'
 
 import { API_URL } from '../config'
@@ -29,12 +29,74 @@ if (!isValidUrl(API_BASE_URL)) {
   throw new Error('Invalid API_BASE_URL configuration')
 }
 
+/** Mark a request as already retried after a CSRF failure (single retry only). */
+type CsrfRetryableConfig = InternalAxiosRequestConfig & {
+  __csrfRetried?: boolean
+}
+
+const MUTATING_METHODS = new Set(['post', 'put', 'patch', 'delete'])
+
+/**
+ * Detect CSRF rejection bodies from backend csrf middleware.
+ * Matches: "CSRF token missing/expired/invalid/not found" and message text.
+ */
+export function isCsrfFailure(
+  status: number,
+  data: unknown,
+): boolean {
+  if (status !== 403) return false
+  if (!data || typeof data !== 'object') return false
+  const body = data as { error?: unknown; message?: unknown }
+  const haystack = `${String(body.error ?? '')} ${String(body.message ?? '')}`.toLowerCase()
+  return haystack.includes('csrf')
+}
+
+function extractApiErrorMessage(
+  data: unknown,
+  fallback: string,
+): string {
+  if (data && typeof data === 'object') {
+    const body = data as { message?: unknown; error?: unknown }
+    if (typeof body.message === 'string' && body.message.trim()) {
+      return body.message
+    }
+    if (typeof body.error === 'string' && body.error.trim()) {
+      return body.error
+    }
+  }
+  return fallback
+}
+
+/**
+ * Assert a mutating config write succeeded.
+ * With validateStatus accepting 4xx, callers must not treat error JSON as OK.
+ */
+export function assertConfigWriteSuccess(
+  status: number,
+  data: unknown,
+  fallbackMessage: string,
+): void {
+  if (status >= 400) {
+    throw new Error(extractApiErrorMessage(data, fallbackMessage))
+  }
+  if (
+    data &&
+    typeof data === 'object' &&
+    'success' in data &&
+    (data as { success: unknown }).success !== true
+  ) {
+    throw new Error(extractApiErrorMessage(data, fallbackMessage))
+  }
+}
+
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
   timeout: 30000, // 30秒超时
+  // Keep 4xx as fulfilled responses so callers (and CSRF retry) can inspect
+  // body/status. Writers must still fail closed via assertConfigWriteSuccess.
   validateStatus: (status) => status < 500, // 只有5xx才算网络错误
   withCredentials: true, // ✅ 自动发送 HttpOnly Cookie
 })
@@ -93,9 +155,40 @@ api.interceptors.request.use(
   },
 )
 
-// Add response interceptor to handle 401 errors
+// Response interceptor: CSRF retry (fulfilled path) + 401/429 handling (rejected path).
+// Note: validateStatus treats status < 500 as success, so 403 CSRF errors land here
+// in the fulfilled branch — not the error branch.
 api.interceptors.response.use(
-  (response) => response,
+  async (response) => {
+    const config = response.config as CsrfRetryableConfig
+    const method = config.method?.toLowerCase() ?? 'get'
+
+    if (
+      MUTATING_METHODS.has(method) &&
+      isCsrfFailure(response.status, response.data) &&
+      !config.__csrfRetried
+    ) {
+      console.warn(
+        '[api] CSRF rejection on',
+        method.toUpperCase(),
+        config.url,
+        '— refreshing token and retrying once',
+      )
+      clearCSRFToken()
+      const newToken = await getCSRFToken(true)
+      if (newToken) {
+        const retryConfig: CsrfRetryableConfig = {
+          ...config,
+          __csrfRetried: true,
+        }
+        retryConfig.headers = retryConfig.headers ?? {}
+        retryConfig.headers[getCSRFHeaderName()] = newToken
+        return api.request(retryConfig as AxiosRequestConfig)
+      }
+    }
+
+    return response
+  },
   (error: AxiosError | RateLimitError) => {
     // 处理 Rate Limit 错误
     if (error instanceof RateLimitError) {
@@ -136,6 +229,11 @@ export async function fetchConfig() {
 
 export async function updateConfig(config: any) {
   const response = await api.post('/api/config', config)
+  assertConfigWriteSuccess(
+    response.status,
+    response.data,
+    'Failed to save configuration',
+  )
   return response.data
 }
 
@@ -182,12 +280,22 @@ export async function updatePermissionsConfig(
   permissions: Record<string, boolean | number>,
 ) {
   const response = await api.post('/api/config/permissions', permissions)
+  assertConfigWriteSuccess(
+    response.status,
+    response.data,
+    'Failed to save permissions',
+  )
   return response.data
 }
 
 // System
 export async function reloadSystemConfig() {
   const response = await api.post('/api/system/reload-config')
+  assertConfigWriteSuccess(
+    response.status,
+    response.data,
+    'Failed to reload configuration',
+  )
   return response.data
 }
 
