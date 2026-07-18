@@ -22,12 +22,15 @@ pub async fn process_delivery_queue(
         .query_all(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT dq.id, dq.activity_id, dq.target_inbox, dq.target_domain,
-                      dq.attempts, dq.max_attempts,
+                      dq.attempts, dq.max_attempts, dq.status AS queue_status,
                       a.activity_id AS ap_activity_id, a.activity_type, a.object_json, a.user_id
                FROM federation_delivery_queue dq
                JOIN federation_activities a ON a.id = dq.activity_id
-               WHERE dq.status = 'pending'
-                 AND (dq.next_retry_at IS NULL OR dq.next_retry_at <= NOW())
+               WHERE (dq.status = 'pending'
+                      AND (dq.next_retry_at IS NULL OR dq.next_retry_at <= NOW()))
+                  -- 崩溃恢复：投递中途进程退出会把条目留在 delivering，超时后重新认领
+                  OR (dq.status = 'delivering'
+                      AND dq.last_attempt_at < NOW() - INTERVAL '10 minutes')
                ORDER BY dq.created_at ASC
                LIMIT $1"#,
             [(batch_size as i64).into()],
@@ -41,21 +44,44 @@ pub async fn process_delivery_queue(
         let queue_id: i32 = row.try_get("", "id").unwrap_or(0);
         let target_inbox: String = row.try_get("", "target_inbox").unwrap_or_default();
         let target_domain: String = row.try_get("", "target_domain").unwrap_or_default();
-        let attempts: i32 = row.try_get("", "attempts").unwrap_or(0);
+        let mut attempts: i32 = row.try_get("", "attempts").unwrap_or(0);
         let max_attempts: i32 = row.try_get("", "max_attempts").unwrap_or(12);
+        let queue_status: String = row.try_get("", "queue_status").unwrap_or_default();
         let _ap_activity_id: String = row.try_get("", "ap_activity_id").unwrap_or_default();
         let activity_type: String = row.try_get("", "activity_type").unwrap_or_default();
         let object_json: serde_json::Value = row.try_get("", "object_json").unwrap_or_default();
         let user_id: i32 = row.try_get("", "user_id").unwrap_or(0);
 
-        // 标记为 delivering
-        let _ = db
-            .execute(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "UPDATE federation_delivery_queue SET status = 'delivering', last_attempt_at = NOW() WHERE id = $1",
-                [queue_id.into()],
-            ))
-            .await;
+        // 标记为 delivering；对卡住的 delivering 行重新认领时递增 attempts，避免无限热循环
+        let reclaim = queue_status == "delivering";
+        if reclaim {
+            attempts += 1;
+            let _ = db
+                .execute(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    "UPDATE federation_delivery_queue SET status = 'delivering', last_attempt_at = NOW(), attempts = $2 WHERE id = $1",
+                    [queue_id.into(), attempts.into()],
+                ))
+                .await;
+            if attempts >= max_attempts {
+                let _ = db
+                    .execute(Statement::from_sql_and_values(
+                        DatabaseBackend::Postgres,
+                        "UPDATE federation_delivery_queue SET status = 'dead', error_message = $1, last_attempt_at = NOW() WHERE id = $2",
+                        ["Exceeded max attempts after reclaim".into(), queue_id.into()],
+                    ))
+                    .await;
+                continue;
+            }
+        } else {
+            let _ = db
+                .execute(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    "UPDATE federation_delivery_queue SET status = 'delivering', last_attempt_at = NOW() WHERE id = $1",
+                    [queue_id.into()],
+                ))
+                .await;
+        }
 
         // 投递前：目标实例信任策略检查（黑名单等）
         if let Err(reason) = crate::federation::trust::enforce_outbound(db, &target_domain).await {
@@ -167,13 +193,35 @@ pub async fn process_delivery_queue(
             }
             Err(e) => {
                 tracing::error!("Failed to load keypair for user {}: {}", user_id, e);
-                let _ = db
-                    .execute(Statement::from_sql_and_values(
-                        DatabaseBackend::Postgres,
-                        "UPDATE federation_delivery_queue SET status = 'pending', error_message = $1 WHERE id = $2",
-                        [format!("Key load failed: {}", e).into(), queue_id.into()],
-                    ))
-                    .await;
+                // 密钥问题几乎不会自愈；按普通失败计数退避，避免 15s 热循环刷日志
+                let new_attempts = attempts + 1;
+                if new_attempts >= max_attempts {
+                    let _ = db
+                        .execute(Statement::from_sql_and_values(
+                            DatabaseBackend::Postgres,
+                            "UPDATE federation_delivery_queue SET status = 'dead', attempts = $1, error_message = $2, last_attempt_at = NOW() WHERE id = $3",
+                            [
+                                new_attempts.into(),
+                                format!("Key load failed: {}", e).into(),
+                                queue_id.into(),
+                            ],
+                        ))
+                        .await;
+                } else {
+                    let backoff_secs = std::cmp::min(2i64.pow(new_attempts as u32), 86400);
+                    let _ = db
+                        .execute(Statement::from_sql_and_values(
+                            DatabaseBackend::Postgres,
+                            "UPDATE federation_delivery_queue SET status = 'pending', attempts = $1, error_message = $2, last_attempt_at = NOW(), next_retry_at = NOW() + make_interval(secs => $4::double precision) WHERE id = $3",
+                            [
+                                new_attempts.into(),
+                                format!("Key load failed: {}", e).into(),
+                                queue_id.into(),
+                                backoff_secs.into(),
+                            ],
+                        ))
+                        .await;
+                }
             }
         }
     }
@@ -221,13 +269,24 @@ async fn deliver_activity(
 
     let kid = key_id(base_url, username);
 
-    let path = url::Url::parse(target_inbox)
-        .map(|u| u.path().to_string())
-        .unwrap_or_else(|_| "/inbox".to_string());
+    // Host 头/签名的 host 必须与 URL 一致（含非默认端口），否则对端验签失败；
+    // target_domain（不带端口）仅用于信任策略与实例统计。
+    let (path, host_header) = match url::Url::parse(target_inbox) {
+        Ok(u) => {
+            let path = u.path().to_string();
+            let host = match (u.host_str(), u.port()) {
+                (Some(h), Some(p)) => format!("{}:{}", h, p),
+                (Some(h), None) => h.to_string(),
+                _ => target_domain.to_string(),
+            };
+            (path, host)
+        }
+        Err(_) => ("/inbox".to_string(), target_domain.to_string()),
+    };
 
     let params = SignatureParams {
         key_id: &kid,
-        host: target_domain,
+        host: &host_header,
         path: &path,
         method: "POST",
         body: Some(body),
@@ -245,7 +304,7 @@ async fn deliver_activity(
 
     let resp = client
         .post(target_url)
-        .header("Host", target_domain)
+        .header("Host", &host_header)
         .header("Date", &signed.date)
         .header("Digest", &signed.digest.unwrap_or_default())
         .header("Signature", &signed.signature)

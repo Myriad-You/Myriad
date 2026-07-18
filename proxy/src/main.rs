@@ -25,7 +25,7 @@ use axum::routing::any;
 use axum::Router;
 use chrono::{DateTime, Utc};
 use hyper_util::client::legacy::{connect::HttpConnector, Client};
-use hyper_util::rt::TokioExecutor;
+use hyper_util::rt::{TokioExecutor, TokioIo};
 use ipnet::IpNet;
 use serde::Deserialize;
 use serde_json::json;
@@ -198,12 +198,26 @@ async fn handle(
         return Ok(maintenance_response(&maint));
     }
 
-    // Route business traffic.
-    let upstream = if path.starts_with("/api/") || path == "/health" {
+    // Route business traffic. Besides /api, the backend also serves the public
+    // ActivityPub/MFP endpoints registered outside /api (WebFinger discovery,
+    // NodeInfo, actor documents and inboxes) — remote instances resolve
+    // @user@domain against these, so they must not fall through to the frontend.
+    let upstream = if is_backend_path(&path) {
         &state.backend_upstream
     } else {
         &state.frontend_upstream
     };
+    if is_websocket_upgrade(req.headers()) {
+        return Ok(forward_websocket(
+            &state,
+            upstream,
+            &path_with_query(req.uri()),
+            req,
+            client_addr,
+        )
+        .await
+        .unwrap_or_else(bad_gateway));
+    }
     Ok(forward(
         &state,
         upstream,
@@ -213,6 +227,128 @@ async fn handle(
     )
     .await
     .unwrap_or_else(bad_gateway))
+}
+
+/// RFC 6455 handshake detection: `Connection: upgrade` + `Upgrade: websocket`.
+fn is_websocket_upgrade(headers: &HeaderMap) -> bool {
+    let connection_has_upgrade = headers
+        .get(header::CONNECTION)
+        .and_then(|v| v.to_str().ok())
+        .map(|v| {
+            v.split(',')
+                .any(|token| token.trim().eq_ignore_ascii_case("upgrade"))
+        })
+        .unwrap_or(false);
+    let upgrade_is_websocket = headers
+        .get(header::UPGRADE)
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.eq_ignore_ascii_case("websocket"))
+        .unwrap_or(false);
+    connection_has_upgrade && upgrade_is_websocket
+}
+
+/// Forward a WebSocket handshake and, on 101, bridge the two upgraded
+/// connections byte-for-byte. The plain `forward` path strips hop-by-hop
+/// headers and never resolves upgrades, so it can only break handshakes.
+async fn forward_websocket(
+    state: &AppState,
+    upstream_base: &str,
+    path_q: &str,
+    req: Request,
+    client_addr: SocketAddr,
+) -> anyhow::Result<Response> {
+    let (mut parts, _body) = req.into_parts();
+    let client_on_upgrade = parts
+        .extensions
+        .remove::<hyper::upgrade::OnUpgrade>()
+        .ok_or_else(|| anyhow::anyhow!("client connection does not support upgrade"))?;
+
+    let url = format!("{}{}", upstream_base, path_q);
+    let mut builder = hyper::Request::builder()
+        .method(parts.method.clone())
+        .uri(&url);
+    for (k, v) in parts.headers.iter() {
+        if is_proxy_managed_forwarded_header(k.as_str()) {
+            continue;
+        }
+        // Upgrade requests must keep Connection/Upgrade so the upstream sees the handshake.
+        if is_hop_by_hop(k.as_str()) && k != header::CONNECTION && k != header::UPGRADE {
+            continue;
+        }
+        builder = builder.header(k, v);
+    }
+    let client_ip =
+        resolve_client_ip(&parts.headers, client_addr.ip(), &state.trusted_upstreams).to_string();
+    builder = builder
+        .header("x-forwarded-for", &client_ip)
+        .header("x-real-ip", &client_ip)
+        .header(
+            "x-forwarded-proto",
+            forwarded_proto(&parts.headers).unwrap_or_else(|| HeaderValue::from_static("http")),
+        );
+    if let Some(host) = forwarded_host(&parts.headers) {
+        builder = builder.header("x-forwarded-host", host);
+    }
+    let upstream_req = builder.body(Body::empty())?;
+    let upstream_resp = state.client.request(upstream_req).await?;
+
+    if upstream_resp.status() != StatusCode::SWITCHING_PROTOCOLS {
+        // Upstream refused the upgrade (auth failure, bad ticket, …) — relay its answer.
+        let (resp_parts, body) = upstream_resp.into_parts();
+        let mut out = Response::builder().status(resp_parts.status);
+        for (k, v) in resp_parts.headers.iter() {
+            if is_hop_by_hop(k.as_str()) {
+                continue;
+            }
+            out = out.header(k, v);
+        }
+        return Ok(out.body(Body::new(body))?);
+    }
+
+    // Relay the 101 verbatim (Connection/Upgrade/Sec-WebSocket-Accept included);
+    // the client upgrade only resolves after this response is written out.
+    let mut out = Response::builder().status(StatusCode::SWITCHING_PROTOCOLS);
+    for (k, v) in upstream_resp.headers().iter() {
+        out = out.header(k, v);
+    }
+    let response = out.body(Body::empty())?;
+
+    tokio::spawn(async move {
+        let upstream_io = match hyper::upgrade::on(upstream_resp).await {
+            Ok(io) => io,
+            Err(err) => {
+                warn!(error = %err, "websocket upstream upgrade failed");
+                return;
+            }
+        };
+        let client_io = match client_on_upgrade.await {
+            Ok(io) => io,
+            Err(err) => {
+                warn!(error = %err, "websocket client upgrade failed");
+                return;
+            }
+        };
+        let mut upstream_io = TokioIo::new(upstream_io);
+        let mut client_io = TokioIo::new(client_io);
+        if let Err(err) = tokio::io::copy_bidirectional(&mut client_io, &mut upstream_io).await {
+            // Normal on abrupt disconnects; keep at debug level.
+            tracing::debug!(error = %err, "websocket bridge closed with error");
+        }
+    });
+
+    Ok(response)
+}
+
+/// Paths served by the backend. Everything else goes to the frontend SPA.
+fn is_backend_path(path: &str) -> bool {
+    path.starts_with("/api/")
+        || path == "/health"
+        // Federation (ActivityPub/MFP) public endpoints, see backend main.rs.
+        || path == "/.well-known/webfinger"
+        || path == "/.well-known/nodeinfo"
+        || path == "/nodeinfo/2.1"
+        || path == "/inbox"
+        || path.starts_with("/users/")
 }
 
 fn bad_gateway(err: anyhow::Error) -> Response {
@@ -561,6 +697,23 @@ mod tests {
         let uri: Uri = "/api/setup/status?mode=config".parse().unwrap();
 
         assert_eq!(path_with_query(&uri), "/api/setup/status?mode=config");
+    }
+
+    #[test]
+    fn backend_paths_include_federation_endpoints() {
+        assert!(is_backend_path("/api/federation/channels"));
+        assert!(is_backend_path("/health"));
+        assert!(is_backend_path("/.well-known/webfinger"));
+        assert!(is_backend_path("/.well-known/nodeinfo"));
+        assert!(is_backend_path("/nodeinfo/2.1"));
+        assert!(is_backend_path("/inbox"));
+        assert!(is_backend_path("/users/misakimei"));
+        assert!(is_backend_path("/users/misakimei/inbox"));
+
+        assert!(!is_backend_path("/"));
+        assert!(!is_backend_path("/users"));
+        assert!(!is_backend_path("/settings"));
+        assert!(!is_backend_path("/.well-known/acme-challenge/token"));
     }
 
     #[test]

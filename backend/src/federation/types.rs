@@ -509,19 +509,40 @@ pub fn actor_url(base_url: &str, username: &str) -> String {
     format!("{}/users/{}", base_url, username)
 }
 
+/// 规范化 Actor URL：trim、去掉末尾斜杠、host 转小写（保留 path 大小写与非默认端口）。
+///
+/// 用于 `same_actor_url` 与 `local_username_from_actor_url` 等相等性判断，
+/// 避免 trailing slash / Host 大小写差异导致路由或授权误判。
+pub fn normalize_actor_url(raw: &str) -> String {
+    let trimmed = raw.trim().trim_end_matches('/');
+    if let Ok(url) = url::Url::parse(trimmed) {
+        let host = url.host_str().unwrap_or("").to_ascii_lowercase();
+        let path = url.path().trim_end_matches('/');
+        let port = url.port().map(|p| format!(":{}", p)).unwrap_or_default();
+        return format!("{}://{}{}{}", url.scheme(), host, port, path);
+    }
+    trimmed.to_string()
+}
+
 /// 比较 Actor URL 时忽略末尾斜杠与 host 大小写差异，避免把自己的地址当作远程对象。
 pub fn same_actor_url(left: &str, right: &str) -> bool {
-    fn normalize(raw: &str) -> String {
-        let trimmed = raw.trim().trim_end_matches('/');
-        if let Ok(url) = url::Url::parse(trimmed) {
-            let host = url.host_str().unwrap_or("").to_ascii_lowercase();
-            let path = url.path().trim_end_matches('/');
-            let port = url.port().map(|p| format!(":{}", p)).unwrap_or_default();
-            return format!("{}://{}{}{}", url.scheme(), host, port, path);
-        }
-        trimmed.to_string()
+    normalize_actor_url(left) == normalize_actor_url(right)
+}
+
+/// 若 candidate 是本实例的 Actor URL（{base_url}/users/{username}），返回 username。
+///
+/// 用于把入站 Activity 的 to 字段路由到本地用户。规则与 `same_actor_url` 一致：
+/// 忽略末尾斜杠与 host 大小写；host/scheme/port 必须与 base_url 匹配；
+/// 多段路径与空用户名不匹配。
+pub fn local_username_from_actor_url(base_url: &str, candidate: &str) -> Option<String> {
+    let base_norm = normalize_actor_url(base_url);
+    let cand_norm = normalize_actor_url(candidate);
+    let prefix = format!("{}/users/", base_norm);
+    let rest = cand_norm.strip_prefix(&prefix)?;
+    if rest.is_empty() || rest.contains('/') {
+        return None;
     }
-    normalize(left) == normalize(right)
+    Some(rest.to_string())
 }
 
 /// 构造 Key ID
@@ -632,3 +653,106 @@ pub fn is_internal_url(url_str: &str) -> bool {
 
 /// AP 公共地址
 pub const AP_PUBLIC: &str = "https://www.w3.org/ns/activitystreams#Public";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_actor_url_host_case_and_trailing_slash() {
+        assert_eq!(
+            normalize_actor_url("https://Myriad.Example.COM/users/alice/"),
+            "https://myriad.example.com/users/alice"
+        );
+        assert_eq!(
+            normalize_actor_url("https://myriad.example.com/users/alice"),
+            "https://myriad.example.com/users/alice"
+        );
+        // 非默认端口保留
+        assert_eq!(
+            normalize_actor_url("https://myriad.example.com:8443/users/alice/"),
+            "https://myriad.example.com:8443/users/alice"
+        );
+    }
+
+    #[test]
+    fn same_actor_url_ignores_host_case_and_slash() {
+        assert!(same_actor_url(
+            "https://Myriad.Example.COM/users/alice/",
+            "https://myriad.example.com/users/alice"
+        ));
+        assert!(!same_actor_url(
+            "https://myriad.example.com/users/alice",
+            "https://other.example.com/users/alice"
+        ));
+    }
+
+    #[test]
+    fn local_username_from_actor_url_matches_local_actors() {
+        let base = "https://myriad.example.com";
+        assert_eq!(
+            local_username_from_actor_url(base, "https://myriad.example.com/users/alice"),
+            Some("alice".to_string())
+        );
+        assert_eq!(
+            local_username_from_actor_url(base, "https://myriad.example.com/users/alice/"),
+            Some("alice".to_string())
+        );
+        // base_url 带末尾斜杠也能匹配
+        assert_eq!(
+            local_username_from_actor_url(
+                "https://myriad.example.com/",
+                "https://myriad.example.com/users/alice"
+            ),
+            Some("alice".to_string())
+        );
+        // host 大小写差异（与 same_actor_url 一致）
+        assert_eq!(
+            local_username_from_actor_url(base, "https://Myriad.Example.COM/users/alice"),
+            Some("alice".to_string())
+        );
+        assert_eq!(
+            local_username_from_actor_url(
+                "https://Myriad.Example.COM",
+                "https://myriad.example.com/users/Bob/"
+            ),
+            Some("Bob".to_string())
+        );
+    }
+
+    #[test]
+    fn local_username_from_actor_url_rejects_foreign_and_malformed() {
+        let base = "https://myriad.example.com";
+        // 其他实例
+        assert_eq!(
+            local_username_from_actor_url(base, "https://other.example.com/users/alice"),
+            None
+        );
+        // AP Public 集合地址
+        assert_eq!(local_username_from_actor_url(base, AP_PUBLIC), None);
+        // 多段路径 / 空用户名
+        assert_eq!(
+            local_username_from_actor_url(base, "https://myriad.example.com/users/alice/inbox"),
+            None
+        );
+        assert_eq!(
+            local_username_from_actor_url(base, "https://myriad.example.com/users/"),
+            None
+        );
+        // 前缀相似的恶意域名
+        assert_eq!(
+            local_username_from_actor_url(base, "https://myriad.example.com.evil.com/users/alice"),
+            None
+        );
+        // 路径前缀欺骗
+        assert_eq!(
+            local_username_from_actor_url(base, "https://myriad.example.com/users/alice.evil"),
+            Some("alice.evil".to_string()) // 单段用户名合法；非多段
+        );
+        // scheme 不同不算本站
+        assert_eq!(
+            local_username_from_actor_url(base, "http://myriad.example.com/users/alice"),
+            None
+        );
+    }
+}

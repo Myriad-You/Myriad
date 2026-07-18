@@ -308,7 +308,24 @@ async fn resolve_acct_to_url(acct: &str) -> Result<String, (StatusCode, Json<ser
             )
         })?;
 
-    let wf: serde_json::Value = resp.json().await.map_err(|_| {
+    let status = resp.status();
+    if !status.is_success() {
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            Json(json!({"error": format!("WebFinger lookup returned HTTP {}", status.as_u16())})),
+        ));
+    }
+
+    // JRD 文档很小；64KB 上限防止恶意/异常实例撑爆内存
+    let body = crate::services::outbound_security::read_limited_body(resp, 64 * 1024)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({"error": "WebFinger response too large or unreadable"})),
+            )
+        })?;
+    let wf: serde_json::Value = serde_json::from_slice(&body).map_err(|_| {
         (
             StatusCode::BAD_GATEWAY,
             Json(json!({"error": "Invalid WebFinger response"})),

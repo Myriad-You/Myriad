@@ -262,11 +262,17 @@ async fn handle_follow(
 }
 
 /// 处理 Accept（我们发出的 Follow 被接受）
+///
+/// 授权绑定：状态变更仅在 Accept 的签名 actor 正是该 Channel/Follow 的
+/// 远程对端时生效，防止第三方实例伪造他人的 Accept。
+/// Actor 比对走 `same_actor_url`（host 大小写 / trailing slash），不依赖 SQL 字节级相等。
 async fn handle_accept(
     db: &DatabaseConnection,
     local_user_id: i32,
     activity: &serde_json::Value,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
+    // 签名校验保证了 activity.actor 就是本次请求的签名者
+    let accept_actor = activity["actor"].as_str().unwrap_or("");
     // Accept 的 object 可能是 Follow 或 ChannelOpen
     let object = &activity["object"];
     let inner_type = object.get("type").and_then(|v| v.as_str()).unwrap_or("");
@@ -280,83 +286,113 @@ async fn handle_accept(
         // 远程方接受了我们的 Channel 开启请求
         let channel_id = follow_id; // object.id 就是 channel_id
         if !channel_id.is_empty() {
-            let result = db
-                .execute(Statement::from_sql_and_values(
+            // 先取 pending channel 的远程对端 URL，再在 Rust 侧用 same_actor_url 授权
+            let pending = db
+                .query_one(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
-                    r#"UPDATE federation_channels
-                       SET status = 'accepted', last_activity_at = NOW()
-                       WHERE channel_id = $1 AND user_id = $2 AND status = 'pending'"#,
+                    r#"SELECT ra.actor_url
+                       FROM federation_channels c
+                       JOIN federation_remote_actors ra ON c.remote_actor_id = ra.id
+                       WHERE c.channel_id = $1 AND c.user_id = $2 AND c.status = 'pending'"#,
                     [channel_id.into(), local_user_id.into()],
                 ))
                 .await
                 .map_err(db_err)?;
 
-            if result.rows_affected() > 0 {
-                // 查远程方标签用于通知
-                let remote_label = if let Ok(Some(row)) = db
-                    .query_one(Statement::from_sql_and_values(
+            let authorized = pending
+                .as_ref()
+                .and_then(|row| row.try_get::<String>("", "actor_url").ok())
+                .map(|remote_url| same_actor_url(accept_actor, &remote_url))
+                .unwrap_or(false);
+
+            if authorized {
+                let result = db
+                    .execute(Statement::from_sql_and_values(
                         DatabaseBackend::Postgres,
-                        r#"SELECT ra.actor_url FROM federation_channels c
-                           JOIN federation_remote_actors ra ON c.remote_actor_id = ra.id
-                           WHERE c.channel_id = $1"#,
-                        [channel_id.into()],
+                        r#"UPDATE federation_channels
+                           SET status = 'accepted', last_activity_at = NOW()
+                           WHERE channel_id = $1 AND user_id = $2 AND status = 'pending'"#,
+                        [channel_id.into(), local_user_id.into()],
                     ))
                     .await
-                {
-                    let url: String = row.try_get("", "actor_url").unwrap_or_default();
-                    crate::federation::notify::actor_label(db, &url).await
-                } else {
-                    String::new()
-                };
-                crate::federation::notify::notify_channel_accepted(
-                    local_user_id,
-                    channel_id,
-                    &remote_label,
-                )
-                .await;
-                tracing::info!("✅ Channel accepted: {}", channel_id);
+                    .map_err(db_err)?;
+
+                if result.rows_affected() > 0 {
+                    let remote_url = pending
+                        .and_then(|row| row.try_get::<String>("", "actor_url").ok())
+                        .unwrap_or_default();
+                    let remote_label =
+                        crate::federation::notify::actor_label(db, &remote_url).await;
+                    crate::federation::notify::notify_channel_accepted(
+                        local_user_id,
+                        channel_id,
+                        &remote_label,
+                    )
+                    .await;
+                    tracing::info!("✅ Channel accepted: {}", channel_id);
+                }
             } else {
                 tracing::debug!(
-                    "Channel accept no-op (not pending or not owner): {}",
-                    channel_id
+                    "Channel accept no-op (not pending, not owner, or actor mismatch): channel={} accept_actor={}",
+                    channel_id,
+                    accept_actor
                 );
             }
         }
     } else {
         // 标准 Follow Accept
         if !follow_id.is_empty() {
-            let result = db
-                .execute(Statement::from_sql_and_values(
+            let pending = db
+                .query_one(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
-                    r#"UPDATE federation_follows
-                   SET status = 'accepted', accepted_at = NOW()
-                   WHERE user_id = $1 AND direction = 'outgoing' AND activity_id = $2"#,
+                    r#"SELECT ra.actor_url
+                       FROM federation_follows f
+                       JOIN federation_remote_actors ra ON f.remote_actor_id = ra.id
+                       WHERE f.user_id = $1 AND f.direction = 'outgoing' AND f.activity_id = $2"#,
                     [local_user_id.into(), follow_id.into()],
                 ))
                 .await
                 .map_err(db_err)?;
 
-            if result.rows_affected() > 0 {
-                // 尽量解析远程 actor 用于通知文案
-                let actor_url = activity["actor"].as_str().unwrap_or("");
-                let label = if !actor_url.is_empty() {
-                    crate::federation::notify::actor_label(db, actor_url).await
-                } else {
-                    "对方".to_string()
-                };
-                crate::federation::notify::notify_follow_accepted(
-                    local_user_id,
-                    if actor_url.is_empty() {
-                        follow_id
-                    } else {
-                        actor_url
-                    },
-                    &label,
-                )
-                .await;
-            }
+            let remote_url = pending
+                .and_then(|row| row.try_get::<String>("", "actor_url").ok())
+                .unwrap_or_default();
+            let authorized =
+                !remote_url.is_empty() && same_actor_url(accept_actor, &remote_url);
 
-            tracing::info!("✅ Our follow accepted: {}", follow_id);
+            if authorized {
+                let result = db
+                    .execute(Statement::from_sql_and_values(
+                        DatabaseBackend::Postgres,
+                        r#"UPDATE federation_follows
+                           SET status = 'accepted', accepted_at = NOW()
+                           WHERE user_id = $1 AND direction = 'outgoing' AND activity_id = $2"#,
+                        [local_user_id.into(), follow_id.into()],
+                    ))
+                    .await
+                    .map_err(db_err)?;
+
+                if result.rows_affected() > 0 {
+                    let label = crate::federation::notify::actor_label(db, &remote_url).await;
+                    crate::federation::notify::notify_follow_accepted(
+                        local_user_id,
+                        if accept_actor.is_empty() {
+                            follow_id
+                        } else {
+                            accept_actor
+                        },
+                        &label,
+                    )
+                    .await;
+                    tracing::info!("✅ Our follow accepted: {}", follow_id);
+                }
+            } else {
+                tracing::debug!(
+                    "Follow accept no-op (missing row or actor mismatch): follow={} accept_actor={}",
+                    follow_id,
+                    accept_actor
+                );
+            }
         }
     }
 

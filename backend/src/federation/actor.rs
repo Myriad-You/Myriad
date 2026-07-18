@@ -381,9 +381,11 @@ pub async fn fetch_remote_actor(
         return Err(format!("Remote actor returned status {}", resp.status()));
     }
 
-    let actor_json: serde_json::Value = resp
-        .json()
+    // Actor 文档正常几 KB；1MB 上限防止恶意实例撑爆内存
+    let body = crate::services::outbound_security::read_limited_body(resp, 1024 * 1024)
         .await
+        .map_err(|e| format!("Failed to read actor response: {}", e))?;
+    let actor_json: serde_json::Value = serde_json::from_slice(&body)
         .map_err(|e| format!("Failed to parse actor JSON: {}", e))?;
 
     // 提取关键字段

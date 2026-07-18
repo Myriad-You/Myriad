@@ -875,36 +875,62 @@ pub async fn handle_channel_open(
 
     let remote_actor_id: i32 = actor_row.try_get("", "id").unwrap_or(0);
 
-    // 找到所有关注了这个远程 actor 的本地用户（取第一个作为通道目标）
-    let follower_row = db
-        .query_one(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            r#"SELECT user_id FROM federation_follows
-               WHERE remote_actor_id = $1 AND status = 'accepted'
-               LIMIT 1"#,
-            [remote_actor_id.into()],
-        ))
-        .await
-        .map_err(|e| e.to_string())?;
+    // 路由目标用户：优先按 Activity 的 to 字段解析本地 actor（发起方在
+    // create_channel 里总会把目标 actor URL 写进 to）；解析不出时按关注
+    // 关系回退（兼容不带 to 或 to 里只有集合地址的异构发送方）。都找不到
+    // 就丢弃——绝不回退给任意本地用户，避免陌生通道被塞进错误的收件箱。
+    let base_url = get_base_url().await;
+    let to_entries: Vec<&str> = match activity.get("to") {
+        Some(serde_json::Value::Array(arr)) => arr.iter().filter_map(|v| v.as_str()).collect(),
+        Some(serde_json::Value::String(s)) => vec![s.as_str()],
+        _ => Vec::new(),
+    };
 
-    let target_user_id: i32 = match follower_row
-        .as_ref()
-        .and_then(|r| r.try_get("", "user_id").ok())
-    {
-        Some(uid) => uid,
-        None => {
-            // 个人实例回退：没有关注关系时路由到第一个本地用户
-            let fallback = db
-                .query_one(Statement::from_sql_and_values(
-                    DatabaseBackend::Postgres,
-                    "SELECT id FROM users ORDER BY id LIMIT 1",
-                    [],
-                ))
-                .await
-                .map_err(|e| e.to_string())?
-                .ok_or_else(|| "No local users found".to_string())?;
-            fallback.try_get("", "id").map_err(|e| e.to_string())?
+    // 防 DB 放大：请求体上限 50MB，to 数组可被塞入海量条目，只看前几个
+    const MAX_TO_LOOKUPS: usize = 16;
+    let mut target_user_id: Option<i32> = None;
+    for entry in to_entries.iter().take(MAX_TO_LOOKUPS) {
+        let Some(username) = local_username_from_actor_url(&base_url, entry) else {
+            continue;
+        };
+        let row = db
+            .query_one(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "SELECT id FROM users WHERE username = $1 LIMIT 1",
+                [username.into()],
+            ))
+            .await
+            .map_err(|e| e.to_string())?;
+        if let Some(uid) = row.and_then(|r| r.try_get::<i32>("", "id").ok()) {
+            target_user_id = Some(uid);
+            break;
         }
+    }
+
+    if target_user_id.is_none() {
+        // 关注关系回退：to 缺失/无法解析（如 BASE_URL 迁移后远端持有旧 URL）
+        target_user_id = db
+            .query_one(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                r#"SELECT user_id FROM federation_follows
+                   WHERE remote_actor_id = $1 AND status = 'accepted'
+                   LIMIT 1"#,
+                [remote_actor_id.into()],
+            ))
+            .await
+            .map_err(|e| e.to_string())?
+            .and_then(|r| r.try_get("", "user_id").ok());
+    }
+
+    let Some(target_user_id) = target_user_id else {
+        // 无法路由属于对这台实例而言的永久性条件：记日志后按 AP 惯例
+        // 静默丢弃（上层返回 202），返回 Err 会变成 5xx 引发远端重试风暴。
+        tracing::warn!(
+            "[Channel] Dropping unroutable ChannelOpen from {} (to={:?})",
+            actor_url_str,
+            to_entries.iter().take(MAX_TO_LOOKUPS).collect::<Vec<_>>()
+        );
+        return Ok(());
     };
 
     // 创建本地 Channel 记录
