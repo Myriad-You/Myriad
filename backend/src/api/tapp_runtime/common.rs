@@ -380,7 +380,15 @@ struct CountRow {
     count: i64,
 }
 
-/// 获取操作的速率限制配置
+/// 获取操作的速率限制配置。
+///
+/// Returns `(limit, window_secs)`. Defaults are coarse per-(subject, tapp,
+/// operation) caps for sandboxed traffic; host UI (no runtime grant) does not
+/// use these keys. Tune here rather than adding a parallel limiter.
+///
+/// Host-proxied write classes (enforced in `host_attribution` after grant
+/// validation) intentionally sit in the tens–low hundreds / minute range, with
+/// stricter caps for manage/trust and speech synthesis.
 pub fn get_rate_limit_config(operation: &str) -> (u32, u64) {
     match operation {
         "ai.task" => (20, 60),
@@ -388,7 +396,42 @@ pub fn get_rate_limit_config(operation: &str) -> (u32, u64) {
         operation if operation.starts_with("network.fetch:") => (60, 60),
         "platform.write" => (30, 60),
         "storage.set" | "storage.clear" => (100, 60),
+        // Host-proxied brew mutations (grant-bearing only).
+        "brew.write" => (60, 60),
+        "brew.comment" => (60, 60),
+        "brew.manage" => (20, 60),
+        // Host-proxied federation mutations.
+        "federation.write" => (60, 60),
+        "federation.message" => (120, 60),
+        "federation.files" => (40, 60),
+        "federation.trust" => (15, 60),
+        // Host-proxied speech write paths (TTS/ASR POST).
+        "speech.tts" => (30, 60),
+        "speech.asr" => (30, 60),
         _ => (200, 60),
+    }
+}
+
+/// Map a host-proxied [`TappPermission`] to a coarse rate-limit operation class.
+///
+/// Returns `None` for pure-read permissions (`brew:read`, `federation:read`)
+/// and anything outside brew/federation/speech host proxies — those paths are
+/// not subject to this host-attribution limiter. Callers must also skip safe
+/// HTTP methods (GET/HEAD/OPTIONS) so e.g. `GET /api/speech/voices` is not
+/// counted against `speech.tts`.
+pub fn host_write_rate_limit_operation(permission: TappPermission) -> Option<&'static str> {
+    match permission {
+        TappPermission::BrewWrite => Some("brew.write"),
+        TappPermission::BrewComment => Some("brew.comment"),
+        TappPermission::BrewManage => Some("brew.manage"),
+        TappPermission::FederationWrite => Some("federation.write"),
+        TappPermission::FederationMessage => Some("federation.message"),
+        TappPermission::FederationFiles => Some("federation.files"),
+        TappPermission::FederationTrust => Some("federation.trust"),
+        TappPermission::SpeechTts => Some("speech.tts"),
+        TappPermission::SpeechAsr => Some("speech.asr"),
+        // Reads and unrelated permissions: no additional host-proxy limit.
+        _ => None,
     }
 }
 
@@ -999,7 +1042,11 @@ pub fn validate_image_prompt_security(prompt: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{rate_limit_key, rate_limit_record_id, tapp_owner_priority};
+    use super::{
+        get_rate_limit_config, host_write_rate_limit_operation, rate_limit_key,
+        rate_limit_record_id, tapp_owner_priority,
+    };
+    use crate::services::permission_service::TappPermission;
 
     #[test]
     fn private_install_precedes_same_id_admin_tapp() {
@@ -1020,5 +1067,92 @@ mod tests {
         assert_ne!(base, rate_limit_key(42, "com.example.notes", "ai.task"));
         assert_eq!(rate_limit_record_id(&base).len(), 64);
         assert_eq!(rate_limit_record_id(&base), rate_limit_record_id(&base));
+    }
+
+    #[test]
+    fn host_write_permissions_map_to_operation_classes() {
+        assert_eq!(
+            host_write_rate_limit_operation(TappPermission::BrewWrite),
+            Some("brew.write")
+        );
+        assert_eq!(
+            host_write_rate_limit_operation(TappPermission::BrewComment),
+            Some("brew.comment")
+        );
+        assert_eq!(
+            host_write_rate_limit_operation(TappPermission::BrewManage),
+            Some("brew.manage")
+        );
+        assert_eq!(
+            host_write_rate_limit_operation(TappPermission::FederationWrite),
+            Some("federation.write")
+        );
+        assert_eq!(
+            host_write_rate_limit_operation(TappPermission::FederationMessage),
+            Some("federation.message")
+        );
+        assert_eq!(
+            host_write_rate_limit_operation(TappPermission::FederationFiles),
+            Some("federation.files")
+        );
+        assert_eq!(
+            host_write_rate_limit_operation(TappPermission::FederationTrust),
+            Some("federation.trust")
+        );
+        assert_eq!(
+            host_write_rate_limit_operation(TappPermission::SpeechTts),
+            Some("speech.tts")
+        );
+        assert_eq!(
+            host_write_rate_limit_operation(TappPermission::SpeechAsr),
+            Some("speech.asr")
+        );
+    }
+
+    #[test]
+    fn host_read_permissions_are_not_rate_limited() {
+        assert_eq!(
+            host_write_rate_limit_operation(TappPermission::BrewRead),
+            None
+        );
+        assert_eq!(
+            host_write_rate_limit_operation(TappPermission::FederationRead),
+            None
+        );
+        // Unrelated capabilities stay outside the host-proxy limiter.
+        assert_eq!(
+            host_write_rate_limit_operation(TappPermission::PlatformWrite),
+            None
+        );
+        assert_eq!(
+            host_write_rate_limit_operation(TappPermission::AiGenerate),
+            None
+        );
+    }
+
+    #[test]
+    fn host_write_rate_limit_defaults_are_sensible() {
+        // (limit, window_secs) — tens–low hundreds / minute; manage/trust/speech stricter.
+        assert_eq!(get_rate_limit_config("brew.write"), (60, 60));
+        assert_eq!(get_rate_limit_config("brew.comment"), (60, 60));
+        assert_eq!(get_rate_limit_config("brew.manage"), (20, 60));
+        assert_eq!(get_rate_limit_config("federation.write"), (60, 60));
+        assert_eq!(get_rate_limit_config("federation.message"), (120, 60));
+        assert_eq!(get_rate_limit_config("federation.files"), (40, 60));
+        assert_eq!(get_rate_limit_config("federation.trust"), (15, 60));
+        assert_eq!(get_rate_limit_config("speech.tts"), (30, 60));
+        assert_eq!(get_rate_limit_config("speech.asr"), (30, 60));
+
+        // Stricter classes stay below chatty ones.
+        assert!(get_rate_limit_config("brew.manage").0 < get_rate_limit_config("brew.write").0);
+        assert!(
+            get_rate_limit_config("federation.trust").0
+                < get_rate_limit_config("federation.message").0
+        );
+
+        // Existing keys unchanged.
+        assert_eq!(get_rate_limit_config("ai.task"), (20, 60));
+        assert_eq!(get_rate_limit_config("platform.write"), (30, 60));
+        assert_eq!(get_rate_limit_config("storage.set"), (100, 60));
     }
 }

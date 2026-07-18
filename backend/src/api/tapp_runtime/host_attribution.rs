@@ -3,9 +3,10 @@
 //! Brew, speech, and federation are host capabilities that Tapp sandboxes reach
 //! through the same REST routes the host UI uses. When a request carries the
 //! `x-tapp-runtime-grant` header, this middleware validates the grant, enforces
-//! the permission mapped to the matched route and attributes the call to the
-//! issuing Tapp runtime. Requests without the header (host UI traffic) pass
-//! through unchanged.
+//! the permission mapped to the matched route, applies per-(subject, tapp,
+//! operation class) rate limits on write-ish methods, and attributes the call
+//! to the issuing Tapp runtime. Requests without the header (host UI traffic)
+//! pass through unchanged — no new rate limit is applied.
 //!
 //! # Keeping maps consistent
 //!
@@ -36,7 +37,28 @@ use serde_json::json;
 use crate::middleware::auth::{verify_jwt_token, Claims};
 use crate::services::permission_service::TappPermission;
 
+use super::common::{check_rate_limit, host_write_rate_limit_operation};
 use super::runtime_grant::{validate_runtime_grant, RUNTIME_GRANT_HEADER};
+
+/// Safe / read methods are never counted against host write rate limits, even
+/// when the route permission is a write-capable class (e.g. GET speech voices
+/// shares `speech:tts` with POST TTS).
+fn is_host_write_method(method: &Method) -> bool {
+    !matches!(*method, Method::GET | Method::HEAD | Method::OPTIONS)
+}
+
+/// Resolve the rate-limit operation class for an attributed host request, or
+/// `None` when the call should not consume a host write quota (safe methods or
+/// read-only permissions).
+fn host_attribution_rate_limit_operation(
+    method: &Method,
+    permission: TappPermission,
+) -> Option<&'static str> {
+    if !is_host_write_method(method) {
+        return None;
+    }
+    host_write_rate_limit_operation(permission)
+}
 
 /// Compiled fixture path relative to this source file (repo
 /// `docs/development/tapp/fixtures/host_route_permissions.json`).
@@ -236,6 +258,16 @@ async fn attribute_host_request(
         return error.into_response();
     }
 
+    // Coarse per-(subject, tapp, operation class) limits on write-ish methods.
+    // Host UI traffic never reaches this branch (no grant header above).
+    if let Some(operation) = host_attribution_rate_limit_operation(req.method(), permission) {
+        if let Err(error) =
+            check_rate_limit(grant.subject_id(), grant.tapp_id(), operation).await
+        {
+            return error.into_response();
+        }
+    }
+
     tracing::info!(
         tapp_id = %grant.tapp_id(),
         runtime_id = %grant.runtime_id(),
@@ -267,8 +299,9 @@ pub async fn federation_host_attribution(req: Request, next: Next) -> Response {
 #[cfg(test)]
 mod tests {
     use super::{
-        brew_permission, federation_permission, speech_permission, HostRouteFixture,
-        ACTION_PERMISSIONS_JSON, HOST_ROUTE_INDEX, HOST_ROUTE_PERMISSIONS_JSON,
+        brew_permission, federation_permission, host_attribution_rate_limit_operation,
+        speech_permission, HostRouteFixture, ACTION_PERMISSIONS_JSON, HOST_ROUTE_INDEX,
+        HOST_ROUTE_PERMISSIONS_JSON,
     };
     use crate::services::permission_service::TappPermission;
     use axum::http::Method;
@@ -593,5 +626,115 @@ mod tests {
             federation_permission(&Method::POST, "/api/federation/rooms/{room_id}/ws-ticket"),
             Some(TappPermission::FederationMessage)
         );
+    }
+
+    #[test]
+    fn host_write_methods_are_rate_limited_by_permission_class() {
+        assert_eq!(
+            host_attribution_rate_limit_operation(&Method::POST, TappPermission::BrewWrite),
+            Some("brew.write")
+        );
+        assert_eq!(
+            host_attribution_rate_limit_operation(&Method::PUT, TappPermission::BrewManage),
+            Some("brew.manage")
+        );
+        assert_eq!(
+            host_attribution_rate_limit_operation(&Method::DELETE, TappPermission::BrewComment),
+            Some("brew.comment")
+        );
+        assert_eq!(
+            host_attribution_rate_limit_operation(
+                &Method::POST,
+                TappPermission::FederationMessage
+            ),
+            Some("federation.message")
+        );
+        assert_eq!(
+            host_attribution_rate_limit_operation(&Method::POST, TappPermission::FederationTrust),
+            Some("federation.trust")
+        );
+        assert_eq!(
+            host_attribution_rate_limit_operation(&Method::POST, TappPermission::FederationFiles),
+            Some("federation.files")
+        );
+        assert_eq!(
+            host_attribution_rate_limit_operation(&Method::POST, TappPermission::SpeechTts),
+            Some("speech.tts")
+        );
+        assert_eq!(
+            host_attribution_rate_limit_operation(&Method::POST, TappPermission::SpeechAsr),
+            Some("speech.asr")
+        );
+    }
+
+    #[test]
+    fn host_safe_methods_skip_rate_limit_even_for_write_permissions() {
+        // GET speech voices shares speech:tts with POST TTS but must not burn quota.
+        assert_eq!(
+            host_attribution_rate_limit_operation(&Method::GET, TappPermission::SpeechTts),
+            None
+        );
+        assert_eq!(
+            host_attribution_rate_limit_operation(&Method::HEAD, TappPermission::BrewWrite),
+            None
+        );
+        assert_eq!(
+            host_attribution_rate_limit_operation(&Method::OPTIONS, TappPermission::FederationWrite),
+            None
+        );
+    }
+
+    #[test]
+    fn host_read_permissions_never_rate_limited() {
+        assert_eq!(
+            host_attribution_rate_limit_operation(&Method::GET, TappPermission::BrewRead),
+            None
+        );
+        assert_eq!(
+            host_attribution_rate_limit_operation(&Method::POST, TappPermission::BrewRead),
+            None
+        );
+        assert_eq!(
+            host_attribution_rate_limit_operation(&Method::GET, TappPermission::FederationRead),
+            None
+        );
+        assert_eq!(
+            host_attribution_rate_limit_operation(&Method::POST, TappPermission::FederationRead),
+            None
+        );
+    }
+
+    #[test]
+    fn fixture_write_routes_have_rate_limit_operation() {
+        // Every non-GET fixture route with a write-class permission must resolve
+        // to a host rate-limit operation so grant-bearing mutations are covered.
+        // Includes ws-ticket mint (POST + federation:message → federation.message).
+        for entry in &HOST_ROUTE_INDEX.entries {
+            let method = Method::from_bytes(entry.method.as_bytes())
+                .unwrap_or_else(|_| panic!("invalid method {}", entry.method));
+            let permission = TappPermission::from_str(&entry.permission)
+                .unwrap_or_else(|| panic!("unknown permission {}", entry.permission));
+            let op = host_attribution_rate_limit_operation(&method, permission);
+            if matches!(method, Method::GET | Method::HEAD | Method::OPTIONS)
+                || matches!(
+                    permission,
+                    TappPermission::BrewRead | TappPermission::FederationRead
+                )
+            {
+                assert_eq!(
+                    op, None,
+                    "read path {} {} should not rate-limit",
+                    entry.method, entry.path
+                );
+            } else {
+                assert!(
+                    op.is_some(),
+                    "write path {} {} (permission {}) must map to a rate-limit operation",
+                    entry.method,
+                    entry.path,
+                    entry.permission
+                );
+            }
+        }
     }
 }
