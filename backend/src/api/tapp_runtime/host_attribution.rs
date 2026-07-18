@@ -159,11 +159,14 @@ fn brew_permission(method: &Method, path: &str) -> Option<TappPermission> {
 
 /// Route → permission map for `/api/federation`, loaded from
 /// `host_route_permissions.json` (mirrors sandbox `federation.*` actions).
-/// Host-only paths (E2E key exchange, WebSocket upgrades) stay unmapped so
-/// grant-bearing requests to them are rejected. Browser WebSockets cannot
-/// carry custom headers and are therefore outside the grant path until a
-/// ticket-based handshake exists; without a grant header they still
-/// passthrough as host UI traffic.
+///
+/// Raw WebSocket *upgrade* paths stay unmapped for grant *headers*: browsers
+/// cannot attach `X-Tapp-Runtime-Grant` to WS handshakes, so grant-bearing
+/// header requests to `/ws` are rejected here. Tapp attribution for WS uses a
+/// one-time ticket (`POST .../ws-ticket` + `?tapp_ws_ticket=` on upgrade); see
+/// `ws_ticket` and `federation::ws_gateway`. Host UI WS omits both the grant
+/// header and the ticket query param and passes through as Claims-only.
+/// E2E key exchange remains host-only / unmapped (not in the fixture).
 fn federation_permission(method: &Method, path: &str) -> Option<TappPermission> {
     lookup_permission(&HOST_ROUTE_INDEX.federation, method, path)
 }
@@ -553,9 +556,14 @@ mod tests {
 
     #[test]
     fn federation_unmapped_routes_reject_attributed_calls() {
-        // WebSocket upgrades and E2E key exchange are host-UI only.
+        // Raw WS upgrades stay unmapped for grant headers (ticket query is the
+        // Tapp path). E2E key exchange remains host-UI only.
         assert_eq!(
             federation_permission(&Method::GET, "/api/federation/channels/{channel_id}/ws"),
+            None
+        );
+        assert_eq!(
+            federation_permission(&Method::GET, "/api/federation/rooms/{room_id}/ws"),
             None
         );
         assert_eq!(
@@ -569,6 +577,21 @@ mod tests {
         assert_eq!(
             federation_permission(&Method::DELETE, "/api/federation/timeline"),
             None
+        );
+    }
+
+    #[test]
+    fn federation_ws_ticket_mint_routes_require_message_permission() {
+        assert_eq!(
+            federation_permission(
+                &Method::POST,
+                "/api/federation/channels/{channel_id}/ws-ticket"
+            ),
+            Some(TappPermission::FederationMessage)
+        );
+        assert_eq!(
+            federation_permission(&Method::POST, "/api/federation/rooms/{room_id}/ws-ticket"),
+            Some(TappPermission::FederationMessage)
         );
     }
 }

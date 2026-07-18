@@ -413,6 +413,18 @@
     },
     {
       "domain": "federation",
+      "method": "POST",
+      "path": "/api/federation/channels/{channel_id}/ws-ticket",
+      "permission": "federation:message"
+    },
+    {
+      "domain": "federation",
+      "method": "POST",
+      "path": "/api/federation/rooms/{room_id}/ws-ticket",
+      "permission": "federation:message"
+    },
+    {
+      "domain": "federation",
       "method": "GET",
       "path": "/api/federation/trust/policy",
       "permission": "federation:trust"

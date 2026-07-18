@@ -2,22 +2,40 @@
 //!
 //! 为 Channel 提供实时双向通信能力。
 //! 每个 Channel 可以有多个 WebSocket 连接（同一用户多设备）。
+//!
+//! # Tapp attribution
+//!
+//! Browser WebSockets cannot send `X-Tapp-Runtime-Grant`. Tapp runtimes mint a
+//! one-time ticket via REST (`POST .../ws-ticket` with the grant header) and
+//! present it as `?tapp_ws_ticket=` on upgrade. A present-but-invalid ticket
+//! is rejected (fail closed); host UI omits the query param and uses Claims only.
 
 use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
-    extract::Extension,
+    extract::{Extension, Query},
     response::IntoResponse,
+    response::Response,
 };
 use futures::{SinkExt, StreamExt};
 use once_cell::sync::Lazy;
+use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 
+use crate::api::tapp_runtime::{consume_ws_ticket, ConsumedWsTicket, WsTicketKind};
 use crate::middleware::auth::Claims;
 
 use crate::federation::types::get_base_url;
+
+/// Optional one-time Tapp WS ticket query param name:
+/// [`crate::api::tapp_runtime::TAPP_WS_TICKET_QUERY`] (`tapp_ws_ticket`).
+#[derive(Debug, Default, Deserialize)]
+pub struct FederationWsQuery {
+    #[serde(default)]
+    pub tapp_ws_ticket: Option<String>,
+}
 
 // ==================== 连接管理 ====================
 
@@ -116,18 +134,52 @@ async fn cleanup_room(room_id: &str) {
 /// WebSocket 升级端点
 ///
 /// GET /api/federation/channels/{channel_id}/ws
+/// GET /api/federation/channels/{channel_id}/ws?tapp_ws_ticket=...
 ///
 /// 需要认证（通过 auth_middleware 注入 Claims）。
 /// 连接后自动加入该 Channel 的广播组。
+///
+/// - Ticket present: validate+consume; attribute as Tapp runtime; reject bad tickets.
+/// - Ticket absent: host UI path (Claims only).
 pub async fn channel_websocket(
     ws: WebSocketUpgrade,
     Extension(claims): Extension<Claims>,
     axum::extract::Path(channel_id): axum::extract::Path<String>,
-) -> impl IntoResponse {
+    Query(query): Query<FederationWsQuery>,
+) -> Response {
+    let tapp_attr = match resolve_ws_ticket(
+        query.tapp_ws_ticket.as_deref(),
+        &claims,
+        WsTicketKind::Channel,
+        &channel_id,
+    )
+    .await
+    {
+        Ok(attr) => attr,
+        Err(err) => return err.into_response(),
+    };
+
     let user_id: i32 = claims.sub.parse().unwrap_or(-1);
     let username = claims.username.clone();
 
-    ws.on_upgrade(move |socket| handle_channel_socket(socket, user_id, username, channel_id))
+    ws.on_upgrade(move |socket| {
+        handle_channel_socket(socket, user_id, username, channel_id, tapp_attr)
+    })
+    .into_response()
+}
+
+async fn resolve_ws_ticket(
+    ticket: Option<&str>,
+    claims: &Claims,
+    kind: WsTicketKind,
+    resource_id: &str,
+) -> Result<Option<ConsumedWsTicket>, (axum::http::StatusCode, axum::Json<serde_json::Value>)> {
+    let Some(ticket) = ticket.map(str::trim).filter(|t| !t.is_empty()) else {
+        return Ok(None);
+    };
+    // Fail closed: never fall open to host identity when a ticket was supplied.
+    let consumed = consume_ws_ticket(ticket, claims, kind, resource_id).await?;
+    Ok(Some(consumed))
 }
 
 /// 处理单个 WebSocket 连接
@@ -136,13 +188,29 @@ async fn handle_channel_socket(
     user_id: i32,
     username: String,
     channel_id: String,
+    tapp_attr: Option<ConsumedWsTicket>,
 ) {
-    tracing::info!(
-        "[WS] Channel {} connected: user={} ({})",
-        channel_id,
-        username,
-        user_id
-    );
+    if let Some(ref attr) = tapp_attr {
+        tracing::info!(
+            tapp_id = %attr.tapp_id,
+            runtime_id = %attr.runtime_id,
+            subject_id = attr.subject_id,
+            owner_id = attr.owner_id,
+            kind = ?attr.kind,
+            resource_id = %attr.resource_id,
+            "[WS] Channel {} connected: user={} ({}) [Tapp-attributed]",
+            channel_id,
+            username,
+            user_id
+        );
+    } else {
+        tracing::info!(
+            "[WS] Channel {} connected: user={} ({})",
+            channel_id,
+            username,
+            user_id
+        );
+    }
 
     // 验证用户拥有该 Channel
     let db_opt = crate::DB_CONNECTION.read().await;
@@ -278,24 +346,60 @@ async fn handle_channel_socket(
 /// Room WebSocket 升级端点
 ///
 /// GET /api/federation/rooms/{room_id}/ws
+/// GET /api/federation/rooms/{room_id}/ws?tapp_ws_ticket=...
 pub async fn room_websocket(
     ws: WebSocketUpgrade,
     Extension(claims): Extension<Claims>,
     axum::extract::Path(room_id): axum::extract::Path<String>,
-) -> impl IntoResponse {
+    Query(query): Query<FederationWsQuery>,
+) -> Response {
+    let tapp_attr = match resolve_ws_ticket(
+        query.tapp_ws_ticket.as_deref(),
+        &claims,
+        WsTicketKind::Room,
+        &room_id,
+    )
+    .await
+    {
+        Ok(attr) => attr,
+        Err(err) => return err.into_response(),
+    };
+
     let user_id: i32 = claims.sub.parse().unwrap_or(-1);
     let username = claims.username.clone();
-    ws.on_upgrade(move |socket| handle_room_socket(socket, user_id, username, room_id))
+    ws.on_upgrade(move |socket| handle_room_socket(socket, user_id, username, room_id, tapp_attr))
+        .into_response()
 }
 
 /// 处理单个 Room WebSocket 连接
-async fn handle_room_socket(socket: WebSocket, user_id: i32, username: String, room_id: String) {
-    tracing::info!(
-        "[WS] Room {} connected: user={} ({})",
-        room_id,
-        username,
-        user_id
-    );
+async fn handle_room_socket(
+    socket: WebSocket,
+    user_id: i32,
+    username: String,
+    room_id: String,
+    tapp_attr: Option<ConsumedWsTicket>,
+) {
+    if let Some(ref attr) = tapp_attr {
+        tracing::info!(
+            tapp_id = %attr.tapp_id,
+            runtime_id = %attr.runtime_id,
+            subject_id = attr.subject_id,
+            owner_id = attr.owner_id,
+            kind = ?attr.kind,
+            resource_id = %attr.resource_id,
+            "[WS] Room {} connected: user={} ({}) [Tapp-attributed]",
+            room_id,
+            username,
+            user_id
+        );
+    } else {
+        tracing::info!(
+            "[WS] Room {} connected: user={} ({})",
+            room_id,
+            username,
+            user_id
+        );
+    }
 
     let base_url = get_base_url().await;
     let local_actor = crate::federation::types::actor_url(&base_url, &username);

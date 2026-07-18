@@ -3704,6 +3704,10 @@ fn federation_api_router() -> Router {
             get(federation_get_messages_wrapper).post(federation_send_message_wrapper),
         )
         .route(
+            "/api/federation/channels/{channel_id}/ws-ticket",
+            post(api::tapp_runtime::mint_channel_ws_ticket),
+        )
+        .route(
             "/api/federation/channels/{channel_id}/ws",
             get(federation::ws_gateway::channel_websocket),
         )
@@ -3744,6 +3748,10 @@ fn federation_api_router() -> Router {
         .route(
             "/api/federation/rooms/{room_id}/messages/{message_id}/pin",
             post(federation_pin_room_message_wrapper),
+        )
+        .route(
+            "/api/federation/rooms/{room_id}/ws-ticket",
+            post(api::tapp_runtime::mint_room_ws_ticket),
         )
         .route(
             "/api/federation/rooms/{room_id}/ws",

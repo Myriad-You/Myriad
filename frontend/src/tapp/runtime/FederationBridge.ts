@@ -14,6 +14,7 @@
  * - federation.trust — 实例信任策略管理
  * - federation.transfers — 文件传输
  * - federation.subscribeChannel / subscribeRoom — WS 实时事件订阅
+ *   (mint one-time `tapp_ws_ticket` via grant-authenticated REST, then upgrade)
  */
 
 import type { TappInstance, TappMessage } from '../types'
@@ -1057,7 +1058,14 @@ export function registerFederationHandlers(
         safeClose(current)
       }
       try {
-        const ws = federationApi.connectChannelWs(channelId)
+        // Browser WS cannot carry X-Tapp-Runtime-Grant; mint a one-time ticket
+        // over REST with the grant, then present it on the upgrade URL.
+        const runtimeGrant = await bridge.getRuntimeGrant()
+        const { ticket } = await federationApi.mintChannelWsTicket(
+          channelId,
+          runtimeGrant,
+        )
+        const ws = federationApi.connectChannelWs(channelId, ticket)
         channelSockets.set(channelId, ws)
         attachChannelWs(channelId, ws)
         return { success: true, data: { subscribed: true } }
@@ -1104,7 +1112,12 @@ export function registerFederationHandlers(
         safeClose(current)
       }
       try {
-        const ws = federationApi.connectRoomWs(roomId)
+        const runtimeGrant = await bridge.getRuntimeGrant()
+        const { ticket } = await federationApi.mintRoomWsTicket(
+          roomId,
+          runtimeGrant,
+        )
+        const ws = federationApi.connectRoomWs(roomId, ticket)
         roomSockets.set(roomId, ws)
         attachRoomWs(roomId, ws)
         return { success: true, data: { subscribed: true } }

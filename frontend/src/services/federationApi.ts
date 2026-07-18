@@ -389,18 +389,48 @@ export const federationApi = {
   },
 
   /**
-   * 创建 Channel WebSocket 连接
+   * Mint a one-time federation channel WebSocket ticket.
    *
-   * 注意：浏览器 WebSocket 无法携带自定义头，因此该通道不参与
-   * X-Tapp-Runtime-Grant 归因（Tapp 宿主代理的 WS 订阅暂以文档豁免，
-   * 后续需设计 ticket 查询参数等一次性凭据方案）。
+   * Requires a runtime grant with `federation:message`. Present the returned
+   * ticket as `tapp_ws_ticket` on {@link connectChannelWs}. Host UI does not
+   * call this — it connects without a ticket.
    */
-  connectChannelWs(channelId: string): WebSocket {
+  mintChannelWsTicket(
+    channelId: string,
+    runtimeGrant: string,
+  ): Promise<{ ticket: string; expiresAt: string }> {
+    return withDevFallback(
+      () =>
+        apiService.post<{ ticket: string; expiresAt: string }>(
+          `${PREFIX}/channels/${channelId}/ws-ticket`,
+          {},
+          attributionOptions(runtimeGrant),
+        ),
+      async () => ({
+        ticket: `mock-ws-ticket-channel-${channelId}`,
+        expiresAt: new Date(Date.now() + 45_000).toISOString(),
+      }),
+    )
+  },
+
+  /**
+   * Create a Channel WebSocket connection.
+   *
+   * Browsers cannot send custom headers on WebSocket. Tapp traffic mints a
+   * short-lived ticket via {@link mintChannelWsTicket} (REST + grant header)
+   * and passes it here; the server consumes it at upgrade and attributes the
+   * connection. Host UI callers omit `ticket` and authenticate with cookie/JWT only.
+   */
+  connectChannelWs(channelId: string, ticket?: string): WebSocket {
     if (shouldUseMock()) return createMockWs()
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
     const base = location.host
+    const qs =
+      ticket && ticket.length > 0
+        ? `?tapp_ws_ticket=${encodeURIComponent(ticket)}`
+        : ''
     return new WebSocket(
-      `${proto}//${base}/api${PREFIX}/channels/${channelId}/ws`,
+      `${proto}//${base}/api${PREFIX}/channels/${channelId}/ws${qs}`,
     )
   },
 
@@ -601,15 +631,46 @@ export const federationApi = {
   },
 
   /**
-   * 创建 Room WebSocket 连接
+   * Mint a one-time federation room WebSocket ticket.
    *
-   * 注意：浏览器 WebSocket 无法携带自定义头，归因豁免同 connectChannelWs。
+   * Requires a runtime grant with `federation:message`. Present the returned
+   * ticket as `tapp_ws_ticket` on {@link connectRoomWs}.
    */
-  connectRoomWs(roomId: string): WebSocket {
+  mintRoomWsTicket(
+    roomId: string,
+    runtimeGrant: string,
+  ): Promise<{ ticket: string; expiresAt: string }> {
+    return withDevFallback(
+      () =>
+        apiService.post<{ ticket: string; expiresAt: string }>(
+          `${PREFIX}/rooms/${roomId}/ws-ticket`,
+          {},
+          attributionOptions(runtimeGrant),
+        ),
+      async () => ({
+        ticket: `mock-ws-ticket-room-${roomId}`,
+        expiresAt: new Date(Date.now() + 45_000).toISOString(),
+      }),
+    )
+  },
+
+  /**
+   * Create a Room WebSocket connection.
+   *
+   * Same ticket handshake as {@link connectChannelWs}: Tapp passes a ticket;
+   * host UI connects ticket-less.
+   */
+  connectRoomWs(roomId: string, ticket?: string): WebSocket {
     if (shouldUseMock()) return createMockWs()
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
     const base = location.host
-    return new WebSocket(`${proto}//${base}/api${PREFIX}/rooms/${roomId}/ws`)
+    const qs =
+      ticket && ticket.length > 0
+        ? `?tapp_ws_ticket=${encodeURIComponent(ticket)}`
+        : ''
+    return new WebSocket(
+      `${proto}//${base}/api${PREFIX}/rooms/${roomId}/ws${qs}`,
+    )
   },
 
   // ==================== Ring ====================
