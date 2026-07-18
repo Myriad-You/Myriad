@@ -29,8 +29,10 @@ client -> optional TLS entrypoint -> Myriad proxy:${HTTP_PORT:-80}
                                     └-> backend:1103
 ```
 
-外层 Nginx/Caddy/负载均衡器如果存在，应代理到 Myriad `proxy` 的宿主端口，
+外层 Nginx/Caddy/负载均衡器如果存在，应**整站**代理到 Myriad `proxy` 的宿主端口，
 不要直接代理到 backend `1103`，否则会绕过维护页和 updater 救援路径。
+不要只转发 `/api`：联邦还依赖 `/.well-known/webfinger`、`/.well-known/nodeinfo`、
+`/nodeinfo/2.1`、`/inbox`、`/users/*`（完整表见 [PORTS.md](../deployment/PORTS.md)）。
 只应信任实际代理节点，并在防火墙中限制 `HTTP_PORT` 不能被客户端绕过代理直连。
 
 ### Docker + 宿主反向代理（常见天气定位错误）

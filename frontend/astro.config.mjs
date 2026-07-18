@@ -234,6 +234,29 @@ function proxyBackendRequestStreaming(
 }
 
 /**
+ * Paths that must hit the backend in dev, matching production proxy
+ * `is_backend_path` in `proxy/src/main.rs`. Path-only (query stripped).
+ * Does NOT proxy `/.well-known/acme-challenge/*`.
+ *
+ * TODO: This one-shot node:http proxy does not perform WebSocket upgrades.
+ * Federation WS (`/api/federation/*/ws`) is not available through the Astro
+ * dev proxy; use a production-like proxy stack or hit backend:1103 directly
+ * for WS during local development. REST ActivityPub paths are the critical fix.
+ */
+function isBackendDevProxyPath(urlPath) {
+  const path = (urlPath || '').split('?')[0] || ''
+  return (
+    path.startsWith('/api/') ||
+    path === '/health' ||
+    path === '/.well-known/webfinger' ||
+    path === '/.well-known/nodeinfo' ||
+    path === '/nodeinfo/2.1' ||
+    path === '/inbox' ||
+    path.startsWith('/users/')
+  )
+}
+
+/**
  * Dev-only backend proxy implemented with one-shot node:http requests.
  * This avoids Vite http-proxy and undici keep-alive socket reuse while
  * preserving same-origin API URLs during local development.
@@ -246,7 +269,7 @@ function backendDevProxyPlugin() {
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
         const originalUrl = req.url || ''
-        if (!originalUrl.startsWith('/api/') && originalUrl !== '/health') {
+        if (!isBackendDevProxyPath(originalUrl)) {
           next()
           return
         }

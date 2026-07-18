@@ -271,6 +271,10 @@ async fn forward_websocket(
         if is_proxy_managed_forwarded_header(k.as_str()) {
             continue;
         }
+        // Host is set explicitly below (HTTP Signature / virtual-host safety).
+        if k == header::HOST {
+            continue;
+        }
         // Upgrade requests must keep Connection/Upgrade so the upstream sees the handshake.
         if is_hop_by_hop(k.as_str()) && k != header::CONNECTION && k != header::UPGRADE {
             continue;
@@ -288,6 +292,12 @@ async fn forward_websocket(
         );
     if let Some(host) = forwarded_host(&parts.headers) {
         builder = builder.header("x-forwarded-host", host);
+    }
+    // Preserve the public Host the client (or outer proxy) presented. hyper-util
+    // only fills Host when missing (`or_insert_with` from the absolute URI), so a
+    // missing Host would become `backend:1103` and break ActivityPub signature checks.
+    if let Some(host) = upstream_request_host(&parts.headers) {
+        builder = builder.header(header::HOST, host);
     }
     let upstream_req = builder.body(Body::empty())?;
     let upstream_resp = state.client.request(upstream_req).await?;
@@ -382,8 +392,11 @@ async fn forward(
     let url = format!("{}{}", upstream_base, path_q);
     let mut builder = hyper::Request::builder().method(parts.method).uri(&url);
     for (k, v) in parts.headers.iter() {
-        // Skip hop-by-hop headers.
-        if is_hop_by_hop(k.as_str()) || is_proxy_managed_forwarded_header(k.as_str()) {
+        // Skip hop-by-hop headers. Host is applied explicitly below.
+        if is_hop_by_hop(k.as_str())
+            || is_proxy_managed_forwarded_header(k.as_str())
+            || k == header::HOST
+        {
             continue;
         }
         builder = builder.header(k, v);
@@ -399,6 +412,12 @@ async fn forward(
         );
     if let Some(host) = forwarded_host(&parts.headers) {
         builder = builder.header("x-forwarded-host", host);
+    }
+    // Explicit Host so inbox HTTP Signature verification still sees the public
+    // hostname remotes signed (not the internal `backend:1103` authority).
+    // hyper-util only auto-fills Host when the header is absent.
+    if let Some(host) = upstream_request_host(&parts.headers) {
+        builder = builder.header(header::HOST, host);
     }
     let upstream_req = builder.body(body)?;
     let resp = state.client.request(upstream_req).await?;
@@ -549,6 +568,19 @@ fn forwarded_host(headers: &HeaderMap) -> Option<HeaderValue> {
         .get("x-forwarded-host")
         .or_else(|| headers.get(header::HOST))
         .cloned()
+}
+
+/// Public `Host` to send on the upstream request.
+///
+/// Prefer the inbound `Host` (what the client or outer TLS proxy presented).
+/// Fall back to `X-Forwarded-Host` when Host was stripped by an outer hop.
+/// ActivityPub HTTP Signatures always cover `host`; remotes sign the public
+/// name, so this must never become the internal upstream authority.
+fn upstream_request_host(headers: &HeaderMap) -> Option<HeaderValue> {
+    headers
+        .get(header::HOST)
+        .cloned()
+        .or_else(|| headers.get("x-forwarded-host").cloned())
 }
 
 async fn read_maintenance_cached(state: &AppState) -> MaintenanceFile {
@@ -947,5 +979,40 @@ mod tests {
             forwarded_host(&headers).unwrap(),
             HeaderValue::from_static("example.myriad.local")
         );
+    }
+
+    #[test]
+    fn upstream_request_host_prefers_host_over_forwarded_host() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::HOST, HeaderValue::from_static("public.example"));
+        headers.insert(
+            "x-forwarded-host",
+            HeaderValue::from_static("forwarded.example"),
+        );
+
+        assert_eq!(
+            upstream_request_host(&headers).unwrap(),
+            HeaderValue::from_static("public.example")
+        );
+    }
+
+    #[test]
+    fn upstream_request_host_falls_back_to_x_forwarded_host() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-forwarded-host",
+            HeaderValue::from_static("public.example"),
+        );
+
+        assert_eq!(
+            upstream_request_host(&headers).unwrap(),
+            HeaderValue::from_static("public.example")
+        );
+    }
+
+    #[test]
+    fn upstream_request_host_none_when_missing() {
+        let headers = HeaderMap::new();
+        assert!(upstream_request_host(&headers).is_none());
     }
 }
