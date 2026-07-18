@@ -343,7 +343,8 @@ export const jaJP: TranslationKeys = {
     usersMakeAdmin: '管理者にする',
     usersRevokeAdmin: '管理者を解除',
     usersRevokeAdminConfirm: 'このユーザーの管理者権限を解除しますか？',
-    usersPrimaryAdminOnly: '他の管理者を管理できるのはプライマリ管理者のみです',
+    usersPrimaryAdminOnly:
+      '管理者権限の付与・解除はプライマリ管理者のみ可能です',
     usersEnableLocalLogin: 'ローカルログインを有効化',
     usersDisableLocalLogin: 'ローカルログインを無効化',
     usersLocalLoginRequiresOAuth:

@@ -127,10 +127,8 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
   const admins = useMemo(() => users.filter((u) => u.is_admin), [users])
   const registered = useMemo(() => users.filter((u) => !u.is_admin), [users])
 
-  /** 站点主管理员为 user id = 1；非主管理员不能改其他管理员权限或删除管理员 */
+  /** 站点主管理员为 user id = 1；仅其可授予/撤销管理员；非主管理员不可删管理员/id=1 */
   const isPrimaryAdmin = currentUser?.id === 1
-  const canManageAdminPrivileges = (target: AdminUser) =>
-    isPrimaryAdmin || (!target.is_admin && target.id !== 1)
   const canDeleteUser = (target: AdminUser) =>
     target.id !== currentUser?.id &&
     (isPrimaryAdmin || (!target.is_admin && target.id !== 1))
@@ -263,7 +261,8 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
         username: createDraft.username.trim(),
         password: createDraft.password,
         email: createDraft.email.trim() || undefined,
-        is_admin: createDraft.is_admin,
+        // 仅主管理员可创建管理员账号
+        is_admin: isPrimaryAdmin && createDraft.is_admin,
       })
       setCreating(false)
       setCreateDraft({ username: '', password: '', email: '', is_admin: false })
@@ -273,7 +272,7 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
     } finally {
       setBusy(false)
     }
-  }, [createDraft, loadUsers, notifyError, t])
+  }, [createDraft, isPrimaryAdmin, loadUsers, notifyError, t])
 
   const renderIdentities = (user: AdminUser, allowUnlink: boolean) =>
     user.identities.length === 0 ? (
@@ -429,9 +428,8 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
                       ? t.config.usersEnableLocalLogin
                       : t.config.usersDisableLocalLogin}
                   </button>
-                  {/* 非主管理员：对已是管理员 / id=1 的行隐藏 is_admin 切换；可提升普通用户 */}
-                  {(canManageAdminPrivileges(shown) ||
-                    shown.id === currentUser?.id) && (
+                  {/* 仅主管理员可授予/撤销 is_admin；自身不可撤销 */}
+                  {isPrimaryAdmin && (
                     <button
                       type="button"
                       className={`users-button${shown.is_admin ? ' danger' : ''}`}
@@ -555,16 +553,21 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
                 }
               />
             </label>
-            <label className="users-checkbox">
-              <input
-                type="checkbox"
-                checked={createDraft.is_admin}
-                onChange={(e) =>
-                  setCreateDraft((d) => ({ ...d, is_admin: e.target.checked }))
-                }
-              />
-              {t.config.usersCreateIsAdmin}
-            </label>
+            {isPrimaryAdmin && (
+              <label className="users-checkbox">
+                <input
+                  type="checkbox"
+                  checked={createDraft.is_admin}
+                  onChange={(e) =>
+                    setCreateDraft((d) => ({
+                      ...d,
+                      is_admin: e.target.checked,
+                    }))
+                  }
+                />
+                {t.config.usersCreateIsAdmin}
+              </label>
+            )}
             <div className="users-actions">
               <button
                 type="button"

@@ -29,8 +29,9 @@ use crate::middleware::auth::{verify_jwt_token, Claims};
 /// 距最近活跃 ≤300s 视为在线（与 presence 跟踪的会话间隔一致）。
 const ONLINE_WINDOW_SECS: i64 = 300;
 
-/// 站点主管理员（user id = 1）。非 id=1 的管理员不得改动其他管理员权限/删除管理员。
-const PRIMARY_ADMIN_ID: i32 = 1;
+/// 站点主管理员（user id = 1）。
+/// 仅 id=1 可授予/撤销管理员；非 id=1 不得改 is_admin、不得创建管理员、不得删除管理员。
+pub(crate) const PRIMARY_ADMIN_ID: i32 = 1;
 
 type ApiError = (StatusCode, Json<Value>);
 
@@ -49,22 +50,24 @@ fn not_found() -> ApiError {
     )
 }
 
-/// 非主管理员不得对「当前已是管理员」或「id=1」的用户改动 `is_admin`。
-/// 主管理员（actor_id == 1）返回 None；将非管理员提升为管理员对非主管理员是允许的。
-fn non_primary_is_admin_change_error(
-    actor_id: i32,
-    target_id: i32,
-    target_is_admin: bool,
-) -> Option<&'static str> {
+/// 非主管理员不得对任何用户改动 `is_admin`（不可 promote / demote）。
+/// 主管理员（actor_id == 1）返回 None。
+pub(crate) fn non_primary_is_admin_change_error(actor_id: i32) -> Option<&'static str> {
     if actor_id == PRIMARY_ADMIN_ID {
         return None;
     }
-    if target_is_admin || target_id == PRIMARY_ADMIN_ID {
-        return Some(
-            "Only the primary administrator (id=1) can modify other administrators",
-        );
+    Some("Only the primary administrator (id=1) can change admin roles")
+}
+
+/// 非主管理员不得以 is_admin=true 创建用户。
+pub(crate) fn non_primary_grant_admin_on_create_error(
+    actor_id: i32,
+    want_is_admin: bool,
+) -> Option<&'static str> {
+    if !want_is_admin {
+        return None;
     }
-    None
+    non_primary_is_admin_change_error(actor_id)
 }
 
 /// 非主管理员不得删除管理员或 user id=1。
@@ -284,22 +287,19 @@ pub async fn update_user(
     let target_is_admin = target.try_get::<bool>("", "is_admin").unwrap_or(false);
     let target_username = target.try_get::<String>("", "username").unwrap_or_default();
 
-    // is_admin 变更保护
+    // is_admin 变更保护：仅主管理员（id=1）可改任何用户的 is_admin
     if req.is_admin.is_some() {
-        // 不能撤销自己的管理员
+        if let Some(msg) = non_primary_is_admin_change_error(self_id) {
+            return Err((StatusCode::FORBIDDEN, Json(json!({"error": msg}))));
+        }
+        // 主管理员：不能撤销自己的管理员
         if req.is_admin == Some(false) && target_is_admin && user_id == self_id {
             return Err((
                 StatusCode::BAD_REQUEST,
                 Json(json!({"error": "Cannot revoke your own admin role"})),
             ));
         }
-        // 非主管理员不得改动其他管理员（或 id=1）的 is_admin；提升非管理员仍允许
-        if let Some(msg) =
-            non_primary_is_admin_change_error(self_id, user_id, target_is_admin)
-        {
-            return Err((StatusCode::FORBIDDEN, Json(json!({"error": msg}))));
-        }
-        // 不能降级最后一位管理员
+        // 主管理员：不能降级最后一位管理员
         if req.is_admin == Some(false) && target_is_admin {
             let admin_count = db
                 .query_one(Statement::from_sql_and_values(
@@ -619,7 +619,8 @@ pub async fn delete_user(
 #[cfg(test)]
 mod tests {
     use super::{
-        non_primary_delete_error, non_primary_is_admin_change_error, PRIMARY_ADMIN_ID,
+        non_primary_delete_error, non_primary_grant_admin_on_create_error,
+        non_primary_is_admin_change_error, PRIMARY_ADMIN_ID,
     };
 
     /// 与 handler 中安全规则保持一致的纯函数，便于无 DB 单测。
@@ -650,25 +651,23 @@ mod tests {
     }
 
     #[test]
-    fn non_primary_cannot_demote_admin() {
-        // actor 2 不得对管理员改 is_admin
-        assert!(non_primary_is_admin_change_error(2, 3, true).is_some());
-        // 也不得对 id=1 改 is_admin（即使假设 is_admin=false）
-        assert!(non_primary_is_admin_change_error(2, PRIMARY_ADMIN_ID, false).is_some());
-        assert!(non_primary_is_admin_change_error(2, PRIMARY_ADMIN_ID, true).is_some());
+    fn non_primary_cannot_change_any_is_admin() {
+        // 非主管理员对任何目标都不可改 is_admin（含 promote / demote）
+        assert!(non_primary_is_admin_change_error(2).is_some());
+        assert!(non_primary_is_admin_change_error(99).is_some());
     }
 
     #[test]
-    fn non_primary_can_promote_non_admin() {
-        // 将非管理员提升为管理员允许
-        assert!(non_primary_is_admin_change_error(2, 10, false).is_none());
+    fn non_primary_cannot_promote_or_create_admin() {
+        assert!(non_primary_grant_admin_on_create_error(2, true).is_some());
+        // 创建非管理员仍允许
+        assert!(non_primary_grant_admin_on_create_error(2, false).is_none());
     }
 
     #[test]
-    fn primary_can_change_other_admin_is_admin() {
-        // id=1 不受 non_primary 限制（仍受 last-admin / self 规则约束）
-        assert!(non_primary_is_admin_change_error(PRIMARY_ADMIN_ID, 3, true).is_none());
-        assert!(non_primary_is_admin_change_error(PRIMARY_ADMIN_ID, 2, true).is_none());
+    fn primary_can_change_admin_roles() {
+        assert!(non_primary_is_admin_change_error(PRIMARY_ADMIN_ID).is_none());
+        assert!(non_primary_grant_admin_on_create_error(PRIMARY_ADMIN_ID, true).is_none());
         // 主管理员在 admin_count > 1 时可 demote 其他管理员
         assert!(!reject_last_admin_demote(true, false, 2));
         assert!(reject_last_admin_demote(true, false, 1));

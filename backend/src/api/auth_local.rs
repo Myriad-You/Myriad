@@ -910,7 +910,7 @@ async fn issue_session_cookie(
 // ============================================================================
 // 详见 docs/oauth-refactor-plan.md §7.2
 //
-// 不受 allow_local_registration 开关限制；可选 is_admin 字段提升新账号为管理员。
+// 不受 allow_local_registration 开关限制；is_admin=true 仅主管理员（id=1）可设。
 
 #[derive(Debug, Deserialize)]
 pub struct AdminCreateUserRequest {
@@ -935,6 +935,14 @@ pub async fn admin_create_user(
         )
     })?;
     ensure_current_admin(&claims).await?;
+
+    let actor_id: i32 = claims.sub.parse().unwrap_or(0);
+    // 仅主管理员（id=1）可创建带 is_admin=true 的账号
+    if let Some(msg) =
+        crate::api::admin_users::non_primary_grant_admin_on_create_error(actor_id, req.is_admin)
+    {
+        return Err((StatusCode::FORBIDDEN, Json(json!({"error": msg}))));
+    }
 
     validate_username(&req.username)?;
     validate_password(&req.password)?;
@@ -966,6 +974,8 @@ pub async fn admin_create_user(
     }
 
     let password_hash = hash_password(&req.password)?;
+    // 非主管理员路径上 is_admin 必为 false（上方已校验）
+    let create_as_admin = req.is_admin;
 
     let insert = db
         .query_one(Statement::from_sql_and_values(
@@ -981,7 +991,7 @@ pub async fn admin_create_user(
                     .map(|s| SeaValue::String(Some(Box::new(s))))
                     .unwrap_or(SeaValue::String(None)),
                 SeaValue::String(Some(Box::new(password_hash))),
-                SeaValue::Bool(Some(req.is_admin)),
+                SeaValue::Bool(Some(create_as_admin)),
                 SeaValue::String(Some(Box::new(format!(
                     "https://ui-avatars.com/api/?name={}&background=4f46e5&color=fff",
                     urlencoding::encode(&req.username)
@@ -1015,14 +1025,14 @@ pub async fn admin_create_user(
         claims.username,
         req.username,
         user_id,
-        req.is_admin
+        create_as_admin
     );
 
     Ok(Json(json!({
         "success": true,
         "user_id": user_id,
         "username": req.username,
-        "is_admin": req.is_admin,
+        "is_admin": create_as_admin,
     })))
 }
 
