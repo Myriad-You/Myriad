@@ -424,6 +424,34 @@ pub fn pushed_at_for_tag<'a>(builds: &'a [DockerBuild], tag: &str) -> Option<&'a
         .and_then(|b| b.pushed_at.as_deref())
 }
 
+/// Dev-channel tip: newest common build by `pushed_at` among **both** `dev-*`
+/// commit builds and formal `vX.Y.Z` releases.
+///
+/// `builds` must already be newest-first (as produced by [`common_builds`] /
+/// [`DockerHubClient::list_common_builds`]). No kind filter — time wins.
+pub fn select_dev_channel_tip(builds: &[DockerBuild]) -> Option<&DockerBuild> {
+    builds.first()
+}
+
+/// True when target and current are different deploy kinds (release vs commit/branch).
+/// Cross-kind upgrade direction uses push time as primary (no git-ancestry preference).
+pub fn is_cross_kind_deploy(target_tag: &str, current_tag: Option<&str>) -> bool {
+    let Ok(target) = DeployTag::parse(target_tag.trim()) else {
+        return false;
+    };
+    let Some(current_raw) = current_tag.map(str::trim).filter(|s| !s.is_empty()) else {
+        return false;
+    };
+    let Ok(current) = DeployTag::parse(current_raw) else {
+        return false;
+    };
+    match (target.kind(), current.kind()) {
+        (DeployTagKind::Release, DeployTagKind::Release) => false,
+        (DeployTagKind::Release, _) | (_, DeployTagKind::Release) => true,
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -573,5 +601,117 @@ mod tests {
         assert!(!dir.is_upgrade);
         assert!(dir.is_downgrade);
         assert_eq!(dir.relation, "behind");
+    }
+
+    #[test]
+    fn newer_release_beats_older_commit_by_push_time() {
+        let dir = commit_upgrade_direction(
+            "v0.3.0",
+            Some("dev-aaaaaaa"),
+            Some("2026-07-17T12:00:00Z"),
+            Some("2026-07-16T12:00:00Z"),
+            None,
+        );
+        assert!(dir.is_upgrade);
+        assert!(!dir.is_downgrade);
+        assert_eq!(dir.relation, "ahead");
+        assert!(is_cross_kind_deploy("v0.3.0", Some("dev-aaaaaaa")));
+    }
+
+    #[test]
+    fn newer_commit_beats_older_release_by_push_time() {
+        let dir = commit_upgrade_direction(
+            "dev-bbbbbbb",
+            Some("v0.2.8"),
+            Some("2026-07-18T08:00:00Z"),
+            Some("2026-07-17T08:00:00Z"),
+            None,
+        );
+        assert!(dir.is_upgrade);
+        assert!(!dir.is_downgrade);
+        assert_eq!(dir.relation, "ahead");
+        assert!(is_cross_kind_deploy("dev-bbbbbbb", Some("v0.2.8")));
+    }
+
+    #[test]
+    fn older_release_vs_newer_commit_is_downgrade() {
+        let dir = commit_upgrade_direction(
+            "v0.2.8",
+            Some("dev-bbbbbbb"),
+            Some("2026-07-17T08:00:00Z"),
+            Some("2026-07-18T08:00:00Z"),
+            None,
+        );
+        assert!(!dir.is_upgrade);
+        assert!(dir.is_downgrade);
+        assert_eq!(dir.relation, "behind");
+    }
+
+    #[test]
+    fn same_tag_is_not_upgrade() {
+        let release = commit_upgrade_direction(
+            "v0.3.0",
+            Some("v0.3.0"),
+            Some("2026-07-18T12:00:00Z"),
+            Some("2026-07-17T12:00:00Z"),
+            None,
+        );
+        assert!(!release.is_upgrade);
+        assert!(!release.is_downgrade);
+        assert_eq!(release.relation, "identical");
+
+        let commit = commit_upgrade_direction(
+            "dev-aaaaaaa",
+            Some("dev-aaaaaaa"),
+            Some("2026-07-18T12:00:00Z"),
+            Some("2026-07-17T12:00:00Z"),
+            None,
+        );
+        assert!(!commit.is_upgrade);
+        assert!(!commit.is_downgrade);
+        assert_eq!(commit.relation, "identical");
+    }
+
+    #[test]
+    fn select_dev_channel_tip_is_newest_without_kind_filter() {
+        let backend = DockerHubRepository::parse("example/backend").unwrap();
+        let frontend = DockerHubRepository::parse("example/frontend").unwrap();
+        // Newer formal release must win over older commit (no prefer-dev policy).
+        let builds = common_builds(
+            &backend,
+            vec![
+                tag("dev-bbbbbbb", "2026-07-15T11:00:00Z", "sha256:bb"),
+                tag("v0.3.0", "2026-07-16T08:00:00Z", "sha256:r1"),
+                tag("dev-aaaaaaa", "2026-07-14T09:00:00Z", "sha256:ba"),
+            ],
+            &frontend,
+            vec![
+                tag("dev-bbbbbbb", "2026-07-15T10:30:00Z", "sha256:fb"),
+                tag("v0.3.0", "2026-07-16T07:30:00Z", "sha256:fr1"),
+                tag("dev-aaaaaaa", "2026-07-14T09:30:00Z", "sha256:fa"),
+            ],
+            10,
+        );
+        let tip = select_dev_channel_tip(&builds).expect("tip");
+        assert_eq!(tip.tag, "v0.3.0");
+        assert_eq!(tip.kind, "release");
+
+        // Newer commit beats older release.
+        let builds2 = common_builds(
+            &backend,
+            vec![
+                tag("v0.2.8", "2026-07-15T08:00:00Z", "sha256:r0"),
+                tag("dev-ccccccc", "2026-07-16T12:00:00Z", "sha256:bc"),
+            ],
+            &frontend,
+            vec![
+                tag("v0.2.8", "2026-07-15T07:30:00Z", "sha256:fr0"),
+                tag("dev-ccccccc", "2026-07-16T11:30:00Z", "sha256:fc"),
+            ],
+            10,
+        );
+        let tip2 = select_dev_channel_tip(&builds2).expect("tip");
+        assert_eq!(tip2.tag, "dev-ccccccc");
+        assert_eq!(tip2.kind, "commit");
     }
 }

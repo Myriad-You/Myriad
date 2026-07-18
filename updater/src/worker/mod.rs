@@ -24,8 +24,8 @@ use crate::config::{Channel, Config};
 use crate::docker::DockerClient;
 use crate::error::{Result, UpdaterError};
 use crate::release::{
-    commit_upgrade_direction, pushed_at_for_tag, DockerBuild, DockerHubClient, GithubClient,
-    Manifest,
+    commit_upgrade_direction, is_cross_kind_deploy, pushed_at_for_tag, select_dev_channel_tip,
+    DockerBuild, DockerHubClient, GithubClient, Manifest,
 };
 use crate::state::{Job, JobKind, JobStatus, LatestAvailable, MaintenanceFile, Phase, StateDir};
 use crate::version::{
@@ -697,16 +697,15 @@ impl Worker {
     /// **Commit/dev mode**: `relation=unknown` does **not** block auto-install when
     /// `is_upgrade` is true (build-time newer is enough). Release channels still
     /// reject unknown. Applies to **all** channels (stable / preview / commit).
+    ///
+    /// Dev channel may surface a formal `vX.Y.Z` tip; that tip is cached/installed
+    /// via the release path even though prefs `update_mode` remains `commit`.
     fn auto_install_target_ok(
         &self,
-        expected_mode: UpdateMode,
+        install_mode: UpdateMode,
         irreversible: bool,
     ) -> Result<Option<DeployTag>> {
         if !self.auto_install_enabled() {
-            return Ok(None);
-        }
-        // Apply to whatever channel/mode the operator selected (stable / preview / commit).
-        if self.effective_mode() != expected_mode {
             return Ok(None);
         }
         if self.state.read_current_job()?.is_some() {
@@ -716,11 +715,24 @@ impl Worker {
         let Some(la) = st.latest_available.as_ref() else {
             return Ok(None);
         };
-        if la.mode != expected_mode {
+        if la.mode != install_mode {
+            return Ok(None);
+        }
+        let effective = self.effective_mode();
+        let prefs_allow = match effective {
+            // Release-channel prefs only auto-install release tips.
+            UpdateMode::Release => install_mode == UpdateMode::Release,
+            // Dev/commit prefs: commit tips, or formal release tips discovered as tip.
+            UpdateMode::Commit => {
+                install_mode == UpdateMode::Commit
+                    || (install_mode == UpdateMode::Release && la.version.is_release())
+            }
+        };
+        if !prefs_allow {
             return Ok(None);
         }
         if !auto_install_latest_ok(
-            expected_mode,
+            install_mode,
             la.is_upgrade,
             la.is_downgrade,
             la.relation.as_deref(),
@@ -790,8 +802,15 @@ impl Worker {
     }
 
     /// Auto-install a clear commit/dev tip upgrade on the current channel.
+    /// Formal release tips discovered under commit prefs install via the release path
+    /// (preflight/API also re-resolve mode from `target.is_release()`).
     async fn maybe_auto_install_commit(self: Arc<Self>, tag: &DeployTag) -> Result<()> {
-        let Some(target) = self.auto_install_target_ok(UpdateMode::Commit, false)? else {
+        let install_mode = if tag.is_release() {
+            UpdateMode::Release
+        } else {
+            UpdateMode::Commit
+        };
+        let Some(target) = self.auto_install_target_ok(install_mode, false)? else {
             return Ok(());
         };
         // Prefer the tip just reported by the check when it matches cache.
@@ -800,7 +819,7 @@ impl Worker {
         } else {
             target
         };
-        self.dispatch_auto_install(target, UpdateMode::Commit).await
+        self.dispatch_auto_install(target, install_mode).await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1170,22 +1189,316 @@ impl Worker {
         persist_cache: bool,
     ) -> Result<Option<AvailableInfo>> {
         let branch = commit_branch_for_channel(channel);
-        // Private source repos without GITHUB_TOKEN: skip GitHub entirely (no hourly 404 spam).
+
+        // Dev channel tip = newest Docker Hub common build by pushed_at among BOTH
+        // dev-* commits and formal vX.Y.Z releases. Time wins; no prefer-dev filter.
+        match self.clone().handle_list_builds(25).await {
+            Ok(builds) if !builds.is_empty() => {
+                return self
+                    .finish_dev_channel_tip_from_builds(branch, builds, persist_cache)
+                    .await;
+            }
+            Ok(_) => {
+                info!(
+                    %branch,
+                    "commit check: Docker Hub has no common builds; falling back to GitHub branch tip"
+                );
+            }
+            Err(docker_error) => {
+                if !self.github_commit_metadata_enabled() {
+                    return Err(UpdaterError::DockerHub(format!(
+                        "Docker Hub commit discovery failed ({docker_error}); \
+                         GITHUB_TOKEN not set for branch-tip fallback"
+                    )));
+                }
+                warn!(
+                    err = %docker_error,
+                    %branch,
+                    "commit check: Docker Hub list failed; falling back to GitHub branch tip"
+                );
+            }
+        }
+
+        // No usable Docker Hub tip — GitHub branch tip only (when token present).
         if !self.github_commit_metadata_enabled() {
-            info!(
-                %branch,
-                "commit check: GITHUB_TOKEN unset; discovering tip via Docker Hub only"
-            );
+            return Err(UpdaterError::DockerHub(
+                "Docker Hub has no common immutable frontend/backend build and \
+                 GITHUB_TOKEN is unset (cannot resolve branch tip)"
+                    .into(),
+            ));
+        }
+        self.check_github_branch_tip_available(branch, persist_cache)
+            .await
+    }
+
+    /// Finish availability for a Docker Hub tip (commit or formal release).
+    async fn finish_dev_channel_tip_from_builds(
+        self: Arc<Self>,
+        branch: &str,
+        builds: Vec<DockerBuild>,
+        persist_cache: bool,
+    ) -> Result<Option<AvailableInfo>> {
+        let Some(build) = select_dev_channel_tip(&builds) else {
+            if persist_cache {
+                let mut state = self.state.read_updater()?;
+                state.last_checked_at = Some(Utc::now());
+                state.latest_available = None;
+                self.state.write_updater(&state)?;
+            }
+            return Err(UpdaterError::DockerHub(
+                "Docker Hub has no common immutable frontend/backend build".into(),
+            ));
+        };
+        // Clone tip fields we need past the shared builds borrow.
+        let tip_tag = build.tag.clone();
+        let tip_kind = build.kind;
+        let tip_pushed = build.pushed_at.clone();
+        let tip_short_sha = build.short_sha.clone();
+        let tip_backend_url = build.backend_url.clone();
+
+        let tag = DeployTag::parse(&tip_tag)?;
+        let state_now = self.state.read_updater()?;
+        let current = state_now.current_version.as_ref().map(|c| c.as_str());
+        let current_pushed = current.and_then(|c| pushed_at_for_tag(&builds, c));
+
+        // Cross-kind: push time is primary (no ancestry). Same-kind commits may use git.
+        let cross_kind = is_cross_kind_deploy(tag.as_str(), current);
+        let freshness = if !cross_kind && !tag.is_release() && self.github_commit_metadata_enabled()
+        {
+            match self.github_client() {
+                Ok(gh) => match gh
+                    .compare_deploy_to_ref(state_now.current_version.as_ref(), tag.as_str())
+                    .await
+                {
+                    Ok(f) => f,
+                    Err(e) => {
+                        warn!(err = %e, "commit freshness compare failed");
+                        None
+                    }
+                },
+                Err(e) => {
+                    warn!(err = %e, "github client unavailable for ancestry");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        let direction = commit_upgrade_direction(
+            tag.as_str(),
+            current,
+            tip_pushed.as_deref(),
+            current_pushed,
+            if cross_kind {
+                None
+            } else {
+                freshness.as_ref()
+            },
+        );
+
+        info!(
+            target = %tag,
+            kind = tip_kind,
+            %branch,
+            is_upgrade = direction.is_upgrade,
+            is_downgrade = direction.is_downgrade,
+            relation = direction.relation,
+            target_pushed = ?tip_pushed,
+            current_pushed = ?current_pushed,
+            cross_kind,
+            "dev-channel tip from Docker Hub (push-time; commits + formal releases)"
+        );
+
+        if !direction.is_upgrade && !direction.is_downgrade {
+            if persist_cache {
+                let mut state = state_now;
+                state.last_checked_at = Some(Utc::now());
+                state.latest_available = None;
+                self.state.write_updater(&state)?;
+            }
+            return Ok(None);
+        }
+
+        // Formal release tip → release path (manifest / auto-install / preflight).
+        if tag.is_release() {
             return self
-                .check_dockerhub_commit_available(
+                .finish_dev_channel_release_tip(
                     branch,
+                    tag,
+                    tip_backend_url.as_str(),
+                    &direction,
+                    state_now,
                     persist_cache,
-                    UpdaterError::Github(
-                        "GITHUB_TOKEN not set; private-repo commit metadata uses Docker Hub".into(),
-                    ),
                 )
                 .await;
         }
+
+        // Commit tip: optional GitHub metadata enrichment.
+        let mut full_sha = tip_short_sha.clone();
+        let mut message = "Docker Hub common frontend/backend build".to_string();
+        let mut notes_url = tip_backend_url.clone();
+        let source = "dockerhub";
+        if self.github_commit_metadata_enabled() {
+            if let Ok(gh) = self.github_client() {
+                if let Ok(info) = gh.resolve_commit(&tip_short_sha).await {
+                    full_sha = info.sha;
+                    message = info.message;
+                    notes_url = info.html_url;
+                }
+            }
+        }
+
+        let cached = LatestAvailable {
+            version: tag.clone(),
+            channel: branch.to_string(),
+            mode: UpdateMode::Commit,
+            source: Some(source.to_string()),
+            seen_at: Utc::now(),
+            commit_sha: Some(full_sha.clone()),
+            current_commit_sha: freshness
+                .as_ref()
+                .and_then(|f| f.current_sha.clone())
+                .or_else(|| state_now.current_commit_sha.clone()),
+            relation: Some(direction.relation.to_string()),
+            ahead_by: freshness.as_ref().map(|f| f.ahead_by),
+            behind_by: freshness.as_ref().map(|f| f.behind_by),
+            is_upgrade: Some(direction.is_upgrade),
+            is_downgrade: Some(direction.is_downgrade),
+            requires_self_update: false,
+            min_updater_version: None,
+            notes_url: notes_url.clone(),
+        };
+        if persist_cache {
+            let mut state = state_now;
+            state.last_checked_at = Some(Utc::now());
+            state.latest_available = Some(cached);
+            self.state.write_updater(&state)?;
+        }
+
+        Ok(Some(AvailableInfo::Commit {
+            tag,
+            full_sha,
+            message,
+            branch: branch.to_string(),
+            notes_url,
+            source: source.to_string(),
+            freshness,
+            is_upgrade: Some(direction.is_upgrade),
+            is_downgrade: Some(direction.is_downgrade),
+            relation: Some(direction.relation.to_string()),
+        }))
+    }
+
+    /// Formal release discovered as dev-channel tip: cache + AvailableInfo use release path.
+    async fn finish_dev_channel_release_tip(
+        self: Arc<Self>,
+        branch: &str,
+        tag: DeployTag,
+        tip_backend_url: &str,
+        direction: &crate::release::CommitUpgradeDirection,
+        state_now: crate::state::UpdaterStateFile,
+        persist_cache: bool,
+    ) -> Result<Option<AvailableInfo>> {
+        // Prefer full release.json when GitHub is reachable.
+        if let Ok(gh) = self.github_client() {
+            match gh.fetch_manifest(tag.as_str()).await {
+                Ok(manifest) => {
+                    let self_v = MyriadVersion::parse(crate::self_version()).ok();
+                    let requires_self_update = manifest.updater.self_update_required
+                        || self_v.as_ref().is_some_and(|v| {
+                            v.older_than(&manifest.updater.min_updater_version)
+                        });
+                    let target_commit_sha = match manifest.commit_sha.clone() {
+                        some @ Some(_) => some,
+                        None => gh
+                            .resolve_commit(tag.as_str())
+                            .await
+                            .ok()
+                            .map(|info| info.sha),
+                    };
+                    let cached = LatestAvailable {
+                        version: tag,
+                        channel: branch.to_string(),
+                        mode: UpdateMode::Release,
+                        source: Some("dockerhub".to_string()),
+                        seen_at: Utc::now(),
+                        commit_sha: target_commit_sha,
+                        current_commit_sha: state_now.current_commit_sha.clone(),
+                        relation: Some(direction.relation.to_string()),
+                        ahead_by: None,
+                        behind_by: None,
+                        is_upgrade: Some(direction.is_upgrade),
+                        is_downgrade: Some(direction.is_downgrade),
+                        requires_self_update,
+                        min_updater_version: Some(manifest.updater.min_updater_version.clone()),
+                        notes_url: manifest.notes_url.clone(),
+                    };
+                    if persist_cache {
+                        let mut state = state_now;
+                        state.last_checked_at = Some(Utc::now());
+                        state.latest_available = Some(cached);
+                        self.state.write_updater(&state)?;
+                    }
+                    return Ok(Some(AvailableInfo::Release(manifest)));
+                }
+                Err(e) => {
+                    warn!(
+                        err = %e,
+                        target = %tag,
+                        "dev-channel release tip: fetch_manifest failed; caching release tag only"
+                    );
+                }
+            }
+        }
+
+        // No manifest: still surface the formal release tip with release-mode cache so
+        // status / auto-install use the release path (install re-resolves from tag).
+        let cached = LatestAvailable {
+            version: tag.clone(),
+            channel: branch.to_string(),
+            mode: UpdateMode::Release,
+            source: Some("dockerhub".to_string()),
+            seen_at: Utc::now(),
+            commit_sha: None,
+            current_commit_sha: state_now.current_commit_sha.clone(),
+            relation: Some(direction.relation.to_string()),
+            ahead_by: None,
+            behind_by: None,
+            is_upgrade: Some(direction.is_upgrade),
+            is_downgrade: Some(direction.is_downgrade),
+            requires_self_update: false,
+            min_updater_version: None,
+            notes_url: tip_backend_url.to_string(),
+        };
+        if persist_cache {
+            let mut state = state_now;
+            state.last_checked_at = Some(Utc::now());
+            state.latest_available = Some(cached);
+            self.state.write_updater(&state)?;
+        }
+        // Synthetic commit-shaped payload so /available still returns a tip without
+        // release.json; mode field in cache remains Release for auto-install.
+        Ok(Some(AvailableInfo::Commit {
+            tag,
+            full_sha: String::new(),
+            message: "Docker Hub formal release build (dev-channel tip)".to_string(),
+            branch: branch.to_string(),
+            notes_url: tip_backend_url.to_string(),
+            source: "dockerhub".to_string(),
+            freshness: None,
+            is_upgrade: Some(direction.is_upgrade),
+            is_downgrade: Some(direction.is_downgrade),
+            relation: Some(direction.relation.to_string()),
+        }))
+    }
+
+    /// GitHub branch tip only — used when Docker Hub has no common builds.
+    async fn check_github_branch_tip_available(
+        self: Arc<Self>,
+        branch: &str,
+        persist_cache: bool,
+    ) -> Result<Option<AvailableInfo>> {
         let gh = self.github_client()?;
         let info = match gh.latest_commit_on_branch(branch).await {
             Ok(i) => i,
@@ -1194,20 +1507,17 @@ impl Worker {
                     info!(
                         err = %e,
                         %branch,
-                        "commit lookup: GitHub access denied/not found; using Docker Hub"
+                        "commit lookup: GitHub access denied/not found; no Docker Hub tip either"
                     );
                 } else {
                     warn!(err = %e, %branch, "commit lookup failed");
                 }
-                return self
-                    .check_dockerhub_commit_available(branch, persist_cache, e)
-                    .await;
+                return Err(e);
             }
         };
         let tag = DeployTag::parse(&format!("dev-{}", info.short_sha))?;
         let notes_url = info.html_url.clone();
 
-        // Ancestry when available; push-time is the fallback (and primary when unknown).
         let st_now = self.state.read_updater()?;
         let freshness = match gh
             .compare_deploy_to_ref(st_now.current_version.as_ref(), branch)
@@ -1226,27 +1536,15 @@ impl Worker {
                 behind = f.behind_by,
                 current = ?f.current_sha,
                 target = ?f.target_sha,
-                "commit freshness vs branch tip"
+                "commit freshness vs branch tip (no Docker Hub builds)"
             );
         }
 
-        // Enrich with Docker Hub push times for time-based upgrade when ancestry is unclear.
-        let builds = self
-            .clone()
-            .handle_list_builds(25)
-            .await
-            .unwrap_or_default();
-        let target_pushed = pushed_at_for_tag(&builds, tag.as_str())
-            .or_else(|| pushed_at_for_tag(&builds, info.short_sha.as_str()));
-        let current_pushed = st_now
-            .current_version
-            .as_ref()
-            .and_then(|c| pushed_at_for_tag(&builds, c.as_str()));
         let direction = commit_upgrade_direction(
             tag.as_str(),
             st_now.current_version.as_ref().map(|c| c.as_str()),
-            target_pushed,
-            current_pushed,
+            None,
+            None,
             freshness.as_ref(),
         );
         info!(
@@ -1254,9 +1552,7 @@ impl Worker {
             is_upgrade = direction.is_upgrade,
             is_downgrade = direction.is_downgrade,
             relation = direction.relation,
-            target_pushed = ?target_pushed,
-            current_pushed = ?current_pushed,
-            "commit check: upgrade direction (ancestry + build time)"
+            "commit check: GitHub branch tip only (no Docker Hub common builds)"
         );
 
         if !direction.is_upgrade && !direction.is_downgrade {
@@ -1303,107 +1599,6 @@ impl Worker {
             notes_url,
             source: "github".to_string(),
             freshness,
-            is_upgrade: Some(direction.is_upgrade),
-            is_downgrade: Some(direction.is_downgrade),
-            relation: Some(direction.relation.to_string()),
-        }))
-    }
-
-    async fn check_dockerhub_commit_available(
-        self: Arc<Self>,
-        branch: &str,
-        persist_cache: bool,
-        github_error: UpdaterError,
-    ) -> Result<Option<AvailableInfo>> {
-        // Prefer immutable commit builds; formal releases are listed too but belong
-        // on the release path, not commit-mode tip discovery.
-        let builds = self.clone().handle_list_builds(25).await.map_err(|docker_error| {
-            UpdaterError::DockerHub(format!(
-                "Docker Hub commit discovery failed ({docker_error}); GitHub metadata note: {github_error}"
-            ))
-        })?;
-        let commit_builds: Vec<_> = builds
-            .into_iter()
-            .filter(|b| b.kind == "commit" || b.tag.starts_with("dev-"))
-            .collect();
-        let Some(build) = commit_builds.first() else {
-            if persist_cache {
-                let mut state = self.state.read_updater()?;
-                state.last_checked_at = Some(Utc::now());
-                state.latest_available = None;
-                self.state.write_updater(&state)?;
-            }
-            return Err(UpdaterError::DockerHub(format!(
-                "Docker Hub has no common immutable frontend/backend commit build \
-                 (GitHub metadata note: {github_error})"
-            )));
-        };
-
-        let tag = DeployTag::parse(&build.tag)?;
-        let state_now = self.state.read_updater()?;
-        let current = state_now.current_version.as_ref().map(|c| c.as_str());
-        let current_pushed = current.and_then(|c| pushed_at_for_tag(&commit_builds, c));
-        let direction = commit_upgrade_direction(
-            tag.as_str(),
-            current,
-            build.pushed_at.as_deref(),
-            current_pushed,
-            None,
-        );
-
-        info!(
-            target = %tag,
-            %branch,
-            is_upgrade = direction.is_upgrade,
-            is_downgrade = direction.is_downgrade,
-            relation = direction.relation,
-            target_pushed = ?build.pushed_at,
-            current_pushed = ?current_pushed,
-            "commit tip from Docker Hub (push-time upgrade direction)"
-        );
-
-        if !direction.is_upgrade && !direction.is_downgrade {
-            if persist_cache {
-                let mut state = state_now;
-                state.last_checked_at = Some(Utc::now());
-                state.latest_available = None;
-                self.state.write_updater(&state)?;
-            }
-            return Ok(None);
-        }
-
-        let cached = LatestAvailable {
-            version: tag.clone(),
-            channel: branch.to_string(),
-            mode: UpdateMode::Commit,
-            source: Some("dockerhub".to_string()),
-            seen_at: Utc::now(),
-            commit_sha: Some(build.short_sha.clone()),
-            current_commit_sha: state_now.current_commit_sha.clone(),
-            relation: Some(direction.relation.to_string()),
-            ahead_by: None,
-            behind_by: None,
-            is_upgrade: Some(direction.is_upgrade),
-            is_downgrade: Some(direction.is_downgrade),
-            requires_self_update: false,
-            min_updater_version: None,
-            notes_url: build.backend_url.clone(),
-        };
-        if persist_cache {
-            let mut state = state_now;
-            state.last_checked_at = Some(Utc::now());
-            state.latest_available = Some(cached);
-            self.state.write_updater(&state)?;
-        }
-
-        Ok(Some(AvailableInfo::Commit {
-            tag,
-            full_sha: build.short_sha.clone(),
-            message: "Docker Hub common frontend/backend build".to_string(),
-            branch: branch.to_string(),
-            notes_url: build.backend_url.clone(),
-            source: "dockerhub".to_string(),
-            freshness: None,
             is_upgrade: Some(direction.is_upgrade),
             is_downgrade: Some(direction.is_downgrade),
             relation: Some(direction.relation.to_string()),

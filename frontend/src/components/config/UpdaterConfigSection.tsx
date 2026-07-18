@@ -554,10 +554,13 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
       checkAvailable()
       return
     }
-    const mode: UpdateMode =
+    // Prefer target shape (formal vX.Y.Z → release path) over channel prefs mode so
+    // a dev-channel tip that is a formal release installs via release.json.
+    const fallback: UpdateMode =
       (available?.mode ?? la?.mode ?? selOption.mode) === 'commit'
         ? 'commit'
         : 'release'
+    const mode = modeForTarget(target, fallback)
     const relation = available?.relation ?? la?.relation
     const isUpgrade = available?.is_upgrade === true || la?.is_upgrade === true
     const isDowngrade =
@@ -1604,6 +1607,20 @@ function TargetPicker({
       } catch {
         /* optional */
       }
+      // Sort by date when both sides have dates. Never bury formal releases below
+      // commits solely because release list items lack published_at.
+      next.sort((a, b) => {
+        const da = a.date ? Date.parse(a.date) : Number.NaN
+        const db = b.date ? Date.parse(b.date) : Number.NaN
+        const aOk = !Number.isNaN(da)
+        const bOk = !Number.isNaN(db)
+        if (aOk && bOk) return db - da
+        if (a.kind === 'release' && b.kind !== 'release') return -1
+        if (b.kind === 'release' && a.kind !== 'release') return 1
+        if (aOk && !bOk) return -1
+        if (!aOk && bOk) return 1
+        return 0
+      })
       if (!cancelled) {
         setTargetSource('github')
         setItems(next)
