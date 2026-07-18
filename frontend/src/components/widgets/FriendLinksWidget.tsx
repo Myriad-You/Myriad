@@ -283,12 +283,19 @@ export const FriendLinksWidget = memo(
       [isEditMode, isPreview],
     )
 
+    // 编辑/预览时禁用指针事件，让父级 WidgetGrid 可以拖拽
+    const pointerEventsStyle =
+      isEditMode || isPreview ? { pointerEvents: 'none' as const } : {}
+    const shellClassName = isEditMode ? 'cursor-grab' : undefined
+
     if (isStrip) {
       return (
         <WidgetShell
           containerRef={containerRef}
           scale={scale}
           padding={{ x: 9, y: 8 }}
+          className={shellClassName}
+          style={pointerEventsStyle}
           contentClassName="relative min-h-0 overflow-hidden"
           background={
             <GlowBackground
@@ -379,6 +386,7 @@ export const FriendLinksWidget = memo(
                           <img
                             src={entry.icon}
                             alt=""
+                            draggable={false}
                             loading="lazy"
                             decoding="async"
                             className="absolute inset-0 h-full w-full object-cover"
@@ -424,6 +432,8 @@ export const FriendLinksWidget = memo(
           containerRef={containerRef}
           scale={scale}
           padding={{ x: 10, y: 10 }}
+          className={shellClassName}
+          style={pointerEventsStyle}
           contentClassName="relative min-h-0 overflow-hidden"
           background={
             <span
@@ -523,6 +533,7 @@ export const FriendLinksWidget = memo(
                           <img
                             src={entry.icon}
                             alt=""
+                            draggable={false}
                             loading="lazy"
                             decoding="async"
                             className="absolute inset-0 h-full w-full object-cover"
@@ -561,6 +572,8 @@ export const FriendLinksWidget = memo(
         containerRef={containerRef}
         scale={scale}
         padding={{ x: 14, y: 10 }}
+        className={shellClassName}
+        style={pointerEventsStyle}
         contentClassName="flex min-h-0 flex-col"
         background={
           <GlowBackground
@@ -694,6 +707,7 @@ export const FriendLinksWidget = memo(
                           <img
                             src={entry.icon}
                             alt=""
+                            draggable={false}
                             loading="lazy"
                             decoding="async"
                             className="absolute inset-0 h-full w-full object-cover"
