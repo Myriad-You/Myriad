@@ -29,6 +29,7 @@ export interface User {
   github_id?: number
   avatar_url?: string
   bio?: string
+  has_password?: boolean
 }
 
 interface AuthContextType {

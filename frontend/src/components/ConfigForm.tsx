@@ -88,6 +88,7 @@ import {
   PermissionsConfigSection,
   PlatformAutoRefreshSettings,
   UiConfigSection,
+  UsersConfigSection,
 } from './config'
 import MyriadConfigIcon from './config/MyriadConfigIcon'
 import PlatformIcon from './PlatformIcon'
@@ -626,6 +627,12 @@ const ModernConfigForm: React.FC = () => {
         section: 'permissions',
       },
       {
+        id: 'users',
+        label: t.config.users,
+        icon: <MyriadConfigIcon kind="users" />,
+        section: 'users',
+      },
+      {
         id: 'notifications',
         label: t.notificationCenter.title,
         icon: <MyriadConfigIcon kind="notifications" />,
@@ -848,6 +855,30 @@ const ModernConfigForm: React.FC = () => {
         'ai',
         '游客',
         'guest',
+      ],
+    })
+
+    // 用户管理
+    items.push({
+      type: 'section',
+      section: 'users',
+      title: t.config.users,
+      description: t.config.usersDesc,
+      keywords: [
+        '用户',
+        'user',
+        'users',
+        '管理员',
+        'admin',
+        'oauth',
+        '账户',
+        'account',
+        '在线',
+        'online',
+        '注册',
+        'register',
+        'identity',
+        '绑定',
       ],
     })
 
@@ -1855,16 +1886,9 @@ const ModernConfigForm: React.FC = () => {
           <OAuthConfigSection
             configFields={config.ui_config.config_fields}
             providers={oauthDraft.providers}
-            allowRegister={oauthDraft.allowLocalRegistration}
             loading={oauthLoading}
             onProvidersChange={(providers) =>
               setOAuthDraft((current) => ({ ...current, providers }))
-            }
-            onAllowRegisterChange={(allowLocalRegistration) =>
-              setOAuthDraft((current) => ({
-                ...current,
-                allowLocalRegistration,
-              }))
             }
             {...props}
           />
@@ -1923,6 +1947,21 @@ const ModernConfigForm: React.FC = () => {
             events={notificationEvents}
             loading={notificationLoading}
             onChange={setNotificationDraft}
+            {...props}
+          />
+        )
+      case 'users':
+        return (
+          <UsersConfigSection
+            onMessage={(msg, type = 'info') => showMessage(msg, type)}
+            allowRegister={oauthDraft.allowLocalRegistration}
+            allowRegisterLoading={oauthLoading}
+            onAllowRegisterChange={(allowLocalRegistration) =>
+              setOAuthDraft((current) => ({
+                ...current,
+                allowLocalRegistration,
+              }))
+            }
             {...props}
           />
         )

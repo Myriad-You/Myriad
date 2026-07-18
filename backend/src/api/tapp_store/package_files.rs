@@ -403,6 +403,63 @@ pub(crate) fn log_install_failure(
     }
 }
 
+pub(crate) fn tapp_filesystem_error_status(error: &std::io::Error) -> StatusCode {
+    match error.kind() {
+        std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::ReadOnlyFilesystem => {
+            StatusCode::SERVICE_UNAVAILABLE
+        }
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+
+pub(crate) fn tapp_filesystem_error_message(action: &str, error: &std::io::Error) -> String {
+    match error.kind() {
+        std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::ReadOnlyFilesystem => format!(
+            "Tapp storage is not writable by the backend service account; repair the backend data volume ownership/permissions and retry ({action}: {error})"
+        ),
+        _ => format!("{action}: {error}"),
+    }
+}
+
+/// Add owner/mode context for storage failures without following symlinks.
+pub(crate) fn log_tapp_filesystem_access(path: &FsPath, error: &std::io::Error) {
+    if !matches!(
+        error.kind(),
+        std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::ReadOnlyFilesystem
+    ) {
+        return;
+    }
+    for candidate in [Some(path), path.parent()].into_iter().flatten() {
+        match std::fs::symlink_metadata(candidate) {
+            Ok(metadata) => {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::MetadataExt;
+                    tracing::error!(
+                        path = %candidate.display(),
+                        uid = metadata.uid(),
+                        gid = metadata.gid(),
+                        mode = format_args!("{:04o}", metadata.mode() & 0o7777),
+                        "Tapp filesystem permission context"
+                    );
+                }
+                #[cfg(not(unix))]
+                tracing::error!(
+                    path = %candidate.display(),
+                    readonly = metadata.permissions().readonly(),
+                    "Tapp filesystem permission context"
+                );
+            }
+            Err(metadata_error) => tracing::error!(
+                path = %candidate.display(),
+                kind = ?metadata_error.kind(),
+                %metadata_error,
+                "Unable to inspect Tapp filesystem permission context"
+            ),
+        }
+    }
+}
+
 /// Reconcile one live resource directory with the database Manifest after an
 /// interrupted install/update/uninstall lifecycle transaction.
 pub(crate) fn recover_tapp_directory(

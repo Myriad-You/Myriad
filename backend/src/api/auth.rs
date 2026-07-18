@@ -99,7 +99,8 @@ pub async fn get_current_user(
                           ),
                           NULLIF(u.avatar_url, '')
                       ) AS avatar_url,
-                      u.github_id, u.linked_github_id, u.bio
+                      u.github_id, u.linked_github_id, u.bio,
+                      u.password_hash IS NOT NULL AS has_password
                FROM users u
                WHERE u.id = $1"#,
             vec![SeaValue::Int(Some(user_id))],
@@ -154,6 +155,7 @@ pub async fn get_current_user(
     let github_id: Option<i64> = user_row.try_get("", "github_id").ok();
     let linked_github_id: Option<i64> = user_row.try_get("", "linked_github_id").ok();
     let bio: Option<String> = user_row.try_get("", "bio").ok();
+    let has_password: bool = user_row.try_get("", "has_password").unwrap_or(false);
 
     Ok(Json(json!({
         "id": id,
@@ -165,6 +167,7 @@ pub async fn get_current_user(
         "github_id": github_id,
         "linked_github_id": linked_github_id.map(|id| id.to_string()),
         "bio": bio,
+        "has_password": has_password,
         "identities": identities,
     })))
 }

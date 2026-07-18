@@ -21,3 +21,4 @@ export { default as PlatformAutoRefreshSettings } from './PlatformAutoRefreshSet
 export type { PlatformAutoFetchConfig } from './PlatformAutoRefreshSettings'
 export { default as UiConfigSection } from './UiConfigSection'
 export { UpdaterInlinePanel } from './UpdaterConfigSection'
+export { default as UsersConfigSection } from './UsersConfigSection'

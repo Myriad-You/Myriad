@@ -172,17 +172,25 @@ pub async fn provider_login(
     Ok(no_store_redirect(&auth_url))
 }
 
-// ---------- GET /api/auth/oauth/:slug/link  (需 admin) ----------
+// ---------- GET /api/auth/oauth/:slug/link  (任何已登录用户) ----------
 
 pub async fn provider_link(
     Path(slug): Path<String>,
     headers: HeaderMap,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
-    use crate::middleware::auth::verify_current_admin_from_headers;
+    use crate::middleware::auth::verify_jwt_token;
 
-    let claims = verify_current_admin_from_headers(&headers).await?;
+    let claims = verify_jwt_token(&headers).map_err(|_| {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Unauthorized"})),
+        )
+    })?;
 
     let user_id: i32 = claims.sub.parse().map_err(|_| err_400("Invalid user id"))?;
+    if user_id <= 0 {
+        return Err(err_400("Guest sessions cannot link OAuth providers"));
+    }
 
     let provider = REGISTRY
         .get(&slug)
@@ -298,8 +306,8 @@ pub async fn provider_callback(
     // 数据平台授权走独立 callback（如 /api/platforms/discord/oauth/callback），
     // 若误入登录 callback 则友好重定向提示。
     match stored.purpose {
-        OAuthPurpose::LinkAccount(admin_id) => {
-            handle_link(&db, &slug, admin_id, &profile, &frontend_base).await
+        OAuthPurpose::LinkAccount(link_user_id) => {
+            handle_link(&db, &slug, link_user_id, &profile, &frontend_base).await
         }
         OAuthPurpose::Login => handle_login(&db, &slug, &profile).await,
         OAuthPurpose::PlatformData { platform, .. } => {
@@ -322,23 +330,23 @@ pub async fn provider_callback(
 async fn handle_link(
     db: &DatabaseConnection,
     slug: &str,
-    admin_id: i32,
+    link_user_id: i32,
     profile: &NormalizedProfile,
     frontend_url: &str,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
-    // 验证 admin 仍然有效
-    let admin = db
+    // 验证发起绑定的用户仍然存在
+    let user = db
         .query_one(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT id FROM users WHERE id = $1 AND is_admin = true",
-            vec![SeaValue::Int(Some(admin_id))],
+            "SELECT id FROM users WHERE id = $1",
+            vec![SeaValue::Int(Some(link_user_id))],
         ))
         .await
         .map_err(|e| err_500(format!("DB error: {e}")))?;
 
-    if admin.is_none() {
+    if user.is_none() {
         let url = format!(
-            "{}/?link=error&reason=not_admin",
+            "{}/?link=error&reason=user_not_found",
             frontend_url.trim_end_matches('/')
         );
         return Ok(no_store_redirect(&url));
@@ -362,7 +370,7 @@ async fn handle_link(
         let owner_id: i32 = row
             .try_get("", "user_id")
             .map_err(|e| err_500(format!("failed to read user_id: {e}")))?;
-        if owner_id != admin_id {
+        if owner_id != link_user_id {
             let url = format!(
                 "{}/?link=error&reason=already_linked",
                 frontend_url.trim_end_matches('/')
@@ -371,8 +379,8 @@ async fn handle_link(
         }
     }
 
-    upsert_identity(db, slug, admin_id, profile).await?;
-    sync_user_oauth_profile_snapshot(db, admin_id, slug, profile).await;
+    upsert_identity(db, slug, link_user_id, profile).await?;
+    sync_user_oauth_profile_snapshot(db, link_user_id, slug, profile).await;
 
     let url = format!(
         "{}/?link=success&provider={}&username={}",

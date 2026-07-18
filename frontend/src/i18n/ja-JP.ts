@@ -18,6 +18,7 @@ export const jaJP: TranslationKeys = {
     success: '成功',
     retry: '再試行',
     close: '閉じる',
+    back: '戻る',
     or: 'または',
     go: '移動',
     refresh: '更新',
@@ -148,7 +149,8 @@ export const jaJP: TranslationKeys = {
       'ログイン試行が多すぎます。{seconds}秒後に再試行してください',
     logoutSuccess: 'ログアウトしました',
     logoutFailed: 'ログアウト失敗',
-    oauthError: 'サードパーティログインに失敗しました（{code}）。再試行してください。',
+    oauthError:
+      'サードパーティログインに失敗しました（{code}）。再試行してください。',
     oauthErrorStateMissing:
       'ログインセッションが無効または期限切れです。再度お試しください。',
     oauthErrorStateExpired:
@@ -156,7 +158,8 @@ export const jaJP: TranslationKeys = {
     oauthErrorStateSlugMismatch:
       'OAuth プロバイダーが一致しません。再度ログインしてください。',
     oauthErrorMissingCode: '認証が完了しませんでした。再試行してください。',
-    oauthErrorMissingState: 'ログインセッションがありません。再試行してください。',
+    oauthErrorMissingState:
+      'ログインセッションがありません。再試行してください。',
     oauthErrorAccessDenied: '認証がキャンセルまたは拒否されました。',
     loginWith: '{name} でログイン',
     register: 'アカウント作成',
@@ -342,10 +345,9 @@ export const jaJP: TranslationKeys = {
     usersRevokeAdminConfirm: 'このユーザーの管理者権限を解除しますか？',
     usersEnableLocalLogin: 'ローカルログインを有効化',
     usersDisableLocalLogin: 'ローカルログインを無効化',
-    usersEditProfile: 'プロフィール編集',
-    usersDisplayName: '表示名',
+    usersLocalLoginRequiresOAuth:
+      'OAuth 連携がないため、ローカルログインを無効化するとログインできなくなります',
     usersEmail: 'メールアドレス',
-    usersSave: '保存',
     usersCancel: 'キャンセル',
     usersCreateUser: '新規ユーザー',
     usersCreateUsername: 'ユーザー名',
@@ -371,18 +373,12 @@ export const jaJP: TranslationKeys = {
     updaterStatusNeedsManual: '前回の更新が失敗 — 対応が必要です',
     updaterStatusOffline: '更新サービスに接続できません',
     updaterStatusFirstRun: 'バージョンはまだ記録されていません',
-    updaterHintHealthy:
-      '問題ありません。いつでも「更新を確認」で新しいバージョンを確認できます。',
-    updaterHintUpdating:
-      '更新中です。メンテナンス開始後はメンテナンスページで進捗を確認できます。',
-    updaterHintMaintenance:
-      'メンテナンス中です。正常を確認できたら「メンテナンスと復旧」から解除できます。',
-    updaterHintNeedsManual:
-      '自動ロールバック未完了。「メンテナンスと復旧」から更新前へ戻せます。',
-    updaterHintOffline:
-      'backend に MYRIAD_UPDATER_URL と UPDATE_TOKEN が設定されているか確認してください。',
-    updaterHintFirstRun:
-      '「更新を確認」で現在のチャネルの最新版を取得します。',
+    updaterHintHealthy: 'このチャネルに利用可能な更新はありません。',
+    updaterHintUpdating: '完了後に動作状態を自動確認します。',
+    updaterHintMaintenance: '準備ができたら下から解除できます。',
+    updaterHintNeedsManual: '「メンテナンスと復旧」で対応してください。',
+    updaterHintOffline: '更新サービスの URL とトークンを確認してください。',
+    updaterHintFirstRun: '一度確認すると現在のバージョン状態を取得できます。',
     updaterCurrentVersion: '現在のバージョン',
     updaterChannelLabel: '更新チャネル',
     updaterLastChecked: '最終確認',
@@ -393,7 +389,8 @@ export const jaJP: TranslationKeys = {
     updaterNoAvailable: '最新の状態です。利用可能な更新はありません。',
     updaterLoading: '読み込み中…',
     updaterCheckStale: '確認結果が古い可能性があります。再確認しています…',
-    updaterCheckStaleAction: '前回の確認から時間が経っています。再確認してください',
+    updaterCheckStaleAction:
+      '前回の確認から時間が経っています。再確認してください',
     updaterStatusUnconfirmed: '未確認',
     updaterAvailableTitle: '新しいバージョンが見つかりました',
     updaterAvailableDowngradeTitle:
@@ -428,11 +425,8 @@ export const jaJP: TranslationKeys = {
     updaterChannelBadgeRecommended: 'おすすめ',
     updaterChannelBadgeDev: '開発者向け',
     updaterChannelSaved: '「{label}」に切り替えました。更新を再確認しています…',
-    updaterAutoGroupTitle: '自動確認とインストール',
-    updaterAutoGroupDesc:
-      '現在のチャネルを定期チェック。明確なアップグレードの自動インストールも可（安定版 / プレビュー / 開発版いずれも）。',
     updaterCheckInterval: '確認頻度',
-    updaterCheckIntervalDesc: 'オフ時は手動のみ。変更はすぐ反映されます。',
+    updaterCheckIntervalDesc: '更新を自動確認する間隔を設定します。',
     updaterCheckIntervalOff: 'オフ',
     updaterCheckInterval1h: '1 時間ごと',
     updaterCheckInterval6h: '6 時間ごと',
@@ -440,7 +434,7 @@ export const jaJP: TranslationKeys = {
     updaterCheckInterval24h: '24 時間ごと',
     updaterAutoInstall: '更新を自動インストール',
     updaterAutoInstallDesc:
-      '既定はオフ。有効時は選択中のチャネルに適用。明確なアップグレードのみ自動（開発版はビルド公開時刻が新しい場合）。ダウングレード / 分岐 / 不可逆は手動確認が必要。',
+      '新バージョンを自動で導入し、ダウングレード・競合・元に戻せない変更は先に確認します。',
     updaterAutoPrefsSaved: '自動更新設定を保存しました',
     updaterStepLog: '詳細ステップを表示',
     updaterProcessing: '処理中…',
@@ -461,7 +455,8 @@ export const jaJP: TranslationKeys = {
     updaterMaintenanceGroup: 'メンテナンスと復旧',
     updaterMaintenanceGroupDesc: '更新失敗時の復旧ツール。',
     updaterRescueContinue: '更新前のバージョンに戻す',
-    updaterRescueContinueDesc: '更新前スナップショットから復元して再起動。最も安全。',
+    updaterRescueContinueDesc:
+      '更新前スナップショットから復元して再起動。最も安全。',
     updaterRescueContinueDispatched: '復旧を開始しました',
     updaterForceExit: 'メンテナンスモードを強制解除',
     updaterForceExitDesc: 'フラグ解除のみ。データは復元しません。',
@@ -486,8 +481,10 @@ export const jaJP: TranslationKeys = {
     updaterInstallTarget: '{version} をインストール',
     updaterTargetEmpty: '選択できる項目がありません',
     updaterSnapshotGroupTitle: 'バックアップと巻き戻し',
-    updaterSnapshotGroupDesc: '更新前に自動バックアップ。問題時はここから戻す。',
-    updaterNoSnapshots: 'バックアップはまだありません。初回更新後に作成されます。',
+    updaterSnapshotGroupDesc:
+      '更新前に自動バックアップ。問題時はここから戻す。',
+    updaterNoSnapshots:
+      'バックアップはまだありません。初回更新後に作成されます。',
     updaterRollback: 'このバージョンに戻す',
     updaterRollbackDispatched: '巻き戻しを開始しました',
     updaterDeleteSnapshot: '削除',
@@ -1318,6 +1315,8 @@ export const jaJP: TranslationKeys = {
     atLeast8Chars: '8文字以上',
     enterPasswordAgain: '新しいパスワードを再入力',
     newPasswordMinLength: '新しいパスワードは8文字以上必要です',
+    passwordNeedsLetterAndDigit:
+      'パスワードには英字と数字の両方を含めてください',
     passwordMismatch: '新しいパスワードが一致しません',
     passwordSameAsOld: '新しいパスワードは現在のパスワードと同じにできません',
     cannotGetCsrf:
@@ -1325,6 +1324,13 @@ export const jaJP: TranslationKeys = {
     passwordChanged: 'パスワードを変更しました！',
     changing: '変更中...',
     confirmChange: '変更を確認',
+    setPassword: 'パスワードを設定',
+    setPasswordHint:
+      'ローカルパスワードを設定すると、サードパーティログインが利用できなくなっても、ユーザー名とパスワードでログインできます。',
+    localLoginUsername: 'ローカルログインのユーザー名：',
+    passwordSet: 'パスワードを設定しました！',
+    setting: '設定中...',
+    confirmSet: '設定する',
     networkError: 'ネットワークエラー、後でもう一度お試しください',
     logout: 'ログアウト',
     pleaseLogin: 'まずログインしてください',
@@ -1335,6 +1341,15 @@ export const jaJP: TranslationKeys = {
     recentlyUsed: '最近使用',
     noRecentTapps: '最近使用したアプリはありません',
     viewAllTapps: 'すべてのTappを見る',
+    oauthBindings: '外部アカウント連携',
+    oauthAccount: 'OAuth アカウント',
+    oauthBind: '連携',
+    oauthUnbind: '解除',
+    oauthUnbindConfirm:
+      'このアカウントの連携を解除しますか？解除後はこのアカウントでログインできなくなります。',
+    oauthUnbindFailed: '連携解除に失敗しました',
+    oauthNoProviders: '外部ログインはまだ設定されていません',
+    oauthNotConfigured: 'このログイン方法は無効になっています',
   },
 
   // ウィジェットグリッド
@@ -1912,7 +1927,8 @@ export const jaJP: TranslationKeys = {
     permMediaControlDesc:
       'メディア再生の制御（再生、一時停止、切替など）を許可',
     permMediaReadDesc: '現在のメディア再生状態の読取を許可',
-    permMediaAudioDesc: 'サンドボックス内でパッケージ/blob/data オーディオの再生を許可',
+    permMediaAudioDesc:
+      'サンドボックス内でパッケージ/blob/data オーディオの再生を許可',
     permRegisterThemeDesc: 'カスタムテーマスタイルの登録を許可',
     permRegisterAgentDesc: 'AI Agent 能力の登録を許可',
     permRegisterShortcutDesc: 'キーボードショートカットの登録を許可',
@@ -1978,7 +1994,8 @@ export const jaJP: TranslationKeys = {
       'インストールしましたが自動で有効化できませんでした：{error}。詳細ページで有効にしてください。',
     playgroundExport: 'エクスポート',
     playgroundExportSuccess: '{filename} をダウンロードしました',
-    playgroundExportFailed: 'エクスポートに失敗しました。もう一度お試しください。',
+    playgroundExportFailed:
+      'エクスポートに失敗しました。もう一度お試しください。',
     playgroundPackageInvalid:
       'このパッケージはまだインストールできません：\n{errors}',
     playgroundUndo: '前のバージョン',
@@ -2090,8 +2107,10 @@ export const jaJP: TranslationKeys = {
     playgroundDiffPickRevisions: 'バージョンを比較',
     playgroundDiffUnified: '統合',
     playgroundDiffSideBySide: '左右',
-    playgroundDiffEmpty: 'このファイルを比較する 2 つのバージョンを選んでください。',
-    playgroundDiffNoChanges: '選択したバージョン間で、このファイルに変更はありません。',
+    playgroundDiffEmpty:
+      'このファイルを比較する 2 つのバージョンを選んでください。',
+    playgroundDiffNoChanges:
+      '選択したバージョン間で、このファイルに変更はありません。',
     playgroundDiffBase: '基準',
     playgroundDiffCompare: '比較',
     playgroundDiffAdded: '+{n}',

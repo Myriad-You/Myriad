@@ -50,6 +50,7 @@ RUN apt-get update && \
     ca-certificates \
     libssl3 \
     libpq5 \
+    util-linux \
     wget \
     && rm -rf /var/lib/apt/lists/*
 

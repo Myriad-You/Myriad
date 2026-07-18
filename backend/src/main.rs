@@ -127,6 +127,17 @@ async fn run_server() -> anyhow::Result<()> {
     // Load configuration
     let config = AppConfig::from_env()?;
 
+    services::data_paths::verify_runtime_storage_writable().map_err(|error| {
+        anyhow::anyhow!(
+            "backend storage preflight failed; repair /app/data and /app/cache ownership/permissions for uid 1000: {error}"
+        )
+    })?;
+    tracing::info!(
+        data_dir = %services::data_paths::paths().root.display(),
+        cache_dir = %services::data_paths::paths().cache.display(),
+        "backend storage write preflight passed"
+    );
+
     // Initialize global config
     *GLOBAL_CONFIG.write().await = config.clone();
     tracing::info!("✅ Configuration loaded and cached globally");

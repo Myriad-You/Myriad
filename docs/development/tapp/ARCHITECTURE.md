@@ -51,16 +51,26 @@ flowchart LR
 | 沙箱宿主   | `TappPageSandbox.tsx`、`TappWidgetSandbox.tsx`             | 创建 iframe、生成 HTML、注册对应 handler、清理实例 |
 | 后台宿主   | `frontend/src/tapp/components/TappBackgroundRunner.tsx`    | 为需要常驻的运行中 Tapp 拉起 headless core         |
 | SDK/Bridge | `runtime/sandbox/sdkGenerator.ts`、`runtime/TappBridge.ts` | 生成沙箱 SDK、验证消息、权限预检、分发 handler     |
-| 前端 API   | `frontend/src/tapp/services/TappApiService.ts`             | Cookie/CSRF 请求、响应解包和前后端字段转换         |
-| 安装与商店 | `backend/src/api/tapp_store.rs`                            | 安装、更新、导出、资源、Widget、存储、商店源       |
+| 前端 API facade | `frontend/src/tapp/services/TappApiService.ts`        | 旧入口兼容重导出与默认对象装配                      |
+| 安装与商店 | `backend/src/api/tapp_store.rs`                            | 路由装配、安装、更新与卸载编排                      |
 | 运行时 API | `backend/src/api/tapp_runtime/`                            | AI、数据、上下文、媒体、事件、报告、声明 API 等    |
 | 调度入口   | `backend/src/api/tapp_scheduler.rs`                        | HTTP/WS 协议、身份/所有权/权限检查                 |
 | 调度引擎   | `backend/src/services/tapp_scheduler.rs`                   | 任务持久化、触发、重试、前端回执、后端动作         |
 | Manifest 契约 | `backend/src/api/tapp_store/manifest.rs`                | 安装清单、声明能力、Widget/设置/API 数据结构        |
+| Tapp 目录查询 | `backend/src/api/tapp_store/catalog.rs`                  | 角色权限过滤、private-first 列表与详情查询          |
 | Manifest 校验 | `backend/src/api/tapp_store/validation.rs`              | 路径、权限、资源配额及声明能力的纯校验边界          |
 | 包文件生命周期 | `backend/src/api/tapp_store/package_files.rs`           | staging/activate/recovery、资源读写与归档安全边界   |
+| 商店源管理 | `backend/src/api/tapp_store/store_sources.rs`               | 商店源查询及管理员 CRUD                             |
+| Tapp 存储 | `backend/src/api/tapp_store/storage.rs`                      | 设置鉴权、私有命名空间、事务配额与存储路由          |
+| Widget 注册表 | `backend/src/api/tapp_store/widgets.rs`                  | Manifest 同步、所有权可见性与动态注册事务           |
+| 旧客户端兼容 | `backend/src/api/tapp_store/compatibility.rs`             | 分离 CSS 的 staged 更新兼容事务                     |
 | 前端传输层 | `frontend/src/tapp/services/TappHttpClient.ts`              | CSRF、Runtime Grant 恢复、响应 envelope 与 SSE 解析 |
 | 前端运行时 API | `TappContextApi.ts` / `TappHostIntegrationApi.ts` / `TappInteractionApi.ts` | Context/Declared API、报告媒体、组件与事件交互 |
+| 前端数据 API | `TappStorageApi.ts` / `TappPlatformApi.ts` / `TappReportCatalogApi.ts` | 私有存储、平台数据与只读报告目录 |
+| 前端 Widget API | `TappWidgetApi.ts`                                     | Widget 注册、查询与注销                             |
+| 前端包资源 API | `TappPackageResourceApi.ts`                            | 已安装代码、资源、静态资产、兼容 CSS 与导出         |
+| 前端治理 API | `TappRuntimeAccessApi.ts` / `TappAiApi.ts`             | Runtime Grant、数据交换与服务端治理 AI 任务        |
+| 前端生命周期 API | `TappLifecycleApi.ts`                                | 列表、安装、更新、启动、停止、卸载与临时清理       |
 | 声明 API   | `backend/src/services/tapp_api_service.rs`                 | 模板注入、出站请求、builtin、上下文隔离缓存        |
 
 `frontend/src/tapp/types/index.ts` 是前端运行时类型入口。运行时类型不得依赖

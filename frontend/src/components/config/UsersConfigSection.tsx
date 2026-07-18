@@ -3,9 +3,10 @@
  *
  * - 管理员账户：账号信息 + OAuth 绑定状态
  * - 已注册用户：OAuth 状态、安装应用、在线时间；支持展开详情、
- *   编辑资料、授予/撤销管理员、启停本地登录、解绑 OAuth、创建用户
+ *   授予/撤销管理员、启停本地登录、解绑 OAuth、创建用户
  */
 
+import type { AdminUser, AdminUserIdentity, AdminUserUpdate } from '../../services/adminUsersApi'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
@@ -18,15 +19,21 @@ import {
   LuShieldCheck,
   LuUser,
 } from '../../lib/icons'
-import adminUsersApi, {
-  type AdminUser,
-  type AdminUserIdentity,
-  type AdminUserUpdate,
-} from '../../services/adminUsersApi'
-import { normalizeOAuthIconUrl } from '../../utils/oauthIcons'
+import adminUsersApi from '../../services/adminUsersApi'
+import { getOAuthIconAsset } from '../../utils/oauthIcons'
 import OAuthIconImage from '../OAuthIconImage'
-import { SettingGroup, SettingSection } from '../settings'
+import { SettingGroup, SettingSection, SwitchItem } from '../settings'
 import './UsersConfigSection.css'
+
+const KNOWN_PROVIDER_ICONS: Record<string, string> = {
+  google: getOAuthIconAsset('google'),
+  microsoft: getOAuthIconAsset('microsoft'),
+  gitlab: getOAuthIconAsset('gitlab'),
+  discord: getOAuthIconAsset('discord'),
+  authentik: getOAuthIconAsset('authentik'),
+  keycloak: getOAuthIconAsset('keycloak'),
+  auth0: getOAuthIconAsset('auth0'),
+}
 
 interface UsersConfigSectionProps {
   title: string
@@ -34,13 +41,17 @@ interface UsersConfigSectionProps {
   description: string
   sectionId?: string
   onMessage?: (message: string, type?: 'success' | 'error' | 'info') => void
+  /** 允许公开注册本地账号（存于 OAuth 设置，由 ConfigForm 统一保存） */
+  allowRegister: boolean
+  allowRegisterLoading?: boolean
+  onAllowRegisterChange: (allow: boolean) => void
 }
 
 const ONLINE_ICON_SIZE = 14
 
 function ProviderBadge({ identity }: { identity: AdminUserIdentity }) {
   const { t } = useI18n()
-  const iconSrc = normalizeOAuthIconUrl(`https://${identity.provider}.com`)
+  const iconSrc = KNOWN_PROVIDER_ICONS[identity.provider.toLowerCase()]
   const label = identity.provider_username || identity.provider
   return (
     <span
@@ -69,6 +80,9 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
   description,
   sectionId,
   onMessage,
+  allowRegister,
+  allowRegisterLoading = false,
+  onAllowRegisterChange,
 }) => {
   const { t } = useI18n()
   const { user: currentUser } = useAuth()
@@ -77,8 +91,6 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [detail, setDetail] = useState<AdminUser | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
-  const [editing, setEditing] = useState(false)
-  const [editDraft, setEditDraft] = useState({ display_name: '', email: '' })
   const [creating, setCreating] = useState(false)
   const [createDraft, setCreateDraft] = useState({
     username: '',
@@ -150,12 +162,10 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
       if (expandedId === user.id) {
         setExpandedId(null)
         setDetail(null)
-        setEditing(false)
         return
       }
       setExpandedId(user.id)
       setDetail(null)
-      setEditing(false)
       setDetailLoading(true)
       try {
         setDetail(await adminUsersApi.get(user.id))
@@ -213,25 +223,6 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
       }
     },
     [applyUpdated, notifyError, t],
-  )
-
-  const startEdit = useCallback((user: AdminUser) => {
-    setEditing(true)
-    setEditDraft({
-      display_name: user.display_name ?? '',
-      email: user.email ?? '',
-    })
-  }, [])
-
-  const handleSaveEdit = useCallback(
-    async (user: AdminUser) => {
-      const ok = await runUpdate(user.id, {
-        display_name: editDraft.display_name,
-        email: editDraft.email,
-      })
-      if (ok) setEditing(false)
-    },
-    [editDraft, runUpdate],
   )
 
   const handleCreate = useCallback(async () => {
@@ -387,82 +378,38 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
                   </dd>
                 </dl>
 
-                {editing ? (
-                  <div className="users-edit-form">
-                    <label>
-                      {t.config.usersDisplayName}
-                      <input
-                        type="text"
-                        value={editDraft.display_name}
-                        onChange={(e) =>
-                          setEditDraft((d) => ({
-                            ...d,
-                            display_name: e.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label>
-                      {t.config.usersEmail}
-                      <input
-                        type="email"
-                        value={editDraft.email}
-                        onChange={(e) =>
-                          setEditDraft((d) => ({ ...d, email: e.target.value }))
-                        }
-                      />
-                    </label>
-                    <div className="users-actions">
-                      <button
-                        type="button"
-                        className="users-button primary"
-                        disabled={busy}
-                        onClick={() => handleSaveEdit(shown)}
-                      >
-                        {t.config.usersSave}
-                      </button>
-                      <button
-                        type="button"
-                        className="users-button"
-                        disabled={busy}
-                        onClick={() => setEditing(false)}
-                      >
-                        {t.config.usersCancel}
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="users-actions">
-                    <button
-                      type="button"
-                      className="users-button"
-                      disabled={busy}
-                      onClick={() => startEdit(shown)}
-                    >
-                      {t.config.usersEditProfile}
-                    </button>
-                    <button
-                      type="button"
-                      className="users-button"
-                      disabled={busy}
-                      onClick={() => handleToggleLocalLogin(shown)}
-                    >
-                      {shown.local_login_disabled
-                        ? t.config.usersEnableLocalLogin
-                        : t.config.usersDisableLocalLogin}
-                    </button>
-                    <button
-                      type="button"
-                      className={`users-button${shown.is_admin ? ' danger' : ''}`}
-                      disabled={busy || shown.id === currentUser?.id}
-                      onClick={() => handleToggleAdmin(shown)}
-                    >
-                      {shown.is_admin
-                        ? t.config.usersRevokeAdmin
-                        : t.config.usersMakeAdmin}
-                    </button>
-                  </div>
-                )}
+                <div className="users-actions">
+                  <button
+                    type="button"
+                    className="users-button"
+                    disabled={
+                      busy ||
+                      (!shown.local_login_disabled &&
+                        shown.identities.length === 0)
+                    }
+                    title={
+                      !shown.local_login_disabled &&
+                      shown.identities.length === 0
+                        ? t.config.usersLocalLoginRequiresOAuth
+                        : undefined
+                    }
+                    onClick={() => handleToggleLocalLogin(shown)}
+                  >
+                    {shown.local_login_disabled
+                      ? t.config.usersEnableLocalLogin
+                      : t.config.usersDisableLocalLogin}
+                  </button>
+                  <button
+                    type="button"
+                    className={`users-button${shown.is_admin ? ' danger' : ''}`}
+                    disabled={busy || shown.id === currentUser?.id}
+                    onClick={() => handleToggleAdmin(shown)}
+                  >
+                    {shown.is_admin
+                      ? t.config.usersRevokeAdmin
+                      : t.config.usersMakeAdmin}
+                  </button>
+                </div>
               </>
             )}
           </div>
@@ -495,6 +442,16 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
         title={t.config.usersRegisteredGroup}
         description={t.config.usersRegisteredGroupDesc}
       >
+        {/* 本地注册开关（从第三方登录区搬入；仍随 ConfigForm 全局保存） */}
+        <SwitchItem
+          itemKey="allow_local_registration"
+          label={t.config.allowRegisterTitle}
+          description={t.config.allowRegisterDesc}
+          value={allowRegister}
+          loading={allowRegisterLoading}
+          onChange={onAllowRegisterChange}
+        />
+
         <div className="users-toolbar">
           <button
             type="button"

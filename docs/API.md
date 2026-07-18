@@ -30,6 +30,7 @@ Check if the API server is running.
   "version": "v0.1.0",
   "db_connected": true,
   "migrations_applied": true,
+  "storage_writable": true,
   "uptime_seconds": 123,
   "database_connected": true
 }

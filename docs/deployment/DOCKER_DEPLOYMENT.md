@@ -41,9 +41,11 @@ Networks:
   `X-Updater-Gateway-Secret` on every proxied call. Admin-net peers without the secret
   cannot drive the gateway. Leaking this secret is still sensitive (can trigger updates
   via gateway) but better than placing `UPDATE_TOKEN` in the fat backend.
-- **Backend runs as non-root** (image `USER myriad`, uid 1000). Deploy scripts chown
-  named volumes `backend_cache` / `backend_data` so `/app/cache` and `/app/data`
-  remain writable. Healthcheck stays on `localhost:1103/health` (no privileged ports).
+- **Backend runs as non-root** (image `USER myriad`, uid 1000). Deploy scripts repair
+  owner-only access on named volumes `backend_cache` / `backend_data`, then perform
+  a real write/remove probe as uid 1000. Backend startup repeats the storage probe and
+  refuses to become healthy when `/app/cache`, `/app/data`, or an existing Tapp owner
+  directory is not writable. Healthcheck stays on `localhost:1103/health`.
 - Browser update requests go through backend admin routes:
   `/api/admin/updater/*`. The browser never receives `UPDATE_TOKEN`.
 - Migrating topology: see

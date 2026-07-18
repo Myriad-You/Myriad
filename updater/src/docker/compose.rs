@@ -163,7 +163,7 @@ impl ComposeRunner {
                     "0:0",
                     "-e",
                     "MYRIAD_VOLUME_INIT_ONLY=true",
-                    "backend",
+                    "backend-volume-init",
                 ],
                 Duration::from_secs(600),
             )
@@ -185,6 +185,12 @@ impl ComposeRunner {
             })?;
         let waited = self
             .run_docker(&["wait", container_id], Duration::from_secs(600))
+            .await;
+        // Capture the init entrypoint's uid-1000 write-probe diagnostics before
+        // removing the disposable container. Failure to read logs is diagnostic
+        // only; the authoritative result remains `docker wait`.
+        let logs = self
+            .run_docker(&["logs", container_id], Duration::from_secs(120))
             .await;
         let removed = self
             .run_docker(&["rm", "--force", container_id], Duration::from_secs(120))
@@ -211,10 +217,24 @@ impl ComposeRunner {
                     waited.stdout_tail
                 ))
             })?;
+        let (init_stdout, init_stderr) = match logs {
+            Ok(output) if output.ok() => (output.stdout_tail, output.stderr_tail),
+            Ok(output) => (
+                String::new(),
+                format!(
+                    "unable to read backend volume initializer logs: {}",
+                    output.error_summary()
+                ),
+            ),
+            Err(error) => (
+                String::new(),
+                format!("unable to read backend volume initializer logs: {error}"),
+            ),
+        };
         Ok(ComposeOutput {
             status: init_exit,
-            stdout_tail: waited.stdout_tail,
-            stderr_tail: waited.stderr_tail,
+            stdout_tail: init_stdout,
+            stderr_tail: init_stderr,
         })
     }
 

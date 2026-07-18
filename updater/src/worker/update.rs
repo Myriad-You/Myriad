@@ -237,6 +237,11 @@ pub async fn run(
         )
         .await;
     }
+    tracing::info!(
+        output = %volume_init.stdout_tail.trim(),
+        diagnostics = %volume_init.stderr_tail.trim(),
+        "backend volume ownership and write verification completed"
+    );
     let up = compose.up_detached(&["backend", "frontend"]).await?;
     if !up.ok() {
         let err = format!("compose up new failed: {}", up.error_summary());
@@ -695,6 +700,15 @@ enum ProbeTick {
     NotReady { detail: String },
 }
 
+fn backend_storage_writable(health: &serde_json::Value) -> bool {
+    // Missing means an older backend from before the storage-preflight field;
+    // preserve rollback/upgrade compatibility for those images.
+    match health.get("storage_writable") {
+        None => true,
+        Some(value) => value.as_bool().unwrap_or(false),
+    }
+}
+
 async fn probe_one_tick(
     worker: &Arc<Worker>,
     target: &DeployTag,
@@ -763,14 +777,17 @@ async fn probe_one_tick(
         .get("migrations_applied")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+    // Older backends do not expose this field; retain upgrade compatibility.
+    // New backends only start after a real uid-1000 storage write probe.
+    let storage = backend_storage_writable(&json);
     let version_ok =
         target.matches_runtime_version(version) || commit_matches_target(target, commit_sha);
     let backend_identity_ok = version_ok || backend_img_ok;
 
-    if !db || !mig {
+    if !db || !mig || !storage {
         return ProbeTick::NotReady {
             detail: format!(
-                "backend up but db_connected={db} migrations_applied={mig} \
+                "backend up but db_connected={db} migrations_applied={mig} storage_writable={storage} \
                  version={version:?} commit={commit_sha:?} image={backend_image}"
             ),
         };
@@ -1010,6 +1027,20 @@ mod health_match_tests {
         assert!(image_ref_matches_target(
             "docker.io/x/myriad-backend:v0.2.2",
             &r
+        ));
+    }
+
+    #[test]
+    fn backend_storage_health_is_strict_when_field_is_present() {
+        assert!(backend_storage_writable(&serde_json::json!({})));
+        assert!(backend_storage_writable(
+            &serde_json::json!({ "storage_writable": true })
+        ));
+        assert!(!backend_storage_writable(
+            &serde_json::json!({ "storage_writable": false })
+        ));
+        assert!(!backend_storage_writable(
+            &serde_json::json!({ "storage_writable": "invalid-old-shape" })
         ));
     }
 }

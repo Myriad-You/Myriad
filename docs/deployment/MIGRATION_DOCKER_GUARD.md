@@ -75,11 +75,11 @@ docker compose exec -T postgres pg_dump -U myriad -d myriad \
    # MYRIAD_DOCKER_GUARD_NETWORK=myriad-docker-guard-net
    ```
 
-4. **Ensure backend volume ownership** (backend runs as uid 1000, not root):
+4. **Ensure backend volume ownership and owner-write access** (backend runs as uid 1000, not root):
 
    ```bash
    bash scripts/docker/deploy.sh up
-   # deploy.sh chowns ${COMPOSE_PROJECT_NAME}_backend_{cache,data} to 1000:1000
+   # deploy.sh repairs ownership/mode, then verifies writes as uid 1000.
    ```
 
    Or manually:
@@ -91,7 +91,8 @@ docker compose exec -T postgres pg_dump -U myriad -d myriad \
    docker run --rm \
      -v "${PROJECT}_backend_cache:/app/cache" \
      -v "${PROJECT}_backend_data:/app/data" \
-     alpine:3.20 chown -R 1000:1000 /app/cache /app/data
+     alpine:3.20 sh -c \
+       'chown -R 1000:1000 /app/cache /app/data && chmod -R u+rwX /app/cache /app/data'
    docker compose pull
    docker compose up -d
    ```

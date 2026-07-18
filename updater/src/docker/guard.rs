@@ -355,7 +355,10 @@ fn validate_container_create(state: &GuardState, body: &Bytes) -> std::result::R
         .get("com.docker.compose.service")
         .and_then(Value::as_str)
         .ok_or_else(|| "container is missing Compose service label".to_string())?;
-    if !matches!(service, "backend" | "frontend" | "postgres" | "updater") {
+    if !matches!(
+        service,
+        "backend" | "backend-volume-init" | "frontend" | "postgres" | "updater"
+    ) {
         return Err("Compose service is not managed by updater".into());
     }
 
@@ -378,7 +381,11 @@ fn validate_container_create(state: &GuardState, body: &Bytes) -> std::result::R
         .get("HostConfig")
         .cloned()
         .unwrap_or_else(|| json!({}));
-    if requests_root_user(&value) && !is_narrow_backend_volume_init(&value, &host, service) {
+    let narrow_volume_init = is_narrow_backend_volume_init(&value, &host, service);
+    if service == "backend-volume-init" && !narrow_volume_init {
+        return Err("backend-volume-init is allowed only in the narrow root init mode".into());
+    }
+    if requests_root_user(&value) && !narrow_volume_init {
         return Err("explicit root user is allowed only for the backend volume initializer".into());
     }
     reject_true(&host, "Privileged")?;
@@ -513,12 +520,13 @@ fn has_mount_target(value: &Value, host: &Value, expected: &str) -> bool {
     bind_has_target || structured_has_target
 }
 
-/// The updater may run one disposable backend-image container as root solely
-/// to repair the two backend named volumes. Keep this exception narrower than
-/// normal Compose service creation: exact uid, exact mode flag, one-off label,
-/// no-new-privileges, and both already-allowlisted volume targets are required.
+/// The updater may run one disposable `backend-volume-init` container as root
+/// solely to repair the two backend named volumes. Keep this exception narrower
+/// than normal Compose service creation: dedicated service label, exact uid,
+/// exact mode flag, one-off label, no network, no-new-privileges, and both
+/// already-allowlisted volume targets are required.
 fn is_narrow_backend_volume_init(value: &Value, host: &Value, service: &str) -> bool {
-    service == "backend"
+    service == "backend-volume-init"
         && value.get("User").and_then(Value::as_str) == Some("0:0")
         && has_exact_env(value, "MYRIAD_VOLUME_INIT_ONLY=true")
         && value
@@ -540,6 +548,11 @@ fn is_narrow_backend_volume_init(value: &Value, host: &Value, service: &str) -> 
                     })
                 })
             })
+        && host.get("NetworkMode").and_then(Value::as_str) == Some("none")
+        && value
+            .pointer("/NetworkingConfig/EndpointsConfig")
+            .and_then(Value::as_object)
+            .is_none_or(serde_json::Map::is_empty)
         && has_mount_target(value, host, "/app/cache")
         && has_mount_target(value, host, "/app/data")
 }
@@ -633,7 +646,7 @@ fn validate_mount_pair(
     };
     match service {
         "frontend" => Err("frontend container may not add mounts".into()),
-        "backend" => {
+        "backend" | "backend-volume-init" => {
             if host_bind || source_path.is_absolute() {
                 return Err("backend host bind mounts are forbidden".into());
             }
@@ -758,7 +771,10 @@ fn managed_project_service(inspect: &Value, config: &GuardConfig) -> Option<Stri
         .pointer("/Config/Labels/com.docker.compose.service")
         .and_then(Value::as_str)?;
     if project == config.project
-        && matches!(service, "backend" | "frontend" | "postgres" | "updater")
+        && matches!(
+            service,
+            "backend" | "backend-volume-init" | "frontend" | "postgres" | "updater"
+        )
     {
         Some(service.to_string())
     } else {
@@ -1284,7 +1300,7 @@ mod tests {
                 ],
                 "Labels": {
                     "com.docker.compose.project": "myriad",
-                    "com.docker.compose.service": "backend",
+                    "com.docker.compose.service": "backend-volume-init",
                     "com.docker.compose.oneoff": "True",
                 },
                 "HostConfig": host,
@@ -1304,7 +1320,7 @@ mod tests {
                     "myriad_backend_cache:/app/cache:rw",
                     "myriad_backend_data:/app/data:rw"
                 ],
-                "NetworkMode": "myriad-net",
+                "NetworkMode": "none",
                 "SecurityOpt": ["no-new-privileges:true"]
             }),
         );
@@ -1324,7 +1340,7 @@ mod tests {
         );
         assert!(validate_container_create(&state(), &missing_flag)
             .unwrap_err()
-            .contains("explicit root user"));
+            .contains("narrow root init mode"));
 
         let auto_remove_payload = backend_volume_init_create(
             "0:0",
@@ -1340,7 +1356,7 @@ mod tests {
         );
         assert!(validate_container_create(&state(), &auto_remove_payload)
             .unwrap_err()
-            .contains("explicit root user"));
+            .contains("narrow root init mode"));
 
         let missing_data_volume = backend_volume_init_create(
             "0:0",
@@ -1353,7 +1369,7 @@ mod tests {
         );
         assert!(validate_container_create(&state(), &missing_data_volume)
             .unwrap_err()
-            .contains("explicit root user"));
+            .contains("narrow root init mode"));
 
         let arbitrary_root_backend = backend_volume_init_create(
             "root:root",
@@ -1368,6 +1384,66 @@ mod tests {
             }),
         );
         assert!(validate_container_create(&state(), &arbitrary_root_backend)
+            .unwrap_err()
+            .contains("narrow root init mode"));
+
+        let networked_initializer = backend_volume_init_create(
+            "0:0",
+            "MYRIAD_VOLUME_INIT_ONLY=true",
+            json!({
+                "AutoRemove": false,
+                "Binds": [
+                    "myriad_backend_cache:/app/cache:rw",
+                    "myriad_backend_data:/app/data:rw"
+                ],
+                "NetworkMode": "myriad-net",
+                "SecurityOpt": ["no-new-privileges:true"]
+            }),
+        );
+        assert!(validate_container_create(&state(), &networked_initializer)
+            .unwrap_err()
+            .contains("narrow root init mode"));
+
+        let non_root_initializer = backend_volume_init_create(
+            "1000:1000",
+            "MYRIAD_VOLUME_INIT_ONLY=true",
+            json!({
+                "AutoRemove": false,
+                "Binds": [
+                    "myriad_backend_cache:/app/cache:rw",
+                    "myriad_backend_data:/app/data:rw"
+                ],
+                "NetworkMode": "none",
+                "SecurityOpt": ["no-new-privileges:true"]
+            }),
+        );
+        assert!(validate_container_create(&state(), &non_root_initializer)
+            .unwrap_err()
+            .contains("narrow root init mode"));
+
+        let regular_root_backend = Bytes::from(
+            serde_json::to_vec(&json!({
+                "Image": "docker.io/example/backend:v1",
+                "User": "0:0",
+                "Env": ["MYRIAD_VOLUME_INIT_ONLY=true"],
+                "Labels": {
+                    "com.docker.compose.project": "myriad",
+                    "com.docker.compose.service": "backend",
+                    "com.docker.compose.oneoff": "True"
+                },
+                "HostConfig": {
+                    "AutoRemove": false,
+                    "Binds": [
+                        "myriad_backend_cache:/app/cache:rw",
+                        "myriad_backend_data:/app/data:rw"
+                    ],
+                    "NetworkMode": "none",
+                    "SecurityOpt": ["no-new-privileges:true"]
+                }
+            }))
+            .unwrap(),
+        );
+        assert!(validate_container_create(&state(), &regular_root_backend)
             .unwrap_err()
             .contains("explicit root user"));
     }
@@ -1481,6 +1557,17 @@ mod tests {
     #[test]
     fn exec_and_unknown_mutations_are_denied() {
         let request = Uri::from_static("/v1.51/containers/myriad-backend/exec");
+        assert!(classify_request(&state(), &Method::POST, &request, &Bytes::new()).is_err());
+    }
+
+    #[test]
+    fn initializer_logs_remain_project_scoped_read_only_access() {
+        let request =
+            Uri::from_static("/v1.51/containers/init-container-id/logs?stdout=1&stderr=1");
+        assert_eq!(
+            classify_request(&state(), &Method::GET, &request, &Bytes::new()).unwrap(),
+            Decision::ProjectContainer("init-container-id".into())
+        );
         assert!(classify_request(&state(), &Method::POST, &request, &Bytes::new()).is_err());
     }
 

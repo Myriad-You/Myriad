@@ -338,40 +338,14 @@ pub async fn change_password(
     headers: axum::http::HeaderMap,
     Json(request): Json<ChangePasswordRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    // Extract and validate JWT token from headers
-    let token = headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.strip_prefix("Bearer "))
-        .ok_or_else(|| {
-            (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Missing or invalid authorization header"})),
-            )
-        })?;
-
-    let jwt_secret = env::var("JWT_SECRET").map_err(|_| {
-        tracing::error!("JWT_SECRET not set");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Server configuration error"})),
-        )
-    })?;
-
-    // Decode and validate token
-    let claims = jsonwebtoken::decode::<Claims>(
-        token,
-        &jsonwebtoken::DecodingKey::from_secret(jwt_secret.as_bytes()),
-        &jsonwebtoken::Validation::default(),
-    )
-    .map_err(|e| {
-        tracing::warn!("Invalid JWT token: {:?}", e);
+    // 提取并校验 JWT：支持 Authorization 头与 HttpOnly Cookie（与 set_password 一致）
+    // 浏览器端仅携带 HttpOnly Cookie，无法附加 Bearer 头
+    let claims = crate::middleware::auth::verify_jwt_token(&headers).map_err(|_| {
         (
             StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Invalid or expired token"})),
+            Json(json!({"error": "Unauthorized", "message": "Invalid or missing token"})),
         )
-    })?
-    .claims;
+    })?;
 
     let user_id = claims.sub.parse::<i32>().map_err(|_| {
         (

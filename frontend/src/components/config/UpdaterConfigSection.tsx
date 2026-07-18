@@ -34,11 +34,7 @@ import {
   UpdaterError,
 } from '../../services/updaterApi'
 import { ButtonItem, SettingGroup } from '../settings'
-import {
-  AGO_TICK_MS,
-  computeAgo,
-  isCheckStale,
-} from './updaterCheckFreshness'
+import { AGO_TICK_MS, computeAgo, isCheckStale } from './updaterCheckFreshness'
 import './UpdaterConfigSection.css'
 
 /** Formal release tags look like v0.2.6 (`v`-prefixed semver, matching DeployTag). */
@@ -282,7 +278,8 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
         if (e.status === 409) return u.updaterErr409
         if (e.status === 412) return `${u.updaterErr412}: ${e.message}`
         if (e.status >= 500) {
-          if (/not configured/i.test(e.message)) return u.updaterErrNotConfigured
+          if (/not configured/i.test(e.message))
+            return u.updaterErrNotConfigured
           if (e.status === 502 || e.status === 503) return u.updaterErrUpstream
           return format(u.updaterErrServer, { msg: upstreamDetail(e.message) })
         }
@@ -373,20 +370,18 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
   // ===== 操作 =====
 
   const checkAvailable = useCallback(
-    async (
-      opt: ChannelOption = selOption,
-      opts?: { silent?: boolean },
-    ) => {
+    async (opts?: { silent?: boolean }) => {
       if (tokenRequired) {
         setToast({ kind: 'error', text: u.updaterTokenRequiredDirect })
         return
       }
       setBusy('check')
       try {
-        const manifest = await api.available({
-          channel: opt.channel,
-          mode: opt.mode,
-        })
+        // Check the saved updater preferences, without query overrides. The
+        // updater intentionally treats parameterized checks as ephemeral and
+        // does not write them to /status; using one here would let the fresh
+        // response disagree with the cached status shown by the same panel.
+        const manifest = await api.available()
         setAvailable(manifest)
         if (!opts?.silent) {
           setToast(manifest ? null : { kind: 'ok', text: u.updaterNoAvailable })
@@ -398,7 +393,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
         setBusy(null)
       }
     },
-    [api, selOption, refresh, tokenRequired, explain, u],
+    [api, refresh, tokenRequired, explain, u],
   )
 
   // After first successful status(): recheck once if cache is stale.
@@ -423,10 +418,10 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
 
     autoRecheckDoneRef.current = true
     setAutoRechecking(true)
-    void checkAvailable(selOption, { silent: true }).finally(() => {
+    void checkAvailable({ silent: true }).finally(() => {
       setAutoRechecking(false)
     })
-  }, [status, accessDenied, tokenRequired, busy, checkAvailable, selOption])
+  }, [status, accessDenied, tokenRequired, busy, checkAvailable])
 
   const selectChannel = useCallback(
     async (key: ChannelKey) => {
@@ -448,8 +443,8 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
           text: format(u.updaterChannelSaved, { label: channelLabel(key, u) }),
         })
         setBusy(null)
-        // 切换后立刻按新通道重查，让状态卡马上反映结果。
-        await checkAvailable(opt)
+        // 偏好已保存；按 updater 的当前配置重查并同步 /status 缓存。
+        await checkAvailable()
       } catch (e) {
         setSel(prev)
         setToast({ kind: 'error', text: explain(e) })
@@ -512,7 +507,9 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
             e.message,
           )
         ) {
-          const msg = /irreversible|diverged|unknown|allow_risk/i.test(e.message)
+          const msg = /irreversible|diverged|unknown|allow_risk/i.test(
+            e.message,
+          )
             ? u.updaterConfirmRisk
             : format(u.updaterConfirmDowngrade, { version: target, current })
           if (confirm(msg)) {
@@ -556,8 +553,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
         ? 'commit'
         : 'release'
     const relation = available?.relation ?? la?.relation
-    const isUpgrade =
-      available?.is_upgrade === true || la?.is_upgrade === true
+    const isUpgrade = available?.is_upgrade === true || la?.is_upgrade === true
     const isDowngrade =
       available?.is_downgrade === true ||
       la?.is_downgrade === true ||
@@ -565,8 +561,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     // Dev/commit: build-time upgrades may report relation=unknown without ancestry;
     // only force risk confirm for diverged, or unknown when not a clear upgrade.
     const needsRisk =
-      relation === 'diverged' ||
-      (relation === 'unknown' && !isUpgrade)
+      relation === 'diverged' || (relation === 'unknown' && !isUpgrade)
     dispatchUpdate(target, mode, { isDowngrade, needsRisk })
   }, [available, status, selOption, dispatchUpdate, checkAvailable])
 
@@ -731,8 +726,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
   }, [status, nowTick])
 
   /** Cached available/downgrade while last check is too old — not fully trusted. */
-  const pendingConfirm =
-    stale && (mood === 'available' || mood === 'downgrade')
+  const pendingConfirm = stale && (mood === 'available' || mood === 'downgrade')
 
   // 非 admin：整段隐藏
   if (accessDenied && transport === 'backend') return null
@@ -740,20 +734,16 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
   // Scheme A: admin ProgressCard only for the brief pre-maintenance window.
   // Once maintenance is active, full progress lives on the maintenance page.
   const jobRunning =
-    !!activeJob && !['succeeded', 'failed', 'needs_manual'].includes(activeJob.status)
+    !!activeJob &&
+    !['succeeded', 'failed', 'needs_manual'].includes(activeJob.status)
   const showProgress =
-    jobRunning && !status?.maintenance_active && status?.maintenance_phase !== 'needs_manual'
+    jobRunning &&
+    !status?.maintenance_active &&
+    status?.maintenance_phase !== 'needs_manual'
   const showMaintenance =
     (mood === 'maintenance' || mood === 'needsManual') && !showProgress
   const requiresSelfUpdate =
     !!status?.requires_self_update && !!status.latest_available
-  // Prefer auto-recheck before presenting cached “new version” as trustworthy.
-  const showAvailableCard =
-    !showProgress &&
-    !stale &&
-    (mood === 'available' || mood === 'downgrade') &&
-    !!(available || status?.latest_available)
-
   return (
     <div className="updater-panel">
       {heading && <h3 className="updater-panel-heading">{heading}</h3>}
@@ -779,6 +769,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
         <StatusHero
           mood={mood}
           status={status}
+          available={available}
           sel={sel}
           busy={busy}
           loading={loading}
@@ -788,30 +779,32 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
           autoRechecking={autoRechecking}
           pendingConfirm={pendingConfirm}
           nowTick={nowTick}
+          toast={toast}
           u={u}
           onCheck={() => checkAvailable()}
           onUpdate={updateToLatest}
           onSelfUpdate={triggerSelfUpdate}
           onRetry={refresh}
+          onSaveAutoPrefs={async (prefs) => {
+            setBusy('auto-prefs')
+            setToast(null)
+            try {
+              await api.setPrefs(prefs)
+              setToast({ kind: 'ok', text: u.updaterAutoPrefsSaved })
+              await refresh()
+            } catch (e) {
+              setToast({ kind: 'error', text: explain(e) })
+            } finally {
+              setBusy(null)
+            }
+          }}
         />
       )}
 
       {jobRunning && status?.maintenance_active && !showProgress && (
-        <p className="updater-progress-hint">{u.updaterProgressOnMaintenance}</p>
-      )}
-
-      {showAvailableCard && (
-        <AvailableCard
-          status={status!}
-          available={available}
-          downgrade={mood === 'downgrade'}
-          requiresSelfUpdate={requiresSelfUpdate}
-          u={u}
-        />
-      )}
-
-      {toast && (
-        <div className={`updater-toast ${toast.kind}`}>{toast.text}</div>
+        <p className="updater-progress-hint">
+          {u.updaterProgressOnMaintenance}
+        </p>
       )}
 
       {/* ===== 更新通道：点选即保存 ===== */}
@@ -854,28 +847,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
             ))}
           </div>
         </SettingGroup>
-      )}
-
-      {/* ===== 自动检查 / 自动安装 ===== */}
-      {!showProgress && (
-        <AutoUpdatePrefs
-          status={status}
-          disabled={!!busy || tokenRequired}
-          u={u}
-          onSave={async (prefs) => {
-            setBusy('auto-prefs')
-            setToast(null)
-            try {
-              await api.setPrefs(prefs)
-              setToast({ kind: 'ok', text: u.updaterAutoPrefsSaved })
-              await refresh()
-            } catch (e) {
-              setToast({ kind: 'error', text: explain(e) })
-            } finally {
-              setBusy(null)
-            }
-          }}
-        />
       )}
 
       {/* ===== 维护与恢复（仅出问题时出现）===== */}
@@ -1021,6 +992,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
 function StatusHero({
   mood,
   status,
+  available,
   sel,
   busy,
   loading,
@@ -1030,14 +1002,17 @@ function StatusHero({
   autoRechecking,
   pendingConfirm,
   nowTick,
+  toast,
   u,
   onCheck,
   onUpdate,
   onSelfUpdate,
   onRetry,
+  onSaveAutoPrefs,
 }: {
   mood: Mood
   status: UpdaterStatus | null
+  available: ReleaseManifest | null
   sel: ChannelKey
   busy: string | null
   loading: boolean
@@ -1047,20 +1022,54 @@ function StatusHero({
   autoRechecking: boolean
   pendingConfirm: boolean
   nowTick: number
+  toast: Toast
   u: U
   onCheck: () => void
   onUpdate: () => void
   onSelfUpdate: () => void
   onRetry: () => void
+  onSaveAutoPrefs: (prefs: {
+    check_interval_secs?: number
+    auto_install?: boolean
+  }) => Promise<void>
 }) {
   const { title: moodTitle, hint, tone: moodTone } = moodText(mood, u)
-  const targetVersion = status?.latest_available?.version
+  const latest = status?.latest_available
+  const targetVersion = available?.version ?? latest?.version
+  const relation = available?.relation ?? latest?.relation
+  const aheadBy = available?.ahead_by ?? latest?.ahead_by
+  const behindBy = available?.behind_by ?? latest?.behind_by
+  const notesUrl = available?.notes_url || latest?.notes_url || null
+  const source = available?.source ?? latest?.source
+  const irreversible = available?.migrations?.irreversible === true
+  const showUpdateDetails =
+    !stale && (mood === 'available' || mood === 'downgrade') && !!targetVersion
+
+  let freshness: string | null = null
+  if (relation === 'ahead' && aheadBy != null) {
+    freshness = format(u.updaterFreshnessAhead, { n: String(aheadBy) })
+  } else if (relation === 'behind' && behindBy != null) {
+    freshness = format(u.updaterFreshnessBehind, { n: String(behindBy) })
+  } else if (relation === 'identical') {
+    freshness = u.updaterFreshnessIdentical
+  } else if (relation === 'diverged') {
+    freshness = format(u.updaterFreshnessDiverged, {
+      ahead: String(aheadBy ?? 0),
+      behind: String(behindBy ?? 0),
+    })
+  } else if (relation === 'unknown') {
+    freshness = u.updaterFreshnessUnknown
+  }
   // While cache is stale, prefer recheck over acting on cached “update available”.
   const showCheckPrimary =
     mood === 'healthy' ||
     mood === 'firstRun' ||
     pendingConfirm ||
-    (stale && mood !== 'offline' && mood !== 'updating' && mood !== 'maintenance' && mood !== 'needsManual')
+    (stale &&
+      mood !== 'offline' &&
+      mood !== 'updating' &&
+      mood !== 'maintenance' &&
+      mood !== 'needsManual')
 
   let title = moodTitle
   let tone: Tone = moodTone
@@ -1091,7 +1100,12 @@ function StatusHero({
         onClick={onCheck}
         disabled={busy === 'check' || loading || tokenRequired}
       >
-        <LuRefreshCw size={13} />
+        <LuRefreshCw
+          className={
+            busy === 'check' || autoRechecking ? 'is-spinning' : undefined
+          }
+          size={13}
+        />
         <span>
           {busy === 'check' || autoRechecking
             ? u.updaterChecking
@@ -1143,7 +1157,10 @@ function StatusHero({
         onClick={onRetry}
         disabled={loading || tokenRequired}
       >
-        <LuRefreshCw size={13} />
+        <LuRefreshCw
+          className={loading ? 'is-spinning' : undefined}
+          size={13}
+        />
         <span>{loading ? u.updaterLoading : u.updaterRetry}</span>
       </button>
     )
@@ -1152,169 +1169,138 @@ function StatusHero({
   const lastCheckedAbs = status?.last_checked_at
     ? new Date(status.last_checked_at).toLocaleString()
     : null
+  const checking = busy === 'check' || autoRechecking
 
   return (
-    <div className={`updater-hero${stale ? ' stale' : ''}`}>
+    <div
+      className={`updater-hero tone-${tone}${stale ? ' stale' : ''}${busy ? ' is-busy' : ''}`}
+    >
       <div className="updater-hero-main">
-        <span className={`updater-hero-dot ${tone}`} aria-hidden="true" />
+        <span className="updater-status-dot" aria-hidden="true" />
         <div className="updater-hero-text">
           <div className="updater-hero-status">
             {title}
-            {(mood === 'available' || mood === 'downgrade') && targetVersion && (
-              <>
-                {' '}
-                <code>{targetVersion}</code>
-              </>
-            )}
+            {(mood === 'available' || mood === 'downgrade') &&
+              targetVersion && (
+                <>
+                  {' '}
+                  <code>{targetVersion}</code>
+                </>
+              )}
           </div>
-          {effectiveHint && (
-            <div
-              className={`updater-hero-hint${stale ? ' stale' : ''}`}
-            >
-              {effectiveHint}
-            </div>
-          )}
+          <div className={`updater-hero-subtitle${stale ? ' stale' : ''}`}>
+            {effectiveHint && (
+              <span className="updater-hero-hint">{effectiveHint}</span>
+            )}
+            <span className="updater-hero-context">
+              <span>
+                {u.updaterCurrentVersion}{' '}
+                {status?.current_version ? (
+                  <>
+                    <code>{status.current_version}</code>
+                    {status.current_commit_sha && (
+                      <a
+                        className="updater-commit-link"
+                        href={`${COMMIT_URL}${status.current_commit_sha}`}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        title={status.current_commit_sha}
+                      >
+                        {status.current_commit_sha.slice(0, 7)}
+                      </a>
+                    )}
+                  </>
+                ) : (
+                  <em>{u.updaterUnknown}</em>
+                )}
+              </span>
+              <span aria-hidden="true">·</span>
+              <span>
+                {u.updaterChannelLabel} {channelLabel(sel, u)}
+              </span>
+              {status?.last_checked_at && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span title={lastCheckedAbs ?? undefined}>
+                    {u.updaterLastChecked}{' '}
+                    {formatAgo(status.last_checked_at, u, nowTick)}
+                  </span>
+                </>
+              )}
+              {!showCheckPrimary && mood !== 'offline' && (
+                <button
+                  type="button"
+                  className="updater-hero-recheck"
+                  onClick={onCheck}
+                  disabled={busy === 'check' || loading || tokenRequired}
+                >
+                  <LuRefreshCw
+                    className={checking ? 'is-spinning' : undefined}
+                    size={12}
+                  />
+                  <span>
+                    {busy === 'check' ? u.updaterChecking : u.updaterCheckNow}
+                  </span>
+                </button>
+              )}
+            </span>
+          </div>
         </div>
         {action && <div className="updater-hero-action">{action}</div>}
       </div>
-      <div className="updater-hero-meta">
-        <span>
-          {u.updaterCurrentVersion}{' '}
-          {status?.current_version ? (
-            <>
-              <code>{status.current_version}</code>
-              {status.current_commit_sha && (
-                <a
-                  className="updater-commit-link"
-                  href={`${COMMIT_URL}${status.current_commit_sha}`}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  title={status.current_commit_sha}
-                >
-                  {status.current_commit_sha.slice(0, 7)}
-                </a>
-              )}
-            </>
-          ) : (
-            <em>{u.updaterUnknown}</em>
-          )}
-        </span>
-        <span>
-          {u.updaterChannelLabel} {channelLabel(sel, u)}
-        </span>
-        {status?.last_checked_at && (
-          <span title={lastCheckedAbs ?? undefined}>
-            {u.updaterLastChecked}{' '}
-            {formatAgo(status.last_checked_at, u, nowTick)}
-          </span>
+      {showUpdateDetails &&
+        (freshness ||
+          source === 'dockerhub' ||
+          requiresSelfUpdate ||
+          irreversible ||
+          notesUrl) && (
+          <div className="updater-hero-details">
+            {freshness && <p>{freshness}</p>}
+            {source === 'dockerhub' && (
+              <p className="updater-hero-warning">
+                {u.updaterDockerHubFallback}
+              </p>
+            )}
+            {requiresSelfUpdate && (
+              <p className="updater-hero-warning">
+                {format(u.updaterSelfUpdateNeeded, {
+                  version: targetVersion,
+                  minVersion: latest?.min_updater_version ?? '—',
+                })}
+              </p>
+            )}
+            {irreversible && (
+              <p className="updater-hero-warning">
+                {u.updaterIrreversibleWarn}
+              </p>
+            )}
+            {notesUrl && (
+              <a
+                className="updater-hero-notes"
+                href={notesUrl}
+                target="_blank"
+                rel="noreferrer noopener"
+              >
+                {u.updaterReleaseNotes} ↗
+              </a>
+            )}
+          </div>
         )}
-        {!showCheckPrimary && mood !== 'offline' && (
-          <button
-            type="button"
-            className="updater-hero-recheck"
-            onClick={onCheck}
-            disabled={busy === 'check' || loading || tokenRequired}
-          >
-            <LuRefreshCw size={12} />
-            <span>
-              {busy === 'check' ? u.updaterChecking : u.updaterCheckNow}
-            </span>
-          </button>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ===== 新版本卡（纯说明，无按钮）=====
-
-function AvailableCard({
-  status,
-  available,
-  downgrade,
-  requiresSelfUpdate,
-  u,
-}: {
-  status: UpdaterStatus
-  available: ReleaseManifest | null
-  downgrade: boolean
-  requiresSelfUpdate: boolean
-  u: U
-}) {
-  const la = status.latest_available
-  const version = available?.version ?? la?.version ?? '—'
-  const notesUrl = available?.notes_url || la?.notes_url || null
-  const relation = available?.relation ?? la?.relation
-  const aheadBy = available?.ahead_by ?? la?.ahead_by
-  const behindBy = available?.behind_by ?? la?.behind_by
-  const irreversible = available?.migrations?.irreversible === true
-
-  let freshness: string | null = null
-  if (relation === 'ahead' && aheadBy != null) {
-    freshness = format(u.updaterFreshnessAhead, { n: String(aheadBy) })
-  } else if (relation === 'behind' && behindBy != null) {
-    freshness = format(u.updaterFreshnessBehind, { n: String(behindBy) })
-  } else if (relation === 'identical') {
-    freshness = u.updaterFreshnessIdentical
-  } else if (relation === 'diverged') {
-    freshness = format(u.updaterFreshnessDiverged, {
-      ahead: String(aheadBy ?? 0),
-      behind: String(behindBy ?? 0),
-    })
-  } else if (relation === 'unknown') {
-    freshness = u.updaterFreshnessUnknown
-  }
-
-  return (
-    <div className={`updater-available${downgrade ? ' downgrade' : ''}`}>
-      <div className="updater-available-head">
-        <span className="updater-available-title">
-          {downgrade
-            ? u.updaterAvailableDowngradeTitle
-            : u.updaterAvailableTitle}
-        </span>
-        <span className="updater-available-versions">
-          <code>{status.current_version ?? '—'}</code>
-          <span className="updater-available-arrow" aria-hidden="true">
-            →
-          </span>
-          <code>{version}</code>
-        </span>
-      </div>
-      {freshness && <p className="updater-available-freshness">{freshness}</p>}
-      {(available?.source ?? la?.source) === 'dockerhub' && (
-        <p className="updater-available-warn">{u.updaterDockerHubFallback}</p>
-      )}
-      {requiresSelfUpdate && (
-        <p className="updater-available-warn">
-          {format(u.updaterSelfUpdateNeeded, {
-            version,
-            minVersion: la?.min_updater_version ?? '—',
-          })}
-        </p>
-      )}
-      {irreversible && (
-        <p className="updater-available-warn">{u.updaterIrreversibleWarn}</p>
-      )}
-      <div className="updater-available-steps">
-        <div className="updater-available-steps-title">
-          {u.updaterWhatHappensTitle}
-        </div>
-        <ol>
-          <li>{u.updaterWhatHappens1}</li>
-          <li>{u.updaterWhatHappens2}</li>
-          <li>{u.updaterWhatHappens3}</li>
-        </ol>
-      </div>
-      {notesUrl && (
-        <a
-          className="updater-available-notes"
-          href={notesUrl}
-          target="_blank"
-          rel="noreferrer noopener"
+      <AutoUpdatePrefs
+        status={status}
+        disabled={!!busy || tokenRequired}
+        u={u}
+        onSave={onSaveAutoPrefs}
+      />
+      {toast && (
+        <div
+          className={`updater-hero-feedback ${toast.kind}`}
+          role={toast.kind === 'error' ? 'alert' : 'status'}
+          aria-live="polite"
         >
-          {u.updaterReleaseNotes} ↗
-        </a>
+          <span className="updater-feedback-mark" aria-hidden="true" />
+          <span>{toast.text}</span>
+        </div>
       )}
     </div>
   )
@@ -1344,7 +1330,9 @@ function ProgressCard({ job, u }: { job: Job; u: U }) {
         </span>
       </div>
       <p className="updater-progress-hint">{u.updaterHintUpdating}</p>
-      <p className="updater-progress-hint muted">{u.updaterProgressOnMaintenance}</p>
+      <p className="updater-progress-hint muted">
+        {u.updaterProgressOnMaintenance}
+      </p>
       <p className="updater-progress-phase">
         {currentStep?.phase ?? job.status}
       </p>
@@ -1419,15 +1407,14 @@ function AutoUpdatePrefs({
   const autoInstall = status?.auto_install === true
 
   return (
-    <SettingGroup
-      title={u.updaterAutoGroupTitle}
-      description={u.updaterAutoGroupDesc}
-    >
+    <div className="updater-hero-auto">
       <div className="updater-auto-prefs">
-        <label className="updater-auto-row">
+        <label className="updater-auto-row updater-auto-frequency">
           <span className="updater-auto-label">
             <span className="updater-auto-title">{u.updaterCheckInterval}</span>
-            <span className="updater-auto-desc">{u.updaterCheckIntervalDesc}</span>
+            <span className="updater-auto-desc">
+              {u.updaterCheckIntervalDesc}
+            </span>
           </span>
           <select
             className="updater-select"
@@ -1445,22 +1432,30 @@ function AutoUpdatePrefs({
             ))}
           </select>
         </label>
-        <label className="updater-auto-row">
+        <label className="updater-auto-row updater-auto-install">
           <span className="updater-auto-label">
             <span className="updater-auto-title">{u.updaterAutoInstall}</span>
-            <span className="updater-auto-desc">{u.updaterAutoInstallDesc}</span>
+            <span className="updater-auto-desc">
+              {u.updaterAutoInstallDesc}
+            </span>
           </span>
-          <input
-            type="checkbox"
-            checked={autoInstall}
-            disabled={disabled || !status}
-            onChange={(e) => {
-              void onSave({ auto_install: e.target.checked })
-            }}
-          />
+          <span className="updater-switch-control">
+            <input
+              className="updater-switch-input"
+              type="checkbox"
+              checked={autoInstall}
+              disabled={disabled || !status}
+              onChange={(e) => {
+                void onSave({ auto_install: e.target.checked })
+              }}
+            />
+            <span className="updater-switch-track" aria-hidden="true">
+              <span className="updater-switch-thumb" />
+            </span>
+          </span>
         </label>
       </div>
-    </SettingGroup>
+    </div>
   )
 }
 
@@ -1555,9 +1550,7 @@ function TargetPicker({
                 tag: build.tag,
                 label: kind === 'release' ? build.tag : build.short_sha,
                 message:
-                  kind === 'release'
-                    ? build.tag
-                    : u.updaterDockerHubBuild,
+                  kind === 'release' ? build.tag : u.updaterDockerHubBuild,
                 date: build.pushed_at,
                 kind,
                 title: build.tag,

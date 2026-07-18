@@ -10,13 +10,36 @@
 //!
 //! 普通用户临时安装的 Tapp 权限限制为 basic 级别
 
+mod catalog;
+mod compatibility;
 mod manifest;
 mod package_files;
+mod storage;
+mod store_sources;
 mod validation;
+mod widgets;
 
+#[cfg(test)]
+use catalog::tapp_detail_from_model;
+use catalog::{get_tapp, list_tapp_details, list_tapps};
+use compatibility::update_separated_css;
 pub use manifest::*;
 pub(crate) use package_files::*;
+use storage::{
+    clear_storage, delete_storage, get_storage, get_storage_usage, get_tapp_setting,
+    get_tapp_settings, list_storage_entries, list_storage_keys, set_storage, set_tapp_setting,
+};
+pub(crate) use storage::{
+    read_storage_value, validate_sandbox_storage_key, validate_storage_key,
+    validate_storage_value_size, write_storage_value,
+};
+pub use store_sources::*;
 pub(crate) use validation::*;
+#[cfg(test)]
+use widgets::runtime_widget_belongs_to_installation;
+#[allow(dead_code)]
+pub type RegisterWidgetRequest = widgets::RegisterWidgetRequest;
+use widgets::{list_all_widgets, reconcile_manifest_widgets, register_widget, unregister_widget};
 
 use axum::{
     extract::{Path, Query, State},
@@ -29,8 +52,7 @@ use axum::{
 use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, ConnectionTrait, DatabaseBackend,
-    DatabaseConnection, DbErr, EntityTrait, FromQueryResult, QueryFilter, Set, Statement,
-    TransactionTrait,
+    DatabaseConnection, DbErr, EntityTrait, QueryFilter, Set, Statement, TransactionTrait,
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -38,7 +60,6 @@ use tokio::fs;
 
 use crate::api::tapp_runtime::common as tapp_common;
 use crate::api::tapp_runtime::RuntimeGrantContext;
-use crate::config::DynamicConfig;
 use crate::middleware::auth::{
     auth_middleware, ensure_current_admin, extract_optional_claims, optional_auth_middleware,
     Claims,
@@ -48,37 +69,6 @@ use crate::models::entities::{
 };
 use crate::services::permission_service::{TappPermission, TappPermissionService, UserRole};
 use crate::GLOBAL_DYNAMIC_CONFIG;
-
-fn tapp_detail_from_model(
-    tapp: tapps::Model,
-    role: UserRole,
-    is_temporary: bool,
-    is_admin_tapp: bool,
-    config: &DynamicConfig,
-) -> TappDetail {
-    let approved_permissions: Vec<String> =
-        serde_json::from_value(tapp.approved_permissions.clone()).unwrap_or_default();
-    let granted_permissions =
-        TappPermissionService::filter_permissions_for_role(config, role, &approved_permissions);
-
-    TappDetail {
-        id: tapp.tapp_id,
-        name: tapp.name,
-        version: tapp.version,
-        description: tapp.description,
-        author: tapp.author,
-        icon: tapp.icon,
-        theme_color: tapp.theme_color,
-        manifest: tapp.manifest,
-        status: format!("{:?}", tapp.status).to_lowercase(),
-        granted_permissions,
-        installed_at: tapp.installed_at.to_rfc3339(),
-        last_run_at: tapp.last_run_at.map(|dt| dt.to_rfc3339()),
-        user_role: role.as_str().to_string(),
-        is_temporary,
-        is_admin_tapp,
-    }
-}
 
 /// 获取管理员用户 ID（委托给 tapp_runtime::common 的缓存版本）
 async fn get_admin_user_id(db: &DatabaseConnection) -> Result<i32, StatusCode> {
@@ -461,158 +451,6 @@ pub fn create_tapp_routes() -> Router<DatabaseConnection> {
     public_routes
         .merge(authenticated_routes)
         .merge(optional_subject_routes)
-}
-
-/// 获取 Tapp 列表
-///
-/// 权限模型：
-/// - 游客：只能看到管理员的 Tapp 列表（只读）
-/// - 普通用户：看到管理员的 Tapp + 自己临时安装的 Tapp
-/// - 管理员：看到自己的 Tapp（可管理）
-async fn list_tapps(
-    State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
-) -> Result<Json<ApiResponse<Vec<TappListItem>>>, StatusCode> {
-    // 可选认证：游客也可以访问
-    let claims = extract_optional_claims(&headers);
-    let user_id = optional_authenticated_user_id(claims.as_ref());
-    // 获取管理员用户 ID
-    let admin_id = find_admin_user_id(&db).await?;
-
-    let mut items: Vec<TappListItem> = Vec::new();
-    let mut seen_tapp_ids = std::collections::HashSet::new();
-
-    // Prefer the subject's private install when both private and public copies exist.
-    if let Some(uid) = user_id {
-        if Some(uid) != admin_id {
-            let user_tapps = tapps::Entity::find()
-                .filter(tapps::Column::UserId.eq(uid))
-                .all(&db)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-            for t in user_tapps {
-                seen_tapp_ids.insert(t.tapp_id.clone());
-                let icon_svg = t
-                    .manifest
-                    .get("iconSvg")
-                    .and_then(|v| v.as_str())
-                    .map(String::from);
-                items.push(TappListItem {
-                    id: t.tapp_id,
-                    name: t.name,
-                    version: t.version,
-                    description: t.description,
-                    icon: t.icon,
-                    icon_svg,
-                    status: format!("{:?}", t.status).to_lowercase(),
-                    installed_at: t.installed_at.to_rfc3339(),
-                    last_run_at: t.last_run_at.map(|dt| dt.to_rfc3339()),
-                    // Every installation outside the one site-owner namespace
-                    // follows the per-user temporary lifecycle, even when the
-                    // current account also has an administrator role.
-                    is_temporary: true,
-                    is_admin_tapp: false,
-                });
-            }
-        }
-    }
-
-    // Site-owner public installs are visible to everyone; skip IDs already covered
-    // by the subject's private copy.
-    let admin_tapps = if let Some(admin_id) = admin_id {
-        tapps::Entity::find()
-            .filter(tapps::Column::UserId.eq(admin_id))
-            .all(&db)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    } else {
-        Vec::new()
-    };
-
-    for t in admin_tapps {
-        if !seen_tapp_ids.insert(t.tapp_id.clone()) {
-            continue;
-        }
-        let icon_svg = t
-            .manifest
-            .get("iconSvg")
-            .and_then(|v| v.as_str())
-            .map(String::from);
-        items.push(TappListItem {
-            id: t.tapp_id,
-            name: t.name,
-            version: t.version,
-            description: t.description,
-            icon: t.icon,
-            icon_svg,
-            status: format!("{:?}", t.status).to_lowercase(),
-            installed_at: t.installed_at.to_rfc3339(),
-            last_run_at: t.last_run_at.map(|dt| dt.to_rfc3339()),
-            is_temporary: false,
-            is_admin_tapp: true,
-        });
-    }
-
-    Ok(Json(ApiResponse::success(items)))
-}
-
-/// 批量获取当前会话可见的全部 Tapp 详情。
-///
-/// 与 `GET /api/tapps/{tapp_id}` 保持相同的可见性和权限过滤规则，但固定只执行
-/// 管理员 Tapp 与当前用户 Tapp 两次查询，避免前端列表同步产生 N+1 请求。
-async fn list_tapp_details(
-    State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
-) -> Result<Json<ApiResponse<Vec<TappDetail>>>, StatusCode> {
-    let claims = extract_optional_claims(&headers);
-    let parsed_user_id = optional_authenticated_user_id(claims.as_ref());
-    let role = match claims.as_ref() {
-        Some(claims) if current_is_admin(claims).await => UserRole::Admin,
-        _ if parsed_user_id.is_some() => UserRole::User,
-        _ => UserRole::Guest,
-    };
-    let admin_id = find_admin_user_id(&db).await?;
-
-    let admin_tapps = if let Some(admin_id) = admin_id {
-        tapps::Entity::find()
-            .filter(tapps::Column::UserId.eq(admin_id))
-            .all(&db)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    } else {
-        Vec::new()
-    };
-
-    let user_tapps = if let Some(user_id) = parsed_user_id {
-        if Some(user_id) != admin_id {
-            tapps::Entity::find()
-                .filter(tapps::Column::UserId.eq(user_id))
-                .all(&db)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        } else {
-            Vec::new()
-        }
-    } else {
-        Vec::new()
-    };
-
-    // Prefer private install when subject has both; guests only see public installs.
-    let mut seen = std::collections::HashSet::new();
-    let config = GLOBAL_DYNAMIC_CONFIG.read().await;
-    let mut details = Vec::with_capacity(admin_tapps.len() + user_tapps.len());
-    for tapp in user_tapps {
-        seen.insert(tapp.tapp_id.clone());
-        details.push(tapp_detail_from_model(tapp, role, true, false, &config));
-    }
-    for tapp in admin_tapps {
-        if seen.insert(tapp.tapp_id.clone()) {
-            details.push(tapp_detail_from_model(tapp, role, false, true, &config));
-        }
-    }
-
-    Ok(Json(ApiResponse::success(details)))
 }
 
 /// 从远程商店下载 Tapp 文件
@@ -1193,6 +1031,7 @@ async fn install_tapp(
     let stage = TappDirStage::create(&final_tapp_dir)
         .await
         .map_err(|error| {
+            log_tapp_filesystem_access(&final_tapp_dir, &error);
             log_install_failure(
                 "TappDirStage::create",
                 &manifest.id,
@@ -1202,8 +1041,11 @@ async fn install_tapp(
                 &error,
             );
             (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                api_error(format!("Failed to create staging directory: {error}")),
+                tapp_filesystem_error_status(&error),
+                api_error(tapp_filesystem_error_message(
+                    "Failed to create Tapp staging directory",
+                    &error,
+                )),
             )
         })?;
     let tapp_dir = stage.path();
@@ -1557,6 +1399,7 @@ async fn install_tapp(
         Ok(activated) => activated,
         Err(error) => {
             txn.rollback().await.ok();
+            log_tapp_filesystem_access(&final_tapp_dir, &error);
             log_install_failure(
                 "stage.activate",
                 &manifest.id,
@@ -1566,8 +1409,11 @@ async fn install_tapp(
                 &error,
             );
             return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                api_error(format!("Failed to activate staged Tapp: {error}")),
+                tapp_filesystem_error_status(&error),
+                api_error(tapp_filesystem_error_message(
+                    "Failed to activate staged Tapp",
+                    &error,
+                )),
             ));
         }
     };
@@ -1833,6 +1679,7 @@ async fn install_tapp_file(
     let stage = TappDirStage::create(&final_tapp_dir)
         .await
         .map_err(|error| {
+            log_tapp_filesystem_access(&final_tapp_dir, &error);
             log_install_failure(
                 "TappDirStage::create",
                 &manifest.id,
@@ -1842,8 +1689,11 @@ async fn install_tapp_file(
                 &error,
             );
             (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                api_error(format!("Failed to create staging directory: {error}")),
+                tapp_filesystem_error_status(&error),
+                api_error(tapp_filesystem_error_message(
+                    "Failed to create Tapp staging directory",
+                    &error,
+                )),
             )
         })?;
     let tapp_dir = stage.path();
@@ -2014,6 +1864,7 @@ async fn install_tapp_file(
         Ok(activated) => activated,
         Err(error) => {
             txn.rollback().await.ok();
+            log_tapp_filesystem_access(&final_tapp_dir, &error);
             log_install_failure(
                 "stage.activate",
                 &manifest.id,
@@ -2023,8 +1874,11 @@ async fn install_tapp_file(
                 &error,
             );
             return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                api_error(format!("Failed to activate staged Tapp: {error}")),
+                tapp_filesystem_error_status(&error),
+                api_error(tapp_filesystem_error_message(
+                    "Failed to activate staged Tapp",
+                    &error,
+                )),
             ));
         }
     };
@@ -2138,45 +1992,6 @@ async fn install_tapp_file(
         is_temporary,
         is_admin_tapp: is_current_admin,
     })))
-}
-
-/// 获取 Tapp 详情
-///
-/// 权限模型：
-/// - 游客：只能访问管理员的 Tapp（只读）
-/// - 普通用户：可以访问管理员的 Tapp + 自己临时安装的 Tapp
-async fn get_tapp(
-    State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
-    Path(tapp_id): Path<String>,
-) -> Result<Json<ApiResponse<TappDetail>>, StatusCode> {
-    // 可选认证：游客也可以访问
-    let claims = extract_optional_claims(&headers);
-    let user_id = optional_authenticated_user_id(claims.as_ref());
-    let is_admin = match claims.as_ref() {
-        Some(claims) => current_is_admin(claims).await,
-        None => false,
-    };
-    let visible = find_visible_tapp(&db, user_id, &tapp_id)
-        .await?
-        .ok_or(StatusCode::NOT_FOUND)?;
-
-    let role = if is_admin {
-        UserRole::Admin
-    } else if user_id.is_some_and(|user_id| user_id >= 0) {
-        UserRole::User
-    } else {
-        UserRole::Guest
-    };
-    let config = GLOBAL_DYNAMIC_CONFIG.read().await;
-    let detail = tapp_detail_from_model(
-        visible.tapp,
-        role,
-        !visible.is_site_owner,
-        visible.is_site_owner,
-        &config,
-    );
-    Ok(Json(ApiResponse::success(detail)))
 }
 
 /// 获取 Tapp 代码
@@ -3398,12 +3213,26 @@ async fn update_tapp(
 
     let final_tapp_dir = tapp_dir_for(target_owner_id, &tapp_id)
         .map_err(|error| (StatusCode::BAD_REQUEST, api_error(error)))?;
-    let stage = TappDirStage::create(&final_tapp_dir).await.map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            api_error("Failed to create staging directory"),
-        )
-    })?;
+    let stage = TappDirStage::create(&final_tapp_dir)
+        .await
+        .map_err(|error| {
+            log_tapp_filesystem_access(&final_tapp_dir, &error);
+            log_install_failure(
+                "TappDirStage::create",
+                &tapp_id,
+                user_id,
+                target_owner_id,
+                Some(&final_tapp_dir),
+                &error,
+            );
+            (
+                tapp_filesystem_error_status(&error),
+                api_error(tapp_filesystem_error_message(
+                    "Failed to create Tapp update staging directory",
+                    &error,
+                )),
+            )
+        })?;
     let tapp_dir = stage.path();
 
     // 更新代码文件
@@ -3621,6 +3450,7 @@ async fn update_tapp(
         Ok(activated) => activated,
         Err(error) => {
             txn.rollback().await.ok();
+            log_tapp_filesystem_access(&final_tapp_dir, &error);
             tracing::error!(
                 step = "stage.activate",
                 tapp_id = %tapp_id,
@@ -3632,8 +3462,11 @@ async fn update_tapp(
                 "Tapp update activate failed"
             );
             return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                api_error(format!("Failed to activate staged Tapp update: {error}")),
+                tapp_filesystem_error_status(&error),
+                api_error(tapp_filesystem_error_message(
+                    "Failed to activate staged Tapp update",
+                    &error,
+                )),
             ));
         }
     };
@@ -3759,1286 +3592,14 @@ async fn cleanup_temporary_tapps(
     Ok(Json(ApiResponse::success(deleted)))
 }
 
-/// 列出用户所有已注册的小组件（跨所有 Tapp）
-///
-/// 权限模型：
-/// - 游客：只返回公共安装的 Manifest Widget
-/// - 已登录用户：再返回当前主体、当前可见安装下的动态 Widget
-fn widget_source(config: &serde_json::Value) -> Option<&str> {
-    config.get("source").and_then(serde_json::Value::as_str)
-}
-
-fn widget_installation_owner(config: &serde_json::Value) -> Option<i32> {
-    config
-        .get("installationOwnerId")
-        .and_then(serde_json::Value::as_i64)
-        .and_then(|value| i32::try_from(value).ok())
-}
-
-fn runtime_widget_belongs_to_installation(
-    widget: &tapp_widgets::Model,
-    subject_id: i32,
-    installation_owner_id: i32,
-) -> bool {
-    widget_source(&widget.config) == Some("runtime")
-        && (widget_installation_owner(&widget.config) == Some(installation_owner_id)
-            // Compatibility for runtime Widgets created before owner binding:
-            // they are safe only when subject and installation owner coincide.
-            || (widget_installation_owner(&widget.config).is_none()
-                && subject_id == installation_owner_id))
-}
-
-fn tapp_widget_response(widget: &tapp_widgets::Model, is_admin_widget: bool) -> serde_json::Value {
-    serde_json::json!({
-        "id": widget.widget_id,
-        "tappId": widget.tapp_id,
-        "config": {
-            "id": widget.widget_id.strip_prefix(&format!("tapp.{}.", widget.tapp_id)).unwrap_or(&widget.widget_id),
-            "name": widget.name,
-            "description": widget.description,
-            "icon": widget.icon,
-            "defaultSize": widget.default_size,
-            "sizes": widget.sizes,
-            "category": widget.category,
-            "settings": widget.config.get("settings").cloned().unwrap_or_else(|| serde_json::json!([])),
-            "refreshPolicy": widget.config.get("refreshPolicy").cloned().unwrap_or(serde_json::Value::Null),
-        },
-        "instanceCount": 0,
-        "registeredAt": widget.registered_at.to_rfc3339(),
-        "isAdminWidget": is_admin_widget,
-    })
-}
-
-async fn list_all_widgets(
-    State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
-) -> Result<Json<ApiResponse<Vec<serde_json::Value>>>, StatusCode> {
-    // 可选认证：游客也可以访问
-    let claims = extract_optional_claims(&headers);
-    let user_id = optional_authenticated_user_id(claims.as_ref());
-    let admin_id = find_admin_user_id(&db).await?;
-    let admin_tapp_ids: std::collections::HashSet<String> = if let Some(admin_id) = admin_id {
-        tapps::Entity::find()
-            .filter(tapps::Column::UserId.eq(admin_id))
-            .all(&db)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-            .into_iter()
-            .map(|tapp| tapp.tapp_id)
-            .collect()
-    } else {
-        std::collections::HashSet::new()
-    };
-    let user_tapp_ids: std::collections::HashSet<String> = if let Some(uid) = user_id {
-        if Some(uid) != admin_id {
-            tapps::Entity::find()
-                .filter(tapps::Column::UserId.eq(uid))
-                .all(&db)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-                .into_iter()
-                .map(|tapp| tapp.tapp_id)
-                .collect()
-        } else {
-            std::collections::HashSet::new()
-        }
-    } else {
-        std::collections::HashSet::new()
-    };
-
-    let mut items: Vec<serde_json::Value> = Vec::new();
-    let mut public_manifest_widget_ids = std::collections::HashSet::new();
-    // 1. Public owner Manifest Widgets are shared. Runtime Widgets owned by
-    // the site-owner subject remain private to that subject.
-    let admin_widgets = if let Some(admin_id) = admin_id {
-        tapp_widgets::Entity::find()
-            .filter(tapp_widgets::Column::UserId.eq(admin_id))
-            .all(&db)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    } else {
-        Vec::new()
-    };
-
-    for widget in admin_widgets {
-        if widget_source(&widget.config) == Some("runtime") {
-            if user_id == admin_id
-                && admin_id.is_some_and(|owner_id| {
-                    runtime_widget_belongs_to_installation(&widget, owner_id, owner_id)
-                })
-            {
-                items.push(tapp_widget_response(&widget, false));
-            }
-            continue;
-        }
-        if user_tapp_ids.contains(&widget.tapp_id) {
-            continue;
-        }
-        public_manifest_widget_ids.insert(widget.widget_id.clone());
-        items.push(tapp_widget_response(&widget, true));
-    }
-
-    // 2. Subject-owned Widgets are visible only when they belong to the
-    // installation that currently wins resolution for this subject.
-    if let Some(uid) = user_id {
-        if Some(uid) != admin_id {
-            let user_widgets = tapp_widgets::Entity::find()
-                .filter(tapp_widgets::Column::UserId.eq(uid))
-                .all(&db)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-            for widget in user_widgets {
-                let visible = if user_tapp_ids.contains(&widget.tapp_id) {
-                    widget_source(&widget.config) != Some("runtime")
-                        || runtime_widget_belongs_to_installation(&widget, uid, uid)
-                } else if admin_tapp_ids.contains(&widget.tapp_id) {
-                    admin_id.is_some_and(|owner_id| {
-                        runtime_widget_belongs_to_installation(&widget, uid, owner_id)
-                            && !public_manifest_widget_ids.contains(&widget.widget_id)
-                    })
-                } else {
-                    false
-                };
-                if visible {
-                    items.push(tapp_widget_response(&widget, false));
-                }
-            }
-        }
-    }
-
-    Ok(Json(ApiResponse::success(items)))
-}
-
-/// 注册小组件请求
-#[derive(Debug, Deserialize)]
-pub struct RegisterWidgetRequest {
-    pub id: String,
-    pub name: String,
-    pub description: Option<String>,
-    pub icon: Option<String>,
-    pub default_size: String,
-    pub sizes: Vec<String>,
-    pub category: Option<TappWidgetCategory>,
-    #[serde(default)]
-    pub settings: Vec<TappSettingDef>,
-    #[serde(default)]
-    pub refresh_policy: Option<TappWidgetRefreshPolicy>,
-}
-
-async fn reconcile_manifest_widgets(
-    db: &impl ConnectionTrait,
-    user_id: i32,
-    tapp_id: &str,
-    manifest: &TappManifest,
-    previous_manifest: Option<&serde_json::Value>,
-) -> Result<(), StatusCode> {
-    let desired_widgets = manifest.widgets.as_deref().unwrap_or_default();
-    let desired_ids: std::collections::HashSet<String> = desired_widgets
-        .iter()
-        .map(|widget| format!("tapp.{tapp_id}.{}", widget.id))
-        .collect();
-    let legacy_manifest_ids: std::collections::HashSet<String> = previous_manifest
-        .and_then(|value| value.get("widgets"))
-        .and_then(serde_json::Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|widget| widget.get("id").and_then(serde_json::Value::as_str))
-        .map(|id| format!("tapp.{tapp_id}.{id}"))
-        .collect();
-
-    let existing = tapp_widgets::Entity::find()
-        .filter(tapp_widgets::Column::UserId.eq(user_id))
-        .filter(tapp_widgets::Column::TappId.eq(tapp_id))
-        .all(db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    for widget in existing {
-        let is_manifest = widget
-            .config
-            .get("source")
-            .and_then(serde_json::Value::as_str)
-            == Some("manifest")
-            || legacy_manifest_ids.contains(&widget.widget_id);
-        if is_manifest && !desired_ids.contains(&widget.widget_id) {
-            tapp_widgets::Entity::delete_by_id(widget.id)
-                .exec(db)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        }
-    }
-
-    for widget in desired_widgets {
-        let widget_id = format!("tapp.{tapp_id}.{}", widget.id);
-        // A runtime Widget belongs to one concrete installation even when its
-        // subject differs from the installation owner (the public-install
-        // case). Once that installation declares the same ID in its manifest,
-        // remove only runtime rows bound to this owner; private same-ID rows
-        // belonging to another installation must survive.
-        db.execute(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            r#"DELETE FROM tapp_widgets
-               WHERE widget_id = $1
-                 AND user_id <> $2
-                 AND config->>'source' = 'runtime'
-                 AND config->>'installationOwnerId' = $3"#,
-            vec![
-                widget_id.clone().into(),
-                user_id.into(),
-                user_id.to_string().into(),
-            ],
-        ))
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        let runtime_config = serde_json::json!({
-            "settings": &widget.settings,
-            "refreshPolicy": &widget.refresh_policy,
-            "source": "manifest",
-            "installationOwnerId": user_id,
-        });
-        let existing = tapp_widgets::Entity::find()
-            .filter(tapp_widgets::Column::UserId.eq(user_id))
-            .filter(tapp_widgets::Column::WidgetId.eq(&widget_id))
-            .one(db)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        if let Some(existing) = existing {
-            let mut active: tapp_widgets::ActiveModel = existing.into();
-            active.name = Set(widget.name.clone());
-            active.description = Set(widget.description.clone());
-            active.icon = Set(widget.icon.clone());
-            active.default_size = Set(widget.default_size.clone());
-            active.sizes = Set(serde_json::to_value(&widget.sizes).unwrap_or_default());
-            active.category = Set(widget
-                .category
-                .map(|category| category.as_str().to_string()));
-            active.config = Set(runtime_config);
-            active
-                .update(db)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        } else {
-            tapp_widgets::ActiveModel {
-                id: NotSet,
-                widget_id: Set(widget_id),
-                tapp_id: Set(tapp_id.to_string()),
-                user_id: Set(user_id),
-                name: Set(widget.name.clone()),
-                description: Set(widget.description.clone()),
-                icon: Set(widget.icon.clone()),
-                default_size: Set(widget.default_size.clone()),
-                sizes: Set(serde_json::to_value(&widget.sizes).unwrap_or_default()),
-                category: Set(widget
-                    .category
-                    .map(|category| category.as_str().to_string())),
-                config: Set(runtime_config),
-                registered_at: Set(Utc::now().fixed_offset()),
-            }
-            .insert(db)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        }
-    }
-    Ok(())
-}
-
-/// 注册小组件
-async fn register_widget(
-    State(db): State<DatabaseConnection>,
-    Extension(claims): Extension<Claims>,
-    runtime_grant: RuntimeGrantContext,
-    Path(tapp_id): Path<String>,
-    Json(req): Json<RegisterWidgetRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, StatusCode> {
-    // Dynamic Widget registration changes the site Dashboard capability
-    // surface. A manifest permission or stale Runtime Grant must never make
-    // this operation available to a non-admin subject.
-    require_current_admin(&claims).await?;
-    runtime_grant
-        .require_tapp_id(&tapp_id)
-        .and_then(|_| runtime_grant.require(TappPermission::WidgetRegister))
-        .map_err(|(status, _)| status)?;
-    let user_id =
-        authorize_tapp_permission(&db, &claims, &tapp_id, TappPermission::WidgetRegister).await?;
-    let installation_owner_id = runtime_grant.owner_id();
-    if !is_safe_path_component(&req.id)
-        || req.name.is_empty()
-        || req.name.len() > 255
-        || req.sizes.is_empty()
-        || req.sizes.len() > 10
-        || req.sizes.iter().any(|size| !is_valid_widget_size(size))
-        || !req.sizes.contains(&req.default_size)
-    {
-        return Err(StatusCode::BAD_REQUEST);
-    }
-    validate_tapp_settings(&req.settings, &format!("Widget {}", req.id))
-        .map_err(|_| StatusCode::BAD_REQUEST)?;
-    if let Some(policy) = &req.refresh_policy {
-        validate_widget_refresh_policy(policy, &req.id).map_err(|_| StatusCode::BAD_REQUEST)?;
-    }
-    let widget_id = format!("tapp.{}.{}", tapp_id, req.id);
-    let site_owner_id = find_admin_user_id(&db).await?;
-    let txn = db
-        .begin()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    // Serialize the visibility check, per-installation count and insert with
-    // install/update/uninstall across all backend replicas.
-    lock_tapp_lifecycle(&txn, &tapp_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let private_install_exists = if Some(user_id) != site_owner_id {
-        tapps::Entity::find()
-            .filter(tapps::Column::UserId.eq(user_id))
-            .filter(tapps::Column::TappId.eq(&tapp_id))
-            .one(&txn)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-            .is_some()
-    } else {
-        false
-    };
-    let public_install_exists = if let Some(site_owner_id) = site_owner_id {
-        tapps::Entity::find()
-            .filter(tapps::Column::UserId.eq(site_owner_id))
-            .filter(tapps::Column::TappId.eq(&tapp_id))
-            .one(&txn)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-            .is_some()
-    } else {
-        false
-    };
-    let visible_owner_id = if private_install_exists {
-        user_id
-    } else if public_install_exists {
-        site_owner_id.ok_or(StatusCode::INTERNAL_SERVER_ERROR)?
-    } else {
-        user_id
-    };
-    if visible_owner_id != installation_owner_id {
-        txn.rollback().await.ok();
-        return Err(StatusCode::FORBIDDEN);
-    }
-
-    let installed_tapp = tapps::Entity::find()
-        .filter(tapps::Column::UserId.eq(installation_owner_id))
-        .filter(tapps::Column::TappId.eq(&tapp_id))
-        .one(&txn)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::FORBIDDEN)?;
-    if installed_tapp
-        .manifest
-        .get("widgets")
-        .and_then(serde_json::Value::as_array)
-        .is_some_and(|widgets| {
-            widgets.iter().any(|widget| {
-                widget.get("id").and_then(serde_json::Value::as_str) == Some(req.id.as_str())
-            })
-        })
-    {
-        return Err(StatusCode::CONFLICT);
-    }
-    let runtime_config = serde_json::json!({
-        "settings": &req.settings,
-        "refreshPolicy": &req.refresh_policy,
-        "source": "runtime",
-        "installationOwnerId": installation_owner_id,
-    });
-    let now = Utc::now().fixed_offset();
-
-    // 检查是否已存在
-    let existing = tapp_widgets::Entity::find()
-        .filter(tapp_widgets::Column::UserId.eq(user_id))
-        .filter(tapp_widgets::Column::WidgetId.eq(&widget_id))
-        .one(&txn)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    if let Some(item) = existing {
-        if item
-            .config
-            .get("source")
-            .and_then(serde_json::Value::as_str)
-            == Some("manifest")
-        {
-            return Err(StatusCode::CONFLICT);
-        }
-        if !runtime_widget_belongs_to_installation(&item, user_id, installation_owner_id) {
-            return Err(StatusCode::CONFLICT);
-        }
-        // 更新现有
-        let mut active: tapp_widgets::ActiveModel = item.into();
-        active.name = Set(req.name.clone());
-        active.description = Set(req.description.clone());
-        active.icon = Set(req.icon.clone());
-        active.default_size = Set(req.default_size.clone());
-        active.sizes = Set(serde_json::to_value(&req.sizes).unwrap());
-        active.category = Set(req.category.map(|category| category.as_str().to_string()));
-        active.config = Set(runtime_config.clone());
-        active
-            .update(&txn)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    } else {
-        let manifest_widget_count = installed_tapp
-            .manifest
-            .get("widgets")
-            .and_then(serde_json::Value::as_array)
-            .map_or(0, Vec::len);
-        let subject_widgets = tapp_widgets::Entity::find()
-            .filter(tapp_widgets::Column::UserId.eq(user_id))
-            .filter(tapp_widgets::Column::TappId.eq(&tapp_id))
-            .all(&txn)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        let runtime_widget_count = subject_widgets
-            .iter()
-            .filter(|widget| {
-                runtime_widget_belongs_to_installation(widget, user_id, installation_owner_id)
-            })
-            .count();
-        if manifest_widget_count + runtime_widget_count >= MAX_WIDGETS_PER_TAPP {
-            return Err(StatusCode::BAD_REQUEST);
-        }
-        // 创建新的
-        let widget = tapp_widgets::ActiveModel {
-            id: NotSet,
-            widget_id: Set(widget_id.clone()),
-            tapp_id: Set(tapp_id.clone()),
-            user_id: Set(user_id),
-            name: Set(req.name.clone()),
-            description: Set(req.description.clone()),
-            icon: Set(req.icon.clone()),
-            default_size: Set(req.default_size.clone()),
-            sizes: Set(serde_json::to_value(&req.sizes).unwrap()),
-            category: Set(req.category.map(|category| category.as_str().to_string())),
-            config: Set(runtime_config),
-            registered_at: Set(now),
-        };
-        widget
-            .insert(&txn)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    }
-    txn.commit()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    Ok(Json(ApiResponse::success(serde_json::json!({
-        "id": widget_id,
-        "tappId": tapp_id,
-        "name": req.name,
-    }))))
-}
-
-/// 注销小组件
-async fn unregister_widget(
-    State(db): State<DatabaseConnection>,
-    Extension(claims): Extension<Claims>,
-    runtime_grant: RuntimeGrantContext,
-    Path((tapp_id, widget_id)): Path<(String, String)>,
-) -> Result<Json<ApiResponse<()>>, StatusCode> {
-    // Keep unregister on the same administrator-only control boundary as
-    // registration; otherwise a normal user could remove dynamic metadata.
-    require_current_admin(&claims).await?;
-    runtime_grant
-        .require_tapp_id(&tapp_id)
-        .and_then(|_| runtime_grant.require(TappPermission::WidgetRegister))
-        .map_err(|(status, _)| status)?;
-    let user_id =
-        authorize_tapp_permission(&db, &claims, &tapp_id, TappPermission::WidgetRegister).await?;
-    let installation_owner_id = runtime_grant.owner_id();
-    let full_widget_id = if widget_id.starts_with("tapp.") {
-        let expected_prefix = format!("tapp.{}.", tapp_id);
-        if !widget_id.starts_with(&expected_prefix) {
-            return Err(StatusCode::BAD_REQUEST);
-        }
-        widget_id
-    } else {
-        format!("tapp.{}.{}", tapp_id, widget_id)
-    };
-
-    let widget = tapp_widgets::Entity::find()
-        .filter(tapp_widgets::Column::UserId.eq(user_id))
-        .filter(tapp_widgets::Column::WidgetId.eq(&full_widget_id))
-        .one(&db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if let Some(widget) = &widget {
-        if widget_source(&widget.config) == Some("manifest") {
-            return Err(StatusCode::CONFLICT);
-        }
-        if !runtime_widget_belongs_to_installation(widget, user_id, installation_owner_id) {
-            return Err(StatusCode::NOT_FOUND);
-        }
-    }
-    tapp_widgets::Entity::delete_many()
-        .filter(tapp_widgets::Column::UserId.eq(user_id))
-        .filter(tapp_widgets::Column::WidgetId.eq(&full_widget_id))
-        .exec(&db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    Ok(Json(ApiResponse::success(())))
-}
-
-/// 验证存储 key 格式（防止路径遍历攻击）
-///
-/// 规则：
-/// - 只允许字母、数字、下划线、连字符、点、冒号
-/// - 不允许连续的点（..）
-/// - 不允许以点开头或结尾
-/// - 长度限制 1-256 字符
-pub(crate) fn validate_storage_key(key: &str) -> Result<(), &'static str> {
-    if key.is_empty() {
-        return Err("Key cannot be empty");
-    }
-    if key.len() > 256 {
-        return Err("Key too long (max 256 characters)");
-    }
-    if key.starts_with('.') || key.ends_with('.') {
-        return Err("Key cannot start or end with a dot");
-    }
-    if key.contains("..") {
-        return Err("Key cannot contain consecutive dots");
-    }
-    // 只允许安全字符
-    let valid = key
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | ':'));
-    if !valid {
-        return Err(
-            "Key contains invalid characters (only alphanumeric, underscore, hyphen, dot, colon allowed)",
-        );
-    }
-    Ok(())
-}
-
-const HOST_STORAGE_KEY_PREFIXES: [&str; 4] =
-    ["_settings.", "_component:", "_shortcut:", "_report:"];
-
-fn is_host_storage_key(key: &str) -> bool {
-    key == "_settings"
-        || HOST_STORAGE_KEY_PREFIXES
-            .iter()
-            .any(|prefix| key.starts_with(prefix))
-}
-
-pub(crate) fn validate_sandbox_storage_key(key: &str) -> Result<(), &'static str> {
-    validate_storage_key(key)?;
-    if is_host_storage_key(key) {
-        return Err("Key prefix is reserved for host-managed Tapp data");
-    }
-    Ok(())
-}
-
-pub(crate) fn validate_storage_value_size(value: &serde_json::Value) -> Result<(), StatusCode> {
-    let size = serde_json::to_vec(value)
-        .map_err(|_| StatusCode::BAD_REQUEST)?
-        .len();
-    if size > 1024 * 1024 {
-        return Err(StatusCode::PAYLOAD_TOO_LARGE);
-    }
-    Ok(())
-}
-
-const TAPP_STORAGE_QUOTA_BYTES: i64 = 5 * 1024 * 1024;
-
-#[derive(FromQueryResult)]
-struct StorageBytesRow {
-    bytes: i64,
-}
-
-async fn storage_bytes(
-    db: &impl ConnectionTrait,
-    user_id: i32,
-    tapp_id: &str,
-) -> Result<i64, StatusCode> {
-    StorageBytesRow::find_by_statement(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        r#"SELECT COALESCE(SUM(octet_length(key) + octet_length(value::text)), 0)::BIGINT AS bytes
-           FROM tapp_storage WHERE user_id = $1 AND tapp_id = $2"#,
-        vec![user_id.into(), tapp_id.into()],
-    ))
-    .one(db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
-    .map(|row| row.map_or(0, |row| row.bytes))
-}
-
-async fn authorize_tapp_settings(
-    db: &DatabaseConnection,
-    claims: &Claims,
-    tapp_id: &str,
-) -> Result<(TappStorageAccess, Vec<TappSettingDef>), StatusCode> {
-    validate_tapp_id(tapp_id).map_err(|_| StatusCode::BAD_REQUEST)?;
-    let subject_id =
-        optional_authenticated_user_id(Some(claims)).ok_or(StatusCode::UNAUTHORIZED)?;
-    let tapp = tapp_common::resolve_accessible_tapp(db, subject_id, tapp_id)
-        .await
-        .map_err(|(status, _)| status)?;
-    let settings = tapp
-        .manifest
-        .get("settings")
-        .and_then(serde_json::Value::as_array)
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .map(|setting| {
-            serde_json::from_value(setting).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
-        })
-        .collect::<Result<Vec<TappSettingDef>, StatusCode>>()?;
-    let access = TappStorageAccess::from_owner_and_subject(tapp.user_id, subject_id);
-    Ok((access, settings))
-}
-
-async fn authorize_tapp_setting(
-    db: &DatabaseConnection,
-    claims: &Claims,
-    tapp_id: &str,
-    key: &str,
-) -> Result<(TappStorageAccess, String, TappSettingDef), StatusCode> {
-    validate_storage_key(key).map_err(|_| StatusCode::BAD_REQUEST)?;
-    let (access, settings) = authorize_tapp_settings(db, claims, tapp_id).await?;
-    let setting = settings
-        .into_iter()
-        .find(|setting| setting.key == key)
-        .ok_or(StatusCode::NOT_FOUND)?;
-    Ok((access, format!("_settings.{key}"), setting))
-}
-
-pub(crate) async fn read_storage_value(
-    db: &DatabaseConnection,
-    user_id: i32,
-    tapp_id: &str,
-    key: &str,
-) -> Result<serde_json::Value, StatusCode> {
-    let item = tapp_storage::Entity::find()
-        .filter(tapp_storage::Column::UserId.eq(user_id))
-        .filter(tapp_storage::Column::TappId.eq(tapp_id))
-        .filter(tapp_storage::Column::Key.eq(key))
-        .one(db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(item.map_or(serde_json::Value::Null, |item| item.value))
-}
-
-pub(crate) async fn write_storage_value(
-    db: &DatabaseConnection,
-    user_id: i32,
-    tapp_id: &str,
-    key: &str,
-    value: serde_json::Value,
-) -> Result<(), StatusCode> {
-    let txn = db
-        .begin()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    txn.execute(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
-        vec![format!("tapp-storage:{user_id}:{tapp_id}").into()],
-    ))
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    #[derive(FromQueryResult)]
-    struct ProjectedBytesRow {
-        bytes: i64,
-    }
-    let projected = ProjectedBytesRow::find_by_statement(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        r#"
-SELECT (
-    COALESCE(SUM(octet_length(key) + octet_length(value::text))
-        FILTER (WHERE key <> $3), 0)
-    + octet_length($3)
-    + octet_length($4::jsonb::text)
-)::BIGINT AS bytes
-FROM tapp_storage
-WHERE user_id = $1 AND tapp_id = $2
-"#,
-        vec![
-            user_id.into(),
-            tapp_id.into(),
-            key.into(),
-            value.clone().into(),
-        ],
-    ))
-    .one(&txn)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    .map_or(i64::MAX, |row| row.bytes);
-    if projected > TAPP_STORAGE_QUOTA_BYTES {
-        txn.rollback().await.ok();
-        return Err(StatusCode::PAYLOAD_TOO_LARGE);
-    }
-    txn.execute(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        r#"
-INSERT INTO tapp_storage (tapp_id, user_id, key, value, created_at, updated_at)
-VALUES ($1, $2, $3, $4, NOW(), NOW())
-ON CONFLICT (user_id, tapp_id, key) DO UPDATE SET
-    value = EXCLUDED.value,
-    updated_at = NOW()
-"#,
-        vec![tapp_id.into(), user_id.into(), key.into(), value.into()],
-    ))
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    txn.commit()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(())
-}
-
-/// Host settings editor: authenticated viewers may read keys declared by the
-/// accessible Tapp manifest; only the installation owner may persist values.
-/// These settings are deliberately separate from subject-private sandbox storage.
-async fn get_tapp_settings(
-    State(db): State<DatabaseConnection>,
-    Extension(claims): Extension<Claims>,
-    Path(tapp_id): Path<String>,
-) -> Result<Json<ApiResponse<std::collections::BTreeMap<String, serde_json::Value>>>, StatusCode> {
-    let (access, settings) = authorize_tapp_settings(&db, &claims, &tapp_id).await?;
-    let declared_keys: std::collections::HashSet<String> =
-        settings.into_iter().map(|setting| setting.key).collect();
-    let values = tapp_storage::Entity::find()
-        .filter(tapp_storage::Column::UserId.eq(access.installation_namespace()))
-        .filter(tapp_storage::Column::TappId.eq(&tapp_id))
-        .filter(tapp_storage::Column::Key.starts_with("_settings."))
-        .all(&db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .into_iter()
-        .filter_map(|item| {
-            let key = item.key.strip_prefix("_settings.")?.to_string();
-            declared_keys.contains(&key).then_some((key, item.value))
-        })
-        .collect();
-    Ok(Json(ApiResponse::success(values)))
-}
-
-async fn get_tapp_setting(
-    State(db): State<DatabaseConnection>,
-    Extension(claims): Extension<Claims>,
-    Path((tapp_id, key)): Path<(String, String)>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, StatusCode> {
-    let (access, storage_key, _) = authorize_tapp_setting(&db, &claims, &tapp_id, &key).await?;
-    let value =
-        read_storage_value(&db, access.installation_namespace(), &tapp_id, &storage_key).await?;
-    Ok(Json(ApiResponse::success(value)))
-}
-
-async fn set_tapp_setting(
-    State(db): State<DatabaseConnection>,
-    Extension(claims): Extension<Claims>,
-    Path((tapp_id, key)): Path<(String, String)>,
-    Json(value): Json<serde_json::Value>,
-) -> Result<Json<ApiResponse<()>>, StatusCode> {
-    validate_storage_value_size(&value)?;
-    let (access, storage_key, setting) =
-        authorize_tapp_setting(&db, &claims, &tapp_id, &key).await?;
-    if !can_write_installation_settings(access, current_is_admin(&claims).await) {
-        return Err(StatusCode::FORBIDDEN);
-    }
-    if !tapp_setting_value_is_valid(&setting, &value) {
-        return Err(StatusCode::BAD_REQUEST);
-    }
-    write_storage_value(
-        &db,
-        access.installation_namespace(),
-        &tapp_id,
-        &storage_key,
-        value,
-    )
-    .await?;
-    Ok(Json(ApiResponse::success(())))
-}
-
-/// 列出存储键
-async fn list_storage_keys(
-    State(db): State<DatabaseConnection>,
-    Extension(claims): Extension<Claims>,
-    runtime_grant: RuntimeGrantContext,
-    Path(tapp_id): Path<String>,
-) -> Result<Json<ApiResponse<Vec<String>>>, StatusCode> {
-    let access = authorize_runtime_storage(&db, &claims, &runtime_grant, &tapp_id).await?;
-    let subject_id = access.private_storage_namespace();
-
-    let items = tapp_storage::Entity::find()
-        .filter(tapp_storage::Column::UserId.eq(subject_id))
-        .filter(tapp_storage::Column::TappId.eq(&tapp_id))
-        .all(&db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let keys: Vec<String> = items
-        .into_iter()
-        .filter(|item| !is_host_storage_key(&item.key))
-        .map(|item| item.key)
-        .collect();
-
-    Ok(Json(ApiResponse::success(keys)))
-}
-
-/// 一次查询返回全部存储项，避免 SDK 的 keys + N 次 get 请求。
-async fn list_storage_entries(
-    State(db): State<DatabaseConnection>,
-    Extension(claims): Extension<Claims>,
-    runtime_grant: RuntimeGrantContext,
-    Path(tapp_id): Path<String>,
-) -> Result<Json<ApiResponse<std::collections::BTreeMap<String, serde_json::Value>>>, StatusCode> {
-    let access = authorize_runtime_storage(&db, &claims, &runtime_grant, &tapp_id).await?;
-    let subject_id = access.private_storage_namespace();
-
-    let entries = tapp_storage::Entity::find()
-        .filter(tapp_storage::Column::UserId.eq(subject_id))
-        .filter(tapp_storage::Column::TappId.eq(&tapp_id))
-        .all(&db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .into_iter()
-        .filter(|item| !is_host_storage_key(&item.key))
-        .map(|item| (item.key, item.value))
-        .collect();
-
-    Ok(Json(ApiResponse::success(entries)))
-}
-
-#[derive(Debug, Serialize)]
-struct TappStorageUsage {
-    used: usize,
-    quota: usize,
-}
-
-/// Return storage usage with one database query instead of one request per key.
-async fn get_storage_usage(
-    State(db): State<DatabaseConnection>,
-    Extension(claims): Extension<Claims>,
-    runtime_grant: RuntimeGrantContext,
-    Path(tapp_id): Path<String>,
-) -> Result<Json<ApiResponse<TappStorageUsage>>, StatusCode> {
-    let access = authorize_runtime_storage(&db, &claims, &runtime_grant, &tapp_id).await?;
-    let used = storage_bytes(&db, access.private_storage_namespace(), &tapp_id).await? as usize;
-
-    Ok(Json(ApiResponse::success(TappStorageUsage {
-        used,
-        quota: TAPP_STORAGE_QUOTA_BYTES as usize,
-    })))
-}
-
-/// 获取存储值
-async fn get_storage(
-    State(db): State<DatabaseConnection>,
-    Extension(claims): Extension<Claims>,
-    runtime_grant: RuntimeGrantContext,
-    Path((tapp_id, key)): Path<(String, String)>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, StatusCode> {
-    // 🔒 安全校验：验证 key 格式
-    if let Err(_e) = validate_sandbox_storage_key(&key) {
-        return Err(StatusCode::BAD_REQUEST);
-    }
-
-    let access = authorize_runtime_storage(&db, &claims, &runtime_grant, &tapp_id).await?;
-    let value = read_storage_value(&db, access.private_storage_namespace(), &tapp_id, &key).await?;
-    Ok(Json(ApiResponse::success(value)))
-}
-
-/// 设置存储值
-async fn set_storage(
-    State(db): State<DatabaseConnection>,
-    Extension(claims): Extension<Claims>,
-    runtime_grant: RuntimeGrantContext,
-    Path((tapp_id, key)): Path<(String, String)>,
-    Json(value): Json<serde_json::Value>,
-) -> Result<Json<ApiResponse<()>>, StatusCode> {
-    // 🔒 安全校验：验证 key 格式
-    if let Err(_e) = validate_sandbox_storage_key(&key) {
-        return Err(StatusCode::BAD_REQUEST);
-    }
-
-    // 🔒 安全校验：限制值大小（1MB）
-    validate_storage_value_size(&value)?;
-
-    let access = authorize_runtime_storage(&db, &claims, &runtime_grant, &tapp_id).await?;
-    write_storage_value(
-        &db,
-        access.private_storage_namespace(),
-        &tapp_id,
-        &key,
-        value,
-    )
-    .await?;
-
-    Ok(Json(ApiResponse::success(())))
-}
-
-/// 删除存储值
-async fn delete_storage(
-    State(db): State<DatabaseConnection>,
-    Extension(claims): Extension<Claims>,
-    runtime_grant: RuntimeGrantContext,
-    Path((tapp_id, key)): Path<(String, String)>,
-) -> Result<Json<ApiResponse<()>>, StatusCode> {
-    // 🔒 安全校验：验证 key 格式
-    if let Err(_e) = validate_sandbox_storage_key(&key) {
-        return Err(StatusCode::BAD_REQUEST);
-    }
-
-    let access = authorize_runtime_storage(&db, &claims, &runtime_grant, &tapp_id).await?;
-    let subject_id = access.private_storage_namespace();
-
-    tapp_storage::Entity::delete_many()
-        .filter(tapp_storage::Column::UserId.eq(subject_id))
-        .filter(tapp_storage::Column::TappId.eq(&tapp_id))
-        .filter(tapp_storage::Column::Key.eq(&key))
-        .exec(&db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    Ok(Json(ApiResponse::success(())))
-}
-
-/// 清除所有存储
-async fn clear_storage(
-    State(db): State<DatabaseConnection>,
-    Extension(claims): Extension<Claims>,
-    runtime_grant: RuntimeGrantContext,
-    Path(tapp_id): Path<String>,
-) -> Result<Json<ApiResponse<()>>, StatusCode> {
-    let access = authorize_runtime_storage(&db, &claims, &runtime_grant, &tapp_id).await?;
-    let subject_id = access.private_storage_namespace();
-    let clearable_ids: Vec<i32> = tapp_storage::Entity::find()
-        .filter(tapp_storage::Column::UserId.eq(subject_id))
-        .filter(tapp_storage::Column::TappId.eq(&tapp_id))
-        .all(&db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .into_iter()
-        .filter(|item| !is_host_storage_key(&item.key))
-        .map(|item| item.id)
-        .collect();
-
-    if !clearable_ids.is_empty() {
-        tapp_storage::Entity::delete_many()
-            .filter(tapp_storage::Column::Id.is_in(clearable_ids))
-            .exec(&db)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    }
-
-    Ok(Json(ApiResponse::success(())))
-}
-
-// ==================== 商店源管理 API ====================
-
-/// 商店源响应
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StoreSourceResponse {
-    pub id: i32,
-    pub name: String,
-    pub description: Option<String>,
-    pub url: String,
-    pub enabled: bool,
-    pub official: bool,
-    pub icon: Option<String>,
-}
-
-/// 添加商店源请求
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AddStoreSourceRequest {
-    pub name: String,
-    pub description: Option<String>,
-    pub url: String,
-    pub enabled: Option<bool>,
-    pub icon: Option<String>,
-}
-
-/// 更新商店源请求
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateStoreSourceRequest {
-    pub name: Option<String>,
-    pub description: Option<String>,
-    pub url: Option<String>,
-    pub enabled: Option<bool>,
-    pub icon: Option<String>,
-}
-
-/// 获取商店源列表（公开 API）
-async fn list_store_sources(
-    State(db): State<DatabaseConnection>,
-) -> Result<Json<ApiResponse<Vec<StoreSourceResponse>>>, StatusCode> {
-    let sources = tapp_store_sources::Entity::find()
-        .all(&db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let items: Vec<StoreSourceResponse> = sources
-        .into_iter()
-        .map(|s| StoreSourceResponse {
-            id: s.id,
-            name: s.name,
-            description: s.description,
-            url: s.url,
-            enabled: s.enabled,
-            official: s.official,
-            icon: s.icon,
-        })
-        .collect();
-
-    Ok(Json(ApiResponse::success(items)))
-}
-
-/// 添加商店源（仅管理员）
-async fn add_store_source(
-    State(db): State<DatabaseConnection>,
-    Extension(claims): Extension<Claims>,
-    Json(req): Json<AddStoreSourceRequest>,
-) -> Result<Json<ApiResponse<StoreSourceResponse>>, StatusCode> {
-    // 检查管理员权限
-    require_current_admin(&claims).await?;
-
-    // 检查 URL 是否已存在
-    let existing = tapp_store_sources::Entity::find()
-        .filter(tapp_store_sources::Column::Url.eq(&req.url))
-        .one(&db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    if existing.is_some() {
-        return Err(StatusCode::CONFLICT);
-    }
-
-    let now = Utc::now().fixed_offset();
-    let source = tapp_store_sources::ActiveModel {
-        id: NotSet,
-        name: Set(req.name),
-        description: Set(req.description),
-        url: Set(req.url),
-        enabled: Set(req.enabled.unwrap_or(true)),
-        official: Set(false), // 用户添加的源不是官方的
-        icon: Set(req.icon),
-        created_at: Set(now),
-        updated_at: Set(now),
-    };
-
-    let result = source
-        .insert(&db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    Ok(Json(ApiResponse::success(StoreSourceResponse {
-        id: result.id,
-        name: result.name,
-        description: result.description,
-        url: result.url,
-        enabled: result.enabled,
-        official: result.official,
-        icon: result.icon,
-    })))
-}
-
-/// 更新商店源（仅管理员）
-async fn update_store_source(
-    State(db): State<DatabaseConnection>,
-    Extension(claims): Extension<Claims>,
-    Path(source_id): Path<i32>,
-    Json(req): Json<UpdateStoreSourceRequest>,
-) -> Result<Json<ApiResponse<StoreSourceResponse>>, StatusCode> {
-    // 检查管理员权限
-    require_current_admin(&claims).await?;
-
-    // 获取现有源
-    let source = tapp_store_sources::Entity::find_by_id(source_id)
-        .one(&db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
-
-    // 官方源不能修改 URL
-    if source.official && req.url.is_some() {
-        return Err(StatusCode::FORBIDDEN);
-    }
-
-    let now = Utc::now().fixed_offset();
-    let mut active: tapp_store_sources::ActiveModel = source.into();
-
-    if let Some(name) = req.name {
-        active.name = Set(name);
-    }
-    if let Some(description) = req.description {
-        active.description = Set(Some(description));
-    }
-    if let Some(url) = req.url {
-        active.url = Set(url);
-    }
-    if let Some(enabled) = req.enabled {
-        active.enabled = Set(enabled);
-    }
-    if let Some(icon) = req.icon {
-        active.icon = Set(Some(icon));
-    }
-    active.updated_at = Set(now);
-
-    let result = active
-        .update(&db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    Ok(Json(ApiResponse::success(StoreSourceResponse {
-        id: result.id,
-        name: result.name,
-        description: result.description,
-        url: result.url,
-        enabled: result.enabled,
-        official: result.official,
-        icon: result.icon,
-    })))
-}
-
-/// 删除商店源（仅管理员）
-async fn delete_store_source(
-    State(db): State<DatabaseConnection>,
-    Extension(claims): Extension<Claims>,
-    Path(source_id): Path<i32>,
-) -> Result<Json<ApiResponse<()>>, StatusCode> {
-    // 检查管理员权限
-    require_current_admin(&claims).await?;
-
-    // 获取源信息
-    let source = tapp_store_sources::Entity::find_by_id(source_id)
-        .one(&db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
-
-    // 不能删除官方源
-    if source.official {
-        return Err(StatusCode::FORBIDDEN);
-    }
-
-    tapp_store_sources::Entity::delete_by_id(source_id)
-        .exec(&db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    Ok(Json(ApiResponse::success(())))
-}
-
-/// 更新分离式 CSS 的请求体
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct UpdateSeparatedCssRequest {
-    /// Widget 专用编译后的 Tailwind CSS
-    #[serde(default)]
-    widget_css: Option<String>,
-    /// Page 专用编译后的 Tailwind CSS
-    #[serde(default)]
-    page_css: Option<String>,
-}
-
-/// Compatibility endpoint for replacing generated unified-mode CSS.
-///
-/// Current clients include generated CSS in direct install/update requests.
-/// Older clients may still call this route, so it uses the same staged
-/// filesystem generation and database transaction instead of modifying live
-/// resources in place.
-async fn update_separated_css(
-    State(db): State<DatabaseConnection>,
-    Extension(claims): Extension<Claims>,
-    Path(tapp_id): Path<String>,
-    Json(req): Json<UpdateSeparatedCssRequest>,
-) -> Result<Json<ApiResponse<()>>, StatusCode> {
-    validate_tapp_id(&tapp_id).map_err(|_| StatusCode::BAD_REQUEST)?;
-    if req.widget_css.is_none() && req.page_css.is_none() {
-        return Err(StatusCode::BAD_REQUEST);
-    }
-    if [req.widget_css.as_deref(), req.page_css.as_deref()]
-        .into_iter()
-        .flatten()
-        .any(|css| css.len() as u64 > MAX_TAPP_RESOURCE_BYTES)
-    {
-        return Err(StatusCode::PAYLOAD_TOO_LARGE);
-    }
-    let user_id: i32 = claims.sub.parse().map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let role = current_user_role(&claims).await;
-    let site_owner_id = get_admin_user_id(&db).await?;
-    let owner_id = canonical_installation_owner_id(role, user_id, site_owner_id);
-
-    let txn = db
-        .begin()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    lock_tapp_lifecycle(&txn, &tapp_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let tapp = tapps::Entity::find()
-        .filter(tapps::Column::UserId.eq(owner_id))
-        .filter(tapps::Column::TappId.eq(&tapp_id))
-        .one(&txn)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
-    let manifest: TappManifest = serde_json::from_value(tapp.manifest.clone())
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if manifest.css_mode.as_deref() == Some("separated") {
-        return Err(StatusCode::CONFLICT);
-    }
-
-    let final_tapp_dir = installed_tapp_dir(&tapp)?;
-    let stage = TappDirStage::create(&final_tapp_dir)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    copy_regular_tapp_directory(&final_tapp_dir, stage.path())
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if let Some(widget_css) = &req.widget_css {
-        write_tapp_resource(stage.path(), "widget.css", widget_css)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    }
-    if let Some(page_css) = &req.page_css {
-        write_tapp_resource(stage.path(), "page.css", page_css)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    }
-    let now = Utc::now().fixed_offset();
-    write_install_generation(stage.path(), now).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    validate_installed_resources(&manifest, stage.path()).map_err(|_| StatusCode::BAD_REQUEST)?;
-
-    let activated = stage
-        .activate(&final_tapp_dir)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let mut active: tapps::ActiveModel = tapp.into();
-    active.updated_at = Set(now);
-    if active.update(&txn).await.is_err() {
-        txn.rollback().await.ok();
-        activated.rollback().await;
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
-    }
-    if txn.commit().await.is_err() {
-        activated.rollback().await;
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
-    }
-    activated.commit().await;
-
-    Ok(Json(ApiResponse::success(())))
-}
-
 #[cfg(test)]
 mod manifest_tests {
     use super::{
         append_directory_to_zip, archive_entry_path, canonical_installation_owner_id,
         cleanup_reinstall_orphans, copy_regular_tapp_directory, has_reinstall_orphan_state,
         installation_conflict_owner_ids, orphaned_tapp_directories, recover_tapp_directory,
-        reinstall_orphan_paths, tapp_dir_for, tapp_setting_value_is_valid,
+        reinstall_orphan_paths, tapp_dir_for, tapp_filesystem_error_message,
+        tapp_filesystem_error_status, tapp_setting_value_is_valid,
         uninstall_post_commit_cleanup_path, validate_asset_path, validate_installed_resources,
         validate_resource_path, validate_store_manifest_category, validate_tapp_archive,
         validate_tapp_id, validate_tapp_manifest, validate_widget_template_contents,
@@ -5048,8 +3609,21 @@ mod manifest_tests {
     };
     use crate::models::entities::{tapp_widgets, tapps};
     use crate::services::permission_service::UserRole;
+    use axum::http::StatusCode;
     use serde_json::json;
     use std::path::PathBuf;
+
+    #[test]
+    fn permission_errors_return_actionable_service_unavailable() {
+        let error = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied");
+        assert_eq!(
+            tapp_filesystem_error_status(&error),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        let message = tapp_filesystem_error_message("create staging", &error);
+        assert!(message.contains("storage is not writable"));
+        assert!(message.contains("ownership/permissions"));
+    }
 
     /// Pure mirror of `uninstall_tapp` branch order (own → public+admin → not found).
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]

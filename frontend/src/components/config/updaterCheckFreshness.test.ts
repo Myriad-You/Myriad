@@ -11,10 +11,10 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   AGO_TICK_MS,
-  STALE_WHEN_OFF_SECS,
   checkAgeSecs,
   computeAgo,
   isCheckStale,
+  STALE_WHEN_OFF_SECS,
 } from './updaterCheckFreshness.ts'
 
 const NOW = Date.parse('2026-07-18T12:00:00.000Z')

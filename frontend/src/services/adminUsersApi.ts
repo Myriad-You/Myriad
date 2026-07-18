@@ -54,8 +54,6 @@ export interface AdminUser {
 }
 
 export interface AdminUserUpdate {
-  display_name?: string
-  email?: string
   is_admin?: boolean
   local_login_disabled?: boolean
 }
@@ -67,7 +65,8 @@ export interface AdminCreateUserInput {
   is_admin?: boolean
 }
 
-const BASE = '/api/admin/users'
+// apiService 的 API_BASE 已含 /api 前缀，这里不能再写 /api
+const BASE = '/admin/users'
 
 export const adminUsersApi = {
   async list(): Promise<AdminUser[]> {

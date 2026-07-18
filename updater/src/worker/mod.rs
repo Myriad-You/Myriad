@@ -85,6 +85,8 @@ pub enum Command {
     },
     CheckUpdates {
         /// Ephemeral overrides — do NOT persist prefs (use SetPrefs for that).
+        /// Availability cache is refreshed only when the resolved request still
+        /// matches the saved prefs.
         channel: Option<String>,
         mode: Option<UpdateMode>,
         reply: tokio::sync::oneshot::Sender<Result<Option<AvailableInfo>>>,
@@ -1056,13 +1058,13 @@ impl Worker {
         mode_override: Option<UpdateMode>,
     ) -> Result<Option<AvailableInfo>> {
         // Ephemeral overrides for this check only — never write prefs here.
-        // Only persist latest_available when checking the *saved* prefs; UI ephemeral
-        // checks must not pollute status().
-        let persist_cache = channel_override.is_none() && mode_override.is_none();
-        let mode = mode_override.unwrap_or_else(|| self.effective_mode());
-        let channel = channel_override
-            .filter(|c| !c.trim().is_empty())
-            .unwrap_or_else(|| self.effective_channel());
+        // A caller may redundantly send the currently saved values; that is still
+        // the canonical check and must refresh status(). Only a genuinely different
+        // preview request is kept out of the shared availability cache.
+        let saved_channel = self.effective_channel();
+        let saved_mode = self.effective_mode();
+        let (channel, mode, persist_cache) =
+            resolve_check_request(&saved_channel, saved_mode, channel_override, mode_override);
         match mode {
             UpdateMode::Release => self.check_release_available(&channel, persist_cache).await,
             UpdateMode::Commit => self.check_commit_available(&channel, persist_cache).await,
@@ -1409,6 +1411,21 @@ impl Worker {
     }
 }
 
+fn resolve_check_request(
+    saved_channel: &str,
+    saved_mode: UpdateMode,
+    channel_override: Option<String>,
+    mode_override: Option<UpdateMode>,
+) -> (String, UpdateMode, bool) {
+    let channel = channel_override
+        .map(|channel| channel.trim().to_ascii_lowercase())
+        .filter(|channel| !channel.is_empty())
+        .unwrap_or_else(|| saved_channel.to_string());
+    let mode = mode_override.unwrap_or(saved_mode);
+    let persist_cache = channel == saved_channel && mode == saved_mode;
+    (channel, mode, persist_cache)
+}
+
 fn runtime_identity_from_json(body: &serde_json::Value) -> Option<(DeployTag, Option<String>)> {
     let version = DeployTag::parse(body.get("version")?.as_str()?).ok()?;
     let commit_sha = body
@@ -1471,6 +1488,47 @@ pub fn auto_install_latest_ok(
                 Some("diverged") | Some("behind") | Some("identical")
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod check_request_tests {
+    use super::*;
+
+    #[test]
+    fn matching_explicit_values_refresh_the_canonical_cache() {
+        let (channel, mode, persist_cache) = resolve_check_request(
+            "preview",
+            UpdateMode::Commit,
+            Some("preview".to_string()),
+            Some(UpdateMode::Commit),
+        );
+
+        assert_eq!(channel, "preview");
+        assert_eq!(mode, UpdateMode::Commit);
+        assert!(persist_cache);
+    }
+
+    #[test]
+    fn genuine_override_does_not_replace_saved_availability() {
+        let (_, _, persist_cache) = resolve_check_request(
+            "stable",
+            UpdateMode::Release,
+            Some("preview".to_string()),
+            Some(UpdateMode::Commit),
+        );
+
+        assert!(!persist_cache);
+    }
+
+    #[test]
+    fn omitted_values_use_and_refresh_saved_preferences() {
+        let (channel, mode, persist_cache) =
+            resolve_check_request("stable", UpdateMode::Release, None, None);
+
+        assert_eq!(channel, "stable");
+        assert_eq!(mode, UpdateMode::Release);
+        assert!(persist_cache);
     }
 }
 

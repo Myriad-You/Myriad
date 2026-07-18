@@ -95,6 +95,8 @@ pub async fn health() -> (StatusCode, Json<Value>) {
             "commit_sha": commit_sha,
             "db_connected": db_connected,
             "migrations_applied": migrations_applied,
+            // Reaching the server implies the startup storage write preflight passed.
+            "storage_writable": true,
             "uptime_seconds": uptime,
 
             // backwards-compatible fields

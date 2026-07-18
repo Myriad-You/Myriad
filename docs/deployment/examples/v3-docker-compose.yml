@@ -134,6 +134,8 @@ services:
       DATABASE_URL: postgres://myriad:${POSTGRES_PASSWORD}@postgres:5432/myriad
       SERVER_HOST: 0.0.0.0
       SERVER_PORT: 1103
+      DATA_DIR: /app/data
+      CACHE_DIR: /app/cache
       JWT_SECRET: ${JWT_SECRET}
       # The bundled proxy replaces client-supplied forwarding headers.
       TRUST_PROXY_HEADERS: "true"

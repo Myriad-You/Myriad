@@ -18,6 +18,7 @@ export const enUS: TranslationKeys = {
     success: 'Success',
     retry: 'Retry',
     close: 'Close',
+    back: 'Back',
     or: 'or',
     go: 'Go',
     refresh: 'Refresh',
@@ -316,7 +317,8 @@ export const enUS: TranslationKeys = {
     usersDesc:
       'Manage admin accounts and registered users: OAuth links, installed apps, online time',
     usersAdminGroup: 'Administrator Accounts',
-    usersAdminGroupDesc: 'Accounts with admin privileges and their sign-in methods',
+    usersAdminGroupDesc:
+      'Accounts with admin privileges and their sign-in methods',
     usersRegisteredGroup: 'Registered Users',
     usersRegisteredGroupDesc:
       'OAuth status, installed apps and presence of all registered users',
@@ -348,10 +350,9 @@ export const enUS: TranslationKeys = {
     usersRevokeAdminConfirm: "Revoke this user's admin privileges?",
     usersEnableLocalLogin: 'Enable local login',
     usersDisableLocalLogin: 'Disable local login',
-    usersEditProfile: 'Edit profile',
-    usersDisplayName: 'Display name',
+    usersLocalLoginRequiresOAuth:
+      'This user has no linked OAuth account; disabling local login would lock them out',
     usersEmail: 'Email',
-    usersSave: 'Save',
     usersCancel: 'Cancel',
     usersCreateUser: 'New user',
     usersCreateUsername: 'Username',
@@ -377,18 +378,12 @@ export const enUS: TranslationKeys = {
     updaterStatusNeedsManual: 'Last update failed — action needed',
     updaterStatusOffline: 'Cannot reach the update service',
     updaterStatusFirstRun: 'No version recorded yet',
-    updaterHintHealthy:
-      'Everything looks good. You can check for new versions at any time.',
-    updaterHintUpdating:
-      'Update in progress. After maintenance starts, progress is on the maintenance page.',
-    updaterHintMaintenance:
-      'System is in maintenance. When healthy, exit under “Maintenance & recovery”.',
-    updaterHintNeedsManual:
-      'Automatic rollback did not finish. Use “Maintenance & recovery” to restore the pre-update version.',
-    updaterHintOffline:
-      'Check that MYRIAD_UPDATER_URL and UPDATE_TOKEN are configured on the backend.',
-    updaterHintFirstRun:
-      'Click “Check for updates” to fetch the latest on your channel.',
+    updaterHintHealthy: 'No updates are available on this channel.',
+    updaterHintUpdating: 'The system will be checked when it finishes.',
+    updaterHintMaintenance: 'Exit maintenance mode below when ready.',
+    updaterHintNeedsManual: 'Resolve this under “Maintenance & recovery”.',
+    updaterHintOffline: 'Check the update service URL and token.',
+    updaterHintFirstRun: 'Check once to load the current version status.',
     updaterCurrentVersion: 'Current version',
     updaterChannelLabel: 'Update channel',
     updaterLastChecked: 'Last checked',
@@ -423,7 +418,8 @@ export const enUS: TranslationKeys = {
     updaterFreshnessUnknown:
       'Cannot determine whether the target is newer or older than current',
     updaterChannelGroupTitle: 'Update channel',
-    updaterChannelGroupDesc: 'Which update line to follow. Selecting saves immediately.',
+    updaterChannelGroupDesc:
+      'Which update line to follow. Selecting saves immediately.',
     updaterChannelStable: 'Stable',
     updaterChannelStableDesc: 'Official releases for production.',
     updaterChannelPreview: 'Preview',
@@ -434,11 +430,9 @@ export const enUS: TranslationKeys = {
     updaterChannelBadgeRecommended: 'Recommended',
     updaterChannelBadgeDev: 'Developers',
     updaterChannelSaved: 'Switched to “{label}” — re-checking for updates…',
-    updaterAutoGroupTitle: 'Auto-check & install',
-    updaterAutoGroupDesc:
-      'Periodically check the current channel; optional auto-install of clear upgrades (stable, preview, or dev).',
     updaterCheckInterval: 'Check frequency',
-    updaterCheckIntervalDesc: 'Off means manual checks only. Changes apply immediately.',
+    updaterCheckIntervalDesc:
+      'Set how often updates are checked automatically.',
     updaterCheckIntervalOff: 'Off',
     updaterCheckInterval1h: 'Every 1 hour',
     updaterCheckInterval6h: 'Every 6 hours',
@@ -446,7 +440,7 @@ export const enUS: TranslationKeys = {
     updaterCheckInterval24h: 'Every 24 hours',
     updaterAutoInstall: 'Auto-install updates',
     updaterAutoInstallDesc:
-      'Off by default. When on, applies to the selected channel; only clear upgrades auto-install (dev channel uses newer build publish time). Downgrade / diverged / irreversible still need confirmation.',
+      'Install new versions automatically; ask first for downgrades, conflicts, or changes that cannot be rolled back.',
     updaterAutoPrefsSaved: 'Auto-update settings saved',
     updaterStepLog: 'Show detailed steps',
     updaterProcessing: 'Working…',
@@ -481,7 +475,8 @@ export const enUS: TranslationKeys = {
     updaterSelfUpdateDispatched:
       'Updater upgrade started; continue updating when it finishes.',
     updaterTargetGroupTitle: 'Install a specific version (advanced)',
-    updaterTargetGroupDesc: 'Past releases or a specific commit. Not for daily use.',
+    updaterTargetGroupDesc:
+      'Past releases or a specific commit. Not for daily use.',
     updaterTargetReleaseHead: 'Available versions (click to select)',
     updaterTargetCommitHead: 'Recent commits & releases (click to select)',
     updaterTargetDockerHubHead: 'Docker Hub builds (click to select)',
@@ -493,7 +488,8 @@ export const enUS: TranslationKeys = {
     updaterInstallTarget: 'Install {version}',
     updaterTargetEmpty: 'Nothing to select',
     updaterSnapshotGroupTitle: 'Backups & rollback',
-    updaterSnapshotGroupDesc: 'Auto-backup before updates; roll back here if needed.',
+    updaterSnapshotGroupDesc:
+      'Auto-backup before updates; roll back here if needed.',
     updaterNoSnapshots: 'No backups yet. One appears after the first update.',
     updaterRollback: 'Roll back to this version',
     updaterRollbackDispatched: 'Rollback started',
@@ -503,10 +499,8 @@ export const enUS: TranslationKeys = {
     updaterDeleteSnapshotDispatched: 'Backup deleted',
     updaterDeleteSnapshotInUse:
       'This backup is needed for recovery and cannot be deleted yet.',
-    updaterDeleteSnapshotLast:
-      'Cannot delete the only remaining backup.',
-    updaterDeleteSnapshotKept:
-      'Marked as kept; cannot delete.',
+    updaterDeleteSnapshotLast: 'Cannot delete the only remaining backup.',
+    updaterDeleteSnapshotKept: 'Marked as kept; cannot delete.',
     updaterDeleteSnapshotKeptBadge: 'Kept',
     updaterGroupAdvanced: 'Advanced & diagnostics',
     updaterGroupAdvancedDesc: 'Operator tools. Not needed day to day.',
@@ -1338,12 +1332,21 @@ export const enUS: TranslationKeys = {
     atLeast8Chars: 'At least 8 characters',
     enterPasswordAgain: 'Enter password again',
     newPasswordMinLength: 'New password must be at least 8 characters',
+    passwordNeedsLetterAndDigit:
+      'Password must contain both letters and numbers',
     passwordMismatch: 'Passwords do not match',
     passwordSameAsOld: 'New password cannot be the same as current password',
     cannotGetCsrf: 'Cannot get CSRF Token, please refresh and try again',
     passwordChanged: 'Password changed successfully!',
     changing: 'Changing...',
     confirmChange: 'Confirm',
+    setPassword: 'Set Password',
+    setPasswordHint:
+      'Set a local password so you can still sign in with username and password if third-party login becomes unavailable.',
+    localLoginUsername: 'Local login username: ',
+    passwordSet: 'Password set successfully!',
+    setting: 'Setting...',
+    confirmSet: 'Confirm',
     networkError: 'Network error, please try again later',
     logout: 'Logout',
     pleaseLogin: 'Please login',
@@ -1354,6 +1357,15 @@ export const enUS: TranslationKeys = {
     recentlyUsed: 'Recently used',
     noRecentTapps: 'No recent apps',
     viewAllTapps: 'View all Tapps',
+    oauthBindings: 'Linked Accounts',
+    oauthAccount: 'OAuth Account',
+    oauthBind: 'Link',
+    oauthUnbind: 'Unlink',
+    oauthUnbindConfirm:
+      'Unlink this account? You will no longer be able to sign in with it.',
+    oauthUnbindFailed: 'Failed to unlink',
+    oauthNoProviders: 'No third-party sign-in methods configured yet',
+    oauthNotConfigured: 'This sign-in method is disabled',
   },
 
   // Widget Grid
@@ -1929,7 +1941,8 @@ export const enUS: TranslationKeys = {
     permMediaControlDesc:
       'Allow controlling media playback (play, pause, switch, etc.)',
     permMediaReadDesc: 'Allow reading current media playback status',
-    permMediaAudioDesc: 'Allow playing package/blob/data audio inside the sandbox',
+    permMediaAudioDesc:
+      'Allow playing package/blob/data audio inside the sandbox',
     permRegisterThemeDesc: 'Allow registering custom theme styles',
     permRegisterAgentDesc: 'Allow registering AI Agent capabilities',
     permRegisterShortcutDesc: 'Allow registering keyboard shortcuts',
@@ -1991,15 +2004,13 @@ export const enUS: TranslationKeys = {
     playgroundInstall: 'Install',
     playgroundInstallSuccess:
       'Installed. Could not enable automatically — enable it on the details page.',
-    playgroundInstallStartedSuccess:
-      'Installed and enabled. Opening details…',
+    playgroundInstallStartedSuccess: 'Installed and enabled. Opening details…',
     playgroundInstallStartFailed:
       'Installed, but could not enable automatically: {error}. Enable it on the details page.',
     playgroundExport: 'Export',
     playgroundExportSuccess: 'Downloaded {filename}',
     playgroundExportFailed: 'Export failed. Please try again.',
-    playgroundPackageInvalid:
-      'This package is not installable yet:\n{errors}',
+    playgroundPackageInvalid: 'This package is not installable yet:\n{errors}',
     playgroundUndo: 'Previous version',
     playgroundRedo: 'Next version',
     playgroundIsolationTitle: 'Sandboxed preview',
@@ -2111,7 +2122,8 @@ export const enUS: TranslationKeys = {
     playgroundDiffUnified: 'Unified',
     playgroundDiffSideBySide: 'Side by side',
     playgroundDiffEmpty: 'Pick two versions to compare this file.',
-    playgroundDiffNoChanges: 'No changes in this file between the selected versions.',
+    playgroundDiffNoChanges:
+      'No changes in this file between the selected versions.',
     playgroundDiffBase: 'Base',
     playgroundDiffCompare: 'Compare',
     playgroundDiffAdded: '+{n}',

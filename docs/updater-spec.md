@@ -440,11 +440,13 @@ M1 显式拒绝，启动时探测 `docker info` 中 `rootless: true` 或 podman 
   "schema_version": 1,
   "db_connected": true,
   "migrations_applied": true,
+  "storage_writable": true,
   "uptime_seconds": 123
 }
 ```
 
-backend 必须实现此 schema，updater 严格校验。
+backend 必须实现此 schema，updater 严格校验。新版 backend 在启动时以实际运行
+UID 对 data/cache 及现有 Tapp owner 目录执行写入探针；探针失败时不得进入健康状态。
 
 ### 11.2 frontend 健康
 

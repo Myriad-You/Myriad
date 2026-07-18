@@ -5,7 +5,7 @@
 //!
 //! - GET    /api/admin/users                              用户列表（含 OAuth identities、tapp 数、在线状态）
 //! - GET    /api/admin/users/{id}                         用户详情（identities + 已安装 tapp）
-//! - PATCH  /api/admin/users/{id}                         更新用户（display_name/email/is_admin/local_login_disabled）
+//! - PATCH  /api/admin/users/{id}                         更新用户（is_admin/local_login_disabled）
 //! - DELETE /api/admin/users/{id}/identities/{identity_id} 解绑某用户的 OAuth identity
 
 use axum::{
@@ -118,7 +118,7 @@ pub async fn list_users(
     let user_rows = db
         .query_all(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            &format!("{USER_SELECT} ORDER BY u.is_admin DESC, u.created_at ASC"),
+            format!("{USER_SELECT} ORDER BY u.is_admin DESC, u.created_at ASC"),
             vec![],
         ))
         .await
@@ -167,7 +167,7 @@ pub async fn get_user(
     let user_row = db
         .query_one(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            &format!("{USER_SELECT} WHERE u.id = $1"),
+            format!("{USER_SELECT} WHERE u.id = $1"),
             [user_id.into()],
         ))
         .await
@@ -218,8 +218,6 @@ pub async fn get_user(
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateUserRequest {
-    pub display_name: Option<String>,
-    pub email: Option<String>,
     pub is_admin: Option<bool>,
     pub local_login_disabled: Option<bool>,
 }
@@ -272,36 +270,34 @@ pub async fn update_user(
         }
     }
 
+    // 防锁死：没有任何 OAuth 绑定时，本地登录是唯一登录方式，不允许禁用
+    if req.local_login_disabled == Some(true) {
+        let identity_count = db
+            .query_one(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "SELECT COUNT(*) AS n FROM user_identities WHERE user_id = $1",
+                [user_id.into()],
+            ))
+            .await
+            .map_err(db_error)?
+            .and_then(|r| r.try_get::<i64>("", "n").ok())
+            .unwrap_or(0);
+        if identity_count == 0 {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    json!({"error": "Cannot disable local login: user has no linked OAuth identity"}),
+                ),
+            ));
+        }
+    }
+
     let mut sets: Vec<String> = Vec::new();
     let mut params: Vec<SeaValue> = Vec::new();
     let push = |sets: &mut Vec<String>, params: &mut Vec<SeaValue>, col: &str, v: SeaValue| {
         params.push(v);
         sets.push(format!("{col} = ${}", params.len()));
     };
-    if let Some(display_name) = &req.display_name {
-        let trimmed = display_name.trim();
-        let value = if trimmed.is_empty() {
-            SeaValue::String(None)
-        } else {
-            SeaValue::String(Some(Box::new(trimmed.to_string())))
-        };
-        push(&mut sets, &mut params, "display_name", value);
-    }
-    if let Some(email) = &req.email {
-        let trimmed = email.trim();
-        if !trimmed.is_empty() && !trimmed.contains('@') {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(json!({"error": "Invalid email address"})),
-            ));
-        }
-        let value = if trimmed.is_empty() {
-            SeaValue::String(None)
-        } else {
-            SeaValue::String(Some(Box::new(trimmed.to_string())))
-        };
-        push(&mut sets, &mut params, "email", value);
-    }
     if let Some(is_admin) = req.is_admin {
         push(
             &mut sets,
@@ -363,7 +359,7 @@ pub async fn unlink_identity(
     let info = db
         .query_one(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT u.password_hash IS NOT NULL AS has_password, \
+            "SELECT u.password_hash IS NOT NULL AS has_password, u.local_login_disabled, \
                     (SELECT COUNT(*) FROM user_identities i WHERE i.user_id = u.id) AS identity_count, \
                     EXISTS(SELECT 1 FROM user_identities i WHERE i.id = $2 AND i.user_id = u.id) AS identity_belongs \
              FROM users u WHERE u.id = $1",
@@ -383,9 +379,12 @@ pub async fn unlink_identity(
         ));
     }
     let has_password = info.try_get::<bool>("", "has_password").unwrap_or(false);
+    let local_login_disabled = info
+        .try_get::<bool>("", "local_login_disabled")
+        .unwrap_or(false);
     let identity_count = info.try_get::<i64>("", "identity_count").unwrap_or(0);
-    // 防锁死：无密码且这是唯一登录方式时禁止解绑
-    if !has_password && identity_count <= 1 {
+    // 防锁死：这是最后一个 OAuth 绑定，且本地登录不可用（无密码或已禁用）时禁止解绑
+    if identity_count <= 1 && (!has_password || local_login_disabled) {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(json!({"error": "Cannot unlink the user's only sign-in method"})),

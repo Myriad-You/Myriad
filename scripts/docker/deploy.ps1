@@ -150,14 +150,20 @@ function Ensure-CurrentLayout {
 }
 
 # Backend runs as uid 1000 (USER myriad). Named volumes are root-owned on first
-# create; chown so /app/cache and /app/data stay writable without forcing root.
+# create, and older deployments may also leave owner-write/search bits unset.
+# Repair both ownership and owner permissions without broadening group/world access.
 function Ensure-BackendVolumePerms {
-    $project = "myriad"
-    $match = Select-String -Path .env -Pattern "^COMPOSE_PROJECT_NAME=(.+)$" -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($match) {
-        $project = $match.Matches[0].Groups[1].Value.Trim().Trim('"').Trim("'")
+    $project = $env:COMPOSE_PROJECT_NAME
+    if ([string]::IsNullOrWhiteSpace($project)) {
+        $match = Select-String -Path .env -Pattern "^COMPOSE_PROJECT_NAME=(.+)$" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($match) {
+            $project = $match.Matches[0].Groups[1].Value.Trim().Trim('"').Trim("'")
+        }
     }
     if ([string]::IsNullOrWhiteSpace($project)) { $project = "myriad" }
+    if ($project -notmatch '^[a-z0-9][a-z0-9_-]*$') {
+        throw "Invalid COMPOSE_PROJECT_NAME for backend volume repair: $project"
+    }
 
     $cacheVol = "${project}_backend_cache"
     $dataVol = "${project}_backend_data"
@@ -169,11 +175,25 @@ function Ensure-BackendVolumePerms {
         -v "${cacheVol}:/app/cache" `
         -v "${dataVol}:/app/data" `
         alpine:3.20 `
-        chown -R 1000:1000 /app/cache /app/data
+        sh -c "chown -R 1000:1000 /app/cache /app/data && chmod -R u+rwX /app/cache /app/data"
     if ($LASTEXITCODE -ne 0) {
-        Write-Warn "Could not chown backend volumes. If backend cannot write cache/data, run:"
-        Write-Warn "  docker run --rm -v ${cacheVol}:/app/cache -v ${dataVol}:/app/data alpine:3.20 chown -R 1000:1000 /app/cache /app/data"
+        Write-Err "Backend volume ownership/permission repair failed; refusing to start a broken backend."
+        Write-Err "Run as host admin:"
+        Write-Err "  docker run --rm -v ${cacheVol}:/app/cache -v ${dataVol}:/app/data alpine:3.20 sh -c 'chown -R 1000:1000 /app/cache /app/data && chmod -R u+rwX /app/cache /app/data'"
+        throw "Backend volume repair failed"
     }
+
+    docker run --rm --user 1000:1000 `
+        -v "${cacheVol}:/app/cache" `
+        -v "${dataVol}:/app/data" `
+        alpine:3.20 `
+        sh -eu -c 'umask 077; probe_dir() { dir="$1"; [ -L "$dir" ] && exit 1; [ -d "$dir" ] || return 0; probe="$dir/.myriad-volume-write-probe-$$"; (set -C; : > "$probe") || exit 1; rm -f -- "$probe"; }; probe_dir /app/cache; probe_dir /app/data; probe_dir /app/data/tapps; for dir in /app/data/tapps/*; do [ -e "$dir" ] || [ -L "$dir" ] || continue; [ -L "$dir" ] && exit 1; owner_id="${dir##*/}"; case "$owner_id" in ""|*[!0-9]*) continue ;; esac; probe_dir "$dir"; done'
+    if ($LASTEXITCODE -ne 0) {
+        Write-Err "Backend volume remains unwritable by uid 1000 after repair; refusing to continue."
+        Write-Err "Check for a read-only mount, NFS/CIFS root_squash, ACLs, or immutable attributes."
+        throw "Backend volume write verification failed"
+    }
+    Write-Ok "Backend volumes are writable by uid 1000"
 }
 
 # Soft (warn-only) topology check after successful up/upgrade. Never fails deploy.

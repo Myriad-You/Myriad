@@ -28,7 +28,7 @@ import {
   preloadOAuthIcons,
 } from '../../utils/oauthIcons'
 import OAuthIconImage from '../OAuthIconImage'
-import { InfoCard, InputItem, SettingSection, SwitchItem } from '../settings'
+import { InfoCard, InputItem, SettingSection } from '../settings'
 import { findPreset, OAUTH_PRESETS } from './oauthPresets'
 
 /** 把字符串中反引号 `foo` 包裹的片段渲染为 <code>foo</code> */
@@ -57,10 +57,8 @@ interface OAuthConfigSectionProps {
   description: string
   sectionId?: string
   providers: OAuthProviderEntry[]
-  allowRegister: boolean
   loading?: boolean
   onProvidersChange: (providers: OAuthProviderEntry[]) => void
-  onAllowRegisterChange: (allow: boolean) => void
 }
 
 function openPresetPicker(
@@ -78,10 +76,8 @@ export const OAuthConfigSection: React.FC<OAuthConfigSectionProps> = ({
   description,
   sectionId,
   providers,
-  allowRegister,
   loading = false,
   onProvidersChange,
-  onAllowRegisterChange,
 }) => {
   const { t } = useI18n()
 
@@ -176,17 +172,7 @@ export const OAuthConfigSection: React.FC<OAuthConfigSectionProps> = ({
         />
       )}
 
-      {/* 本地注册开关 */}
-      <SwitchItem
-        itemKey="allow_local_registration"
-        label={t.config.allowRegisterTitle}
-        description={t.config.allowRegisterDesc}
-        value={allowRegister}
-        loading={loading}
-        onChange={onAllowRegisterChange}
-      />
-
-      {/* providers 列表 */}
+      {/* providers 列表（本地注册开关已移至「用户管理」区块） */}
       <div className="oidc-section">
         <div className="oidc-section-head">
           <div className="oidc-section-head-text">

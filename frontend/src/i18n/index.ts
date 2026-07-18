@@ -19,6 +19,7 @@ export interface TranslationKeys {
     success: string
     retry: string
     close: string
+    back: string
     or: string
     go: string
     refresh: string
@@ -319,10 +320,8 @@ export interface TranslationKeys {
     usersRevokeAdminConfirm: string
     usersEnableLocalLogin: string
     usersDisableLocalLogin: string
-    usersEditProfile: string
-    usersDisplayName: string
+    usersLocalLoginRequiresOAuth: string
     usersEmail: string
-    usersSave: string
     usersCancel: string
     usersCreateUser: string
     usersCreateUsername: string
@@ -403,8 +402,6 @@ export interface TranslationKeys {
     updaterChannelBadgeDev: string
     updaterChannelSaved: string
     // 自动检查 / 自动安装
-    updaterAutoGroupTitle: string
-    updaterAutoGroupDesc: string
     updaterCheckInterval: string
     updaterCheckIntervalDesc: string
     updaterCheckIntervalOff: string
@@ -1198,12 +1195,19 @@ export interface TranslationKeys {
     atLeast8Chars: string
     enterPasswordAgain: string
     newPasswordMinLength: string
+    passwordNeedsLetterAndDigit: string
     passwordMismatch: string
     passwordSameAsOld: string
     cannotGetCsrf: string
     passwordChanged: string
     changing: string
     confirmChange: string
+    setPassword: string
+    setPasswordHint: string
+    localLoginUsername: string
+    passwordSet: string
+    setting: string
+    confirmSet: string
     networkError: string
     logout: string
     pleaseLogin: string
@@ -1214,6 +1218,14 @@ export interface TranslationKeys {
     recentlyUsed: string
     noRecentTapps: string
     viewAllTapps: string
+    oauthBindings: string
+    oauthAccount: string
+    oauthBind: string
+    oauthUnbind: string
+    oauthUnbindConfirm: string
+    oauthUnbindFailed: string
+    oauthNoProviders: string
+    oauthNotConfigured: string
   }
 
   // 小组件网格

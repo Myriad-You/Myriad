@@ -5,6 +5,9 @@
 
 use once_cell::sync::Lazy;
 use std::env;
+use std::fs::{self, OpenOptions};
+use std::io;
+use std::path::Path;
 use std::path::PathBuf;
 
 /// 数据路径配置
@@ -75,6 +78,78 @@ pub fn paths() -> &'static DataPaths {
     &DATA_PATHS
 }
 
+fn storage_error(action: &str, path: &Path, error: io::Error) -> io::Error {
+    io::Error::new(
+        error.kind(),
+        format!("{action} {}: {error}", path.display()),
+    )
+}
+
+/// Prove that the backend uid can create and remove a file in `directory`.
+///
+/// Checking metadata or `Permissions::readonly` is insufficient for ACLs,
+/// read-only mounts and network filesystems, so use the exact operation needed
+/// by Tapp staging. `create_new` prevents following or truncating an attacker-
+/// controlled pre-existing path.
+fn verify_directory_writable(directory: &Path) -> io::Result<()> {
+    fs::create_dir_all(directory)
+        .map_err(|error| storage_error("create storage directory", directory, error))?;
+    let probe = directory.join(format!(
+        ".myriad-storage-write-probe-{}",
+        uuid::Uuid::new_v4().simple()
+    ));
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe)
+        .map_err(|error| storage_error("write storage probe in", directory, error))?;
+    fs::remove_file(&probe).map_err(|error| storage_error("remove storage probe", &probe, error))
+}
+
+fn verify_storage_layout_writable(data_paths: &DataPaths) -> io::Result<()> {
+    verify_directory_writable(&data_paths.root)?;
+    verify_directory_writable(&data_paths.cache)?;
+    verify_directory_writable(&data_paths.tapps)?;
+
+    let entries = fs::read_dir(&data_paths.tapps)
+        .map_err(|error| storage_error("list Tapp owner directories", &data_paths.tapps, error))?;
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            storage_error("read Tapp owner directory", &data_paths.tapps, error)
+        })?;
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if name.is_empty() || !name.bytes().all(|byte| byte.is_ascii_digit()) {
+            continue;
+        }
+        let file_type = entry
+            .file_type()
+            .map_err(|error| storage_error("inspect Tapp owner directory", &entry.path(), error))?;
+        if file_type.is_symlink() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "refusing symlink in Tapp owner directory: {}",
+                    entry.path().display()
+                ),
+            ));
+        }
+        if file_type.is_dir() {
+            verify_directory_writable(&entry.path())?;
+        }
+    }
+    Ok(())
+}
+
+/// Startup preflight for persistent storage. A backend that cannot write its
+/// volumes must not report healthy, otherwise the updater would accept a
+/// deployment that later fails every Tapp install with PermissionDenied.
+pub fn verify_runtime_storage_writable() -> io::Result<()> {
+    verify_storage_layout_writable(paths())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -105,5 +180,98 @@ mod tests {
             paths.rsshub_routes_cache(),
             PathBuf::from("cache/rsshub_routes.json")
         );
+    }
+
+    #[test]
+    fn storage_preflight_probes_roots_and_existing_tapp_owners() {
+        let base = std::env::temp_dir().join(format!(
+            "myriad-storage-preflight-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let data_paths = DataPaths {
+            root: base.join("data"),
+            brew: base.join("data/brew"),
+            brew_icons: base.join("data/brew/icons"),
+            tapps: base.join("data/tapps"),
+            cache: base.join("cache"),
+            cache_platforms: base.join("cache/platforms"),
+            cache_raw: base.join("cache/raw"),
+            cache_images: base.join("cache/images"),
+        };
+        fs::create_dir_all(data_paths.tapps.join("1")).unwrap();
+        fs::create_dir_all(data_paths.tapps.join("not-an-owner")).unwrap();
+
+        verify_storage_layout_writable(&data_paths).unwrap();
+        assert!(fs::read_dir(&data_paths.root).unwrap().all(|entry| !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .contains("write-probe")));
+        assert!(fs::read_dir(data_paths.tapps.join("1"))
+            .unwrap()
+            .all(|entry| !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .contains("write-probe")));
+
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn storage_preflight_reports_the_failing_path() {
+        let base = std::env::temp_dir().join(format!(
+            "myriad-storage-preflight-file-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        fs::create_dir_all(&base).unwrap();
+        let data_file = base.join("data-as-file");
+        fs::write(&data_file, "not a directory").unwrap();
+        let data_paths = DataPaths {
+            root: data_file.clone(),
+            brew: data_file.join("brew"),
+            brew_icons: data_file.join("brew/icons"),
+            tapps: data_file.join("tapps"),
+            cache: base.join("cache"),
+            cache_platforms: base.join("cache/platforms"),
+            cache_raw: base.join("cache/raw"),
+            cache_images: base.join("cache/images"),
+        };
+
+        let error = verify_storage_layout_writable(&data_paths).unwrap_err();
+        assert!(error.to_string().contains(&data_file.display().to_string()));
+
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn storage_preflight_rejects_tapp_owner_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let base = std::env::temp_dir().join(format!(
+            "myriad-storage-preflight-symlink-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let outside = base.join("outside");
+        let data_paths = DataPaths {
+            root: base.join("data"),
+            brew: base.join("data/brew"),
+            brew_icons: base.join("data/brew/icons"),
+            tapps: base.join("data/tapps"),
+            cache: base.join("cache"),
+            cache_platforms: base.join("cache/platforms"),
+            cache_raw: base.join("cache/raw"),
+            cache_images: base.join("cache/images"),
+        };
+        fs::create_dir_all(&data_paths.tapps).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        symlink(&outside, data_paths.tapps.join("1")).unwrap();
+
+        let error = verify_storage_layout_writable(&data_paths).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("refusing symlink"));
+
+        fs::remove_dir_all(base).unwrap();
     }
 }
