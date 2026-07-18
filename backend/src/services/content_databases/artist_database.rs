@@ -5,6 +5,7 @@
 #![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
+use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
@@ -212,7 +213,7 @@ impl ArtistDatabase {
             .into_iter()
             .filter(|(_, count)| *count > 1)
             .collect();
-        favorite_artists.sort_by(|a, b| b.1.cmp(&a.1));
+        favorite_artists.sort_by_key(|b| Reverse(b.1));
         let favorite_artists: Vec<String> = favorite_artists
             .into_iter()
             .take(10)
@@ -239,7 +240,7 @@ impl ArtistDatabase {
                 .collect();
 
             // 按数量排序
-            analysis.sort_by(|a, b| b.count.cmp(&a.count));
+            analysis.sort_by_key(|b| Reverse(b.count));
             analysis
         };
 

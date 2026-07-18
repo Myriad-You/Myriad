@@ -6,6 +6,7 @@ use axum::{
 };
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
+use std::cmp::Reverse;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::services::fetcher::{PlatformFetcher, SteamUserInfo};
@@ -484,7 +485,7 @@ pub async fn get_steam_stats(
             let total_hours = total_minutes as f32 / 60.0;
 
             // 最多游玩的游戏（前10）
-            games.sort_by(|a, b| b.playtime_forever.cmp(&a.playtime_forever));
+            games.sort_by_key(|b| Reverse(b.playtime_forever));
             let most_played: Vec<serde_json::Value> = games
                 .iter()
                 .take(10)

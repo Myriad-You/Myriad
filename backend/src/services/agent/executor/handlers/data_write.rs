@@ -11,6 +11,7 @@ use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter,
 };
 use serde_json::{json, Value};
+use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::net::ToSocketAddrs;
 
@@ -678,7 +679,7 @@ fn extract_and_prioritize_feeds(feeds: &Value) -> Vec<(String, Option<String>)> 
         .collect();
 
     // 按分数降序排序
-    result.sort_by(|a, b| b.2.cmp(&a.2));
+    result.sort_by_key(|b| Reverse(b.2));
 
     // 返回 URL 和名称
     result

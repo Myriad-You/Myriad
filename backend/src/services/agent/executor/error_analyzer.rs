@@ -303,35 +303,31 @@ impl ErrorAnalyzer {
 
         // 特定能力的参数修复规则
         match capability_id {
-            "music.playlist" => {
-                // 常见问题：缺少 playlistId → 建议先搜索播放列表
-                if error_lower.contains("playlistid") {
-                    suggested_prepend = Some("netease.searchPlaylist".to_string());
-                    // 从原始参数中提取搜索关键词
-                    let keyword = params
-                        .get("keyword")
-                        .or_else(|| params.get("query"))
-                        .or_else(|| params.get("name"))
-                        .cloned()
-                        .unwrap_or_else(|| Value::String("推荐歌单".to_string()));
-                    suggested_prepend_params.insert("keyword".to_string(), keyword);
-                }
+            // 常见问题：缺少 playlistId → 建议先搜索播放列表
+            "music.playlist" if error_lower.contains("playlistid") => {
+                suggested_prepend = Some("netease.searchPlaylist".to_string());
+                // 从原始参数中提取搜索关键词
+                let keyword = params
+                    .get("keyword")
+                    .or_else(|| params.get("query"))
+                    .or_else(|| params.get("name"))
+                    .cloned()
+                    .unwrap_or_else(|| Value::String("推荐歌单".to_string()));
+                suggested_prepend_params.insert("keyword".to_string(), keyword);
             }
-            "music.control" => {
-                if error_lower.contains("action") {
-                    param_fixes.insert(
-                        "action".to_string(),
-                        ParamFix::SetValue(serde_json::json!("play")),
-                    );
-                }
+            "music.control" if error_lower.contains("action") => {
+                param_fixes.insert(
+                    "action".to_string(),
+                    ParamFix::SetValue(serde_json::json!("play")),
+                );
             }
-            "brew.discover" => {
-                if error_lower.contains("url") || error_lower.contains("query") {
-                    param_fixes.insert(
-                        "query".to_string(),
-                        ParamFix::SetValue(serde_json::json!("*")),
-                    );
-                }
+            "brew.discover"
+                if error_lower.contains("url") || error_lower.contains("query") =>
+            {
+                param_fixes.insert(
+                    "query".to_string(),
+                    ParamFix::SetValue(serde_json::json!("*")),
+                );
             }
             _ => {}
         }

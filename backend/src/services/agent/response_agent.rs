@@ -409,7 +409,7 @@ fn extract_step_text(output: &Value) -> String {
     {
         parts.push(format!(
             "生成了图像提示词: {}",
-            &prompt.chars().take(200).collect::<String>()
+            prompt.chars().take(200).collect::<String>()
         ));
     }
 

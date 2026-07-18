@@ -660,7 +660,7 @@ impl AgentMemory {
                         format!(
                             "{}: {}...",
                             role,
-                            &content.chars().take(200).collect::<String>()
+                            content.chars().take(200).collect::<String>()
                         )
                     } else {
                         format!("{}: {}", role, content)

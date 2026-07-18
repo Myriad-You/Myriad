@@ -2001,10 +2001,10 @@ impl Agent {
                     return Some(DataDisplayHint::KeyValue);
                 }
             }
-            Value::String(s) => {
-                if s.contains('#') || s.contains('*') || s.contains('`') || s.contains('\n') {
-                    return Some(DataDisplayHint::Markdown);
-                }
+            Value::String(s)
+                if s.contains('#') || s.contains('*') || s.contains('`') || s.contains('\n') =>
+            {
+                return Some(DataDisplayHint::Markdown);
             }
             _ => {}
         }
@@ -2628,7 +2628,7 @@ async fn record_execution_memory(params: MemoryRecordParams<'_>) {
         let lesson = format!(
             "{}执行失败教训：{} → 步骤 [{}] 失败: {}",
             params.log_prefix,
-            &params.user_input.chars().take(40).collect::<String>(),
+            params.user_input.chars().take(40).collect::<String>(),
             step_caps.join(", "),
             error
         );
@@ -2654,7 +2654,7 @@ async fn record_execution_memory(params: MemoryRecordParams<'_>) {
     let summary = format!(
         "{}{} | {} 步 ({}, ...) → {}",
         params.log_prefix,
-        &params.user_input.chars().take(30).collect::<String>(),
+        params.user_input.chars().take(30).collect::<String>(),
         params.planner_steps_len,
         first_cap,
         if ok { "✓" } else { "✗" }
@@ -2666,7 +2666,7 @@ async fn record_execution_memory(params: MemoryRecordParams<'_>) {
         if history.len() >= 4 {
             let session_summary = format!(
                 "会话主题：{} | 执行了 {} 步骤 | 结果：{}",
-                &params.user_input.chars().take(50).collect::<String>(),
+                params.user_input.chars().take(50).collect::<String>(),
                 params.planner_steps_len,
                 if ok { "成功" } else { "失败" }
             );

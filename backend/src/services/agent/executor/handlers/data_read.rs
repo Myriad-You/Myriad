@@ -11,6 +11,7 @@ use crate::services::netease_utils::{get_random_china_ip, get_random_user_agent}
 use once_cell::sync::Lazy;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{json, Value};
+use std::cmp::Reverse;
 use std::collections::HashMap;
 
 static RE_HTML_TAG: Lazy<regex::Regex> = Lazy::new(|| regex::Regex::new(r"<[^>]+>").unwrap());
@@ -361,7 +362,7 @@ fn analyze_steam_stats(data: &Value) -> Result<Value, String> {
     }
 
     // 排序（按游戏时间降序）
-    games_by_time.sort_by(|a, b| b.1.cmp(&a.1));
+    games_by_time.sort_by_key(|b| Reverse(b.1));
 
     // 计算时间段分布
     for (_, playtime) in &games_by_time {
@@ -2763,7 +2764,7 @@ async fn execute_netease_search_playlist(
         })
         .collect();
 
-    scored_playlists.sort_by(|a, b| b.1.cmp(&a.1));
+    scored_playlists.sort_by_key(|b| Reverse(b.1));
 
     // 格式化输出
     let formatted_playlists: Vec<Value> = scored_playlists
