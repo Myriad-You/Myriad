@@ -40,6 +40,8 @@ export interface AdminUser {
   email: string | null
   avatar_url: string | null
   is_admin: boolean
+  /** Durable site owner flag (was: heuristic id === 1). */
+  is_owner: boolean
   auth_provider: string
   local_login_disabled: boolean
   has_password: boolean
@@ -82,16 +84,31 @@ export const adminUsersApi = {
     return response.user
   },
 
-  async update(userId: number, update: AdminUserUpdate): Promise<AdminUser> {
-    const response = await apiService.patch<{ user: AdminUser }>(
-      `${BASE}/${userId}`,
-      update,
-    )
-    return response.user
+  async update(
+    userId: number,
+    update: AdminUserUpdate,
+  ): Promise<{ user: AdminUser; notice?: string }> {
+    const response = await apiService.patch<{
+      user: AdminUser
+      notice?: string
+      message?: string
+    }>(`${BASE}/${userId}`, update)
+    return {
+      user: response.user,
+      notice: response.notice || response.message,
+    }
   },
 
-  async create(input: AdminCreateUserInput): Promise<void> {
-    await apiService.post(BASE, input)
+  async create(
+    input: AdminCreateUserInput,
+  ): Promise<{ notice?: string } | void> {
+    const response = await apiService.post<{
+      notice?: string
+      message?: string
+    }>(BASE, input)
+    return {
+      notice: response?.notice || response?.message,
+    }
   },
 
   async unlinkIdentity(userId: number, identityId: number): Promise<AdminUser> {

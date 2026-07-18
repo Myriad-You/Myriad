@@ -78,6 +78,7 @@ pub async fn get_current_user(
         .query_one(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT u.id, u.username, u.auth_provider, u.is_admin,
+                      COALESCE(u.is_owner, false) AS is_owner,
                       COALESCE(
                           NULLIF(
                               CASE
@@ -149,6 +150,7 @@ pub async fn get_current_user(
         .try_get("", "auth_provider")
         .unwrap_or_else(|_| "local".to_string());
     let is_admin: bool = user_row.try_get("", "is_admin").unwrap_or(false);
+    let is_owner: bool = user_row.try_get("", "is_owner").unwrap_or(false);
     let avatar_url: String = user_row
         .try_get("", "avatar_url")
         .unwrap_or_else(|_| "https://github.com/ghost.png".to_string());
@@ -163,6 +165,7 @@ pub async fn get_current_user(
         "display_name": username,
         "auth_provider": auth_provider,
         "is_admin": is_admin,
+        "is_owner": is_owner,
         "avatar_url": avatar_url,
         "github_id": github_id,
         "linked_github_id": linked_github_id.map(|id| id.to_string()),

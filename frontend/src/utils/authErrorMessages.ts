@@ -155,12 +155,22 @@ export function messageForAdminUserError(
   }
   if (
     /only the primary administrator.*delete administrators/i.test(msg) ||
-    /only the primary administrator \(id=1\) can delete/i.test(msg)
+    /only the primary administrator \(id=1\) can delete/i.test(msg) ||
+    /only the site owner can delete administrators/i.test(msg)
   ) {
     return t.config.usersErrorPrimaryAdminDelete
   }
-  if (/only the primary administrator.*admin roles/i.test(msg)) {
+  if (
+    /only the primary administrator.*admin roles/i.test(msg) ||
+    /only the site owner can change admin roles/i.test(msg)
+  ) {
     return t.config.usersPrimaryAdminOnly
+  }
+  if (/cannot delete the site owner/i.test(msg)) {
+    return t.config.usersErrorCannotDeleteOwner
+  }
+  if (/cannot demote the site owner/i.test(msg)) {
+    return t.config.usersErrorCannotDemoteOwner
   }
   if (/no linked oauth identity/i.test(msg)) {
     return t.config.usersLocalLoginRequiresOAuth

@@ -111,6 +111,10 @@ function RequireAuth({
 /**
  * Guest-only routes (/login, /register): authenticated users go home.
  * While auth is still resolving, show a spinner — never flash the form.
+ *
+ * OAuth errors (`?oauth_error=`) are toasted by useAuthUrlFeedback on
+ * AppLayout while this spinner is shown (URL still has the query), so we
+ * intentionally do not re-attach query params on redirect (avoids double-toast).
  */
 function GuestOnly({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, hasChecked } = useAuth()

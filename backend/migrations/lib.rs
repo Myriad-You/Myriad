@@ -28,6 +28,9 @@ mod tapp_approved_permissions;
 #[path = "009_user_presence.rs"]
 mod user_presence;
 
+#[path = "010_user_owner.rs"]
+mod user_owner;
+
 pub struct Migrator;
 
 #[async_trait::async_trait]
@@ -43,6 +46,7 @@ impl MigratorTrait for Migrator {
             Box::new(notification_preferences::Migration),
             Box::new(tapp_approved_permissions::Migration),
             Box::new(user_presence::Migration),
+            Box::new(user_owner::Migration),
             // 默认平台种子行（含 X）统一由 001 + runtime schema_check::ensure_default_platforms 维护，
             // 不再为单个平台开独立 migration。
         ]

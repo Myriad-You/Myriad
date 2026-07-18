@@ -4,10 +4,7 @@ import { useEffect, useState } from 'react'
 import { API_URL } from '../config'
 import { useI18n } from '../contexts/I18nContext'
 import { fetchJson } from '../utils/apiHelper'
-import {
-  messageForLocalLoginError,
-  messageForOAuthError,
-} from '../utils/authErrorMessages'
+import { messageForLocalLoginError } from '../utils/authErrorMessages'
 import { sanitizeUsername } from '../utils/inputSanitizer'
 import { normalizeOAuthIconUrl, preloadOAuthIcons } from '../utils/oauthIcons'
 import { RateLimitError } from '../utils/rateLimiter'
@@ -44,29 +41,8 @@ const LoginForm: FC = () => {
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [allowRegister, setAllowRegister] = useState(false)
 
-  useEffect(() => {
-    // Surface OAuth callback failures redirected as `/login?oauth_error=...&desc=...`
-    try {
-      const params = new URLSearchParams(window.location.search)
-      const oauthError = params.get('oauth_error')?.trim()
-      if (oauthError) {
-        const desc = params.get('desc')
-        setError(messageForOAuthError(oauthError, desc, t, format))
-        // Drop query so refresh does not re-show the same banner forever
-        params.delete('oauth_error')
-        params.delete('desc')
-        const next = params.toString()
-        const path = window.location.pathname
-        window.history.replaceState(
-          {},
-          '',
-          next ? `${path}?${next}` : path,
-        )
-      }
-    } catch {
-      // ignore (SSR / non-browser)
-    }
-  }, [t, format])
+  // oauth_error / desc are surfaced as toasts by useAuthUrlFeedback (AppLayout)
+  // so authenticated users redirected from /login by GuestOnly still see them.
 
   useEffect(() => {
     // 并发拉 provider 列表 + setup config（注册开关）

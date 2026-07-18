@@ -127,11 +127,18 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
   const admins = useMemo(() => users.filter((u) => u.is_admin), [users])
   const registered = useMemo(() => users.filter((u) => !u.is_admin), [users])
 
-  /** 站点主管理员为 user id = 1；仅其可授予/撤销管理员；非主管理员不可删管理员/id=1 */
-  const isPrimaryAdmin = currentUser?.id === 1
+  /**
+   * Site owner (`is_owner`); was heuristic id === 1.
+   * Prefer /api/auth/me and list payload flags over id.
+   */
+  const isPrimaryAdmin = Boolean(
+    currentUser?.is_owner ||
+      users.find((u) => u.id === currentUser?.id)?.is_owner,
+  )
   const canDeleteUser = (target: AdminUser) =>
     target.id !== currentUser?.id &&
-    (isPrimaryAdmin || (!target.is_admin && target.id !== 1))
+    !target.is_owner &&
+    (isPrimaryAdmin || !target.is_admin)
 
   const formatDateTime = useCallback(
     (value: string | null) => {
@@ -188,11 +195,15 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
     async (userId: number, update: AdminUserUpdate) => {
       setBusy(true)
       try {
-        applyUpdated(await adminUsersApi.update(userId, update))
-        return true
+        const { user: updated, notice } = await adminUsersApi.update(
+          userId,
+          update,
+        )
+        applyUpdated(updated)
+        return { ok: true as const, notice, updated }
       } catch (error) {
         notifyError(error, t.config.usersActionError)
-        return false
+        return { ok: false as const }
       } finally {
         setBusy(false)
       }
@@ -202,17 +213,31 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
 
   const handleToggleAdmin = useCallback(
     async (user: AdminUser) => {
+      if (user.is_owner && user.is_admin) {
+        onMessage?.(t.config.usersErrorCannotDemoteOwner, 'error')
+        return
+      }
       if (user.is_admin && !window.confirm(t.config.usersRevokeAdminConfirm)) {
         return
       }
-      await runUpdate(user.id, { is_admin: !user.is_admin })
+      const promoting = !user.is_admin
+      const result = await runUpdate(user.id, { is_admin: !user.is_admin })
+      if (!result.ok) return
+      if (promoting) {
+        onMessage?.(t.config.usersPromoteReLoginNotice, 'info')
+      } else {
+        onMessage?.(t.config.usersDemoteImmediateNotice, 'info')
+      }
     },
-    [runUpdate, t],
+    [onMessage, runUpdate, t],
   )
 
   const handleToggleLocalLogin = useCallback(
-    (user: AdminUser) =>
-      runUpdate(user.id, { local_login_disabled: !user.local_login_disabled }),
+    async (user: AdminUser) => {
+      await runUpdate(user.id, {
+        local_login_disabled: !user.local_login_disabled,
+      })
+    },
     [runUpdate],
   )
 
@@ -257,22 +282,26 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
     if (!createDraft.username.trim() || !createDraft.password) return
     setBusy(true)
     try {
+      const createAsAdmin = isPrimaryAdmin && createDraft.is_admin
       await adminUsersApi.create({
         username: createDraft.username.trim(),
         password: createDraft.password,
         email: createDraft.email.trim() || undefined,
-        // 仅主管理员可创建管理员账号
-        is_admin: isPrimaryAdmin && createDraft.is_admin,
+        // 仅站点 owner 可创建管理员账号
+        is_admin: createAsAdmin,
       })
       setCreating(false)
       setCreateDraft({ username: '', password: '', email: '', is_admin: false })
       await loadUsers()
+      if (createAsAdmin) {
+        onMessage?.(t.config.usersPromoteReLoginNotice, 'info')
+      }
     } catch (error) {
       notifyError(error, t.config.usersActionError)
     } finally {
       setBusy(false)
     }
-  }, [createDraft, isPrimaryAdmin, loadUsers, notifyError, t])
+  }, [createDraft, isPrimaryAdmin, loadUsers, notifyError, onMessage, t])
 
   const renderIdentities = (user: AdminUser, allowUnlink: boolean) =>
     user.identities.length === 0 ? (
@@ -325,8 +354,17 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
               {user.is_admin && (
                 <LuShieldCheck
                   className="users-admin-mark"
-                  aria-label={t.config.usersRoleAdmin}
+                  aria-label={
+                    user.is_owner
+                      ? t.config.usersRoleOwner
+                      : t.config.usersRoleAdmin
+                  }
                 />
+              )}
+              {user.is_owner && (
+                <span className="users-self-mark" title={t.config.usersRoleOwner}>
+                  {t.config.usersRoleOwner}
+                </span>
               )}
               {user.id === currentUser?.id && (
                 <span className="users-self-mark">·</span>
@@ -428,8 +466,8 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
                       ? t.config.usersEnableLocalLogin
                       : t.config.usersDisableLocalLogin}
                   </button>
-                  {/* 仅主管理员可授予/撤销 is_admin；自身不可撤销 */}
-                  {isPrimaryAdmin && (
+                  {/* 仅站点 owner 可授予/撤销 is_admin；owner 自身与 is_owner 目标不可降级 */}
+                  {isPrimaryAdmin && !shown.is_owner && (
                     <button
                       type="button"
                       className={`users-button${shown.is_admin ? ' danger' : ''}`}

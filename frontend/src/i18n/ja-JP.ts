@@ -381,7 +381,12 @@ export const jaJP: TranslationKeys = {
     usersRevokeAdmin: '管理者を解除',
     usersRevokeAdminConfirm: 'このユーザーの管理者権限を解除しますか？',
     usersPrimaryAdminOnly:
-      '管理者権限の付与・解除はプライマリ管理者のみ可能です',
+      '管理者権限の付与・解除はサイト所有者のみ可能です',
+    usersPromoteReLoginNotice:
+      '管理者権限を付与しました。昇格したユーザーは一度サインアウトして再ログインしないと、管理 API がセッションを受け付けません。',
+    usersDemoteImmediateNotice:
+      '管理者権限を取り消しました。管理 API のチェックには即時反映されます。',
+    usersRoleOwner: '所有者',
     usersEnableLocalLogin: 'ローカルログインを有効化',
     usersDisableLocalLogin: 'ローカルログインを無効化',
     usersLocalLoginRequiresOAuth:
@@ -407,7 +412,9 @@ export const jaJP: TranslationKeys = {
     usersErrorLastAdminDemote: '最後の管理者の権限は解除できません。',
     usersErrorRevokeSelf: '自分の管理者権限は解除できません。',
     usersErrorPrimaryAdminDelete:
-      '管理者アカウントの削除はプライマリ管理者のみ可能です。',
+      '管理者アカウントの削除はサイト所有者のみ可能です。',
+    usersErrorCannotDeleteOwner: 'サイト所有者は削除できません。',
+    usersErrorCannotDemoteOwner: 'サイト所有者の管理者権限は解除できません。',
     usersEmpty: '登録ユーザーはまだいません',
     usersShowDetail: '詳細を表示',
     usersHideDetail: '詳細を閉じる',

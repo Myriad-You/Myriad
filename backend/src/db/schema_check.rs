@@ -15,12 +15,13 @@ use std::collections::HashSet;
 /// 格式建议：YYYY.MM.DD 或语义版本 X.Y.Z
 ///
 /// 变更日志：
+/// - 2026.07.18.1: users.is_owner 站点 owner 标记（取代 id=1 主管理员启发式）
 /// - 2026.07.17.1: 新增 tapp_ai_cost_ledger 独立 AI 费用账本表与索引
 /// - 2026.07.16.2: 008 内容并入基础迁移，并由 schema 自愈补齐旧库
 /// - 2026.07.16.1: 补齐 activity_events 表与索引
 /// - 2026.07.11.1: 新增 Discord 数据平台种子
 /// - 2026.07.10.1: 默认平台种子同步（含 X），与 001 插入列表对齐
-const SCHEMA_VERSION: &str = "2026.07.17.1";
+const SCHEMA_VERSION: &str = "2026.07.18.1";
 
 /// 内置平台种子定义（与 migrations/001_initial_schema.rs 中 INSERT 保持同步）
 ///
@@ -432,6 +433,13 @@ fn get_expected_schema() -> Vec<TableDef> {
                     data_type: "bigint".into(),
                     is_nullable: false,
                     default_value: Some("0".into()),
+                },
+                // 站点 owner（migration 010）；was: privilege gates used id=1
+                ColumnDef {
+                    name: "is_owner".into(),
+                    data_type: "boolean".into(),
+                    is_nullable: false,
+                    default_value: Some("false".into()),
                 },
             ],
         },
@@ -5428,9 +5436,73 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     // 008 已并入基础迁移；等缺失字段补齐后再创建配额函数和触发器。
     ensure_tapp_storage_quota(db).await?;
 
+    // 010: ensure exactly one site owner after is_owner column is present.
+    if let Err(e) = ensure_single_owner(db).await {
+        tracing::warn!("Site owner seed warning: {}", e);
+    }
+
     // 6. 记录版本已应用
     mark_schema_version_applied(db, SCHEMA_VERSION).await?;
     tracing::info!("📌 Schema version {} marked as applied", SCHEMA_VERSION);
+
+    Ok(())
+}
+
+/// Ensure `users.is_owner` exists with exactly one owner row (idempotent).
+///
+/// Seed priority (when zero owners): id=1 if admin → lowest-id admin → lowest-id user.
+/// Multiple owners collapse to the lowest id.
+pub async fn ensure_single_owner(db: &DatabaseConnection) -> Result<(), DbErr> {
+    // Column may still be missing if DDL failed; skip quietly.
+    let col_check = db
+        .query_one(sea_orm::Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT 1 AS ok FROM information_schema.columns \
+             WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'is_owner' \
+             LIMIT 1",
+            vec![],
+        ))
+        .await?;
+    if col_check.is_none() {
+        tracing::debug!("users.is_owner missing, skip owner seed");
+        return Ok(());
+    }
+
+    // Partial unique index: at most one owner.
+    if let Err(e) = db
+        .execute_unprepared(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_single_owner \
+             ON users ((true)) WHERE is_owner = true",
+        )
+        .await
+    {
+        tracing::warn!("idx_users_single_owner create warning: {}", e);
+    }
+
+    // Collapse multiples → keep lowest id.
+    db.execute_unprepared(
+        "UPDATE users SET is_owner = false \
+         WHERE is_owner = true \
+           AND id <> (SELECT MIN(id) FROM users WHERE is_owner = true)",
+    )
+    .await?;
+
+    // Seed if none.
+    let seeded = db
+        .execute_unprepared(
+            "UPDATE users SET is_owner = true \
+             WHERE id = COALESCE( \
+               (SELECT id FROM users WHERE id = 1 AND is_admin = true LIMIT 1), \
+               (SELECT id FROM users WHERE is_admin = true ORDER BY id ASC LIMIT 1), \
+               (SELECT id FROM users ORDER BY id ASC LIMIT 1) \
+             ) \
+             AND NOT EXISTS (SELECT 1 FROM users WHERE is_owner = true)",
+        )
+        .await?;
+
+    if seeded.rows_affected() > 0 {
+        tracing::info!("✅ Site owner seeded (users.is_owner)");
+    }
 
     Ok(())
 }
@@ -5486,6 +5558,9 @@ async fn do_force_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     }
 
     ensure_tapp_storage_quota(db).await?;
+    if let Err(e) = ensure_single_owner(db).await {
+        tracing::warn!("Force check: site owner seed warning: {}", e);
+    }
 
     Ok(())
 }
@@ -5504,6 +5579,19 @@ mod tests {
         assert!(table_names.contains(&"users"));
         assert!(table_names.contains(&"configurations"));
         assert!(table_names.contains(&"platforms"));
+    }
+
+    #[test]
+    fn test_users_schema_includes_is_owner() {
+        let tables = get_expected_schema();
+        let users = tables
+            .iter()
+            .find(|t| t.name == "users")
+            .expect("users table");
+        assert!(
+            users.columns.iter().any(|c| c.name == "is_owner"),
+            "users must define is_owner (migration 010)"
+        );
     }
 
     #[test]

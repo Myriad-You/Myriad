@@ -111,41 +111,71 @@ pub async fn create_admin(
     // Insert admin user
     use sea_orm::Value as SeaValue;
 
-    let insert_query = "INSERT INTO users (
-        username, 
-        auth_provider, 
-        password_hash, 
-        is_admin, 
+    // First setup admin is also the durable site owner (`is_owner`).
+    // Column may be missing on very old DBs mid-migration; fall back without it.
+    let insert_with_owner = "INSERT INTO users (
+        username,
+        auth_provider,
+        password_hash,
+        is_admin,
+        is_owner,
         github_id,
         avatar_url,
-        created_at, 
+        created_at,
         updated_at
-    ) VALUES ($1, $2, $3, $4, NULL, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    ) VALUES ($1, $2, $3, true, true, NULL, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    RETURNING id";
+    let insert_legacy = "INSERT INTO users (
+        username,
+        auth_provider,
+        password_hash,
+        is_admin,
+        github_id,
+        avatar_url,
+        created_at,
+        updated_at
+    ) VALUES ($1, $2, $3, true, NULL, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     RETURNING id";
 
-    let user_result = db
+    let insert_params = vec![
+        SeaValue::String(Some(Box::new(request.username.clone()))),
+        SeaValue::String(Some(Box::new("local".to_string()))),
+        SeaValue::String(Some(Box::new(password_hash))),
+        SeaValue::String(Some(Box::new(
+            "https://ui-avatars.com/api/?name=Admin&background=4f46e5&color=fff".to_string(),
+        ))),
+    ];
+
+    let user_result = match db
         .query_one(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            insert_query,
-            vec![
-                SeaValue::String(Some(Box::new(request.username.clone()))),
-                SeaValue::String(Some(Box::new("local".to_string()))),
-                SeaValue::String(Some(Box::new(password_hash))),
-                SeaValue::Bool(Some(true)),
-                SeaValue::String(Some(Box::new(
-                    "https://ui-avatars.com/api/?name=Admin&background=4f46e5&color=fff"
-                        .to_string(),
-                ))),
-            ],
+            insert_with_owner,
+            insert_params.clone(),
         ))
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to create admin user: {:?}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Failed to create admin account"})),
-            )
-        })?;
+    {
+        Ok(row) => row,
+        Err(e) => {
+            // Pre-migration DBs without is_owner: retry without the column.
+            tracing::warn!(
+                "create-admin with is_owner failed ({:?}); retrying without is_owner",
+                e
+            );
+            db.query_one(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                insert_legacy,
+                insert_params,
+            ))
+            .await
+            .map_err(|e2| {
+                tracing::error!("Failed to create admin user: {:?}", e2);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": "Failed to create admin account"})),
+                )
+            })?
+        }
+    };
 
     let user_id: i32 = user_result
         .and_then(|row| row.try_get("", "id").ok())
@@ -158,7 +188,7 @@ pub async fn create_admin(
         })?;
 
     tracing::info!(
-        "✅ Local admin account created: {} (ID: {})",
+        "✅ Local admin account created: {} (ID: {}, is_owner=true)",
         request.username,
         user_id
     );
@@ -910,7 +940,7 @@ async fn issue_session_cookie(
 // ============================================================================
 // 详见 docs/oauth-refactor-plan.md §7.2
 //
-// 不受 allow_local_registration 开关限制；is_admin=true 仅主管理员（id=1）可设。
+// 不受 allow_local_registration 开关限制；is_admin=true 仅站点 owner 可设。
 
 #[derive(Debug, Deserialize)]
 pub struct AdminCreateUserRequest {
@@ -937,10 +967,12 @@ pub async fn admin_create_user(
     ensure_current_admin(&claims).await?;
 
     let actor_id: i32 = claims.sub.parse().unwrap_or(0);
-    // 仅主管理员（id=1）可创建带 is_admin=true 的账号
-    if let Some(msg) =
-        crate::api::admin_users::non_primary_grant_admin_on_create_error(actor_id, req.is_admin)
-    {
+    // 仅站点 owner 可创建带 is_admin=true 的账号（was: actor id=1）
+    let actor_is_owner = crate::api::admin_users::actor_is_owner(&db, actor_id).await?;
+    if let Some(msg) = crate::api::admin_users::non_owner_grant_admin_on_create_error(
+        actor_is_owner,
+        req.is_admin,
+    ) {
         return Err((StatusCode::FORBIDDEN, Json(json!({"error": msg}))));
     }
 
@@ -974,7 +1006,7 @@ pub async fn admin_create_user(
     }
 
     let password_hash = hash_password(&req.password)?;
-    // 非主管理员路径上 is_admin 必为 false（上方已校验）
+    // 非 owner 路径上 is_admin 必为 false（上方已校验）
     let create_as_admin = req.is_admin;
 
     let insert = db
@@ -1028,12 +1060,17 @@ pub async fn admin_create_user(
         create_as_admin
     );
 
-    Ok(Json(json!({
+    let mut body = json!({
         "success": true,
         "user_id": user_id,
         "username": req.username,
         "is_admin": create_as_admin,
-    })))
+    });
+    if create_as_admin {
+        body["notice"] = json!(crate::api::admin_users::PROMOTE_RELOGIN_NOTICE);
+        body["message"] = json!(crate::api::admin_users::PROMOTE_RELOGIN_NOTICE);
+    }
+    Ok(Json(body))
 }
 
 // admin 用户列表已迁移到 api::admin_users::list_users（设置页用户管理模块）

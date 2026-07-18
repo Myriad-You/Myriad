@@ -8,6 +8,8 @@
 //! - PATCH  /api/admin/users/{id}                         更新用户（is_admin/local_login_disabled）
 //! - DELETE /api/admin/users/{id}                         删除用户（含关联数据清理）
 //! - DELETE /api/admin/users/{id}/identities/{identity_id} 解绑某用户的 OAuth identity
+//!
+//! Privilege model: durable `users.is_owner` (previously heuristic `id = 1`).
 
 use axum::{
     extract::{Path, State},
@@ -29,9 +31,10 @@ use crate::middleware::auth::{verify_jwt_token, Claims};
 /// 距最近活跃 ≤300s 视为在线（与 presence 跟踪的会话间隔一致）。
 const ONLINE_WINDOW_SECS: i64 = 300;
 
-/// 站点主管理员（user id = 1）。
-/// 仅 id=1 可授予/撤销管理员；非 id=1 不得改 is_admin、不得创建管理员、不得删除管理员。
-pub(crate) const PRIMARY_ADMIN_ID: i32 = 1;
+/// Historical heuristic: site owner was assumed to be user id=1.
+/// Prefer `users.is_owner` for privilege gates.
+#[allow(dead_code)]
+pub(crate) const LEGACY_PRIMARY_ADMIN_ID: i32 = 1;
 
 type ApiError = (StatusCode, Json<Value>);
 
@@ -50,39 +53,74 @@ fn not_found() -> ApiError {
     )
 }
 
-/// 非主管理员不得对任何用户改动 `is_admin`（不可 promote / demote）。
-/// 主管理员（actor_id == 1）返回 None。
-pub(crate) fn non_primary_is_admin_change_error(actor_id: i32) -> Option<&'static str> {
-    if actor_id == PRIMARY_ADMIN_ID {
+/// Non-owners may not change `is_admin` on anyone (promote / demote).
+/// Owners return None.
+pub(crate) fn non_owner_is_admin_change_error(actor_is_owner: bool) -> Option<&'static str> {
+    if actor_is_owner {
         return None;
     }
-    Some("Only the primary administrator (id=1) can change admin roles")
+    Some("Only the site owner can change admin roles")
 }
 
-/// 非主管理员不得以 is_admin=true 创建用户。
-pub(crate) fn non_primary_grant_admin_on_create_error(
-    actor_id: i32,
+/// Non-owners may not create users with `is_admin=true`.
+pub(crate) fn non_owner_grant_admin_on_create_error(
+    actor_is_owner: bool,
     want_is_admin: bool,
 ) -> Option<&'static str> {
     if !want_is_admin {
         return None;
     }
-    non_primary_is_admin_change_error(actor_id)
+    non_owner_is_admin_change_error(actor_is_owner)
 }
 
-/// 非主管理员不得删除管理员或 user id=1。
-fn non_primary_delete_error(
-    actor_id: i32,
-    target_id: i32,
+/// Non-owners may not delete admins or the owner.
+/// Nobody may delete the site owner.
+pub(crate) fn non_owner_delete_error(
+    actor_is_owner: bool,
+    target_is_owner: bool,
     target_is_admin: bool,
 ) -> Option<&'static str> {
-    if actor_id == PRIMARY_ADMIN_ID {
+    if target_is_owner {
+        return Some("Cannot delete the site owner");
+    }
+    if actor_is_owner {
         return None;
     }
-    if target_is_admin || target_id == PRIMARY_ADMIN_ID {
-        return Some("Only the primary administrator (id=1) can delete administrators");
+    if target_is_admin {
+        return Some("Only the site owner can delete administrators");
     }
     None
+}
+
+/// The site owner cannot be demoted (is_admin=false).
+pub(crate) fn cannot_demote_owner_error(
+    target_is_owner: bool,
+    new_is_admin: Option<bool>,
+) -> Option<&'static str> {
+    if target_is_owner && new_is_admin == Some(false) {
+        return Some("Cannot demote the site owner");
+    }
+    None
+}
+
+/// Load `is_owner` for a user id (defaults false if missing).
+async fn load_is_owner(db: &DatabaseConnection, user_id: i32) -> Result<bool, ApiError> {
+    let row = db
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT is_owner FROM users WHERE id = $1",
+            [user_id.into()],
+        ))
+        .await
+        .map_err(db_error)?;
+    Ok(row
+        .and_then(|r| r.try_get::<bool>("", "is_owner").ok())
+        .unwrap_or(false))
+}
+
+/// Public helper for create-user path (auth_local).
+pub async fn actor_is_owner(db: &DatabaseConnection, actor_id: i32) -> Result<bool, ApiError> {
+    load_is_owner(db, actor_id).await
 }
 
 async fn require_admin(headers: &axum::http::HeaderMap) -> Result<Claims, ApiError> {
@@ -118,6 +156,7 @@ fn user_row_to_json(row: &QueryResult, identities: &[Value]) -> Value {
         "email": row.try_get::<Option<String>>("", "email").unwrap_or(None),
         "avatar_url": row.try_get::<Option<String>>("", "avatar_url").unwrap_or(None),
         "is_admin": row.try_get::<bool>("", "is_admin").unwrap_or(false),
+        "is_owner": row.try_get::<bool>("", "is_owner").unwrap_or(false),
         "auth_provider": row.try_get::<String>("", "auth_provider").unwrap_or_default(),
         "local_login_disabled": row.try_get::<bool>("", "local_login_disabled").unwrap_or(false),
         "has_password": row.try_get::<bool>("", "has_password").unwrap_or(false),
@@ -145,7 +184,7 @@ fn identity_row_to_json(row: &QueryResult) -> Value {
 }
 
 const USER_SELECT: &str = "SELECT u.id, u.username, u.display_name, u.email, u.avatar_url, \
-        u.is_admin, u.auth_provider, u.local_login_disabled, \
+        u.is_admin, u.is_owner, u.auth_provider, u.local_login_disabled, \
         u.password_hash IS NOT NULL AS has_password, \
         u.created_at, u.last_login_at, u.last_seen_at, u.online_seconds, \
         (SELECT COUNT(*) FROM tapps t WHERE t.user_id = u.id) AS tapp_count \
@@ -161,7 +200,7 @@ pub async fn list_users(
     let user_rows = db
         .query_all(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            format!("{USER_SELECT} ORDER BY u.is_admin DESC, u.created_at ASC"),
+            format!("{USER_SELECT} ORDER BY u.is_owner DESC, u.is_admin DESC, u.created_at ASC"),
             vec![],
         ))
         .await
@@ -265,6 +304,14 @@ pub struct UpdateUserRequest {
     pub local_login_disabled: Option<bool>,
 }
 
+/// Notice for promote: JWT claim stays false until re-login.
+pub const PROMOTE_RELOGIN_NOTICE: &str =
+    "Admin role granted. The promoted user must sign out and sign in again for admin API access.";
+
+/// Notice for demote: admin middleware double-checks DB so access ends immediately.
+pub const DEMOTE_IMMEDIATE_NOTICE: &str =
+    "Admin access revoked. It takes effect immediately for admin API checks.";
+
 /// PATCH /api/admin/users/{id}
 pub async fn update_user(
     State(db): State<DatabaseConnection>,
@@ -274,32 +321,37 @@ pub async fn update_user(
 ) -> Result<Json<Value>, ApiError> {
     let claims = require_admin(&headers).await?;
     let self_id: i32 = claims.sub.parse().unwrap_or(0);
+    let actor_is_owner = load_is_owner(&db, self_id).await?;
 
     let target = db
         .query_one(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT id, username, is_admin FROM users WHERE id = $1",
+            "SELECT id, username, is_admin, is_owner FROM users WHERE id = $1",
             [user_id.into()],
         ))
         .await
         .map_err(db_error)?
         .ok_or_else(not_found)?;
     let target_is_admin = target.try_get::<bool>("", "is_admin").unwrap_or(false);
+    let target_is_owner = target.try_get::<bool>("", "is_owner").unwrap_or(false);
     let target_username = target.try_get::<String>("", "username").unwrap_or_default();
 
-    // is_admin 变更保护：仅主管理员（id=1）可改任何用户的 is_admin
+    // is_admin 变更保护：仅站点 owner 可改任何用户的 is_admin
     if req.is_admin.is_some() {
-        if let Some(msg) = non_primary_is_admin_change_error(self_id) {
+        if let Some(msg) = non_owner_is_admin_change_error(actor_is_owner) {
             return Err((StatusCode::FORBIDDEN, Json(json!({"error": msg}))));
         }
-        // 主管理员：不能撤销自己的管理员
+        if let Some(msg) = cannot_demote_owner_error(target_is_owner, req.is_admin) {
+            return Err((StatusCode::BAD_REQUEST, Json(json!({"error": msg}))));
+        }
+        // Owner：不能撤销自己的管理员（owner always stays admin)
         if req.is_admin == Some(false) && target_is_admin && user_id == self_id {
             return Err((
                 StatusCode::BAD_REQUEST,
                 Json(json!({"error": "Cannot revoke your own admin role"})),
             ));
         }
-        // 主管理员：不能降级最后一位管理员
+        // 不能降级最后一位管理员
         if req.is_admin == Some(false) && target_is_admin {
             let admin_count = db
                 .query_one(Statement::from_sql_and_values(
@@ -394,8 +446,16 @@ pub async fn update_user(
         req
     );
 
-    // 返回更新后的完整行，前端直接原位替换
-    get_user(State(db), Path(user_id), headers).await
+    // 返回更新后的完整行，前端直接原位替换；promote/demote 附带 re-login 提示
+    let Json(mut body) = get_user(State(db), Path(user_id), headers).await?;
+    if req.is_admin == Some(true) && !target_is_admin {
+        body["notice"] = json!(PROMOTE_RELOGIN_NOTICE);
+        body["message"] = json!(PROMOTE_RELOGIN_NOTICE);
+    } else if req.is_admin == Some(false) && target_is_admin {
+        body["notice"] = json!(DEMOTE_IMMEDIATE_NOTICE);
+        body["message"] = json!(DEMOTE_IMMEDIATE_NOTICE);
+    }
+    Ok(Json(body))
 }
 
 /// DELETE /api/admin/users/{id}/identities/{identity_id}
@@ -532,7 +592,8 @@ async fn cleanup_user_related_data(
 ///
 /// 安全规则：
 /// - 不能删除自己（JWT sub == target id）→ 400
-/// - 非主管理员（actor != 1）不得删除管理员或 id=1 → 403
+/// - 不能删除站点 owner → 400/403
+/// - 非 owner 不得删除管理员 → 403
 /// - 不能删除最后一位管理员 → 400
 pub async fn delete_user(
     State(db): State<DatabaseConnection>,
@@ -541,6 +602,7 @@ pub async fn delete_user(
 ) -> Result<Json<Value>, ApiError> {
     let claims = require_admin(&headers).await?;
     let self_id: i32 = claims.sub.parse().unwrap_or(0);
+    let actor_is_owner = load_is_owner(&db, self_id).await?;
 
     if user_id == self_id {
         return Err((
@@ -552,18 +614,23 @@ pub async fn delete_user(
     let target = db
         .query_one(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT id, username, is_admin FROM users WHERE id = $1",
+            "SELECT id, username, is_admin, is_owner FROM users WHERE id = $1",
             [user_id.into()],
         ))
         .await
         .map_err(db_error)?
         .ok_or_else(not_found)?;
     let target_is_admin = target.try_get::<bool>("", "is_admin").unwrap_or(false);
+    let target_is_owner = target.try_get::<bool>("", "is_owner").unwrap_or(false);
     let target_username = target.try_get::<String>("", "username").unwrap_or_default();
 
-    // 非主管理员不得删除其他管理员 / id=1
-    if let Some(msg) = non_primary_delete_error(self_id, user_id, target_is_admin) {
-        return Err((StatusCode::FORBIDDEN, Json(json!({"error": msg}))));
+    if let Some(msg) = non_owner_delete_error(actor_is_owner, target_is_owner, target_is_admin) {
+        let status = if target_is_owner {
+            StatusCode::BAD_REQUEST
+        } else {
+            StatusCode::FORBIDDEN
+        };
+        return Err((status, Json(json!({"error": msg}))));
     }
 
     if target_is_admin {
@@ -619,8 +686,8 @@ pub async fn delete_user(
 #[cfg(test)]
 mod tests {
     use super::{
-        non_primary_delete_error, non_primary_grant_admin_on_create_error,
-        non_primary_is_admin_change_error, PRIMARY_ADMIN_ID,
+        cannot_demote_owner_error, non_owner_delete_error, non_owner_grant_admin_on_create_error,
+        non_owner_is_admin_change_error,
     };
 
     /// 与 handler 中安全规则保持一致的纯函数，便于无 DB 单测。
@@ -651,41 +718,58 @@ mod tests {
     }
 
     #[test]
-    fn non_primary_cannot_change_any_is_admin() {
-        // 非主管理员对任何目标都不可改 is_admin（含 promote / demote）
-        assert!(non_primary_is_admin_change_error(2).is_some());
-        assert!(non_primary_is_admin_change_error(99).is_some());
+    fn non_owner_cannot_change_any_is_admin() {
+        assert!(non_owner_is_admin_change_error(false).is_some());
+        assert!(non_owner_is_admin_change_error(true).is_none());
     }
 
     #[test]
-    fn non_primary_cannot_promote_or_create_admin() {
-        assert!(non_primary_grant_admin_on_create_error(2, true).is_some());
-        // 创建非管理员仍允许
-        assert!(non_primary_grant_admin_on_create_error(2, false).is_none());
+    fn non_owner_cannot_promote_or_create_admin() {
+        assert!(non_owner_grant_admin_on_create_error(false, true).is_some());
+        assert!(non_owner_grant_admin_on_create_error(false, false).is_none());
+        assert!(non_owner_grant_admin_on_create_error(true, true).is_none());
     }
 
     #[test]
-    fn primary_can_change_admin_roles() {
-        assert!(non_primary_is_admin_change_error(PRIMARY_ADMIN_ID).is_none());
-        assert!(non_primary_grant_admin_on_create_error(PRIMARY_ADMIN_ID, true).is_none());
-        // 主管理员在 admin_count > 1 时可 demote 其他管理员
+    fn owner_can_change_admin_roles() {
+        assert!(non_owner_is_admin_change_error(true).is_none());
         assert!(!reject_last_admin_demote(true, false, 2));
         assert!(reject_last_admin_demote(true, false, 1));
     }
 
     #[test]
-    fn non_primary_cannot_delete_admin_or_id1() {
-        assert!(non_primary_delete_error(2, 3, true).is_some());
-        assert!(non_primary_delete_error(2, PRIMARY_ADMIN_ID, true).is_some());
-        assert!(non_primary_delete_error(2, PRIMARY_ADMIN_ID, false).is_some());
-        // 删除普通用户允许
-        assert!(non_primary_delete_error(2, 10, false).is_none());
+    fn cannot_demote_owner() {
+        assert!(cannot_demote_owner_error(true, Some(false)).is_some());
+        assert!(cannot_demote_owner_error(true, Some(true)).is_none());
+        assert!(cannot_demote_owner_error(false, Some(false)).is_none());
+        assert!(cannot_demote_owner_error(true, None).is_none());
     }
 
     #[test]
-    fn primary_can_delete_other_admin_when_not_last() {
-        assert!(non_primary_delete_error(PRIMARY_ADMIN_ID, 3, true).is_none());
+    fn cannot_delete_owner() {
+        assert!(non_owner_delete_error(true, true, true).is_some());
+        assert!(non_owner_delete_error(false, true, true).is_some());
+        assert!(non_owner_delete_error(false, true, false).is_some());
+    }
+
+    #[test]
+    fn non_owner_cannot_delete_admin() {
+        assert!(non_owner_delete_error(false, false, true).is_some());
+        // 删除普通用户允许
+        assert!(non_owner_delete_error(false, false, false).is_none());
+    }
+
+    #[test]
+    fn owner_can_delete_other_admin_when_not_last() {
+        assert!(non_owner_delete_error(true, false, true).is_none());
         assert!(!reject_last_admin_delete(true, 2));
         assert!(reject_last_admin_delete(true, 1));
+    }
+
+    #[test]
+    fn is_owner_gates_are_boolean_not_id() {
+        // Regression: gates no longer key off actor_id == 1
+        assert!(non_owner_is_admin_change_error(false).is_some());
+        assert!(non_owner_is_admin_change_error(true).is_none());
     }
 }

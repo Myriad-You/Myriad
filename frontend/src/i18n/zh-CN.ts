@@ -359,7 +359,12 @@ export const zhCN: TranslationKeys = {
     usersMakeAdmin: '设为管理员',
     usersRevokeAdmin: '取消管理员',
     usersRevokeAdminConfirm: '确定取消该用户的管理员权限？',
-    usersPrimaryAdminOnly: '仅主管理员可授予或撤销管理员权限',
+    usersPrimaryAdminOnly: '仅站点所有者可授予或撤销管理员权限',
+    usersPromoteReLoginNotice:
+      '已授予管理员权限。被提升的用户需先退出并重新登录后，管理 API 才会接受其会话。',
+    usersDemoteImmediateNotice:
+      '已撤销管理员权限。对管理 API 的校验会立即生效。',
+    usersRoleOwner: '所有者',
     usersEnableLocalLogin: '启用本地登录',
     usersDisableLocalLogin: '禁用本地登录',
     usersLocalLoginRequiresOAuth:
@@ -384,7 +389,9 @@ export const zhCN: TranslationKeys = {
     usersErrorLastAdmin: '不能删除最后一个管理员。',
     usersErrorLastAdminDemote: '不能取消最后一个管理员的权限。',
     usersErrorRevokeSelf: '不能撤销自己的管理员权限。',
-    usersErrorPrimaryAdminDelete: '仅主管理员可删除管理员账号。',
+    usersErrorPrimaryAdminDelete: '仅站点所有者可删除管理员账号。',
+    usersErrorCannotDeleteOwner: '不能删除站点所有者。',
+    usersErrorCannotDemoteOwner: '不能降级站点所有者。',
     usersEmpty: '暂无注册用户',
     usersShowDetail: '展开详情',
     usersHideDetail: '收起详情',

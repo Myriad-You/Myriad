@@ -24,6 +24,8 @@ export interface User {
   username: string
   display_name?: string
   is_admin: boolean
+  /** Durable site owner (was: heuristic id === 1). */
+  is_owner?: boolean
   auth_provider?: string
   linked_github_id?: string
   github_id?: number

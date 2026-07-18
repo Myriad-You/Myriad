@@ -388,7 +388,12 @@ export const enUS: TranslationKeys = {
     usersRevokeAdmin: 'Revoke admin',
     usersRevokeAdminConfirm: "Revoke this user's admin privileges?",
     usersPrimaryAdminOnly:
-      'Only the primary administrator can grant or revoke admin roles',
+      'Only the site owner can grant or revoke admin roles',
+    usersPromoteReLoginNotice:
+      'Admin role granted. The promoted user must sign out and sign in again before admin APIs will accept their session.',
+    usersDemoteImmediateNotice:
+      'Admin access revoked. It takes effect immediately for admin API checks.',
+    usersRoleOwner: 'Owner',
     usersEnableLocalLogin: 'Enable local login',
     usersDisableLocalLogin: 'Disable local login',
     usersLocalLoginRequiresOAuth:
@@ -414,7 +419,9 @@ export const enUS: TranslationKeys = {
     usersErrorLastAdminDemote: 'Cannot demote the last administrator.',
     usersErrorRevokeSelf: 'You cannot revoke your own admin role.',
     usersErrorPrimaryAdminDelete:
-      'Only the primary administrator can delete administrators.',
+      'Only the site owner can delete administrators.',
+    usersErrorCannotDeleteOwner: 'Cannot delete the site owner.',
+    usersErrorCannotDemoteOwner: 'Cannot demote the site owner.',
     usersEmpty: 'No registered users yet',
     usersShowDetail: 'Show details',
     usersHideDetail: 'Hide details',

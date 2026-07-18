@@ -339,6 +339,11 @@ export interface TranslationKeys {
     usersRevokeAdmin: string
     usersRevokeAdminConfirm: string
     usersPrimaryAdminOnly: string
+    /** After promoting a user to admin: they must re-login for JWT claim. */
+    usersPromoteReLoginNotice: string
+    /** After demoting: admin middleware DB check revokes immediately. */
+    usersDemoteImmediateNotice: string
+    usersRoleOwner: string
     usersEnableLocalLogin: string
     usersDisableLocalLogin: string
     usersLocalLoginRequiresOAuth: string
@@ -361,6 +366,8 @@ export interface TranslationKeys {
     usersErrorLastAdminDemote: string
     usersErrorRevokeSelf: string
     usersErrorPrimaryAdminDelete: string
+    usersErrorCannotDeleteOwner: string
+    usersErrorCannotDemoteOwner: string
     usersEmpty: string
     usersShowDetail: string
     usersHideDetail: string

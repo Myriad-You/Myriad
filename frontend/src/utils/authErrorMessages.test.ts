@@ -42,6 +42,8 @@ const t = {
     usersErrorRevokeSelf: 'revoke self',
     usersErrorPrimaryAdminDelete: 'primary delete',
     usersPrimaryAdminOnly: 'primary roles',
+    usersErrorCannotDeleteOwner: 'cannot delete owner',
+    usersErrorCannotDemoteOwner: 'cannot demote owner',
     usersLocalLoginRequiresOAuth: 'needs oauth',
   },
 } as any
@@ -164,6 +166,30 @@ describe('messageForAdminUserError', () => {
         'fallback',
       ),
       'primary roles',
+    )
+    assert.equal(
+      messageForAdminUserError(
+        new Error('Only the site owner can change admin roles'),
+        t,
+        'fallback',
+      ),
+      'primary roles',
+    )
+    assert.equal(
+      messageForAdminUserError(
+        new Error('Cannot delete the site owner'),
+        t,
+        'fallback',
+      ),
+      'cannot delete owner',
+    )
+    assert.equal(
+      messageForAdminUserError(
+        new Error('Cannot demote the site owner'),
+        t,
+        'fallback',
+      ),
+      'cannot demote owner',
     )
   })
 })
