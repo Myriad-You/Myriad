@@ -372,7 +372,7 @@ export const jaJP: TranslationKeys = {
     updaterCheckInterval24h: '24 時間ごと',
     updaterAutoInstall: '更新を自動インストール',
     updaterAutoInstallDesc:
-      '既定はオフ。有効時は選択中のチャネルに適用。明確なアップグレードのみ自動。ダウングレード / 分岐 / 不明 / 不可逆は手動確認が必要。',
+      '既定はオフ。有効時は選択中のチャネルに適用。明確なアップグレードのみ自動（開発版はビルド公開時刻が新しい場合）。ダウングレード / 分岐 / 不可逆は手動確認が必要。',
     updaterAutoPrefsSaved: '自動更新設定を保存しました',
     updaterStepLog: '詳細ステップを表示',
     updaterProcessing: '処理中…',

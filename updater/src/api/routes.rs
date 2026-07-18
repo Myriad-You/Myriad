@@ -269,10 +269,22 @@ fn available_to_json(info: Option<AvailableInfo>) -> Value {
             notes_url,
             source,
             freshness,
+            is_upgrade,
+            is_downgrade,
+            relation,
         }) => {
-            let (relation, ahead_by, behind_by, current_sha, is_upgrade, is_downgrade) =
-                match freshness.as_ref() {
-                    Some(f) => (
+            // Prefer precomputed direction (push-time / ancestry). Fall back to freshness.
+            let (rel, ahead_by, behind_by, current_sha, is_up, is_down) =
+                match (relation.as_deref(), is_upgrade, is_downgrade, freshness.as_ref()) {
+                    (Some(r), Some(up), Some(down), f) => (
+                        Some(r),
+                        f.map(|x| x.ahead_by),
+                        f.map(|x| x.behind_by),
+                        f.and_then(|x| x.current_sha.clone()),
+                        Some(up),
+                        Some(down),
+                    ),
+                    (_, _, _, Some(f)) => (
                         Some(f.relation.as_str()),
                         Some(f.ahead_by),
                         Some(f.behind_by),
@@ -280,10 +292,7 @@ fn available_to_json(info: Option<AvailableInfo>) -> Value {
                         Some(f.is_upgrade()),
                         Some(f.is_downgrade()),
                     ),
-                    None if source == "dockerhub" => {
-                        (Some("unknown"), None, None, None, Some(true), Some(false))
-                    }
-                    None => (None, None, None, None, None, None),
+                    _ => (Some("unknown"), None, None, None, Some(true), Some(false)),
                 };
             json!({
                 "schema_version": 1,
@@ -293,11 +302,11 @@ fn available_to_json(info: Option<AvailableInfo>) -> Value {
                 "channel": branch,
                 "commit_sha": full_sha,
                 "current_commit_sha": current_sha,
-                "relation": relation,
+                "relation": rel,
                 "ahead_by": ahead_by,
                 "behind_by": behind_by,
-                "is_upgrade": is_upgrade,
-                "is_downgrade": is_downgrade,
+                "is_upgrade": is_up,
+                "is_downgrade": is_down,
                 "message": message,
                 "notes_url": notes_url,
                 "released_at": chrono::Utc::now().to_rfc3339(),
@@ -929,7 +938,7 @@ mod tests {
     }
 
     #[test]
-    fn dockerhub_available_payload_marks_relation_unknown() {
+    fn dockerhub_available_payload_uses_precomputed_direction() {
         let payload = available_to_json(Some(AvailableInfo::Commit {
             tag: DeployTag::parse("dev-5a4527a").unwrap(),
             full_sha: "5a4527a".to_string(),
@@ -938,10 +947,14 @@ mod tests {
             notes_url: "https://hub.docker.com/r/example/backend/tags?name=dev-5a4527a".to_string(),
             source: "dockerhub".to_string(),
             freshness: None,
+            // Push-time newer → ahead, even without git ancestry.
+            is_upgrade: Some(true),
+            is_downgrade: Some(false),
+            relation: Some("ahead".to_string()),
         }));
 
         assert_eq!(payload["source"], "dockerhub");
-        assert_eq!(payload["relation"], "unknown");
+        assert_eq!(payload["relation"], "ahead");
         assert_eq!(payload["is_upgrade"], true);
         assert_eq!(payload["is_downgrade"], false);
     }

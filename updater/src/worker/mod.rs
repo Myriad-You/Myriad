@@ -23,7 +23,10 @@ use tracing::{error, info, warn};
 use crate::config::{Channel, Config};
 use crate::docker::DockerClient;
 use crate::error::{Result, UpdaterError};
-use crate::release::{DockerBuild, DockerHubClient, GithubClient, Manifest};
+use crate::release::{
+    commit_upgrade_direction, pushed_at_for_tag, DockerBuild, DockerHubClient, GithubClient,
+    Manifest,
+};
 use crate::state::{Job, JobKind, JobStatus, LatestAvailable, MaintenanceFile, Phase, StateDir};
 use crate::version::{
     commit_branch_for_channel, DeployTag, DeployTagKind, MyriadVersion, UpdateMode,
@@ -114,6 +117,10 @@ pub enum AvailableInfo {
         source: String,
         /// Ancestry of branch tip vs currently running deploy (if resolvable).
         freshness: Option<crate::release::Freshness>,
+        /// Final upgrade direction (push-time and/or ancestry). Used by status/UI/auto_install.
+        is_upgrade: Option<bool>,
+        is_downgrade: Option<bool>,
+        relation: Option<String>,
     },
 }
 
@@ -507,16 +514,15 @@ impl Worker {
                     Ok(Ok(Some(AvailableInfo::Commit {
                         tag,
                         branch,
-                        freshness,
+                        relation,
+                        is_upgrade,
                         ..
                     }))) => {
                         tracing::info!(
                             target = %tag,
                             %branch,
-                            relation = freshness
-                                .as_ref()
-                                .map(|f| f.relation.as_str())
-                                .unwrap_or("?"),
+                            relation = relation.as_deref().unwrap_or("?"),
+                            is_upgrade = ?is_upgrade,
                             "periodic check: commit tip available"
                         );
                         if let Err(e) = ticker_worker
@@ -684,7 +690,11 @@ impl Worker {
     }
 
     /// Shared safety gate for auto-install: only clear upgrades on the current
-    /// channel/mode. Downgrade / diverged / unknown / irreversible need human confirm.
+    /// channel/mode. Downgrade / diverged / irreversible need human confirm.
+    ///
+    /// **Commit/dev mode**: `relation=unknown` does **not** block auto-install when
+    /// `is_upgrade` is true (build-time newer is enough). Release channels still
+    /// reject unknown.
     fn auto_install_target_ok(
         &self,
         expected_mode: UpdateMode,
@@ -715,13 +725,27 @@ impl Worker {
         if la.is_upgrade != Some(true) || la.is_downgrade == Some(true) {
             return Ok(None);
         }
-        if matches!(
-            la.relation.as_deref(),
-            Some("diverged") | Some("unknown") | Some("behind") | Some("identical")
-        ) {
-            return Ok(None);
+        match expected_mode {
+            UpdateMode::Release => {
+                // Formal releases: still require a clear, low-risk relation.
+                if matches!(
+                    la.relation.as_deref(),
+                    Some("diverged") | Some("unknown") | Some("behind") | Some("identical")
+                ) {
+                    return Ok(None);
+                }
+            }
+            UpdateMode::Commit => {
+                // Dev channel: build-time upgrade is enough. Block only clear
+                // downgrade / diverged / identical (unknown is allowed).
+                if matches!(
+                    la.relation.as_deref(),
+                    Some("diverged") | Some("behind") | Some("identical")
+                ) {
+                    return Ok(None);
+                }
+            }
         }
-        // relation None with is_upgrade=true is ok (semver path may omit relation detail).
         if la.requires_self_update {
             info!(
                 target = %la.version,
@@ -1207,7 +1231,7 @@ impl Worker {
         let tag = DeployTag::parse(&format!("dev-{}", info.short_sha))?;
         let notes_url = info.html_url.clone();
 
-        // Ancestry compare: current deploy tag → branch tip (not wall-clock time).
+        // Ancestry when available; push-time is the fallback (and primary when unknown).
         let st_now = self.state.read_updater()?;
         let freshness = match gh
             .compare_deploy_to_ref(st_now.current_version.as_ref(), branch)
@@ -1230,6 +1254,45 @@ impl Worker {
             );
         }
 
+        // Enrich with Docker Hub push times for time-based upgrade when ancestry is unclear.
+        let builds = self
+            .clone()
+            .handle_list_builds(25)
+            .await
+            .unwrap_or_default();
+        let target_pushed = pushed_at_for_tag(&builds, tag.as_str())
+            .or_else(|| pushed_at_for_tag(&builds, info.short_sha.as_str()));
+        let current_pushed = st_now
+            .current_version
+            .as_ref()
+            .and_then(|c| pushed_at_for_tag(&builds, c.as_str()));
+        let direction = commit_upgrade_direction(
+            tag.as_str(),
+            st_now.current_version.as_ref().map(|c| c.as_str()),
+            target_pushed,
+            current_pushed,
+            freshness.as_ref(),
+        );
+        info!(
+            target = %tag,
+            is_upgrade = direction.is_upgrade,
+            is_downgrade = direction.is_downgrade,
+            relation = direction.relation,
+            target_pushed = ?target_pushed,
+            current_pushed = ?current_pushed,
+            "commit check: upgrade direction (ancestry + build time)"
+        );
+
+        if !direction.is_upgrade && !direction.is_downgrade {
+            if persist_cache {
+                let mut st = self.state.read_updater()?;
+                st.last_checked_at = Some(Utc::now());
+                st.latest_available = None;
+                self.state.write_updater(&st)?;
+            }
+            return Ok(None);
+        }
+
         let cached = LatestAvailable {
             version: tag.clone(),
             channel: branch.to_string(),
@@ -1241,11 +1304,11 @@ impl Worker {
                 .as_ref()
                 .and_then(|f| f.current_sha.clone())
                 .or_else(|| st_now.current_commit_sha.clone()),
-            relation: freshness.as_ref().map(|f| f.relation.as_str().to_string()),
+            relation: Some(direction.relation.to_string()),
             ahead_by: freshness.as_ref().map(|f| f.ahead_by),
             behind_by: freshness.as_ref().map(|f| f.behind_by),
-            is_upgrade: freshness.as_ref().map(|f| f.is_upgrade()),
-            is_downgrade: freshness.as_ref().map(|f| f.is_downgrade()),
+            is_upgrade: Some(direction.is_upgrade),
+            is_downgrade: Some(direction.is_downgrade),
             requires_self_update: false,
             min_updater_version: None,
             notes_url: notes_url.clone(),
@@ -1264,6 +1327,9 @@ impl Worker {
             notes_url,
             source: "github".to_string(),
             freshness,
+            is_upgrade: Some(direction.is_upgrade),
+            is_downgrade: Some(direction.is_downgrade),
+            relation: Some(direction.relation.to_string()),
         }))
     }
 
@@ -1280,10 +1346,11 @@ impl Worker {
                 "Docker Hub commit discovery failed ({docker_error}); GitHub metadata note: {github_error}"
             ))
         })?;
-        let Some(build) = builds
+        let commit_builds: Vec<_> = builds
             .into_iter()
-            .find(|b| b.kind == "commit" || b.tag.starts_with("dev-"))
-        else {
+            .filter(|b| b.kind == "commit" || b.tag.starts_with("dev-"))
+            .collect();
+        let Some(build) = commit_builds.first() else {
             if persist_cache {
                 let mut state = self.state.read_updater()?;
                 state.last_checked_at = Some(Utc::now());
@@ -1298,7 +1365,28 @@ impl Worker {
 
         let tag = DeployTag::parse(&build.tag)?;
         let state_now = self.state.read_updater()?;
-        if state_now.current_version.as_ref() == Some(&tag) {
+        let current = state_now.current_version.as_ref().map(|c| c.as_str());
+        let current_pushed = current.and_then(|c| pushed_at_for_tag(&commit_builds, c));
+        let direction = commit_upgrade_direction(
+            tag.as_str(),
+            current,
+            build.pushed_at.as_deref(),
+            current_pushed,
+            None,
+        );
+
+        info!(
+            target = %tag,
+            %branch,
+            is_upgrade = direction.is_upgrade,
+            is_downgrade = direction.is_downgrade,
+            relation = direction.relation,
+            target_pushed = ?build.pushed_at,
+            current_pushed = ?current_pushed,
+            "commit tip from Docker Hub (push-time upgrade direction)"
+        );
+
+        if !direction.is_upgrade && !direction.is_downgrade {
             if persist_cache {
                 let mut state = state_now;
                 state.last_checked_at = Some(Utc::now());
@@ -1308,11 +1396,6 @@ impl Worker {
             return Ok(None);
         }
 
-        info!(
-            target = %tag,
-            %branch,
-            "commit tip from Docker Hub common frontend/backend builds (GitHub metadata unavailable)"
-        );
         let cached = LatestAvailable {
             version: tag.clone(),
             channel: branch.to_string(),
@@ -1321,11 +1404,11 @@ impl Worker {
             seen_at: Utc::now(),
             commit_sha: Some(build.short_sha.clone()),
             current_commit_sha: state_now.current_commit_sha.clone(),
-            relation: Some("unknown".to_string()),
+            relation: Some(direction.relation.to_string()),
             ahead_by: None,
             behind_by: None,
-            is_upgrade: Some(true),
-            is_downgrade: Some(false),
+            is_upgrade: Some(direction.is_upgrade),
+            is_downgrade: Some(direction.is_downgrade),
             requires_self_update: false,
             min_updater_version: None,
             notes_url: build.backend_url.clone(),
@@ -1339,12 +1422,15 @@ impl Worker {
 
         Ok(Some(AvailableInfo::Commit {
             tag,
-            full_sha: build.short_sha,
+            full_sha: build.short_sha.clone(),
             message: "Docker Hub common frontend/backend build".to_string(),
             branch: branch.to_string(),
-            notes_url: build.backend_url,
+            notes_url: build.backend_url.clone(),
             source: "dockerhub".to_string(),
             freshness: None,
+            is_upgrade: Some(direction.is_upgrade),
+            is_downgrade: Some(direction.is_downgrade),
+            relation: Some(direction.relation.to_string()),
         }))
     }
 }

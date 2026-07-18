@@ -378,7 +378,7 @@ export const enUS: TranslationKeys = {
     updaterCheckInterval24h: 'Every 24 hours',
     updaterAutoInstall: 'Auto-install updates',
     updaterAutoInstallDesc:
-      'Off by default. When on, applies to the selected channel; only clear upgrades auto-install. Downgrade / diverged / unknown / irreversible still need confirmation.',
+      'Off by default. When on, applies to the selected channel; only clear upgrades auto-install (dev channel uses newer build publish time). Downgrade / diverged / irreversible still need confirmation.',
     updaterAutoPrefsSaved: 'Auto-update settings saved',
     updaterStepLog: 'Show detailed steps',
     updaterProcessing: 'Working…',

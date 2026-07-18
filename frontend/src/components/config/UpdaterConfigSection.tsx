@@ -504,11 +504,17 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
         ? 'commit'
         : 'release'
     const relation = available?.relation ?? la?.relation
+    const isUpgrade =
+      available?.is_upgrade === true || la?.is_upgrade === true
     const isDowngrade =
       available?.is_downgrade === true ||
       la?.is_downgrade === true ||
       status?.downgrade_available === true
-    const needsRisk = relation === 'diverged' || relation === 'unknown'
+    // Dev/commit: build-time upgrades may report relation=unknown without ancestry;
+    // only force risk confirm for diverged, or unknown when not a clear upgrade.
+    const needsRisk =
+      relation === 'diverged' ||
+      (relation === 'unknown' && !isUpgrade)
     dispatchUpdate(target, mode, { isDowngrade, needsRisk })
   }, [available, status, selOption, dispatchUpdate, checkAvailable])
 
@@ -1571,10 +1577,12 @@ function TargetPicker({
           onClick={() => {
             if (!target) return
             const isDowngrade = compare?.is_downgrade === true
+            const isUpgrade = compare?.is_upgrade === true
+            // Clear upgrades (including time-based / unknown ancestry) skip risk dialog.
             const needsRisk =
               !compare ||
               compare.relation === 'diverged' ||
-              compare.relation === 'unknown'
+              (compare.relation === 'unknown' && !isUpgrade)
             onInstall(target, { isDowngrade, needsRisk })
           }}
         >

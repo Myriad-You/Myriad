@@ -354,7 +354,7 @@ export const zhCN: TranslationKeys = {
     updaterCheckInterval24h: '每 24 小时',
     updaterAutoInstall: '自动安装更新',
     updaterAutoInstallDesc:
-      '默认关闭。开启后对当前所选通道生效；仅自动安装明确升级，降级 / 分叉 / 未知 / 不可逆变更需手动确认。',
+      '默认关闭。开启后对当前所选通道生效；仅自动安装明确升级（开发版以构建发布时间更新为准）。降级 / 分叉 / 不可逆变更需手动确认。',
     updaterAutoPrefsSaved: '自动更新设置已保存',
     updaterStepLog: '查看详细步骤',
     updaterProcessing: '处理中…',
