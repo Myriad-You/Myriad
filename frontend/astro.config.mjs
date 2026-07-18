@@ -236,12 +236,13 @@ function proxyBackendRequestStreaming(
 /**
  * Paths that must hit the backend in dev, matching production proxy
  * `is_backend_path` in `proxy/src/main.rs`. Path-only (query stripped).
- * Does NOT proxy `/.well-known/acme-challenge/*`.
+ * Does NOT proxy ACME challenge under .well-known.
  *
  * TODO: This one-shot node:http proxy does not perform WebSocket upgrades.
- * Federation WS (`/api/federation/*/ws`) is not available through the Astro
- * dev proxy; use a production-like proxy stack or hit backend:1103 directly
- * for WS during local development. REST ActivityPub paths are the critical fix.
+ * Federation WS under /api/federation/.../ws is not available through the
+ * Astro dev proxy; use a production-like proxy stack or hit backend:1103
+ * directly for WS during local development. REST ActivityPub paths are the
+ * critical fix.
  */
 function isBackendDevProxyPath(urlPath) {
   const path = (urlPath || '').split('?')[0] || ''
