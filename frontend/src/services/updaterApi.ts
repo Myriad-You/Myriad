@@ -59,6 +59,8 @@ export interface CommitListItem {
 export interface DockerBuildListItem {
   tag: string
   short_sha: string
+  /** `commit` (dev-<sha>) or `release` (vX.Y.Z). */
+  kind?: 'commit' | 'release' | string
   pushed_at: string | null
   backend_digest: string | null
   frontend_digest: string | null
@@ -95,6 +97,12 @@ export interface UpdaterStatus {
   channel: string
   /** release | commit — present on updater ≥ channel/mode support */
   update_mode?: UpdateMode
+  /** Effective check interval seconds (prefs or env). 0 = off. */
+  check_interval_secs?: number
+  /** Raw prefs value when set; omitted when using env fallback. */
+  check_interval_secs_pref?: number | null
+  /** Auto-install clear stable upgrades. Default false. */
+  auto_install?: boolean
   maintenance_active: boolean
   maintenance_phase: string
   job_in_flight: string | null
@@ -114,6 +122,12 @@ export interface UpdaterStatus {
   /** Last TCB self-update helper outcome (`state/self-update-last.json`), when present. */
   self_update_last?: SelfUpdateLastStatus | null
 }
+
+/** UI presets for periodic update checks (seconds). */
+export const CHECK_INTERVAL_PRESETS = [
+  0, 3600, 21600, 43200, 86400,
+] as const
+export type CheckIntervalSecs = (typeof CHECK_INTERVAL_PRESETS)[number]
 
 export interface SelfUpdateLastStatus {
   status: 'succeeded' | 'failed'
@@ -360,12 +374,20 @@ export function makeUpdaterApi(
     jobs: () => wrap<string[]>('GET', '/jobs'),
     job: (id: string) => wrap<Job>('GET', `/jobs/${id}`),
     snapshots: () => wrap<SnapshotsResponse>('GET', '/snapshots'),
-    setPrefs: (prefs: { channel?: string; mode?: UpdateMode }) =>
-      wrap<{ ok: boolean; channel: string; mode: UpdateMode }>(
-        'POST',
-        '/prefs',
-        prefs,
-      ),
+    setPrefs: (prefs: {
+      channel?: string
+      mode?: UpdateMode
+      check_interval_secs?: number | null
+      auto_install?: boolean
+    }) =>
+      wrap<{
+        ok: boolean
+        channel: string
+        mode: UpdateMode
+        check_interval_secs?: number
+        check_interval_secs_pref?: number | null
+        auto_install?: boolean
+      }>('POST', '/prefs', prefs),
     commits: (opts?: { branch?: string; limit?: number }) => {
       const q = new URLSearchParams()
       if (opts?.branch) q.set('branch', opts.branch)

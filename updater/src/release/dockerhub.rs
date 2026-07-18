@@ -1,8 +1,12 @@
 //! Docker Hub tag lookup used as a fallback when GitHub commit metadata is unavailable.
 //!
-//! A deployable development build exists only when the same immutable `dev-<sha>` tag is
-//! present in both the backend and frontend repositories. Branch-tip tags are deliberately
-//! ignored because they are mutable and therefore unsuitable for update/rollback history.
+//! A deployable build exists only when the same immutable tag is present in both the
+//! backend and frontend repositories:
+//! - `dev-<sha>` commit builds
+//! - formal release tags `vX.Y.Z`
+//!
+//! Branch-tip tags are deliberately ignored because they are mutable and therefore
+//! unsuitable for update/rollback history.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -95,7 +99,10 @@ impl DockerHubRepository {
 #[derive(Debug, Clone, Serialize)]
 pub struct DockerBuild {
     pub tag: String,
+    /// For commit builds: short sha fragment. For release builds: the version tag itself.
     pub short_sha: String,
+    /// `commit` (`dev-<sha>`) or `release` (`vX.Y.Z`).
+    pub kind: &'static str,
     pub pushed_at: Option<String>,
     pub backend_digest: Option<String>,
     pub frontend_digest: Option<String>,
@@ -245,17 +252,20 @@ fn common_builds(
         .into_iter()
         .filter_map(|backend| {
             let deploy_tag = DeployTag::parse(&backend.name).ok()?;
-            if deploy_tag.kind() != DeployTagKind::Commit {
-                return None;
-            }
+            let (kind, short_sha) = match deploy_tag.kind() {
+                DeployTagKind::Commit => ("commit", deploy_tag.commit_sha()?.to_string()),
+                DeployTagKind::Release => ("release", deploy_tag.as_str().to_string()),
+                DeployTagKind::Branch => return None,
+            };
             let frontend = frontend_by_tag.get(&backend.name)?;
             let pushed_at = match (backend.pushed_at(), frontend.pushed_at()) {
                 (Some(left), Some(right)) => Some(left.min(right)),
                 (left, right) => left.or(right),
             };
             Some(DockerBuild {
-                short_sha: deploy_tag.commit_sha()?.to_string(),
+                short_sha,
                 tag: backend.name.clone(),
+                kind,
                 pushed_at,
                 backend_digest: backend.preferred_digest(),
                 frontend_digest: frontend.preferred_digest(),
@@ -299,7 +309,7 @@ mod tests {
     }
 
     #[test]
-    fn keeps_only_common_immutable_dev_builds_newest_first() {
+    fn keeps_only_common_immutable_dev_and_release_builds_newest_first() {
         let backend = DockerHubRepository::parse("example/backend").unwrap();
         let frontend = DockerHubRepository::parse("example/frontend").unwrap();
         let builds = common_builds(
@@ -308,19 +318,29 @@ mod tests {
                 tag("preview", "2026-07-15T10:00:00Z", "sha256:branch"),
                 tag("dev-aaaaaaa", "2026-07-15T09:00:00Z", "sha256:ba"),
                 tag("dev-bbbbbbb", "2026-07-15T11:00:00Z", "sha256:bb"),
+                tag("v0.2.6", "2026-07-16T08:00:00Z", "sha256:r1"),
+                tag("v0.2.5", "2026-07-14T08:00:00Z", "sha256:r0"),
+                tag("stable", "2026-07-16T09:00:00Z", "sha256:mutable"),
             ],
             &frontend,
             vec![
                 tag("dev-aaaaaaa", "2026-07-15T09:30:00Z", "sha256:fa"),
                 tag("dev-bbbbbbb", "2026-07-15T10:30:00Z", "sha256:fb"),
                 tag("dev-ccccccc", "2026-07-15T12:00:00Z", "sha256:fc"),
+                tag("v0.2.6", "2026-07-16T07:30:00Z", "sha256:fr1"),
+                // v0.2.5 missing on frontend → excluded
             ],
             10,
         );
 
-        assert_eq!(builds.len(), 2);
-        assert_eq!(builds[0].tag, "dev-bbbbbbb");
-        assert_eq!(builds[0].pushed_at.as_deref(), Some("2026-07-15T10:30:00Z"));
-        assert_eq!(builds[1].tag, "dev-aaaaaaa");
+        assert_eq!(builds.len(), 3);
+        assert_eq!(builds[0].tag, "v0.2.6");
+        assert_eq!(builds[0].kind, "release");
+        assert_eq!(builds[0].pushed_at.as_deref(), Some("2026-07-16T07:30:00Z"));
+        assert_eq!(builds[1].tag, "dev-bbbbbbb");
+        assert_eq!(builds[1].kind, "commit");
+        assert_eq!(builds[1].pushed_at.as_deref(), Some("2026-07-15T10:30:00Z"));
+        assert_eq!(builds[2].tag, "dev-aaaaaaa");
+        assert_eq!(builds[2].kind, "commit");
     }
 }

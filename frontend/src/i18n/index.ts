@@ -336,11 +336,25 @@ export interface TranslationKeys {
     updaterChannelBadgeRecommended: string
     updaterChannelBadgeDev: string
     updaterChannelSaved: string
+    // 自动检查 / 自动安装
+    updaterAutoGroupTitle: string
+    updaterAutoGroupDesc: string
+    updaterCheckInterval: string
+    updaterCheckIntervalDesc: string
+    updaterCheckIntervalOff: string
+    updaterCheckInterval1h: string
+    updaterCheckInterval6h: string
+    updaterCheckInterval12h: string
+    updaterCheckInterval24h: string
+    updaterAutoInstall: string
+    updaterAutoInstallDesc: string
+    updaterAutoPrefsSaved: string
     // 频道 / 模式选择（当前内联面板仍在用；commit 仅 preview）
     updaterChannel: string
     // 进度卡
     updaterStepLog: string
     updaterProcessing: string
+    updaterProgressOnMaintenance: string
     // 确认弹窗
     updaterConfirmUpgrade: string
     updaterConfirmDowngrade: string

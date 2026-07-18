@@ -71,7 +71,21 @@ pub async fn run(
     mode: UpdateMode,
     risk: RiskFlags,
 ) -> Result<PreflightReport> {
-    match mode {
+    // Route by target shape, not only by UI mode:
+    // - formal releases always use release.json / manifest path
+    // - dev-<sha> / branch tips always use commit path
+    // (Dev channel may list both; never install a release tag as a commit.)
+    let effective_mode = if target.is_release() {
+        UpdateMode::Release
+    } else if mode == UpdateMode::Release {
+        return Err(UpdaterError::InvalidInput(format!(
+            "release mode requires a vX.Y.Z target, got {} (use mode=commit for CI tags)",
+            target.as_str()
+        )));
+    } else {
+        UpdateMode::Commit
+    };
+    match effective_mode {
         UpdateMode::Release => run_release(worker, target, risk).await,
         UpdateMode::Commit => run_commit(worker, target, risk).await,
     }

@@ -508,6 +508,11 @@ pub struct PrefsBody {
     pub channel: Option<String>,
     #[serde(default)]
     pub mode: Option<String>,
+    /// 0 | 3600 | 21600 | 43200 | 86400; JSON null clears to env fallback.
+    #[serde(default)]
+    pub check_interval_secs: Option<serde_json::Value>,
+    #[serde(default)]
+    pub auto_install: Option<bool>,
 }
 
 pub async fn set_prefs(Json(body): Json<PrefsBody>) -> Response {
@@ -515,10 +520,19 @@ pub async fn set_prefs(Json(body): Json<PrefsBody>) -> Response {
         Ok(c) => c,
         Err(r) => return *r,
     };
-    let payload = json!({
-        "channel": body.channel,
-        "mode": body.mode,
-    });
+    let mut payload = json!({});
+    if let Some(ch) = body.channel {
+        payload["channel"] = json!(ch);
+    }
+    if let Some(mode) = body.mode {
+        payload["mode"] = json!(mode);
+    }
+    if let Some(interval) = body.check_interval_secs {
+        payload["check_interval_secs"] = interval;
+    }
+    if let Some(ai) = body.auto_install {
+        payload["auto_install"] = json!(ai);
+    }
     match c.post_json("/prefs", Some(&payload), None).await {
         Ok(v) => Json(v).into_response(),
         Err(e) => err_to_response(e),

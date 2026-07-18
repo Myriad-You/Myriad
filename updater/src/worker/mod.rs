@@ -89,6 +89,8 @@ pub enum Command {
     SetPrefs {
         channel: Option<String>,
         mode: Option<UpdateMode>,
+        check_interval_secs: Option<Option<u64>>,
+        auto_install: Option<bool>,
         reply: tokio::sync::oneshot::Sender<Result<Prefs>>,
     },
     SelfUpdate {
@@ -119,6 +121,26 @@ pub enum AvailableInfo {
 pub struct Prefs {
     pub channel: String,
     pub mode: UpdateMode,
+    /// Effective check interval (env fallback already applied when state is unset).
+    pub check_interval_secs: u64,
+    /// Raw prefs value: null when unset (using env fallback).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub check_interval_secs_pref: Option<u64>,
+    pub auto_install: bool,
+}
+
+/// Allowed UI values for the check-interval preference (seconds).
+/// `0` = off; others are 1h / 6h / 12h / 24h.
+pub const CHECK_INTERVAL_PRESETS: &[u64] = &[0, 3600, 21600, 43200, 86400];
+
+pub fn validate_check_interval_secs(secs: u64) -> Result<u64> {
+    if CHECK_INTERVAL_PRESETS.contains(&secs) {
+        Ok(secs)
+    } else {
+        Err(UpdaterError::InvalidInput(format!(
+            "check_interval_secs must be one of {CHECK_INTERVAL_PRESETS:?}, got {secs}"
+        )))
+    }
 }
 
 pub struct Worker {
@@ -428,7 +450,7 @@ impl Worker {
         Ok(RecoveryReport::ClearedPreSwap)
     }
 
-    /// Spawn the worker loop AND, if configured, the periodic update checker.
+    /// Spawn the worker loop AND the periodic update checker (interval from prefs / env).
     /// The returned handle resolves when the main loop exits.
     pub fn spawn(self: Arc<Self>) -> JoinHandle<()> {
         let rx = self
@@ -439,69 +461,79 @@ impl Worker {
             .expect("worker rx already taken");
         let me = self.clone();
 
-        // Periodic GitHub release poller. Each tick enqueues a CheckUpdates command into the
-        // same single-slot worker channel, so it serialises with manual `/available` calls
-        // and never overlaps with an in-flight update.
-        if me.config.check_interval_secs > 0 {
-            let ticker_worker = me.clone();
-            let interval_secs = me.config.check_interval_secs;
-            tokio::spawn(async move {
-                // Initial delay so we don't hammer GitHub on a crash-loop restart.
-                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
-                let mut interval =
-                    tokio::time::interval(std::time::Duration::from_secs(interval_secs));
-                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                loop {
-                    interval.tick().await;
-                    let (tx, rx) = tokio::sync::oneshot::channel();
-                    if ticker_worker
-                        .tx
-                        .send(Command::CheckUpdates {
-                            channel: None,
-                            mode: None,
-                            reply: tx,
-                        })
-                        .await
-                        .is_err()
-                    {
-                        // Worker dropped — exit the ticker too.
-                        break;
-                    }
-                    match rx.await {
-                        Ok(Ok(Some(AvailableInfo::Release(m)))) => {
-                            tracing::info!(
-                                target_version = %m.version,
-                                channel = %m.channel,
-                                "periodic check: release available"
-                            );
-                        }
-                        Ok(Ok(Some(AvailableInfo::Commit {
-                            tag,
-                            branch,
-                            freshness,
-                            ..
-                        }))) => {
-                            tracing::info!(
-                                target = %tag,
-                                %branch,
-                                relation = freshness
-                                    .as_ref()
-                                    .map(|f| f.relation.as_str())
-                                    .unwrap_or("?"),
-                                "periodic check: commit tip available"
-                            );
-                        }
-                        Ok(Ok(None)) => {
-                            tracing::debug!("periodic check: nothing available for channel");
-                        }
-                        Ok(Err(e)) => {
-                            tracing::warn!(err = %e, "periodic check: github lookup failed");
-                        }
-                        Err(_) => break, // worker shutdown
-                    }
+        // Periodic poller. Interval is re-read each cycle so prefs hot-reload without restart.
+        // Each tick enqueues CheckUpdates on the single-slot worker channel.
+        let ticker_worker = me.clone();
+        tokio::spawn(async move {
+            // Initial delay so we don't hammer GitHub on a crash-loop restart.
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            loop {
+                let interval_secs = ticker_worker.effective_check_interval_secs();
+                if interval_secs == 0 {
+                    // Checks disabled — re-read prefs periodically so enabling hot-reloads.
+                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                    continue;
                 }
-            });
-        }
+
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                if ticker_worker
+                    .tx
+                    .send(Command::CheckUpdates {
+                        channel: None,
+                        mode: None,
+                        reply: tx,
+                    })
+                    .await
+                    .is_err()
+                {
+                    // Worker dropped — exit the ticker too.
+                    break;
+                }
+                match rx.await {
+                    Ok(Ok(Some(AvailableInfo::Release(m)))) => {
+                        tracing::info!(
+                            target_version = %m.version,
+                            channel = %m.channel,
+                            "periodic check: release available"
+                        );
+                        if let Err(e) = ticker_worker
+                            .clone()
+                            .maybe_auto_install_release(&m)
+                            .await
+                        {
+                            tracing::warn!(err = %e, "periodic auto_install skipped/failed");
+                        }
+                    }
+                    Ok(Ok(Some(AvailableInfo::Commit {
+                        tag,
+                        branch,
+                        freshness,
+                        ..
+                    }))) => {
+                        tracing::info!(
+                            target = %tag,
+                            %branch,
+                            relation = freshness
+                                .as_ref()
+                                .map(|f| f.relation.as_str())
+                                .unwrap_or("?"),
+                            "periodic check: commit tip available (auto_install never applies)"
+                        );
+                    }
+                    Ok(Ok(None)) => {
+                        tracing::debug!("periodic check: nothing available for channel");
+                    }
+                    Ok(Err(e)) => {
+                        tracing::warn!(err = %e, "periodic check: github lookup failed");
+                    }
+                    Err(_) => break, // worker shutdown
+                }
+
+                // Re-read interval after the check so a prefs change takes effect promptly.
+                let sleep_secs = ticker_worker.effective_check_interval_secs().max(1);
+                tokio::time::sleep(std::time::Duration::from_secs(sleep_secs)).await;
+            }
+        });
 
         tokio::spawn(async move {
             me.run(rx).await;
@@ -591,9 +623,14 @@ impl Worker {
                 Command::SetPrefs {
                     channel,
                     mode,
+                    check_interval_secs,
+                    auto_install,
                     reply,
                 } => {
-                    let res = self.clone().handle_set_prefs(channel, mode).await;
+                    let res = self
+                        .clone()
+                        .handle_set_prefs(channel, mode, check_interval_secs, auto_install)
+                        .await;
                     let _ = reply.send(res);
                 }
                 Command::SelfUpdate { actor, reply } => {
@@ -620,6 +657,99 @@ impl Worker {
             .ok()
             .map(|s| s.update_mode)
             .unwrap_or(UpdateMode::Release)
+    }
+
+    /// Effective periodic check interval: prefs when set, else `CHECK_INTERVAL_SECS` env.
+    pub fn effective_check_interval_secs(&self) -> u64 {
+        self.state
+            .read_updater()
+            .ok()
+            .and_then(|s| s.check_interval_secs)
+            .unwrap_or(self.config.check_interval_secs)
+    }
+
+    pub fn auto_install_enabled(&self) -> bool {
+        self.state
+            .read_updater()
+            .ok()
+            .map(|s| s.auto_install)
+            .unwrap_or(false)
+    }
+
+    /// Auto-install only for clear stable-channel release upgrades.
+    async fn maybe_auto_install_release(self: Arc<Self>, manifest: &Manifest) -> Result<()> {
+        if !self.auto_install_enabled() {
+            return Ok(());
+        }
+        // Policy: auto_install never applies to commit/dev mode or non-stable channels.
+        if self.effective_mode() != UpdateMode::Release {
+            return Ok(());
+        }
+        if self.effective_channel() != "stable" {
+            return Ok(());
+        }
+        if manifest.migrations.irreversible {
+            info!(
+                target = %manifest.version,
+                "auto_install: skip irreversible migration"
+            );
+            return Ok(());
+        }
+        if self.state.read_current_job()?.is_some() {
+            return Ok(());
+        }
+        // Require a clear upgrade cached by the just-completed check.
+        let st = self.state.read_updater()?;
+        let Some(la) = st.latest_available.as_ref() else {
+            return Ok(());
+        };
+        if la.is_upgrade != Some(true) || la.is_downgrade == Some(true) {
+            return Ok(());
+        }
+        if matches!(
+            la.relation.as_deref(),
+            Some("diverged") | Some("unknown") | Some("behind") | Some("identical")
+        ) {
+            return Ok(());
+        }
+        if la.requires_self_update {
+            info!(
+                target = %manifest.version,
+                "auto_install: skip — updater self-update required first"
+            );
+            return Ok(());
+        }
+        let target = DeployTag::from_release(manifest.version.clone());
+        if st.current_version.as_ref() == Some(&target) {
+            return Ok(());
+        }
+        info!(
+            target = %target,
+            "auto_install: dispatching clear stable upgrade"
+        );
+        // Enqueue through the worker channel so we serialize with other jobs.
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.tx
+            .send(Command::Update {
+                target,
+                mode: UpdateMode::Release,
+                allow_downgrade: false,
+                allow_risk: false,
+                allow_diverged: None,
+                allow_unknown: None,
+                allow_irreversible: None,
+                idempotency_key: Some(format!("auto-install-{}", manifest.version)),
+                actor: Some("auto-install".into()),
+                reply: tx,
+            })
+            .await
+            .map_err(|_| UpdaterError::Conflict)?;
+        let _ = rx
+            .await
+            .map_err(|_| {
+                UpdaterError::Precondition("worker dropped auto_install reply".into())
+            })??;
+        Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -776,13 +906,17 @@ impl Worker {
         self: Arc<Self>,
         channel: Option<String>,
         mode: Option<UpdateMode>,
+        check_interval_secs: Option<Option<u64>>,
+        auto_install: Option<bool>,
     ) -> Result<Prefs> {
         let mut st = self.state.read_updater()?;
+        let mut channel_or_mode_changed = false;
         if let Some(ch) = channel {
             let ch = ch.trim().to_ascii_lowercase();
             let mode_now = mode.unwrap_or(st.update_mode);
             validate_channel_for_mode(&ch, mode_now)?;
             st.channel = ch.clone();
+            channel_or_mode_changed = true;
             // Persist to .env so restarts keep the preference.
             if let Ok(mut env) = crate::env_file::EnvFile::load(&self.cli.env_file) {
                 let _ = env.set("CHANNEL", &ch);
@@ -793,21 +927,41 @@ impl Worker {
             // Re-validate channel under new mode.
             validate_channel_for_mode(&st.channel, m)?;
             st.update_mode = m;
+            channel_or_mode_changed = true;
             if let Ok(mut env) = crate::env_file::EnvFile::load(&self.cli.env_file) {
                 let _ = env.set("UPDATE_MODE", m.as_str());
                 let _ = env.save();
             }
         }
-        // Clear stale availability cache when prefs change.
-        st.latest_available = None;
+        if let Some(interval) = check_interval_secs {
+            match interval {
+                None => st.check_interval_secs = None,
+                Some(secs) => {
+                    validate_check_interval_secs(secs)?;
+                    st.check_interval_secs = Some(secs);
+                }
+            }
+        }
+        if let Some(ai) = auto_install {
+            st.auto_install = ai;
+        }
+        // Clear stale availability cache when channel/mode change.
+        if channel_or_mode_changed {
+            st.latest_available = None;
+        }
+        self.state.write_updater(&st)?;
         let prefs = Prefs {
             channel: st.channel.clone(),
             mode: st.update_mode,
+            check_interval_secs: st
+                .check_interval_secs
+                .unwrap_or(self.config.check_interval_secs),
+            check_interval_secs_pref: st.check_interval_secs,
+            auto_install: st.auto_install,
         };
-        self.state.write_updater(&st)?;
         self.state.append_history(&format!(
-            "prefs: channel={} mode={}",
-            prefs.channel, prefs.mode
+            "prefs: channel={} mode={} check_interval_secs={:?} auto_install={}",
+            prefs.channel, prefs.mode, prefs.check_interval_secs_pref, prefs.auto_install
         ))?;
         Ok(prefs)
     }

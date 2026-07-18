@@ -309,15 +309,15 @@ export const jaJP: TranslationKeys = {
     updaterHintHealthy:
       '問題ありません。いつでも「更新を確認」で新しいバージョンを確認できます。',
     updaterHintUpdating:
-      '更新は自動で進みます。サイトは一時的にアクセスできなくなり、完了後に自動で復帰します。',
+      '更新中です。メンテナンス開始後はメンテナンスページで進捗を確認できます。',
     updaterHintMaintenance:
-      'メンテナンス中です。サービスの正常動作を確認できたら、下の「メンテナンスと復旧」から解除できます。',
+      'メンテナンス中です。正常を確認できたら「メンテナンスと復旧」から解除できます。',
     updaterHintNeedsManual:
-      '自動ロールバックが完了しませんでした。下の「メンテナンスと復旧」からワンクリックで更新前の状態に戻せます。',
+      '自動ロールバック未完了。「メンテナンスと復旧」から更新前へ戻せます。',
     updaterHintOffline:
       'backend に MYRIAD_UPDATER_URL と UPDATE_TOKEN が設定されているか確認してください。',
     updaterHintFirstRun:
-      '「更新を確認」を押すと、現在のチャネルの最新バージョンを取得します。',
+      '「更新を確認」で現在のチャネルの最新版を取得します。',
     updaterCurrentVersion: '現在のバージョン',
     updaterChannelLabel: '更新チャネル',
     updaterLastChecked: '最終確認',
@@ -335,15 +335,13 @@ export const jaJP: TranslationKeys = {
     updaterDowngradeNow: '{version} へダウングレード',
     updaterDispatching: '更新を開始しています…',
     updaterDispatched:
-      '更新を開始しました（ジョブ {jobId}）。進捗は下に表示されます。',
+      '更新を開始しました（ジョブ {jobId}）。進捗はメンテナンスページで確認できます。',
     updaterWhatHappensTitle: '更新では何が起きますか？',
-    updaterWhatHappens1: 'まずデータを自動バックアップ（スナップショット作成）',
-    updaterWhatHappens2:
-      'メンテナンスモードに入り、サイトは一時的にアクセス不可（通常は数分）',
-    updaterWhatHappens3:
-      '新バージョンを自動チェック。失敗した場合は自動で元のバージョンに戻ります',
+    updaterWhatHappens1: 'データを自動バックアップ',
+    updaterWhatHappens2: 'メンテナンスモード（サイトは一時不可）',
+    updaterWhatHappens3: 'ヘルスチェック。失敗時は自動ロールバック',
     updaterIrreversibleWarn:
-      'この更新には元に戻せないデータ変更が含まれます。更新後は旧バージョンへ単純に戻すことはできません。',
+      '不可逆なデータ変更を含みます。更新後は単純に旧版へ戻せません。',
     updaterFreshnessAhead: '現在より {n} コミット新しい',
     updaterFreshnessBehind: '現在より {n} コミット古い',
     updaterFreshnessIdentical: '現在稼働中と同じバージョンです',
@@ -351,75 +349,81 @@ export const jaJP: TranslationKeys = {
       '現在と履歴が分岐しています（対象 +{ahead}、現在 +{behind} コミット）',
     updaterFreshnessUnknown: '対象と現在の新旧関係を判定できません',
     updaterChannelGroupTitle: '更新チャネル',
-    updaterChannelGroupDesc:
-      'このサーバーがどの系統の更新を受け取るかを決めます。選択すると即座に保存されます。',
+    updaterChannelGroupDesc: 'どの系統の更新を受け取るか。選択で即保存。',
     updaterChannelStable: '安定版',
-    updaterChannelStableDesc:
-      '十分にテストされた正式リリース。全員におすすめ。',
+    updaterChannelStableDesc: '本番向けの正式リリース。',
     updaterChannelPreview: 'プレビュー版',
-    updaterChannelPreviewDesc:
-      '次のリリースをいち早く試せます。小さな不具合の可能性あり。',
-    updaterChannelDev: '開発版（コミット追従）',
+    updaterChannelPreviewDesc: '次期機能を先行利用。不安定な場合あり。',
+    updaterChannelDev: '開発版',
     updaterChannelDevDesc:
-      'preview ブランチの各コミットに追従します。最も新しく不安定なため、開発者向けです。',
+      'preview ブランチのコミット。正式版（例: v0.2.6）もインストール可。最も不安定。',
     updaterChannelBadgeRecommended: 'おすすめ',
     updaterChannelBadgeDev: '開発者向け',
     updaterChannelSaved: '「{label}」に切り替えました。更新を再確認しています…',
+    updaterAutoGroupTitle: '自動確認とインストール',
+    updaterAutoGroupDesc:
+      '定期チェック。安定版の明確なアップグレードのみ自動インストール可。',
+    updaterCheckInterval: '確認頻度',
+    updaterCheckIntervalDesc: 'オフ時は手動のみ。変更はすぐ反映されます。',
+    updaterCheckIntervalOff: 'オフ',
+    updaterCheckInterval1h: '1 時間ごと',
+    updaterCheckInterval6h: '6 時間ごと',
+    updaterCheckInterval12h: '12 時間ごと',
+    updaterCheckInterval24h: '24 時間ごと',
+    updaterAutoInstall: '更新を自動インストール',
+    updaterAutoInstallDesc:
+      '既定はオフ。安定版の明確なアップグレードのみ。開発版・ダウングレード・リスクある更新は対象外。',
+    updaterAutoPrefsSaved: '自動更新設定を保存しました',
     updaterStepLog: '詳細ステップを表示',
     updaterProcessing: '処理中…',
+    updaterProgressOnMaintenance:
+      'メンテナンス開始後は、メンテナンスページで進捗を確認してください。',
     updaterConfirmUpgrade:
-      '{version} に更新しますか？\n\n更新の流れ：\n1. データを自動バックアップ（スナップショット作成）\n2. メンテナンスモードに入り、サイトは一時的にアクセス不可\n3. 完了後に自動チェック。失敗時は自動で元に戻ります',
+      '{version} に更新しますか？\n\n自動バックアップと短いメンテナンス。失敗時はロールバック。',
     updaterConfirmDowngrade:
-      '⚠ 本当にダウングレードしますか？\n\n対象 {version} は現在の {current} より古いバージョンです。データベースの変更は巻き戻せない場合があり、データ損失や機能不全のリスクがあります。',
+      '⚠ {version} へダウングレード（現在 {current}）？\n\nDB を戻せない場合があり、データリスクがあります。',
     updaterConfirmRisk:
-      '⚠ この変更が安全か確認できません：履歴の分岐、新旧関係が不明、または元に戻せないデータ変更を含みます。\n\n続行するとデータが破損し、戻せなくなる恐れがあります。続行しますか？',
+      '⚠ 安全を確認できません（分岐・不明・不可逆）。データ破損の恐れ。続行しますか？',
     updaterConfirmRollback:
-      '{version} の更新前の状態に戻しますか？\n\n当時のスナップショットからデータを復元します。それ以降に作成されたデータは失われます。',
+      '{version} 更新前に戻しますか？スナップショット以降のデータは失われます。',
     updaterConfirmExitMaintenance:
-      'メンテナンスモードを強制解除しますか？\n\nサービスの正常動作を確認できた場合のみ実行してください。そうでないと利用者に異常なサイトが表示されます。',
+      'メンテナンスを強制解除しますか？\n\n正常動作を確認できた場合のみ。',
     updaterConfirmRescueContinue:
-      '更新前のバージョンに戻しますか？\n\nスナップショット {snapshotId} からデータを復元し、バージョン {version} に戻ります。',
+      '更新前バージョン {version}（スナップショット {snapshotId}）に戻しますか？',
     updaterMaintenanceGroup: 'メンテナンスと復旧',
-    updaterMaintenanceGroupDesc:
-      '更新に問題が起きたときの復旧ツールです。普段は使いません。',
+    updaterMaintenanceGroupDesc: '更新失敗時の復旧ツール。',
     updaterRescueContinue: '更新前のバージョンに戻す',
-    updaterRescueContinueDesc:
-      '更新前に自動作成されたスナップショットからデータを復元してサービスを再起動します。最も安全な復旧方法です。',
+    updaterRescueContinueDesc: '更新前スナップショットから復元して再起動。最も安全。',
     updaterRescueContinueDispatched: '復旧を開始しました',
     updaterForceExit: 'メンテナンスモードを強制解除',
-    updaterForceExitDesc:
-      'メンテナンス状態の解除のみ行い、データは復元しません。サービスの正常動作を確認できた場合のみ使用してください。',
+    updaterForceExitDesc: 'フラグ解除のみ。データは復元しません。',
     updaterMaintenanceExited: 'メンテナンスモードを解除しました',
     updaterSelfUpdateNeeded:
-      '新バージョン {version} を適用するには、先にアップデーター自体を {minVersion} 以上へ更新する必要があります。',
+      'バージョン {version} にはアップデーター {minVersion}+ が必要です。',
     updaterSelfUpdateButton: 'アップデーターを更新',
     updaterSelfUpdateConfirm:
-      'アップデーターを {version} へ更新しますか？\n\n数秒で完了し、サイト自体には影響しません。完了後に再度「今すぐ更新」を押してください。',
+      'アップデーターを {version} へ更新しますか？数秒で完了しサイト影響なし。',
     updaterSelfUpdateDispatched:
-      'アップデーターの更新を開始しました。数秒で完了し、その後更新を続行できます。',
+      'アップデーター更新を開始。完了後に更新を続行できます。',
     updaterTargetGroupTitle: '特定バージョンのインストール（上級者向け）',
-    updaterTargetGroupDesc:
-      '過去のリリースや特定のコミットをインストールします。通常の更新では不要です。',
+    updaterTargetGroupDesc: '過去のリリースや特定コミット。通常は不要。',
     updaterTargetReleaseHead: '選択可能なバージョン（クリックで選択）',
-    updaterTargetCommitHead: '最近のコミット（クリックで選択）',
+    updaterTargetCommitHead: '最近のコミットと正式版（クリックで選択）',
     updaterTargetDockerHubHead: 'Docker Hub ビルド（クリックで選択）',
     updaterDockerHubFallback:
-      'Docker Hub 経由で開発版を検出しています（ソースリポジトリが private または GITHUB_TOKEN 未設定のときは正常な経路です）。',
+      'Docker Hub 経由でビルドを検出（private リポジトリや GITHUB_TOKEN 未設定時は正常）。',
     updaterDockerHubBuild: 'Docker Hub でビルド済み',
     updaterCommitTarget: '手動入力',
-    updaterCommitPlaceholder: 'コミット sha または dev-xxx タグ',
+    updaterCommitPlaceholder: 'vX.Y.Z、dev-xxx、またはコミット sha',
     updaterInstallTarget: '{version} をインストール',
     updaterTargetEmpty: '選択できる項目がありません',
     updaterSnapshotGroupTitle: 'バックアップと巻き戻し',
-    updaterSnapshotGroupDesc:
-      '毎回の更新前にデータを自動バックアップします。問題が起きたら、ここから更新前の状態に戻せます。',
-    updaterNoSnapshots:
-      'バックアップはまだありません。最初の更新後に自動で作成されます。',
+    updaterSnapshotGroupDesc: '更新前に自動バックアップ。問題時はここから戻す。',
+    updaterNoSnapshots: 'バックアップはまだありません。初回更新後に作成されます。',
     updaterRollback: 'このバージョンに戻す',
     updaterRollbackDispatched: '巻き戻しを開始しました',
     updaterGroupAdvanced: '詳細と診断',
-    updaterGroupAdvancedDesc:
-      '技術的な詳細と運用ツールです。普段は開く必要はありません。',
+    updaterGroupAdvancedDesc: '運用ツール。普段は不要。',
     updaterUpdaterVersion: 'アップデーターのバージョン',
     updaterJobInFlight: '実行中ジョブ',
     updaterNone: 'なし',

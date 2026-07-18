@@ -1036,3 +1036,78 @@ html.dark .updater-token-input {
   text-decoration: underline;
   opacity: 1;
 }
+
+/* ===== 自动检查 / 自动安装 ===== */
+.updater-auto-prefs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.updater-auto-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.updater-auto-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.updater-auto-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #111827;
+}
+
+html.dark .updater-auto-title {
+  color: #f3f4f6;
+}
+
+.updater-auto-desc {
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: #6b7280;
+}
+
+html.dark .updater-auto-desc {
+  color: #9ca3af;
+}
+
+.updater-select {
+  flex-shrink: 0;
+  min-width: 9rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgb(209 213 219 / 60%);
+  background: rgb(255 255 255 / 75%);
+  font-size: 0.82rem;
+  color: #111827;
+}
+
+html.dark .updater-select {
+  background: rgb(31 41 55 / 55%);
+  border-color: rgb(107 114 128 / 45%);
+  color: #f3f4f6;
+}
+
+.updater-auto-row input[type='checkbox'] {
+  margin-top: 0.25rem;
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+}
+
+.updater-progress-hint.muted {
+  color: #6b7280;
+  font-size: 0.8rem;
+}
+
+html.dark .updater-progress-hint.muted {
+  color: #9ca3af;
+}

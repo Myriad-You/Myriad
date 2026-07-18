@@ -315,15 +315,15 @@ export const enUS: TranslationKeys = {
     updaterHintHealthy:
       'Everything looks good. You can check for new versions at any time.',
     updaterHintUpdating:
-      'The update runs automatically. The site will be briefly unavailable and comes back on its own.',
+      'Update in progress. After maintenance starts, progress is on the maintenance page.',
     updaterHintMaintenance:
-      'The system is in maintenance. If the service is confirmed healthy, you can exit maintenance under “Maintenance & recovery” below.',
+      'System is in maintenance. When healthy, exit under “Maintenance & recovery”.',
     updaterHintNeedsManual:
-      'Automatic rollback did not finish. Use “Maintenance & recovery” below to return to the pre-update version in one click.',
+      'Automatic rollback did not finish. Use “Maintenance & recovery” to restore the pre-update version.',
     updaterHintOffline:
       'Check that MYRIAD_UPDATER_URL and UPDATE_TOKEN are configured on the backend.',
     updaterHintFirstRun:
-      'Click “Check for updates” to fetch the latest version on your channel.',
+      'Click “Check for updates” to fetch the latest on your channel.',
     updaterCurrentVersion: 'Current version',
     updaterChannelLabel: 'Update channel',
     updaterLastChecked: 'Last checked',
@@ -340,15 +340,13 @@ export const enUS: TranslationKeys = {
     updaterDowngradeNow: 'Downgrade to {version}',
     updaterDispatching: 'Starting update…',
     updaterDispatched:
-      'Update started (job {jobId}). Progress will appear below.',
+      'Update started (job {jobId}). Progress continues on the maintenance page.',
     updaterWhatHappensTitle: 'What happens during an update?',
-    updaterWhatHappens1: 'Your data is backed up automatically (snapshot)',
-    updaterWhatHappens2:
-      'The site enters maintenance mode and is briefly unavailable (usually a few minutes)',
-    updaterWhatHappens3:
-      'The new version is health-checked; on failure it rolls back automatically',
+    updaterWhatHappens1: 'Data is backed up automatically',
+    updaterWhatHappens2: 'Maintenance mode (site briefly unavailable)',
+    updaterWhatHappens3: 'Health check; failure rolls back automatically',
     updaterIrreversibleWarn:
-      'This update contains irreversible data changes. After updating, you cannot simply roll back to the old version.',
+      'This update has irreversible data changes; you cannot simply roll back afterward.',
     updaterFreshnessAhead: '{n} commits newer than current',
     updaterFreshnessBehind: '{n} commits older than current',
     updaterFreshnessIdentical: 'Same version as currently running',
@@ -357,75 +355,82 @@ export const enUS: TranslationKeys = {
     updaterFreshnessUnknown:
       'Cannot determine whether the target is newer or older than current',
     updaterChannelGroupTitle: 'Update channel',
-    updaterChannelGroupDesc:
-      'Decides which line of updates this server follows. Selecting saves immediately.',
+    updaterChannelGroupDesc: 'Which update line to follow. Selecting saves immediately.',
     updaterChannelStable: 'Stable',
-    updaterChannelStableDesc:
-      'Fully tested official releases. Right for everyone.',
+    updaterChannelStableDesc: 'Official releases for production.',
     updaterChannelPreview: 'Preview',
-    updaterChannelPreviewDesc:
-      'Try upcoming features early; minor issues possible.',
-    updaterChannelDev: 'Development (per commit)',
+    updaterChannelPreviewDesc: 'Upcoming features; may be rough.',
+    updaterChannelDev: 'Development',
     updaterChannelDevDesc:
-      'Follows every commit on the preview branch; newest and least stable. For developers.',
+      'Preview-branch commits; can also install formal releases (e.g. v0.2.6). Least stable.',
     updaterChannelBadgeRecommended: 'Recommended',
     updaterChannelBadgeDev: 'Developers',
     updaterChannelSaved: 'Switched to “{label}” — re-checking for updates…',
+    updaterAutoGroupTitle: 'Auto-check & install',
+    updaterAutoGroupDesc:
+      'Periodic checks; optional auto-install for clear stable upgrades only.',
+    updaterCheckInterval: 'Check frequency',
+    updaterCheckIntervalDesc: 'Off means manual checks only. Changes apply immediately.',
+    updaterCheckIntervalOff: 'Off',
+    updaterCheckInterval1h: 'Every 1 hour',
+    updaterCheckInterval6h: 'Every 6 hours',
+    updaterCheckInterval12h: 'Every 12 hours',
+    updaterCheckInterval24h: 'Every 24 hours',
+    updaterAutoInstall: 'Auto-install updates',
+    updaterAutoInstallDesc:
+      'Off by default. Only clear upgrades on the stable channel; never dev/downgrade/risky updates.',
+    updaterAutoPrefsSaved: 'Auto-update settings saved',
     updaterStepLog: 'Show detailed steps',
     updaterProcessing: 'Working…',
+    updaterProgressOnMaintenance:
+      'Once maintenance starts, full progress is on the maintenance page.',
     updaterConfirmUpgrade:
-      'Update to {version}?\n\nWhat happens:\n1. Your data is backed up automatically (snapshot)\n2. Maintenance mode: the site is briefly unavailable\n3. The result is health-checked; on failure it rolls back automatically',
+      'Update to {version}?\n\nAuto-backup, brief maintenance; failure rolls back.',
     updaterConfirmDowngrade:
-      '⚠ Really downgrade?\n\nTarget {version} is older than current {current}. Database changes may not reverse — risk of data loss or broken features.',
+      '⚠ Downgrade to {version} (current {current})?\n\nDB may not reverse — data risk.',
     updaterConfirmRisk:
-      '⚠ Cannot confirm this change is safe: the target history diverged, its relation to current is unknown, or it contains irreversible data changes.\n\nContinuing may damage data with no way back. Proceed?',
+      '⚠ Cannot confirm safety (diverged, unknown, or irreversible). Data may be damaged. Proceed?',
     updaterConfirmRollback:
-      'Return to the state before {version}?\n\nData will be restored from that snapshot; anything created after it will be lost.',
+      'Restore pre-{version} state from snapshot? Later data will be lost.',
     updaterConfirmExitMaintenance:
-      'Force-exit maintenance mode?\n\nOnly do this once the service is confirmed healthy — otherwise users will hit a broken site.',
+      'Force-exit maintenance?\n\nOnly when the service is confirmed healthy.',
     updaterConfirmRescueContinue:
-      'Return to the pre-update version?\n\nData will be restored from snapshot {snapshotId}, going back to version {version}.',
+      'Restore pre-update version {version} (snapshot {snapshotId})?',
     updaterMaintenanceGroup: 'Maintenance & recovery',
-    updaterMaintenanceGroupDesc:
-      'Recovery tools for when an update goes wrong. Not needed day to day.',
+    updaterMaintenanceGroupDesc: 'Recovery tools when an update goes wrong.',
     updaterRescueContinue: 'Return to the pre-update version',
     updaterRescueContinueDesc:
-      'Restores data from the snapshot taken before the update and restarts services. The safest way to recover.',
+      'Restore from the pre-update snapshot and restart — safest recovery.',
     updaterRescueContinueDispatched: 'Recovery started',
     updaterForceExit: 'Force-exit maintenance mode',
-    updaterForceExitDesc:
-      'Only clears the maintenance flag; does not restore data. Use only when the service is confirmed healthy.',
+    updaterForceExitDesc: 'Clears the flag only; does not restore data.',
     updaterMaintenanceExited: 'Maintenance mode cleared',
     updaterSelfUpdateNeeded:
-      'Version {version} requires the updater itself to be upgraded to {minVersion} or later first.',
+      'Version {version} needs the updater upgraded to {minVersion}+ first.',
     updaterSelfUpdateButton: 'Upgrade the updater',
     updaterSelfUpdateConfirm:
-      'Upgrade the updater to {version}?\n\nTakes a few seconds; the site itself is unaffected. Afterwards, click “Update now” again to continue.',
+      'Upgrade the updater to {version}? A few seconds; site unaffected.',
     updaterSelfUpdateDispatched:
-      'Updater upgrade started. It finishes in a few seconds; then you can continue updating.',
+      'Updater upgrade started; continue updating when it finishes.',
     updaterTargetGroupTitle: 'Install a specific version (advanced)',
-    updaterTargetGroupDesc:
-      'Install a past release or a specific commit. Not needed for normal updates.',
+    updaterTargetGroupDesc: 'Past releases or a specific commit. Not for daily use.',
     updaterTargetReleaseHead: 'Available versions (click to select)',
-    updaterTargetCommitHead: 'Recent commits (click to select)',
+    updaterTargetCommitHead: 'Recent commits & releases (click to select)',
     updaterTargetDockerHubHead: 'Docker Hub builds (click to select)',
     updaterDockerHubFallback:
-      'Discovering dev updates via Docker Hub (normal when the source repo is private or GITHUB_TOKEN is unset — not an error).',
+      'Discovering builds via Docker Hub (normal when the source repo is private or GITHUB_TOKEN is unset).',
     updaterDockerHubBuild: 'Built on Docker Hub',
     updaterCommitTarget: 'Enter manually',
-    updaterCommitPlaceholder: 'commit sha or dev-xxx tag',
+    updaterCommitPlaceholder: 'vX.Y.Z, dev-xxx, or commit sha',
     updaterInstallTarget: 'Install {version}',
     updaterTargetEmpty: 'Nothing to select',
     updaterSnapshotGroupTitle: 'Backups & rollback',
-    updaterSnapshotGroupDesc:
-      'A data backup is created automatically before every update. If something breaks, return to a pre-update state here.',
-    updaterNoSnapshots:
-      'No backups yet. One will appear after your first update.',
+    updaterSnapshotGroupDesc: 'Auto-backup before updates; roll back here if needed.',
+    updaterNoSnapshots: 'No backups yet. One appears after the first update.',
     updaterRollback: 'Roll back to this version',
     updaterRollbackDispatched: 'Rollback started',
     updaterGroupAdvanced: 'Advanced & diagnostics',
-    updaterGroupAdvancedDesc:
-      'Technical details and operator tools. Not needed day to day.',
+    updaterGroupAdvancedDesc: 'Operator tools. Not needed day to day.',
     updaterUpdaterVersion: 'Updater version',
     updaterJobInFlight: 'Job in flight',
     updaterNone: 'none',

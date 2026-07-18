@@ -440,6 +440,56 @@ async fn read_maintenance_from_disk(path: &PathBuf) -> MaintenanceFile {
     }
 }
 
+/// Ordered update phases for simple step / percent progress on the maintenance page.
+const UPDATE_PHASE_ORDER: &[&str] = &[
+    "checking",
+    "ready",
+    "preflight",
+    "maintenance_on",
+    "stopping",
+    "snapshotting",
+    "swap_tag",
+    "starting_new",
+    "health_probing",
+    "swapping_proxy",
+    "finalize",
+    "cleanup",
+];
+
+const ROLLBACK_PHASE_ORDER: &[&str] = &[
+    "rollback_in_progress",
+    "stop_new",
+    "restore_snapshot",
+    "swap_tag_back",
+    "start_old",
+    "health_probing",
+    "finalize",
+];
+
+fn phase_progress(phase: &str) -> (usize, usize, u32) {
+    let order = if phase.contains("rollback")
+        || matches!(
+            phase,
+            "stop_new" | "restore_snapshot" | "swap_tag_back" | "start_old"
+        ) {
+        ROLLBACK_PHASE_ORDER
+    } else {
+        UPDATE_PHASE_ORDER
+    };
+    let total = order.len().max(1);
+    let idx = order
+        .iter()
+        .position(|p| *p == phase)
+        .map(|i| i + 1)
+        .unwrap_or(0);
+    let pct = if idx == 0 {
+        0
+    } else {
+        ((idx * 100) / total) as u32
+    };
+    (idx, total, pct)
+}
+
 fn maintenance_response(m: &MaintenanceFile) -> Response {
     let now = Utc::now();
     let stale = m
@@ -450,8 +500,10 @@ fn maintenance_response(m: &MaintenanceFile) -> Response {
         .updated_at
         .map(|t| now.signed_duration_since(t).num_seconds() > 1800)
         .unwrap_or(false);
+    let phase = m.phase.as_deref().unwrap_or("unknown");
+    let (step_idx, step_total, step_pct) = phase_progress(phase);
     let body = MAINTENANCE_HTML
-        .replace("{{PHASE}}", m.phase.as_deref().unwrap_or("unknown"))
+        .replace("{{PHASE}}", phase)
         .replace(
             "{{MESSAGE_KEY}}",
             m.message_key.as_deref().unwrap_or("updater.phase.unknown"),
@@ -462,6 +514,9 @@ fn maintenance_response(m: &MaintenanceFile) -> Response {
             "{{UPDATED_AT}}",
             &m.updated_at.map(|t| t.to_rfc3339()).unwrap_or_default(),
         )
+        .replace("{{STEP_INDEX}}", &step_idx.to_string())
+        .replace("{{STEP_TOTAL}}", &step_total.to_string())
+        .replace("{{STEP_PCT}}", &step_pct.to_string())
         .replace(
             "{{STALE_CLASS}}",
             if very_stale {
@@ -478,7 +533,7 @@ fn maintenance_response(m: &MaintenanceFile) -> Response {
         header::CONTENT_TYPE,
         HeaderValue::from_static("text/html; charset=utf-8"),
     );
-    headers.insert("Retry-After", HeaderValue::from_static("30"));
+    headers.insert("Retry-After", HeaderValue::from_static("15"));
     (StatusCode::SERVICE_UNAVAILABLE, headers, Html(body)).into_response()
 }
 
@@ -525,6 +580,26 @@ mod tests {
             updater_path_with_query(&uri),
             "/rescue/exit-maintenance?force=true"
         );
+    }
+
+    #[test]
+    fn phase_progress_advances_through_update_path() {
+        let (idx, total, pct) = phase_progress("preflight");
+        assert!(idx > 0);
+        assert!(total >= idx);
+        assert!(pct > 0 && pct <= 100);
+
+        let (pre_idx, _, _) = phase_progress("preflight");
+        let (stop_idx, _, _) = phase_progress("stopping");
+        assert!(stop_idx > pre_idx);
+
+        let (cleanup_idx, cleanup_total, cleanup_pct) = phase_progress("cleanup");
+        assert_eq!(cleanup_idx, cleanup_total);
+        assert_eq!(cleanup_pct, 100);
+
+        let (unknown_idx, _, unknown_pct) = phase_progress("not_a_phase");
+        assert_eq!(unknown_idx, 0);
+        assert_eq!(unknown_pct, 0);
     }
 
     #[test]

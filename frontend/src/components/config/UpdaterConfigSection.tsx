@@ -16,7 +16,6 @@
  */
 
 import type {
-  CommitListItem,
   CompareResult,
   Job,
   ReleaseListItem,
@@ -36,6 +35,19 @@ import {
 } from '../../services/updaterApi'
 import { ButtonItem, SettingGroup } from '../settings'
 import './UpdaterConfigSection.css'
+
+/** Formal release tags look like v0.2.6 (`v`-prefixed semver, matching DeployTag). */
+function isReleaseTag(tag: string): boolean {
+  return /^v\d+\.\d+\.\d+([.-][0-9A-Za-z.]+)?$/.test(tag.trim())
+}
+
+function modeForTarget(target: string, fallback: UpdateMode): UpdateMode {
+  return isReleaseTag(target)
+    ? 'release'
+    : fallback === 'commit'
+      ? 'commit'
+      : 'release'
+}
 
 const POLL_INTERVAL = 4_000
 const TEMPLATE_RE = /\{(\w+)\}/g
@@ -608,8 +620,12 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
   // 非 admin：整段隐藏
   if (accessDenied && transport === 'backend') return null
 
+  // Scheme A: admin ProgressCard only for the brief pre-maintenance window.
+  // Once maintenance is active, full progress lives on the maintenance page.
+  const jobRunning =
+    !!activeJob && !['succeeded', 'failed', 'needs_manual'].includes(activeJob.status)
   const showProgress =
-    !!activeJob && !['succeeded', 'failed'].includes(activeJob.status)
+    jobRunning && !status?.maintenance_active && status?.maintenance_phase !== 'needs_manual'
   const showMaintenance =
     (mood === 'maintenance' || mood === 'needsManual') && !showProgress
   const requiresSelfUpdate =
@@ -655,6 +671,10 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
           onSelfUpdate={triggerSelfUpdate}
           onRetry={refresh}
         />
+      )}
+
+      {jobRunning && status?.maintenance_active && !showProgress && (
+        <p className="updater-progress-hint">{u.updaterProgressOnMaintenance}</p>
       )}
 
       {showAvailableCard && (
@@ -711,6 +731,28 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
             ))}
           </div>
         </SettingGroup>
+      )}
+
+      {/* ===== 自动检查 / 自动安装 ===== */}
+      {!showProgress && (
+        <AutoUpdatePrefs
+          status={status}
+          disabled={!!busy || tokenRequired}
+          u={u}
+          onSave={async (prefs) => {
+            setBusy('auto-prefs')
+            setToast(null)
+            try {
+              await api.setPrefs(prefs)
+              setToast({ kind: 'ok', text: u.updaterAutoPrefsSaved })
+              await refresh()
+            } catch (e) {
+              setToast({ kind: 'error', text: explain(e) })
+            } finally {
+              setBusy(null)
+            }
+          }}
+        />
       )}
 
       {/* ===== 维护与恢复（仅出问题时出现）===== */}
@@ -771,7 +813,11 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
             installing={busy === 'update'}
             u={u}
             onInstall={(target, opts) =>
-              dispatchUpdate(target, selOption.mode, opts)
+              dispatchUpdate(
+                target,
+                modeForTarget(target, selOption.mode),
+                opts,
+              )
             }
           />
         </SettingGroup>
@@ -1113,6 +1159,7 @@ function ProgressCard({ job, u }: { job: Job; u: U }) {
         </span>
       </div>
       <p className="updater-progress-hint">{u.updaterHintUpdating}</p>
+      <p className="updater-progress-hint muted">{u.updaterProgressOnMaintenance}</p>
       <p className="updater-progress-phase">
         {currentStep?.phase ?? job.status}
       </p>
@@ -1149,7 +1196,100 @@ function ProgressCard({ job, u }: { job: Job; u: U }) {
   )
 }
 
+// ===== 自动检查频率 + 自动安装 =====
+
+const INTERVAL_OPTIONS: Array<{
+  value: number
+  labelKey:
+    | 'updaterCheckIntervalOff'
+    | 'updaterCheckInterval1h'
+    | 'updaterCheckInterval6h'
+    | 'updaterCheckInterval12h'
+    | 'updaterCheckInterval24h'
+}> = [
+  { value: 0, labelKey: 'updaterCheckIntervalOff' },
+  { value: 3600, labelKey: 'updaterCheckInterval1h' },
+  { value: 21600, labelKey: 'updaterCheckInterval6h' },
+  { value: 43200, labelKey: 'updaterCheckInterval12h' },
+  { value: 86400, labelKey: 'updaterCheckInterval24h' },
+]
+
+function AutoUpdatePrefs({
+  status,
+  disabled,
+  u,
+  onSave,
+}: {
+  status: UpdaterStatus | null
+  disabled: boolean
+  u: U
+  onSave: (prefs: {
+    check_interval_secs?: number
+    auto_install?: boolean
+  }) => Promise<void>
+}) {
+  const effectiveInterval = status?.check_interval_secs ?? 3600
+  const known = INTERVAL_OPTIONS.some((o) => o.value === effectiveInterval)
+  const intervalValue = known ? effectiveInterval : 3600
+  const autoInstall = status?.auto_install === true
+
+  return (
+    <SettingGroup
+      title={u.updaterAutoGroupTitle}
+      description={u.updaterAutoGroupDesc}
+    >
+      <div className="updater-auto-prefs">
+        <label className="updater-auto-row">
+          <span className="updater-auto-label">
+            <span className="updater-auto-title">{u.updaterCheckInterval}</span>
+            <span className="updater-auto-desc">{u.updaterCheckIntervalDesc}</span>
+          </span>
+          <select
+            className="updater-select"
+            value={intervalValue}
+            disabled={disabled || !status}
+            onChange={(e) => {
+              const secs = Number(e.target.value)
+              void onSave({ check_interval_secs: secs })
+            }}
+          >
+            {INTERVAL_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {u[o.labelKey]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="updater-auto-row">
+          <span className="updater-auto-label">
+            <span className="updater-auto-title">{u.updaterAutoInstall}</span>
+            <span className="updater-auto-desc">{u.updaterAutoInstallDesc}</span>
+          </span>
+          <input
+            type="checkbox"
+            checked={autoInstall}
+            disabled={disabled || !status}
+            onChange={(e) => {
+              void onSave({ auto_install: e.target.checked })
+            }}
+          />
+        </label>
+      </div>
+    </SettingGroup>
+  )
+}
+
 // ===== 安装指定版本（高级）=====
+
+type PickerItem = {
+  key: string
+  tag: string
+  label: string
+  message: string
+  date: string | null
+  kind: 'commit' | 'release'
+  title?: string
+}
 
 function TargetPicker({
   api,
@@ -1169,8 +1309,7 @@ function TargetPicker({
     opts: { isDowngrade: boolean; needsRisk: boolean },
   ) => void
 }) {
-  const [releases, setReleases] = useState<ReleaseListItem[]>([])
-  const [commits, setCommits] = useState<CommitListItem[]>([])
+  const [items, setItems] = useState<PickerItem[]>([])
   const [selected, setSelected] = useState('')
   const [input, setInput] = useState('')
   const [compare, setCompare] = useState<CompareResult | null>(null)
@@ -1188,8 +1327,7 @@ function TargetPicker({
     setListLoading(true)
     setSelected('')
     setInput('')
-    setCommits([])
-    setReleases([])
+    setItems([])
     setTargetSource('github')
 
     const load = async () => {
@@ -1198,45 +1336,99 @@ function TargetPicker({
           channel: option.channel,
           limit: 25,
         })
-        if (!cancelled) setReleases(response.items ?? [])
+        if (cancelled) return
+        setItems(
+          (response.items ?? []).map((r: ReleaseListItem) => ({
+            key: r.tag_name,
+            tag: r.tag_name,
+            label: r.tag_name,
+            message: `${r.name || r.tag_name}${r.prerelease ? ' (pre)' : ''}`,
+            date: null,
+            kind: 'release' as const,
+          })),
+        )
         return
       }
 
+      // Dev / commit mode: show formal releases + commit builds.
+      // Prefer Docker Hub common builds (includes vX.Y.Z + dev-sha); fall back to
+      // GitHub commits + releases when builds are empty.
+      try {
+        const builds = await api.builds({ limit: 25 })
+        const buildItems = builds.items ?? []
+        if (buildItems.length > 0) {
+          if (cancelled) return
+          setTargetSource('dockerhub')
+          setItems(
+            buildItems.map((build) => {
+              const kind: 'commit' | 'release' =
+                build.kind === 'release' || isReleaseTag(build.tag)
+                  ? 'release'
+                  : 'commit'
+              return {
+                key: build.tag,
+                tag: build.tag,
+                label: kind === 'release' ? build.tag : build.short_sha,
+                message:
+                  kind === 'release'
+                    ? build.tag
+                    : u.updaterDockerHubBuild,
+                date: build.pushed_at,
+                kind,
+                title: build.tag,
+              }
+            }),
+          )
+          return
+        }
+      } catch {
+        // fall through to GitHub
+      }
+
+      const next: PickerItem[] = []
+      try {
+        const rel = await api.releases({ channel: 'preview', limit: 15 })
+        for (const r of rel.items ?? []) {
+          next.push({
+            key: `rel-${r.tag_name}`,
+            tag: r.tag_name,
+            label: r.tag_name,
+            message: `${r.name || r.tag_name}${r.prerelease ? ' (pre)' : ''}`,
+            date: null,
+            kind: 'release',
+          })
+        }
+      } catch {
+        /* optional */
+      }
       try {
         const response = await api.commits({
           branch: option.channel,
           limit: 25,
         })
-        if ((response.items ?? []).length > 0) {
-          if (!cancelled) setCommits(response.items)
-          return
+        for (const c of response.items ?? []) {
+          next.push({
+            key: c.sha,
+            tag: c.tag,
+            label: c.short_sha,
+            message: c.message,
+            date: c.committed_at,
+            kind: 'commit',
+            title: c.sha,
+          })
         }
       } catch {
-        // Docker Hub below is the deliberate fallback for GitHub API failures.
+        /* optional */
       }
-
-      const response = await api.builds({ limit: 25 })
       if (!cancelled) {
-        setTargetSource('dockerhub')
-        setCommits(
-          (response.items ?? []).map((build) => ({
-            sha: build.short_sha,
-            short_sha: build.short_sha,
-            message: u.updaterDockerHubBuild,
-            html_url: build.backend_url,
-            committed_at: build.pushed_at,
-            tag: build.tag,
-          })),
-        )
+        setTargetSource('github')
+        setItems(next)
       }
     }
 
     load()
       .catch(() => {
-        if (!cancelled) {
-          setCommits([])
-          setReleases([])
-        }
+        if (!cancelled) setItems([])
       })
       .finally(() => {
         if (!cancelled) setListLoading(false)
@@ -1267,7 +1459,6 @@ function TargetPicker({
     }
   }, [api, target])
 
-  const items = isCommit ? commits : releases
   const compareTone = compare?.is_downgrade
     ? 'downgrade'
     : compare?.is_upgrade
@@ -1316,53 +1507,35 @@ function TargetPicker({
           <p className="updater-empty">{u.updaterTargetEmpty}</p>
         ) : (
           <ul>
-            {isCommit
-              ? commits.map((c) => (
-                  <li key={c.sha}>
-                    <button
-                      type="button"
-                      className={
-                        selected === c.tag
-                          ? 'updater-commit-item selected'
-                          : 'updater-commit-item'
-                      }
-                      disabled={disabled}
-                      title={c.sha}
-                      onClick={() => {
-                        setSelected(c.tag)
-                        setInput('')
-                      }}
-                    >
-                      <code>{c.short_sha}</code>
-                      <span className="updater-commit-msg">{c.message}</span>
-                      {c.committed_at && (
-                        <span className="updater-commit-date">
-                          {new Date(c.committed_at).toLocaleString()}
-                        </span>
-                      )}
-                    </button>
-                  </li>
-                ))
-              : releases.map((r) => (
-                  <li key={r.tag_name}>
-                    <button
-                      type="button"
-                      className={
-                        selected === r.tag_name
-                          ? 'updater-commit-item selected'
-                          : 'updater-commit-item'
-                      }
-                      disabled={disabled}
-                      onClick={() => setSelected(r.tag_name)}
-                    >
-                      <code>{r.tag_name}</code>
-                      <span className="updater-commit-msg">
-                        {r.name || r.tag_name}
-                        {r.prerelease ? ' (pre)' : ''}
-                      </span>
-                    </button>
-                  </li>
-                ))}
+            {items.map((item) => (
+              <li key={item.key}>
+                <button
+                  type="button"
+                  className={
+                    selected === item.tag
+                      ? 'updater-commit-item selected'
+                      : 'updater-commit-item'
+                  }
+                  disabled={disabled}
+                  title={item.title}
+                  onClick={() => {
+                    setSelected(item.tag)
+                    setInput('')
+                  }}
+                >
+                  <code>{item.label}</code>
+                  <span className="updater-commit-msg">
+                    {item.kind === 'release' && isCommit ? 'release · ' : ''}
+                    {item.message}
+                  </span>
+                  {item.date && (
+                    <span className="updater-commit-date">
+                      {new Date(item.date).toLocaleString()}
+                    </span>
+                  )}
+                </button>
+              </li>
+            ))}
           </ul>
         )}
       </div>

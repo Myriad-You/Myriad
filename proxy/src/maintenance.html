@@ -11,6 +11,7 @@
       --fg: #1a1a1a;
       --muted: #6b7280;
       --accent: #2563eb;
+      --bar-bg: rgba(127,127,127,.18);
       --warn-bg: #fef3c7;
       --warn-fg: #92400e;
       --danger-bg: #fee2e2;
@@ -21,6 +22,7 @@
         --bg: #0a0a0a;
         --fg: #f5f5f5;
         --muted: #9ca3af;
+        --bar-bg: rgba(255,255,255,.12);
         --warn-bg: #422006;
         --warn-fg: #fde68a;
         --danger-bg: #450a0a;
@@ -34,6 +36,13 @@
     .muted { color: var(--muted); }
     .kv { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; margin: 16px 0; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; }
     .kv dt { color: var(--muted); }
+    .phase-label { font-family: inherit; font-size: 15px; font-weight: 500; }
+    .progress-wrap { margin: 18px 0 8px; }
+    .progress-meta { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+    .progress-bar { height: 8px; border-radius: 999px; background: var(--bar-bg); overflow: hidden; }
+    .progress-fill { height: 100%; width: 0%; background: var(--accent); border-radius: 999px; transition: width .4s ease; }
+    .progress-fill.indeterminate { width: 40% !important; animation: slide 1.2s ease-in-out infinite; }
+    @keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(280%); } }
     .banner { padding: 12px 16px; border-radius: 8px; margin: 16px 0; display: none; }
     .stale .banner.stale, .very-stale .banner.very-stale { display: block; }
     .banner.stale { background: var(--warn-bg); color: var(--warn-fg); }
@@ -43,15 +52,39 @@
     @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
-<body class="{{STALE_CLASS}}">
+<body class="{{STALE_CLASS}}"
+  data-phase="{{PHASE}}"
+  data-message-key="{{MESSAGE_KEY}}"
+  data-from="{{FROM}}"
+  data-to="{{TO}}"
+  data-updated-at="{{UPDATED_AT}}"
+  data-step-index="{{STEP_INDEX}}"
+  data-step-total="{{STEP_TOTAL}}"
+  data-step-pct="{{STEP_PCT}}">
   <div class="wrap">
     <h1><span class="spinner"></span>Myriad 正在更新</h1>
     <p class="muted">系统正在升级中，所有功能暂时不可用。完成后页面会自动恢复，无需手动刷新。</p>
 
+    <div class="progress-wrap">
+      <div class="progress-meta">
+        <span id="step-text">步骤 —</span>
+        <span id="pct-text">—%</span>
+      </div>
+      <div class="progress-bar" aria-hidden="true">
+        <div id="progress-fill" class="progress-fill"></div>
+      </div>
+    </div>
+
     <dl class="kv">
-      <dt>阶段</dt><dd>{{PHASE}} <span class="muted">({{MESSAGE_KEY}})</span></dd>
-      <dt>版本</dt><dd>{{FROM}} → {{TO}}</dd>
-      <dt>心跳</dt><dd>{{UPDATED_AT}}</dd>
+      <dt>阶段</dt>
+      <dd>
+        <span id="phase-label" class="phase-label">—</span>
+        <span class="muted" id="phase-raw"></span>
+      </dd>
+      <dt>版本</dt>
+      <dd><span id="version-text">—</span></dd>
+      <dt>心跳</dt>
+      <dd><span id="heartbeat-text">—</span></dd>
     </dl>
 
     <div class="banner stale">
@@ -74,7 +107,121 @@ docker exec myriad-updater myriad-rescue exit-maintenance --force
     </div>
   </div>
   <script>
-    setTimeout(() => { location.reload(); }, 15000);
+    (function () {
+      // Ordered update phases for step index / percent (matches updater state machine).
+      var PHASE_ORDER = [
+        'idle',
+        'checking',
+        'ready',
+        'preflight',
+        'maintenance_on',
+        'stopping',
+        'snapshotting',
+        'swap_tag',
+        'starting_new',
+        'health_probing',
+        'swapping_proxy',
+        'finalize',
+        'cleanup'
+      ];
+      var PHASE_LABELS = {
+        idle: '空闲',
+        checking: '检查更新',
+        ready: '准备就绪',
+        preflight: '更新前检查',
+        maintenance_on: '进入维护模式',
+        stopping: '停止业务服务',
+        snapshotting: '备份数据',
+        swap_tag: '切换版本标签',
+        starting_new: '启动新版本',
+        health_probing: '健康检查',
+        swapping_proxy: '切换流量',
+        finalize: '收尾完成',
+        cleanup: '清理',
+        rollback_in_progress: '回滚中',
+        stop_new: '停止新版本',
+        restore_snapshot: '恢复数据快照',
+        swap_tag_back: '恢复旧版本标签',
+        start_old: '启动旧版本',
+        needs_manual: '需要人工处理'
+      };
+      var ROLLBACK_ORDER = [
+        'rollback_in_progress',
+        'stop_new',
+        'restore_snapshot',
+        'swap_tag_back',
+        'start_old',
+        'health_probing',
+        'finalize'
+      ];
+
+      var body = document.body;
+      var phase = (body.getAttribute('data-phase') || 'unknown').toLowerCase();
+      var from = body.getAttribute('data-from') || '-';
+      var to = body.getAttribute('data-to') || '-';
+      var updatedAt = body.getAttribute('data-updated-at') || '';
+      var serverStep = body.getAttribute('data-step-index');
+      var serverTotal = body.getAttribute('data-step-total');
+      var serverPct = body.getAttribute('data-step-pct');
+
+      var label = PHASE_LABELS[phase] || phase;
+      document.getElementById('phase-label').textContent = label;
+      document.getElementById('phase-raw').textContent = phase && phase !== 'unknown' ? ' (' + phase + ')' : '';
+      document.getElementById('version-text').textContent = from + ' → ' + to;
+
+      function formatHeartbeat(iso) {
+        if (!iso) return '—';
+        try {
+          var d = new Date(iso);
+          if (isNaN(d.getTime())) return iso;
+          var sec = Math.max(0, Math.round((Date.now() - d.getTime()) / 1000));
+          var abs = d.toLocaleString();
+          if (sec < 20) return abs + ' · 刚刚';
+          if (sec < 60) return abs + ' · ' + sec + ' 秒前';
+          if (sec < 3600) return abs + ' · ' + Math.round(sec / 60) + ' 分钟前';
+          return abs;
+        } catch (e) {
+          return iso;
+        }
+      }
+      document.getElementById('heartbeat-text').textContent = formatHeartbeat(updatedAt);
+
+      var order = phase.indexOf('rollback') >= 0 || phase === 'stop_new' || phase === 'restore_snapshot' || phase === 'swap_tag_back' || phase === 'start_old'
+        ? ROLLBACK_ORDER
+        : PHASE_ORDER;
+      // Prefer server-computed step when present (non-placeholder).
+      var idx, total, pct;
+      if (serverStep && serverStep !== '{{STEP_INDEX}}' && serverTotal && serverTotal !== '{{STEP_TOTAL}}') {
+        idx = parseInt(serverStep, 10);
+        total = parseInt(serverTotal, 10);
+        pct = serverPct && serverPct !== '{{STEP_PCT}}' ? parseInt(serverPct, 10) : Math.round((idx / total) * 100);
+      } else {
+        var pos = order.indexOf(phase);
+        // Skip idle in user-facing step count for the main path.
+        var work = order.filter(function (p) { return p !== 'idle'; });
+        var workPos = work.indexOf(phase);
+        total = work.length || order.length;
+        idx = workPos >= 0 ? workPos + 1 : (pos >= 0 ? pos + 1 : 0);
+        pct = total > 0 && idx > 0 ? Math.min(100, Math.round((idx / total) * 100)) : 0;
+      }
+
+      var stepEl = document.getElementById('step-text');
+      var pctEl = document.getElementById('pct-text');
+      var fill = document.getElementById('progress-fill');
+      if (idx > 0 && total > 0) {
+        stepEl.textContent = '步骤 ' + idx + ' / ' + total + ' · ' + label;
+        pctEl.textContent = pct + '%';
+        fill.style.width = pct + '%';
+        fill.classList.remove('indeterminate');
+      } else {
+        stepEl.textContent = '进行中 · ' + label;
+        pctEl.textContent = '…';
+        fill.classList.add('indeterminate');
+      }
+
+      // Keep ~15s refresh so progress and heartbeat stay current.
+      setTimeout(function () { location.reload(); }, 15000);
+    })();
   </script>
 </body>
 </html>
