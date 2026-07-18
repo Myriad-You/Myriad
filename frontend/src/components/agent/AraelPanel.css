@@ -204,35 +204,10 @@ html.dark .arael-panel.arael-panel-processing {
   font-weight: 600;
   color: var(--text-secondary, #6b7280);
   min-width: 0;
-}
 
-/* Header 常驻 Arael wordmark：连点打开 debug，不伪装成主 CTA */
-.arael-logo-wordmark {
-  flex-shrink: 0;
-  margin: 0;
-  padding: 0;
-  border: none;
-  background: none;
-  font-size: 15px;
-  font-weight: 700;
-  line-height: 1;
-  letter-spacing: 0.01em;
-  color: var(--color-primary, #10b981);
-  cursor: pointer;
+  /* 连点 easter-egg 目标：不伪装成主 CTA */
+  cursor: default;
   user-select: none;
-  opacity: 0.85;
-  transition: opacity 0.15s ease;
-}
-
-.arael-logo-wordmark:hover {
-  opacity: 1;
-}
-
-.arael-logo-wordmark:focus-visible {
-  outline: 1px solid
-    color-mix(in srgb, var(--color-primary, #10b981) 50%, transparent);
-  outline-offset: 2px;
-  border-radius: 2px;
 }
 
 .arael-tasks-title-rest {

@@ -58,9 +58,9 @@ type PanelView = 'chat' | 'sessions' | 'manage' | 'debug'
 
 const ARAEL_PREFIX_RE = /^Arael\s*/
 
-/** 连点 Arael logo 打开 debug 面板：窗口内点击次数 / 时间窗 */
-const DEBUG_LOGO_CLICK_COUNT = 5
-const DEBUG_LOGO_CLICK_WINDOW_MS = 2000
+/** 连点打开 debug 面板：窗口内点击次数 / 时间窗 */
+const DEBUG_MULTI_CLICK_COUNT = 5
+const DEBUG_MULTI_CLICK_WINDOW_MS = 2000
 
 // 智能提示词生成
 function getSmartGreeting(
@@ -197,21 +197,24 @@ export const AraelPanel: React.FC = () => {
   // 错误状态仍写入（供 debug 日志链路使用）；入口改为 logo 连点，不再常驻 badge
   const [, setLastError] = useState<string | null>(null)
 
-  // 连点 Arael logo 切换 debug 面板
-  const debugLogoClicksRef = useRef<{ count: number; firstAt: number }>({
+  // 连点触发 debug：空态 hero logo / 非空态左上标题（5 次 / 2s）
+  const debugMultiClickRef = useRef<{ count: number; firstAt: number }>({
     count: 0,
     firstAt: 0,
   })
-  const handleAraelLogoClick = useCallback(() => {
+  const handleDebugMultiClick = useCallback(() => {
     const now = Date.now()
-    const state = debugLogoClicksRef.current
-    if (state.count === 0 || now - state.firstAt > DEBUG_LOGO_CLICK_WINDOW_MS) {
+    const state = debugMultiClickRef.current
+    if (
+      state.count === 0 ||
+      now - state.firstAt > DEBUG_MULTI_CLICK_WINDOW_MS
+    ) {
       state.count = 1
       state.firstAt = now
       return
     }
     state.count += 1
-    if (state.count >= DEBUG_LOGO_CLICK_COUNT) {
+    if (state.count >= DEBUG_MULTI_CLICK_COUNT) {
       state.count = 0
       state.firstAt = 0
       setPanelView((prev) => (prev === 'debug' ? 'chat' : 'debug'))
@@ -1346,16 +1349,11 @@ export const AraelPanel: React.FC = () => {
               <div className="arael-tasks-inner">
                 {/* 标题栏 */}
                 <div className="arael-tasks-header">
-                  <span className="arael-tasks-title">
-                    {/* 常驻 logo：连点 5 次切换 debug 面板（任意视图可用） */}
-                    <button
-                      type="button"
-                      className="arael-logo-wordmark qwitcher-grypen"
-                      onClick={handleAraelLogoClick}
-                      aria-label="Arael"
-                    >
-                      Arael
-                    </button>
+                  {/* 非空态：连点左上标题切换 debug；空态主入口为 empty hero */}
+                  <span
+                    className="arael-tasks-title"
+                    onClick={handleDebugMultiClick}
+                  >
                     {hasActiveExecution ? (
                       <span className="arael-tasks-title-rest">
                         {sessionTitle || t.arael.processing}
@@ -1466,7 +1464,7 @@ export const AraelPanel: React.FC = () => {
                           <button
                             type="button"
                             className="arael-empty-hero-name qwitcher-grypen"
-                            onClick={handleAraelLogoClick}
+                            onClick={handleDebugMultiClick}
                             aria-label="Arael"
                           >
                             Arael
