@@ -310,11 +310,17 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
           return
         }
       }
-      const snaps = await api
-        .snapshots()
-        .catch(() => ({ schema_version: 1, items: [] as SnapshotMeta[] }))
       setStatus(s)
-      setSnapshots(snaps.items ?? [])
+      // Snapshots are a dependent updater resource. Do not emit another 503/502
+      // after status has already established that the updater is unavailable.
+      if (s) {
+        const snaps = await api
+          .snapshots()
+          .catch(() => ({ schema_version: 1, items: [] as SnapshotMeta[] }))
+        setSnapshots(snaps.items ?? [])
+      } else {
+        setSnapshots([])
+      }
       if (s && !selHydratedRef.current) {
         setSel(deriveSelection(s))
         selHydratedRef.current = true

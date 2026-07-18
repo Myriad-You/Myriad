@@ -275,17 +275,19 @@ function backendDevProxyPlugin() {
           const timeoutMs = originalUrl.startsWith('/api/tapp-playground/')
             ? PLAYGROUND_PROXY_TIMEOUT_MS
             : 30000
-          // SSE must be piped; buffering would hide progressive agent steps.
-          const streamPlayground =
+          // SSE must be piped. Buffering a long-lived EventSource response hits
+          // the ordinary 30s proxy timeout and turns a healthy stream into 502.
+          const streamResponse =
+            headers.get('accept')?.toLowerCase().includes('text/event-stream') ||
             originalUrl.startsWith('/api/tapp-playground/generate-stream')
 
-          if (streamPlayground) {
+          if (streamResponse) {
             await proxyBackendRequestStreaming(
               targetUrl,
               method,
               headers,
               body,
-              timeoutMs,
+              0,
               req,
               res,
             )

