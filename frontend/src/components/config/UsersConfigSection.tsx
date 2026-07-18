@@ -3,7 +3,7 @@
  *
  * - 管理员账户：账号信息 + OAuth 绑定状态
  * - 已注册用户：OAuth 状态、安装应用、在线时间；支持展开详情、
- *   授予/撤销管理员、启停本地登录、解绑 OAuth、创建用户
+ *   授予/撤销管理员、启停本地登录、解绑 OAuth、删除用户、创建用户
  */
 
 import type { AdminUser, AdminUserIdentity, AdminUserUpdate } from '../../services/adminUsersApi'
@@ -225,6 +225,28 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
     [applyUpdated, notifyError, t],
   )
 
+  const handleDeleteUser = useCallback(
+    async (user: AdminUser) => {
+      if (user.id === currentUser?.id) return
+      if (!window.confirm(t.config.usersDeleteConfirm)) return
+      setBusy(true)
+      try {
+        await adminUsersApi.delete(user.id)
+        setUsers((prev) => prev.filter((u) => u.id !== user.id))
+        if (expandedId === user.id) {
+          setExpandedId(null)
+          setDetail(null)
+        }
+        onMessage?.(t.config.usersDeleteSuccess, 'success')
+      } catch (error) {
+        notifyError(error, t.config.usersActionError)
+      } finally {
+        setBusy(false)
+      }
+    },
+    [currentUser?.id, expandedId, notifyError, onMessage, t],
+  )
+
   const handleCreate = useCallback(async () => {
     if (!createDraft.username.trim() || !createDraft.password) return
     setBusy(true)
@@ -409,6 +431,16 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
                       ? t.config.usersRevokeAdmin
                       : t.config.usersMakeAdmin}
                   </button>
+                  {shown.id !== currentUser?.id && (
+                    <button
+                      type="button"
+                      className="users-button danger"
+                      disabled={busy}
+                      onClick={() => handleDeleteUser(shown)}
+                    >
+                      {t.config.usersDelete}
+                    </button>
+                  )}
                 </div>
               </>
             )}

@@ -325,6 +325,10 @@ export const zhCN: TranslationKeys = {
     usersDisableLocalLogin: '禁用本地登录',
     usersLocalLoginRequiresOAuth:
       '该用户未绑定任何第三方账号，禁用本地登录将导致无法登录',
+    usersDelete: '删除用户',
+    usersDeleteConfirm:
+      '确定永久删除该用户账户？其 OAuth 绑定、已安装应用及相关数据将被清除，且无法恢复。',
+    usersDeleteSuccess: '用户已删除',
     usersEmail: '邮箱',
     usersCancel: '取消',
     usersCreateUser: '新建用户',

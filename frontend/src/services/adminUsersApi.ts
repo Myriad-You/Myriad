@@ -6,6 +6,7 @@
  * - POST   /api/admin/users （创建本地用户，auth_local.rs）
  * - GET    /api/admin/users/{id}
  * - PATCH  /api/admin/users/{id}
+ * - DELETE /api/admin/users/{id}
  * - DELETE /api/admin/users/{id}/identities/{identity_id}
  */
 
@@ -98,6 +99,14 @@ export const adminUsersApi = {
       `${BASE}/${userId}/identities/${identityId}`,
     )
     return response.user
+  },
+
+  async delete(userId: number): Promise<{ success: boolean; deleted_user_id: number; username: string }> {
+    return apiService.delete<{
+      success: boolean
+      deleted_user_id: number
+      username: string
+    }>(`${BASE}/${userId}`)
   },
 }
 

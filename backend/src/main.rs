@@ -746,6 +746,31 @@ async fn admin_unlink_identity_wrapper(
     }
 }
 
+/// 设置页用户管理：删除用户
+async fn admin_delete_user_wrapper(
+    axum::extract::Path(user_id): axum::extract::Path<i32>,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    let db_opt = DB_CONNECTION.read().await;
+    match db_opt.as_ref() {
+        Some(db) => match api::admin_users::delete_user(
+            axum::extract::State(db.clone()),
+            axum::extract::Path(user_id),
+            headers,
+        )
+        .await
+        {
+            Ok(response) => response.into_response(),
+            Err((status, json)) => (status, json).into_response(),
+        },
+        None => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Database not connected"})),
+        )
+            .into_response(),
+    }
+}
+
 /// Wrapper for toggle_local_login (PR #4)
 async fn toggle_local_login_wrapper(
     headers: axum::http::HeaderMap,
@@ -4064,6 +4089,7 @@ async fn start_unified_server(config: AppConfig) -> anyhow::Result<()> {
             "/api/admin/users/{id}",
             get(admin_get_user_wrapper)
                 .patch(admin_update_user_wrapper)
+                .delete(admin_delete_user_wrapper)
                 .route_layer(from_fn(middleware::auth::admin_middleware)),
         )
         .route(

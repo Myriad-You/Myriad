@@ -321,6 +321,9 @@ export interface TranslationKeys {
     usersEnableLocalLogin: string
     usersDisableLocalLogin: string
     usersLocalLoginRequiresOAuth: string
+    usersDelete: string
+    usersDeleteConfirm: string
+    usersDeleteSuccess: string
     usersEmail: string
     usersCancel: string
     usersCreateUser: string

@@ -352,6 +352,10 @@ export const enUS: TranslationKeys = {
     usersDisableLocalLogin: 'Disable local login',
     usersLocalLoginRequiresOAuth:
       'This user has no linked OAuth account; disabling local login would lock them out',
+    usersDelete: 'Delete user',
+    usersDeleteConfirm:
+      'Permanently delete this user account? Their OAuth links, apps, and related data will be removed. This cannot be undone.',
+    usersDeleteSuccess: 'User deleted',
     usersEmail: 'Email',
     usersCancel: 'Cancel',
     usersCreateUser: 'New user',

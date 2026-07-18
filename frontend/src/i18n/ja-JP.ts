@@ -347,6 +347,10 @@ export const jaJP: TranslationKeys = {
     usersDisableLocalLogin: 'ローカルログインを無効化',
     usersLocalLoginRequiresOAuth:
       'OAuth 連携がないため、ローカルログインを無効化するとログインできなくなります',
+    usersDelete: 'ユーザーを削除',
+    usersDeleteConfirm:
+      'このユーザーアカウントを完全に削除しますか？OAuth 連携・インストール済みアプリ・関連データが削除され、元に戻せません。',
+    usersDeleteSuccess: 'ユーザーを削除しました',
     usersEmail: 'メールアドレス',
     usersCancel: 'キャンセル',
     usersCreateUser: '新規ユーザー',
