@@ -148,6 +148,14 @@ export interface TranslationKeys {
     rateLimitError: string
     logoutSuccess: string
     logoutFailed: string
+    /** Shown when OAuth callback redirects with `?oauth_error=` */
+    oauthError: string
+    oauthErrorStateMissing: string
+    oauthErrorStateExpired: string
+    oauthErrorStateSlugMismatch: string
+    oauthErrorMissingCode: string
+    oauthErrorMissingState: string
+    oauthErrorAccessDenied: string
     // PR #4/#5: 注册 + provider 通用按钮
     loginWith: string
     register: string

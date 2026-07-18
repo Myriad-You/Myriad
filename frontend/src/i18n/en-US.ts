@@ -150,6 +150,16 @@ export const enUS: TranslationKeys = {
       'Too many login attempts, please retry in {seconds} seconds',
     logoutSuccess: 'Logged out successfully',
     logoutFailed: 'Logout failed',
+    oauthError: 'Third-party login failed ({code}). Please try again.',
+    oauthErrorStateMissing:
+      'Login session expired or invalid. Please start third-party login again.',
+    oauthErrorStateExpired:
+      'Login session timed out. Please start third-party login again.',
+    oauthErrorStateSlugMismatch:
+      'OAuth provider mismatch. Please try signing in again.',
+    oauthErrorMissingCode: 'Authorization was incomplete. Please try again.',
+    oauthErrorMissingState: 'Login session missing. Please try again.',
+    oauthErrorAccessDenied: 'Authorization was cancelled or denied.',
     loginWith: 'Sign in with {name}',
     register: 'Create account',
     registering: 'Creating...',

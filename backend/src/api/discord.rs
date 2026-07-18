@@ -23,7 +23,7 @@ use crate::middleware::auth::verify_current_admin_from_headers;
 use crate::oauth_url_builder::SiteConfig;
 use crate::services::config_service::ConfigService;
 use crate::services::fetcher::PlatformFetcher;
-use crate::services::oauth::state::{consume_state, insert_state, OAuthPurpose, StoredState};
+use crate::services::oauth::state::{consume_state, issue_state, OAuthPurpose, StoredState};
 use crate::GLOBAL_DYNAMIC_CONFIG;
 
 const DISCORD_AUTHORIZE_URL: &str = "https://discord.com/api/oauth2/authorize";
@@ -59,13 +59,6 @@ pub struct OAuthCallbackQuery {
     state: Option<String>,
     error: Option<String>,
     error_description: Option<String>,
-}
-
-fn random_state() -> String {
-    use rand::Rng;
-    let mut buf = [0u8; 32];
-    rand::rng().fill_bytes(&mut buf);
-    hex::encode(buf)
 }
 
 async fn platform_redirect_uri() -> String {
@@ -300,20 +293,20 @@ pub async fn oauth_start(headers: HeaderMap) -> Result<Response, (StatusCode, Js
     drop(config);
 
     let redirect_uri = platform_redirect_uri().await;
-    let state = random_state();
-
-    insert_state(
-        state.clone(),
-        StoredState {
-            provider_slug: PLATFORM_STATE_SLUG.to_string(),
-            purpose: OAuthPurpose::PlatformData {
-                user_id,
-                platform: "discord".to_string(),
-            },
-            created_at: std::time::Instant::now(),
+    let state = issue_state(StoredState {
+        provider_slug: PLATFORM_STATE_SLUG.to_string(),
+        purpose: OAuthPurpose::PlatformData {
+            user_id,
+            platform: "discord".to_string(),
         },
-    )
-    .await;
+    })
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e})),
+        )
+    })?;
 
     let mut url = url::Url::parse(DISCORD_AUTHORIZE_URL).map_err(|e| {
         (

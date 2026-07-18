@@ -148,6 +148,16 @@ export const jaJP: TranslationKeys = {
       'ログイン試行が多すぎます。{seconds}秒後に再試行してください',
     logoutSuccess: 'ログアウトしました',
     logoutFailed: 'ログアウト失敗',
+    oauthError: 'サードパーティログインに失敗しました（{code}）。再試行してください。',
+    oauthErrorStateMissing:
+      'ログインセッションが無効または期限切れです。再度お試しください。',
+    oauthErrorStateExpired:
+      'ログインセッションがタイムアウトしました。再度お試しください。',
+    oauthErrorStateSlugMismatch:
+      'OAuth プロバイダーが一致しません。再度ログインしてください。',
+    oauthErrorMissingCode: '認証が完了しませんでした。再試行してください。',
+    oauthErrorMissingState: 'ログインセッションがありません。再試行してください。',
+    oauthErrorAccessDenied: '認証がキャンセルまたは拒否されました。',
     loginWith: '{name} でログイン',
     register: 'アカウント作成',
     registering: '登録中...',

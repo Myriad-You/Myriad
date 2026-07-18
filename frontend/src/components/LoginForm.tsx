@@ -29,6 +29,29 @@ function normalizeProviderInfo(provider: ProviderInfo): ProviderInfo {
   }
 }
 
+function messageForOAuthError(
+  code: string,
+  t: ReturnType<typeof useI18n>['t'],
+  format: ReturnType<typeof useI18n>['format'],
+): string {
+  switch (code) {
+    case 'state_missing':
+      return t.auth.oauthErrorStateMissing
+    case 'state_expired':
+      return t.auth.oauthErrorStateExpired
+    case 'state_slug_mismatch':
+      return t.auth.oauthErrorStateSlugMismatch
+    case 'missing_code':
+      return t.auth.oauthErrorMissingCode
+    case 'missing_state':
+      return t.auth.oauthErrorMissingState
+    case 'access_denied':
+      return t.auth.oauthErrorAccessDenied
+    default:
+      return format(t.auth.oauthError, { code })
+  }
+}
+
 const LoginForm: FC = () => {
   const { t, format } = useI18n()
   const [formData, setFormData] = useState({
@@ -39,6 +62,29 @@ const LoginForm: FC = () => {
   const [error, setError] = useState('')
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [allowRegister, setAllowRegister] = useState(false)
+
+  useEffect(() => {
+    // Surface OAuth callback failures redirected as `/login?oauth_error=...`
+    try {
+      const params = new URLSearchParams(window.location.search)
+      const oauthError = params.get('oauth_error')?.trim()
+      if (oauthError) {
+        setError(messageForOAuthError(oauthError, t, format))
+        // Drop query so refresh does not re-show the same banner forever
+        params.delete('oauth_error')
+        params.delete('desc')
+        const next = params.toString()
+        const path = window.location.pathname
+        window.history.replaceState(
+          {},
+          '',
+          next ? `${path}?${next}` : path,
+        )
+      }
+    } catch {
+      // ignore (SSR / non-browser)
+    }
+  }, [t, format])
 
   useEffect(() => {
     // 并发拉 provider 列表 + setup config（注册开关）

@@ -27,18 +27,11 @@ use crate::middleware::auth::Claims;
 use crate::oauth_url_builder::SiteConfig;
 use crate::services::oauth::{
     registry::REGISTRY,
-    state::{consume_state, insert_state, OAuthPurpose, StoredState},
+    state::{consume_state, issue_state, OAuthPurpose, StoredState},
     NormalizedProfile,
 };
 
 // ---------- 工具函数 ----------
-
-fn random_state() -> String {
-    use rand::Rng;
-    let mut buf = [0u8; 32];
-    rand::rng().fill_bytes(&mut buf);
-    hex::encode(buf)
-}
 
 async fn build_redirect_uri(slug: &str) -> String {
     let base = SiteConfig::get_base_url().await;
@@ -163,22 +156,18 @@ pub async fn provider_login(
         .await
         .ok_or_else(|| err_404(format!("OAuth provider '{slug}' not configured")))?;
 
-    let state = random_state();
+    let state = issue_state(StoredState {
+        provider_slug: slug.clone(),
+        purpose: OAuthPurpose::Login,
+    })
+    .await
+    .map_err(err_500)?;
+
     let redirect_uri = build_redirect_uri(&slug).await;
     let auth_url = provider
         .build_auth_url(&state, &redirect_uri)
         .await
         .map_err(err_500)?;
-
-    insert_state(
-        state,
-        StoredState {
-            provider_slug: slug,
-            purpose: OAuthPurpose::Login,
-            created_at: std::time::Instant::now(),
-        },
-    )
-    .await;
 
     Ok(no_store_redirect(&auth_url))
 }
@@ -200,22 +189,18 @@ pub async fn provider_link(
         .await
         .ok_or_else(|| err_404(format!("OAuth provider '{slug}' not configured")))?;
 
-    let state = random_state();
+    let state = issue_state(StoredState {
+        provider_slug: slug.clone(),
+        purpose: OAuthPurpose::LinkAccount(user_id),
+    })
+    .await
+    .map_err(err_500)?;
+
     let redirect_uri = build_redirect_uri(&slug).await;
     let auth_url = provider
         .build_auth_url(&state, &redirect_uri)
         .await
         .map_err(err_500)?;
-
-    insert_state(
-        state,
-        StoredState {
-            provider_slug: slug,
-            purpose: OAuthPurpose::LinkAccount(user_id),
-            created_at: std::time::Instant::now(),
-        },
-    )
-    .await;
 
     Ok(no_store_redirect(&auth_url))
 }
