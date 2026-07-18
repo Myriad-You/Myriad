@@ -1,6 +1,6 @@
 [package]
 name = "myriad-updater"
-version = "0.2.8"
+version = "0.3.0"
 edition = "2021"
 authors = ["Myriad Contributors"]
 description = "Self-update daemon for Myriad: maintenance-mode + single-slot updates with file-level pgdata snapshots."
