@@ -414,6 +414,36 @@ const BangumiIcon: IconType = ({ size, style, title, ...props }) => {
 
 const SiBangumi = BangumiIcon
 
+/**
+ * QQ 音乐品牌图标
+ * Simple Icons 仅有 SiQq（QQ 通讯），无 QQ 音乐；使用官方圆标 + 音符剪影的单色 currentColor 版
+ */
+const QqMusicIcon: IconType = ({ size, style, title, ...props }) => {
+  const iconSize = size ?? '1em'
+
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={iconSize}
+      height={iconSize}
+      role={title ? 'img' : undefined}
+      aria-hidden={title ? undefined : true}
+      xmlns="http://www.w3.org/2000/svg"
+      fill="currentColor"
+      style={{ verticalAlign: 'middle', ...style }}
+      {...props}
+    >
+      {title ? <title>{title}</title> : null}
+      <path
+        fillRule="evenodd"
+        d="M12 0c6.627 0 12 5.373 12 12s-5.373 12-12 12S0 18.627 0 12 5.373 0 12 0zM13.828 13.021C13.527 12.597 13.241 12.199 12.955 11.806 11.857 10.284 10.754 8.763 9.651 7.246 8.951 6.281 8.257 5.316 7.547 4.361 7.333 4.075 7.307 3.774 7.404 3.447 7.603 2.768 8.078 2.298 8.64 1.91 9.666 1.2 10.826.837 12.041.623 13.098.439 14.145.214 15.069-.368 15.319-.526 15.529-.74 15.758-.929 15.82-.98 15.876-1.037 15.993-1.139 16.07-.766 16.146-.454 16.197-.143 16.351.776 16.294 1.67 15.881 2.517 15.319 3.661 14.4 4.376 13.195 4.744 12.46 4.979 11.699 5.035 10.928 5.03 10.871 5.03 10.815 5.045 10.718 5.055 10.907 5.387 11.076 5.699 11.26 6 12 7.21 12.74 8.42 13.476 9.636l2.42 4.013c.21.348.429.695.633 1.047.475.817.822 1.67.756 2.65-.066.96-.414 1.798-1.011 2.533-.975 1.2-2.242 1.895-3.753 2.165-1.425.25-2.783.092-4.044-.628-1.42-.807-2.329-2.272-2.114-4.019.137-1.148.709-2.098 1.552-2.88.899-.827 1.966-1.332 3.156-1.562.878-.174 1.756-.164 2.624.071.026.006.056-.005.133-.005z"
+      />
+    </svg>
+  )
+}
+
+const SiQqmusic = QqMusicIcon
+
 const MyriadStoreIcon: IconType = ({ size, style, title, ...props }) => {
   const iconSize = size ?? '1em'
 
@@ -462,6 +492,7 @@ const MyriadStoreIcon: IconType = ({ size, style, title, ...props }) => {
 export {
   BangumiIcon,
   MyriadStoreIcon,
+  QqMusicIcon,
   SiAnilist,
   SiApple,
   SiArtstation,
@@ -519,6 +550,7 @@ export {
   SiPlaystation,
   SiProducthunt,
   SiQq,
+  SiQqmusic,
   SiReddit,
   SiSinaweibo,
   SiSnapchat,

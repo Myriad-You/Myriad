@@ -3,7 +3,7 @@
  * 使用通用设置组件重构
  */
 
-import { FaHeadphones, FaTrash, SiNeteasecloudmusic } from '@lib/icons'
+import { FaTrash, SiNeteasecloudmusic, SiQqmusic } from '@lib/icons'
 import React, { useCallback } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 
@@ -101,7 +101,7 @@ export const MusicConfigSection: React.FC<MusicConfigSectionProps> = ({
           {
             value: 'qq',
             label: t.config.qqMusic,
-            icon: <FaHeadphones />,
+            icon: <SiQqmusic />,
           },
         ]}
         layout="horizontal"
