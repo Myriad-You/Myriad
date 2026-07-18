@@ -694,7 +694,7 @@ impl Worker {
     ///
     /// **Commit/dev mode**: `relation=unknown` does **not** block auto-install when
     /// `is_upgrade` is true (build-time newer is enough). Release channels still
-    /// reject unknown.
+    /// reject unknown. Applies to **all** channels (stable / preview / commit).
     fn auto_install_target_ok(
         &self,
         expected_mode: UpdateMode,
@@ -707,10 +707,6 @@ impl Worker {
         if self.effective_mode() != expected_mode {
             return Ok(None);
         }
-        if irreversible {
-            info!("auto_install: skip irreversible migration");
-            return Ok(None);
-        }
         if self.state.read_current_job()?.is_some() {
             return Ok(None);
         }
@@ -721,36 +717,14 @@ impl Worker {
         if la.mode != expected_mode {
             return Ok(None);
         }
-        // Strict: only explicit upgrade. Missing is_upgrade is treated as unsafe.
-        if la.is_upgrade != Some(true) || la.is_downgrade == Some(true) {
-            return Ok(None);
-        }
-        match expected_mode {
-            UpdateMode::Release => {
-                // Formal releases: still require a clear, low-risk relation.
-                if matches!(
-                    la.relation.as_deref(),
-                    Some("diverged") | Some("unknown") | Some("behind") | Some("identical")
-                ) {
-                    return Ok(None);
-                }
-            }
-            UpdateMode::Commit => {
-                // Dev channel: build-time upgrade is enough. Block only clear
-                // downgrade / diverged / identical (unknown is allowed).
-                if matches!(
-                    la.relation.as_deref(),
-                    Some("diverged") | Some("behind") | Some("identical")
-                ) {
-                    return Ok(None);
-                }
-            }
-        }
-        if la.requires_self_update {
-            info!(
-                target = %la.version,
-                "auto_install: skip — updater self-update required first"
-            );
+        if !auto_install_latest_ok(
+            expected_mode,
+            la.is_upgrade,
+            la.is_downgrade,
+            la.relation.as_deref(),
+            la.requires_self_update,
+            irreversible,
+        ) {
             return Ok(None);
         }
         let target = la.version.clone();
@@ -1459,6 +1433,113 @@ fn validate_channel_for_mode(channel: &str, mode: UpdateMode) -> Result<()> {
         UpdateMode::Commit => Err(UpdaterError::InvalidInput(format!(
             "commit mode is only allowed when channel=preview, got channel={channel}"
         ))),
+    }
+}
+
+/// Pure auto-install gate used by the worker (and unit tests).
+///
+/// - **Release**: only clear, low-risk upgrades (`is_upgrade`, relation not
+///   unknown/diverged/behind/identical).
+/// - **Commit/dev**: `is_upgrade` is enough; `relation=unknown` is allowed
+///   (build publish time / different tip). Still blocks behind/diverged/identical.
+pub fn auto_install_latest_ok(
+    mode: UpdateMode,
+    is_upgrade: Option<bool>,
+    is_downgrade: Option<bool>,
+    relation: Option<&str>,
+    requires_self_update: bool,
+    irreversible: bool,
+) -> bool {
+    if irreversible {
+        return false;
+    }
+    if requires_self_update {
+        return false;
+    }
+    if is_upgrade != Some(true) || is_downgrade == Some(true) {
+        return false;
+    }
+    match mode {
+        UpdateMode::Release => !matches!(
+            relation,
+            Some("diverged") | Some("unknown") | Some("behind") | Some("identical")
+        ),
+        UpdateMode::Commit => {
+            // unknown is explicitly allowed for commit/dev (Docker Hub / no ancestry).
+            !matches!(
+                relation,
+                Some("diverged") | Some("behind") | Some("identical")
+            )
+        }
+    }
+}
+
+#[cfg(test)]
+mod auto_install_gate_tests {
+    use super::*;
+
+    #[test]
+    fn commit_mode_allows_upgrade_with_unknown_relation() {
+        assert!(auto_install_latest_ok(
+            UpdateMode::Commit,
+            Some(true),
+            Some(false),
+            Some("unknown"),
+            false,
+            false,
+        ));
+    }
+
+    #[test]
+    fn commit_mode_allows_upgrade_with_ahead_from_push_time() {
+        assert!(auto_install_latest_ok(
+            UpdateMode::Commit,
+            Some(true),
+            Some(false),
+            Some("ahead"),
+            false,
+            false,
+        ));
+    }
+
+    #[test]
+    fn commit_mode_blocks_downgrade_and_diverged() {
+        assert!(!auto_install_latest_ok(
+            UpdateMode::Commit,
+            Some(false),
+            Some(true),
+            Some("behind"),
+            false,
+            false,
+        ));
+        assert!(!auto_install_latest_ok(
+            UpdateMode::Commit,
+            Some(true),
+            Some(false),
+            Some("diverged"),
+            false,
+            false,
+        ));
+    }
+
+    #[test]
+    fn release_mode_still_blocks_unknown() {
+        assert!(!auto_install_latest_ok(
+            UpdateMode::Release,
+            Some(true),
+            Some(false),
+            Some("unknown"),
+            false,
+            false,
+        ));
+        assert!(auto_install_latest_ok(
+            UpdateMode::Release,
+            Some(true),
+            Some(false),
+            Some("ahead"),
+            false,
+            false,
+        ));
     }
 }
 

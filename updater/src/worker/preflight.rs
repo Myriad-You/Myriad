@@ -8,7 +8,9 @@
 //! Direction gates (fail-closed):
 //! - pure upgrade → ok
 //! - pure downgrade → requires `allow_downgrade`
-//! - diverged / unknown direction → requires `allow_risk`
+//! - diverged → requires `allow_diverged` / `allow_risk`
+//! - **commit/dev**: unknown ancestry does **not** require `allow_unknown` (build-time
+//!   newer / different tag is enough). Release mode still treats unknown as risk.
 //! - irreversible migration + downgrade → requires both flags
 
 use std::sync::Arc;
@@ -427,36 +429,30 @@ async fn run_commit(
                         )?;
                     }
                     CommitRelation::Unknown => {
-                        require_flag(
-                            risk.allow_unknown,
-                            &format!(
-                                "unknown git relation for {}; re-submit with allow_unknown=true \
-                             (or allow_risk=true)",
-                                effective.as_str()
-                            ),
-                        )?;
+                        // Dev/commit channel: unknown ancestry is not a hard stop.
+                        // Upgrade direction is primarily build publish time / different tag.
+                        info!(
+                            target = %effective,
+                            "preflight(commit): unknown git relation; proceeding without allow_unknown"
+                        );
                     }
                     CommitRelation::Ahead => {}
                 }
             }
             Ok(None) => {
-                require_flag(
-                    risk.allow_unknown,
-                    &format!(
-                        "cannot resolve current deploy to a git commit; refusing to move to {} \
-                         without allow_unknown=true (or allow_risk=true)",
-                        effective.as_str()
-                    ),
-                )?;
+                // Current deploy not resolvable on GitHub (private/no token path is normal).
+                info!(
+                    target = %effective,
+                    "preflight(commit): cannot resolve current deploy to git; proceeding \
+                     (build-time / different tag is sufficient for commit mode)"
+                );
             }
             Err(e) => {
-                require_flag(
-                    risk.allow_unknown,
-                    &format!(
-                        "git compare failed ({e}); refusing update. Fix GitHub access or pass \
-                         allow_unknown=true (or allow_risk=true)"
-                    ),
-                )?;
+                warn!(
+                    target = %effective,
+                    err = %e,
+                    "preflight(commit): git compare failed; proceeding without allow_unknown"
+                );
             }
         }
     }

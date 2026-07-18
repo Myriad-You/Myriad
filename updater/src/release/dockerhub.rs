@@ -398,12 +398,13 @@ pub fn commit_upgrade_direction(
             relation: "behind",
         },
         (Some(_), Some(_)) => CommitUpgradeDirection::none_actionable(),
-        // Missing one or both timestamps: different tag still counts as a candidate upgrade
-        // so private-repo / no-token hosts are not stuck on relation=unknown.
+        // Missing one or both timestamps, different tag: tip is list-head (newest-first)
+        // on Docker Hub discovery — treat as upgrade with relation=ahead so auto_install
+        // and UI are not blocked by relation=unknown.
         _ if current_tag.is_some() => CommitUpgradeDirection {
             is_upgrade: true,
             is_downgrade: false,
-            relation: "unknown",
+            relation: "ahead",
         },
         // No current version recorded — first run / bootstrap.
         _ => CommitUpgradeDirection {
@@ -531,7 +532,23 @@ mod tests {
         let dir = commit_upgrade_direction("dev-bbbbbbb", Some("dev-aaaaaaa"), None, None, None);
         assert!(dir.is_upgrade);
         assert!(!dir.is_downgrade);
-        assert_eq!(dir.relation, "unknown");
+        // Prefer ahead (list-head / tip) over unknown so auto_install is not gated.
+        assert_eq!(dir.relation, "ahead");
+    }
+
+    #[test]
+    fn commit_upgrade_target_time_only_is_upgrade_ahead() {
+        // Current tag not found on Hub (no pushed_at); tip has a push time.
+        let dir = commit_upgrade_direction(
+            "dev-bbbbbbb",
+            Some("dev-aaaaaaa"),
+            Some("2026-07-16T12:00:00Z"),
+            None,
+            None,
+        );
+        assert!(dir.is_upgrade);
+        assert!(!dir.is_downgrade);
+        assert_eq!(dir.relation, "ahead");
     }
 
     #[test]
