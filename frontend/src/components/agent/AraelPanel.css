@@ -203,11 +203,45 @@ html.dark .arael-panel.arael-panel-processing {
   gap: 8px;
   font-weight: 600;
   color: var(--text-secondary, #6b7280);
+  min-width: 0;
+}
+
+/* Header 常驻 Arael wordmark：连点打开 debug，不伪装成主 CTA */
+.arael-logo-wordmark {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  color: var(--color-primary, #10b981);
+  cursor: pointer;
+  user-select: none;
+  opacity: 0.85;
+  transition: opacity 0.15s ease;
+}
+
+.arael-logo-wordmark:hover {
+  opacity: 1;
+}
+
+.arael-logo-wordmark:focus-visible {
+  outline: 1px solid
+    color-mix(in srgb, var(--color-primary, #10b981) 50%, transparent);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
 .arael-tasks-title-rest {
   align-self: center;
   margin-left: 4px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 html.dark .arael-tasks-title {
@@ -218,55 +252,6 @@ html.dark .arael-tasks-title {
   display: flex;
   align-items: center;
   gap: 4px;
-}
-
-.arael-debug-badge {
-  font-size: 9px;
-  font-family: monospace;
-  white-space: nowrap;
-  height: 18px;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 6px;
-  border-radius: 9px;
-  border: none;
-  background: color-mix(in srgb, var(--text-muted, #9ca3af) 10%, transparent);
-  color: var(--text-muted, #9ca3af);
-  cursor: pointer;
-  opacity: 0.5;
-  transition: opacity 0.15s ease;
-}
-
-.arael-debug-badge:hover {
-  opacity: 1;
-}
-
-.arael-debug-badge:active {
-  opacity: 0.3;
-}
-
-.arael-debug-active {
-  background: color-mix(in srgb, #60a5fa 20%, transparent);
-  color: #60a5fa;
-  opacity: 0.9;
-}
-
-.arael-debug-error {
-  background: color-mix(in srgb, #ef4444 15%, transparent);
-  color: #ef4444;
-  opacity: 0.8;
-  animation: arael-debug-pulse 1.5s ease-in-out infinite;
-}
-
-@keyframes arael-debug-pulse {
-  0%,
-  100% {
-    opacity: 0.6;
-  }
-
-  50% {
-    opacity: 1;
-  }
 }
 
 /* Header icon buttons */
@@ -410,14 +395,18 @@ html.dark .arael-msg-list::-webkit-scrollbar-thumb {
 }
 
 .arael-empty-hero-name {
-  font-size: 48px;
-  font-weight: 700;
-  line-height: 1.1;
+  margin: 0;
+  padding: 0;
+  border: none;
   background: linear-gradient(
     135deg,
     var(--color-primary, #10b981),
     color-mix(in srgb, var(--color-primary, #10b981) 60%, #3b82f6)
   );
+  font-size: 48px;
+  font-weight: 700;
+  line-height: 1.1;
+  text-align: left;
   background-size: 200% 200%;
   animation:
     arael-name-shimmer 3s ease infinite,
@@ -429,6 +418,8 @@ html.dark .arael-msg-list::-webkit-scrollbar-thumb {
   );
   letter-spacing: -0.02em;
   position: relative;
+  cursor: pointer;
+  user-select: none;
 }
 
 .arael-empty-hero-name::after {
