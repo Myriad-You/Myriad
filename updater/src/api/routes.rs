@@ -363,19 +363,14 @@ async fn delete_snapshot(
         ));
     }
 
+    let actor = extract_actor(&headers);
     let snap = crate::snapshot::SnapshotManager {
         state: &st.state,
         // delete only touches snapshots metadata/dirs; pgdata is unused.
         pgdata: st.state.root().join("pgdata-unused"),
     };
-    snap.delete(&id)?;
-
-    // Enrich history with API actor (core `delete` already wrote a base audit line).
-    if let Some(actor) = extract_actor(&headers) {
-        let line = format!("audit: snapshot_delete id={id} via=API actor={actor}");
-        st.state.append_history(&line)?;
-        let _ = st.state.append_audit(&line);
-    }
+    // Core delete writes timestamped history/audit with actor (who/when/id).
+    snap.delete(&id, actor.as_deref())?;
 
     Ok(Json(json!({ "ok": true, "id": id })))
 }

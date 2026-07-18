@@ -240,9 +240,11 @@ impl<'a> SnapshotManager<'a> {
     ///   still cleaned if present).
     /// - In use by the current job, or required for rescue / needs_manual recovery →
     ///   `Precondition`.
+    /// - `keep=true` → `Precondition` (no force path; operators must clear keep first).
+    /// - Last remaining snapshot in metadata → `Precondition`.
     /// - Otherwise removes `state/snapshots/<id>` and updates `snapshots.json` atomically,
-    ///   then appends history + audit lines.
-    pub fn delete(&self, id: &str) -> Result<()> {
+    ///   then appends history + audit lines (timestamped; `actor` when provided).
+    pub fn delete(&self, id: &str, actor: Option<&str>) -> Result<()> {
         if id.is_empty()
             || !id
                 .chars()
@@ -255,9 +257,9 @@ impl<'a> SnapshotManager<'a> {
 
         let path = self.state.snapshots_dir().join(id);
         let mut sf = self.state.read_snapshots()?;
-        let in_meta = sf.items.iter().any(|m| m.id == id);
+        let meta = sf.items.iter().find(|m| m.id == id).cloned();
 
-        if !in_meta {
+        let Some(meta) = meta else {
             // Best-effort orphan cleanup when metadata already dropped the entry.
             if path.exists() {
                 let _ = std::fs::remove_dir_all(&path);
@@ -266,10 +268,22 @@ impl<'a> SnapshotManager<'a> {
             return Err(UpdaterError::NotFound(format!(
                 "snapshot {id} not found in snapshots.json"
             )));
-        }
+        };
 
         if let Some(reason) = self.in_use_reason(id)? {
             return Err(UpdaterError::Precondition(reason));
+        }
+
+        if meta.keep {
+            return Err(UpdaterError::Precondition(format!(
+                "snapshot {id} is marked keep=true and cannot be deleted"
+            )));
+        }
+
+        if sf.items.len() <= 1 {
+            return Err(UpdaterError::Precondition(format!(
+                "refusing to delete the last remaining snapshot ({id})"
+            )));
         }
 
         if path.exists() {
@@ -284,10 +298,14 @@ impl<'a> SnapshotManager<'a> {
         sf.items.retain(|m| m.id != id);
         self.state.write_snapshots(&sf)?;
 
-        let line = format!("audit: snapshot_delete id={id}");
+        // history/audit prepend RFC3339 timestamps; include actor when known.
+        let line = match actor.map(str::trim).filter(|s| !s.is_empty()) {
+            Some(a) => format!("audit: snapshot_delete id={id} actor={a}"),
+            None => format!("audit: snapshot_delete id={id}"),
+        };
         self.state.append_history(&line)?;
         let _ = self.state.append_audit(&line);
-        info!(snapshot = %id, "snapshot deleted");
+        info!(snapshot = %id, actor = actor.unwrap_or("-"), "snapshot deleted");
         Ok(())
     }
 
@@ -530,6 +548,10 @@ mod tests {
     }
 
     fn plant_snapshot_meta(state: &StateDir, id: &str) {
+        plant_snapshot_meta_keep(state, id, false);
+    }
+
+    fn plant_snapshot_meta_keep(state: &StateDir, id: &str, keep: bool) {
         std::fs::create_dir_all(state.snapshots_dir().join(id)).unwrap();
         std::fs::write(state.snapshots_dir().join(id).join("marker"), b"x").unwrap();
         let mut sf = state.read_snapshots().unwrap();
@@ -539,7 +561,7 @@ mod tests {
             source_version: None,
             size_bytes: 1,
             file_count: 1,
-            keep: false,
+            keep,
             sample_sha256: None,
         });
         state.write_snapshots(&sf).unwrap();
@@ -549,16 +571,20 @@ mod tests {
     fn delete_removes_meta_and_dir() {
         let dir = tempdir().unwrap();
         let state = StateDir::open(&dir.path().join("state")).unwrap();
+        // Need ≥2 items so last-snapshot protection does not fire.
+        plant_snapshot_meta(&state, "snap-keep-other");
         plant_snapshot_meta(&state, "snap-del");
 
         let mgr = SnapshotManager {
             state: &state,
             pgdata: dir.path().join("pgdata"),
         };
-        mgr.delete("snap-del").unwrap();
+        mgr.delete("snap-del", Some("admin:1:test")).unwrap();
 
         assert!(!state.snapshots_dir().join("snap-del").exists());
-        assert!(state.read_snapshots().unwrap().items.is_empty());
+        let remaining = state.read_snapshots().unwrap().items;
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].id, "snap-keep-other");
     }
 
     #[test]
@@ -569,7 +595,7 @@ mod tests {
             state: &state,
             pgdata: dir.path().join("pgdata"),
         };
-        let err = mgr.delete("no-such").unwrap_err();
+        let err = mgr.delete("no-such", None).unwrap_err();
         assert!(matches!(err, UpdaterError::NotFound(_)));
     }
 
@@ -585,7 +611,7 @@ mod tests {
             state: &state,
             pgdata: dir.path().join("pgdata"),
         };
-        let err = mgr.delete("orphan-only").unwrap_err();
+        let err = mgr.delete("orphan-only", None).unwrap_err();
         assert!(matches!(err, UpdaterError::NotFound(_)));
         assert!(!orphan.exists());
     }
@@ -596,6 +622,7 @@ mod tests {
 
         let dir = tempdir().unwrap();
         let state = StateDir::open(&dir.path().join("state")).unwrap();
+        plant_snapshot_meta(&state, "snap-other");
         plant_snapshot_meta(&state, "snap-busy");
 
         let job = Job {
@@ -617,9 +644,45 @@ mod tests {
             state: &state,
             pgdata: dir.path().join("pgdata"),
         };
-        let err = mgr.delete("snap-busy").unwrap_err();
+        let err = mgr.delete("snap-busy", None).unwrap_err();
         assert!(matches!(err, UpdaterError::Precondition(_)), "{err:?}");
+        assert!(err.to_string().contains("in use"));
         assert!(state.snapshots_dir().join("snap-busy").exists());
+        assert_eq!(state.read_snapshots().unwrap().items.len(), 2);
+    }
+
+    #[test]
+    fn delete_refuses_last_remaining_snapshot() {
+        let dir = tempdir().unwrap();
+        let state = StateDir::open(&dir.path().join("state")).unwrap();
+        plant_snapshot_meta(&state, "snap-only");
+
+        let mgr = SnapshotManager {
+            state: &state,
+            pgdata: dir.path().join("pgdata"),
+        };
+        let err = mgr.delete("snap-only", None).unwrap_err();
+        assert!(matches!(err, UpdaterError::Precondition(_)), "{err:?}");
+        assert!(err.to_string().contains("last remaining"));
         assert_eq!(state.read_snapshots().unwrap().items.len(), 1);
+        assert!(state.snapshots_dir().join("snap-only").exists());
+    }
+
+    #[test]
+    fn delete_refuses_keep_flag() {
+        let dir = tempdir().unwrap();
+        let state = StateDir::open(&dir.path().join("state")).unwrap();
+        plant_snapshot_meta(&state, "snap-other");
+        plant_snapshot_meta_keep(&state, "snap-kept", true);
+
+        let mgr = SnapshotManager {
+            state: &state,
+            pgdata: dir.path().join("pgdata"),
+        };
+        let err = mgr.delete("snap-kept", None).unwrap_err();
+        assert!(matches!(err, UpdaterError::Precondition(_)), "{err:?}");
+        assert!(err.to_string().contains("keep=true"));
+        assert!(state.snapshots_dir().join("snap-kept").exists());
+        assert_eq!(state.read_snapshots().unwrap().items.len(), 2);
     }
 }

@@ -435,6 +435,11 @@ export const enUS: TranslationKeys = {
     updaterDeleteSnapshotDispatched: 'Backup deleted',
     updaterDeleteSnapshotInUse:
       'This backup is needed for recovery and cannot be deleted yet.',
+    updaterDeleteSnapshotLast:
+      'Cannot delete the only remaining backup.',
+    updaterDeleteSnapshotKept:
+      'Marked as kept; cannot delete.',
+    updaterDeleteSnapshotKeptBadge: 'Kept',
     updaterGroupAdvanced: 'Advanced & diagnostics',
     updaterGroupAdvancedDesc: 'Operator tools. Not needed day to day.',
     updaterUpdaterVersion: 'Updater version',

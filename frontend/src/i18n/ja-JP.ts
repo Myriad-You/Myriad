@@ -428,6 +428,9 @@ export const jaJP: TranslationKeys = {
     updaterDeleteSnapshotDispatched: 'バックアップを削除しました',
     updaterDeleteSnapshotInUse:
       'このバックアップは復旧に必要なため、まだ削除できません。',
+    updaterDeleteSnapshotLast: '唯一のバックアップは削除できません。',
+    updaterDeleteSnapshotKept: '保持指定のため削除できません。',
+    updaterDeleteSnapshotKeptBadge: '保持',
     updaterGroupAdvanced: '詳細と診断',
     updaterGroupAdvancedDesc: '運用ツール。普段は不要。',
     updaterUpdaterVersion: 'アップデーターのバージョン',

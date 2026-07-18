@@ -397,6 +397,9 @@ export interface TranslationKeys {
     updaterDeleteSnapshotConfirm: string
     updaterDeleteSnapshotDispatched: string
     updaterDeleteSnapshotInUse: string
+    updaterDeleteSnapshotLast: string
+    updaterDeleteSnapshotKept: string
+    updaterDeleteSnapshotKeptBadge: string
     // 高级与诊断（折叠）
     updaterGroupAdvanced: string
     updaterGroupAdvancedDesc: string
