@@ -517,8 +517,15 @@ impl Worker {
                                 .as_ref()
                                 .map(|f| f.relation.as_str())
                                 .unwrap_or("?"),
-                            "periodic check: commit tip available (auto_install never applies)"
+                            "periodic check: commit tip available"
                         );
+                        if let Err(e) = ticker_worker
+                            .clone()
+                            .maybe_auto_install_commit(&tag)
+                            .await
+                        {
+                            tracing::warn!(err = %e, "periodic auto_install skipped/failed");
+                        }
                     }
                     Ok(Ok(None)) => {
                         tracing::debug!("periodic check: nothing available for channel");
@@ -676,69 +683,81 @@ impl Worker {
             .unwrap_or(false)
     }
 
-    /// Auto-install only for clear stable-channel release upgrades.
-    async fn maybe_auto_install_release(self: Arc<Self>, manifest: &Manifest) -> Result<()> {
+    /// Shared safety gate for auto-install: only clear upgrades on the current
+    /// channel/mode. Downgrade / diverged / unknown / irreversible need human confirm.
+    fn auto_install_target_ok(
+        &self,
+        expected_mode: UpdateMode,
+        irreversible: bool,
+    ) -> Result<Option<DeployTag>> {
         if !self.auto_install_enabled() {
-            return Ok(());
+            return Ok(None);
         }
-        // Policy: auto_install never applies to commit/dev mode or non-stable channels.
-        if self.effective_mode() != UpdateMode::Release {
-            return Ok(());
+        // Apply to whatever channel/mode the operator selected (stable / preview / commit).
+        if self.effective_mode() != expected_mode {
+            return Ok(None);
         }
-        if self.effective_channel() != "stable" {
-            return Ok(());
-        }
-        if manifest.migrations.irreversible {
-            info!(
-                target = %manifest.version,
-                "auto_install: skip irreversible migration"
-            );
-            return Ok(());
+        if irreversible {
+            info!("auto_install: skip irreversible migration");
+            return Ok(None);
         }
         if self.state.read_current_job()?.is_some() {
-            return Ok(());
+            return Ok(None);
         }
-        // Require a clear upgrade cached by the just-completed check.
         let st = self.state.read_updater()?;
         let Some(la) = st.latest_available.as_ref() else {
-            return Ok(());
+            return Ok(None);
         };
+        if la.mode != expected_mode {
+            return Ok(None);
+        }
+        // Strict: only explicit upgrade. Missing is_upgrade is treated as unsafe.
         if la.is_upgrade != Some(true) || la.is_downgrade == Some(true) {
-            return Ok(());
+            return Ok(None);
         }
         if matches!(
             la.relation.as_deref(),
             Some("diverged") | Some("unknown") | Some("behind") | Some("identical")
         ) {
-            return Ok(());
+            return Ok(None);
         }
+        // relation None with is_upgrade=true is ok (semver path may omit relation detail).
         if la.requires_self_update {
             info!(
-                target = %manifest.version,
+                target = %la.version,
                 "auto_install: skip — updater self-update required first"
             );
-            return Ok(());
+            return Ok(None);
         }
-        let target = DeployTag::from_release(manifest.version.clone());
+        let target = la.version.clone();
         if st.current_version.as_ref() == Some(&target) {
-            return Ok(());
+            return Ok(None);
         }
+        Ok(Some(target))
+    }
+
+    async fn dispatch_auto_install(
+        self: &Arc<Self>,
+        target: DeployTag,
+        mode: UpdateMode,
+    ) -> Result<()> {
         info!(
             target = %target,
-            "auto_install: dispatching clear stable upgrade"
+            mode = %mode,
+            channel = %self.effective_channel(),
+            "auto_install: dispatching clear upgrade"
         );
-        // Enqueue through the worker channel so we serialize with other jobs.
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.tx
             .send(Command::Update {
-                target,
-                mode: UpdateMode::Release,
+                target: target.clone(),
+                mode,
                 allow_downgrade: false,
                 allow_risk: false,
                 allow_diverged: None,
                 allow_unknown: None,
                 allow_irreversible: None,
-                idempotency_key: Some(format!("auto-install-{}", manifest.version)),
+                idempotency_key: Some(format!("auto-install-{}-{}", mode.as_str(), target.as_str())),
                 actor: Some("auto-install".into()),
                 reply: tx,
             })
@@ -750,6 +769,38 @@ impl Worker {
                 UpdaterError::Precondition("worker dropped auto_install reply".into())
             })??;
         Ok(())
+    }
+
+    /// Auto-install a clear release upgrade on the current channel (stable or preview).
+    async fn maybe_auto_install_release(self: Arc<Self>, manifest: &Manifest) -> Result<()> {
+        let Some(target) = self.auto_install_target_ok(
+            UpdateMode::Release,
+            manifest.migrations.irreversible,
+        )?
+        else {
+            return Ok(());
+        };
+        // Prefer the just-fetched manifest version when it matches the cache.
+        let target = if target.as_str() == manifest.version.as_str() {
+            DeployTag::from_release(manifest.version.clone())
+        } else {
+            target
+        };
+        self.dispatch_auto_install(target, UpdateMode::Release).await
+    }
+
+    /// Auto-install a clear commit/dev tip upgrade on the current channel.
+    async fn maybe_auto_install_commit(self: Arc<Self>, tag: &DeployTag) -> Result<()> {
+        let Some(target) = self.auto_install_target_ok(UpdateMode::Commit, false)? else {
+            return Ok(());
+        };
+        // Prefer the tip just reported by the check when it matches cache.
+        let target = if target.as_str() == tag.as_str() {
+            tag.clone()
+        } else {
+            target
+        };
+        self.dispatch_auto_install(target, UpdateMode::Commit).await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1222,12 +1273,17 @@ impl Worker {
         persist_cache: bool,
         github_error: UpdaterError,
     ) -> Result<Option<AvailableInfo>> {
-        let builds = self.clone().handle_list_builds(1).await.map_err(|docker_error| {
+        // Prefer immutable commit builds; formal releases are listed too but belong
+        // on the release path, not commit-mode tip discovery.
+        let builds = self.clone().handle_list_builds(25).await.map_err(|docker_error| {
             UpdaterError::DockerHub(format!(
                 "Docker Hub commit discovery failed ({docker_error}); GitHub metadata note: {github_error}"
             ))
         })?;
-        let Some(build) = builds.into_iter().next() else {
+        let Some(build) = builds
+            .into_iter()
+            .find(|b| b.kind == "commit" || b.tag.starts_with("dev-"))
+        else {
             if persist_cache {
                 let mut state = self.state.read_updater()?;
                 state.last_checked_at = Some(Utc::now());
@@ -1235,7 +1291,7 @@ impl Worker {
                 self.state.write_updater(&state)?;
             }
             return Err(UpdaterError::DockerHub(format!(
-                "Docker Hub has no common immutable frontend/backend build \
+                "Docker Hub has no common immutable frontend/backend commit build \
                  (GitHub metadata note: {github_error})"
             )));
         };

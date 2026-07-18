@@ -362,7 +362,7 @@ export const jaJP: TranslationKeys = {
     updaterChannelSaved: '「{label}」に切り替えました。更新を再確認しています…',
     updaterAutoGroupTitle: '自動確認とインストール',
     updaterAutoGroupDesc:
-      '定期チェック。安定版の明確なアップグレードのみ自動インストール可。',
+      '現在のチャネルを定期チェック。明確なアップグレードの自動インストールも可（安定版 / プレビュー / 開発版いずれも）。',
     updaterCheckInterval: '確認頻度',
     updaterCheckIntervalDesc: 'オフ時は手動のみ。変更はすぐ反映されます。',
     updaterCheckIntervalOff: 'オフ',
@@ -372,7 +372,7 @@ export const jaJP: TranslationKeys = {
     updaterCheckInterval24h: '24 時間ごと',
     updaterAutoInstall: '更新を自動インストール',
     updaterAutoInstallDesc:
-      '既定はオフ。安定版の明確なアップグレードのみ。開発版・ダウングレード・リスクある更新は対象外。',
+      '既定はオフ。有効時は選択中のチャネルに適用。明確なアップグレードのみ自動。ダウングレード / 分岐 / 不明 / 不可逆は手動確認が必要。',
     updaterAutoPrefsSaved: '自動更新設定を保存しました',
     updaterStepLog: '詳細ステップを表示',
     updaterProcessing: '処理中…',

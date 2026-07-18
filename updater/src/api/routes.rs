@@ -78,7 +78,7 @@ struct StatusResp {
     /// Raw prefs value when set; omitted when using env fallback.
     #[serde(skip_serializing_if = "Option::is_none")]
     check_interval_secs_pref: Option<u64>,
-    /// Auto-install clear stable upgrades. Default false.
+    /// Auto-install clear upgrades on the current channel. Default false.
     auto_install: bool,
     maintenance_active: bool,
     maintenance_phase: Phase,

@@ -101,7 +101,7 @@ export interface UpdaterStatus {
   check_interval_secs?: number
   /** Raw prefs value when set; omitted when using env fallback. */
   check_interval_secs_pref?: number | null
-  /** Auto-install clear stable upgrades. Default false. */
+  /** Auto-install clear upgrades on the current channel. Default false. */
   auto_install?: boolean
   maintenance_active: boolean
   maintenance_phase: string

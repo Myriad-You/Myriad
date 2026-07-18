@@ -32,8 +32,9 @@ pub struct UpdaterStateFile {
     #[serde(default)]
     pub check_interval_secs: Option<u64>,
 
-    /// When true, clear stable-channel upgrades are installed automatically.
-    /// Default OFF. Never auto-installs commit/dev targets or risky updates.
+    /// When true, clear upgrades on the **current** channel/mode are installed
+    /// automatically. Default OFF. Applies to stable, preview, and commit/dev;
+    /// never auto-installs downgrade / diverged / unknown / irreversible targets.
     #[serde(default)]
     pub auto_install: bool,
 

@@ -343,7 +343,8 @@ export const zhCN: TranslationKeys = {
     updaterChannelBadgeDev: '开发者',
     updaterChannelSaved: '已切换到「{label}」，正在重新检查更新…',
     updaterAutoGroupTitle: '自动检查与安装',
-    updaterAutoGroupDesc: '定时检查更新；可选仅在稳定版通道自动安装明确升级。',
+    updaterAutoGroupDesc:
+      '定时检查当前通道的更新；可开启自动安装明确升级（稳定版 / 预览版 / 开发版均可）。',
     updaterCheckInterval: '检查频率',
     updaterCheckIntervalDesc: '关闭后仅手动检查。更改立即生效。',
     updaterCheckIntervalOff: '关闭',
@@ -353,7 +354,7 @@ export const zhCN: TranslationKeys = {
     updaterCheckInterval24h: '每 24 小时',
     updaterAutoInstall: '自动安装更新',
     updaterAutoInstallDesc:
-      '默认关闭。仅稳定版通道的明确升级会自动安装；开发版/降级/有风险的更新不会。',
+      '默认关闭。开启后对当前所选通道生效；仅自动安装明确升级，降级 / 分叉 / 未知 / 不可逆变更需手动确认。',
     updaterAutoPrefsSaved: '自动更新设置已保存',
     updaterStepLog: '查看详细步骤',
     updaterProcessing: '处理中…',

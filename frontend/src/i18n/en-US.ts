@@ -368,7 +368,7 @@ export const enUS: TranslationKeys = {
     updaterChannelSaved: 'Switched to “{label}” — re-checking for updates…',
     updaterAutoGroupTitle: 'Auto-check & install',
     updaterAutoGroupDesc:
-      'Periodic checks; optional auto-install for clear stable upgrades only.',
+      'Periodically check the current channel; optional auto-install of clear upgrades (stable, preview, or dev).',
     updaterCheckInterval: 'Check frequency',
     updaterCheckIntervalDesc: 'Off means manual checks only. Changes apply immediately.',
     updaterCheckIntervalOff: 'Off',
@@ -378,7 +378,7 @@ export const enUS: TranslationKeys = {
     updaterCheckInterval24h: 'Every 24 hours',
     updaterAutoInstall: 'Auto-install updates',
     updaterAutoInstallDesc:
-      'Off by default. Only clear upgrades on the stable channel; never dev/downgrade/risky updates.',
+      'Off by default. When on, applies to the selected channel; only clear upgrades auto-install. Downgrade / diverged / unknown / irreversible still need confirmation.',
     updaterAutoPrefsSaved: 'Auto-update settings saved',
     updaterStepLog: 'Show detailed steps',
     updaterProcessing: 'Working…',
