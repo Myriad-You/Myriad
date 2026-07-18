@@ -34,6 +34,11 @@ import {
   UpdaterError,
 } from '../../services/updaterApi'
 import { ButtonItem, SettingGroup } from '../settings'
+import {
+  AGO_TICK_MS,
+  computeAgo,
+  isCheckStale,
+} from './updaterCheckFreshness'
 import './UpdaterConfigSection.css'
 
 /** Formal release tags look like v0.2.6 (`v`-prefixed semver, matching DeployTag). */
@@ -239,6 +244,15 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
   /** 只在首次加载（或保存偏好后）用服务器值覆盖本地选择。 */
   const selHydratedRef = useRef(false)
   const pollRef = useRef<number | null>(null)
+  /**
+   * One auto recheck per panel mount session (avoids StrictMode / refresh loops
+   * spamming GitHub). Manual “Check now” is unaffected.
+   */
+  const autoRecheckDoneRef = useRef(false)
+  /** Drives live relative “ago” labels without a full status refresh. */
+  const [nowTick, setNowTick] = useState(() => Date.now())
+  /** True while the open-panel stale auto-check is in flight. */
+  const [autoRechecking, setAutoRechecking] = useState(false)
 
   const explain = useCallback(
     (e: unknown): string => {
@@ -338,6 +352,12 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     }
   }, [status?.job_in_flight, refresh])
 
+  // Live “N minutes ago” for last_checked_at (does not hit the network).
+  useEffect(() => {
+    const id = window.setInterval(() => setNowTick(Date.now()), AGO_TICK_MS)
+    return () => window.clearInterval(id)
+  }, [])
+
   const selOption = useMemo(
     () => CHANNEL_OPTIONS.find((o) => o.key === sel) ?? CHANNEL_OPTIONS[0],
     [sel],
@@ -353,7 +373,10 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
   // ===== 操作 =====
 
   const checkAvailable = useCallback(
-    async (opt: ChannelOption = selOption) => {
+    async (
+      opt: ChannelOption = selOption,
+      opts?: { silent?: boolean },
+    ) => {
       if (tokenRequired) {
         setToast({ kind: 'error', text: u.updaterTokenRequiredDirect })
         return
@@ -365,7 +388,9 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
           mode: opt.mode,
         })
         setAvailable(manifest)
-        setToast(manifest ? null : { kind: 'ok', text: u.updaterNoAvailable })
+        if (!opts?.silent) {
+          setToast(manifest ? null : { kind: 'ok', text: u.updaterNoAvailable })
+        }
         await refresh()
       } catch (e) {
         setToast({ kind: 'error', text: explain(e) })
@@ -375,6 +400,33 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     },
     [api, selOption, refresh, tokenRequired, explain, u],
   )
+
+  // After first successful status(): recheck once if cache is stale.
+  useEffect(() => {
+    if (autoRecheckDoneRef.current) return
+    if (!status) return
+    if (accessDenied || tokenRequired) return
+    if (status.job_in_flight || status.maintenance_active) return
+    // Wait until any in-flight panel action finishes before deciding.
+    if (busy) return
+
+    if (
+      !isCheckStale(
+        status.last_checked_at,
+        status.check_interval_secs,
+        Date.now(),
+      )
+    ) {
+      autoRecheckDoneRef.current = true
+      return
+    }
+
+    autoRecheckDoneRef.current = true
+    setAutoRechecking(true)
+    void checkAvailable(selOption, { silent: true }).finally(() => {
+      setAutoRechecking(false)
+    })
+  }, [status, accessDenied, tokenRequired, busy, checkAvailable, selOption])
 
   const selectChannel = useCallback(
     async (key: ChannelKey) => {
@@ -623,6 +675,19 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
 
   const mood = useMemo<Mood>(() => deriveMood(status), [status])
 
+  const stale = useMemo(() => {
+    if (!status) return false
+    return isCheckStale(
+      status.last_checked_at,
+      status.check_interval_secs,
+      nowTick,
+    )
+  }, [status, nowTick])
+
+  /** Cached available/downgrade while last check is too old — not fully trusted. */
+  const pendingConfirm =
+    stale && (mood === 'available' || mood === 'downgrade')
+
   // 非 admin：整段隐藏
   if (accessDenied && transport === 'backend') return null
 
@@ -636,8 +701,10 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     (mood === 'maintenance' || mood === 'needsManual') && !showProgress
   const requiresSelfUpdate =
     !!status?.requires_self_update && !!status.latest_available
+  // Prefer auto-recheck before presenting cached “new version” as trustworthy.
   const showAvailableCard =
     !showProgress &&
+    !stale &&
     (mood === 'available' || mood === 'downgrade') &&
     !!(available || status?.latest_available)
 
@@ -671,6 +738,10 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
           loading={loading}
           tokenRequired={tokenRequired}
           requiresSelfUpdate={requiresSelfUpdate}
+          stale={stale}
+          autoRechecking={autoRechecking}
+          pendingConfirm={pendingConfirm}
+          nowTick={nowTick}
           u={u}
           onCheck={() => checkAvailable()}
           onUpdate={updateToLatest}
@@ -890,6 +961,10 @@ function StatusHero({
   loading,
   tokenRequired,
   requiresSelfUpdate,
+  stale,
+  autoRechecking,
+  pendingConfirm,
+  nowTick,
   u,
   onCheck,
   onUpdate,
@@ -903,20 +978,47 @@ function StatusHero({
   loading: boolean
   tokenRequired: boolean
   requiresSelfUpdate: boolean
+  stale: boolean
+  autoRechecking: boolean
+  pendingConfirm: boolean
+  nowTick: number
   u: U
   onCheck: () => void
   onUpdate: () => void
   onSelfUpdate: () => void
   onRetry: () => void
 }) {
-  const { title, hint, tone } = moodText(mood, u)
+  const { title: moodTitle, hint, tone: moodTone } = moodText(mood, u)
   const targetVersion = status?.latest_available?.version
+  // While cache is stale, prefer recheck over acting on cached “update available”.
+  const showCheckPrimary =
+    mood === 'healthy' ||
+    mood === 'firstRun' ||
+    pendingConfirm ||
+    (stale && mood !== 'offline' && mood !== 'updating' && mood !== 'maintenance' && mood !== 'needsManual')
+
+  let title = moodTitle
+  let tone: Tone = moodTone
+  if (pendingConfirm) {
+    title = `${moodTitle} · ${u.updaterStatusUnconfirmed}`
+    tone = 'warn'
+  } else if (stale && (mood === 'healthy' || mood === 'firstRun')) {
+    tone = 'warn'
+  }
+
   // direct 模式没填 token 时连不上是意料之中——提示填 token，而不是让用户去查 backend 配置。
-  const effectiveHint =
+  let effectiveHint: string | null =
     mood === 'offline' && tokenRequired ? u.updaterTokenRequiredDirect : hint
+  if (stale && mood !== 'offline' && mood !== 'updating') {
+    if (autoRechecking || busy === 'check') {
+      effectiveHint = u.updaterCheckStale
+    } else {
+      effectiveHint = u.updaterCheckStaleAction
+    }
+  }
 
   let action: React.ReactNode = null
-  if (mood === 'healthy' || mood === 'firstRun') {
+  if (showCheckPrimary) {
     action = (
       <button
         type="button"
@@ -925,7 +1027,11 @@ function StatusHero({
         disabled={busy === 'check' || loading || tokenRequired}
       >
         <LuRefreshCw size={13} />
-        <span>{busy === 'check' ? u.updaterChecking : u.updaterCheckNow}</span>
+        <span>
+          {busy === 'check' || autoRechecking
+            ? u.updaterChecking
+            : u.updaterCheckNow}
+        </span>
       </button>
     )
   } else if (mood === 'available' || mood === 'downgrade') {
@@ -978,23 +1084,30 @@ function StatusHero({
     )
   }
 
+  const lastCheckedAbs = status?.last_checked_at
+    ? new Date(status.last_checked_at).toLocaleString()
+    : null
+
   return (
-    <div className="updater-hero">
+    <div className={`updater-hero${stale ? ' stale' : ''}`}>
       <div className="updater-hero-main">
         <span className={`updater-hero-dot ${tone}`} aria-hidden="true" />
         <div className="updater-hero-text">
           <div className="updater-hero-status">
             {title}
-            {(mood === 'available' || mood === 'downgrade') &&
-              targetVersion && (
-                <>
-                  {' '}
-                  <code>{targetVersion}</code>
-                </>
-              )}
+            {(mood === 'available' || mood === 'downgrade') && targetVersion && (
+              <>
+                {' '}
+                <code>{targetVersion}</code>
+              </>
+            )}
           </div>
           {effectiveHint && (
-            <div className="updater-hero-hint">{effectiveHint}</div>
+            <div
+              className={`updater-hero-hint${stale ? ' stale' : ''}`}
+            >
+              {effectiveHint}
+            </div>
           )}
         </div>
         {action && <div className="updater-hero-action">{action}</div>}
@@ -1025,11 +1138,12 @@ function StatusHero({
           {u.updaterChannelLabel} {channelLabel(sel, u)}
         </span>
         {status?.last_checked_at && (
-          <span>
-            {u.updaterLastChecked} {formatAgo(status.last_checked_at, u)}
+          <span title={lastCheckedAbs ?? undefined}>
+            {u.updaterLastChecked}{' '}
+            {formatAgo(status.last_checked_at, u, nowTick)}
           </span>
         )}
-        {mood !== 'healthy' && mood !== 'firstRun' && mood !== 'offline' && (
+        {!showCheckPrimary && mood !== 'offline' && (
           <button
             type="button"
             className="updater-hero-recheck"
@@ -1752,16 +1866,19 @@ function formatBytes(n: number): string {
   return `${(n / 1024 ** 3).toFixed(2)} GB`
 }
 
-function formatAgo(iso: string, u: U): string {
-  const then = new Date(iso).getTime()
-  const diffSec = Math.max(0, Math.round((Date.now() - then) / 1000))
-  if (diffSec < 45) return u.updaterAgoJustNow
-  const min = Math.round(diffSec / 60)
-  if (min < 60) return format(u.updaterAgoMin, { n: String(min) })
-  const hr = Math.round(min / 60)
-  if (hr < 24) return format(u.updaterAgoHour, { n: String(hr) })
-  const d = Math.round(hr / 24)
-  return format(u.updaterAgoDay, { n: String(d) })
+function formatAgo(iso: string, u: U, nowMs: number = Date.now()): string {
+  const parts = computeAgo(iso, nowMs)
+  if (!parts) return u.updaterUnknown
+  switch (parts.unit) {
+    case 'justNow':
+      return u.updaterAgoJustNow
+    case 'min':
+      return format(u.updaterAgoMin, { n: String(parts.n) })
+    case 'hour':
+      return format(u.updaterAgoHour, { n: String(parts.n) })
+    case 'day':
+      return format(u.updaterAgoDay, { n: String(parts.n) })
+  }
 }
 
 export default UpdaterInlinePanel

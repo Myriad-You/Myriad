@@ -116,6 +116,15 @@ html.dark .updater-hero-hint {
   color: #9ca3af;
 }
 
+/* Stale last-check affordance (age vs check_interval / 1h when off) */
+.updater-hero-hint.stale {
+  color: #d97706;
+}
+
+html.dark .updater-hero-hint.stale {
+  color: #fbbf24;
+}
+
 .updater-hero-action {
   flex-shrink: 0;
 }

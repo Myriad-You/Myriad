@@ -314,6 +314,12 @@ export interface TranslationKeys {
     updaterRetry: string
     updaterNoAvailable: string
     updaterLoading: string
+    /** Stale cache: auto-recheck in progress */
+    updaterCheckStale: string
+    /** Stale cache: prompt user to recheck */
+    updaterCheckStaleAction: string
+    /** Badge when cached “update available” is not yet revalidated */
+    updaterStatusUnconfirmed: string
     // 新版本卡片
     updaterAvailableTitle: string
     updaterAvailableDowngradeTitle: string

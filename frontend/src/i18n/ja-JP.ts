@@ -337,6 +337,9 @@ export const jaJP: TranslationKeys = {
     updaterRetry: '再接続',
     updaterNoAvailable: '最新の状態です。利用可能な更新はありません。',
     updaterLoading: '読み込み中…',
+    updaterCheckStale: '確認結果が古い可能性があります。再確認しています…',
+    updaterCheckStaleAction: '前回の確認から時間が経っています。再確認してください',
+    updaterStatusUnconfirmed: '未確認',
     updaterAvailableTitle: '新しいバージョンが見つかりました',
     updaterAvailableDowngradeTitle:
       '対象は現在より古いバージョンです（ダウングレード）',
