@@ -31,6 +31,9 @@ mod user_presence;
 #[path = "010_user_owner.rs"]
 mod user_owner;
 
+#[path = "011_owner_is_admin.rs"]
+mod owner_is_admin;
+
 pub struct Migrator;
 
 #[async_trait::async_trait]
@@ -47,6 +50,7 @@ impl MigratorTrait for Migrator {
             Box::new(tapp_approved_permissions::Migration),
             Box::new(user_presence::Migration),
             Box::new(user_owner::Migration),
+            Box::new(owner_is_admin::Migration),
             // 默认平台种子行（含 X）统一由 001 + runtime schema_check::ensure_default_platforms 维护，
             // 不再为单个平台开独立 migration。
         ]

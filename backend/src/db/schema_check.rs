@@ -15,13 +15,14 @@ use std::collections::HashSet;
 /// 格式建议：YYYY.MM.DD 或语义版本 X.Y.Z
 ///
 /// 变更日志：
+/// - 2026.07.18.2: owner implies admin（is_owner 行强制 is_admin=true；011 + ensure_single_owner）
 /// - 2026.07.18.1: users.is_owner 站点 owner 标记（取代 id=1 主管理员启发式）
 /// - 2026.07.17.1: 新增 tapp_ai_cost_ledger 独立 AI 费用账本表与索引
 /// - 2026.07.16.2: 008 内容并入基础迁移，并由 schema 自愈补齐旧库
 /// - 2026.07.16.1: 补齐 activity_events 表与索引
 /// - 2026.07.11.1: 新增 Discord 数据平台种子
 /// - 2026.07.10.1: 默认平台种子同步（含 X），与 001 插入列表对齐
-const SCHEMA_VERSION: &str = "2026.07.18.1";
+const SCHEMA_VERSION: &str = "2026.07.18.2";
 
 /// 内置平台种子定义（与 migrations/001_initial_schema.rs 中 INSERT 保持同步）
 ///
@@ -5436,7 +5437,7 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     // 008 已并入基础迁移；等缺失字段补齐后再创建配额函数和触发器。
     ensure_tapp_storage_quota(db).await?;
 
-    // 010: ensure exactly one site owner after is_owner column is present.
+    // 010/011: ensure exactly one site owner (and owner implies admin).
     if let Err(e) = ensure_single_owner(db).await {
         tracing::warn!("Site owner seed warning: {}", e);
     }
@@ -5452,6 +5453,9 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
 ///
 /// Seed priority (when zero owners): id=1 if admin → lowest-id admin → lowest-id user.
 /// Multiple owners collapse to the lowest id.
+///
+/// After exactly one owner is ensured, heals `is_admin = true` on that row.
+/// Invariant: owner implies admin (mirrors migration 011). Zero users → no-op.
 pub async fn ensure_single_owner(db: &DatabaseConnection) -> Result<(), DbErr> {
     // Column may still be missing if DDL failed; skip quietly.
     let col_check = db
@@ -5487,10 +5491,10 @@ pub async fn ensure_single_owner(db: &DatabaseConnection) -> Result<(), DbErr> {
     )
     .await?;
 
-    // Seed if none.
+    // Seed if none — set both is_owner and is_admin so a non-admin pick is still usable.
     let seeded = db
         .execute_unprepared(
-            "UPDATE users SET is_owner = true \
+            "UPDATE users SET is_owner = true, is_admin = true \
              WHERE id = COALESCE( \
                (SELECT id FROM users WHERE id = 1 AND is_admin = true LIMIT 1), \
                (SELECT id FROM users WHERE is_admin = true ORDER BY id ASC LIMIT 1), \
@@ -5501,7 +5505,22 @@ pub async fn ensure_single_owner(db: &DatabaseConnection) -> Result<(), DbErr> {
         .await?;
 
     if seeded.rows_affected() > 0 {
-        tracing::info!("✅ Site owner seeded (users.is_owner)");
+        tracing::info!("✅ Site owner seeded (users.is_owner + is_admin)");
+    }
+
+    // Owner implies admin (heal existing rows that were seeded without is_admin).
+    let healed = db
+        .execute_unprepared(
+            "UPDATE users SET is_admin = true \
+             WHERE is_owner = true AND is_admin = false",
+        )
+        .await?;
+
+    if healed.rows_affected() > 0 {
+        tracing::info!(
+            "✅ Site owner is_admin healed ({} row(s))",
+            healed.rows_affected()
+        );
     }
 
     Ok(())
