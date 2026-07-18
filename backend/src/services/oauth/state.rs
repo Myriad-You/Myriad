@@ -53,13 +53,52 @@ pub struct StoredState {
     pub purpose: OAuthPurpose,
 }
 
-/// Why `consume_state` failed — distinguishes never-seen vs TTL-elapsed.
+/// Successful verify of a signed state token.
+///
+/// [`Fresh`](ConsumeOutcome::Fresh) is the normal one-shot consume.
+/// [`Replay`](ConsumeOutcome::Replay) means the HMAC/exp were valid but the
+/// nonce was already marked used in this process (browser double-load / retry).
+/// Handlers must **not** re-exchange the authorization code on Replay; they may
+/// soft-succeed when side effects from the first request are already durable.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConsumeOutcome {
+    Fresh(StoredState),
+    Replay(StoredState),
+}
+
+impl ConsumeOutcome {
+    pub fn stored(&self) -> &StoredState {
+        match self {
+            Self::Fresh(s) | Self::Replay(s) => s,
+        }
+    }
+
+    /// Consume the outcome, returning the verified [`StoredState`] regardless of Fresh/Replay.
+    #[allow(dead_code)] // public helper for handlers/tests
+    pub fn into_stored(self) -> StoredState {
+        match self {
+            Self::Fresh(s) | Self::Replay(s) => s,
+        }
+    }
+
+    pub fn is_replay(&self) -> bool {
+        matches!(self, Self::Replay(_))
+    }
+}
+
+/// Why `consume_state` failed — distinguishes never-seen vs TTL-elapsed vs
+/// unrecoverable replay (when handlers surface `state_replay` after soft-recover fails).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConsumeStateError {
-    /// Token missing/malformed/bad signature, or nonce already consumed (replay).
+    /// Token missing/malformed/bad signature.
     Missing,
     /// Signature ok but past `exp`.
     Expired,
+    /// Valid signature but nonce already used — used as a redirect/error code
+    /// when soft-recover cannot confirm the first attempt succeeded.
+    /// `consume_state` itself returns [`ConsumeOutcome::Replay`] with payload
+    /// instead of this error when the token is fully parseable.
+    Replay,
 }
 
 impl ConsumeStateError {
@@ -67,6 +106,7 @@ impl ConsumeStateError {
         match self {
             Self::Missing => "missing",
             Self::Expired => "expired",
+            Self::Replay => "replay",
         }
     }
 }
@@ -251,9 +291,14 @@ pub async fn issue_state(stored: StoredState) -> Result<String, String> {
 ///
 /// 1. Verify HMAC (constant-time)
 /// 2. Check `exp` → [`ConsumeStateError::Expired`]
-/// 3. If nonce already used in this process → [`ConsumeStateError::Missing`]
-/// 4. Mark nonce used; if memory was empty (restart), valid signature still OK
-pub async fn consume_state(token: &str) -> Result<StoredState, ConsumeStateError> {
+/// 3. Parse payload → [`StoredState`]
+/// 4. If nonce already used in this process → [`ConsumeOutcome::Replay`]
+///    (payload still returned so handlers can soft-recover; CSRF stays intact)
+/// 5. Else mark nonce used → [`ConsumeOutcome::Fresh`]
+///
+/// After process restart the used-nonce map is empty; a still-valid signature is
+/// accepted as Fresh (provider authorization codes remain one-time).
+pub async fn consume_state(token: &str) -> Result<ConsumeOutcome, ConsumeStateError> {
     let prefix = state_prefix(token);
 
     let secret = match state_secret() {
@@ -323,7 +368,10 @@ pub async fn consume_state(token: &str) -> Result<StoredState, ConsumeStateError
     let remaining_ttl = Duration::from_secs((payload.exp - unix_now()).max(0) as u64)
         + Duration::from_secs(60); // grace so cleanup does not race TTL edge
 
-    // Anti-replay: mark nonce used. If already present → replay.
+    // Parse purpose before anti-replay so Replay still exposes StoredState.
+    let stored = payload_to_stored(payload)?;
+
+    // Anti-replay: mark nonce used. If already present → Replay with payload.
     {
         let mut nonces = USED_NONCES.write().await;
         if nonces.contains_key(&nonce) {
@@ -331,9 +379,10 @@ pub async fn consume_state(token: &str) -> Result<StoredState, ConsumeStateError
                 reason = "replay",
                 state_prefix = %prefix,
                 store_size = nonces.len(),
-                "OAuth state consume failed"
+                provider_slug = %stored.provider_slug,
+                "OAuth state consume: nonce already used (soft-recover possible)"
             );
-            return Err(ConsumeStateError::Missing);
+            return Ok(ConsumeOutcome::Replay(stored));
         }
         if nonces.len() >= MAX_USED_NONCES {
             if let Some(oldest) = nonces
@@ -347,8 +396,7 @@ pub async fn consume_state(token: &str) -> Result<StoredState, ConsumeStateError
         nonces.insert(nonce, Instant::now() + remaining_ttl);
     }
 
-    let stored = payload_to_stored(payload)?;
-    Ok(stored)
+    Ok(ConsumeOutcome::Fresh(stored))
 }
 
 #[cfg(test)]
@@ -396,7 +444,9 @@ mod tests {
         ensure_test_secret();
         let token = issue_state(sample_login()).await.expect("issue");
         assert!(token.contains('.'));
-        let stored = consume_state(&token).await.expect("consume");
+        let outcome = consume_state(&token).await.expect("consume");
+        assert!(!outcome.is_replay());
+        let stored = outcome.into_stored();
         assert_eq!(stored.provider_slug, "github");
         assert_eq!(stored.purpose, OAuthPurpose::Login);
     }
@@ -463,7 +513,7 @@ mod tests {
     async fn link_purpose_roundtrip() {
         ensure_test_secret();
         let token = issue_state(sample_link(42)).await.expect("issue");
-        let stored = consume_state(&token).await.expect("consume");
+        let stored = consume_state(&token).await.expect("consume").into_stored();
         assert_eq!(stored.provider_slug, "google");
         assert_eq!(stored.purpose, OAuthPurpose::LinkAccount(42));
     }
@@ -472,7 +522,7 @@ mod tests {
     async fn platform_purpose_roundtrip() {
         ensure_test_secret();
         let token = issue_state(sample_platform()).await.expect("issue");
-        let stored = consume_state(&token).await.expect("consume");
+        let stored = consume_state(&token).await.expect("consume").into_stored();
         assert_eq!(stored.provider_slug, "discord-platform");
         assert_eq!(
             stored.purpose,
@@ -484,12 +534,47 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn replay_returns_missing() {
+    async fn replay_returns_replay_with_recoverable_payload() {
+        ensure_test_secret();
+        let token = issue_state(sample_link(99)).await.expect("issue");
+        let first = consume_state(&token).await.expect("first");
+        assert!(matches!(first, ConsumeOutcome::Fresh(_)));
+        assert_eq!(
+            first.stored().purpose,
+            OAuthPurpose::LinkAccount(99)
+        );
+
+        let second = consume_state(&token).await.expect("replay is Ok(Replay)");
+        assert!(second.is_replay());
+        assert_eq!(second.stored().provider_slug, "google");
+        assert_eq!(
+            second.stored().purpose,
+            OAuthPurpose::LinkAccount(99)
+        );
+        // Still one-shot for Fresh: third consume remains Replay, never Fresh again.
+        let third = consume_state(&token).await.expect("still replay");
+        assert!(matches!(third, ConsumeOutcome::Replay(_)));
+    }
+
+    #[tokio::test]
+    async fn replay_login_payload_recoverable() {
         ensure_test_secret();
         let token = issue_state(sample_login()).await.expect("issue");
         let _ = consume_state(&token).await.expect("first");
-        let err = consume_state(&token).await.expect_err("replay");
-        assert_eq!(err, ConsumeStateError::Missing);
+        match consume_state(&token).await.expect("replay") {
+            ConsumeOutcome::Replay(stored) => {
+                assert_eq!(stored.provider_slug, "github");
+                assert_eq!(stored.purpose, OAuthPurpose::Login);
+            }
+            ConsumeOutcome::Fresh(_) => panic!("expected Replay, got Fresh"),
+        }
+    }
+
+    #[test]
+    fn consume_state_error_as_str_includes_replay() {
+        assert_eq!(ConsumeStateError::Missing.as_str(), "missing");
+        assert_eq!(ConsumeStateError::Expired.as_str(), "expired");
+        assert_eq!(ConsumeStateError::Replay.as_str(), "replay");
     }
 
     #[tokio::test]
@@ -518,7 +603,7 @@ mod tests {
                 purpose: OAuthPurpose::Login,
             };
             let token = issue_state(stored).await.expect("issue");
-            let got = consume_state(&token).await.expect("consume");
+            let got = consume_state(&token).await.expect("consume").into_stored();
             assert_eq!(got.provider_slug, slug);
         }
     }

@@ -27,7 +27,9 @@ use crate::middleware::auth::Claims;
 use crate::oauth_url_builder::SiteConfig;
 use crate::services::oauth::{
     registry::REGISTRY,
-    state::{consume_state, issue_state, OAuthPurpose, StoredState},
+    state::{
+        consume_state, issue_state, ConsumeOutcome, ConsumeStateError, OAuthPurpose, StoredState,
+    },
     NormalizedProfile,
 };
 
@@ -258,9 +260,10 @@ pub async fn provider_callback(
         return Ok(oauth_client_error_redirect(&frontend_base, "missing_state"));
     };
 
-    // 1. 验证 state（区分 missing / expired，已在 store 层 warn-log）
-    let stored = match consume_state(&state_param).await {
-        Ok(s) => s,
+    // 1. 验证 state（区分 missing / expired / replay，已在 store 层 warn-log）
+    // Replay: valid sig + used nonce — do NOT re-exchange the one-time code.
+    let outcome = match consume_state(&state_param).await {
+        Ok(o) => o,
         Err(err) => {
             return Ok(oauth_client_error_redirect(
                 &frontend_base,
@@ -269,10 +272,10 @@ pub async fn provider_callback(
         }
     };
 
-    if stored.provider_slug != slug {
+    if outcome.stored().provider_slug != slug {
         tracing::warn!(
             "OAuth state/slug mismatch: state was for '{}', got '{}'",
-            stored.provider_slug,
+            outcome.stored().provider_slug,
             slug
         );
         return Ok(oauth_client_error_redirect(
@@ -280,6 +283,14 @@ pub async fn provider_callback(
             "state_slug_mismatch",
         ));
     }
+
+    // Browser double-load / retry: soft-recover without token exchange.
+    let stored = match outcome {
+        ConsumeOutcome::Replay(stored) => {
+            return handle_callback_replay(&db, &slug, &stored, &frontend_base).await;
+        }
+        ConsumeOutcome::Fresh(stored) => stored,
+    };
 
     // 2. 取 provider — browser-friendly redirect (not opaque JSON 500/404)
     let provider = match REGISTRY.get(&slug).await {
@@ -356,6 +367,115 @@ pub async fn provider_callback(
             Ok(no_store_redirect(&url))
         }
     }
+}
+
+/// Soft-recover a second callback hit with the same (already-consumed) state.
+///
+/// CSRF is still enforced: only reachable after a valid signature + exp check.
+/// We never re-exchange the authorization code (provider codes are one-time).
+///
+/// Tradeoff for Login: without `provider_user_id` on pure replay we cannot prove
+/// a session was issued. Prefer soft-success (`/?auth=success`) so a browser
+/// double-load after a real login does not toast an error; false positives are
+/// rare (first request would have to fail after nonce mark but before cookie).
+async fn handle_callback_replay(
+    db: &DatabaseConnection,
+    slug: &str,
+    stored: &StoredState,
+    frontend_base: &str,
+) -> Result<Response, (StatusCode, Json<Value>)> {
+    match &stored.purpose {
+        OAuthPurpose::LinkAccount(link_user_id) => {
+            handle_link_replay(db, slug, *link_user_id, frontend_base).await
+        }
+        OAuthPurpose::Login => {
+            tracing::info!(
+                provider = %slug,
+                "OAuth Login state replay — soft-success redirect (no re-exchange)"
+            );
+            let url = format!(
+                "{}/?auth=success",
+                frontend_base.trim_end_matches('/')
+            );
+            Ok(no_store_redirect(&url))
+        }
+        OAuthPurpose::PlatformData { platform, .. } => {
+            // Platform data uses a separate callback; soft-recover only if that
+            // path already stored tokens is handled there. Login callback replay
+            // of a platform state is always wrong_callback.
+            tracing::warn!(
+                "PlatformData OAuth state replay for '{}' hit login callback",
+                platform
+            );
+            let url = format!(
+                "{}/config?discord_oauth=error&reason={}",
+                frontend_base.trim_end_matches('/'),
+                urlencoding::encode("wrong_callback")
+            );
+            Ok(no_store_redirect(&url))
+        }
+    }
+}
+
+/// LinkAccount replay: if this user already has an identity for `slug`, treat as
+/// success (first request bound). If not, surface `state_replay` (first attempt
+/// may have failed after consume). Without `provider_user_id` we cannot detect
+/// "bound to another user" on pure replay — that path only appears on Fresh.
+async fn handle_link_replay(
+    db: &DatabaseConnection,
+    slug: &str,
+    link_user_id: i32,
+    frontend_url: &str,
+) -> Result<Response, (StatusCode, Json<Value>)> {
+    let existing = db
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT provider_username FROM user_identities \
+             WHERE user_id = $1 AND provider = $2 \
+             ORDER BY linked_at DESC LIMIT 1",
+            vec![
+                SeaValue::Int(Some(link_user_id)),
+                SeaValue::String(Some(Box::new(slug.to_string()))),
+            ],
+        ))
+        .await
+        .map_err(|e| err_500(format!("DB error: {e}")))?;
+
+    if let Some(row) = existing {
+        let username: Option<String> = row.try_get("", "provider_username").ok().flatten();
+        tracing::info!(
+            provider = %slug,
+            user_id = link_user_id,
+            "OAuth LinkAccount state replay — identity already bound, soft-success"
+        );
+        let url = match username.filter(|s| !s.is_empty()) {
+            Some(u) => format!(
+                "{}/?link=success&provider={}&username={}",
+                frontend_url.trim_end_matches('/'),
+                slug,
+                urlencoding::encode(&u)
+            ),
+            None => format!(
+                "{}/?link=success&provider={}",
+                frontend_url.trim_end_matches('/'),
+                slug
+            ),
+        };
+        return Ok(no_store_redirect(&url));
+    }
+
+    // Also check whether this provider identity is bound to a *different* user
+    // for any row of this provider — we lack provider_user_id on pure replay,
+    // so we can only fail closed if this user has no binding yet.
+    tracing::warn!(
+        provider = %slug,
+        user_id = link_user_id,
+        "OAuth LinkAccount state replay — no identity for user; first attempt may have failed"
+    );
+    Ok(oauth_client_error_redirect(
+        frontend_url,
+        &format!("state_{}", ConsumeStateError::Replay.as_str()),
+    ))
 }
 
 // ---------- 内部：LinkAccount 流程 ----------

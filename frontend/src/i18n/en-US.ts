@@ -158,6 +158,8 @@ export const enUS: TranslationKeys = {
       'This sign-in link is invalid or was already used. Start third-party login again from the login page.',
     oauthErrorStateExpired:
       'This sign-in session timed out. Go back to the login page and try third-party login again.',
+    oauthErrorStateReplay:
+      'This authorization step was already processed, but we could not confirm it finished. Start again from the app if the account is not linked.',
     oauthErrorStateSlugMismatch:
       'OAuth provider mismatch (you may have mixed two login buttons). Start again from the login page.',
     oauthErrorMissingCode:

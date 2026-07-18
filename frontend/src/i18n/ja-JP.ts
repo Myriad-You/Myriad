@@ -156,6 +156,8 @@ export const jaJP: TranslationKeys = {
       'このログインリンクは無効か、すでに使用済みです。ログインページからサードパーティログインをやり直してください。',
     oauthErrorStateExpired:
       'ログインセッションがタイムアウトしました。ログインページに戻り、サードパーティログインをやり直してください。',
+    oauthErrorStateReplay:
+      'この認証ステップは処理済みですが、完了を確認できませんでした。アカウントが連携されていない場合は、アプリからやり直してください。',
     oauthErrorStateSlugMismatch:
       'OAuth プロバイダーが一致しません（別のログインボタンと混在した可能性があります）。ログインページからやり直してください。',
     oauthErrorMissingCode:

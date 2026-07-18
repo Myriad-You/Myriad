@@ -155,6 +155,8 @@ export const zhCN: TranslationKeys = {
       '登录链接无效或已使用过。请返回登录页重新发起第三方登录。',
     oauthErrorStateExpired:
       '登录会话已超时。请返回登录页，重新点击第三方登录。',
+    oauthErrorStateReplay:
+      '该授权步骤已处理过，但未能确认是否完成。若账号尚未绑定，请返回应用重新发起。',
     oauthErrorStateSlugMismatch:
       'OAuth 提供商不匹配（可能混用了两个登录按钮）。请从登录页重新开始。',
     oauthErrorMissingCode: '授权未完成（未返回授权码）。请重新尝试登录。',

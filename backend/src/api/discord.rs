@@ -23,7 +23,9 @@ use crate::middleware::auth::verify_current_admin_from_headers;
 use crate::oauth_url_builder::SiteConfig;
 use crate::services::config_service::ConfigService;
 use crate::services::fetcher::PlatformFetcher;
-use crate::services::oauth::state::{consume_state, issue_state, OAuthPurpose, StoredState};
+use crate::services::oauth::state::{
+    consume_state, issue_state, ConsumeStateError, OAuthPurpose, StoredState,
+};
 use crate::GLOBAL_DYNAMIC_CONFIG;
 
 const DISCORD_AUTHORIZE_URL: &str = "https://discord.com/api/oauth2/authorize";
@@ -369,8 +371,8 @@ pub async fn oauth_callback(
         }
     };
 
-    let stored = match consume_state(&state_param).await {
-        Ok(s) => s,
+    let outcome = match consume_state(&state_param).await {
+        Ok(o) => o,
         Err(err) => {
             return Ok(config_redirect(
                 &frontend_base,
@@ -380,18 +382,44 @@ pub async fn oauth_callback(
         }
     };
 
-    if stored.provider_slug != PLATFORM_STATE_SLUG {
+    if outcome.stored().provider_slug != PLATFORM_STATE_SLUG {
         return Ok(config_redirect(&frontend_base, false, "state_mismatch"));
     }
+    let purpose = outcome.stored().purpose.clone();
     let OAuthPurpose::PlatformData {
         user_id: _admin_id,
         platform,
-    } = stored.purpose
+    } = purpose
     else {
         return Ok(config_redirect(&frontend_base, false, "wrong_purpose"));
     };
     if platform != "discord" {
         return Ok(config_redirect(&frontend_base, false, "wrong_platform"));
+    }
+
+    // Browser double-load / retry: never re-exchange the one-time code.
+    // Soft-success if platform tokens were already persisted by the first request.
+    if outcome.is_replay() {
+        let config = GLOBAL_DYNAMIC_CONFIG.read().await;
+        let has_token = config
+            .discord_access_token
+            .as_ref()
+            .is_some_and(|s| !s.is_empty());
+        drop(config);
+        if has_token {
+            tracing::info!(
+                "Discord platform OAuth state replay — tokens already stored, soft-success"
+            );
+            return Ok(config_redirect(&frontend_base, true, "ok"));
+        }
+        tracing::warn!(
+            "Discord platform OAuth state replay — no tokens stored; first attempt may have failed"
+        );
+        return Ok(config_redirect(
+            &frontend_base,
+            false,
+            &format!("state_{}", ConsumeStateError::Replay.as_str()),
+        ));
     }
 
     let config = GLOBAL_DYNAMIC_CONFIG.read().await;

@@ -37,6 +37,9 @@ export function messageForOAuthError(
     case 'state_expired':
       base = t.auth.oauthErrorStateExpired
       break
+    case 'state_replay':
+      base = t.auth.oauthErrorStateReplay
+      break
     case 'state_slug_mismatch':
       base = t.auth.oauthErrorStateSlugMismatch
       break

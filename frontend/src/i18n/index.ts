@@ -154,6 +154,8 @@ export interface TranslationKeys {
     oauthErrorWithDesc: string
     oauthErrorStateMissing: string
     oauthErrorStateExpired: string
+    /** Valid state nonce already used and soft-recover could not confirm success */
+    oauthErrorStateReplay: string
     oauthErrorStateSlugMismatch: string
     oauthErrorMissingCode: string
     oauthErrorMissingState: string

@@ -15,6 +15,7 @@ const t = {
     oauthErrorWithDesc: '{message} Details: {desc}',
     oauthErrorStateMissing: 'state missing msg',
     oauthErrorStateExpired: 'state expired msg',
+    oauthErrorStateReplay: 'state replay msg',
     oauthErrorStateSlugMismatch: 'slug mismatch msg',
     oauthErrorMissingCode: 'missing code msg',
     oauthErrorMissingState: 'missing state msg',
@@ -71,6 +72,10 @@ describe('messageForOAuthError', () => {
     assert.equal(
       messageForOAuthError('state_expired', null, t, format),
       'state expired msg',
+    )
+    assert.equal(
+      messageForOAuthError('state_replay', null, t, format),
+      'state replay msg',
     )
     assert.equal(
       messageForOAuthError('access_denied', null, t, format),
