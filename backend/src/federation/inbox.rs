@@ -210,24 +210,35 @@ async fn handle_follow(
 
     let activity_id = activity["id"].as_str().unwrap_or("").to_string();
 
-    // 记录 incoming follow
-    let inserted = db.execute(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        r#"INSERT INTO federation_follows (user_id, remote_actor_id, direction, status, activity_id, created_at)
-           VALUES ($1, $2, 'incoming', 'accepted', $3, NOW())
-           ON CONFLICT (user_id, remote_actor_id, direction) DO UPDATE SET
-               status = 'accepted', activity_id = $3"#,
-        [
-            local_user_id.into(),
-            remote.id.into(),
-            activity_id.clone().into(),
-        ],
-    ))
-    .await
-    .map_err(db_err)?;
+    // Record incoming follow. On Postgres, ON CONFLICT DO UPDATE always reports
+    // rows_affected >= 1 even when the row was already accepted — so the old
+    // `rows_affected == 0` idempotency check never fired and re-enqueued Accept.
+    // Pattern: conditional UPDATE + RETURNING; empty result means already accepted.
+    let upserted = db
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"INSERT INTO federation_follows (user_id, remote_actor_id, direction, status, activity_id, created_at)
+               VALUES ($1, $2, 'incoming', 'accepted', $3, NOW())
+               ON CONFLICT (user_id, remote_actor_id, direction) DO UPDATE SET
+                   status = 'accepted',
+                   activity_id = EXCLUDED.activity_id
+               WHERE federation_follows.status IS DISTINCT FROM 'accepted'
+               RETURNING id"#,
+            [
+                local_user_id.into(),
+                remote.id.into(),
+                activity_id.clone().into(),
+            ],
+        ))
+        .await
+        .map_err(db_err)?;
 
-    if inserted.rows_affected() == 0 {
-        tracing::debug!(activity_id, "Ignoring replayed federation activity");
+    if upserted.is_none() {
+        // Already accepted — idempotent 202, no second Accept / enqueue / notify
+        tracing::debug!(
+            activity_id,
+            "Ignoring already-accepted Follow (no second Accept)"
+        );
         return Ok(StatusCode::ACCEPTED);
     }
 
@@ -636,6 +647,26 @@ async fn verify_request_signature(
             Json(json!({"error": "Remote actor has no public key"})),
         )
     })?;
+
+    // If we stored a public_key_id for this actor, Signature keyId must match
+    // (normalized). Fail closed on mismatch. If no stored key id, PEM-only verify.
+    if let Some(ref stored_kid) = remote.public_key_id {
+        if !stored_kid.is_empty() && !same_key_id(stored_kid, &parsed.key_id) {
+            tracing::warn!(
+                "Signature keyId mismatch: stored={}, request={}",
+                stored_kid,
+                parsed.key_id
+            );
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                Json(json!({
+                    "error": "Signature keyId does not match actor public key id",
+                    "stored_key_id": stored_kid,
+                    "request_key_id": parsed.key_id,
+                })),
+            ));
+        }
+    }
 
     // 构建请求方法和路径
     let method = "POST"; // Inbox 总是 POST

@@ -371,18 +371,32 @@ export interface AddPeerRequest {
 
 // ==================== Trust 策略管理 ====================
 
+/** Effective trust enforcement only — no fake allowlist/min_trust fields. */
 export interface TrustPolicyResponse {
-  policy: {
-    min_trust_level: number
-    allowed_domains: string[]
-    blocked_domains: string[]
-    auto_discover: boolean
+  /** What enforce_inbound / enforce_outbound actually apply today */
+  enforcement: {
+    domain_blocklist: boolean
+    rate_limit: boolean
+    content_filters: boolean
+    allowlist: false
+    min_trust_level: false
   }
+  notes?: {
+    domain_blocklist?: string
+    rate_limit?: string
+    content_filters?: string
+    allowlist?: string
+    min_trust_level?: string
+  }
+  /** Domains with federation_instances.is_blocked = true */
+  blocked_domains: string[]
   rate_limit: {
     max_requests_per_window: number
     window_seconds: number
     trusted_multiplier: number
   }
+  /** Always empty until a persisted filter table is wired */
+  content_filters: unknown[]
   stats: {
     total_instances: number
     trusted_count: number

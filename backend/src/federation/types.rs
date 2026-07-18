@@ -529,6 +529,28 @@ pub fn same_actor_url(left: &str, right: &str) -> bool {
     normalize_actor_url(left) == normalize_actor_url(right)
 }
 
+/// Normalize an HTTP Signature `keyId` URL: host case, trailing slash on path,
+/// **preserve fragment** (`#main-key`). Actor URL normalization drops fragments.
+pub fn normalize_key_id(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if let Ok(url) = url::Url::parse(trimmed) {
+        let host = url.host_str().unwrap_or("").to_ascii_lowercase();
+        let path = url.path().trim_end_matches('/');
+        let port = url.port().map(|p| format!(":{}", p)).unwrap_or_default();
+        let fragment = url
+            .fragment()
+            .map(|f| format!("#{}", f))
+            .unwrap_or_default();
+        return format!("{}://{}{}{}{}", url.scheme(), host, port, path, fragment);
+    }
+    trimmed.trim_end_matches('/').to_string()
+}
+
+/// Compare Signature keyId values (host case / trailing slash / fragment).
+pub fn same_key_id(left: &str, right: &str) -> bool {
+    normalize_key_id(left) == normalize_key_id(right)
+}
+
 /// 若 candidate 是本实例的 Actor URL（{base_url}/users/{username}），返回 username。
 ///
 /// 用于把入站 Activity 的 to 字段路由到本地用户。规则与 `same_actor_url` 一致：
@@ -685,6 +707,31 @@ mod tests {
             "https://myriad.example.com/users/alice",
             "https://other.example.com/users/alice"
         ));
+    }
+
+    #[test]
+    fn same_key_id_preserves_fragment_and_normalizes_host() {
+        assert!(same_key_id(
+            "https://Myriad.Example.COM/users/alice#main-key",
+            "https://myriad.example.com/users/alice#main-key"
+        ));
+        assert!(same_key_id(
+            "https://myriad.example.com/users/alice/#main-key",
+            "https://myriad.example.com/users/alice#main-key"
+        ));
+        assert!(!same_key_id(
+            "https://myriad.example.com/users/alice#main-key",
+            "https://myriad.example.com/users/alice#other-key"
+        ));
+        assert!(!same_key_id(
+            "https://myriad.example.com/users/alice#main-key",
+            "https://evil.example.com/users/alice#main-key"
+        ));
+        // Actor normalization must not be used for keyId: it would drop the fragment
+        assert_ne!(
+            normalize_actor_url("https://a.example/users/x#main-key"),
+            normalize_key_id("https://a.example/users/x#main-key")
+        );
     }
 
     #[test]

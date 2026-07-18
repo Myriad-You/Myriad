@@ -1,9 +1,11 @@
 //! 联邦信任策略模块（Phase 5 补全 — Layer 2 安全增强）
 //!
-//! 三大功能：
-//! 1. InstancePolicy — 实例策略执行（白/黑名单、信任层级门槛）
-//! 2. RateLimiter — 联邦请求速率限制（按实例域名）
-//! 3. ContentFilter — 入站内容过滤（关键词、Activity 类型）
+//! 实际入站 enforcement（`enforce_inbound`）仅执行：
+//! 1. 域名黑名单（`federation_instances.is_blocked`）
+//! 2. 速率限制（进程内窗口计数 + DB `received_at` 统计）
+//!
+//! `check_instance_policy` 的 allowlist / min_trust 逻辑 **未** 接入 enforce 路径；
+//! `get_policy` 只报告 *有效* 执行项，不伪造未接线的 allowlist/min_trust/content filters。
 
 #![allow(dead_code)]
 
@@ -11,12 +13,15 @@ use axum::http::StatusCode;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use crate::federation::types::TrustLevel;
 
 // ==================== 类型定义 ====================
 
-/// 实例策略配置
+/// 实例策略配置（历史/辅助结构；**未**全部接入 `enforce_inbound`）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstancePolicy {
     /// 全局最低信任层级（低于此层级的实例请求将被拒绝）
@@ -106,6 +111,9 @@ pub struct PolicyCheckResult {
 /// 检查实例是否被允许与本实例联邦
 ///
 /// 优先级：blocked_domains > allowed_domains > min_trust_level
+///
+/// **注意**：当前 `enforce_inbound` **不** 调用本函数。入站仅执行 DB 黑名单
+///（`is_blocked`）与速率限制。保留本函数供管理/测试或未来接线使用。
 pub async fn check_instance_policy(
     db: &DatabaseConnection,
     domain: &str,
@@ -213,23 +221,93 @@ async fn ensure_instance_discovered(
 
 // ==================== 联邦速率限制 ====================
 
+/// Process-local per-domain window counter (no Redis).
+/// Complements DB counts: Follow / MFP paths may never insert `federation_activities`.
+#[derive(Debug, Clone)]
+struct DomainWindow {
+    window_start: Instant,
+    count: i64,
+}
+
+fn inbound_windows() -> &'static Mutex<HashMap<String, DomainWindow>> {
+    static WINDOWS: OnceLock<Mutex<HashMap<String, DomainWindow>>> = OnceLock::new();
+    WINDOWS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Pure helper: given current map state, return new entry after recording one hit
+/// in a fixed window of `window_seconds`. Returns `(next_entry, exceeded)`.
+fn record_window_hit(
+    entry: Option<&DomainWindow>,
+    now: Instant,
+    window_seconds: i64,
+    max_requests: i64,
+) -> (DomainWindow, bool) {
+    let window = Duration::from_secs(window_seconds.max(1) as u64);
+    let next = match entry {
+        Some(e) if now.duration_since(e.window_start) < window => DomainWindow {
+            window_start: e.window_start,
+            count: e.count + 1,
+        },
+        _ => DomainWindow {
+            window_start: now,
+            count: 1,
+        },
+    };
+    let exceeded = next.count > max_requests;
+    (next, exceeded)
+}
+
+/// Record one inbound hit for `domain` in the process-local window.
+/// Returns `true` if the domain is still under the limit after this hit.
+fn check_and_record_memory_rate(domain: &str, max_requests: i64, window_seconds: i64) -> bool {
+    let now = Instant::now();
+    let mut map = match inbound_windows().lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    let prev = map.get(domain);
+    let (next, exceeded) = record_window_hit(prev, now, window_seconds, max_requests);
+    map.insert(domain.to_string(), next);
+    !exceeded
+}
+
+/// Effective max requests for a trust level under a rate policy.
+fn effective_max_requests(policy: &RateLimitPolicy, trust: TrustLevel) -> i64 {
+    let multiplier = if trust >= TrustLevel::Trusted {
+        policy.trusted_multiplier
+    } else {
+        1
+    };
+    policy.max_requests_per_window * multiplier
+}
+
 /// 检查某域名的联邦请求是否超过速率限制
 ///
-/// 利用 federation_instances 表的 last_fetched_at 和自定义计数进行窗口内计数
+/// 1. Process-local window counter (catches all inbound, not just stored activities)
+/// 2. Durable DB count using **received_at** (server-side), never client-spoofable published_at
 pub async fn check_rate_limit(
     db: &DatabaseConnection,
     domain: &str,
     policy: &RateLimitPolicy,
 ) -> PolicyCheckResult {
     let trust = get_instance_trust_level(db, domain).await;
-    let multiplier = if trust >= TrustLevel::Trusted {
-        policy.trusted_multiplier
-    } else {
-        1
-    };
-    let max_requests = policy.max_requests_per_window * multiplier;
+    let max_requests = effective_max_requests(policy, trust);
 
-    // 使用 federation_activities + remote_actors 联表统计该域名在窗口内的入站请求数
+    // Fast path: process-local counter (no Redis)
+    if !check_and_record_memory_rate(domain, max_requests, policy.window_seconds) {
+        return PolicyCheckResult {
+            allowed: false,
+            reason: Some(format!(
+                "Rate limit exceeded for domain {}: >{} requests in {}s in-memory window",
+                domain, max_requests, policy.window_seconds
+            )),
+            trust_level: Some(trust as i16),
+        };
+    }
+
+    // Durable path: count inbound activities by received_at (set server-side on accept).
+    // Fall back to published_at only when received_at is NULL (legacy rows).
+    // Do not use published_at alone — remote senders control that timestamp.
     let row = db
         .query_one(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -238,7 +316,8 @@ pub async fn check_rate_limit(
                JOIN federation_remote_actors ra ON a.remote_actor_id = ra.id
                WHERE a.is_local = false
                  AND ra.domain = $1
-                 AND a.published_at > NOW() - make_interval(secs => $2::double precision)"#,
+                 AND COALESCE(a.received_at, a.published_at)
+                     > NOW() - make_interval(secs => $2::double precision)"#,
             [domain.into(), policy.window_seconds.into()],
         ))
         .await
@@ -273,6 +352,9 @@ pub async fn check_rate_limit(
 /// - block_activity_type: 阻止特定 Activity 类型
 /// - block_keyword: 阻止包含特定关键词的内容
 /// - require_trust_level: 特定操作要求最低信任层级
+///
+/// **注意**：`load_content_filter_rules` 当前返回空列表；`enforce_inbound` 因此
+/// 不会因内容过滤拒绝任何请求。`get_policy` 如实报告 content_filters 未启用。
 pub fn apply_content_filters(
     activity: &serde_json::Value,
     domain_trust: TrustLevel,
@@ -323,11 +405,14 @@ pub fn apply_content_filters(
 
 // ==================== API 端点 ====================
 
-/// 获取当前实例策略（管理员）
+/// 获取当前 *有效* 实例策略（管理员）
+///
+/// 只报告实际由 `enforce_inbound` / `enforce_outbound` 执行的能力，
+/// 不返回未接线的 allowlist / min_trust / content_filters 作为“策略配置”。
 pub async fn get_policy(
     db: &DatabaseConnection,
 ) -> Result<serde_json::Value, (StatusCode, serde_json::Value)> {
-    // 从 federation_instances 聚合统计 + 返回默认策略
+    // 从 federation_instances 聚合统计 + 真实黑名单
     let row = db
         .query_one(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -350,18 +435,38 @@ pub async fn get_policy(
             )
         })?;
 
-    let (total, trusted, unknown) = match &row {
+    let (total, trusted, unknown, blocked_list) = match &row {
         Some(r) => (
             r.try_get::<i64>("", "total_instances").unwrap_or(0),
             r.try_get::<i64>("", "trusted_count").unwrap_or(0),
             r.try_get::<i64>("", "unknown_count").unwrap_or(0),
+            r.try_get::<serde_json::Value>("", "blocked_list")
+                .unwrap_or_else(|_| json!([])),
         ),
-        None => (0, 0, 0),
+        None => (0, 0, 0, json!([])),
     };
 
+    let rate_limit = RateLimitPolicy::default();
+
     Ok(json!({
-        "policy": InstancePolicy::default(),
-        "rate_limit": RateLimitPolicy::default(),
+        // What enforce_inbound / enforce_outbound actually do today
+        "enforcement": {
+            "domain_blocklist": true,
+            "rate_limit": true,
+            "content_filters": false,
+            "allowlist": false,
+            "min_trust_level": false,
+        },
+        "notes": {
+            "domain_blocklist": "federation_instances.is_blocked is checked on inbound and outbound",
+            "rate_limit": "per-domain window: process-local counter + federation_activities.received_at",
+            "content_filters": "no persisted rules loaded; apply_content_filters receives an empty list",
+            "allowlist": "InstancePolicy.allowed_domains is not consulted by enforce_inbound",
+            "min_trust_level": "InstancePolicy.min_trust_level is not consulted by enforce_inbound",
+        },
+        "blocked_domains": blocked_list,
+        "rate_limit": rate_limit,
+        "content_filters": [],
         "stats": {
             "total_instances": total,
             "trusted_count": trusted,
@@ -513,7 +618,8 @@ async fn is_domain_blocked(db: &DatabaseConnection, domain: &str) -> bool {
 
 /// 入站请求策略检查（inbox 调用）
 ///
-/// 顺序：实例黑名单 → 速率限制 → 内容过滤
+/// 顺序：实例黑名单 → 速率限制
+/// （内容过滤规则表未接线，不在此假装过滤）
 /// 返回 `Err(reason)` 表示拒绝。
 pub async fn enforce_inbound(
     db: &DatabaseConnection,
@@ -533,6 +639,8 @@ pub async fn enforce_inbound(
         return Err(rate.reason.unwrap_or_else(|| "Rate limited".to_string()));
     }
 
+    // Content filters: only run if rules are non-empty (currently always empty).
+    // Kept as a stable hook; get_policy reports content_filters=false until rules exist.
     let trust = get_instance_trust_level(db, domain).await;
     if let FilterVerdict::Reject(reason) =
         apply_content_filters(activity, trust, &load_content_filter_rules(db).await)
@@ -558,7 +666,80 @@ pub async fn enforce_outbound(db: &DatabaseConnection, target_domain: &str) -> R
 
 /// 加载当前生效的内容过滤规则
 ///
-/// 当前实现：返回空列表（管理 API 后续接入）。保留入口确保 inbox 调用稳定。
+/// 当前实现：返回空列表（无持久化规则表）。保留入口确保 inbox 调用稳定。
 async fn load_content_filter_rules(_db: &DatabaseConnection) -> Vec<ContentFilterRule> {
     Vec::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn record_window_hit_resets_after_window() {
+        let t0 = Instant::now();
+        let (e1, exceeded1) = record_window_hit(None, t0, 60, 3);
+        assert_eq!(e1.count, 1);
+        assert!(!exceeded1);
+
+        let (e2, exceeded2) = record_window_hit(Some(&e1), t0 + Duration::from_secs(1), 60, 3);
+        assert_eq!(e2.count, 2);
+        assert!(!exceeded2);
+
+        let (e3, exceeded3) = record_window_hit(Some(&e2), t0 + Duration::from_secs(2), 60, 3);
+        assert_eq!(e3.count, 3);
+        assert!(!exceeded3);
+
+        let (e4, exceeded4) = record_window_hit(Some(&e3), t0 + Duration::from_secs(3), 60, 3);
+        assert_eq!(e4.count, 4);
+        assert!(exceeded4);
+
+        // After window expires, counter resets
+        let (e5, exceeded5) =
+            record_window_hit(Some(&e4), t0 + Duration::from_secs(61), 60, 3);
+        assert_eq!(e5.count, 1);
+        assert!(!exceeded5);
+    }
+
+    #[test]
+    fn effective_max_requests_trusted_multiplier() {
+        let policy = RateLimitPolicy {
+            max_requests_per_window: 100,
+            window_seconds: 60,
+            trusted_multiplier: 5,
+        };
+        assert_eq!(
+            effective_max_requests(&policy, TrustLevel::Unknown),
+            100
+        );
+        assert_eq!(
+            effective_max_requests(&policy, TrustLevel::Trusted),
+            500
+        );
+    }
+
+    #[test]
+    fn apply_content_filters_empty_rules_allow() {
+        let activity = json!({"type": "Create", "content": "hello"});
+        assert!(matches!(
+            apply_content_filters(&activity, TrustLevel::Unknown, &[]),
+            FilterVerdict::Allow
+        ));
+    }
+
+    #[test]
+    fn apply_content_filters_blocks_activity_type() {
+        let activity = json!({"type": "Announce"});
+        let rules = vec![ContentFilterRule {
+            name: "no-boost".into(),
+            filter_type: "block_activity_type".into(),
+            value: "Announce".into(),
+            enabled: true,
+        }];
+        assert!(matches!(
+            apply_content_filters(&activity, TrustLevel::Unknown, &rules),
+            FilterVerdict::Reject(_)
+        ));
+    }
 }

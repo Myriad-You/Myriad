@@ -17,26 +17,47 @@ pub async fn process_delivery_queue(
     db: &DatabaseConnection,
     batch_size: u32,
 ) -> Result<u32, String> {
-    // 查询待投递的条目
+    // Atomic claim with FOR UPDATE SKIP LOCKED so concurrent workers do not
+    // double-deliver the same row. Also reclaims stuck `delivering` rows from
+    // crashed workers (#97 behaviour kept).
     let pending = db
         .query_all(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            r#"SELECT dq.id, dq.activity_id, dq.target_inbox, dq.target_domain,
-                      dq.attempts, dq.max_attempts, dq.status AS queue_status,
+            // MATERIALIZED keeps FOR UPDATE SKIP LOCKED from being inlined away (PG12+).
+            r#"WITH selected AS MATERIALIZED (
+                   SELECT id, status AS prev_status, attempts AS prev_attempts
+                   FROM federation_delivery_queue
+                   WHERE (status = 'pending'
+                          AND (next_retry_at IS NULL OR next_retry_at <= NOW()))
+                      -- 崩溃恢复：投递中途进程退出会把条目留在 delivering，超时后重新认领
+                      OR (status = 'delivering'
+                          AND last_attempt_at < NOW() - INTERVAL '10 minutes')
+                   ORDER BY created_at ASC
+                   LIMIT $1
+                   FOR UPDATE SKIP LOCKED
+               ),
+               claimed AS (
+                   UPDATE federation_delivery_queue dq
+                   SET status = 'delivering',
+                       last_attempt_at = NOW(),
+                       attempts = CASE
+                           WHEN s.prev_status = 'delivering' THEN s.prev_attempts + 1
+                           ELSE s.prev_attempts
+                       END
+                   FROM selected s
+                   WHERE dq.id = s.id
+                   RETURNING dq.id, dq.activity_id, dq.target_inbox, dq.target_domain,
+                             dq.attempts, dq.max_attempts, s.prev_status
+               )
+               SELECT c.id, c.activity_id, c.target_inbox, c.target_domain,
+                      c.attempts, c.max_attempts, c.prev_status,
                       a.activity_id AS ap_activity_id, a.activity_type, a.object_json, a.user_id
-               FROM federation_delivery_queue dq
-               JOIN federation_activities a ON a.id = dq.activity_id
-               WHERE (dq.status = 'pending'
-                      AND (dq.next_retry_at IS NULL OR dq.next_retry_at <= NOW()))
-                  -- 崩溃恢复：投递中途进程退出会把条目留在 delivering，超时后重新认领
-                  OR (dq.status = 'delivering'
-                      AND dq.last_attempt_at < NOW() - INTERVAL '10 minutes')
-               ORDER BY dq.created_at ASC
-               LIMIT $1"#,
+               FROM claimed c
+               JOIN federation_activities a ON a.id = c.activity_id"#,
             [(batch_size as i64).into()],
         ))
         .await
-        .map_err(|e| format!("Queue query failed: {}", e))?;
+        .map_err(|e| format!("Queue claim failed: {}", e))?;
 
     let mut delivered = 0u32;
 
@@ -44,43 +65,25 @@ pub async fn process_delivery_queue(
         let queue_id: i32 = row.try_get("", "id").unwrap_or(0);
         let target_inbox: String = row.try_get("", "target_inbox").unwrap_or_default();
         let target_domain: String = row.try_get("", "target_domain").unwrap_or_default();
-        let mut attempts: i32 = row.try_get("", "attempts").unwrap_or(0);
+        let attempts: i32 = row.try_get("", "attempts").unwrap_or(0);
         let max_attempts: i32 = row.try_get("", "max_attempts").unwrap_or(12);
-        let queue_status: String = row.try_get("", "queue_status").unwrap_or_default();
+        let prev_status: String = row.try_get("", "prev_status").unwrap_or_default();
         let _ap_activity_id: String = row.try_get("", "ap_activity_id").unwrap_or_default();
         let activity_type: String = row.try_get("", "activity_type").unwrap_or_default();
         let object_json: serde_json::Value = row.try_get("", "object_json").unwrap_or_default();
         let user_id: i32 = row.try_get("", "user_id").unwrap_or(0);
 
-        // 标记为 delivering；对卡住的 delivering 行重新认领时递增 attempts，避免无限热循环
-        let reclaim = queue_status == "delivering";
-        if reclaim {
-            attempts += 1;
+        // Reclaimed stuck delivering: attempts already incremented in the claim UPDATE
+        let reclaim = prev_status == "delivering";
+        if reclaim && attempts >= max_attempts {
             let _ = db
                 .execute(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
-                    "UPDATE federation_delivery_queue SET status = 'delivering', last_attempt_at = NOW(), attempts = $2 WHERE id = $1",
-                    [queue_id.into(), attempts.into()],
+                    "UPDATE federation_delivery_queue SET status = 'dead', error_message = $1, last_attempt_at = NOW() WHERE id = $2",
+                    ["Exceeded max attempts after reclaim".into(), queue_id.into()],
                 ))
                 .await;
-            if attempts >= max_attempts {
-                let _ = db
-                    .execute(Statement::from_sql_and_values(
-                        DatabaseBackend::Postgres,
-                        "UPDATE federation_delivery_queue SET status = 'dead', error_message = $1, last_attempt_at = NOW() WHERE id = $2",
-                        ["Exceeded max attempts after reclaim".into(), queue_id.into()],
-                    ))
-                    .await;
-                continue;
-            }
-        } else {
-            let _ = db
-                .execute(Statement::from_sql_and_values(
-                    DatabaseBackend::Postgres,
-                    "UPDATE federation_delivery_queue SET status = 'delivering', last_attempt_at = NOW() WHERE id = $1",
-                    [queue_id.into()],
-                ))
-                .await;
+            continue;
         }
 
         // 投递前：目标实例信任策略检查（黑名单等）

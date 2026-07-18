@@ -388,6 +388,18 @@ pub async fn fetch_remote_actor(
     let actor_json: serde_json::Value = serde_json::from_slice(&body)
         .map_err(|e| format!("Failed to parse actor JSON: {}", e))?;
 
+    // If the document declares an id, it must match the requested actor URL
+    // (host case / trailing slash normalized). Prevents cache poisoning via
+    // a URL that returns a different actor document.
+    if let Some(json_id) = actor_json.get("id").and_then(|v| v.as_str()) {
+        if !json_id.is_empty() && !same_actor_url(json_id, actor_url_str) {
+            return Err(format!(
+                "Remote actor id mismatch: document id '{}' does not match requested '{}'",
+                json_id, actor_url_str
+            ));
+        }
+    }
+
     // 提取关键字段
     let domain = extract_domain(actor_url_str).unwrap_or_default();
     let username_val = actor_json["preferredUsername"]
