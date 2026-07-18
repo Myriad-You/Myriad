@@ -19,7 +19,7 @@
 | 文件 | 用途 |
 | --- | --- |
 | [examples/v3-docker-compose.yml](./examples/v3-docker-compose.yml) | 与仓库根 `docker-compose.yml` 一致的 v3 拓扑快照（中文运维头注释） |
-| [examples/v3.env.example](./examples/v3.env.example) | 按 kiseki.blog 运维形状脱敏的 `.env` 示例（`v0.3.0` 统一 tag / preview / `HTTP_PORT=8080`） |
+| [examples/v3.env.example](./examples/v3.env.example) | 按 kiseki.blog 运维形状脱敏的 `.env` 示例（`v0.3.1` 统一 tag / preview / `HTTP_PORT=8080`） |
 
 复制 compose 时可用仓库根文件，也可用 `examples/v3-docker-compose.yml`（内容对齐当前根文件）。
 
@@ -120,7 +120,7 @@ cp -a .env "backups/env.pre-v3.$(date +%Y%m%d_%H%M%S)"
 
    可选对照 [examples/v3.env.example](./examples/v3.env.example) 补注释项
    （`PROXY_TRUSTED_UPSTREAMS`、三网名、`CHANNEL` / `UPDATE_MODE` 等）。  
-   示例中的 `MYRIAD_TAG` / `PROXY_TAG` / `UPDATER_TAG=v0.3.0`、`CHANNEL=preview`、
+   示例中的 `MYRIAD_TAG` / `PROXY_TAG` / `UPDATER_TAG=v0.3.1`、`CHANNEL=preview`、
    `UPDATE_MODE=commit`、`HTTP_PORT=8080`、`https://kiseki.blog` 仅为运维形状参考，
    **请改成你的实际值**。
 
