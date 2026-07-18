@@ -9,7 +9,7 @@
 
 use axum::{
     extract::{Query, State},
-    http::{HeaderMap, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Redirect, Response},
     Json,
 };
@@ -116,7 +116,26 @@ async fn reload_global_config(db: &DatabaseConnection) {
     }
 }
 
-fn config_redirect(frontend_base: &str, ok: bool, reason: &str) -> Redirect {
+/// Attach anti-caching headers so OAuth redirects / callbacks are never stored.
+fn apply_no_store_headers(response: &mut Response) {
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store, private"),
+    );
+    response.headers_mut().insert(
+        header::PRAGMA,
+        HeaderValue::from_static("no-cache"),
+    );
+}
+
+fn no_store_redirect(url: &str) -> Response {
+    let mut response = Redirect::to(url).into_response();
+    apply_no_store_headers(&mut response);
+    response
+}
+
+/// Redirect back to config platforms section. `reason` is a fixed token we control.
+fn config_redirect(frontend_base: &str, ok: bool, reason: &str) -> Response {
     let url = if ok {
         format!(
             "{}/config?section=platforms&discord_oauth=ok",
@@ -129,7 +148,7 @@ fn config_redirect(frontend_base: &str, ok: bool, reason: &str) -> Redirect {
             urlencoding::encode(reason)
         )
     };
-    Redirect::to(&url)
+    no_store_redirect(&url)
 }
 
 // ---------- 调试 / 状态 ----------
@@ -317,7 +336,7 @@ pub async fn oauth_start(headers: HeaderMap) -> Result<Response, (StatusCode, Js
         redirect_uri
     );
 
-    Ok(Redirect::to(url.as_str()).into_response())
+    Ok(no_store_redirect(url.as_str()))
 }
 
 /// Discord 数据平台 OAuth 回调：交换 token → 写入配置 → 回配置页
@@ -330,7 +349,8 @@ pub async fn oauth_callback(
     if let Some(err) = params.error.as_ref() {
         let desc = params.error_description.unwrap_or_default();
         tracing::warn!("Discord platform OAuth error: {} ({})", err, desc);
-        return Ok(config_redirect(&frontend_base, false, err).into_response());
+        // Provider error codes are URL-encoded by config_redirect; still fixed path under base_url.
+        return Ok(config_redirect(&frontend_base, false, err));
     }
 
     let code = match params
@@ -341,7 +361,7 @@ pub async fn oauth_callback(
     {
         Some(c) => c.to_string(),
         None => {
-            return Ok(config_redirect(&frontend_base, false, "missing_code").into_response());
+            return Ok(config_redirect(&frontend_base, false, "missing_code"));
         }
     };
     let state_param = match params
@@ -352,29 +372,33 @@ pub async fn oauth_callback(
     {
         Some(s) => s.to_string(),
         None => {
-            return Ok(config_redirect(&frontend_base, false, "missing_state").into_response());
+            return Ok(config_redirect(&frontend_base, false, "missing_state"));
         }
     };
 
     let stored = match consume_state(&state_param).await {
-        Some(s) => s,
-        None => {
-            return Ok(config_redirect(&frontend_base, false, "state_expired").into_response());
+        Ok(s) => s,
+        Err(err) => {
+            return Ok(config_redirect(
+                &frontend_base,
+                false,
+                &format!("state_{}", err.as_str()),
+            ));
         }
     };
 
     if stored.provider_slug != PLATFORM_STATE_SLUG {
-        return Ok(config_redirect(&frontend_base, false, "state_mismatch").into_response());
+        return Ok(config_redirect(&frontend_base, false, "state_mismatch"));
     }
     let OAuthPurpose::PlatformData {
         user_id: _admin_id,
         platform,
     } = stored.purpose
     else {
-        return Ok(config_redirect(&frontend_base, false, "wrong_purpose").into_response());
+        return Ok(config_redirect(&frontend_base, false, "wrong_purpose"));
     };
     if platform != "discord" {
-        return Ok(config_redirect(&frontend_base, false, "wrong_platform").into_response());
+        return Ok(config_redirect(&frontend_base, false, "wrong_platform"));
     }
 
     let config = GLOBAL_DYNAMIC_CONFIG.read().await;
@@ -382,7 +406,7 @@ pub async fn oauth_callback(
         Ok(v) => v,
         Err(msg) => {
             tracing::error!("Discord app missing on callback: {}", msg);
-            return Ok(config_redirect(&frontend_base, false, "app_not_configured").into_response());
+            return Ok(config_redirect(&frontend_base, false, "app_not_configured"));
         }
     };
     drop(config);
@@ -393,7 +417,7 @@ pub async fn oauth_callback(
             Ok(v) => v,
             Err(e) => {
                 tracing::error!("Discord token exchange failed: {}", e);
-                return Ok(config_redirect(&frontend_base, false, "token_exchange").into_response());
+                return Ok(config_redirect(&frontend_base, false, "token_exchange"));
             }
         };
 
@@ -403,7 +427,7 @@ pub async fn oauth_callback(
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
     let Some(access_token) = access_token else {
-        return Ok(config_redirect(&frontend_base, false, "no_access_token").into_response());
+        return Ok(config_redirect(&frontend_base, false, "no_access_token"));
     };
 
     let refresh_token = token_json
@@ -454,13 +478,13 @@ pub async fn oauth_callback(
     let svc = ConfigService::new(db.clone());
     if let Err(e) = svc.update_configs(updates).await {
         tracing::error!("Failed to persist Discord platform tokens: {}", e);
-        return Ok(config_redirect(&frontend_base, false, "save_failed").into_response());
+        return Ok(config_redirect(&frontend_base, false, "save_failed"));
     }
 
     reload_global_config(&db).await;
 
     tracing::info!("✓ Discord platform OAuth tokens saved and platform enabled");
-    Ok(config_redirect(&frontend_base, true, "ok").into_response())
+    Ok(config_redirect(&frontend_base, true, "ok"))
 }
 
 async fn exchange_discord_code(

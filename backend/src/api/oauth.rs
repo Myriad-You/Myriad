@@ -58,6 +58,36 @@ fn err_404(msg: impl Into<String>) -> (StatusCode, Json<Value>) {
     (StatusCode::NOT_FOUND, Json(json!({"error": msg.into()})))
 }
 
+/// Attach anti-caching headers so OAuth redirects / callbacks are never stored by browsers or CDNs.
+fn apply_no_store_headers(response: &mut Response) {
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store, private"),
+    );
+    response.headers_mut().insert(
+        header::PRAGMA,
+        HeaderValue::from_static("no-cache"),
+    );
+}
+
+/// `Redirect` → `Response` with Cache-Control: no-store, private.
+fn no_store_redirect(url: &str) -> Response {
+    let mut response = Redirect::to(url).into_response();
+    apply_no_store_headers(&mut response);
+    response
+}
+
+/// Browser-friendly client error: always land on SiteConfig base_url `/login`.
+/// `error_code` is a fixed token we control (never a free-form URL) — no open redirect.
+fn oauth_client_error_redirect(frontend_base: &str, error_code: &str) -> Response {
+    let url = format!(
+        "{}/login?oauth_error={}",
+        frontend_base.trim_end_matches('/'),
+        urlencoding::encode(error_code),
+    );
+    no_store_redirect(&url)
+}
+
 async fn sync_user_oauth_profile_snapshot(
     db: &DatabaseConnection,
     user_id: i32,
@@ -127,7 +157,7 @@ pub async fn list_providers() -> Json<Value> {
 
 pub async fn provider_login(
     Path(slug): Path<String>,
-) -> Result<Redirect, (StatusCode, Json<Value>)> {
+) -> Result<Response, (StatusCode, Json<Value>)> {
     let provider = REGISTRY
         .get(&slug)
         .await
@@ -150,7 +180,7 @@ pub async fn provider_login(
     )
     .await;
 
-    Ok(Redirect::to(&auth_url))
+    Ok(no_store_redirect(&auth_url))
 }
 
 // ---------- GET /api/auth/oauth/:slug/link  (需 admin) ----------
@@ -158,7 +188,7 @@ pub async fn provider_login(
 pub async fn provider_link(
     Path(slug): Path<String>,
     headers: HeaderMap,
-) -> Result<Redirect, (StatusCode, Json<Value>)> {
+) -> Result<Response, (StatusCode, Json<Value>)> {
     use crate::middleware::auth::verify_current_admin_from_headers;
 
     let claims = verify_current_admin_from_headers(&headers).await?;
@@ -187,7 +217,7 @@ pub async fn provider_link(
     )
     .await;
 
-    Ok(Redirect::to(&auth_url))
+    Ok(no_store_redirect(&auth_url))
 }
 
 // ---------- GET /api/auth/oauth/:slug/callback ----------
@@ -221,30 +251,41 @@ pub async fn provider_callback(
         );
         let url = format!(
             "{}/login?oauth_error={}&desc={}",
-            frontend_base,
+            frontend_base.trim_end_matches('/'),
             urlencoding::encode(err),
             urlencoding::encode(&desc),
         );
-        return Ok(Redirect::to(&url).into_response());
+        return Ok(no_store_redirect(&url));
     }
 
-    let code = params
-        .code
-        .ok_or_else(|| err_400("OAuth callback missing 'code' parameter"))?;
-    let state_param = params
-        .state
-        .ok_or_else(|| err_400("OAuth callback missing 'state' parameter"))?;
+    let Some(code) = params.code.filter(|c| !c.trim().is_empty()) else {
+        return Ok(oauth_client_error_redirect(&frontend_base, "missing_code"));
+    };
+    let Some(state_param) = params.state.filter(|s| !s.trim().is_empty()) else {
+        return Ok(oauth_client_error_redirect(&frontend_base, "missing_state"));
+    };
 
-    // 1. 验证 state
-    let stored = consume_state(&state_param)
-        .await
-        .ok_or_else(|| err_400("OAuth state invalid or expired (possible CSRF)"))?;
+    // 1. 验证 state（区分 missing / expired，已在 store 层 warn-log）
+    let stored = match consume_state(&state_param).await {
+        Ok(s) => s,
+        Err(err) => {
+            return Ok(oauth_client_error_redirect(
+                &frontend_base,
+                &format!("state_{}", err.as_str()),
+            ));
+        }
+    };
 
     if stored.provider_slug != slug {
-        return Err(err_400(format!(
-            "State/slug mismatch: state was for '{}', got '{}'",
-            stored.provider_slug, slug
-        )));
+        tracing::warn!(
+            "OAuth state/slug mismatch: state was for '{}', got '{}'",
+            stored.provider_slug,
+            slug
+        );
+        return Ok(oauth_client_error_redirect(
+            &frontend_base,
+            "state_slug_mismatch",
+        ));
     }
 
     // 2. 取 provider
@@ -283,10 +324,10 @@ pub async fn provider_callback(
             );
             let url = format!(
                 "{}/config?discord_oauth=error&reason={}",
-                frontend_base,
+                frontend_base.trim_end_matches('/'),
                 urlencoding::encode("wrong_callback")
             );
-            Ok(Redirect::to(&url).into_response())
+            Ok(no_store_redirect(&url))
         }
     }
 }
@@ -311,8 +352,11 @@ async fn handle_link(
         .map_err(|e| err_500(format!("DB error: {e}")))?;
 
     if admin.is_none() {
-        let url = format!("{}/?link=error&reason=not_admin", frontend_url);
-        return Ok(Redirect::to(&url).into_response());
+        let url = format!(
+            "{}/?link=error&reason=not_admin",
+            frontend_url.trim_end_matches('/')
+        );
+        return Ok(no_store_redirect(&url));
     }
 
     // 检查 identity 是否已绑到别的 user
@@ -334,8 +378,11 @@ async fn handle_link(
             .try_get("", "user_id")
             .map_err(|e| err_500(format!("failed to read user_id: {e}")))?;
         if owner_id != admin_id {
-            let url = format!("{}/?link=error&reason=already_linked", frontend_url);
-            return Ok(Redirect::to(&url).into_response());
+            let url = format!(
+                "{}/?link=error&reason=already_linked",
+                frontend_url.trim_end_matches('/')
+            );
+            return Ok(no_store_redirect(&url));
         }
     }
 
@@ -344,11 +391,11 @@ async fn handle_link(
 
     let url = format!(
         "{}/?link=success&provider={}&username={}",
-        frontend_url,
+        frontend_url.trim_end_matches('/'),
         slug,
         urlencoding::encode(&profile.username)
     );
-    Ok(Redirect::to(&url).into_response())
+    Ok(no_store_redirect(&url))
 }
 
 // ---------- 内部：Login 流程 ----------
@@ -409,6 +456,7 @@ async fn handle_login(
     response
         .headers_mut()
         .insert(header::SET_COOKIE, set_cookie);
+    apply_no_store_headers(&mut response);
     Ok(response)
 }
 
