@@ -281,19 +281,40 @@ pub async fn provider_callback(
         ));
     }
 
-    // 2. 取 provider
-    let provider = REGISTRY
-        .get(&slug)
-        .await
-        .ok_or_else(|| err_404(format!("OAuth provider '{slug}' not configured")))?;
+    // 2. 取 provider — browser-friendly redirect (not opaque JSON 500/404)
+    let provider = match REGISTRY.get(&slug).await {
+        Some(p) => p,
+        None => {
+            tracing::error!("OAuth provider '{}' missing at callback", slug);
+            return Ok(oauth_client_error_redirect(
+                &frontend_base,
+                "provider_unavailable",
+            ));
+        }
+    };
 
-    // 3. exchange + fetch profile
+    // 3. exchange + fetch profile — redirect with stable codes instead of raw 500
     let redirect_uri = build_redirect_uri(&slug).await;
-    let tokens = provider
-        .exchange_code(&code, &redirect_uri)
-        .await
-        .map_err(err_500)?;
-    let profile = provider.fetch_profile(&tokens).await.map_err(err_500)?;
+    let tokens = match provider.exchange_code(&code, &redirect_uri).await {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!("OAuth token exchange failed for '{}': {}", slug, e);
+            return Ok(oauth_client_error_redirect(
+                &frontend_base,
+                "token_exchange_failed",
+            ));
+        }
+    };
+    let profile = match provider.fetch_profile(&tokens).await {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::error!("OAuth profile fetch failed for '{}': {}", slug, e);
+            return Ok(oauth_client_error_redirect(
+                &frontend_base,
+                "profile_fetch_failed",
+            ));
+        }
+    };
 
     tracing::info!(
         "🔐 OAuth callback for {} — provider_user_id={}, username={}",
@@ -309,7 +330,19 @@ pub async fn provider_callback(
         OAuthPurpose::LinkAccount(link_user_id) => {
             handle_link(&db, &slug, link_user_id, &profile, &frontend_base).await
         }
-        OAuthPurpose::Login => handle_login(&db, &slug, &profile).await,
+        OAuthPurpose::Login => match handle_login(&db, &slug, &profile).await {
+            Ok(resp) => Ok(resp),
+            Err((status, body)) => {
+                tracing::error!(
+                    "OAuth login failed for provider '{}' (status={}): {:?}",
+                    slug,
+                    status,
+                    body
+                );
+                // Prefer a stable browser redirect over opaque JSON 5xx for callbacks
+                Ok(oauth_client_error_redirect(&frontend_base, "login_failed"))
+            }
+        },
         OAuthPurpose::PlatformData { platform, .. } => {
             tracing::warn!(
                 "PlatformData OAuth state for '{}' hit login callback; redirecting",

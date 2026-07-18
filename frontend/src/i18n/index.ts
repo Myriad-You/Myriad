@@ -151,12 +151,32 @@ export interface TranslationKeys {
     logoutFailed: string
     /** Shown when OAuth callback redirects with `?oauth_error=` */
     oauthError: string
+    oauthErrorWithDesc: string
     oauthErrorStateMissing: string
     oauthErrorStateExpired: string
     oauthErrorStateSlugMismatch: string
     oauthErrorMissingCode: string
     oauthErrorMissingState: string
     oauthErrorAccessDenied: string
+    oauthErrorTemporarilyUnavailable: string
+    oauthErrorServerError: string
+    oauthErrorInvalidRequest: string
+    oauthErrorUnauthorizedClient: string
+    oauthErrorUnsupportedResponseType: string
+    oauthErrorInvalidScope: string
+    oauthErrorTokenExchange: string
+    oauthErrorProfileFetch: string
+    oauthErrorProviderUnavailable: string
+    oauthErrorLoginFailed: string
+    invalidCredentials: string
+    localLoginDisabled: string
+    linkSuccess: string
+    linkSuccessProvider: string
+    linkSuccessDetail: string
+    linkErrorAlreadyLinked: string
+    linkErrorUserNotFound: string
+    linkErrorUnknown: string
+    linkErrorGeneric: string
     // PR #4/#5: 注册 + provider 通用按钮
     loginWith: string
     register: string
@@ -335,6 +355,12 @@ export interface TranslationKeys {
     usersRefresh: string
     usersLoadError: string
     usersActionError: string
+    usersErrorUnlinkLast: string
+    usersErrorDeleteSelf: string
+    usersErrorLastAdmin: string
+    usersErrorLastAdminDemote: string
+    usersErrorRevokeSelf: string
+    usersErrorPrimaryAdminDelete: string
     usersEmpty: string
     usersShowDetail: string
     usersHideDetail: string

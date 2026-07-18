@@ -4,6 +4,10 @@ import { useEffect, useState } from 'react'
 import { API_URL } from '../config'
 import { useI18n } from '../contexts/I18nContext'
 import { fetchJson } from '../utils/apiHelper'
+import {
+  messageForLocalLoginError,
+  messageForOAuthError,
+} from '../utils/authErrorMessages'
 import { sanitizeUsername } from '../utils/inputSanitizer'
 import { normalizeOAuthIconUrl, preloadOAuthIcons } from '../utils/oauthIcons'
 import { RateLimitError } from '../utils/rateLimiter'
@@ -29,29 +33,6 @@ function normalizeProviderInfo(provider: ProviderInfo): ProviderInfo {
   }
 }
 
-function messageForOAuthError(
-  code: string,
-  t: ReturnType<typeof useI18n>['t'],
-  format: ReturnType<typeof useI18n>['format'],
-): string {
-  switch (code) {
-    case 'state_missing':
-      return t.auth.oauthErrorStateMissing
-    case 'state_expired':
-      return t.auth.oauthErrorStateExpired
-    case 'state_slug_mismatch':
-      return t.auth.oauthErrorStateSlugMismatch
-    case 'missing_code':
-      return t.auth.oauthErrorMissingCode
-    case 'missing_state':
-      return t.auth.oauthErrorMissingState
-    case 'access_denied':
-      return t.auth.oauthErrorAccessDenied
-    default:
-      return format(t.auth.oauthError, { code })
-  }
-}
-
 const LoginForm: FC = () => {
   const { t, format } = useI18n()
   const [formData, setFormData] = useState({
@@ -64,12 +45,13 @@ const LoginForm: FC = () => {
   const [allowRegister, setAllowRegister] = useState(false)
 
   useEffect(() => {
-    // Surface OAuth callback failures redirected as `/login?oauth_error=...`
+    // Surface OAuth callback failures redirected as `/login?oauth_error=...&desc=...`
     try {
       const params = new URLSearchParams(window.location.search)
       const oauthError = params.get('oauth_error')?.trim()
       if (oauthError) {
-        setError(messageForOAuthError(oauthError, t, format))
+        const desc = params.get('desc')
+        setError(messageForOAuthError(oauthError, desc, t, format))
         // Drop query so refresh does not re-show the same banner forever
         params.delete('oauth_error')
         params.delete('desc')
@@ -187,13 +169,12 @@ const LoginForm: FC = () => {
       setTimeout(() => {
         window.location.href = '/'
       }, 100)
-    } catch (err: any) {
-      // 处理 Rate Limit 错误
+    } catch (err: unknown) {
       if (err instanceof RateLimitError) {
         const seconds = Math.ceil(err.retryAfter / 1000)
         setError(format(t.auth.rateLimitError, { seconds }))
       } else {
-        setError(err.message || t.auth.loginFailed)
+        setError(messageForLocalLoginError(err, t, format))
       }
     } finally {
       setSubmitting(false)

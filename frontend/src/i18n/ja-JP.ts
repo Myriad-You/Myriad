@@ -150,17 +150,54 @@ export const jaJP: TranslationKeys = {
     logoutSuccess: 'ログアウトしました',
     logoutFailed: 'ログアウト失敗',
     oauthError:
-      'サードパーティログインに失敗しました（{code}）。再試行してください。',
+      'サードパーティログインに失敗しました（{code}）。余分なタブを閉じ、このページから再度お試しください。',
+    oauthErrorWithDesc: '{message} 詳細: {desc}',
     oauthErrorStateMissing:
-      'ログインセッションが無効または期限切れです。再度お試しください。',
+      'このログインリンクは無効か、すでに使用済みです。ログインページからサードパーティログインをやり直してください。',
     oauthErrorStateExpired:
-      'ログインセッションがタイムアウトしました。再度お試しください。',
+      'ログインセッションがタイムアウトしました。ログインページに戻り、サードパーティログインをやり直してください。',
     oauthErrorStateSlugMismatch:
-      'OAuth プロバイダーが一致しません。再度ログインしてください。',
-    oauthErrorMissingCode: '認証が完了しませんでした。再試行してください。',
+      'OAuth プロバイダーが一致しません（別のログインボタンと混在した可能性があります）。ログインページからやり直してください。',
+    oauthErrorMissingCode:
+      '認証が完了しませんでした（認可コードがありません）。再度ログインしてください。',
     oauthErrorMissingState:
-      'ログインセッションがありません。再試行してください。',
-    oauthErrorAccessDenied: '認証がキャンセルまたは拒否されました。',
+      'コールバックにログインセッションがありません。このページからサードパーティログインをやり直してください。',
+    oauthErrorAccessDenied:
+      '認証がキャンセルまたは拒否されました。ログインする場合はプロバイダーで許可するか、別の方法を選んでください。',
+    oauthErrorTemporarilyUnavailable:
+      'ID プロバイダーが一時的に利用できません。しばらくしてから再試行してください。',
+    oauthErrorServerError:
+      'ID プロバイダーがサーバーエラーを返しました。後でもう一度試すか、別のログイン方法を使ってください。',
+    oauthErrorInvalidRequest:
+      '認可リクエストが無効と判断されました。ログインページから再試行し、続く場合はサイト管理者に連絡してください。',
+    oauthErrorUnauthorizedClient:
+      'このアプリは ID プロバイダーで認可されていません。管理者に OAuth クライアント設定を確認してもらってください。',
+    oauthErrorUnsupportedResponseType:
+      'プロバイダーが現在の OAuth 応答タイプに対応していません。サイト管理者に連絡してください。',
+    oauthErrorInvalidScope:
+      '要求された OAuth スコープが無効です。サイト管理者に連絡してください。',
+    oauthErrorTokenExchange:
+      'プロバイダーとのログインを完了できませんでした（トークン交換に失敗）。再試行し、続く場合は管理者に連絡してください。',
+    oauthErrorProfileFetch:
+      'プロバイダー認証は成功しましたが、プロフィールを取得できませんでした。しばらくしてから再試行してください。',
+    oauthErrorProviderUnavailable:
+      'このログイン方法は現在利用できません。別の方法を使うか、サイト管理者に連絡してください。',
+    oauthErrorLoginFailed:
+      'サードパーティログインに失敗しました。再試行するか、利用可能な場合はユーザー名とパスワードでログインしてください。',
+    invalidCredentials: 'ユーザー名またはパスワードが正しくありません。',
+    localLoginDisabled:
+      'このアカウントではパスワードログインが無効です。連携済みのサードパーティでログインしてください。',
+    linkSuccess: 'アカウントの連携に成功しました。',
+    linkSuccessProvider: '{provider} の連携に成功しました。',
+    linkSuccessDetail: '{provider} を {username} として連携しました。',
+    linkErrorAlreadyLinked:
+      'そのサードパーティアカウントは別のユーザーに既に連携されています。先にそちらで解除するか、別のアカウントを使ってください。',
+    linkErrorUserNotFound:
+      '連携中にユーザーセッションが見つかりませんでした。再ログインしてから連携し直してください。',
+    linkErrorUnknown:
+      'アカウントを連携できませんでした（{reason}）。再試行するか、サイト管理者に連絡してください。',
+    linkErrorGeneric:
+      'アカウントを連携できませんでした。再試行するか、サイト管理者に連絡してください。',
     loginWith: '{name} でログイン',
     register: 'アカウント作成',
     registering: '登録中...',
@@ -363,6 +400,14 @@ export const jaJP: TranslationKeys = {
     usersRefresh: '更新',
     usersLoadError: 'ユーザー一覧の読み込みに失敗しました',
     usersActionError: '操作に失敗しました',
+    usersErrorUnlinkLast:
+      '唯一のログイン方法は解除できません。先にパスワードを設定するか、別のプロバイダーを連携してください。',
+    usersErrorDeleteSelf: '自分のアカウントは削除できません。',
+    usersErrorLastAdmin: '最後の管理者は削除できません。',
+    usersErrorLastAdminDemote: '最後の管理者の権限は解除できません。',
+    usersErrorRevokeSelf: '自分の管理者権限は解除できません。',
+    usersErrorPrimaryAdminDelete:
+      '管理者アカウントの削除はプライマリ管理者のみ可能です。',
     usersEmpty: '登録ユーザーはまだいません',
     usersShowDetail: '詳細を表示',
     usersHideDetail: '詳細を閉じる',

@@ -151,16 +151,55 @@ export const enUS: TranslationKeys = {
       'Too many login attempts, please retry in {seconds} seconds',
     logoutSuccess: 'Logged out successfully',
     logoutFailed: 'Logout failed',
-    oauthError: 'Third-party login failed ({code}). Please try again.',
+    oauthError:
+      'Third-party sign-in failed ({code}). Close extra tabs and try again from this page.',
+    oauthErrorWithDesc: '{message} Details: {desc}',
     oauthErrorStateMissing:
-      'Login session expired or invalid. Please start third-party login again.',
+      'This sign-in link is invalid or was already used. Start third-party login again from the login page.',
     oauthErrorStateExpired:
-      'Login session timed out. Please start third-party login again.',
+      'This sign-in session timed out. Go back to the login page and try third-party login again.',
     oauthErrorStateSlugMismatch:
-      'OAuth provider mismatch. Please try signing in again.',
-    oauthErrorMissingCode: 'Authorization was incomplete. Please try again.',
-    oauthErrorMissingState: 'Login session missing. Please try again.',
-    oauthErrorAccessDenied: 'Authorization was cancelled or denied.',
+      'OAuth provider mismatch (you may have mixed two login buttons). Start again from the login page.',
+    oauthErrorMissingCode:
+      'Authorization did not complete (no code returned). Try signing in again.',
+    oauthErrorMissingState:
+      'Login session was missing from the callback. Start third-party login again from this page.',
+    oauthErrorAccessDenied:
+      'Authorization was cancelled or denied. If you meant to sign in, approve access when the provider asks, or pick another method.',
+    oauthErrorTemporarilyUnavailable:
+      'The identity provider is temporarily unavailable. Wait a moment and try again.',
+    oauthErrorServerError:
+      'The identity provider reported a server error. Try again later or use another sign-in method.',
+    oauthErrorInvalidRequest:
+      'The authorization request was rejected as invalid. Try again from the login page; if it keeps failing, contact the site admin.',
+    oauthErrorUnauthorizedClient:
+      'This app is not authorized with the identity provider. Contact the site admin to check OAuth client settings.',
+    oauthErrorUnsupportedResponseType:
+      'OAuth response type is not supported by the provider. Contact the site admin.',
+    oauthErrorInvalidScope:
+      'The requested OAuth permissions are invalid. Contact the site admin.',
+    oauthErrorTokenExchange:
+      'Could not complete sign-in with the provider (token exchange failed). Try again, or contact the site admin if it persists.',
+    oauthErrorProfileFetch:
+      'Signed in with the provider, but profile details could not be loaded. Try again in a moment.',
+    oauthErrorProviderUnavailable:
+      'This sign-in provider is not available right now. Try another method or contact the site admin.',
+    oauthErrorLoginFailed:
+      'Third-party sign-in failed. Try again or use username and password if available.',
+    invalidCredentials: 'Username or password is incorrect.',
+    localLoginDisabled:
+      'Password login is disabled for this account. Use a linked third-party provider to sign in.',
+    linkSuccess: 'Account linked successfully.',
+    linkSuccessProvider: 'Linked {provider} successfully.',
+    linkSuccessDetail: 'Linked {provider} as {username}.',
+    linkErrorAlreadyLinked:
+      'That third-party account is already linked to another user. Unlink it there first, or use a different account.',
+    linkErrorUserNotFound:
+      'Your session user was not found while linking. Sign in again and retry linking.',
+    linkErrorUnknown:
+      'Could not link the account ({reason}). Try again or contact the site admin.',
+    linkErrorGeneric:
+      'Could not link the account. Try again or contact the site admin.',
     loginWith: 'Sign in with {name}',
     register: 'Create account',
     registering: 'Creating...',
@@ -368,6 +407,14 @@ export const enUS: TranslationKeys = {
     usersRefresh: 'Refresh',
     usersLoadError: 'Failed to load users',
     usersActionError: 'Action failed',
+    usersErrorUnlinkLast:
+      'Cannot unlink the only sign-in method. Set a password or link another provider first.',
+    usersErrorDeleteSelf: 'You cannot delete your own account.',
+    usersErrorLastAdmin: 'Cannot delete the last administrator.',
+    usersErrorLastAdminDemote: 'Cannot demote the last administrator.',
+    usersErrorRevokeSelf: 'You cannot revoke your own admin role.',
+    usersErrorPrimaryAdminDelete:
+      'Only the primary administrator can delete administrators.',
     usersEmpty: 'No registered users yet',
     usersShowDetail: 'Show details',
     usersHideDetail: 'Hide details',

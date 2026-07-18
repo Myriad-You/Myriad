@@ -148,13 +148,51 @@ export const zhCN: TranslationKeys = {
     rateLimitError: '登录尝试过于频繁，请在 {seconds} 秒后重试',
     logoutSuccess: '已退出登录',
     logoutFailed: '退出失败',
-    oauthError: '第三方登录失败（{code}）。请重试。',
-    oauthErrorStateMissing: '登录会话无效或已过期，请重新发起第三方登录。',
-    oauthErrorStateExpired: '登录会话已超时，请重新发起第三方登录。',
-    oauthErrorStateSlugMismatch: 'OAuth 提供商不匹配，请重新登录。',
-    oauthErrorMissingCode: '授权未完成，请重试。',
-    oauthErrorMissingState: '缺少登录会话，请重试。',
-    oauthErrorAccessDenied: '已取消或拒绝授权。',
+    oauthError:
+      '第三方登录失败（{code}）。请关闭多余标签页，回到本页重新尝试。',
+    oauthErrorWithDesc: '{message} 详情：{desc}',
+    oauthErrorStateMissing:
+      '登录链接无效或已使用过。请返回登录页重新发起第三方登录。',
+    oauthErrorStateExpired:
+      '登录会话已超时。请返回登录页，重新点击第三方登录。',
+    oauthErrorStateSlugMismatch:
+      'OAuth 提供商不匹配（可能混用了两个登录按钮）。请从登录页重新开始。',
+    oauthErrorMissingCode: '授权未完成（未返回授权码）。请重新尝试登录。',
+    oauthErrorMissingState:
+      '回调中缺少登录会话。请在本页重新发起第三方登录。',
+    oauthErrorAccessDenied:
+      '已取消或拒绝授权。若要登录，请在提供商页面同意访问，或换用其他方式。',
+    oauthErrorTemporarilyUnavailable:
+      '身份提供商暂时不可用。请稍后再试。',
+    oauthErrorServerError:
+      '身份提供商返回服务器错误。请稍后再试，或使用其他登录方式。',
+    oauthErrorInvalidRequest:
+      '授权请求被判定为无效。请从登录页重试；若持续失败，请联系站点管理员。',
+    oauthErrorUnauthorizedClient:
+      '本应用未在身份提供商侧获得授权。请联系管理员检查 OAuth 客户端配置。',
+    oauthErrorUnsupportedResponseType:
+      '提供商不支持当前 OAuth 响应类型。请联系站点管理员。',
+    oauthErrorInvalidScope: '请求的 OAuth 权限范围无效。请联系站点管理员。',
+    oauthErrorTokenExchange:
+      '无法完成与提供商的登录（令牌交换失败）。请重试；若反复失败请联系管理员。',
+    oauthErrorProfileFetch:
+      '已通过提供商授权，但无法获取用户资料。请稍后再试。',
+    oauthErrorProviderUnavailable:
+      '该登录方式当前不可用。请换用其他方式，或联系站点管理员。',
+    oauthErrorLoginFailed:
+      '第三方登录失败。请重试，或在可用时使用用户名密码登录。',
+    invalidCredentials: '用户名或密码不正确。',
+    localLoginDisabled:
+      '此账号已禁用密码登录。请使用已绑定的第三方账号登录。',
+    linkSuccess: '账号绑定成功。',
+    linkSuccessProvider: '已成功绑定 {provider}。',
+    linkSuccessDetail: '已绑定 {provider}（{username}）。',
+    linkErrorAlreadyLinked:
+      '该第三方账号已绑定到其他用户。请先在对方账号解绑，或换用其他账号。',
+    linkErrorUserNotFound:
+      '绑定时找不到当前用户会话。请重新登录后再试绑定。',
+    linkErrorUnknown: '无法绑定账号（{reason}）。请重试或联系站点管理员。',
+    linkErrorGeneric: '无法绑定账号。请重试或联系站点管理员。',
     loginWith: '使用 {name} 登录',
     register: '创建账号',
     registering: '注册中...',
@@ -340,6 +378,13 @@ export const zhCN: TranslationKeys = {
     usersRefresh: '刷新',
     usersLoadError: '加载用户列表失败',
     usersActionError: '操作失败',
+    usersErrorUnlinkLast:
+      '无法解绑唯一登录方式。请先设置密码或绑定其他提供商。',
+    usersErrorDeleteSelf: '不能删除自己的账号。',
+    usersErrorLastAdmin: '不能删除最后一个管理员。',
+    usersErrorLastAdminDemote: '不能取消最后一个管理员的权限。',
+    usersErrorRevokeSelf: '不能撤销自己的管理员权限。',
+    usersErrorPrimaryAdminDelete: '仅主管理员可删除管理员账号。',
     usersEmpty: '暂无注册用户',
     usersShowDetail: '展开详情',
     usersHideDetail: '收起详情',

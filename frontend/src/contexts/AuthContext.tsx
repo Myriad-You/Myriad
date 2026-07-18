@@ -102,6 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // 页面加载时检查认证状态，包括：
   // 1. OAuth 回调（auth=success 或 link=success）
   // 2. 页面刷新时恢复登录状态（通过 Cookie 持久化）
+  // link=* query params are cleaned by useAuthUrlFeedback (toasts need them first).
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search)
     const authSuccess = urlParams.get('auth') === 'success'
@@ -112,9 +113,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.debug('[AuthContext] OAuth callback detected, checking auth...')
       checkAuth()
 
-      // 清理 URL 参数，避免刷新时重复触发
-      const newUrl = window.location.pathname
-      window.history.replaceState({}, '', newUrl)
+      // Strip only auth=success; leave link=* for the feedback toast hook
+      if (authSuccess) {
+        urlParams.delete('auth')
+        const next = urlParams.toString()
+        const path = window.location.pathname
+        window.history.replaceState({}, '', next ? `${path}?${next}` : path)
+      }
     } else {
       // 页面加载时自动检查认证状态（恢复登录会话）
       // 这确保了刷新页面后登录状态能够持久化

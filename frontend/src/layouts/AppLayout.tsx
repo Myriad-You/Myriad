@@ -19,6 +19,7 @@ import {
   useVisibilityInterval,
 } from '../hooks/animation/atomicHooks'
 import { useAnimationLevel } from '../hooks/useAnimationLevel'
+import { useAuthUrlFeedback } from '../hooks/useAuthUrlFeedback'
 import { useEvocativeWallpaper } from '../hooks/useEvocativeWallpaper'
 import { useNavAutoHide } from '../hooks/useNavAutoHide'
 import { useScrollOptimization } from '../hooks/useScrollOptimization'
@@ -65,6 +66,9 @@ export function AppLayout({ children }: AppLayoutProps) {
   const [hasEverConnected, setHasEverConnected] = useState(false)
   // ℹ️ 性能优化: 移动端/低端设备禁用背景动画
   const anim = useAnimationLevel()
+
+  // OAuth account-link success/error query → toast + clean URL
+  useAuthUrlFeedback()
 
   // 🔧 帧率优化：启用滚动优化和 FPS 监控
   useScrollOptimization({ enabled: true })

@@ -108,6 +108,24 @@ function RequireAuth({
   return children
 }
 
+/**
+ * Guest-only routes (/login, /register): authenticated users go home.
+ * While auth is still resolving, show a spinner — never flash the form.
+ */
+function GuestOnly({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, hasChecked } = useAuth()
+
+  if (!hasChecked) {
+    return <LoadingFallback />
+  }
+
+  if (isAuthenticated) {
+    return <Navigate to="/" replace />
+  }
+
+  return children
+}
+
 function ModuleVisibilityGuard({
   moduleKey,
   children,
@@ -422,17 +440,21 @@ function AppRoutes() {
         <Route
           path="/login"
           element={
-            <SuspensePage>
-              <Login />
-            </SuspensePage>
+            <GuestOnly>
+              <SuspensePage>
+                <Login />
+              </SuspensePage>
+            </GuestOnly>
           }
         />
         <Route
           path="/register"
           element={
-            <SuspensePage>
-              <Register />
-            </SuspensePage>
+            <GuestOnly>
+              <SuspensePage>
+                <Register />
+              </SuspensePage>
+            </GuestOnly>
           }
         />
         <Route

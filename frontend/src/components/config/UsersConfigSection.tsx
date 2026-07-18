@@ -20,6 +20,7 @@ import {
   LuUser,
 } from '../../lib/icons'
 import adminUsersApi from '../../services/adminUsersApi'
+import { messageForAdminUserError } from '../../utils/authErrorMessages'
 import { getOAuthIconAsset } from '../../utils/oauthIcons'
 import OAuthIconImage from '../OAuthIconImage'
 import { SettingGroup, SettingSection, SwitchItem } from '../settings'
@@ -102,11 +103,10 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
 
   const notifyError = useCallback(
     (error: unknown, fallback: string) => {
-      const message =
-        error instanceof Error && error.message ? error.message : fallback
+      const message = messageForAdminUserError(error, t, fallback)
       onMessage?.(message, 'error')
     },
-    [onMessage],
+    [onMessage, t],
   )
 
   const loadUsers = useCallback(async () => {
