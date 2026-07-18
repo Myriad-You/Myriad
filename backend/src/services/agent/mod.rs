@@ -635,11 +635,36 @@ impl Agent {
                 .await;
         }
 
-        // ========== 快速路径优化 ==========
-        let is_simple_query = recipe.steps.len() == 1
-            && !self.is_sensitive_capability(&recipe.steps[0].capability_id);
+        // 4. 检查敏感操作（单步/多步共用：依赖 capability 元数据 requires_confirmation/risk，
+        //    不能只靠 capability_id 字符串启发式，否则 tapp.interact / page.interact / MCP 会直通）
+        let sensitive_steps = self.check_sensitive_steps(&recipe).await;
+        if !sensitive_steps.is_empty() {
+            match Self::system_sensitive_gate(user_id, &sensitive_steps) {
+                Some(Ok(())) => {} // 系统任务已自动确认，继续执行
+                Some(Err(blocked)) => return Ok(blocked),
+                None => {
+                    return self
+                        .request_confirmation_v2(&recipe, &planner_output, user_id, sensitive_steps)
+                        .await;
+                }
+            }
+        }
 
-        if is_simple_query {
+        // 4.5 检查必需参数缺失 — 执行前收集用户信息（单步/多步共用）
+        if let Some(missing_response) = self
+            .check_missing_required_parameters(
+                &recipe,
+                &planner_output,
+                user_id,
+                Some(&progress_tx),
+            )
+            .await?
+        {
+            return Ok(missing_response);
+        }
+
+        // ========== 快速路径：仅安全的单步且参数齐全时走 ==========
+        if recipe.steps.len() == 1 {
             tracing::debug!(
                 recipe_id = %recipe.id,
                 "[Agent] Using fast path for simple query"
@@ -658,9 +683,10 @@ impl Agent {
                 )
                 .await;
         }
-        // ========== 快速路径优化结束 ==========
+        // ========== 快速路径结束 ==========
 
         // 发送任务创建事件（多步骤任务，附带步骤描述供前端展示执行计划）
+        // task_id 必须等于 TaskState.task_id（= recipe.id），前端用此 id 做 cancel/steer
         let step_descs: Vec<String> = recipe
             .steps
             .iter()
@@ -678,33 +704,6 @@ impl Agent {
         // 副 Agent 生成计划说明（AI 流式推送，告诉用户即将做什么）
         let _plan_msg =
             response_agent::announce_plan(&request.raw_input, &step_descs, &progress_tx).await;
-
-        // 4. 检查敏感操作（系统任务自动确认，Critical 除外）
-        let sensitive_steps = self.check_sensitive_steps(&recipe).await;
-        if !sensitive_steps.is_empty() {
-            match Self::system_sensitive_gate(user_id, &sensitive_steps) {
-                Some(Ok(())) => {} // 系统任务已自动确认，继续执行
-                Some(Err(blocked)) => return Ok(blocked),
-                None => {
-                    return self
-                        .request_confirmation_v2(&recipe, &planner_output, user_id, sensitive_steps)
-                        .await;
-                }
-            }
-        }
-
-        // 4.5 检查必需参数缺失 — 执行前收集用户信息
-        if let Some(missing_response) = self
-            .check_missing_required_parameters(
-                &recipe,
-                &planner_output,
-                user_id,
-                Some(&progress_tx),
-            )
-            .await?
-        {
-            return Ok(missing_response);
-        }
 
         // 5. 执行方案（带进度回调和升级）
         let result = self
@@ -1013,36 +1012,57 @@ impl Agent {
         user_id: i32,
         progress_tx: tokio::sync::mpsc::Sender<AgentProgressEvent>,
     ) -> Result<AgentResponse, String> {
+        // 每次运行 mint 新 id，保证 TaskState.task_id 与 TaskCreated 唯一且可取消
+        let mut recipe = recipe.clone();
+        let template_id = recipe.id.clone();
+        recipe.id = uuid::Uuid::new_v4().to_string();
+
         tracing::info!(
             user_id = user_id,
             recipe_id = %recipe.id,
+            template_id = %template_id,
             recipe_name = %recipe.name,
             steps_count = recipe.steps.len(),
             "[Agent] Executing saved recipe directly"
         );
 
-        Self::validate_saved_recipe(recipe)?;
+        Self::validate_saved_recipe(&recipe)?;
 
         // Saved recipes are an execution shortcut, not a security shortcut.
         // Re-run the same sensitive-operation gate used by newly planned work.
-        let sensitive_steps = self.check_sensitive_steps(recipe).await;
+        let sensitive_steps = self.check_sensitive_steps(&recipe).await;
         if !sensitive_steps.is_empty() {
             match Self::system_sensitive_gate(user_id, &sensitive_steps) {
                 Some(Ok(())) => {}
                 Some(Err(response)) => return Ok(response),
                 None => {
-                    let planner_output = Self::planner_output_for_saved_recipe(recipe);
+                    let planner_output = Self::planner_output_for_saved_recipe(&recipe);
                     return self
-                        .request_confirmation_v2(recipe, &planner_output, user_id, sensitive_steps)
+                        .request_confirmation_v2(&recipe, &planner_output, user_id, sensitive_steps)
                         .await;
                 }
             }
         }
 
+        // TaskCreated 在 mint 新 run id 后发送，保证与 TaskState.task_id 一致
+        let step_descs: Vec<String> = recipe
+            .steps
+            .iter()
+            .map(capability::get_step_description)
+            .collect();
+        let _ = progress_tx
+            .send(AgentProgressEvent::TaskCreated {
+                task_id: recipe.id.clone(),
+                message: response_agent::executing_preset(&recipe.name),
+                total_steps: recipe.steps.len() as u32,
+                step_descriptions: step_descs,
+            })
+            .await;
+
         // 直接执行 recipe
         let task_state = self
             .executor
-            .execute_with_progress(recipe, user_id, Some(progress_tx))
+            .execute_with_progress(&recipe, user_id, Some(progress_tx))
             .await?;
 
         // 根据执行类型返回结果
@@ -1053,7 +1073,7 @@ impl Agent {
         if let Some(obj) = result.as_object_mut() {
             obj.insert(
                 "recipe".to_string(),
-                serde_json::to_value(recipe).unwrap_or_default(),
+                serde_json::to_value(&recipe).unwrap_or_default(),
             );
         }
 
@@ -1073,7 +1093,7 @@ impl Agent {
             record_execution_memory(MemoryRecordParams {
                 user_id,
                 user_input: &recipe.name,
-                recipe,
+                recipe: &recipe,
                 planner_steps_len: recipe.steps.len(),
                 success: ok,
                 error_msg: task_state.error.as_deref(),
@@ -1284,25 +1304,6 @@ impl Agent {
         })
     }
 
-    /// 检查能力是否为敏感操作
-    fn is_sensitive_capability(&self, capability_id: &str) -> bool {
-        // 敏感操作列表
-        const SENSITIVE_CAPABILITIES: &[&str] = &[
-            "delete",
-            "remove",
-            "unfollow",
-            "unsubscribe",
-            "clear",
-            "reset",
-            "export_all",
-            "batch_",
-        ];
-
-        SENSITIVE_CAPABILITIES
-            .iter()
-            .any(|s| capability_id.contains(s))
-    }
-
     /// 处理用户确认
     pub async fn confirmation_lane_key(
         &self,
@@ -1478,79 +1479,7 @@ impl Agent {
         user_id: i32,
         progress_tx: Option<&tokio::sync::mpsc::Sender<AgentProgressEvent>>,
     ) -> Result<Option<AgentResponse>, String> {
-        let registry = capability::get_registry().await;
-        let skill_registry = skill::get_skill_registry();
-        let mut missing: Vec<(String, String, String)> = Vec::new(); // (step_id, param_name, param_description)
-
-        for step in &recipe.steps {
-            // Skill 步骤：从 SkillRegistry 检查 parameters 字段
-            if let Some(skill_id) = step.capability_id.strip_prefix("skill:") {
-                if let Some(skill_reg) = skill_registry {
-                    if let Some(sk) = skill_reg.get(skill_id).await {
-                        tracing::debug!(
-                            step_id = %step.id,
-                            skill_id = skill_id,
-                            declared_params = ?sk.parameters,
-                            actual_params = ?step.params.keys().collect::<Vec<_>>(),
-                            "[Agent] Checking skill parameters"
-                        );
-                        for param_name in &sk.parameters {
-                            let has_value = step
-                                .params
-                                .get(param_name.as_str())
-                                .map(|v: &serde_json::Value| {
-                                    !v.is_null() && v.as_str().is_none_or(|s| !s.is_empty())
-                                })
-                                .unwrap_or(false);
-                            // xxxFrom 引用（如 dataFrom: "step_1"）在执行时会解析为实际值
-                            let has_from = step.params.contains_key(&format!("{}From", param_name));
-                            if !has_value && !has_from {
-                                // Skill 参数名本身就是描述
-                                let description = param_name.replace('_', " ");
-                                missing.push((
-                                    step.id.clone(),
-                                    param_name.to_string(),
-                                    description,
-                                ));
-                            }
-                        }
-                    }
-                }
-            }
-            // 普通 Capability 步骤：从 input_schema.required 检查
-            else if let Some(cap) = registry.get(&step.capability_id) {
-                if let Some(required) = cap.input_schema.get("required").and_then(|v| v.as_array())
-                {
-                    let properties = cap.input_schema.get("properties");
-                    for req_val in required {
-                        if let Some(param_name) = req_val.as_str() {
-                            let has_value = step
-                                .params
-                                .get(param_name)
-                                .map(|v| !v.is_null() && v.as_str().is_none_or(|s| !s.is_empty()))
-                                .unwrap_or(false);
-                            // xxxFrom 引用（如 promptFrom: "step_3"）在执行时会解析为实际值
-                            let has_from = step.params.contains_key(&format!("{}From", param_name));
-
-                            if !has_value && !has_from {
-                                // 从 schema 获取参数描述
-                                let description = properties
-                                    .and_then(|p| p.get(param_name))
-                                    .and_then(|p| p.get("description"))
-                                    .and_then(|d| d.as_str())
-                                    .unwrap_or(param_name)
-                                    .to_string();
-                                missing.push((
-                                    step.id.clone(),
-                                    param_name.to_string(),
-                                    description,
-                                ));
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        let missing = collect_missing_required_params(recipe).await;
 
         if missing.is_empty() {
             return Ok(None);
@@ -1558,7 +1487,7 @@ impl Agent {
 
         tracing::info!(
             missing_count = missing.len(),
-            params = ?missing.iter().map(|(_, p, _)| p.as_str()).collect::<Vec<_>>(),
+            params = ?missing.iter().map(|m| format!("{}:{}", m.step_id, m.param_name)).collect::<Vec<_>>(),
             "[Agent] Missing required parameters, asking user before execution"
         );
 
@@ -1566,46 +1495,37 @@ impl Agent {
         let mut task_state = types::TaskState::new(recipe);
         task_state.status = types::TaskStatus::WaitingForInput;
 
-        // 构建提问 — 如果只缺一个参数，直接问；多个则合并
+        // 按参数逐个提问（结构化 question_id = pre_param:{step_id}:{param_name}），
+        // 其余进入 pending_questions，resume 时写回 Recipe 后再问下一个
         let question_expires = Some(chrono::Utc::now() + chrono::Duration::minutes(30));
-        let question = if missing.len() == 1 {
-            let (_, ref param_name, ref desc) = missing[0];
-            types::UserQuestion {
-                question_id: format!("pre_param_{}", param_name),
+        let mut questions: Vec<types::UserQuestion> = missing
+            .iter()
+            .map(|m| types::UserQuestion {
+                question_id: pre_param_question_id(&m.step_id, &m.param_name),
                 question_type: types::QuestionType::FreeText,
-                question: response_agent::ask_single_param(desc),
-                context: String::new(),
+                question: response_agent::ask_single_param(&m.description),
+                context: format!("step={} param={}", m.step_id, m.param_name),
                 options: None,
                 required: true,
                 default_value: None,
                 created_at: chrono::Utc::now(),
                 expires_at: question_expires,
-            }
-        } else {
-            let prompts: Vec<String> = missing
-                .iter()
-                .map(|(_, _, desc)| format!("- {}", desc))
-                .collect();
-            types::UserQuestion {
-                question_id: "pre_params".to_string(),
-                question_type: types::QuestionType::FreeText,
-                question: response_agent::ask_multiple_params(&prompts.join("\n")),
-                context: String::new(),
-                options: None,
-                required: true,
-                default_value: None,
-                created_at: chrono::Utc::now(),
-                expires_at: question_expires,
-            }
-        };
+            })
+            .collect();
 
-        task_state.set_pending_question(question.clone());
-        task_state.execution_context = Some(types::ExecutionContext::from_request_full(
+        let question = questions.remove(0);
+        let mut exec_ctx = types::ExecutionContext::from_request_full(
             &recipe.original_request,
             &recipe.name,
             recipe.page_context.clone(),
             recipe.conversation_context.clone(),
-        ));
+        );
+        exec_ctx.pending_questions = questions;
+
+        task_state.set_pending_question(question.clone());
+        task_state.execution_context = Some(exec_ctx);
+        // 保证 resume 时有可变 recipe 可写回参数
+        task_state.recipe = Some(recipe.clone());
 
         // 存储任务等待用户回答
         {
@@ -3197,6 +3117,165 @@ fn humanize_field_name(field: &str) -> String {
     result
 }
 
+// ============ 预执行参数收集 / 写回 ============
+
+/// 缺失的必需参数
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MissingRequiredParam {
+    step_id: String,
+    param_name: String,
+    description: String,
+}
+
+/// 结构化 question_id，resume 时据此写回 Recipe.step.params
+fn pre_param_question_id(step_id: &str, param_name: &str) -> String {
+    format!("pre_param:{}:{}", step_id, param_name)
+}
+
+/// 解析 `pre_param:{step_id}:{param_name}`；兼容旧格式 `pre_param_{param_name}`
+pub(crate) fn parse_pre_param_question_id(question_id: &str) -> Option<(String, String)> {
+    if let Some(rest) = question_id.strip_prefix("pre_param:") {
+        let mut parts = rest.splitn(2, ':');
+        let step_id = parts.next()?.to_string();
+        let param_name = parts.next()?.to_string();
+        if step_id.is_empty() || param_name.is_empty() {
+            return None;
+        }
+        return Some((step_id, param_name));
+    }
+    // 兼容旧版 pre_param_{name}（无 step 映射，调用方用第一个匹配步骤）
+    if let Some(param_name) = question_id.strip_prefix("pre_param_") {
+        if !param_name.is_empty() && param_name != "s" {
+            return Some((String::new(), param_name.to_string()));
+        }
+    }
+    None
+}
+
+/// 将用户回答写回 Recipe 对应步骤参数
+pub(crate) fn apply_pre_param_answer_to_recipe(
+    recipe: &mut Recipe,
+    question_id: &str,
+    answer: &str,
+) -> bool {
+    let Some((step_id, param_name)) = parse_pre_param_question_id(question_id) else {
+        return false;
+    };
+    let value = serde_json::Value::String(answer.trim().to_string());
+    if step_id.is_empty() {
+        // 旧格式：写入第一个缺少该参数的步骤，否则第一个步骤
+        let idx = recipe
+            .steps
+            .iter()
+            .position(|s| !s.params.contains_key(&param_name))
+            .or_else(|| if recipe.steps.is_empty() { None } else { Some(0) });
+        if let Some(i) = idx {
+            recipe.steps[i].params.insert(param_name, value);
+            return true;
+        }
+        return false;
+    }
+    if let Some(step) = recipe.steps.iter_mut().find(|s| s.id == step_id) {
+        step.params.insert(param_name, value);
+        return true;
+    }
+    false
+}
+
+fn step_has_param_value(step: &types::RecipeStep, param_name: &str) -> bool {
+    let has_value = step
+        .params
+        .get(param_name)
+        .map(|v| !v.is_null() && v.as_str().is_none_or(|s| !s.is_empty()))
+        .unwrap_or(false);
+    let has_from = step.params.contains_key(&format!("{}From", param_name));
+    has_value || has_from
+}
+
+fn push_missing_from_schema(
+    missing: &mut Vec<MissingRequiredParam>,
+    step: &types::RecipeStep,
+    schema: &Value,
+) {
+    let Some(required) = schema.get("required").and_then(|v| v.as_array()) else {
+        return;
+    };
+    let properties = schema.get("properties");
+    for req_val in required {
+        let Some(param_name) = req_val.as_str() else {
+            continue;
+        };
+        if step_has_param_value(step, param_name) {
+            continue;
+        }
+        let description = properties
+            .and_then(|p| p.get(param_name))
+            .and_then(|p| p.get("description"))
+            .and_then(|d| d.as_str())
+            .unwrap_or(param_name)
+            .to_string();
+        missing.push(MissingRequiredParam {
+            step_id: step.id.clone(),
+            param_name: param_name.to_string(),
+            description,
+        });
+    }
+}
+
+/// 收集 Recipe 中缺失的必需参数（静态 registry + 动态 MCP schema + Skill）
+async fn collect_missing_required_params(recipe: &Recipe) -> Vec<MissingRequiredParam> {
+    let registry = capability::get_registry().await;
+    let skill_registry = skill::get_skill_registry();
+    let mcp_schemas = load_mcp_tool_schemas().await;
+    let mut missing = Vec::new();
+
+    for step in &recipe.steps {
+        if let Some(skill_id) = step.capability_id.strip_prefix("skill:") {
+            if let Some(skill_reg) = skill_registry {
+                if let Some(sk) = skill_reg.get(skill_id).await {
+                    for param_name in &sk.parameters {
+                        if !step_has_param_value(step, param_name) {
+                            missing.push(MissingRequiredParam {
+                                step_id: step.id.clone(),
+                                param_name: param_name.to_string(),
+                                description: param_name.replace('_', " "),
+                            });
+                        }
+                    }
+                }
+            }
+            continue;
+        }
+
+        if let Some(cap) = registry.get(&step.capability_id) {
+            push_missing_from_schema(&mut missing, step, &cap.input_schema);
+            continue;
+        }
+
+        // 动态 MCP 工具：不在静态 registry 中，从 MCP manager 读 schema
+        if step.capability_id.starts_with("mcp.") {
+            if let Some(schema) = mcp_schemas.get(&step.capability_id) {
+                push_missing_from_schema(&mut missing, step, schema);
+            }
+        }
+    }
+
+    missing
+}
+
+/// capability_id (`mcp.{server}.{tool}`) → input_schema
+async fn load_mcp_tool_schemas() -> HashMap<String, Value> {
+    let mut map = HashMap::new();
+    let Some(manager) = mcp::get_mcp_manager() else {
+        return map;
+    };
+    for (server_id, tool) in manager.list_tools().await {
+        let cap_id = format!("mcp.{}.{}", server_id, tool.name);
+        map.insert(cap_id, tool.input_schema);
+    }
+    map
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3399,5 +3478,74 @@ mod tests {
         );
         completed_with_failed_step.task = Some(failed_step_task);
         assert!(!completed_with_failed_step.is_successful_outcome());
+    }
+
+    #[test]
+    fn task_state_task_id_matches_recipe_id_for_sse_cancel() {
+        let recipe = Recipe::new("t", "do something", ExecutionType::Instant);
+        let task = TaskState::new(&recipe);
+        assert_eq!(
+            task.task_id, recipe.id,
+            "TaskCreated SSE uses recipe.id; cancel/steer must hit the same id"
+        );
+        assert_eq!(task.recipe_id, recipe.id);
+    }
+
+    #[test]
+    fn pre_param_question_id_roundtrip() {
+        let qid = pre_param_question_id("step_1", "tappId");
+        assert_eq!(qid, "pre_param:step_1:tappId");
+        assert_eq!(
+            parse_pre_param_question_id(&qid),
+            Some(("step_1".into(), "tappId".into()))
+        );
+        assert_eq!(
+            parse_pre_param_question_id("pre_param_url"),
+            Some(("".into(), "url".into()))
+        );
+        assert!(parse_pre_param_question_id("other").is_none());
+    }
+
+    fn sample_step(id: &str, cap: &str) -> types::RecipeStep {
+        types::RecipeStep {
+            id: id.into(),
+            order: 0,
+            capability_id: cap.into(),
+            action: "act".into(),
+            params: HashMap::new(),
+            depends_on: vec![],
+            on_failure: types::FailureStrategy::Abort,
+            retry: None,
+            timeout_ms: None,
+            model_tier: None,
+            generator: None,
+        }
+    }
+
+    #[test]
+    fn apply_pre_param_writes_back_to_recipe_step() {
+        let mut recipe = Recipe::new("t", "open tapp", ExecutionType::Instant);
+        recipe
+            .steps
+            .push(sample_step("step_1", "tapp.interact"));
+
+        assert!(apply_pre_param_answer_to_recipe(
+            &mut recipe,
+            "pre_param:step_1:tappId",
+            " my-tapp "
+        ));
+        assert_eq!(
+            recipe.steps[0].params.get("tappId").and_then(|v| v.as_str()),
+            Some("my-tapp")
+        );
+    }
+
+    #[test]
+    fn step_has_param_respects_from_refs() {
+        let mut step = sample_step("s", "ai.summarize");
+        assert!(!step_has_param_value(&step, "content"));
+        step.params
+            .insert("contentFrom".into(), json!("step_0"));
+        assert!(step_has_param_value(&step, "content"));
     }
 }

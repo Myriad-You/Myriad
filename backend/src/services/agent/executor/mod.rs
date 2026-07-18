@@ -1266,7 +1266,7 @@ impl Executor {
                 // 动态分析：检查是否需要用户输入
                 if !_is_dynamic {
                     if let Some(question) = self
-                        .analyze_and_generate_dynamic_steps(&step, &output, &mut context, recipe)
+                        .analyze_and_generate_dynamic_steps(&step, &output, &mut context, &recipe)
                         .await
                     {
                         emitter
@@ -2415,6 +2415,12 @@ impl Executor {
             task.clone()
         };
 
+        // 优先使用 task 上保存的 recipe（可能已写入先前 pre_param 答案），否则用调用方传入的
+        let mut recipe = task_state
+            .recipe
+            .clone()
+            .unwrap_or_else(|| recipe.clone());
+
         // 恢复执行上下文
         let mut context = task_state.execution_context.take().unwrap_or_default();
         context.variables.insert(
@@ -2499,13 +2505,13 @@ impl Executor {
                 } else {
                     // 验证通过后才记录答案
                     context.record_answer(&answer.question_id, &answer.answer);
-                    self.process_user_answer(&answer, question, &mut context, recipe)
+                    self.process_user_answer(&answer, question, &mut context, &mut recipe)
                         .await
                 }
             } else {
                 // 无过期时间，直接记录并处理
                 context.record_answer(&answer.question_id, &answer.answer);
-                self.process_user_answer(&answer, question, &mut context, recipe)
+                self.process_user_answer(&answer, question, &mut context, &mut recipe)
                     .await
             }
         } else {
@@ -2515,6 +2521,9 @@ impl Executor {
             );
             false
         };
+
+        // 持久化写回参数后的 recipe，供后续 resume / 执行使用
+        task_state.recipe = Some(recipe.clone());
 
         // 用户选择 retry：仅在确实存在错误步骤时触发重试逻辑
         if answer.answer == "retry" {
@@ -2575,12 +2584,55 @@ impl Executor {
             return Ok(task_state);
         }
 
+        // 仍有 pre_param 排队：先继续问下一个，避免带着缺参 recipe 开跑
+        if context
+            .pending_questions
+            .first()
+            .is_some_and(|q| q.question_id.starts_with("pre_param"))
+        {
+            let question = context.pending_questions.remove(0);
+            tracing::info!(
+                task_id = %task_id,
+                question_id = %question.question_id,
+                remaining = context.pending_questions.len(),
+                "[Executor] Next pre_param question after answer"
+            );
+            if let Some(ref tx) = progress_tx {
+                let _ = tx
+                    .send(AgentProgressEvent::WaitingForInput {
+                        task_id: task_state.task_id.clone(),
+                        question_id: question.question_id.clone(),
+                        question_type: serde_json::to_value(&question.question_type)
+                            .ok()
+                            .and_then(|v| v.as_str().map(String::from))
+                            .unwrap_or_else(|| "free_text".to_string()),
+                        question: question.question.clone(),
+                        context: None,
+                        options: None,
+                        required: question.required,
+                        default_value: None,
+                    })
+                    .await;
+            }
+            task_state.set_pending_question(question);
+            task_state.recipe = Some(recipe.clone());
+            task_state.execution_context = Some(context);
+            {
+                let mut store = TASK_STORE.write().await;
+                if let Some(task) = store.get_mut(&task_state.task_id) {
+                    *task = task_state.clone();
+                }
+            }
+            persist_task_async(user_id, task_state.clone());
+            return Ok(task_state);
+        }
+
         tracing::info!(
             task_id = %task_id,
             "[Executor] Resuming execution after user answer"
         );
 
-        // 继续执行剩余步骤
+        // 继续执行剩余步骤（使用已写回 pre_param 的 recipe）
         let all_steps: Vec<RecipeStep> = recipe.steps.clone();
         let mut step_index = task_state.current_step;
 
@@ -2815,7 +2867,7 @@ impl Executor {
                 // 动态分析：检查是否需要用户输入
                 if !_is_dynamic {
                     if let Some(question) = self
-                        .analyze_and_generate_dynamic_steps(&step, &output, &mut context, recipe)
+                        .analyze_and_generate_dynamic_steps(&step, &output, &mut context, &recipe)
                         .await
                     {
                         emitter
@@ -3053,7 +3105,7 @@ impl Executor {
         answer: &UserAnswer,
         question: &UserQuestion,
         context: &mut ExecutionContext,
-        _recipe: &Recipe,
+        recipe: &mut Recipe,
     ) -> bool {
         // 同时以 question_id 为键存储，避免多轮提问覆盖
         let qid_key = format!("answer_{}", answer.question_id);
@@ -3067,6 +3119,29 @@ impl Executor {
                 "question": question.question.clone(),
             }),
         );
+
+        // pre_param:* 答案写回 Recipe 具体步骤参数（否则 resume 仍用缺参的原 recipe）
+        if crate::services::agent::parse_pre_param_question_id(&answer.question_id).is_some()
+            || crate::services::agent::parse_pre_param_question_id(&question.question_id).is_some()
+        {
+            let qid = if crate::services::agent::parse_pre_param_question_id(&answer.question_id)
+                .is_some()
+            {
+                answer.question_id.as_str()
+            } else {
+                question.question_id.as_str()
+            };
+            let applied = crate::services::agent::apply_pre_param_answer_to_recipe(
+                recipe,
+                qid,
+                &answer.answer,
+            );
+            tracing::info!(
+                question_id = %qid,
+                applied = applied,
+                "[Executor] Applied pre_param answer to recipe"
+            );
+        }
 
         match question.question_type {
             QuestionType::SingleChoice | QuestionType::MultipleChoice => {

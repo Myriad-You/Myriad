@@ -954,8 +954,10 @@ impl Recipe {
 
 impl TaskState {
     pub fn new(recipe: &Recipe) -> Self {
+        // task_id 必须与 TaskCreated SSE / 前端 cancel·steer 使用的 id 一致。
+        // 执行路径在创建 Recipe 时已为每次运行生成唯一 id；保存的预设在执行前会重新 mint。
         Self {
-            task_id: uuid::Uuid::new_v4().to_string(),
+            task_id: recipe.id.clone(),
             recipe_id: recipe.id.clone(),
             status: TaskStatus::Pending,
             current_step: 0,

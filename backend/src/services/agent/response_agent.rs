@@ -705,6 +705,7 @@ pub fn ask_single_param(desc: &str) -> String {
 }
 
 /// 多参数提问
+#[allow(dead_code)] // kept for multi-param free-text fallback if needed
 pub fn ask_multiple_params(prompts: &str) -> String {
     format!("在开始之前，我需要了解一些信息：\n{}", prompts)
 }

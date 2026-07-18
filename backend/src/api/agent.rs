@@ -1196,8 +1196,9 @@ pub async fn process_stream(
     // tx 会被移动到 spawn 中，确保 channel 在任务完成前不会关闭
     tokio::spawn(async move {
         // 获取 Lane Queue 执行许可（同一用户串行，全局并发上限 4）
-        let _guard = match queue.acquire(&lane_key).await {
-            Ok(guard) => guard,
+        // 注意：进入 wait-for-input 后必须释放，否则最多 4 个等待任务会堵死全局槽位
+        let mut lane_guard = match queue.acquire(&lane_key).await {
+            Ok(guard) => Some(guard),
             Err(e) => {
                 let _ = tx
                     .send(AgentProgressEvent::Error {
@@ -1241,8 +1242,13 @@ pub async fn process_stream(
 
                 if is_waiting && !task_id.is_empty() {
                     // 任务需要用户回答。前端已通过 waiting_for_input SSE 事件收到问题。
-                    // 保持后端 run 存活，循环等待直到任务真正完成（支持多轮提问）。
-                    // 每轮回答后检查任务是否仍在等待输入，如果是则重新注册等待。
+                    // 释放全局 lane 许可，避免无限等待占满 Semaphore(max=4)。
+                    // resume 执行在 answer_stream 中重新获取许可。
+                    drop(lane_guard.take());
+                    tracing::info!(
+                        task_id = %task_id,
+                        "[Agent API] Released lane permit while waiting for user input"
+                    );
 
                     // 持久化首次问题消息
                     if !session_id_clone.is_empty() {
@@ -1371,6 +1377,62 @@ pub async fn process_stream(
                                     )
                                     .await;
 
+                                // 问题过期：干净退出，释放 run，避免永久轮询
+                                if let Some(task) = current_task.as_ref() {
+                                    if task.status
+                                        == crate::services::agent::types::TaskStatus::WaitingForInput
+                                    {
+                                        let expired = task
+                                            .pending_question
+                                            .as_ref()
+                                            .and_then(|q| q.expires_at)
+                                            .is_some_and(|exp| chrono::Utc::now() > exp);
+                                        if expired {
+                                            tracing::warn!(
+                                                task_id = %task_id,
+                                                "[Agent API] Waiting question expired; closing wait loop"
+                                            );
+                                            let response_value = json!({
+                                                "success": false,
+                                                "message": "等待用户输入已超时",
+                                                "task": {
+                                                    "taskId": task_id.clone(),
+                                                    "status": "failed"
+                                                }
+                                            });
+                                            let _ = tx
+                                                .send(AgentProgressEvent::TaskCompleted {
+                                                    task_id: task_id.clone(),
+                                                    success: false,
+                                                    response: Box::new(response_value),
+                                                })
+                                                .await;
+                                            // 标记任务失败，避免幽灵 waiting
+                                            if let Some(mut t) = crate::services::agent::executor::get_task_for_user(
+                                                &task_id, user_id,
+                                            )
+                                            .await
+                                            {
+                                                t.status = crate::services::agent::types::TaskStatus::Failed;
+                                                t.error = Some("等待用户输入已超时".into());
+                                                t.completed_at = Some(chrono::Utc::now());
+                                                t.pending_question = None;
+                                                {
+                                                    let mut store =
+                                                        crate::services::agent::executor::TASK_STORE
+                                                            .write()
+                                                            .await;
+                                                    store.store(user_id, t.clone());
+                                                }
+                                                crate::services::agent::executor::persist_task_async(
+                                                    user_id, t,
+                                                );
+                                            }
+                                            break;
+                                        }
+                                    }
+                                }
+
                                 if current_task.as_ref().is_some_and(|task| {
                                     matches!(
                                         task.status,
@@ -1441,6 +1503,8 @@ pub async fn process_stream(
                         }
                     }
                 } else {
+                    // 非 waiting 路径：正常流程结束时 guard 会在 spawn 结束时 drop
+                    let _ = lane_guard.take();
                     // 正常流程：立即发送 TaskCompleted
 
                     // 持久化 assistant 消息
@@ -1839,6 +1903,23 @@ pub async fn answer_task_question_stream(
 
     let db_clone = db.clone();
     tokio::spawn(async move {
+        // resume 执行前重新获取 lane 许可（process_stream 在 wait-for-input 时已释放）
+        let queue = LANE_QUEUE.clone();
+        let lane_key = LaneQueue::make_lane_key(user_id, None);
+        let _lane_guard = match queue.acquire(&lane_key).await {
+            Ok(guard) => guard,
+            Err(e) => {
+                let _ = tx
+                    .send(AgentProgressEvent::Error {
+                        task_id: Some(task_id.clone()),
+                        message: e,
+                        code: "QUEUE_FULL".to_string(),
+                    })
+                    .await;
+                return;
+            }
+        };
+
         let agent = Agent::new(db_clone.clone()).await;
 
         // 从 WAITING_TASKS 获取后端 run 上下文（仅所有者可取，防跨用户抢 oneshot）
@@ -2636,21 +2717,7 @@ pub async fn execute_preset(
 
         let agent = crate::services::agent::Agent::new(db_clone).await;
 
-        // 发送任务创建事件
-        let _ = tx
-            .send(ProgressEvent::TaskCreated {
-                task_id: recipe.id.clone(),
-                message: crate::services::agent::response_agent::executing_preset(&recipe.name),
-                total_steps: recipe.steps.len() as u32,
-                step_descriptions: recipe
-                    .steps
-                    .iter()
-                    .map(crate::services::agent::capability::get_step_description)
-                    .collect(),
-            })
-            .await;
-
-        // 直接执行已保存的 recipe（跳过意图分析）
+        // TaskCreated 在 execute_saved_recipe 内 mint 新 run id 后发送，保证与 task_id 一致
         match agent
             .execute_saved_recipe(&recipe, user_id, tx.clone())
             .await

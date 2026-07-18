@@ -193,4 +193,27 @@ mod tests {
         queue.cleanup_idle_lanes().await;
         assert_eq!(queue.get_status().await.total_lanes, 0);
     }
+
+    /// P1-3: 等待用户输入时必须释放全局 permit，否则 max=N 个 waiting 会堵死队列
+    #[tokio::test]
+    async fn releasing_guard_returns_global_permit_for_other_lanes() {
+        let queue = Arc::new(LaneQueue::new(1));
+        let g1 = queue.acquire("lane-a").await.unwrap();
+        assert_eq!(queue.get_status().await.available_permits, 0);
+
+        // 模拟 wait-for-input：释放 guard 后其他 lane 应能立刻拿到许可
+        drop(g1);
+        assert_eq!(queue.get_status().await.available_permits, 1);
+
+        let g2 = tokio::time::timeout(
+            std::time::Duration::from_millis(200),
+            queue.acquire("lane-b"),
+        )
+        .await
+        .expect("should not block after release")
+        .unwrap();
+        assert_eq!(queue.get_status().await.available_permits, 0);
+        drop(g2);
+        assert_eq!(queue.get_status().await.available_permits, 1);
+    }
 }
