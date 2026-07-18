@@ -2,11 +2,13 @@ name: CI
 
 on:
   pull_request:
-  push:
     branches: [main, preview, beta]
+  push:
+    # Post-merge gate for production line only; avoid double-run when PRs merge into preview/beta
+    branches: [main]
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
