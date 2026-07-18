@@ -1052,59 +1052,7 @@ pub async fn admin_create_user(
     })))
 }
 
-/// GET /api/admin/users — admin 列出所有用户（含 identities 计数）
-pub async fn admin_list_users(
-    State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    use crate::middleware::auth::verify_jwt_token;
-    let claims = verify_jwt_token(&headers).map_err(|_| {
-        (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Unauthorized"})),
-        )
-    })?;
-    ensure_current_admin(&claims).await?;
-
-    let rows = db
-        .query_all(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "SELECT u.id, u.username, u.email, u.is_admin, u.auth_provider, \
-                    u.local_login_disabled, u.password_hash IS NOT NULL AS has_password, \
-                    u.created_at, u.last_login_at, \
-                    (SELECT COUNT(*) FROM user_identities i WHERE i.user_id = u.id) AS identity_count \
-             FROM users u ORDER BY u.created_at DESC",
-            vec![],
-        ))
-        .await
-        .map_err(|e| {
-            tracing::error!("DB error: {:?}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Database error"})),
-            )
-        })?;
-
-    let users: Vec<Value> = rows
-        .into_iter()
-        .map(|r| {
-            json!({
-                "id": r.try_get::<i32>("", "id").unwrap_or(0),
-                "username": r.try_get::<String>("", "username").unwrap_or_default(),
-                "email": r.try_get::<Option<String>>("", "email").unwrap_or(None),
-                "is_admin": r.try_get::<bool>("", "is_admin").unwrap_or(false),
-                "auth_provider": r.try_get::<String>("", "auth_provider").unwrap_or_default(),
-                "local_login_disabled": r.try_get::<bool>("", "local_login_disabled").unwrap_or(false),
-                "has_password": r.try_get::<bool>("", "has_password").unwrap_or(false),
-                "identity_count": r.try_get::<i64>("", "identity_count").unwrap_or(0),
-                "created_at": r.try_get::<chrono::DateTime<chrono::Utc>>("", "created_at").ok().map(|t| t.to_rfc3339()),
-                "last_login_at": r.try_get::<chrono::DateTime<chrono::Utc>>("", "last_login_at").ok().map(|t| t.to_rfc3339()),
-            })
-        })
-        .collect();
-
-    Ok(Json(json!({ "users": users })))
-}
+// admin 用户列表已迁移到 api::admin_users::list_users（设置页用户管理模块）
 
 #[cfg(test)]
 mod tests {

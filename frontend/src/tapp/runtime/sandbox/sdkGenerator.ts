@@ -16,6 +16,7 @@
  */
 
 import type { TappInstance } from '../../types'
+import type { SandboxCapabilityProfile } from './capabilityProfiles'
 import { serializeSandboxScriptValue } from './security'
 
 // ========================
@@ -107,6 +108,7 @@ function generateStorageKeyValidator(): string {
 export function generateFullSDK(
   tappInstance: TappInstance,
   sessionToken?: string,
+  profile: Extract<SandboxCapabilityProfile, 'page' | 'headless'> = 'page',
 ): string {
   const { id, manifest, grantedPermissions } = tappInstance
   const token = sessionToken || ''
@@ -115,6 +117,7 @@ export function generateFullSDK(
   const versionLiteral = serializeSandboxScriptValue(manifest.version)
   const tokenLiteral = serializeSandboxScriptValue(token)
   const permissionsLiteral = serializeSandboxScriptValue(grantedPermissions)
+  const headlessLiteral = profile === 'headless' ? 'true' : 'false'
 
   return `
 (() => {
@@ -834,6 +837,30 @@ export function generateFullSDK(
     widgets: {},
     pages: {},
   };
+
+  // Headless core is a background capability profile, not an invisible Page.
+  // Keep data/scheduler/event/media/federation APIs, but remove visible UI and
+  // host control-plane namespaces before the public object is frozen.
+  if (${headlessLiteral}) {
+    Tapp.ui = {
+      getTheme: Tapp.ui.getTheme,
+      onThemeChange: Tapp.ui.onThemeChange,
+      getPrimaryColor: Tapp.ui.getPrimaryColor,
+      onPrimaryColorChange: Tapp.ui.onPrimaryColorChange,
+      getLocale: Tapp.ui.getLocale,
+      onLocaleChange: Tapp.ui.onLocaleChange,
+      showNotification: Tapp.ui.showNotification,
+    };
+    delete Tapp.widget;
+    delete Tapp.tappList;
+    delete Tapp.component;
+    delete Tapp.shortcut;
+    delete Tapp.dynamicContent;
+    delete Tapp.dom;
+    delete Tapp.file;
+    delete Tapp.widgets;
+    delete Tapp.pages;
+  }
 
   // 冻结所有 API 对象（防止篡改）
   Object.freeze(Tapp);

@@ -19,6 +19,7 @@ import {
   getTappRuntimeFingerprint,
 } from './codeStructure'
 import {
+  applySandboxCapabilityProfile,
   cspOptionsFromPermissions,
   escapeSandboxHtmlText,
   escapeSandboxScriptSource,
@@ -140,7 +141,7 @@ function generateHeadlessCoreHTML(
     generateSecurityWrapper(sessionToken),
   )
   const sdkCode = escapeSandboxScriptSource(
-    generateFullSDK(tappInstance, sessionToken),
+    generateFullSDK(tappInstance, sessionToken, 'headless'),
   )
   // 'background' 模式即返回纯 code.core（无 page/widget UI 代码）
   const coreCode = escapeSandboxScriptSource(getCodeForMode(code, 'background'))
@@ -748,9 +749,14 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
       handleReady,
       handleError,
     )
-    registerUIHandlers(bridge, currentTappInstance, () => localeRef.current)
+    registerUIHandlers(
+      bridge,
+      currentTappInstance,
+      () => localeRef.current,
+      { headless },
+    )
     registerUserHandlers(bridge, currentTappInstance)
-    registerFileHandlers(bridge)
+    if (!headless) registerFileHandlers(bridge)
     registerAnimationHandlers(bridge, animationConfigRef)
 
     const cleanups: (() => void)[] = []
@@ -773,9 +779,9 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
     } else {
       registerStorageHandlers(bridge, currentTappInstance.id)
       registerAssetHandlers(bridge, currentTappInstance)
-      registerWidgetHandlers(bridge, currentTappInstance)
+      if (!headless) registerWidgetHandlers(bridge, currentTappInstance)
       registerPlatformHandlers(bridge, currentTappInstance)
-      registerTappListHandlers(bridge, currentTappInstance)
+      if (!headless) registerTappListHandlers(bridge, currentTappInstance)
       registerBrewListHandlers(bridge, currentTappInstance)
       const closeAITaskStreams = registerAIHandlers(bridge)
       registerReportHandlers(bridge, currentTappInstance)
@@ -786,7 +792,7 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
         bridge,
         currentTappInstance,
       )
-      registerDynamicContentHandlers(bridge, currentTappInstance)
+      if (!headless) registerDynamicContentHandlers(bridge, currentTappInstance)
       registerAdvancedHandlers(bridge, currentTappInstance)
       const closeFederationSockets = registerFederationHandlers(
         bridge,
@@ -813,6 +819,7 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
         closeEventStream,
         closeAgentInteractions,
       )
+      applySandboxCapabilityProfile(bridge, headless ? 'headless' : 'page')
     }
 
     // 收集 URL 启动参数传递给沙箱

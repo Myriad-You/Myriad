@@ -9,10 +9,10 @@
  */
 
 import type { TappCodeStructure, TappManifest, WidgetSize } from '../types'
+import type { PackageFileContent, PlaygroundPackageFiles } from './playgroundPackageFiles.ts'
 import {
   buildPlaygroundPackageFiles,
-  type PackageFileContent,
-  type PlaygroundPackageFiles,
+
 } from './playgroundPackageFiles.ts'
 
 const MAX_TAPP_ID_LEN = 128
@@ -36,7 +36,7 @@ const VALID_WIDGET_SIZES = new Set<string>([
 
 /** Loose semver matching the backend `semver::Version::parse` happy path. */
 const SEMVER_RE =
-  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-z-][0-9a-z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-z-][0-9a-z-]*))*))?(?:\+([0-9a-z-]+(?:\.[0-9a-z-]+)*))?$/i
 
 export type ValidatePlaygroundPackageResult =
   | { ok: true; package: PlaygroundPackageFiles }
@@ -50,14 +50,14 @@ export interface ValidatePlaygroundPackageInput {
 function isSafePathComponent(value: string): boolean {
   if (!value || value.length > MAX_TAPP_ID_LEN) return false
   if (value === '.' || value === '..' || value.startsWith('.')) return false
-  return /^[A-Za-z0-9._-]+$/.test(value)
+  return /^[\w.-]+$/.test(value)
 }
 
 function validateTappId(id: string): string | null {
   if (
     !id ||
     id.length > MAX_TAPP_ID_LEN ||
-    !/^[A-Za-z0-9]/.test(id) ||
+    !/^[A-Z0-9]/i.test(id) ||
     !isSafePathComponent(id)
   ) {
     return 'Invalid Tapp id: use 1-128 ASCII letters, numbers, dots, underscores, or hyphens'
@@ -109,7 +109,7 @@ function fileExists(
   files: Record<string, PackageFileContent>,
   path: string,
 ): boolean {
-  return Object.prototype.hasOwnProperty.call(files, path)
+  return Object.hasOwn(files, path)
 }
 
 function isNonEmptyText(value: PackageFileContent | undefined): boolean {

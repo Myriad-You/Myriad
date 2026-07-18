@@ -56,6 +56,11 @@ flowchart LR
 | 运行时 API | `backend/src/api/tapp_runtime/`                            | AI、数据、上下文、媒体、事件、报告、声明 API 等    |
 | 调度入口   | `backend/src/api/tapp_scheduler.rs`                        | HTTP/WS 协议、身份/所有权/权限检查                 |
 | 调度引擎   | `backend/src/services/tapp_scheduler.rs`                   | 任务持久化、触发、重试、前端回执、后端动作         |
+| Manifest 契约 | `backend/src/api/tapp_store/manifest.rs`                | 安装清单、声明能力、Widget/设置/API 数据结构        |
+| Manifest 校验 | `backend/src/api/tapp_store/validation.rs`              | 路径、权限、资源配额及声明能力的纯校验边界          |
+| 包文件生命周期 | `backend/src/api/tapp_store/package_files.rs`           | staging/activate/recovery、资源读写与归档安全边界   |
+| 前端传输层 | `frontend/src/tapp/services/TappHttpClient.ts`              | CSRF、Runtime Grant 恢复、响应 envelope 与 SSE 解析 |
+| 前端运行时 API | `TappContextApi.ts` / `TappHostIntegrationApi.ts` / `TappInteractionApi.ts` | Context/Declared API、报告媒体、组件与事件交互 |
 | 声明 API   | `backend/src/services/tapp_api_service.rs`                 | 模板注入、出站请求、builtin、上下文隔离缓存        |
 
 `frontend/src/tapp/types/index.ts` 是前端运行时类型入口。运行时类型不得依赖
@@ -231,8 +236,8 @@ runtime ID 和最终权限；停止、更新、卸载或 Bridge 销毁会撤销�
 （映射与沙箱 `PERMISSION_MAP` / `permissionConfig` 一致），未映射的宿主专用路由
 （Brew WebSocket、RSSHub 实例管理、缓存管理、离线同步，以及联邦 E2E 密钥交换等）对带 Grant 的
 请求直接拒绝；不带 Grant 头的宿主 UI 请求不受影响。联邦 Channel/Room 的浏览器 WebSocket
-升级无法携带自定义头，暂不走 Grant 归因，仍依赖 Bridge 权限与 `connect-src 'none'` 隔离，
-后续需 ticket 查询参数等一次性凭据方案。
+升级无法携带自定义头，因此 Bridge 先通过带 Grant 的 `POST .../ws-ticket` 换取短时、单次票据，
+再用 `?tapp_ws_ticket=` 升级；票据按 subject、Tapp、runtime 与目标 Channel/Room 绑定，消费后即删除。
 
 **跨栈一致性（fixtures）**：host 路由 → 权限与沙箱 action → 权限的权威数据在
 `docs/development/tapp/fixtures/host_route_permissions.json` 与
@@ -247,6 +252,10 @@ Page 注册完整 handler 集合。Widget 为减少能力面和启动成本，�
 一次性数据交换、Agent Interaction、后台需求和调度等必要集合；平台与报告写 handler
 不会进入 Widget。新增 SDK 方法时必须同时核对：SDK 生成器、权限映射、目标沙箱的
 handler、后端路由/服务和文档。
+
+Headless 使用第三种显式能力配置：保留 storage、scheduler、event、federation、AI、报告读取等
+后台能力，但不生成或注册可见 UI、Widget/Tapp 列表管理、组件/快捷键、动态内容、DOM 与文件下载
+控制面。能力配置同时作用于 SDK 生成结果和 Bridge handler，避免仅“隐藏方法”而后端 action 仍可达。
 
 ## 权限模型
 
@@ -307,6 +316,11 @@ sequenceDiagram
 
 - `frontend/src/tapp/runtime/TappScheduler.ts` 是共享的 HTTP/WS 客户端。
 - handler 首次使用 scheduler 时才初始化连接；不用调度的 Tapp 不会空开 WebSocket。
+- 每个副本把 WS presence 写入 PostgreSQL TTL registry；调度引擎为符合 subject/安装范围的
+  每条在线 connection 写入共享 mailbox。任一副本上的 WS 以 500ms 轮询并原子 drain，发送失败则重新入队，因此
+  frontend 任务不会再依赖触发任务的进程内广播器。Presence 每 20 秒续租，75 秒过期。
+- 同一用户的多个标签页各有连接邮箱，避免没有对应 Tapp 回调的页面抢走任务；各连接都可回执，
+  最终执行记录由数据库 CAS 保证只完成一次。
 - 同一 `tappId + taskId` 同时出现在 Page、Widget、headless 时只由最后挂载且仍存活的 runtime
   执行；回调注册保存为栈，接管者卸载后恢复前一个实例，而不是把任务回调永久删除。
 - 收到执行推送但没有存活回调时立即向后端报告失败，不能让执行记录一直停在运行中。

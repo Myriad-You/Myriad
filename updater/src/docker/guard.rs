@@ -191,9 +191,7 @@ async fn handle(
             }
         }
         Decision::ProjectNetworkMutation { network, container } => {
-            if let Err(reason) =
-                authorize_network_mutation(&state, &network, &container).await
-            {
+            if let Err(reason) = authorize_network_mutation(&state, &network, &container).await {
                 warn!(
                     %peer,
                     %method,
@@ -380,6 +378,9 @@ fn validate_container_create(state: &GuardState, body: &Bytes) -> std::result::R
         .get("HostConfig")
         .cloned()
         .unwrap_or_else(|| json!({}));
+    if requests_root_user(&value) && !is_narrow_backend_volume_init(&value, &host, service) {
+        return Err("explicit root user is allowed only for the backend volume initializer".into());
+    }
     reject_true(&host, "Privileged")?;
     reject_nonempty_fields(
         &host,
@@ -465,10 +466,86 @@ fn validate_container_create(state: &GuardState, body: &Bytes) -> std::result::R
     Ok(())
 }
 
+fn requests_root_user(value: &Value) -> bool {
+    value
+        .get("User")
+        .and_then(Value::as_str)
+        .and_then(|user| user.split(':').next())
+        .is_some_and(|user| matches!(user, "0" | "root"))
+}
+
+fn has_exact_env(value: &Value, expected: &str) -> bool {
+    let key = expected
+        .split_once('=')
+        .map(|(key, _)| key)
+        .unwrap_or(expected);
+    let prefix = format!("{key}=");
+    let mut matches = value
+        .get("Env")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter(|entry| entry.starts_with(&prefix));
+    matches.next() == Some(expected) && matches.next().is_none()
+}
+
+fn has_mount_target(value: &Value, host: &Value, expected: &str) -> bool {
+    let bind_has_target = host
+        .get("Binds")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .any(|bind| bind.split(':').nth(1) == Some(expected));
+    let structured_has_target = [host.get("Mounts"), value.get("Mounts")]
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_array)
+        .flatten()
+        .any(|mount| {
+            mount
+                .get("Target")
+                .or_else(|| mount.get("Destination"))
+                .and_then(Value::as_str)
+                == Some(expected)
+        });
+    bind_has_target || structured_has_target
+}
+
+/// The updater may run one disposable backend-image container as root solely
+/// to repair the two backend named volumes. Keep this exception narrower than
+/// normal Compose service creation: exact uid, exact mode flag, one-off label,
+/// no-new-privileges, and both already-allowlisted volume targets are required.
+fn is_narrow_backend_volume_init(value: &Value, host: &Value, service: &str) -> bool {
+    service == "backend"
+        && value.get("User").and_then(Value::as_str) == Some("0:0")
+        && has_exact_env(value, "MYRIAD_VOLUME_INIT_ONLY=true")
+        && value
+            .pointer("/Labels/com.docker.compose.oneoff")
+            .and_then(Value::as_str)
+            == Some("True")
+        && host.get("AutoRemove").and_then(Value::as_bool) != Some(true)
+        && host
+            .pointer("/RestartPolicy/Name")
+            .and_then(Value::as_str)
+            .is_none_or(|name| name.is_empty() || name == "no")
+        && host
+            .get("SecurityOpt")
+            .and_then(Value::as_array)
+            .is_some_and(|options| {
+                options.iter().any(|option| {
+                    option.as_str().is_some_and(|option| {
+                        matches!(option, "no-new-privileges" | "no-new-privileges:true")
+                    })
+                })
+            })
+        && has_mount_target(value, host, "/app/cache")
+        && has_mount_target(value, host, "/app/data")
+}
+
 fn is_allowlisted_network_name(name: &str, config: &GuardConfig) -> bool {
-    name == config.compose_network
-        || name == config.admin_network
-        || name == config.guard_network
+    name == config.compose_network || name == config.admin_network || name == config.guard_network
 }
 
 /// Only the Compose `updater` service may join the docker-guard network. Business services
@@ -480,9 +557,7 @@ fn authorize_guard_network_attachment(
     config: &GuardConfig,
 ) -> std::result::Result<(), String> {
     if network_name == config.guard_network && service != "updater" {
-        return Err(
-            "only the updater service may attach to the docker-guard network".into(),
-        );
+        return Err("only the updater service may attach to the docker-guard network".into());
     }
     Ok(())
 }
@@ -707,16 +782,17 @@ async fn authorize_network_mutation(
     network: &str,
     container: &str,
 ) -> std::result::Result<(), String> {
-    let container_inspect =
-        daemon_json(&state.config.socket_path, &format!("/containers/{container}/json"))
-            .await
-            .map_err(|e| {
-                warn!(container, err = %e, "docker guard could not authorize container");
-                "container authorization failed".to_string()
-            })?;
-    let service = managed_project_service(&container_inspect, &state.config).ok_or_else(|| {
-        "container is not a managed service in this Compose project".to_string()
+    let container_inspect = daemon_json(
+        &state.config.socket_path,
+        &format!("/containers/{container}/json"),
+    )
+    .await
+    .map_err(|e| {
+        warn!(container, err = %e, "docker guard could not authorize container");
+        "container authorization failed".to_string()
     })?;
+    let service = managed_project_service(&container_inspect, &state.config)
+        .ok_or_else(|| "container is not a managed service in this Compose project".to_string())?;
 
     let network_inspect = daemon_json(&state.config.socket_path, &format!("/networks/{network}"))
         .await
@@ -788,8 +864,7 @@ async fn handle_self_update(state: GuardState, req: Request<Body>) -> Response {
     let task_target = target_tag.clone();
     tokio::spawn(async move {
         tokio::time::sleep(SELF_UPDATE_DELAY).await;
-        let result =
-            run_guarded_self_update(&task_state, &task_previous, &task_target).await;
+        let result = run_guarded_self_update(&task_state, &task_previous, &task_target).await;
         task_state
             .self_update_running
             .store(false, Ordering::SeqCst);
@@ -866,59 +941,57 @@ async fn run_guarded_self_update(
     let helper_status_file = "/host/compose/state/self-update-last.json";
 
     let mut command = Command::new("docker");
-    command
-        .env("DOCKER_HOST", &docker_host)
-        .args([
-            "run",
-            "--rm",
-            "--name",
-            &format!("myriad-tcb-self-update-{}", std::process::id()),
-            "-v",
-            &format!("{sock}:/var/run/docker.sock"),
-            // rw: helper may restore UPDATER_TAG and write self-update-last.json
-            "-v",
-            &format!("{host_root}:/host/compose:rw"),
-            "-e",
-            &format!(
-                "{}={previous_tag}",
-                super::self_update_helper::ENV_PREVIOUS_TAG
-            ),
-            "-e",
-            &format!("{}={target_tag}", super::self_update_helper::ENV_TARGET_TAG),
-            "-e",
-            &format!(
-                "{}={}",
-                super::self_update_helper::ENV_PROJECT,
-                state.config.project
-            ),
-            "-e",
-            &format!(
-                "{}={host_root}",
-                super::self_update_helper::ENV_PROJECT_DIRECTORY
-            ),
-            "-e",
-            &format!(
-                "{}={helper_compose_dir}",
-                super::self_update_helper::ENV_COMPOSE_DIR
-            ),
-            "-e",
-            &format!(
-                "{}={helper_env_file}",
-                super::self_update_helper::ENV_ENV_FILE
-            ),
-            "-e",
-            &format!(
-                "{}={helper_status_file}",
-                super::self_update_helper::ENV_STATUS_FILE
-            ),
-            "--network",
-            "none",
-            "--security-opt",
-            "no-new-privileges:true",
-            "--entrypoint",
-            "/usr/local/bin/myriad-tcb-self-update",
-            &helper_image,
-        ]);
+    command.env("DOCKER_HOST", &docker_host).args([
+        "run",
+        "--rm",
+        "--name",
+        &format!("myriad-tcb-self-update-{}", std::process::id()),
+        "-v",
+        &format!("{sock}:/var/run/docker.sock"),
+        // rw: helper may restore UPDATER_TAG and write self-update-last.json
+        "-v",
+        &format!("{host_root}:/host/compose:rw"),
+        "-e",
+        &format!(
+            "{}={previous_tag}",
+            super::self_update_helper::ENV_PREVIOUS_TAG
+        ),
+        "-e",
+        &format!("{}={target_tag}", super::self_update_helper::ENV_TARGET_TAG),
+        "-e",
+        &format!(
+            "{}={}",
+            super::self_update_helper::ENV_PROJECT,
+            state.config.project
+        ),
+        "-e",
+        &format!(
+            "{}={host_root}",
+            super::self_update_helper::ENV_PROJECT_DIRECTORY
+        ),
+        "-e",
+        &format!(
+            "{}={helper_compose_dir}",
+            super::self_update_helper::ENV_COMPOSE_DIR
+        ),
+        "-e",
+        &format!(
+            "{}={helper_env_file}",
+            super::self_update_helper::ENV_ENV_FILE
+        ),
+        "-e",
+        &format!(
+            "{}={helper_status_file}",
+            super::self_update_helper::ENV_STATUS_FILE
+        ),
+        "--network",
+        "none",
+        "--security-opt",
+        "no-new-privileges:true",
+        "--entrypoint",
+        "/usr/local/bin/myriad-tcb-self-update",
+        &helper_image,
+    ]);
 
     let output = command
         .output()
@@ -942,8 +1015,12 @@ async fn run_guarded_self_update(
 /// Image used by the self-update helper. Prefers the post-rewrite `UPDATER_TAG`
 /// from the deployment `.env` so the helper binary matches the target release.
 fn self_update_helper_image(env_file: &Path) -> Result<String> {
-    let text = std::fs::read_to_string(env_file)
-        .with_context(|| format!("read env file for self-update image: {}", env_file.display()))?;
+    let text = std::fs::read_to_string(env_file).with_context(|| {
+        format!(
+            "read env file for self-update image: {}",
+            env_file.display()
+        )
+    })?;
     let mut image = "docker.io/somekawahitomi/myriad-updater".to_string();
     let mut tag = None::<String>;
     for line in text.lines() {
@@ -1196,6 +1273,105 @@ mod tests {
         assert!(validate_container_create(&state(), &body).is_ok());
     }
 
+    fn backend_volume_init_create(user: &str, init_env: &str, host: Value) -> Bytes {
+        Bytes::from(
+            serde_json::to_vec(&json!({
+                "Image": "docker.io/example/backend:v1",
+                "User": user,
+                "Env": [
+                    "DATABASE_URL=postgres://example",
+                    init_env,
+                ],
+                "Labels": {
+                    "com.docker.compose.project": "myriad",
+                    "com.docker.compose.service": "backend",
+                    "com.docker.compose.oneoff": "True",
+                },
+                "HostConfig": host,
+            }))
+            .unwrap(),
+        )
+    }
+
+    #[test]
+    fn backend_volume_init_allows_only_narrow_root_one_off() {
+        let allowed = backend_volume_init_create(
+            "0:0",
+            "MYRIAD_VOLUME_INIT_ONLY=true",
+            json!({
+                "AutoRemove": false,
+                "Binds": [
+                    "myriad_backend_cache:/app/cache:rw",
+                    "myriad_backend_data:/app/data:rw"
+                ],
+                "NetworkMode": "myriad-net",
+                "SecurityOpt": ["no-new-privileges:true"]
+            }),
+        );
+        assert!(validate_container_create(&state(), &allowed).is_ok());
+
+        let missing_flag = backend_volume_init_create(
+            "0:0",
+            "MYRIAD_VOLUME_INIT_ONLY=false",
+            json!({
+                "AutoRemove": true,
+                "Binds": [
+                    "myriad_backend_cache:/app/cache:rw",
+                    "myriad_backend_data:/app/data:rw"
+                ],
+                "SecurityOpt": ["no-new-privileges:true"]
+            }),
+        );
+        assert!(validate_container_create(&state(), &missing_flag)
+            .unwrap_err()
+            .contains("explicit root user"));
+
+        let auto_remove_payload = backend_volume_init_create(
+            "0:0",
+            "MYRIAD_VOLUME_INIT_ONLY=true",
+            json!({
+                "AutoRemove": true,
+                "Binds": [
+                    "myriad_backend_cache:/app/cache:rw",
+                    "myriad_backend_data:/app/data:rw"
+                ],
+                "SecurityOpt": ["no-new-privileges:true"]
+            }),
+        );
+        assert!(validate_container_create(&state(), &auto_remove_payload)
+            .unwrap_err()
+            .contains("explicit root user"));
+
+        let missing_data_volume = backend_volume_init_create(
+            "0:0",
+            "MYRIAD_VOLUME_INIT_ONLY=true",
+            json!({
+                "AutoRemove": false,
+                "Binds": ["myriad_backend_cache:/app/cache:rw"],
+                "SecurityOpt": ["no-new-privileges:true"]
+            }),
+        );
+        assert!(validate_container_create(&state(), &missing_data_volume)
+            .unwrap_err()
+            .contains("explicit root user"));
+
+        let arbitrary_root_backend = backend_volume_init_create(
+            "root:root",
+            "MYRIAD_VOLUME_INIT_ONLY=true",
+            json!({
+                "AutoRemove": false,
+                "Binds": [
+                    "myriad_backend_cache:/app/cache:rw",
+                    "myriad_backend_data:/app/data:rw"
+                ],
+                "SecurityOpt": ["no-new-privileges:true"]
+            }),
+        );
+        assert!(validate_container_create(&state(), &arbitrary_root_backend)
+            .unwrap_err()
+            .contains("explicit root user"));
+    }
+
     #[test]
     fn backend_host_bind_is_denied() {
         let body = create(
@@ -1370,12 +1546,7 @@ mod tests {
         assert!(validate_self_update_tags("v0.1.0", "").is_err());
     }
 
-    fn create_with_networking(
-        service: &str,
-        image: &str,
-        host: Value,
-        endpoints: Value,
-    ) -> Bytes {
+    fn create_with_networking(service: &str, image: &str, host: Value, endpoints: Value) -> Bytes {
         Bytes::from(
             serde_json::to_vec(&json!({
                 "Image": image,
@@ -1478,11 +1649,9 @@ mod tests {
             json!({}),
             json!({"bridge": {}}),
         );
-        assert!(
-            validate_container_create(&s, &foreign)
-                .unwrap_err()
-                .contains("outside the Myriad allowlist")
-        );
+        assert!(validate_container_create(&s, &foreign)
+            .unwrap_err()
+            .contains("outside the Myriad allowlist"));
     }
 
     #[test]
@@ -1493,11 +1662,9 @@ mod tests {
             "docker.io/example/backend:v1",
             json!({"NetworkMode": "myriad-docker-guard-net"}),
         );
-        assert!(
-            validate_container_create(&s, &backend)
-                .unwrap_err()
-                .contains("only the updater service may attach to the docker-guard network")
-        );
+        assert!(validate_container_create(&s, &backend)
+            .unwrap_err()
+            .contains("only the updater service may attach to the docker-guard network"));
 
         let updater = create(
             "updater",
@@ -1539,39 +1706,37 @@ mod tests {
             );
         }
 
-        assert!(authorize_guard_network_attachment(
-            "backend",
-            "myriad-net",
-            &s.config
-        )
-        .is_ok());
-        assert!(authorize_guard_network_attachment(
-            "postgres",
-            "myriad-net",
-            &s.config
-        )
-        .is_ok());
+        assert!(authorize_guard_network_attachment("backend", "myriad-net", &s.config).is_ok());
+        assert!(authorize_guard_network_attachment("postgres", "myriad-net", &s.config).is_ok());
     }
 
     #[test]
     fn guard_network_attachment_policy_is_updater_only() {
         let s = state();
-        assert!(
-            authorize_guard_network_attachment("backend", "myriad-docker-guard-net", &s.config)
-                .is_err()
-        );
-        assert!(
-            authorize_guard_network_attachment("frontend", "myriad-docker-guard-net", &s.config)
-                .is_err()
-        );
-        assert!(
-            authorize_guard_network_attachment("postgres", "myriad-docker-guard-net", &s.config)
-                .is_err()
-        );
-        assert!(
-            authorize_guard_network_attachment("updater", "myriad-docker-guard-net", &s.config)
-                .is_ok()
-        );
+        assert!(authorize_guard_network_attachment(
+            "backend",
+            "myriad-docker-guard-net",
+            &s.config
+        )
+        .is_err());
+        assert!(authorize_guard_network_attachment(
+            "frontend",
+            "myriad-docker-guard-net",
+            &s.config
+        )
+        .is_err());
+        assert!(authorize_guard_network_attachment(
+            "postgres",
+            "myriad-docker-guard-net",
+            &s.config
+        )
+        .is_err());
+        assert!(authorize_guard_network_attachment(
+            "updater",
+            "myriad-docker-guard-net",
+            &s.config
+        )
+        .is_ok());
     }
 
     #[test]
@@ -1580,7 +1745,8 @@ mod tests {
         let missing = classify_request(&state(), &Method::POST, &uri, &Bytes::from_static(b"{}"));
         assert!(missing.unwrap_err().contains("Container"));
 
-        let body = Bytes::from(serde_json::to_vec(&json!({"Container": "myriad-backend-1"})).unwrap());
+        let body =
+            Bytes::from(serde_json::to_vec(&json!({"Container": "myriad-backend-1"})).unwrap());
         let decision = classify_request(&state(), &Method::POST, &uri, &body).unwrap();
         assert_eq!(
             decision,

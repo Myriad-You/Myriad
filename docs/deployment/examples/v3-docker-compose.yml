@@ -107,6 +107,21 @@ services:
       driver: "json-file"
       options: { max-size: "10m", max-file: "3" }
 
+  backend-volume-init:
+    image: ${BACKEND_IMAGE:-docker.io/somekawahitomi/myriad-backend}:${MYRIAD_TAG}
+    container_name: myriad-backend-volume-init
+    user: "0:0"
+    environment:
+      MYRIAD_VOLUME_INIT_ONLY: "true"
+    volumes:
+      - backend_cache:/app/cache
+      - backend_data:/app/data
+    network_mode: none
+    restart: "no"
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs: [/tmp]
+
   backend:
     # NOTE: image tag is driven by updater via ${MYRIAD_TAG}.
     image: ${BACKEND_IMAGE:-docker.io/somekawahitomi/myriad-backend}:${MYRIAD_TAG}
@@ -138,6 +153,7 @@ services:
     # NOTE: no `ports:` — only proxy exposes a host port.
     depends_on:
       postgres: { condition: service_healthy }
+      backend-volume-init: { condition: service_completed_successfully }
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:1103/health"]
       interval: 30s
@@ -152,8 +168,8 @@ services:
     security_opt: [no-new-privileges:true]
     read_only: false
     tmpfs: [/tmp]
-    # Runs as Dockerfile USER myriad (uid 1000). Named volumes are chowned by
-    # scripts/docker/deploy.sh|deploy.ps1 so /app/cache and /app/data are writable.
+    # Runs as Dockerfile USER myriad (uid 1000). The one-shot init service repairs
+    # ownership left by older root containers before this service starts.
     # Listens on 1103 (no privileged ports); do not force user 0:0.
     logging:
       driver: "json-file"

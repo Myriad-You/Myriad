@@ -420,6 +420,19 @@ fn get_expected_schema() -> Vec<TableDef> {
                     is_nullable: false,
                     default_value: Some("'{}'::jsonb".into()),
                 },
+                // 在线状态跟踪（migration 009）
+                ColumnDef {
+                    name: "last_seen_at".into(),
+                    data_type: "timestamp with time zone".into(),
+                    is_nullable: true,
+                    default_value: None,
+                },
+                ColumnDef {
+                    name: "online_seconds".into(),
+                    data_type: "bigint".into(),
+                    is_nullable: false,
+                    default_value: Some("0".into()),
+                },
             ],
         },
         // ==================== configurations 表 ====================

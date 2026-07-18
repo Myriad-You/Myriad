@@ -144,6 +144,12 @@ impl RuntimeGrantContext {
 
 const RUNTIME_GRANT_NAMESPACE: &str = "runtime_grant";
 
+pub(crate) async fn active_runtime_grant_count(
+    db: &sea_orm::DatabaseConnection,
+) -> Result<i64, sea_orm::DbErr> {
+    shared_registry::count_namespace(db, RUNTIME_GRANT_NAMESPACE).await
+}
+
 fn token_hash(token: &str) -> String {
     hex::encode(Sha256::digest(token.as_bytes()))
 }

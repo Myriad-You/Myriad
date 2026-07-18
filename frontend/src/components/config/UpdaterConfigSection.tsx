@@ -1401,7 +1401,7 @@ function AutoUpdatePrefs({
 
 // ===== 安装指定版本（高级）=====
 
-type PickerItem = {
+interface PickerItem {
   key: string
   tag: string
   label: string

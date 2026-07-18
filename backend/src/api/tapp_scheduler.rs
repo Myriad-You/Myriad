@@ -29,9 +29,13 @@ use crate::models::entities::tapp_scheduled_tasks::{
 };
 use crate::services::permission_service::TappPermission;
 use crate::services::tapp_scheduler::{
-    backend_action_permissions, normalize_backend_actions, validate_backend_action_declarations,
-    TappSchedulerEngine, MAX_SCHEDULER_RETRIES, MAX_SCHEDULER_RETRY_DELAY_MS,
+    backend_action_permissions, drain_frontend_messages, normalize_backend_actions,
+    register_frontend_connection, requeue_frontend_message, unregister_frontend_connection,
+    validate_backend_action_declarations, TappSchedulerEngine, MAX_SCHEDULER_RETRIES,
+    MAX_SCHEDULER_RETRY_DELAY_MS, SCHEDULER_MAILBOX_POLL_MILLIS,
+    SCHEDULER_PRESENCE_REFRESH_SECONDS,
 };
+use uuid::Uuid;
 
 /// 全局调度器引擎
 static SCHEDULER_ENGINE: once_cell::sync::OnceCell<Arc<RwLock<TappSchedulerEngine>>> =
@@ -653,12 +657,17 @@ async fn handle_scheduler_socket(socket: WebSocket, user_id: i32, db: DatabaseCo
     };
 
     let (mut sender, mut receiver) = socket.split();
-
-    // 订阅任务推送
-    let mut task_rx = {
-        let engine = scheduler.read().await;
-        engine.subscribe_frontend_tasks()
-    };
+    let connection_id = format!("scheduler_ws_{}", Uuid::new_v4().simple());
+    if let Err(error) = register_frontend_connection(&db, user_id, &connection_id).await {
+        tracing::error!(%error, user_id, "[TappScheduler] Failed to register WebSocket presence");
+        return;
+    }
+    let mut presence_refresh = tokio::time::interval(tokio::time::Duration::from_secs(
+        SCHEDULER_PRESENCE_REFRESH_SECONDS,
+    ));
+    let mut mailbox_poll = tokio::time::interval(tokio::time::Duration::from_millis(
+        SCHEDULER_MAILBOX_POLL_MILLIS,
+    ));
 
     // 发送欢迎消息
     let welcome = json!({
@@ -673,53 +682,50 @@ async fn handle_scheduler_socket(socket: WebSocket, user_id: i32, db: DatabaseCo
         .await
         .is_err()
     {
+        let _ = unregister_frontend_connection(&db, &connection_id).await;
         return;
     }
 
     // 并发处理：接收任务推送 + 处理客户端消息
     loop {
         tokio::select! {
-            // 接收任务推送
-            task_result = task_rx.recv() => {
-                match task_result {
-                    Ok(task_msg) => {
-                        // 根据 scope 和 target_users 决定是否推送
-                        let should_send = match &task_msg.target_users {
-                            // 有明确的目标用户列表
-                            Some(users) => users.contains(&user_id),
-                            // 没有目标用户列表，根据 scope 处理
-                            None => {
-                                match task_msg.task.scope.as_str() {
-                                    "user" => task_msg.task.user_id == user_id,
-                                    "tapp" => verify_tapp_ownership(
-                                        &db,
-                                        user_id,
-                                        &task_msg.task.tapp_id,
-                                    )
-                                    .await
-                                    .is_ok(),
-                                    "global" => crate::services::agent::user_is_current_admin(
-                                        &db,
-                                        user_id,
-                                    )
-                                    .await,
-                                    _ => task_msg.task.user_id == user_id,
+            _ = presence_refresh.tick() => {
+                if let Err(error) = register_frontend_connection(&db, user_id, &connection_id).await {
+                    tracing::warn!(%error, user_id, "[TappScheduler] Failed to refresh WebSocket presence");
+                }
+            }
+            _ = mailbox_poll.tick() => {
+                match drain_frontend_messages(&db, &connection_id).await {
+                    Ok(messages) => {
+                        let mut disconnected = false;
+                        let mut pending = messages.into_iter();
+                        while let Some(task_msg) = pending.next() {
+                            let msg = match serde_json::to_string(&task_msg) {
+                                Ok(msg) => msg,
+                                Err(error) => {
+                                    tracing::error!(%error, "[TappScheduler] Failed to serialize queued task");
+                                    continue;
                                 }
-                            }
-                        };
-
-                        if should_send {
-                            let msg = serde_json::to_string(&task_msg).unwrap_or_default();
+                            };
                             if sender.send(Message::Text(msg.into())).await.is_err() {
+                                if let Err(error) = requeue_frontend_message(&db, &connection_id, &task_msg).await {
+                                    tracing::error!(%error, "[TappScheduler] Failed to restore undelivered task");
+                                }
+                                for remaining in pending {
+                                    if let Err(error) = requeue_frontend_message(&db, &connection_id, &remaining).await {
+                                        tracing::error!(%error, "[TappScheduler] Failed to restore pending task");
+                                    }
+                                }
+                                disconnected = true;
                                 break;
                             }
                         }
+                        if disconnected {
+                            break;
+                        }
                     }
-                    Err(e) => {
-                        tracing::warn!("[TappScheduler] Task broadcast error: {}", e);
-                        // 重新订阅
-                        let engine = scheduler.read().await;
-                        task_rx = engine.subscribe_frontend_tasks();
+                    Err(error) => {
+                        tracing::warn!(%error, user_id, "[TappScheduler] Failed to poll shared mailbox");
                     }
                 }
             }
@@ -780,6 +786,10 @@ async fn handle_scheduler_socket(socket: WebSocket, user_id: i32, db: DatabaseCo
                 }
             }
         }
+    }
+
+    if let Err(error) = unregister_frontend_connection(&db, &connection_id).await {
+        tracing::warn!(%error, user_id, "[TappScheduler] Failed to remove WebSocket presence");
     }
 
     tracing::info!(

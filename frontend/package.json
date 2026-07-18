@@ -16,7 +16,8 @@
     "format": "prettier --write .",
     "lint": "eslint . --ignore-pattern '**/*.md'",
     "stylelint": "stylelint \"src/**/*.css\"",
-    "test": "pnpm lint && pnpm stylelint && pnpm typecheck",
+    "test": "pnpm test:unit && pnpm lint && pnpm stylelint && pnpm typecheck",
+    "test:unit": "tsx --test \"src/**/*.test.ts\" \"src/**/*.test.tsx\"",
     "typecheck": "cross-env GIT_PAGER= astro check",
     "eslint:debug": "eslint --debug .",
     "eslint:inspect": "npx @eslint/config-inspector",
@@ -63,7 +64,8 @@
     "stylelint": "^17.14.0",
     "stylelint-config-standard": "^40.0.0",
     "taze": "^19.14.1",
-    "terser": "^5.48.0"
+    "terser": "^5.48.0",
+    "tsx": "^4.20.6"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

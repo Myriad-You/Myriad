@@ -16,11 +16,13 @@ use sea_orm::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::RwLock;
 
 use std::collections::HashMap;
 
+use crate::api::tapp_runtime::shared_registry::{self, RegistryIdentity};
 use crate::api::tapp_store::{
     read_storage_value, validate_sandbox_storage_key, validate_storage_value_size,
     write_storage_value, TappAiManifest, TappAiModelTier, TappAiOperation, TappAiOutputFormat,
@@ -44,6 +46,40 @@ pub const MAX_SCHEDULER_RETRY_DELAY_MS: i64 = 60_000;
 const SCHEDULER_ACTION_BUDGET_MS: i64 = 130_000;
 const MIN_SCHEDULER_LEASE_MINUTES: i64 = 15;
 const MAX_SCHEDULER_LEASE_MINUTES: i64 = 360;
+const SCHEDULER_PRESENCE_NAMESPACE: &str = "scheduler_ws_presence";
+const SCHEDULER_MAILBOX_CHANNEL: &str = "scheduler_frontend";
+const SCHEDULER_PRESENCE_TTL_SECONDS: i64 = 75;
+const SCHEDULER_MESSAGE_TTL_SECONDS: i64 = 5 * 60;
+const MAX_SCHEDULER_CONNECTIONS_PER_SUBJECT: usize = 8;
+pub const SCHEDULER_PRESENCE_REFRESH_SECONDS: u64 = 20;
+pub const SCHEDULER_MAILBOX_POLL_MILLIS: u64 = 500;
+pub const SCHEDULER_MAILBOX_BATCH_SIZE: i64 = 32;
+
+static SCHEDULER_DISPATCHED: AtomicU64 = AtomicU64::new(0);
+static SCHEDULER_DELIVERY_FAILURES: AtomicU64 = AtomicU64::new(0);
+static SCHEDULER_REQUEUED: AtomicU64 = AtomicU64::new(0);
+static SCHEDULER_COMPLETED: AtomicU64 = AtomicU64::new(0);
+static SCHEDULER_TIMEOUTS: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchedulerCounters {
+    pub dispatched: u64,
+    pub delivery_failures: u64,
+    pub requeued: u64,
+    pub completed: u64,
+    pub timeouts: u64,
+}
+
+pub fn scheduler_counters() -> SchedulerCounters {
+    SchedulerCounters {
+        dispatched: SCHEDULER_DISPATCHED.load(Ordering::Relaxed),
+        delivery_failures: SCHEDULER_DELIVERY_FAILURES.load(Ordering::Relaxed),
+        requeued: SCHEDULER_REQUEUED.load(Ordering::Relaxed),
+        completed: SCHEDULER_COMPLETED.load(Ordering::Relaxed),
+        timeouts: SCHEDULER_TIMEOUTS.load(Ordering::Relaxed),
+    }
+}
 
 /// Normalize the public SDK action shape (`type`) to the persisted Rust enum
 /// tag (`action`) and validate every action before a task is stored.
@@ -197,11 +233,99 @@ pub struct FrontendTaskMessage {
     pub target_users: Option<Vec<i32>>,
 }
 
+fn scheduler_mailbox_recipient(connection_id: &str) -> String {
+    format!("connection:{connection_id}")
+}
+
+pub async fn register_frontend_connection(
+    db: &DatabaseConnection,
+    user_id: i32,
+    connection_id: &str,
+) -> Result<(), String> {
+    let expires_at = Utc::now().timestamp() + SCHEDULER_PRESENCE_TTL_SECONDS;
+    let inserted = shared_registry::put_with_subject_limit(
+        db,
+        SCHEDULER_PRESENCE_NAMESPACE,
+        connection_id,
+        RegistryIdentity {
+            subject_id: Some(user_id),
+            owner_id: None,
+            tapp_id: None,
+            runtime_id: Some(connection_id),
+        },
+        &json!({ "connectedAt": Utc::now().to_rfc3339() }),
+        expires_at,
+        MAX_SCHEDULER_CONNECTIONS_PER_SUBJECT,
+    )
+    .await
+    .map_err(|error| format!("Failed to register scheduler connection: {error}"))?;
+    if inserted {
+        Ok(())
+    } else {
+        Err(format!(
+            "Scheduler connection limit exceeded ({MAX_SCHEDULER_CONNECTIONS_PER_SUBJECT})"
+        ))
+    }
+}
+
+pub async fn unregister_frontend_connection(
+    db: &DatabaseConnection,
+    connection_id: &str,
+) -> Result<(), String> {
+    shared_registry::delete(db, SCHEDULER_PRESENCE_NAMESPACE, connection_id)
+        .await
+        .map(|_| ())
+        .map_err(|error| format!("Failed to unregister scheduler connection: {error}"))
+}
+
+pub async fn drain_frontend_messages(
+    db: &DatabaseConnection,
+    connection_id: &str,
+) -> Result<Vec<FrontendTaskMessage>, String> {
+    shared_registry::drain(
+        db,
+        SCHEDULER_MAILBOX_CHANNEL,
+        &scheduler_mailbox_recipient(connection_id),
+        SCHEDULER_MAILBOX_BATCH_SIZE,
+    )
+    .await
+    .map_err(|error| format!("Failed to drain scheduler mailbox: {error}"))
+}
+
+pub async fn requeue_frontend_message(
+    db: &DatabaseConnection,
+    connection_id: &str,
+    message: &FrontendTaskMessage,
+) -> Result<(), String> {
+    shared_registry::enqueue(
+        db,
+        SCHEDULER_MAILBOX_CHANNEL,
+        &scheduler_mailbox_recipient(connection_id),
+        message,
+        Utc::now().timestamp() + SCHEDULER_MESSAGE_TTL_SECONDS,
+    )
+    .await
+    .map_err(|error| format!("Failed to requeue scheduler message: {error}"))?;
+    SCHEDULER_REQUEUED.fetch_add(1, Ordering::Relaxed);
+    Ok(())
+}
+
+pub async fn active_frontend_subject_count(db: &DatabaseConnection) -> Result<usize, String> {
+    shared_registry::list_subject_ids(db, SCHEDULER_PRESENCE_NAMESPACE)
+        .await
+        .map(|subjects| subjects.len())
+        .map_err(|error| format!("Failed to count scheduler subjects: {error}"))
+}
+
+pub async fn scheduler_mailbox_depth(db: &DatabaseConnection) -> Result<i64, String> {
+    shared_registry::mailbox_depth(db, SCHEDULER_MAILBOX_CHANNEL)
+        .await
+        .map_err(|error| format!("Failed to count scheduler mailbox: {error}"))
+}
+
 /// 调度引擎
 pub struct TappSchedulerEngine {
     db: DatabaseConnection,
-    /// 前端任务推送通道
-    frontend_tx: broadcast::Sender<FrontendTaskMessage>,
     /// 是否正在运行
     running: Arc<RwLock<bool>>,
 }
@@ -209,17 +333,10 @@ pub struct TappSchedulerEngine {
 impl TappSchedulerEngine {
     /// 创建调度引擎
     pub fn new(db: DatabaseConnection) -> Self {
-        let (frontend_tx, _) = broadcast::channel(100);
         Self {
             db,
-            frontend_tx,
             running: Arc::new(RwLock::new(false)),
         }
-    }
-
-    /// 获取前端任务订阅
-    pub fn subscribe_frontend_tasks(&self) -> broadcast::Receiver<FrontendTaskMessage> {
-        self.frontend_tx.subscribe()
     }
 
     /// 启动调度引擎
@@ -236,7 +353,6 @@ impl TappSchedulerEngine {
 
         // 启动主调度循环
         let db = self.db.clone();
-        let frontend_tx = self.frontend_tx.clone();
         let running = self.running.clone();
 
         tokio::spawn(async move {
@@ -252,7 +368,7 @@ impl TappSchedulerEngine {
                 }
 
                 // 执行调度
-                if let Err(e) = Self::tick(&db, &frontend_tx).await {
+                if let Err(e) = Self::tick(&db).await {
                     tracing::error!("[TappScheduler] Tick error: {}", e);
                 }
             }
@@ -267,10 +383,7 @@ impl TappSchedulerEngine {
     }
 
     /// 主调度循环 tick
-    async fn tick(
-        db: &DatabaseConnection,
-        frontend_tx: &broadcast::Sender<FrontendTaskMessage>,
-    ) -> Result<(), String> {
+    async fn tick(db: &DatabaseConnection) -> Result<(), String> {
         let now = Utc::now();
         tracing::debug!("[TappScheduler] Tick at {}", now);
 
@@ -312,9 +425,7 @@ impl TappSchedulerEngine {
                     }
                     MissedPolicy::RunOnce => {
                         // 只执行一次作为补偿
-                        if let Err(e) =
-                            Self::execute_task_with_retry(db, frontend_tx, &task, true).await
-                        {
+                        if let Err(e) = Self::execute_task_with_retry(db, &task, true).await {
                             tracing::error!(
                                 "[TappScheduler] Compensation failed for {}: {}",
                                 task.task_id,
@@ -329,9 +440,7 @@ impl TappSchedulerEngine {
                         // 补偿执行所有错过的（最多5次，避免过度补偿）
                         let max_compensations = missed_count.min(5);
                         for i in 0..max_compensations {
-                            if let Err(e) =
-                                Self::execute_task_with_retry(db, frontend_tx, &task, true).await
-                            {
+                            if let Err(e) = Self::execute_task_with_retry(db, &task, true).await {
                                 tracing::error!(
                                     "[TappScheduler] Compensation {} failed for {}: {}",
                                     i + 1,
@@ -348,7 +457,7 @@ impl TappSchedulerEngine {
             }
 
             // 执行当前到期的任务
-            if let Err(e) = Self::execute_task_with_retry(db, frontend_tx, &task, false).await {
+            if let Err(e) = Self::execute_task_with_retry(db, &task, false).await {
                 tracing::error!(
                     "[TappScheduler] Failed to execute task {} for tapp {}: {}",
                     task.task_id,
@@ -545,7 +654,6 @@ impl TappSchedulerEngine {
     /// 带重试的任务执行
     async fn execute_task_with_retry(
         db: &DatabaseConnection,
-        frontend_tx: &broadcast::Sender<FrontendTaskMessage>,
         task: &tapp_scheduled_tasks::Model,
         is_compensation: bool,
     ) -> Result<(), String> {
@@ -564,15 +672,8 @@ impl TappSchedulerEngine {
         let mut last_error = String::new();
 
         for attempt in 0..=max_retries {
-            match Self::execute_task(
-                db,
-                frontend_tx,
-                task,
-                is_compensation,
-                attempt,
-                attempt == max_retries,
-            )
-            .await
+            match Self::execute_task(db, task, is_compensation, attempt, attempt == max_retries)
+                .await
             {
                 Ok(()) => return Ok(()),
                 Err(e) => {
@@ -604,7 +705,6 @@ impl TappSchedulerEngine {
     /// 执行单个任务
     async fn execute_task(
         db: &DatabaseConnection,
-        frontend_tx: &broadcast::Sender<FrontendTaskMessage>,
         task: &tapp_scheduled_tasks::Model,
         is_compensation: bool,
         retry_count: i32,
@@ -730,11 +830,24 @@ impl TappSchedulerEngine {
                 target_users,
             };
 
-            match frontend_tx.send(message) {
-                Ok(_) => awaiting_frontend = true,
-                Err(e) => {
-                    tracing::warn!("[TappScheduler] No frontend subscribers: {}", e);
+            match Self::enqueue_frontend_message(db, task, &message).await {
+                Ok(deliveries) if deliveries > 0 => awaiting_frontend = true,
+                Ok(_) => {
+                    tracing::warn!(
+                        task_id = %task.task_id,
+                        tapp_id = %task.tapp_id,
+                        "[TappScheduler] No live frontend scheduler audience"
+                    );
                     error = Some("No frontend scheduler subscribers".to_string());
+                    status = ExecutionStatus::Failed;
+                }
+                Err(dispatch_error) => {
+                    tracing::error!(
+                        error = %dispatch_error,
+                        task_id = %task.task_id,
+                        "[TappScheduler] Shared frontend dispatch failed"
+                    );
+                    error = Some(dispatch_error);
                     status = ExecutionStatus::Failed;
                 }
             }
@@ -787,6 +900,118 @@ impl TappSchedulerEngine {
         Ok(())
     }
 
+    async fn enqueue_frontend_message(
+        db: &DatabaseConnection,
+        task: &tapp_scheduled_tasks::Model,
+        message: &FrontendTaskMessage,
+    ) -> Result<usize, String> {
+        let active_connections =
+            shared_registry::list_subject_endpoints(db, SCHEDULER_PRESENCE_NAMESPACE)
+                .await
+                .map_err(|error| format!("Failed to list scheduler connections: {error}"))?;
+        let mut deliveries = 0usize;
+        let mut first_error = None;
+        for connection in active_connections {
+            let user_id = connection.subject_id;
+            if message
+                .target_users
+                .as_ref()
+                .is_some_and(|users| !users.contains(&user_id))
+            {
+                continue;
+            }
+            if !Self::can_receive_frontend_task(db, user_id, task).await? {
+                continue;
+            }
+            match shared_registry::enqueue(
+                db,
+                SCHEDULER_MAILBOX_CHANNEL,
+                &scheduler_mailbox_recipient(&connection.record_id),
+                message,
+                Utc::now().timestamp() + SCHEDULER_MESSAGE_TTL_SECONDS,
+            )
+            .await
+            {
+                Ok(()) => {
+                    deliveries += 1;
+                    SCHEDULER_DISPATCHED.fetch_add(1, Ordering::Relaxed);
+                }
+                Err(error) => {
+                    SCHEDULER_DELIVERY_FAILURES.fetch_add(1, Ordering::Relaxed);
+                    first_error.get_or_insert_with(|| {
+                        format!("Failed to enqueue scheduler task: {error}")
+                    });
+                }
+            }
+        }
+        if deliveries > 0 {
+            Ok(deliveries)
+        } else if let Some(error) = first_error {
+            Err(error)
+        } else {
+            Ok(0)
+        }
+    }
+
+    async fn can_receive_frontend_task(
+        db: &DatabaseConnection,
+        user_id: i32,
+        task: &tapp_scheduled_tasks::Model,
+    ) -> Result<bool, String> {
+        match task.scope {
+            TaskScope::User | TaskScope::TappPerUser => Ok(task.user_id == user_id),
+            TaskScope::Global => {
+                let row = db
+                    .query_one(Statement::from_sql_and_values(
+                        DatabaseBackend::Postgres,
+                        "SELECT is_admin FROM users WHERE id = $1 LIMIT 1",
+                        [user_id.into()],
+                    ))
+                    .await
+                    .map_err(|error| {
+                        format!("Failed to verify global scheduler audience: {error}")
+                    })?;
+                Ok(row
+                    .and_then(|row| row.try_get::<bool>("", "is_admin").ok())
+                    .unwrap_or(false))
+            }
+            TaskScope::Tapp => {
+                let row = db
+                    .query_one(Statement::from_sql_and_values(
+                        DatabaseBackend::Postgres,
+                        r#"
+SELECT EXISTS (
+    SELECT 1
+    FROM tapps
+    WHERE tapp_id = $1
+      AND (
+          user_id = $2
+          OR user_id = (
+              SELECT id FROM users
+              WHERE is_admin = true
+              ORDER BY id
+              LIMIT 1
+          )
+          OR EXISTS (
+              SELECT 1 FROM users
+              WHERE id = $2 AND is_admin = true
+          )
+      )
+) AS allowed
+"#,
+                        [task.tapp_id.clone().into(), user_id.into()],
+                    ))
+                    .await
+                    .map_err(|error| {
+                        format!("Failed to verify Tapp scheduler audience: {error}")
+                    })?;
+                Ok(row
+                    .and_then(|row| row.try_get::<bool>("", "allowed").ok())
+                    .unwrap_or(false))
+            }
+        }
+    }
+
     /// 接收已认证前端对 task:execute 的完成回执。
     pub async fn complete_frontend_execution(
         &self,
@@ -828,54 +1053,12 @@ impl TappSchedulerEngine {
         execution: &tapp_task_executions::Model,
         task: &tapp_scheduled_tasks::Model,
     ) -> Result<bool, String> {
-        match task.scope {
-            TaskScope::User | TaskScope::TappPerUser => Ok(execution.user_id == user_id),
-            TaskScope::Global => {
-                let row = db
-                    .query_one(Statement::from_sql_and_values(
-                        DatabaseBackend::Postgres,
-                        "SELECT is_admin FROM users WHERE id = $1 LIMIT 1",
-                        [user_id.into()],
-                    ))
-                    .await
-                    .map_err(|e| format!("Failed to verify global scheduler audience: {e}"))?;
-                Ok(row
-                    .and_then(|row| row.try_get::<bool>("", "is_admin").ok())
-                    .unwrap_or(false))
-            }
-            TaskScope::Tapp => {
-                let row = db
-                    .query_one(Statement::from_sql_and_values(
-                        DatabaseBackend::Postgres,
-                        r#"
-                        SELECT EXISTS (
-                            SELECT 1
-                            FROM tapps
-                            WHERE tapp_id = $1
-                              AND (
-                                  user_id = $2
-                                  OR user_id = (
-                                      SELECT id FROM users
-                                      WHERE is_admin = true
-                                      ORDER BY id
-                                      LIMIT 1
-                                  )
-                                  OR EXISTS (
-                                      SELECT 1 FROM users
-                                      WHERE id = $2 AND is_admin = true
-                                  )
-                              )
-                        ) AS allowed
-                        "#,
-                        [task.tapp_id.clone().into(), user_id.into()],
-                    ))
-                    .await
-                    .map_err(|e| format!("Failed to verify Tapp scheduler audience: {e}"))?;
-                Ok(row
-                    .and_then(|row| row.try_get::<bool>("", "allowed").ok())
-                    .unwrap_or(false))
-            }
+        if matches!(task.scope, TaskScope::User | TaskScope::TappPerUser)
+            && execution.user_id != user_id
+        {
+            return Ok(false);
         }
+        Self::can_receive_frontend_task(db, user_id, task).await
     }
 
     async fn expire_stale_frontend_executions(
@@ -955,6 +1138,11 @@ impl TappSchedulerEngine {
             .map_err(|e| format!("Failed to finalize frontend execution: {}", e))?;
         if update.rows_affected == 0 {
             return Ok(());
+        }
+
+        SCHEDULER_COMPLETED.fetch_add(1, Ordering::Relaxed);
+        if status == ExecutionStatus::Timeout {
+            SCHEDULER_TIMEOUTS.fetch_add(1, Ordering::Relaxed);
         }
 
         Self::update_task_after_frontend_completion(db, &task, &status, result, error.clone())
@@ -1951,7 +2139,7 @@ impl TappSchedulerEngine {
             .await?
             .ok_or_else(|| format!("Task {} not found", task_id))?;
 
-        Self::execute_task(&self.db, &self.frontend_tx, &task, false, 0, true).await
+        Self::execute_task(&self.db, &task, false, 0, true).await
     }
 }
 
@@ -1998,6 +2186,14 @@ mod tests {
         assert_eq!(value["executionId"], 99);
         assert_eq!(value["payload"]["source"], "timer");
         assert!(value.get("execution_id").is_none());
+    }
+
+    #[test]
+    fn shared_delivery_uses_subject_scoped_mailboxes() {
+        assert_eq!(
+            scheduler_mailbox_recipient("scheduler_ws_abc"),
+            "connection:scheduler_ws_abc"
+        );
     }
 
     #[test]

@@ -211,6 +211,11 @@ export class TappScheduler {
     return TappScheduler.instance
   }
 
+  static reset(): void {
+    TappScheduler.instance?.destroy()
+    TappScheduler.instance = null
+  }
+
   /**
    * 初始化调度器
    * @param apiBaseUrl API 基础 URL

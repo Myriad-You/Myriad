@@ -52,6 +52,7 @@ export function registerUIHandlers(
   bridge: TappBridge,
   tappInstance: TappInstance,
   getLocale?: () => string,
+  options: { headless?: boolean } = {},
 ): void {
   bridge.registerHandler('ui.getTheme', async () => {
     const isDark = document.documentElement.classList.contains('dark')
@@ -70,9 +71,11 @@ export function registerUIHandlers(
     return { success: true, data: getLocale?.() || 'zh-CN' }
   })
 
-  bridge.registerHandler('ui.setTitle', async () => {
-    return { success: true, data: null }
-  })
+  if (!options.headless) {
+    bridge.registerHandler('ui.setTitle', async () => {
+      return { success: true, data: null }
+    })
+  }
 
   bridge.registerHandler('ui.showNotification', async (message) => {
     const [options] = (message.payload as { args: unknown[] }).args || []
@@ -101,6 +104,8 @@ export function registerUIHandlers(
       }
     }
   })
+
+  if (options.headless) return
 
   bridge.registerHandler('ui.confirm', async (message) => {
     const [msg] = (message.payload as { args: unknown[] }).args || []

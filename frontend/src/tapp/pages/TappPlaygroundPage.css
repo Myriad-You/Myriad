@@ -161,7 +161,6 @@
   );
   background-size: 220% 100%;
   background-position: 100% 0;
-  -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
   -webkit-text-fill-color: transparent;
@@ -173,7 +172,6 @@
   animation: none;
   background-image: none;
   background-clip: border-box;
-  -webkit-background-clip: border-box;
   color: var(--color-primary);
   -webkit-text-fill-color: var(--color-primary);
 }
@@ -339,7 +337,6 @@
     animation: none;
     background-image: none;
     background-clip: border-box;
-    -webkit-background-clip: border-box;
     color: var(--color-primary);
     -webkit-text-fill-color: var(--color-primary);
   }

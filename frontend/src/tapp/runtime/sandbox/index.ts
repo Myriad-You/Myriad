@@ -9,6 +9,12 @@
  * - 导出分离式资源加载器
  */
 
+export {
+  applySandboxCapabilityProfile,
+  HEADLESS_DENIED_ACTIONS,
+  type SandboxCapabilityProfile,
+} from './capabilityProfiles'
+
 // 🎯 资源加载器（分离式 CSS 处理）
 export {
   getResourceLoader,
@@ -18,7 +24,6 @@ export {
   TappResourceLoader,
   type WidgetResources,
 } from './resourceLoader'
-
 // SDK 生成器
 export { generateFullSDK, generateWidgetSDK } from './sdkGenerator'
 

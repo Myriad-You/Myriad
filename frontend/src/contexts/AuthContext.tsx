@@ -14,6 +14,9 @@ import {
   useState,
 } from 'react'
 import { API_URL } from '../config'
+import { TappRuntime } from '../tapp/runtime/TappRuntime'
+import { TappRuntimeGrant } from '../tapp/runtime/TappRuntimeGrant'
+import { TappScheduler } from '../tapp/runtime/TappScheduler'
 import { clearSessionHint } from '../utils/sessionDetection'
 
 export interface User {
@@ -46,6 +49,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(false) // 初始不加载
   const [hasChecked, setHasChecked] = useState(false) // 是否已检查过
+
+  const resetTappSubjectState = useCallback(() => {
+    TappScheduler.reset()
+    TappRuntimeGrant.destroyAll()
+    TappRuntime.reset()
+  }, [])
 
   const checkAuth = useCallback(async () => {
     // 如果已经在检查中，避免重复
@@ -81,12 +90,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [isLoading])
 
   const logout = useCallback(() => {
+    resetTappSubjectState()
     setUser(null)
     setIsAuthenticated(false)
     setIsAdmin(false)
     // 清除会话提示标志
     clearSessionHint()
-  }, [])
+  }, [resetTappSubjectState])
 
   // 页面加载时检查认证状态，包括：
   // 1. OAuth 回调（auth=success 或 link=success）
@@ -117,13 +127,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const handleAuthChange = (e: Event) => {
       const isAuth = (e as CustomEvent).detail?.isAuthenticated ?? false
       if (isAuth) {
+        resetTappSubjectState()
         checkAuth()
+      } else {
+        logout()
       }
     }
     window.addEventListener('auth-state-changed', handleAuthChange)
     return () =>
       window.removeEventListener('auth-state-changed', handleAuthChange)
-  }, [checkAuth])
+  }, [checkAuth, logout, resetTappSubjectState])
 
   // 🔧 性能优化：使用 useMemo 缓存 context value，避免不必要的重渲染
   const value = useMemo(

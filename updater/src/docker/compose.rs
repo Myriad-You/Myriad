@@ -141,6 +141,108 @@ impl ComposeRunner {
         self.run(&args, Duration::from_secs(600)).await
     }
 
+    /// Repair backend named-volume ownership with the target backend image's
+    /// narrowly scoped init mode. The regular backend container remains uid
+    /// 1000; only this disposable container runs as root.
+    pub async fn init_backend_volumes(&self) -> Result<ComposeOutput> {
+        let container_name = format!(
+            "{}-backend-volume-init-{}",
+            self.project,
+            uuid::Uuid::new_v4().simple()
+        );
+        let started = self
+            .run(
+                &[
+                    "run",
+                    "--detach",
+                    "--no-deps",
+                    "--no-TTY",
+                    "--name",
+                    &container_name,
+                    "--user",
+                    "0:0",
+                    "-e",
+                    "MYRIAD_VOLUME_INIT_ONLY=true",
+                    "backend",
+                ],
+                Duration::from_secs(600),
+            )
+            .await?;
+        if !started.ok() {
+            return Ok(started);
+        }
+
+        let container_id = started
+            .stdout_tail
+            .lines()
+            .rev()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .ok_or_else(|| {
+                UpdaterError::Docker(
+                    "backend volume initializer did not return a container id".into(),
+                )
+            })?;
+        let waited = self
+            .run_docker(&["wait", container_id], Duration::from_secs(600))
+            .await;
+        let removed = self
+            .run_docker(&["rm", "--force", container_id], Duration::from_secs(120))
+            .await;
+
+        let waited = waited?;
+        let removed = removed?;
+        if !removed.ok() {
+            return Ok(removed);
+        }
+        if !waited.ok() {
+            return Ok(waited);
+        }
+        let init_exit = waited
+            .stdout_tail
+            .lines()
+            .rev()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .and_then(|line| line.parse::<i32>().ok())
+            .ok_or_else(|| {
+                UpdaterError::Docker(format!(
+                    "backend volume initializer returned invalid wait output: {:?}",
+                    waited.stdout_tail
+                ))
+            })?;
+        Ok(ComposeOutput {
+            status: init_exit,
+            stdout_tail: waited.stdout_tail,
+            stderr_tail: waited.stderr_tail,
+        })
+    }
+
+    async fn run_docker(&self, args: &[&str], timeout: Duration) -> Result<ComposeOutput> {
+        let mut command = Command::new("docker");
+        command
+            .args(args)
+            .current_dir(&self.workdir)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+        debug!(?args, "docker exec");
+        let output = tokio::time::timeout(timeout, command.output())
+            .await
+            .map_err(|_| {
+                UpdaterError::Docker(format!(
+                    "docker {args:?} timed out after {}s",
+                    timeout.as_secs()
+                ))
+            })?
+            .map_err(|error| UpdaterError::Docker(format!("spawn docker {args:?}: {error}")))?;
+        Ok(ComposeOutput {
+            status: output.status.code().unwrap_or(-1),
+            stdout_tail: tail_string(&output.stdout, 32 * 1024),
+            stderr_tail: tail_string(&output.stderr, 32 * 1024),
+        })
+    }
+
     pub async fn pull(&self, services: &[&str]) -> Result<ComposeOutput> {
         let mut args: Vec<&str> = vec!["pull"];
         args.extend_from_slice(services);

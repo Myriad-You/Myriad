@@ -159,6 +159,29 @@ export class TappRuntime {
     return TappRuntime.instance
   }
 
+  /** Drop every subject-scoped cache when the authenticated identity changes. */
+  static reset(): void {
+    TappRuntime.instance?.dispose()
+    TappRuntime.instance = null
+    getResourceLoader().clearCache()
+  }
+
+  private dispose(): void {
+    this.installedTapps.clear()
+    this.runningTapps.clear()
+    this.sessionRunningTapps.clear()
+    this.registeredWidgets.clear()
+    this.registeredPlatforms.clear()
+    this.backgroundRequirements.clear()
+    this.manifestBackgroundRequirements.clear()
+    this.eventListeners.clear()
+    this.lifecycleTransitions.clear()
+    this.uninstallingTapps.clear()
+    this.synced = false
+    this.syncError = null
+    this.lastSyncTime = 0
+  }
+
   /**
    * 从后端同步状态（带请求去重和缓存检查）
    */

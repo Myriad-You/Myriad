@@ -203,6 +203,40 @@ pub async fn run(
     }
 
     rec.enter(Phase::StartingNew, "updater.phase.starting_new")?;
+    let volume_init = match compose.init_backend_volumes().await {
+        Ok(output) => output,
+        Err(error) => {
+            let err = format!("backend volume ownership initialization failed: {error}");
+            rec.finish_step_err(&err)?;
+            return finish_with_rollback(
+                &worker,
+                &rec,
+                &compose,
+                &snap,
+                &snapshot_id,
+                Some(&from_tag_backup),
+                UpdaterError::Internal(anyhow::anyhow!(err)),
+            )
+            .await;
+        }
+    };
+    if !volume_init.ok() {
+        let err = format!(
+            "backend volume ownership initialization failed: {}",
+            volume_init.error_summary()
+        );
+        rec.finish_step_err(&err)?;
+        return finish_with_rollback(
+            &worker,
+            &rec,
+            &compose,
+            &snap,
+            &snapshot_id,
+            Some(&from_tag_backup),
+            UpdaterError::Internal(anyhow::anyhow!(err)),
+        )
+        .await;
+    }
     let up = compose.up_detached(&["backend", "frontend"]).await?;
     if !up.ok() {
         let err = format!("compose up new failed: {}", up.error_summary());

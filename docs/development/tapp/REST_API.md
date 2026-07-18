@@ -326,8 +326,11 @@ Interaction 的动作截止时间独立于终态保留时间；所有副本都�
 宿主代理路径已统一按 Grant 归因：带 `X-Tapp-Runtime-Grant` 的请求在服务端按路由强制 Tapp
 权限并记录归因日志（共享 `host_attribution` 中间件；路由→权限表见
 `docs/development/tapp/fixtures/host_route_permissions.json`，**先改 fixture 再改映射**）；联邦 E2E 密钥交换与 Channel/Room
-WebSocket 升级对带 Grant 请求拒绝或保持文档豁免（浏览器 WS 无法带自定义头）。独立 AI 费用
-账本见 `/api/tapp/ai/v2/ledger`。
+WebSocket 升级不能携带 Grant 头，因此 Tapp Bridge 先调用
+`POST /api/federation/channels/{channelId}/ws-ticket` 或
+`POST /api/federation/rooms/{roomId}/ws-ticket`（要求 `federation:message`），再把一次性
+`tapp_ws_ticket` 放入对应升级 URL。票据过期、复用、subject 或目标不匹配都会失败关闭，宿主 UI
+不带票据的 Claims-only WebSocket 语义保持不变。独立 AI 费用账本见 `/api/tapp/ai/v2/ledger`。
 
 ### 上下文与媒体
 
@@ -395,6 +398,14 @@ AI Task registry 与配额账本。
 | POST     | `/api/tapp/scheduler/{tappId}/tasks/{taskId}/disable` | 禁用                        |
 | POST     | `/api/tapp/scheduler/{tappId}/tasks/{taskId}/trigger` | 手动触发                    |
 | GET (WS) | `/api/tapp/scheduler/ws`                              | frontend 任务推送与完成回执 |
+
+Scheduler WS presence 与 frontend 消息使用 PostgreSQL TTL registry/mailbox，而不是进程内广播。
+连接每 20 秒续租，服务端按 connection 原子领取消息；发送中断会重新入队。这样任务 worker 与
+WebSocket 位于不同后端副本时仍可投递，每个标签页都能按自己的 Tapp 回调决定是否处理，执行
+终态由数据库 CAS 去重。管理员
+`GET /api/tapp/metrics` 可查看在线 subject、mailbox 深度以及投递/失败/回退/完成/超时计数。
+其中在线 subject 与 mailbox 深度来自共享数据库，`processCounters` 明确只表示当前后端副本，
+部署侧应按实例采集后聚合。
 
 注册请求使用 snake_case（SDK 会转换）：
 

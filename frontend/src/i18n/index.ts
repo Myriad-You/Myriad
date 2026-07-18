@@ -285,6 +285,58 @@ export interface TranslationKeys {
     aboutRepository: string
     aboutDevInfo: string
     aboutLogoAlt: string
+    // 用户管理区段
+    users: string
+    usersDesc: string
+    usersAdminGroup: string
+    usersAdminGroupDesc: string
+    usersRegisteredGroup: string
+    usersRegisteredGroupDesc: string
+    usersOnline: string
+    usersOffline: string
+    usersLastSeen: string
+    usersOnlineTotal: string
+    usersLastLogin: string
+    usersCreatedAt: string
+    usersNever: string
+    usersLocalPassword: string
+    usersPasswordSet: string
+    usersPasswordUnset: string
+    usersLocalLoginDisabled: string
+    usersOAuthIdentities: string
+    usersNoIdentities: string
+    usersPrimaryIdentity: string
+    usersUnlinkIdentity: string
+    usersUnlinkConfirm: string
+    usersInstalledTapps: string
+    usersNoTapps: string
+    usersTappCount: string
+    usersRole: string
+    usersRoleAdmin: string
+    usersRoleUser: string
+    usersMakeAdmin: string
+    usersRevokeAdmin: string
+    usersRevokeAdminConfirm: string
+    usersEnableLocalLogin: string
+    usersDisableLocalLogin: string
+    usersEditProfile: string
+    usersDisplayName: string
+    usersEmail: string
+    usersSave: string
+    usersCancel: string
+    usersCreateUser: string
+    usersCreateUsername: string
+    usersCreatePassword: string
+    usersCreateIsAdmin: string
+    usersCreateSubmit: string
+    usersRefresh: string
+    usersLoadError: string
+    usersActionError: string
+    usersEmpty: string
+    usersShowDetail: string
+    usersHideDetail: string
+    usersHours: string
+    usersMinutes: string
     // Updater (admin) — 更新管理
     updaterTitle: string
     // 状态一句话（hero 主标题）

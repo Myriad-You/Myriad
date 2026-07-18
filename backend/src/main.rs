@@ -640,17 +640,93 @@ async fn admin_create_user_wrapper(
     }
 }
 
-/// PR #6: Wrapper for admin_list_users
+/// 设置页用户管理：列表（api::admin_users 取代 PR #6 的旧版列表）
 async fn admin_list_users_wrapper(headers: axum::http::HeaderMap) -> Response {
     let db_opt = DB_CONNECTION.read().await;
     match db_opt.as_ref() {
         Some(db) => {
-            match api::auth_local::admin_list_users(axum::extract::State(db.clone()), headers).await
-            {
+            match api::admin_users::list_users(axum::extract::State(db.clone()), headers).await {
                 Ok(response) => response.into_response(),
                 Err((status, json)) => (status, json).into_response(),
             }
         }
+        None => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Database not connected"})),
+        )
+            .into_response(),
+    }
+}
+
+/// 设置页用户管理：单用户详情
+async fn admin_get_user_wrapper(
+    axum::extract::Path(user_id): axum::extract::Path<i32>,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    let db_opt = DB_CONNECTION.read().await;
+    match db_opt.as_ref() {
+        Some(db) => match api::admin_users::get_user(
+            axum::extract::State(db.clone()),
+            axum::extract::Path(user_id),
+            headers,
+        )
+        .await
+        {
+            Ok(response) => response.into_response(),
+            Err((status, json)) => (status, json).into_response(),
+        },
+        None => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Database not connected"})),
+        )
+            .into_response(),
+    }
+}
+
+/// 设置页用户管理：更新用户
+async fn admin_update_user_wrapper(
+    axum::extract::Path(user_id): axum::extract::Path<i32>,
+    headers: axum::http::HeaderMap,
+    Json(payload): Json<api::admin_users::UpdateUserRequest>,
+) -> Response {
+    let db_opt = DB_CONNECTION.read().await;
+    match db_opt.as_ref() {
+        Some(db) => match api::admin_users::update_user(
+            axum::extract::State(db.clone()),
+            axum::extract::Path(user_id),
+            headers,
+            Json(payload),
+        )
+        .await
+        {
+            Ok(response) => response.into_response(),
+            Err((status, json)) => (status, json).into_response(),
+        },
+        None => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Database not connected"})),
+        )
+            .into_response(),
+    }
+}
+
+/// 设置页用户管理：解绑用户的 OAuth identity
+async fn admin_unlink_identity_wrapper(
+    axum::extract::Path(path): axum::extract::Path<(i32, i32)>,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    let db_opt = DB_CONNECTION.read().await;
+    match db_opt.as_ref() {
+        Some(db) => match api::admin_users::unlink_identity(
+            axum::extract::State(db.clone()),
+            axum::extract::Path(path),
+            headers,
+        )
+        .await
+        {
+            Ok(response) => response.into_response(),
+            Err((status, json)) => (status, json).into_response(),
+        },
         None => (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({"error": "Database not connected"})),
@@ -3966,11 +4042,22 @@ async fn start_unified_server(config: AppConfig) -> anyhow::Result<()> {
             "/api/auth/change-password",
             post(change_password_wrapper).route_layer(from_fn(middleware::auth::auth_middleware)),
         )
-        // PR #6: admin 用户管理（GET 列出 / POST 创建）— 仅管理员
+        // 设置页用户管理（列表/创建/详情/更新/解绑 identity）— 仅管理员
         .route(
             "/api/admin/users",
             get(admin_list_users_wrapper)
                 .post(admin_create_user_wrapper)
+                .route_layer(from_fn(middleware::auth::admin_middleware)),
+        )
+        .route(
+            "/api/admin/users/{id}",
+            get(admin_get_user_wrapper)
+                .patch(admin_update_user_wrapper)
+                .route_layer(from_fn(middleware::auth::admin_middleware)),
+        )
+        .route(
+            "/api/admin/users/{id}/identities/{identity_id}",
+            axum::routing::delete(admin_unlink_identity_wrapper)
                 .route_layer(from_fn(middleware::auth::admin_middleware)),
         )
         // PR #4: 公开注册（开关受 allow_local_registration 控制） + 后补密码 + 本地登录开关

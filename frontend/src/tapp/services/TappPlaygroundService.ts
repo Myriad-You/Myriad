@@ -67,19 +67,19 @@ export interface GeneratePlaygroundResponse {
   validation: PlaygroundValidationReport
 }
 
-export type PlaygroundStreamStepEvent = {
+export interface PlaygroundStreamStepEvent {
   type: 'step'
   tool: string
   status: string
   summary: string
 }
 
-export type PlaygroundStreamDoneEvent = {
+export interface PlaygroundStreamDoneEvent {
   type: 'done'
   response: GeneratePlaygroundResponse
 }
 
-export type PlaygroundStreamErrorEvent = {
+export interface PlaygroundStreamErrorEvent {
   type: 'error'
   message: string
 }

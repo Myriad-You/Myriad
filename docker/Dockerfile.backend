@@ -57,15 +57,19 @@ WORKDIR /app
 
 # Copy binary from builder
 COPY --from=builder /build/backend/target/release/myriad-backend /app/myriad-backend
+COPY docker/backend-entrypoint.sh /usr/local/bin/myriad-backend-entrypoint
 
 # Create cache directory
 RUN mkdir -p /app/cache
 
 # Create a non-root user
 RUN useradd -m -u 1000 myriad && \
-    chown -R myriad:myriad /app
+    chown -R myriad:myriad /app && \
+    chmod 0755 /usr/local/bin/myriad-backend-entrypoint
 
 USER myriad
+
+ENTRYPOINT ["/usr/local/bin/myriad-backend-entrypoint"]
 
 EXPOSE 1103
 

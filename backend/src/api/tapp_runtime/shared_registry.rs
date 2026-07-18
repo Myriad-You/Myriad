@@ -124,8 +124,8 @@ pub async fn put_with_subject_limit<T: Serialize>(
     }
     let count = CountRow::find_by_statement(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "SELECT COUNT(*)::BIGINT AS count FROM tapp_runtime_registry WHERE namespace = $1 AND subject_id = $2 AND expires_at > EXTRACT(EPOCH FROM NOW())::BIGINT",
-        vec![namespace.into(), subject_id.into()],
+        "SELECT COUNT(*)::BIGINT AS count FROM tapp_runtime_registry WHERE namespace = $1 AND subject_id = $2 AND record_id <> $3 AND expires_at > EXTRACT(EPOCH FROM NOW())::BIGINT",
+        vec![namespace.into(), subject_id.into(), record_id.into()],
     ))
     .one(&transaction)
     .await?
@@ -211,6 +211,95 @@ ORDER BY updated_at ASC
     ))
     .all(db)
     .await
+}
+
+/// Return the distinct live subjects registered in a namespace.
+///
+/// Scheduler WebSocket presence uses this to discover users connected to any
+/// backend replica without exposing individual connection records.
+pub async fn list_subject_ids(
+    db: &impl ConnectionTrait,
+    namespace: &str,
+) -> Result<Vec<i32>, DbErr> {
+    #[derive(FromQueryResult)]
+    struct SubjectRow {
+        subject_id: i32,
+    }
+
+    let rows = SubjectRow::find_by_statement(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        r#"
+SELECT DISTINCT subject_id
+FROM tapp_runtime_registry
+WHERE namespace = $1
+  AND subject_id IS NOT NULL
+  AND expires_at > EXTRACT(EPOCH FROM NOW())::BIGINT
+ORDER BY subject_id
+"#,
+        vec![namespace.into()],
+    ))
+    .all(db)
+    .await?;
+    Ok(rows.into_iter().map(|row| row.subject_id).collect())
+}
+
+#[derive(Debug, Clone, FromQueryResult)]
+pub struct RegistryEndpoint {
+    pub record_id: String,
+    pub subject_id: i32,
+}
+
+/// Return every live connection together with its authenticated subject.
+pub async fn list_subject_endpoints(
+    db: &impl ConnectionTrait,
+    namespace: &str,
+) -> Result<Vec<RegistryEndpoint>, DbErr> {
+    RegistryEndpoint::find_by_statement(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        r#"
+SELECT record_id, subject_id
+FROM tapp_runtime_registry
+WHERE namespace = $1
+  AND subject_id IS NOT NULL
+  AND expires_at > EXTRACT(EPOCH FROM NOW())::BIGINT
+ORDER BY updated_at, record_id
+"#,
+        vec![namespace.into()],
+    ))
+    .all(db)
+    .await
+}
+
+pub async fn count_namespace(db: &impl ConnectionTrait, namespace: &str) -> Result<i64, DbErr> {
+    #[derive(FromQueryResult)]
+    struct CountRow {
+        count: i64,
+    }
+
+    Ok(CountRow::find_by_statement(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT COUNT(*)::BIGINT AS count FROM tapp_runtime_registry WHERE namespace = $1 AND expires_at > EXTRACT(EPOCH FROM NOW())::BIGINT",
+        vec![namespace.into()],
+    ))
+    .one(db)
+    .await?
+    .map_or(0, |row| row.count))
+}
+
+pub async fn mailbox_depth(db: &impl ConnectionTrait, channel: &str) -> Result<i64, DbErr> {
+    #[derive(FromQueryResult)]
+    struct CountRow {
+        count: i64,
+    }
+
+    Ok(CountRow::find_by_statement(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT COUNT(*)::BIGINT AS count FROM tapp_runtime_mailbox WHERE channel = $1 AND expires_at > EXTRACT(EPOCH FROM NOW())::BIGINT",
+        vec![channel.into()],
+    ))
+    .one(db)
+    .await?
+    .map_or(0, |row| row.count))
 }
 
 pub async fn delete(
@@ -326,14 +415,18 @@ pub async fn enqueue<T: Serialize>(
     ))
     .await?;
     maybe_cleanup(db).await;
-    // NOTIFY is a best-effort latency hint. The durable mailbox remains the
-    // source of truth and consumers poll their cursor after reconnects.
-    db.execute(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        "SELECT pg_notify('tapp_runtime_mailbox', $1)",
-        vec![runtime_id.into()],
-    ))
-    .await?;
+    // NOTIFY is a best-effort latency hint. The mailbox remains the source of
+    // truth until a consumer claims a message, and consumers poll if hints are missed.
+    if let Err(error) = db
+        .execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT pg_notify('tapp_runtime_mailbox', $1)",
+            vec![runtime_id.into()],
+        ))
+        .await
+    {
+        tracing::warn!(%error, channel, runtime_id, "[TAPP] Mailbox NOTIFY hint failed");
+    }
     Ok(())
 }
 

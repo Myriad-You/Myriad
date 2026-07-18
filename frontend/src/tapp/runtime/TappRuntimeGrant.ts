@@ -16,6 +16,7 @@ const REFRESH_SKEW_MS = 30_000
  */
 export class TappRuntimeGrant {
   private static readonly tokenOwners = new Map<string, TappRuntimeGrant>()
+  private static readonly instances = new Set<TappRuntimeGrant>()
   private current: TappRuntimeGrantResponse | null = null
   private refreshPromise: Promise<TappRuntimeGrantResponse> | null = null
   private destroyed = false
@@ -24,7 +25,9 @@ export class TappRuntimeGrant {
     private readonly tappId: string,
     private readonly instanceId: string,
     private readonly kind: RuntimeGrantKind,
-  ) {}
+  ) {
+    TappRuntimeGrant.instances.add(this)
+  }
 
   async getToken(): Promise<string> {
     if (this.destroyed) {
@@ -94,11 +97,17 @@ export class TappRuntimeGrant {
   destroy(): void {
     if (this.destroyed) return
     this.destroyed = true
+    TappRuntimeGrant.instances.delete(this)
     if (this.current) {
       TappRuntimeGrant.tokenOwners.delete(this.current.token)
       void revokeTappRuntimeGrant(this.tappId, this.current.runtimeId)
       this.current = null
     }
+  }
+
+  static destroyAll(): void {
+    for (const grant of [...TappRuntimeGrant.instances]) grant.destroy()
+    TappRuntimeGrant.tokenOwners.clear()
   }
 
   /** Reissue once after a backend restart or explicit server-side revocation. */

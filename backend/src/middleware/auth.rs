@@ -12,7 +12,10 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::env;
+use std::sync::{Mutex as StdMutex, OnceLock};
+use std::time::{Duration, Instant};
 use subtle::ConstantTimeEq;
 use uuid::Uuid;
 
@@ -33,6 +36,7 @@ pub async fn auth_middleware(req: Request, next: Next) -> Response {
 
     match verify_jwt_token(headers) {
         Ok(claims) => {
+            record_user_presence(&claims);
             // Token is valid, inject claims into request extensions
             let mut req = req;
             req.extensions_mut().insert(claims);
@@ -40,6 +44,62 @@ pub async fn auth_middleware(req: Request, next: Next) -> Response {
         }
         Err(error_response) => *error_response,
     }
+}
+
+/// 每用户至少间隔 60s 才落一次库，避免高频请求放大写入。
+const PRESENCE_WRITE_INTERVAL: Duration = Duration::from_secs(60);
+/// 两次活跃间隔 ≤300s 视为持续在线，计入 online_seconds；更长间隔视为离线后重新上线。
+const PRESENCE_SESSION_GAP_SECS: i64 = 300;
+
+static PRESENCE_WRITE_TIMES: OnceLock<StdMutex<HashMap<i32, Instant>>> = OnceLock::new();
+
+fn presence_write_due(user_id: i32) -> bool {
+    let map = PRESENCE_WRITE_TIMES.get_or_init(|| StdMutex::new(HashMap::new()));
+    let mut guard = match map.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    let now = Instant::now();
+    match guard.get(&user_id) {
+        Some(last) if now.duration_since(*last) < PRESENCE_WRITE_INTERVAL => false,
+        _ => {
+            guard.insert(user_id, now);
+            true
+        }
+    }
+}
+
+/// 节流更新 users.last_seen_at / online_seconds（异步、尽力而为）。
+/// 游客（负数 ID）不记录。
+pub fn record_user_presence(claims: &Claims) {
+    let Ok(user_id) = claims.sub.parse::<i32>() else {
+        return;
+    };
+    if user_id <= 0 || !presence_write_due(user_id) {
+        return;
+    }
+    tokio::spawn(async move {
+        let db_guard = crate::DB_CONNECTION.read().await;
+        let Some(db) = db_guard.as_ref() else {
+            return;
+        };
+        let result = db
+            .execute(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "UPDATE users SET \
+                     online_seconds = online_seconds + CASE \
+                         WHEN last_seen_at IS NOT NULL AND NOW() - last_seen_at <= make_interval(secs => $2) \
+                         THEN EXTRACT(EPOCH FROM (NOW() - last_seen_at))::BIGINT \
+                         ELSE 0 END, \
+                     last_seen_at = NOW() \
+                 WHERE id = $1",
+                [user_id.into(), PRESENCE_SESSION_GAP_SECS.into()],
+            ))
+            .await;
+        if let Err(e) = result {
+            tracing::debug!("Failed to record presence for user {}: {}", user_id, e);
+        }
+    });
 }
 
 /// Admin-only middleware - verifies JWT token and checks admin status
@@ -52,6 +112,7 @@ pub async fn admin_middleware(req: Request, next: Next) -> Response {
 
     match verify_jwt_token(headers) {
         Ok(claims) => {
+            record_user_presence(&claims);
             if let Err((status, body)) = ensure_current_admin(&claims).await {
                 tracing::warn!(
                     "⚠️  User {} (is_admin={}) attempted to access admin-only endpoint (Forbidden)",
@@ -230,7 +291,10 @@ pub async fn optional_auth_middleware(req: Request, next: Next) -> Response {
     let headers = req.headers();
     let mut set_guest_cookie = None;
     let claims = match verify_jwt_token(headers) {
-        Ok(claims) => claims,
+        Ok(claims) => {
+            record_user_presence(&claims);
+            claims
+        }
         Err(_) => {
             let secret = match env::var("JWT_SECRET") {
                 Ok(secret) if !secret.is_empty() => secret,

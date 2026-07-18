@@ -2,10 +2,7 @@
  * 综合报告卡片组件
  */
 
-import {
-  REPORT_CARD_FLEX_BASIS,
-  type ComprehensiveAnalysis,
-} from './types'
+import type { ComprehensiveAnalysis } from './types'
 import {
   FaBrain,
   FaCode,
@@ -24,6 +21,10 @@ import { memo, useCallback } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import { useLoopAnimation } from '../../hooks/animation'
 import { useAnimationLevel } from '../../hooks/useAnimationLevel'
+import {
+
+  REPORT_CARD_FLEX_BASIS,
+} from './types'
 
 // 图标组件
 const ThemeIcon = memo(

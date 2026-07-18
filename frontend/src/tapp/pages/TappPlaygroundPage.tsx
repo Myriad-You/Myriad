@@ -33,17 +33,12 @@ import { useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { useBreakpoints } from '../../hooks/useSharedEventListener'
 import { PlaygroundComposer } from '../components/PlaygroundComposer'
 import { TappPlaygroundIcon } from '../components/PlaygroundIcons'
+import { getTappRuntime } from '../runtime'
 import { TappPageSandbox } from '../runtime/TappPageSandbox'
 import { TappWidgetSandbox } from '../runtime/TappWidgetSandbox'
-import { getTappRuntime } from '../runtime'
 import { installFromCode } from '../services/TappApiService'
 import { generatePlaygroundProject } from '../services/TappPlaygroundService'
 import { exportPlaygroundProjectAsTapp } from '../utils/exportPlaygroundTapp'
-import {
-  formatPlaygroundPackageErrors,
-  PlaygroundPackageValidationError,
-  validatePlaygroundPackage,
-} from '../utils/validatePlaygroundPackage'
 import {
   computeLineDiff,
   countDiffChanges,
@@ -62,6 +57,11 @@ import {
   switchSession,
   updateActiveSessionWithMeta,
 } from '../utils/playgroundSession'
+import {
+  formatPlaygroundPackageErrors,
+  PlaygroundPackageValidationError,
+  validatePlaygroundPackage,
+} from '../utils/validatePlaygroundPackage'
 import 'prismjs/components/prism-json'
 import './TappPlaygroundPage.css'
 

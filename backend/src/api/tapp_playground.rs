@@ -349,7 +349,7 @@ pub enum PlaygroundStreamEvent {
         summary: String,
     },
     Done {
-        response: PlaygroundGenerateResponse,
+        response: Box<PlaygroundGenerateResponse>,
     },
     Error {
         message: String,
@@ -450,7 +450,9 @@ async fn generate_project_stream(
         match result {
             Ok(response) => {
                 let _ = event_tx
-                    .send(PlaygroundStreamEvent::Done { response })
+                    .send(PlaygroundStreamEvent::Done {
+                        response: Box::new(response),
+                    })
                     .await;
             }
             Err(GenerationError::Cancelled) => {
