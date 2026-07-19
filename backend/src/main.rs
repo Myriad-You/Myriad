@@ -5203,7 +5203,7 @@ async fn start_unified_server(config: AppConfig) -> anyhow::Result<()> {
         // Apply security headers after the complete route graph is assembled.
         .layer(from_fn(middleware::security::security_headers_middleware))
         // Global 50MB: media/avatar uploads need a large ceiling. Federation public
-        // inbox + federation_api_router apply a stricter 16 MiB DefaultBodyLimit
+        // inbox + federation_api_router apply a stricter 40 MiB DefaultBodyLimit
         // on their own routers (nested limits still apply under this outer layer).
         .layer(axum::extract::DefaultBodyLimit::max(50 * 1024 * 1024)) // 🛡️ 防止OOM: 限制请求体最大50MB
         .layer(cors)
