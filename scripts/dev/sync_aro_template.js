@@ -124,8 +124,12 @@ const CORE_CODE = buildCoreCode()
 
 /** JSON.stringify has no trailing commas; eslint style/comma-dangle requires them in TS. */
 function jsonWithTrailingCommas(value) {
+  // Two passes: property values first, then nested closing braces/brackets.
+  // A single pass matching values can consume `}\n}` so the outer `}` never
+  // gets a trailing comma (last locale block under ARO_I18N).
   return JSON.stringify(value, null, 2)
-    .replace(/(["\w.\]}])(\n\s*[}\]])/g, '$1,$2');
+    .replace(/("(?:\\.|[^"\\])*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)(\n\s*[}\]])/g, '$1,$2')
+    .replace(/([}\]])(\n\s*[}\]])/g, '$1,$2');
 }
 
 const permsStr = (manifestJson.permissions || []).map((p) => `    '${p}'`).join(',\n');
