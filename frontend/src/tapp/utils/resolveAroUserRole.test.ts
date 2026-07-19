@@ -21,7 +21,7 @@ describe('resolveAroUserRole', () => {
     })
   })
 
-  it('honors explicit getRole including guest', () => {
+  it('honors getRole user/admin; soft-guest alone stays guest without getUser', () => {
     assert.deepEqual(resolveAroUserRole({ roleFromGetRole: 'guest' }), {
       userRole: 'guest',
       isGuest: true,
@@ -39,13 +39,22 @@ describe('resolveAroUserRole', () => {
     })
   })
 
-  it('does not fall through to getUser when getRole is explicit guest', () => {
+  it('soft-guest from getRole falls through when getUser shows a real member', () => {
+    // Host getRole often returns userRole||'guest' when instance.userRole is unset.
     const result = resolveAroUserRole({
       roleFromGetRole: 'guest',
       userFromContext: { id: 'user_1', username: 'alice', role: 'user' },
     })
+    assert.equal(result.isGuest, false)
+    assert.equal(result.userRole, 'user')
+  })
+
+  it('soft-guest from getRole stays guest when context is also guest', () => {
+    const result = resolveAroUserRole({
+      roleFromGetRole: 'guest',
+      userFromContext: { role: 'guest', id: 'guest' },
+    })
     assert.equal(result.isGuest, true)
-    assert.equal(result.userRole, 'guest')
   })
 
   it('uses isAdmin API when getRole unavailable (false ⇒ logged-in user)', () => {

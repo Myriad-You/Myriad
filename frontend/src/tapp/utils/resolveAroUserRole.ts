@@ -3,10 +3,12 @@
  *
  * Mirrors the loadUserRole() algorithm in
  * frontend/src/tapp/examples/tapps/aro.ts (PAGE_MOD_HELPERS):
- *   1. Explicit getRole → use it (including 'guest')
- *   2. Else isAdmin API → admin or user (never guest)
- *   3. Else context.getUser → authenticated user → user/admin
- *   4. Only remain guest when no auth user or explicit guest role
+ *   1. getRole user/admin → use it
+ *   2. getRole 'guest' is SOFT — host often returns `userRole || 'guest'`
+ *      when instance.userRole is unset; verify via isAdmin / getUser
+ *   3. isAdmin API → admin or user (never guest)
+ *   4. context.getUser → authenticated user → user/admin
+ *   5. Remain guest only when no auth user or context role is guest
  *
  * Extracted so the fallback chain can be unit-tested without the sandbox.
  */
@@ -32,6 +34,7 @@ export interface ResolveAroUserRoleInput {
   /**
    * Result of Tapp.user.getRole() when the call succeeded.
    * Omit / undefined / null / '' = unavailable (fall through).
+   * 'guest' alone is not definitive when getUser shows a real member.
    */
   roleFromGetRole?: string | null
   /**
@@ -89,7 +92,7 @@ export function isAuthenticatedAroUser(
 /**
  * Resolve Aro role flags from available host signals.
  * Callers supply only the signals that actually succeeded; missing
- * signals fall through so a broken getRole does not lock the UI as guest.
+ * signals fall through so a broken/false-guest getRole does not lock the UI.
  */
 export function resolveAroUserRole(
   input: ResolveAroUserRoleInput = {},
@@ -97,11 +100,14 @@ export function resolveAroUserRole(
   const roleRaw = input.roleFromGetRole
   if (roleRaw != null && String(roleRaw).trim() !== '') {
     const userRole = normalizeRole(String(roleRaw))
-    return {
-      userRole,
-      isGuest: userRole === 'guest',
-      isAdmin: userRole === 'admin',
+    if (userRole !== 'guest') {
+      return {
+        userRole,
+        isGuest: false,
+        isAdmin: userRole === 'admin',
+      }
     }
+    // Soft guest from getRole — fall through (host may have defaulted).
   }
 
   if (typeof input.isAdminFromApi === 'boolean') {
@@ -114,8 +120,11 @@ export function resolveAroUserRole(
 
   const user = input.userFromContext
   if (isAuthenticatedAroUser(user)) {
-    const isAdmin =
-      !!(user && (user.isAdmin === true || normalizeRole(String(user.role || '')) === 'admin'))
+    const isAdmin = !!(
+      user &&
+      (user.isAdmin === true ||
+        normalizeRole(String(user.role || '')) === 'admin')
+    )
     return {
       userRole: isAdmin ? 'admin' : 'user',
       isGuest: false,

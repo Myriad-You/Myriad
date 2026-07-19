@@ -2550,19 +2550,28 @@ function applyRoleControls() {
 
 /**
  * Resolve guest/user/admin without locking authenticated users as guests
- * when getRole/isAdmin are missing or throw.
+ * when getRole/isAdmin are missing, throw, or host-default to 'guest'.
  *
  * Order (mirrors resolveAroUserRole util + unit tests):
- *   1. Tapp.user.getRole — explicit role wins (including 'guest')
- *   2. Tapp.user.isAdmin — true→admin, false→user (never guest)
- *   3. Tapp.context.getUser — authenticated user → user/admin
- *   4. Remain guest only when no auth user or explicit guest role
+ *   1. Tapp.user.getRole user/admin → use it
+ *   2. getRole 'guest' is SOFT (host often does userRole||'guest') → verify below
+ *   3. Tapp.user.isAdmin — true→admin, false→user (never guest)
+ *   4. Tapp.context.getUser — authenticated user → user/admin
+ *   5. Remain guest only when no auth user or context role is guest
+ *
+ * Repro (before this soft-guest fix, local preview logged-in):
+ *   - Host getRole returns 'guest' because tappInstance.userRole is unset
+ *   - #145 still treated that as resolved=true → Messages/Rings/create/+ all gone
+ * After:
+ *   - Same login + soft-guest getRole → getUser promotes to member
+ *   - True guest (context role guest / no identity) still locked
  *
  * Manual test (local preview, logged-in non-admin):
  *   - Open Aro: #aro-nav shows Messages + Rings
  *   - Feed has Following / Followers / Published tabs (not timeline-only)
  *   - Messenger opens; compose + is available on timeline/following
- *   - DevTools: force Tapp.user.getRole to throw → still not guest if getUser works
+ *   - DevTools: force getRole to 'guest' while getUser has id/username → still member
+ *   - DevTools: force getRole to throw → still not guest if getUser works
  *   - Logged-out / true guest: nav hidden, timeline-only feed
  */
 async function loadUserRole() {
@@ -2575,10 +2584,14 @@ async function loadUserRole() {
     try {
       var role = await Tapp.user.getRole();
       if (role != null && String(role).trim() !== '') {
-        state.userRole = String(role);
-        state.isGuest = state.userRole === 'guest';
-        state.isAdmin = state.userRole === 'admin';
-        resolved = true;
+        var roleNorm = String(role).trim().toLowerCase();
+        if (roleNorm === 'admin' || roleNorm === 'user') {
+          state.userRole = roleNorm;
+          state.isGuest = false;
+          state.isAdmin = roleNorm === 'admin';
+          resolved = true;
+        }
+        // roleNorm === 'guest' (or other): soft — do NOT set resolved; verify via isAdmin/getUser
       }
     } catch (e) { /* fall through to isAdmin / getUser */ }
   }
@@ -2601,7 +2614,7 @@ async function loadUserRole() {
       if (user && typeof user === 'object') {
         var rawRole = user.role != null ? String(user.role).trim().toLowerCase() : '';
         if (rawRole === 'guest') {
-          // explicit guest — stay guest
+          // explicit guest on context — stay guest
         } else {
           var isAdminUser = !!(user.isAdmin === true || rawRole === 'admin');
           var isRoleUser = rawRole === 'user' || rawRole === 'admin';
