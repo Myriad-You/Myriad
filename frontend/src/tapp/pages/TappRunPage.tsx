@@ -364,8 +364,8 @@ function TappRunPageStandard({ tappId, isMobile }: TappRunPageStandardProps) {
 
         {/* 控制栏 + 沙箱 整体容器 */}
         <div className="flex-1 flex flex-col px-4 sm:px-6 min-h-0 pb-6">
-          {/* Cap run chrome + sandbox at ~72rem so desktop isn't edge-to-edge huge. */}
-          <div className="max-w-6xl mx-auto w-full flex flex-col flex-1 min-h-0 max-h-[calc(100vh-8rem)]">
+          {/* Full remaining width — do not cap at max-w-6xl (left a dead strip beside full-bleed apps like Aro). */}
+          <div className="w-full flex flex-col flex-1 min-h-0 max-h-[calc(100vh-8rem)]">
             {/* 头部卡片 - 紧凑单行 */}
             <div className="glass rounded-t-xl px-3 py-2 flex items-center justify-between gap-2 shadow-sm min-h-11 shrink-0 pointer-events-auto">
               {/* 左侧：返回 + 状态/图标 + 名称 */}
@@ -652,10 +652,8 @@ function TappRunPageStandard({ tappId, isMobile }: TappRunPageStandardProps) {
                   bottom: '1.5rem',
                   left: '1rem',
                   zIndex: 1,
-                  // Match chrome max-w-6xl (~72rem); center so wide desktops keep a readable frame
-                  maxWidth: '72rem',
-                  marginLeft: 'auto',
-                  marginRight: 'auto',
+                  // No maxWidth — full remaining viewport (1rem inset). Capping at 72rem
+                  // left a dead empty strip on wide screens for full-bleed apps (Aro feed).
                   // 独立合成层：减轻 WebKit 在 overflow:hidden 祖先下的 iframe 绘制问题
                   // （页面级 opacity 动画已在 App.tsx 对 /tapp/run 关闭）
                   // 仅非全屏使用 translateZ；全屏避免额外合成层干扰 host chrome hit-test
