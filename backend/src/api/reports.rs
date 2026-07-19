@@ -6,7 +6,8 @@
 /// 3. 全平台报告生成 -> 聚合各平台报告生成综合报告
 use axum::{extract::State, http::StatusCode, Extension, Json};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, Set,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -1586,6 +1587,52 @@ async fn public_report_owner_user_id(
         .unwrap_or(1)
 }
 
+/// Prefer `preferred` when they have platform reports; otherwise use the user_id
+/// that most recently wrote a non-`all` platform report.
+///
+/// Historical generations stored under actor claims (pre-#144) left site-owner
+/// home cards empty even though reports exist under another admin id.
+async fn resolve_report_user_id_for_public_read(
+    db: &DatabaseConnection,
+    preferred: i32,
+) -> Result<i32, StatusCode> {
+    let preferred_count = platform_reports::Entity::find()
+        .filter(platform_reports::Column::UserId.eq(preferred))
+        .filter(platform_reports::Column::Platform.ne("all"))
+        .count(db)
+        .await
+        .map_err(|e| {
+            tracing::error!("count platform_reports for owner {}: {}", preferred, e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    if preferred_count > 0 {
+        return Ok(preferred);
+    }
+
+    let fallback = platform_reports::Entity::find()
+        .filter(platform_reports::Column::Platform.ne("all"))
+        .order_by_desc(platform_reports::Column::CreatedAt)
+        .one(db)
+        .await
+        .map_err(|e| {
+            tracing::error!("fallback platform_reports lookup failed: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    if let Some(row) = fallback {
+        if row.user_id != preferred {
+            tracing::warn!(
+                preferred,
+                fallback = row.user_id,
+                "Site owner has no platform_reports; serving latest reports from user_id={}",
+                row.user_id
+            );
+        }
+        return Ok(row.user_id);
+    }
+    Ok(preferred)
+}
+
 /// Stamp platform + normalize card_visuals so home ReportCard widgets can match
 /// and render stats even when older stored JSON is missing / double-encoded.
 fn finalize_public_platform_report(platform: &str, report: Value) -> Value {
@@ -1937,8 +1984,9 @@ pub async fn get_latest_report(
     State(db): State<DatabaseConnection>,
     headers: axum::http::HeaderMap,
 ) -> Result<Json<Value>, StatusCode> {
-    // Public dashboard: always site owner's reports (not the viewer's).
-    let user_id = public_report_owner_user_id(&db, &headers).await;
+    // Public dashboard: site owner first; historical rows may live under another admin.
+    let preferred = public_report_owner_user_id(&db, &headers).await;
+    let user_id = resolve_report_user_id_for_public_read(&db, preferred).await?;
 
     // 获取所有单平台报告，保留每个平台最新的一份
     let user_reports = platform_reports::Entity::find()
@@ -1989,9 +2037,11 @@ pub async fn get_latest_report(
         })));
     }
 
-    // 只返回平台报告，不包含综合分析
+    // 只返回平台报告，不包含综合分析.
+    // Include user_id so clients/debug can verify which account fed home cards.
     Ok(Json(json!({
         "success": true,
+        "user_id": user_id,
         "platform_reports": platform_reports_list,
         "created_at": chrono::Utc::now().to_rfc3339()
     })))

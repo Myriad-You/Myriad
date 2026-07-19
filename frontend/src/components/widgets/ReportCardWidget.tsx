@@ -38,6 +38,7 @@ import { extractColorsFromLoadedImage } from '../../utils/colorExtractor'
 import {
   extractCardVisuals,
   hasRenderableCardVisuals,
+  isKnownReportPlatformId,
   pickPlatformCardVisuals,
   resolveReportPlatformId,
 } from '../../utils/reportCardVisuals'
@@ -5387,14 +5388,21 @@ export const ReportCardWidget = memo(
       // card_visuals. Guard against unmount races so a cancelled fetch cannot
       // leave loading forever or wipe a newer successful result.
       let cancelled = false
-      const fetchReport = async () => {
+      const fetchReport = async (forceRefresh = false) => {
         try {
           // 使用去重机制避免多个 ReportCardWidget 同时请求
-          const data = await getLatestReportDeduped()
+          let data = await getLatestReportDeduped({ forceRefresh })
           if (cancelled) return
           // Fail closed on empty / mismatched mapping so home never mounts a
           // blank shell when card_visuals is missing or {}.
-          setReportData(pickPlatformCardVisuals(data, platformId))
+          let visuals = pickPlatformCardVisuals(data, platformId)
+          // One forced re-fetch if mapping missed (stale empty cache / race with generate).
+          if (!visuals && !forceRefresh) {
+            data = await getLatestReportDeduped({ forceRefresh: true })
+            if (cancelled) return
+            visuals = pickPlatformCardVisuals(data, platformId)
+          }
+          setReportData(visuals)
         } catch (err) {
           if (cancelled) return
           console.error(`${t.reportCardWidget.fetchReportFailed}:`, err)
@@ -5626,8 +5634,9 @@ export const ReportCardWidget = memo(
           )
         }
       >
-        {/* 主内容区 */}
-        <div className="absolute inset-0 flex flex-col z-10">
+        {/* 主内容区：relative h-full so platform widgets always have a layout box
+            (absolute-only children of a padded shell previously looked empty). */}
+        <div className="relative z-10 h-full w-full min-h-0 flex flex-col">
           {platformId === 'bilibili' && (
             <BilibiliWidget
               data={reportData}
@@ -5699,6 +5708,29 @@ export const ReportCardWidget = memo(
               showOverview={showOverview}
               onContentChange={handleContentChange}
             />
+          )}
+          {/* Data mapped but no platform branch: still show key stats (not a blank shell). */}
+          {!isKnownReportPlatformId(platformId) && (
+            <div className="flex h-full flex-col justify-center gap-1 p-3 text-xs text-gray-600 dark:text-gray-300">
+              <div className="font-bold text-gray-800 dark:text-gray-100">
+                {platformConfig.label}
+              </div>
+              {typeof reportData?.hardcore_score === 'number' && (
+                <div>Score {reportData.hardcore_score}</div>
+              )}
+              {typeof reportData?.games_count === 'number' && (
+                <div>Games {reportData.games_count}</div>
+              )}
+              {typeof reportData?.player_type === 'string' && (
+                <div>{reportData.player_type}</div>
+              )}
+              {typeof reportData?.vibe === 'string' && (
+                <div className="line-clamp-2">{reportData.vibe}</div>
+              )}
+              {typeof reportData?.contribution_level === 'string' && (
+                <div>{reportData.contribution_level}</div>
+              )}
+            </div>
           )}
         </div>
 

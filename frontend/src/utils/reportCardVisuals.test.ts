@@ -36,6 +36,21 @@ describe('resolveReportPlatformId', () => {
     assert.equal(resolveReportPlatformId({}), 'bilibili')
     assert.equal(resolveReportPlatformId({ type: 'welcome' }), 'bilibili')
   })
+
+  it('normalizes aliases so API labels match widget branches', () => {
+    assert.equal(
+      resolveReportPlatformId({ config: { platformId: 'MyAnimeList' } }),
+      'mal',
+    )
+    assert.equal(
+      resolveReportPlatformId({ type: 'report-twitter' }),
+      'x',
+    )
+    assert.equal(
+      resolveReportPlatformId({ config: { platformId: 'PlayStation' } }),
+      'psn',
+    )
+  })
 })
 
 describe('extractCardVisuals', () => {
