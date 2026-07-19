@@ -3031,7 +3031,7 @@ pub async fn get_recent_activities(
                     Ok(events) => events,
                     Err(error) => {
                         // During a rolling deploy an old replica may serve before
-                        // migration 009 is visible. Legacy summaries remain usable.
+                        // activity_events (001 + schema_check) is visible. Legacy summaries remain usable.
                         tracing::warn!("Failed to load normalized activity events: {}", error);
                         Vec::new()
                     }

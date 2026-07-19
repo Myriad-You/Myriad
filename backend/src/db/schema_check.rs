@@ -15,15 +15,16 @@ use std::collections::HashSet;
 /// 格式建议：YYYY.MM.DD 或语义版本 X.Y.Z
 ///
 /// 变更日志：
+/// - 2026.07.19.2: 去掉 approved_permissions 等冗余 field-fill 特判；缺列走 get_expected_schema
 /// - 2026.07.19.1: 退休 007–011 薄 ALTER 迁移；列并入 001/002 CREATE，运行时靠 schema_check
 /// - 2026.07.18.2: owner implies admin（is_owner 行强制 is_admin=true；ensure_single_owner）
 /// - 2026.07.18.1: users.is_owner 站点 owner 标记（取代 id=1 主管理员启发式）
 /// - 2026.07.17.1: 新增 tapp_ai_cost_ledger 独立 AI 费用账本表与索引
-/// - 2026.07.16.2: 008 内容并入基础迁移，并由 schema 自愈补齐旧库
+/// - 2026.07.16.2: activity_events / runtime registry 等并入基础迁移，并由 schema 自愈补齐旧库
 /// - 2026.07.16.1: 补齐 activity_events 表与索引
 /// - 2026.07.11.1: 新增 Discord 数据平台种子
 /// - 2026.07.10.1: 默认平台种子同步（含 X），与 001 插入列表对齐
-const SCHEMA_VERSION: &str = "2026.07.19.1";
+const SCHEMA_VERSION: &str = "2026.07.19.2";
 
 /// 内置平台种子定义（与 migrations/001_initial_schema.rs 中 INSERT 保持同步）
 ///
@@ -5099,26 +5100,6 @@ END $$;
     Ok(())
 }
 
-/// Add the consent-preserving Tapp permission column without guessing from the
-/// manifest. Existing rows are backfilled only from the permissions that were
-/// actually stored before this split.
-async fn ensure_tapp_approved_permissions(db: &DatabaseConnection) -> Result<(), DbErr> {
-    db.execute_unprepared(
-        r#"
-ALTER TABLE tapps
-    ADD COLUMN IF NOT EXISTS approved_permissions JSONB;
-UPDATE tapps
-   SET approved_permissions = granted_permissions
- WHERE approved_permissions IS NULL;
-ALTER TABLE tapps
-    ALTER COLUMN approved_permissions SET DEFAULT '[]'::jsonb,
-    ALTER COLUMN approved_permissions SET NOT NULL;
-"#,
-    )
-    .await?;
-    Ok(())
-}
-
 /// 从数据库获取表的实际列
 async fn get_table_columns(
     db: &DatabaseConnection,
@@ -5291,9 +5272,9 @@ async fn mark_schema_version_applied(db: &DatabaseConnection, version: &str) -> 
 /// 确保数据库 schema 是最新的
 ///
 /// 工作流程：
-/// 1. 检查版本标记，如果当前版本已应用则跳过
-/// 2. 比对迁移文件定义的期望结构与数据库实际结构
-/// 3. 自动添加缺失的列和索引
+/// 1. 读取版本标记（仅日志；已标记也会继续做安全比对）
+/// 2. 确保缺失整表存在，再比对期望列/索引并补齐
+/// 3. 运行数据种子与运行时对象 heal（平台、owner、配额触发器等）
 /// 4. 记录版本标记
 pub async fn ensure_schema(db: &DatabaseConnection) -> Result<(), DbErr> {
     // 1. 尝试获取 Advisory Lock（非阻塞）
@@ -5378,8 +5359,6 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
         changes_made += tables_created as usize;
     }
 
-    ensure_tapp_approved_permissions(db).await?;
-
     // 1.6 同步默认平台种子行（结构齐全后再补业务目录数据）
     match ensure_default_platforms(db).await {
         Ok(n) if n > 0 => changes_made += n,
@@ -5391,7 +5370,8 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     let existing_tables = get_existing_tables(db).await?;
     let expected_tables = get_expected_schema();
 
-    // 3. 对每个期望的表，检查缺失的列
+    // 3. 对每个期望的表，检查缺失的列（含 tapps.approved_permissions 等；
+    //    不再为单列保留独立 ADD COLUMN 特判，统一走 ColumnDef + generate_add_column_ddl）
     for table_def in &expected_tables {
         if !existing_tables.contains(&table_def.name) {
             tracing::debug!(
@@ -5445,9 +5425,13 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
         tracing::info!("✅ Database schema is up to date (no changes needed)");
     }
 
-    // approved_permissions / storage quota 已由 002 + schema_check 接管；等缺失字段补齐后再创建配额函数和触发器。
-    ensure_tapp_storage_quota(db).await?;
+    // Optional one-shot data heal for ancient partial upgrades: if approved_permissions
+    // exists but is still NULL (pre-NOT NULL state), copy from granted_permissions.
+    // Column ADD itself is handled above via get_expected_schema (002 + ColumnDef).
+    heal_tapp_approved_permissions_nulls(db).await?;
 
+    // storage quota 触发器/函数：等缺失字段补齐后再创建。
+    ensure_tapp_storage_quota(db).await?;
     // ensure exactly one site owner (and owner implies admin); also creates idx_users_single_owner.
     if let Err(e) = ensure_single_owner(db).await {
         tracing::warn!("Site owner seed warning: {}", e);
@@ -5566,7 +5550,6 @@ pub async fn force_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
 async fn do_force_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     // 先确保表存在，再同步种子行
     let _ = ensure_tables_exist(db).await?;
-    ensure_tapp_approved_permissions(db).await?;
     if let Err(e) = ensure_default_platforms(db).await {
         tracing::warn!("Force check: default platforms seed warning: {}", e);
     }
@@ -5589,11 +5572,44 @@ async fn do_force_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
         }
     }
 
+    heal_tapp_approved_permissions_nulls(db).await?;
     ensure_tapp_storage_quota(db).await?;
     if let Err(e) = ensure_single_owner(db).await {
         tracing::warn!("Force check: site owner seed warning: {}", e);
     }
 
+    Ok(())
+}
+
+/// One-shot NULL→granted_permissions heal for partial legacy upgrades.
+///
+/// Does **not** ADD the column — that is covered by `get_expected_schema` /
+/// `generate_add_column_ddl` (default `'[]'`, matching 002 CREATE). Only copies
+/// from `granted_permissions` when the column already exists and still has NULLs.
+async fn heal_tapp_approved_permissions_nulls(db: &DatabaseConnection) -> Result<(), DbErr> {
+    let col_check = db
+        .query_one(sea_orm::Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT 1 AS ok FROM information_schema.columns \
+             WHERE table_schema = 'public' AND table_name = 'tapps' \
+               AND column_name = 'approved_permissions' \
+             LIMIT 1",
+            vec![],
+        ))
+        .await?;
+    if col_check.is_none() {
+        return Ok(());
+    }
+
+    db.execute_unprepared(
+        r#"
+UPDATE tapps
+   SET approved_permissions = granted_permissions
+ WHERE approved_permissions IS NULL
+   AND granted_permissions IS NOT NULL
+"#,
+    )
+    .await?;
     Ok(())
 }
 
@@ -5653,8 +5669,25 @@ mod tests {
         assert_eq!(sorted.len(), names.len());
     }
 
+    #[test]
+    fn test_tapps_schema_includes_approved_permissions() {
+        let tables = get_expected_schema();
+        let tapps = tables
+            .iter()
+            .find(|t| t.name == "tapps")
+            .expect("tapps table");
+        let col = tapps
+            .columns
+            .iter()
+            .find(|c| c.name == "approved_permissions")
+            .expect("tapps.approved_permissions must be in expected schema (002 + generic ADD)");
+        assert_eq!(col.data_type, "jsonb");
+        assert!(!col.is_nullable);
+        assert_eq!(col.default_value.as_deref(), Some("'[]'"));
+    }
+
     #[tokio::test]
-    async fn approved_permissions_upgrade_backfills_legacy_grants_when_database_is_provided() {
+    async fn approved_permissions_null_heal_copies_granted_when_database_is_provided() {
         let Ok(database_url) = std::env::var("TAPP_PERMISSION_MIGRATION_TEST_DATABASE_URL") else {
             return;
         };
@@ -5662,27 +5695,26 @@ mod tests {
         use sea_orm_migration::MigratorTrait;
 
         let db = Database::connect(&database_url).await.unwrap();
-        // Base migrations (001–006) already CREATE approved_permissions on greenfield.
+        // Base migrations (001–006) CREATE approved_permissions on greenfield.
         migration::Migrator::up(&db, None).await.unwrap();
-        // Simulate legacy state: column missing, only granted_permissions present.
-        db.execute_unprepared("ALTER TABLE tapps DROP COLUMN IF EXISTS approved_permissions")
-            .await
-            .unwrap();
+        // Simulate partial legacy: column present but still NULL (no dedicated ADD path).
         db.execute_unprepared(
             r#"
+ALTER TABLE tapps ALTER COLUMN approved_permissions DROP NOT NULL;
 DELETE FROM tapps WHERE tapp_id = 'com.example.legacy-consent';
 INSERT INTO tapps
-    (tapp_id, user_id, name, version, manifest, granted_permissions, file_path, code_path)
+    (tapp_id, user_id, name, version, manifest, granted_permissions, approved_permissions,
+     file_path, code_path)
 VALUES
     ('com.example.legacy-consent', 1, 'Legacy', '1.0.0', '{}'::jsonb,
-     '["storage", "ai:generate"]'::jsonb, 'manifest.json', 'main.js')
+     '["storage", "ai:generate"]'::jsonb, NULL, 'manifest.json', 'main.js')
 "#,
         )
         .await
         .unwrap();
 
-        // Retired migration 008 is covered by ensure_tapp_approved_permissions (via ensure_schema).
-        ensure_tapp_approved_permissions(&db).await.unwrap();
+        // UPDATE-only heal (column ADD is generic expected-schema path).
+        heal_tapp_approved_permissions_nulls(&db).await.unwrap();
         let row = db
             .query_one(Statement::from_string(
                 DatabaseBackend::Postgres,
