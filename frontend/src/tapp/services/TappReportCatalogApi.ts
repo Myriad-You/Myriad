@@ -21,6 +21,7 @@ export async function getReport(
   id: string
   platform?: string
   type: 'platform' | 'comprehensive'
+  summary?: string
   content: unknown
   createdAt: string
 }> {

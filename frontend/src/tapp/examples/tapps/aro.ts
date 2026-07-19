@@ -1482,6 +1482,13 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "remove": "Remove",
     "removeBtn": "Unpublish",
     "removePeerFail": "Couldn't remove peer",
+    "reportAnalysis": "Analysis",
+    "reportDate": "Date",
+    "reportInsights": "Insights",
+    "reportPlatform": "Platform",
+    "reportSummary": "Summary",
+    "reportType": "Type",
+    "reportUnavailable": "Report details unavailable",
     "ringNamePlaceholder": "Ring name",
     "ringPeersTitle": "Peers",
     "ringType": "Type",
@@ -1679,6 +1686,13 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "remove": "削除",
     "removeBtn": "公開を取り消す",
     "removePeerFail": "ピアの削除に失敗しました",
+    "reportAnalysis": "分析",
+    "reportDate": "日付",
+    "reportInsights": "インサイト",
+    "reportPlatform": "プラットフォーム",
+    "reportSummary": "概要",
+    "reportType": "種類",
+    "reportUnavailable": "レポートの詳細を読み込めません",
     "ringNamePlaceholder": "リング名",
     "ringPeersTitle": "ピア",
     "ringType": "タイプ",
@@ -1876,6 +1890,13 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "remove": "移除",
     "removeBtn": "取消发布",
     "removePeerFail": "移除节点失败",
+    "reportAnalysis": "综合分析",
+    "reportDate": "日期",
+    "reportInsights": "洞察",
+    "reportPlatform": "平台",
+    "reportSummary": "摘要",
+    "reportType": "类型",
+    "reportUnavailable": "无法加载报告详情",
     "ringNamePlaceholder": "环网名称",
     "ringPeersTitle": "节点",
     "ringType": "类型",
@@ -3135,11 +3156,27 @@ function openReportPicker(icons, titles, iconColors) {
 
   confirmBtn.addEventListener('click', function () {
     if (!selectedReport) return;
-    var name = selectedReport.summary || selectedReport.type || 'Report';
-    var desc = '';
-    if (selectedReport.platform) desc = selectedReport.platform;
-    if (selectedReport.createdAt) desc += (desc ? ' · ' : '') + new Date(selectedReport.createdAt).toLocaleDateString();
-    setPendingAttach({ type: type, name: name, desc: desc, icon: icons[type], label: lang.attachReport, reportId: selectedReport.id });
+    var summary = selectedReport.summary || '';
+    var platform = selectedReport.platform || '';
+    var name = summary || selectedReport.type || (lang.attachReport || 'Report');
+    // Preview meta: platform · date (summary is the primary name)
+    var desc = platform;
+    if (selectedReport.createdAt) {
+      try {
+        desc += (desc ? ' · ' : '') + new Date(selectedReport.createdAt).toLocaleDateString();
+      } catch (e) { /* ignore */ }
+    }
+    if (!desc) desc = summary;
+    setPendingAttach({
+      type: type,
+      name: name,
+      desc: desc,
+      summary: summary,
+      platform: platform,
+      icon: icons[type],
+      label: lang.attachReport,
+      reportId: selectedReport.id
+    });
     overlay.remove();
   });
 }
@@ -3674,6 +3711,20 @@ function renderMessages(opts) {
         var stKey = 'tapp_accept_' + payload.tapp_id + '_' + idx;
         tappAcceptStatus = (state.tappAcceptMap && state.tappAcceptMap[stKey]) || '';
       }
+      var shareTitle = payload.title || payload.name || '';
+      var shareDesc = payload.description || '';
+      if (msgType === 'report') {
+        // Prefer structured snapshot fields: title = name, body = summary
+        shareTitle = payload.title || payload.name || payload.summary || payload.platform || (lang.attachReport || 'Report');
+        if (payload.summary) {
+          // If title already is the summary, show platform as secondary line
+          shareDesc = (payload.summary !== shareTitle)
+            ? payload.summary
+            : (payload.platform || payload.description || '');
+        } else if (payload.platform) {
+          shareDesc = payload.platform;
+        }
+      }
       html += '<div class="msg-share-card" id="' + shareCardId + '"'
         + ' style="cursor:pointer" data-type="' + esc(msgType) + '"'
         + (payload.tapp_id ? ' data-tapp-id="' + esc(payload.tapp_id) + '"' : '')
@@ -3681,14 +3732,17 @@ function renderMessages(opts) {
         + (payload.tapp_name ? ' data-tapp-name="' + esc(payload.tapp_name) + '"' : '')
         + (payload.brew_id ? ' data-brew-id="' + esc(String(payload.brew_id)) + '"' : '')
         + (payload.brew_link ? ' data-brew-link="' + esc(payload.brew_link) + '"' : '')
-        + (payload.report_id ? ' data-report-id="' + esc(payload.report_id) + '"' : '')
+        + (payload.report_id ? ' data-report-id="' + esc(String(payload.report_id)) + '"' : '')
+        + (msgType === 'report' && (payload.name || shareTitle) ? ' data-report-name="' + esc(payload.name || shareTitle) + '"' : '')
+        + (msgType === 'report' && payload.summary ? ' data-report-summary="' + esc(payload.summary) + '"' : '')
+        + (msgType === 'report' && payload.platform ? ' data-report-platform="' + esc(payload.platform) + '"' : '')
         + ' data-msg-idx="' + idx + '"'
         + '>'
         + '<div class="msg-share-icon" style="background:' + (shareBgs[msgType] || '') + '">' + iconContent + '</div>'
         + '<div class="msg-share-body">'
         + '<div class="msg-share-type">' + esc(shareTypeLabel(msgType)) + '</div>'
-        + '<div class="msg-share-title">' + esc(payload.title || '') + '</div>'
-        + (payload.description ? '<div class="msg-share-desc">' + esc(payload.description) + '</div>' : '');
+        + '<div class="msg-share-title">' + esc(shareTitle) + '</div>'
+        + (shareDesc ? '<div class="msg-share-desc">' + esc(shareDesc) + '</div>' : '');
       // Version badge + status pill for tapp
       if (msgType === 'tapp') {
         html += '<div class="msg-share-meta">';
@@ -3905,20 +3959,220 @@ function openBrewDetail(brewId, brewLink, card) {
   });
 }
 
+/** Format a single readable report field value as HTML (never esc() objects). */
+function formatReportFieldValueHtml(value) {
+  if (value == null) return '';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    var s = String(value).trim();
+    return s ? esc(s) : '';
+  }
+  if (Array.isArray(value)) {
+    var items = value.filter(function (v) {
+      return v != null && (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean');
+    }).map(function (v) { return String(v).trim(); }).filter(Boolean);
+    if (!items.length) return '';
+    return '<ul style="margin:0;padding-left:18px">'
+      + items.map(function (item) {
+        return '<li style="margin:4px 0;font-size:13px;line-height:1.5">' + esc(item) + '</li>';
+      }).join('')
+      + '</ul>';
+  }
+  return '';
+}
+
+/** Keys that are noise / already shown in the header meta. */
+function isSkippedReportContentKey(key) {
+  return /^(id|platform|type|summary|created_?at|metadata|card_visuals|cardVisuals|theme_color|visual_style|decorative_emojis|card_subtitle|key_metric|theme_icon|icon_image_url|icon_prompt|background_elements|platform_reports)$/i.test(key)
+    || key === '综合分析'
+    || key === 'comprehensive_analysis';
+}
+
+/** Build HTML sections from a free-form report content object. */
+function formatReportContentSectionsHtml(content) {
+  if (content == null || content === '') return '';
+  if (typeof content === 'string' || typeof content === 'number' || typeof content === 'boolean') {
+    var plain = String(content).trim();
+    return plain
+      ? '<div style="font-size:13px;line-height:1.6;max-height:300px;overflow-y:auto">' + esc(plain) + '</div>'
+      : '';
+  }
+  if (typeof content !== 'object') return '';
+
+  var sections = [];
+  function pushSection(label, bodyHtml) {
+    if (!bodyHtml) return;
+    sections.push(
+      '<div style="display:flex;flex-direction:column;gap:6px">'
+      + (label ? '<div style="font-size:12px;font-weight:600;color:var(--text-secondary,#888)">' + esc(label) + '</div>' : '')
+      + bodyHtml
+      + '</div>'
+    );
+  }
+
+  // Platform reports: insights list
+  if (Array.isArray(content.insights) && content.insights.length) {
+    pushSection(
+      lang.reportInsights || 'Insights',
+      formatReportFieldValueHtml(content.insights)
+    );
+  }
+
+  // Comprehensive report free-form analysis (Chinese key or english alias)
+  var analysis = content['综合分析'] || content.comprehensive_analysis;
+  if (analysis && typeof analysis === 'object') {
+    var analysisParts = [];
+    Object.keys(analysis).forEach(function (k) {
+      if (isSkippedReportContentKey(k)) return;
+      var fieldHtml = formatReportFieldValueHtml(analysis[k]);
+      if (!fieldHtml) return;
+      analysisParts.push(
+        '<div style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px">'
+        + '<div style="font-size:12px;font-weight:600;color:var(--text-secondary,#888)">' + esc(k) + '</div>'
+        + '<div style="font-size:13px;line-height:1.6">' + fieldHtml + '</div>'
+        + '</div>'
+      );
+    });
+    if (analysisParts.length) {
+      pushSection(lang.reportAnalysis || 'Analysis', analysisParts.join(''));
+    }
+  }
+
+  // Remaining top-level readable string/array fields
+  Object.keys(content).forEach(function (k) {
+    if (isSkippedReportContentKey(k)) return;
+    if (k === 'insights') return;
+    var fieldHtml = formatReportFieldValueHtml(content[k]);
+    if (!fieldHtml) return;
+    pushSection(k, '<div style="font-size:13px;line-height:1.6">' + fieldHtml + '</div>');
+  });
+
+  if (!sections.length) return '';
+  return '<div style="display:flex;flex-direction:column;gap:12px;max-height:300px;overflow-y:auto">'
+    + sections.join('')
+    + '</div>';
+}
+
+/** Structured report detail body: summary / platform / type / date + readable content. */
+function renderReportDetailBodyHtml(detail) {
+  detail = detail || {};
+  var content = detail.content;
+  var summary = detail.summary || '';
+  var platform = detail.platform || '';
+  var type = detail.type || '';
+  var createdAt = detail.createdAt || detail.created_at || '';
+
+  if (content && typeof content === 'object') {
+    if (!summary && content.summary) summary = content.summary;
+    if (!platform && content.platform) platform = content.platform;
+    if (!createdAt && (content.createdAt || content.created_at)) {
+      createdAt = content.createdAt || content.created_at;
+    }
+  }
+
+  var title = summary || detail.name || type || (lang.attachReport || 'Report');
+  var metaParts = [];
+  if (platform) metaParts.push(platform);
+  if (type) metaParts.push(type);
+  if (createdAt) {
+    try {
+      var d = new Date(createdAt);
+      if (!isNaN(d.getTime())) metaParts.push(d.toLocaleDateString(currentLocale));
+    } catch (e) { /* ignore */ }
+  }
+
+  var html = '<div style="padding:16px;display:flex;flex-direction:column;gap:12px">';
+  html += '<div style="font-size:18px;font-weight:600">' + esc(title) + '</div>';
+  if (metaParts.length) {
+    html += '<div style="font-size:12px;color:var(--text-secondary,#888)">' + esc(metaParts.join(' · ')) + '</div>';
+  }
+  // Explicit summary block when title is not the summary itself
+  if (summary && summary !== title) {
+    html += '<div style="display:flex;flex-direction:column;gap:6px">'
+      + '<div style="font-size:12px;font-weight:600;color:var(--text-secondary,#888)">' + esc(lang.reportSummary || 'Summary') + '</div>'
+      + '<div style="font-size:13px;line-height:1.6">' + esc(summary) + '</div>'
+      + '</div>';
+  } else if (summary) {
+    html += '<div style="font-size:13px;line-height:1.6">' + esc(summary) + '</div>';
+  }
+
+  var contentHtml = formatReportContentSectionsHtml(content);
+  if (contentHtml) html += contentHtml;
+  html += '</div>';
+  return html;
+}
+
+/** Fallback UI from share-card / message payload snapshot when getReport fails. */
+function renderReportSnapshotBodyHtml(snapshot) {
+  snapshot = snapshot || {};
+  var hasAny = snapshot.summary || snapshot.platform || snapshot.name;
+  if (!hasAny) {
+    return '<div class="picker-empty">' + esc(lang.reportUnavailable || lang.pickerEmpty || 'Report unavailable') + '</div>';
+  }
+  return renderReportDetailBodyHtml({
+    name: snapshot.name || '',
+    summary: snapshot.summary || '',
+    platform: snapshot.platform || '',
+    type: snapshot.type || '',
+    createdAt: snapshot.createdAt || '',
+    content: null
+  });
+}
+
 function openReportDetail(reportId, card) {
-  var overlay = createDetailOverlay(card.querySelector('.msg-share-title').textContent || 'Report', SVG_ICONS.report, 'rgba(239,68,68,.1)');
+  // Prefer live message payload snapshot (enriched share fields), then data-* attrs, then DOM text
+  var payloadSnap = {};
+  if (card && card.dataset && card.dataset.msgIdx != null && state.messages) {
+    var msgIdx = parseInt(card.dataset.msgIdx, 10);
+    if (!isNaN(msgIdx) && state.messages[msgIdx]) {
+      var msgPayload = state.messages[msgIdx].payload;
+      if (msgPayload && typeof msgPayload === 'object') payloadSnap = msgPayload;
+    }
+  }
+  var titleNode = card && card.querySelector ? card.querySelector('.msg-share-title') : null;
+  var descNode = card && card.querySelector ? card.querySelector('.msg-share-desc') : null;
+  var snapshot = {
+    name: payloadSnap.name || payloadSnap.title
+      || (card && card.dataset && card.dataset.reportName)
+      || (titleNode && titleNode.textContent)
+      || '',
+    summary: payloadSnap.summary || payloadSnap.description
+      || (card && card.dataset && card.dataset.reportSummary)
+      || (descNode && descNode.textContent)
+      || '',
+    platform: payloadSnap.platform
+      || (card && card.dataset && card.dataset.reportPlatform)
+      || '',
+    type: payloadSnap.type || payloadSnap.content_type || '',
+    createdAt: payloadSnap.createdAt || payloadSnap.created_at || ''
+  };
+  // If summary accidentally equals platform meta line only, keep it — still better than empty
+  if (snapshot.summary === snapshot.platform && payloadSnap.summary) {
+    snapshot.summary = payloadSnap.summary;
+  }
+
+  var overlayTitle = snapshot.name || snapshot.summary || (lang.attachReport || 'Report');
+  var overlay = createDetailOverlay(overlayTitle, SVG_ICONS.report, 'rgba(239,68,68,.1)');
   var body = overlay.querySelector('.picker-body');
   showPickerLoading(body);
+
+  function showSnapshot() {
+    body.innerHTML = renderReportSnapshotBodyHtml(snapshot);
+  }
+
+  if (!reportId || !Tapp.report || typeof Tapp.report.getReport !== 'function') {
+    showSnapshot();
+    return;
+  }
+
   Tapp.report.getReport(reportId).then(function (detail) {
-    if (!detail) { body.innerHTML = '<div class="picker-empty">' + esc(lang.pickerEmpty) + '</div>'; return; }
-    body.innerHTML =
-      '<div style="padding:16px;display:flex;flex-direction:column;gap:12px">'
-      + '<div style="font-size:18px;font-weight:600">' + esc(detail.summary || detail.type || 'Report') + '</div>'
-      + '<div style="font-size:12px;color:var(--text-secondary,#888)">' + esc((detail.platform || '') + (detail.type ? ' · ' + detail.type : '') + (detail.createdAt ? ' · ' + new Date(detail.createdAt).toLocaleDateString() : '')) + '</div>'
-      + (detail.content ? '<div style="font-size:13px;line-height:1.6;max-height:300px;overflow-y:auto">' + esc(detail.content) + '</div>' : '')
-      + '</div>';
+    if (!detail) { showSnapshot(); return; }
+    // Merge snapshot fields so header stays useful if catalog omits them
+    if (!detail.summary && snapshot.summary) detail.summary = snapshot.summary;
+    if (!detail.platform && snapshot.platform) detail.platform = snapshot.platform;
+    if (!detail.name && snapshot.name) detail.name = snapshot.name;
+    body.innerHTML = renderReportDetailBodyHtml(detail);
   }).catch(function () {
-    body.innerHTML = '<div class="picker-empty">' + esc(lang.pickerEmpty) + '</div>';
+    showSnapshot();
   });
 }
 
@@ -4281,6 +4535,17 @@ async function doSend() {
         if (attach.platformId) msgPayload.platform_id = attach.platformId;
         if (attach.itemId) msgPayload.item_id = attach.itemId;
         if (attach.reportId) msgPayload.report_id = attach.reportId;
+        // Report share snapshot so receivers can preview without catalog access
+        if (attach.type === 'report') {
+          if (attach.name) msgPayload.name = attach.name;
+          if (attach.summary) msgPayload.summary = attach.summary;
+          if (attach.platform) msgPayload.platform = attach.platform;
+          // Card body should show summary (title may already be the summary text)
+          if (attach.summary) {
+            msgPayload.description = attach.summary;
+            msgPayload.title = attach.name || attach.summary;
+          }
+        }
       }
       clearPendingAttach();
     } else {
