@@ -95,6 +95,50 @@ function randomRank(id: number, seed: number): number {
   return value - Math.floor(value)
 }
 
+/** Icon avatar: custom image when available, LuLink placeholder on missing/broken. */
+function FriendLinkIcon({
+  icon,
+  color,
+  className,
+  iconClassName,
+}: {
+  icon: string | null
+  color: string
+  className: string
+  iconClassName: string
+}) {
+  const [failed, setFailed] = useState(false)
+  const showImage = Boolean(icon) && !failed
+
+  useEffect(() => {
+    setFailed(false)
+  }, [icon])
+
+  return (
+    <span
+      className={className}
+      style={{
+        backgroundColor: showImage ? 'transparent' : `${color}1f`,
+        color,
+      }}
+    >
+      {showImage ? (
+        <img
+          src={icon!}
+          alt=""
+          draggable={false}
+          loading="lazy"
+          decoding="async"
+          className="absolute inset-0 h-full w-full object-cover"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <Link className={iconClassName} />
+      )}
+    </span>
+  )
+}
+
 export const FriendLinksWidget = memo(
   ({ config, isEditMode, isPreview }: WidgetComponentProps) => {
     const { t } = useI18n()
@@ -372,30 +416,12 @@ export const FriendLinksWidget = memo(
                         entry.name,
                       )}
                     >
-                      <span
+                      <FriendLinkIcon
+                        icon={entry.icon}
+                        color={entry.color}
                         className="relative z-10 flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl"
-                        style={{
-                          backgroundColor: entry.icon
-                            ? 'transparent'
-                            : `${entry.color}1f`,
-                          color: entry.color,
-                        }}
-                      >
-                        <Link className="h-5 w-5" />
-                        {entry.icon && (
-                          <img
-                            src={entry.icon}
-                            alt=""
-                            draggable={false}
-                            loading="lazy"
-                            decoding="async"
-                            className="absolute inset-0 h-full w-full object-cover"
-                            onError={(event) => {
-                              event.currentTarget.style.display = 'none'
-                            }}
-                          />
-                        )}
-                      </span>
+                        iconClassName="h-5 w-5"
+                      />
                       <span className="relative z-10 min-w-0 flex-1">
                         <span className="mb-0.5 block text-[8px] font-medium tracking-wide text-gray-400 dark:text-gray-500">
                           {t.brew.friendLinks}
@@ -519,30 +545,12 @@ export const FriendLinksWidget = memo(
                         entry.name,
                       )}
                     >
-                      <span
+                      <FriendLinkIcon
+                        icon={entry.icon}
+                        color={entry.color}
                         className="relative z-10 flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl"
-                        style={{
-                          backgroundColor: entry.icon
-                            ? 'transparent'
-                            : `${entry.color}1f`,
-                          color: entry.color,
-                        }}
-                      >
-                        <Link className="h-6 w-6" />
-                        {entry.icon && (
-                          <img
-                            src={entry.icon}
-                            alt=""
-                            draggable={false}
-                            loading="lazy"
-                            decoding="async"
-                            className="absolute inset-0 h-full w-full object-cover"
-                            onError={(event) => {
-                              event.currentTarget.style.display = 'none'
-                            }}
-                          />
-                        )}
-                      </span>
+                        iconClassName="h-6 w-6"
+                      />
                       <span
                         className="relative z-10 mt-2.5 block w-full truncate font-semibold leading-tight text-gray-800 dark:text-gray-100"
                         style={{ fontSize: `${14 * fontScale}px` }}
@@ -693,30 +701,12 @@ export const FriendLinksWidget = memo(
                         entry.name,
                       )}
                     >
-                      <span
+                      <FriendLinkIcon
+                        icon={entry.icon}
+                        color={entry.color}
                         className="relative flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-lg"
-                        style={{
-                          backgroundColor: entry.icon
-                            ? 'transparent'
-                            : `${entry.color}1f`,
-                          color: entry.color,
-                        }}
-                      >
-                        <Link className="h-3.5 w-3.5" />
-                        {entry.icon && (
-                          <img
-                            src={entry.icon}
-                            alt=""
-                            draggable={false}
-                            loading="lazy"
-                            decoding="async"
-                            className="absolute inset-0 h-full w-full object-cover"
-                            onError={(event) => {
-                              event.currentTarget.style.display = 'none'
-                            }}
-                          />
-                        )}
-                      </span>
+                        iconClassName="h-3.5 w-3.5"
+                      />
                       <span className="min-w-0 flex-1">
                         <span
                           className="block truncate font-medium leading-tight text-gray-700 dark:text-gray-200"
