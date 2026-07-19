@@ -21,6 +21,10 @@ import type { TappInstance, TappMessage } from '../types'
 import type { TappBridge } from './TappBridge'
 import { federationApi } from '../../services/federationApi'
 import { getFederationFeed } from '../services/TappApiService'
+import {
+  federationMediaUrlRejectionReason,
+  isValidFederationMediaUrl,
+} from '../utils/federationMediaUrl'
 
 /** Convert a data URL or raw base64 string to a Blob for multipart upload. */
 function dataUrlOrBase64ToBlob(data: string, fallbackMime: string): Blob {
@@ -245,13 +249,36 @@ export function registerFederationHandlers(
     const [req] = (message.payload as { args: unknown[] }).args || []
     if (!req) return { success: false, error: 'Publish request is required' }
     try {
+      const publishReq = req as Parameters<typeof federationApi.publish>[0]
+      const atts = publishReq.attachments
+      if (Array.isArray(atts)) {
+        for (const att of atts) {
+          const url =
+            att && typeof att === 'object'
+              ? (att as { url?: string }).url
+              : undefined
+          const reason = federationMediaUrlRejectionReason(url)
+          if (reason) {
+            console.error(
+              '[FederationBridge] publish rejected attachment URL',
+              { url, reason },
+            )
+            return { success: false, error: reason }
+          }
+        }
+      }
       const runtimeGrant = await bridge.getRuntimeGrant()
-      const data = await federationApi.publish(
-        req as Parameters<typeof federationApi.publish>[0],
-        runtimeGrant,
-      )
+      const data = await federationApi.publish(publishReq, runtimeGrant)
+      if (!data || data.success === false) {
+        console.error('[FederationBridge] publish returned unsuccessful', data)
+        return {
+          success: false,
+          error: 'Publish did not confirm success',
+        }
+      }
       return { success: true, data }
     } catch (error) {
+      console.error('[FederationBridge] publish failed', error)
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to publish',
@@ -266,13 +293,36 @@ export function registerFederationHandlers(
       if (!req || typeof req !== 'object')
         return { success: false, error: 'Create note request is required' }
       try {
+        const noteReq = req as Parameters<typeof federationApi.createNote>[0]
+        const atts = noteReq.attachments
+        if (Array.isArray(atts)) {
+          for (const att of atts) {
+            const url =
+              att && typeof att === 'object'
+                ? (att as { url?: string }).url
+                : undefined
+            const reason = federationMediaUrlRejectionReason(url)
+            if (reason) {
+              console.error(
+                '[FederationBridge] createNote rejected attachment URL',
+                { url, reason },
+              )
+              return { success: false, error: reason }
+            }
+          }
+        }
         const runtimeGrant = await bridge.getRuntimeGrant()
-        const data = await federationApi.createNote(
-          req as Parameters<typeof federationApi.createNote>[0],
-          runtimeGrant,
-        )
+        const data = await federationApi.createNote(noteReq, runtimeGrant)
+        if (!data || data.success === false) {
+          console.error('[FederationBridge] createNote returned unsuccessful', data)
+          return {
+            success: false,
+            error: 'Create note did not confirm success',
+          }
+        }
         return { success: true, data }
       } catch (error) {
+        console.error('[FederationBridge] createNote failed', error)
         return {
           success: false,
           error:
@@ -310,8 +360,19 @@ export function registerFederationHandlers(
           filename: body.name || 'upload.bin',
           runtimeGrant,
         })
+        if (!data?.url || !isValidFederationMediaUrl(data.url)) {
+          const reason =
+            federationMediaUrlRejectionReason(data?.url) ||
+            'Upload response missing a valid media URL'
+          console.error('[FederationBridge] uploadMedia bad URL in response', {
+            data,
+            reason,
+          })
+          return { success: false, error: reason }
+        }
         return { success: true, data }
       } catch (error) {
+        console.error('[FederationBridge] uploadMedia failed', error)
         return {
           success: false,
           error:

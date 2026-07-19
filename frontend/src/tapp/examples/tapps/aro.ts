@@ -1470,11 +1470,18 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "composeDraftTextOnly": "Draft kept text only — re-attach media if needed",
     "composeEmpty": "Write something or add media",
     "composeFail": "Couldn't publish",
+    "composeBadMediaUrl": "Uploaded media URL looks invalid — not publishing",
+    "composeDeliveryQueued": "Delivering to {n} followers",
     "composePlaceholder": "What's on your mind?",
     "composePost": "Post",
     "composePublish": "Publish",
     "composePublishing": "Publishing…",
     "composeSuccess": "Published",
+    "composeSuccessMedia": "Published with media",
+    "composeTimelineMissing": "Published, but the post isn't on your timeline yet — try refresh",
+    "composeMediaMissingOnFeed": "Published, but media may not show on the feed yet",
+    "composeUploadFail": "Media upload failed — not publishing",
+    "composeUploadPartial": "Some media uploaded, then upload failed — not publishing (no half-post)",
     "composeUploading": "Uploading…",
     "composerClosed": "This chat is closed — you can't send messages",
     "confirmCancel": "Cancel",
@@ -1699,11 +1706,18 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "composeDraftTextOnly": "下書きは文字のみ保存されています — 必要ならメディアを再添付してください",
     "composeEmpty": "テキストか画像/動画を追加してください",
     "composeFail": "公開に失敗しました",
+    "composeBadMediaUrl": "アップロード先URLが不正です — 公開しません",
+    "composeDeliveryQueued": "{n}人のフォロワーへ配信中",
     "composePlaceholder": "いまどうしてる？",
     "composePost": "投稿",
     "composePublish": "公開",
     "composePublishing": "公開中…",
     "composeSuccess": "公開しました",
+    "composeSuccessMedia": "メディア付きで公開しました",
+    "composeTimelineMissing": "公開済みですがタイムラインにまだ出ていません — 再読み込みしてください",
+    "composeMediaMissingOnFeed": "公開済みですがフィードにメディアが表示されない可能性があります",
+    "composeUploadFail": "メディアのアップロードに失敗しました — 公開しません",
+    "composeUploadPartial": "一部のメディアは上がりましたが途中で失敗 — 途中公開はしません",
     "composeUploading": "アップロード中…",
     "composerClosed": "このチャットは終了済みです — 送信できません",
     "confirmCancel": "キャンセル",
@@ -1928,11 +1942,18 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "composeDraftTextOnly": "草稿仅保留文字，请重新添加附件",
     "composeEmpty": "写点文字或添加图片/视频",
     "composeFail": "发布失败",
+    "composeBadMediaUrl": "上传返回的媒体地址无效 — 已取消发布",
+    "composeDeliveryQueued": "正在向 {n} 位关注者投递",
     "composePlaceholder": "分享此刻的想法…",
     "composePost": "发帖",
     "composePublish": "发布",
     "composePublishing": "发布中…",
     "composeSuccess": "已发布",
+    "composeSuccessMedia": "已发布（含媒体）",
+    "composeTimelineMissing": "已发布，但时间线暂未出现 — 请刷新",
+    "composeMediaMissingOnFeed": "已发布，但动态中可能暂未显示媒体",
+    "composeUploadFail": "媒体上传失败 — 未发布",
+    "composeUploadPartial": "部分媒体已上传后失败 — 未半发布",
     "composeUploading": "上传中…",
     "composerClosed": "会话已关闭，无法发送消息",
     "confirmCancel": "取消",
@@ -6903,6 +6924,42 @@ function fileToDataUrl(file) {
   });
 }
 
+/**
+ * Client-side check mirroring host/backend media URL shape.
+ * Path: /media/federation/{userId}/{filename} with safe single-segment name.
+ */
+function isValidFederationMediaUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  var trimmed = url.trim();
+  if (!trimmed) return false;
+  // Reject before URL() normalizes ".." away
+  if (trimmed.indexOf('..') >= 0) return false;
+  try {
+    var u = new URL(trimmed);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+    if (u.pathname.indexOf('..') >= 0) return false;
+    var m = u.pathname.match(/^\/media\/federation\/(\d+)\/([A-Za-z0-9._-]+)$/);
+    return !!(m && m[1] && m[2]);
+  } catch (e) {
+    return false;
+  }
+}
+
+function unwrapUploadMediaResult(res) {
+  if (!res) return null;
+  // Bridge may return { url } or nested { data: { url } }
+  if (res.url) return res;
+  if (res.data && res.data.url) return res.data;
+  return res;
+}
+
+function unwrapPublishResult(res) {
+  if (!res) return null;
+  if (res.activity_id || res.content_id || typeof res.delivered_queued === 'number') return res;
+  if (res.data && (res.data.activity_id || res.data.content_id)) return res.data;
+  return res;
+}
+
 async function uploadComposeMedia(entry) {
   var file = entry.file;
   if (typeof Tapp.federation.uploadMedia === 'function') {
@@ -6912,10 +6969,105 @@ async function uploadComposeMedia(entry) {
       name: file.name || 'upload.bin',
       mime: file.type || (entry.kind === 'video' ? 'video/mp4' : 'image/jpeg')
     });
-    return res;
+    var uploaded = unwrapUploadMediaResult(res);
+    if (!uploaded || !isValidFederationMediaUrl(uploaded.url)) {
+      console.error('[Aro] uploadMedia returned invalid URL', res);
+      throw new Error(lang.composeBadMediaUrl || 'Invalid media URL after upload');
+    }
+    return uploaded;
   }
   // Fallback: publish path unavailable
+  console.error('[Aro] uploadMedia not available on Tapp.federation');
   throw new Error('uploadMedia not available');
+}
+
+/**
+ * Soft-check that the published note (and media) appears on timeline/published.
+ * Non-blocking: only warns via toast/console; never fails the publish UX.
+ */
+function softVerifyPublishedNote(publishRes, expectedAttachments) {
+  var contentId = publishRes && (publishRes.content_id || publishRes.contentId);
+  var activityId = publishRes && (publishRes.activity_id || publishRes.activityId);
+  if (!contentId && !activityId) return;
+
+  var attempts = 0;
+  var maxAttempts = 4;
+  var delayMs = 700;
+  var wantMedia = !!(expectedAttachments && expectedAttachments.length);
+
+  function noteMatches(item) {
+    if (!item) return false;
+    var cj = item.content_json || item.content || {};
+    var cid = (cj['mfp:contentId'] || cj.content_id || item.content_id || '');
+    var aid = item.activity_id || (cj.id) || '';
+    if (contentId && String(cid) === String(contentId)) return true;
+    if (activityId && String(aid).indexOf(String(activityId)) >= 0) return true;
+    if (activityId && String(item.activity_id || '') === String(activityId)) return true;
+    return false;
+  }
+
+  function itemHasMedia(item) {
+    var atts = extractNoteAttachments(item.content_json || item.content || null);
+    return atts && atts.length > 0 && atts.every(function (a) { return a && a.url; });
+  }
+
+  function tick() {
+    attempts += 1;
+    Promise.all([
+      (typeof Tapp.federation.getTimeline === 'function'
+        ? Tapp.federation.getTimeline().catch(function (e) {
+            console.warn('[Aro] soft-verify getTimeline', e);
+            return null;
+          })
+        : Promise.resolve(null)),
+      (typeof Tapp.federation.getPublished === 'function'
+        ? Tapp.federation.getPublished().catch(function (e) {
+            console.warn('[Aro] soft-verify getPublished', e);
+            return null;
+          })
+        : Promise.resolve(null))
+    ]).then(function (pair) {
+      var timelineItems = (pair[0] && pair[0].items) || [];
+      var publishedItems = (pair[1] && pair[1].items) || [];
+      var found =
+        timelineItems.find(noteMatches) ||
+        publishedItems.find(noteMatches) ||
+        null;
+
+      if (found) {
+        if (wantMedia && !itemHasMedia(found)) {
+          console.warn('[Aro] soft-verify: note found but attachments missing on feed', found);
+          try {
+            Tapp.ui.showNotification({
+              title: lang.composeMediaMissingOnFeed || lang.composeTimelineMissing || 'Media missing',
+              type: 'warning'
+            });
+          } catch (e2) {}
+        }
+        return;
+      }
+
+      if (attempts < maxAttempts) {
+        setTimeout(tick, delayMs);
+        return;
+      }
+
+      console.warn('[Aro] soft-verify: published note not on timeline/published within timeout', {
+        contentId: contentId,
+        activityId: activityId
+      });
+      try {
+        Tapp.ui.showNotification({
+          title: lang.composeTimelineMissing || 'Not on timeline yet',
+          type: 'warning'
+        });
+      } catch (e3) {}
+    }).catch(function (e) {
+      console.warn('[Aro] soft-verify failed', e);
+    });
+  }
+
+  setTimeout(tick, delayMs);
 }
 
 async function publishComposeNote() {
@@ -6940,34 +7092,80 @@ async function publishComposeNote() {
   setBusy(true);
   try {
     var attachments = [];
+    var uploadedCount = 0;
     for (var i = 0; i < composeAttachments.length; i++) {
       if (publishBtn) publishBtn.textContent = lang.composeUploading || '…';
-      var uploaded = await uploadComposeMedia(composeAttachments[i]);
+      try {
+        var uploaded = await uploadComposeMedia(composeAttachments[i]);
+      } catch (upErr) {
+        console.error('[Aro] media upload failed at index', i, upErr);
+        if (uploadedCount > 0) {
+          notifyError(lang.composeUploadPartial || lang.composeUploadFail || lang.composeFail || 'Fail', upErr);
+        } else {
+          notifyError(lang.composeUploadFail || lang.composeFail || 'Fail', upErr);
+        }
+        // Do not half-publish: abort without createNote.
+        return;
+      }
+      if (!isValidFederationMediaUrl(uploaded.url)) {
+        console.error('[Aro] rejecting bad attachment URL before createNote', uploaded);
+        notifyError(lang.composeBadMediaUrl || lang.composeFail || 'Bad URL');
+        return;
+      }
       attachments.push({
         url: uploaded.url,
         media_type: uploaded.media_type || uploaded.mediaType || composeAttachments[i].file.type,
         name: uploaded.name || composeAttachments[i].file.name
       });
+      uploadedCount += 1;
     }
+    if (publishBtn) publishBtn.textContent = lang.composePublishing || '…';
+    var rawPublish;
     if (typeof Tapp.federation.createNote === 'function') {
-      await Tapp.federation.createNote({
+      rawPublish = await Tapp.federation.createNote({
         text: text,
         attachments: attachments,
         visibility: 'public'
       });
-    } else {
-      await Tapp.federation.publish({
+    } else if (typeof Tapp.federation.publish === 'function') {
+      rawPublish = await Tapp.federation.publish({
         content_type: 'note',
         text: text,
         attachments: attachments,
         visibility: 'public'
       });
+    } else {
+      console.error('[Aro] createNote/publish not available');
+      throw new Error('createNote not available');
     }
+    var publishRes = unwrapPublishResult(rawPublish);
+    if (publishRes && publishRes.success === false) {
+      console.error('[Aro] publish response success=false', publishRes);
+      throw new Error(publishRes.error || lang.composeFail || 'Publish failed');
+    }
+
     // Success: wipe draft + form (do not re-save published content).
     closeComposer({ clear: true });
+    var successTitle = attachments.length > 0
+      ? (lang.composeSuccessMedia || lang.composeSuccess || 'OK')
+      : (lang.composeSuccess || 'OK');
+    var successMsg;
+    var queued = publishRes && (publishRes.delivered_queued != null
+      ? publishRes.delivered_queued
+      : publishRes.deliveredQueued);
+    if (typeof queued === 'number' && queued > 0) {
+      successMsg = String(lang.composeDeliveryQueued || 'Delivering to {n} followers')
+        .replace('{n}', String(queued));
+    }
     try {
-      Tapp.ui.showNotification({ title: lang.composeSuccess || 'OK', type: 'success' });
+      Tapp.ui.showNotification({
+        title: successTitle,
+        message: successMsg || undefined,
+        type: 'success'
+      });
     } catch (e2) {}
+
+    // Force reload author timeline + published so the new note is visible.
     state.feedLoaded.timeline = false;
     state.feedLoaded.published = false;
     if (state.feedSubTab !== 'timeline') {
@@ -6976,7 +7174,11 @@ async function publishComposeNote() {
       loadFeedSubTab();
     }
     updateFeedProfileHeader();
+
+    // Non-blocking soft verify (timeline/media presence).
+    softVerifyPublishedNote(publishRes, attachments);
   } catch (e) {
+    console.error('[Aro] publishComposeNote failed', e);
     notifyError(lang.composeFail || lang.unpublishFail || 'Fail', e);
   } finally {
     setBusy(false);

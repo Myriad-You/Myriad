@@ -460,7 +460,9 @@ async fn run_server() -> anyhow::Result<()> {
                 });
                 tracing::info!("✅ Skill evolution pruning worker started");
 
-                // Initialize Federation delivery worker (MFP Activity delivery queue)
+                // Initialize Federation delivery worker (MFP Activity delivery queue).
+                // Required for createNote/publish fan-out: rows enqueued in
+                // fan_out_to_followers are drained here every ~15s.
                 federation::delivery::spawn_delivery_worker(db.clone());
                 tracing::info!("✅ Federation delivery worker started");
 
@@ -4419,6 +4421,8 @@ async fn start_unified_server(config: AppConfig) -> anyhow::Result<()> {
                 .service(ServeDir::new(&services::data_paths::paths().cache_images)),
         )
         // Public federation media (Note attachments Image/Video) — URLs embedded in AP.
+        // Intentionally unauthenticated GET so remote instances can fetch media during
+        // federation. Must stay outside session/auth middleware (see delivery.rs docs).
         .nest_service(
             "/media/federation",
             tower::ServiceBuilder::new()

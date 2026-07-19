@@ -2,6 +2,17 @@
 //!
 //! 后台任务：从 federation_delivery_queue 取出待投递的 Activity，
 //! 签名后发送到目标 inbox，支持指数退避重试。
+//!
+//! ## Lifecycle
+//! - `spawn_delivery_worker` is started from `main` when the service boots in
+//!   **full mode** (DB connected). It polls every 15s via `process_delivery_queue`.
+//! - Publish / createNote enqueues rows in `fan_out_to_followers` (content module);
+//!   this worker is what actually POSTs signed Activities to remote inboxes.
+//!
+//! ## Public media (Note attachments)
+//! - Attachment URLs are served at `GET /media/federation/{userId}/{file}` with
+//!   **no auth** (public `ServeDir`) so remote instances can fetch Image/Video
+//!   objects embedded in AP Notes. Do not put this path behind session middleware.
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use std::time::Duration;

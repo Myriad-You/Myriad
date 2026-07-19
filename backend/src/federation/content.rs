@@ -55,6 +55,13 @@ pub struct PublishResponse {
     pub content_type: String,
     pub content_id: String,
     pub visibility: String,
+    /// Follower inboxes successfully enqueued for best-effort delivery.
+    /// Fan-out never fails the publish; check logs if this is lower than expected.
+    #[serde(default)]
+    pub delivered_queued: u32,
+    /// Whether the Create was written to the author's local timeline.
+    #[serde(default)]
+    pub author_timeline: bool,
 }
 
 /// 已发布内容列表项
@@ -234,15 +241,17 @@ pub async fn publish_content(
     )
     .await?;
 
-    // 推送给所有 followers
-    fan_out_to_followers(db, user_id, act_db_id, &activity_json).await?;
+    // Best-effort fan-out: enqueue deliveries; never fail the publish on queue errors.
+    let delivered_queued =
+        fan_out_to_followers(db, user_id, act_db_id, &activity_json).await;
 
     tracing::info!(
-        "📢 Published {} #{} as {} ({})",
+        "📢 Published {} #{} as {} ({}); delivered_queued={}",
         content_type,
         content_id,
         activity_id,
-        visibility
+        visibility,
+        delivered_queued
     );
 
     Ok(PublishResponse {
@@ -251,6 +260,8 @@ pub async fn publish_content(
         content_type: content_type.to_string(),
         content_id,
         visibility: visibility.to_string(),
+        delivered_queued,
+        author_timeline: true,
     })
 }
 
@@ -355,14 +366,16 @@ pub async fn unpublish_content(
         ))
         .await;
 
-    // 推送 Delete 给所有 followers
-    fan_out_to_followers(db, user_id, del_db_id, &delete_json).await?;
+    // Best-effort fan-out of Delete to followers
+    let delivered_queued =
+        fan_out_to_followers(db, user_id, del_db_id, &delete_json).await;
 
     tracing::info!(
-        "🗑️ Unpublished {} #{} (Delete: {})",
+        "🗑️ Unpublished {} #{} (Delete: {}); delivered_queued={}",
         content_type,
         content_id,
         delete_activity_id,
+        delivered_queued
     );
 
     Ok(json!({
@@ -545,18 +558,37 @@ fn extension_for_mime(mime: &str) -> Option<&'static str> {
 
 /// Validate that attachment URLs belong to this instance's federation media for the user.
 fn validate_attachment_url(base_url: &str, user_id: i32, url: &str) -> bool {
+    attachment_url_rejection_reason(base_url, user_id, url).is_none()
+}
+
+/// Human-readable reason if `url` is not a valid local federation media URL for this user.
+/// Returns `None` when the URL is acceptable.
+fn attachment_url_rejection_reason(base_url: &str, user_id: i32, url: &str) -> Option<&'static str> {
+    let url = url.trim();
+    if url.is_empty() {
+        return Some("Attachment URL is empty");
+    }
     let base = base_url.trim_end_matches('/');
     let prefix = format!("{}/media/federation/{}/", base, user_id);
     if !url.starts_with(&prefix) {
-        return false;
+        return Some(
+            "Attachment URL must be a media file uploaded via POST /api/federation/media for this user on this instance (expected /media/federation/{userId}/{filename})",
+        );
     }
     let rest = &url[prefix.len()..];
-    !rest.is_empty()
-        && !rest.contains("..")
-        && !rest.contains('/')
-        && rest
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
+    if rest.is_empty() {
+        return Some("Attachment URL is missing the media filename");
+    }
+    if rest.contains("..") || rest.contains('/') {
+        return Some("Attachment URL path is invalid (no subpaths or '..' allowed)");
+    }
+    if !rest
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
+    {
+        return Some("Attachment URL filename contains invalid characters");
+    }
+    None
 }
 
 // ==================== 内容 → AP 对象转换 ====================
@@ -613,12 +645,15 @@ async fn build_ap_object(
                         Json(json!({"error": format!("Unsupported attachment MIME: {}", att.media_type)})),
                     )
                 })?;
-                if !validate_attachment_url(base_url, user_id, att.url.trim()) {
+                if let Some(reason) =
+                    attachment_url_rejection_reason(base_url, user_id, att.url.trim())
+                {
                     return Err((
                         StatusCode::BAD_REQUEST,
                         Json(json!({
-                            "error": "Attachment URL must be a media uploaded via /api/federation/media for this user",
+                            "error": reason,
                             "url": att.url,
+                            "hint": "Upload media first via POST /api/federation/media, then pass the returned url as attachment.url",
                         })),
                     ));
                 }
@@ -836,15 +871,22 @@ async fn build_ap_object(
 
 // ==================== Fan-out / Timeline ====================
 
-/// 将 Activity 推送给所有关注者（fan-out on send）
+/// Enqueue Activity delivery to all accepted incoming followers (fan-out on send).
+///
+/// Best-effort: queue insert failures are logged and skipped; the publish path
+/// must not fail after the Create is already persisted. Returns how many
+/// follower inboxes were successfully queued.
+///
+/// Actual HTTP delivery is performed by `delivery::process_delivery_queue`,
+/// started via `delivery::spawn_delivery_worker` from main on full-mode boot.
 async fn fan_out_to_followers(
     db: &DatabaseConnection,
     user_id: i32,
     activity_db_id: i32,
     _activity_json: &serde_json::Value,
-) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+) -> u32 {
     // 查询所有 incoming followers 的远程 inbox
-    let followers = db
+    let followers = match db
         .query_all(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT ra.inbox_url, ra.domain
@@ -854,29 +896,89 @@ async fn fan_out_to_followers(
             [user_id.into()],
         ))
         .await
-        .map_err(db_err)?;
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::error!(
+                "Fan-out follower query failed for user {} activity_db_id={}: {}",
+                user_id,
+                activity_db_id,
+                e
+            );
+            return 0;
+        }
+    };
+
+    let mut queued = 0u32;
+    let mut failed = 0u32;
+    let mut skipped_empty = 0u32;
 
     for row in followers {
         let inbox: String = row.try_get("", "inbox_url").unwrap_or_default();
         let domain: String = row.try_get("", "domain").unwrap_or_default();
 
         if inbox.is_empty() {
+            skipped_empty += 1;
+            tracing::warn!(
+                "Fan-out skip: empty inbox_url for follower domain={} activity_db_id={}",
+                domain,
+                activity_db_id
+            );
             continue;
         }
 
         // 加入投递队列
-        let _ = db
+        match db
             .execute(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"INSERT INTO federation_delivery_queue
                        (activity_id, target_inbox, target_domain, status, created_at)
                    VALUES ($1, $2, $3, 'pending', NOW())"#,
-                [activity_db_id.into(), inbox.into(), domain.into()],
+                [
+                    activity_db_id.into(),
+                    inbox.clone().into(),
+                    domain.clone().into(),
+                ],
             ))
-            .await;
+            .await
+        {
+            Ok(_) => queued += 1,
+            Err(e) => {
+                failed += 1;
+                tracing::error!(
+                    "Fan-out enqueue failed activity_db_id={} target_domain={} inbox={}: {}",
+                    activity_db_id,
+                    domain,
+                    inbox,
+                    e
+                );
+            }
+        }
     }
 
-    Ok(())
+    if failed > 0 || skipped_empty > 0 {
+        tracing::warn!(
+            "Fan-out partial activity_db_id={}: queued={}, failed={}, skipped_empty_inbox={}",
+            activity_db_id,
+            queued,
+            failed,
+            skipped_empty
+        );
+    } else if queued > 0 {
+        tracing::info!(
+            "Fan-out queued {} deliveries for activity_db_id={}",
+            queued,
+            activity_db_id
+        );
+    } else {
+        tracing::debug!(
+            "Fan-out: no accepted followers for user {} activity_db_id={}",
+            user_id,
+            activity_db_id
+        );
+    }
+
+    queued
 }
 
 /// Insert Create into the author's local timeline so freeform posts show up immediately.
@@ -1040,6 +1142,42 @@ mod tests {
             2,
             "https://example.com/media/federation/1/abc.jpg"
         ));
+        assert!(!validate_attachment_url(base, 1, ""));
+        assert!(!validate_attachment_url(base, 1, "   "));
+        assert!(!validate_attachment_url(
+            base,
+            1,
+            "https://example.com/media/federation/1/"
+        ));
+        assert!(!validate_attachment_url(
+            base,
+            1,
+            "https://example.com/media/federation/1/bad name.jpg"
+        ));
+    }
+
+    #[test]
+    fn attachment_url_rejection_reason_is_specific() {
+        let base = "https://example.com";
+        assert_eq!(
+            attachment_url_rejection_reason(base, 1, ""),
+            Some("Attachment URL is empty")
+        );
+        assert!(attachment_url_rejection_reason(
+            base,
+            1,
+            "https://evil.com/media/federation/1/abc.jpg"
+        )
+        .unwrap()
+        .contains("POST /api/federation/media"));
+        assert_eq!(
+            attachment_url_rejection_reason(
+                base,
+                1,
+                "https://example.com/media/federation/1/abc.jpg"
+            ),
+            None
+        );
     }
 
     #[test]

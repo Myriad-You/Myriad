@@ -108,6 +108,10 @@ export interface PublishResponse {
   content_type: string
   content_id: string
   visibility: string
+  /** Follower inboxes enqueued for best-effort delivery (fan-out). */
+  delivered_queued?: number
+  /** Whether the Create was written to the author's local timeline. */
+  author_timeline?: boolean
 }
 
 export interface UnpublishRequest {
