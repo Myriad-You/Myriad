@@ -21,6 +21,8 @@ export async function getReport(
   id: string
   platform?: string
   type: 'platform' | 'comprehensive'
+  /** Top-level summary from report catalog (also often nested in content.summary). */
+  summary?: string
   content: unknown
   createdAt: string
 }> {
