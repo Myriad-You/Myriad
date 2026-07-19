@@ -474,13 +474,14 @@ pub async fn add_peer(
     }
 
     // 原子追加到 known_peers，避免并发读-改-写竞争
+    // known_peers is json (not jsonb); cast for @> / || containment ops
     db.execute(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"UPDATE federation_ring_memberships
            SET known_peers = CASE
-             WHEN NOT (known_peers @> $2::jsonb)
-             THEN known_peers || $2::jsonb
-             ELSE known_peers
+             WHEN NOT (COALESCE(known_peers, '[]'::json)::jsonb @> $2::jsonb)
+             THEN (COALESCE(known_peers, '[]'::json)::jsonb || $2::jsonb)
+             ELSE COALESCE(known_peers, '[]'::json)::jsonb
            END
            WHERE ring_id = $1"#,
         [ring_id.into(), json!([&peer_url]).into()],
@@ -542,14 +543,14 @@ pub async fn remove_peer(
     peer_url: &str,
     db: &DatabaseConnection,
 ) -> Result<serde_json::Value, (StatusCode, Json<serde_json::Value>)> {
-    // 使用子查询原子地从 JSONB 数组中移除指定 peer
+    // 使用子查询原子地从 JSON 数组中移除指定 peer（cast to jsonb for ops）
     let result = db
         .execute(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"UPDATE federation_ring_memberships
                SET known_peers = (
                    SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
-                   FROM jsonb_array_elements(known_peers) AS elem
+                   FROM jsonb_array_elements(COALESCE(known_peers, '[]'::json)::jsonb) AS elem
                    WHERE elem #>> '{}' != $2
                )
                WHERE ring_id = $1"#,
@@ -879,13 +880,14 @@ pub async fn handle_ring_join(
                 return Ok(());
             }
         }
+        // known_peers is json (not jsonb); cast for @> / || containment ops
         db.execute(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"UPDATE federation_ring_memberships
                SET known_peers = CASE
-                 WHEN NOT (known_peers @> $2::jsonb)
-                 THEN known_peers || $2::jsonb
-                 ELSE known_peers
+                 WHEN NOT (COALESCE(known_peers, '[]'::json)::jsonb @> $2::jsonb)
+                 THEN (COALESCE(known_peers, '[]'::json)::jsonb || $2::jsonb)
+                 ELSE COALESCE(known_peers, '[]'::json)::jsonb
                END
                WHERE ring_id = $1"#,
             [ring_id.into(), json!([actor_url_str]).into()],
@@ -1013,15 +1015,16 @@ pub async fn handle_ring_sync(
     }
 
     // 更新 last_sync_at 和确保 peer 在列表中
+    // known_peers is json (not jsonb); cast for @> / || containment ops
     let _ = db
         .execute(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"UPDATE federation_ring_memberships
                SET last_sync_at = NOW(),
                    known_peers = CASE
-                     WHEN NOT (known_peers @> $2::jsonb)
-                     THEN known_peers || $2::jsonb
-                     ELSE known_peers
+                     WHEN NOT (COALESCE(known_peers, '[]'::json)::jsonb @> $2::jsonb)
+                     THEN (COALESCE(known_peers, '[]'::json)::jsonb || $2::jsonb)
+                     ELSE COALESCE(known_peers, '[]'::json)::jsonb
                    END
                WHERE ring_id = $1"#,
             [ring_id.into(), json!([actor_url_str]).into()],
@@ -1147,13 +1150,13 @@ pub async fn handle_ring_leave(
         .and_then(|v| v.as_str())
         .ok_or("Missing ring id")?;
 
-    // 原子地从 known_peers 中移除（与 remove_peer 一致）
+    // 原子地从 known_peers 中移除（与 remove_peer 一致；cast json → jsonb）
     db.execute(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"UPDATE federation_ring_memberships
            SET known_peers = (
                SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
-               FROM jsonb_array_elements(known_peers) AS elem
+               FROM jsonb_array_elements(COALESCE(known_peers, '[]'::json)::jsonb) AS elem
                WHERE elem #>> '{}' != $2
            )
            WHERE ring_id = $1"#,
