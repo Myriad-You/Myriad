@@ -47,7 +47,8 @@
 #                        注入 backend + updater-gateway；**不**注入 frontend
 #                        泄露 ≈ 可经 gateway 驱动更新（仍优于 UPDATE_TOKEN 进胖进程）
 # CHANNEL                stable | beta | nightly（commit 模式常配 preview）
-# GITHUB_TOKEN           可选。Release 模式读 release.json 需要（私有仓必填）。
+# GITHUB_TOKEN           可选。有则 Release 优先读 GitHub release.json（digest/cosign）。
+#                        无私有 Release / 404 时 preflight 回退 Docker Hub 公共 vX.Y.Z 镜像。
 #                        Commit/开发版模式可不设：走 Docker Hub 公共镜像发现（私有源码仓常态）
 # REGISTRY_MIRROR        可选：镜像 mirror 前缀
 # MYRIAD_GITHUB_REPO     默认 Myriad-You/Myriad

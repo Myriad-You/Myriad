@@ -2,7 +2,10 @@
 //! never cause downtime.
 //!
 //! Two modes:
-//! - **Release**: fetch release.json, pull images, verify digests, enforce min_from_version.
+//! - **Release**: prefer GitHub `release.json` (digests, cosign, min_from_version). When the
+//!   manifest is unavailable (404 / no token / network / missing asset), fall back to pulling
+//!   `BACKEND_IMAGE`/`FRONTEND_IMAGE` tagged with the release version from Docker Hub — same
+//!   image naming as commit mode. Cosign/schema failures still hard-fail (no silent skip).
 //! - **Commit**: resolve image tags to `dev-<sha>` (never persist branch tips), pull images.
 //!
 //! Direction gates (fail-closed):
@@ -10,8 +13,9 @@
 //! - pure downgrade → requires `allow_downgrade`
 //! - diverged → requires `allow_diverged` / `allow_risk`
 //! - **commit/dev**: unknown ancestry does **not** require `allow_unknown` (build-time
-//!   newer / different tag is enough). Release mode still treats unknown as risk.
-//! - irreversible migration + downgrade → requires both flags
+//!   newer / different tag is enough). Release + full manifest still treats unknown as risk;
+//!   release Docker Hub fallback (no git compare) matches commit without ancestry.
+//! - irreversible migration + downgrade → requires both flags (manifest path only)
 
 use std::sync::Arc;
 
@@ -104,10 +108,78 @@ async fn run_release(
             target.as_str()
         ))
     })?;
-    info!(target = %release, "preflight(release): fetching manifest");
-    let gh = worker.github_client()?;
-    let manifest = gh.fetch_manifest(release.as_str()).await?;
 
+    info!(target = %release, "preflight(release): fetching GitHub release.json");
+    match try_fetch_release_manifest(worker.as_ref(), release.as_str()).await {
+        Ok(Some((gh, manifest))) => {
+            run_release_with_manifest(worker, target, risk, gh, manifest).await
+        }
+        Ok(None) => {
+            warn!(
+                target = %release,
+                "preflight(release): GitHub release.json unavailable; verifying via Docker Hub images"
+            );
+            run_release_via_dockerhub(worker, target, risk).await
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Attempt to download + verify `release.json`.
+///
+/// - `Ok(Some)` — verified manifest ready for the full release path
+/// - `Ok(None)` — GitHub release unavailable (404/401/network/no asset); caller may fall back
+/// - `Err` — hard failure (cosign, invalid manifest body); do **not** fall back
+async fn try_fetch_release_manifest(
+    worker: &Worker,
+    tag: &str,
+) -> Result<Option<(crate::release::GithubClient, Manifest)>> {
+    let gh = match worker.github_client() {
+        Ok(gh) => gh,
+        Err(e) => {
+            warn!(err = %e, "preflight(release): cannot build GitHub client");
+            return Ok(None);
+        }
+    };
+    match gh.fetch_manifest(tag).await {
+        Ok(manifest) => Ok(Some((gh, manifest))),
+        Err(e) if github_release_json_unavailable(&e) => {
+            warn!(
+                err = %e,
+                tag = %tag,
+                "preflight(release): GitHub release.json unavailable"
+            );
+            Ok(None)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// True when the error means release.json cannot be obtained (fall back to Docker Hub).
+/// Cosign failures and invalid downloaded JSON must **not** fall back — fail closed.
+fn github_release_json_unavailable(err: &UpdaterError) -> bool {
+    match err {
+        UpdaterError::Github(_) | UpdaterError::Io(_) => true,
+        // Cosign enforce returns Precondition("cosign: ...") — never fall back.
+        UpdaterError::Precondition(msg) if msg.starts_with("cosign:") => false,
+        // Manifest::from_json / validate after a successful download — fail closed.
+        UpdaterError::Json(_) | UpdaterError::Precondition(_) => false,
+        other => {
+            // Network / client build oddities may surface as Internal(anyhow).
+            crate::release::GithubClient::is_expected_unauthenticated_failure(other)
+                || other.to_string().to_ascii_lowercase().contains("timeout")
+                || other.to_string().to_ascii_lowercase().contains("connection")
+        }
+    }
+}
+
+async fn run_release_with_manifest(
+    worker: Arc<Worker>,
+    target: &DeployTag,
+    risk: RiskFlags,
+    gh: crate::release::GithubClient,
+    manifest: Manifest,
+) -> Result<PreflightReport> {
     if manifest.schema_version > SUPPORTED_RELEASE_SCHEMA {
         return Err(UpdaterError::Precondition(format!(
             "release schema_version {} exceeds updater support {}; upgrade updater first",
@@ -302,6 +374,186 @@ async fn run_release(
         backend_digest: backend_pulled,
         frontend_digest: frontend_pulled,
         estimated_seconds: estimated,
+        is_downgrade,
+        is_diverged,
+    })
+}
+
+/// Release install without `release.json`: pull formal `vX.Y.Z` images from Docker Hub
+/// using the same repo naming as commit mode (`BACKEND_IMAGE` / `FRONTEND_IMAGE` + tag).
+///
+/// Digests come from the pull; cosign and manifest digest equality are skipped.
+/// Missing images hard-fail with a clear Docker Hub error (no silent install).
+async fn run_release_via_dockerhub(
+    worker: Arc<Worker>,
+    target: &DeployTag,
+    risk: RiskFlags,
+) -> Result<PreflightReport> {
+    let release = target.as_release().ok_or_else(|| {
+        UpdaterError::InvalidInput(format!(
+            "release mode requires a vX.Y.Z target, got {}",
+            target.as_str()
+        ))
+    })?;
+
+    let from_version = worker.state().read_updater()?.current_version.clone();
+    let mut is_downgrade = false;
+    let mut is_diverged = false;
+
+    // Semver when both sides are releases (no GitHub needed).
+    if let (Some(curr), Some(tgt)) = (&from_version, target.as_release()) {
+        if let Some(curr_rel) = curr.as_release() {
+            if curr_rel.as_str() == tgt.as_str() {
+                return Err(UpdaterError::Precondition(format!(
+                    "target {tgt} is already the running release version"
+                )));
+            } else if tgt.older_than(&curr_rel) {
+                is_downgrade = true;
+            } else if !curr_rel.older_than(&tgt) {
+                require_flag(
+                    risk.allow_unknown,
+                    &format!(
+                        "cannot order {curr_rel} vs {tgt} by semver; re-submit with \
+                         allow_unknown=true (or allow_risk=true)"
+                    ),
+                )?;
+            }
+        } else {
+            // Commit/branch → release without reliable git compare (no release.json path).
+            // Mirror commit mode: do not require allow_unknown solely for missing ancestry.
+            if worker.github_commit_metadata_enabled() {
+                if let Ok(gh) = worker.github_client() {
+                    match gh.compare_deploy_to_ref(Some(curr), target.as_str()).await {
+                        Ok(Some(f)) => {
+                            is_downgrade = f.is_downgrade();
+                            is_diverged = matches!(f.relation, CommitRelation::Diverged);
+                            if matches!(f.relation, CommitRelation::Identical) {
+                                return Err(UpdaterError::Precondition(format!(
+                                    "target {} points at the same git commit as current {}",
+                                    target.as_str(),
+                                    curr
+                                )));
+                            }
+                            if matches!(f.relation, CommitRelation::Unknown) {
+                                info!(
+                                    target = %target,
+                                    current = %curr,
+                                    "preflight(release/dh): unknown git relation; proceeding \
+                                     without allow_unknown (no release.json)"
+                                );
+                            }
+                        }
+                        Ok(None) => {
+                            info!(
+                                target = %target,
+                                current = %curr,
+                                "preflight(release/dh): cannot resolve current deploy to git; \
+                                 proceeding (semver/tag differ is sufficient without release.json)"
+                            );
+                        }
+                        Err(e) => {
+                            warn!(
+                                target = %target,
+                                err = %e,
+                                "preflight(release/dh): git compare failed; proceeding without allow_unknown"
+                            );
+                        }
+                    }
+                }
+            } else {
+                info!(
+                    target = %target,
+                    current = %curr,
+                    "preflight(release/dh): GITHUB_TOKEN unset; skipping git ancestry for \
+                     commit→release (image pull verifies tags exist)"
+                );
+            }
+        }
+    }
+
+    if is_downgrade {
+        require_downgrade(risk.allow_downgrade, target.as_str())?;
+        warn!(to = %target, "preflight: explicit release DOWNgrade allowed (Docker Hub path)");
+    }
+    if is_diverged {
+        require_flag(
+            risk.allow_diverged,
+            &format!(
+                "target {} diverged from current history; re-submit with allow_diverged=true \
+                 (or allow_risk=true)",
+                target.as_str()
+            ),
+        )?;
+    }
+
+    // No manifest: cannot enforce min_from_version / irreversible / min_updater_version.
+    check_env_keys(worker.as_ref(), None)?;
+    check_disk(worker.as_ref())?;
+
+    let (backend_repo, frontend_repo) = worker.image_repos_required()?;
+    let tag = release.as_str();
+    let backend_ref = format!("{backend_repo}:{tag}");
+    let frontend_ref = format!("{frontend_repo}:{tag}");
+
+    for img in [&backend_ref, &frontend_ref] {
+        if img.ends_with(":latest") {
+            return Err(UpdaterError::Precondition(format!(
+                "image ref must use immutable tag, got: {img}"
+            )));
+        }
+    }
+
+    info!(
+        backend = %backend_ref,
+        frontend = %frontend_ref,
+        "preflight(release): pulling release images via Docker Hub"
+    );
+
+    let backend_pulled = worker
+        .docker_pull_with_mirror(&backend_ref)
+        .await
+        .map_err(|e| {
+            UpdaterError::Precondition(format!(
+                "pull backend {backend_ref}: {e} (is release {tag} published on Docker Hub?)"
+            ))
+        })?;
+    let frontend_pulled = worker
+        .docker_pull_with_mirror(&frontend_ref)
+        .await
+        .map_err(|e| {
+            UpdaterError::Precondition(format!(
+                "pull frontend {frontend_ref}: {e} (is release {tag} published on Docker Hub?)"
+            ))
+        })?;
+
+    // Optional commit_sha when GitHub is reachable but only the release asset was missing.
+    let target_commit_sha = if worker.github_commit_metadata_enabled() {
+        match worker.github_client() {
+            Ok(gh) => match gh.resolve_commit(target.as_str()).await {
+                Ok(info) => Some(info.sha),
+                Err(e) => {
+                    warn!(
+                        target = %target,
+                        err = %e,
+                        "preflight(release/dh): could not resolve release tag to commit_sha"
+                    );
+                    None
+                }
+            },
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
+
+    Ok(PreflightReport {
+        manifest: None,
+        from_version,
+        target: target.clone(),
+        target_commit_sha,
+        backend_digest: backend_pulled,
+        frontend_digest: frontend_pulled,
+        estimated_seconds: 60,
         is_downgrade,
         is_diverged,
     })
@@ -615,5 +867,68 @@ mod risk_flag_tests {
         assert!(r.allow_diverged);
         assert!(!r.allow_unknown);
         assert!(!r.allow_irreversible);
+    }
+}
+
+#[cfg(test)]
+mod github_manifest_fallback_tests {
+    use super::*;
+
+    #[test]
+    fn github_404_is_unavailable_for_dockerhub_fallback() {
+        let err = UpdaterError::Github(
+            "GET release v0.3.3 failed: 404 Not Found {\"message\":\"Not Found\"}".into(),
+        );
+        assert!(github_release_json_unavailable(&err));
+    }
+
+    #[test]
+    fn github_missing_release_json_asset_is_unavailable() {
+        let err = UpdaterError::Github("release v0.3.3 has no release.json asset".into());
+        assert!(github_release_json_unavailable(&err));
+    }
+
+    #[test]
+    fn github_401_is_unavailable() {
+        let err = UpdaterError::Github("GET release v1.0.0 failed: 401 Unauthorized".into());
+        assert!(github_release_json_unavailable(&err));
+    }
+
+    #[test]
+    fn io_errors_are_unavailable() {
+        let err = UpdaterError::Io(std::io::Error::new(
+            std::io::ErrorKind::ConnectionReset,
+            "connection reset",
+        ));
+        assert!(github_release_json_unavailable(&err));
+    }
+
+    #[test]
+    fn cosign_failure_must_not_fall_back() {
+        let err = UpdaterError::Precondition(
+            "cosign: signature verification failed: no matching signatures".into(),
+        );
+        assert!(!github_release_json_unavailable(&err));
+    }
+
+    #[test]
+    fn invalid_manifest_json_must_not_fall_back() {
+        let err = UpdaterError::Json(serde_json::from_str::<serde_json::Value>("not-json").unwrap_err());
+        assert!(!github_release_json_unavailable(&err));
+    }
+
+    #[test]
+    fn manifest_validation_precondition_must_not_fall_back() {
+        let err = UpdaterError::Precondition("manifest missing images.backend".into());
+        assert!(!github_release_json_unavailable(&err));
+    }
+
+    #[test]
+    fn digest_matches_accepts_suffix() {
+        assert!(digest_matches(
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ));
+        assert!(!digest_matches("sha256:abc", "sha256:def"));
     }
 }

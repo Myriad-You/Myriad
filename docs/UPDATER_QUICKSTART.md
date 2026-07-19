@@ -77,12 +77,19 @@ bash scripts/docker/deploy.sh restart
 UI 提供：
 
 - 当前 updater/business 版本、channel、维护状态
-- **更新模式**：`release`（GitHub Release / semver）或 `commit`（CI 的 `dev-<sha>` / 分支 tip）
+- **更新模式**：`release`（semver `vX.Y.Z`）或 `commit`（CI 的 `dev-<sha>` / 分支 tip）
 - **频道**：`stable` / `preview`；**commit 模式仅在 `preview` 频道下可选**
 - 检查可用更新；commit 模式可填具体 sha
 - 触发升级（带确认 + 进度轮询）
 - 列出快照、一键回滚
 - 强制退出维护模式
+
+**Release 安装与 GitHub / Docker Hub**
+
+1. Preflight **优先**从 GitHub 拉该 tag 的 `release.json`（镜像 digest、cosign、`min_from_version`）。
+2. 若 GitHub 不可用（无私有 Release、`GITHUB_TOKEN` 未设、404/401、网络错误、缺少 `release.json` asset），**回退**到 Docker Hub：用 `.env` 里的 `BACKEND_IMAGE` / `FRONTEND_IMAGE` 仓库 + 目标 tag `vX.Y.Z` 拉取前后端镜像；两边都必须成功，否则明确失败（不会静默安装）。
+3. 无 `release.json` 时跳过 cosign 与 manifest digest 对账；`PreflightReport.manifest` 为 `None`，后续 swap 仍只依赖已拉取的 tag/digest。
+4. 因此：**只要 Docker Hub 上有公开的 `vX.Y.Z` 业务镜像，即使没有 GitHub Release 也能完成正式版安装**。
 
 ```bash
 # 切换到 commit 模式并跟踪 preview 分支 tip

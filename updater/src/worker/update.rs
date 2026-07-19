@@ -1,5 +1,7 @@
 //! Normal update flow. State machine progression per spec §7.
-//! Supports release (GitHub Release + release.json) and commit (CI image tags) modes.
+//! Supports release (GitHub `release.json` when present, else Docker Hub `vX.Y.Z` images)
+//! and commit (CI image tags) modes. Swap/health use `PreflightReport` digests and tags;
+//! a missing `pre.manifest` is fine for the Docker Hub release path.
 
 use std::sync::Arc;
 use std::time::Duration;

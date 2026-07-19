@@ -228,15 +228,15 @@ impl Worker {
         DockerHubClient::new()
     }
 
-    /// Image repositories are explicit deployment inputs. They are shared by commit-mode
-    /// preflight and Docker Hub fallback discovery so both paths inspect the same images.
+    /// Image repositories are explicit deployment inputs. Shared by commit-mode preflight,
+    /// release-mode Docker Hub fallback (when `release.json` is unavailable), and Hub discovery.
     pub fn image_repos_required(&self) -> Result<(String, String)> {
         let env = crate::env_file::EnvFile::load(&self.cli.env_file)?;
         let backend = env.get("BACKEND_IMAGE").map(str::to_owned).ok_or_else(|| {
             UpdaterError::Precondition(
-                "BACKEND_IMAGE missing in .env; required for commit-mode image pulls. \
-                     Add e.g. BACKEND_IMAGE=docker.io/<org>/myriad-backend (no tag) or re-run \
-                     scripts/docker/deploy.sh to bootstrap defaults."
+                "BACKEND_IMAGE missing in .env; required for commit-mode and release Docker Hub \
+                     image pulls. Add e.g. BACKEND_IMAGE=docker.io/<org>/myriad-backend (no tag) \
+                     or re-run scripts/docker/deploy.sh to bootstrap defaults."
                     .into(),
             )
         })?;
@@ -245,9 +245,9 @@ impl Worker {
             .map(str::to_owned)
             .ok_or_else(|| {
                 UpdaterError::Precondition(
-                    "FRONTEND_IMAGE missing in .env; required for commit-mode image pulls. \
-                     Add e.g. FRONTEND_IMAGE=docker.io/<org>/myriad-frontend (no tag) or re-run \
-                     scripts/docker/deploy.sh to bootstrap defaults."
+                    "FRONTEND_IMAGE missing in .env; required for commit-mode and release Docker \
+                     Hub image pulls. Add e.g. FRONTEND_IMAGE=docker.io/<org>/myriad-frontend \
+                     (no tag) or re-run scripts/docker/deploy.sh to bootstrap defaults."
                         .into(),
                 )
             })?;
