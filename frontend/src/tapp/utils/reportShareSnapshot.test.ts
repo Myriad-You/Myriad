@@ -8,9 +8,9 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
-  REPORT_SHARE_SNAPSHOT_FIELDS,
   buildReportShareSnapshot,
   formatReportContentBody,
+  REPORT_SHARE_SNAPSHOT_FIELDS,
   wireReportSharePayload,
 } from './reportShareSnapshot.ts'
 
