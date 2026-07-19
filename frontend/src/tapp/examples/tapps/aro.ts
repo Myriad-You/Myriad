@@ -1129,7 +1129,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "feedLoadFail": "Failed to load feed",
     "feedPublished": "Published",
     "feedTimeline": "Feed",
-    "fileTooLarge": "File too large (max 10MB)",
+    "fileTooLarge": "File too large (max 100MB)",
     "fileTooLargeRoom": "File too large for group chat — use a DM channel for larger files",
     "followBtn": "Follow",
     "followFail": "Follow failed",
@@ -1312,7 +1312,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "feedLoadFail": "フィードの読み込みに失敗",
     "feedPublished": "公開済み",
     "feedTimeline": "フィード",
-    "fileTooLarge": "ファイルが大きすぎます（最大10MB）",
+    "fileTooLarge": "ファイルが大きすぎます（最大100MB）",
     "fileTooLargeRoom": "グループチャットでは大きすぎます — 大きいファイルはDMチャンネルを使ってください",
     "followBtn": "フォロー",
     "followFail": "フォロー失敗",
@@ -1495,7 +1495,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "feedLoadFail": "动态加载失败",
     "feedPublished": "已发布",
     "feedTimeline": "动态",
-    "fileTooLarge": "文件过大（最大 10MB）",
+    "fileTooLarge": "文件过大（最大 100MB）",
     "fileTooLargeRoom": "群聊不支持大文件 — 请通过私信通道发送",
     "followBtn": "关注",
     "followFail": "关注失败",
@@ -2273,11 +2273,11 @@ function applyDialogLabels() {
 const PAGE_MOD_ATTACHMENTS = `\
 // ==================== Attachment Menu ====================
 var _attachMenu = null;
-var MAX_ATTACH_SIZE = 10 * 1024 * 1024; // 10MB overall attach cap
-// Inline base64 only under this raw size so JSON payload stays < 1MB backend cap.
-var INLINE_ATTACH_MAX = 250 * 1024;
-// Must match backend federation file_transfer DEFAULT_CHUNK_SIZE (256 KiB).
-var TRANSFER_CHUNK_SIZE = 262144;
+var MAX_ATTACH_SIZE = 100 * 1024 * 1024; // 100MB overall attach cap (large files use chunked transfer)
+// Inline base64 only under this raw size so JSON payload stays under 10 MiB backend cap.
+var INLINE_ATTACH_MAX = 2 * 1024 * 1024; // 2 MiB raw
+// Must match backend federation file_transfer DEFAULT_CHUNK_SIZE (1 MiB).
+var TRANSFER_CHUNK_SIZE = 1024 * 1024;
 
 function toggleAttachMenu() {
   if (_attachMenu) { closeAttachMenu(); return; }
@@ -3750,7 +3750,7 @@ async function doSend() {
         return;
       }
 
-      // Small files: inline base64 under backend 1MB payload budget
+      // Small files: inline base64 under backend 10 MiB payload budget
       var dataUrl = attach.data;
       if (!dataUrl && attach.file) {
         dataUrl = await readFileAsDataURL(attach.file);
@@ -5708,7 +5708,7 @@ const CORE_CODE = buildCoreCode()
 const manifest: TappManifest = {
   id: 'com.myriad.aro',
   name: 'Aro',
-  version: '1.0.1',
+  version: '1.0.2',
   minSystemVersion: '0.2.1',
   description: '社交中心，统一管理消息、时间线、环网与个人资料',
   category: 'social',

@@ -81,8 +81,8 @@ pub struct TransferDetail {
     pub completed_at: Option<String>,
 }
 
-/// 默认块大小: 256KB
-const DEFAULT_CHUNK_SIZE: i64 = 262144;
+/// 默认块大小: 1 MiB raw（base64 后约 1.37 MiB，远低于联邦 inbox 16 MiB 上限）
+const DEFAULT_CHUNK_SIZE: i64 = 1024 * 1024;
 
 /// 最大文件大小: 5GB
 const MAX_FILE_SIZE: i64 = 5_368_709_120;

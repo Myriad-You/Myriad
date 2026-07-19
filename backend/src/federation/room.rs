@@ -1358,8 +1358,8 @@ pub async fn leave_room(
 
 // ==================== 消息功能 ====================
 
-/// 最大消息载荷大小: 1MB
-const MAX_ROOM_MESSAGE_PAYLOAD: usize = 1_048_576;
+/// 最大消息载荷大小: 10 MiB（与 channel MAX_MESSAGE_PAYLOAD 对齐）
+const MAX_ROOM_MESSAGE_PAYLOAD: usize = 10 * 1024 * 1024;
 
 /// 发送 Room 消息
 pub async fn send_room_message(

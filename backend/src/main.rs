@@ -4098,11 +4098,12 @@ fn federation_api_router() -> Router {
             "/api/federation/transfers/{transfer_id}/cancel",
             post(federation_cancel_transfer_wrapper),
         )
-        // Federation control-plane writes are JSON (follow/channel/room/message).
-        // ~2MiB is enough for those payloads and for base64 file-transfer chunks
-        // (DEFAULT_CHUNK_SIZE = 256KiB → ~350KiB base64). Note media uploads use a
-        // separate route below with a higher limit.
-        .layer(axum::extract::DefaultBodyLimit::max(2 * 1024 * 1024))
+        // Federation control-plane writes are JSON (follow/channel/room/message)
+        // plus base64 file-transfer chunks. 16 MiB covers MAX_MESSAGE_PAYLOAD
+        // (10 MiB) with headroom and DEFAULT_CHUNK_SIZE = 1 MiB raw (~1.37 MiB
+        // base64). Global 50MB stays for media uploads outside this router —
+        // do not lower the global limit here.
+        .layer(axum::extract::DefaultBodyLimit::max(16 * 1024 * 1024))
         .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
         .route_layer(from_fn(middleware::auth::auth_middleware));
 
@@ -4442,8 +4443,9 @@ async fn start_unified_server(config: AppConfig) -> anyhow::Result<()> {
             get(federation::actor::get_following),
         )
         // Layer 2: Inbox（远程实例投递，通过 HTTP Signature 验证）
-        // Stricter ~2MiB body limit: AP activities are small JSON. Do NOT lower the
-        // global 50MB DefaultBodyLimit — that remains for media/avatar uploads.
+        // 16 MiB: channel/room messages (up to 10 MiB payload) and FileChunk
+        // activities. Still far below the global 50MB DefaultBodyLimit used for
+        // media/avatar uploads — do not lower that global ceiling here.
         .merge(
             Router::new()
                 .route(
@@ -4451,7 +4453,7 @@ async fn start_unified_server(config: AppConfig) -> anyhow::Result<()> {
                     post(federation::inbox::post_inbox),
                 )
                 .route("/inbox", post(federation::inbox::post_shared_inbox))
-                .layer(axum::extract::DefaultBodyLimit::max(2 * 1024 * 1024)),
+                .layer(axum::extract::DefaultBodyLimit::max(16 * 1024 * 1024)),
         )
         // ==================== Federation API（需认证）====================
         // Tapp 宿主归因与认证在 federation_api_router() 内按 Router 级统一挂载。
@@ -5197,7 +5199,7 @@ async fn start_unified_server(config: AppConfig) -> anyhow::Result<()> {
         // Apply security headers after the complete route graph is assembled.
         .layer(from_fn(middleware::security::security_headers_middleware))
         // Global 50MB: media/avatar uploads need a large ceiling. Federation public
-        // inbox + federation_api_router apply a stricter ~2MiB DefaultBodyLimit
+        // inbox + federation_api_router apply a stricter 16 MiB DefaultBodyLimit
         // on their own routers (nested limits still apply under this outer layer).
         .layer(axum::extract::DefaultBodyLimit::max(50 * 1024 * 1024)) // 🛡️ 防止OOM: 限制请求体最大50MB
         .layer(cors)
