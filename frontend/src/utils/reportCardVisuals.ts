@@ -6,13 +6,12 @@
  * are unit-tested so field-mapping regressions surface as test failures.
  */
 
+/** Minimal widget shape for platform-id resolution (structurally compatible with WidgetConfig). */
 export interface WidgetConfigLike {
   type?: string
   config?: {
     platformId?: unknown
-    [key: string]: unknown
-  }
-  [key: string]: unknown
+  } | null
 }
 
 /**
