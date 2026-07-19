@@ -477,9 +477,8 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .feed-profile-mobile{display:none;margin:10px 16px 0;flex-shrink:0}
 .feed-mobile-stats{display:none;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:8px 16px 0;flex-shrink:0}
 .feed-mobile-stat{min-width:0;display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 10px;border-radius:10px;background:rgba(128,128,128,.04);color:var(--text-secondary,#536471);font-size:11px}
-/* Feed Main */
-.feed-main{flex:1;min-width:0;max-width:760px;display:flex;flex-direction:column;overflow-y:auto;position:relative;border-right:1px solid rgba(128,128,128,.06)}
-.dark .feed-main{border-right-color:rgba(255,255,255,.05)}
+/* Feed Main — fills remaining width beside sidebar (no fake third column) */
+.feed-main{flex:1;min-width:0;display:flex;flex-direction:column;overflow-y:auto;position:relative}
 /* Feed header */
 .feed-main-header{min-height:56px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px;border-bottom:1px solid rgba(128,128,128,.06);flex-shrink:0;background:rgba(255,255,255,.45);backdrop-filter:blur(12px)}
 .feed-header-leading{display:flex;align-items:center;gap:10px;min-width:0;flex:1}
@@ -538,15 +537,15 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .feed-follow-btn{padding:0 16px;height:36px;border-radius:12px;border:none;background:var(--tapp-primary,#6366f1);color:#fff;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;transition:opacity .15s}
 .feed-follow-btn:hover{opacity:.85}
 .feed-follow-btn:disabled{opacity:.5;cursor:not-allowed}
-/* Feed content / empty */
-.feed-content{flex:1;min-height:0}
-.feed-empty{min-height:280px;padding:56px 24px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--text-secondary,#536471);font-size:13px;line-height:1.5}
+/* Feed content / empty — stream may cap width; main column still fills rest */
+.feed-content{flex:1;min-height:0;width:100%;max-width:760px}
+.feed-empty{min-height:280px;padding:56px 24px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--text-secondary,#536471);font-size:13px;line-height:1.5;width:100%;max-width:760px;box-sizing:border-box}
 .feed-main.feed-empty-visible .feed-content{display:none}
 .feed-main.feed-empty-visible .feed-empty{flex:1;min-height:0}
 .aro-empty-mark{width:52px;height:52px;border-radius:16px;background:rgba(128,128,128,.06);color:var(--text-secondary,#536471);display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .aro-empty-mark svg{width:24px;height:24px}
 .feed-empty-title{font-size:15px;font-weight:700;color:var(--text-primary,#0f1419);letter-spacing:-.01em}
-#feed-empty-text{max-width:280px}
+#feed-empty-text{max-width:320px}
 .feed-empty-error .aro-empty-mark{background:rgba(239,68,68,.08);color:#ef4444}
 .feed-empty-error #feed-empty-text{color:#b91c1c}
 .feed-empty-retry{margin-top:6px;padding:8px 18px;border:none;border-radius:999px;background:var(--tapp-primary,#6366f1);color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;display:none}
@@ -628,7 +627,7 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
   .feed-mobile-tabs{display:flex}
   .feed-profile-mobile{display:flex}
   .feed-mobile-stats{display:grid}
-  .feed-main{max-width:none}
+  .feed-content,.feed-empty{max-width:none}
 }
 
 /* ===== Layout ===== */
@@ -1392,16 +1391,24 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "dm": "Direct message",
     "editRoom": "Edit group",
     "emptyChatHint": "No messages yet — say hello",
-    "emptyFollowers": "No followers yet",
-    "emptyFollowing": "You're not following anyone",
+    "emptyFollowers": "Share your profile link so others can follow you.",
+    "emptyFollowing": "Use Follow to add someone by handle or profile link.",
     "emptyPeers": "No peers yet — add one below",
-    "emptyPublished": "You haven't published anything",
+    "emptyPublished": "Tap Post to share a note or media.",
     "emptyRings": "No rings yet",
     "emptyRoomHint": "No messages yet — start the conversation",
-    "emptyTimeline": "Your feed is empty",
+    "emptyTimeline": "Follow people or publish a post to fill your home feed.",
+    "emptyTitleFollowers": "No followers yet",
+    "emptyTitleFollowing": "Not following anyone",
+    "emptyTitlePublished": "Nothing published",
+    "emptyTitleTimeline": "No posts yet",
     "expandDetails": "Show more",
     "feedFollowers": "Followers",
     "feedFollowing": "Following",
+    "feedHintFollowers": "People who follow you",
+    "feedHintFollowing": "Accounts you follow",
+    "feedHintPublished": "What you've shared",
+    "feedHintTimeline": "Updates from people you follow",
     "feedItems": "posts",
     "feedLoadFail": "Couldn't load feed",
     "feedPublished": "Published",
@@ -1589,16 +1596,24 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "dm": "ダイレクトメッセージ",
     "editRoom": "グループを編集",
     "emptyChatHint": "まだメッセージがありません。あいさつしてみましょう",
-    "emptyFollowers": "フォロワーはまだいません",
-    "emptyFollowing": "まだ誰もフォローしていません",
+    "emptyFollowers": "プロフィールを共有して、フォロワーを増やしましょう。",
+    "emptyFollowing": "フォローからハンドルまたはプロフィールURLで追加できます。",
     "emptyPeers": "ピアはまだありません。下から追加できます",
-    "emptyPublished": "公開したコンテンツはまだありません",
+    "emptyPublished": "投稿からノートやメディアを公開できます。",
     "emptyRings": "リングはまだありません",
     "emptyRoomHint": "まだメッセージがありません。会話を始めましょう",
-    "emptyTimeline": "フィードはまだ空です",
+    "emptyTimeline": "誰かをフォローするか投稿して、ホームを埋めましょう。",
+    "emptyTitleFollowers": "フォロワーはまだいません",
+    "emptyTitleFollowing": "まだ誰もフォローしていません",
+    "emptyTitlePublished": "公開したコンテンツはありません",
+    "emptyTitleTimeline": "投稿はまだありません",
     "expandDetails": "もっと見る",
     "feedFollowers": "フォロワー",
     "feedFollowing": "フォロー中",
+    "feedHintFollowers": "あなたをフォローしている人",
+    "feedHintFollowing": "フォローしているアカウント",
+    "feedHintPublished": "公開したコンテンツ",
+    "feedHintTimeline": "フォロー中の人の更新",
     "feedItems": "件",
     "feedLoadFail": "フィードを読み込めませんでした",
     "feedPublished": "公開済み",
@@ -1786,16 +1801,24 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "dm": "私信",
     "editRoom": "编辑群聊",
     "emptyChatHint": "还没有消息，打个招呼吧",
-    "emptyFollowers": "还没有粉丝",
-    "emptyFollowing": "还没有关注任何人",
+    "emptyFollowers": "分享你的个人主页，让别人关注你。",
+    "emptyFollowing": "用「关注」添加对方的 handle 或个人主页链接。",
     "emptyPeers": "暂无节点，可在下方添加",
-    "emptyPublished": "还没有发布过内容",
+    "emptyPublished": "点「发帖」分享文字或媒体。",
     "emptyRings": "暂无环网",
     "emptyRoomHint": "还没有消息，开始群聊吧",
-    "emptyTimeline": "动态还是空的",
+    "emptyTimeline": "关注一些人，或发一条动态，首页就会亮起来。",
+    "emptyTitleFollowers": "还没有粉丝",
+    "emptyTitleFollowing": "还没有关注任何人",
+    "emptyTitlePublished": "还没有发布内容",
+    "emptyTitleTimeline": "还没有动态",
     "expandDetails": "展开",
     "feedFollowers": "粉丝",
     "feedFollowing": "关注",
+    "feedHintFollowers": "关注你的人",
+    "feedHintFollowing": "你关注的账号",
+    "feedHintPublished": "你分享过的内容",
+    "feedHintTimeline": "你关注的人的更新",
     "feedItems": "条",
     "feedLoadFail": "动态加载失败",
     "feedPublished": "已发布",
@@ -5034,17 +5057,26 @@ function getFeedTitle(sub) {
   return lang.feedTimeline;
 }
 
+function getFeedHint(sub) {
+  if (sub === 'following') return lang.feedHintFollowing || '';
+  if (sub === 'followers') return lang.feedHintFollowers || '';
+  if (sub === 'published') return lang.feedHintPublished || '';
+  return lang.feedHintTimeline || '';
+}
+
 function updateFeedHeader() {
   var title = $('feed-section-title');
   var meta = $('feed-section-meta');
   var sub = state.feedSubTab;
   if (title) title.textContent = getFeedTitle(sub);
   if (!meta) return;
-  // 加载/错误状态由骨架屏和空状态呈现，这里只在有数据时给出计数，避免文案闪换
+  // Always set a subtitle: item count when loaded with data, else helper text for the tab
   var items = getFeedItems(sub) || [];
-  meta.textContent = (state.feedLoaded[sub] && items.length > 0)
-    ? items.length + ' ' + (lang.feedItems || '项')
-    : '';
+  if (state.feedLoaded[sub] && items.length > 0) {
+    meta.textContent = items.length + ' ' + (lang.feedItems || '项');
+  } else {
+    meta.textContent = getFeedHint(sub) || '';
+  }
 }
 
 function getFeedItems(sub) {
@@ -5054,11 +5086,18 @@ function getFeedItems(sub) {
   return state.timeline;
 }
 
+function getFeedEmptyTitle(sub) {
+  if (sub === 'following') return lang.emptyTitleFollowing || lang.emptyFollowing || 'Not following anyone';
+  if (sub === 'followers') return lang.emptyTitleFollowers || lang.emptyFollowers || 'No followers yet';
+  if (sub === 'published') return lang.emptyTitlePublished || lang.emptyPublished || 'Nothing published yet';
+  return lang.emptyTitleTimeline || lang.emptyTimeline || 'No posts yet';
+}
+
 function getFeedEmptyText(sub) {
-  if (sub === 'following') return lang.emptyFollowing || 'Not following anyone';
-  if (sub === 'followers') return lang.emptyFollowers || 'No followers yet';
-  if (sub === 'published') return lang.emptyPublished || 'Nothing published yet';
-  return lang.emptyTimeline || 'Your feed is empty';
+  if (sub === 'following') return lang.emptyFollowing || 'Use Follow to add someone by handle or profile link.';
+  if (sub === 'followers') return lang.emptyFollowers || 'Share your profile link so others can follow you.';
+  if (sub === 'published') return lang.emptyPublished || 'Tap Post to share a note or media.';
+  return lang.emptyTimeline || 'Follow people or publish a post to fill your home feed.';
 }
 
 function showFeedEmpty(message, kind) {
@@ -5069,15 +5108,14 @@ function showFeedEmpty(message, kind) {
   empty.style.display = '';
   empty.classList.toggle('feed-empty-error', kind === 'error');
   empty.classList.toggle('feed-empty-loading', kind === 'loading');
-  // 普通空态不重复视图标题（头部已有），只在错误时显示标题行
+  // Always show title + body for empty/error (title was previously hidden for normal empty)
   var title = $('feed-empty-title');
   if (title) {
+    title.style.display = '';
     if (kind === 'error') {
-      title.style.display = '';
       title.textContent = lang.feedLoadFail || lang.disconnected || 'Load failed';
     } else {
-      title.style.display = 'none';
-      title.textContent = '';
+      title.textContent = getFeedEmptyTitle(state.feedSubTab);
     }
   }
   var text = $('feed-empty-text');
