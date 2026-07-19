@@ -5493,15 +5493,10 @@ var composeAttachments = []; // { file, previewUrl, kind: 'image'|'video' }
  * - followers / published / guest / non-feed → no +
  */
 function canComposePost() {
-  return !state.isGuest
-    && state.currentView === 'feed'
-    && state.feedSubTab === 'timeline';
+  return !state.isGuest && state.currentView === 'feed' && state.feedSubTab === 'timeline';
 }
-
 function canFollowFromFeed() {
-  return !state.isGuest
-    && state.currentView === 'feed'
-    && state.feedSubTab === 'following';
+  return !state.isGuest && state.currentView === 'feed' && state.feedSubTab === 'following';
 }
 
 function updateComposeButtonVisibility() {
