@@ -1,71 +1,48 @@
-/* 设置页「用户管理」区块 */
+/* 设置页「用户管理」区块
+ * 视觉对齐 SettingItem / ConfigForm（field-input、btn-base、checkbox-group）
+ */
 
-/* —— Unified control strip (search + chips + actions) —— */
+/* —— Control strip: belongs to settings page, not a floating toolbar —— */
 
 .users-control-strip {
-  margin-bottom: 1rem;
+  margin-bottom: 1.25rem;
 }
 
 .users-control-main {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.55rem 0.65rem;
+  gap: 0.5rem 0.625rem;
 }
 
 .users-search-field {
   position: relative;
   display: flex;
   align-items: center;
-  flex: 1 1 12rem;
-  min-width: 10rem;
-  max-width: 22rem;
+  flex: 1 1 14rem;
+  min-width: 12rem;
+  max-width: 24rem;
 }
 
 .users-search-icon {
   position: absolute;
-  left: 0.7rem;
-  width: 14px;
-  height: 14px;
-  color: var(--text-secondary, #888);
+  left: 0.875rem;
+  width: 0.875rem;
+  height: 0.875rem;
+  color: #9ca3af;
   pointer-events: none;
-  opacity: 0.85;
+  z-index: 1;
 }
 
-.users-search-input {
+html.dark .users-search-icon {
+  color: #6b7280;
+}
+
+/* field-input 提供边框/背景/focus；这里只补图标与清除按钮的左右内边距 */
+.users-search-field .users-search-input.field-input {
   width: 100%;
-  height: 2.15rem;
-  padding: 0 2rem 0 2.05rem;
-  border-radius: 10px;
-  border: 1px solid var(--border-color, rgb(128 128 128 / 25%));
-  background: transparent;
-  color: inherit;
-  font-size: 0.88rem;
-  transition:
-    border-color 0.15s ease,
-    box-shadow 0.15s ease,
-    background 0.15s ease;
-}
-
-.users-search-input:hover {
-  border-color: var(--border-color, rgb(128 128 128 / 40%));
-}
-
-.users-search-input:focus {
-  outline: none;
-  border-color: var(--accent-color, #4f8ef7);
-  background: color-mix(
-    in srgb,
-    var(--accent-color, #4f8ef7) 5%,
-    transparent
-  );
-  box-shadow: 0 0 0 2px
-    color-mix(in srgb, var(--accent-color, #4f8ef7) 18%, transparent);
-}
-
-.users-search-input::placeholder {
-  color: var(--text-secondary, #888);
-  opacity: 0.85;
+  padding-left: 2.25rem;
+  padding-right: 2.25rem;
 }
 
 /* Hide native search clear so our button is the only control */
@@ -75,123 +52,204 @@
 
 .users-search-clear {
   position: absolute;
-  right: 0.3rem;
+  right: 0.4rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.65rem;
-  height: 1.65rem;
+  width: 1.75rem;
+  height: 1.75rem;
   padding: 0;
   border: none;
-  border-radius: 6px;
+  border-radius: 0.5rem;
   background: transparent;
-  color: var(--text-secondary, #888);
+  color: #9ca3af;
   cursor: pointer;
   transition:
-    background 0.15s ease,
-    color 0.15s ease;
+    background 0.2s ease,
+    color 0.2s ease;
+  z-index: 1;
 }
 
 .users-search-clear:hover {
-  background: rgb(128 128 128 / 12%);
-  color: inherit;
+  background: rgb(107 114 128 / 12%);
+  color: #4b5563;
 }
 
 .users-search-clear:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px
-    color-mix(in srgb, var(--accent-color, #4f8ef7) 30%, transparent);
+  box-shadow: 0 0 0 3px
+    color-mix(in srgb, var(--color-primary, #3b82f6) 18%, transparent);
 }
 
-/* —— Segmented filter chips —— */
+html.dark .users-search-clear {
+  color: #6b7280;
+}
+
+html.dark .users-search-clear:hover {
+  background: rgb(156 163 175 / 12%);
+  color: #d1d5db;
+}
+
+/* —— Filter chips: secondary settings controls (checkbox-group style) —— */
 
 .users-filter-chips {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.5rem;
   flex: 0 1 auto;
 }
 
 .users-chip-group {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
-  padding: 0.15rem;
-  border-radius: 10px;
-  border: 1px solid var(--border-color, rgb(128 128 128 / 18%));
-  background: var(--card-bg, rgb(128 128 128 / 6%));
-  gap: 0.1rem;
+  gap: 0.375rem;
 }
 
 .users-chip {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 1.75rem;
-  padding: 0.2rem 0.65rem;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-secondary, #888);
-  font-size: 0.8rem;
-  font-weight: 500;
+  min-height: 2rem;
+  padding: 0.35rem 0.625rem;
+  border-radius: 0.625rem;
+  border: 1px solid rgb(229 231 235 / 60%);
+  background: rgb(255 255 255 / 35%);
+  color: #6b7280;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
   line-height: 1.2;
   white-space: nowrap;
   cursor: pointer;
   transition:
-    background 0.15s ease,
-    color 0.15s ease,
-    box-shadow 0.15s ease;
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .users-chip:hover:not(.active) {
-  background: rgb(128 128 128 / 10%);
-  color: inherit;
+  border-color: rgb(209 213 219 / 80%);
+  background: rgb(255 255 255 / 55%);
+  color: #374151;
 }
 
 .users-chip:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px
-    color-mix(in srgb, var(--accent-color, #4f8ef7) 35%, transparent);
+  box-shadow: 0 0 0 3px
+    color-mix(in srgb, var(--color-primary, #3b82f6) 14%, transparent);
 }
 
 .users-chip.active {
-  background: color-mix(
+  border-color: color-mix(
     in srgb,
-    var(--accent-color, #4f8ef7) 16%,
+    var(--color-primary, #3b82f6) 40%,
     transparent
   );
-  color: var(--accent-color, #4f8ef7);
-  box-shadow: inset 0 0 0 1px
-    color-mix(in srgb, var(--accent-color, #4f8ef7) 28%, transparent);
+  background: color-mix(in srgb, var(--color-primary, #3b82f6) 6%, transparent);
+  color: color-mix(in srgb, var(--color-primary, #3b82f6) 85%, #1f2937);
 }
 
-/* —— Actions: match count, clear, refresh, create —— */
+.users-chip.active:hover {
+  border-color: color-mix(
+    in srgb,
+    var(--color-primary, #3b82f6) 55%,
+    transparent
+  );
+  background: color-mix(
+    in srgb,
+    var(--color-primary, #3b82f6) 10%,
+    transparent
+  );
+}
+
+html.dark .users-chip {
+  border-color: rgb(55 65 81 / 60%);
+  background: rgb(31 41 55 / 35%);
+  color: #9ca3af;
+}
+
+html.dark .users-chip:hover:not(.active) {
+  border-color: rgb(75 85 99 / 80%);
+  background: rgb(31 41 55 / 55%);
+  color: #d1d5db;
+}
+
+html.dark .users-chip.active {
+  border-color: color-mix(
+    in srgb,
+    var(--color-primary, #60a5fa) 45%,
+    transparent
+  );
+  background: color-mix(
+    in srgb,
+    var(--color-primary, #60a5fa) 10%,
+    transparent
+  );
+  color: color-mix(in srgb, var(--color-primary, #60a5fa) 85%, #f3f4f6);
+}
+
+html.dark .users-chip.active:hover {
+  border-color: color-mix(
+    in srgb,
+    var(--color-primary, #60a5fa) 60%,
+    transparent
+  );
+  background: color-mix(
+    in srgb,
+    var(--color-primary, #60a5fa) 14%,
+    transparent
+  );
+}
+
+/* —— Actions: match count + settings buttons —— */
 
 .users-control-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.5rem;
   margin-left: auto;
 }
 
+/* Compact toolbar buttons to match SettingGroup density */
+.users-control-actions .btn-base,
+.users-actions .btn-base {
+  padding: 0.5rem 0.875rem;
+  font-size: 0.8125rem;
+  border-radius: 0.5rem;
+}
+
+.users-control-actions .btn-base svg,
+.users-actions .btn-base svg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
 .users-match-count {
-  min-width: 4.5rem;
-  font-size: 0.78rem;
-  color: var(--text-secondary, #888);
+  min-width: 4.25rem;
+  font-size: 0.6875rem;
+  font-weight: 400;
+  color: #6b7280;
+  line-height: 1.4;
   text-align: right;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.15s ease;
+  transition: opacity 0.2s ease;
 }
 
 .users-match-count.visible {
   opacity: 1;
 }
 
-/* Collapse when inactive to avoid a permanently empty gap; expand when active. */
-.users-button.users-filter-reset {
+html.dark .users-match-count {
+  color: #9ca3af;
+}
+
+/* Collapse clear when inactive; expand when active (no permanent empty gap). */
+.users-control-actions .btn-base.users-filter-reset {
   max-width: 0;
   padding-left: 0;
   padding-right: 0;
@@ -201,28 +259,26 @@
   overflow: hidden;
   pointer-events: none;
   white-space: nowrap;
+  box-shadow: none;
   transition:
-    opacity 0.15s ease,
+    opacity 0.2s ease,
     max-width 0.2s ease,
     padding 0.2s ease,
     border-width 0.2s ease;
 }
 
-.users-button.users-filter-reset.visible {
-  max-width: 8rem;
-  padding: 0.4rem 0.85rem;
-  border-width: 1px;
+.users-control-actions .btn-base.users-filter-reset.visible {
+  max-width: 9rem;
+  padding: 0.5rem 0.875rem;
+  border-width: 1.5px;
   opacity: 1;
   pointer-events: auto;
 }
 
-.users-button.users-filter-reset:disabled {
+.users-control-actions .btn-base.users-filter-reset:disabled {
   opacity: 0;
   cursor: default;
-}
-
-.users-button.users-filter-reset.visible:disabled {
-  opacity: 0.5;
+  transform: none;
 }
 
 .users-control-strip .visually-hidden {
@@ -238,8 +294,16 @@
 }
 
 .users-empty-state {
-  padding: 0.65rem 0.15rem;
+  padding: 0.5rem 0.125rem;
+  font-size: 0.8125rem;
+  color: #6b7280;
 }
+
+html.dark .users-empty-state {
+  color: #9ca3af;
+}
+
+/* —— User rows: setting-item surface language —— */
 
 .users-list {
   display: flex;
@@ -248,15 +312,36 @@
 }
 
 .users-row {
-  border: 1px solid var(--border-color, rgb(128 128 128 / 20%));
-  border-radius: 12px;
+  border: 1px solid rgb(229 231 235 / 50%);
+  border-radius: 0.75rem;
   overflow: hidden;
-  background: var(--card-bg, rgb(255 255 255 / 4%));
-  transition: border-color 0.15s ease;
+  background: rgb(255 255 255 / 40%);
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+
+.users-row:hover {
+  background: rgb(255 255 255 / 60%);
+  border-color: rgb(229 231 235 / 70%);
 }
 
 .users-row.online {
   border-color: rgb(52 199 89 / 35%);
+}
+
+html.dark .users-row {
+  background: rgb(31 41 55 / 40%);
+  border-color: rgb(55 65 81 / 50%);
+}
+
+html.dark .users-row:hover {
+  background: rgb(31 41 55 / 60%);
+  border-color: rgb(55 65 81 / 70%);
+}
+
+html.dark .users-row.online {
+  border-color: rgb(52 199 89 / 40%);
 }
 
 .users-row-main {
@@ -264,7 +349,7 @@
   align-items: center;
   gap: 0.75rem;
   width: 100%;
-  padding: 0.65rem 0.9rem;
+  padding: 0.75rem 1rem;
   background: none;
   border: none;
   cursor: pointer;
@@ -274,8 +359,8 @@
 }
 
 .users-avatar {
-  width: 36px;
-  height: 36px;
+  width: 2.25rem;
+  height: 2.25rem;
   border-radius: 50%;
   object-fit: cover;
   flex-shrink: 0;
@@ -285,13 +370,19 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: rgb(128 128 128 / 15%);
+  background: rgb(107 114 128 / 12%);
+  color: #6b7280;
+}
+
+html.dark .users-avatar.placeholder {
+  background: rgb(156 163 175 / 12%);
+  color: #9ca3af;
 }
 
 .users-row-name {
   display: flex;
   flex-direction: column;
-  gap: 0.1rem;
+  gap: 0.125rem;
   min-width: 0;
   flex: 1;
 }
@@ -299,37 +390,58 @@
 .users-username {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.375rem;
+  font-size: 0.875rem;
   font-weight: 600;
+  color: #374151;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+html.dark .users-username {
+  color: #d1d5db;
+}
+
 .users-admin-mark {
-  color: var(--accent-color, #4f8ef7);
-  width: 14px;
-  height: 14px;
+  color: var(--color-primary, #3b82f6);
+  width: 0.875rem;
+  height: 0.875rem;
   flex-shrink: 0;
 }
 
+html.dark .users-admin-mark {
+  color: var(--color-primary, #60a5fa);
+}
+
 .users-online-pill {
-  padding: 0.15rem 0.6rem;
+  padding: 0.15rem 0.55rem;
   border-radius: 999px;
   font-size: 0.75rem;
-  background: rgb(128 128 128 / 15%);
-  color: var(--text-secondary, #888);
+  font-weight: 500;
+  background: rgb(107 114 128 / 12%);
+  color: #6b7280;
   flex-shrink: 0;
 }
 
 .users-online-pill.online {
-  background: rgb(52 199 89 / 18%);
-  color: #2fa14e;
+  background: rgb(5 150 105 / 10%);
+  color: #059669;
+}
+
+html.dark .users-online-pill {
+  background: rgb(156 163 175 / 12%);
+  color: #9ca3af;
+}
+
+html.dark .users-online-pill.online {
+  background: rgb(52 211 153 / 15%);
+  color: #34d399;
 }
 
 .users-row-meta {
   display: flex;
-  gap: 0.9rem;
+  gap: 0.875rem;
   flex-shrink: 0;
 }
 
@@ -337,21 +449,29 @@
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  font-size: 0.8rem;
-  color: var(--text-secondary, #888);
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+html.dark .users-meta-item {
+  color: #9ca3af;
 }
 
 .users-meta-item svg {
-  width: 14px;
-  height: 14px;
+  width: 0.875rem;
+  height: 0.875rem;
 }
 
 .users-row-detail {
-  padding: 0.75rem 0.95rem 0.95rem;
-  border-top: 1px dashed var(--border-color, rgb(128 128 128 / 20%));
+  padding: 0.75rem 1rem 1rem;
+  border-top: 1px dashed rgb(229 231 235 / 70%);
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+}
+
+html.dark .users-row-detail {
+  border-top-color: rgb(55 65 81 / 70%);
 }
 
 .users-detail-grid {
@@ -359,17 +479,27 @@
   grid-template-columns: auto 1fr;
   gap: 0.4rem 1rem;
   margin: 0;
-  font-size: 0.85rem;
+  font-size: 0.8125rem;
 }
 
 .users-detail-grid dt {
-  color: var(--text-secondary, #888);
+  color: #6b7280;
   white-space: nowrap;
+  font-weight: 500;
+}
+
+html.dark .users-detail-grid dt {
+  color: #9ca3af;
 }
 
 .users-detail-grid dd {
   margin: 0;
   min-width: 0;
+  color: #374151;
+}
+
+html.dark .users-detail-grid dd {
+  color: #d1d5db;
 }
 
 .users-identities {
@@ -390,12 +520,38 @@
   gap: 0.3rem;
   padding: 0.15rem 0.5rem;
   border-radius: 999px;
-  background: rgb(128 128 128 / 12%);
-  font-size: 0.78rem;
+  border: 1px solid rgb(229 231 235 / 60%);
+  background: rgb(255 255 255 / 35%);
+  font-size: 0.75rem;
+  color: #374151;
+}
+
+html.dark .users-provider-badge {
+  border-color: rgb(55 65 81 / 60%);
+  background: rgb(31 41 55 / 35%);
+  color: #d1d5db;
 }
 
 .users-provider-badge.primary {
-  outline: 1px solid var(--accent-color, #4f8ef7);
+  border-color: color-mix(
+    in srgb,
+    var(--color-primary, #3b82f6) 40%,
+    transparent
+  );
+  background: color-mix(in srgb, var(--color-primary, #3b82f6) 6%, transparent);
+}
+
+html.dark .users-provider-badge.primary {
+  border-color: color-mix(
+    in srgb,
+    var(--color-primary, #60a5fa) 45%,
+    transparent
+  );
+  background: color-mix(
+    in srgb,
+    var(--color-primary, #60a5fa) 10%,
+    transparent
+  );
 }
 
 .users-provider-name {
@@ -408,13 +564,19 @@
 .users-tag {
   margin-left: 0.5rem;
   padding: 0.1rem 0.45rem;
-  border-radius: 6px;
-  font-size: 0.72rem;
+  border-radius: 0.375rem;
+  font-size: 0.6875rem;
+  font-weight: 500;
 }
 
 .users-tag.warning {
-  background: rgb(255 159 10 / 15%);
-  color: #c97b06;
+  background: rgb(245 158 11 / 12%);
+  color: #d97706;
+}
+
+html.dark .users-tag.warning {
+  background: rgb(245 158 11 / 18%);
+  color: #fbbf24;
 }
 
 .users-tapp-list {
@@ -437,8 +599,12 @@
 }
 
 .users-muted {
-  color: var(--text-secondary, #888);
-  font-size: 0.85rem;
+  color: #6b7280;
+  font-size: 0.8125rem;
+}
+
+html.dark .users-muted {
+  color: #9ca3af;
 }
 
 .users-actions {
@@ -447,60 +613,8 @@
   gap: 0.5rem;
 }
 
-.users-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.4rem 0.85rem;
-  border-radius: 10px;
-  border: 1px solid var(--border-color, rgb(128 128 128 / 25%));
-  background: transparent;
-  color: inherit;
-  font-size: 0.85rem;
-  cursor: pointer;
-  transition:
-    background 0.15s ease,
-    border-color 0.15s ease;
-}
-
-.users-button:hover:not(:disabled) {
-  background: rgb(128 128 128 / 10%);
-}
-
-.users-button:focus-visible {
-  outline: none;
-  border-color: var(--accent-color, #4f8ef7);
-  box-shadow: 0 0 0 2px
-    color-mix(in srgb, var(--accent-color, #4f8ef7) 22%, transparent);
-}
-
-.users-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.users-button.primary {
-  background: var(--accent-color, #4f8ef7);
-  border-color: transparent;
-  color: #fff;
-}
-
-.users-button.primary:hover:not(:disabled) {
-  filter: brightness(1.08);
-  background: var(--accent-color, #4f8ef7);
-}
-
-.users-button.danger {
-  border-color: rgb(255 69 58 / 40%);
-  color: #e0443a;
-}
-
-.users-button svg {
-  width: 14px;
-  height: 14px;
-}
-
-.users-button svg.spinning {
+.users-control-actions .btn-base svg.spinning,
+.users-actions .btn-base svg.spinning {
   animation: users-spin 0.9s linear infinite;
 }
 
@@ -516,11 +630,19 @@
   padding: 0;
   font-size: 0.75rem;
   cursor: pointer;
-  color: var(--accent-color, #4f8ef7);
+  color: var(--color-primary, #3b82f6);
+}
+
+html.dark .users-link-button {
+  color: var(--color-primary, #60a5fa);
 }
 
 .users-link-button.danger {
-  color: #e0443a;
+  color: #dc2626;
+}
+
+html.dark .users-link-button.danger {
+  color: #f87171;
 }
 
 .users-link-button:disabled {
@@ -528,54 +650,55 @@
   cursor: not-allowed;
 }
 
+/* Create / edit form: setting-group.bordered surface + field-input */
 .users-edit-form {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
-  padding: 0.75rem;
-  border: 1px solid var(--border-color, rgb(128 128 128 / 20%));
-  border-radius: 12px;
-  margin-bottom: 0.75rem;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid rgb(229 231 235 / 50%);
+  border-radius: 0.75rem;
+  background: rgb(255 255 255 / 40%);
+  margin-bottom: 1rem;
+}
+
+html.dark .users-edit-form {
+  background: rgb(31 41 55 / 40%);
+  border-color: rgb(55 65 81 / 50%);
 }
 
 .users-edit-form label {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-  font-size: 0.82rem;
-  color: var(--text-secondary, #888);
-}
-
-.users-edit-form input[type='text'],
-.users-edit-form input[type='email'],
-.users-edit-form input[type='password'] {
-  padding: 0.45rem 0.6rem;
-  border-radius: 8px;
-  border: 1px solid var(--border-color, rgb(128 128 128 / 25%));
-  background: transparent;
-  color: inherit;
-  font-size: 0.88rem;
+  gap: 0.375rem;
 }
 
 .users-edit-form label.users-checkbox {
   flex-direction: row;
   align-items: center;
-  gap: 0.45rem;
-  color: inherit;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #374151;
+}
+
+html.dark .users-edit-form label.users-checkbox {
+  color: #d1d5db;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .users-search-input,
   .users-search-clear,
   .users-chip,
   .users-match-count,
   .users-filter-reset,
-  .users-button,
-  .users-row {
+  .users-row,
+  .users-control-actions .btn-base,
+  .users-actions .btn-base {
     transition: none;
   }
 
-  .users-button svg.spinning {
+  .users-control-actions .btn-base svg.spinning,
+  .users-actions .btn-base svg.spinning {
     animation: none;
   }
 }
@@ -588,7 +711,7 @@
   }
 
   .users-filter-chips {
-    flex: 1 1 auto;
+    flex: 1 1 100%;
   }
 
   .users-control-actions {
@@ -605,11 +728,17 @@
 
 @media (width <= 640px) {
   .users-chip {
-    padding: 0.2rem 0.5rem;
-    font-size: 0.78rem;
+    min-height: 1.875rem;
+    padding: 0.3rem 0.5rem;
+    font-size: 0.75rem;
   }
 
   .users-row-meta {
     display: none;
+  }
+
+  .users-control-actions .btn-base,
+  .users-actions .btn-base {
+    padding: 0.45rem 0.7rem;
   }
 }

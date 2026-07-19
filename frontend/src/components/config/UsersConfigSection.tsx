@@ -531,7 +531,7 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
                 <div className="users-actions">
                   <button
                     type="button"
-                    className="users-button"
+                    className="btn-base btn-secondary"
                     disabled={
                       busy ||
                       (!shown.local_login_disabled &&
@@ -553,7 +553,7 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
                   {isPrimaryAdmin && !shown.is_owner && (
                     <button
                       type="button"
-                      className={`users-button${shown.is_admin ? ' danger' : ''}`}
+                      className={`btn-base ${shown.is_admin ? 'btn-danger' : 'btn-secondary'}`}
                       disabled={busy || shown.id === currentUser?.id}
                       onClick={() => handleToggleAdmin(shown)}
                     >
@@ -565,7 +565,7 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
                   {canDeleteUser(shown) && (
                     <button
                       type="button"
-                      className="users-button danger"
+                      className="btn-base btn-danger"
                       disabled={busy}
                       onClick={() => handleDeleteUser(shown)}
                     >
@@ -647,7 +647,7 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
             <LuSearch className="users-search-icon" aria-hidden />
             <input
               type="search"
-              className="users-search-input"
+              className="field-input users-search-input"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={t.config.usersSearchPlaceholder}
@@ -692,7 +692,7 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
             </span>
             <button
               type="button"
-              className={`users-button users-filter-reset${hasActiveFilter ? ' visible' : ''}`}
+              className={`btn-base btn-secondary users-filter-reset${hasActiveFilter ? ' visible' : ''}`}
               onClick={clearFilters}
               disabled={!hasActiveFilter}
               aria-hidden={!hasActiveFilter}
@@ -702,7 +702,7 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
             </button>
             <button
               type="button"
-              className="users-button"
+              className="btn-base btn-secondary"
               disabled={loading}
               onClick={loadUsers}
             >
@@ -711,7 +711,7 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
             </button>
             <button
               type="button"
-              className="users-button primary"
+              className="btn-base btn-primary"
               onClick={() => setCreating((v) => !v)}
             >
               <LuPlus aria-hidden />
@@ -724,9 +724,10 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
       {creating && (
         <div className="users-edit-form users-create-form">
           <label>
-            {t.config.usersCreateUsername}
+            <span className="setting-label-text">{t.config.usersCreateUsername}</span>
             <input
               type="text"
+              className="field-input"
               autoComplete="off"
               value={createDraft.username}
               onChange={(e) =>
@@ -735,9 +736,10 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
             />
           </label>
           <label>
-            {t.config.usersCreatePassword}
+            <span className="setting-label-text">{t.config.usersCreatePassword}</span>
             <input
               type="password"
+              className="field-input"
               autoComplete="new-password"
               value={createDraft.password}
               onChange={(e) =>
@@ -746,9 +748,10 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
             />
           </label>
           <label>
-            {t.config.usersEmail}
+            <span className="setting-label-text">{t.config.usersEmail}</span>
             <input
               type="email"
+              className="field-input"
               autoComplete="off"
               value={createDraft.email}
               onChange={(e) =>
@@ -774,7 +777,7 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
           <div className="users-actions">
             <button
               type="button"
-              className="users-button primary"
+              className="btn-base btn-primary"
               disabled={
                 busy || !createDraft.username.trim() || !createDraft.password
               }
@@ -784,7 +787,7 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
             </button>
             <button
               type="button"
-              className="users-button"
+              className="btn-base btn-secondary"
               disabled={busy}
               onClick={() => setCreating(false)}
             >
