@@ -5674,7 +5674,19 @@ function bindRealtimeListeners() {
       if (ev.event === 'disconnected') pollMessages(true);
       else if (ev.event === 'governance_changed') {
         Tapp.federation.getRoom(state.activeId).then(function (detail) {
-          if (detail) { state.roomDetail = detail; renderChatHeader(); }
+          if (!detail) return;
+          state.roomDetail = detail;
+          // Keep conv list in sync with federated renames (not only header).
+          for (var gi = 0; gi < state.rooms.length; gi++) {
+            if (state.rooms[gi].room_id === state.activeId) {
+              if (detail.name) state.rooms[gi].name = detail.name;
+              if (detail.description !== undefined) state.rooms[gi].description = detail.description;
+              if (detail.avatar_url !== undefined) state.rooms[gi].avatar_url = detail.avatar_url;
+              break;
+            }
+          }
+          renderChatHeader();
+          renderConvList();
         }).catch(function () {});
       }
     });

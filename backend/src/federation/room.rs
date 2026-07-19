@@ -305,6 +305,30 @@ fn is_admin_role(role: &str) -> bool {
     role == "owner" || role == "admin"
 }
 
+/// Synthetic fallback used when a real room name is unavailable.
+/// Matches the invite-receive and notify paths (`Room {first 8 of room_id}`).
+fn fallback_room_name(room_id: &str) -> String {
+    format!("Room {}", &room_id[..8.min(room_id.len())])
+}
+
+/// Blank / whitespace-only names are treated as missing.
+fn non_empty_room_name(name: Option<&str>) -> Option<String> {
+    name.map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+}
+
+/// Resolve display name for an invite: real non-empty name, else synthetic fallback.
+fn resolve_invite_room_name(invite_name: Option<&str>, room_id: &str) -> String {
+    non_empty_room_name(invite_name).unwrap_or_else(|| fallback_room_name(room_id))
+}
+
+/// True when stored name is empty/whitespace or the synthetic `Room rm_xxxx` fallback.
+fn is_missing_or_fallback_room_name(name: &str, room_id: &str) -> bool {
+    let trimmed = name.trim();
+    trimmed.is_empty() || trimmed == fallback_room_name(room_id)
+}
+
 /// 向 Room 的所有远程成员 fan-out 一个 Activity
 async fn fanout_to_remote_members(
     db: &DatabaseConnection,
@@ -615,6 +639,72 @@ pub async fn update_room(
     .map_err(db_err)?;
 
     tracing::info!("[Room] Updated room {} by {}", room_id, username);
+
+    // Fan-out governance changes so remote members update name/description/etc.
+    let mut changes = serde_json::Map::new();
+    if let Some(ref name) = req.name {
+        changes.insert("name".into(), json!(name));
+    }
+    if let Some(ref desc) = req.description {
+        changes.insert("description".into(), json!(desc));
+    }
+    if let Some(ref avatar) = req.avatar_url {
+        changes.insert("avatar_url".into(), json!(avatar));
+    }
+    if let Some(ref policy) = req.invite_policy {
+        changes.insert("invite_policy".into(), json!(policy));
+    }
+    if let Some(max) = req.max_members {
+        changes.insert("max_members".into(), json!(max));
+    }
+    if let Some(public) = req.is_public {
+        changes.insert("is_public".into(), json!(public));
+    }
+
+    if !changes.is_empty() {
+        let changes_val = serde_json::Value::Object(changes);
+        crate::federation::ws_gateway::broadcast_to_room(
+            room_id,
+            &json!({
+                "type": "system",
+                "room_id": room_id,
+                "event": "governance_changed",
+                "actor": &local_actor,
+                "changes": &changes_val
+            }),
+        )
+        .await;
+
+        let activity_id = generate_activity_id(&base_url);
+        let gov_activity = json!({
+            "@context": build_context(),
+            "type": "myriad:RoomGovernance",
+            "id": &activity_id,
+            "actor": &local_actor,
+            "object": {
+                "type": "myriad:RoomGovernance",
+                "room": room_id,
+                "changes": changes_val
+            }
+        });
+        if let Err(e) = fanout_to_remote_members(
+            db,
+            user_id,
+            room_id,
+            &activity_id,
+            &gov_activity,
+            "RoomGovernance",
+            "RoomGovernance",
+        )
+        .await
+        {
+            tracing::warn!(
+                "[Room] Failed to fan-out governance for room {}: {}",
+                room_id,
+                e
+            );
+        }
+    }
 
     // 返回更新后的详情
     get_room(user_id, username, room_id, db).await
@@ -1107,6 +1197,32 @@ pub async fn invite_member(
             })
             .collect();
 
+        // Re-read room name immediately before building the Activity so invites
+        // always carry a non-empty display name (never blank / null).
+        let fresh_name_row = db
+            .query_one(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "SELECT name FROM federation_rooms WHERE room_id = $1",
+                [room_id.into()],
+            ))
+            .await
+            .map_err(db_err)?;
+        let invite_room_name = fresh_name_row
+            .and_then(|r| r.try_get::<String>("", "name").ok())
+            .and_then(|n| non_empty_room_name(Some(&n)))
+            .or_else(|| non_empty_room_name(Some(&room_name)));
+        let invite_room_name = match invite_room_name {
+            Some(n) => n,
+            None => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({
+                        "error": "Room name is missing; cannot send invite with empty name"
+                    })),
+                ));
+            }
+        };
+
         // 发送 RoomInvite Activity 给远程方
         let activity_id = generate_activity_id(&base_url);
         let invite_activity = json!({
@@ -1118,7 +1234,7 @@ pub async fn invite_member(
             "object": {
                 "type": "myriad:Room",
                 "id": room_id,
-                "name": &room_name,
+                "name": &invite_room_name,
                 "owner": &owner_actor,
                 "role": role,
                 "members": members_json
@@ -1706,10 +1822,8 @@ pub async fn handle_room_invite(
         .get("role")
         .and_then(|v| v.as_str())
         .unwrap_or("member");
-    let invite_name = object
-        .get("name")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+    // Blank / whitespace-only names are treated as missing (not as a real name).
+    let invite_name = non_empty_room_name(object.get("name").and_then(|v| v.as_str()));
     let owner_actor = object
         .get("owner")
         .and_then(|v| v.as_str())
@@ -1781,40 +1895,51 @@ pub async fn handle_room_invite(
         actor_url(&base_url_val, "unknown")
     };
 
-    // 先确保 Room 有记录（如果是首次看到这个 room）
-    let room_exists = db
-        .query_one(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "SELECT 1 FROM federation_rooms WHERE room_id = $1",
-            [room_id.into()],
-        ))
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if room_exists.is_none() {
-        let home_server = extract_domain(owner_actor)
-            .or_else(|| extract_domain(actor_url_str))
-            .unwrap_or_default();
-        let display_name = invite_name.clone().unwrap_or_else(|| {
-            format!("Room {}", &room_id[..8.min(room_id.len())])
-        });
-        db.execute(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            r#"INSERT INTO federation_rooms
-               (room_id, name, description, owner_actor, home_server, governance_type, invite_policy,
-                max_members, is_public, distribution_strategy, created_at)
-               VALUES ($1, $2, NULL, $3, $4, 'owner', 'admin-only', 50, false, 'fan-out', NOW())
-               ON CONFLICT (room_id) DO NOTHING"#,
-            [
-                room_id.into(),
-                display_name.into(),
-                owner_actor.into(),
-                home_server.into(),
-            ],
-        ))
-        .await
-        .map_err(|e| e.to_string())?;
-    }
+    // Ensure Room row exists; if it already exists with empty/fallback name and
+    // the invite carries a real name, upgrade it (ON CONFLICT DO NOTHING left
+    // invitees stuck on "Room rm_xxxx" forever after a partial insert).
+    let home_server = extract_domain(owner_actor)
+        .or_else(|| extract_domain(actor_url_str))
+        .unwrap_or_default();
+    let has_real_name = invite_name.is_some();
+    let display_name = resolve_invite_room_name(invite_name.as_deref(), room_id);
+    db.execute(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        r#"INSERT INTO federation_rooms
+           (room_id, name, description, owner_actor, home_server, governance_type, invite_policy,
+            max_members, is_public, distribution_strategy, created_at)
+           VALUES ($1, $2, NULL, $3, $4, 'owner', 'admin-only', 50, false, 'fan-out', NOW())
+           ON CONFLICT (room_id) DO UPDATE SET
+             name = CASE
+               WHEN $5::boolean
+                    AND (
+                      federation_rooms.name IS NULL
+                      OR btrim(federation_rooms.name) = ''
+                      OR federation_rooms.name = ('Room ' || left($1, 8))
+                    )
+               THEN EXCLUDED.name
+               ELSE federation_rooms.name
+             END,
+             updated_at = CASE
+               WHEN $5::boolean
+                    AND (
+                      federation_rooms.name IS NULL
+                      OR btrim(federation_rooms.name) = ''
+                      OR federation_rooms.name = ('Room ' || left($1, 8))
+                    )
+               THEN NOW()
+               ELSE federation_rooms.updated_at
+             END"#,
+        [
+            room_id.into(),
+            display_name.into(),
+            owner_actor.into(),
+            home_server.into(),
+            has_real_name.into(),
+        ],
+    ))
+    .await
+    .map_err(|e| e.to_string())?;
 
     // Seed remote members BEFORE accepting messages:
     // 1) owner  2) inviter (activity actor)  3) members[] snapshot from invite
@@ -2188,8 +2313,9 @@ pub async fn handle_room_governance(
 
     // 字段更新（白名单）
     let mut updates: Vec<(&str, sea_orm::Value)> = Vec::new();
-    if let Some(v) = changes.get("name").and_then(|v| v.as_str()) {
-        updates.push(("name", v.to_string().into()));
+    // Ignore blank/whitespace name so governance cannot wipe a good name.
+    if let Some(v) = non_empty_room_name(changes.get("name").and_then(|v| v.as_str())) {
+        updates.push(("name", v.into()));
     }
     if let Some(v) = changes.get("description").and_then(|v| v.as_str()) {
         updates.push(("description", v.to_string().into()));
@@ -2570,4 +2696,71 @@ pub async fn handle_key_exchange(
         published_key_count
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn non_empty_room_name_trims_and_rejects_blank() {
+        assert_eq!(non_empty_room_name(Some(" 测试群 ")).as_deref(), Some("测试群"));
+        assert_eq!(non_empty_room_name(Some("   ")), None);
+        assert_eq!(non_empty_room_name(Some("")), None);
+        assert_eq!(non_empty_room_name(None), None);
+    }
+
+    #[test]
+    fn resolve_invite_room_name_prefers_real_name() {
+        let room_id = "rm_08355abcdef";
+        assert_eq!(
+            resolve_invite_room_name(Some("测试群"), room_id),
+            "测试群"
+        );
+        assert_eq!(
+            resolve_invite_room_name(Some("  "), room_id),
+            "Room rm_08355"
+        );
+        assert_eq!(
+            resolve_invite_room_name(None, room_id),
+            "Room rm_08355"
+        );
+    }
+
+    #[test]
+    fn is_missing_or_fallback_detects_placeholder() {
+        let room_id = "rm_08355abcdef";
+        assert!(is_missing_or_fallback_room_name("", room_id));
+        assert!(is_missing_or_fallback_room_name("  ", room_id));
+        assert!(is_missing_or_fallback_room_name("Room rm_08355", room_id));
+        assert!(!is_missing_or_fallback_room_name("测试群", room_id));
+        assert!(!is_missing_or_fallback_room_name("Room other", room_id));
+    }
+
+    #[test]
+    fn invite_object_name_parsing_matches_handle_room_invite() {
+        // Mirrors handle_room_invite: read object.name, treat blank as missing.
+        // "rm_abc12345" → first 8 chars = "rm_abc12"
+        let room_id = "rm_abc12345";
+        let with_name = json!({"id": room_id, "name": "  测试群  "});
+        let name = non_empty_room_name(with_name.get("name").and_then(|v| v.as_str()));
+        assert_eq!(
+            resolve_invite_room_name(name.as_deref(), room_id),
+            "测试群"
+        );
+
+        let blank = json!({"id": room_id, "name": "  "});
+        let name = non_empty_room_name(blank.get("name").and_then(|v| v.as_str()));
+        assert_eq!(
+            resolve_invite_room_name(name.as_deref(), room_id),
+            "Room rm_abc12"
+        );
+
+        let missing = json!({"id": room_id});
+        let name = non_empty_room_name(missing.get("name").and_then(|v| v.as_str()));
+        assert_eq!(
+            resolve_invite_room_name(name.as_deref(), room_id),
+            "Room rm_abc12"
+        );
+    }
 }
