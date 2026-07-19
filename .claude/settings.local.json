@@ -1,4 +1,106 @@
 {
+  "hooks": {
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ao hooks claude-code notification",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ao hooks claude-code permission-request",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ao hooks claude-code post-tool-use",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ao hooks claude-code post-tool-use-failure",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ao hooks claude-code pre-tool-use",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ao hooks claude-code session-end",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ao hooks claude-code session-start",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ao hooks claude-code stop",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ao hooks claude-code user-prompt-submit",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  },
   "permissions": {
     "allow": [
       "Bash(cargo clippy:*)",
@@ -61,13 +163,13 @@
       "Bash(ls:*)",
       "Bash(pnpm add:*)",
       "Bash(npx tsc:*)",
-      "Bash(awk 'NR>=191 && NR<=440' /Users/haru/Documents/GitHub/Myriad/frontend/src/views/Brew.tsx)",
-      "Bash(awk 'NR>=443 && NR<=692' /Users/haru/Documents/GitHub/Myriad/frontend/src/views/Brew.tsx)",
-      "Bash(awk 'NR>=695 && NR<=944' /Users/haru/Documents/GitHub/Myriad/frontend/src/views/Brew.tsx)",
-      "Bash(awk 'NR>=947 && NR<=1196' /Users/haru/Documents/GitHub/Myriad/frontend/src/views/Brew.tsx)",
+      "Bash(awk 'NR\u003e=191 \u0026\u0026 NR\u003c=440' /Users/haru/Documents/GitHub/Myriad/frontend/src/views/Brew.tsx)",
+      "Bash(awk 'NR\u003e=443 \u0026\u0026 NR\u003c=692' /Users/haru/Documents/GitHub/Myriad/frontend/src/views/Brew.tsx)",
+      "Bash(awk 'NR\u003e=695 \u0026\u0026 NR\u003c=944' /Users/haru/Documents/GitHub/Myriad/frontend/src/views/Brew.tsx)",
+      "Bash(awk 'NR\u003e=947 \u0026\u0026 NR\u003c=1196' /Users/haru/Documents/GitHub/Myriad/frontend/src/views/Brew.tsx)",
       "Read(//tmp/**)",
-      "Bash(awk 'NR>=441 && NR<=1197' /Users/haru/Documents/GitHub/Myriad/frontend/src/views/Brew.tsx)",
-      "Bash(grep -v \"^warning\\\\|^$\\\\|= note\\\\|= help\\\\| --> \\\\|  |\\\\|^Compiling\\\\|^Checking\\\\|^Finished\")",
+      "Bash(awk 'NR\u003e=441 \u0026\u0026 NR\u003c=1197' /Users/haru/Documents/GitHub/Myriad/frontend/src/views/Brew.tsx)",
+      "Bash(grep -v \"^warning\\\\|^$\\\\|= note\\\\|= help\\\\| --\u003e \\\\|  |\\\\|^Compiling\\\\|^Checking\\\\|^Finished\")",
       "Bash(grep -v \"tapp\\\\|^Checking\\\\|^Finished\\\\|^$\")",
       "Bash(wc -l /Users/haru/Documents/GitHub/Myriad/backend/src/services/agent/capability/definitions/*.rs)",
       "Bash(grep -l \"useMusicPlayer\\\\|MusicPlayer\\\\|MusicCard\" /Users/haru/Documents/GitHub/Myriad/frontend/src/components/*.tsx /Users/haru/Documents/GitHub/Myriad/frontend/src/views/*.tsx)",

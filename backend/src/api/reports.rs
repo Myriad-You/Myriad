@@ -1549,7 +1549,8 @@ static REPORT_REGEN_IN_FLIGHT: once_cell::sync::Lazy<
 > = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
 
 /// Resolve which user's reports the public latest/list endpoints should serve.
-/// Prefers site owner (first admin); falls back to positive claims / 1.
+/// Prefers durable site owner (`is_owner`); falls back to positive claims / 1.
+/// Never uses a non-owner viewer session — that emptied home ReportCards.
 async fn public_report_owner_user_id(
     db: &DatabaseConnection,
     headers: &axum::http::HeaderMap,

@@ -670,22 +670,37 @@ pub async fn find_admin_user_id(
         }
     }
 
-    let result = db
+    // Prefer durable site owner; fall back to first admin (legacy / pre-is_owner).
+    // Matches profile::site_owner_user_id so home ReportCards and Tapps agree.
+    let mut result = db
         .query_one(Statement::from_string(
             DbBackend::Postgres,
-            // The public Tapp namespace belongs to the original site owner.
-            // Multiple administrator accounts may exist, so selection must be
-            // deterministic and match the profile/setup ownership rule.
-            "SELECT id FROM users WHERE is_admin = true ORDER BY id ASC LIMIT 1".to_string(),
+            "SELECT id FROM users WHERE is_owner = true ORDER BY id ASC LIMIT 1".to_string(),
         ))
         .await
         .map_err(|e| {
-            tracing::error!("[TAPP] Database error fetching admin ID: {}", e);
+            tracing::error!("[TAPP] Database error fetching owner ID: {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": "Database error" })),
             )
         })?;
+
+    if result.is_none() {
+        result = db
+            .query_one(Statement::from_string(
+                DbBackend::Postgres,
+                "SELECT id FROM users WHERE is_admin = true ORDER BY id ASC LIMIT 1".to_string(),
+            ))
+            .await
+            .map_err(|e| {
+                tracing::error!("[TAPP] Database error fetching admin ID: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": "Database error" })),
+                )
+            })?;
+    }
 
     let Some(result) = result else {
         return Ok(None);

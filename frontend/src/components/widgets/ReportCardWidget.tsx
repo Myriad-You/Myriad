@@ -5383,24 +5383,29 @@ export const ReportCardWidget = memo(
         return
       }
 
+      // Home path: fetch site-owner latest reports and map to this platform's
+      // card_visuals. Guard against unmount races so a cancelled fetch cannot
+      // leave loading forever or wipe a newer successful result.
+      let cancelled = false
       const fetchReport = async () => {
         try {
           // 使用去重机制避免多个 ReportCardWidget 同时请求
           const data = await getLatestReportDeduped()
+          if (cancelled) return
           // Fail closed on empty / mismatched mapping so home never mounts a
           // blank shell when card_visuals is missing or {}.
           setReportData(pickPlatformCardVisuals(data, platformId))
         } catch (err) {
+          if (cancelled) return
           console.error(`${t.reportCardWidget.fetchReportFailed}:`, err)
           setReportData(null)
         } finally {
-          setLoading(false)
+          if (!cancelled) setLoading(false)
         }
       }
       fetchReport()
 
       // 5分钟刷新一次 - timeout 链 + 可见性暂停
-      let cancelled = false
       let timeoutId: number | null = null
       const schedule = () => {
         if (cancelled || document.hidden) return
