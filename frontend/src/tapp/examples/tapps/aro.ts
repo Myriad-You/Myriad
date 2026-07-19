@@ -1598,7 +1598,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "localVer": "Installed",
     "manage": "More",
     "me": "Me",
-    "mediaTooLarge": "File too large",
+    "mediaTooLarge": "File too large (images max 10 MB, videos max 50 MB)",
     "mediaUnsupported": "Unsupported file type",
     "members": "Members",
     "msgActions": "Message actions",
@@ -1847,7 +1847,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "localVer": "インストール済み",
     "manage": "その他",
     "me": "自分",
-    "mediaTooLarge": "ファイルが大きすぎます",
+    "mediaTooLarge": "ファイルが大きすぎます（画像最大10MB、動画最大50MB）",
     "mediaUnsupported": "未対応のファイル形式です",
     "members": "メンバー",
     "msgActions": "メッセージ操作",
@@ -2096,7 +2096,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "localVer": "已安装",
     "manage": "更多",
     "me": "我",
-    "mediaTooLarge": "文件过大",
+    "mediaTooLarge": "文件过大（图片最大 10 MB，视频最大 50 MB）",
     "mediaUnsupported": "不支持的文件类型",
     "members": "成员",
     "msgActions": "消息操作",
@@ -7121,6 +7121,14 @@ function unwrapPublishResult(res) {
 
 async function uploadComposeMedia(entry) {
   var file = entry.file;
+  // Re-check raw size before data-URL conversion (aligns with backend limits).
+  var maxImage = 10 * 1024 * 1024;
+  var maxVideo = 50 * 1024 * 1024;
+  var kind = entry.kind === 'video' ? 'video' : 'image';
+  var maxBytes = kind === 'video' ? maxVideo : maxImage;
+  if (file && typeof file.size === 'number' && file.size > maxBytes) {
+    throw new Error(lang.mediaTooLarge || lang.fileTooLarge || 'File too large');
+  }
   if (typeof Tapp.federation.uploadMedia === 'function') {
     var dataUrl = await fileToDataUrl(file);
     var res = await Tapp.federation.uploadMedia({

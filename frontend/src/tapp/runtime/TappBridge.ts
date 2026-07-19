@@ -270,6 +270,7 @@ export class TappBridge {
     }
 
     // payload 大小检查（防止内存攻击）
+    // 默认 1 MiB；file.download / federation.uploadMedia 有专用上限（对齐业务）。
     if (msg.payload !== undefined) {
       if (msg.action === 'file.download') {
         const args = (msg.payload as { args?: unknown[] }).args
@@ -285,6 +286,60 @@ export class TappBridge {
               options.mimeType.length > 256))
         ) {
           return { valid: false, error: 'Invalid or oversized file payload' }
+        }
+      } else if (msg.action === 'federation.uploadMedia') {
+        // Backend: image 10 MiB, video 50 MiB, route body 55 MiB.
+        // Bridge carries data URL / base64 (~4/3 raw) + small JSON envelope.
+        const MAX_MEDIA_RAW_BYTES = 50 * 1024 * 1024
+        const MAX_MEDIA_DATA_CHARS =
+          Math.ceil((MAX_MEDIA_RAW_BYTES * 4) / 3) + 256 // base64 + data-URL header
+        const args = (msg.payload as { args?: unknown[] }).args
+        const options = args?.[0] as Record<string, unknown> | undefined
+        if (!options || typeof options !== 'object' || Array.isArray(options)) {
+          return {
+            valid: false,
+            error: 'Invalid federation.uploadMedia payload',
+          }
+        }
+        if (typeof options.data !== 'string') {
+          return {
+            valid: false,
+            error: 'Invalid federation.uploadMedia payload: data must be a string',
+          }
+        }
+        if (options.data.length > MAX_MEDIA_DATA_CHARS) {
+          return {
+            valid: false,
+            error: `Media data too large (max ${MAX_MEDIA_RAW_BYTES} bytes raw / ~${MAX_MEDIA_DATA_CHARS} chars base64)`,
+          }
+        }
+        if (
+          options.name !== undefined &&
+          (typeof options.name !== 'string' || options.name.length > 1024)
+        ) {
+          return {
+            valid: false,
+            error: 'Invalid federation.uploadMedia payload: name',
+          }
+        }
+        if (
+          options.mime !== undefined &&
+          (typeof options.mime !== 'string' || options.mime.length > 256)
+        ) {
+          return {
+            valid: false,
+            error: 'Invalid federation.uploadMedia payload: mime',
+          }
+        }
+        if (
+          options.media_type !== undefined &&
+          (typeof options.media_type !== 'string' ||
+            options.media_type.length > 256)
+        ) {
+          return {
+            valid: false,
+            error: 'Invalid federation.uploadMedia payload: media_type',
+          }
         }
       } else {
         let payloadStr: string
