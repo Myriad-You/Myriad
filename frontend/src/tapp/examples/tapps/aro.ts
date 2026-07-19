@@ -5020,6 +5020,12 @@ function switchView(view) {
   } else {
     stopPolling();
   }
+  // Contextual feed + is feed-only; hide and close menus when leaving feed.
+  if (typeof updateFeedPlusVisibility === 'function') updateFeedPlusVisibility();
+  if (view !== 'feed') {
+    if (typeof closeFeedPlusMenu === 'function') closeFeedPlusMenu();
+    if (typeof closeFollowDialog === 'function') closeFollowDialog();
+  }
   // Load data for the view
   if (view === 'feed') loadFeed();
   else if (view === 'rings') loadRings();
@@ -5453,6 +5459,11 @@ function switchFeedSubTab(sub) {
   document.querySelectorAll('.feed-mobile-tab').forEach(function (btn) {
     btn.classList.toggle('feed-mobile-tab-active', btn.dataset.sub === sub);
   });
+  // Contextual + must recompute immediately on tab change (before async load).
+  if (typeof updateFeedPlusVisibility === 'function') updateFeedPlusVisibility();
+  // Leaving Post tab: collapse composer so it doesn't linger under other tabs.
+  if (sub !== 'timeline' && typeof closeComposer === 'function') closeComposer();
+  if (sub !== 'following' && typeof closeFollowDialog === 'function') closeFollowDialog();
   loadFeedSubTab();
 }
 
@@ -5492,13 +5503,22 @@ async function doFollow() {
 // ==================== Feed composer (freeform Note) ====================
 var composeAttachments = []; // { file, previewUrl, kind: 'image'|'video' }
 
+/**
+ * Contextual + menu (owner feed only):
+ * - timeline  → Post only
+ * - following → Follow only
+ * - followers / published / guest / non-feed → no +
+ */
 function canComposePost() {
-  return !state.isGuest;
+  return !state.isGuest
+    && state.currentView === 'feed'
+    && state.feedSubTab === 'timeline';
 }
 
-/** Follow is for owners only (same as the old bar's role gate; dialog replaces tab-only bar). */
 function canFollowFromFeed() {
-  return !state.isGuest;
+  return !state.isGuest
+    && state.currentView === 'feed'
+    && state.feedSubTab === 'following';
 }
 
 function updateComposeButtonVisibility() {
@@ -5508,6 +5528,7 @@ function updateComposeButtonVisibility() {
 function updateFeedPlusVisibility() {
   var showPost = canComposePost();
   var showFollow = canFollowFromFeed();
+  // showPlus = !isGuest && feed && (timeline || following) — equivalent to either action
   var showPlus = showPost || showFollow;
   var display = showPlus ? '' : 'none';
 
@@ -5584,7 +5605,7 @@ function handleFeedPlusAction(action) {
 }
 
 function openFollowDialog() {
-  if (state.isGuest) return;
+  if (!canFollowFromFeed()) return;
   var d = $('feed-follow-dialog');
   if (!d) return;
   d.classList.remove('aro-leaving');
@@ -5602,7 +5623,7 @@ function closeFollowDialog() {
 }
 
 function openComposer() {
-  if (state.isGuest) return;
+  if (!canComposePost()) return;
   closeFeedPlusMenu();
   var el = $('feed-composer');
   if (!el) return;
