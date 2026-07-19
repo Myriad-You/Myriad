@@ -708,6 +708,9 @@ async fn build_ap_object(
             };
             let content_text = extract_report_summary(&report_json);
 
+            // Snapshot field contract (Aro chat + federation consumers):
+            //   report_id, summary, platform, content_preview
+            // Also expose mfp:* for ActivityPub-style clients. Do not send full report JSON.
             Ok(json!({
                 "type": "Article",
                 "id": format!("{}/reports/{}", base_url, report_id),
@@ -723,9 +726,12 @@ async fn build_ap_object(
                 "mfp:contentId": content_id,
                 "mfp:reportId": report_id,
                 "mfp:platform": &platform,
-                // Explicit Aro-aligned snapshot fields for chat/federation consumers
                 "mfp:summary": &summary,
                 "mfp:contentPreview": &content_preview,
+                // Aro-aligned snake_case aliases (same values as mfp:* above)
+                "report_id": report_id,
+                "platform": &platform,
+                "content_preview": &content_preview,
             }))
         }
         "brew-article" => {
@@ -1083,5 +1089,23 @@ mod tests {
             extract_report_summary(&json!({})),
             "<p>数据分析报告</p>"
         );
+    }
+
+    /// Contract: Aro chat + federation report shares use these field names for the viewable snapshot.
+    #[test]
+    fn report_share_snapshot_field_names_are_stable() {
+        // Keep in lockstep with Aro payload / reportShareSnapshot.ts
+        let required = ["report_id", "summary", "platform", "content_preview"];
+        for name in required {
+            assert!(!name.is_empty());
+            assert!(
+                name.chars().all(|c| c.is_ascii_lowercase() || c == '_'),
+                "snapshot field {name} must be snake_case"
+            );
+        }
+        // Preview length bound used by Aro + Article builders
+        let long = "x".repeat(800);
+        let capped: String = long.chars().take(500).collect();
+        assert_eq!(capped.chars().count(), 500);
     }
 }

@@ -8,10 +8,22 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
+  REPORT_SHARE_SNAPSHOT_FIELDS,
   buildReportShareSnapshot,
   formatReportContentBody,
   wireReportSharePayload,
 } from './reportShareSnapshot.ts'
+
+describe('REPORT_SHARE_SNAPSHOT_FIELDS', () => {
+  it('coordinates Aro + federation field names', () => {
+    assert.deepEqual(REPORT_SHARE_SNAPSHOT_FIELDS, [
+      'report_id',
+      'summary',
+      'platform',
+      'content_preview',
+    ])
+  })
+})
 
 describe('buildReportShareSnapshot', () => {
   it('builds Aro field names from catalog report', () => {

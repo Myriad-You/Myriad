@@ -5143,8 +5143,8 @@ async function doSend() {
       if (attach.itemId) msgPayload.item_id = attach.itemId;
       if (attach.image) msgPayload.image = attach.image;
       // Report share: always wire snapshot fields (never id-only).
-      // Field names: report_id, summary, platform, content_preview.
-      // Mirrored by wireReportSharePayload in reportShareSnapshot.ts.
+      // Coordinated field names (Aro + federation Article): report_id, summary, platform, content_preview.
+      // Mirrored by wireReportSharePayload / REPORT_SHARE_SNAPSHOT_FIELDS in reportShareSnapshot.ts.
       if (attach.type === 'report') {
         var reportSummary = (attach.summary || attach.name || '').trim() || 'Report';
         var reportPlatform = (attach.platform || '').trim();
