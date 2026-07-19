@@ -2132,7 +2132,7 @@ var state = {
   isGuest: true,
   isAdmin: false,
   // Attachment
-  pendingAttach: null, // { type: 'image'|'file'|'tapp'|'brew'|'library'|'report', data, name, size, mime }
+  pendingAttach: null, // { type, file?, data?, name, size, mime, ... }
   // Aro views
   currentView: 'feed',
   // Feed (merged timeline + profile)
@@ -4434,6 +4434,10 @@ function renderMessages(opts) {
     } else if (msgType === 'file' || msgType === 'file-meta') {
       var ext = (payload.filename || '').split('.').pop().toUpperCase();
       var hasInline = !!(payload.data);
+      var sizeLabel = payload.size ? formatFileSize(payload.size) : ext;
+      if (payload.transfer_id) {
+        sizeLabel = (sizeLabel ? sizeLabel + ' · ' : '') + (lang.attachFile || 'file');
+      }
       var fileTitle = hasInline
         ? (lang.downloadFile || payload.filename || 'File')
         : (payload.filename || lang.previewFile || 'File');
@@ -4441,12 +4445,14 @@ function renderMessages(opts) {
       if (hasInline) {
         html += '<button type="button" class="msg-file-card" data-file-idx="' + idx + '" data-has-inline="1" title="' + esc(fileTitle) + '">';
       } else {
-        html += '<div class="msg-file-card" data-file-idx="' + idx + '" title="' + esc(fileTitle) + '">';
+        html += '<div class="msg-file-card" data-file-idx="' + idx + '"'
+          + (payload.transfer_id ? ' data-transfer-id="' + esc(payload.transfer_id) + '"' : '')
+          + ' title="' + esc(fileTitle) + '">';
       }
       html += '<div class="msg-file-icon">' + SVG_ICONS.file + '</div>'
         + '<div class="msg-file-info">'
         + '<div class="msg-file-name">' + esc(payload.filename || 'file') + '</div>'
-        + '<div class="msg-file-size">' + (payload.size ? formatFileSize(payload.size) : ext) + '</div>'
+        + '<div class="msg-file-size">' + esc(sizeLabel || '') + '</div>'
         + '</div>'
         + (hasInline ? '</button>' : '</div>');
       if (payload.text) html += '<div class="msg-text">' + esc(payload.text) + '</div>';
@@ -5124,7 +5130,7 @@ async function openConversation(kind, id) {
     if (kind === 'channel') {
       var results = await Promise.all([
         Tapp.federation.getChannel(id),
-        Tapp.federation.getMessages(id, undefined, 100),
+        Tapp.federation.getMessages(id, undefined, 200),
       ]);
       if (results[0]) {
         state.channelDetail = results[0];
@@ -5148,7 +5154,7 @@ async function openConversation(kind, id) {
       var results = await Promise.all([
         Tapp.federation.getRoom(id),
         Tapp.federation.getRoomMembers(id),
-        Tapp.federation.getRoomMessages(id, undefined, 100),
+        Tapp.federation.getRoomMessages(id, undefined, 200),
       ]);
       if (results[0]) state.roomDetail = results[0];
       if (results[1]) {
@@ -5341,9 +5347,9 @@ async function pollMessages(force) {
   try {
     var res;
     if (state.activeKind === 'channel') {
-      res = await Tapp.federation.getMessages(state.activeId, undefined, 100);
+      res = await Tapp.federation.getMessages(state.activeId, undefined, 200);
     } else {
-      res = await Tapp.federation.getRoomMessages(state.activeId, undefined, 100);
+      res = await Tapp.federation.getRoomMessages(state.activeId, undefined, 200);
     }
     if (res) {
       var msgs = res.messages || [];
@@ -7671,7 +7677,7 @@ const CORE_CODE = buildCoreCode()
 const manifest: TappManifest = {
   id: 'com.myriad.aro',
   name: 'Aro',
-  version: '1.0.0',
+  version: '1.0.3',
   minSystemVersion: '0.2.1',
   description: '社交中心，统一管理消息、时间线、环网与个人资料',
   category: 'social',
