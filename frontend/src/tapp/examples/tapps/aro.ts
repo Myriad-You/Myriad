@@ -485,10 +485,10 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .ring-sync-bar.ring-sync-ok{color:#22c55e;background:rgba(34,197,94,.04)}
 .ring-sync-bar.ring-sync-err{color:#ef4444;background:rgba(239,68,68,.04)}
 
-/* ===== Feed Layout (X-style sidebar + content) ===== */
-.feed-layout{display:flex;flex:1;min-height:0;overflow:hidden}
+/* ===== Feed Layout: [sidebar | full remaining main] only — no phantom right column ===== */
+.feed-layout{display:flex;flex:1 1 auto;width:100%;max-width:none;min-height:0;min-width:0;overflow:hidden}
 /* Feed Sidebar */
-.feed-sidebar{width:232px;flex-shrink:0;border-right:1px solid rgba(128,128,128,.08);display:flex;flex-direction:column;padding:14px 12px;overflow:hidden}
+.feed-sidebar{width:232px;flex:0 0 232px;flex-shrink:0;border-right:1px solid rgba(128,128,128,.08);display:flex;flex-direction:column;padding:14px 12px;overflow:hidden}
 .feed-avatar{width:36px;height:36px;border-radius:50%;background:rgba(var(--tapp-primary-rgb,128,128,128),.1);color:var(--tapp-primary,#888);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;flex-shrink:0;overflow:hidden}
 .feed-avatar img{width:100%;height:100%;object-fit:cover}
 .feed-display-name{font-size:13px;font-weight:700;color:var(--text-primary,#0f1419);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
@@ -524,8 +524,19 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .feed-profile-mobile{display:none;margin:10px 16px 0;flex-shrink:0}
 .feed-mobile-stats{display:none;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:8px 16px 0;flex-shrink:0}
 .feed-mobile-stat{min-width:0;display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 10px;border-radius:10px;background:rgba(128,128,128,.04);color:var(--text-secondary,#536471);font-size:11px}
-/* Feed Main — sidebar + main only; main fills remaining width (no max-width / no fake border column) */
-.feed-main{flex:1;min-width:0;width:100%;display:flex;flex-direction:column;overflow-y:auto;position:relative}
+/* Feed Main — fills remaining width; NEVER max-width:760 / border-right (dead right strip) */
+.feed-main{
+  flex:1 1 0%;
+  min-width:0;
+  max-width:none!important;
+  width:auto;
+  display:flex;
+  flex-direction:column;
+  overflow-y:auto;
+  position:relative;
+  border-right:none!important;
+  box-sizing:border-box;
+}
 /* Feed header */
 .feed-main-header{min-height:56px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px;border-bottom:1px solid rgba(128,128,128,.06);flex-shrink:0;background:rgba(255,255,255,.45);backdrop-filter:blur(12px);position:relative;z-index:5;overflow:visible}
 .feed-header-leading{display:flex;align-items:center;gap:10px;min-width:0;flex:1}
@@ -610,7 +621,7 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .feed-follow-input,.create-form #feed-follow-input{width:100%}
 #feed-follow-btn:disabled{opacity:.5;cursor:not-allowed}
 /* Feed content / empty — fill main column (no second dead strip from stream max-width) */
-.feed-content{flex:1;min-height:0;width:100%}
+.feed-content{flex:1 1 auto;min-height:0;width:100%;max-width:none;box-sizing:border-box}
 .feed-empty{min-height:280px;padding:56px 24px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--text-secondary,#536471);font-size:13px;line-height:1.5;width:100%;box-sizing:border-box}
 .feed-main.feed-empty-visible .feed-content{display:none}
 .feed-main.feed-empty-visible .feed-empty{flex:1;min-height:0}
@@ -1153,7 +1164,8 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 @media(min-width:769px) and (max-width:1024px){
   .member-panel{width:0;border-left:none;overflow:hidden}
   .member-panel.member-expanded-tablet{width:180px;border-left:1px solid rgba(128,128,128,.08);overflow:hidden}
-  .feed-sidebar{width:68px;padding:12px 8px;overflow:visible;position:relative;z-index:5}
+  .feed-sidebar{width:68px;flex:0 0 68px;padding:12px 8px;overflow:visible;position:relative;z-index:5}
+  .feed-main{max-width:none!important;border-right:none!important}
   .feed-nav-item span{display:none}
   .feed-nav-item{justify-content:center;padding:10px}
   .feed-sidebar-footer{align-items:center;position:relative}
@@ -6549,21 +6561,17 @@ var COMPOSE_DRAFT_KEY = 'aro_compose_draft';
 var composeDraftTextOnly = false;
 
 /**
- * Contextual + menu (owner feed only):
- * - timeline  → Post only
- * - following → Follow only
- * - followers / published / guest / non-feed → no +
+ * Tab-scoped + menu gates (GOAL LOCK / #118):
+ * - canComposePost: !guest && feed view && sub===timeline
+ * - canFollowFromFeed: !guest && feed view && sub===following
+ * Plus wrap only when either is true (never both items on every tab).
  */
 function canComposePost() {
-  return !state.isGuest
-    && state.currentView === 'feed'
-    && state.feedSubTab === 'timeline';
+  return !state.isGuest && state.currentView === 'feed' && state.feedSubTab === 'timeline';
 }
 
 function canFollowFromFeed() {
-  return !state.isGuest
-    && state.currentView === 'feed'
-    && state.feedSubTab === 'following';
+  return !state.isGuest && state.currentView === 'feed' && state.feedSubTab === 'following';
 }
 
 function isComposeBusy() {
@@ -6686,22 +6694,15 @@ function updateComposeButtonVisibility() {
 }
 
 /**
- * Strict + visibility (GOAL LOCK / #118):
- *   showPlusWrap = !isGuest && currentView==='feed'
- *     && (feedSubTab==='timeline' || feedSubTab==='following')
- * Menu:
- *   timeline  → Post only (hide Follow)
- *   following → Follow only (hide Post)
- * Never list both on the same tab.
+ * Strict + visibility:
+ *   showPlusWrap = canComposePost() || canFollowFromFeed()
+ *                = !guest && feed && (timeline || following)
+ * Menu: timeline→Post only; following→Follow only; never both on one tab.
  */
 function updateFeedPlusVisibility() {
-  var onFeed = state.currentView === 'feed';
-  var sub = state.feedSubTab;
-  var showPlusWrap = !state.isGuest && onFeed
-    && (sub === 'timeline' || sub === 'following');
-  // Tab-scoped menu items (not both on every tab)
-  var showPost = showPlusWrap && sub === 'timeline';
-  var showFollow = showPlusWrap && sub === 'following';
+  var showPost = canComposePost();     // !guest && feed && timeline
+  var showFollow = canFollowFromFeed(); // !guest && feed && following
+  var showPlusWrap = showPost || showFollow;
 
   var wrap = $('feed-plus-wrap');
   if (wrap) wrap.style.display = showPlusWrap ? '' : 'none';
