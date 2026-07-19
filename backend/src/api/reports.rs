@@ -1636,11 +1636,39 @@ async fn resolve_report_user_id_for_public_read(
 /// Stamp platform + normalize card_visuals so home ReportCard widgets can match
 /// and render stats even when older stored JSON is missing / double-encoded.
 fn finalize_public_platform_report(platform: &str, report: Value) -> Value {
+    // Some historical rows double-encoded the JSON column as a string.
+    let report = match report {
+        Value::String(s) => serde_json::from_str(&s).unwrap_or(Value::String(s)),
+        other => other,
+    };
+    // Unwrap accidental `{ "report": { …PlatformReport } }` envelopes.
+    let report = match &report {
+        Value::Object(map)
+            if map.contains_key("report")
+                && !map.contains_key("card_visuals")
+                && map.get("report").map(|v| v.is_object()).unwrap_or(false) =>
+        {
+            map.get("report").cloned().unwrap_or(report.clone())
+        }
+        _ => report,
+    };
+
     let mut body = enrich_stored_platform_report(report);
     if let Some(obj) = body.as_object_mut() {
         obj.insert("platform".to_string(), json!(platform));
+        // Always lowercase platform for widget id equality (steam not Steam).
+        if let Some(p) = obj.get("platform").and_then(|v| v.as_str()) {
+            obj.insert("platform".to_string(), json!(p.to_lowercase()));
+        }
         let normalized_visuals = match obj.get("card_visuals") {
-            Some(v) if v.is_object() => None,
+            Some(v) if v.is_object() => {
+                // Unwrap double-nested card_visuals: { card_visuals: { …stats } }
+                if let Some(inner) = v.get("card_visuals").filter(|i| i.is_object()) {
+                    Some(inner.clone())
+                } else {
+                    None
+                }
+            }
             Some(v) if v.is_string() => {
                 let raw = v.as_str().unwrap_or("").to_string();
                 Some(

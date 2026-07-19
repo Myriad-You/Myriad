@@ -36,7 +36,7 @@ import { useLoopAnimation } from '../../hooks/animation'
 import { useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { extractColorsFromLoadedImage } from '../../utils/colorExtractor'
 import {
-  extractCardVisuals,
+  coerceReportVisuals,
   hasRenderableCardVisuals,
   isKnownReportPlatformId,
   pickPlatformCardVisuals,
@@ -5371,14 +5371,9 @@ export const ReportCardWidget = memo(
 
       // 外部直接提供数据（报告页复用）：不再自行请求，跟随 prop 更新
       if (externalData !== undefined) {
-        // Accept raw card_visuals or a full platform report envelope
-        const visuals =
-          extractCardVisuals(externalData) ??
-          (externalData &&
-          typeof externalData === 'object' &&
-          !Array.isArray(externalData)
-            ? (externalData as Record<string, unknown>)
-            : null)
+        // Coerce full PlatformReport JSON → flat card_visuals the widgets read.
+        // Without this, nested card_visuals leaves reportData truthy but empty UI.
+        const visuals = coerceReportVisuals(externalData)
         setReportData(hasRenderableCardVisuals(visuals) ? visuals : null)
         setLoading(false)
         return
@@ -5610,6 +5605,9 @@ export const ReportCardWidget = memo(
       <WidgetShell
         containerRef={localRef}
         padding={0}
+        // `contents` drops the inner padding wrapper box so absolute/full-height
+        // platform widgets size against the shell root (home empty-face fix).
+        contentClassName="contents"
         glass={!bare}
         className={interactive && !isEditMode ? 'cursor-pointer' : ''}
         rootProps={{
@@ -5634,9 +5632,8 @@ export const ReportCardWidget = memo(
           )
         }
       >
-        {/* 主内容区：relative h-full so platform widgets always have a layout box
-            (absolute-only children of a padded shell previously looked empty). */}
-        <div className="relative z-10 h-full w-full min-h-0 flex flex-col">
+        {/* 主内容区：fill the shell root so h-full platform widgets paint */}
+        <div className="absolute inset-0 z-10 flex min-h-0 flex-col">
           {platformId === 'bilibili' && (
             <BilibiliWidget
               data={reportData}

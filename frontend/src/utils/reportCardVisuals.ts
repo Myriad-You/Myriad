@@ -237,23 +237,9 @@ export function pickPlatformCardVisuals(
 
   if (!report) return null
 
-  // Prefer nested card_visuals; if the row *is* the visuals object (or nested
-  // under report / content / data from older writers), still recover stats.
-  let visuals = extractCardVisuals(report)
-  if (!hasRenderableCardVisuals(visuals)) {
-    const row = report as Record<string, unknown>
-    for (const nestedKey of [
-      'report',
-      'content',
-      'data',
-      'payload',
-    ] as const) {
-      const nested = row[nestedKey]
-      visuals = extractCardVisuals(nested)
-      if (hasRenderableCardVisuals(visuals)) break
-    }
-  }
-  return hasRenderableCardVisuals(visuals) ? visuals : null
+  // Prefer nested card_visuals; coerce so widgets always get a flat stats object
+  // even when the API returns a full PlatformReport envelope or double wraps.
+  return coerceReportVisuals(report)
 }
 
 /** Whether a platform id has a dedicated home ReportCard branch. */
@@ -261,4 +247,97 @@ export function isKnownReportPlatformId(id: string): boolean {
   return (REPORT_PLATFORM_IDS as readonly string[]).includes(
     normalizeReportPlatformId(id),
   )
+}
+
+/**
+ * Coerce any report-shaped JSON into flat card_visuals the platform widgets read.
+ *
+ * Critical empty-content path: report JSON *exists* (PlatformReport envelope or
+ * double-wrapped card_visuals) but widgets read top-level hardcore_score /
+ * library_items / profile — nested stats → blank face with only the logo.
+ */
+export function coerceReportVisuals(
+  input: unknown,
+): Record<string, unknown> | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null
+  const root = input as Record<string, unknown>
+
+  // 1) Standard extract (card_visuals / content.card_visuals / flat)
+  let visuals = extractCardVisuals(root)
+
+  // 2) Older rows: { platform, report: { card_visuals } } or catalog content/*
+  if (!hasRenderableCardVisuals(visuals)) {
+    for (const nestKey of ['report', 'content', 'data', 'payload'] as const) {
+      const nested = root[nestKey]
+      visuals = extractCardVisuals(nested)
+      if (hasRenderableCardVisuals(visuals)) break
+    }
+  }
+
+  // 3) Double-wrap: { card_visuals: { card_visuals: { stats… } } }
+  if (visuals) {
+    const nestedOnly =
+      Object.keys(visuals).length <= 3 &&
+      (visuals.card_visuals != null ||
+        visuals.cardVisuals != null ||
+        visuals.data != null)
+    if (nestedOnly) {
+      const unwrapped = extractCardVisuals(visuals)
+      if (hasRenderableCardVisuals(unwrapped)) visuals = unwrapped
+    }
+  }
+
+  // 4) Envelope with empty card_visuals but sibling stats fields (mis-saved rows)
+  if (!hasRenderableCardVisuals(visuals)) {
+    const sibling = extractCardVisuals({
+      ...root,
+      summary: undefined,
+      insights: undefined,
+    })
+    if (hasRenderableCardVisuals(sibling)) visuals = sibling
+  }
+
+  if (!hasRenderableCardVisuals(visuals)) return null
+
+  // 5) Merge useful siblings from the envelope onto visuals when missing
+  const merged: Record<string, unknown> = { ...visuals }
+  for (const key of [
+    'library_items',
+    'top_titles',
+    'profile',
+    'stats',
+    'avatar',
+    'personaname',
+    'gamertag',
+    'online_id',
+  ] as const) {
+    if (merged[key] == null && root[key] != null) {
+      merged[key] = root[key]
+    }
+    // Also pull from nested report/content if present
+    for (const nestKey of ['report', 'content', 'data'] as const) {
+      const nest = root[nestKey]
+      if (
+        merged[key] == null &&
+        nest &&
+        typeof nest === 'object' &&
+        !Array.isArray(nest)
+      ) {
+        const n = nest as Record<string, unknown>
+        if (n[key] != null) merged[key] = n[key]
+        const cv = n.card_visuals ?? n.cardVisuals
+        if (
+          merged[key] == null &&
+          cv &&
+          typeof cv === 'object' &&
+          !Array.isArray(cv)
+        ) {
+          const c = cv as Record<string, unknown>
+          if (c[key] != null) merged[key] = c[key]
+        }
+      }
+    }
+  }
+
+  return hasRenderableCardVisuals(merged) ? merged : null
 }

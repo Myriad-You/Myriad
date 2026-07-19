@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
+  coerceReportVisuals,
   extractCardVisuals,
   hasRenderableCardVisuals,
   pickPlatformCardVisuals,
@@ -251,5 +252,42 @@ describe('pickPlatformCardVisuals', () => {
     assert.deepEqual(extractCardVisuals({ stats: { guilds: 4 } }), {
       stats: { guilds: 4 },
     })
+  })
+})
+
+describe('coerceReportVisuals (report JSON exists but nested)', () => {
+  it('unwraps PlatformReport envelope to flat card_visuals', () => {
+    const visuals = coerceReportVisuals({
+      platform: 'steam',
+      summary: 'A summary',
+      insights: ['a'],
+      card_visuals: {
+        hardcore_score: 91,
+        games_count: 50,
+        player_type: 'hardcore',
+      },
+    })
+    assert.equal(visuals?.hardcore_score, 91)
+    assert.equal(visuals?.games_count, 50)
+    assert.equal(visuals?.summary, undefined)
+  })
+
+  it('unwraps double-nested card_visuals', () => {
+    const visuals = coerceReportVisuals({
+      card_visuals: {
+        card_visuals: { hardcore_score: 70, library_items: [{ title: 'A' }] },
+      },
+    })
+    assert.equal(visuals?.hardcore_score, 70)
+    assert.equal((visuals?.library_items as unknown[])?.length, 1)
+  })
+
+  it('merges sibling library_items onto visuals when missing inside', () => {
+    const visuals = coerceReportVisuals({
+      card_visuals: { hardcore_score: 60 },
+      library_items: [{ title: 'Outer' }],
+    })
+    assert.equal(visuals?.hardcore_score, 60)
+    assert.deepEqual(visuals?.library_items, [{ title: 'Outer' }])
   })
 })
