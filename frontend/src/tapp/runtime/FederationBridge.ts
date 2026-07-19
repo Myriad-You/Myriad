@@ -290,11 +290,12 @@ export function registerFederationHandlers(
         mime?: string
         media_type?: string
       }
-      if (!body.data || typeof body.data !== 'string')
+      if (!body.data || typeof body.data !== 'string') {
         return {
           success: false,
           error: 'data (data URL or base64) is required',
         }
+      }
       try {
         const runtimeGrant = await bridge.getRuntimeGrant()
         const blob = dataUrlOrBase64ToBlob(

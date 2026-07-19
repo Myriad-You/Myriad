@@ -74,16 +74,17 @@ const monolithModules = modules
   .map((mod) => `    ${mod.constName},`)
   .join('\n');
 
+// Prefer template literals so eslint prefer-template stays clean on regenerations.
 const buildCoreCode = `// ==================== Generated Monolith (from modules + inline LANG) ====================
 function buildCoreCode(): string {
   const inlineLang = [
     '  // ==================== i18n ====================',
-    '  var LANG = ' +
+    \`  var LANG = \${
       JSON.stringify(ARO_I18N, null, 2)
         .split('\\n')
-        .map((l, i) => (i === 0 ? l : '  ' + l))
-        .join('\\n') +
-      ';',
+        .map((l, i) => (i === 0 ? l : \`  \${l}\`))
+        .join('\\n')
+      };\`,
     '',
     '  var lang = LANG.zh;',
     "  var currentLocale = 'zh';",
@@ -101,7 +102,7 @@ ${monolithModules}
     .map((m) =>
       m
         .split('\\n')
-        .map((l) => (l ? '  ' + l : l))
+        .map((l) => (l ? \`  \${l}\` : l))
         .join('\\n'),
     )
     .join('\\n\\n')
@@ -120,6 +121,12 @@ ${monolithModules}
 const CORE_CODE = buildCoreCode()
 
 `;
+
+/** JSON.stringify has no trailing commas; eslint style/comma-dangle requires them in TS. */
+function jsonWithTrailingCommas(value) {
+  return JSON.stringify(value, null, 2)
+    .replace(/(["\w.\]}])(\n\s*[}\]])/g, '$1,$2');
+}
 
 const permsStr = (manifestJson.permissions || []).map((p) => `    '${p}'`).join(',\n');
 let settingsStr = '';
@@ -158,7 +165,7 @@ footer = footer.replace(
 const output = header
   + tmplConst('PAGE_HTML', html)
   + tmplConst('STYLES', css)
-  + `const ARO_I18N: Record<string, Record<string, string>> = ${JSON.stringify(i18n, null, 2)}\n\n`
+  + `const ARO_I18N: Record<string, Record<string, string>> = ${jsonWithTrailingCommas(i18n)}\n\n`
   + '// ==================== Page Modules ====================\n'
   + moduleConsts
   + pageModuleMap

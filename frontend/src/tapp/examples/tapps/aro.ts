@@ -1232,7 +1232,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "unfollowBtn": "Unfollow",
     "unfollowFail": "Unfollow failed",
     "unpublishFail": "Unpublish failed",
-    "updatingBtn": "Update"
+    "updatingBtn": "Update",
   },
   "ja": {
     "accept": "承認",
@@ -1409,7 +1409,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "unfollowBtn": "フォロー解除",
     "unfollowFail": "フォロー解除失敗",
     "unpublishFail": "公開取消失敗",
-    "updatingBtn": "更新"
+    "updatingBtn": "更新",
   },
   "zh": {
     "accept": "接受",
@@ -1586,8 +1586,8 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "unfollowBtn": "取消关注",
     "unfollowFail": "取消关注失败",
     "unpublishFail": "取消发布失败",
-    "updatingBtn": "更新"
-  }
+    "updatingBtn": "更新",
+  },
 }
 
 // ==================== Page Modules ====================
@@ -5514,12 +5514,12 @@ const PAGE_MODULES: Record<string, string> = {
 function buildCoreCode(): string {
   const inlineLang = [
     '  // ==================== i18n ====================',
-    '  var LANG = ' +
+    `  var LANG = ${
       JSON.stringify(ARO_I18N, null, 2)
         .split('\n')
-        .map((l, i) => (i === 0 ? l : '  ' + l))
-        .join('\n') +
-      ';',
+        .map((l, i) => (i === 0 ? l : `  ${l}`))
+        .join('\n')
+      };`,
     '',
     '  var lang = LANG.zh;',
     "  var currentLocale = 'zh';",
@@ -5545,7 +5545,7 @@ function buildCoreCode(): string {
     .map((m) =>
       m
         .split('\n')
-        .map((l) => (l ? '  ' + l : l))
+        .map((l) => (l ? `  ${l}` : l))
         .join('\n'),
     )
     .join('\n\n')
