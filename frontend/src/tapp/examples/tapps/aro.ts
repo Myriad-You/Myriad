@@ -2325,21 +2325,29 @@ function isChannelStatusWritable(status) {
 
 function isChannelComposerLocked() {
   if (state.activeKind !== 'channel') return false;
-  // Open channel without detail (loading failed / mid-open): do not pretend writable.
+  // Open channel without detail (loading / mid-open): do not pretend writable.
   if (!state.channelDetail) return !!state.activeId;
   return !isChannelStatusWritable(state.channelDetail.status);
 }
 
 function channelComposerLockReason() {
   if (!isChannelComposerLocked()) return '';
-  var s = state.channelDetail && state.channelDetail.status;
+  var detail = state.channelDetail;
+  var s = detail && detail.status;
   if (s === 'closed') {
     return lang.closedComposer || lang.composerClosed || lang.closed || '';
   }
-  if (s === 'pending' || s === 'rejected') {
-    return lang.channelNotAccepted || lang.pending || '';
+  if (s === 'pending') {
+    // Remote-initiated: need Accept. Local-initiated: wait for peer.
+    if (detail && detail.initiated_by === 'remote') {
+      return lang.channelNotAccepted || lang.pending || '';
+    }
+    return lang.pendingConfirm || lang.pending || lang.channelNotAccepted || '';
   }
-  if (!state.channelDetail) {
+  if (s === 'rejected') {
+    return lang.channelNotAccepted || lang.closedComposer || lang.closed || '';
+  }
+  if (!detail) {
     return lang.loadFail || lang.channelNotAccepted || '';
   }
   return lang.channelNotAccepted || lang.closedComposer || lang.composerClosed || '';
@@ -5908,6 +5916,7 @@ async function doLeaveRoom() {
       sideLeave.classList.remove('sidebar-hidden-mobile');
       aroPlayEnter(sideLeave, 'aro-panel-enter');
     }
+    updateSendState();
     loadConversations();
   } catch (e) {
     notifyError(lang.leaveFail || lang.sendFail || 'Leave failed', e);
