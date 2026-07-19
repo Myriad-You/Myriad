@@ -4072,21 +4072,17 @@ const DiscordWidget = memo(({ data, showOverview, onContentChange }: any) => {
     }
   }, [showOverview, slideIndex, flipItems, onContentChange])
 
-  const memberReach = Number(stats.member_reach) || 0
-
   // No guilds for detail face → keep overview (stats/profile) instead of empty icon
   if (showOverview || flipItems.length === 0) {
     const displayName =
       profile.display_name || profile.username || 'Discord'
+    // 概览小统计：服务器数 + 绑定数（触达 member_reach 对用户无意义，不展示）
     const statsParts = (
       [
         [Number(stats.guilds) || 0, t.reportCardWidget.discordGuilds],
-        memberReach > 0
-          ? [memberReach, t.reportCardWidget.discordReach]
-          : null,
         [Number(stats.connections) || 0, t.reportCardWidget.discordConnections],
-      ].filter(Boolean) as [number, string][]
-    ).filter(([value]) => value != null)
+      ] as [number, string][]
+    ).filter(([value]) => value > 0)
 
     return (
       <div className="relative h-full w-full overflow-hidden">
