@@ -769,10 +769,18 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .dark .conv-unread .conv-preview{color:rgba(255,255,255,.78)}
 
 /* ===== Empty State ===== */
-.empty-state{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:32px 20px;color:var(--text-secondary,#999)}
-.empty-icon{width:48px;height:48px;border-radius:14px;background:rgba(var(--tapp-primary-rgb,128,128,128),.06);display:flex;align-items:center;justify-content:center;font-size:0;margin-bottom:6px;color:var(--text-secondary,#999)}
-.empty-icon svg{width:22px;height:22px;stroke-width:1.8}
-.empty-text{margin:0;font-size:13px;line-height:1.5;font-weight:400;color:var(--text-secondary,#999);text-align:center;max-width:260px}
+.empty-state{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:40px 24px;color:var(--text-secondary,#999)}
+.empty-icon{width:56px;height:56px;border-radius:16px;background:rgba(var(--tapp-primary-rgb,128,128,128),.07);display:flex;align-items:center;justify-content:center;font-size:0;margin-bottom:4px;color:var(--text-secondary,#888);box-shadow:inset 0 0 0 1px rgba(128,128,128,.06)}
+.empty-icon svg{width:24px;height:24px;stroke-width:1.8}
+.empty-text{margin:0;font-size:14px;line-height:1.55;font-weight:500;color:var(--text-secondary,#777);text-align:center;max-width:280px}
+.aro-empty-stack{display:flex;flex-direction:column;align-items:center;gap:8px;max-width:240px;padding:12px 8px;text-align:center}
+.aro-empty-stack .aro-empty-mark{margin-bottom:2px}
+.aro-empty-title{font-size:14px;font-weight:700;color:var(--text-primary,#222);letter-spacing:-.01em}
+.aro-empty-hint{font-size:12.5px;line-height:1.5;color:var(--text-secondary,#888);font-weight:450}
+.dark .aro-empty-title{color:rgba(255,255,255,.9)}
+.dark .aro-empty-hint{color:rgba(255,255,255,.5)}
+.ring-peer-avatar{border-radius:10px!important;font-size:14px!important}
+.ring-peer-item{animation-fill-mode:both}
 
 /* ===== Chat Container ===== */
 .chat-container{flex:1;min-height:0;display:flex;flex-direction:column;position:relative}
@@ -1242,10 +1250,12 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 }
 
 /* Dialogs / sheets / confirm / menus */
+.create-overlay.aro-overlay-enter{animation:aroFadeIn var(--aro-dur) ease both}
+.create-dialog.aro-dialog-enter{animation:aroScaleIn var(--aro-dur) var(--aro-ease) both}
 .create-overlay{animation:aroFadeIn var(--aro-dur) ease both}
 .create-dialog{animation:aroScaleIn var(--aro-dur) var(--aro-ease) both}
-.create-overlay.aro-leaving{animation:aroFadeOut 160ms ease both;pointer-events:none}
-.create-overlay.aro-leaving .create-dialog{animation:aroScaleOut 160ms ease both}
+.create-overlay.aro-leaving{animation:aroFadeOut 180ms ease both;pointer-events:none}
+.create-overlay.aro-leaving .create-dialog{animation:aroScaleOut 180ms ease both}
 
 .confirm-overlay{animation:aroFadeIn .16s ease both}
 .confirm-dialog{animation:aroScaleIn .16s var(--aro-ease) both}
@@ -1345,6 +1355,8 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
   .aro-panel-enter,
   .aro-compose-enter,
   .aro-content-enter,
+  .aro-overlay-enter,
+  .aro-dialog-enter,
   .aro-attach-enter,
   .msg-appear,
   .feed-composer.aro-leaving,
@@ -1456,12 +1468,17 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "editRoom": "Edit group",
     "emptyChatHint": "No messages yet — say hello",
     "emptyFollowers": "No followers yet",
+    "emptyFollowersHint": "Share your profile so others can find you",
     "emptyFollowing": "You're not following anyone",
+    "emptyFollowingHint": "Use + to follow someone by address",
     "emptyPeers": "No peers yet — add one below",
     "emptyPublished": "You haven't published anything",
+    "emptyPublishedHint": "Tap + to write your first post",
     "emptyRings": "No rings yet",
+    "emptyRingsHint": "Create a ring to connect instances",
     "emptyRoomHint": "No messages yet — start the conversation",
     "emptyTimeline": "Your feed is empty",
+    "emptyTimelineHint": "Follow people or publish a post to fill it",
     "expandDetails": "Show more",
     "feedAdd": "Add",
     "feedFollowers": "Followers",
@@ -1655,12 +1672,17 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "editRoom": "グループを編集",
     "emptyChatHint": "まだメッセージがありません。あいさつしてみましょう",
     "emptyFollowers": "フォロワーはまだいません",
+    "emptyFollowersHint": "プロフィールを共有して見つけてもらいましょう",
     "emptyFollowing": "まだ誰もフォローしていません",
+    "emptyFollowingHint": "+ からアドレスでフォローできます",
     "emptyPeers": "ピアはまだありません。下から追加できます",
     "emptyPublished": "公開したコンテンツはまだありません",
+    "emptyPublishedHint": "+ から最初の投稿を作成",
     "emptyRings": "リングはまだありません",
+    "emptyRingsHint": "リングを作成してインスタンスをつなげます",
     "emptyRoomHint": "まだメッセージがありません。会話を始めましょう",
     "emptyTimeline": "フィードはまだ空です",
+    "emptyTimelineHint": "フォローや投稿をするとここに表示されます",
     "expandDetails": "もっと見る",
     "feedAdd": "追加",
     "feedFollowers": "フォロワー",
@@ -1854,12 +1876,17 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "editRoom": "编辑群聊",
     "emptyChatHint": "还没有消息，打个招呼吧",
     "emptyFollowers": "还没有粉丝",
+    "emptyFollowersHint": "分享你的主页，让更多人发现你",
     "emptyFollowing": "还没有关注任何人",
+    "emptyFollowingHint": "点击 + 通过地址关注他人",
     "emptyPeers": "暂无节点，可在下方添加",
     "emptyPublished": "还没有发布过内容",
+    "emptyPublishedHint": "点击 + 发布第一条动态",
     "emptyRings": "暂无环网",
+    "emptyRingsHint": "创建环网以连接其他实例",
     "emptyRoomHint": "还没有消息，开始群聊吧",
     "emptyTimeline": "动态还是空的",
+    "emptyTimelineHint": "关注他人或发布内容后会出现在这里",
     "expandDetails": "展开",
     "feedAdd": "添加",
     "feedFollowers": "粉丝",
@@ -3301,9 +3328,10 @@ function renderConvList() {
   items.sort(function (a, b) { return (b.sortTime || '').localeCompare(a.sortTime || ''); });
 
   if (items.length === 0) {
-    list.innerHTML = '<div class="conv-empty conv-empty-fill"><span style="display:flex;flex-direction:column;gap:6px;align-items:center;max-width:200px">'
-      + '<span style="font-weight:600;font-size:13px;color:var(--text-primary,#333)">' + esc(lang.noConv) + '</span>'
-      + '<span style="font-size:12px;line-height:1.45;opacity:.8">' + esc(lang.noConvHint || '') + '</span></span></div>';
+    list.innerHTML = '<div class="conv-empty conv-empty-fill aro-empty-stack">'
+      + '<div class="aro-empty-mark" aria-hidden="true"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 4L12 13 2 4"/></svg></div>'
+      + '<div class="aro-empty-title">' + esc(lang.noConv) + '</div>'
+      + '<div class="aro-empty-hint">' + esc(lang.noConvHint || '') + '</div></div>';
     return;
   }
 
@@ -4771,6 +4799,9 @@ function showEditRoomDialog() {
   $('edit-room-desc').value = state.roomDetail.description || '';
   overlay.classList.remove('aro-leaving');
   overlay.style.display = 'flex';
+  var dialog = overlay.querySelector('.create-dialog');
+  aroPlayEnter(overlay, 'aro-overlay-enter');
+  if (dialog) aroPlayEnter(dialog, 'aro-dialog-enter');
 }
 
 function hideEditRoomDialog() {
@@ -4903,6 +4934,12 @@ function showCreateDialog() {
   if (overlay) {
     overlay.classList.remove('aro-leaving');
     overlay.style.display = 'flex';
+    // Restart enter animation every open
+    overlay.classList.remove('aro-overlay-enter');
+    var dialog = overlay.querySelector('.create-dialog');
+    if (dialog) dialog.classList.remove('aro-dialog-enter');
+    aroPlayEnter(overlay, 'aro-overlay-enter');
+    if (dialog) aroPlayEnter(dialog, 'aro-dialog-enter');
   }
   switchCreateTab('channel');
 }
@@ -5136,10 +5173,17 @@ function getFeedItems(sub) {
 }
 
 function getFeedEmptyText(sub) {
-  if (sub === 'following') return lang.emptyFollowing || 'Not following anyone';
+  if (sub === 'following') return lang.emptyFollowing || 'Not following anyone yet';
   if (sub === 'followers') return lang.emptyFollowers || 'No followers yet';
   if (sub === 'published') return lang.emptyPublished || 'Nothing published yet';
   return lang.emptyTimeline || 'Your feed is empty';
+}
+
+function getFeedEmptyHint(sub) {
+  if (sub === 'following') return lang.emptyFollowingHint || lang.followPlaceholder || '';
+  if (sub === 'followers') return lang.emptyFollowersHint || '';
+  if (sub === 'published') return lang.emptyPublishedHint || lang.composePost || '';
+  return lang.emptyTimelineHint || lang.composePlaceholder || '';
 }
 
 function showFeedEmpty(message, kind) {
@@ -5150,15 +5194,16 @@ function showFeedEmpty(message, kind) {
   empty.style.display = '';
   empty.classList.toggle('feed-empty-error', kind === 'error');
   empty.classList.toggle('feed-empty-loading', kind === 'loading');
-  // 普通空态不重复视图标题（头部已有），只在错误时显示标题行
   var title = $('feed-empty-title');
   if (title) {
+    title.style.display = '';
     if (kind === 'error') {
-      title.style.display = '';
       title.textContent = lang.feedLoadFail || lang.disconnected || 'Load failed';
     } else {
-      title.style.display = 'none';
-      title.textContent = '';
+      // Use section title so empty state has clear hierarchy under sticky header
+      title.textContent = (typeof getFeedTitle === 'function')
+        ? getFeedTitle(state.feedSubTab)
+        : (lang.feedTimeline || '');
     }
   }
   var text = $('feed-empty-text');
@@ -5172,6 +5217,7 @@ function showFeedEmpty(message, kind) {
       retry.addEventListener('click', function () { loadFeedSubTab(); });
     }
   }
+  aroPlayEnter(empty, 'aro-panel-enter');
 }
 
 function renderFeedSkeleton() {
@@ -5227,7 +5273,10 @@ function renderFeedContent() {
 
   if (!items || items.length === 0) {
     content.innerHTML = '';
-    showFeedEmpty(getFeedEmptyText(sub), 'empty');
+    var emptyMsg = getFeedEmptyText(sub);
+    var hint = getFeedEmptyHint(sub);
+    if (hint) emptyMsg = emptyMsg + (emptyMsg ? ' — ' : '') + hint;
+    showFeedEmpty(emptyMsg, 'empty');
     return;
   }
 
@@ -5858,9 +5907,10 @@ function renderRingsSidebar() {
   var list = $('ring-list');
   if (!list) return;
   if (state.rings.length === 0) {
-    list.innerHTML = '<div class="conv-empty conv-empty-fill"><span id="ring-empty-text">'
-      + esc(lang.emptyRings)
-      + '<br><span style="font-size:11px;opacity:.75">' + esc(lang.createRingTitle || '') + '</span></span></div>';
+    list.innerHTML = '<div class="conv-empty conv-empty-fill aro-empty-stack" id="ring-empty-text">'
+      + '<div class="aro-empty-mark" aria-hidden="true"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M0 15L24 9"/></svg></div>'
+      + '<div class="aro-empty-title">' + esc(lang.emptyRings) + '</div>'
+      + '<div class="aro-empty-hint">' + esc(lang.emptyRingsHint || lang.createRingTitle || '') + '</div></div>';
     return;
   }
   var typeIcons = { 'brew-recommend': SVG_ICONS.coffee, 'tapp-store': SVG_ICONS.puzzle, 'library-exchange': SVG_ICONS.library, 'instance-directory': SVG_ICONS.globe };
@@ -6024,23 +6074,31 @@ function renderRingDetail() {
 
   if (state.ringPeers.length === 0) {
     peersList.innerHTML = '';
-    if (peersEmpty) { peersEmpty.style.display = ''; peersEmpty.querySelector('span').textContent = lang.emptyPeers; }
+    if (peersEmpty) {
+      peersEmpty.style.display = '';
+      var pe = peersEmpty.querySelector('[data-i18n-empty-peers]') || peersEmpty.querySelector('span');
+      if (pe) pe.textContent = lang.emptyPeers;
+    }
     return;
   }
   if (peersEmpty) peersEmpty.style.display = 'none';
 
   var html = '';
-  state.ringPeers.forEach(function (peer) {
+  state.ringPeers.forEach(function (peer, idx) {
     var url = peer.actor_url || peer.peer_url || peer.url || peer;
     var urlStr = typeof url === 'string' ? url : JSON.stringify(url);
-    var initial = SVG_ICONS.globe;
-    html += '<div class="member-item">'
-      + '<div class="member-avatar" style="border-radius:6px;font-size:12px">' + initial + '</div>'
+    var label = peer.display_name || peer.name || '';
+    if (!label && typeof urlStr === 'string') {
+      try { label = urlStr.replace(/^https?:\\/\\//, '').split('/').filter(Boolean).pop() || urlStr; } catch (e) { label = urlStr; }
+    }
+    html += '<div class="member-item ring-peer-item' + (idx < 8 ? ' msg-appear' : '') + '" style="animation-delay:' + Math.min(idx, 6) * 30 + 'ms">'
+      + '<div class="member-avatar ring-peer-avatar">' + SVG_ICONS.globe + '</div>'
       + '<div class="member-info">'
-      + '<div class="member-name">' + esc(urlStr) + '</div>'
+      + '<div class="member-name">' + esc(label) + '</div>'
+      + (label !== urlStr ? '<div class="member-role">' + esc(urlStr) + '</div>' : '')
       + '</div>'
-      + (state.isAdmin ? '<button class="member-kick ring-peer-remove-btn" data-peer-url="' + esc(typeof url === 'string' ? url : '') + '" title="Remove">'
-      + '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>'
+      + (state.isAdmin ? '<button type="button" class="member-kick ring-peer-remove-btn" data-peer-url="' + esc(typeof url === 'string' ? url : '') + '" title="' + esc(lang.kick || 'Remove') + '" aria-label="' + esc(lang.kick || 'Remove') + '">'
+      + '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>'
       + '</button>' : '')
       + '</div>';
   });
@@ -6125,6 +6183,9 @@ const PAGE_MOD_EVENTS = `\
     if (d) {
       d.classList.remove('aro-leaving');
       d.style.display = 'flex';
+      var dlg = d.querySelector('.create-dialog');
+      aroPlayEnter(d, 'aro-overlay-enter');
+      if (dlg) aroPlayEnter(dlg, 'aro-dialog-enter');
     }
   });
   var ringCreateClose = $('ring-create-close');
