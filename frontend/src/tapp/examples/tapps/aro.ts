@@ -3682,8 +3682,11 @@ function openTappPicker(icons, titles, iconColors) {
           console.warn('[Aro] resolveStoreSource failed', e);
         })
       : Promise.resolve();
+    // Package snapshot for reliability (storeSource remains P0). Cap under
+    // channel/room 32 MiB payload + bridge envelope (bridge / backend).
+    var TAPP_SHARE_PACKAGE_MAX = 28 * 1024 * 1024;
     var resolvePkg = (typeof Tapp.tappList !== 'undefined' && typeof Tapp.tappList.getInstallPackage === 'function')
-      ? Tapp.tappList.getInstallPackage(selectedTapp.id, { maxBytes: 8 * 1024 * 1024 })
+      ? Tapp.tappList.getInstallPackage(selectedTapp.id, { maxBytes: TAPP_SHARE_PACKAGE_MAX })
           .then(function (pkgRes) {
             if (pkgRes && pkgRes.package) {
               pending.installPackage = pkgRes.package;

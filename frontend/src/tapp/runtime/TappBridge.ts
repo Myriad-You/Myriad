@@ -270,22 +270,28 @@ export class TappBridge {
     }
 
     // payload 大小检查（防止内存攻击）
-    // 默认 1 MiB；file.download / federation.uploadMedia / package share 有专用上限。
+    // 默认 1 MiB；action-specific higher caps (media / packages / chat) —
+    // tens of MiB, not unbounded. Align with backend where applicable.
     if (msg.payload !== undefined) {
       if (msg.action === 'file.download') {
+        // Align with multi-MB package / attachment downloads (32 MiB).
+        const MAX_FILE_DOWNLOAD_BYTES = 32 * 1024 * 1024
         const args = (msg.payload as { args?: unknown[] }).args
         const options = args?.[0] as Record<string, unknown> | undefined
         if (
           !options ||
           typeof options.content !== 'string' ||
-          new Blob([options.content]).size > 10 * 1024 * 1024 ||
+          new Blob([options.content]).size > MAX_FILE_DOWNLOAD_BYTES ||
           typeof options.filename !== 'string' ||
           options.filename.length > 1024 ||
           (options.mimeType !== undefined &&
             (typeof options.mimeType !== 'string' ||
               options.mimeType.length > 256))
         ) {
-          return { valid: false, error: 'Invalid or oversized file payload' }
+          return {
+            valid: false,
+            error: `Invalid or oversized file payload (max ${MAX_FILE_DOWNLOAD_BYTES} bytes)`,
+          }
         }
       } else if (msg.action === 'federation.uploadMedia') {
         // Backend: image 10 MiB, video 50 MiB, route body 55 MiB.
@@ -348,18 +354,19 @@ export class TappBridge {
         msg.action === 'tappList.install' ||
         msg.action === 'tappList.getInstallPackage'
       ) {
-        // Channel/room message + direct install packages (raised further in later commit).
-        const MAX_FED_CHARS = 10 * 1024 * 1024 + 256 * 1024
+        // Channel/room MAX_MESSAGE_PAYLOAD = 32 MiB; direct install packages
+        // and store-share snapshots may be multi-MB after JSON encoding.
+        const MAX_PACKAGE_CHARS = 32 * 1024 * 1024 + 512 * 1024
         let payloadStr: string
         try {
           payloadStr = JSON.stringify(msg.payload)
         } catch {
           return { valid: false, error: 'Payload must be JSON-serializable' }
         }
-        if (payloadStr.length > MAX_FED_CHARS) {
+        if (payloadStr.length > MAX_PACKAGE_CHARS) {
           return {
             valid: false,
-            error: `Payload too large for ${msg.action} (max ~10 MiB)`,
+            error: `Payload too large for ${msg.action} (max ~32 MiB; got ${payloadStr.length} chars)`,
           }
         }
       } else {
@@ -371,7 +378,10 @@ export class TappBridge {
         }
         // 1 MiB 业务值额外保留 JSON envelope 余量。
         if (payloadStr.length > 1024 * 1024 + 64 * 1024) {
-          return { valid: false, error: 'Payload too large' }
+          return {
+            valid: false,
+            error: `Payload too large (max ~1 MiB for ${msg.action || 'this action'}; use action-specific APIs for media/packages)`,
+          }
         }
       }
     }

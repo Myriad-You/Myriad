@@ -315,7 +315,7 @@ pub async fn create_channel(
     // 创建新 Channel
     let channel_id = generate_channel_id();
     let properties = json!({
-        // Align with send_message MAX_MESSAGE_PAYLOAD (10 MiB)
+        // Align with send_message MAX_MESSAGE_PAYLOAD (32 MiB — Tapp package share)
         "maxMessageSize": MAX_MESSAGE_PAYLOAD,
         "supportedFormats": ["text/plain", "text/markdown", "application/json"]
     });
@@ -640,9 +640,9 @@ pub async fn close_channel(
 
 // ==================== 消息功能 ====================
 
-/// 最大消息载荷大小: 10 MiB（JSON 序列化后字符串长度）。
-/// 覆盖小文件内联 base64；更大附件走 file_transfer 分块。
-const MAX_MESSAGE_PAYLOAD: usize = 10 * 1024 * 1024;
+/// 最大消息载荷大小: 32 MiB（JSON 序列化后字符串长度）。
+/// 覆盖小文件内联 base64 与 Tapp 安装包快照分享；更大附件仍走 file_transfer 分块。
+const MAX_MESSAGE_PAYLOAD: usize = 32 * 1024 * 1024;
 
 /// 发送消息到 Channel
 pub async fn send_message(
