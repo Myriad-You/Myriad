@@ -206,29 +206,6 @@ const PAGE_HTML = `\
             </div>
           </div>
         </div>
-        <!-- Freeform note composer (owner only) -->
-        <div id="feed-composer" class="feed-composer" style="display:none">
-          <textarea id="feed-compose-text" class="feed-compose-text" rows="3" placeholder="分享点什么…"></textarea>
-          <div id="feed-compose-previews" class="feed-compose-previews"></div>
-          <div class="feed-compose-actions">
-            <div class="feed-compose-attach">
-              <button type="button" id="feed-compose-image-btn" class="feed-compose-tool" title="图片">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
-                <span id="feed-compose-image-label">图片</span>
-              </button>
-              <button type="button" id="feed-compose-video-btn" class="feed-compose-tool" title="视频">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M10 9l5 3-5 3V9z"/></svg>
-                <span id="feed-compose-video-label">视频</span>
-              </button>
-              <input id="feed-compose-image-input" type="file" accept="image/jpeg,image/png,image/gif,image/webp" multiple style="display:none" />
-              <input id="feed-compose-video-input" type="file" accept="video/mp4,video/webm,video/quicktime" multiple style="display:none" />
-            </div>
-            <div class="feed-compose-submit">
-              <button type="button" id="feed-compose-cancel" class="feed-compose-cancel">取消</button>
-              <button type="button" id="feed-compose-publish" class="feed-compose-publish">发布</button>
-            </div>
-          </div>
-        </div>
         <!-- Mobile tabs (visible only on small screens) -->
         <div class="feed-mobile-tabs" id="feed-mobile-tabs">
           <div class="feed-plus-wrap feed-plus-wrap-mobile" id="feed-plus-wrap-mobile" style="display:none">
@@ -389,6 +366,42 @@ const PAGE_HTML = `\
     </div>
   </div>
 
+  <!-- 发帖对话框（从 feed + 菜单打开；与关注弹窗同级） -->
+  <div id="feed-compose-dialog" class="create-overlay feed-compose-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="feed-compose-dialog-title">
+    <div class="create-dialog feed-compose-dialog">
+      <div class="create-dialog-header">
+        <div class="feed-compose-title-row">
+          <h3 id="feed-compose-dialog-title" class="create-dialog-title">发帖</h3>
+          <span id="feed-compose-draft-hint" class="feed-compose-draft-hint" hidden></span>
+        </div>
+        <button id="feed-compose-dialog-close" class="create-dialog-close" type="button" aria-label="Close">✕</button>
+      </div>
+      <div class="feed-compose-body">
+        <textarea id="feed-compose-text" class="feed-compose-text" rows="4" placeholder="分享点什么…"></textarea>
+        <div id="feed-compose-previews" class="feed-compose-previews"></div>
+        <div id="feed-compose-draft-notice" class="feed-compose-draft-notice" hidden></div>
+        <div class="feed-compose-actions">
+          <div class="feed-compose-attach">
+            <button type="button" id="feed-compose-image-btn" class="feed-compose-tool" title="图片">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+              <span id="feed-compose-image-label">图片</span>
+            </button>
+            <button type="button" id="feed-compose-video-btn" class="feed-compose-tool" title="视频">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M10 9l5 3-5 3V9z"/></svg>
+              <span id="feed-compose-video-label">视频</span>
+            </button>
+            <input id="feed-compose-image-input" type="file" accept="image/jpeg,image/png,image/gif,image/webp" multiple style="display:none" />
+            <input id="feed-compose-video-input" type="file" accept="video/mp4,video/webm,video/quicktime" multiple style="display:none" />
+          </div>
+          <div class="feed-compose-submit">
+            <button type="button" id="feed-compose-cancel" class="feed-compose-cancel">取消</button>
+            <button type="button" id="feed-compose-publish" class="feed-compose-publish">发布</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- 创建对话框 -->
   <div id="create-dialog" class="create-overlay" style="display:none">
     <div class="create-dialog">
@@ -532,16 +545,23 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .dark .feed-plus-menu{background:var(--bg-primary,#1a1a1a);border-color:rgba(255,255,255,.1);box-shadow:0 12px 32px rgba(0,0,0,.4)}
 .dark .feed-plus-item{color:rgba(255,255,255,.92)}
 .dark .feed-plus-item:hover{background:rgba(var(--tapp-primary-rgb,99,102,241),.16);color:var(--tapp-primary,#818cf8)}
-.feed-composer{padding:12px 16px;border-bottom:1px solid rgba(128,128,128,.08);background:rgba(255,255,255,.35);flex-shrink:0}
-.dark .feed-composer{background:rgba(0,0,0,.25);border-color:rgba(255,255,255,.06)}
-.feed-compose-text{width:100%;min-height:72px;resize:vertical;border:1px solid rgba(128,128,128,.15);border-radius:12px;padding:10px 12px;font-size:14px;line-height:1.5;background:rgba(255,255,255,.7);color:var(--text-primary,#1a1a1a);outline:none;font-family:inherit}
-.dark .feed-compose-text{background:rgba(20,20,20,.7);border-color:rgba(255,255,255,.1);color:rgba(255,255,255,.92)}
-.feed-compose-text:focus{border-color:var(--tapp-primary,#6366f1);box-shadow:0 0 0 3px rgba(99,102,241,.15)}
+/* Compose dialog (overlay sheet; same tier as follow dialog) */
+.feed-compose-dialog{width:min(440px,92vw);max-height:min(88vh,640px);padding:18px 18px 16px;display:flex;flex-direction:column;box-sizing:border-box}
+.feed-compose-title-row{display:flex;align-items:baseline;gap:8px;min-width:0;flex:1}
+.feed-compose-title-row .create-dialog-title{flex-shrink:0}
+.feed-compose-draft-hint{font-size:11px;font-weight:500;color:var(--tapp-primary,#6366f1);opacity:.9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.feed-compose-draft-hint[hidden],.feed-compose-draft-notice[hidden]{display:none!important}
+.feed-compose-body{display:flex;flex-direction:column;min-height:0;flex:1}
+.feed-compose-text{width:100%;min-height:100px;max-height:40vh;resize:vertical;border:1px solid rgba(128,128,128,.15);border-radius:12px;padding:10px 12px;font-size:14px;line-height:1.5;background:rgba(128,128,128,.03);color:var(--text-primary,#1a1a1a);outline:none;font-family:inherit;box-sizing:border-box}
+.dark .feed-compose-text{background:rgba(255,255,255,.03);border-color:rgba(255,255,255,.1);color:rgba(255,255,255,.92)}
+.feed-compose-text:focus{border-color:rgba(var(--tapp-primary-rgb,99,102,241),.45);box-shadow:0 0 0 3px rgba(99,102,241,.12)}
 .feed-compose-previews{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 .feed-compose-preview{position:relative;width:88px;height:88px;border-radius:10px;overflow:hidden;background:rgba(128,128,128,.08);border:1px solid rgba(128,128,128,.12)}
 .feed-compose-preview img,.feed-compose-preview video{width:100%;height:100%;object-fit:cover;display:block}
 .feed-compose-preview-remove{position:absolute;top:4px;right:4px;width:22px;height:22px;border:none;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;cursor:pointer;font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center}
-.feed-compose-actions{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;flex-wrap:wrap}
+.feed-compose-draft-notice{margin-top:8px;padding:8px 10px;border-radius:10px;background:rgba(245,158,11,.1);color:#b45309;font-size:12px;line-height:1.4}
+.dark .feed-compose-draft-notice{background:rgba(245,158,11,.12);color:#fbbf24}
+.feed-compose-actions{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;flex-wrap:wrap}
 .feed-compose-attach{display:flex;gap:6px}
 .feed-compose-tool{display:inline-flex;align-items:center;gap:5px;padding:6px 10px;border-radius:8px;border:1px solid rgba(128,128,128,.12);background:transparent;color:var(--text-secondary,#666);font-size:12px;cursor:pointer}
 .feed-compose-tool:hover{border-color:var(--tapp-primary,#6366f1);color:var(--tapp-primary,#6366f1)}
@@ -549,6 +569,13 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .feed-compose-cancel{padding:7px 14px;border-radius:8px;border:1px solid rgba(128,128,128,.15);background:transparent;color:var(--text-secondary,#666);font-size:13px;cursor:pointer}
 .feed-compose-publish{padding:7px 16px;border-radius:8px;border:none;background:var(--tapp-primary,#6366f1);color:#fff;font-size:13px;font-weight:600;cursor:pointer}
 .feed-compose-publish:disabled,.feed-compose-cancel:disabled,.feed-compose-tool:disabled{opacity:.5;cursor:not-allowed}
+@media(max-width:768px){
+  .feed-compose-overlay{align-items:flex-end;justify-content:center;padding:0}
+  .feed-compose-dialog{width:100%;max-width:100%;min-height:0;max-height:92vh;border-radius:16px 16px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px))}
+  .feed-compose-dialog{animation:aroSlideUp var(--aro-dur) var(--aro-ease) both}
+  .feed-compose-overlay.aro-leaving .feed-compose-dialog{animation:aroSheetOut 160ms ease both}
+  .feed-compose-text{min-height:120px;max-height:36vh}
+}
 .feed-item-media{margin-top:10px}
 .feed-item-media-single{display:block;border-radius:12px;overflow:hidden;background:rgba(128,128,128,.05)}
 .feed-item-media-single img,.feed-item-media-single video{display:block;width:100%;max-height:320px;object-fit:cover;vertical-align:middle}
@@ -1269,12 +1296,7 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .feed-plus-menu.aro-leaving{animation:aroFadeOut .1s ease both;pointer-events:none}
 .invite-popover{animation:aroPopIn .14s var(--aro-ease) both}
 
-/* Composer + attach */
-.feed-composer{
-  border-radius:0 0 14px 14px;
-  box-shadow:0 8px 24px rgba(0,0,0,.04);
-}
-.feed-composer.aro-compose-enter{animation:aroSlideUp .22s var(--aro-ease) both}
+/* Composer dialog + attach */
 .feed-compose-preview{animation:aroScaleIn .16s var(--aro-ease) both}
 .feed-compose-tool{transition:border-color .12s,color .12s,background .12s,transform .1s}
 .feed-compose-tool:active{transform:scale(.97)}
@@ -1348,7 +1370,6 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
   }
   .aro-view-enter,
   .aro-panel-enter,
-  .aro-compose-enter,
   .aro-attach-enter,
   .msg-appear,
   .feed-empty,.messages-empty,.conv-empty,
@@ -1373,6 +1394,7 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
   .forward-overlay.aro-leaving,
   .msg-ctx-menu.aro-leaving,
   .create-overlay.aro-leaving .create-dialog,
+  .feed-compose-overlay.aro-leaving .feed-compose-dialog,
   .confirm-overlay.aro-leaving .confirm-dialog,
   .picker-overlay.aro-leaving .picker-sheet,
   .forward-overlay.aro-leaving .forward-sheet{
@@ -1443,6 +1465,9 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "composeAddImage": "Image",
     "composeAddVideo": "Video",
     "composeCancel": "Cancel",
+    "composeDialogTitle": "New post",
+    "composeDraftRestored": "Draft restored",
+    "composeDraftTextOnly": "Draft kept text only — re-attach media if needed",
     "composeEmpty": "Write something or add media",
     "composeFail": "Couldn't publish",
     "composePlaceholder": "What's on your mind?",
@@ -1669,6 +1694,9 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "composeAddImage": "画像",
     "composeAddVideo": "動画",
     "composeCancel": "キャンセル",
+    "composeDialogTitle": "投稿を作成",
+    "composeDraftRestored": "下書きを復元しました",
+    "composeDraftTextOnly": "下書きは文字のみ保存されています — 必要ならメディアを再添付してください",
     "composeEmpty": "テキストか画像/動画を追加してください",
     "composeFail": "公開に失敗しました",
     "composePlaceholder": "いまどうしてる？",
@@ -1895,6 +1923,9 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "composeAddImage": "图片",
     "composeAddVideo": "视频",
     "composeCancel": "取消",
+    "composeDialogTitle": "发帖",
+    "composeDraftRestored": "已恢复草稿",
+    "composeDraftTextOnly": "草稿仅保留文字，请重新添加附件",
     "composeEmpty": "写点文字或添加图片/视频",
     "composeFail": "发布失败",
     "composePlaceholder": "分享此刻的想法…",
@@ -3040,6 +3071,8 @@ function applyLabels() {
   el = $('feed-plus-follow'); if (el) el.setAttribute('aria-label', lang.followBtn || 'Follow');
   el = $('feed-plus-post-mobile'); if (el) el.setAttribute('aria-label', lang.composePost || 'Post');
   el = $('feed-plus-follow-mobile'); if (el) el.setAttribute('aria-label', lang.followBtn || 'Follow');
+  el = $('feed-compose-dialog-title'); if (el) el.textContent = lang.composeDialogTitle || lang.composePost || 'Post';
+  el = $('feed-compose-dialog-close'); if (el) el.setAttribute('aria-label', lang.composeCancel || lang.close || 'Close');
   el = $('feed-compose-text'); if (el) el.placeholder = lang.composePlaceholder || '';
   el = $('feed-compose-image-label'); if (el) el.textContent = lang.composeAddImage || 'Image';
   el = $('feed-compose-image-btn'); if (el) el.setAttribute('title', lang.composeAddImage || 'Image');
@@ -3047,6 +3080,10 @@ function applyLabels() {
   el = $('feed-compose-video-btn'); if (el) el.setAttribute('title', lang.composeAddVideo || 'Video');
   el = $('feed-compose-cancel'); if (el) el.textContent = lang.composeCancel || 'Cancel';
   el = $('feed-compose-publish'); if (el) el.textContent = lang.composePublish || 'Publish';
+  el = $('feed-compose-draft-hint');
+  if (el && !el.hidden) el.textContent = lang.composeDraftRestored || 'Draft restored';
+  el = $('feed-compose-draft-notice');
+  if (el && !el.hidden) el.textContent = lang.composeDraftTextOnly || '';
   el = $('refresh-feed-btn'); if (el) { el.setAttribute('title', lang.refresh); el.setAttribute('aria-label', lang.refresh); }
   el = $('refresh-feed-mobile-btn'); if (el) { el.setAttribute('title', lang.refresh); el.setAttribute('aria-label', lang.refresh); }
   el = $('feed-section-title');
@@ -6500,6 +6537,9 @@ async function doFollow() {
 
 // ==================== Feed composer (freeform Note) ====================
 var composeAttachments = []; // { file, previewUrl, kind: 'image'|'video' }
+var COMPOSE_DRAFT_KEY = 'aro_compose_draft';
+/** Track whether last storage restore lacked attachable files. */
+var composeDraftTextOnly = false;
 
 /**
  * Contextual + menu (owner feed only):
@@ -6517,6 +6557,121 @@ function canFollowFromFeed() {
   return !state.isGuest
     && state.currentView === 'feed'
     && state.feedSubTab === 'following';
+}
+
+function isComposeBusy() {
+  var publishBtn = $('feed-compose-publish');
+  return !!(publishBtn && publishBtn.disabled);
+}
+
+function getComposeText() {
+  var ta = $('feed-compose-text');
+  return ta ? String(ta.value || '') : '';
+}
+
+function composeHasContent() {
+  return !!(getComposeText().trim() || composeAttachments.length);
+}
+
+function setComposeDraftHint(visible) {
+  var hint = $('feed-compose-draft-hint');
+  if (!hint) return;
+  if (visible) {
+    hint.textContent = lang.composeDraftRestored || 'Draft restored';
+    hint.hidden = false;
+  } else {
+    hint.hidden = true;
+    hint.textContent = '';
+  }
+}
+
+function setComposeDraftNotice(visible) {
+  var notice = $('feed-compose-draft-notice');
+  if (!notice) return;
+  if (visible) {
+    notice.textContent = lang.composeDraftTextOnly || 'Draft kept text only';
+    notice.hidden = false;
+  } else {
+    notice.hidden = true;
+    notice.textContent = '';
+  }
+}
+
+function clearComposeForm() {
+  var ta = $('feed-compose-text');
+  if (ta) ta.value = '';
+  composeAttachments.forEach(function (a) {
+    if (a.previewUrl) try { URL.revokeObjectURL(a.previewUrl); } catch (e) {}
+  });
+  composeAttachments = [];
+  renderComposePreviews();
+  setComposeDraftHint(false);
+  setComposeDraftNotice(false);
+  composeDraftTextOnly = false;
+}
+
+function clearComposeDraftStorage() {
+  try {
+    if (Tapp.storage && typeof Tapp.storage.remove === 'function') {
+      Tapp.storage.remove(COMPOSE_DRAFT_KEY).catch(function () {});
+    }
+  } catch (e) { /* ignore */ }
+}
+
+/**
+ * Persist draft to Tapp.storage.
+ * Files cannot be reliably serialized — save text + fileNames metadata.
+ * Same-session attachments stay in memory (composeAttachments).
+ */
+function saveComposeDraftFromForm() {
+  if (!composeHasContent()) {
+    clearComposeDraftStorage();
+    return;
+  }
+  var payload = {
+    text: getComposeText(),
+    savedAt: Date.now(),
+    fileNames: composeAttachments.map(function (a) {
+      return (a.file && a.file.name) || a.name || '';
+    }).filter(Boolean)
+  };
+  try {
+    if (Tapp.storage && typeof Tapp.storage.set === 'function') {
+      Tapp.storage.set(COMPOSE_DRAFT_KEY, payload).catch(function () {});
+    }
+  } catch (e) { /* ignore */ }
+}
+
+/**
+ * Restore draft from storage when form is empty (e.g. after reload).
+ * Session attachments already in memory are kept as-is.
+ * @returns {Promise<boolean>} true if anything was restored
+ */
+async function restoreComposeDraft() {
+  var ta = $('feed-compose-text');
+  var hasSession = !!(ta && ta.value.trim()) || composeAttachments.length > 0;
+  if (hasSession) {
+    // Session still has content (dialog closed without clear).
+    if (composeHasContent()) setComposeDraftHint(true);
+    setComposeDraftNotice(composeDraftTextOnly && !composeAttachments.length);
+    return composeHasContent();
+  }
+  var draft = null;
+  try {
+    if (Tapp.storage && typeof Tapp.storage.get === 'function') {
+      draft = await Tapp.storage.get(COMPOSE_DRAFT_KEY);
+    }
+  } catch (e) { draft = null; }
+  if (!draft || typeof draft !== 'object') return false;
+  var text = typeof draft.text === 'string' ? draft.text : '';
+  var names = Array.isArray(draft.fileNames) ? draft.fileNames : [];
+  if (!text.trim() && !names.length) return false;
+  if (ta && text) ta.value = text;
+  // File blobs are not durable across reloads; only text is restored.
+  composeDraftTextOnly = names.length > 0;
+  setComposeDraftHint(true);
+  setComposeDraftNotice(composeDraftTextOnly);
+  return true;
 }
 
 function updateComposeButtonVisibility() {
@@ -6623,34 +6778,53 @@ function closeFollowDialog() {
 function openComposer() {
   if (!canComposePost()) return;
   closeFeedPlusMenu();
-  var el = $('feed-composer');
-  if (!el) return;
-  el.classList.remove('aro-leaving');
-  el.style.display = '';
-  aroPlayEnter(el, 'aro-compose-enter');
-  var ta = $('feed-compose-text');
-  if (ta) { ta.focus(); }
-}
-
-function closeComposer() {
-  var el = $('feed-composer');
-  var clear = function () {
-    var ta = $('feed-compose-text');
-    if (ta) ta.value = '';
-    composeAttachments.forEach(function (a) {
-      if (a.previewUrl) try { URL.revokeObjectURL(a.previewUrl); } catch (e) {}
-    });
-    composeAttachments = [];
-    renderComposePreviews();
-  };
-  if (!el || el.style.display === 'none') {
-    clear();
+  var d = $('feed-compose-dialog');
+  if (!d) return;
+  // Already open: just refocus, don't re-flash draft hints.
+  if (d.style.display !== 'none' && !d.classList.contains('aro-leaving')) {
+    var taOpen = $('feed-compose-text');
+    if (taOpen) {
+      try { taOpen.focus(); } catch (e) { /* ignore */ }
+    }
     return;
   }
-  // Instant hide for composer (inline panel); enter already animates open.
-  el.style.display = 'none';
-  el.classList.remove('aro-compose-enter');
-  clear();
+  d.classList.remove('aro-leaving');
+  d.style.display = 'flex';
+  // Restore draft (storage or in-session), then focus.
+  Promise.resolve(restoreComposeDraft()).then(function () {
+    var ta = $('feed-compose-text');
+    if (ta) {
+      try { ta.focus(); } catch (e) { /* ignore */ }
+    }
+  }).catch(function () {
+    var ta = $('feed-compose-text');
+    if (ta) {
+      try { ta.focus(); } catch (e) { /* ignore */ }
+    }
+  });
+}
+
+/**
+ * Close compose dialog.
+ * @param {{ clear?: boolean }} opts  clear=true after successful publish (wipe form + storage).
+ *   Default: auto-save draft when there is content (do not silent-drop).
+ */
+function closeComposer(opts) {
+  opts = opts || {};
+  if (isComposeBusy() && !opts.clear) return;
+  var d = $('feed-compose-dialog');
+  if (opts.clear) {
+    clearComposeForm();
+    clearComposeDraftStorage();
+  } else {
+    // Auto-save on dismiss when user has typed / attached.
+    saveComposeDraftFromForm();
+    // Keep form values in DOM for same-session re-open; only hide draft banners.
+    setComposeDraftHint(false);
+    // Keep text-only notice state for next open if attachments still missing.
+  }
+  if (!d || d.style.display === 'none') return;
+  aroDismiss(d, { ms: 160 });
 }
 
 function renderComposePreviews() {
@@ -6783,7 +6957,8 @@ async function publishComposeNote() {
         visibility: 'public'
       });
     }
-    closeComposer();
+    // Success: wipe draft + form (do not re-save published content).
+    closeComposer({ clear: true });
     try {
       Tapp.ui.showNotification({ title: lang.composeSuccess || 'OK', type: 'success' });
     } catch (e2) {}
@@ -7209,6 +7384,12 @@ const PAGE_MOD_EVENTS = `\
       closeFeedPlusMenu();
       return;
     }
+    var composeDlg = $('feed-compose-dialog');
+    if (composeDlg && composeDlg.style.display !== 'none') {
+      e.preventDefault();
+      closeComposer();
+      return;
+    }
     var followDlg = $('feed-follow-dialog');
     if (followDlg && followDlg.style.display !== 'none') {
       e.preventDefault();
@@ -7216,9 +7397,15 @@ const PAGE_MOD_EVENTS = `\
     }
   });
 
-  // Feed freeform note composer
+  // Feed freeform note composer (modal)
   var composeCancel = $('feed-compose-cancel');
-  if (composeCancel) composeCancel.addEventListener('click', closeComposer);
+  if (composeCancel) composeCancel.addEventListener('click', function () { closeComposer(); });
+  var composeDialogClose = $('feed-compose-dialog-close');
+  if (composeDialogClose) composeDialogClose.addEventListener('click', function () { closeComposer(); });
+  var composeOverlay = $('feed-compose-dialog');
+  if (composeOverlay) composeOverlay.addEventListener('click', function (e) {
+    if (e.target === composeOverlay) closeComposer();
+  });
   var composePublish = $('feed-compose-publish');
   if (composePublish) composePublish.addEventListener('click', publishComposeNote);
   var composeImageBtn = $('feed-compose-image-btn');
@@ -7228,6 +7415,11 @@ const PAGE_MOD_EVENTS = `\
     composeImageInput.addEventListener('change', function () {
       addComposeFiles(composeImageInput.files, 'image');
       composeImageInput.value = '';
+      // New attach clears "text-only draft" notice for this session.
+      if (composeAttachments.length) {
+        composeDraftTextOnly = false;
+        setComposeDraftNotice(false);
+      }
     });
   }
   var composeVideoBtn = $('feed-compose-video-btn');
@@ -7237,6 +7429,10 @@ const PAGE_MOD_EVENTS = `\
     composeVideoInput.addEventListener('change', function () {
       addComposeFiles(composeVideoInput.files, 'video');
       composeVideoInput.value = '';
+      if (composeAttachments.length) {
+        composeDraftTextOnly = false;
+        setComposeDraftNotice(false);
+      }
     });
   }
   document.querySelectorAll('[data-fed-toggle]').forEach(function (summary) {
