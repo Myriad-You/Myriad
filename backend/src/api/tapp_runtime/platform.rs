@@ -218,10 +218,8 @@ fn slugify_fragment(s: &str) -> String {
     for c in s.chars() {
         if c.is_ascii_alphanumeric() {
             out.push(c.to_ascii_lowercase());
-        } else if c == '-' || c == '_' || c.is_whitespace() {
-            if !out.ends_with('_') {
-                out.push('_');
-            }
+        } else if (c == '-' || c == '_' || c.is_whitespace()) && !out.ends_with('_') {
+            out.push('_');
         }
     }
     let trimmed = out.trim_matches('_');
