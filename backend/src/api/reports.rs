@@ -98,6 +98,25 @@ fn default_key_metric() -> String {
     "数据洞察".to_string()
 }
 
+/// User id under which public platform reports are stored.
+/// Prefer durable site owner so home ReportCards (which always *read* owner
+/// reports) find rows written by any admin who generates them.
+async fn report_storage_user_id(db: &DatabaseConnection, actor_id: i32) -> i32 {
+    match crate::api::profile::site_owner_user_id(db).await {
+        Ok(owner_id) => {
+            if owner_id != actor_id {
+                tracing::info!(
+                    "Storing platform reports under site owner {} (actor was {})",
+                    owner_id,
+                    actor_id
+                );
+            }
+            owner_id
+        }
+        Err(_) => actor_id,
+    }
+}
+
 /// 生成平台报告（第一层）
 /// POST /api/reports/platform
 pub async fn generate_platform_reports(
@@ -109,10 +128,11 @@ pub async fn generate_platform_reports(
     tracing::info!("   Platforms: {:?}", req.platforms);
     tracing::info!("   User: {} (ID: {})", claims.username, claims.sub);
 
-    let user_id = claims.sub.parse::<i32>().map_err(|e| {
+    let actor_id = claims.sub.parse::<i32>().map_err(|e| {
         tracing::error!("❌ Failed to parse user_id: {}", e);
         StatusCode::UNAUTHORIZED
     })?;
+    let user_id = report_storage_user_id(&db, actor_id).await;
 
     let (platform_reports, skipped) =
         generate_platform_reports_internal(&db, user_id, req.platforms.clone()).await;
@@ -1154,10 +1174,11 @@ pub async fn generate_comprehensive_report(
     Extension(claims): Extension<Claims>,
     Json(req): Json<GenerateComprehensiveReportRequest>,
 ) -> Result<Json<Value>, StatusCode> {
-    let user_id = claims
+    let actor_id = claims
         .sub
         .parse::<i32>()
         .map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = report_storage_user_id(&db, actor_id).await;
 
     // 1. 获取平台报告：如果请求中没有，则从数据库获取最新的
     let platform_reports = if let Some(reports) = req.platform_reports {
@@ -1426,10 +1447,11 @@ pub async fn generate_all_reports(
     Extension(claims): Extension<Claims>,
     Json(req): Json<GenerateAllReportsRequest>,
 ) -> Result<Json<Value>, StatusCode> {
-    let user_id = claims
+    let actor_id = claims
         .sub
         .parse::<i32>()
         .map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = report_storage_user_id(&db, actor_id).await;
 
     // 1. 获取用户启用的所有平台
     let config = GLOBAL_DYNAMIC_CONFIG.read().await;

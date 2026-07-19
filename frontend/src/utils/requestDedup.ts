@@ -185,11 +185,15 @@ export async function getUIConfigDeduped(): Promise<any> {
 
 /**
  * 获取最新报告（去重）
- * 缓存 30 秒
+ * 有有效 platform_reports 时缓存 30 秒；空结果不缓存，避免首页在生成报告后
+ * 仍读到「无报告」缓存导致 ReportCard 空白。
  */
-export async function getLatestReportDeduped(): Promise<any> {
-  return dedupedFetch(
-    `${API_URL}/api/reports/latest`,
+export async function getLatestReportDeduped(
+  options: { forceRefresh?: boolean } = {},
+): Promise<any> {
+  const cacheKey = `${API_URL}/api/reports/latest`
+  const data = await dedupedFetch(
+    cacheKey,
     async () => {
       const response = await fetch(`${API_URL}/api/reports/latest`, {
         credentials: 'include',
@@ -197,8 +201,26 @@ export async function getLatestReportDeduped(): Promise<any> {
       if (!response.ok) throw new Error('Failed to fetch latest report')
       return response.json()
     },
-    { cacheTTL: 30 * 1000 },
+    { cacheTTL: 30 * 1000, forceRefresh: options.forceRefresh },
   )
+
+  // Drop empty / failed payloads from the result cache so the next home widget
+  // mount re-fetches after the owner generates reports.
+  const reports = data?.platform_reports
+  const empty =
+    !data ||
+    data.success === false ||
+    !Array.isArray(reports) ||
+    reports.length === 0
+  if (empty) {
+    clearDedupCache(cacheKey)
+  }
+  return data
+}
+
+/** Invalidate cached latest-report payload (call after generate). */
+export function invalidateLatestReportCache(): void {
+  clearDedupCache(`${API_URL}/api/reports/latest`)
 }
 
 /**

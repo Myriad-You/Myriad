@@ -208,4 +208,33 @@ describe('pickPlatformCardVisuals', () => {
       total_stars: 42,
     })
   })
+
+  it('skips empty card_visuals {} and uses content.card_visuals instead', () => {
+    const picked = pickPlatformCardVisuals(
+      {
+        success: true,
+        platform_reports: [
+          {
+            platform: 'steam',
+            card_visuals: {},
+            content: {
+              card_visuals: { hardcore_score: 88, games_count: 40 },
+            },
+          },
+        ],
+      },
+      'steam',
+    )
+    assert.deepEqual(picked, { hardcore_score: 88, games_count: 40 })
+  })
+
+  it('accepts flat stats fields (games_count / stats) without hardcore_score', () => {
+    assert.deepEqual(
+      extractCardVisuals({ games_count: 12, player_type: 'casual' }),
+      { games_count: 12, player_type: 'casual' },
+    )
+    assert.deepEqual(extractCardVisuals({ stats: { guilds: 4 } }), {
+      stats: { guilds: 4 },
+    })
+  })
 })

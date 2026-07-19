@@ -57,7 +57,12 @@ export function extractCardVisuals(
     if (typeof raw === 'string') {
       try {
         const parsed = JSON.parse(raw) as unknown
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        if (
+          parsed &&
+          typeof parsed === 'object' &&
+          !Array.isArray(parsed) &&
+          Object.keys(parsed as object).length > 0
+        ) {
           return parsed as Record<string, unknown>
         }
       } catch {
@@ -65,7 +70,12 @@ export function extractCardVisuals(
       }
       continue
     }
-    if (typeof raw === 'object' && !Array.isArray(raw)) {
+    // Skip empty {} so later candidates (content.card_visuals, etc.) still win
+    if (
+      typeof raw === 'object' &&
+      !Array.isArray(raw) &&
+      Object.keys(raw as object).length > 0
+    ) {
       return raw as Record<string, unknown>
     }
   }
@@ -79,7 +89,15 @@ export function extractCardVisuals(
     r.player_type != null ||
     r.contribution_level != null ||
     r.taste_profile != null ||
-    r.vibe != null
+    r.vibe != null ||
+    r.games_count != null ||
+    r.gamerscore != null ||
+    r.total_contributions != null ||
+    r.stats != null ||
+    r.gamer_type != null ||
+    r.hunter_type != null ||
+    r.online_id != null ||
+    r.gamertag != null
   if (looksLikeVisuals && r.summary == null && r.insights == null) {
     return r
   }
@@ -140,11 +158,16 @@ export function pickPlatformCardVisuals(
   if (!report) return null
 
   // Prefer nested card_visuals; if the row *is* the visuals object (or nested
-  // under `report` / `data` from older writers), still recover stats.
+  // under report / content / data from older writers), still recover stats.
   let visuals = extractCardVisuals(report)
   if (!hasRenderableCardVisuals(visuals)) {
     const row = report as Record<string, unknown>
-    for (const nestedKey of ['report', 'data', 'payload'] as const) {
+    for (const nestedKey of [
+      'report',
+      'content',
+      'data',
+      'payload',
+    ] as const) {
       const nested = row[nestedKey]
       visuals = extractCardVisuals(nested)
       if (hasRenderableCardVisuals(visuals)) break

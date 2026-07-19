@@ -38,6 +38,7 @@ import Toast from '../components/Toast'
 import { ReportCardWidget } from '../components/widgets/ReportCardWidget'
 import { API_URL } from '../config'
 import { useAuth } from '../contexts/AuthContext'
+import { invalidateLatestReportCache } from '../utils/requestDedup'
 import { useI18n } from '../contexts/I18nContext'
 import { useSecondaryNav } from '../contexts/NavigationContext'
 import {
@@ -787,6 +788,8 @@ export default function Reports() {
         : undefined
 
       if (updatedPlatformReport) {
+        // Drop home-widget empty cache so own-page ReportCards re-fetch content
+        invalidateLatestReportCache()
         mergePlatformReport(updatedPlatformReport)
         setStageReportData({
           type: 'platform',
@@ -1039,6 +1042,7 @@ export default function Reports() {
           ? genBody.reports.find((r: PlatformReport) => r.platform === platformId)
           : undefined
         if (updated) {
+          invalidateLatestReportCache()
           mergePlatformReport(updated)
         }
       } catch (err) {
