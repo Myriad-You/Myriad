@@ -61,13 +61,30 @@ pub async fn list_reports(
 }
 
 fn platform_report_payload(report: &crate::models::entities::platform_reports::Model) -> Value {
+    // `report.report` is the stored PlatformReport JSON (summary/insights/card_visuals/…).
+    // Expose both nested `content` (legacy) and top-level card_visuals / cardVisuals so
+    // host + Tapp clients can render home/catalog cards without field-mapping bugs.
+    let card_visuals = report
+        .report
+        .get("card_visuals")
+        .cloned()
+        .filter(|v| !v.is_null())
+        .unwrap_or_else(|| json!({}));
+    let insights = report
+        .report
+        .get("insights")
+        .cloned()
+        .unwrap_or_else(|| json!([]));
     json!({
         "id": report.id,
         "platform": report.platform,
         "type": "platform",
         "summary": report.report.get("summary").and_then(Value::as_str).unwrap_or(""),
+        "insights": insights,
         "content": report.report,
         "metadata": report.metadata,
+        "card_visuals": card_visuals.clone(),
+        "cardVisuals": card_visuals,
         "createdAt": report.created_at.to_string()
     })
 }

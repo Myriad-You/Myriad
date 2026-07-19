@@ -1539,11 +1539,29 @@ pub async fn generate_all_reports(
 
 /// 获取最新的平台报告（只包含单平台报告，不包含综合报告）
 /// GET /api/reports/latest
-/// 支持未认证访问，默认返回管理员（user_id=1）的报告
+/// Public home / report cards: always return the **site owner's** platform reports
+/// (same authority as `/api/user`, library, activities). Do not switch to the
+/// viewer's user id when a session cookie is present — logged-in guests would
+/// otherwise get empty cards on the owner's dashboard.
 /// 过期报告自动重生成的在途去重表（key: "user_id:platform"）
 static REPORT_REGEN_IN_FLIGHT: once_cell::sync::Lazy<
     std::sync::Mutex<std::collections::HashSet<String>>,
 > = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
+
+/// Resolve which user's reports the public latest/list endpoints should serve.
+/// Prefers durable site owner; falls back to first admin / claims / 1.
+async fn public_report_owner_user_id(
+    db: &DatabaseConnection,
+    headers: &axum::http::HeaderMap,
+) -> i32 {
+    if let Ok(owner_id) = crate::api::profile::site_owner_user_id(db).await {
+        return owner_id;
+    }
+    crate::middleware::auth::extract_optional_claims(headers)
+        .and_then(|claims| claims.sub.parse::<i32>().ok())
+        .filter(|id| *id > 0)
+        .unwrap_or(1)
+}
 
 /// 读出旧报告时，用 filtered 缓存补齐 Xbox/PSN 封面/头像/库（避免必须重生成报告才有图）
 fn enrich_stored_platform_report(mut report: Value) -> Value {
@@ -1870,10 +1888,7 @@ pub async fn get_latest_report(
     State(db): State<DatabaseConnection>,
     headers: axum::http::HeaderMap,
 ) -> Result<Json<Value>, StatusCode> {
-    // 尝试从请求头提取用户信息，如果没有则使用默认user_id=1
-    let user_id = crate::middleware::auth::extract_optional_claims(&headers)
-        .and_then(|claims| claims.sub.parse::<i32>().ok())
-        .unwrap_or(1);
+    let user_id = public_report_owner_user_id(&db, &headers).await;
 
     // 获取所有单平台报告，保留每个平台最新的一份
     let user_reports = platform_reports::Entity::find()
@@ -1901,12 +1916,37 @@ pub async fn get_latest_report(
         }
         let expired_at = r.created_at + chrono::Duration::days(settings.expiry_days);
         let expired = settings.expiry_enabled && expired_at <= now;
+        // Always stamp `platform` from the row so home widgets can match even
+        // if an older stored JSON body is missing / mismatched the field.
+        let mut body = enrich_stored_platform_report(r.report);
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert("platform".to_string(), json!(r.platform.clone()));
+            // Normalize card_visuals: missing/null/string → object so home widgets
+            // always receive a renderable stats payload shape.
+            let normalized_visuals = match obj.get("card_visuals") {
+                Some(v) if v.is_object() => None,
+                Some(v) if v.is_string() => {
+                    // Tolerate double-encoded JSON strings from older writers
+                    let raw = v.as_str().unwrap_or("").to_string();
+                    Some(
+                        serde_json::from_str::<Value>(&raw)
+                            .ok()
+                            .filter(|parsed| parsed.is_object())
+                            .unwrap_or_else(|| json!({})),
+                    )
+                }
+                _ => Some(json!({})),
+            };
+            if let Some(visuals) = normalized_visuals {
+                obj.insert("card_visuals".to_string(), visuals);
+            }
+        }
         if !expired {
-            platform_reports_list.push(enrich_stored_platform_report(r.report));
+            platform_reports_list.push(body);
         } else if settings.auto_regenerate {
             // stale-while-revalidate：先返回旧报告，后台异步重新生成
             expired_platforms.push(r.platform.clone());
-            platform_reports_list.push(enrich_stored_platform_report(r.report));
+            platform_reports_list.push(body);
         }
         // 过期且未开自动重生成：直接隐藏
     }
@@ -1933,14 +1973,12 @@ pub async fn get_latest_report(
 
 /// 获取所有综合报告列表
 /// GET /api/reports/comprehensive/list
-/// 支持未认证访问，默认返回管理员（user_id=1）的报告
+/// Public: site owner's comprehensive reports (same owner resolution as /latest).
 pub async fn get_comprehensive_reports_list(
     State(db): State<DatabaseConnection>,
     headers: axum::http::HeaderMap,
 ) -> Result<Json<Value>, StatusCode> {
-    let user_id = crate::middleware::auth::extract_optional_claims(&headers)
-        .and_then(|claims| claims.sub.parse::<i32>().ok())
-        .unwrap_or(1);
+    let user_id = public_report_owner_user_id(&db, &headers).await;
 
     // 查找所有综合报告（platform="all"）
     let reports = platform_reports::Entity::find()
