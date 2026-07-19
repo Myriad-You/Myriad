@@ -3,7 +3,7 @@
  * Kept free of React so unit tests can cover the mapping edge cases.
  */
 
-export type WidgetConfigLike = {
+export interface WidgetConfigLike {
   type?: string
   config?: { platformId?: string; [key: string]: unknown }
 }
