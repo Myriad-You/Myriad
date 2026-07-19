@@ -316,7 +316,7 @@ export const FriendLinksWidget = memo(
     )
 
     const openBrew = useCallback(() => {
-      if (!isEditMode && !isPreview) navigate('/brew')
+      if (!isEditMode && !isPreview) navigate('/brew?category=friends')
     }, [isEditMode, isPreview, navigate])
 
     const openFriendLink = useCallback(
@@ -363,7 +363,7 @@ export const FriendLinksWidget = memo(
               type="button"
               onClick={openBrew}
               disabled={isEditMode || isPreview}
-              className="absolute inset-0 flex items-center justify-center rounded-xl border border-dashed border-black/8 px-3 text-[10px] text-gray-400 disabled:cursor-default dark:border-white/10 dark:text-gray-500"
+              className="absolute inset-0 flex cursor-pointer items-center justify-center rounded-xl border border-dashed border-black/8 px-3 text-[10px] text-gray-400 disabled:cursor-default dark:border-white/10 dark:text-gray-500"
             >
               {t.friendLinksWidget.emptyTitle}
             </button>
@@ -410,7 +410,7 @@ export const FriendLinksWidget = memo(
                       disabled={
                         layer.incoming || isEditMode || isPreview || !entry.url
                       }
-                      className="friend-links-entry friend-links-spotlight group/link relative flex min-w-0 flex-1 items-center gap-3 overflow-hidden rounded-xl bg-black/3 px-3 text-left transition-colors hover:bg-black/5 disabled:cursor-default dark:bg-white/4 dark:hover:bg-white/7"
+                      className="friend-links-entry friend-links-spotlight group/link relative flex min-w-0 flex-1 cursor-pointer items-center gap-3 overflow-hidden rounded-xl bg-black/3 px-3 text-left transition-colors hover:bg-black/5 disabled:cursor-default dark:bg-white/4 dark:hover:bg-white/7"
                       aria-label={t.friendLinksWidget.visitSite.replace(
                         '{name}',
                         entry.name,
@@ -487,7 +487,7 @@ export const FriendLinksWidget = memo(
               type="button"
               onClick={openBrew}
               disabled={isEditMode || isPreview}
-              className="absolute inset-0 flex flex-col items-center justify-center rounded-2xl border border-dashed border-black/8 px-4 text-center disabled:cursor-default dark:border-white/10"
+              className="absolute inset-0 flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-black/8 px-4 text-center disabled:cursor-default dark:border-white/10"
             >
               <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
                 {t.friendLinksWidget.emptyTitle}
@@ -539,7 +539,7 @@ export const FriendLinksWidget = memo(
                       disabled={
                         layer.incoming || isEditMode || isPreview || !entry.url
                       }
-                      className="friend-links-entry group/link relative flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center overflow-hidden p-3 text-center disabled:cursor-default"
+                      className="friend-links-entry group/link relative flex min-h-0 min-w-0 flex-1 cursor-pointer flex-col items-center justify-center overflow-hidden p-3 text-center disabled:cursor-default"
                       aria-label={t.friendLinksWidget.visitSite.replace(
                         '{name}',
                         entry.name,
@@ -598,7 +598,7 @@ export const FriendLinksWidget = memo(
           type="button"
           onClick={openBrew}
           disabled={isEditMode || isPreview}
-          className="group/header flex w-full shrink-0 items-center gap-2 text-left disabled:cursor-default"
+          className="group/header flex w-full shrink-0 cursor-pointer items-center gap-2 text-left disabled:cursor-default"
           aria-label={t.friendLinksWidget.openBrew}
         >
           <span
@@ -642,7 +642,7 @@ export const FriendLinksWidget = memo(
               type="button"
               onClick={openBrew}
               disabled={isEditMode || isPreview}
-              className="absolute inset-0 flex flex-col items-center justify-center rounded-lg border border-dashed border-black/8 px-3 text-center dark:border-white/10"
+              className="absolute inset-0 flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-black/8 px-3 text-center disabled:cursor-default dark:border-white/10"
             >
               <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
                 {t.friendLinksWidget.emptyTitle}
@@ -695,7 +695,7 @@ export const FriendLinksWidget = memo(
                       disabled={
                         layer.incoming || isEditMode || isPreview || !entry.url
                       }
-                      className="friend-links-entry group/link flex min-h-0 items-center gap-2 overflow-hidden rounded-lg bg-black/3 px-2 text-left transition-colors hover:bg-black/6 disabled:cursor-default dark:bg-white/4 dark:hover:bg-white/8"
+                      className="friend-links-entry group/link flex min-h-0 cursor-pointer items-center gap-2 overflow-hidden rounded-lg bg-black/3 px-2 text-left transition-colors hover:bg-black/6 disabled:cursor-default dark:bg-white/4 dark:hover:bg-white/8"
                       aria-label={t.friendLinksWidget.visitSite.replace(
                         '{name}',
                         entry.name,

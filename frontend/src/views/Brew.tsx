@@ -25,6 +25,7 @@ import type {
 import { AnimatePresenceShim as AnimatePresence } from '@lib/motionShim'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import AnimatedView from '../components/AnimatedView'
 import BrewFeedList from '../components/brew/BrewFeedList'
 import BrewReader from '../components/brew/BrewReader'
@@ -129,10 +130,25 @@ type CategoryKey = PresetCategoryId | 'all'
 // - category-feed: 分类下所有文章的合并列表（特殊分类使用）
 type ViewMode = 'sources' | 'items' | 'starred' | 'category-feed'
 
+/** Secondary-nav ids accepted via `/brew?category=` deep-link */
+const BREW_CATEGORY_QUERY_IDS = new Set([
+  'all',
+  'friends',
+  'mine',
+  'starred',
+] as const)
+
+type BrewCategoryQueryId = 'all' | 'friends' | 'mine' | 'starred'
+
+function isBrewCategoryQueryId(value: string): value is BrewCategoryQueryId {
+  return BREW_CATEGORY_QUERY_IDS.has(value as BrewCategoryQueryId)
+}
+
 export default function Brew() {
   // 初始化动画调度器
   useBrewScheduler()
   const { t } = useI18n()
+  const [searchParams, setSearchParams] = useSearchParams()
 
   // 获取预置分类的显示名称（国际化）
   const getCategoryName = useCallback(
@@ -571,6 +587,27 @@ export default function Brew() {
     }
   }, [])
 
+  // 根据二级导航 id 同步视图模式 / 分类筛选
+  const applyNavCategory = useCallback((navId: string) => {
+    if (navId === 'starred') {
+      setViewMode('starred')
+      setSelectedSource(null)
+    } else if (navId === 'friends') {
+      setViewMode('sources')
+      setSelectedCategory('friends')
+      setSelectedSource(null)
+    } else if (navId === 'mine') {
+      // "我"分类特殊处理：直接展示合并的文章列表，不显示网站卡片
+      setViewMode('category-feed')
+      setSelectedCategory('mine')
+      setSelectedSource(null)
+    } else if (navId === 'all') {
+      setViewMode('sources')
+      setSelectedCategory('all')
+      setSelectedSource(null)
+    }
+  }, [])
+
   // 监听导航变化
   // 用于追踪上一次的 activeId，避免 viewMode 变化导致重复执行
   const prevActiveIdRef = useRef(activeId)
@@ -582,25 +619,29 @@ export default function Brew() {
       return
     }
     prevActiveIdRef.current = activeId
+    applyNavCategory(activeId)
+  }, [activeId, applyNavCategory])
 
-    if (activeId === 'starred') {
-      setViewMode('starred')
-      setSelectedSource(null)
-    } else if (activeId === 'friends') {
-      setViewMode('sources')
-      setSelectedCategory('friends')
-      setSelectedSource(null)
-    } else if (activeId === 'mine') {
-      // "我"分类特殊处理：直接展示合并的文章列表，不显示网站卡片
-      setViewMode('category-feed')
-      setSelectedCategory('mine')
-      setSelectedSource(null)
-    } else if (activeId === 'all') {
-      setViewMode('sources')
-      setSelectedCategory('all')
-      setSelectedSource(null)
-    }
-  }, [activeId, viewMode, selectedCategory, setActiveId])
+  // Deep-link: /brew?category=friends|mine|all|starred
+  // Must apply category state even when activeId already matches (prevActiveIdRef
+  // would early-return), then consume the query so refresh/back stays clean.
+  useEffect(() => {
+    const categoryParam = searchParams.get('category')
+    if (!categoryParam || !isBrewCategoryQueryId(categoryParam)) return
+
+    applyNavCategory(categoryParam)
+    prevActiveIdRef.current = categoryParam
+    setActiveId(categoryParam)
+
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('category')
+        return next
+      },
+      { replace: true },
+    )
+  }, [searchParams, applyNavCategory, setActiveId, setSearchParams])
 
   // 加载订阅源列表
   const loadSources = useCallback(async () => {
