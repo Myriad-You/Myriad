@@ -328,7 +328,7 @@ const PAGE_HTML = `\
           <!-- 节点列表 -->
           <div id="ring-peers-list" class="member-list"></div>
           <div id="ring-peers-empty" class="conv-empty" style="display:none">
-            <span>暂无节点</span>
+            <span data-i18n-empty-peers>暂无节点</span>
           </div>
         </div>
       </main>
@@ -501,10 +501,10 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .feed-compose-publish{padding:7px 16px;border-radius:8px;border:none;background:var(--tapp-primary,#6366f1);color:#fff;font-size:13px;font-weight:600;cursor:pointer}
 .feed-compose-publish:disabled,.feed-compose-cancel:disabled,.feed-compose-tool:disabled{opacity:.5;cursor:not-allowed}
 .feed-item-media{margin-top:10px}
-.feed-item-media-single{display:block}
-.feed-item-media-single img,.feed-item-media-single video{display:block;width:100%;max-height:320px;border-radius:14px;object-fit:cover;background:rgba(128,128,128,.06)}
-.feed-item-media-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px;border-radius:14px;overflow:hidden}
-.feed-media-cell{position:relative;aspect-ratio:1;background:rgba(128,128,128,.08);overflow:hidden}
+.feed-item-media-single{display:block;border-radius:12px;overflow:hidden;background:rgba(128,128,128,.05)}
+.feed-item-media-single img,.feed-item-media-single video{display:block;width:100%;max-height:320px;object-fit:cover;vertical-align:middle}
+.feed-item-media-grid{display:grid;grid-template-columns:1fr 1fr;gap:3px;border-radius:12px;overflow:hidden;background:rgba(128,128,128,.05)}
+.feed-media-cell{position:relative;aspect-ratio:1;overflow:hidden;background:rgba(128,128,128,.06)}
 .feed-media-cell img,.feed-media-cell video{width:100%;height:100%;object-fit:cover;display:block}
 .feed-main-heading{min-width:0;display:flex;flex-direction:column;gap:2px}
 .feed-section-title{font-size:16px;font-weight:750;color:var(--text-primary,#0f1419);line-height:1.2}
@@ -629,7 +629,7 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .sidebar-title{margin:0;font-size:15px;font-weight:600;color:var(--text-primary,#1a1a1a);letter-spacing:-.01em}
 .create-btn{width:28px;height:28px;border-radius:50%;border:none;background:var(--tapp-primary,#888);color:#fff;font-size:18px;font-weight:300;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:opacity .15s;flex-shrink:0;line-height:1}
 .create-btn:hover{opacity:.85}
-.conv-list{flex:1;min-height:0;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:6px}
+.conv-list{flex:1;min-height:0;overflow-y:auto;padding:6px 8px;display:flex;flex-direction:column;gap:2px}
 .chat-main{flex:1;min-width:0;display:flex;flex-direction:column;position:relative;overflow:hidden}
 .member-panel{display:flex;flex-direction:column;width:220px;border-left:1px solid rgba(128,128,128,.08);flex-shrink:0;overflow:hidden;transition:width .2s}
 .member-panel.member-collapsed{width:0;border-left:none;overflow:hidden}
@@ -670,39 +670,44 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .invite-btn:disabled{opacity:.5;cursor:not-allowed}
 
 /* ===== Conversation Items ===== */
-.conv-item{position:relative;display:flex;align-items:center;gap:12px;width:100%;padding:12px 12px 12px 14px;border:1px solid transparent;border-radius:14px;background:rgba(128,128,128,.04);cursor:pointer;text-align:left;transition:background .15s,border-color .15s,box-shadow .15s;overflow:hidden}
-.conv-item:hover{background:rgba(var(--tapp-primary-rgb,99,102,241),.08);border-color:rgba(var(--tapp-primary-rgb,99,102,241),.12)}
-.conv-active{background:rgba(var(--tapp-primary-rgb,99,102,241),.14)!important;border-color:rgba(var(--tapp-primary-rgb,99,102,241),.28)!important;box-shadow:0 1px 0 rgba(var(--tapp-primary-rgb,99,102,241),.08)}
-.conv-accent{position:absolute;left:0;top:10px;bottom:10px;width:3px;border-radius:0 3px 3px 0;background:transparent;transition:background .15s}
-.conv-active .conv-accent,.conv-unread .conv-accent{background:var(--tapp-primary,#6366f1)}
-.conv-avatar{width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:600;flex-shrink:0;overflow:hidden}
+.conv-item{position:relative;display:flex;align-items:center;gap:10px;width:100%;min-height:56px;padding:10px 12px 10px 14px;border:none;border-radius:12px;background:transparent;cursor:pointer;text-align:left;transition:background .12s;overflow:hidden}
+.conv-item:hover{background:rgba(128,128,128,.06)}
+.conv-item:focus-visible{outline:2px solid rgba(var(--tapp-primary-rgb,99,102,241),.45);outline-offset:1px}
+.conv-active{background:rgba(var(--tapp-primary-rgb,99,102,241),.1)!important}
+.conv-active:hover{background:rgba(var(--tapp-primary-rgb,99,102,241),.14)!important}
+.conv-accent{position:absolute;left:4px;top:14px;bottom:14px;width:3px;border-radius:2px;background:transparent}
+.conv-active .conv-accent{background:var(--tapp-primary,#6366f1)}
+.conv-unread:not(.conv-active) .conv-accent{background:var(--tapp-primary,#6366f1);opacity:.55}
+.conv-avatar{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;flex-shrink:0;overflow:hidden}
 .conv-avatar img{width:100%;height:100%;object-fit:cover}
-.avatar-channel{background:rgba(var(--tapp-primary-rgb,99,102,241),.14);color:var(--tapp-primary,#6366f1)}
-.avatar-room{background:rgba(var(--tapp-primary-rgb,99,102,241),.14);color:var(--tapp-primary,#6366f1)}
-.conv-info{min-width:0;flex:1;display:flex;flex-direction:column;gap:3px}
-.conv-top{display:flex;align-items:center;gap:8px;min-width:0}
-.conv-name{flex:1;min-width:0;font-size:13.5px;font-weight:600;color:var(--text-primary,#1a1a1a);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.conv-time{flex-shrink:0;font-size:11px;font-weight:500;color:var(--text-secondary,#999);white-space:nowrap}
+.avatar-channel{background:rgba(var(--tapp-primary-rgb,99,102,241),.12);color:var(--tapp-primary,#6366f1)}
+.avatar-room{background:rgba(var(--tapp-primary-rgb,99,102,241),.12);color:var(--tapp-primary,#6366f1)}
+.conv-info{min-width:0;flex:1;display:flex;flex-direction:column;gap:2px}
+.conv-top{display:flex;align-items:baseline;gap:8px;min-width:0}
+.conv-name{flex:1;min-width:0;font-size:13px;font-weight:600;color:var(--text-primary,#1a1a1a);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.conv-unread .conv-name{font-weight:700}
+.conv-time{flex-shrink:0;font-size:11px;font-weight:400;color:var(--text-secondary,#999);white-space:nowrap}
+.conv-unread .conv-time{color:var(--tapp-primary,#6366f1);font-weight:500}
 .conv-bottom{display:flex;align-items:center;gap:6px;min-width:0}
-.conv-preview{flex:1;min-width:0;font-size:12px;color:var(--text-secondary,#888);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.conv-unread .conv-preview{color:var(--text-primary,#333);font-weight:500}
-.conv-badge{min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--tapp-primary,#6366f1);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.conv-preview{flex:1;min-width:0;font-size:12px;line-height:1.35;color:var(--text-secondary,#888);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.conv-unread .conv-preview{color:var(--text-primary,#444);font-weight:500}
+.conv-badge{min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--tapp-primary,#6366f1);color:#fff;font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .conv-closed{font-size:10px;color:var(--text-secondary,#999);background:rgba(128,128,128,.08);padding:2px 6px;border-radius:6px;flex-shrink:0}
 .conv-pending{font-size:10px;color:#f59e0b;background:rgba(245,158,11,.1);padding:2px 6px;border-radius:6px;flex-shrink:0}
-.conv-empty{padding:40px 16px;text-align:center;font-size:13px;color:var(--text-secondary,#999)}
+.conv-empty{padding:40px 16px;text-align:center;font-size:13px;line-height:1.55;color:var(--text-secondary,#999)}
 .conv-empty-fill{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:0 16px}
-.dark .conv-item{background:rgba(255,255,255,.04)}
-.dark .conv-item:hover{background:rgba(var(--tapp-primary-rgb,99,102,241),.14)}
-.dark .conv-active{background:rgba(var(--tapp-primary-rgb,99,102,241),.2)!important}
+.dark .conv-item:hover{background:rgba(255,255,255,.05)}
+.dark .conv-active{background:rgba(var(--tapp-primary-rgb,99,102,241),.16)!important}
+.dark .conv-active:hover{background:rgba(var(--tapp-primary-rgb,99,102,241),.2)!important}
 .dark .conv-name{color:rgba(255,255,255,.92)}
-.dark .conv-preview{color:rgba(255,255,255,.55)}
-.dark .conv-unread .conv-preview{color:rgba(255,255,255,.82)}
+.dark .conv-preview{color:rgba(255,255,255,.5)}
+.dark .conv-unread .conv-preview{color:rgba(255,255,255,.78)}
 
 /* ===== Empty State ===== */
-.empty-state{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-secondary,#999)}
-.empty-icon{width:44px;height:44px;border-radius:13px;background:rgba(var(--tapp-primary-rgb,128,128,128),.06);display:flex;align-items:center;justify-content:center;font-size:0;margin-bottom:10px;color:var(--text-secondary,#999)}
-.empty-icon svg{width:21px;height:21px;stroke-width:1.8}
-.empty-text{font-size:13px;font-weight:400;color:var(--text-secondary,#999)}
+.empty-state{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:32px 20px;color:var(--text-secondary,#999)}
+.empty-icon{width:48px;height:48px;border-radius:14px;background:rgba(var(--tapp-primary-rgb,128,128,128),.06);display:flex;align-items:center;justify-content:center;font-size:0;margin-bottom:6px;color:var(--text-secondary,#999)}
+.empty-icon svg{width:22px;height:22px;stroke-width:1.8}
+.empty-text{margin:0;font-size:13px;line-height:1.5;font-weight:400;color:var(--text-secondary,#999);text-align:center;max-width:260px}
 
 /* ===== Chat Container ===== */
 .chat-container{flex:1;min-height:0;display:flex;flex-direction:column;position:relative}
@@ -747,58 +752,57 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .pinned-bar-close:hover{background:rgba(128,128,128,.1)}
 
 /* ===== Messages ===== */
-.messages-area{flex:1;overflow-y:auto;padding:16px;padding-bottom:72px;display:flex;flex-direction:column;gap:8px}
-.messages-empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-secondary,#999)}
-.messages-empty-icon{width:44px;height:44px;border-radius:13px;background:rgba(var(--tapp-primary-rgb,128,128,128),.06);display:flex;align-items:center;justify-content:center;font-size:0;margin-bottom:10px}
+.messages-area{flex:1;overflow-y:auto;padding:14px 14px 76px;display:flex;flex-direction:column;gap:6px}
+.messages-empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--text-secondary,#999);padding:24px 16px;text-align:center}
+.messages-empty p{margin:0;font-size:13px;line-height:1.5;max-width:240px}
+.messages-empty-icon{width:44px;height:44px;border-radius:13px;background:rgba(var(--tapp-primary-rgb,128,128,128),.06);display:flex;align-items:center;justify-content:center;font-size:0;margin-bottom:4px}
 .messages-empty-icon svg{width:21px;height:21px;stroke-width:1.8}
-.msg-day-sep{display:flex;align-items:center;justify-content:center;margin:10px 0 4px;user-select:none}
-.msg-day-label{font-size:11px;font-weight:600;color:var(--text-secondary,#888);background:rgba(128,128,128,.1);padding:4px 12px;border-radius:999px;letter-spacing:.2px}
+.msg-day-sep{display:flex;align-items:center;justify-content:center;gap:10px;margin:12px 0 6px;user-select:none}
+.msg-day-sep::before,.msg-day-sep::after{content:'';flex:1;height:1px;background:rgba(128,128,128,.12);max-width:72px}
+.msg-day-label{font-size:11px;font-weight:500;color:var(--text-secondary,#888);padding:0 2px;letter-spacing:.01em}
 .msg-row{display:flex;gap:8px;align-items:flex-end;position:relative}
-.msg-row.msg-compact{margin-top:-4px;gap:8px}
-.msg-local{justify-content:flex-end;padding-left:48px}
-.msg-remote{justify-content:flex-start;padding-right:48px}
+.msg-row.msg-compact{margin-top:-2px}
+.msg-local{justify-content:flex-end;padding-left:40px}
+.msg-remote{justify-content:flex-start;padding-right:40px}
 .msg-avatar{width:28px;height:28px;border-radius:50%;overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;background:rgba(var(--tapp-primary-rgb,128,128,128),.12);color:var(--tapp-primary,#888);margin-bottom:2px}
 .msg-avatar img{width:100%;height:100%;object-fit:cover}
 .msg-avatar-spacer{width:28px;flex-shrink:0}
 .msg-bubble{position:relative;max-width:72%;padding:8px 12px;border-radius:16px;font-size:13px;line-height:1.5}
 .bubble-local{background:var(--tapp-primary,#6366f1);color:#fff;border-bottom-right-radius:6px}
-.bubble-remote{background:rgba(128,128,128,.07);color:var(--text-primary,#1a1a1a);border-bottom-left-radius:6px}
-.msg-more-btn{position:absolute;top:4px;width:24px;height:24px;border:none;border-radius:8px;background:rgba(0,0,0,.06);color:inherit;opacity:0;pointer-events:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:opacity .12s,background .12s;z-index:2}
-.msg-local .msg-more-btn{left:-30px}
-.msg-remote .msg-more-btn{right:-30px}
-.msg-row:hover .msg-more-btn,.msg-more-btn:focus-visible{opacity:1;pointer-events:auto}
-.msg-more-btn:hover{background:rgba(0,0,0,.12)}
-.bubble-local .msg-more-btn{background:rgba(255,255,255,.18);color:#fff}
-.bubble-local .msg-more-btn:hover{background:rgba(255,255,255,.28)}
-.msg-sender{font-size:11px;font-weight:500;color:var(--tapp-primary,#888);margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bubble-remote{background:rgba(128,128,128,.08);color:var(--text-primary,#1a1a1a);border-bottom-left-radius:6px}
+.msg-more-btn{position:absolute;top:2px;right:2px;width:22px;height:22px;border:none;border-radius:6px;background:transparent;color:inherit;opacity:0;pointer-events:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:opacity .12s,background .12s;z-index:2}
+.msg-row:hover .msg-more-btn,.msg-more-btn:focus-visible{opacity:.7;pointer-events:auto}
+.msg-more-btn:hover,.msg-more-btn:focus-visible{opacity:1;background:rgba(0,0,0,.08)}
+.bubble-local .msg-more-btn:hover,.bubble-local .msg-more-btn:focus-visible{background:rgba(255,255,255,.18)}
+.msg-sender{font-size:11px;font-weight:600;color:var(--tapp-primary,#6366f1);margin-bottom:2px;padding-right:18px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .msg-text{white-space:pre-wrap;overflow-wrap:break-word}
-.msg-footer{display:flex;align-items:center;gap:4px;margin-top:4px}
+.msg-footer{display:flex;align-items:center;gap:4px;margin-top:3px}
 .msg-local .msg-footer{justify-content:flex-end}
 .msg-remote .msg-footer{justify-content:flex-start}
-.msg-pin{font-size:10px}
-.msg-time{font-size:10px;opacity:.45}
+.msg-pin{font-size:10px;display:inline-flex;align-items:center}
+.msg-time{font-size:10px;opacity:.5;cursor:default}
 .msg-compact .msg-footer{margin-top:2px}
-.dark .msg-day-label{background:rgba(255,255,255,.08);color:rgba(255,255,255,.6)}
-.dark .msg-more-btn{background:rgba(255,255,255,.1)}
-.dark .msg-more-btn:hover{background:rgba(255,255,255,.18)}
+.dark .msg-day-sep::before,.dark .msg-day-sep::after{background:rgba(255,255,255,.1)}
+.dark .msg-day-label{color:rgba(255,255,255,.55)}
+.dark .bubble-remote{background:rgba(255,255,255,.08)}
+.dark .msg-more-btn:hover,.dark .msg-more-btn:focus-visible{background:rgba(255,255,255,.1)}
 
 /* ===== Input ===== */
 .input-float-wrap{position:absolute;bottom:0;left:0;right:0;z-index:20;padding:8px 12px;padding-bottom:calc(8px + env(safe-area-inset-bottom,0px));background:linear-gradient(to top,var(--bg-primary,#fff) 70%,transparent);pointer-events:none}
 .input-float-wrap>*{pointer-events:auto}
 .input-bar{display:flex;align-items:flex-end;gap:8px;padding:8px 10px;background:var(--bg-primary,#fff);border:1px solid rgba(128,128,128,.12);border-radius:18px;box-shadow:0 2px 12px rgba(0,0,0,.06)}
-.attach-btn{width:32px;height:32px;border-radius:50%;border:none;background:rgba(128,128,128,.06);color:var(--text-secondary,#999);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s;margin-bottom:2px}
-.attach-btn:hover{background:rgba(var(--tapp-primary-rgb,100,100,255),.1);color:var(--tapp-primary,#6366f1)}
-.attach-btn.attach-btn-active{background:rgba(var(--tapp-primary-rgb,100,100,255),.12);color:var(--tapp-primary,#6366f1);transform:rotate(45deg)}
-.msg-input{flex:1;min-height:20px;padding:6px 0;border:none;background:transparent;color:var(--text-primary,#1a1a1a);font-size:13px;line-height:1.45;outline:none;resize:none;overflow-y:hidden;font-family:inherit}
+.attach-btn{width:36px;height:36px;border-radius:50%;border:none;background:transparent;color:var(--text-secondary,#999);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .15s,color .15s;margin-bottom:1px}
+.attach-btn:hover{background:rgba(128,128,128,.08);color:var(--text-primary,#555)}
+.attach-btn.attach-btn-active{background:rgba(var(--tapp-primary-rgb,100,100,255),.1);color:var(--tapp-primary,#6366f1);transform:rotate(45deg)}
+.msg-input{flex:1;min-height:22px;max-height:120px;padding:7px 0;border:none;background:transparent;color:var(--text-primary,#1a1a1a);font-size:14px;line-height:1.45;outline:none;resize:none;overflow-y:auto;font-family:inherit}
 .msg-input::placeholder{color:var(--text-secondary,#bbb)}
-.send-btn{width:32px;height:32px;border-radius:50%;border:none;background:rgba(128,128,128,.08);color:var(--text-secondary,#999);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .2s;margin-bottom:2px}
-.send-btn:hover{color:var(--tapp-primary,#6366f1);background:rgba(var(--tapp-primary-rgb,100,100,255),.12)}
-.send-btn:active{transform:translateY(-1px);color:var(--tapp-primary,#6366f1)}
-.send-btn:disabled{opacity:.35;cursor:not-allowed;transform:none;background:rgba(128,128,128,.06);color:var(--text-secondary,#bbb)}
-.send-btn.send-ready{background:var(--tapp-primary,#6366f1);color:#fff;box-shadow:0 2px 8px rgba(var(--tapp-primary-rgb,99,102,241),.35)}
-.send-btn.send-ready:hover{background:var(--tapp-primary,#6366f1);color:#fff;filter:brightness(1.06)}
-.send-btn.send-ready:active{transform:scale(.96)}
-.dark .send-btn{background:rgba(255,255,255,.08)}
+.send-btn{width:36px;height:36px;border-radius:50%;border:none;background:transparent;color:var(--text-secondary,#aaa);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .15s,color .15s,opacity .15s;margin-bottom:1px}
+.send-btn:hover:not(:disabled){color:var(--tapp-primary,#6366f1);background:rgba(var(--tapp-primary-rgb,100,100,255),.1)}
+.send-btn:disabled{opacity:.4;cursor:not-allowed}
+.send-btn.send-ready{background:var(--tapp-primary,#6366f1);color:#fff}
+.send-btn.send-ready:hover:not(:disabled){background:var(--tapp-primary,#6366f1);color:#fff;filter:brightness(1.05)}
+.send-btn.send-ready:active:not(:disabled){transform:scale(.96)}
+.dark .attach-btn:hover{background:rgba(255,255,255,.08);color:rgba(255,255,255,.85)}
 .dark .send-btn.send-ready{background:var(--tapp-primary,#6366f1);color:#fff}
 .dark .input-float-wrap{background:linear-gradient(to top,var(--bg-primary,#1a1a1a) 70%,transparent)}
 .dark .input-bar{background:var(--bg-primary,#1a1a1a);border-color:rgba(255,255,255,.1);box-shadow:0 2px 12px rgba(0,0,0,.2)}
@@ -1108,16 +1112,17 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 const ARO_I18N: Record<string, Record<string, string>> = {
   "en": {
     "accept": "Accept",
-    "acceptConfirmDesc": "Someone shared a Tapp app with you",
+    "acceptConfirmDesc": "Someone shared a Tapp with you",
     "acceptConfirmTitle": "Install this Tapp?",
-    "acceptFail": "Accept failed",
+    "acceptFail": "Couldn’t accept",
     "acceptTapp": "Accept",
     "activityType": "Activity",
     "addPeerBtn": "Add",
-    "addPeerFail": "Add failed",
+    "addPeerFail": "Couldn’t add peer",
     "addPeerPlaceholder": "Actor URL or @user@domain",
-    "adminRequired": "Administrator access required",
-    "alreadyLatest": "Already up to date",
+    "adminRequired": "Admin access required",
+    "alreadyLatest": "You’re up to date",
+    "attach": "Attach",
     "attachBrew": "Brew",
     "attachBrewPrompt": "Enter Brew article title",
     "attachFile": "File",
@@ -1126,19 +1131,20 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "attachLibraryPrompt": "Enter library name",
     "attachReport": "Report",
     "attachReportPrompt": "Enter report title",
-    "attachSending": "Sending...",
+    "attachSending": "Sending…",
     "attachTapp": "Tapp",
     "attachTappPrompt": "Enter Tapp ID or name",
+    "back": "Back",
     "channelPlaceholder": "Actor URL or @user@domain",
     "close": "Close",
-    "closeChannelConfirm": "Close this channel? You won't be able to send messages afterwards.",
+    "closeChannelConfirm": "Close this chat? You won’t be able to send messages afterward.",
     "closed": "Closed",
     "collapseDetails": "Collapse",
     "composeAddImage": "Image",
     "composeAddVideo": "Video",
     "composeCancel": "Cancel",
-    "composeEmpty": "Add text or attach an image/video",
-    "composeFail": "Publish failed",
+    "composeEmpty": "Add text or an image/video",
+    "composeFail": "Couldn’t publish",
     "composePlaceholder": "Share something…",
     "composePost": "Post",
     "composePublish": "Publish",
@@ -1150,67 +1156,67 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "connected": "Connected",
     "copied": "Copied",
     "copy": "Copy",
-    "copyFail": "Copy failed",
+    "copyFail": "Couldn’t copy",
     "create": "New",
-    "createChannel": "Create Channel",
-    "createFail": "Create failed",
+    "createChannel": "Start chat",
+    "createFail": "Couldn’t create",
     "createRingBtn": "Create",
-    "createRingFail": "Create failed",
-    "createRingTitle": "Create Ring",
-    "createRoom": "Create Room",
-    "creating": "Creating...",
+    "createRingFail": "Couldn’t create ring",
+    "createRingTitle": "Create ring",
+    "createRoom": "Create group",
+    "creating": "Creating…",
     "dateToday": "Today",
     "dateYesterday": "Yesterday",
     "disconnected": "Disconnected",
-    "dissolve": "Dissolve Group",
-    "dissolveConfirm": "Are you sure you want to dissolve this group? This cannot be undone.",
-    "dissolveFail": "Dissolve failed",
-    "dm": "DM",
-    "editRoom": "Edit Room",
-    "emptyChatHint": "Send the first message",
-    "emptyFollowers": "No followers",
-    "emptyFollowing": "Not following anyone",
-    "emptyPeers": "No peers",
-    "emptyPublished": "No published content",
-    "emptyRings": "No rings",
-    "emptyRoomHint": "Send the first message to start group chat",
-    "emptyTimeline": "No activity",
+    "dissolve": "Dissolve group",
+    "dissolveConfirm": "Dissolve this group? This can’t be undone.",
+    "dissolveFail": "Couldn’t dissolve group",
+    "dm": "Direct message",
+    "editRoom": "Edit group",
+    "emptyChatHint": "Say hello — send the first message",
+    "emptyFollowers": "No followers yet",
+    "emptyFollowing": "Not following anyone yet",
+    "emptyPeers": "No peers yet",
+    "emptyPublished": "Nothing published yet",
+    "emptyRings": "No rings yet",
+    "emptyRoomHint": "Send the first message to start the group chat",
+    "emptyTimeline": "Nothing here yet",
     "expandDetails": "Expand",
     "feedFollowers": "Followers",
     "feedFollowing": "Following",
     "feedItems": "items",
-    "feedLoadFail": "Failed to load feed",
+    "feedLoadFail": "Couldn’t load feed",
     "feedPublished": "Published",
     "feedTimeline": "Feed",
     "fileTooLarge": "File too large (max 10MB)",
     "followBtn": "Follow",
-    "followFail": "Follow failed",
+    "followFail": "Couldn’t follow",
     "followPlaceholder": "Actor URL or @user@domain",
-    "followQueued": "Follow request sent; the remote instance auto-accepts (no manual approval)",
+    "followQueued": "Follow request sent. Remote instances accept automatically.",
     "forwardSuccess": "Forwarded",
-    "forwardTo": "Forward to...",
+    "forwardTo": "Forward to…",
     "installBtn": "Install",
-    "installFailed": "Install failed, tap to retry",
-    "installSuccess": "✓ Installed",
+    "installFailed": "Install failed — tap to retry",
+    "installSuccess": "Installed",
     "installedAt": "Installed",
-    "installingBtn": "Installing...",
-    "invite": "Invite...",
+    "installingBtn": "Installing…",
+    "invite": "Invite",
     "inviteBtn": "Invite",
-    "inviteFail": "Invite failed",
+    "inviteFail": "Couldn’t invite",
     "inviteFromContacts": "From contacts",
-    "inviteManual": "Manual invite",
+    "inviteManual": "Invite by address",
     "invitePlaceholder": "Actor URL or @user@domain",
     "inviteSuccess": "Invited",
     "invited": "Invited",
-    "inviting": "Inviting...",
+    "inviting": "Inviting…",
     "kick": "Remove",
     "kickConfirm": "Remove this member?",
-    "kickFail": "Remove failed",
+    "kickFail": "Couldn’t remove member",
     "leave": "Leave",
-    "leaveBtn": "Leave Ring",
+    "leaveBtn": "Leave ring",
     "leaveRingConfirm": "Leave this ring?",
-    "leaveRingFail": "Leave failed",
-    "loadFail": "Load failed",
+    "leaveRingFail": "Couldn’t leave ring",
+    "loadFail": "Couldn’t load",
     "local": "Local",
     "localVer": "Local",
     "manage": "Manage",
@@ -1220,17 +1226,17 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "msgActions": "Message actions",
     "msgForward": "Forward",
     "msgPin": "Pin",
-    "msgQuote": "Quote",
+    "msgQuote": "Reply",
     "msgUnpin": "Unpin",
     "navFeed": "Feed",
     "navMessages": "Messages",
     "navRings": "Rings",
-    "newChannel": "New DM",
+    "newChannel": "New chat",
     "newMessage": "New message",
-    "newRoom": "New Room",
+    "newRoom": "New group",
     "noContacts": "No contacts to invite",
-    "noConv": "No conversations",
-    "noConvHint": "Tap + to start a conversation",
+    "noConv": "No conversations yet",
+    "noConvHint": "Tap + to start a chat",
     "openOriginal": "Open original",
     "openTappBtn": "Open Tapp",
     "peers": "peers",
@@ -1239,39 +1245,39 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "pickerCancel": "Cancel",
     "pickerConfirm": "Confirm",
     "pickerDesc": "Description (optional)",
-    "pickerEmpty": "No data",
-    "pickerLoading": "Loading...",
-    "pickerSearchPlaceholder": "Search...",
+    "pickerEmpty": "Nothing here",
+    "pickerLoading": "Loading…",
+    "pickerSearchPlaceholder": "Search…",
     "pickerSelectPlatform": "Select platform",
     "pickerTitle": "Title",
-    "pinFail": "Pin failed",
+    "pinFail": "Couldn’t pin",
     "pinnedMsg": "Pinned",
     "previewFile": "📎 File",
     "previewImage": "📷 Image",
     "previewSystem": "System message",
     "publicFeed": "Public feed",
-    "quoteLabel": "Quote",
+    "quoteLabel": "Reply",
     "refresh": "Refresh",
     "rejectTapp": "Decline",
     "remoteVer": "Shared",
     "removeBtn": "Unpublish",
-    "removePeerFail": "Remove failed",
+    "removePeerFail": "Couldn’t remove peer",
     "ringNamePlaceholder": "Ring name",
     "ringPeersTitle": "Peers",
     "ringType": "Type",
-    "ringTypeBrewRecommend": "Brew Picks",
-    "ringTypeInstanceDirectory": "Instance Directory",
-    "ringTypeLibraryExchange": "Library Exchange",
-    "ringTypeTappStore": "Tapp Store",
+    "ringTypeBrewRecommend": "Brew picks",
+    "ringTypeInstanceDirectory": "Instance directory",
+    "ringTypeLibraryExchange": "Library exchange",
+    "ringTypeTappStore": "Tapp store",
     "roleAdmin": "Admin",
     "roleMember": "Member",
     "roleOwner": "Owner",
     "roomDesc": "Description",
-    "roomName": "Room name",
-    "roomPlaceholder": "Room name",
+    "roomName": "Group name",
+    "roomPlaceholder": "Group name",
     "save": "Save",
-    "saveFail": "Save failed",
-    "saving": "Saving...",
+    "saveFail": "Couldn’t save",
+    "saving": "Saving…",
     "selectBrew": "Select Brew article",
     "selectHint": "Select a conversation to start chatting",
     "selectLibrary": "Select from library",
@@ -1279,52 +1285,54 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "selectRing": "Select a ring to view details",
     "selectTapp": "Select Tapp",
     "send": "Send",
-    "sendFail": "Send failed",
+    "sendFail": "Couldn’t send",
     "syncBtn": "Sync",
-    "syncFail": "Sync failed",
-    "syncSuccess": "Sync complete",
-    "syncing": "Syncing...",
+    "syncFail": "Couldn’t sync",
+    "syncSuccess": "Synced",
+    "syncing": "Syncing…",
     "tappInstalled": "Installed",
     "tappNotInstalled": "Not installed",
-    "tappReceived": "Tapp shared",
+    "tappReceived": "Tapp shared with you",
     "tappShareAccepted": "Accepted",
-    "tappSharePending": "Waiting for acceptance",
+    "tappSharePending": "Waiting for reply",
     "tappShareRejected": "Declined",
     "tappUpdateAvail": "Update available",
-    "title": "Messenger",
-    "typing": "Type a message...",
+    "title": "Messages",
+    "typing": "Type a message…",
     "unfollowBtn": "Unfollow",
-    "unfollowFail": "Unfollow failed",
-    "unpublishFail": "Unpublish failed",
+    "unfollowFail": "Couldn’t unfollow",
+    "unpublishFail": "Couldn’t unpublish",
     "updatingBtn": "Update",
   },
   "ja": {
     "accept": "承認",
-    "acceptConfirmDesc": "Tappアプリが共有されました",
-    "acceptConfirmTitle": "このTappをインストール？",
-    "acceptFail": "承認失敗",
+    "acceptConfirmDesc": "Tappが共有されました",
+    "acceptConfirmTitle": "このTappをインストールしますか？",
+    "acceptFail": "承認に失敗しました",
     "acceptTapp": "承認",
     "activityType": "アクティビティ",
     "addPeerBtn": "追加",
-    "addPeerFail": "追加失敗",
+    "addPeerFail": "追加に失敗しました",
     "addPeerPlaceholder": "Actor URL または @user@domain",
     "adminRequired": "管理者権限が必要です",
     "alreadyLatest": "最新版です",
+    "attach": "添付",
     "attachBrew": "Brew",
-    "attachBrewPrompt": "Brew記事タイトルを入力",
+    "attachBrewPrompt": "Brew記事のタイトルを入力",
     "attachFile": "ファイル",
     "attachImage": "画像",
     "attachLibrary": "ライブラリ",
     "attachLibraryPrompt": "ライブラリ名を入力",
     "attachReport": "レポート",
-    "attachReportPrompt": "レポートタイトルを入力",
-    "attachSending": "送信中...",
+    "attachReportPrompt": "レポートのタイトルを入力",
+    "attachSending": "送信中…",
     "attachTapp": "Tapp",
     "attachTappPrompt": "Tapp IDまたは名前を入力",
+    "back": "戻る",
     "channelPlaceholder": "Actor URL または @user@domain",
     "close": "閉じる",
-    "closeChannelConfirm": "このチャネルを閉じますか？閉じると送信できなくなります。",
-    "closed": "クローズ",
+    "closeChannelConfirm": "このチャットを閉じますか？閉じると送信できなくなります。",
+    "closed": "終了",
     "collapseDetails": "閉じる",
     "composeAddImage": "画像",
     "composeAddVideo": "動画",
@@ -1342,67 +1350,67 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "connected": "接続済み",
     "copied": "コピーしました",
     "copy": "コピー",
-    "copyFail": "コピー失敗",
+    "copyFail": "コピーに失敗しました",
     "create": "新規",
-    "createChannel": "チャンネル作成",
-    "createFail": "作成失敗",
+    "createChannel": "チャットを開始",
+    "createFail": "作成に失敗しました",
     "createRingBtn": "作成",
-    "createRingFail": "作成失敗",
-    "createRingTitle": "リング作成",
-    "createRoom": "ルーム作成",
-    "creating": "作成中...",
+    "createRingFail": "リングの作成に失敗しました",
+    "createRingTitle": "リングを作成",
+    "createRoom": "グループを作成",
+    "creating": "作成中…",
     "dateToday": "今日",
     "dateYesterday": "昨日",
-    "disconnected": "切断",
-    "dissolve": "グループ解散",
+    "disconnected": "未接続",
+    "dissolve": "グループを解散",
     "dissolveConfirm": "このグループを解散しますか？この操作は元に戻せません。",
-    "dissolveFail": "解散失敗",
-    "dm": "DM",
-    "editRoom": "ルーム編集",
-    "emptyChatHint": "最初のメッセージを送信してください",
-    "emptyFollowers": "フォロワーなし",
-    "emptyFollowing": "フォローなし",
-    "emptyPeers": "ピアなし",
-    "emptyPublished": "公開コンテンツなし",
-    "emptyRings": "リングなし",
-    "emptyRoomHint": "最初のメッセージを送信してグループチャットを始めましょう",
-    "emptyTimeline": "アクティビティなし",
+    "dissolveFail": "解散に失敗しました",
+    "dm": "ダイレクトメッセージ",
+    "editRoom": "グループを編集",
+    "emptyChatHint": "最初のメッセージを送ってみましょう",
+    "emptyFollowers": "フォロワーはまだいません",
+    "emptyFollowing": "まだ誰もフォローしていません",
+    "emptyPeers": "ピアはまだありません",
+    "emptyPublished": "公開したコンテンツはまだありません",
+    "emptyRings": "リングはまだありません",
+    "emptyRoomHint": "最初のメッセージを送ってグループチャットを始めましょう",
+    "emptyTimeline": "まだ投稿がありません",
     "expandDetails": "展開",
     "feedFollowers": "フォロワー",
     "feedFollowing": "フォロー中",
     "feedItems": "件",
-    "feedLoadFail": "フィードの読み込みに失敗",
+    "feedLoadFail": "フィードを読み込めませんでした",
     "feedPublished": "公開済み",
     "feedTimeline": "フィード",
     "fileTooLarge": "ファイルが大きすぎます（最大10MB）",
     "followBtn": "フォロー",
-    "followFail": "フォロー失敗",
+    "followFail": "フォローに失敗しました",
     "followPlaceholder": "Actor URL または @user@domain",
-    "followQueued": "フォローリクエストを送信しました。相手側は自動承認します（手動承認は不要）",
-    "forwardSuccess": "転送済み",
-    "forwardTo": "転送先...",
+    "followQueued": "フォローリクエストを送信しました。相手側は自動承認します。",
+    "forwardSuccess": "転送しました",
+    "forwardTo": "転送先…",
     "installBtn": "インストール",
-    "installFailed": "インストール失敗、タップで再試行",
-    "installSuccess": "✓ インストール完了",
+    "installFailed": "インストールに失敗しました。タップして再試行",
+    "installSuccess": "インストール完了",
     "installedAt": "インストール日",
-    "installingBtn": "インストール中...",
-    "invite": "招待...",
+    "installingBtn": "インストール中…",
+    "invite": "招待",
     "inviteBtn": "招待",
-    "inviteFail": "招待失敗",
-    "inviteFromContacts": "連絡先から選択",
-    "inviteManual": "手動招待",
+    "inviteFail": "招待に失敗しました",
+    "inviteFromContacts": "連絡先から選ぶ",
+    "inviteManual": "手動で招待",
     "invitePlaceholder": "Actor URL または @user@domain",
-    "inviteSuccess": "招待済み",
+    "inviteSuccess": "招待しました",
     "invited": "招待済み",
-    "inviting": "招待中...",
-    "kick": "除外",
+    "inviting": "招待中…",
+    "kick": "削除",
     "kickConfirm": "このメンバーを削除しますか？",
-    "kickFail": "除外失敗",
+    "kickFail": "削除に失敗しました",
     "leave": "退出",
-    "leaveBtn": "リング退出",
+    "leaveBtn": "リングを退出",
     "leaveRingConfirm": "このリングから退出しますか？",
-    "leaveRingFail": "退出失敗",
-    "loadFail": "読み込み失敗",
+    "leaveRingFail": "退出に失敗しました",
+    "loadFail": "読み込みに失敗しました",
     "local": "ローカル",
     "localVer": "ローカル",
     "manage": "管理",
@@ -1412,17 +1420,17 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "msgActions": "メッセージ操作",
     "msgForward": "転送",
     "msgPin": "ピン留め",
-    "msgQuote": "引用",
+    "msgQuote": "返信",
     "msgUnpin": "ピン解除",
     "navFeed": "フィード",
     "navMessages": "メッセージ",
     "navRings": "リング",
-    "newChannel": "新規DM",
+    "newChannel": "新規チャット",
     "newMessage": "新しいメッセージ",
-    "newRoom": "新規ルーム",
-    "noContacts": "招待可能な連絡先なし",
-    "noConv": "会話なし",
-    "noConvHint": "右上の + から会話を開始",
+    "newRoom": "新規グループ",
+    "noContacts": "招待できる連絡先がありません",
+    "noConv": "会話はまだありません",
+    "noConvHint": "+ をタップしてチャットを開始",
     "openOriginal": "元記事を開く",
     "openTappBtn": "Tappを開く",
     "peers": "ピア",
@@ -1431,39 +1439,39 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "pickerCancel": "キャンセル",
     "pickerConfirm": "確認",
     "pickerDesc": "説明（任意）",
-    "pickerEmpty": "データなし",
-    "pickerLoading": "読み込み中...",
-    "pickerSearchPlaceholder": "検索...",
-    "pickerSelectPlatform": "プラットフォーム選択",
+    "pickerEmpty": "ここに項目はありません",
+    "pickerLoading": "読み込み中…",
+    "pickerSearchPlaceholder": "検索…",
+    "pickerSelectPlatform": "プラットフォームを選択",
     "pickerTitle": "タイトル",
-    "pinFail": "ピン留めに失敗",
+    "pinFail": "ピン留めに失敗しました",
     "pinnedMsg": "ピン留め",
     "previewFile": "📎 ファイル",
     "previewImage": "📷 画像",
     "previewSystem": "システムメッセージ",
     "publicFeed": "公開フィード",
-    "quoteLabel": "引用",
-    "refresh": "リフレッシュ",
+    "quoteLabel": "返信",
+    "refresh": "更新",
     "rejectTapp": "拒否",
     "remoteVer": "共有",
-    "removeBtn": "公開取消",
-    "removePeerFail": "削除失敗",
+    "removeBtn": "公開を取り消す",
+    "removePeerFail": "削除に失敗しました",
     "ringNamePlaceholder": "リング名",
     "ringPeersTitle": "ピア",
     "ringType": "タイプ",
-    "ringTypeBrewRecommend": "Brew おすすめ",
+    "ringTypeBrewRecommend": "Brewおすすめ",
     "ringTypeInstanceDirectory": "インスタンス一覧",
     "ringTypeLibraryExchange": "資料交換",
-    "ringTypeTappStore": "Tapp ストア",
+    "ringTypeTappStore": "Tappストア",
     "roleAdmin": "管理者",
     "roleMember": "メンバー",
     "roleOwner": "オーナー",
     "roomDesc": "説明",
-    "roomName": "ルーム名",
-    "roomPlaceholder": "ルーム名",
+    "roomName": "グループ名",
+    "roomPlaceholder": "グループ名",
     "save": "保存",
-    "saveFail": "保存失敗",
-    "saving": "保存中...",
+    "saveFail": "保存に失敗しました",
+    "saving": "保存中…",
     "selectBrew": "Brew記事を選択",
     "selectHint": "会話を選んでチャットを始めましょう",
     "selectLibrary": "ライブラリから選択",
@@ -1471,37 +1479,38 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "selectRing": "リングを選択して詳細を表示",
     "selectTapp": "Tappを選択",
     "send": "送信",
-    "sendFail": "送信失敗",
+    "sendFail": "送信に失敗しました",
     "syncBtn": "同期",
-    "syncFail": "同期失敗",
+    "syncFail": "同期に失敗しました",
     "syncSuccess": "同期完了",
-    "syncing": "同期中...",
+    "syncing": "同期中…",
     "tappInstalled": "インストール済み",
     "tappNotInstalled": "未インストール",
     "tappReceived": "Tappが共有されました",
     "tappShareAccepted": "承認済み",
-    "tappSharePending": "承認待ち",
+    "tappSharePending": "返信待ち",
     "tappShareRejected": "拒否済み",
     "tappUpdateAvail": "更新あり",
-    "title": "メッセンジャー",
-    "typing": "メッセージを入力...",
+    "title": "メッセージ",
+    "typing": "メッセージを入力…",
     "unfollowBtn": "フォロー解除",
-    "unfollowFail": "フォロー解除失敗",
-    "unpublishFail": "公開取消失敗",
+    "unfollowFail": "フォロー解除に失敗しました",
+    "unpublishFail": "公開の取り消しに失敗しました",
     "updatingBtn": "更新",
   },
   "zh": {
     "accept": "接受",
-    "acceptConfirmDesc": "对方向你分享了一个 Tapp 应用",
+    "acceptConfirmDesc": "有人向你分享了一个 Tapp",
     "acceptConfirmTitle": "安装此 Tapp？",
     "acceptFail": "接受失败",
     "acceptTapp": "接受",
-    "activityType": "活动类型",
+    "activityType": "动态",
     "addPeerBtn": "添加",
     "addPeerFail": "添加失败",
     "addPeerPlaceholder": "Actor URL 或 @user@domain",
     "adminRequired": "需要管理员权限",
     "alreadyLatest": "已是最新版本",
+    "attach": "附件",
     "attachBrew": "Brew",
     "attachBrewPrompt": "输入 Brew 文章标题",
     "attachFile": "文件",
@@ -1510,12 +1519,13 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "attachLibraryPrompt": "输入资料库名称",
     "attachReport": "报告",
     "attachReportPrompt": "输入报告标题",
-    "attachSending": "发送中...",
+    "attachSending": "发送中…",
     "attachTapp": "Tapp",
     "attachTappPrompt": "输入 Tapp ID 或名称",
+    "back": "返回",
     "channelPlaceholder": "Actor URL 或 @user@domain",
     "close": "关闭",
-    "closeChannelConfirm": "确定关闭此私信通道？关闭后将无法继续发送消息。",
+    "closeChannelConfirm": "确定关闭此私信？关闭后将无法继续发送消息。",
     "closed": "已关闭",
     "collapseDetails": "收起",
     "composeAddImage": "图片",
@@ -1536,33 +1546,33 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "copy": "复制",
     "copyFail": "复制失败",
     "create": "新建",
-    "createChannel": "创建通道",
+    "createChannel": "开始私信",
     "createFail": "创建失败",
     "createRingBtn": "创建",
     "createRingFail": "创建失败",
     "createRingTitle": "创建环网",
-    "createRoom": "创建房间",
-    "creating": "创建中...",
+    "createRoom": "创建群聊",
+    "creating": "创建中…",
     "dateToday": "今天",
     "dateYesterday": "昨天",
     "disconnected": "未连接",
     "dissolve": "解散群组",
-    "dissolveConfirm": "确定要解散此群组吗？此操作不可撤销。",
+    "dissolveConfirm": "确定解散此群组？此操作不可撤销。",
     "dissolveFail": "解散失败",
     "dm": "私信",
-    "editRoom": "编辑房间",
-    "emptyChatHint": "发送第一条消息开始聊天",
+    "editRoom": "编辑群聊",
+    "emptyChatHint": "打个招呼，发送第一条消息吧",
     "emptyFollowers": "暂无粉丝",
-    "emptyFollowing": "暂无关注",
+    "emptyFollowing": "还没有关注任何人",
     "emptyPeers": "暂无节点",
     "emptyPublished": "暂无发布内容",
     "emptyRings": "暂无环网",
-    "emptyRoomHint": "发送第一条消息开始群聊",
+    "emptyRoomHint": "发送第一条消息，开始群聊",
     "emptyTimeline": "暂无动态",
     "expandDetails": "展开",
     "feedFollowers": "粉丝",
     "feedFollowing": "关注",
-    "feedItems": "项",
+    "feedItems": "条",
     "feedLoadFail": "动态加载失败",
     "feedPublished": "已发布",
     "feedTimeline": "动态",
@@ -1570,25 +1580,25 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "followBtn": "关注",
     "followFail": "关注失败",
     "followPlaceholder": "Actor URL 或 @user@domain",
-    "followQueued": "关注请求已发送；对方实例将自动接受（无需手动批准）",
+    "followQueued": "关注请求已发送，对方实例会自动接受",
     "forwardSuccess": "已转发",
-    "forwardTo": "转发到...",
+    "forwardTo": "转发到…",
     "installBtn": "安装",
     "installFailed": "安装失败，点击重试",
-    "installSuccess": "✓ 安装成功",
+    "installSuccess": "安装成功",
     "installedAt": "安装时间",
-    "installingBtn": "安装中...",
-    "invite": "邀请...",
+    "installingBtn": "安装中…",
+    "invite": "邀请",
     "inviteBtn": "邀请",
     "inviteFail": "邀请失败",
-    "inviteFromContacts": "从联系人中选择",
+    "inviteFromContacts": "从联系人选择",
     "inviteManual": "手动邀请",
     "invitePlaceholder": "Actor URL 或 @user@domain",
     "inviteSuccess": "已邀请",
     "invited": "已邀请",
-    "inviting": "邀请中...",
+    "inviting": "邀请中…",
     "kick": "移除",
-    "kickConfirm": "确定移除该成员？",
+    "kickConfirm": "确定移除此成员？",
     "kickFail": "移除失败",
     "leave": "离开",
     "leaveBtn": "退出环网",
@@ -1604,17 +1614,17 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "msgActions": "消息操作",
     "msgForward": "转发",
     "msgPin": "置顶",
-    "msgQuote": "引用",
+    "msgQuote": "回复",
     "msgUnpin": "取消置顶",
     "navFeed": "动态",
-    "navMessages": "信使",
+    "navMessages": "消息",
     "navRings": "环网",
     "newChannel": "新建私信",
     "newMessage": "新消息",
     "newRoom": "新建群聊",
     "noContacts": "暂无可邀请的联系人",
     "noConv": "暂无会话",
-    "noConvHint": "点击右上角 + 开始新会话",
+    "noConvHint": "点击 + 开始新会话",
     "openOriginal": "查看原文",
     "openTappBtn": "打开 Tapp",
     "peers": "节点",
@@ -1623,18 +1633,18 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "pickerCancel": "取消",
     "pickerConfirm": "确认",
     "pickerDesc": "描述（可选）",
-    "pickerEmpty": "暂无数据",
-    "pickerLoading": "加载中...",
-    "pickerSearchPlaceholder": "搜索...",
+    "pickerEmpty": "暂无内容",
+    "pickerLoading": "加载中…",
+    "pickerSearchPlaceholder": "搜索…",
     "pickerSelectPlatform": "选择平台",
     "pickerTitle": "标题",
     "pinFail": "置顶失败",
-    "pinnedMsg": "置顶消息",
+    "pinnedMsg": "置顶",
     "previewFile": "📎 文件",
     "previewImage": "📷 图片",
     "previewSystem": "系统消息",
     "publicFeed": "公开动态",
-    "quoteLabel": "引用",
+    "quoteLabel": "回复",
     "refresh": "刷新",
     "rejectTapp": "拒绝",
     "remoteVer": "分享版本",
@@ -1650,12 +1660,12 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "roleAdmin": "管理员",
     "roleMember": "成员",
     "roleOwner": "群主",
-    "roomDesc": "房间描述",
-    "roomName": "房间名称",
-    "roomPlaceholder": "房间名称",
+    "roomDesc": "群聊描述",
+    "roomName": "群聊名称",
+    "roomPlaceholder": "群聊名称",
     "save": "保存",
     "saveFail": "保存失败",
-    "saving": "保存中...",
+    "saving": "保存中…",
     "selectBrew": "选择 Brew 文章",
     "selectHint": "选择一个会话开始聊天",
     "selectLibrary": "选择资料",
@@ -1667,16 +1677,16 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "syncBtn": "同步",
     "syncFail": "同步失败",
     "syncSuccess": "同步完成",
-    "syncing": "同步中...",
+    "syncing": "同步中…",
     "tappInstalled": "已安装",
     "tappNotInstalled": "未安装",
     "tappReceived": "收到 Tapp 分享",
     "tappShareAccepted": "已接受",
-    "tappSharePending": "等待对方接受",
+    "tappSharePending": "等待对方回复",
     "tappShareRejected": "已拒绝",
-    "tappUpdateAvail": "有更新可用",
-    "title": "信使",
-    "typing": "输入消息...",
+    "tappUpdateAvail": "有可用更新",
+    "title": "消息",
+    "typing": "输入消息…",
     "unfollowBtn": "取消关注",
     "unfollowFail": "取消关注失败",
     "unpublishFail": "取消发布失败",
@@ -2377,9 +2387,17 @@ function applyLabels() {
   var el;
   el = $('nav-messages-label'); if (el) el.textContent = lang.navMessages;
   el = $('nav-rings-label'); if (el) el.textContent = lang.navRings;
-  el = document.querySelector('.sidebar-title'); if (el) el.textContent = lang.title;
-  el = document.querySelector('.empty-text'); if (el) el.textContent = lang.selectHint;
+  // Messenger sidebar (not ring sidebar)
+  el = document.querySelector('#view-messages .sidebar-title'); if (el) el.textContent = lang.title;
+  el = document.querySelector('#view-messages .empty-text'); if (el) el.textContent = lang.selectHint;
+  el = $('create-btn'); if (el) { el.setAttribute('title', lang.create); el.setAttribute('aria-label', lang.create); }
   el = $('msg-input'); if (el) el.placeholder = lang.typing;
+  el = $('attach-btn'); if (el) { el.setAttribute('title', lang.attach || lang.attachFile); el.setAttribute('aria-label', lang.attach || lang.attachFile); }
+  el = $('send-btn'); if (el) { el.setAttribute('title', lang.send); el.setAttribute('aria-label', lang.send); }
+  el = $('back-btn'); if (el) el.setAttribute('aria-label', lang.back || 'Back');
+  el = $('member-back-btn'); if (el) el.setAttribute('aria-label', lang.back || 'Back');
+  el = $('member-title'); if (el && state.activeKind !== 'room') el.textContent = lang.members;
+  el = $('invite-toggle'); if (el) { el.setAttribute('title', lang.invite); el.setAttribute('aria-label', lang.invite); }
   el = $('feed-nav-timeline'); if (el) el.textContent = lang.feedTimeline;
   el = $('feed-nav-following'); if (el) el.textContent = lang.feedFollowing;
   el = $('feed-nav-followers'); if (el) el.textContent = lang.feedFollowers;
@@ -2398,9 +2416,12 @@ function applyLabels() {
   el = $('feed-follow-btn'); if (el) el.textContent = lang.followBtn;
   el = $('feed-compose-btn-label'); if (el) el.textContent = lang.composePost || 'Post';
   el = $('feed-compose-btn'); if (el) el.setAttribute('title', lang.composePost || 'Post');
+  el = $('feed-compose-mobile-btn'); if (el) el.setAttribute('title', lang.composePost || 'Post');
   el = $('feed-compose-text'); if (el) el.placeholder = lang.composePlaceholder || '';
   el = $('feed-compose-image-label'); if (el) el.textContent = lang.composeAddImage || 'Image';
+  el = $('feed-compose-image-btn'); if (el) el.setAttribute('title', lang.composeAddImage || 'Image');
   el = $('feed-compose-video-label'); if (el) el.textContent = lang.composeAddVideo || 'Video';
+  el = $('feed-compose-video-btn'); if (el) el.setAttribute('title', lang.composeAddVideo || 'Video');
   el = $('feed-compose-cancel'); if (el) el.textContent = lang.composeCancel || 'Cancel';
   el = $('feed-compose-publish'); if (el) el.textContent = lang.composePublish || 'Publish';
   el = $('refresh-feed-btn'); if (el) el.setAttribute('title', lang.refresh);
@@ -2414,18 +2435,27 @@ function applyLabels() {
   el = $('ring-sidebar-title'); if (el) el.textContent = lang.navRings;
   el = $('ring-select-hint'); if (el) el.textContent = lang.selectRing;
   el = $('ring-create-title'); if (el) el.textContent = lang.createRingTitle;
+  el = $('ring-create-open-btn'); if (el) { el.setAttribute('title', lang.create); el.setAttribute('aria-label', lang.create); }
   el = $('ring-name-input'); if (el) el.placeholder = lang.ringNamePlaceholder;
   el = $('create-ring-btn'); if (el) el.textContent = lang.createRingBtn;
   el = $('ring-peer-input'); if (el) el.placeholder = lang.addPeerPlaceholder;
   el = $('ring-add-peer-btn'); if (el) el.textContent = lang.addPeerBtn;
+  el = $('ring-sync-label'); if (el) el.textContent = lang.syncBtn;
+  el = $('ring-sync-btn'); if (el) el.setAttribute('title', lang.syncBtn);
+  el = $('ring-leave-label'); if (el) el.textContent = lang.leaveBtn;
   el = $('ring-type-opt-brew'); if (el) el.textContent = lang.ringTypeBrewRecommend;
   el = $('ring-type-opt-tapp'); if (el) el.textContent = lang.ringTypeTappStore;
   el = $('ring-type-opt-library'); if (el) el.textContent = lang.ringTypeLibraryExchange;
   el = $('ring-type-opt-instance'); if (el) el.textContent = lang.ringTypeInstanceDirectory;
+  document.querySelectorAll('[data-i18n-empty-peers]').forEach(function (node) {
+    node.textContent = lang.emptyPeers;
+  });
+  updateSendState();
 }
 
 function applyDialogLabels() {
   var el;
+  el = $('create-dialog-title'); if (el) el.textContent = lang.create;
   el = $('create-channel-input'); if (el) el.placeholder = lang.channelPlaceholder;
   el = $('create-room-input'); if (el) el.placeholder = lang.roomPlaceholder;
   el = $('create-channel-btn'); if (el) el.textContent = lang.createChannel;
@@ -2933,7 +2963,7 @@ function renderPinnedBar() {
     + '<span class="pinned-bar-label">' + esc(lang.pinnedMsg) + (pinned.length > 1 ? ' (' + pinned.length + ')' : '') + '</span>'
     + '<span class="pinned-bar-text">' + esc(text) + '</span>'
     + '</div>'
-    + '<button class="pinned-bar-close" id="pinned-bar-close">&times;</button>';
+    + '<button class="pinned-bar-close" id="pinned-bar-close" aria-label="' + esc(lang.close || 'Close') + '">&times;</button>';
   var closeBtn = $('pinned-bar-close');
   if (closeBtn) closeBtn.addEventListener('click', function (e) {
     e.stopPropagation();
