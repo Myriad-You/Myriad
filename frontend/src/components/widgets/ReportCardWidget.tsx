@@ -4057,7 +4057,8 @@ const DiscordWidget = memo(({ data, showOverview, onContentChange }: any) => {
 
   const memberReach = Number(stats.member_reach) || 0
 
-  if (showOverview) {
+  // No guilds for detail face → keep overview (stats/profile) instead of empty icon
+  if (showOverview || flipItems.length === 0) {
     const displayName =
       profile.display_name || profile.username || 'Discord'
     const statsParts = (
@@ -4235,6 +4236,7 @@ const DiscordWidget = memo(({ data, showOverview, onContentChange }: any) => {
   // 详情面：代表服务器轮播
   const item =
     flipItems.length > 0 ? flipItems[slideIndex % flipItems.length] : null
+  // No guilds → stay on overview path (handled above). Guard only.
   if (!item) {
     return (
       <div className="h-full w-full flex items-center justify-center text-gray-400 text-xl">
@@ -5434,9 +5436,21 @@ export const ReportCardWidget = memo(
       }
     }, [platformId, isPreview, externalData])
 
+    // Detail faces need library_items (covers/guilds). Without them, auto-flip to
+    // detail paints an empty card even when report JSON/stats exist (owner home bug).
+    const hasDetailContent = useMemo(() => {
+      const items = reportData?.library_items
+      return Array.isArray(items) && items.length > 0
+    }, [reportData])
+
     useEffect(() => {
       // 预览态 / 外部控制概览态时不启用内部自动轮播
       if (isPreview || isOverviewControlled) return
+      // No detail material → stay on overview so stats stay visible
+      if (!hasDetailContent) {
+        setInternalShowOverview(true)
+        return
+      }
 
       // 10秒切换概览/详情 - timeout 链 + 可见性暂停
       let cancelled = false
@@ -5463,7 +5477,7 @@ export const ReportCardWidget = memo(
         if (timeoutId) clearTimeout(timeoutId)
         document.removeEventListener('visibilitychange', onVisibility)
       }
-    }, [isPreview, isOverviewControlled])
+    }, [isPreview, isOverviewControlled, hasDetailContent])
 
     const handleContentChange = useCallback((content: any) => {
       setCardContent(content)
