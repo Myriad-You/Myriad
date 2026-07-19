@@ -1487,9 +1487,9 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "composePost": "Post",
     "composePublish": "Publish",
     "composePublishing": "Publishing…",
+    "composerClosed": "This chat is closed — you can't send messages",
     "composeSuccess": "Published",
     "composeUploading": "Uploading…",
-    "composerClosed": "This chat is closed — you can't send messages",
     "confirmCancel": "Cancel",
     "confirmOk": "OK",
     "connected": "Connected",
@@ -1531,11 +1531,15 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "feedFollowers": "Followers",
     "feedFollowing": "Following",
     "feedHintFollowers": "People who follow you",
-    "feedHintFollowing": "Accounts you follow",
-    "feedHintPublished": "What you've shared",
-    "feedHintTimeline": "Updates from people you follow",
+    "feedHintFollowing": "People you follow",
+    "feedHintPublished": "Notes you've published",
+    "feedHintTimeline": "Posts from people you follow",
     "feedItems": "posts",
     "feedLoadFail": "Couldn't load feed",
+    "feedMetaFollowers": "People who follow you",
+    "feedMetaFollowing": "People you follow",
+    "feedMetaPublished": "Notes you've published",
+    "feedMetaTimeline": "Posts from people you follow",
     "feedPlus": "Add",
     "feedPublished": "Published",
     "feedRetry": "Try again",
@@ -1551,18 +1555,18 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "forwardSuccess": "Forwarded",
     "forwardTo": "Forward to…",
     "installBtn": "Install",
-    "installFailed": "Install failed — tap to retry",
-    "installSuccess": "Installed",
     "installedAt": "Installed",
+    "installFailed": "Install failed — tap to retry",
     "installingBtn": "Installing…",
+    "installSuccess": "Installed",
     "invite": "Invite",
     "inviteBtn": "Invite",
+    "invited": "Invited",
     "inviteFail": "Couldn't invite",
     "inviteFromContacts": "From contacts",
     "inviteManual": "Invite by address",
     "invitePlaceholder": "@user@domain or profile link",
     "inviteSuccess": "Invite sent",
-    "invited": "Invited",
     "inviting": "Inviting…",
     "kick": "Remove",
     "kickConfirm": "Remove this member from the group?",
@@ -1651,8 +1655,8 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "sendFail": "Couldn't send",
     "syncBtn": "Sync",
     "syncFail": "Couldn't sync",
-    "syncSuccess": "Sync complete",
     "syncing": "Syncing…",
+    "syncSuccess": "Sync complete",
     "tappInstalled": "Installed",
     "tappNotInstalled": "Not installed",
     "tappReceived": "Tapp shared with you",
@@ -1716,9 +1720,9 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "composePost": "投稿",
     "composePublish": "公開",
     "composePublishing": "公開中…",
+    "composerClosed": "このチャットは終了済みです — 送信できません",
     "composeSuccess": "公開しました",
     "composeUploading": "アップロード中…",
-    "composerClosed": "このチャットは終了済みです — 送信できません",
     "confirmCancel": "キャンセル",
     "confirmOk": "OK",
     "connected": "接続中",
@@ -1760,11 +1764,15 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "feedFollowers": "フォロワー",
     "feedFollowing": "フォロー中",
     "feedHintFollowers": "あなたをフォローしている人",
-    "feedHintFollowing": "フォローしているアカウント",
-    "feedHintPublished": "公開したコンテンツ",
-    "feedHintTimeline": "フォロー中の人の更新",
+    "feedHintFollowing": "フォロー中のアカウントを管理",
+    "feedHintPublished": "公開した投稿",
+    "feedHintTimeline": "フォロー中の人と自分の投稿",
     "feedItems": "件",
     "feedLoadFail": "フィードを読み込めませんでした",
+    "feedMetaFollowers": "あなたをフォローしている人",
+    "feedMetaFollowing": "フォロー中のアカウントを管理",
+    "feedMetaPublished": "公開した投稿",
+    "feedMetaTimeline": "フォロー中の人と自分の投稿",
     "feedPlus": "追加",
     "feedPublished": "公開済み",
     "feedRetry": "再試行",
@@ -1780,18 +1788,18 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "forwardSuccess": "転送しました",
     "forwardTo": "転送先…",
     "installBtn": "インストール",
-    "installFailed": "インストールに失敗しました。タップして再試行",
-    "installSuccess": "インストール完了",
     "installedAt": "インストール日",
+    "installFailed": "インストールに失敗しました。タップして再試行",
     "installingBtn": "インストール中…",
+    "installSuccess": "インストール完了",
     "invite": "招待",
     "inviteBtn": "招待",
+    "invited": "招待済み",
     "inviteFail": "招待に失敗しました",
     "inviteFromContacts": "連絡先から選ぶ",
     "inviteManual": "アドレスで招待",
     "invitePlaceholder": "@user@domain またはプロフィールURL",
     "inviteSuccess": "招待を送信しました",
-    "invited": "招待済み",
     "inviting": "招待中…",
     "kick": "削除",
     "kickConfirm": "このメンバーをグループから削除しますか？",
@@ -1880,8 +1888,8 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "sendFail": "送信に失敗しました",
     "syncBtn": "同期",
     "syncFail": "同期に失敗しました",
-    "syncSuccess": "同期完了",
     "syncing": "同期中…",
+    "syncSuccess": "同期完了",
     "tappInstalled": "インストール済み",
     "tappNotInstalled": "未インストール",
     "tappReceived": "Tappが共有されました",
@@ -1945,9 +1953,9 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "composePost": "发帖",
     "composePublish": "发布",
     "composePublishing": "发布中…",
+    "composerClosed": "会话已关闭，无法发送消息",
     "composeSuccess": "已发布",
     "composeUploading": "上传中…",
-    "composerClosed": "会话已关闭，无法发送消息",
     "confirmCancel": "取消",
     "confirmOk": "确定",
     "connected": "已连接",
@@ -1989,11 +1997,15 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "feedFollowers": "粉丝",
     "feedFollowing": "关注",
     "feedHintFollowers": "关注你的人",
-    "feedHintFollowing": "你关注的账号",
-    "feedHintPublished": "你分享过的内容",
-    "feedHintTimeline": "你关注的人的更新",
+    "feedHintFollowing": "管理你关注的人",
+    "feedHintPublished": "你发布的内容",
+    "feedHintTimeline": "关注的人与你的动态",
     "feedItems": "条",
     "feedLoadFail": "动态加载失败",
+    "feedMetaFollowers": "关注你的人",
+    "feedMetaFollowing": "管理你关注的人",
+    "feedMetaPublished": "你发布的内容",
+    "feedMetaTimeline": "关注的人与你的动态",
     "feedPlus": "添加",
     "feedPublished": "已发布",
     "feedRetry": "重试",
@@ -2009,18 +2021,18 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "forwardSuccess": "已转发",
     "forwardTo": "转发到…",
     "installBtn": "安装",
-    "installFailed": "安装失败，点击重试",
-    "installSuccess": "安装成功",
     "installedAt": "安装时间",
+    "installFailed": "安装失败，点击重试",
     "installingBtn": "安装中…",
+    "installSuccess": "安装成功",
     "invite": "邀请",
     "inviteBtn": "邀请",
+    "invited": "已邀请",
     "inviteFail": "邀请失败",
     "inviteFromContacts": "从联系人选择",
     "inviteManual": "通过地址邀请",
     "invitePlaceholder": "@用户@域名 或个人主页链接",
     "inviteSuccess": "邀请已发送",
-    "invited": "已邀请",
     "inviting": "邀请中…",
     "kick": "移除",
     "kickConfirm": "确定将此成员移出群聊？",
@@ -2109,8 +2121,8 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "sendFail": "发送失败",
     "syncBtn": "同步",
     "syncFail": "同步失败",
-    "syncSuccess": "同步完成",
     "syncing": "同步中…",
+    "syncSuccess": "同步完成",
     "tappInstalled": "已安装",
     "tappNotInstalled": "未安装",
     "tappReceived": "收到 Tapp 分享",
@@ -6167,34 +6179,46 @@ function getFeedTitle(sub) {
   return lang.feedTimeline;
 }
 
-function getFeedHint(sub) {
-  // Prefer feedHint*; accept feedMeta* aliases (plus-menu branch) so meta never blanks
+/** Per-tab subtitle — prefer feedMeta* i18n keys; never returns empty. */
+function getFeedMeta(sub) {
+  if (state.isGuest) {
+    return lang.feedMetaGuest || lang.feedHintGuest || lang.publicFeed
+      || 'Public posts from this site';
+  }
   if (sub === 'following') {
-    return lang.feedHintFollowing || lang.feedMetaFollowing || lang.feedFollowing || 'Accounts you follow';
+    return lang.feedMetaFollowing || lang.feedHintFollowing || lang.feedFollowing
+      || 'People you follow';
   }
   if (sub === 'followers') {
-    return lang.feedHintFollowers || lang.feedMetaFollowers || lang.feedFollowers || 'People who follow you';
+    return lang.feedMetaFollowers || lang.feedHintFollowers || lang.feedFollowers
+      || 'People who follow you';
   }
   if (sub === 'published') {
-    return lang.feedHintPublished || lang.feedMetaPublished || lang.feedPublished || "What you've shared";
+    return lang.feedMetaPublished || lang.feedHintPublished || lang.feedPublished
+      || "Notes you've published";
   }
-  return lang.feedHintTimeline || lang.feedMetaTimeline || lang.feedTimeline || 'Updates from people you follow';
+  return lang.feedMetaTimeline || lang.feedHintTimeline || lang.feedTimeline
+    || 'Posts from people you follow';
+}
+
+function getFeedHint(sub) {
+  return getFeedMeta(sub);
 }
 
 function updateFeedHeader() {
   var title = $('feed-section-title');
   var meta = $('feed-section-meta');
   var sub = state.feedSubTab;
-  if (title) title.textContent = getFeedTitle(sub);
+  if (title) title.textContent = getFeedTitle(sub) || lang.feedTimeline || 'Home';
   if (!meta) return;
-  // Always set subtitle (never leave blank): helper text, and append count when loaded with items
+  // Always set subtitle via feedMeta* — never leave blank
   var items = getFeedItems(sub) || [];
-  var hint = getFeedHint(sub);
+  var subtitle = getFeedMeta(sub) || getFeedTitle(sub) || '—';
   if (state.feedLoaded[sub] && items.length > 0) {
-    var countText = items.length + ' ' + (lang.feedItems || '项');
-    meta.textContent = hint ? (hint + ' · ' + countText) : countText;
+    var countText = items.length + ' ' + (lang.feedItems || '');
+    meta.textContent = countText ? (subtitle + ' · ' + countText) : subtitle;
   } else {
-    meta.textContent = hint;
+    meta.textContent = subtitle;
   }
 }
 
@@ -6227,22 +6251,27 @@ function showFeedEmpty(message, kind) {
   empty.style.display = '';
   empty.classList.toggle('feed-empty-error', kind === 'error');
   empty.classList.toggle('feed-empty-loading', kind === 'loading');
-  // Always show title + body (never hide title for normal empty)
+  // Always show #feed-empty-title for normal empty (never display:none)
   var title = $('feed-empty-title');
   if (title) {
     title.style.display = 'block';
+    title.removeAttribute('hidden');
     title.hidden = false;
     if (kind === 'error') {
       title.textContent = lang.feedLoadFail || lang.disconnected || 'Load failed';
     } else {
-      title.textContent = getFeedEmptyTitle(state.feedSubTab) || getFeedTitle(state.feedSubTab);
+      title.textContent = getFeedEmptyTitle(state.feedSubTab)
+        || getFeedTitle(state.feedSubTab)
+        || lang.feedTimeline
+        || 'Empty';
     }
   }
   var text = $('feed-empty-text');
   if (text) {
     text.style.display = 'block';
+    text.removeAttribute('hidden');
     text.hidden = false;
-    text.textContent = message || getFeedEmptyText(state.feedSubTab);
+    text.textContent = message || getFeedEmptyText(state.feedSubTab) || getFeedMeta(state.feedSubTab);
   }
   var retry = $('feed-empty-retry');
   if (retry) {
