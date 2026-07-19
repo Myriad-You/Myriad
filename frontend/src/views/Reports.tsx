@@ -40,7 +40,6 @@ import { API_URL } from '../config'
 import { useAuth } from '../contexts/AuthContext'
 import { useI18n } from '../contexts/I18nContext'
 import { useSecondaryNav } from '../contexts/NavigationContext'
-import { invalidateLatestReportCache } from '../utils/requestDedup'
 import {
   usePageReady,
   useReportsScheduler,
@@ -52,6 +51,7 @@ import {
 } from '../hooks/useTitleFont'
 import { getCSRFToken } from '../utils/csrf'
 import { notifyRecentActivityUpdated } from '../utils/recentActivity'
+import { invalidateLatestReportCache } from '../utils/requestDedup'
 import { hasSessionHint } from '../utils/sessionDetection'
 import { ComprehensiveReportCard } from './reports/ComprehensiveReportCard'
 import { EmptyComprehensiveReport } from './reports/EmptyComprehensiveReport'
