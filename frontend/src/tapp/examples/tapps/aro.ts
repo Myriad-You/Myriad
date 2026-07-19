@@ -114,14 +114,17 @@ const PAGE_HTML = `\
           <button class="feed-nav-item" data-sub="following">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M20 8v6M23 11h-6"/></svg>
             <span id="feed-nav-following">关注</span>
+            <span class="feed-nav-badge" id="feed-badge-following" hidden>0</span>
           </button>
           <button class="feed-nav-item" data-sub="followers">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
             <span id="feed-nav-followers">粉丝</span>
+            <span class="feed-nav-badge" id="feed-badge-followers" hidden>0</span>
           </button>
           <button class="feed-nav-item" data-sub="published">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
             <span id="feed-nav-published">已发布</span>
+            <span class="feed-nav-badge" id="feed-badge-published" hidden>0</span>
           </button>
         </nav>
         <div class="feed-sidebar-footer">
@@ -158,20 +161,6 @@ const PAGE_HTML = `\
               <div class="feed-profile-details" data-fed-details>
                 <button class="feed-identity-actor" data-copy-fed="actor" type="button" data-fed-actor></button>
               </div>
-            </div>
-          </div>
-          <div class="feed-sidebar-stats">
-            <div class="feed-sidebar-stat">
-              <span class="feed-stat-num" id="feed-count-following">0</span>
-              <span class="feed-stat-lbl" id="feed-lbl-following">关注</span>
-            </div>
-            <div class="feed-sidebar-stat">
-              <span class="feed-stat-num" id="feed-count-followers">0</span>
-              <span class="feed-stat-lbl" id="feed-lbl-followers">粉丝</span>
-            </div>
-            <div class="feed-sidebar-stat">
-              <span class="feed-stat-num" id="feed-count-published">0</span>
-              <span class="feed-stat-lbl" id="feed-lbl-published">已发布</span>
             </div>
           </div>
         </div>
@@ -223,10 +212,10 @@ const PAGE_HTML = `\
               </button>
             </div>
           </div>
-          <button class="feed-mobile-tab feed-mobile-tab-active" data-sub="timeline" id="feed-tab-timeline">动态</button>
-          <button class="feed-mobile-tab" data-sub="following" id="feed-tab-following">关注</button>
-          <button class="feed-mobile-tab" data-sub="followers" id="feed-tab-followers">粉丝</button>
-          <button class="feed-mobile-tab" data-sub="published" id="feed-tab-published">已发布</button>
+          <button class="feed-mobile-tab feed-mobile-tab-active" data-sub="timeline"><span id="feed-tab-timeline">动态</span></button>
+          <button class="feed-mobile-tab" data-sub="following"><span id="feed-tab-following">关注</span><span class="feed-nav-badge" id="feed-mobile-badge-following" hidden>0</span></button>
+          <button class="feed-mobile-tab" data-sub="followers"><span id="feed-tab-followers">粉丝</span><span class="feed-nav-badge" id="feed-mobile-badge-followers" hidden>0</span></button>
+          <button class="feed-mobile-tab" data-sub="published"><span id="feed-tab-published">已发布</span><span class="feed-nav-badge" id="feed-mobile-badge-published" hidden>0</span></button>
           <button id="refresh-feed-mobile-btn" class="feed-mobile-refresh" title="刷新">
             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
           </button>
@@ -247,20 +236,6 @@ const PAGE_HTML = `\
           </div>
           <div class="feed-profile-details" data-fed-details>
             <button class="feed-identity-actor" data-copy-fed="actor" type="button" data-fed-actor></button>
-          </div>
-        </div>
-        <div class="feed-mobile-stats">
-          <div class="feed-mobile-stat">
-            <span class="feed-stat-num" id="feed-mobile-count-following">0</span>
-            <span class="feed-stat-lbl" id="feed-mobile-lbl-following">关注</span>
-          </div>
-          <div class="feed-mobile-stat">
-            <span class="feed-stat-num" id="feed-mobile-count-followers">0</span>
-            <span class="feed-stat-lbl" id="feed-mobile-lbl-followers">粉丝</span>
-          </div>
-          <div class="feed-mobile-stat">
-            <span class="feed-stat-num" id="feed-mobile-count-published">0</span>
-            <span class="feed-stat-lbl" id="feed-mobile-lbl-published">已发布</span>
           </div>
         </div>
         <div id="feed-content" class="feed-content"></div>
@@ -496,17 +471,16 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .feed-handle{font-size:11px;color:var(--text-secondary,#536471);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
 /* Sidebar Nav */
 .feed-sidebar-nav{display:flex;flex-direction:column;gap:4px;padding:2px 0 8px;flex:1;overflow-y:auto;min-height:0}
-.feed-nav-item{display:flex;align-items:center;gap:13px;padding:11px 13px;border:none;background:none;border-radius:14px;font-size:14px;font-weight:600;color:var(--text-primary,#0f1419);cursor:pointer;transition:background .15s,color .15s;white-space:nowrap;text-align:left;width:100%}
+.feed-nav-item{display:flex;align-items:center;gap:13px;padding:11px 13px;border:none;background:none;border-radius:14px;font-size:14px;font-weight:600;color:var(--text-primary,#0f1419);cursor:pointer;transition:background .15s,color .15s;white-space:nowrap;text-align:left;width:100%;position:relative}
 .feed-nav-item:hover{background:rgba(128,128,128,.08)}
 .feed-nav-active{background:rgba(var(--tapp-primary-rgb,100,100,255),.1)!important;color:var(--tapp-primary,#6366f1);font-weight:700!important}
 .feed-nav-active svg{stroke-width:2.5}
 .feed-nav-item svg{flex-shrink:0}
-/* Sidebar Footer (profile + stats) */
+.feed-nav-badge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;margin-left:auto;border-radius:999px;font-size:10px;font-weight:700;line-height:1;letter-spacing:-.01em;background:rgba(var(--tapp-primary-rgb,100,100,255),.12);color:var(--tapp-primary,#6366f1);flex-shrink:0;box-sizing:border-box}
+.feed-nav-badge[hidden]{display:none!important}
+.feed-nav-active .feed-nav-badge{background:rgba(var(--tapp-primary-rgb,100,100,255),.2)}
+/* Sidebar Footer (profile) */
 .feed-sidebar-footer{flex-shrink:0;border-top:1px solid rgba(128,128,128,.06);padding-top:12px;display:flex;flex-direction:column;gap:10px}
-.feed-sidebar-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
-.feed-sidebar-stat{min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:7px 8px;border-radius:9px;background:rgba(128,128,128,.045);font-size:12px;color:var(--text-secondary,#536471)}
-.feed-stat-num{font-weight:700;color:var(--text-primary,#0f1419)}
-.feed-stat-lbl{max-width:100%;font-size:10px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .feed-profile-card{display:flex;flex-direction:column;gap:0;padding:8px;border:1px solid rgba(128,128,128,.12);border-radius:12px;background:rgba(128,128,128,.035);min-width:0}
 .feed-profile-summary{min-width:0;display:flex;align-items:center;gap:9px;border-radius:10px;cursor:pointer;outline:none}
 .feed-profile-summary:focus-visible{box-shadow:0 0 0 2px rgba(var(--tapp-primary-rgb,100,100,255),.35)}
@@ -523,8 +497,6 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .feed-profile-tablet-popover{display:none}
 .feed-profile-tablet-main{display:flex;align-items:center;gap:9px;min-width:0}
 .feed-profile-mobile{display:none;margin:10px 16px 0;flex-shrink:0}
-.feed-mobile-stats{display:none;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:8px 16px 0;flex-shrink:0}
-.feed-mobile-stat{min-width:0;display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 10px;border-radius:10px;background:rgba(128,128,128,.04);color:var(--text-secondary,#536471);font-size:11px}
 /* Feed Main — fills remaining width after sidebar (header spans full main; no third-column border) */
 .feed-main{
   flex:1 1 0%;
@@ -607,9 +579,10 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 @keyframes aroSpin{to{transform:rotate(360deg)}}
 /* Feed Mobile Tabs (hidden on desktop) */
 .feed-mobile-tabs{display:none;border-bottom:1px solid rgba(128,128,128,.08);flex-shrink:0;background:rgba(255,255,255,.45);position:relative;z-index:5;overflow:visible}
-.feed-mobile-tab{flex:1;padding:12px 4px;border:none;background:none;font-size:13px;font-weight:500;color:var(--text-secondary,#536471);cursor:pointer;text-align:center;transition:all .15s;border-bottom:2px solid transparent}
+.feed-mobile-tab{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:4px;padding:12px 4px;border:none;background:none;font-size:13px;font-weight:500;color:var(--text-secondary,#536471);cursor:pointer;text-align:center;transition:all .15s;border-bottom:2px solid transparent;min-width:0}
 .feed-mobile-tab:hover{background:rgba(128,128,128,.04)}
 .feed-mobile-tab-active{color:var(--text-primary,#0f1419)!important;font-weight:700;border-bottom-color:var(--tapp-primary,#6366f1)!important}
+.feed-mobile-tab .feed-nav-badge{margin-left:0;min-width:16px;height:16px;padding:0 4px;font-size:9px}
 .feed-plus-wrap-mobile{display:flex;align-items:stretch;flex-shrink:0;position:relative}
 .feed-mobile-compose{width:44px;border:none;background:none;color:var(--tapp-primary,#6366f1);display:flex;align-items:center;justify-content:center;cursor:pointer;border-bottom:2px solid transparent;flex-shrink:0}
 .feed-mobile-compose:hover{background:rgba(99,102,241,.08)}
@@ -688,9 +661,7 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .dark .feed-mobile-tab-active{color:rgba(255,255,255,.95)!important}
 .dark .feed-mobile-refresh{color:rgba(255,255,255,.5)}
 .dark .feed-mobile-refresh:hover{background:rgba(255,255,255,.04);color:var(--tapp-primary,#818cf8)}
-.dark .feed-stat-num{color:rgba(255,255,255,.92)}
-.dark .feed-sidebar-stat{background:rgba(255,255,255,.045)}
-.dark .feed-mobile-stat{background:rgba(255,255,255,.035);color:rgba(255,255,255,.48)}
+.dark .feed-nav-badge{background:rgba(var(--tapp-primary-rgb,100,100,255),.2);color:var(--tapp-primary,#818cf8)}
 .dark .feed-profile-card{border-color:rgba(255,255,255,.08);background:rgba(255,255,255,.035)}
 .dark .feed-profile-toggle{background:rgba(255,255,255,.045);color:rgba(255,255,255,.48)}
 .dark .feed-identity-actor{background:rgba(255,255,255,.06);color:rgba(255,255,255,.68)}
@@ -710,7 +681,6 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
   .feed-main-header{display:none}
   .feed-mobile-tabs{display:flex}
   .feed-profile-mobile{display:flex}
-  .feed-mobile-stats{display:grid}
 }
 
 /* ===== Layout ===== */
@@ -1112,7 +1082,6 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .dark .manage-item{color:rgba(255,255,255,.9)}
 .dark .meta-badge{color:rgba(255,255,255,.6)}
 .dark .feed-handle{color:rgba(255,255,255,.45)}
-.dark .feed-sidebar-stat{color:rgba(255,255,255,.45)}
 .dark .feed-mobile-tab{color:rgba(255,255,255,.5)}
 .dark .feed-item{border-color:rgba(255,255,255,.04)}
 .dark .feed-item-handle{color:rgba(255,255,255,.45)}
@@ -1167,8 +1136,9 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
   .member-panel.member-expanded-tablet{width:180px;border-left:1px solid rgba(128,128,128,.08);overflow:hidden}
   .feed-sidebar{width:68px;flex:0 0 68px;padding:12px 8px;overflow:visible;position:relative;z-index:5}
   .feed-main{max-width:none!important;border-right:none!important}
-  .feed-nav-item span{display:none}
+  .feed-nav-item>span:not(.feed-nav-badge){display:none}
   .feed-nav-item{justify-content:center;padding:10px}
+  .feed-nav-item .feed-nav-badge{position:absolute;top:2px;right:2px;margin-left:0;min-width:14px;height:14px;padding:0 3px;font-size:8px;pointer-events:none}
   .feed-sidebar-footer{align-items:center;position:relative}
   .feed-profile-card{width:40px;height:40px;padding:0;border:none;background:none;overflow:visible}
   .feed-profile-summary{width:40px;height:40px;justify-content:center}
@@ -1179,7 +1149,6 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
   .feed-profile-card.feed-profile-popover-open .feed-profile-tablet-popover .feed-profile-details{display:block!important}
   .feed-profile-card.feed-profile-popover-open.feed-profile-expanded .feed-profile-tablet-popover .feed-profile-details{max-height:56px;opacity:1;padding-top:8px}
   .dark .feed-profile-card.feed-profile-popover-open .feed-profile-tablet-popover{background:var(--bg-primary,#0a0a0a);border-color:rgba(255,255,255,.08);box-shadow:0 16px 44px rgba(0,0,0,.38)}
-  .feed-sidebar-stats{display:none}
 }
 
 /* ===== Create Dialog ===== */
@@ -2645,8 +2614,6 @@ function applyRoleControls() {
   setAdminElementVisible('.feed-mobile-tab[data-sub="following"]', privateOnly);
   setAdminElementVisible('.feed-mobile-tab[data-sub="followers"]', privateOnly);
   setAdminElementVisible('.feed-mobile-tab[data-sub="published"]', privateOnly);
-  setAdminElementVisible('.feed-sidebar-stats', privateOnly);
-  setAdminElementVisible('.feed-mobile-stats', privateOnly);
   if (state.isGuest) {
     state.feedSubTab = 'timeline';
     state.currentView = 'feed';
@@ -3165,12 +3132,6 @@ function applyLabels() {
   el = $('feed-tab-following'); if (el) el.textContent = lang.feedFollowing;
   el = $('feed-tab-followers'); if (el) el.textContent = lang.feedFollowers;
   el = $('feed-tab-published'); if (el) el.textContent = lang.feedPublished;
-  el = $('feed-lbl-following'); if (el) el.textContent = lang.feedFollowing;
-  el = $('feed-lbl-followers'); if (el) el.textContent = lang.feedFollowers;
-  el = $('feed-lbl-published'); if (el) el.textContent = lang.feedPublished;
-  el = $('feed-mobile-lbl-following'); if (el) el.textContent = lang.feedFollowing;
-  el = $('feed-mobile-lbl-followers'); if (el) el.textContent = lang.feedFollowers;
-  el = $('feed-mobile-lbl-published'); if (el) el.textContent = lang.feedPublished;
   el = $('feed-follow-input'); if (el) el.placeholder = lang.followPlaceholder;
   el = $('feed-follow-btn'); if (el) el.textContent = lang.followBtn;
   el = $('feed-follow-dialog-title'); if (el) el.textContent = lang.followDialogTitle || lang.followBtn || 'Follow';
@@ -6183,11 +6144,42 @@ async function loadFeed() {
   return loadFeedSubTab();
 }
 
+function formatFeedBadgeCount(n) {
+  if (n > 99) return '99+';
+  return String(n);
+}
+
+/** Sync following/followers/published counts into nav + mobile tab badges. Hidden when 0. */
+function updateFeedCountBadges() {
+  var pairs = [
+    { count: (state.following && state.following.length) || 0, ids: ['feed-badge-following', 'feed-mobile-badge-following'] },
+    { count: (state.followers && state.followers.length) || 0, ids: ['feed-badge-followers', 'feed-mobile-badge-followers'] },
+    { count: (state.published && state.published.length) || 0, ids: ['feed-badge-published', 'feed-mobile-badge-published'] }
+  ];
+  if (state.isGuest) {
+    pairs.forEach(function (p) { p.count = 0; });
+  }
+  pairs.forEach(function (p) {
+    p.ids.forEach(function (id) {
+      var el = $(id);
+      if (!el) return;
+      if (p.count === 0) {
+        el.hidden = true;
+        el.textContent = '0';
+      } else {
+        el.hidden = false;
+        el.textContent = formatFeedBadgeCount(p.count);
+      }
+    });
+  });
+}
+
 function updateFeedProfileHeader() {
   if (state.isGuest) {
     state.following = [];
     state.followers = [];
     state.published = [];
+    updateFeedCountBadges();
     updateFeedHeader();
     return;
   }
@@ -6199,13 +6191,7 @@ function updateFeedProfileHeader() {
     state.following = (results[0] && results[0].items) || [];
     state.followers = (results[1] && results[1].items) || [];
     state.published = (results[2] && results[2].items) || [];
-    var el;
-    el = $('feed-count-following'); if (el) el.textContent = state.following.length;
-    el = $('feed-count-followers'); if (el) el.textContent = state.followers.length;
-    el = $('feed-count-published'); if (el) el.textContent = state.published.length;
-    el = $('feed-mobile-count-following'); if (el) el.textContent = state.following.length;
-    el = $('feed-mobile-count-followers'); if (el) el.textContent = state.followers.length;
-    el = $('feed-mobile-count-published'); if (el) el.textContent = state.published.length;
+    updateFeedCountBadges();
     updateFeedHeader();
   });
 }
@@ -6245,12 +6231,15 @@ async function loadFeedSubTab() {
     } else if (sub === 'following') {
       var res = await Tapp.federation.getFollowing();
       state.following = (res && res.items) || [];
+      updateFeedCountBadges();
     } else if (sub === 'followers') {
       var res = await Tapp.federation.getFollowers();
       state.followers = (res && res.items) || [];
+      updateFeedCountBadges();
     } else if (sub === 'published') {
       var res = await Tapp.federation.getPublished();
       state.published = (res && res.items) || [];
+      updateFeedCountBadges();
     }
     if (state.feedSubTab !== sub) return;
     state.feedLoaded[sub] = true;
