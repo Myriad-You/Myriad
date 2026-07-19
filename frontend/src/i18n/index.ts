@@ -371,6 +371,14 @@ export interface TranslationKeys {
     usersErrorCannotDeleteOwner: string
     usersErrorCannotDemoteOwner: string
     usersEmpty: string
+    usersSearchLabel: string
+    usersSearchPlaceholder: string
+    usersSearchClear: string
+    usersFilterRole: string
+    usersFilterStatus: string
+    usersFilterAll: string
+    usersFilterClear: string
+    usersNoMatch: string
     usersShowDetail: string
     usersHideDetail: string
     usersHours: string

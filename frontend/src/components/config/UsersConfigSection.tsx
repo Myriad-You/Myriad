@@ -16,8 +16,10 @@ import {
   LuPackage,
   LuPlus,
   LuRefreshCw,
+  LuSearch,
   LuShieldCheck,
   LuUser,
+  LuX,
 } from '../../lib/icons'
 import adminUsersApi from '../../services/adminUsersApi'
 import { messageForAdminUserError } from '../../utils/authErrorMessages'
@@ -36,6 +38,9 @@ const KNOWN_PROVIDER_ICONS: Record<string, string> = {
   auth0: getOAuthIconAsset('auth0'),
 }
 
+type RoleFilter = 'all' | 'admin' | 'user'
+type OnlineFilter = 'all' | 'online' | 'offline'
+
 interface UsersConfigSectionProps {
   title: string
   icon: React.ReactNode
@@ -49,6 +54,25 @@ interface UsersConfigSectionProps {
 }
 
 const ONLINE_ICON_SIZE = 14
+
+/** Case-insensitive match against username, display name, email, OAuth identity fields. */
+function userMatchesQuery(user: AdminUser, query: string): boolean {
+  if (!query) return true
+  const q = query.toLowerCase()
+  const fields: Array<string | null | undefined> = [
+    user.username,
+    user.display_name,
+    user.email,
+  ]
+  for (const identity of user.identities) {
+    fields.push(
+      identity.provider_username,
+      identity.email,
+      identity.provider,
+    )
+  }
+  return fields.some((value) => value?.toLowerCase().includes(q))
+}
 
 function ProviderBadge({ identity }: { identity: AdminUserIdentity }) {
   const { t } = useI18n()
@@ -100,6 +124,9 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
     is_admin: false,
   })
   const [busy, setBusy] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>('all')
+  const [onlineFilter, setOnlineFilter] = useState<OnlineFilter>('all')
 
   const notifyError = useCallback(
     (error: unknown, fallback: string) => {
@@ -124,8 +151,31 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
     loadUsers()
   }, [loadUsers])
 
-  const admins = useMemo(() => users.filter((u) => u.is_admin), [users])
-  const registered = useMemo(() => users.filter((u) => !u.is_admin), [users])
+  const hasActiveFilter =
+    searchQuery.trim().length > 0 ||
+    roleFilter !== 'all' ||
+    onlineFilter !== 'all'
+
+  const filteredUsers = useMemo(() => {
+    const query = searchQuery.trim()
+    return users.filter((user) => {
+      if (!userMatchesQuery(user, query)) return false
+      if (roleFilter === 'admin' && !user.is_admin) return false
+      if (roleFilter === 'user' && user.is_admin) return false
+      if (onlineFilter === 'online' && !user.online) return false
+      if (onlineFilter === 'offline' && user.online) return false
+      return true
+    })
+  }, [users, searchQuery, roleFilter, onlineFilter])
+
+  const admins = useMemo(
+    () => filteredUsers.filter((u) => u.is_admin),
+    [filteredUsers],
+  )
+  const registered = useMemo(
+    () => filteredUsers.filter((u) => !u.is_admin),
+    [filteredUsers],
+  )
 
   /**
    * Site owner (`is_owner`); was heuristic id === 1.
@@ -498,6 +548,29 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
     )
   }
 
+  const clearFilters = useCallback(() => {
+    setSearchQuery('')
+    setRoleFilter('all')
+    setOnlineFilter('all')
+  }, [])
+
+  const emptyListMessage = (isAdminGroup: boolean) => {
+    if (loading && users.length === 0) {
+      return <div className="users-muted">…</div>
+    }
+    if (hasActiveFilter) {
+      return (
+        <div className="users-muted" role="status">
+          {t.config.usersNoMatch}
+        </div>
+      )
+    }
+    if (!isAdminGroup) {
+      return <div className="users-muted">{t.config.usersEmpty}</div>
+    }
+    return null
+  }
+
   return (
     <SettingSection
       title={title}
@@ -505,6 +578,75 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
       description={description}
       sectionId={sectionId}
     >
+      <div className="users-filter-bar" role="search">
+        <label className="users-search-field">
+          <span className="visually-hidden">{t.config.usersSearchLabel}</span>
+          <LuSearch className="users-search-icon" aria-hidden />
+          <input
+            type="search"
+            className="users-search-input"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={t.config.usersSearchPlaceholder}
+            autoComplete="off"
+            spellCheck={false}
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              className="users-search-clear"
+              onClick={() => setSearchQuery('')}
+              aria-label={t.config.usersSearchClear}
+              title={t.config.usersSearchClear}
+            >
+              <LuX aria-hidden size={14} />
+            </button>
+          )}
+        </label>
+
+        <div className="users-filter-controls">
+          <label className="users-filter-select">
+            <span className="users-filter-label">{t.config.usersFilterRole}</span>
+            <select
+              value={roleFilter}
+              onChange={(e) => setRoleFilter(e.target.value as RoleFilter)}
+              aria-label={t.config.usersFilterRole}
+            >
+              <option value="all">{t.config.usersFilterAll}</option>
+              <option value="admin">{t.config.usersRoleAdmin}</option>
+              <option value="user">{t.config.usersRoleUser}</option>
+            </select>
+          </label>
+
+          <label className="users-filter-select">
+            <span className="users-filter-label">
+              {t.config.usersFilterStatus}
+            </span>
+            <select
+              value={onlineFilter}
+              onChange={(e) =>
+                setOnlineFilter(e.target.value as OnlineFilter)
+              }
+              aria-label={t.config.usersFilterStatus}
+            >
+              <option value="all">{t.config.usersFilterAll}</option>
+              <option value="online">{t.config.usersOnline}</option>
+              <option value="offline">{t.config.usersOffline}</option>
+            </select>
+          </label>
+
+          {hasActiveFilter && (
+            <button
+              type="button"
+              className="users-button users-filter-reset"
+              onClick={clearFilters}
+            >
+              {t.config.usersFilterClear}
+            </button>
+          )}
+        </div>
+      </div>
+
       <SettingGroup
         title={t.config.usersAdminGroup}
         description={
@@ -514,11 +656,9 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
         }
       >
         <div className="users-list">
-          {loading && users.length === 0 ? (
-            <div className="users-muted">…</div>
-          ) : (
-            admins.map(renderUserRow)
-          )}
+          {admins.length > 0
+            ? admins.map(renderUserRow)
+            : emptyListMessage(true)}
         </div>
       </SettingGroup>
 
@@ -630,13 +770,9 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
         )}
 
         <div className="users-list">
-          {loading && users.length === 0 ? (
-            <div className="users-muted">…</div>
-          ) : registered.length === 0 ? (
-            <div className="users-muted">{t.config.usersEmpty}</div>
-          ) : (
-            registered.map(renderUserRow)
-          )}
+          {registered.length > 0
+            ? registered.map(renderUserRow)
+            : emptyListMessage(false)}
         </div>
       </SettingGroup>
     </SettingSection>

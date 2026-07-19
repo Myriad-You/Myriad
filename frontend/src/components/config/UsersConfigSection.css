@@ -1,5 +1,132 @@
 /* 设置页「用户管理」区块 */
 
+.users-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 0.75rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--border-color, rgb(128 128 128 / 20%));
+  border-radius: 12px;
+  background: var(--card-bg, rgb(255 255 255 / 4%));
+}
+
+.users-search-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1 1 14rem;
+  min-width: 12rem;
+}
+
+.users-search-icon {
+  position: absolute;
+  left: 0.7rem;
+  width: 14px;
+  height: 14px;
+  color: var(--text-secondary, #888);
+  pointer-events: none;
+}
+
+.users-search-input {
+  width: 100%;
+  padding: 0.45rem 2rem 0.45rem 2rem;
+  border-radius: 10px;
+  border: 1px solid var(--border-color, rgb(128 128 128 / 25%));
+  background: transparent;
+  color: inherit;
+  font-size: 0.88rem;
+  font: inherit;
+}
+
+.users-search-input:focus {
+  outline: none;
+  border-color: var(--accent-color, #4f8ef7);
+  box-shadow: 0 0 0 2px rgb(79 142 247 / 18%);
+}
+
+.users-search-input::placeholder {
+  color: var(--text-secondary, #888);
+}
+
+/* Hide native search clear so our button is the only control */
+.users-search-input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+.users-search-clear {
+  position: absolute;
+  right: 0.4rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary, #888);
+  cursor: pointer;
+}
+
+.users-search-clear:hover {
+  background: rgb(128 128 128 / 12%);
+  color: inherit;
+}
+
+.users-filter-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.users-filter-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+  color: var(--text-secondary, #888);
+}
+
+.users-filter-label {
+  white-space: nowrap;
+}
+
+.users-filter-select select {
+  padding: 0.4rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-color, rgb(128 128 128 / 25%));
+  background: transparent;
+  color: inherit;
+  font-size: 0.85rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+.users-filter-select select:focus {
+  outline: none;
+  border-color: var(--accent-color, #4f8ef7);
+}
+
+.users-filter-reset {
+  flex-shrink: 0;
+}
+
+.users-filter-bar .visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .users-toolbar {
   display: flex;
   gap: 0.5rem;
@@ -324,6 +451,28 @@
 }
 
 @media (width <= 640px) {
+  .users-filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .users-search-field {
+    min-width: 0;
+  }
+
+  .users-filter-controls {
+    width: 100%;
+  }
+
+  .users-filter-select {
+    flex: 1 1 auto;
+  }
+
+  .users-filter-select select {
+    flex: 1;
+    min-width: 0;
+  }
+
   .users-row-meta {
     display: none;
   }
