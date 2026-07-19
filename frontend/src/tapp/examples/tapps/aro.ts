@@ -6818,28 +6818,28 @@ function updateComposeButtonVisibility() {
 }
 
 /**
- * Strict + visibility (GOAL LOCK):
- * - timeline (owner, feed) → Post item only
- * - following (owner, feed) → Follow item only
- * - followers / published / guest / non-feed → hide + entirely
- * Never show both Post and Follow on the same tab.
+ * Strict + visibility (GOAL LOCK / #118):
+ *   showPlusWrap = !isGuest && currentView==='feed'
+ *     && (feedSubTab==='timeline' || feedSubTab==='following')
+ * Menu:
+ *   timeline  → Post only (hide Follow)
+ *   following → Follow only (hide Post)
+ * Never list both on the same tab.
  */
 function updateFeedPlusVisibility() {
-  var showPost = canComposePost();
-  var showFollow = canFollowFromFeed();
-  // Mutual exclusion: a tab never offers both (and should never need to today).
-  if (showPost && showFollow) {
-    // Prefer tab rule: following wins follow, else post — defensive if state is corrupt.
-    if (state.feedSubTab === 'following') showPost = false;
-    else showFollow = false;
-  }
-  var showPlus = showPost || showFollow;
+  var onFeed = state.currentView === 'feed';
+  var sub = state.feedSubTab;
+  var showPlusWrap = !state.isGuest && onFeed
+    && (sub === 'timeline' || sub === 'following');
+  // Tab-scoped menu items (not both on every tab)
+  var showPost = showPlusWrap && sub === 'timeline';
+  var showFollow = showPlusWrap && sub === 'following';
 
   var wrap = $('feed-plus-wrap');
-  if (wrap) wrap.style.display = showPlus ? '' : 'none';
+  if (wrap) wrap.style.display = showPlusWrap ? '' : 'none';
   var wrapMobile = $('feed-plus-wrap-mobile');
   // CSS sets display:flex on .feed-plus-wrap-mobile — force none when hidden.
-  if (wrapMobile) wrapMobile.style.display = showPlus ? 'flex' : 'none';
+  if (wrapMobile) wrapMobile.style.display = showPlusWrap ? 'flex' : 'none';
 
   document.querySelectorAll('[data-feed-plus="post"]').forEach(function (el) {
     if (showPost) {
@@ -6860,7 +6860,7 @@ function updateFeedPlusVisibility() {
     }
   });
 
-  if (!showPlus) closeFeedPlusMenu();
+  if (!showPlusWrap) closeFeedPlusMenu();
 }
 
 function closeFeedPlusMenu() {
@@ -8039,6 +8039,8 @@ const PAGE_MOD_INDEX = `\
   await loadUserRole();
   await loadFederationIdentity();
   applyLabels();
+  // Init: apply tab-scoped + visibility after role + labels are ready
+  if (typeof updateFeedPlusVisibility === 'function') updateFeedPlusVisibility();
 
   // -- Populate feed profile header from user context + federation identity --
   try {
