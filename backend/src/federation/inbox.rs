@@ -974,13 +974,25 @@ async fn handle_mfp_activity(
             Ok(StatusCode::ACCEPTED)
         }
         "myriad:RoomMessage" => {
-            crate::federation::room::handle_room_message(db, actor_url_str, activity)
-                .await
-                .map_err(|e| {
-                    tracing::error!("RoomMessage handling failed: {}", e);
-                    (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e})))
-                })?;
-            Ok(StatusCode::ACCEPTED)
+            match crate::federation::room::handle_room_message(db, actor_url_str, activity).await
+            {
+                Ok(()) => Ok(StatusCode::ACCEPTED),
+                Err(e) => {
+                    // Permanent auth/sync failures must be 4xx so delivery does not
+                    // retry every ~15s forever. Transient/internal stay 5xx.
+                    let status = if e.starts_with("not_member:") {
+                        tracing::warn!("RoomMessage rejected (not member): {}", e);
+                        StatusCode::FORBIDDEN
+                    } else if e.starts_with("not_found:") {
+                        tracing::warn!("RoomMessage rejected (not found): {}", e);
+                        StatusCode::NOT_FOUND
+                    } else {
+                        tracing::error!("RoomMessage handling failed: {}", e);
+                        StatusCode::INTERNAL_SERVER_ERROR
+                    };
+                    Err((status, Json(json!({"error": e}))))
+                }
+            }
         }
         "myriad:RoomLeave" => {
             crate::federation::room::handle_room_leave(db, actor_url_str, activity)

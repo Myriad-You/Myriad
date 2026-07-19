@@ -148,7 +148,10 @@ pub async fn process_delivery_queue(
                     }
                     Err(e) => {
                         let new_attempts = attempts + 1;
-                        if new_attempts >= max_attempts {
+                        // 4xx client errors (except 408/429) are permanent — do not
+                        // retry forever (was causing ~15s RoomMessage not-member storms).
+                        let permanent = e.starts_with("PERMANENT ");
+                        if permanent || new_attempts >= max_attempts {
                             // 放弃
                             let _ = db
                                 .execute(Statement::from_sql_and_values(
@@ -157,12 +160,20 @@ pub async fn process_delivery_queue(
                                     [new_attempts.into(), e.clone().into(), queue_id.into()],
                                 ))
                                 .await;
-                            tracing::warn!(
-                                "💀 Delivery dead after {} attempts to {}: {}",
-                                new_attempts,
-                                target_inbox,
-                                e
-                            );
+                            if permanent {
+                                tracing::warn!(
+                                    "💀 Delivery permanent failure to {}: {}",
+                                    target_inbox,
+                                    e
+                                );
+                            } else {
+                                tracing::warn!(
+                                    "💀 Delivery dead after {} attempts to {}: {}",
+                                    new_attempts,
+                                    target_inbox,
+                                    e
+                                );
+                            }
                         } else {
                             // 指数退避：2^attempts 秒，最大 86400 秒 (24h)
                             let backoff_secs = std::cmp::min(2i64.pow(new_attempts as u32), 86400);
@@ -322,11 +333,15 @@ async fn deliver_activity(
         Ok(())
     } else {
         let body_text = resp.text().await.unwrap_or_default();
-        Err(format!(
-            "HTTP {}: {}",
-            status,
-            body_text.chars().take(200).collect::<String>()
-        ))
+        let snippet = body_text.chars().take(200).collect::<String>();
+        let code = status.as_u16();
+        // Permanent client errors: do not burn max_attempts with useless retries.
+        // Keep retrying 408/429 (timeout / rate limit) as transient.
+        if status.is_client_error() && code != 408 && code != 429 {
+            Err(format!("PERMANENT HTTP {}: {}", code, snippet))
+        } else {
+            Err(format!("HTTP {}: {}", code, snippet))
+        }
     }
 }
 

@@ -169,7 +169,135 @@ async fn get_member_role(
         ))
         .await?;
 
-    Ok(row.and_then(|r| r.try_get::<String>("", "role").ok()))
+    if let Some(role) = row.and_then(|r| r.try_get::<String>("", "role").ok()) {
+        return Ok(Some(role));
+    }
+
+    // Fallback: host case / trailing-slash differences (exact SQL match fails).
+    let rows = db
+        .query_all(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT actor_url, role FROM federation_room_members WHERE room_id = $1",
+            [room_id.into()],
+        ))
+        .await?;
+    for r in rows {
+        let url: String = r.try_get("", "actor_url").unwrap_or_default();
+        if same_actor_url(&url, actor_url) {
+            return Ok(r.try_get::<String>("", "role").ok());
+        }
+    }
+
+    Ok(None)
+}
+
+/// Upsert a remote (non-local) room member row.
+async fn upsert_remote_room_member(
+    db: &DatabaseConnection,
+    room_id: &str,
+    actor_url: &str,
+    role: &str,
+    invited_by: Option<&str>,
+) -> Result<(), String> {
+    let role = if ["owner", "admin", "member", "observer"].contains(&role) {
+        role
+    } else {
+        "member"
+    };
+    db.execute(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        r#"INSERT INTO federation_room_members
+           (room_id, actor_url, is_local, role, invited_by, joined_at)
+           VALUES ($1, $2, false, $3, $4, NOW())
+           ON CONFLICT (room_id, actor_url) DO UPDATE SET
+               role = CASE
+                   WHEN federation_room_members.role = 'owner' THEN federation_room_members.role
+                   WHEN EXCLUDED.role = 'owner' THEN EXCLUDED.role
+                   ELSE EXCLUDED.role
+               END,
+               joined_at = COALESCE(federation_room_members.joined_at, NOW())"#,
+        [
+            room_id.into(),
+            actor_url.into(),
+            role.into(),
+            invited_by.into(),
+        ],
+    ))
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Ensure the signed RoomMessage sender is a known member.
+///
+/// Self-heals common sync gaps (invitee never seeded inviter/owner) so messages
+/// are not lost. Returns `not_member:` / `not_found:` prefixed errors for inbox
+/// status mapping (4xx, no endless 500 retry storm).
+async fn ensure_room_message_sender_member(
+    db: &DatabaseConnection,
+    room_id: &str,
+    sender_actor: &str,
+) -> Result<(), String> {
+    if get_member_role(db, room_id, sender_actor)
+        .await
+        .map_err(|e| e.to_string())?
+        .is_some()
+    {
+        return Ok(());
+    }
+
+    let room_row = db
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT owner_actor FROM federation_rooms WHERE room_id = $1",
+            [room_id.into()],
+        ))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let Some(room_row) = room_row else {
+        return Err(format!("not_found: Room {} not found", room_id));
+    };
+
+    let owner: String = room_row.try_get("", "owner_actor").unwrap_or_default();
+    let mut heal_role: Option<&'static str> = None;
+
+    if !owner.is_empty() && same_actor_url(&owner, sender_actor) {
+        heal_role = Some("owner");
+    } else {
+        // Inviter of any local/remote member is clearly part of the room graph.
+        let inviters = db
+            .query_all(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "SELECT invited_by FROM federation_room_members WHERE room_id = $1 AND invited_by IS NOT NULL",
+                [room_id.into()],
+            ))
+            .await
+            .map_err(|e| e.to_string())?;
+        for r in inviters {
+            let inv: String = r.try_get("", "invited_by").unwrap_or_default();
+            if !inv.is_empty() && same_actor_url(&inv, sender_actor) {
+                heal_role = Some("member");
+                break;
+            }
+        }
+    }
+
+    if let Some(role) = heal_role {
+        upsert_remote_room_member(db, room_id, sender_actor, role, None).await?;
+        tracing::info!(
+            "[Room] Self-healed membership for {} in {} as {}",
+            sender_actor,
+            room_id,
+            role
+        );
+        return Ok(());
+    }
+
+    Err(format!(
+        "not_member: Actor {} is not a member of room {}",
+        sender_actor, room_id
+    ))
 }
 
 /// 检查是否有管理权限（owner 或 admin）
@@ -832,7 +960,7 @@ pub async fn invite_member(
     let room_row = db
         .query_one(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT invite_policy, max_members FROM federation_rooms WHERE room_id = $1",
+            "SELECT invite_policy, max_members, name, owner_actor FROM federation_rooms WHERE room_id = $1",
             [room_id.into()],
         ))
         .await
@@ -846,6 +974,8 @@ pub async fn invite_member(
 
     let policy: String = room_row.try_get("", "invite_policy").unwrap_or_default();
     let max_members: i32 = room_row.try_get("", "max_members").unwrap_or(50);
+    let room_name: String = room_row.try_get("", "name").unwrap_or_default();
+    let owner_actor: String = room_row.try_get("", "owner_actor").unwrap_or_default();
 
     match policy.as_str() {
         "admin-only" if !is_admin_role(&my_role) => {
@@ -957,6 +1087,26 @@ pub async fn invite_member(
             ));
         }
 
+        // Snapshot members so the invitee can seed federation_room_members
+        // (especially the inviter/owner). Without this, remote rejects RoomMessage.
+        let member_rows = db
+            .query_all(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "SELECT actor_url, role FROM federation_room_members WHERE room_id = $1",
+                [room_id.into()],
+            ))
+            .await
+            .map_err(db_err)?;
+        let members_json: Vec<serde_json::Value> = member_rows
+            .iter()
+            .map(|r| {
+                json!({
+                    "actor": r.try_get::<String>("", "actor_url").unwrap_or_default(),
+                    "role": r.try_get::<String>("", "role").unwrap_or_else(|_| "member".into()),
+                })
+            })
+            .collect();
+
         // 发送 RoomInvite Activity 给远程方
         let activity_id = generate_activity_id(&base_url);
         let invite_activity = json!({
@@ -968,7 +1118,10 @@ pub async fn invite_member(
             "object": {
                 "type": "myriad:Room",
                 "id": room_id,
-                "role": role
+                "name": &room_name,
+                "owner": &owner_actor,
+                "role": role,
+                "members": members_json
             }
         });
 
@@ -1553,6 +1706,14 @@ pub async fn handle_room_invite(
         .get("role")
         .and_then(|v| v.as_str())
         .unwrap_or("member");
+    let invite_name = object
+        .get("name")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let owner_actor = object
+        .get("owner")
+        .and_then(|v| v.as_str())
+        .unwrap_or(actor_url_str);
 
     // 查找本地接收者（从 "to" 字段推断）
     let to = activity.get("to").and_then(|v| v.as_array());
@@ -1605,36 +1766,6 @@ pub async fn handle_room_invite(
             .unwrap_or_else(|| format!("http://{}:{}", config.server_host, config.server_port))
     };
 
-    // 先确保 Room 有记录（如果是首次看到这个 room）
-    let room_exists = db
-        .query_one(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "SELECT 1 FROM federation_rooms WHERE room_id = $1",
-            [room_id.into()],
-        ))
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if room_exists.is_none() {
-        let home_server = extract_domain(actor_url_str).unwrap_or_default();
-        db.execute(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            r#"INSERT INTO federation_rooms
-               (room_id, name, description, owner_actor, home_server, governance_type, invite_policy,
-                max_members, is_public, distribution_strategy, created_at)
-               VALUES ($1, $2, NULL, $3, $4, 'owner', 'admin-only', 50, false, 'fan-out', NOW())
-               ON CONFLICT (room_id) DO NOTHING"#,
-            [
-                room_id.into(),
-                format!("Room {}", &room_id[..8.min(room_id.len())]).into(),
-                actor_url_str.into(),
-                home_server.into(),
-            ],
-        ))
-        .await
-        .map_err(|e| e.to_string())?;
-    }
-
     // 查找或创建本地用户对应的 actor_url
     let local_actor = if let Ok(Some(row)) = db
         .query_one(Statement::from_sql_and_values(
@@ -1650,6 +1781,76 @@ pub async fn handle_room_invite(
         actor_url(&base_url_val, "unknown")
     };
 
+    // 先确保 Room 有记录（如果是首次看到这个 room）
+    let room_exists = db
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT 1 FROM federation_rooms WHERE room_id = $1",
+            [room_id.into()],
+        ))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if room_exists.is_none() {
+        let home_server = extract_domain(owner_actor)
+            .or_else(|| extract_domain(actor_url_str))
+            .unwrap_or_default();
+        let display_name = invite_name.clone().unwrap_or_else(|| {
+            format!("Room {}", &room_id[..8.min(room_id.len())])
+        });
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"INSERT INTO federation_rooms
+               (room_id, name, description, owner_actor, home_server, governance_type, invite_policy,
+                max_members, is_public, distribution_strategy, created_at)
+               VALUES ($1, $2, NULL, $3, $4, 'owner', 'admin-only', 50, false, 'fan-out', NOW())
+               ON CONFLICT (room_id) DO NOTHING"#,
+            [
+                room_id.into(),
+                display_name.into(),
+                owner_actor.into(),
+                home_server.into(),
+            ],
+        ))
+        .await
+        .map_err(|e| e.to_string())?;
+    }
+
+    // Seed remote members BEFORE accepting messages:
+    // 1) owner  2) inviter (activity actor)  3) members[] snapshot from invite
+    if !same_actor_url(owner_actor, &local_actor) {
+        upsert_remote_room_member(db, room_id, owner_actor, "owner", None).await?;
+    }
+    if !same_actor_url(actor_url_str, &local_actor)
+        && !same_actor_url(actor_url_str, owner_actor)
+    {
+        upsert_remote_room_member(db, room_id, actor_url_str, "admin", None).await?;
+    } else if !same_actor_url(actor_url_str, &local_actor) {
+        // inviter is owner — already upserted; ensure role stays owner
+        upsert_remote_room_member(db, room_id, actor_url_str, "owner", None).await?;
+    }
+
+    if let Some(members) = object.get("members").and_then(|v| v.as_array()) {
+        for m in members {
+            let Some(member_actor) = m
+                .get("actor")
+                .or_else(|| m.get("actorUrl"))
+                .or_else(|| m.get("actor_url"))
+                .and_then(|v| v.as_str())
+            else {
+                continue;
+            };
+            if same_actor_url(member_actor, &local_actor) {
+                continue;
+            }
+            let member_role = m
+                .get("role")
+                .and_then(|v| v.as_str())
+                .unwrap_or("member");
+            upsert_remote_room_member(db, room_id, member_actor, member_role, None).await?;
+        }
+    }
+
     // 添加本地用户作为成员
     let inserted = db
         .execute(Statement::from_sql_and_values(
@@ -1660,7 +1861,7 @@ pub async fn handle_room_invite(
            ON CONFLICT (room_id, actor_url) DO NOTHING"#,
             [
                 room_id.into(),
-                local_actor.into(),
+                local_actor.clone().into(),
                 target_user_id.into(),
                 role.into(),
                 actor_url_str.into(),
@@ -1683,7 +1884,7 @@ pub async fn handle_room_invite(
     }
 
     tracing::info!(
-        "[Room] Received invite to room {} from {}",
+        "[Room] Received invite to room {} from {} (seeded remote members)",
         room_id,
         actor_url_str
     );
@@ -1702,36 +1903,30 @@ pub async fn handle_room_message(
         .and_then(|v| v.as_str())
         .ok_or("Missing room")?;
 
-    // 验证发送方是该 Room 的成员
+    // Prefer signed activity actor; fall back to object.from
     let sender_actor = object
         .get("from")
         .and_then(|v| v.as_str())
         .unwrap_or(actor_url_str);
-    let is_member = db
-        .query_one(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "SELECT 1 FROM federation_room_members WHERE room_id = $1 AND actor_url = $2",
-            [room_id.into(), sender_actor.into()],
-        ))
-        .await
-        .map_err(|e| e.to_string())?;
 
-    if is_member.is_none() {
+    // object.from must match signed actor (prevent spoofed from field)
+    if !same_actor_url(sender_actor, actor_url_str) {
         return Err(format!(
-            "Actor {} is not a member of room {}",
-            sender_actor, room_id
+            "not_member: RoomMessage from {} does not match signed actor {}",
+            sender_actor, actor_url_str
         ));
     }
+
+    // Membership check + self-heal for invitee missing inviter/owner rows
+    ensure_room_message_sender_member(db, room_id, actor_url_str).await?;
 
     let fallback_msg_id = generate_message_id();
     let message_id = object
         .get("messageId")
         .and_then(|v| v.as_str())
         .unwrap_or(&fallback_msg_id);
-    let sender = object
-        .get("from")
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown");
+    // Prefer signed actor URL for storage consistency
+    let sender = actor_url_str;
     let message_type = object
         .get("messageType")
         .and_then(|v| v.as_str())
@@ -2316,21 +2511,8 @@ pub async fn handle_key_exchange(
     crate::federation::e2e::validate_public_key_b64(public_key)
         .map_err(|e| format!("Invalid remote E2E public key: {e}"))?;
 
-    // 发送方必须是成员
-    let is_member = db
-        .query_one(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "SELECT 1 FROM federation_room_members WHERE room_id = $1 AND actor_url = $2",
-            [room_id.into(), actor_url_str.into()],
-        ))
-        .await
-        .map_err(|e| e.to_string())?;
-    if is_member.is_none() {
-        return Err(format!(
-            "Actor {} is not a member of room {}",
-            actor_url_str, room_id
-        ));
-    }
+    // 发送方必须是成员（含 inviter/owner self-heal）
+    ensure_room_message_sender_member(db, room_id, actor_url_str).await?;
 
     let room_row = db
         .query_one(Statement::from_sql_and_values(
