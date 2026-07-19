@@ -38,7 +38,7 @@ const DOCUMENTS: &[KnowledgeDocument] = &[
     },
     KnowledgeDocument {
         id: "API_REFERENCE",
-        description: "complete Tapp JavaScript SDK reference and permission requirements",
+        description: "complete Tapp JavaScript SDK reference: storage, federation notes/media, permissions",
         content: include_str!("../../../docs/development/tapp/API_REFERENCE.md"),
     },
     KnowledgeDocument {
@@ -53,7 +53,7 @@ const DOCUMENTS: &[KnowledgeDocument] = &[
     },
     KnowledgeDocument {
         id: "SANDBOX",
-        description: "iframe isolation, CSP, bridge, runtime grants, and security boundaries",
+        description: "iframe isolation, CSP, bridge payload limits, runtime grants, and security boundaries",
         content: include_str!("../../../docs/development/tapp/SANDBOX.md"),
     },
     KnowledgeDocument {
@@ -78,7 +78,7 @@ const DOCUMENTS: &[KnowledgeDocument] = &[
     },
     KnowledgeDocument {
         id: "TROUBLESHOOTING",
-        description: "common runtime, manifest, permission, layout, and installation failures",
+        description: "common runtime, permission, federation media, storeSource, and installation failures",
         content: include_str!("../../../docs/development/tapp/TROUBLESHOOTING.md"),
     },
     KnowledgeDocument {
@@ -88,7 +88,7 @@ const DOCUMENTS: &[KnowledgeDocument] = &[
     },
     KnowledgeDocument {
         id: "PLAYGROUND_GENERATION_CONTEXT",
-        description: "safe temporary-preview contract and supported preview APIs",
+        description: "safe temporary-preview contract; federation and host APIs are install-only",
         content: include_str!("../../../docs/development/tapp/PLAYGROUND_GENERATION_CONTEXT.md"),
     },
 ];
@@ -235,6 +235,8 @@ fn expand_query_aliases(query: &str) -> String {
         ("图形", " graphics canvas "),
         ("动画", " animation graphics "),
         ("安装", " install package manifest "),
+        ("联邦", " federation publish media note uploadMedia createNote "),
+        ("federation", " federation publish media note uploadMedia createNote "),
     ];
     aliases
         .iter()
@@ -282,5 +284,17 @@ mod tests {
     #[test]
     fn result_count_is_bounded() {
         assert!(search("tapp api storage widget page manifest", 3).len() <= 3);
+    }
+
+    #[test]
+    fn federation_media_query_hits_api_or_sandbox() {
+        let results = search("federation uploadMedia createNote payload", 5);
+        assert!(!results.is_empty());
+        assert!(results.iter().any(|result| {
+            result.document == "API_REFERENCE"
+                || result.document == "SANDBOX"
+                || result.document == "TROUBLESHOOTING"
+                || result.document == "PLAYGROUND_GENERATION_CONTEXT"
+        }));
     }
 }

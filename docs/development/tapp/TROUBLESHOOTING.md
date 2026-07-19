@@ -377,6 +377,70 @@ HTTP 声明式 API 都需要，不只是 `protected`）：
 
 ---
 
+## Federation / Bridge 载荷
+
+### ❌ `Payload too large` / `Media data too large`
+
+**症状**：调用 `Tapp.federation.uploadMedia` 或其它 bridge 请求立刻失败，错误含
+`Payload too large` 或 `Media data too large`。
+
+**原因**：
+
+1. **默认 bridge 上限**：绝大多数 action 的 JSON payload 约 **1 MiB + 64 KiB**。
+2. **媒体专用上限**：`uploadMedia` 允许更大 data URL/base64，但仍受 raw **图片 10 MiB /
+   视频 50 MiB** 与 base64 膨胀约束（见 [SANDBOX](./SANDBOX.md#payload-大小)）。
+3. 先把整文件转成 data URL 再 postMessage，体积约为 raw 的 4/3，更容易触顶。
+
+**解决方案**：
+
+1. 上传前按类型检查 `file.size`（图片 ≤10 MiB，视频 ≤50 MiB）。
+2. 压缩图片或降低视频码率后再 `uploadMedia`。
+3. 不要对非 media action 塞大 base64（会撞默认 1 MiB）。
+4. `file.download` 内容上限 10 MiB，与 storage 单值 1 MiB 不同。
+
+### ❌ 附件 URL 被拒绝 / `Attachment URL must look like /media/federation/...`
+
+**症状**：`createNote` / `publish` 失败，提示 attachment URL 非法。
+
+**原因**：附件必须是本实例 `uploadMedia` 返回的联邦媒体 URL
+（路径形如 `/media/federation/{userId}/{filename}`），不能塞任意 CDN 或 data URL。
+
+**解决方案**：先 `uploadMedia`，再用返回的 `url` + `media_type` 填 `attachments`。
+
+### ❌ Playground 预览里 `Tapp.federation.*` 失败
+
+**症状**：生成代码在 Playground 预览调用联邦 API 报错或无 handler。
+
+**原因**：临时预览不签发 Runtime Grant，也不注册 `FederationBridge`。
+
+**解决方案**：预览只测 UI/storage；联邦能力在安装后正式运行验证。见
+[PLAYGROUND_GENERATION_CONTEXT](./PLAYGROUND_GENERATION_CONTEXT.md)。
+
+---
+
+## 商店安装 / storeSource
+
+### ❌ `tappList.install` 找不到商店源或 502
+
+**症状**：分享卡片或 Tapp 内「安装」失败；后端报无法拉取商店 / 502；或安装了错误源的包。
+
+**原因**：
+
+1. SDK `Tapp.tappList.install({ source, tappId })` 里的 **`source` 是商店源 ID**
+   （写入 REST 的 `storeSource`），**不是** 模式字面量 `"store"` / `"direct"`。
+2. 后端容器访问不了 raw.githubusercontent.com 等外网时 store 安装失败；宿主可能回退为
+   浏览器下载 + `source: "direct"`。
+3. 直接上传 `.tapp` / 代码安装应走宿主 `install-file` 或 `source: "direct"`，不经
+   `tappList.install`。
+
+**解决方案**：
+
+1. 传入真实源 id（如配置里的 `"1"`），与 [REST API](./REST_API.md) 商店安装示例一致。
+2. 确认商店源已启用且 `tappId` 存在于该源 `index.json`。
+3. 需要离线/内网包时使用文件安装或 direct 安装路径。
+
+---
+
 ## 调试技巧
 
 ### 启用详细日志

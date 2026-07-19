@@ -62,6 +62,26 @@ await Tapp.storage.clear();
 `Tapp.storage` 在正式运行中是 `(current_user_id, tapp_id)` 的用户私有空间；Playground
 预览只提供当前标签页内存实现。不要用 storage 模拟安装级设置或公开数据。
 
+## 正式安装才可用（预览不要依赖）
+
+临时预览 **不签发 Runtime Grant**，handlers 仅覆盖 storage/settings、主题/语言、确认/
+全屏、受限 context 等（见 `playgroundPreviewHandlers.ts`）。下列能力在 SDK 完整版里
+可能仍有方法名，但 **Playground 预览中不可用**（调用失败或返回明确错误）：
+
+- **Federation 全套**（`Tapp.federation.*`：Feed、关注、`uploadMedia` / `createNote` /
+  `publish`、Channel/Room/Ring、传输与 trust）
+- 平台写入、声明式网络 `Tapp.api` 执行、AI、宿主媒体控制、跨 Tapp 事件 Broker 等
+
+生成联邦/社交类 Tapp 时：
+
+- 可在 Manifest 声明真实 `federation:*`（或其它）权限，并按 [API_REFERENCE](./API_REFERENCE.md)
+  写正式运行时代码；
+- 预览只验证 UI、生命周期、主题、i18n 与内存 storage；
+- **不要**臆造「预览专用 mock 联邦 API」或未在 SDK/`permissionConfig` 中存在的方法。
+
+Bridge 默认 payload 约 1 MiB；`file.download` 与 `federation.uploadMedia` 在正式运行有
+更大专用上限（见 [SANDBOX](./SANDBOX.md#payload-大小)）。预览侧勿假设可上传大媒体。
+
 ## 安全与兼容性
 
 - 不使用 `fetch`、XHR、WebSocket 或外链脚本；外部访问必须在正式 Manifest 中声明并由

@@ -129,8 +129,13 @@ HTML 中的脚本、inline handler、直接 fetch / XHR / WebSocket、`eval`、�
 Agent 不会声称把所有文档永久放进模型上下文。每轮先从仓库文档规划并检索相关
 章节，例如：`TAPP_DEVELOPMENT`、`QUICKSTART`、`ARCHITECTURE`、`MANIFEST`、
 `API_REFERENCE`、`PAGE`、`WIDGET`、`SANDBOX`、`STYLING`、`GRAPHICS`、
-`REST_API`、`RUNTIME_CONTRACT_DESIGN`、`TROUBLESHOOTING`、`TAPP_FILE_FORMAT`。
+`REST_API`、`RUNTIME_CONTRACT_DESIGN`、`TROUBLESHOOTING`、`TAPP_FILE_FORMAT`、
+`PLAYGROUND_GENERATION_CONTEXT`。
 检索结果总量受限，并随响应返回来源名称和章节，便于人工审计。
+
+权威文档由后端 `tapp_playground_knowledge.rs` 以 `include_str!` 编译进二进制；
+改 markdown 后需重新编译 backend 才会进入检索目录。`PLAYGROUND_GENERATION_CONTEXT.md`
+作为安全预览契约进入 catalog（并常被检索）；生成侧另有精简契约注入策略，以代码为准。
 
 `DESIGN_SPEC.md` 会**无条件注入**生成 prompt（设计语言），不依赖检索命中。
 
@@ -143,7 +148,8 @@ Agent 不会声称把所有文档永久放进模型上下文。每轮先从仓�
 | Runtime Grant | **不签发** | 按可见安装与当前角色签发 |
 | `Tapp.storage` | 当前**标签页内存** | 当前用户私有存储 |
 | 主题、语言、确认、全屏 | 可用（受限 preview handlers） | 按 Manifest 权限 |
-| 平台、网络、AI、媒体、事件等 | 禁用或返回明确错误 | 按 Manifest / 角色 / 后端策略 |
+| 平台、网络、AI、宿主媒体、事件 Broker | 禁用或返回明确错误 | 按 Manifest / 角色 / 后端策略 |
+| **Federation**（Feed、Note/媒体、Channel/Room/Ring 等） | **不可用**（无 Grant、无 FederationBridge） | 按 `federation:*` + Runtime Grant |
 | 对访客可见 | 否 | 仅管理员公开安装可见 |
 | Page 运行时自动修复 | 有可用 Page 时最多 **2** 轮 | 不适用 |
 | Widget-only | **不**挂载 Page 沙箱；**无** Page 自动修复；Widget 错误仅状态展示 | 安装后按正式 Widget 路径 |

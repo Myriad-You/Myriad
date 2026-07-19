@@ -22,6 +22,8 @@
 - [媒体控制 API](#媒体控制-api)
 - [上下文 API](#上下文-api)
 - [用户角色 API](#用户角色-api)
+- [Federation API](#federation-api)
+- [Tapp 列表 API](#tapp-列表-api)
 - [组件注册 API](#组件注册-api)
 - [快捷键 API](#快捷键-api)
 - [事件 API](#事件-api)
@@ -719,26 +721,179 @@ Runtime Grant 中。
 
 ---
 
-## Federation Feed API
+## Federation API
 
-**权限**: `federation:read`
+联邦能力由 Page/headless 宿主通过 `FederationBridge` 代理到 `/api/federation/*`，并要求
+有效 Runtime Grant。权限族：
+
+| 权限 | 用途 |
+| ---- | ---- |
+| `federation:read` | 身份、Feed/Timeline、关注列表、已发布列表、Channel/Room/Ring 读取 |
+| `federation:write` | 关注/取关、publish、createNote、uploadMedia、unpublish、创建/治理 Channel·Room·Ring |
+| `federation:message` | 发送 Channel/Room 消息与实时订阅（WS ticket） |
+| `federation:files` | Channel 文件分块传输 |
+| `federation:trust` | 实例信任策略（特权，仅管理员） |
+
+游客不会取得 `federation:write`、`federation:message` 或 `federation:files`。Tapp 应使用
+`Tapp.user.getRole()` 调整界面，不要向游客展示关注、发布、私聊、Room 或文件传输操作。
+
+Playground **临时预览不注册** federation handlers、也不签发 Runtime Grant；下列 API 仅在
+正式安装运行后可用。权限映射与 REST 对照见
+`docs/development/tapp/fixtures/action_permissions.json` 与
+`host_route_permissions.json`。
+
+### Feed / Timeline / 身份 / 关注
 
 ```javascript
 const role = await Tapp.user.getRole();
+const identity = await Tapp.federation.getIdentity();
 const feed = await Tapp.federation.getFeed();
-
 // 游客：feed.audience === "public"
-// 普通用户/管理员：feed.audience === "public+personal"
-// feed.items 中的 scope 为 "public" 或 "personal"
+// 已登录：feed.audience === "public+personal"；item.scope 为 "public" | "personal"
+
+const timeline = await Tapp.federation.getTimeline(); // 已登录个人 Timeline
+const following = await Tapp.federation.getFollowing();
+const followers = await Tapp.federation.getFollowers();
+
+await Tapp.federation.follow("https://peer.example/users/alice");
+await Tapp.federation.unfollow("https://peer.example/users/alice");
 ```
 
-`getFeed()` 是面向 Tapp 的角色感知入口：游客只能读取公开 Activity，已登录用户读取
-公开 Activity 与自己的 Federation Timeline。游客不会取得 `federation:write`、
-`federation:message` 或 `federation:files`。Tapp 应使用 `Tapp.user.getRole()` 调整界面，
-不要向游客展示关注、发布、私聊、Room 或文件传输操作。
+`getFeed()` 是角色感知入口：游客只读公开 Activity，已登录用户合并公开 Activity 与自己的
+Timeline。需要同时展示公开内容时优先 `getFeed()`；`getTimeline()` 保留为原始个人 Timeline。
 
-`getTimeline()` 保留为已登录用户的原始个人 Timeline 接口；需要同时展示公开内容时应
-优先使用 `getFeed()`。
+### 媒体上传与 freeform Note
+
+**权限**: `federation:write`
+
+推荐流程：**先 `uploadMedia`，再把返回的 URL 放进 `createNote` / `publish` 的
+`attachments`**。不要把任意外链当作附件；bridge 与后端都会校验联邦媒体 URL 形态
+（`/media/federation/{userId}/{filename}`）。
+
+```javascript
+// 1) 上传：data 为 data URL 或 raw base64（经 postMessage；见下方体积上限）
+const uploaded = await Tapp.federation.uploadMedia({
+  data: dataUrlOrBase64,
+  name: "photo.jpg",
+  mime: "image/jpeg",
+  // media_type 可选，与 mime 同类提示
+});
+// uploaded: { url, media_type, name, size, attachment_type }
+
+// 2) 创建 Note（服务端生成 content_id；可只带 text 或 attachments）
+const note = await Tapp.federation.createNote({
+  text: "hello from Tapp",
+  visibility: "public", // public | followers | direct
+  attachments: [
+    {
+      url: uploaded.url,
+      media_type: uploaded.media_type || "image/jpeg",
+      name: uploaded.name,
+    },
+  ],
+});
+// note: { success, activity_id, content_type, content_id, visibility,
+//         delivered_queued?, author_timeline? }
+// delivered_queued：best-effort fan-out 入队数量；author_timeline：是否写入作者本地时间线
+```
+
+后端媒体限制（与 bridge 专用校验对齐）：
+
+| 类型 | 上限 |
+| ---- | ---- |
+| 图片 | 10 MiB raw |
+| 视频 | 50 MiB raw |
+| 路由 body（multipart） | 55 MiB |
+| Note 正文 | 约 10_000 字符 |
+| 附件数 | 最多 8 |
+
+Bridge 对 `federation.uploadMedia` **不**走默认 ~1 MiB JSON 上限：允许 data URL / base64
+字符数约为 `ceil(50 MiB * 4/3) + 256`，以覆盖最大视频的 base64 膨胀。超限时校验失败（常见
+文案含 `Media data too large` / `Payload too large`）。
+
+### publish / unpublish / 已发布列表
+
+```javascript
+// 发布本地已有内容（report / brew-article / tapp / library）或 content_type: "note"
+const published = await Tapp.federation.publish({
+  content_type: "report",
+  content_id: "report-id",
+  visibility: "public",
+});
+
+// freeform note 也可走 publish({ content_type: "note", text, attachments })；
+// 新写 Note 优先 createNote。
+
+await Tapp.federation.unpublish({
+  content_type: "note",
+  content_id: published.content_id,
+});
+
+const mine = await Tapp.federation.getPublished();
+```
+
+`content_type !== "note"` 时必须提供 `content_id`。同一 `(content_type, content_id)` 重复
+发布返回冲突。Delete/unpublish 同样对 followers 做 best-effort fan-out。
+
+### Channel / Room / Ring / Trust / 传输（摘要）
+
+SDK 已暴露完整方法面（`sdkGenerator` + `FederationBridge`）。调用前须在 Manifest 申请对应
+权限，且当前宿主已注册 handler：
+
+| 域 | 读 (`federation:read`) | 写 / 消息 |
+| -- | ---------------------- | --------- |
+| Channel | `getChannels`, `getChannel`, `getMessages` | `createChannel`, `acceptChannel`, `closeChannel`；消息与订阅：`sendMessage`, `subscribeChannel`…（`federation:message`） |
+| Room | `getRooms`, `getRoom`, `getRoomMembers`, `getRoomMessages` | `createRoom`, `updateRoom`, `inviteMember`, `removeMember`, `leaveRoom`, `deleteRoom`, `pinRoomMessage`；消息：`sendRoomMessage` 等 |
+| Ring | `getRings`, `getRing`, `getRingPeers` | `createRing`, `leaveRing`, `addPeer`, `removePeer`, `triggerSync` |
+| Trust | — | `getTrustPolicy`, `getInstances`, `updateInstanceTrust`, `toggleInstanceBlock`（`federation:trust`） |
+| Files | — | `initiateTransfer`, `listTransfers`, `getTransfer`, `uploadChunk`, `cancelTransfer`（`federation:files`） |
+
+实时事件（沙箱内回调，不单独占权限条目；订阅本身要 `federation:message`）：
+
+```javascript
+Tapp.federation.onMessage((ev) => { /* scope: channel | room */ });
+Tapp.federation.onChannelUpdate((ev) => { /* accepted | closed | disconnected */ });
+Tapp.federation.onRoomUpdate((ev) => { /* governance_changed | disconnected */ });
+```
+
+Channel/Room 文本消息后端载荷上限约 **10 MiB**；文件传输默认 chunk 约 **1 MiB** raw
+（base64 后约 1.37 MiB，低于联邦 inbox 体量上限）。参数与 REST 字段以
+`frontend/src/types/federation.ts` 与后端路由为准，勿从方法名臆造字段。
+
+---
+
+## Tapp 列表 API
+
+**权限**: `tappList:read`（list/get/getRecent）、`tappList:manage`（install/uninstall/start/stop/export）
+
+```javascript
+const items = await Tapp.tappList.list();
+const one = await Tapp.tappList.get("com.example.app");
+const recent = await Tapp.tappList.getRecent(10);
+
+// 仅商店安装路径：source = 配置的商店源 ID（映射为 REST body 的 storeSource），
+// 不是字面量 "store"/"direct"。
+await Tapp.tappList.install({
+  source: "1",
+  tappId: "com.example.app",
+  permissions: ["storage"],
+});
+
+await Tapp.tappList.start("com.example.app");
+await Tapp.tappList.stop("com.example.app");
+await Tapp.tappList.uninstall("com.example.app");
+await Tapp.tappList.export("com.example.app");
+```
+
+注意：
+
+- `tappList.install` **只**走 `installFromStore`：HTTP 固定 `source: "store"`，并把请求里的
+  `source` 字段写成 `storeSource`。填错商店源 ID 会导致后端拉包失败；网络失败时宿主可能
+  回退为浏览器下载 + `source: "direct"` 安装。
+- **直接包路径 / 上传 `.tapp`** 不经此 SDK 方法，由宿主 `POST /api/tapps/install`
+  （`source: "direct"`）或 `install-file` 完成（见 [REST API](REST_API.md)）。
+- 分享卡片里的「安装」必须传入真实 `storeSource`（如源 id `"1"`），不要把模式关键字
+  `"store"` 当成源 id 传给 `source`（除非碰巧配置了同名源；否则依赖宿主 fallback）。
 
 ---
 
@@ -1036,11 +1191,17 @@ const declaredApis = await Tapp.api.list();
 
 ## 文件与语音 API
 
+**权限**: `storage`（`file.download`）
+
 文件下载由宿主创建 Blob 并触发下载，不依赖 iframe 的 download sandbox 权限：
 
 ```javascript
 await Tapp.file.download("hello\n", "hello.txt", "text/plain;charset=utf-8");
 ```
+
+- 内容为字符串；编码后 Blob 大小上限 **10 MiB**（bridge 对 `file.download` 单独校验，
+  不走默认 ~1 MiB postMessage 上限）。
+- `filename` 不能含路径分隔或 `..`；可选 `mimeType` 字符串。
 
 语音能力需要对应权限：
 
@@ -1100,7 +1261,7 @@ Tapp.assets.revokeAll(); // 也会在 onDestroy 时自动调用
 | `assets`                                   | 包内静态资源 list/get/blob URL                      | public（限 manifest.assets）       |
 | `tappList`                                 | Tapp 查询、安装、启停、卸载与导出                   | `tappList:*`                       |
 | `brewList`                                 | Brew 列表、订阅源、分类、评论和 OPML                | `brew:*`                           |
-| `federation`                               | 身份、时间线、关注、Channel、Room、Ring、信任和传输 | `federation:*`                     |
+| `federation`                               | 身份、Feed、关注、Note/媒体发布、Channel、Room、Ring、信任和传输 | `federation:*`              |
 
 Widget SDK 只保留 Widget 渲染需要的生命周期、UI/主题、用户角色、存储、AI Task、平台读取、报告
 读取、媒体、背景需求、调度、声明式 API、上下文、DOM 和文件等子集。它不会自动拥有

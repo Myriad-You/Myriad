@@ -100,6 +100,26 @@ Tapp SDK 把调用转换为请求消息。宿主只接受同时满足以下条�
 未知 action 默认拒绝。Page 与 Widget 注册的 handler 集不同，因此“SDK 上能看到方法”
 不等于每个运行模式都支持该方法；新增能力时要同步核对两类沙箱。
 
+### Payload 大小
+
+`TappBridge` 在校验阶段限制 request payload，防止内存攻击（实现见
+`frontend/src/tapp/runtime/TappBridge.ts`）：
+
+| action | 上限 | 说明 |
+| ------ | ---- | ---- |
+| **默认**（绝大多数 API） | JSON 序列化后约 **1 MiB + 64 KiB** envelope | 超限返回 `Payload too large` |
+| `file.download` | 内容 Blob **10 MiB**；`filename` ≤ 1024；可选 `mimeType` ≤ 256 | 不走默认 1 MiB；非法/过大返回 `Invalid or oversized file payload` |
+| `federation.uploadMedia` | raw 媒体按业务 **图片 10 MiB / 视频 50 MiB**；bridge 允许 data URL/base64 字符约 `ceil(50 MiB * 4/3) + 256` | 对齐后端 multipart 路由（body 上限 55 MiB）；字段 `data` 必填字符串 |
+
+说明：
+
+- 默认 1 MiB 针对的是 **postMessage JSON payload**，与 `Tapp.storage` 单值 1 MiB 是不同层，
+  但数量级一致，避免大 blob 经 bridge 灌入主线程。
+- 商店安装包体积不经 sandbox bridge 传输：`tappList.install` 只传 `source`/`tappId` 等
+  元数据；实际包体由后端 `source=store` 下载或宿主 direct/install-file 路径处理。
+- Playground 临时预览的 storage 单值同样限制约 1 MiB（内存实现），且**不**提供
+  federation handlers。
+
 ## 网络请求
 
 不要把任意 URL 交给 SDK。先在 Manifest 声明固定能力：
