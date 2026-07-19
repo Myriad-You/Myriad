@@ -6426,8 +6426,8 @@ function renderRingsSidebar() {
   if (!list) return;
   if (state.rings.length === 0) {
     list.innerHTML = '<div class="conv-empty conv-empty-fill"><span id="ring-empty-text">'
-      + esc(lang.emptyRings)
-      + '<br><span style="font-size:11px;opacity:.75">' + esc(lang.createRingTitle || '') + '</span></span></div>';
+      + esc(lang.emptyRings || 'No rings yet')
+      + '<br><span style="font-size:11px;opacity:.75">' + esc(lang.createRingTitle || lang.create || '') + '</span></span></div>';
     return;
   }
   var typeIcons = { 'brew-recommend': SVG_ICONS.coffee, 'tapp-store': SVG_ICONS.puzzle, 'library-exchange': SVG_ICONS.library, 'instance-directory': SVG_ICONS.globe };
