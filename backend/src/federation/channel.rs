@@ -7,8 +7,117 @@ use axum::{http::StatusCode, Json};
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use crate::federation::types::*;
+
+// ==================== Early ChannelMessage buffer ====================
+//
+// ChannelOpen and ChannelMessage can race on the remote: messages may arrive
+// before the channel row exists. Buffer briefly so we do not drop them; if the
+// buffer is full or the entry expires, return an error so the remote retries.
+
+struct BufferedChannelMessage {
+    actor_url: String,
+    activity: serde_json::Value,
+    buffered_at: Instant,
+}
+
+const EARLY_MSG_TTL: Duration = Duration::from_secs(120);
+const EARLY_MSG_MAX_PER_CHANNEL: usize = 64;
+const EARLY_MSG_MAX_TOTAL: usize = 256;
+
+fn early_message_buffer() -> &'static Mutex<HashMap<String, Vec<BufferedChannelMessage>>> {
+    static BUF: OnceLock<Mutex<HashMap<String, Vec<BufferedChannelMessage>>>> = OnceLock::new();
+    BUF.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn purge_expired_early_messages(map: &mut HashMap<String, Vec<BufferedChannelMessage>>) {
+    let now = Instant::now();
+    map.retain(|_, msgs| {
+        msgs.retain(|m| now.duration_since(m.buffered_at) < EARLY_MSG_TTL);
+        !msgs.is_empty()
+    });
+}
+
+/// Buffer a ChannelMessage that arrived before the channel row exists.
+/// Returns true if buffered (caller should ACK); false if buffer is full.
+fn buffer_early_channel_message(
+    channel_id: &str,
+    actor_url: &str,
+    activity: &serde_json::Value,
+) -> bool {
+    let Ok(mut map) = early_message_buffer().lock() else {
+        return false;
+    };
+    purge_expired_early_messages(&mut map);
+
+    let total: usize = map.values().map(|v| v.len()).sum();
+    if total >= EARLY_MSG_MAX_TOTAL {
+        return false;
+    }
+
+    let entry = map.entry(channel_id.to_string()).or_default();
+    if entry.len() >= EARLY_MSG_MAX_PER_CHANNEL {
+        return false;
+    }
+
+    // Deduplicate by messageId when present
+    if let Some(mid) = activity
+        .get("object")
+        .and_then(|o| o.get("messageId"))
+        .and_then(|v| v.as_str())
+    {
+        let already = entry.iter().any(|m| {
+            m.activity
+                .get("object")
+                .and_then(|o| o.get("messageId"))
+                .and_then(|v| v.as_str())
+                == Some(mid)
+        });
+        if already {
+            return true;
+        }
+    }
+
+    entry.push(BufferedChannelMessage {
+        actor_url: actor_url.to_string(),
+        activity: activity.clone(),
+        buffered_at: Instant::now(),
+    });
+    true
+}
+
+fn take_early_channel_messages(channel_id: &str) -> Vec<BufferedChannelMessage> {
+    let Ok(mut map) = early_message_buffer().lock() else {
+        return Vec::new();
+    };
+    purge_expired_early_messages(&mut map);
+    map.remove(channel_id).unwrap_or_default()
+}
+
+async fn flush_early_channel_messages(db: &DatabaseConnection, channel_id: &str) {
+    let msgs = take_early_channel_messages(channel_id);
+    if msgs.is_empty() {
+        return;
+    }
+    tracing::info!(
+        "[Channel] Flushing {} buffered message(s) for {}",
+        msgs.len(),
+        channel_id
+    );
+    for m in msgs {
+        if let Err(e) = handle_channel_message(db, &m.actor_url, &m.activity).await {
+            tracing::warn!(
+                "[Channel] Failed to apply buffered message for {}: {}",
+                channel_id,
+                e
+            );
+        }
+    }
+}
 
 // ==================== 请求/响应类型 ====================
 
@@ -206,7 +315,8 @@ pub async fn create_channel(
     // 创建新 Channel
     let channel_id = generate_channel_id();
     let properties = json!({
-        "maxMessageSize": 65536,
+        // Align with send_message MAX_MESSAGE_PAYLOAD (1 MiB)
+        "maxMessageSize": MAX_MESSAGE_PAYLOAD,
         "supportedFormats": ["text/plain", "text/markdown", "application/json"]
     });
 
@@ -970,6 +1080,9 @@ pub async fn handle_channel_open(
         actor_url_str
     );
 
+    // ChannelMessage may have raced ahead of ChannelOpen — apply buffered ones now.
+    flush_early_channel_messages(db, channel_id).await;
+
     Ok(())
 }
 
@@ -998,6 +1111,41 @@ pub async fn handle_channel_message(
         .map_err(|e| e.to_string())?;
 
     if ch_check.is_none() {
+        // Distinguish "channel not yet created" (race with ChannelOpen) from
+        // "wrong remote actor" (permanent). Buffer only the race case.
+        let channel_exists = db
+            .query_one(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "SELECT 1 FROM federation_channels WHERE channel_id = $1",
+                [channel_id.into()],
+            ))
+            .await
+            .map_err(|e| e.to_string())?
+            .is_some();
+
+        if !channel_exists {
+            // Fast path: buffer for flush on ChannelOpen. Always fail (no 202) so
+            // the remote retries — covers process restart before open, and buffer
+            // full / mutex poison. Duplicates are idempotent via message_id.
+            let buffered = buffer_early_channel_message(channel_id, actor_url_str, activity);
+            if buffered {
+                tracing::info!(
+                    "[Channel] Buffered early message for {} from {} (channel not yet present); signaling retry",
+                    channel_id,
+                    actor_url_str
+                );
+            } else {
+                tracing::warn!(
+                    "[Channel] Early-message buffer full for {}; signaling retry",
+                    channel_id
+                );
+            }
+            return Err(format!(
+                "Channel {} not yet present; retry after ChannelOpen",
+                channel_id
+            ));
+        }
+
         return Err(format!(
             "Channel {} not found or actor {} is not the remote party",
             channel_id, actor_url_str

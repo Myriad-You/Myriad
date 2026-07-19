@@ -1080,6 +1080,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "attachSending": "Sending...",
     "attachTapp": "Tapp",
     "attachTappPrompt": "Enter Tapp ID or name",
+    "channelNotAccepted": "Accept the channel before sending files",
     "channelPlaceholder": "Actor URL or @user@domain",
     "close": "Close",
     "closed": "Closed",
@@ -1129,6 +1130,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "feedPublished": "Published",
     "feedTimeline": "Feed",
     "fileTooLarge": "File too large (max 10MB)",
+    "fileTooLargeRoom": "File too large for group chat — use a DM channel for larger files",
     "followBtn": "Follow",
     "followFail": "Follow failed",
     "followPlaceholder": "Actor URL or @user@domain",
@@ -1228,11 +1230,15 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "tappShareRejected": "Declined",
     "tappUpdateAvail": "Update available",
     "title": "Messenger",
+    "transferComplete": "File sent",
+    "transferFail": "File upload failed",
+    "transferProgress": "Uploading… {pct}%",
+    "transferStarting": "Uploading file…",
     "typing": "Type a message...",
     "unfollowBtn": "Unfollow",
     "unfollowFail": "Unfollow failed",
     "unpublishFail": "Unpublish failed",
-    "updatingBtn": "Update",
+    "updatingBtn": "Update"
   },
   "ja": {
     "accept": "承認",
@@ -1257,6 +1263,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "attachSending": "送信中...",
     "attachTapp": "Tapp",
     "attachTappPrompt": "Tapp IDまたは名前を入力",
+    "channelNotAccepted": "ファイル送信前にチャンネルを承認してください",
     "channelPlaceholder": "Actor URL または @user@domain",
     "close": "閉じる",
     "closed": "クローズ",
@@ -1306,6 +1313,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "feedPublished": "公開済み",
     "feedTimeline": "フィード",
     "fileTooLarge": "ファイルが大きすぎます（最大10MB）",
+    "fileTooLargeRoom": "グループチャットでは大きすぎます — 大きいファイルはDMチャンネルを使ってください",
     "followBtn": "フォロー",
     "followFail": "フォロー失敗",
     "followPlaceholder": "Actor URL または @user@domain",
@@ -1405,11 +1413,15 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "tappShareRejected": "拒否済み",
     "tappUpdateAvail": "更新あり",
     "title": "メッセンジャー",
+    "transferComplete": "ファイルを送信しました",
+    "transferFail": "ファイルのアップロードに失敗しました",
+    "transferProgress": "アップロード中… {pct}%",
+    "transferStarting": "ファイルをアップロード中…",
     "typing": "メッセージを入力...",
     "unfollowBtn": "フォロー解除",
     "unfollowFail": "フォロー解除失敗",
     "unpublishFail": "公開取消失敗",
-    "updatingBtn": "更新",
+    "updatingBtn": "更新"
   },
   "zh": {
     "accept": "接受",
@@ -1434,6 +1446,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "attachSending": "发送中...",
     "attachTapp": "Tapp",
     "attachTappPrompt": "输入 Tapp ID 或名称",
+    "channelNotAccepted": "请先接受通道再发送文件",
     "channelPlaceholder": "Actor URL 或 @user@domain",
     "close": "关闭",
     "closed": "已关闭",
@@ -1483,6 +1496,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "feedPublished": "已发布",
     "feedTimeline": "动态",
     "fileTooLarge": "文件过大（最大 10MB）",
+    "fileTooLargeRoom": "群聊不支持大文件 — 请通过私信通道发送",
     "followBtn": "关注",
     "followFail": "关注失败",
     "followPlaceholder": "Actor URL 或 @user@domain",
@@ -1582,12 +1596,16 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "tappShareRejected": "已拒绝",
     "tappUpdateAvail": "有更新可用",
     "title": "信使",
+    "transferComplete": "文件已发送",
+    "transferFail": "文件上传失败",
+    "transferProgress": "上传中… {pct}%",
+    "transferStarting": "正在上传文件…",
     "typing": "输入消息...",
     "unfollowBtn": "取消关注",
     "unfollowFail": "取消关注失败",
     "unpublishFail": "取消发布失败",
-    "updatingBtn": "更新",
-  },
+    "updatingBtn": "更新"
+  }
 }
 
 // ==================== Page Modules ====================
@@ -1631,7 +1649,7 @@ var state = {
   isGuest: true,
   isAdmin: false,
   // Attachment
-  pendingAttach: null, // { type: 'image'|'file'|'tapp'|'brew'|'library'|'report', data, name, size, mime }
+  pendingAttach: null, // { type, file?, data?, name, size, mime, ... }
   // Aro views
   currentView: 'feed',
   // Feed (merged timeline + profile)
@@ -2255,7 +2273,11 @@ function applyDialogLabels() {
 const PAGE_MOD_ATTACHMENTS = `\
 // ==================== Attachment Menu ====================
 var _attachMenu = null;
-var MAX_ATTACH_SIZE = 10 * 1024 * 1024; // 10MB
+var MAX_ATTACH_SIZE = 10 * 1024 * 1024; // 10MB overall attach cap
+// Inline base64 only under this raw size so JSON payload stays < 1MB backend cap.
+var INLINE_ATTACH_MAX = 250 * 1024;
+// Must match backend federation file_transfer DEFAULT_CHUNK_SIZE (256 KiB).
+var TRANSFER_CHUNK_SIZE = 262144;
 
 function toggleAttachMenu() {
   if (_attachMenu) { closeAttachMenu(); return; }
@@ -2313,12 +2335,107 @@ function handleFileSelect(file, forceType) {
     try { Tapp.ui.showNotification({ title: lang.fileTooLarge, type: 'error' }); } catch (e) { /* ignore */ }
     return;
   }
-  var type = forceType || (file.type.startsWith('image/') ? 'image' : 'file');
-  var reader = new FileReader();
-  reader.onload = function () {
-    setPendingAttach({ type: type, data: reader.result, name: file.name, size: file.size, mime: file.type });
+  var type = forceType || (file.type && file.type.indexOf('image/') === 0 ? 'image' : 'file');
+  // Keep the File for chunked upload; dataURL preview only for images.
+  if (type === 'image') {
+    var reader = new FileReader();
+    reader.onload = function () {
+      setPendingAttach({ type: type, file: file, data: reader.result, name: file.name, size: file.size, mime: file.type || 'image/*' });
+    };
+    reader.onerror = function () {
+      setPendingAttach({ type: type, file: file, name: file.name, size: file.size, mime: file.type || 'image/*' });
+    };
+    reader.readAsDataURL(file);
+  } else {
+    setPendingAttach({ type: type, file: file, name: file.name, size: file.size, mime: file.type || 'application/octet-stream' });
+  }
+}
+
+function readFileAsDataURL(file) {
+  return new Promise(function (resolve, reject) {
+    var reader = new FileReader();
+    reader.onload = function () { resolve(reader.result); };
+    reader.onerror = function () { reject(reader.error || new Error('read failed')); };
+    reader.readAsDataURL(file);
+  });
+}
+
+function arrayBufferToBase64(buffer) {
+  var bytes = new Uint8Array(buffer);
+  var binary = '';
+  var step = 0x8000;
+  for (var i = 0; i < bytes.length; i += step) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + step));
+  }
+  return btoa(binary);
+}
+
+/** Chunked channel transfer for files above INLINE_ATTACH_MAX. */
+async function sendChannelFileTransfer(attach, text, replyTo) {
+  var file = attach.file;
+  if (!file) throw new Error('Missing file data');
+
+  var chStatus = state.channelDetail && state.channelDetail.status;
+  if (chStatus && chStatus !== 'active' && chStatus !== 'accepted') {
+    throw new Error(lang.channelNotAccepted || 'Channel must be accepted first');
+  }
+
+  try {
+    Tapp.ui.showNotification({ title: lang.transferStarting || 'Uploading…', type: 'info' });
+  } catch (e0) { /* ignore */ }
+
+  var transfer = await Tapp.federation.initiateTransfer(state.activeId, {
+    filename: attach.name,
+    file_size: attach.size,
+    mime_type: attach.mime || 'application/octet-stream',
+  });
+  var transferId = transfer && transfer.transfer_id;
+  if (!transferId) throw new Error('No transfer_id returned');
+
+  var buf = await file.arrayBuffer();
+  var bytes = new Uint8Array(buf);
+  var totalChunks = Math.max(1, Math.ceil(bytes.length / TRANSFER_CHUNK_SIZE));
+  var lastPct = -1;
+
+  for (var i = 0; i < totalChunks; i++) {
+    var start = i * TRANSFER_CHUNK_SIZE;
+    var end = Math.min(start + TRANSFER_CHUNK_SIZE, bytes.length);
+    var slice = bytes.subarray(start, end);
+    var chunkData = arrayBufferToBase64(slice);
+    await Tapp.federation.uploadChunk(transferId, {
+      chunk_index: i,
+      chunk_data: chunkData,
+      chunk_size: slice.length,
+    });
+    var pct = Math.round(((i + 1) / totalChunks) * 100);
+    if (pct >= lastPct + 20 || pct === 100) {
+      lastPct = pct;
+      try {
+        var prog = (lang.transferProgress || 'Uploading… {pct}%').replace('{pct}', String(pct));
+        Tapp.ui.showNotification({ title: prog, type: 'info' });
+      } catch (e1) { /* ignore */ }
+    }
+  }
+
+  var msgPayload = {
+    filename: attach.name,
+    size: attach.size,
+    mime_type: attach.mime || 'application/octet-stream',
+    transfer_id: transferId,
+    text: text || '',
   };
-  reader.readAsDataURL(file);
+  if (state.quoteMsg) {
+    msgPayload.quote_sender = state.quoteMsg.sender;
+    msgPayload.quote_text = state.quoteMsg.text;
+    msgPayload.quote_id = state.quoteMsg.message_id;
+  }
+  var sendReq = { payload: msgPayload, message_type: 'file-meta' };
+  if (replyTo) sendReq.reply_to = replyTo;
+  await Tapp.federation.sendMessage(state.activeId, sendReq);
+
+  try {
+    Tapp.ui.showNotification({ title: lang.transferComplete || 'File sent', type: 'success' });
+  } catch (e2) { /* ignore */ }
 }
 
 function pickFedContent(type) {
@@ -2966,6 +3083,8 @@ function renderMessages() {
         msgType = 'report';
       } else if (payload.data && payload.mime_type && payload.mime_type.indexOf('image/') === 0) {
         msgType = 'image';
+      } else if (payload.transfer_id && payload.filename) {
+        msgType = 'file-meta';
       } else if (payload.data && payload.filename) {
         msgType = 'file';
       }
@@ -3020,13 +3139,19 @@ function renderMessages() {
     if (msgType === 'image' && payload.data) {
       html += '<img class="msg-image" src="' + esc(payload.data) + '" alt="' + esc(payload.filename || '') + '" />';
       if (payload.text) html += '<div class="msg-text">' + esc(payload.text) + '</div>';
-    } else if (msgType === 'file') {
+    } else if (msgType === 'file' || msgType === 'file-meta') {
       var ext = (payload.filename || '').split('.').pop().toUpperCase();
-      html += '<div class="msg-file-card">'
+      var sizeLabel = payload.size ? formatFileSize(payload.size) : ext;
+      if (payload.transfer_id) {
+        sizeLabel = (sizeLabel ? sizeLabel + ' · ' : '') + 'transfer';
+      }
+      html += '<div class="msg-file-card"'
+        + (payload.transfer_id ? ' data-transfer-id="' + esc(payload.transfer_id) + '"' : '')
+        + '>'
         + '<div class="msg-file-icon">' + SVG_ICONS.file + '</div>'
         + '<div class="msg-file-info">'
         + '<div class="msg-file-name">' + esc(payload.filename || 'file') + '</div>'
-        + '<div class="msg-file-size">' + (payload.size ? formatFileSize(payload.size) : ext) + '</div>'
+        + '<div class="msg-file-size">' + esc(sizeLabel || '') + '</div>'
         + '</div></div>';
       if (payload.text) html += '<div class="msg-text">' + esc(payload.text) + '</div>';
     } else if (msgType === 'tapp' || msgType === 'brew' || msgType === 'library' || msgType === 'report') {
@@ -3532,7 +3657,7 @@ async function openConversation(kind, id) {
     if (kind === 'channel') {
       var results = await Promise.all([
         Tapp.federation.getChannel(id),
-        Tapp.federation.getMessages(id, undefined, 100),
+        Tapp.federation.getMessages(id, undefined, 200),
       ]);
       if (results[0]) {
         state.channelDetail = results[0];
@@ -3556,7 +3681,7 @@ async function openConversation(kind, id) {
       var results = await Promise.all([
         Tapp.federation.getRoom(id),
         Tapp.federation.getRoomMembers(id),
-        Tapp.federation.getRoomMessages(id, undefined, 100),
+        Tapp.federation.getRoomMessages(id, undefined, 200),
       ]);
       if (results[0]) state.roomDetail = results[0];
       if (results[1]) {
@@ -3606,40 +3731,56 @@ async function doSend() {
     var msgPayload;
     var msgType;
 
-    if (attach) {
-      if (attach.type === 'image') {
-        msgType = 'image';
-        msgPayload = { data: attach.data, filename: attach.name, mime_type: attach.mime, size: attach.size, text: text || '' };
-      } else if (attach.type === 'file') {
-        msgType = 'file';
-        msgPayload = { data: attach.data, filename: attach.name, mime_type: attach.mime, size: attach.size, text: text || '' };
-      } else {
-        // Federation content: tapp, brew, library, report
-        msgType = attach.type;
-        msgPayload = { title: attach.name, description: attach.desc || '', content_type: attach.type, icon: attach.icon || '', text: text || '' };
-        // Include resource IDs so the receiver can fetch detail
-        if (attach.tappId) msgPayload.tapp_id = attach.tappId;
-        if (attach.tappVersion) msgPayload.tapp_version = attach.tappVersion;
-        if (attach.tappIcon) msgPayload.tapp_icon = attach.tappIcon;
-        if (attach.brewId) msgPayload.brew_id = attach.brewId;
-        if (attach.brewLink) msgPayload.brew_link = attach.brewLink;
-        if (attach.platformId) msgPayload.platform_id = attach.platformId;
-        if (attach.itemId) msgPayload.item_id = attach.itemId;
-        if (attach.reportId) msgPayload.report_id = attach.reportId;
+    // Attach quote info if replying to a message
+    var replyTo = null;
+    if (state.quoteMsg) {
+      replyTo = state.quoteMsg.message_id;
+    }
+
+    if (attach && (attach.type === 'image' || attach.type === 'file')) {
+      var useChunked = attach.size > INLINE_ATTACH_MAX;
+      if (useChunked) {
+        if (state.activeKind !== 'channel') {
+          throw new Error(lang.fileTooLargeRoom || lang.fileTooLarge || 'File too large');
+        }
+        clearPendingAttach();
+        await sendChannelFileTransfer(attach, text, replyTo);
+        if (state.quoteMsg) clearQuote();
+        await pollMessages(true);
+        return;
       }
+
+      // Small files: inline base64 under backend 1MB payload budget
+      var dataUrl = attach.data;
+      if (!dataUrl && attach.file) {
+        dataUrl = await readFileAsDataURL(attach.file);
+      }
+      if (!dataUrl) throw new Error('Failed to read file');
+      msgType = attach.type === 'image' ? 'image' : 'file';
+      msgPayload = { data: dataUrl, filename: attach.name, mime_type: attach.mime, size: attach.size, text: text || '' };
+      clearPendingAttach();
+    } else if (attach) {
+      // Federation content: tapp, brew, library, report
+      msgType = attach.type;
+      msgPayload = { title: attach.name, description: attach.desc || '', content_type: attach.type, icon: attach.icon || '', text: text || '' };
+      if (attach.tappId) msgPayload.tapp_id = attach.tappId;
+      if (attach.tappVersion) msgPayload.tapp_version = attach.tappVersion;
+      if (attach.tappIcon) msgPayload.tapp_icon = attach.tappIcon;
+      if (attach.brewId) msgPayload.brew_id = attach.brewId;
+      if (attach.brewLink) msgPayload.brew_link = attach.brewLink;
+      if (attach.platformId) msgPayload.platform_id = attach.platformId;
+      if (attach.itemId) msgPayload.item_id = attach.itemId;
+      if (attach.reportId) msgPayload.report_id = attach.reportId;
       clearPendingAttach();
     } else {
       msgType = 'text';
       msgPayload = { text: text };
     }
 
-    // Attach quote info if replying to a message
-    var replyTo = null;
     if (state.quoteMsg) {
       msgPayload.quote_sender = state.quoteMsg.sender;
       msgPayload.quote_text = state.quoteMsg.text;
       msgPayload.quote_id = state.quoteMsg.message_id;
-      replyTo = state.quoteMsg.message_id;
       clearQuote();
     }
 
@@ -3696,9 +3837,9 @@ async function pollMessages(force) {
   try {
     var res;
     if (state.activeKind === 'channel') {
-      res = await Tapp.federation.getMessages(state.activeId, undefined, 100);
+      res = await Tapp.federation.getMessages(state.activeId, undefined, 200);
     } else {
-      res = await Tapp.federation.getRoomMessages(state.activeId, undefined, 100);
+      res = await Tapp.federation.getRoomMessages(state.activeId, undefined, 200);
     }
     if (res) {
       var msgs = res.messages || [];
@@ -5567,7 +5708,7 @@ const CORE_CODE = buildCoreCode()
 const manifest: TappManifest = {
   id: 'com.myriad.aro',
   name: 'Aro',
-  version: '1.0.0',
+  version: '1.0.1',
   minSystemVersion: '0.2.1',
   description: '社交中心，统一管理消息、时间线、环网与个人资料',
   category: 'social',
@@ -5583,6 +5724,7 @@ const manifest: TappManifest = {
     'federation:read',
     'federation:write',
     'federation:message',
+    'federation:files',
     'platform:read',
     'report:read',
     'tappList:read',
