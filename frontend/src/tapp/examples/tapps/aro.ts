@@ -2521,25 +2521,79 @@ function applyRoleControls() {
   }
 }
 
+/**
+ * Resolve guest/user/admin without locking authenticated users as guests
+ * when getRole/isAdmin are missing or throw.
+ *
+ * Order (mirrors resolveAroUserRole util + unit tests):
+ *   1. Tapp.user.getRole — explicit role wins (including 'guest')
+ *   2. Tapp.user.isAdmin — true→admin, false→user (never guest)
+ *   3. Tapp.context.getUser — authenticated user → user/admin
+ *   4. Remain guest only when no auth user or explicit guest role
+ *
+ * Manual test (local preview, logged-in non-admin):
+ *   - Open Aro: #aro-nav shows Messages + Rings
+ *   - Feed has Following / Followers / Published tabs (not timeline-only)
+ *   - Messenger opens; compose + is available on timeline/following
+ *   - DevTools: force Tapp.user.getRole to throw → still not guest if getUser works
+ *   - Logged-out / true guest: nav hidden, timeline-only feed
+ */
 async function loadUserRole() {
   state.userRole = 'guest';
   state.isGuest = true;
   state.isAdmin = false;
-  try {
-    if (Tapp.user && typeof Tapp.user.getRole === 'function') {
-      state.userRole = (await Tapp.user.getRole()) || 'guest';
-      state.isGuest = state.userRole === 'guest';
-      state.isAdmin = state.userRole === 'admin';
-    } else if (Tapp.user && typeof Tapp.user.isAdmin === 'function') {
+  var resolved = false;
+
+  if (Tapp.user && typeof Tapp.user.getRole === 'function') {
+    try {
+      var role = await Tapp.user.getRole();
+      if (role != null && String(role).trim() !== '') {
+        state.userRole = String(role);
+        state.isGuest = state.userRole === 'guest';
+        state.isAdmin = state.userRole === 'admin';
+        resolved = true;
+      }
+    } catch (e) { /* fall through to isAdmin / getUser */ }
+  }
+
+  if (!resolved && Tapp.user && typeof Tapp.user.isAdmin === 'function') {
+    try {
       state.isAdmin = !!(await Tapp.user.isAdmin());
       state.userRole = state.isAdmin ? 'admin' : 'user';
       state.isGuest = false;
-    }
-  } catch (e) {
-    state.userRole = 'guest';
-    state.isGuest = true;
-    state.isAdmin = false;
+      resolved = true;
+    } catch (e) { /* fall through to getUser */ }
   }
+
+  if (!resolved) {
+    try {
+      var user = null;
+      if (Tapp.context && typeof Tapp.context.getUser === 'function') {
+        user = await Tapp.context.getUser();
+      }
+      if (user && typeof user === 'object') {
+        var rawRole = user.role != null ? String(user.role).trim().toLowerCase() : '';
+        if (rawRole === 'guest') {
+          // explicit guest — stay guest
+        } else {
+          var isAdminUser = !!(user.isAdmin === true || rawRole === 'admin');
+          var isRoleUser = rawRole === 'user' || rawRole === 'admin';
+          var markedAuth = user.authenticated === true;
+          var id = user.id != null ? String(user.id).trim() : '';
+          var username = user.username != null ? String(user.username).trim() : '';
+          var anonId = !id || id === 'guest' || id === '0' || id === '-1' || /^user_?-\d+$/i.test(id);
+          var hasIdentity = !anonId || !!username;
+          if (isRoleUser || isAdminUser || markedAuth || (hasIdentity && !anonId)) {
+            state.isAdmin = isAdminUser;
+            state.userRole = isAdminUser ? 'admin' : 'user';
+            state.isGuest = false;
+            resolved = true;
+          }
+        }
+      }
+    } catch (e) { /* remain guest */ }
+  }
+
   applyAdminControls();
   applyRoleControls();
 }
