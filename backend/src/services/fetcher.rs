@@ -1411,7 +1411,7 @@ impl PlatformFetcher {
     const MAL_PAGE_DELAY_MS: u64 = 250;
 
     /// Non-empty client_id → use official API; otherwise load.json.
-    fn mal_official_client_id<'a>(client_id: Option<&'a str>) -> Option<&'a str> {
+    fn mal_official_client_id(client_id: Option<&str>) -> Option<&str> {
         client_id.map(str::trim).filter(|s| !s.is_empty())
     }
 
