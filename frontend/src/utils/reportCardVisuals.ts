@@ -6,13 +6,12 @@
  * are unit-tested so field-mapping regressions surface as test failures.
  */
 
+/** Structural input for report-card platform resolution (accepts WidgetConfig). */
 export interface WidgetConfigLike {
   type?: string
   config?: {
     platformId?: unknown
-    [key: string]: unknown
-  }
-  [key: string]: unknown
+  } | null
 }
 
 /**
