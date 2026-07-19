@@ -379,6 +379,8 @@ export interface TranslationKeys {
     usersFilterAll: string
     usersFilterClear: string
     usersNoMatch: string
+    /** e.g. "{count} results" */
+    usersResultCount: string
     usersShowDetail: string
     usersHideDetail: string
     usersHours: string

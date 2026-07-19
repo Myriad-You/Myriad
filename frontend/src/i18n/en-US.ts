@@ -433,6 +433,7 @@ export const enUS: TranslationKeys = {
     usersFilterAll: 'All',
     usersFilterClear: 'Clear filters',
     usersNoMatch: 'No matching users',
+    usersResultCount: '{count} results',
     usersShowDetail: 'Show details',
     usersHideDetail: 'Hide details',
     usersHours: 'h',

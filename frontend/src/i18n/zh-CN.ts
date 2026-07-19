@@ -403,6 +403,7 @@ export const zhCN: TranslationKeys = {
     usersFilterAll: '全部',
     usersFilterClear: '清除筛选',
     usersNoMatch: '没有符合条件的用户',
+    usersResultCount: '{count} 个结果',
     usersShowDetail: '展开详情',
     usersHideDetail: '收起详情',
     usersHours: '小时',

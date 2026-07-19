@@ -426,6 +426,7 @@ export const jaJP: TranslationKeys = {
     usersFilterAll: 'すべて',
     usersFilterClear: 'フィルタをクリア',
     usersNoMatch: '一致するユーザーがありません',
+    usersResultCount: '{count} 件',
     usersShowDetail: '詳細を表示',
     usersHideDetail: '詳細を閉じる',
     usersHours: '時間',

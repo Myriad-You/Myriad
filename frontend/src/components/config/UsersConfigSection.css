@@ -1,23 +1,25 @@
 /* 设置页「用户管理」区块 */
 
-.users-filter-bar {
+/* —— Unified control strip (search + chips + actions) —— */
+
+.users-control-strip {
+  margin-bottom: 1rem;
+}
+
+.users-control-main {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.65rem 0.75rem;
-  margin-bottom: 1rem;
-  padding: 0.75rem 0.85rem;
-  border: 1px solid var(--border-color, rgb(128 128 128 / 20%));
-  border-radius: 12px;
-  background: var(--card-bg, rgb(255 255 255 / 4%));
+  gap: 0.55rem 0.65rem;
 }
 
 .users-search-field {
   position: relative;
   display: flex;
   align-items: center;
-  flex: 1 1 14rem;
-  min-width: 12rem;
+  flex: 1 1 12rem;
+  min-width: 10rem;
+  max-width: 22rem;
 }
 
 .users-search-icon {
@@ -27,26 +29,43 @@
   height: 14px;
   color: var(--text-secondary, #888);
   pointer-events: none;
+  opacity: 0.85;
 }
 
 .users-search-input {
   width: 100%;
-  padding: 0.45rem 2rem;
+  height: 2.15rem;
+  padding: 0 2rem 0 2.05rem;
   border-radius: 10px;
   border: 1px solid var(--border-color, rgb(128 128 128 / 25%));
   background: transparent;
   color: inherit;
   font-size: 0.88rem;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease;
+}
+
+.users-search-input:hover {
+  border-color: var(--border-color, rgb(128 128 128 / 40%));
 }
 
 .users-search-input:focus {
   outline: none;
   border-color: var(--accent-color, #4f8ef7);
-  box-shadow: 0 0 0 2px rgb(79 142 247 / 18%);
+  background: color-mix(
+    in srgb,
+    var(--accent-color, #4f8ef7) 5%,
+    transparent
+  );
+  box-shadow: 0 0 0 2px
+    color-mix(in srgb, var(--accent-color, #4f8ef7) 18%, transparent);
 }
 
 .users-search-input::placeholder {
   color: var(--text-secondary, #888);
+  opacity: 0.85;
 }
 
 /* Hide native search clear so our button is the only control */
@@ -56,18 +75,21 @@
 
 .users-search-clear {
   position: absolute;
-  right: 0.4rem;
+  right: 0.3rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.5rem;
-  height: 1.5rem;
+  width: 1.65rem;
+  height: 1.65rem;
   padding: 0;
   border: none;
   border-radius: 6px;
   background: transparent;
   color: var(--text-secondary, #888);
   cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
 }
 
 .users-search-clear:hover {
@@ -75,45 +97,135 @@
   color: inherit;
 }
 
-.users-filter-controls {
+.users-search-clear:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px
+    color-mix(in srgb, var(--accent-color, #4f8ef7) 30%, transparent);
+}
+
+/* —— Segmented filter chips —— */
+
+.users-filter-chips {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.45rem;
+  flex: 0 1 auto;
 }
 
-.users-filter-select {
+.users-chip-group {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  font-size: 0.82rem;
-  color: var(--text-secondary, #888);
+  padding: 0.15rem;
+  border-radius: 10px;
+  border: 1px solid var(--border-color, rgb(128 128 128 / 18%));
+  background: var(--card-bg, rgb(128 128 128 / 6%));
+  gap: 0.1rem;
 }
 
-.users-filter-label {
-  white-space: nowrap;
-}
-
-.users-filter-select select {
-  padding: 0.4rem 0.55rem;
+.users-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.75rem;
+  padding: 0.2rem 0.65rem;
+  border: none;
   border-radius: 8px;
-  border: 1px solid var(--border-color, rgb(128 128 128 / 25%));
   background: transparent;
-  color: inherit;
-  font-size: 0.85rem;
+  color: var(--text-secondary, #888);
+  font-size: 0.8rem;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
   cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
-.users-filter-select select:focus {
+.users-chip:hover:not(.active) {
+  background: rgb(128 128 128 / 10%);
+  color: inherit;
+}
+
+.users-chip:focus-visible {
   outline: none;
-  border-color: var(--accent-color, #4f8ef7);
+  box-shadow: 0 0 0 2px
+    color-mix(in srgb, var(--accent-color, #4f8ef7) 35%, transparent);
 }
 
-.users-filter-reset {
-  flex-shrink: 0;
+.users-chip.active {
+  background: color-mix(
+    in srgb,
+    var(--accent-color, #4f8ef7) 16%,
+    transparent
+  );
+  color: var(--accent-color, #4f8ef7);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--accent-color, #4f8ef7) 28%, transparent);
 }
 
-.users-filter-bar .visually-hidden {
+/* —— Actions: match count, clear, refresh, create —— */
+
+.users-control-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+
+.users-match-count {
+  min-width: 4.5rem;
+  font-size: 0.78rem;
+  color: var(--text-secondary, #888);
+  text-align: right;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.users-match-count.visible {
+  opacity: 1;
+}
+
+/* Collapse when inactive to avoid a permanently empty gap; expand when active. */
+.users-button.users-filter-reset {
+  max-width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  margin: 0;
+  border-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  white-space: nowrap;
+  transition:
+    opacity 0.15s ease,
+    max-width 0.2s ease,
+    padding 0.2s ease,
+    border-width 0.2s ease;
+}
+
+.users-button.users-filter-reset.visible {
+  max-width: 8rem;
+  padding: 0.4rem 0.85rem;
+  border-width: 1px;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.users-button.users-filter-reset:disabled {
+  opacity: 0;
+  cursor: default;
+}
+
+.users-button.users-filter-reset.visible:disabled {
+  opacity: 0.5;
+}
+
+.users-control-strip .visually-hidden {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -125,11 +237,8 @@
   border: 0;
 }
 
-.users-toolbar {
-  display: flex;
-  gap: 0.5rem;
-  justify-content: flex-end;
-  margin-bottom: 0.75rem;
+.users-empty-state {
+  padding: 0.65rem 0.15rem;
 }
 
 .users-list {
@@ -358,6 +467,13 @@
   background: rgb(128 128 128 / 10%);
 }
 
+.users-button:focus-visible {
+  outline: none;
+  border-color: var(--accent-color, #4f8ef7);
+  box-shadow: 0 0 0 2px
+    color-mix(in srgb, var(--accent-color, #4f8ef7) 22%, transparent);
+}
+
 .users-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -448,27 +564,49 @@
   color: inherit;
 }
 
-@media (width <= 640px) {
-  .users-filter-bar {
-    flex-direction: column;
-    align-items: stretch;
+@media (prefers-reduced-motion: reduce) {
+  .users-search-input,
+  .users-search-clear,
+  .users-chip,
+  .users-match-count,
+  .users-filter-reset,
+  .users-button,
+  .users-row {
+    transition: none;
   }
 
+  .users-button svg.spinning {
+    animation: none;
+  }
+}
+
+@media (width <= 720px) {
   .users-search-field {
+    flex: 1 1 100%;
+    max-width: none;
     min-width: 0;
   }
 
-  .users-filter-controls {
-    width: 100%;
-  }
-
-  .users-filter-select {
+  .users-filter-chips {
     flex: 1 1 auto;
   }
 
-  .users-filter-select select {
-    flex: 1;
-    min-width: 0;
+  .users-control-actions {
+    margin-left: 0;
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .users-match-count {
+    margin-right: auto;
+    text-align: left;
+  }
+}
+
+@media (width <= 640px) {
+  .users-chip {
+    padding: 0.2rem 0.5rem;
+    font-size: 0.78rem;
   }
 
   .users-row-meta {
