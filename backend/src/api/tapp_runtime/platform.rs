@@ -7,8 +7,8 @@ use axum::{
 };
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use std::collections::HashMap;
+use serde_json::{json, Map, Value};
+use std::collections::{HashMap, HashSet};
 
 use crate::middleware::auth::Claims;
 use crate::services::permission_service::TappPermission;
@@ -23,6 +23,351 @@ use super::runtime_grant::RuntimeGrantContext;
 pub struct PlatformDataQuery {
     pub limit: Option<u32>,
     pub offset: Option<u32>,
+}
+
+/// Smart-filter caches store content under `raw_unknown_content` / `content_analysis`,
+/// not a top-level `items` array. Project those shapes into a uniform items[] for Tapps.
+/// Prefer existing `items` when present (e.g. tapp-written entries).
+fn extract_platform_items(data: &Value, platform: &str) -> Vec<Value> {
+    if let Some(items) = data.get("items").and_then(|v| v.as_array()) {
+        if !items.is_empty() {
+            return items
+                .iter()
+                .enumerate()
+                .map(|(i, item)| normalize_platform_item(item, platform, i))
+                .collect();
+        }
+    }
+
+    let mut items = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+
+    if let Some(raw) = data.get("raw_unknown_content").and_then(|v| v.as_array()) {
+        for (i, entry) in raw.iter().enumerate() {
+            let item = project_unknown_content(entry, platform, i);
+            let key = item_dedupe_key(&item);
+            if seen.insert(key) {
+                items.push(item);
+            }
+        }
+    }
+
+    if let Some(analysis) = data.get("content_analysis") {
+        for item in project_content_analysis(analysis, platform, items.len()) {
+            let key = item_dedupe_key(&item);
+            if seen.insert(key) {
+                items.push(item);
+            }
+        }
+    }
+
+    items
+}
+
+fn item_dedupe_key(item: &Value) -> String {
+    // Prefer title so raw_unknown_content and content_analysis lists don't double-list the same entry.
+    let title = item
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_lowercase();
+    if !title.is_empty() {
+        return title;
+    }
+    item.get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string()
+}
+
+fn first_string(obj: &Map<String, Value>, keys: &[&str]) -> Option<String> {
+    for key in keys {
+        if let Some(v) = obj.get(*key) {
+            if let Some(s) = v.as_str() {
+                let trimmed = s.trim();
+                if !trimmed.is_empty() {
+                    return Some(trimmed.to_string());
+                }
+            } else if let Some(n) = v.as_i64() {
+                return Some(n.to_string());
+            } else if let Some(n) = v.as_u64() {
+                return Some(n.to_string());
+            } else if let Some(n) = v.as_f64() {
+                return Some(n.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn normalize_platform_item(item: &Value, platform: &str, index: usize) -> Value {
+    let obj = item.as_object();
+    let title = obj
+        .and_then(|o| first_string(o, &["title", "name", "username", "label"]))
+        .unwrap_or_else(|| format!("Item {}", index + 1));
+    let item_type = obj
+        .and_then(|o| first_string(o, &["type", "content_type", "subject_type"]))
+        .unwrap_or_else(|| "item".to_string());
+    let id = obj
+        .and_then(|o| first_string(o, &["id", "title_id", "subject_id", "item_id"]))
+        .unwrap_or_else(|| format!("{platform}_{index}"));
+    let image = obj.and_then(|o| {
+        first_string(
+            o,
+            &[
+                "image",
+                "cover",
+                "display_image",
+                "profile_image_url",
+                "thumbnail",
+                "poster",
+            ],
+        )
+    });
+    let metadata = item.get("metadata").cloned().unwrap_or_else(|| {
+        // Promote remaining scalar fields into metadata for richer picker/detail.
+        let mut meta = Map::new();
+        if let Some(o) = obj {
+            for (k, v) in o {
+                if matches!(
+                    k.as_str(),
+                    "id" | "title" | "name" | "type" | "content_type"
+                        | "subject_type" | "image" | "cover" | "display_image"
+                        | "profile_image_url" | "thumbnail" | "poster" | "metadata"
+                        | "platform" | "description" | "url" | "createdAt" | "source"
+                ) {
+                    continue;
+                }
+                if v.is_string() || v.is_number() || v.is_boolean() {
+                    meta.insert(k.clone(), v.clone());
+                }
+            }
+        }
+        Value::Object(meta)
+    });
+
+    let mut out = json!({
+        "id": id,
+        "title": title,
+        "type": item_type,
+        "platform": platform,
+        "metadata": metadata,
+    });
+    if let Some(img) = image {
+        out["image"] = json!(img);
+        out["cover"] = out["image"].clone();
+    }
+    if let Some(desc) = obj.and_then(|o| first_string(o, &["description", "summary", "desc"])) {
+        out["description"] = json!(desc);
+    }
+    if let Some(url) = obj.and_then(|o| first_string(o, &["url", "link", "web_url"])) {
+        out["url"] = json!(url);
+    }
+    // Preserve original fields that callers may already read.
+    if let Some(o) = obj {
+        for (k, v) in o {
+            if out.get(k).is_none() {
+                out[k] = v.clone();
+            }
+        }
+    }
+    out
+}
+
+fn project_unknown_content(entry: &Value, platform: &str, index: usize) -> Value {
+    let obj = entry.as_object();
+    let title = obj
+        .and_then(|o| first_string(o, &["title", "name"]))
+        .unwrap_or_else(|| format!("Item {}", index + 1));
+    let item_type = obj
+        .and_then(|o| first_string(o, &["content_type", "type"]))
+        .unwrap_or_else(|| "item".to_string());
+    let metadata = entry
+        .get("metadata")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let image = obj.and_then(|o| {
+        first_string(o, &["image", "cover", "display_image", "profile_image_url"])
+    })
+    .or_else(|| {
+        metadata.as_object().and_then(|m| {
+            first_string(m, &["image", "cover", "display_image", "profile_image_url"])
+        })
+    });
+    let id = obj
+        .and_then(|o| first_string(o, &["id", "title_id", "subject_id"]))
+        .unwrap_or_else(|| format!("{platform}_{}_{}", slugify_fragment(&item_type), index));
+
+    let mut out = json!({
+        "id": id,
+        "title": title,
+        "type": item_type,
+        "platform": platform,
+        "metadata": metadata,
+    });
+    if let Some(img) = image {
+        out["image"] = json!(img);
+        out["cover"] = out["image"].clone();
+    }
+    out
+}
+
+fn slugify_fragment(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c.to_ascii_lowercase());
+        } else if c == '-' || c == '_' || c.is_whitespace() {
+            if !out.ends_with('_') {
+                out.push('_');
+            }
+        }
+    }
+    let trimmed = out.trim_matches('_');
+    if trimmed.is_empty() {
+        "item".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// Keys under content_analysis that are narrative summaries, not item lists.
+const SKIP_ANALYSIS_KEYS: &[&str] = &[
+    "game_summary",
+    "gaming_summary",
+    "video_summary",
+    "repo_summary",
+    "collection_summary",
+    "anime_analysis",
+    "genre_analysis",
+    "language_distribution",
+    "contribution_calendar",
+    "subject_type_distribution",
+    "collection_type_distribution",
+    "tag_distribution",
+    "music_summary",
+    "tweet_summary",
+    "server_summary",
+];
+
+fn project_content_analysis(analysis: &Value, platform: &str, start_index: usize) -> Vec<Value> {
+    let Some(obj) = analysis.as_object() else {
+        return Vec::new();
+    };
+
+    let mut items = Vec::new();
+    let mut index = start_index;
+
+    for (list_key, value) in obj {
+        if SKIP_ANALYSIS_KEYS.contains(&list_key.as_str()) {
+            continue;
+        }
+        let Some(arr) = value.as_array() else {
+            continue;
+        };
+        // Skip arrays of pure scalars / date buckets
+        let sample = arr.iter().find(|v| v.is_object());
+        let Some(sample) = sample else {
+            continue;
+        };
+        let sample_obj = sample.as_object().unwrap();
+        // Must look like a content entry (has a display name field)
+        if first_string(
+            sample_obj,
+            &["title", "name", "username", "label", "subject_title"],
+        )
+        .is_none()
+        {
+            continue;
+        }
+
+        let default_type = list_key
+            .trim_start_matches("recent_")
+            .trim_start_matches("top_")
+            .trim_end_matches("_subjects")
+            .trim_end_matches("_titles")
+            .trim_end_matches("_games")
+            .trim_end_matches("_videos")
+            .trim_end_matches("_songs")
+            .trim_end_matches("_repos")
+            .trim_end_matches("_sample")
+            .trim_end_matches('s');
+        let default_type = if default_type.is_empty() {
+            "item"
+        } else {
+            default_type
+        };
+
+        for entry in arr {
+            let Some(entry_obj) = entry.as_object() else {
+                continue;
+            };
+            let title = match first_string(
+                entry_obj,
+                &["title", "name", "username", "label", "subject_title"],
+            ) {
+                Some(t) => t,
+                None => continue,
+            };
+            let item_type = first_string(entry_obj, &["content_type", "type", "subject_type"])
+                .unwrap_or_else(|| default_type.to_string());
+            let id = first_string(
+                entry_obj,
+                &["id", "title_id", "subject_id", "item_id", "appid"],
+            )
+            .unwrap_or_else(|| format!("{platform}_{}_{}", slugify_fragment(&item_type), index));
+            let image = first_string(
+                entry_obj,
+                &[
+                    "image",
+                    "cover",
+                    "display_image",
+                    "profile_image_url",
+                    "thumbnail",
+                    "poster",
+                ],
+            );
+            let description =
+                first_string(entry_obj, &["description", "summary", "desc", "artist"]);
+
+            let mut metadata = Map::new();
+            for (k, v) in entry_obj {
+                if matches!(
+                    k.as_str(),
+                    "id" | "title" | "name" | "username" | "type" | "content_type"
+                        | "subject_type" | "image" | "cover" | "display_image"
+                        | "profile_image_url" | "thumbnail" | "poster" | "description"
+                        | "summary"
+                ) {
+                    continue;
+                }
+                if v.is_string() || v.is_number() || v.is_boolean() {
+                    metadata.insert(k.clone(), v.clone());
+                }
+            }
+
+            let mut item = json!({
+                "id": id,
+                "title": title,
+                "type": item_type,
+                "platform": platform,
+                "metadata": metadata,
+                "source_list": list_key,
+            });
+            if let Some(img) = image {
+                item["image"] = json!(img);
+                item["cover"] = item["image"].clone();
+            }
+            if let Some(desc) = description {
+                item["description"] = json!(desc);
+            }
+            items.push(item);
+            index += 1;
+        }
+    }
+
+    items
 }
 
 /// GET /api/tapp/platform/{platform}/data
@@ -50,11 +395,7 @@ pub async fn get_platform_data(
         }
     };
 
-    let items = data
-        .get("items")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default();
+    let items = extract_platform_items(&data, &platform);
     let total = items.len();
     let offset = query.offset.unwrap_or(0) as usize;
     let limit = (query.limit.unwrap_or(100) as usize).min(1000);
@@ -86,11 +427,7 @@ pub async fn get_platform_stats(
     let data = get_cached_platform_data(&platform)
         .await
         .unwrap_or(json!({ "items": [] }));
-    let items = data
-        .get("items")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default();
+    let items = extract_platform_items(&data, &platform);
     let total = items.len();
 
     let mut type_distribution: HashMap<String, usize> = HashMap::new();
@@ -126,11 +463,7 @@ pub async fn get_platform_distribution(
     let data = get_cached_platform_data(&platform)
         .await
         .unwrap_or(json!({ "items": [] }));
-    let items = data
-        .get("items")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default();
+    let items = extract_platform_items(&data, &platform);
 
     let mut distribution: HashMap<String, usize> = HashMap::new();
     for item in &items {
@@ -468,4 +801,121 @@ pub async fn add_platform_items_batch(
         "totalProcessed": results.len(),
         "successCount": success_count
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_prefers_existing_items() {
+        let data = json!({
+            "items": [{ "id": "a1", "title": "Written Item", "type": "game" }],
+            "raw_unknown_content": [{ "content_type": "Game", "title": "Other" }]
+        });
+        let items = extract_platform_items(&data, "steam");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["title"], "Written Item");
+        assert_eq!(items[0]["platform"], "steam");
+    }
+
+    #[test]
+    fn extract_projects_raw_unknown_content() {
+        let data = json!({
+            "platform": "steam",
+            "raw_unknown_content": [
+                {
+                    "content_type": "Game",
+                    "title": "Left 4 Dead 2",
+                    "metadata": { "playtime": "3324" }
+                },
+                {
+                    "content_type": "Game",
+                    "title": "Hades",
+                    "metadata": { "playtime": "120" }
+                }
+            ]
+        });
+        let items = extract_platform_items(&data, "steam");
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0]["title"], "Left 4 Dead 2");
+        assert_eq!(items[0]["type"], "Game");
+        assert_eq!(items[0]["platform"], "steam");
+        assert!(items[0].get("id").and_then(|v| v.as_str()).is_some());
+        assert_eq!(items[0]["metadata"]["playtime"], "3324");
+    }
+
+    #[test]
+    fn extract_projects_content_analysis_lists() {
+        let data = json!({
+            "platform": "github",
+            "raw_unknown_content": [],
+            "content_analysis": {
+                "repo_summary": "has many repos",
+                "recent_repos": [
+                    {
+                        "name": "Sakurairo",
+                        "language": "PHP",
+                        "stars": 4024,
+                        "description": "A WordPress theme"
+                    }
+                ],
+                "contribution_calendar": [
+                    { "date": "2025-07-20", "count": 2 }
+                ]
+            }
+        });
+        let items = extract_platform_items(&data, "github");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["title"], "Sakurairo");
+        assert_eq!(items[0]["description"], "A WordPress theme");
+        assert_eq!(items[0]["metadata"]["stars"], 4024);
+    }
+
+    #[test]
+    fn extract_dedupes_raw_and_analysis() {
+        let data = json!({
+            "raw_unknown_content": [
+                { "content_type": "Game", "title": "Hades", "metadata": {} }
+            ],
+            "content_analysis": {
+                "recent_games": [
+                    { "name": "Hades", "playtime": 120 },
+                    { "name": "Celeste", "playtime": 40 }
+                ]
+            }
+        });
+        let items = extract_platform_items(&data, "steam");
+        // Hades appears once (from raw), Celeste from analysis
+        assert_eq!(items.len(), 2);
+        let titles: Vec<&str> = items
+            .iter()
+            .filter_map(|i| i.get("title").and_then(|v| v.as_str()))
+            .collect();
+        assert!(titles.contains(&"Hades"));
+        assert!(titles.contains(&"Celeste"));
+    }
+
+    #[test]
+    fn extract_covers_from_bangumi_subjects() {
+        let data = json!({
+            "content_analysis": {
+                "top_rated_subjects": [
+                    {
+                        "subject_id": 19643,
+                        "title": "星之卡比",
+                        "subject_type": "game",
+                        "rate": 10,
+                        "cover": "https://example.com/cover.jpg"
+                    }
+                ]
+            }
+        });
+        let items = extract_platform_items(&data, "bangumi");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["id"], "19643");
+        assert_eq!(items[0]["image"], "https://example.com/cover.jpg");
+        assert_eq!(items[0]["cover"], "https://example.com/cover.jpg");
+        assert_eq!(items[0]["type"], "game");
+    }
 }

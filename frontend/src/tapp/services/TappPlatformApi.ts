@@ -7,14 +7,58 @@ import type {
 } from '../types'
 import { apiRequest } from './TappHttpClient'
 
+/** Raw `/api/platforms` row — host UI keeps numeric id + display name. */
+interface ApiPlatformRow {
+  id: number | string
+  name: string
+  enabled?: boolean
+  icon?: string
+  /** Stable slug (DB name), e.g. "steam" */
+  slug?: string
+  key?: string
+  description?: string
+  color?: string
+  isTappPlatform?: boolean
+  tappId?: string
+}
+
+/**
+ * List enabled platforms for Tapp SDK.
+ * Maps `id`/`key` to the stable slug so `platform.getData(id)` hits
+ * `cache/platforms/{slug}_filtered.json`. Display name stays in `name`.
+ */
 export async function listEnabledPlatforms(
   runtimeGrant?: string,
 ): Promise<PlatformInfo[]> {
-  const data = await apiRequest<{ platforms: PlatformInfo[] }>(
+  const data = await apiRequest<{ platforms: ApiPlatformRow[] }>(
     '/api/platforms',
     { runtimeGrant },
   )
-  return data.platforms.filter((platform) => platform.enabled)
+  return data.platforms
+    .filter((platform) => platform.enabled)
+    .map((platform) => {
+      const slug =
+        (platform.slug && String(platform.slug).trim()) ||
+        (platform.key && String(platform.key).trim()) ||
+        // Legacy fallback: some environments may already send slug as id
+        (typeof platform.id === 'string' &&
+        platform.id &&
+        !/^\d+$/.test(platform.id)
+          ? platform.id
+          : '')
+      const stableId = slug || String(platform.id)
+      return {
+        id: stableId,
+        key: stableId,
+        name: platform.name,
+        icon: platform.icon || stableId,
+        color: platform.color || '',
+        enabled: true,
+        isTappPlatform: !!platform.isTappPlatform,
+        tappId: platform.tappId,
+        description: platform.description,
+      } satisfies PlatformInfo
+    })
 }
 
 export async function getPlatformData(

@@ -573,13 +573,18 @@ export interface WidgetRenderProps {
 
 /** 平台信息 */
 export interface PlatformInfo {
+  /** Stable platform slug for cache paths / getData (e.g. "steam") */
   id: string
+  /** Same as id — stable key for Tapp SDK consumers */
+  key?: string
+  /** Display name (e.g. "Steam") */
   name: string
   icon: string
   color: string
   enabled: boolean
   isTappPlatform: boolean
   tappId?: string
+  description?: string
 }
 
 /** 新增平台数据条目 */

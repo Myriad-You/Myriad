@@ -23,9 +23,13 @@ fn get_platform_description(name: &str) -> &'static str {
 }
 
 fn platform_json_from_seed(seed: &DefaultPlatformSeed, id: i32) -> Value {
+    // Keep `id` = numeric PK and `name` = display label for host UI compatibility.
+    // Additive `slug`/`key` = stable platform key (DB `name`, e.g. "steam") for cache paths / Tapp SDK.
     json!({
         "id": id,
         "name": seed.display_name,
+        "slug": seed.name,
+        "key": seed.name,
         "enabled": seed.enabled,
         "icon": seed.icon,
         "description": get_platform_description(seed.name),
@@ -36,6 +40,8 @@ fn platform_json_from_row(p: &platforms::Model) -> Value {
     json!({
         "id": p.id,
         "name": p.display_name,
+        "slug": p.name,
+        "key": p.name,
         "enabled": p.enabled.unwrap_or(false),
         "icon": p.icon.as_ref().unwrap_or(&p.name),
         "description": get_platform_description(&p.name),

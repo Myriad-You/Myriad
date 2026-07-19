@@ -1231,8 +1231,14 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .msg-ctx-item{min-height:40px;padding:10px 14px}
 
 /* Share cards polish */
-.msg-share-card{border:1px solid rgba(128,128,128,.08)}
-.dark .msg-share-card{border-color:rgba(255,255,255,.06)}
+.msg-share-card{border:1px solid rgba(128,128,128,.08);box-shadow:0 1px 2px rgba(0,0,0,.04)}
+.msg-share-card:hover{background:rgba(128,128,128,.09)}
+.dark .msg-share-card{border-color:rgba(255,255,255,.06);box-shadow:none}
+.dark .msg-share-card:hover{background:rgba(255,255,255,.1)}
+.msg-share-icon{overflow:hidden}
+.msg-share-icon img{width:100%;height:100%;object-fit:cover;border-radius:12px}
+.msg-share-title:empty::before{content:'—';opacity:.45;font-weight:500}
+.msg-share-desc{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;white-space:normal;line-height:1.35;max-height:2.7em}
 .msg-image{border-radius:12px;max-width:min(280px,100%)}
 .msg-file-card{border:1px solid rgba(128,128,128,.06)}
 
@@ -1625,6 +1631,9 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "pickerConfirm": "Add",
     "pickerDesc": "Description (optional)",
     "pickerEmpty": "Nothing to show",
+    "libraryPickerEmpty": "No library items for this platform",
+    "libraryPickerLoadFail": "Couldn't load library data",
+    "shareUntitled": "Untitled",
     "pickerLoading": "Loading…",
     "pickerSearchPlaceholder": "Search…",
     "pickerSelectPlatform": "Choose a platform",
@@ -1874,6 +1883,9 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "pickerConfirm": "追加",
     "pickerDesc": "説明（任意）",
     "pickerEmpty": "表示する項目がありません",
+    "libraryPickerEmpty": "このプラットフォームのライブラリ項目がありません",
+    "libraryPickerLoadFail": "ライブラリデータを読み込めませんでした",
+    "shareUntitled": "無題",
     "pickerLoading": "読み込み中…",
     "pickerSearchPlaceholder": "検索…",
     "pickerSelectPlatform": "プラットフォームを選択",
@@ -2123,6 +2135,9 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "pickerConfirm": "添加",
     "pickerDesc": "描述（可选）",
     "pickerEmpty": "暂无内容",
+    "libraryPickerEmpty": "该平台资料库暂无内容",
+    "libraryPickerLoadFail": "无法加载资料库数据",
+    "shareUntitled": "未命名",
     "pickerLoading": "加载中…",
     "pickerSearchPlaceholder": "搜索…",
     "pickerSelectPlatform": "选择平台",
@@ -2576,6 +2591,65 @@ function roleLabel(role) {
 function shareTypeLabel(type) {
   var map = { tapp: lang.attachTapp, brew: lang.attachBrew, library: lang.attachLibrary, report: lang.attachReport };
   return map[type] || type || '';
+}
+
+/**
+ * Unify share payload → bubble card fields for tapp/brew/library/report.
+ * Always returns a non-empty title so cards never render blank.
+ */
+function resolveShareCardView(msgType, payload) {
+  payload = payload || {};
+  var untitled = lang.shareUntitled || 'Untitled';
+  var title = '';
+  var description = '';
+  var image = String(payload.image || payload.cover || '').trim();
+
+  if (msgType === 'report') {
+    title = String(payload.summary || payload.title || '').trim();
+    description = String(payload.description || '').trim();
+    if (!description) {
+      if (payload.platform && payload.content_preview && payload.content_preview !== payload.summary) {
+        description = payload.platform + ' · ' + payload.content_preview;
+      } else {
+        description = String(payload.content_preview || payload.platform || '').trim();
+        if (description === title) description = String(payload.platform || '').trim();
+      }
+    } else if (payload.summary && description === title) {
+      description = String(payload.platform || '').trim();
+    }
+  } else if (msgType === 'library') {
+    title = String(payload.title || payload.summary || payload.name || '').trim();
+    description = String(payload.description || '').trim();
+    if (!description) {
+      var libParts = [];
+      if (payload.platform_id) libParts.push(String(payload.platform_id));
+      var itemKind = payload.item_type || (payload.content_type && payload.content_type !== 'library' ? payload.content_type : '');
+      if (itemKind) libParts.push(String(itemKind));
+      description = libParts.join(' · ');
+    }
+    if (!image) image = String(payload.thumbnail || '').trim();
+  } else if (msgType === 'tapp') {
+    title = String(payload.title || payload.tapp_name || payload.name || '').trim();
+    description = String(payload.description || payload.tapp_id || '').trim();
+    if (description === title) description = String(payload.tapp_id || '').trim();
+  } else if (msgType === 'brew') {
+    title = String(payload.title || payload.name || '').trim();
+    description = String(payload.description || '').trim();
+  } else {
+    title = String(payload.title || payload.summary || payload.name || '').trim();
+    description = String(payload.description || '').trim();
+  }
+
+  if (!title) {
+    // Last-resort fallbacks — never blank
+    if (msgType === 'tapp' && payload.tapp_id) title = String(payload.tapp_id);
+    else if (msgType === 'library' && payload.item_id) title = String(payload.item_id);
+    else if (msgType === 'report' && payload.report_id) title = String(payload.report_id);
+    else if (msgType === 'brew' && payload.brew_id) title = 'Brew #' + payload.brew_id;
+    else title = shareTypeLabel(msgType) || untitled;
+  }
+  if (description === title) description = '';
+  return { title: title, description: description, image: image };
 }
 
 /**
@@ -3608,6 +3682,66 @@ function openBrewPicker(icons, titles, iconColors) {
 }
 
 /* ----- Library picker (platform data) ----- */
+/**
+ * Resolve stable platform slug for getData / cache paths.
+ * listEnabled maps id/key → slug; keep defensive fallbacks for older hosts.
+ */
+function platformSlug(p) {
+  if (!p) return '';
+  if (p.key) return String(p.key);
+  if (p.slug) return String(p.slug);
+  if (p.id != null && p.id !== '' && !/^\d+$/.test(String(p.id))) return String(p.id);
+  return p.id != null ? String(p.id) : '';
+}
+
+/** Build a chat-safe library item snapshot (never id-only / blank title). */
+function buildLibraryShareSnapshot(item, platformId) {
+  var title = '';
+  var contentType = '';
+  var image = '';
+  var itemId = '';
+  var description = '';
+  var meta = item && item.metadata && typeof item.metadata === 'object' ? item.metadata : null;
+  if (item) {
+    title = String(item.title || item.name || item.username || '').trim();
+    contentType = String(item.type || item.content_type || item.subject_type || '').trim();
+    image = String(item.image || item.cover || item.display_image || item.thumbnail || '').trim();
+    if (!image && meta) {
+      image = String(meta.image || meta.cover || meta.display_image || '').trim();
+    }
+    itemId = item.id != null && item.id !== ''
+      ? String(item.id)
+      : (item.subject_id != null ? String(item.subject_id)
+        : (item.title_id != null ? String(item.title_id) : ''));
+    description = String(item.description || item.summary || '').trim();
+  }
+  if (!title) title = itemId || (lang.shareUntitled || 'Untitled');
+  var platform = platformId ? String(platformId) : '';
+  var descParts = [];
+  if (platform) descParts.push(platform);
+  if (contentType) descParts.push(contentType);
+  if (meta) {
+    if (meta.playtime != null && meta.playtime !== '') descParts.push(String(meta.playtime) + ' min');
+    else if (item && item.playtime != null) descParts.push(String(item.playtime) + ' min');
+    if (meta.rate != null) descParts.push('★ ' + meta.rate);
+    else if (meta.score != null) descParts.push('★ ' + meta.score);
+  } else if (item) {
+    if (item.score !== undefined && item.score !== null) descParts.push('★ ' + item.score);
+    if (item.rate !== undefined && item.rate !== null) descParts.push('★ ' + item.rate);
+    if (item.year) descParts.push(String(item.year));
+  }
+  if (!description) description = descParts.join(' · ');
+  else if (descParts.length) description = descParts.join(' · ') + (description ? ' · ' + description : '');
+  return {
+    title: title,
+    description: description,
+    platform_id: platform,
+    item_id: itemId,
+    image: image,
+    content_type: contentType || 'library',
+  };
+}
+
 function openLibraryPicker(icons, titles, iconColors) {
   var type = 'library';
   var overlay = createPickerOverlay(type, icons, titles, iconColors);
@@ -3628,17 +3762,23 @@ function openLibraryPicker(icons, titles, iconColors) {
   var activePlatform = null;
 
   Tapp.platform.listEnabled().then(function (platforms) {
-    if (!platforms || !platforms.length) { showPickerEmpty(body); return; }
+    if (!platforms || !platforms.length) {
+      body.innerHTML = '<div class="picker-empty">' + esc(lang.libraryPickerEmpty || lang.pickerEmpty) + '</div>';
+      return;
+    }
     tabsDiv.innerHTML = platforms.map(function (p) {
-      return '<button class="picker-tab" data-pid="' + esc(p.id) + '">' + (p.icon ? '<span style="margin-right:3px">' + esc(p.icon) + '</span>' : '') + esc(p.name) + '</button>';
+      var slug = platformSlug(p);
+      return '<button class="picker-tab" data-pid="' + esc(slug) + '">' + (p.icon && p.icon.length <= 4 ? '<span style="margin-right:3px">' + esc(p.icon) + '</span>' : '') + esc(p.name || slug) + '</button>';
     }).join('');
-    selectPlatform(platforms[0].id);
+    selectPlatform(platformSlug(platforms[0]));
     tabsDiv.addEventListener('click', function (e) {
       var tab = e.target.closest('.picker-tab');
       if (!tab) return;
       selectPlatform(tab.dataset.pid);
     });
-  }).catch(function () { showPickerEmpty(body); });
+  }).catch(function () {
+    body.innerHTML = '<div class="picker-empty">' + esc(lang.libraryPickerLoadFail || lang.loadFail || lang.pickerEmpty) + '</div>';
+  });
 
   function selectPlatform(pid) {
     activePlatform = pid;
@@ -3649,21 +3789,46 @@ function openLibraryPicker(icons, titles, iconColors) {
       t.classList.toggle('active', t.dataset.pid === pid);
     });
     showPickerLoading(body);
+    // getData expects stable slug (steam), not numeric PK
     Tapp.platform.getData(pid, { limit: 50 }).then(function (res) {
       allItems = (res && res.items) || [];
       renderLibraryItems(allItems);
-    }).catch(function () { showPickerEmpty(body); });
+    }).catch(function () {
+      body.innerHTML = '<div class="picker-empty">' + esc(lang.libraryPickerLoadFail || lang.loadFail || lang.pickerEmpty) + '</div>';
+    });
+  }
+
+  function libraryItemCover(item) {
+    if (!item) return '';
+    return item.image || item.cover || item.display_image || item.thumbnail
+      || (item.metadata && (item.metadata.image || item.metadata.cover)) || '';
+  }
+
+  function libraryItemMeta(item) {
+    var meta = item.platform || activePlatform || '';
+    var itemType = item.type || item.content_type || '';
+    if (itemType) meta += (meta ? ' · ' : '') + itemType;
+    var m = item.metadata || {};
+    if (item.score !== undefined && item.score !== null) meta += (meta ? ' · ' : '') + '★ ' + item.score;
+    else if (m.rate != null) meta += (meta ? ' · ' : '') + '★ ' + m.rate;
+    else if (m.score != null) meta += (meta ? ' · ' : '') + '★ ' + m.score;
+    if (item.year) meta += (meta ? ' · ' : '') + item.year;
+    else if (m.playtime != null && m.playtime !== '') meta += (meta ? ' · ' : '') + m.playtime + ' min';
+    else if (item.playtime != null) meta += (meta ? ' · ' : '') + item.playtime + ' min';
+    return meta;
   }
 
   function renderLibraryItems(items) {
-    if (!items.length) { showPickerEmpty(body); return; }
+    if (!items.length) {
+      body.innerHTML = '<div class="picker-empty">' + esc(lang.libraryPickerEmpty || lang.pickerEmpty) + '</div>';
+      return;
+    }
     body.innerHTML = items.map(function (item, i) {
-      var name = item.title || item.name || item.id || ('Item ' + (i + 1));
-      var meta = item.platform || item.type || '';
-      if (item.score !== undefined && item.score !== null) meta += (meta ? ' · ' : '') + '★ ' + item.score;
-      if (item.year) meta += (meta ? ' · ' : '') + item.year;
+      var name = item.title || item.name || item.username || item.id || ('Item ' + (i + 1));
+      var meta = libraryItemMeta(item);
+      var cover = libraryItemCover(item);
       return '<button class="picker-item" data-idx="' + i + '">'
-        + '<div class="picker-item-icon" style="background:rgba(168,85,247,.1);color:#a855f7">' + (item.image ? '<img src="' + esc(item.image) + '" style="width:100%;height:100%;object-fit:cover;border-radius:8px" />' : SVG_ICONS.library) + '</div>'
+        + '<div class="picker-item-icon" style="background:rgba(168,85,247,.1);color:#a855f7">' + (cover ? '<img src="' + esc(cover) + '" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:8px" />' : SVG_ICONS.library) + '</div>'
         + '<div class="picker-item-body"><div class="picker-item-name">' + esc(name) + '</div>'
         + (meta ? '<div class="picker-item-meta">' + esc(meta) + '</div>' : '')
         + '</div><div class="picker-item-check">✓</div></button>';
@@ -3672,23 +3837,25 @@ function openLibraryPicker(icons, titles, iconColors) {
   }
 
   bindPickerSearch(overlay, function () { return allItems; }, renderLibraryItems, function (item, q) {
-    return ((item.title || item.name || item.id || '').toLowerCase()).indexOf(q) !== -1;
+    var hay = ((item.title || item.name || item.username || item.id || '') + ' ' + (item.type || item.content_type || '') + ' ' + (item.description || '')).toLowerCase();
+    return hay.indexOf(q) !== -1;
   });
 
   confirmBtn.addEventListener('click', function () {
     if (!selectedItem) return;
-    var name = selectedItem.title || selectedItem.name || selectedItem.id || 'Unknown';
-    var desc = activePlatform || '';
-    if (selectedItem.score !== undefined) desc += (desc ? ' · ' : '') + '★ ' + selectedItem.score;
+    var snap = buildLibraryShareSnapshot(selectedItem, activePlatform);
+    // Snapshot fields travel with the message so recipients render without re-fetch.
     setPendingAttach({
       type: type,
-      name: name,
-      desc: desc,
+      name: snap.title,
+      desc: snap.description,
       icon: icons[type],
       label: lang.attachLibrary,
-      platformId: activePlatform,
-      itemId: selectedItem.id,
-      image: selectedItem.image || '',
+      platformId: snap.platform_id,
+      itemId: snap.item_id,
+      image: snap.image,
+      contentType: snap.content_type,
+      summary: snap.title,
     });
     dismissPickerOverlay(overlay);
   });
@@ -4492,7 +4659,8 @@ function renderMessages(opts) {
     var msgType = msg.message_type || 'text';
     // Auto-detect content type from payload when message_type is generic
     if (msgType === 'text' || !msgType) {
-      if (payload.content_type && typeof payload.content_type === 'string') {
+      var knownShareTypes = { tapp: 1, brew: 1, library: 1, report: 1, image: 1, file: 1, 'file-meta': 1 };
+      if (payload.content_type && typeof payload.content_type === 'string' && knownShareTypes[payload.content_type]) {
         msgType = payload.content_type;
       } else if (payload.tapp_id) {
         msgType = 'tapp';
@@ -4500,7 +4668,7 @@ function renderMessages(opts) {
         msgType = 'brew';
       } else if (payload.report_id) {
         msgType = 'report';
-      } else if (payload.platform_id && payload.item_id) {
+      } else if (payload.platform_id && (payload.item_id || payload.title)) {
         msgType = 'library';
       } else if (payload.data && payload.mime_type && payload.mime_type.indexOf('image/') === 0) {
         msgType = 'image';
@@ -4612,9 +4780,16 @@ function renderMessages(opts) {
       var shareIcons = { tapp: SVG_ICONS.tapp, brew: SVG_ICONS.brew, library: SVG_ICONS.library, report: SVG_ICONS.report };
       var shareBgs = { tapp: 'rgba(var(--tapp-primary-rgb,100,100,255),.15)', brew: 'rgba(34,197,94,.1)', library: 'rgba(168,85,247,.1)', report: 'rgba(239,68,68,.1)' };
       var shareCardId = 'share-card-' + idx;
-      // Determine icon content: use tapp_icon SVG if available, else emoji
+      // Unified share fields so cards never render blank (type label + title + optional desc/cover).
+      var shareView = resolveShareCardView(msgType, payload);
+      var shareTitle = shareView.title;
+      var shareDesc = shareView.description;
+      var shareCover = shareView.image;
+      // Determine icon content: cover image > tapp_icon SVG > type icon
       var iconContent = '';
-      if (msgType === 'tapp' && payload.tapp_icon) {
+      if (shareCover) {
+        iconContent = '<img src="' + esc(shareCover) + '" alt="" />';
+      } else if (msgType === 'tapp' && payload.tapp_icon) {
         iconContent = payload.tapp_icon; // raw SVG string
       } else {
         iconContent = payload.icon || shareIcons[msgType] || SVG_ICONS.file;
@@ -4625,24 +4800,6 @@ function renderMessages(opts) {
         var stKey = 'tapp_accept_' + payload.tapp_id + '_' + idx;
         tappAcceptStatus = (state.tappAcceptMap && state.tappAcceptMap[stKey]) || '';
       }
-      // Prefer explicit snapshot fields for report shares (title/description are legacy).
-      var shareTitle = payload.title || payload.summary || '';
-      var shareDesc = payload.description || '';
-      if (msgType === 'report') {
-        // Goal: share cards always surface summary (not id-only / blank title).
-        shareTitle = payload.summary || payload.title || '';
-        if (!shareDesc) {
-          // Secondary line: platform · preview (avoid duplicating the summary title)
-          if (payload.platform && payload.content_preview && payload.content_preview !== payload.summary) {
-            shareDesc = payload.platform + ' · ' + payload.content_preview;
-          } else {
-            shareDesc = payload.content_preview || payload.platform || '';
-            if (shareDesc === shareTitle) shareDesc = payload.platform || '';
-          }
-        } else if (payload.summary && shareDesc === shareTitle) {
-          shareDesc = payload.platform || '';
-        }
-      }
       html += '<div class="msg-share-card" id="' + shareCardId + '"'
         + ' style="cursor:pointer" data-type="' + esc(msgType) + '"'
         + (payload.tapp_id ? ' data-tapp-id="' + esc(payload.tapp_id) + '"' : '')
@@ -4652,6 +4809,7 @@ function renderMessages(opts) {
         + (payload.brew_link ? ' data-brew-link="' + esc(payload.brew_link) + '"' : '')
         + (payload.platform_id ? ' data-platform-id="' + esc(payload.platform_id) + '"' : '')
         + (payload.item_id ? ' data-item-id="' + esc(String(payload.item_id)) + '"' : '')
+        + (shareCover ? ' data-image="' + esc(shareCover) + '"' : '')
         + (payload.report_id ? ' data-report-id="' + esc(payload.report_id) + '"' : '')
         + (payload.summary ? ' data-report-summary="' + esc(payload.summary) + '"' : '')
         + (payload.platform ? ' data-report-platform="' + esc(payload.platform) + '"' : '')
@@ -4925,19 +5083,36 @@ function openBrewDetail(brewId, brewLink, card) {
 }
 
 function openLibraryDetail(card) {
+  // Prefer live message payload snapshot, then data-* attrs, then DOM text.
+  var payloadSnap = {};
+  if (card && card.dataset && card.dataset.msgIdx != null && state.messages) {
+    var msgIdx = parseInt(card.dataset.msgIdx, 10);
+    if (!isNaN(msgIdx) && state.messages[msgIdx]) {
+      var msgPayload = state.messages[msgIdx].payload;
+      if (msgPayload && typeof msgPayload === 'object') payloadSnap = msgPayload;
+    }
+  }
   var titleEl = card && card.querySelector('.msg-share-title');
   var descEl = card && card.querySelector('.msg-share-desc');
-  var title = (titleEl && titleEl.textContent) || lang.attachLibrary || 'Library';
-  var desc = (descEl && descEl.textContent) || '';
-  var platformId = (card && card.dataset.platformId) || '';
-  var itemId = (card && card.dataset.itemId) || '';
+  var view = resolveShareCardView('library', payloadSnap);
+  var title = view.title || (titleEl && titleEl.textContent) || lang.attachLibrary || 'Library';
+  var desc = view.description || (descEl && descEl.textContent) || '';
+  var platformId = payloadSnap.platform_id || (card && card.dataset.platformId) || '';
+  var itemId = payloadSnap.item_id != null ? String(payloadSnap.item_id) : ((card && card.dataset.itemId) || '');
+  var image = view.image || (card && card.dataset.image) || '';
+  var contentType = payloadSnap.item_type || (payloadSnap.content_type && payloadSnap.content_type !== 'library' ? payloadSnap.content_type : '') || '';
   var overlay = createDetailOverlay(title, SVG_ICONS.library, 'rgba(168,85,247,.1)');
   var body = overlay.querySelector('.picker-body');
+  var meta = '';
+  if (platformId) meta += platformId;
+  if (contentType) meta += (meta ? ' · ' : '') + contentType;
+  if (itemId) meta += (meta ? ' · ' : '') + itemId;
   body.innerHTML =
     '<div style="padding:16px;display:flex;flex-direction:column;gap:12px">'
+    + (image ? '<img src="' + esc(image) + '" alt="" style="width:100%;max-height:200px;object-fit:cover;border-radius:10px" />' : '')
     + '<div style="font-size:18px;font-weight:600">' + esc(title) + '</div>'
+    + (meta ? '<div style="font-size:12px;color:var(--text-secondary,#888)">' + esc(meta) + '</div>' : '')
     + (desc ? '<div style="font-size:13px;line-height:1.6;color:var(--text-secondary,#888)">' + esc(desc) + '</div>' : '')
-    + (platformId ? '<div style="font-size:12px;color:var(--text-secondary,#888)">' + esc(lang.attachLibrary) + (platformId ? ' · ' + platformId : '') + (itemId ? ' · ' + itemId : '') + '</div>' : '')
     + '</div>';
 }
 
@@ -5400,18 +5575,45 @@ async function doSend() {
       msgPayload = { data: dataUrl, filename: attach.name, mime_type: attach.mime, size: attach.size, text: text || '' };
       clearPendingAttach();
     } else if (attach) {
-      // Federation content: tapp, brew, library, report
+      // Federation content: tapp, brew, library, report — rich snapshot, never id-only.
       msgType = attach.type;
-      msgPayload = { title: attach.name, description: attach.desc || '', content_type: attach.type, icon: attach.icon || '', text: text || '' };
+      msgPayload = {
+        title: (attach.name || '').trim() || (lang.shareUntitled || 'Untitled'),
+        description: attach.desc || '',
+        content_type: attach.type,
+        icon: attach.icon || '',
+        text: text || '',
+      };
       // Include resource IDs so the receiver can fetch detail
       if (attach.tappId) msgPayload.tapp_id = attach.tappId;
       if (attach.tappVersion) msgPayload.tapp_version = attach.tappVersion;
       if (attach.tappIcon) msgPayload.tapp_icon = attach.tappIcon;
+      if (attach.name && attach.type === 'tapp') msgPayload.tapp_name = attach.name;
       if (attach.brewId) msgPayload.brew_id = attach.brewId;
       if (attach.brewLink) msgPayload.brew_link = attach.brewLink;
-      if (attach.platformId) msgPayload.platform_id = attach.platformId;
-      if (attach.itemId) msgPayload.item_id = attach.itemId;
-      if (attach.image) msgPayload.image = attach.image;
+      // Library share: title, description, platform_id, item_id, image, content_type (like report snapshot).
+      // content_type stays "library" (message kind); item kind goes in item_type / description.
+      if (attach.type === 'library') {
+        var libTitle = (attach.name || attach.summary || '').trim() || (lang.shareUntitled || 'Untitled');
+        var libDesc = (attach.desc || '').trim();
+        var libPlatform = (attach.platformId || '').trim();
+        var libItemId = attach.itemId != null && attach.itemId !== '' ? String(attach.itemId) : '';
+        var libImage = (attach.image || '').trim();
+        var libItemType = (attach.contentType || '').trim();
+        if (libItemType === 'library') libItemType = '';
+        msgPayload.title = libTitle;
+        msgPayload.description = libDesc || (libPlatform ? libPlatform + (libItemType ? ' · ' + libItemType : '') : '');
+        msgPayload.platform_id = libPlatform;
+        msgPayload.item_id = libItemId;
+        msgPayload.image = libImage;
+        msgPayload.content_type = 'library';
+        if (libItemType) msgPayload.item_type = libItemType;
+        msgPayload.summary = libTitle;
+      } else {
+        if (attach.platformId) msgPayload.platform_id = attach.platformId;
+        if (attach.itemId) msgPayload.item_id = attach.itemId;
+        if (attach.image) msgPayload.image = attach.image;
+      }
       // Report share: always wire snapshot fields (never id-only).
       // Coordinated field names (Aro + federation Article): report_id, summary, platform, content_preview.
       // Mirrored by wireReportSharePayload / REPORT_SHARE_SNAPSHOT_FIELDS in reportShareSnapshot.ts.
