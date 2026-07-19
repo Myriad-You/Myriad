@@ -356,6 +356,9 @@ export interface CreateRingRequest {
   fanout?: number
   ttl?: number
   interval?: number
+  /** Optional brew category filter (brew-recommend only). Alias: brew_category. */
+  category?: string
+  brew_category?: string
 }
 
 export interface RingSummary {

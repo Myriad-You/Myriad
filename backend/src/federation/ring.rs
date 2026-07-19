@@ -69,6 +69,11 @@ pub struct CreateRingRequest {
     pub ttl: Option<u32>,
     /// 同步间隔（秒）
     pub interval: Option<u64>,
+    /// Optional brew category filter (brew-recommend only).
+    /// When set, only sources/items under this category name are synced.
+    /// Accepts either `category` or `brew_category` in JSON.
+    #[serde(default, alias = "brew_category")]
+    pub category: Option<String>,
 }
 
 /// Ring 概要
@@ -132,6 +137,36 @@ fn validate_ring_type(rt: &str) -> bool {
     .contains(&rt)
 }
 
+/// Match a brew source `category` field against a single category name.
+/// Supports multi-category values (comma-separated), same rules as brew API.
+///
+/// Patterns: exact | starts with `"name, "` | ends with `", name"` | contains `", name, "`.
+pub fn source_category_matches(source_category: &str, category_name: &str) -> bool {
+    let cat = category_name.trim();
+    if cat.is_empty() {
+        return false;
+    }
+    let sc = source_category.trim();
+    if sc.is_empty() {
+        return false;
+    }
+    sc == cat
+        || sc.starts_with(&format!("{}, ", cat))
+        || sc.ends_with(&format!(", {}", cat))
+        || sc.contains(&format!(", {}, ", cat))
+}
+
+/// True if source category matches any of the given category names.
+pub fn source_matches_any_category(source_category: Option<&str>, categories: &[String]) -> bool {
+    let Some(sc) = source_category.map(str::trim).filter(|s| !s.is_empty()) else {
+        return false;
+    };
+    categories.iter().any(|c| source_category_matches(sc, c))
+}
+
+/// Max brew items to push per brew-recommend ring sync.
+const BREW_RING_ITEM_LIMIT: u64 = 40;
+
 // ==================== Ring CRUD ====================
 
 /// 创建新 Ring（本地节点作为创建者）
@@ -150,11 +185,22 @@ pub async fn create_ring(
     }
 
     let ring_id = generate_ring_id();
-    let gossip_config = json!({
+    let mut gossip_config = json!({
         "fanout": req.fanout.unwrap_or(3),
         "ttl": req.ttl.unwrap_or(5),
         "interval": req.interval.unwrap_or(300)
     });
+    // Persist optional brew category filter for brew-recommend rings
+    if req.ring_type == "brew-recommend" {
+        if let Some(cat) = req
+            .category
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            gossip_config["category"] = json!(cat);
+        }
+    }
 
     db.execute(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
@@ -624,8 +670,24 @@ pub async fn trigger_sync(
         return Ok(json!({"success": true, "synced_peers": 0, "message": "No peers to sync with"}));
     }
 
-    // 收集本地要同步的数据（根据 ring_type）
-    let entries = collect_sync_entries(&ring_type, db).await;
+    let local_user_id = resolve_user_id(db, username).await?;
+    let category_filter = gossip_config
+        .get("category")
+        .or_else(|| gossip_config.get("brew_category"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
+    // 收集本地要同步的数据（根据 ring_type；brew-recommend 按用户分类）
+    let entries = collect_sync_entries(
+        &ring_type,
+        db,
+        local_user_id,
+        username,
+        category_filter.as_deref(),
+    )
+    .await;
 
     if entries.is_empty() {
         // 更新 last_sync_at
@@ -686,7 +748,6 @@ pub async fn trigger_sync(
         if let Ok(remote) = crate::federation::actor::fetch_remote_actor(db, &peer_url).await {
             if !remote.inbox_url.is_empty() {
                 let domain = extract_domain(&remote.inbox_url).unwrap_or_default();
-                let local_user_id = resolve_user_id(db, username).await?;
                 let act_row = db
                     .query_one(Statement::from_sql_and_values(
                         DatabaseBackend::Postgres,
@@ -738,32 +799,360 @@ pub async fn trigger_sync(
     }))
 }
 
+/// Legacy path: last N federated brew-article Creates (manual publish).
+async fn collect_legacy_brew_activities(db: &DatabaseConnection) -> Vec<serde_json::Value> {
+    // Prefer federation_published_content (stable content_type=brew-article) over
+    // object_type on activities (which stores AP type "Article").
+    let rows = db
+        .query_all(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"SELECT fpc.activity_id, fa.object_json
+               FROM federation_published_content fpc
+               LEFT JOIN federation_activities fa ON fa.activity_id = fpc.activity_id
+               WHERE fpc.content_type = 'brew-article'
+               ORDER BY fpc.published_at DESC
+               LIMIT 20"#,
+            [],
+        ))
+        .await
+        .unwrap_or_default();
+
+    if !rows.is_empty() {
+        return rows
+            .iter()
+            .filter_map(|r| {
+                let activity_id = r.try_get::<String>("", "activity_id").ok()?;
+                let obj: serde_json::Value = r
+                    .try_get("", "object_json")
+                    .unwrap_or(json!({ "type": "Article" }));
+                Some(json!({
+                    "type": "brew",
+                    "activity_id": activity_id,
+                    "data": obj
+                }))
+            })
+            .collect();
+    }
+
+    // Fallback: older rows may only exist on federation_activities
+    let rows = db
+        .query_all(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"SELECT activity_id, object_json, object_type
+               FROM federation_activities
+               WHERE activity_type = 'Create'
+                 AND is_local = true
+                 AND (
+                   object_type = 'brew-article'
+                   OR object_json::text LIKE '%brew-article%'
+                 )
+               ORDER BY published_at DESC LIMIT 20"#,
+            [],
+        ))
+        .await
+        .unwrap_or_default();
+    rows.iter()
+        .filter_map(|r| {
+            let obj: serde_json::Value = r.try_get("", "object_json").ok()?;
+            let object_type = r.try_get::<String>("", "object_type").unwrap_or_default();
+            let is_brew = object_type == "brew-article"
+                || obj.get("mfp:contentType").and_then(|v| v.as_str()) == Some("brew-article")
+                || obj
+                    .pointer("/object/mfp:contentType")
+                    .and_then(|v| v.as_str())
+                    == Some("brew-article");
+            if !is_brew {
+                return None;
+            }
+            Some(json!({
+                "type": "brew",
+                "activity_id": r.try_get::<String>("", "activity_id").unwrap_or_default(),
+                "data": obj
+            }))
+        })
+        .collect()
+}
+
+/// Truncate summary text for ring payload (no secrets / no full content).
+fn brew_ring_summary(summary: Option<&str>, content: Option<&str>) -> String {
+    let raw = summary
+        .filter(|s| !s.trim().is_empty())
+        .or(content)
+        .unwrap_or("")
+        .chars()
+        .take(500)
+        .collect::<String>();
+    // Strip crude HTML tags for a plain summary
+    let mut out = String::with_capacity(raw.len());
+    let mut in_tag = false;
+    for c in raw.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Collect brew-recommend ring entries from user brew categories + sources.
+/// When the user has no categories, falls back to legacy federated brew-article Creates.
+async fn collect_brew_recommend_entries(
+    db: &DatabaseConnection,
+    user_id: i32,
+    _username: &str,
+    category_filter: Option<&str>,
+) -> Vec<serde_json::Value> {
+    // 1) Load user's category names
+    let cat_rows = db
+        .query_all(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT name FROM brew_categories WHERE user_id = $1 ORDER BY sort_order ASC, id ASC",
+            [user_id.into()],
+        ))
+        .await
+        .unwrap_or_default();
+
+    let mut category_names: Vec<String> = cat_rows
+        .iter()
+        .filter_map(|r| r.try_get::<String>("", "name").ok())
+        .filter(|n| !n.trim().is_empty())
+        .collect();
+
+    // Optional filter: only that category (must still belong to the user)
+    if let Some(filter) = category_filter.map(str::trim).filter(|s| !s.is_empty()) {
+        category_names.retain(|n| n == filter);
+        if category_names.is_empty() {
+            // Filter set but not in user's categories → nothing to sync (not legacy fallback)
+            tracing::debug!(
+                "[Ring] brew-recommend category filter {:?} not in user {} categories",
+                filter,
+                user_id
+            );
+            return vec![];
+        }
+    }
+
+    if category_names.is_empty() {
+        // No user categories → legacy federated Creates so empty categories still work
+        return collect_legacy_brew_activities(db).await;
+    }
+
+    // 2) Load this user's sources
+    let source_rows = db
+        .query_all(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"SELECT id, name, category
+               FROM brew_sources
+               WHERE user_id = $1"#,
+            [user_id.into()],
+        ))
+        .await
+        .unwrap_or_default();
+
+    let mut matching_source_ids: Vec<i32> = Vec::new();
+    let mut source_meta: std::collections::HashMap<i32, (String, String)> =
+        std::collections::HashMap::new();
+
+    for row in &source_rows {
+        let id: i32 = match row.try_get("", "id") {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let name: String = row.try_get("", "name").unwrap_or_default();
+        let category: Option<String> = row.try_get("", "category").ok().flatten();
+        if source_matches_any_category(category.as_deref(), &category_names) {
+            matching_source_ids.push(id);
+            let matched_cats: Vec<String> = category_names
+                .iter()
+                .filter(|c| {
+                    category
+                        .as_deref()
+                        .map(|sc| source_category_matches(sc, c))
+                        .unwrap_or(false)
+                })
+                .cloned()
+                .collect();
+            source_meta.insert(id, (name, matched_cats.join(", ")));
+        }
+    }
+
+    if matching_source_ids.is_empty() {
+        // Categories exist but no sources assigned → empty (not an error)
+        return vec![];
+    }
+
+    // 3) Recent items from matching sources
+    let item_rows = db
+        .query_all(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"SELECT bi.id, bi.title, bi.link, bi.summary, bi.content, bi.source_id, bi.published_at,
+                      fpc.activity_id AS published_activity_id
+               FROM brew_items bi
+               LEFT JOIN federation_published_content fpc
+                 ON fpc.content_type = 'brew-article'
+                AND fpc.content_id = bi.id::text
+                AND fpc.user_id = $1
+               WHERE bi.source_id = ANY($2)
+               ORDER BY bi.published_at DESC
+               LIMIT $3"#,
+            [
+                user_id.into(),
+                matching_source_ids.clone().into(),
+                (BREW_RING_ITEM_LIMIT as i64).into(),
+            ],
+        ))
+        .await
+        .unwrap_or_default();
+
+    let base_url = get_base_url().await;
+    let base = base_url.trim_end_matches('/');
+
+    item_rows
+        .iter()
+        .filter_map(|r| {
+            let item_id: i32 = r.try_get("", "id").ok()?;
+            let title: String = r.try_get("", "title").unwrap_or_default();
+            let link: String = r.try_get("", "link").unwrap_or_default();
+            let summary_opt: Option<String> = r.try_get("", "summary").ok().flatten();
+            let content_opt: Option<String> = r.try_get("", "content").ok().flatten();
+            let source_id: i32 = r.try_get("", "source_id").unwrap_or(0);
+            let (source_name, cats_str) = source_meta
+                .get(&source_id)
+                .cloned()
+                .unwrap_or_else(|| (String::new(), String::new()));
+            let categories: Vec<String> = if cats_str.is_empty() {
+                vec![]
+            } else {
+                cats_str
+                    .split(", ")
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .collect()
+            };
+            let summary = brew_ring_summary(summary_opt.as_deref(), content_opt.as_deref());
+
+            // Stable activity_id: reuse published federation activity if any
+            let activity_id = r
+                .try_get::<Option<String>>("", "published_activity_id")
+                .ok()
+                .flatten()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| format!("{}/brew/ring/{}", base, item_id));
+
+            Some(json!({
+                "type": "brew",
+                "activity_id": activity_id,
+                "data": {
+                    "type": "Article",
+                    "name": title,
+                    "title": title,
+                    "url": link,
+                    "link": link,
+                    "summary": summary,
+                    "source": source_name,
+                    "categories": categories,
+                    "brew_item_id": item_id,
+                    "mfp:contentType": "brew-article",
+                    "mfp:contentId": item_id.to_string()
+                }
+            }))
+        })
+        .collect()
+}
+
+/// Best-effort: after new categorized brew items land, trigger brew-recommend ring sync
+/// for rings that have peers. Rate-limited to one pass per call (caller batches per tick).
+pub async fn maybe_trigger_brew_recommend_sync_for_user(
+    db: &DatabaseConnection,
+    user_id: i32,
+) {
+    // Resolve username for trigger_sync
+    let username = match db
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT username FROM users WHERE id = $1",
+            [user_id.into()],
+        ))
+        .await
+    {
+        Ok(Some(row)) => row
+            .try_get::<String>("", "username")
+            .unwrap_or_else(|_| "admin".to_string()),
+        _ => return,
+    };
+
+    // Rings with at least one peer
+    let rings = db
+        .query_all(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"SELECT ring_id FROM federation_ring_memberships
+               WHERE ring_type = 'brew-recommend'
+                 AND known_peers IS NOT NULL
+                 AND jsonb_array_length(COALESCE(known_peers, '[]'::json)::jsonb) > 0"#,
+            [],
+        ))
+        .await
+        .unwrap_or_default();
+
+    if rings.is_empty() {
+        return;
+    }
+
+    // Only sync if user has categories (otherwise legacy path is publish-driven)
+    let has_cats = db
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT 1 FROM brew_categories WHERE user_id = $1 LIMIT 1",
+            [user_id.into()],
+        ))
+        .await
+        .ok()
+        .flatten()
+        .is_some();
+    if !has_cats {
+        return;
+    }
+
+    for row in rings {
+        let ring_id: String = match row.try_get("", "ring_id") {
+            Ok(id) => id,
+            Err(_) => continue,
+        };
+        match trigger_sync(&ring_id, &username, db).await {
+            Ok(res) => {
+                tracing::info!(
+                    "[Ring] Auto brew-recommend sync ring={} user={}: {}",
+                    ring_id,
+                    user_id,
+                    res
+                );
+            }
+            Err((status, err)) => {
+                tracing::warn!(
+                    "[Ring] Auto brew-recommend sync failed ring={} user={}: {:?} {:?}",
+                    ring_id,
+                    user_id,
+                    status,
+                    err
+                );
+            }
+        }
+    }
+}
+
 /// 收集本地要同步的数据条目
-async fn collect_sync_entries(ring_type: &str, db: &DatabaseConnection) -> Vec<serde_json::Value> {
+async fn collect_sync_entries(
+    ring_type: &str,
+    db: &DatabaseConnection,
+    user_id: i32,
+    username: &str,
+    category_filter: Option<&str>,
+) -> Vec<serde_json::Value> {
     match ring_type {
         "brew-recommend" => {
-            // 收集最近发布到联邦网络的 Brew 内容
-            let rows = db
-                .query_all(Statement::from_sql_and_values(
-                    DatabaseBackend::Postgres,
-                    r#"SELECT activity_id, object_json
-                       FROM federation_activities
-                       WHERE activity_type = 'Create' AND object_type = 'brew-article' AND is_local = true
-                       ORDER BY published_at DESC LIMIT 20"#,
-                    [],
-                ))
-                .await
-                .unwrap_or_default();
-            rows.iter()
-                .filter_map(|r| {
-                    let obj: serde_json::Value = r.try_get("", "object_json").ok()?;
-                    Some(json!({
-                        "type": "brew",
-                        "activity_id": r.try_get::<String>("", "activity_id").unwrap_or_default(),
-                        "data": obj
-                    }))
-                })
-                .collect()
+            collect_brew_recommend_entries(db, user_id, username, category_filter).await
         }
         "tapp-store" => {
             // 收集已发布的 Tapp 内容
@@ -913,6 +1302,36 @@ pub async fn handle_ring_join(
     Ok(())
 }
 
+/// Build a readable timeline preview for a ring sync entry.
+fn ring_entry_content_preview(
+    entry_type: &str,
+    data: &serde_json::Value,
+    actor_url_str: &str,
+) -> String {
+    let title = data
+        .get("title")
+        .or_else(|| data.get("name"))
+        .or_else(|| data.pointer("/object/name"))
+        .or_else(|| data.pointer("/object/title"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    if let Some(t) = title {
+        let link = data
+            .get("link")
+            .or_else(|| data.get("url"))
+            .or_else(|| data.pointer("/object/url"))
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        return match link {
+            Some(u) => format!("{} — {}", t, u),
+            None => t.to_string(),
+        };
+    }
+    format!("[Ring Sync] {} from {}", entry_type, actor_url_str)
+}
+
 /// 处理收到的 RingSync Activity（Gossip 数据推送）
 pub async fn handle_ring_sync(
     db: &DatabaseConnection,
@@ -996,6 +1415,9 @@ pub async fn handle_ring_sync(
             continue;
         }
 
+        // Prefer human-readable title/name for brew (and similar) entries
+        let preview = ring_entry_content_preview(entry_type, &data, actor_url_str);
+
         let _ = db
             .execute(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
@@ -1006,7 +1428,7 @@ pub async fn handle_ring_sync(
                     first_user.into(),
                     activity_id_val.into(),
                     entry_type.into(),
-                    format!("[Ring Sync] {} from {}", entry_type, actor_url_str).into(),
+                    preview.into(),
                     data.into(),
                 ],
             ))
@@ -1167,4 +1589,98 @@ pub async fn handle_ring_leave(
 
     tracing::info!("[Ring] Peer {} left ring {}", actor_url_str, ring_id);
     Ok(())
+}
+
+// ==================== Tests ====================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_category_matches_exact() {
+        assert!(source_category_matches("技术", "技术"));
+        assert!(source_category_matches(" tech ", "tech"));
+        assert!(!source_category_matches("技术", "科技"));
+        assert!(!source_category_matches("", "技术"));
+        assert!(!source_category_matches("技术", ""));
+    }
+
+    #[test]
+    fn source_category_matches_multi_comma() {
+        // "友情链接, 技术" contains "技术" and "友情链接"
+        assert!(source_category_matches("友情链接, 技术", "技术"));
+        assert!(source_category_matches("友情链接, 技术", "友情链接"));
+        assert!(source_category_matches("技术, 科技, 生活", "科技")); // middle
+        assert!(source_category_matches("技术, 科技, 生活", "技术")); // start
+        assert!(source_category_matches("技术, 科技, 生活", "生活")); // end
+        assert!(!source_category_matches("技术, 科技", "生活"));
+        // substring that is not a full category token should not match
+        assert!(!source_category_matches("科学技术", "技术"));
+    }
+
+    #[test]
+    fn source_matches_any_category_none_and_some() {
+        let cats = vec!["技术".to_string(), "生活".to_string()];
+        assert!(!source_matches_any_category(None, &cats));
+        assert!(!source_matches_any_category(Some(""), &cats));
+        assert!(!source_matches_any_category(Some("  "), &cats));
+        assert!(source_matches_any_category(Some("技术"), &cats));
+        assert!(source_matches_any_category(Some("友情链接, 生活"), &cats));
+        assert!(!source_matches_any_category(Some("游戏"), &cats));
+        // empty categories list → no match
+        assert!(!source_matches_any_category(Some("技术"), &[]));
+    }
+
+    #[test]
+    fn brew_ring_summary_strips_html_and_limits() {
+        let s = brew_ring_summary(Some("<p>Hello <b>world</b></p>"), None);
+        assert_eq!(s, "Hello world");
+        let long = "x".repeat(600);
+        let s2 = brew_ring_summary(Some(&long), None);
+        assert_eq!(s2.chars().count(), 500);
+        let s3 = brew_ring_summary(None, Some("<div>from content</div>"));
+        assert_eq!(s3, "from content");
+        let s4 = brew_ring_summary(None, None);
+        assert_eq!(s4, "");
+    }
+
+    #[test]
+    fn ring_entry_content_preview_prefers_title() {
+        let data = json!({
+            "title": "My Brew Post",
+            "link": "https://example.com/a"
+        });
+        let p = ring_entry_content_preview("brew", &data, "https://peer/users/a");
+        assert!(p.contains("My Brew Post"));
+        assert!(p.contains("https://example.com/a"));
+
+        let data2 = json!({ "name": "Named Only" });
+        let p2 = ring_entry_content_preview("brew", &data2, "https://peer/users/a");
+        assert_eq!(p2, "Named Only");
+
+        let data3 = json!({});
+        let p3 = ring_entry_content_preview("brew", &data3, "https://peer/users/a");
+        assert!(p3.contains("Ring Sync"));
+        assert!(p3.contains("brew"));
+    }
+
+    #[test]
+    fn create_ring_request_deserializes_category_aliases() {
+        let a: CreateRingRequest = serde_json::from_str(
+            r#"{"name":"r","ring_type":"brew-recommend","category":"技术"}"#,
+        )
+        .unwrap();
+        assert_eq!(a.category.as_deref(), Some("技术"));
+
+        let b: CreateRingRequest = serde_json::from_str(
+            r#"{"name":"r","ring_type":"brew-recommend","brew_category":"生活"}"#,
+        )
+        .unwrap();
+        assert_eq!(b.category.as_deref(), Some("生活"));
+
+        let c: CreateRingRequest =
+            serde_json::from_str(r#"{"name":"r","ring_type":"tapp-store"}"#).unwrap();
+        assert!(c.category.is_none());
+    }
 }

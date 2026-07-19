@@ -347,6 +347,13 @@ const PAGE_HTML = `\
           <option id="ring-type-opt-library" value="library-exchange">资料交换</option>
           <option id="ring-type-opt-instance" value="instance-directory">实例目录</option>
         </select>
+        <div id="ring-brew-category-wrap" style="display:none;flex-direction:column;gap:6px">
+          <label id="ring-brew-category-label" for="ring-brew-category-select" style="font-size:12px;opacity:.8">Brew category (optional)</label>
+          <select id="ring-brew-category-select" class="create-input" style="height:40px;cursor:pointer">
+            <option id="ring-brew-category-all" value="">All my categories</option>
+          </select>
+          <input id="ring-brew-category-input" class="create-input" type="text" placeholder="Or type a category name" style="display:none" />
+        </div>
         <button id="create-ring-btn" class="create-submit">创建</button>
       </div>
     </div>
@@ -1510,6 +1517,9 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "createRingBtn": "Create ring",
     "createRingFail": "Couldn't create ring",
     "createRingTitle": "Create a ring",
+    "ringBrewCategoryLabel": "Brew category (optional)",
+    "ringBrewCategoryAll": "All my categories",
+    "ringBrewCategoryPlaceholder": "Or type a category name",
     "createRoom": "Create group",
     "creating": "Creating…",
     "dateToday": "Today",
@@ -1759,6 +1769,9 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "createRingBtn": "リングを作成",
     "createRingFail": "リングの作成に失敗しました",
     "createRingTitle": "リングを作成",
+    "ringBrewCategoryLabel": "Brewカテゴリ（任意）",
+    "ringBrewCategoryAll": "すべてのカテゴリ",
+    "ringBrewCategoryPlaceholder": "またはカテゴリ名を入力",
     "createRoom": "グループを作成",
     "creating": "作成中…",
     "dateToday": "今日",
@@ -2008,6 +2021,9 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "createRingBtn": "创建环网",
     "createRingFail": "创建环网失败",
     "createRingTitle": "创建环网",
+    "ringBrewCategoryLabel": "Brew 分类（可选）",
+    "ringBrewCategoryAll": "我的全部分类",
+    "ringBrewCategoryPlaceholder": "或输入分类名称",
     "createRoom": "创建群聊",
     "creating": "创建中…",
     "dateToday": "今天",
@@ -3227,6 +3243,9 @@ function applyLabels() {
   el = $('ring-type-opt-tapp'); if (el) el.textContent = lang.ringTypeTappStore;
   el = $('ring-type-opt-library'); if (el) el.textContent = lang.ringTypeLibraryExchange;
   el = $('ring-type-opt-instance'); if (el) el.textContent = lang.ringTypeInstanceDirectory;
+  el = $('ring-brew-category-label'); if (el) el.textContent = lang.ringBrewCategoryLabel || 'Brew category (optional)';
+  el = $('ring-brew-category-all'); if (el) el.textContent = lang.ringBrewCategoryAll || 'All my categories';
+  el = $('ring-brew-category-input'); if (el) el.placeholder = lang.ringBrewCategoryPlaceholder || 'Or type a category name';
   document.querySelectorAll('[data-i18n-empty-peers]').forEach(function (node) {
     node.textContent = lang.emptyPeers;
   });
@@ -6561,14 +6580,20 @@ function renderTimelineItem(item) {
   try { ts = timeAgo(item.created_at || item.received_at || item.timestamp); } catch (e) {}
   var contentJson = item.content_json || item.content || null;
   var text = '';
+  var linkUrl = '';
   if (contentJson) {
     text = stripHtmlPreview(
-      (contentJson.source && contentJson.source.content) ||
+      contentJson.title ||
+      contentJson.name ||
+      (contentJson.source && typeof contentJson.source === 'object' && contentJson.source.content) ||
       contentJson.content ||
       contentJson.summary ||
-      contentJson.name ||
       ''
     );
+    linkUrl = contentJson.link || contentJson.url || '';
+    if (typeof linkUrl !== 'string') linkUrl = '';
+    // Ring brew entries often put source as a string name
+    if (!text && contentJson.summary) text = stripHtmlPreview(contentJson.summary);
   }
   if (!text && item.content_preview) text = stripHtmlPreview(item.content_preview);
   var attachments = extractNoteAttachments(contentJson);
@@ -6581,7 +6606,11 @@ function renderTimelineItem(item) {
   if (ts) h += '<span class="feed-item-sep">&middot;</span><span class="feed-item-time">' + esc(ts) + '</span>';
   h += '</div>';
   if (text) {
-    h += '<div class="feed-item-text">' + esc(text) + '</div>';
+    if (linkUrl) {
+      h += '<div class="feed-item-text"><a href="' + esc(linkUrl) + '" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">' + esc(text) + '</a></div>';
+    } else {
+      h += '<div class="feed-item-text">' + esc(text) + '</div>';
+    }
   }
   h += renderTimelineMedia(attachments);
   h += '</div></div>';
@@ -7408,6 +7437,56 @@ function renderRingsSidebar() {
   });
 }
 
+function updateRingCreateCategoryVisibility() {
+  var type = ($('ring-type-select') || {}).value || 'brew-recommend';
+  var wrap = $('ring-brew-category-wrap');
+  if (!wrap) return;
+  if (type === 'brew-recommend') {
+    wrap.style.display = 'flex';
+    loadBrewCategoriesForRingCreate();
+  } else {
+    wrap.style.display = 'none';
+  }
+}
+
+function loadBrewCategoriesForRingCreate() {
+  var select = $('ring-brew-category-select');
+  var freeText = $('ring-brew-category-input');
+  if (!select) return;
+  // Keep the "all" option; rebuild the rest
+  var allLabel = (lang.ringBrewCategoryAll || 'All my categories');
+  select.innerHTML = '<option id="ring-brew-category-all" value="">' + esc(allLabel) + '</option>';
+  if (freeText) {
+    freeText.value = '';
+    freeText.style.display = 'none';
+  }
+  if (typeof Tapp === 'undefined' || !Tapp.brewList || typeof Tapp.brewList.categories !== 'function') {
+    // Fallback: free-text only
+    if (freeText) freeText.style.display = '';
+    select.style.display = 'none';
+    return;
+  }
+  select.style.display = '';
+  Tapp.brewList.categories().then(function (cats) {
+    var list = Array.isArray(cats) ? cats : (cats && cats.categories) || [];
+    list.forEach(function (c) {
+      var name = (c && (c.name || c)) || '';
+      if (!name) return;
+      var opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      select.appendChild(opt);
+    });
+    // If no categories from API, allow free-text
+    if (list.length === 0 && freeText) {
+      freeText.style.display = '';
+    }
+  }).catch(function () {
+    if (freeText) freeText.style.display = '';
+    select.style.display = 'none';
+  });
+}
+
 async function doCreateRing() {
   if (!requireAdminAction()) return;
   var input = $('ring-name-input');
@@ -7416,10 +7495,27 @@ async function doCreateRing() {
   var name = input.value.trim();
   if (!name) return;
   var type = ($('ring-type-select') || {}).value || 'brew-recommend';
+  var req = { name: name, ring_type: type };
+  if (type === 'brew-recommend') {
+    var catSelect = $('ring-brew-category-select');
+    var catInput = $('ring-brew-category-input');
+    var cat = '';
+    if (catSelect && catSelect.style.display !== 'none') {
+      cat = (catSelect.value || '').trim();
+    }
+    if (!cat && catInput && catInput.style.display !== 'none') {
+      cat = (catInput.value || '').trim();
+    }
+    if (cat) req.category = cat;
+  }
   if (btn) { btn.disabled = true; btn.textContent = lang.creating; }
   try {
-    await Tapp.federation.createRing({ name: name, ring_type: type });
+    await Tapp.federation.createRing(req);
     input.value = '';
+    var catSel = $('ring-brew-category-select');
+    if (catSel) catSel.value = '';
+    var catIn = $('ring-brew-category-input');
+    if (catIn) catIn.value = '';
     var d = $('ring-create-dialog');
     if (d) aroDismiss(d, { ms: 170 });
     loadRings();
@@ -7519,6 +7615,10 @@ function renderRingDetail() {
     var parts = [];
     parts.push('<span class="meta-badge">' + esc(ringTypeLabel(ring.ring_type)) + '</span>');
     parts.push('<span class="meta-badge">' + esc(state.ringPeers.length + ' ' + lang.peers) + '</span>');
+    var ringCat = ring.gossip_config && (ring.gossip_config.category || ring.gossip_config.brew_category);
+    if (ringCat) {
+      parts.push('<span class="meta-badge">' + esc(String(ringCat)) + '</span>');
+    }
     if (ring.last_sync_at) {
       try { parts.push('<span class="meta-badge">' + esc(timeAgo(ring.last_sync_at)) + '</span>'); } catch (e) {}
     }
@@ -7647,6 +7747,11 @@ const PAGE_MOD_EVENTS = `\
       d.classList.remove('aro-leaving');
       d.style.display = 'flex';
     }
+    if (typeof updateRingCreateCategoryVisibility === 'function') updateRingCreateCategoryVisibility();
+  });
+  var ringTypeSelect = $('ring-type-select');
+  if (ringTypeSelect) ringTypeSelect.addEventListener('change', function () {
+    if (typeof updateRingCreateCategoryVisibility === 'function') updateRingCreateCategoryVisibility();
   });
   var ringCreateClose = $('ring-create-close');
   if (ringCreateClose) ringCreateClose.addEventListener('click', function () {

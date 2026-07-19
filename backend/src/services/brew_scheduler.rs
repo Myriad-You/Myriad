@@ -178,15 +178,35 @@ impl BrewSchedulerEngine {
             MAX_CONCURRENT_FETCHES
         );
 
-        // 并发处理，最多 MAX_CONCURRENT_FETCHES 个同时运行
+        // 并发处理，最多 MAX_CONCURRENT_FETCHES 个同时运行。
+        // 收集本 tick 内新增了分类内容的 user_id，批末触发 brew-recommend 环网同步。
         let db_ref = db.clone();
         let tx_ref = notification_tx.clone();
+        let ring_users = std::sync::Arc::new(tokio::sync::Mutex::new(
+            std::collections::HashSet::<i32>::new(),
+        ));
 
         stream::iter(due_sources)
             .map(|source| {
                 let db = db_ref.clone();
                 let tx = tx_ref.clone();
-                async move { Self::process_source(&db, &tx, source, now).await }
+                let ring_users = ring_users.clone();
+                async move {
+                    let user_id = source.user_id;
+                    let source_category = source.category.clone();
+                    let result = Self::process_source(&db, &tx, source, now).await;
+                    if let Ok(new_count) = &result {
+                        if *new_count > 0
+                            && source_category
+                                .as_deref()
+                                .map(|c| !c.trim().is_empty())
+                                .unwrap_or(false)
+                        {
+                            ring_users.lock().await.insert(user_id);
+                        }
+                    }
+                    result.map(|_| ())
+                }
             })
             .buffer_unordered(MAX_CONCURRENT_FETCHES)
             .for_each(|result| {
@@ -197,16 +217,23 @@ impl BrewSchedulerEngine {
             })
             .await;
 
+        // Best-effort: batch ring sync once per user per tick (not per item)
+        let users: Vec<i32> = ring_users.lock().await.iter().copied().collect();
+        for uid in users {
+            crate::federation::ring::maybe_trigger_brew_recommend_sync_for_user(db, uid).await;
+        }
+
         Ok(())
     }
 
-    /// 处理单个订阅源（抓取 + 存储）
+    /// 处理单个订阅源（抓取 + 存储）。
+    /// Returns the number of newly inserted items on success (0 if none).
     async fn process_source(
         db: &DatabaseConnection,
         notification_tx: &broadcast::Sender<NewItemsNotification>,
         source: brew_sources::Model,
         now: chrono::DateTime<Utc>,
-    ) -> Result<(), String> {
+    ) -> Result<i32, String> {
         // 纯链接只是快捷入口，不应该进入任何抓取路径。
         if source.source_type == brew_sources::SourceType::Link {
             tracing::debug!(
@@ -214,7 +241,7 @@ impl BrewSchedulerEngine {
                 source.name,
                 source.url
             );
-            return Ok(());
+            return Ok(0);
         }
 
         tracing::info!(
@@ -282,6 +309,7 @@ impl BrewSchedulerEngine {
                         updated_source.name
                     );
                 }
+                Ok(new_count)
             }
             Err(e) => {
                 tracing::warn!(
@@ -319,10 +347,9 @@ impl BrewSchedulerEngine {
                     .update(db)
                     .await
                     .map_err(|e| format!("Failed to update source after error: {}", e))?;
+                Ok(0)
             }
         }
-
-        Ok(())
     }
 
     /// 尝试下载并保存订阅源图标（复用于 tick 和 refresh_source）
@@ -600,7 +627,30 @@ impl BrewSchedulerEngine {
                     .await
                     .map_err(|e| format!("Failed to update source: {}", e))?;
 
-                Self::save_items(&self.db, &updated_source, &feed, &self.notification_tx).await
+                let new_count = Self::save_items(
+                    &self.db,
+                    &updated_source,
+                    &feed,
+                    &self.notification_tx,
+                )
+                .await?;
+
+                // Best-effort: push categorized brew into brew-recommend rings
+                if new_count > 0
+                    && updated_source
+                        .category
+                        .as_deref()
+                        .map(|c| !c.trim().is_empty())
+                        .unwrap_or(false)
+                {
+                    crate::federation::ring::maybe_trigger_brew_recommend_sync_for_user(
+                        &self.db,
+                        updated_source.user_id,
+                    )
+                    .await;
+                }
+
+                Ok(new_count)
             }
             Err(e) => {
                 active.last_error = Set(Some(e.to_string()));
