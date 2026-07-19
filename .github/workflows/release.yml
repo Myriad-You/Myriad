@@ -198,13 +198,23 @@ jobs:
 
           NOTES_URL="https://github.com/${REPO}/releases/tag/${VERSION}"
 
-          # Pull defaults from release/example.release.json so changes there propagate.
+          # Compatibility floor: major updater changes landed at v0.3.0.
+          # Do NOT default min_from_version / min_updater_version to $version —
+          # that deadlocks upgrades (current < min_from) and forces self-update
+          # every release. Tighten only via release/overrides/<version>.json
+          # (deep-merged after generation). example.release.json documents the
+          # same policy but is not read at assemble time.
+          MIN_FROM_VERSION="v0.3.0"
+          MIN_UPDATER_VERSION="v0.3.0"
+
           jq -n \
             --arg version "$VERSION" \
             --arg commit_sha "$COMMIT_SHA" \
             --arg channel "$CHANNEL" \
             --arg released_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --arg notes_url "$NOTES_URL" \
+            --arg min_from_version "$MIN_FROM_VERSION" \
+            --arg min_updater_version "$MIN_UPDATER_VERSION" \
             --argjson images "$IMAGES" \
             '{
               schema_version: 1,
@@ -212,17 +222,18 @@ jobs:
               commit_sha: $commit_sha,
               channel: $channel,
               released_at: $released_at,
-              min_from_version: $version,
+              min_from_version: $min_from_version,
               images: $images,
               env: { required: ["POSTGRES_PASSWORD", "JWT_SECRET", "CORS_ORIGINS"], new: [], removed: [] },
               migrations: { irreversible: false, estimated_seconds: 30, requires_full_backup: true },
-              updater: { min_updater_version: $version, self_update_required: false },
+              updater: { min_updater_version: $min_updater_version, self_update_required: false },
               postgres: { min_pg_version: "16", max_pg_version: "unbounded" },
               notes_url: $notes_url,
               signature: null
             }' > release.json
 
-          # If repo provides per-release overrides at release/overrides/<version>.json, deep-merge them.
+          # Per-release overrides at release/overrides/<version>.json are deep-merged
+          # for special cases (tighten floors, env changes, etc.).
           OVERRIDE="release/overrides/${VERSION}.json"
           if [ -f "$OVERRIDE" ]; then
             jq -s '.[0] * .[1]' release.json "$OVERRIDE" > release.merged.json
