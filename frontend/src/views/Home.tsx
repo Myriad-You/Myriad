@@ -12,17 +12,7 @@ import { useEffect, useMemo, useState } from 'react'
 import AnimatedView from '../components/AnimatedView'
 import { TitleFontSelector } from '../components/TitleFontSelector'
 import WidgetGrid from '../components/WidgetGrid'
-import { FriendLinksWidget } from '../components/widgets/FriendLinksWidget'
-import { GamePresenceWidget } from '../components/widgets/GamePresenceWidget'
-import { MusicPlayerWidget } from '../components/widgets/MusicPlayerWidget'
-import { QuickStatsWidget } from '../components/widgets/QuickStatsWidget'
-import { QuoteWidget } from '../components/widgets/QuoteWidget'
-import { RecentActivityWidget } from '../components/widgets/RecentActivityWidget'
-import { ReportCardWidget } from '../components/widgets/ReportCardWidget'
-import { SocialNetworkWidget } from '../components/widgets/SocialNetworkWidget'
-import { TappShortcutWidget } from '../components/widgets/TappShortcutWidget'
-import { WeatherWidget } from '../components/widgets/WeatherWidget'
-import { WelcomeWidget } from '../components/widgets/WelcomeWidget'
+import { getBuiltinWidgets } from '../components/widgets/builtinWidgets'
 import { API_URL } from '../config'
 import { useAuth } from '../contexts/AuthContext'
 import { useI18n } from '../contexts/I18nContext'
@@ -83,151 +73,10 @@ export default function Home() {
     [],
   )
 
-  // 使用 useMemo 生成 AVAILABLE_WIDGETS 以支持 i18n
+  // Shared built-in catalog (same source as Control Panel)
   const AVAILABLE_WIDGETS: WidgetType[] = useMemo(
-    () => [
-      {
-        id: 'welcome',
-        name: t.widgets.welcome,
-        defaultSize: '4x2',
-        component: WelcomeWidget,
-        supportedSizes: ['2x2', '4x2'],
-      },
-      {
-        id: 'quick-stats',
-        name: t.widgets.quickStats,
-        defaultSize: '4x2',
-        component: QuickStatsWidget,
-        supportedSizes: ['4x2'],
-      },
-      {
-        id: 'recent-activity',
-        name: t.widgets.recentActivity,
-        defaultSize: '4x2',
-        component: RecentActivityWidget,
-        supportedSizes: ['2x2', '4x2', '4x4'],
-      },
-      {
-        id: 'friend-links',
-        name: t.widgets.friendLinks,
-        defaultSize: '4x2',
-        component: FriendLinksWidget,
-        supportedSizes: ['4x1', '2x2', '4x2'],
-      },
-      {
-        id: 'weather',
-        name: t.widgets.weather,
-        defaultSize: '2x2',
-        component: WeatherWidget,
-        supportedSizes: ['2x2', '4x2', '4x1'],
-      },
-      {
-        id: 'quote',
-        name: t.widgets.quote,
-        defaultSize: '2x2',
-        component: QuoteWidget,
-        supportedSizes: ['2x2', '4x2', '4x1'],
-      },
-      {
-        id: 'music-player',
-        name: t.widgets.musicPlayer,
-        defaultSize: '2x2',
-        component: MusicPlayerWidget,
-        supportedSizes: ['2x2', '4x2'],
-      },
-      {
-        id: 'report-bilibili',
-        name: t.widgets.reportBilibili,
-        defaultSize: '4x2',
-        component: ReportCardWidget,
-        supportedSizes: ['4x2'],
-      },
-      {
-        id: 'report-steam',
-        name: t.widgets.reportSteam,
-        defaultSize: '4x2',
-        component: ReportCardWidget,
-        supportedSizes: ['4x2'],
-      },
-      {
-        id: 'report-github',
-        name: t.widgets.reportGithub,
-        defaultSize: '4x2',
-        component: ReportCardWidget,
-        supportedSizes: ['4x2'],
-      },
-      {
-        id: 'report-netease',
-        name: t.widgets.reportNetease,
-        defaultSize: '4x2',
-        component: ReportCardWidget,
-        supportedSizes: ['4x2'],
-      },
-      {
-        id: 'report-bangumi',
-        name: t.widgets.reportBangumi,
-        defaultSize: '4x2',
-        component: ReportCardWidget,
-        supportedSizes: ['4x2'],
-      },
-      {
-        id: 'report-mal',
-        name: t.widgets.reportMal,
-        defaultSize: '4x2',
-        component: ReportCardWidget,
-        supportedSizes: ['4x2'],
-      },
-      {
-        id: 'report-x',
-        name: t.widgets.reportX,
-        defaultSize: '4x2',
-        component: ReportCardWidget,
-        supportedSizes: ['4x2'],
-      },
-      {
-        id: 'report-discord',
-        name: t.widgets.reportDiscord,
-        defaultSize: '4x2',
-        component: ReportCardWidget,
-        supportedSizes: ['4x2'],
-      },
-      {
-        id: 'report-xbox',
-        name: t.widgets.reportXbox,
-        defaultSize: '4x2',
-        component: ReportCardWidget,
-        supportedSizes: ['4x2'],
-      },
-      {
-        id: 'report-psn',
-        name: t.widgets.reportPsn,
-        defaultSize: '4x2',
-        component: ReportCardWidget,
-        supportedSizes: ['4x2'],
-      },
-      {
-        id: 'social-network',
-        name: t.widgets.socialNetwork,
-        defaultSize: '1x1',
-        component: SocialNetworkWidget,
-        supportedSizes: ['1x1', '2x1', '2x2'],
-      },
-      {
-        id: 'tapp-shortcut',
-        name: t.widgets.tappShortcut,
-        defaultSize: '1x1',
-        component: TappShortcutWidget,
-        supportedSizes: ['1x1', '2x1', '2x2'],
-      },
-      {
-        id: 'game-presence',
-        name: t.widgets.gamePresence,
-        defaultSize: '4x2',
-        component: GamePresenceWidget,
-        supportedSizes: ['4x2'],
-      },
-    ],
-    [t],
+    () => getBuiltinWidgets(t.widgets),
+    [t.widgets],
   )
 
   // 获取 Tapp 注册的小组件

@@ -1,4 +1,4 @@
-import type { WidgetConfig, WidgetSize, WidgetType } from '../WidgetGrid'
+import type { WidgetConfig, WidgetType } from '../WidgetGrid'
 
 import { FaChevronLeft, FaChevronRight } from '@lib/icons'
 import React, {
@@ -17,115 +17,14 @@ import {
   useHomeResizeObserver,
   useHomeVisibilityInterval,
 } from '../../hooks/animation'
+import { useTappWidgets } from '../../hooks/useTappWidgets'
 import { getCSRFToken } from '../../utils/csrf'
 import { getUIConfigDeduped } from '../../utils/requestDedup'
 import WidgetGrid from '../WidgetGrid'
-import { GamePresenceWidget } from '../widgets/GamePresenceWidget'
-import { MusicPlayerWidget } from '../widgets/MusicPlayerWidget'
-import { QuickStatsWidget } from '../widgets/QuickStatsWidget'
-import { QuoteWidget } from '../widgets/QuoteWidget'
-import { RecentActivityWidget } from '../widgets/RecentActivityWidget'
-import { ReportCardWidget } from '../widgets/ReportCardWidget'
-import { SocialNetworkWidget } from '../widgets/SocialNetworkWidget'
-import { WeatherWidget } from '../widgets/WeatherWidget'
-import { WelcomeWidget } from '../widgets/WelcomeWidget'
+import { getBuiltinWidgets } from '../widgets/builtinWidgets'
 import './ControlPanelWidgets.css'
 
 const API_URL = CONFIG_API_URL
-
-// 小组件基础配置（不含翻译的名称）
-const WIDGET_BASE_CONFIG = {
-  welcome: {
-    defaultSize: '4x2' as const,
-    component: WelcomeWidget,
-    supportedSizes: ['2x2', '4x2'] as WidgetSize[],
-  },
-  'social-network': {
-    defaultSize: '1x1' as const,
-    component: SocialNetworkWidget,
-    supportedSizes: ['1x1', '2x1', '2x2'] as WidgetSize[],
-  },
-  'game-presence': {
-    defaultSize: '4x2' as const,
-    component: GamePresenceWidget,
-    supportedSizes: ['4x2'] as WidgetSize[],
-  },
-  'quick-stats': {
-    defaultSize: '4x2' as const,
-    component: QuickStatsWidget,
-    supportedSizes: ['4x2'] as WidgetSize[],
-  },
-  'recent-activity': {
-    defaultSize: '4x2' as const,
-    component: RecentActivityWidget,
-    supportedSizes: ['2x2', '4x2'] as WidgetSize[],
-  },
-  weather: {
-    defaultSize: '2x2' as const,
-    component: WeatherWidget,
-    supportedSizes: ['2x2', '4x2', '4x1'] as WidgetSize[],
-  },
-  quote: {
-    defaultSize: '2x2' as const,
-    component: QuoteWidget,
-    supportedSizes: ['2x2', '4x2', '4x1'] as WidgetSize[],
-  },
-  'music-player': {
-    defaultSize: '2x2' as const,
-    component: MusicPlayerWidget,
-    supportedSizes: ['2x2', '4x2'] as WidgetSize[],
-  },
-  'report-bilibili': {
-    defaultSize: '4x2' as const,
-    component: ReportCardWidget,
-    supportedSizes: ['4x2'] as WidgetSize[],
-  },
-  'report-steam': {
-    defaultSize: '4x2' as const,
-    component: ReportCardWidget,
-    supportedSizes: ['4x2'] as WidgetSize[],
-  },
-  'report-github': {
-    defaultSize: '4x2' as const,
-    component: ReportCardWidget,
-    supportedSizes: ['4x2'] as WidgetSize[],
-  },
-  'report-netease': {
-    defaultSize: '4x2' as const,
-    component: ReportCardWidget,
-    supportedSizes: ['4x2'] as WidgetSize[],
-  },
-  'report-bangumi': {
-    defaultSize: '4x2' as const,
-    component: ReportCardWidget,
-    supportedSizes: ['4x2'] as WidgetSize[],
-  },
-  'report-mal': {
-    defaultSize: '4x2' as const,
-    component: ReportCardWidget,
-    supportedSizes: ['4x2'] as WidgetSize[],
-  },
-  'report-x': {
-    defaultSize: '4x2' as const,
-    component: ReportCardWidget,
-    supportedSizes: ['4x2'] as WidgetSize[],
-  },
-  'report-discord': {
-    defaultSize: '4x2' as const,
-    component: ReportCardWidget,
-    supportedSizes: ['4x2'] as WidgetSize[],
-  },
-  'report-xbox': {
-    defaultSize: '4x2' as const,
-    component: ReportCardWidget,
-    supportedSizes: ['4x2'] as WidgetSize[],
-  },
-  'report-psn': {
-    defaultSize: '4x2' as const,
-    component: ReportCardWidget,
-    supportedSizes: ['4x2'] as WidgetSize[],
-  },
-}
 
 const DEFAULT_CONTROL_PANEL_LAYOUT: WidgetConfig[] = [
   {
@@ -152,96 +51,26 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
   ({ isAdmin = false }) => {
     const { t } = useI18n()
 
-    // 使用翻译后的小组件名称
-    const CONTROL_PANEL_WIDGETS: WidgetType[] = useMemo(
-      () => [
-        {
-          id: 'welcome',
-          name: t.widgets.welcome,
-          ...WIDGET_BASE_CONFIG.welcome,
-        },
-        {
-          id: 'social-network',
-          name: t.widgets.socialNetwork,
-          ...WIDGET_BASE_CONFIG['social-network'],
-        },
-        {
-          id: 'game-presence',
-          name: t.widgets.gamePresence,
-          ...WIDGET_BASE_CONFIG['game-presence'],
-        },
-        {
-          id: 'quick-stats',
-          name: t.widgets.quickStats,
-          ...WIDGET_BASE_CONFIG['quick-stats'],
-        },
-        {
-          id: 'recent-activity',
-          name: t.widgets.recentActivity,
-          ...WIDGET_BASE_CONFIG['recent-activity'],
-        },
-        {
-          id: 'weather',
-          name: t.widgets.weather,
-          ...WIDGET_BASE_CONFIG.weather,
-        },
-        { id: 'quote', name: t.widgets.quote, ...WIDGET_BASE_CONFIG.quote },
-        {
-          id: 'music-player',
-          name: t.widgets.musicPlayer,
-          ...WIDGET_BASE_CONFIG['music-player'],
-        },
-        {
-          id: 'report-bilibili',
-          name: t.widgets.reportBilibili,
-          ...WIDGET_BASE_CONFIG['report-bilibili'],
-        },
-        {
-          id: 'report-steam',
-          name: t.widgets.reportSteam,
-          ...WIDGET_BASE_CONFIG['report-steam'],
-        },
-        {
-          id: 'report-github',
-          name: t.widgets.reportGithub,
-          ...WIDGET_BASE_CONFIG['report-github'],
-        },
-        {
-          id: 'report-netease',
-          name: t.widgets.reportNetease,
-          ...WIDGET_BASE_CONFIG['report-netease'],
-        },
-        {
-          id: 'report-bangumi',
-          name: t.widgets.reportBangumi,
-          ...WIDGET_BASE_CONFIG['report-bangumi'],
-        },
-        {
-          id: 'report-mal',
-          name: t.widgets.reportMal,
-          ...WIDGET_BASE_CONFIG['report-mal'],
-        },
-        {
-          id: 'report-x',
-          name: t.widgets.reportX,
-          ...WIDGET_BASE_CONFIG['report-x'],
-        },
-        {
-          id: 'report-xbox',
-          name: t.widgets.reportXbox,
-          ...WIDGET_BASE_CONFIG['report-xbox'],
-        },
-        {
-          id: 'report-psn',
-          name: t.widgets.reportPsn,
-          ...WIDGET_BASE_CONFIG['report-psn'],
-        },
-      ],
+    // Shared built-in catalog (same source as Home)
+    const BUILTIN_WIDGETS: WidgetType[] = useMemo(
+      () => getBuiltinWidgets(t.widgets),
       [t.widgets],
+    )
+
+    // Tapp-registered widgets (same merge as Home)
+    const { tappWidgets, isLoading: isTappWidgetsLoading } = useTappWidgets()
+
+    const CONTROL_PANEL_WIDGETS: WidgetType[] = useMemo(
+      () => [...BUILTIN_WIDGETS, ...tappWidgets],
+      [BUILTIN_WIDGETS, tappWidgets],
     )
 
     const [widgets, setWidgets] = useState<WidgetConfig[]>(
       DEFAULT_CONTROL_PANEL_LAYOUT,
+    )
+    // Raw layout for re-validation after Tapp widgets load
+    const [rawLayoutData, setRawLayoutData] = useState<WidgetConfig[] | null>(
+      null,
     )
     const [isEditMode, setIsEditMode] = useState(false)
     const [currentPage, setCurrentPage] = useState(0)
@@ -265,6 +94,9 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
             try {
               const layout = JSON.parse(data.control_panel_layout)
               if (Array.isArray(layout) && layout.length > 0) {
+                setRawLayoutData(layout)
+                // Keep layout as-is; WidgetGrid skips unknown types.
+                // Re-validate when Tapp widgets finish loading.
                 setWidgets(layout)
               }
             } catch (e) {
@@ -282,6 +114,13 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
       }
       loadConfig()
     }, [])
+
+    // When Tapp widgets load, re-apply layout so registered types can render
+    useEffect(() => {
+      if (isTappWidgetsLoading || !rawLayoutData || tappWidgets.length === 0)
+        return
+      setWidgets(rawLayoutData)
+    }, [isTappWidgetsLoading, tappWidgets, rawLayoutData])
 
     // 保存配置到后端（防抖，仅管理员）
     const saveToBackend = useCallback(
@@ -321,10 +160,16 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
 
     const handleWidgetsChange = useCallback(
       (newWidgets: WidgetConfig[]) => {
-        setWidgets(newWidgets)
-        saveToBackend(newWidgets, gridRows)
+        // Drop unregistered types so saved layout stays valid
+        const registeredIds = new Set(CONTROL_PANEL_WIDGETS.map((w) => w.id))
+        const validWidgets = newWidgets.filter((w) =>
+          registeredIds.has(w.type),
+        )
+        setWidgets(validWidgets)
+        setRawLayoutData(validWidgets)
+        saveToBackend(validWidgets, gridRows)
       },
-      [gridRows, saveToBackend],
+      [gridRows, saveToBackend, CONTROL_PANEL_WIDGETS],
     )
 
     const handleRowsChange = useCallback(
@@ -338,7 +183,7 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
           updatedWidgets = widgets
             .map((w) => {
               const widgetType = CONTROL_PANEL_WIDGETS.find(
-                (t) => t.id === w.type,
+                (wt) => wt.id === w.type,
               )
               if (widgetType?.supportedSizes?.includes('4x1')) {
                 return {
@@ -352,7 +197,7 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
             .filter((w) => {
               // 过滤掉不支持 4x1 的小组件
               const widgetType = CONTROL_PANEL_WIDGETS.find(
-                (t) => t.id === w.type,
+                (wt) => wt.id === w.type,
               )
               return widgetType?.supportedSizes?.includes('4x1')
             })
@@ -361,7 +206,7 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
           updatedWidgets = widgets.map((w) => {
             if (w.size === '4x1') {
               const widgetType = CONTROL_PANEL_WIDGETS.find(
-                (t) => t.id === w.type,
+                (wt) => wt.id === w.type,
               )
               const defaultSize = widgetType?.defaultSize || '2x2'
               return { ...w, size: defaultSize }
@@ -371,9 +216,10 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
         }
 
         setWidgets(updatedWidgets)
+        setRawLayoutData(updatedWidgets)
         saveToBackend(updatedWidgets, rows)
       },
-      [widgets, saveToBackend],
+      [widgets, saveToBackend, CONTROL_PANEL_WIDGETS],
     )
 
     // 🆕 使用首页原子化 ResizeObserver
@@ -543,7 +389,7 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
         })
       }
       return CONTROL_PANEL_WIDGETS
-    }, [gridRows])
+    }, [gridRows, CONTROL_PANEL_WIDGETS])
 
     // 滚轮切换页面处理
     const handleWheel = (e: React.WheelEvent) => {
