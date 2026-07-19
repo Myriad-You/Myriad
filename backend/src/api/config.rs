@@ -213,14 +213,9 @@ async fn build_config(db: &DatabaseConnection, reveal_sensitive: bool) -> Config
         .and_then(|c| c.mal_username.as_ref())
         .is_some()
         || std::env::var("MAL_USERNAME").is_ok();
-    let has_mal_client_id = db_config
-        .as_ref()
-        .and_then(|c| c.mal_client_id.as_ref())
-        .is_some()
-        || std::env::var("MAL_CLIENT_ID").is_ok();
     let mal_enabled = resolve_platform_enabled(
         db_config.as_ref().and_then(|c| c.mal_enabled),
-        has_mal_username && has_mal_client_id,
+        has_mal_username,
     );
     let has_openxbl_key = db_config
         .as_ref()
@@ -502,35 +497,22 @@ async fn build_config(db: &DatabaseConnection, reveal_sensitive: bool) -> Config
             PlatformConfig {
                 name: "MyAnimeList".to_string(),
                 enabled: mal_enabled,
-                has_token: has_mal_client_id,
+                has_token: has_mal_username,
                 icon: "".to_string(),
                 description:
-                    "Sync your MyAnimeList anime/manga lists, scores, and watching status"
+                    "Sync your public MyAnimeList anime/manga lists by username (no API key)"
                         .to_string(),
-                config_fields: vec![
-                    ConfigField {
-                        key: "username".to_string(),
-                        label: "MyAnimeList Username".to_string(),
-                        field_type: "text".to_string(),
-                        value: get_value(
-                            db_config.as_ref().and_then(|c| c.mal_username.clone()),
-                            "MAL_USERNAME",
-                        ),
-                        placeholder: "your MAL username".to_string(),
-                        required: true,
-                    },
-                    ConfigField {
-                        key: "client_id".to_string(),
-                        label: "Client ID".to_string(),
-                        field_type: "password".to_string(),
-                        value: mask_sensitive(get_value(
-                            db_config.as_ref().and_then(|c| c.mal_client_id.clone()),
-                            "MAL_CLIENT_ID",
-                        )),
-                        placeholder: "From myanimelist.net/apiconfig".to_string(),
-                        required: true,
-                    },
-                ],
+                config_fields: vec![ConfigField {
+                    key: "username".to_string(),
+                    label: "MyAnimeList Username".to_string(),
+                    field_type: "text".to_string(),
+                    value: get_value(
+                        db_config.as_ref().and_then(|c| c.mal_username.clone()),
+                        "MAL_USERNAME",
+                    ),
+                    placeholder: "your MAL username (public list)".to_string(),
+                    required: true,
+                }],
             },
             PlatformConfig {
                 name: "Xbox".to_string(),
@@ -2515,7 +2497,8 @@ fn collect_database_updates(config: &ConfigResponse) -> std::collections::HashMa
                 for field in &platform.config_fields {
                     let key = match field.key.as_str() {
                         "username" => "mal_username",
-                        "client_id" => "mal_client_id",
+                        // legacy: ignore client_id if an old UI still sends it
+                        "client_id" => continue,
                         _ => continue,
                     };
                     if !field.value.is_empty() && !is_masked(&field.value) {
@@ -2805,7 +2788,8 @@ async fn save_all_configs(config: &ConfigResponse) -> Result<(), Box<dyn std::er
                 for field in &platform.config_fields {
                     let key = match field.key.as_str() {
                         "username" => "MAL_USERNAME",
-                        "client_id" => "MAL_CLIENT_ID",
+                        // legacy client_id no longer written
+                        "client_id" => continue,
                         _ => continue,
                     };
                     if field.value.is_empty()
@@ -3326,28 +3310,15 @@ pub async fn test_platform(
         }
         "MyAnimeList" => {
             let username = config["username"].as_str().unwrap_or("").trim();
-            let client_id = config["client_id"]
-                .as_str()
-                .filter(|s| !s.is_empty() && !s.contains('•') && !s.contains('*'))
-                .unwrap_or("");
             if username.is_empty() {
                 return (
                     StatusCode::BAD_REQUEST,
                     Json(json!({"success": false, "message": "Username is required"})),
                 );
             }
-            if client_id.is_empty() {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({
-                        "success": false,
-                        "message": "Client ID is required (or re-enter it if the form shows a masked value)"
-                    })),
-                );
-            }
 
             let fetcher = crate::services::fetcher::PlatformFetcher::new().await;
-            match fetcher.fetch_mal_user(username, client_id).await {
+            match fetcher.fetch_mal_user(username).await {
                 Ok(user_info) => {
                     let display = user_info["name"].as_str().unwrap_or(username);
                     let anime_completed = user_info
@@ -3363,7 +3334,7 @@ pub async fn test_platform(
                         Json(json!({
                             "success": true,
                             "message": format!(
-                                "✓ MAL user '{}' verified ({}). {} completed, {} watching",
+                                "✓ MAL user '{}' verified ({}). Public list reachable (sample: {} completed, {} watching)",
                                 username, display, anime_completed, anime_watching
                             )
                         })),
@@ -3670,16 +3641,11 @@ pub async fn get_public_config(State(db): State<DatabaseConnection>) -> (StatusC
     );
     let mal_enabled = resolve_platform_enabled(
         db_config.as_ref().and_then(|c| c.mal_enabled),
-        (db_config
+        db_config
             .as_ref()
             .and_then(|c| c.mal_username.as_ref())
             .is_some()
-            || std::env::var("MAL_USERNAME").is_ok())
-            && (db_config
-                .as_ref()
-                .and_then(|c| c.mal_client_id.as_ref())
-                .is_some()
-                || std::env::var("MAL_CLIENT_ID").is_ok()),
+            || std::env::var("MAL_USERNAME").is_ok(),
     );
     let xbox_enabled = resolve_platform_enabled(
         db_config.as_ref().and_then(|c| c.xbox_enabled),

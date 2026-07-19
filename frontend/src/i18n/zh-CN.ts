@@ -767,7 +767,7 @@ export const zhCN: TranslationKeys = {
     platformDescX: '同步你的 X 资料与帖子；分享走 Web Intent',
     platformDescDiscord:
       '同步 Discord 画像、服务器足迹与绑定账号（Steam / GitHub 等）',
-    platformDescMal: '同步你的 MyAnimeList 动画/漫画列表、评分和追看状态',
+    platformDescMal: '仅需用户名，同步你的公开 MyAnimeList 动画/漫画列表、评分和追看状态',
     discordConnect: '使用 Discord 授权',
     discordReconnect: '重新授权 Discord',
     discordConnectHint:

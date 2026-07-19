@@ -4899,7 +4899,7 @@ async fn start_unified_server(config: AppConfig) -> anyhow::Result<()> {
                 "/api/platforms/discord/oauth/callback",
                 get(discord_platform_oauth_callback_wrapper),
             )
-            // MyAnimeList — 调试接口带 client_id query，必须登录；正式同步走配置 + profile fetch
+            // MyAnimeList — 调试接口仅需 username；正式同步走配置 + profile fetch
             .route(
                 "/api/mal/user",
                 get(api::mal::get_mal_user).route_layer(from_fn(middleware::auth::auth_middleware)),

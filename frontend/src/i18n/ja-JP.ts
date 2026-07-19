@@ -816,7 +816,7 @@ export const jaJP: TranslationKeys = {
     platformDescX: 'X のプロフィールと投稿を同期。共有は Web Intent',
     platformDescDiscord:
       'Discord のプロフィール、サーバー参加状況、連携アカウントを同期',
-    platformDescMal: 'MyAnimeList のアニメ/マンガリスト、評価、視聴状態を同期',
+    platformDescMal: 'ユーザー名のみで公開 MyAnimeList アニメ/マンガリスト、評価、視聴状態を同期',
     discordConnect: 'Discord で認可',
     discordReconnect: 'Discord を再認可',
     discordConnectHint:

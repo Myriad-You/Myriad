@@ -1,4 +1,4 @@
-// MyAnimeList API routes
+// MyAnimeList API routes — public load.json, username only (no Client ID)
 use axum::{
     extract::{Path, Query},
     http::StatusCode,
@@ -11,12 +11,6 @@ use crate::services::fetcher::PlatformFetcher;
 #[derive(Debug, Deserialize)]
 pub struct MalQuery {
     pub username: String,
-    pub client_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct MalClientQuery {
-    pub client_id: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -39,23 +33,22 @@ fn clean(input: &str) -> &str {
     input.trim()
 }
 
-/// 获取 MyAnimeList 用户完整信息（资料 + 动画/漫画列表）
+/// 获取 MyAnimeList 用户完整信息（资料 + 动画/漫画公开列表）
 pub async fn get_mal_user(
     Query(params): Query<MalQuery>,
 ) -> Result<Json<ApiResponse<MalUserResponse>>, StatusCode> {
     let username = clean(&params.username);
-    let client_id = clean(&params.client_id);
 
-    if username.is_empty() || client_id.is_empty() {
+    if username.is_empty() {
         return Ok(Json(ApiResponse {
             success: false,
             data: None,
-            message: "username 和 client_id 均为必填".to_string(),
+            message: "username 为必填".to_string(),
         }));
     }
 
     let fetcher = PlatformFetcher::new().await;
-    match fetcher.fetch_mal_profile_bundle(username, client_id).await {
+    match fetcher.fetch_mal_profile_bundle(username).await {
         Ok(bundle) => {
             let anime_list = bundle
                 .get("anime_list")
@@ -97,24 +90,22 @@ pub async fn get_mal_user(
     }
 }
 
-/// 仅验证用户名 + Client ID 是否有效
+/// 仅验证用户名是否可访问公开列表
 pub async fn get_mal_user_info(
     Path(username): Path<String>,
-    Query(params): Query<MalClientQuery>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, StatusCode> {
     let username = clean(&username);
-    let client_id = clean(&params.client_id);
 
-    if username.is_empty() || client_id.is_empty() {
+    if username.is_empty() {
         return Ok(Json(ApiResponse {
             success: false,
             data: None,
-            message: "username 和 client_id 均为必填".to_string(),
+            message: "username 为必填".to_string(),
         }));
     }
 
     let fetcher = PlatformFetcher::new().await;
-    match fetcher.fetch_mal_user(username, client_id).await {
+    match fetcher.fetch_mal_user(username).await {
         Ok(user) => Ok(Json(ApiResponse {
             success: true,
             data: Some(user),
@@ -131,21 +122,19 @@ pub async fn get_mal_user_info(
 /// 获取动画列表
 pub async fn get_mal_anime_list(
     Path(username): Path<String>,
-    Query(params): Query<MalClientQuery>,
 ) -> Result<Json<ApiResponse<Vec<serde_json::Value>>>, StatusCode> {
     let username = clean(&username);
-    let client_id = clean(&params.client_id);
 
-    if username.is_empty() || client_id.is_empty() {
+    if username.is_empty() {
         return Ok(Json(ApiResponse {
             success: false,
             data: None,
-            message: "username 和 client_id 均为必填".to_string(),
+            message: "username 为必填".to_string(),
         }));
     }
 
     let fetcher = PlatformFetcher::new().await;
-    match fetcher.fetch_mal_anime_list(username, client_id).await {
+    match fetcher.fetch_mal_anime_list(username).await {
         Ok(list) => {
             let count = list.len();
             Ok(Json(ApiResponse {
@@ -168,21 +157,19 @@ pub async fn get_mal_anime_list(
 /// 获取漫画列表
 pub async fn get_mal_manga_list(
     Path(username): Path<String>,
-    Query(params): Query<MalClientQuery>,
 ) -> Result<Json<ApiResponse<Vec<serde_json::Value>>>, StatusCode> {
     let username = clean(&username);
-    let client_id = clean(&params.client_id);
 
-    if username.is_empty() || client_id.is_empty() {
+    if username.is_empty() {
         return Ok(Json(ApiResponse {
             success: false,
             data: None,
-            message: "username 和 client_id 均为必填".to_string(),
+            message: "username 为必填".to_string(),
         }));
     }
 
     let fetcher = PlatformFetcher::new().await;
-    match fetcher.fetch_mal_manga_list(username, client_id).await {
+    match fetcher.fetch_mal_manga_list(username).await {
         Ok(list) => {
             let count = list.len();
             Ok(Json(ApiResponse {

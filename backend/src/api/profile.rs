@@ -323,7 +323,7 @@ fn platform_data_warning(platform: &str, data: Option<&Value>) -> Option<String>
             let anime_empty = is_empty_array("anime_list");
             let manga_empty = is_empty_array("manga_list");
             (anime_empty && manga_empty).then(|| {
-                "MyAnimeList 列表为空。请确认用户名、Client ID 正确且列表设为公开。".to_string()
+                "MyAnimeList 列表为空。请确认用户名正确且动画/漫画列表设为公开。".to_string()
             })
         }
         "steam" => is_empty_array("games")
@@ -494,9 +494,9 @@ async fn fetch_fresh_platform_data(
         "discord" => config
             .discord_enabled
             .unwrap_or(config.discord_access_token.as_ref().is_some()),
-        "mal" => config.mal_enabled.unwrap_or(
-            config.mal_username.as_ref().is_some() && config.mal_client_id.as_ref().is_some(),
-        ),
+        "mal" => config
+            .mal_enabled
+            .unwrap_or(config.mal_username.as_ref().is_some()),
         "xbox" => {
             let has_gamertag = config
                 .xbox_gamertag
@@ -958,10 +958,15 @@ async fn fetch_fresh_platform_data(
         }
     }
 
-    // 获取 MyAnimeList 数据
+    // 获取 MyAnimeList 数据（公开 load.json，仅需用户名）
     if should_fetch("mal") && is_platform_enabled("mal") {
-        if let (Some(username), Some(client_id)) = (&config.mal_username, &config.mal_client_id) {
-            match fetcher.fetch_mal_profile_bundle(username, client_id).await {
+        if let Some(username) = config
+            .mal_username
+            .as_ref()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+        {
+            match fetcher.fetch_mal_profile_bundle(username).await {
                 Ok(bundle) => {
                     all_data["mal"] = bundle;
                     let anime_count = all_data["mal"]["anime_list"]
@@ -990,7 +995,7 @@ async fn fetch_fresh_platform_data(
                 }
             }
         } else {
-            tracing::warn!("MyAnimeList enabled but username or client_id missing");
+            tracing::warn!("MyAnimeList enabled but username missing");
         }
     }
 

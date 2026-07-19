@@ -11,7 +11,7 @@
 - **游戏**：从 Steam 平台获取（游玩时间 ≥ 3 小时的游戏）
 - **视频**：从 Bilibili 获取追番/追剧和收藏的视频
 - **Bangumi 收藏**：从 Bangumi 获取动画、书籍、游戏、音乐、三次元条目和评分状态
-- **MyAnimeList**：从 MyAnimeList 获取动画列表（anime）与漫画列表（book），含评分与追番进度
+- **MyAnimeList**：仅需用户名，从公开列表（load.json）获取动画（anime）与漫画（book），含评分与追番进度
 - **音乐**：从网易云音乐获取喜欢的歌曲
 
 ### 卡片设计
@@ -86,7 +86,7 @@ pub struct LibraryItem {
 
 ## 使用方法
 
-1. **配置平台**：在配置页面设置 Steam、Bilibili、Bangumi、MyAnimeList、网易云音乐的 API 凭证
+1. **配置平台**：在配置页面设置各平台账号（Steam/Bilibili/Bangumi 等 API 凭证；MyAnimeList 仅需用户名且列表需公开）
 2. **获取数据**：点击"灯泡"图标生成报告（会自动获取平台数据并存入数据库）
 3. **资料库显示管理**：在配置 → 模块设置中按分类勾选来源（动画/书籍默认包含 MyAnimeList）
 4. **访问资料库**：点击导航栏的资料库图标 📚

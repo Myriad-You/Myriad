@@ -1479,9 +1479,9 @@ pub async fn generate_all_reports(
         ),
         (
             "mal",
-            config.mal_enabled.unwrap_or(
-                config.mal_username.as_ref().is_some() && config.mal_client_id.as_ref().is_some(),
-            ),
+            config
+                .mal_enabled
+                .unwrap_or(config.mal_username.as_ref().is_some()),
         ),
         ("xbox", {
             let has_gamertag = config
