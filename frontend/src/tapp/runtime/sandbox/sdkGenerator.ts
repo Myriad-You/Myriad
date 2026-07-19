@@ -416,6 +416,8 @@ export function generateFullSDK(
       getRecent: (limit) => sendRequest('tappList', 'getRecent', [limit]),
       /** Build a direct-install package from an installed Tapp (for chat share). */
       getInstallPackage: (id, opts) => sendRequest('tappList', 'getInstallPackage', [id, opts]),
+      /** Resolve portable store catalog URL for a Tapp id (for peer store install). */
+      resolveStoreSource: (id) => sendRequest('tappList', 'resolveStoreSource', [id]),
       install: (req) => sendRequest('tappList', 'install', [req]),
       uninstall: (id) => sendRequest('tappList', 'uninstall', [id]),
       start: (id) => sendRequest('tappList', 'start', [id]),

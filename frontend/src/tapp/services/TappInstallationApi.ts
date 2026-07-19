@@ -253,14 +253,95 @@ export async function installTappFile(
 
 /**
  * 从远程应用商店安装 Tapp 的请求参数
+ *
+ * `source` is the **catalog URL or local store-source id**, NOT the install mode
+ * string `"store"`. Callers must never pass `"store"` / `"direct"` here.
  */
 export interface InstallFromStoreRequest {
-  /** 商店源 URL 或 ID */
+  /** 商店源 URL（跨实例优先）或本机 store source ID */
   source: string
   /** Tapp ID */
   tappId: string
   /** 授权的权限列表（可选，默认全部授权） */
   permissions?: string[]
+}
+
+/** Official Myriad catalog URL (portable across instances; never use local DB id). */
+export const OFFICIAL_TAPP_STORE_URL =
+  'https://raw.githubusercontent.com/Myriad-You/tapp-store/main/index.json'
+
+function isHttpStoreSource(value: string | undefined | null): boolean {
+  if (!value) return false
+  const v = value.trim().toLowerCase()
+  return v.startsWith('https://') || v.startsWith('http://')
+}
+
+function isInstallModePlaceholder(value: string | undefined | null): boolean {
+  if (!value) return true
+  const v = value.trim().toLowerCase()
+  return v === 'store' || v === 'direct' || v === ''
+}
+
+/**
+ * Normalize catalog URL for matching (strip trailing slash / index.json).
+ */
+export function normalizeStoreCatalogUrl(url: string): string {
+  return url
+    .trim()
+    .replace(/\/+$/, '')
+    .replace(/\/index\.json$/i, '')
+}
+
+/**
+ * Resolve which remote catalog contains `tappId`.
+ * Always returns a **URL** (portable across instances), never a local DB id.
+ */
+export async function resolveStoreSourceForTapp(tappId: string): Promise<{
+  storeSource: string
+  sourceName?: string
+  matchedApp: boolean
+}> {
+  const { default: RemoteStoreService, OFFICIAL_STORE } = await import(
+    './RemoteStoreService'
+  )
+  const sources = await RemoteStoreService.getEnabledSources()
+  const ordered = [...sources].sort((a, b) => {
+    if (a.official && !b.official) return -1
+    if (!a.official && b.official) return 1
+    return 0
+  })
+
+  for (const source of ordered) {
+    try {
+      const index = await RemoteStoreService.fetchStoreIndex(source)
+      if (index.apps?.some((app) => app.id === tappId)) {
+        // Prefer full index.json URL for peer install + backend lookup.
+        const url = source.url.includes('index.json')
+          ? source.url
+          : `${normalizeStoreCatalogUrl(source.url)}/index.json`
+        return {
+          storeSource: url,
+          sourceName: source.name,
+          matchedApp: true,
+        }
+      }
+    } catch (e) {
+      console.warn('[Tapp] resolveStoreSource: index fetch failed', source.url, e)
+    }
+  }
+
+  // Fallback: official catalog URL (peer can resolve if they have official source).
+  const fallback =
+    ordered.find((s) => s.official)?.url ||
+    OFFICIAL_STORE.url ||
+    OFFICIAL_TAPP_STORE_URL
+  return {
+    storeSource: fallback.includes('index.json')
+      ? fallback
+      : `${normalizeStoreCatalogUrl(fallback)}/index.json`,
+    sourceName: ordered.find((s) => s.official)?.name || 'Myriad Official',
+    matchedApp: false,
+  }
 }
 
 /**
@@ -270,12 +351,18 @@ export interface InstallFromStoreRequest {
  * 生产环境常见问题：backend 容器无法访问 raw.githubusercontent.com 等外网，
  * 会返回 502；此时回退为浏览器下载资源 + direct 安装（与商店列表同源）。
  *
- * @param request 安装请求
+ * @param request 安装请求 — `source` must be catalog URL/id, never `"store"`
  * @returns 安装后的 Tapp 信息
  */
 export async function installFromStore(
   request: InstallFromStoreRequest,
 ): Promise<TappListItem> {
+  if (isInstallModePlaceholder(request.source)) {
+    throw new Error(
+      'Invalid storeSource: expected catalog URL or store source id, not install mode "store"',
+    )
+  }
+
   try {
     return await apiRequest('/api/tapps/install', {
       method: 'POST',
@@ -288,8 +375,10 @@ export async function installFromStore(
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
+    // Also fall back when peer has no matching DB row for the shared catalog URL —
+    // browser can still download if the URL is public.
     const shouldFallback =
-      /502|BAD_GATEWAY|Failed to fetch store|cannot reach store|Failed to fetch manifest|Failed to fetch code|Failed to fetch|NetworkError|ECONNREFUSED|timeout|Load failed/i.test(
+      /502|BAD_GATEWAY|Failed to fetch store|cannot reach store|Failed to fetch manifest|Failed to fetch code|Failed to fetch|NetworkError|ECONNREFUSED|timeout|Load failed|Store source not found|not found/i.test(
         message,
       )
 
@@ -418,24 +507,45 @@ export async function buildInstallPackageFromInstalled(
 
 /**
  * 浏览器侧下载远程商店资源后，以 direct 模式安装
+ *
+ * Accepts catalog URL even when the peer has not added that source to their DB
+ * (share-install path). Never treats `"store"` as a source id.
  */
 async function installFromStoreViaClient(
   request: InstallFromStoreRequest,
 ): Promise<TappListItem> {
   const { default: RemoteStoreService } = await import('./RemoteStoreService')
 
+  if (isInstallModePlaceholder(request.source)) {
+    throw new Error(
+      'Invalid storeSource for client install: expected catalog URL',
+    )
+  }
+
   const sources = await RemoteStoreService.getSources()
-  const source =
-    sources.find(
-      (s) =>
-        String(s.id) === request.source ||
-        s.url === request.source ||
-        s.url.replace(/\/index\.json$/, '') ===
-          request.source.replace(/\/index\.json$/, ''),
-    ) || sources.find((s) => s.enabled)
+  const reqNorm = normalizeStoreCatalogUrl(request.source)
+  let source = sources.find(
+    (s) =>
+      String(s.id) === request.source ||
+      normalizeStoreCatalogUrl(s.url) === reqNorm,
+  )
+
+  // Shared catalog URL not in local sources — still fetch by absolute URL.
+  if (!source && isHttpStoreSource(request.source)) {
+    const url = request.source.includes('index.json')
+      ? request.source.trim()
+      : `${reqNorm}/index.json`
+    source = {
+      name: 'Shared catalog',
+      url,
+      enabled: true,
+    }
+  }
 
   if (!source) {
-    throw new Error('无法找到商店源，请检查商店配置')
+    throw new Error(
+      `Store source not configured on this instance: ${request.source}. Add this catalog in Tapp Store settings, or use the official Myriad store.`,
+    )
   }
 
   const index = await RemoteStoreService.fetchStoreIndex(source)

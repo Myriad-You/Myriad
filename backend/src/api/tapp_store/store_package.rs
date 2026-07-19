@@ -43,27 +43,72 @@ pub(super) fn validate_store_manifest_category(
     Ok(())
 }
 
+/// Normalize catalog URL for matching: strip trailing slash and optional `/index.json`.
+fn normalize_store_catalog_url(url: &str) -> String {
+    url.trim()
+        .trim_end_matches('/')
+        .trim_end_matches("/index.json")
+        .trim_end_matches('/')
+        .to_string()
+}
+
 pub(super) async fn fetch_from_store(
     db: &DatabaseConnection,
     store_source: &str,
     tapp_id: &str,
 ) -> Result<PreparedTappPackage, (StatusCode, Json<ApiResponse<()>>)> {
-    // 获取商店源信息
-    let source = tapp_store_sources::Entity::find()
-        .filter(
-            tapp_store_sources::Column::Url
-                .eq(store_source)
-                .or(tapp_store_sources::Column::Id.eq(store_source.parse::<i32>().unwrap_or(-1))),
-        )
-        .one(db)
-        .await
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                api_error("Database error"),
+    // Reject install-mode placeholders mistaken for catalog refs (Aro legacy bug).
+    let trimmed = store_source.trim();
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("store") || trimmed.eq_ignore_ascii_case("direct")
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            api_error(
+                "Invalid storeSource: expected catalog URL or store source id, not install mode",
+            ),
+        ));
+    }
+
+    // 获取商店源信息 — match by id, exact URL, or normalized base (with/without index.json).
+    let source = {
+        let by_id_or_exact = tapp_store_sources::Entity::find()
+            .filter(
+                tapp_store_sources::Column::Url
+                    .eq(trimmed)
+                    .or(tapp_store_sources::Column::Id.eq(trimmed.parse::<i32>().unwrap_or(-1))),
             )
-        })?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, api_error("Store source not found")))?;
+            .one(db)
+            .await
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    api_error("Database error"),
+                )
+            })?;
+
+        if let Some(s) = by_id_or_exact {
+            s
+        } else {
+            let want = normalize_store_catalog_url(trimmed);
+            let all = tapp_store_sources::Entity::find().all(db).await.map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    api_error("Database error"),
+                )
+            })?;
+            all.into_iter()
+                .find(|s| normalize_store_catalog_url(&s.url) == want)
+                .ok_or_else(|| {
+                    (
+                        StatusCode::NOT_FOUND,
+                        api_error(format!(
+                            "Store source not found for '{}'. Add this catalog URL in Tapp Store settings (official Myriad store is pre-seeded).",
+                            trimmed
+                        )),
+                    )
+                })?
+        }
+    };
 
     let base_url = source
         .url

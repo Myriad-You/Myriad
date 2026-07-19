@@ -1585,7 +1585,9 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "installingBtn": "Installing…",
     "installSuccess": "Installed",
     "tappDirectInstall": "Install package included in share",
+    "tappStoreInstall": "Will install from store catalog",
     "tappInstallNoPackage": "This shared Tapp is not in the store and no install package was attached. Ask the sender to re-share.",
+    "tappInstallNoStoreSource": "Share is missing store catalog URL. Ask the sender to re-share the Tapp from a current Aro build.",
     "invite": "Invite",
     "inviteBtn": "Invite",
     "invited": "Invited",
@@ -1844,7 +1846,9 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "installingBtn": "インストール中…",
     "installSuccess": "インストール完了",
     "tappDirectInstall": "共有にインストールパッケージが含まれています",
+    "tappStoreInstall": "ストアカタログからインストールします",
     "tappInstallNoPackage": "この Tapp はストアになく、インストールパッケージもありません。送信者に再共有を依頼してください。",
+    "tappInstallNoStoreSource": "共有にストアカタログ URL がありません。送信者に最新の Aro から再共有を依頼してください。",
     "invite": "招待",
     "inviteBtn": "招待",
     "invited": "招待済み",
@@ -2103,7 +2107,9 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "installingBtn": "安装中…",
     "installSuccess": "安装成功",
     "tappDirectInstall": "分享中已包含可安装包",
+    "tappStoreInstall": "将从商店目录安装",
     "tappInstallNoPackage": "该 Tapp 不在商店中，且分享未附带安装包。请让对方重新分享。",
+    "tappInstallNoStoreSource": "分享缺少商店目录 URL。请让对方用最新版 Aro 重新分享。",
     "invite": "邀请",
     "inviteBtn": "邀请",
     "invited": "已邀请",
@@ -3659,29 +3665,37 @@ function openTappPicker(icons, titles, iconColors) {
       tappVersion: selectedTapp.version || '',
       tappIcon: selectedTapp.iconSvg || selectedTapp.icon || ''
     };
-    // Prefetch direct-install package so peers can install custom/example tapps
-    // that are not in the remote store (size-capped for channel/room payload).
+    // P0: resolve portable store catalog URL so peer installFromStore works.
+    // (InstallFromStoreRequest.source is catalog URL/id — NEVER the mode "store".)
+    // Optional: direct package for offline/custom as secondary path.
     var finish = function () {
       setPendingAttach(pending);
       dismissPickerOverlay(overlay);
     };
-    if (typeof Tapp.tappList !== 'undefined' && typeof Tapp.tappList.getInstallPackage === 'function') {
-      Tapp.tappList.getInstallPackage(selectedTapp.id, { maxBytes: 8 * 1024 * 1024 })
-        .then(function (pkgRes) {
-          if (pkgRes && pkgRes.package) {
-            pending.installPackage = pkgRes.package;
-          } else if (pkgRes && pkgRes.reason) {
-            pending.installPackageOmitted = pkgRes.reason;
+    var resolveStore = (typeof Tapp.tappList !== 'undefined' && typeof Tapp.tappList.resolveStoreSource === 'function')
+      ? Tapp.tappList.resolveStoreSource(selectedTapp.id).then(function (res) {
+          if (res && res.storeSource) {
+            pending.storeSource = res.storeSource;
+            pending.storeSourceMatched = !!res.matchedApp;
           }
-          finish();
+        }).catch(function (e) {
+          console.warn('[Aro] resolveStoreSource failed', e);
         })
-        .catch(function (e) {
-          console.warn('[Aro] getInstallPackage failed; share will be metadata-only', e);
-          finish();
-        });
-    } else {
-      finish();
-    }
+      : Promise.resolve();
+    var resolvePkg = (typeof Tapp.tappList !== 'undefined' && typeof Tapp.tappList.getInstallPackage === 'function')
+      ? Tapp.tappList.getInstallPackage(selectedTapp.id, { maxBytes: 8 * 1024 * 1024 })
+          .then(function (pkgRes) {
+            if (pkgRes && pkgRes.package) {
+              pending.installPackage = pkgRes.package;
+            } else if (pkgRes && pkgRes.reason) {
+              pending.installPackageOmitted = pkgRes.reason;
+            }
+          })
+          .catch(function (e) {
+            console.warn('[Aro] getInstallPackage failed; store-only share', e);
+          })
+      : Promise.resolve();
+    Promise.all([resolveStore, resolvePkg]).then(finish).catch(finish);
   });
 }
 
@@ -4859,6 +4873,7 @@ function renderMessages(opts) {
         + (payload.tapp_id ? ' data-tapp-id="' + esc(payload.tapp_id) + '"' : '')
         + (payload.tapp_version ? ' data-tapp-version="' + esc(payload.tapp_version) + '"' : '')
         + (payload.tapp_name ? ' data-tapp-name="' + esc(payload.tapp_name) + '"' : '')
+        + ((payload.store_source || payload.storeSource) ? ' data-store-source="' + esc(payload.store_source || payload.storeSource) + '"' : '')
         + (payload.brew_id ? ' data-brew-id="' + esc(String(payload.brew_id)) + '"' : '')
         + (payload.brew_link ? ' data-brew-link="' + esc(payload.brew_link) + '"' : '')
         + (payload.platform_id ? ' data-platform-id="' + esc(payload.platform_id) + '"' : '')
@@ -5028,6 +5043,8 @@ function openTappDetail(tappId, card) {
   var remoteName = (card.querySelector('.msg-share-title') || {}).textContent || card.dataset.tappName || tappId;
   var remoteDesc = (card.querySelector('.msg-share-desc') || {}).textContent || '';
   var remoteVersion = card.dataset.tappVersion || '';
+  // P0: catalog URL for store install (portable across instances).
+  var storeSource = (card && card.dataset.storeSource) || '';
   // Peer install package lives on the message payload (not data-attrs — too large).
   var installPackage = null;
   var installOmitted = '';
@@ -5036,6 +5053,9 @@ function openTappDetail(tappId, card) {
     if (m && m.payload) {
       installPackage = m.payload.install_package || m.payload.installPackage || null;
       installOmitted = m.payload.install_package_omitted || m.payload.installPackageOmitted || '';
+      if (!storeSource) {
+        storeSource = m.payload.store_source || m.payload.storeSource || '';
+      }
     }
   }
 
@@ -5048,18 +5068,26 @@ function openTappDetail(tappId, card) {
     var installed = local && local.status && local.status !== 'uninstalled';
     var localVer = installed ? (local.version || '') : '';
     var needsUpdate = installed && remoteVersion && localVer && localVer !== remoteVersion;
-    renderTappDetailView(body, tappId, remoteName, remoteDesc, remoteVersion, installed, localVer, needsUpdate, installPackage, installOmitted);
+    renderTappDetailView(body, tappId, remoteName, remoteDesc, remoteVersion, installed, localVer, needsUpdate, installPackage, installOmitted, storeSource);
   }).catch(function () {
     // Can't determine local status — assume not installed
-    renderTappDetailView(body, tappId, remoteName, remoteDesc, remoteVersion, false, '', false, installPackage, installOmitted);
+    renderTappDetailView(body, tappId, remoteName, remoteDesc, remoteVersion, false, '', false, installPackage, installOmitted, storeSource);
   });
 }
 
-function renderTappDetailView(body, tappId, name, desc, remoteVer, installed, localVer, needsUpdate, installPackage, installOmitted) {
+function isValidStoreSourceRef(ref) {
+  if (!ref || typeof ref !== 'string') return false;
+  var s = ref.trim().toLowerCase();
+  if (!s || s === 'store' || s === 'direct') return false;
+  return true;
+}
+
+function renderTappDetailView(body, tappId, name, desc, remoteVer, installed, localVer, needsUpdate, installPackage, installOmitted, storeSource) {
   var statusColor = installed ? (needsUpdate ? '#f59e0b' : '#22c55e') : '#ef4444';
   var statusText = installed ? (needsUpdate ? lang.tappUpdateAvail : lang.tappInstalled) : lang.tappNotInstalled;
   var statusIcon = installed ? (needsUpdate ? '⚠️' : '✅') : '❌';
   var hasDirectPkg = !!(installPackage && installPackage.manifest && installPackage.code);
+  var hasStoreSource = isValidStoreSourceRef(storeSource);
 
   var html = '<div style="padding:16px;display:flex;flex-direction:column;gap:14px">'
     + '<div style="font-size:18px;font-weight:700">' + esc(name) + '</div>'
@@ -5078,7 +5106,9 @@ function renderTappDetailView(body, tappId, name, desc, remoteVer, installed, lo
   if (localVer) {
     html += '<div style="font-size:12px;color:var(--text-secondary,#888)">' + esc(lang.localVer) + ': v' + esc(localVer) + '</div>';
   }
-  if (!installed && hasDirectPkg) {
+  if (!installed && hasStoreSource) {
+    html += '<div style="font-size:11px;color:var(--text-secondary,#888)">' + esc(lang.tappStoreInstall || 'Will install from store catalog') + '</div>';
+  } else if (!installed && hasDirectPkg) {
     html += '<div style="font-size:11px;color:var(--text-secondary,#888)">' + esc(lang.tappDirectInstall || 'Install package included in share') + '</div>';
   } else if (!installed && installOmitted) {
     html += '<div style="font-size:11px;color:#f59e0b">' + esc(installOmitted) + '</div>';
@@ -5099,7 +5129,7 @@ function renderTappDetailView(body, tappId, name, desc, remoteVer, installed, lo
   html += '</div>';
   body.innerHTML = html;
 
-  // Bind install/update button — prefer direct package from share; store only as fallback.
+  // Bind install/update — P0 store path with real storeSource; direct package as fallback.
   var actionBtn = body.querySelector('.tapp-action-btn');
   var errEl = body.querySelector('.tapp-install-error');
   if (actionBtn) {
@@ -5110,8 +5140,15 @@ function renderTappDetailView(body, tappId, name, desc, remoteVer, installed, lo
       actionBtn.style.opacity = '0.7';
       if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
 
-      var installReq;
-      if (hasDirectPkg) {
+      var installReq = null;
+      // Store apps between instances: installFromStore with catalog URL.
+      if (hasStoreSource) {
+        installReq = {
+          source: 'store',
+          storeSource: storeSource.trim(),
+          tappId: tappId
+        };
+      } else if (hasDirectPkg) {
         installReq = {
           source: 'direct',
           manifest: installPackage.manifest,
@@ -5126,9 +5163,19 @@ function renderTappDetailView(body, tappId, name, desc, remoteVer, installed, lo
           assets: installPackage.assets,
           permissions: installPackage.permissions
         };
-      } else {
-        // Store fallback only when we have a real catalog source (rare for chat shares).
-        installReq = { source: 'store', tappId: tappId };
+      }
+
+      if (!installReq) {
+        actionBtn.textContent = lang.installFailed;
+        actionBtn.style.background = '#ef4444';
+        actionBtn.style.opacity = '1';
+        actionBtn.disabled = false;
+        if (errEl) {
+          errEl.style.display = 'block';
+          errEl.textContent = lang.tappInstallNoStoreSource ||
+            'Share is missing store catalog URL. Ask the sender to re-share the Tapp from a current Aro build.';
+        }
+        return;
       }
 
       Tapp.tappList.install(installReq).then(function () {
@@ -5138,10 +5185,35 @@ function renderTappDetailView(body, tappId, name, desc, remoteVer, installed, lo
         actionBtn.removeEventListener('click', handleInstallClick);
       }).catch(function (err) {
         var msg = (err && err.message) ? String(err.message) : (lang.installFailed || 'Install failed');
-        // Clear store-only failure for non-store shares.
-        if (!hasDirectPkg) {
-          msg = lang.tappInstallNoPackage ||
-            'This shared Tapp is not in the store and no install package was attached. Ask the sender to re-share.';
+        // If store path failed and we have a direct package, offer one automatic retry.
+        if (hasStoreSource && hasDirectPkg && installReq.source === 'store') {
+          var directReq = {
+            source: 'direct',
+            manifest: installPackage.manifest,
+            code: installPackage.code,
+            styles: installPackage.styles,
+            pageTemplate: installPackage.pageTemplate,
+            widgetTemplates: installPackage.widgetTemplates,
+            widgetCss: installPackage.widgetCss,
+            pageCss: installPackage.pageCss,
+            i18n: installPackage.i18n,
+            pageModules: installPackage.pageModules,
+            assets: installPackage.assets,
+            permissions: installPackage.permissions
+          };
+          return Tapp.tappList.install(directReq).then(function () {
+            actionBtn.textContent = lang.installSuccess;
+            actionBtn.style.background = '#22c55e';
+            actionBtn.style.opacity = '1';
+            actionBtn.removeEventListener('click', handleInstallClick);
+          }).catch(function (err2) {
+            var msg2 = (err2 && err2.message) ? String(err2.message) : msg;
+            actionBtn.textContent = lang.installFailed;
+            actionBtn.style.background = '#ef4444';
+            actionBtn.style.opacity = '1';
+            actionBtn.disabled = false;
+            if (errEl) { errEl.style.display = 'block'; errEl.textContent = msg2; }
+          });
         }
         actionBtn.textContent = lang.installFailed;
         actionBtn.style.background = '#ef4444';
@@ -5694,7 +5766,9 @@ async function doSend() {
       if (attach.tappVersion) msgPayload.tapp_version = attach.tappVersion;
       if (attach.tappIcon) msgPayload.tapp_icon = attach.tappIcon;
       if (attach.name && attach.type === 'tapp') msgPayload.tapp_name = attach.name;
-      // Direct-install package for peer (custom / example / non-store tapps)
+      // P0 store install: portable catalog URL (never local DB id / mode "store")
+      if (attach.storeSource) msgPayload.store_source = attach.storeSource;
+      // Direct-install package fallback for offline/custom (optional)
       if (attach.installPackage) msgPayload.install_package = attach.installPackage;
       if (attach.installPackageOmitted) msgPayload.install_package_omitted = attach.installPackageOmitted;
       if (attach.brewId) msgPayload.brew_id = attach.brewId;

@@ -124,6 +124,7 @@ export const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> =
     ['tappList.get', 'tappList:read'],
     ['tappList.getRecent', 'tappList:read'],
     ['tappList.getInstallPackage', 'tappList:read'],
+    ['tappList.resolveStoreSource', 'tappList:read'],
     ['tappList.install', 'tappList:manage'],
     ['tappList.uninstall', 'tappList:manage'],
     ['tappList.start', 'tappList:manage'],

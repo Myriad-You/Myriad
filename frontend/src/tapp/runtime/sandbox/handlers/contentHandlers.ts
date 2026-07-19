@@ -87,7 +87,12 @@ export function registerTappListHandlers(
     }
   })
 
-  // 安装 Tapp — source: 'store' | 'direct' (peer share / custom / example)
+  // 安装 Tapp — source: 'store' | 'direct'
+  //
+  // InstallFromStoreRequest.source means **catalog URL/id**, not mode.
+  // Correct store install shape:
+  //   { source: 'store', storeSource: 'https://…/index.json', tappId }
+  // Never pass mode string "store" as storeSource.
   bridge.registerHandler('tappList.install', async (message) => {
     const [request] = getArgs(message) as [
       {
@@ -108,8 +113,17 @@ export function registerTappListHandlers(
       },
     ]
     try {
-      const source = (request?.source || '').toLowerCase()
-      if (source === 'direct') {
+      const rawSource = (request?.source || '').trim()
+      const sourceLower = rawSource.toLowerCase()
+      const isHttp =
+        sourceLower.startsWith('https://') || sourceLower.startsWith('http://')
+      const storeSourceCandidate = (
+        request?.storeSource ||
+        (isHttp ? rawSource : '') ||
+        ''
+      ).trim()
+
+      if (sourceLower === 'direct') {
         if (!request?.manifest || typeof request.code !== 'string') {
           return {
             success: false,
@@ -138,27 +152,32 @@ export function registerTappListHandlers(
         }
       }
 
-      if (source === 'store') {
-        const storeSource = request.storeSource || request.source
+      // Store path: mode "store", or legacy where source itself is the catalog URL/id.
+      const isStoreMode =
+        sourceLower === 'store' ||
+        isHttp ||
+        (!!storeSourceCandidate && sourceLower !== 'direct')
+
+      if (isStoreMode) {
         const tappId = request.tappId
         if (!tappId) {
           return { success: false, error: 'tappId is required for store install' }
         }
-        // Aro historically passed { source: 'store', tappId } without a real
-        // catalog URL — that cannot resolve. Require a non-placeholder source.
+        // Prefer explicit storeSource; then HTTP source; never use mode "store".
+        let catalogRef = storeSourceCandidate
         if (
-          !storeSource ||
-          storeSource === 'store' ||
-          storeSource === 'direct'
+          !catalogRef ||
+          catalogRef.toLowerCase() === 'store' ||
+          catalogRef.toLowerCase() === 'direct'
         ) {
           return {
             success: false,
             error:
-              'This Tapp is not in the app store. Open the share again with an install package, or install from the store catalog.',
+              'storeSource (catalog URL) is required for store install. Re-share the Tapp from Aro so the catalog URL is included.',
           }
         }
         const result = await TappApiService.installFromStore({
-          source: storeSource,
+          source: catalogRef,
           tappId,
           permissions: request.permissions,
         })
@@ -170,8 +189,22 @@ export function registerTappListHandlers(
 
       return {
         success: false,
-        error: "Invalid source, must be 'direct' or 'store'",
+        error: "Invalid source, must be 'direct' or 'store' (with storeSource)",
       }
+    } catch (error) {
+      return fail(error)
+    }
+  })
+
+  // Resolve portable catalog URL for an installed/store Tapp (for chat share).
+  bridge.registerHandler('tappList.resolveStoreSource', async (message) => {
+    const [tappId] = getArgs(message) as [string]
+    if (!tappId || typeof tappId !== 'string') {
+      return { success: false, error: 'tappId is required' }
+    }
+    try {
+      const result = await TappApiService.resolveStoreSourceForTapp(tappId)
+      return { success: true, data: result }
     } catch (error) {
       return fail(error)
     }
