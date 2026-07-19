@@ -2285,14 +2285,14 @@ function updateSendState() {
   if (input) {
     input.disabled = closed || !state.activeId;
     input.setAttribute('aria-disabled', input.disabled ? 'true' : 'false');
-    if (closed) input.placeholder = lang.composerClosed || lang.closed || lang.typing || '';
+    if (closed) input.placeholder = lang.closedComposer || lang.composerClosed || lang.closed || lang.typing || '';
     else if (lang.typing) input.placeholder = lang.typing;
   }
   if (attach) {
     attach.disabled = blocked;
     attach.setAttribute('aria-disabled', blocked ? 'true' : 'false');
     attach.title = closed
-      ? (lang.composerClosed || lang.closed || lang.attach)
+      ? (lang.closedComposer || lang.composerClosed || lang.closed || lang.attach)
       : (lang.attach || '');
   }
 
@@ -2303,7 +2303,7 @@ function updateSendState() {
   btn.classList.toggle('send-ready', ready);
   btn.setAttribute('aria-label', lang.send || 'Send');
   btn.title = closed
-    ? (lang.composerClosed || lang.closed || lang.send)
+    ? (lang.closedComposer || lang.composerClosed || lang.closed || lang.send)
     : (lang.send || 'Send');
 }
 function autoResizeInput(el) {
@@ -3868,7 +3868,7 @@ function renderPinnedBar() {
     + '<span class="pinned-bar-label">' + esc(lang.pinnedMsg) + (pinned.length > 1 ? ' (' + pinned.length + ')' : '') + '</span>'
     + '<span class="pinned-bar-text">' + esc(text) + '</span>'
     + '</div>'
-    + '<button class="pinned-bar-close" id="pinned-bar-close" aria-label="' + esc(lang.close || 'Close') + '">&times;</button>';
+    + '<button type="button" class="pinned-bar-close" id="pinned-bar-close" title="' + esc(lang.dismiss || 'Dismiss') + '" aria-label="' + esc(lang.dismiss || 'Dismiss') + '">&times;</button>';
   var closeBtn = $('pinned-bar-close');
   if (closeBtn) closeBtn.addEventListener('click', function (e) {
     e.stopPropagation();
@@ -4229,8 +4229,12 @@ function renderMessages(opts) {
         msgType = 'brew';
       } else if (payload.report_id) {
         msgType = 'report';
+      } else if (payload.platform_id && payload.item_id) {
+        msgType = 'library';
       } else if (payload.data && payload.mime_type && payload.mime_type.indexOf('image/') === 0) {
         msgType = 'image';
+      } else if (payload.transfer_id && payload.filename) {
+        msgType = 'file-meta';
       } else if (payload.data && payload.filename) {
         msgType = 'file';
       }
@@ -4308,14 +4312,24 @@ function renderMessages(opts) {
     if (msgType === 'image' && payload.data) {
       html += '<img class="msg-image" src="' + esc(payload.data) + '" alt="' + esc(payload.filename || '') + '" />';
       if (payload.text) html += '<div class="msg-text">' + esc(payload.text) + '</div>';
-    } else if (msgType === 'file') {
+    } else if (msgType === 'file' || msgType === 'file-meta') {
       var ext = (payload.filename || '').split('.').pop().toUpperCase();
-      html += '<button type="button" class="msg-file-card" data-file-idx="' + idx + '" title="' + esc(lang.downloadFile || payload.filename || 'File') + '">'
-        + '<div class="msg-file-icon">' + SVG_ICONS.file + '</div>'
+      var hasInline = !!(payload.data);
+      var fileTitle = hasInline
+        ? (lang.downloadFile || payload.filename || 'File')
+        : (payload.filename || lang.previewFile || 'File');
+      // Inline data → downloadable button; file-meta (chunked transfer) → static card for now
+      if (hasInline) {
+        html += '<button type="button" class="msg-file-card" data-file-idx="' + idx + '" data-has-inline="1" title="' + esc(fileTitle) + '">';
+      } else {
+        html += '<div class="msg-file-card" data-file-idx="' + idx + '" title="' + esc(fileTitle) + '">';
+      }
+      html += '<div class="msg-file-icon">' + SVG_ICONS.file + '</div>'
         + '<div class="msg-file-info">'
         + '<div class="msg-file-name">' + esc(payload.filename || 'file') + '</div>'
         + '<div class="msg-file-size">' + (payload.size ? formatFileSize(payload.size) : ext) + '</div>'
-        + '</div></button>';
+        + '</div>'
+        + (hasInline ? '</button>' : '</div>');
       if (payload.text) html += '<div class="msg-text">' + esc(payload.text) + '</div>';
     } else if (msgType === 'tapp' || msgType === 'brew' || msgType === 'library' || msgType === 'report') {
       var shareIcons = { tapp: SVG_ICONS.tapp, brew: SVG_ICONS.brew, library: SVG_ICONS.library, report: SVG_ICONS.report };
@@ -4438,8 +4452,8 @@ function renderMessages(opts) {
       renderMessages();
     });
   });
-  // File card → download when payload includes data URL
-  container.querySelectorAll('.msg-file-card[data-file-idx]').forEach(function (card) {
+  // File card → download only when inline data is present (not file-meta transfer stubs)
+  container.querySelectorAll('.msg-file-card[data-has-inline]').forEach(function (card) {
     card.addEventListener('click', function (e) {
       e.stopPropagation();
       var idx = parseInt(card.dataset.fileIdx, 10);
@@ -5539,7 +5553,7 @@ function renderInvitePopoverContacts() {
       + '<div class="invite-pop-contact-name">' + esc(c.name) + '</div>'
       + '<div class="invite-pop-contact-url">' + esc(shortUrl) + '</div>'
       + '</div>'
-      + (c.alreadyMember ? '<span class="invite-pop-contact-added">' + esc(lang.members) + '</span>' : '')
+      + (c.alreadyMember ? '<span class="invite-pop-contact-added">' + esc(lang.invited || lang.members) + '</span>' : '')
       + '</button>';
   });
   listEl.innerHTML = html;
