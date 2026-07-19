@@ -6,7 +6,7 @@
  * are unit-tested so field-mapping regressions surface as test failures.
  */
 
-export type WidgetConfigLike = {
+export interface WidgetConfigLike {
   type?: string
   config?: {
     platformId?: unknown
