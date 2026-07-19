@@ -877,6 +877,8 @@ const MOCK_ROOM_MESSAGES: Record<string, RoomMessageItem[]> = {
       message_id: 'msg-rm4-003',
       sender_actor: 'https://myriad.local/users/me',
       message_type: 'report',
+      // Snapshot fields (Aro contract): report_id, summary, platform, content_preview
+      // Recipients render from these — getReport is user-scoped and unavailable.
       payload: {
         title: '2026年冬季番剧观看报告',
         description: '追番 12 部，完成 8 部，平均评分 7.8',

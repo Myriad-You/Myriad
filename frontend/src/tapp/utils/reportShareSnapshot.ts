@@ -6,8 +6,17 @@
  * can render without user-scoped getReport.
  *
  * Aro embeds a mirrored copy in its page modules (sandbox cannot import this file).
+ * Federation Article (content.rs) emits the same snake_case names plus mfp:* aliases.
  * Keep both in sync when changing field names or extraction rules.
  */
+
+/** Stable Aro/federation report-share snapshot field names (order fixed for docs/tests). */
+export const REPORT_SHARE_SNAPSHOT_FIELDS = [
+  'report_id',
+  'summary',
+  'platform',
+  'content_preview',
+] as const
 
 export interface ReportShareSnapshot {
   report_id: string
