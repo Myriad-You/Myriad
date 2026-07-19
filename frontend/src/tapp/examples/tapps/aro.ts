@@ -510,8 +510,8 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .feed-profile-mobile{display:none;margin:10px 16px 0;flex-shrink:0}
 .feed-mobile-stats{display:none;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:8px 16px 0;flex-shrink:0}
 .feed-mobile-stat{min-width:0;display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 10px;border-radius:10px;background:rgba(128,128,128,.04);color:var(--text-secondary,#536471);font-size:11px}
-/* Feed Main — fills remaining width beside sidebar (no fake third column) */
-.feed-main{flex:1;min-width:0;display:flex;flex-direction:column;overflow-y:auto;position:relative}
+/* Feed Main — sidebar + main only; main fills remaining width (no max-width / no fake border column) */
+.feed-main{flex:1;min-width:0;width:100%;display:flex;flex-direction:column;overflow-y:auto;position:relative}
 /* Feed header */
 .feed-main-header{min-height:56px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px;border-bottom:1px solid rgba(128,128,128,.06);flex-shrink:0;background:rgba(255,255,255,.45);backdrop-filter:blur(12px);position:relative;z-index:5;overflow:visible}
 .feed-header-leading{display:flex;align-items:center;gap:10px;min-width:0;flex:1}
@@ -581,15 +581,15 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 /* Follow dialog form (reuses create-dialog shell) */
 .feed-follow-input,.create-form #feed-follow-input{width:100%}
 #feed-follow-btn:disabled{opacity:.5;cursor:not-allowed}
-/* Feed content / empty — stream may cap width; main column still fills rest */
-.feed-content{flex:1;min-height:0;width:100%;max-width:760px}
-.feed-empty{min-height:280px;padding:56px 24px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--text-secondary,#536471);font-size:13px;line-height:1.5;width:100%;max-width:760px;box-sizing:border-box}
+/* Feed content / empty — fill main column (no second dead strip from stream max-width) */
+.feed-content{flex:1;min-height:0;width:100%}
+.feed-empty{min-height:280px;padding:56px 24px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--text-secondary,#536471);font-size:13px;line-height:1.5;width:100%;box-sizing:border-box}
 .feed-main.feed-empty-visible .feed-content{display:none}
 .feed-main.feed-empty-visible .feed-empty{flex:1;min-height:0}
 .aro-empty-mark{width:52px;height:52px;border-radius:16px;background:rgba(128,128,128,.06);color:var(--text-secondary,#536471);display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .aro-empty-mark svg{width:24px;height:24px}
-.feed-empty-title{font-size:15px;font-weight:700;color:var(--text-primary,#0f1419);letter-spacing:-.01em}
-#feed-empty-text{max-width:320px}
+.feed-empty-title{display:block;font-size:15px;font-weight:700;color:var(--text-primary,#0f1419);letter-spacing:-.01em}
+#feed-empty-text{display:block;max-width:360px}
 .feed-empty-error .aro-empty-mark{background:rgba(239,68,68,.08);color:#ef4444}
 .feed-empty-error #feed-empty-text{color:#b91c1c}
 .feed-empty-retry{margin-top:6px;padding:8px 18px;border:none;border-radius:999px;background:var(--tapp-primary,#6366f1);color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;display:none}
@@ -671,7 +671,6 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
   .feed-mobile-tabs{display:flex}
   .feed-profile-mobile{display:flex}
   .feed-mobile-stats{display:grid}
-  .feed-content,.feed-empty{max-width:none}
 }
 
 /* ===== Layout ===== */
@@ -5535,10 +5534,17 @@ function getFeedTitle(sub) {
 }
 
 function getFeedHint(sub) {
-  if (sub === 'following') return lang.feedHintFollowing || '';
-  if (sub === 'followers') return lang.feedHintFollowers || '';
-  if (sub === 'published') return lang.feedHintPublished || '';
-  return lang.feedHintTimeline || '';
+  // Prefer feedHint*; accept feedMeta* aliases (plus-menu branch) so meta never blanks
+  if (sub === 'following') {
+    return lang.feedHintFollowing || lang.feedMetaFollowing || lang.feedFollowing || 'Accounts you follow';
+  }
+  if (sub === 'followers') {
+    return lang.feedHintFollowers || lang.feedMetaFollowers || lang.feedFollowers || 'People who follow you';
+  }
+  if (sub === 'published') {
+    return lang.feedHintPublished || lang.feedMetaPublished || lang.feedPublished || "What you've shared";
+  }
+  return lang.feedHintTimeline || lang.feedMetaTimeline || lang.feedTimeline || 'Updates from people you follow';
 }
 
 function updateFeedHeader() {
@@ -5547,12 +5553,14 @@ function updateFeedHeader() {
   var sub = state.feedSubTab;
   if (title) title.textContent = getFeedTitle(sub);
   if (!meta) return;
-  // Always set a subtitle: item count when loaded with data, else helper text for the tab
+  // Always set subtitle (never leave blank): helper text, and append count when loaded with items
   var items = getFeedItems(sub) || [];
+  var hint = getFeedHint(sub);
   if (state.feedLoaded[sub] && items.length > 0) {
-    meta.textContent = items.length + ' ' + (lang.feedItems || '项');
+    var countText = items.length + ' ' + (lang.feedItems || '项');
+    meta.textContent = hint ? (hint + ' · ' + countText) : countText;
   } else {
-    meta.textContent = getFeedHint(sub) || '';
+    meta.textContent = hint;
   }
 }
 
@@ -5585,18 +5593,23 @@ function showFeedEmpty(message, kind) {
   empty.style.display = '';
   empty.classList.toggle('feed-empty-error', kind === 'error');
   empty.classList.toggle('feed-empty-loading', kind === 'loading');
-  // Always show title + body for empty/error (title was previously hidden for normal empty)
+  // Always show title + body (never hide title for normal empty)
   var title = $('feed-empty-title');
   if (title) {
-    title.style.display = '';
+    title.style.display = 'block';
+    title.hidden = false;
     if (kind === 'error') {
       title.textContent = lang.feedLoadFail || lang.disconnected || 'Load failed';
     } else {
-      title.textContent = getFeedEmptyTitle(state.feedSubTab);
+      title.textContent = getFeedEmptyTitle(state.feedSubTab) || getFeedTitle(state.feedSubTab);
     }
   }
   var text = $('feed-empty-text');
-  if (text) text.textContent = message;
+  if (text) {
+    text.style.display = 'block';
+    text.hidden = false;
+    text.textContent = message || getFeedEmptyText(state.feedSubTab);
+  }
   var retry = $('feed-empty-retry');
   if (retry) {
     retry.textContent = lang.feedRetry || 'Try again';
