@@ -4021,6 +4021,23 @@ const DiscordWidget = memo(({ data, showOverview, onContentChange }: any) => {
   const iconWall = useMemo(() => guilds.slice(0, 7), [guilds])
   // 详情轮播只取前 8 个代表服务器
   const flipItems = useMemo(() => guilds.slice(0, 8), [guilds])
+  // AI / 兜底锐评：按 id 或 name 映射到轮播项
+  const guildTakeByKey = useMemo(() => {
+    const map = new Map<string, string>()
+    const raw = Array.isArray(data?.guild_takes) ? data.guild_takes : []
+    for (const entry of raw) {
+      if (!entry || typeof entry !== 'object') continue
+      const take = String((entry as any).take || '').trim()
+      if (!take) continue
+      const id = (entry as any).id
+      if (id != null && String(id)) map.set(`id:${String(id)}`, take)
+      const name = (entry as any).name
+      if (name != null && String(name)) {
+        map.set(`name:${String(name).toLowerCase()}`, take)
+      }
+    }
+    return map
+  }, [data?.guild_takes])
 
   const [slideIndex, setSlideIndex] = useState(0)
   useEffect(() => {
@@ -4111,7 +4128,7 @@ const DiscordWidget = memo(({ data, showOverview, onContentChange }: any) => {
         )}
         {/* 前景 */}
         <div className="relative z-10 h-full flex flex-col p-3 pb-9">
-          {/* header：账号头像 + 名称 + 徽章 */}
+          {/* header：头像相对「标题 + 固定第二行槽」整体垂直居中，轮播切换不跳动 */}
           <motion.div
             className="flex items-center gap-2 min-w-0 max-w-[72%]"
             initial={{ y: 8, opacity: 0 }}
@@ -4122,28 +4139,33 @@ const DiscordWidget = memo(({ data, showOverview, onContentChange }: any) => {
               <img
                 src={profile.avatar_url}
                 alt={displayName}
-                className="w-8 h-8 rounded-full object-cover ring-2 ring-white/80 dark:ring-black/50 shadow-sm shrink-0"
+                className="w-8 h-8 rounded-full object-cover ring-2 ring-white/80 dark:ring-black/50 shadow-sm shrink-0 self-center"
                 loading="lazy"
                 referrerPolicy="no-referrer"
               />
             ) : (
               <div
-                className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0 ring-2 ring-white/80 dark:ring-black/50"
+                className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0 ring-2 ring-white/80 dark:ring-black/50 self-center"
                 style={{ background: DISCORD_BLURPLE }}
               >
                 {Array.from(String(displayName).trim())[0] || '#'}
               </div>
             )}
-            <div className="min-w-0">
-              <div className="text-[11px] font-bold text-gray-900 dark:text-gray-100 leading-tight truncate">
+            {/* 稳定两行高度：标题 15px + 第二行槽 15px；无第二行时仅标题，仍与头像 items-center */}
+            <div
+              className={`min-w-0 flex flex-col justify-center ${
+                headerSlides > 0 ? 'min-h-8' : ''
+              }`}
+            >
+              <div className="h-[15px] text-[11px] font-bold text-gray-900 dark:text-gray-100 leading-[15px] truncate">
                 {displayName}
               </div>
               {headerSlides > 0 && (
-                <div className="relative h-[15px] overflow-hidden">
+                <div className="relative h-[15px] shrink-0 overflow-hidden">
                   <AnimatePresence mode="wait" initial={false}>
                     <motion.div
                       key={headerIdx % headerSlides}
-                      className="flex items-center gap-1 min-w-0"
+                      className="flex h-full items-center gap-1 min-w-0"
                       initial={{ y: 8, opacity: 0 }}
                       animate={{ y: 0, opacity: 1 }}
                       exit={{ y: -8, opacity: 0 }}
@@ -4246,6 +4268,14 @@ const DiscordWidget = memo(({ data, showOverview, onContentChange }: any) => {
   }
   const badge = discordGuildBadge(item, t)
   const guildName = String(item.name || item.title || '')
+  const guildTake =
+    (item.id != null && guildTakeByKey.get(`id:${String(item.id)}`)) ||
+    (guildName
+      ? guildTakeByKey.get(`name:${guildName.toLowerCase()}`)
+      : undefined) ||
+    ''
+  // 大标题：锐评优先；无锐评时降级为 muted 服务器名，避免空白
+  const detailHeadline = guildTake || guildName || '—'
 
   return (
     <AnimatePresence mode="wait">
@@ -4268,7 +4298,7 @@ const DiscordWidget = memo(({ data, showOverview, onContentChange }: any) => {
             <DiscordGuildIcon icon={item.icon} name={guildName} size={96} />
           </div>
         </motion.div>
-        {/* 前景：角色徽章 + 规模，整块垂直居中与右侧图标平衡 */}
+        {/* 前景：角色徽章 + 锐评 + 规模；左下药丸仍为服务器名 */}
         <div className="relative z-10 h-full p-3 pb-12 flex flex-col justify-center">
           {badge && (
             <motion.span
@@ -4287,8 +4317,14 @@ const DiscordWidget = memo(({ data, showOverview, onContentChange }: any) => {
             animate={{ y: 0, opacity: 1 }}
             transition={{ duration: 0.4, delay: 0.15 }}
           >
-            <span className="block text-base font-black text-gray-900 dark:text-gray-100 leading-tight line-clamp-2">
-              {guildName}
+            <span
+              className={`block text-base font-black leading-tight line-clamp-2 ${
+                guildTake
+                  ? 'text-gray-900 dark:text-gray-100'
+                  : 'text-gray-500 dark:text-gray-400'
+              }`}
+            >
+              {detailHeadline}
             </span>
           </motion.div>
           {Number(item.member_count) > 0 && (

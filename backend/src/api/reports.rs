@@ -589,6 +589,9 @@ async fn generate_platform_reports_internal(
                             tags.truncate(4);
                         }
 
+                        // 归一化 / 兜底 guild_takes（详情面服务器锐评）
+                        normalize_discord_guild_takes(obj, &analysis.guilds_preview);
+
                         // 账号画像（概览卡 header）—— 全部实测，覆盖 AI 幻觉
                         obj.insert("profile".to_string(), json!(analysis.profile));
 
@@ -2395,7 +2398,7 @@ async fn generate_ai_report(
         "discord" => (
             "你是一个懂 Discord 社区生态的观察者，擅长从一个人加入的服务器、担任的角色和绑定的第三方账号，读出他在网络社群里的位置与身份。服务器规模、自建/管理数量、账号年龄、跨平台绑定，共同拼出这个人的'社区人格'——是自建社群的主理人、深耕几个圈子的老玩家，还是广泛潜水的观察者。你只依据给定数据下结论，绝不编造服务器名、成员数或绑定关系。",
             "用干净利落、有洞察力的口吻分析这个 Discord 账号。主线抓三件事：① 角色——自建/管理的服务器揭示 TA 是建设者还是参与者；② 社区触达——加入服务器的总成员规模说明 TA 活跃在大众广场还是垂直小圈；③ 跨平台身份——connections 绑定的 Steam/GitHub/YouTube 等暴露真实兴趣与职业线索。硬性要求：所有结论必须在数据里有出处，成员数/服务器数一律用原值不得虚构；summary 和 insights 正文里禁止出现 card_visuals、guilds_preview、identity_graph 等字段名或技术术语；禁止'很活跃''社交达人'这类放在谁身上都成立的空话；账号无绑定或全是路人服务器时，如实写成'低调潜水型'，不要拔高。",
-            "card_visuals必须包含以下字段，无数据时用空字符串/空数组占位，禁止缺字段：'role_profile'（字符串，≤8字社区角色定位，如'社群主理人'/'圈子老炮'/'潜水观察者'/'跨平台节点'，须与自建/管理数量相符）；'vibe'（字符串，一句话社区人格，≤20字，具体有锋芒不客套，不带引号）；'community_tags'（字符串数组，2-4个刻画 TA 所在圈子气质的短标签，每个≤6字，如'开源社区''二次元''独立游戏''硬核玩家'，须能从服务器名/绑定平台推得，无据可依时给 []）。其余结构化字段（stats/guild_stats/identity_graph/connections/library_items/profile 等）由系统写入，一律省略、不要生成。"
+            "card_visuals必须包含以下字段，无数据时用空字符串/空数组占位，禁止缺字段：'role_profile'（字符串，≤8字社区角色定位，如'社群主理人'/'圈子老炮'/'潜水观察者'/'跨平台节点'，须与自建/管理数量相符）；'vibe'（字符串，一句话社区人格，≤20字，具体有锋芒不客套，不带引号）；'community_tags'（字符串数组，2-4个刻画 TA 所在圈子气质的短标签，每个≤6字，如'开源社区''二次元''独立游戏''硬核玩家'，须能从服务器名/绑定平台推得，无据可依时给 []）；'guild_takes'（对象数组，针对 guilds_preview / 代表服务器列表的前 5-8 个各写一条锐评：{\"name\": \"必须逐字取自数据中的真实服务器名\", \"id\": \"若数据有 id 则原样带上\", \"take\": \"≤16字锐评，有锋芒，点出角色/规模/特色/圈层，禁止空洞夸奖与放之四海皆准的套话\"}；只覆盖数据里真实存在的服务器，禁止编造服务器名；无服务器时给 []）。其余结构化字段（stats/guild_stats/identity_graph/connections/library_items/profile 等）由系统写入，一律省略、不要生成。"
         ),
         _ => (
             "你是一个专业的数据分析师，客观理性。",
@@ -2830,6 +2833,19 @@ fn generate_mock_report(
                 .take(4)
                 .cloned()
                 .collect();
+            // 详情面服务器锐评：按角色/规模写模板，保证无 AI 时 UI 仍有内容
+            let guild_takes: Vec<Value> = analysis
+                .guilds_preview
+                .iter()
+                .take(8)
+                .map(|g| {
+                    json!({
+                        "name": g.name,
+                        "id": g.id,
+                        "take": discord_fallback_guild_take(g),
+                    })
+                })
+                .collect();
 
             let mut insights = vec![
                 analysis.community_summary.clone(),
@@ -2860,6 +2876,7 @@ fn generate_mock_report(
                     "vibe": "社区节点",
                     "role_profile": role_profile,
                     "community_tags": community_tags,
+                    "guild_takes": guild_takes,
                 }),
             )
         }
@@ -3282,6 +3299,152 @@ CRITICAL: 必须是图标(icon)设计，不是完整插画或场景！\n\
 }
 
 /// 从bilibili平台数据中提取资料库内容（基于报告中提到的作品）
+/// Discord 服务器锐评兜底：按角色 / 规模 / 特性生成短句，≤16 字左右
+fn discord_fallback_guild_take(
+    g: &crate::services::smart_filter::DiscordGuildItem,
+) -> String {
+    let members = g.member_count.unwrap_or(0);
+    let size = if members >= 100_000 {
+        Some("万人广场")
+    } else if members >= 10_000 {
+        Some("万人级")
+    } else if members >= 1_000 {
+        Some("千人圈")
+    } else if members > 0 {
+        Some("小圈子")
+    } else {
+        None
+    };
+
+    let is_admin = g
+        .permissions_highlight
+        .iter()
+        .any(|p| p == "ADMINISTRATOR");
+    let is_mod = g
+        .permissions_highlight
+        .iter()
+        .any(|p| p == "MANAGE_GUILD");
+    let is_partnered = g.feature_highlight.iter().any(|f| f == "PARTNERED");
+    let is_verified = g.feature_highlight.iter().any(|f| f == "VERIFIED");
+    let is_community = g.feature_highlight.iter().any(|f| f == "COMMUNITY");
+
+    let take = if g.owner {
+        match size {
+            Some(s) => format!("自建·{}", s),
+            None => "自建领地".to_string(),
+        }
+    } else if is_admin {
+        match size {
+            Some(s) => format!("掌舵·{}", s),
+            None => "管理席位".to_string(),
+        }
+    } else if is_mod {
+        match size {
+            Some(s) => format!("协管·{}", s),
+            None => "协管席位".to_string(),
+        }
+    } else if is_partnered {
+        "官方合作服".to_string()
+    } else if is_verified {
+        "认证大服".to_string()
+    } else if is_community {
+        match size {
+            Some(s) => format!("常驻·{}", s),
+            None => "社区服常驻".to_string(),
+        }
+    } else if let Some(s) = size {
+        format!("路人·{}", s)
+    } else {
+        "潜水成员".to_string()
+    };
+
+    take.chars().take(16).collect()
+}
+
+/// 归一化 AI / 兜底的 guild_takes：只保留真实服务器、补 id、截断 take、最多 8 条
+fn normalize_discord_guild_takes(
+    obj: &mut serde_json::Map<String, Value>,
+    guilds: &[crate::services::smart_filter::DiscordGuildItem],
+) {
+    let known_by_name: std::collections::HashMap<&str, &crate::services::smart_filter::DiscordGuildItem> =
+        guilds.iter().map(|g| (g.name.as_str(), g)).collect();
+    let known_by_id: std::collections::HashMap<&str, &crate::services::smart_filter::DiscordGuildItem> =
+        guilds.iter().map(|g| (g.id.as_str(), g)).collect();
+
+    let raw = obj
+        .get("guild_takes")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let mut normalized: Vec<Value> = Vec::new();
+    let mut seen_names = std::collections::HashSet::new();
+
+    for entry in raw {
+        let Some(map) = entry.as_object() else {
+            continue;
+        };
+        let name = map
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let id = map
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let take_raw = map
+            .get("take")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        if take_raw.is_empty() {
+            continue;
+        }
+
+        // 必须能对应真实服务器（按 id 或 name）
+        let guild = if !id.is_empty() {
+            known_by_id.get(id.as_str()).copied()
+        } else if !name.is_empty() {
+            known_by_name.get(name.as_str()).copied()
+        } else {
+            None
+        };
+        let Some(g) = guild else {
+            continue;
+        };
+        if !seen_names.insert(g.name.as_str()) {
+            continue;
+        }
+
+        let take: String = take_raw.chars().take(20).collect();
+        normalized.push(json!({
+            "name": g.name,
+            "id": g.id,
+            "take": take,
+        }));
+        if normalized.len() >= 8 {
+            break;
+        }
+    }
+
+    // AI 漏生成或全被过滤时：模板兜底
+    if normalized.is_empty() {
+        for g in guilds.iter().take(8) {
+            normalized.push(json!({
+                "name": g.name,
+                "id": g.id,
+                "take": discord_fallback_guild_take(g),
+            }));
+        }
+    }
+
+    obj.insert("guild_takes".to_string(), json!(normalized));
+}
+
 async fn extract_bilibili_library_items(
     metadata: &SmartFilteredData,
 ) -> Result<Vec<Value>, String> {
@@ -4053,5 +4216,82 @@ async fn extract_netease_user_stats(
         })
     } else {
         Err("Netease profile not found in raw cache".to_string())
+    }
+}
+
+#[cfg(test)]
+mod discord_guild_takes_tests {
+    use super::*;
+    use crate::services::smart_filter::DiscordGuildItem;
+
+    fn sample_guild(
+        id: &str,
+        name: &str,
+        owner: bool,
+        perms: &[&str],
+        members: Option<u64>,
+        features: &[&str],
+    ) -> DiscordGuildItem {
+        DiscordGuildItem {
+            id: id.to_string(),
+            name: name.to_string(),
+            icon_url: None,
+            owner,
+            permissions_highlight: perms.iter().map(|s| s.to_string()).collect(),
+            member_count: members,
+            presence_count: None,
+            feature_highlight: features.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn fallback_take_reflects_owner_and_size() {
+        let g = sample_guild("1", "My Server", true, &[], Some(12_000), &[]);
+        let take = discord_fallback_guild_take(&g);
+        assert!(take.contains("自建"), "got: {}", take);
+        assert!(take.chars().count() <= 16, "too long: {}", take);
+    }
+
+    #[test]
+    fn normalize_fills_fallback_when_missing() {
+        let guilds = vec![
+            sample_guild("1", "Alpha", true, &[], Some(100), &[]),
+            sample_guild(
+                "2",
+                "Beta",
+                false,
+                &["ADMINISTRATOR"],
+                Some(50_000),
+                &["COMMUNITY"],
+            ),
+        ];
+        let mut obj = serde_json::Map::new();
+        normalize_discord_guild_takes(&mut obj, &guilds);
+        let takes = obj.get("guild_takes").and_then(|v| v.as_array()).unwrap();
+        assert_eq!(takes.len(), 2);
+        assert_eq!(takes[0]["name"], "Alpha");
+        assert_eq!(takes[0]["id"], "1");
+        assert!(!takes[0]["take"].as_str().unwrap_or("").is_empty());
+        assert_eq!(takes[1]["name"], "Beta");
+    }
+
+    #[test]
+    fn normalize_keeps_ai_takes_for_real_guilds_only() {
+        let guilds = vec![sample_guild("1", "Real Guild", false, &[], Some(2000), &[])];
+        let mut obj = serde_json::Map::new();
+        obj.insert(
+            "guild_takes".to_string(),
+            json!([
+                { "name": "Real Guild", "take": "千人圈里摸鱼" },
+                { "name": "Invented Server", "take": "幻觉服" },
+                { "name": "Real Guild", "take": "重复应被去重" },
+            ]),
+        );
+        normalize_discord_guild_takes(&mut obj, &guilds);
+        let takes = obj.get("guild_takes").and_then(|v| v.as_array()).unwrap();
+        assert_eq!(takes.len(), 1);
+        assert_eq!(takes[0]["name"], "Real Guild");
+        assert_eq!(takes[0]["id"], "1");
+        assert_eq!(takes[0]["take"], "千人圈里摸鱼");
     }
 }
