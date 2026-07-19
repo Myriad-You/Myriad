@@ -224,9 +224,9 @@ pub struct DynamicConfig {
     pub discord_user_id: Option<String>,
     /// MyAnimeList 数据平台
     pub mal_enabled: Option<bool>,
-    /// MAL 用户名（公开列表 load.json，无需 Client ID）
+    /// MAL 用户名（必填即可启用；默认走公开 load.json）
     pub mal_username: Option<String>,
-    /// 遗留字段：旧版官方 API 的 Client ID，现已不再使用（无迁移删除）
+    /// MAL API Client ID（可选；填写后优先走官方 API v2 + X-MAL-CLIENT-ID）
     pub mal_client_id: Option<String>,
     /// Xbox 数据平台（成就向报告，Xbox Live 不提供游玩时长）
     pub xbox_enabled: Option<bool>,

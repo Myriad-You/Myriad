@@ -1395,19 +1395,35 @@ impl PlatformFetcher {
         }))
     }
 
-    // ==================== MyAnimeList (public load.json, Sakurairo-style) ====================
+    // ==================== MyAnimeList dual-mode ====================
     //
-    // 不走官方 OAuth / X-MAL-CLIENT-ID。仅用公开列表端点：
+    // Mode A (default / easy): public load.json — username only (Sakurairo-style)
     //   GET https://myanimelist.net/animelist/{username}/load.json?status=7&order=5
     //   GET https://myanimelist.net/mangalist/{username}/load.json?status=7&order=5
-    // 将条目规范化为官方 v2 API 的 node + list_status 形状，保证 smart_filter / library 兼容。
+    // Mode B (optional enhance): official API v2 + X-MAL-CLIENT-ID
+    //   Prefer Mode B when client_id is present and non-empty.
+    // load.json entries are normalized to official node + list_status shape.
 
+    const MAL_API_BASE: &'static str = "https://api.myanimelist.net/v2";
     const MAL_SITE_BASE: &'static str = "https://myanimelist.net";
     const MAL_BROWSER_UA: &'static str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
     const MAL_MAX_ITEMS: usize = 1000;
     const MAL_PAGE_DELAY_MS: u64 = 250;
 
-    fn mal_request(&self, url: &str) -> reqwest::RequestBuilder {
+    /// Non-empty client_id → use official API; otherwise load.json.
+    fn mal_official_client_id<'a>(client_id: Option<&'a str>) -> Option<&'a str> {
+        client_id.map(str::trim).filter(|s| !s.is_empty())
+    }
+
+    fn mal_official_request(&self, url: &str, client_id: &str) -> reqwest::RequestBuilder {
+        self.client
+            .get(url)
+            .header("X-MAL-CLIENT-ID", client_id.trim())
+            .header("User-Agent", "Myriad")
+            .header("Accept", "application/json")
+    }
+
+    fn mal_public_request(&self, url: &str) -> reqwest::RequestBuilder {
         self.client
             .get(url)
             .header("User-Agent", Self::MAL_BROWSER_UA)
@@ -1672,7 +1688,7 @@ impl PlatformFetcher {
                 offset
             );
 
-            let response = self.mal_request(&url).send().await?;
+            let response = self.mal_public_request(&url).send().await?;
             let status = response.status();
             let body: serde_json::Value = response.json().await.map_err(|e| {
                 anyhow!(
@@ -1820,14 +1836,171 @@ impl PlatformFetcher {
         user
     }
 
-    /// 验证用户名可访问（探测公开动画列表 load.json 第一页）
-    pub async fn fetch_mal_user(&self, username: &str) -> Result<serde_json::Value> {
+    // ---------- Mode B: official API v2 ----------
+
+    /// 官方 API：获取 MAL 用户资料（公开字段 + 动画/漫画统计）
+    async fn fetch_mal_user_official(
+        &self,
+        username: &str,
+        client_id: &str,
+    ) -> Result<serde_json::Value> {
+        let username = username.trim();
+        let client_id = client_id.trim();
+        if username.is_empty() {
+            return Err(anyhow!("MyAnimeList username is required"));
+        }
+        if client_id.is_empty() {
+            return Err(anyhow!("MyAnimeList client_id is required for official API"));
+        }
+
+        let encoded = urlencoding::encode(username);
+        let url = format!(
+            "{}/users/{}?fields=id,name,picture,gender,birthday,location,joined_at,anime_statistics,manga_statistics",
+            Self::MAL_API_BASE,
+            encoded
+        );
+
+        let response = self.mal_official_request(&url, client_id).send().await?;
+        let status = response.status();
+        let body: serde_json::Value = response.json().await?;
+
+        if !status.is_success() {
+            let detail = body
+                .get("message")
+                .or_else(|| body.get("error"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown error");
+            return Err(anyhow!("MAL API error ({}): {}", status, detail));
+        }
+
+        Ok(body)
+    }
+
+    async fn fetch_mal_list_paginated_official(
+        &self,
+        list_url: &str,
+        client_id: &str,
+        max_items: usize,
+    ) -> Result<Vec<serde_json::Value>> {
+        let mut items = Vec::new();
+        let mut next_url = Some(list_url.to_string());
+
+        while let Some(url) = next_url {
+            let response = self.mal_official_request(&url, client_id).send().await?;
+            let status = response.status();
+            let body: serde_json::Value = response.json().await?;
+
+            if !status.is_success() {
+                if items.is_empty() {
+                    let detail = body
+                        .get("message")
+                        .or_else(|| body.get("error"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown error");
+                    return Err(anyhow!("MAL list API error ({}): {}", status, detail));
+                }
+                tracing::warn!("MAL list pagination stopped at {}: {}", status, url);
+                break;
+            }
+
+            let mut page_data = body
+                .get("data")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
+
+            if page_data.is_empty() {
+                break;
+            }
+
+            items.append(&mut page_data);
+
+            next_url = body
+                .pointer("/paging/next")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(str::to_string);
+
+            if items.len() >= max_items || next_url.is_none() {
+                break;
+            }
+
+            tokio::time::sleep(tokio::time::Duration::from_millis(Self::MAL_PAGE_DELAY_MS)).await;
+        }
+
+        items.truncate(max_items);
+        Ok(items)
+    }
+
+    async fn fetch_mal_anime_list_official(
+        &self,
+        username: &str,
+        client_id: &str,
+    ) -> Result<Vec<serde_json::Value>> {
+        let encoded = urlencoding::encode(username.trim());
+        let url = format!(
+            "{}/users/{}/animelist?fields=list_status{{status,score,num_episodes_watched,is_rewatching,updated_at,start_date,finish_date}},node{{id,title,main_picture,alternative_titles,media_type,num_episodes,status,start_season,mean,genres,nsfw}}&limit=100&nsfw=true&sort=list_updated_at",
+            Self::MAL_API_BASE,
+            encoded
+        );
+        self.fetch_mal_list_paginated_official(&url, client_id, Self::MAL_MAX_ITEMS)
+            .await
+    }
+
+    async fn fetch_mal_manga_list_official(
+        &self,
+        username: &str,
+        client_id: &str,
+    ) -> Result<Vec<serde_json::Value>> {
+        let encoded = urlencoding::encode(username.trim());
+        let url = format!(
+            "{}/users/{}/mangalist?fields=list_status{{status,score,num_volumes_read,num_chapters_read,is_rereading,updated_at,start_date,finish_date}},node{{id,title,main_picture,alternative_titles,media_type,num_volumes,num_chapters,status,mean,genres,nsfw}}&limit=100&nsfw=true&sort=list_updated_at",
+            Self::MAL_API_BASE,
+            encoded
+        );
+        self.fetch_mal_list_paginated_official(&url, client_id, Self::MAL_MAX_ITEMS)
+            .await
+    }
+
+    async fn fetch_mal_profile_bundle_official(
+        &self,
+        username: &str,
+        client_id: &str,
+    ) -> Result<serde_json::Value> {
+        let user = self.fetch_mal_user_official(username, client_id).await?;
+
+        let anime_list = match self.fetch_mal_anime_list_official(username, client_id).await {
+            Ok(list) => list,
+            Err(e) => {
+                tracing::warn!("MAL official anime list fetch failed for {}: {}", username, e);
+                Vec::new()
+            }
+        };
+
+        let manga_list = match self.fetch_mal_manga_list_official(username, client_id).await {
+            Ok(list) => list,
+            Err(e) => {
+                tracing::warn!("MAL official manga list fetch failed for {}: {}", username, e);
+                Vec::new()
+            }
+        };
+
+        Ok(serde_json::json!({
+            "user": user,
+            "anime_list": anime_list,
+            "manga_list": manga_list,
+        }))
+    }
+
+    // ---------- Mode A: public load.json ----------
+
+    /// load.json：验证用户名可访问（探测公开动画列表第一页）
+    async fn fetch_mal_user_public(&self, username: &str) -> Result<serde_json::Value> {
         let username = username.trim();
         if username.is_empty() {
             return Err(anyhow!("MyAnimeList username is required"));
         }
 
-        // 仅抓第一页做存在性校验；完整列表由 profile_bundle 拉取
         // max≈一页大小，避免分页；统计仅为抽样，验证通过即可
         let raw = self
             .fetch_mal_load_json_raw(username, "animelist", 300)
@@ -1840,8 +2013,10 @@ impl PlatformFetcher {
         Ok(Self::synthesize_mal_user(username, &anime_list, &[]))
     }
 
-    /// 获取用户动画列表（规范化为官方 v2 形状）
-    pub async fn fetch_mal_anime_list(&self, username: &str) -> Result<Vec<serde_json::Value>> {
+    async fn fetch_mal_anime_list_public(
+        &self,
+        username: &str,
+    ) -> Result<Vec<serde_json::Value>> {
         let raw = self
             .fetch_mal_load_json_raw(username, "animelist", Self::MAL_MAX_ITEMS)
             .await?;
@@ -1851,8 +2026,10 @@ impl PlatformFetcher {
             .collect())
     }
 
-    /// 获取用户漫画列表（规范化为官方 v2 形状）
-    pub async fn fetch_mal_manga_list(&self, username: &str) -> Result<Vec<serde_json::Value>> {
+    async fn fetch_mal_manga_list_public(
+        &self,
+        username: &str,
+    ) -> Result<Vec<serde_json::Value>> {
         let raw = self
             .fetch_mal_load_json_raw(username, "mangalist", Self::MAL_MAX_ITEMS)
             .await?;
@@ -1862,42 +2039,34 @@ impl PlatformFetcher {
             .collect())
     }
 
-    /// 聚合抓取：合成用户资料 + 动画/漫画列表（仅需 username）
-    pub async fn fetch_mal_profile_bundle(&self, username: &str) -> Result<serde_json::Value> {
+    async fn fetch_mal_profile_bundle_public(&self, username: &str) -> Result<serde_json::Value> {
         let username = username.trim();
         if username.is_empty() {
             return Err(anyhow!("MyAnimeList username is required"));
         }
 
-        let anime_list = match self.fetch_mal_anime_list(username).await {
+        let anime_list = match self.fetch_mal_anime_list_public(username).await {
             Ok(list) => list,
             Err(e) => {
-                tracing::warn!("MAL anime list fetch failed for {}: {}", username, e);
-                // 动画列表失败时仍尝试漫画；若两者都空再向上抛错
+                tracing::warn!("MAL public anime list fetch failed for {}: {}", username, e);
                 Vec::new()
             }
         };
 
-        // 轻微间隔，避免连发
         tokio::time::sleep(tokio::time::Duration::from_millis(Self::MAL_PAGE_DELAY_MS)).await;
 
-        let manga_list = match self.fetch_mal_manga_list(username).await {
+        let manga_list = match self.fetch_mal_manga_list_public(username).await {
             Ok(list) => list,
             Err(e) => {
-                tracing::warn!("MAL manga list fetch failed for {}: {}", username, e);
+                tracing::warn!("MAL public manga list fetch failed for {}: {}", username, e);
                 Vec::new()
             }
         };
 
         if anime_list.is_empty() && manga_list.is_empty() {
             // 再探测一次用户名是否有效（空公开列表 vs 无效用户）
-            match self
-                .fetch_mal_load_json_raw(username, "animelist", 1)
-                .await
-            {
-                Ok(_) => {}
-                Err(e) => return Err(e),
-            }
+            self.fetch_mal_load_json_raw(username, "animelist", 1)
+                .await?;
         }
 
         let user = Self::synthesize_mal_user(username, &anime_list, &manga_list);
@@ -1907,6 +2076,69 @@ impl PlatformFetcher {
             "anime_list": anime_list,
             "manga_list": manga_list,
         }))
+    }
+
+    // ---------- Dual-mode public API ----------
+    // client_id present → official API; else load.json (username only).
+
+    /// 验证用户（有 Client ID 走官方 API，否则探测 load.json）
+    pub async fn fetch_mal_user(
+        &self,
+        username: &str,
+        client_id: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        if let Some(cid) = Self::mal_official_client_id(client_id) {
+            tracing::debug!("MAL verify via official API for {}", username);
+            return self.fetch_mal_user_official(username, cid).await;
+        }
+        tracing::debug!("MAL verify via load.json for {}", username);
+        self.fetch_mal_user_public(username).await
+    }
+
+    /// 获取用户动画列表（双模式）
+    pub async fn fetch_mal_anime_list(
+        &self,
+        username: &str,
+        client_id: Option<&str>,
+    ) -> Result<Vec<serde_json::Value>> {
+        if let Some(cid) = Self::mal_official_client_id(client_id) {
+            return self.fetch_mal_anime_list_official(username, cid).await;
+        }
+        self.fetch_mal_anime_list_public(username).await
+    }
+
+    /// 获取用户漫画列表（双模式）
+    pub async fn fetch_mal_manga_list(
+        &self,
+        username: &str,
+        client_id: Option<&str>,
+    ) -> Result<Vec<serde_json::Value>> {
+        if let Some(cid) = Self::mal_official_client_id(client_id) {
+            return self.fetch_mal_manga_list_official(username, cid).await;
+        }
+        self.fetch_mal_manga_list_public(username).await
+    }
+
+    /// 聚合抓取：用户资料 + 动画/漫画列表（双模式）
+    /// - `client_id` 有值 → 官方 API（字段更全、分页更稳）
+    /// - 否则 → 公开 load.json（仅需用户名）
+    pub async fn fetch_mal_profile_bundle(
+        &self,
+        username: &str,
+        client_id: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        let username = username.trim();
+        if username.is_empty() {
+            return Err(anyhow!("MyAnimeList username is required"));
+        }
+
+        if let Some(cid) = Self::mal_official_client_id(client_id) {
+            tracing::info!("MAL profile bundle via official API for {}", username);
+            return self.fetch_mal_profile_bundle_official(username, cid).await;
+        }
+
+        tracing::info!("MAL profile bundle via load.json for {}", username);
+        self.fetch_mal_profile_bundle_public(username).await
     }
 
     // ==================== Xbox (OpenXBL) ====================

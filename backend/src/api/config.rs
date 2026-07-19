@@ -499,20 +499,34 @@ async fn build_config(db: &DatabaseConnection, reveal_sensitive: bool) -> Config
                 enabled: mal_enabled,
                 has_token: has_mal_username,
                 icon: "".to_string(),
-                description:
-                    "Sync your public MyAnimeList anime/manga lists by username (no API key)"
-                        .to_string(),
-                config_fields: vec![ConfigField {
-                    key: "username".to_string(),
-                    label: "MyAnimeList Username".to_string(),
-                    field_type: "text".to_string(),
-                    value: get_value(
-                        db_config.as_ref().and_then(|c| c.mal_username.clone()),
-                        "MAL_USERNAME",
-                    ),
-                    placeholder: "your MAL username (public list)".to_string(),
-                    required: true,
-                }],
+                description: "Username required; optional Client ID uses official API (else public load.json)"
+                    .to_string(),
+                config_fields: vec![
+                    ConfigField {
+                        key: "username".to_string(),
+                        label: "MyAnimeList Username".to_string(),
+                        field_type: "text".to_string(),
+                        value: get_value(
+                            db_config.as_ref().and_then(|c| c.mal_username.clone()),
+                            "MAL_USERNAME",
+                        ),
+                        placeholder: "your MAL username (required)".to_string(),
+                        required: true,
+                    },
+                    ConfigField {
+                        key: "client_id".to_string(),
+                        label: "Client ID (optional)".to_string(),
+                        field_type: "password".to_string(),
+                        value: mask_sensitive(get_value(
+                            db_config.as_ref().and_then(|c| c.mal_client_id.clone()),
+                            "MAL_CLIENT_ID",
+                        )),
+                        placeholder:
+                            "Optional — leave empty for public list (load.json); fill for official API (myanimelist.net/apiconfig)"
+                                .to_string(),
+                        required: false,
+                    },
+                ],
             },
             PlatformConfig {
                 name: "Xbox".to_string(),
@@ -2497,8 +2511,7 @@ fn collect_database_updates(config: &ConfigResponse) -> std::collections::HashMa
                 for field in &platform.config_fields {
                     let key = match field.key.as_str() {
                         "username" => "mal_username",
-                        // legacy: ignore client_id if an old UI still sends it
-                        "client_id" => continue,
+                        "client_id" => "mal_client_id",
                         _ => continue,
                     };
                     if !field.value.is_empty() && !is_masked(&field.value) {
@@ -2788,8 +2801,7 @@ async fn save_all_configs(config: &ConfigResponse) -> Result<(), Box<dyn std::er
                 for field in &platform.config_fields {
                     let key = match field.key.as_str() {
                         "username" => "MAL_USERNAME",
-                        // legacy client_id no longer written
-                        "client_id" => continue,
+                        "client_id" => "MAL_CLIENT_ID",
                         _ => continue,
                     };
                     if field.value.is_empty()
@@ -3310,6 +3322,20 @@ pub async fn test_platform(
         }
         "MyAnimeList" => {
             let username = config["username"].as_str().unwrap_or("").trim();
+            // Client ID optional: form value if not masked; else fall back to saved config/env
+            let form_client_id = config["client_id"]
+                .as_str()
+                .filter(|s| !s.is_empty() && !s.contains('•') && !s.contains('*'))
+                .map(|s| s.to_string());
+            let cfg = crate::GLOBAL_DYNAMIC_CONFIG.read().await;
+            let client_id = form_client_id.or_else(|| {
+                cfg.mal_client_id
+                    .clone()
+                    .filter(|s| !s.trim().is_empty())
+                    .or_else(|| std::env::var("MAL_CLIENT_ID").ok())
+                    .filter(|s| !s.trim().is_empty())
+            });
+            drop(cfg);
             if username.is_empty() {
                 return (
                     StatusCode::BAD_REQUEST,
@@ -3317,8 +3343,16 @@ pub async fn test_platform(
                 );
             }
 
+            let mode = if client_id.as_ref().is_some_and(|s| !s.trim().is_empty()) {
+                "official API"
+            } else {
+                "public load.json"
+            };
             let fetcher = crate::services::fetcher::PlatformFetcher::new().await;
-            match fetcher.fetch_mal_user(username).await {
+            match fetcher
+                .fetch_mal_user(username, client_id.as_deref())
+                .await
+            {
                 Ok(user_info) => {
                     let display = user_info["name"].as_str().unwrap_or(username);
                     let anime_completed = user_info
@@ -3334,8 +3368,8 @@ pub async fn test_platform(
                         Json(json!({
                             "success": true,
                             "message": format!(
-                                "✓ MAL user '{}' verified ({}). Public list reachable (sample: {} completed, {} watching)",
-                                username, display, anime_completed, anime_watching
+                                "✓ MAL user '{}' verified ({}) via {}. {} completed, {} watching",
+                                username, display, mode, anime_completed, anime_watching
                             )
                         })),
                     )

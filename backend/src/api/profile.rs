@@ -323,7 +323,7 @@ fn platform_data_warning(platform: &str, data: Option<&Value>) -> Option<String>
             let anime_empty = is_empty_array("anime_list");
             let manga_empty = is_empty_array("manga_list");
             (anime_empty && manga_empty).then(|| {
-                "MyAnimeList 列表为空。请确认用户名正确且动画/漫画列表设为公开。".to_string()
+                "MyAnimeList 列表为空。请确认用户名正确；公开列表模式需将列表设为公开，或配置可选 Client ID 使用官方 API。".to_string()
             })
         }
         "steam" => is_empty_array("games")
@@ -958,7 +958,7 @@ async fn fetch_fresh_platform_data(
         }
     }
 
-    // 获取 MyAnimeList 数据（公开 load.json，仅需用户名）
+    // 获取 MyAnimeList 数据（双模式：有 client_id 走官方 API，否则公开 load.json）
     if should_fetch("mal") && is_platform_enabled("mal") {
         if let Some(username) = config
             .mal_username
@@ -966,7 +966,15 @@ async fn fetch_fresh_platform_data(
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
         {
-            match fetcher.fetch_mal_profile_bundle(username).await {
+            let client_id = config
+                .mal_client_id
+                .as_ref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty());
+            match fetcher
+                .fetch_mal_profile_bundle(username, client_id)
+                .await
+            {
                 Ok(bundle) => {
                     all_data["mal"] = bundle;
                     let anime_count = all_data["mal"]["anime_list"]
@@ -978,9 +986,14 @@ async fn fetch_fresh_platform_data(
                         .map(|a| a.len())
                         .unwrap_or(0);
                     tracing::info!(
-                        "✓ MyAnimeList data fetched: {} anime, {} manga",
+                        "✓ MyAnimeList data fetched: {} anime, {} manga ({})",
                         anime_count,
-                        manga_count
+                        manga_count,
+                        if client_id.is_some() {
+                            "official API"
+                        } else {
+                            "load.json"
+                        }
                     );
                 }
                 Err(e) => tracing::warn!("MyAnimeList fetch failed: {}", e),

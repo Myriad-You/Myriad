@@ -833,7 +833,7 @@ export const enUS: TranslationKeys = {
     platformDescDiscord:
       'Sync your Discord profile, server footprint, and linked accounts (Steam / GitHub…)',
     platformDescMal:
-      'Sync your public MyAnimeList anime/manga lists by username (no API key)',
+      'Username required. Optional Client ID uses the official API; otherwise public load.json',
     discordConnect: 'Connect with Discord',
     discordReconnect: 'Reconnect Discord',
     discordConnectHint:
