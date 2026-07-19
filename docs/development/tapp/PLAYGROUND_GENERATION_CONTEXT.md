@@ -19,6 +19,23 @@ Playground 项目至少需要 **Page** 或 **Widgets** 之一（允许 Widget-on
 - Page 沙箱（有可用 Page 时）运行在没有 `allow-same-origin` 的 sandboxed iframe 中，
   CSP 使用每实例 nonce。Widget-only 预览不挂载 Page 沙箱。
 
+## 宿主展示文案 vs 应用内 i18n（勿混淆）
+
+| 字段 | 用途 |
+| ---- | ---- |
+| 顶层 `manifest.name` / `description` | **兜底**标题与描述（商店/列表/详情未命中语言时） |
+| `manifest.locales` | **宿主 chrome / 商店目录**的多语言标题与描述（BCP-47 → `{ name?, description? }`） |
+| `code.i18n` + `Tapp.i18n.t()` | **应用内 UI** 字符串（按钮、标签、提示等） |
+
+规则：
+
+- 始终填写顶层 `name`（及建议的 `description`）作为主语言兜底（常用 `zh-CN` 文案或
+  指令语言的默认文案）。
+- 面向商店质量的包应在 `locales` 中至少提供 **`en-US`** 的 `name`/`description`；
+  有日文受众或指令要求多语言时再补 **`ja-JP`**（及其它 BCP-47 标签）。
+- `locales` **不能**替代 `code.i18n`；应用内文案仍走 `Tapp.i18n`。
+- 完整字段与回退链见 [MANIFEST · 多语言名称与描述](./MANIFEST.md#多语言名称与描述locales)。
+
 ## 生命周期
 
 ```javascript
@@ -54,10 +71,13 @@ await Tapp.storage.getAll();
 await Tapp.storage.clear();
 ```
 
-翻译资源通过 `code.i18n` 提供；Page、Widget 与 core 统一使用同步的 `Tapp.i18n.t()`。
-每个语言表既可使用 `{"app.title": "..."}` 这种扁平点号键，也可使用嵌套对象；SDK
-优先匹配完整键，再按点号读取嵌套路径。不要臆造其他 i18n SDK，也不要直接读取内部的
-`window._TAPP_I18N`。
+应用内翻译资源通过 `code.i18n` 提供；Page、Widget 与 core 统一使用同步的
+`Tapp.i18n.t()`。每个语言表既可使用 `{"app.title": "..."}` 这种扁平点号键，也可使用
+嵌套对象；SDK 优先匹配完整键，再按点号读取嵌套路径。不要臆造其他 i18n SDK，也不要
+直接读取内部的 `window._TAPP_I18N`。
+
+宿主列表/商店标题不要只靠 `Tapp.i18n`：请同时写好 `manifest.name` /
+`manifest.description` 与可选 `manifest.locales`（见上一节）。
 
 `Tapp.storage` 在正式运行中是 `(current_user_id, tapp_id)` 的用户私有空间；Playground
 预览只提供当前标签页内存实现。不要用 storage 模拟安装级设置或公开数据。

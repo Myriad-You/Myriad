@@ -33,7 +33,7 @@ const DOCUMENTS: &[KnowledgeDocument] = &[
     },
     KnowledgeDocument {
         id: "MANIFEST",
-        description: "complete manifest fields, permissions, settings, APIs, AI, events, and agent declarations",
+        description: "complete manifest fields including locales (host name/description i18n), permissions, settings, APIs, AI, events, and agent",
         content: include_str!("../../../docs/development/tapp/MANIFEST.md"),
     },
     KnowledgeDocument {
@@ -88,7 +88,7 @@ const DOCUMENTS: &[KnowledgeDocument] = &[
     },
     KnowledgeDocument {
         id: "PLAYGROUND_GENERATION_CONTEXT",
-        description: "safe temporary-preview contract; federation and host APIs are install-only",
+        description: "safe temporary-preview contract; manifest.locales vs code.i18n; federation install-only",
         content: include_str!("../../../docs/development/tapp/PLAYGROUND_GENERATION_CONTEXT.md"),
     },
 ];
@@ -237,6 +237,8 @@ fn expand_query_aliases(query: &str) -> String {
         ("安装", " install package manifest "),
         ("联邦", " federation publish media note uploadMedia createNote "),
         ("federation", " federation publish media note uploadMedia createNote "),
+        ("多语言", " locales i18n name description manifest "),
+        ("locales", " locales name description manifest catalog "),
     ];
     aliases
         .iter()

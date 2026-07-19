@@ -89,8 +89,9 @@ Return ONLY this JSON object:
 
 Queries should name exact contracts such as widget sizes and templates,
 Tapp.storage permissions, declared APIs, AI tasks, event topics, agent
-interactions, data exchange, page modules, background core, sandbox CSP, or
-responsive styling. Do not write code in this stage.
+interactions, data exchange, page modules, background core, sandbox CSP,
+responsive styling, or manifest locales (host catalog name/description i18n,
+distinct from code.i18n). Do not write code in this stage.
 "#;
 
 const MULTI_TURN_SESSION_RULES: &str = r#"
@@ -169,8 +170,16 @@ You must follow the current Myriad Tapp contract:
 - Prefer empty `assets: {}` unless the feature truly needs binary package assets.
 - Use `Tapp.lifecycle.onReady(...)` before querying the SDK or binding UI.
 - Use only SDK namespaces and methods present in retrieved documentation. For
-  translations, use synchronous `Tapp.i18n.t(key, variables)` and
+  **in-app UI** translations, use synchronous `Tapp.i18n.t(key, variables)` and
   `Tapp.i18n.getLocale()` with values supplied in `code.i18n`.
+- **Host catalog title/description** (store cards, Tapp list, detail, run title,
+  widget fallback text) use top-level `manifest.name` / `manifest.description`
+  plus optional `manifest.locales` (BCP-47 → `{ name?, description? }`). This is
+  **not** `code.i18n`. Always set top-level `name` (and preferably `description`)
+  as the primary fallback in the instruction's default language (often zh-CN).
+  For store-quality packages always include at least `locales["en-US"]` with
+  name/description; add `locales["ja-JP"]` (and other tags) when the user asks
+  for multi-audience copy or the product is clearly multi-locale.
 - Produce polished responsive UI with light/dark theme support and accessible
   labels. Use `var(--tapp-primary)` for the host accent and follow the UI
   design spec appended below unconditionally.
@@ -187,6 +196,10 @@ pageTemplate, leave page/pageHtml empty, and fill widgets + widget/widgetHtml):
       "name": "Name",
       "version": "1.0.0",
       "description": "Description",
+      "locales": {
+        "en-US": { "name": "Name", "description": "Description" },
+        "ja-JP": { "name": "名前", "description": "説明" }
+      },
       "author": { "name": "Myriad Playground" },
       "main": "main.js",
       "styles": "styles.css",
@@ -936,7 +949,7 @@ async fn run_playground_generation(
                     }
                     let previous = truncate_utf8(&raw, 96 * 1024);
                     messages.push(ChatMessage::user(format!(
-                        "The candidate failed the authoritative validation tool. Diagnose the root cause, repair the complete project, and return ONLY the required full JSON object. Use exact camelCase field names from the validator; setting definitions use `defaultValue`, never `default`. Do not place Widget templates or HTML/JS entrypoints under `manifest.assets` / `code.assets`; put Widget markup in `code.widgetHtml` and leave `assets` empty unless you need real binary files under `assets/`. Do not repeat an alias or field named by the error as unknown.\n\nVALIDATION TOOL RESULT:\n<validation_error>{error}</validation_error>\n\nORIGINAL USER INSTRUCTION:\n<instruction>{instruction}</instruction>\n\nCURRENT PROJECT BEFORE THIS RUN:\n<current_project>{current}</current_project>\n\nFAILED CANDIDATE:\n<previous>{previous}</previous>"
+                        "The candidate failed the authoritative validation tool. Diagnose the root cause, repair the complete project, and return ONLY the required full JSON object. Use exact camelCase field names from the validator; setting definitions use `defaultValue`, never `default`. Do not place Widget templates or HTML/JS entrypoints under `manifest.assets` / `code.assets`; put Widget markup in `code.widgetHtml` and leave `assets` empty unless you need real binary files under `assets/`. Keep top-level `manifest.name`/`description` as fallbacks; optional `manifest.locales` keys must be BCP-47 tags with optional name/description only (host catalog copy — not code.i18n). Do not repeat an alias or field named by the error as unknown.\n\nVALIDATION TOOL RESULT:\n<validation_error>{error}</validation_error>\n\nORIGINAL USER INSTRUCTION:\n<instruction>{instruction}</instruction>\n\nCURRENT PROJECT BEFORE THIS RUN:\n<current_project>{current}</current_project>\n\nFAILED CANDIDATE:\n<previous>{previous}</previous>"
                     )));
                     emit_step(
                         &mut agent_trace,

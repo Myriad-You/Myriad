@@ -14,6 +14,16 @@ Tapp (Third-party App) 是 Myriad 的扩展应用系统，允许开发者创建�
   "name": "我的应用",
   "version": "1.0.0",
   "description": "一个示例 Tapp 应用",
+  "locales": {
+    "en-US": {
+      "name": "My App",
+      "description": "A sample Tapp application"
+    },
+    "ja-JP": {
+      "name": "マイアプリ",
+      "description": "サンプル Tapp アプリ"
+    }
+  },
   "category": "utility",
   "main": "index.js",
   "author": {
@@ -24,6 +34,9 @@ Tapp (Third-party App) 是 Myriad 的扩展应用系统，允许开发者创建�
   "icon": "🚀"
 }
 ```
+
+`locales` 只覆盖宿主侧标题/描述（商店、列表、详情、运行页标题等）；应用内文案仍用
+`i18n/*.json` 与 `Tapp.i18n`（见 [MANIFEST](./MANIFEST.md#多语言名称与描述locales)）。
 
 ### 2. 编写代码
 

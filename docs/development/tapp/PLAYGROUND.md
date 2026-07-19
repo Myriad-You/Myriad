@@ -57,6 +57,15 @@ Playground 是桌面管理员工具，不是访客或普通用户功能。
 events / agent / dataExchange 等 Manifest 扩展（见
 [MANIFEST](./MANIFEST.md)、[WIDGET](./WIDGET.md)）。
 
+### 目录文案：`manifest.locales` ≠ 应用内 `code.i18n`
+
+生成面向商店/列表的包时，优先为 **catalog-facing 标题与描述** 填写
+`manifest.locales`（BCP-47 → `{ name?, description? }`），并保留顶层
+`name` / `description` 作为语言未命中时的兜底。这与 **应用内 UI** 的
+`code.i18n` / `Tapp.i18n` 是两套机制，不要混用。详见
+[MANIFEST · 多语言名称与描述](./MANIFEST.md#多语言名称与描述locales) 与
+[PLAYGROUND_GENERATION_CONTEXT](./PLAYGROUND_GENERATION_CONTEXT.md)。
+
 每次生成或修改都返回**完整项目 JSON**，而不是未经验证的文本 diff。
 
 ## 会话、历史与修改脉络
