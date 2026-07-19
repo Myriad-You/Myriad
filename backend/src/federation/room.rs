@@ -324,6 +324,8 @@ fn resolve_invite_room_name(invite_name: Option<&str>, room_id: &str) -> String 
 }
 
 /// True when stored name is empty/whitespace or the synthetic `Room rm_xxxx` fallback.
+/// Used by unit tests to document the same condition as the invite-receive SQL CASE.
+#[cfg(test)]
 fn is_missing_or_fallback_room_name(name: &str, room_id: &str) -> bool {
     let trimmed = name.trim();
     trimmed.is_empty() || trimmed == fallback_room_name(room_id)
