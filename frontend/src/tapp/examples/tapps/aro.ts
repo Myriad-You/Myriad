@@ -1389,6 +1389,21 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
   }
   .feed-skeleton-avatar,.feed-skeleton-line{animation:none!important;background:rgba(128,128,128,.1)}
 }
+
+/* Create / invite empty-submit feedback */
+.create-input-invalid,.invite-input.create-input-invalid{
+  border-color:#ef4444 !important;
+  box-shadow:0 0 0 2px rgba(239,68,68,.18);
+  animation:aroShake .35s ease;
+}
+@keyframes aroShake{
+  0%,100%{transform:translateX(0)}
+  25%{transform:translateX(-3px)}
+  75%{transform:translateX(3px)}
+}
+@media (prefers-reduced-motion:reduce){
+  .create-input-invalid,.invite-input.create-input-invalid{animation:none}
+}
 `
 
 const ARO_I18N: Record<string, Record<string, string>> = {
@@ -5416,7 +5431,16 @@ async function doInviteMember(actorUrl) {
     var input = $('invite-input');
     actor = (input ? input.value : '').trim();
   }
-  if (!actor) return;
+  if (!actor) {
+    var emptyInput = $('invite-input');
+    if (emptyInput) {
+      emptyInput.classList.add('create-input-invalid');
+      try { emptyInput.focus(); } catch (e0) {}
+      setTimeout(function () { emptyInput.classList.remove('create-input-invalid'); }, 900);
+    }
+    try { Tapp.ui.showNotification({ title: lang.invitePlaceholder || lang.inviteFail, type: 'error' }); } catch (e1) {}
+    return;
+  }
   try {
     await Tapp.federation.inviteMember(state.activeId, { actor: actor });
     if (!actorUrl) { var input2 = $('invite-input'); if (input2) input2.value = ''; }
@@ -5757,11 +5781,22 @@ function switchCreateTab(tab) {
   }
 }
 
+function flashCreateInput(input) {
+  if (!input) return;
+  input.classList.add('create-input-invalid');
+  try { input.focus(); } catch (e) { /* ignore */ }
+  setTimeout(function () { input.classList.remove('create-input-invalid'); }, 900);
+}
+
 async function doCreateChannel() {
   var input = $('create-channel-input');
   if (!input) return;
   var remoteActor = input.value.trim();
-  if (!remoteActor) return;
+  if (!remoteActor) {
+    flashCreateInput(input);
+    try { Tapp.ui.showNotification({ title: lang.channelPlaceholder || lang.createFail, type: 'error' }); } catch (e0) {}
+    return;
+  }
   var btn = $('create-channel-btn');
   if (btn) { btn.disabled = true; btn.textContent = lang.creating; }
   try {
@@ -5783,7 +5818,11 @@ async function doCreateRoom() {
   var input = $('create-room-input');
   if (!input) return;
   var name = input.value.trim();
-  if (!name) return;
+  if (!name) {
+    flashCreateInput(input);
+    try { Tapp.ui.showNotification({ title: lang.roomPlaceholder || lang.createFail, type: 'error' }); } catch (e0) {}
+    return;
+  }
   var btn = $('create-room-btn');
   if (btn) { btn.disabled = true; btn.textContent = lang.creating; }
   try {
