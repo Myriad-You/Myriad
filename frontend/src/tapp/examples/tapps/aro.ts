@@ -1432,7 +1432,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "attachTapp": "Tapp",
     "attachTappPrompt": "Tapp ID or name",
     "back": "Back",
-    "channelNotAccepted": "Accept the chat before sending files",
+    "channelNotAccepted": "Accept the chat before sending",
     "channelPlaceholder": "@user@domain or profile link",
     "close": "Close chat",
     "closeChannelConfirm": "Close this chat? You won't be able to send messages afterward.",
@@ -1658,7 +1658,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "attachTapp": "Tapp",
     "attachTappPrompt": "Tapp IDまたは名前",
     "back": "戻る",
-    "channelNotAccepted": "ファイル送信前にチャットを承認してください",
+    "channelNotAccepted": "送信前にチャットを承認してください",
     "channelPlaceholder": "@user@domain またはプロフィールURL",
     "close": "チャットを閉じる",
     "closeChannelConfirm": "このチャットを閉じますか？閉じると送信できなくなります。",
@@ -1884,7 +1884,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "attachTapp": "Tapp",
     "attachTappPrompt": "Tapp ID 或名称",
     "back": "返回",
-    "channelNotAccepted": "请先接受私信再发送文件",
+    "channelNotAccepted": "请先接受私信再发送",
     "channelPlaceholder": "@用户@域名 或个人主页链接",
     "close": "关闭会话",
     "closeChannelConfirm": "确定关闭此私信？关闭后将无法继续发送消息。",
@@ -2284,42 +2284,69 @@ function dayLabel(iso) {
   try { return d.toLocaleDateString(currentLocale, opts); } catch (e) { return d.toLocaleDateString(); }
 }
 
-/** 发送按钮/composer 状态：关闭会话、发送中、无内容时不可发送 */
+/**
+ * Backend send_message / file transfer only allow active|accepted.
+ * Pending/closed/rejected (and missing detail while a channel is open) must lock the composer.
+ */
+function isChannelStatusWritable(status) {
+  return status === 'active' || status === 'accepted';
+}
+
+function isChannelComposerLocked() {
+  if (state.activeKind !== 'channel') return false;
+  // Open channel without detail (loading failed / mid-open): do not pretend writable.
+  if (!state.channelDetail) return !!state.activeId;
+  return !isChannelStatusWritable(state.channelDetail.status);
+}
+
+function channelComposerLockReason() {
+  if (!isChannelComposerLocked()) return '';
+  var s = state.channelDetail && state.channelDetail.status;
+  if (s === 'closed') {
+    return lang.closedComposer || lang.composerClosed || lang.closed || '';
+  }
+  if (s === 'pending' || s === 'rejected') {
+    return lang.channelNotAccepted || lang.pending || '';
+  }
+  if (!state.channelDetail) {
+    return lang.loadFail || lang.channelNotAccepted || '';
+  }
+  return lang.channelNotAccepted || lang.closedComposer || lang.composerClosed || '';
+}
+
+/** 发送按钮/composer 状态：不可写会话、发送中、无内容时不可发送 */
 function updateSendState() {
   var btn = $('send-btn');
   var input = $('msg-input');
   var attach = $('attach-btn');
-  var closed = !!(state.activeKind === 'channel' && state.channelDetail && state.channelDetail.status === 'closed');
-  var blocked = !state.activeId || closed || !!state.sending;
+  var locked = isChannelComposerLocked();
+  var blocked = !state.activeId || locked || !!state.sending;
+  var lockMsg = locked ? channelComposerLockReason() : '';
   var floatWrap = document.querySelector('#chat-container .input-float-wrap');
   if (floatWrap) {
-    floatWrap.classList.toggle('composer-locked', closed);
-    floatWrap.setAttribute('aria-disabled', closed ? 'true' : 'false');
+    floatWrap.classList.toggle('composer-locked', locked);
+    floatWrap.setAttribute('aria-disabled', locked ? 'true' : 'false');
   }
 
   if (input) {
-    input.disabled = closed || !state.activeId;
+    input.disabled = locked || !state.activeId;
     input.setAttribute('aria-disabled', input.disabled ? 'true' : 'false');
-    if (closed) input.placeholder = lang.closedComposer || lang.composerClosed || lang.closed || lang.typing || '';
+    if (locked) input.placeholder = lockMsg || lang.typing || '';
     else if (lang.typing) input.placeholder = lang.typing;
   }
   if (attach) {
     attach.disabled = blocked;
     attach.setAttribute('aria-disabled', blocked ? 'true' : 'false');
-    attach.title = closed
-      ? (lang.closedComposer || lang.composerClosed || lang.closed || lang.attach)
-      : (lang.attach || '');
+    attach.title = locked ? (lockMsg || lang.attach || '') : (lang.attach || '');
   }
 
   if (!btn) return;
-  var hasContent = !!((input && !input.disabled && input.value.trim()) || (!closed && state.pendingAttach));
+  var hasContent = !!((input && !input.disabled && input.value.trim()) || (!locked && state.pendingAttach));
   var ready = !blocked && hasContent;
   btn.disabled = !ready;
   btn.classList.toggle('send-ready', ready);
   btn.setAttribute('aria-label', lang.send || 'Send');
-  btn.title = closed
-    ? (lang.closedComposer || lang.composerClosed || lang.closed || lang.send)
-    : (lang.send || 'Send');
+  btn.title = locked ? (lockMsg || lang.send || '') : (lang.send || 'Send');
 }
 function autoResizeInput(el) {
   el.style.height = 'auto';
@@ -3020,11 +3047,13 @@ function toggleAttachMenu() {
   if (_attachMenu) { closeAttachMenu(); return; }
   var wrap = $('input-bar');
   if (!wrap) return;
-  // Closed / no active conversation: attach disabled
+  // Not writable / no active conversation: attach disabled
   var btn = $('attach-btn');
   if (btn && btn.disabled) return;
-  var closed = !!(state.activeKind === 'channel' && state.channelDetail && state.channelDetail.status === 'closed');
-  if (!state.activeId || closed || state.sending) return;
+  var locked = typeof isChannelComposerLocked === 'function'
+    ? isChannelComposerLocked()
+    : !!(state.activeKind === 'channel' && state.channelDetail && state.channelDetail.status === 'closed');
+  if (!state.activeId || locked || state.sending) return;
   wrap.style.position = 'relative';
   if (btn) btn.classList.add('attach-btn-active');
 
@@ -4043,9 +4072,17 @@ async function doTogglePin(msg) {
 }
 
 function doQuote(msg) {
-  // Closed channel: cannot reply
-  if (state.activeKind === 'channel' && state.channelDetail && state.channelDetail.status === 'closed') {
-    try { Tapp.ui.showNotification({ title: lang.composerClosed || lang.closed, type: 'error' }); } catch (e) { /* ignore */ }
+  // Pending/closed/rejected channel: cannot reply
+  if (typeof isChannelComposerLocked === 'function' ? isChannelComposerLocked() : (
+    state.activeKind === 'channel' && state.channelDetail && state.channelDetail.status === 'closed'
+  )) {
+    try {
+      Tapp.ui.showNotification({
+        title: (typeof channelComposerLockReason === 'function' && channelComposerLockReason())
+          || lang.composerClosed || lang.channelNotAccepted || lang.closed,
+        type: 'error'
+      });
+    } catch (e) { /* ignore */ }
     return;
   }
   var sender = (msg.sender_actor || '').split('/').pop() || '?';
@@ -4119,8 +4156,8 @@ function renderQuotePreview() {
 function doForward(msg) {
   var items = [];
   state.channels.forEach(function (ch) {
-    // Skip closed DMs as forward targets
-    if (ch.status === 'closed') return;
+    // Skip non-writable DMs (pending/closed/rejected) as forward targets
+    if (ch.status && ch.status !== 'active' && ch.status !== 'accepted') return;
     items.push({
       kind: 'channel',
       id: ch.channel_id,
@@ -4999,6 +5036,11 @@ async function openConversation(kind, id) {
   state.channelDetail = null;
   state.roomDetail = null;
   state.chatLoadError = null;
+  // Drop previous composer lock immediately; re-lock channels until detail proves writable.
+  if (typeof clearPendingAttach === 'function') clearPendingAttach();
+  if (typeof clearQuote === 'function') clearQuote();
+  if (typeof closeAttachMenu === 'function') closeAttachMenu();
+  if (typeof updateSendState === 'function') updateSendState();
 
   $('empty-state').style.display = 'none';
   var chatEl = $('chat-container');
@@ -5085,7 +5127,10 @@ async function doSend() {
 
   // Need either text or attachment
   if ((!text && !attach) || !state.activeId || state.sending) return;
-  if (state.activeKind === 'channel' && state.channelDetail && state.channelDetail.status === 'closed') return;
+  // Backend only accepts active|accepted; pending/closed must not clear the input
+  if (typeof isChannelComposerLocked === 'function' ? isChannelComposerLocked() : (
+    state.activeKind === 'channel' && state.channelDetail && state.channelDetail.status === 'closed'
+  )) return;
 
   input.value = '';
   autoResizeInput(input);
@@ -5380,6 +5425,18 @@ function bindRealtimeListeners() {
         renderChatHeader();
         renderConvList();
         updateSendState();
+      } else if (ev.event === 'accepted') {
+        // Remote accepted our pending open — unlock composer (backend status is accepted).
+        if (state.channelDetail) state.channelDetail.status = 'accepted';
+        for (var j = 0; j < state.channels.length; j++) {
+          if (state.channels[j].channel_id === state.activeId) {
+            state.channels[j].status = 'accepted';
+            break;
+          }
+        }
+        renderChatHeader();
+        renderConvList();
+        updateSendState();
       } else if (ev.event === 'disconnected') {
         // WS dropped — poll will keep things eventually consistent
         pollMessages(true);
@@ -5663,6 +5720,9 @@ async function doDissolveRoom() {
     await Tapp.federation.deleteRoom(state.activeId);
     state.activeKind = null;
     state.activeId = null;
+    state.channelDetail = null;
+    state.roomDetail = null;
+    state.members = [];
     stopPolling();
     clearPendingAttach();
     if (typeof clearQuote === 'function') clearQuote();
@@ -5681,6 +5741,7 @@ async function doDissolveRoom() {
       sideAfter.classList.remove('sidebar-hidden-mobile');
       aroPlayEnter(sideAfter, 'aro-panel-enter');
     }
+    updateSendState();
     loadConversations();
   } catch (e) {
     notifyError(lang.dissolveFail, e);
@@ -5691,15 +5752,17 @@ async function doAcceptChannel() {
   if (!state.activeId || state.activeKind !== 'channel') return;
   try {
     await Tapp.federation.acceptChannel(state.activeId);
-    state.channelDetail.status = 'active';
-    // Update the channel in the list too
+    // Backend sets status to 'accepted' (writable); 'active' after first message.
+    if (state.channelDetail) state.channelDetail.status = 'accepted';
     for (var i = 0; i < state.channels.length; i++) {
       if (state.channels[i].channel_id === state.activeId) {
-        state.channels[i].status = 'active'; break;
+        state.channels[i].status = 'accepted'; break;
       }
     }
     renderChatHeader();
     renderConvList();
+    // Unlock attach/send after accept (pending was composer-locked).
+    updateSendState();
   } catch (e) {
     notifyError(lang.acceptFail, e);
   }
@@ -5713,6 +5776,9 @@ async function doLeaveRoom() {
     await Tapp.federation.leaveRoom(state.activeId);
     state.activeKind = null;
     state.activeId = null;
+    state.channelDetail = null;
+    state.roomDetail = null;
+    state.members = [];
     stopPolling();
     clearPendingAttach();
     if (typeof clearQuote === 'function') clearQuote();
@@ -5721,6 +5787,7 @@ async function doLeaveRoom() {
     $('chat-container').style.display = 'none';
     $('member-panel').style.display = 'none';
     $('member-panel').classList.remove('member-open-mobile');
+    updateSendState();
     var emptyLeave = $('empty-state');
     if (emptyLeave) {
       emptyLeave.style.display = '';

@@ -75,15 +75,19 @@ export function registerFederationHandlers(
           channelId,
           data,
         })
-        if (
-          data &&
-          typeof data === 'object' &&
-          data.type === 'channel_closed'
-        ) {
-          bridge.emit('federation:channelUpdate', {
-            channelId,
-            event: 'closed',
-          })
+        if (data && typeof data === 'object') {
+          if (data.type === 'channel_closed') {
+            bridge.emit('federation:channelUpdate', {
+              channelId,
+              event: 'closed',
+            })
+          } else if (data.type === 'channel_accepted') {
+            // Remote accepted our pending ChannelOpen — unlock Aro composer.
+            bridge.emit('federation:channelUpdate', {
+              channelId,
+              event: 'accepted',
+            })
+          }
         }
       } catch {
         /* ignore non-JSON */
