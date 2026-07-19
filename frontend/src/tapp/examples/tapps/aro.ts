@@ -3358,8 +3358,9 @@ function openReportPicker(icons, titles, iconColors) {
 
 /**
  * Build a chat/federation-safe report snapshot.
- * Field names align with Aro payload: report_id, summary, platform, content_preview.
- * Does not include full report JSON — only what chat recipients need to render a card/detail.
+ * Field names: report_id, summary, platform, content_preview.
+ * Mirrored by frontend/src/tapp/utils/reportShareSnapshot.ts (unit-tested).
+ * Does not include full report JSON — only what chat recipients need to render.
  */
 function buildReportShareSnapshot(report) {
   var reportId = report && (report.id != null ? report.id : report.report_id);
@@ -3374,23 +3375,72 @@ function buildReportShareSnapshot(report) {
   if (report) {
     if (report.content_preview) preview = String(report.content_preview);
     else if (report.summary) preview = String(report.summary);
-    else if (typeof report.content === 'string') preview = report.content;
-    else if (report.content && typeof report.content === 'object') {
-      if (report.content.summary) preview = String(report.content.summary);
-      else if (Array.isArray(report.content.insights) && report.content.insights.length) {
-        preview = String(report.content.insights[0]);
-      }
-    }
+    else preview = formatReportContentBody(report.content, '');
   }
   preview = stripHtmlPreview(preview || '').trim();
   if (preview.length > 500) preview = preview.slice(0, 500);
   if (!summary) summary = preview ? preview.slice(0, 80) : 'Report';
   return {
-    report_id: reportId != null ? String(reportId) : '',
+    report_id: reportId != null && reportId !== '' ? String(reportId) : '',
     summary: summary,
     platform: platform ? String(platform) : '',
     content_preview: preview,
   };
+}
+
+/**
+ * Format structured report content into readable plain text.
+ * Never produces "[object Object]" — walks known fields (summary, insights, 综合分析).
+ * Mirrored by formatReportContentBody in reportShareSnapshot.ts.
+ */
+function formatReportContentBody(content, fallbackPreview) {
+  if (content == null || content === '') return fallbackPreview || '';
+  if (typeof content === 'string') {
+    var s = stripHtmlPreview(content).trim();
+    return s || fallbackPreview || '';
+  }
+  if (typeof content === 'number' || typeof content === 'boolean') return String(content);
+  if (typeof content !== 'object') return fallbackPreview || '';
+
+  var parts = [];
+  if (typeof content.summary === 'string' && content.summary.trim()) {
+    parts.push(content.summary.trim());
+  }
+  if (Array.isArray(content.insights)) {
+    for (var i = 0; i < content.insights.length; i++) {
+      var item = content.insights[i];
+      if (item == null || item === '') continue;
+      if (typeof item === 'string' || typeof item === 'number') {
+        parts.push('• ' + String(item));
+      }
+    }
+  }
+  var analysis = content['综合分析'];
+  if (analysis && typeof analysis === 'object') {
+    if (typeof analysis['总体画像'] === 'string' && analysis['总体画像'].trim()) {
+      parts.push(String(analysis['总体画像']).trim());
+    } else if (analysis.content && typeof analysis.content === 'object' && typeof analysis.content['总体画像'] === 'string') {
+      parts.push(String(analysis.content['总体画像']).trim());
+    }
+  } else if (typeof analysis === 'string' && analysis.trim()) {
+    parts.push(analysis.trim());
+  }
+  if (parts.length) return parts.join('\\n');
+
+  // Last resort: primitive key/value lines (not JSON dump, not [object Object])
+  try {
+    var keys = Object.keys(content);
+    for (var k = 0; k < keys.length && k < 12; k++) {
+      var v = content[keys[k]];
+      if (v == null) continue;
+      if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+        var line = String(v).trim();
+        if (line) parts.push(keys[k] + ': ' + line);
+      }
+    }
+  } catch (e) { /* ignore */ }
+  if (parts.length) return parts.join('\\n');
+  return fallbackPreview || '';
 }
 
 function setPendingAttach(attach) {
@@ -4319,7 +4369,6 @@ function openReportDetail(reportId, card) {
 
   var overlay = createDetailOverlay(snapSummary || 'Report', SVG_ICONS.report, 'rgba(239,68,68,.1)');
   var body = overlay.querySelector('.picker-body');
-  showPickerLoading(body);
 
   function renderReportSnapshot(summary, platform, contentText, createdAt, typeLabel) {
     var meta = '';
@@ -4328,43 +4377,51 @@ function openReportDetail(reportId, card) {
     if (createdAt) {
       try { meta += (meta ? ' · ' : '') + new Date(createdAt).toLocaleDateString(); } catch (e) { /* ignore */ }
     }
-    var bodyText = '';
-    if (contentText != null && contentText !== '') {
-      bodyText = typeof contentText === 'string' ? contentText : (typeof contentText === 'object' && contentText.summary ? String(contentText.summary) : JSON.stringify(contentText));
-    }
+    // Structured formatting — never esc(object) / "[object Object]"
+    var bodyText = formatReportContentBody(contentText, snapPreview || '');
     bodyText = stripHtmlPreview(bodyText || '').trim();
+    // Preserve newlines from structured insights as <br>
+    var bodyHtml = bodyText
+      ? esc(bodyText).replace(/\\n/g, '<br>')
+      : '';
     body.innerHTML =
       '<div style="padding:16px;display:flex;flex-direction:column;gap:12px">'
       + '<div style="font-size:18px;font-weight:600">' + esc(summary || 'Report') + '</div>'
       + (meta ? '<div style="font-size:12px;color:var(--text-secondary,#888)">' + esc(meta) + '</div>' : '')
-      + (bodyText ? '<div style="font-size:13px;line-height:1.6;max-height:300px;overflow-y:auto">' + esc(bodyText) + '</div>' : '')
+      + (bodyHtml ? '<div style="font-size:13px;line-height:1.6;max-height:300px;overflow-y:auto;white-space:pre-wrap">' + bodyHtml + '</div>' : '')
       + '</div>';
   }
 
-  // Prefer local catalog when the report belongs to the current user; otherwise use the share snapshot.
+  // Always show message snapshot first so recipients never hit empty/loading forever.
+  if (snapSummary || snapPreview || snapPlatform) {
+    renderReportSnapshot(snapSummary, snapPlatform, snapPreview, null, null);
+  } else {
+    showPickerLoading(body);
+  }
+
+  // Enrich from local catalog when the report belongs to the current user.
+  if (!reportId) return;
   Tapp.report.getReport(reportId).then(function (detail) {
     if (!detail) {
-      renderReportSnapshot(snapSummary, snapPlatform, snapPreview, null, null);
+      if (!snapSummary && !snapPreview && !snapPlatform) {
+        body.innerHTML = '<div class="picker-empty">' + esc(lang.pickerEmpty) + '</div>';
+      }
       return;
     }
-    var contentBody = detail.content;
-    if (contentBody && typeof contentBody === 'object' && !contentBody.summary && Array.isArray(contentBody.insights)) {
-      contentBody = (detail.summary || '') + (contentBody.insights.length ? '\n' + contentBody.insights.join('\n') : '');
-    } else if (contentBody && typeof contentBody === 'object' && contentBody.summary) {
-      var insights = Array.isArray(contentBody.insights) ? contentBody.insights.join('\n') : '';
-      contentBody = contentBody.summary + (insights ? '\n' + insights : '');
-    }
+    var bodyFromDetail = formatReportContentBody(
+      detail.content != null ? detail.content : detail,
+      detail.summary || snapPreview || ''
+    );
     renderReportSnapshot(
       detail.summary || detail.type || snapSummary,
       detail.platform || snapPlatform,
-      contentBody || snapPreview,
+      bodyFromDetail || snapPreview,
       detail.createdAt,
       detail.type
     );
   }).catch(function () {
-    if (snapSummary || snapPreview || snapPlatform) {
-      renderReportSnapshot(snapSummary, snapPlatform, snapPreview, null, null);
-    } else {
+    // Recipients: keep snapshot already rendered. Only show empty if we had nothing.
+    if (!snapSummary && !snapPreview && !snapPlatform) {
       body.innerHTML = '<div class="picker-empty">' + esc(lang.pickerEmpty) + '</div>';
     }
   });
@@ -4731,13 +4788,24 @@ async function doSend() {
         if (attach.platformId) msgPayload.platform_id = attach.platformId;
         if (attach.itemId) msgPayload.item_id = attach.itemId;
         if (attach.image) msgPayload.image = attach.image;
-        if (attach.reportId) msgPayload.report_id = attach.reportId;
-        // Report share snapshot: receivers cannot call user-scoped getReport.
+        // Report share: always wire snapshot fields (never id-only).
+        // Field names: report_id, summary, platform, content_preview.
         if (attach.type === 'report') {
-          if (attach.summary) msgPayload.summary = attach.summary;
-          else if (attach.name) msgPayload.summary = attach.name;
-          if (attach.platform) msgPayload.platform = attach.platform;
-          if (attach.contentPreview) msgPayload.content_preview = attach.contentPreview;
+          var reportSummary = (attach.summary || attach.name || '').trim() || 'Report';
+          var reportPlatform = (attach.platform || '').trim();
+          var reportPreview = (attach.contentPreview || attach.desc || '').trim();
+          msgPayload.report_id = attach.reportId != null && attach.reportId !== '' ? String(attach.reportId) : '';
+          msgPayload.summary = reportSummary;
+          msgPayload.platform = reportPlatform;
+          msgPayload.content_preview = reportPreview;
+          if (!msgPayload.title) msgPayload.title = reportSummary;
+          if (!msgPayload.description) {
+            msgPayload.description = reportPreview
+              ? (reportPlatform ? reportPlatform + ' · ' + reportPreview : reportPreview)
+              : reportPlatform;
+          }
+        } else if (attach.reportId) {
+          msgPayload.report_id = attach.reportId;
         }
       }
       clearPendingAttach();
