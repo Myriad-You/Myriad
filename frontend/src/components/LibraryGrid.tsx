@@ -1,12 +1,21 @@
+import type {
+  WatchProgress,
+  WatchProgressLabels,
+} from '../utils/libraryWatchProgress'
 import type { Song } from '../utils/musicPlayer'
-import { FaBook, FaGamepad, FaMusic, FaVideo } from '@lib/icons'
 
+import { FaBook, FaGamepad, FaMusic, FaVideo } from '@lib/icons'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { API_URL } from '../config'
 import { useI18n } from '../contexts/I18nContext'
 import { useMusicPlayerControl } from '../contexts/MusicPlayerContext'
 import { useLibraryIntersectionObserver } from '../hooks/animation'
 import { useSharedResize } from '../hooks/useSharedEventListener'
+import {
+  formatWatchProgressText,
+  formatWatchStatusLabel,
+  getWatchProgress,
+} from '../utils/libraryWatchProgress'
 import { getLibraryDataDeduped } from '../utils/requestDedup'
 import { showInfo } from '../utils/toastManager'
 import PlatformIcon from './PlatformIcon'
@@ -816,6 +825,40 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
     }
   }, [])
 
+  const watchProgressLabels = useMemo<WatchProgressLabels>(
+    () => ({
+      progressEp: t.library.progressEp,
+      progressEpOnly: t.library.progressEpOnly,
+      progressCh: t.library.progressCh,
+      progressChOnly: t.library.progressChOnly,
+      progressVol: t.library.progressVol,
+      progressVolOnly: t.library.progressVolOnly,
+      progressJoin: t.library.progressJoin,
+      statusDoing: t.library.statusDoing,
+      statusDone: t.library.statusDone,
+      statusWish: t.library.statusWish,
+      statusOnHold: t.library.statusOnHold,
+      statusDropped: t.library.statusDropped,
+    }),
+    [t],
+  )
+
+  const resolveWatchProgress = useCallback(
+    (item: LibraryItem): WatchProgress | null => {
+      return getWatchProgress(item.item_type, item.metadata)
+    },
+    [],
+  )
+
+  const formatItemWatchProgress = useCallback(
+    (item: LibraryItem): string | null => {
+      const progress = resolveWatchProgress(item)
+      if (!progress) return null
+      return formatWatchProgressText(progress, watchProgressLabels)
+    },
+    [resolveWatchProgress, watchProgressLabels],
+  )
+
   const getExtraInfo = useCallback(
     (item: LibraryItem) => {
       if (item.item_type === 'game' && item.metadata.playtime_forever) {
@@ -832,21 +875,82 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
         }
       }
       if (
-        (item.item_type === 'video' ||
-          item.item_type === 'anime' ||
-          item.item_type === 'tv_series') &&
-        item.metadata.progress
+        item.item_type === 'video' ||
+        item.item_type === 'anime' ||
+        item.item_type === 'tv_series' ||
+        item.item_type === 'book'
       ) {
-        return item.metadata.progress
-      }
-      if (item.item_type === 'book') {
-        // 评分已由左上角徽章展示，此处不再重复
-        if (item.metadata.ep_status || item.metadata.vol_status)
-          return `${item.metadata.ep_status || 0}/${item.metadata.vol_status || 0}`
+        return formatItemWatchProgress(item)
       }
       return null
     },
-    [t],
+    [t, formatItemWatchProgress],
+  )
+
+  /** Progress row + thin bar for anime/book vertical title plates. */
+  const renderWatchProgressPanel = useCallback(
+    (
+      item: LibraryItem,
+      opts?: { dark?: boolean },
+    ): React.ReactNode => {
+      const progress = resolveWatchProgress(item)
+      if (!progress) return null
+      const text = formatWatchProgressText(progress, watchProgressLabels)
+      const statusLabel = formatWatchStatusLabel(
+        progress.status,
+        watchProgressLabels,
+        { onlyDoing: true },
+      )
+      const dark = opts?.dark === true
+      const barColor =
+        item.item_type === 'book'
+          ? 'bg-amber-400'
+          : item.item_type === 'tv_series'
+            ? 'bg-purple-400'
+            : item.item_type === 'game'
+              ? 'bg-emerald-400'
+              : 'bg-pink-400'
+      const trackColor = dark ? 'bg-white/25' : 'bg-gray-200/90'
+      const textColor = dark ? 'text-white/80' : 'text-gray-600'
+      const chipClass = dark
+        ? 'bg-white/15 text-white/90'
+        : item.item_type === 'book'
+          ? 'bg-amber-50 text-amber-700'
+          : 'bg-pink-50 text-pink-700'
+
+      return (
+        <div className="mt-1.5 min-w-0 space-y-1">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span
+              className={`text-[10px] leading-tight line-clamp-1 min-w-0 ${textColor}`}
+            >
+              {text}
+            </span>
+            {statusLabel && (
+              <span
+                className={`shrink-0 text-[9px] font-medium leading-none px-1 py-0.5 rounded ${chipClass}`}
+              >
+                {statusLabel}
+              </span>
+            )}
+          </div>
+          {progress.percent != null && (
+            <div
+              className={`h-[3px] w-full rounded-full overflow-hidden ${trackColor}`}
+              aria-hidden
+            >
+              <div
+                className={`h-full rounded-full ${barColor} transition-[width] duration-300`}
+                style={{
+                  width: `${Math.max(0, Math.min(100, progress.percent))}%`,
+                }}
+              />
+            </div>
+          )}
+        </div>
+      )
+    },
+    [resolveWatchProgress, watchProgressLabels],
   )
 
   const handlePlayMusic = useCallback(
@@ -1093,11 +1197,14 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
                                   </span>
                                 )}
                               </div>
-                              {getExtraInfo(item) && (
-                                <p className="text-[10px] text-white/75 line-clamp-1">
-                                  {getExtraInfo(item)}
-                                </p>
-                              )}
+                              {renderWatchProgressPanel(item, {
+                                dark: true,
+                              }) ??
+                                (getExtraInfo(item) && (
+                                  <p className="text-[10px] text-white/75 line-clamp-1">
+                                    {getExtraInfo(item)}
+                                  </p>
+                                ))}
                             </div>
                           </div>
                         </div>
@@ -1187,11 +1294,7 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
                                           : t.library.tvSeries}
                                   </span>
                                 </div>
-                                {getExtraInfo(item) && (
-                                  <p className="text-xs text-gray-600 line-clamp-1">
-                                    {getExtraInfo(item)}
-                                  </p>
-                                )}
+                                {renderWatchProgressPanel(item)}
                               </div>
                             </div>
                           </div>
@@ -1247,11 +1350,12 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
                                 <h3 className="font-bold text-gray-900 text-sm line-clamp-2 leading-snug">
                                   {item.title}
                                 </h3>
-                                {getExtraInfo(item) && (
-                                  <p className="text-xs text-gray-600 mt-1">
-                                    {getExtraInfo(item)}
-                                  </p>
-                                )}
+                                {renderWatchProgressPanel(item) ??
+                                  (getExtraInfo(item) && (
+                                    <p className="text-xs text-gray-600 mt-1">
+                                      {getExtraInfo(item)}
+                                    </p>
+                                  ))}
                               </div>
                             </div>
                           </div>
@@ -1308,11 +1412,12 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
                             <h3 className="font-bold text-white text-base line-clamp-2 leading-snug mb-1">
                               {item.title}
                             </h3>
-                            {getExtraInfo(item) && (
-                              <p className="text-sm text-white/80">
-                                {getExtraInfo(item)}
-                              </p>
-                            )}
+                            {renderWatchProgressPanel(item, { dark: true }) ??
+                              (getExtraInfo(item) && (
+                                <p className="text-sm text-white/80">
+                                  {getExtraInfo(item)}
+                                </p>
+                              ))}
                           </div>
 
                           <div className="absolute top-3 right-3 group/platform z-10">

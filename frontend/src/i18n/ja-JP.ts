@@ -1232,6 +1232,19 @@ export const jaJP: TranslationKeys = {
     book: '書籍',
     game: 'ゲーム',
     music: '音楽',
+    // 視聴/読書進捗（MAL / Bangumi など）
+    progressEp: '{current}/{total} 話',
+    progressEpOnly: '{current} 話',
+    progressCh: '{current}/{total} 章',
+    progressChOnly: '{current} 章',
+    progressVol: '{current}/{total} 巻',
+    progressVolOnly: '{current} 巻',
+    progressJoin: ' · ',
+    statusDoing: '視聴中',
+    statusDone: '完了',
+    statusWish: '予定',
+    statusOnHold: '保留',
+    statusDropped: '中断',
   },
 
   // レポート

@@ -1255,6 +1255,19 @@ export const enUS: TranslationKeys = {
     book: 'Books',
     game: 'Games',
     music: 'Music',
+    // Watch / read progress (MAL / Bangumi, etc.)
+    progressEp: 'EP {current}/{total}',
+    progressEpOnly: 'EP {current}',
+    progressCh: 'Ch {current}/{total}',
+    progressChOnly: 'Ch {current}',
+    progressVol: 'Vol {current}/{total}',
+    progressVolOnly: 'Vol {current}',
+    progressJoin: ' · ',
+    statusDoing: 'Watching',
+    statusDone: 'Completed',
+    statusWish: 'Plan to watch',
+    statusOnHold: 'On hold',
+    statusDropped: 'Dropped',
   },
 
   // Reports

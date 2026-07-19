@@ -1097,6 +1097,19 @@ export interface TranslationKeys {
     book: string
     game: string
     music: string
+    // 观看/阅读进度（MAL / Bangumi 等）
+    progressEp: string
+    progressEpOnly: string
+    progressCh: string
+    progressChOnly: string
+    progressVol: string
+    progressVolOnly: string
+    progressJoin: string
+    statusDoing: string
+    statusDone: string
+    statusWish: string
+    statusOnHold: string
+    statusDropped: string
   }
 
   // 报告

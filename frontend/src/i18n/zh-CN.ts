@@ -1172,6 +1172,19 @@ export const zhCN: TranslationKeys = {
     book: '书籍',
     game: '游戏',
     music: '音乐',
+    // 观看/阅读进度（MAL / Bangumi 等）
+    progressEp: '{current}/{total} 话',
+    progressEpOnly: '{current} 话',
+    progressCh: '{current}/{total} 章',
+    progressChOnly: '{current} 章',
+    progressVol: '{current}/{total} 卷',
+    progressVolOnly: '{current} 卷',
+    progressJoin: ' · ',
+    statusDoing: '在看',
+    statusDone: '看完',
+    statusWish: '想看',
+    statusOnHold: '搁置',
+    statusDropped: '抛弃',
   },
 
   // 报告
