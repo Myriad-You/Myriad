@@ -194,11 +194,12 @@ const PAGE_HTML = `\
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
               </button>
               <div id="feed-plus-menu" class="feed-plus-menu" role="menu" hidden>
-                <button type="button" role="menuitem" class="feed-plus-item" data-feed-plus="post" id="feed-plus-post">
+                <!-- hidden by default; updateFeedPlusVisibility unhides the tab-scoped action only -->
+                <button type="button" role="menuitem" class="feed-plus-item" data-feed-plus="post" id="feed-plus-post" hidden>
                   <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
                   <span id="feed-plus-post-label">发帖</span>
                 </button>
-                <button type="button" role="menuitem" class="feed-plus-item" data-feed-plus="follow" id="feed-plus-follow">
+                <button type="button" role="menuitem" class="feed-plus-item" data-feed-plus="follow" id="feed-plus-follow" hidden>
                   <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>
                   <span id="feed-plus-follow-label">关注</span>
                 </button>
@@ -213,11 +214,11 @@ const PAGE_HTML = `\
               <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
             </button>
             <div id="feed-plus-menu-mobile" class="feed-plus-menu feed-plus-menu-mobile" role="menu" hidden>
-              <button type="button" role="menuitem" class="feed-plus-item" data-feed-plus="post" id="feed-plus-post-mobile">
+              <button type="button" role="menuitem" class="feed-plus-item" data-feed-plus="post" id="feed-plus-post-mobile" hidden>
                 <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
                 <span id="feed-plus-post-label-mobile">发帖</span>
               </button>
-              <button type="button" role="menuitem" class="feed-plus-item" data-feed-plus="follow" id="feed-plus-follow-mobile">
+              <button type="button" role="menuitem" class="feed-plus-item" data-feed-plus="follow" id="feed-plus-follow-mobile" hidden>
                 <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>
                 <span id="feed-plus-follow-label-mobile">关注</span>
               </button>
@@ -6816,25 +6817,47 @@ function updateComposeButtonVisibility() {
   updateFeedPlusVisibility();
 }
 
+/**
+ * Strict + visibility (GOAL LOCK):
+ * - timeline (owner, feed) → Post item only
+ * - following (owner, feed) → Follow item only
+ * - followers / published / guest / non-feed → hide + entirely
+ * Never show both Post and Follow on the same tab.
+ */
 function updateFeedPlusVisibility() {
   var showPost = canComposePost();
   var showFollow = canFollowFromFeed();
-  // showPlus = !isGuest && feed && (timeline || following) — equivalent to either action
+  // Mutual exclusion: a tab never offers both (and should never need to today).
+  if (showPost && showFollow) {
+    // Prefer tab rule: following wins follow, else post — defensive if state is corrupt.
+    if (state.feedSubTab === 'following') showPost = false;
+    else showFollow = false;
+  }
   var showPlus = showPost || showFollow;
-  var display = showPlus ? '' : 'none';
 
   var wrap = $('feed-plus-wrap');
-  if (wrap) wrap.style.display = display;
+  if (wrap) wrap.style.display = showPlus ? '' : 'none';
   var wrapMobile = $('feed-plus-wrap-mobile');
-  if (wrapMobile) wrapMobile.style.display = display;
+  // CSS sets display:flex on .feed-plus-wrap-mobile — force none when hidden.
+  if (wrapMobile) wrapMobile.style.display = showPlus ? 'flex' : 'none';
 
   document.querySelectorAll('[data-feed-plus="post"]').forEach(function (el) {
-    if (showPost) el.removeAttribute('hidden');
-    else el.setAttribute('hidden', '');
+    if (showPost) {
+      el.removeAttribute('hidden');
+      el.style.display = '';
+    } else {
+      el.setAttribute('hidden', '');
+      el.style.display = 'none';
+    }
   });
   document.querySelectorAll('[data-feed-plus="follow"]').forEach(function (el) {
-    if (showFollow) el.removeAttribute('hidden');
-    else el.setAttribute('hidden', '');
+    if (showFollow) {
+      el.removeAttribute('hidden');
+      el.style.display = '';
+    } else {
+      el.setAttribute('hidden', '');
+      el.style.display = 'none';
+    }
   });
 
   if (!showPlus) closeFeedPlusMenu();
@@ -6843,7 +6866,8 @@ function updateFeedPlusVisibility() {
 function closeFeedPlusMenu() {
   ['feed-plus-menu', 'feed-plus-menu-mobile'].forEach(function (id) {
     var menu = $(id);
-    if (!menu || menu.hidden) return;
+    if (!menu) return;
+    if (menu.hidden && !menu.classList.contains('open')) return;
     menu.classList.remove('open');
     menu.classList.remove('aro-leaving');
     menu.hidden = true;
@@ -6856,9 +6880,17 @@ function closeFeedPlusMenu() {
 
 function openFeedPlusMenu(anchorBtn) {
   if (!anchorBtn) return;
+  // Recompute every open so stale tabs never show both items.
+  updateFeedPlusVisibility();
+  if (!canComposePost() && !canFollowFromFeed()) return;
+
   var menuId = anchorBtn.getAttribute('aria-controls') || 'feed-plus-menu';
   var menu = $(menuId);
   if (!menu) return;
+
+  // No visible actions → do not open an empty menu.
+  var visible = menu.querySelectorAll('.feed-plus-item:not([hidden])');
+  if (!visible.length) return;
 
   // Close the other instance first
   closeFeedPlusMenu();
@@ -6869,7 +6901,7 @@ function openFeedPlusMenu(anchorBtn) {
   anchorBtn.setAttribute('aria-expanded', 'true');
 
   // Focus first visible item
-  var first = menu.querySelector('.feed-plus-item:not([hidden])');
+  var first = visible[0];
   if (first) {
     try { first.focus(); } catch (e) { /* ignore */ }
   }
@@ -6888,10 +6920,11 @@ function toggleFeedPlusMenu(anchorBtn) {
 
 function handleFeedPlusAction(action) {
   closeFeedPlusMenu();
+  // Re-check gates so a stale menu click cannot open the wrong flow.
   if (action === 'post') {
-    openComposer();
+    if (canComposePost()) openComposer();
   } else if (action === 'follow') {
-    openFollowDialog();
+    if (canFollowFromFeed()) openFollowDialog();
   }
 }
 
@@ -8186,7 +8219,7 @@ const CORE_CODE = buildCoreCode()
 const manifest: TappManifest = {
   id: 'com.myriad.aro',
   name: 'Aro',
-  version: '1.0.3',
+  version: '1.0.0',
   minSystemVersion: '0.2.1',
   description: '社交中心，统一管理消息、时间线、环网与个人资料',
   category: 'social',
