@@ -466,8 +466,8 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .nav-feed-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:96px}
 
 /* ===== Aro Views ===== */
-.aro-view{display:none;flex:1;min-height:0;overflow:hidden}
-.aro-view-active{display:flex;flex-direction:column}
+.aro-view{display:none;flex:1;min-height:0;min-width:0;width:100%;overflow:hidden}
+.aro-view-active{display:flex;flex-direction:column;width:100%;max-width:none}
 
 /* ===== Panel Layout (sidebar+content, for rings) ===== */
 .aro-panel-layout{display:flex;flex:1;min-height:0;overflow:hidden}
@@ -484,10 +484,12 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .ring-sync-bar.ring-sync-ok{color:#22c55e;background:rgba(34,197,94,.04)}
 .ring-sync-bar.ring-sync-err{color:#ef4444;background:rgba(239,68,68,.04)}
 
-/* ===== Feed Layout (X-style sidebar + content) ===== */
-.feed-layout{display:flex;flex:1;min-height:0;overflow:hidden}
+/* ===== Feed Layout (X-style sidebar + content) =====
+   Two columns only: [sidebar | main]. Main MUST fill remaining width —
+   never cap with max-width / border-right (that creates a phantom right gutter). */
+.feed-layout{display:flex;flex:1 1 auto;width:100%;max-width:none;min-height:0;min-width:0;overflow:hidden}
 /* Feed Sidebar */
-.feed-sidebar{width:232px;flex-shrink:0;border-right:1px solid rgba(128,128,128,.08);display:flex;flex-direction:column;padding:14px 12px;overflow:hidden}
+.feed-sidebar{width:232px;flex:0 0 232px;flex-shrink:0;border-right:1px solid rgba(128,128,128,.08);display:flex;flex-direction:column;padding:14px 12px;overflow:hidden}
 .feed-avatar{width:36px;height:36px;border-radius:50%;background:rgba(var(--tapp-primary-rgb,128,128,128),.1);color:var(--tapp-primary,#888);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;flex-shrink:0;overflow:hidden}
 .feed-avatar img{width:100%;height:100%;object-fit:cover}
 .feed-display-name{font-size:13px;font-weight:700;color:var(--text-primary,#0f1419);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
@@ -523,8 +525,19 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .feed-profile-mobile{display:none;margin:10px 16px 0;flex-shrink:0}
 .feed-mobile-stats{display:none;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:8px 16px 0;flex-shrink:0}
 .feed-mobile-stat{min-width:0;display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 10px;border-radius:10px;background:rgba(128,128,128,.04);color:var(--text-secondary,#536471);font-size:11px}
-/* Feed Main — sidebar + main only; main fills remaining width (no max-width / no fake border column) */
-.feed-main{flex:1;min-width:0;width:100%;display:flex;flex-direction:column;overflow-y:auto;position:relative}
+/* Feed Main — fills ALL remaining width after sidebar (P0: no 760px cap, no third-column border) */
+.feed-main{
+  flex:1 1 0%;
+  min-width:0;
+  max-width:none!important;
+  width:auto;
+  display:flex;
+  flex-direction:column;
+  overflow-y:auto;
+  position:relative;
+  border-right:none!important;
+  box-sizing:border-box;
+}
 /* Feed header */
 .feed-main-header{min-height:56px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px;border-bottom:1px solid rgba(128,128,128,.06);flex-shrink:0;background:rgba(255,255,255,.45);backdrop-filter:blur(12px);position:relative;z-index:5;overflow:visible}
 .feed-header-leading{display:flex;align-items:center;gap:10px;min-width:0;flex:1}
@@ -608,9 +621,9 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 /* Follow dialog form (reuses create-dialog shell) */
 .feed-follow-input,.create-form #feed-follow-input{width:100%}
 #feed-follow-btn:disabled{opacity:.5;cursor:not-allowed}
-/* Feed content / empty — fill main column (no second dead strip from stream max-width) */
-.feed-content{flex:1;min-height:0;width:100%}
-.feed-empty{min-height:280px;padding:56px 24px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--text-secondary,#536471);font-size:13px;line-height:1.5;width:100%;box-sizing:border-box}
+/* Feed content / empty — stretch with main column (readable measure only on text blocks if needed) */
+.feed-content{flex:1 1 auto;min-height:0;width:100%;max-width:none;box-sizing:border-box}
+.feed-empty{min-height:280px;padding:56px 24px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--text-secondary,#536471);font-size:13px;line-height:1.5;width:100%;max-width:none;box-sizing:border-box}
 .feed-main.feed-empty-visible .feed-content{display:none}
 .feed-main.feed-empty-visible .feed-empty{flex:1;min-height:0}
 .aro-empty-mark{width:52px;height:52px;border-radius:16px;background:rgba(128,128,128,.06);color:var(--text-secondary,#536471);display:flex;align-items:center;justify-content:center;flex-shrink:0}
@@ -643,7 +656,8 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .feed-item-handle{font-size:13px;color:var(--text-secondary,#8b98a5);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
 .feed-item-sep{font-size:13px;color:var(--text-secondary,#c0c0c0)}
 .feed-item-time{font-size:12px;color:var(--text-secondary,#8b98a5);white-space:nowrap;flex-shrink:0;margin-left:auto}
-.feed-item-text{font-size:14.5px;line-height:1.55;color:var(--text-primary,#1a1a1a);margin-top:6px;white-space:pre-wrap;overflow-wrap:break-word}
+/* Soft measure for long text only — column/background still full width */
+.feed-item-text{font-size:14.5px;line-height:1.55;color:var(--text-primary,#1a1a1a);margin-top:6px;white-space:pre-wrap;overflow-wrap:break-word;max-width:48rem}
 .feed-item-badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
 .feed-item-actions{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap}
 .feed-item-action{display:inline-flex;align-items:center;gap:5px;background:none;border:1px solid transparent;color:var(--text-secondary,#8b98a5);font-size:12px;font-weight:500;cursor:pointer;padding:6px 10px;border-radius:8px;transition:color .12s,background .12s,border-color .12s}
@@ -1152,7 +1166,8 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 @media(min-width:769px) and (max-width:1024px){
   .member-panel{width:0;border-left:none;overflow:hidden}
   .member-panel.member-expanded-tablet{width:180px;border-left:1px solid rgba(128,128,128,.08);overflow:hidden}
-  .feed-sidebar{width:68px;padding:12px 8px;overflow:visible;position:relative;z-index:5}
+  .feed-sidebar{width:68px;flex:0 0 68px;padding:12px 8px;overflow:visible;position:relative;z-index:5}
+  .feed-main{max-width:none!important;border-right:none!important}
   .feed-nav-item span{display:none}
   .feed-nav-item{justify-content:center;padding:10px}
   .feed-sidebar-footer{align-items:center;position:relative}
