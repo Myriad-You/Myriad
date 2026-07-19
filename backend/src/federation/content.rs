@@ -73,6 +73,15 @@ pub struct PublishedItem {
     pub activity_id: String,
     pub visibility: String,
     pub published_at: String,
+    /// Plain-text preview for Aro「已发布」cards (from joined Create object).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_preview: Option<String>,
+    /// Display title (AP `name` / report title) when present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// Short summary when present (AP `summary` / report summary).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
 }
 
 /// 媒体上传响应
@@ -385,6 +394,9 @@ pub async fn unpublish_content(
 }
 
 /// 获取用户已发布的内容列表
+///
+/// Joins `federation_activities.object_json` so clients (Aro) can render
+/// title / summary / content_preview instead of bare content_type + id.
 pub async fn list_published(
     user_id: i32,
     db: &DatabaseConnection,
@@ -392,10 +404,12 @@ pub async fn list_published(
     let rows = db
         .query_all(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            r#"SELECT id, content_type, content_id, activity_id, visibility, published_at
-               FROM federation_published_content
-               WHERE user_id = $1
-               ORDER BY published_at DESC
+            r#"SELECT p.id, p.content_type, p.content_id, p.activity_id, p.visibility, p.published_at,
+                      a.object_json
+               FROM federation_published_content p
+               LEFT JOIN federation_activities a ON a.activity_id = p.activity_id
+               WHERE p.user_id = $1
+               ORDER BY p.published_at DESC
                LIMIT 200"#,
             [user_id.into()],
         ))
@@ -404,16 +418,27 @@ pub async fn list_published(
 
     let items = rows
         .iter()
-        .map(|r| PublishedItem {
-            id: r.try_get("", "id").unwrap_or(0),
-            content_type: r.try_get("", "content_type").unwrap_or_default(),
-            content_id: r.try_get("", "content_id").unwrap_or_default(),
-            activity_id: r.try_get("", "activity_id").unwrap_or_default(),
-            visibility: r.try_get("", "visibility").unwrap_or_default(),
-            published_at: r
-                .try_get::<chrono::DateTime<chrono::Utc>>("", "published_at")
-                .map(|dt| dt.to_rfc3339())
-                .unwrap_or_default(),
+        .map(|r| {
+            let object_json = r
+                .try_get::<Option<serde_json::Value>>("", "object_json")
+                .ok()
+                .flatten();
+            let (title, summary, content_preview) =
+                published_fields_from_activity_json(object_json.as_ref());
+            PublishedItem {
+                id: r.try_get("", "id").unwrap_or(0),
+                content_type: r.try_get("", "content_type").unwrap_or_default(),
+                content_id: r.try_get("", "content_id").unwrap_or_default(),
+                activity_id: r.try_get("", "activity_id").unwrap_or_default(),
+                visibility: r.try_get("", "visibility").unwrap_or_default(),
+                published_at: r
+                    .try_get::<chrono::DateTime<chrono::Utc>>("", "published_at")
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default(),
+                content_preview,
+                title,
+                summary,
+            }
         })
         .collect();
 
@@ -876,21 +901,29 @@ async fn build_ap_object(
 ///
 /// Best-effort: queue insert failures are logged and skipped; the publish path
 /// must not fail after the Create is already persisted. Returns how many
-/// follower inboxes were successfully queued.
+/// follower inboxes were successfully queued **or** delivered locally.
 ///
-/// Actual HTTP delivery is performed by `delivery::process_delivery_queue`,
-/// started via `delivery::spawn_delivery_worker` from main on full-mode boot.
+/// Same-instance followers (inbox under our `base_url`) are written directly to
+/// their local timeline — HTTP delivery to localhost / private hosts is refused
+/// by the delivery worker, so without this shortcut multi-user and local-dev
+/// follows never see posts.
+///
+/// Actual HTTP delivery for remote followers is performed by
+/// `delivery::process_delivery_queue`, started via
+/// `delivery::spawn_delivery_worker` from main on full-mode boot.
 async fn fan_out_to_followers(
     db: &DatabaseConnection,
     user_id: i32,
     activity_db_id: i32,
-    _activity_json: &serde_json::Value,
+    activity_json: &serde_json::Value,
 ) -> u32 {
+    let base_url = get_base_url().await;
+
     // 查询所有 incoming followers 的远程 inbox
     let followers = match db
         .query_all(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            r#"SELECT ra.inbox_url, ra.domain
+            r#"SELECT ra.inbox_url, ra.domain, ra.actor_url
                FROM federation_follows f
                JOIN federation_remote_actors ra ON ra.id = f.remote_actor_id
                WHERE f.user_id = $1 AND f.direction = 'incoming' AND f.status = 'accepted'"#,
@@ -913,10 +946,12 @@ async fn fan_out_to_followers(
     let mut queued = 0u32;
     let mut failed = 0u32;
     let mut skipped_empty = 0u32;
+    let mut local_delivered = 0u32;
 
     for row in followers {
         let inbox: String = row.try_get("", "inbox_url").unwrap_or_default();
         let domain: String = row.try_get("", "domain").unwrap_or_default();
+        let follower_actor: String = row.try_get("", "actor_url").unwrap_or_default();
 
         if inbox.is_empty() {
             skipped_empty += 1;
@@ -928,7 +963,44 @@ async fn fan_out_to_followers(
             continue;
         }
 
-        // 加入投递队列
+        // Same-instance follower → direct timeline insert (no HTTP / no SSRF block).
+        if let Some(local_username) =
+            local_username_from_inbox_url(&base_url, &inbox).or_else(|| {
+                if follower_actor.is_empty() {
+                    None
+                } else {
+                    local_username_from_actor_url(&base_url, &follower_actor)
+                }
+            })
+        {
+            match deliver_create_to_local_follower(db, &local_username, activity_json).await {
+                Ok(true) => {
+                    local_delivered += 1;
+                    queued += 1;
+                }
+                Ok(false) => {
+                    // User missing — fall through to queue is useless for local inbox.
+                    failed += 1;
+                    tracing::warn!(
+                        "Fan-out local: no user for username={} activity_db_id={}",
+                        local_username,
+                        activity_db_id
+                    );
+                }
+                Err(e) => {
+                    failed += 1;
+                    tracing::error!(
+                        "Fan-out local timeline failed username={} activity_db_id={}: {}",
+                        local_username,
+                        activity_db_id,
+                        e
+                    );
+                }
+            }
+            continue;
+        }
+
+        // 加入投递队列（远程）
         match db
             .execute(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
@@ -959,16 +1031,18 @@ async fn fan_out_to_followers(
 
     if failed > 0 || skipped_empty > 0 {
         tracing::warn!(
-            "Fan-out partial activity_db_id={}: queued={}, failed={}, skipped_empty_inbox={}",
+            "Fan-out partial activity_db_id={}: queued={}, local={}, failed={}, skipped_empty_inbox={}",
             activity_db_id,
             queued,
+            local_delivered,
             failed,
             skipped_empty
         );
     } else if queued > 0 {
         tracing::info!(
-            "Fan-out queued {} deliveries for activity_db_id={}",
+            "Fan-out queued {} deliveries ({} local) for activity_db_id={}",
             queued,
+            local_delivered,
             activity_db_id
         );
     } else {
@@ -982,6 +1056,136 @@ async fn fan_out_to_followers(
     queued
 }
 
+/// If inbox is `{base}/users/{username}/inbox`, return username.
+fn local_username_from_inbox_url(base_url: &str, inbox_url: &str) -> Option<String> {
+    let trimmed = inbox_url.trim().trim_end_matches('/');
+    let actor = trimmed.strip_suffix("/inbox")?;
+    local_username_from_actor_url(base_url, actor)
+}
+
+/// Insert Create into a same-instance follower's timeline.
+/// Returns Ok(true) when inserted (or already present), Ok(false) if user missing.
+async fn deliver_create_to_local_follower(
+    db: &DatabaseConnection,
+    follower_username: &str,
+    activity_json: &serde_json::Value,
+) -> Result<bool, String> {
+    let user_row = db
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT id FROM users WHERE username = $1",
+            [follower_username.into()],
+        ))
+        .await
+        .map_err(|e| format!("DB error: {}", e))?;
+    let Some(user_row) = user_row else {
+        return Ok(false);
+    };
+    let follower_user_id: i32 = user_row.try_get("", "id").unwrap_or(0);
+    if follower_user_id == 0 {
+        return Ok(false);
+    }
+
+    let publisher_actor = activity_json["actor"].as_str().unwrap_or("").to_string();
+    if publisher_actor.is_empty() {
+        return Err("Create activity missing actor".into());
+    }
+
+    let remote_actor_id = ensure_remote_actor_stub(db, &publisher_actor).await?;
+
+    let activity_id = activity_json["id"].as_str().unwrap_or("").to_string();
+    if activity_id.is_empty() {
+        return Err("Create activity missing id".into());
+    }
+    let activity_type = activity_json["type"]
+        .as_str()
+        .unwrap_or("Create")
+        .to_string();
+    let object = &activity_json["object"];
+    let object_type = object["type"].as_str().map(|s| s.to_string());
+    let preview = preview_from_ap_object(object);
+
+    db.execute(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        r#"INSERT INTO federation_timeline
+               (user_id, activity_id, remote_actor_id, activity_type, object_type, content_preview, content_json, received_at)
+           SELECT $1, $2, $3, $4, $5, $6, $7, NOW()
+           WHERE NOT EXISTS (
+               SELECT 1 FROM federation_timeline
+               WHERE user_id = $1 AND activity_id = $2
+           )"#,
+        [
+            follower_user_id.into(),
+            activity_id.into(),
+            remote_actor_id.into(),
+            activity_type.into(),
+            object_type.into(),
+            preview.into(),
+            object.clone().into(),
+        ],
+    ))
+    .await
+    .map_err(|e| format!("timeline insert: {}", e))?;
+
+    Ok(true)
+}
+
+/// Ensure a federation_remote_actors row exists for a local (or already-known) actor
+/// without HTTP fetch — used when fan-out short-circuits same-instance delivery.
+async fn ensure_remote_actor_stub(
+    db: &DatabaseConnection,
+    actor_url_str: &str,
+) -> Result<i32, String> {
+    let existing = db
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT id FROM federation_remote_actors WHERE actor_url = $1",
+            [actor_url_str.into()],
+        ))
+        .await
+        .map_err(|e| format!("DB error: {}", e))?;
+    if let Some(row) = existing {
+        let id: i32 = row.try_get("", "id").unwrap_or(0);
+        if id != 0 {
+            return Ok(id);
+        }
+    }
+
+    let domain = extract_domain(actor_url_str).unwrap_or_default();
+    let username = actor_url_str
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+    let inbox = format!("{}/inbox", actor_url_str.trim_end_matches('/'));
+
+    let row = db
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"INSERT INTO federation_remote_actors
+                   (actor_url, username, domain, inbox_url, last_fetched_at, created_at)
+               VALUES ($1, $2, $3, $4, NOW(), NOW())
+               ON CONFLICT (actor_url) DO UPDATE SET
+                   username = COALESCE(EXCLUDED.username, federation_remote_actors.username),
+                   domain = COALESCE(NULLIF(EXCLUDED.domain, ''), federation_remote_actors.domain),
+                   inbox_url = COALESCE(NULLIF(EXCLUDED.inbox_url, ''), federation_remote_actors.inbox_url)
+               RETURNING id"#,
+            [
+                actor_url_str.into(),
+                username.into(),
+                domain.into(),
+                inbox.into(),
+            ],
+        ))
+        .await
+        .map_err(|e| format!("DB error: {}", e))?;
+
+    row.map(|r| r.try_get("", "id").unwrap_or(0))
+        .filter(|id| *id != 0)
+        .ok_or_else(|| "Failed to upsert remote actor stub".into())
+}
+
 /// Insert Create into the author's local timeline so freeform posts show up immediately.
 async fn insert_author_timeline(
     db: &DatabaseConnection,
@@ -992,22 +1196,7 @@ async fn insert_author_timeline(
     activity_json: &serde_json::Value,
 ) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
     let object = &activity_json["object"];
-    let preview = object["content"]
-        .as_str()
-        .or_else(|| object["source"]["content"].as_str())
-        .or_else(|| object["summary"].as_str())
-        .or_else(|| object["name"].as_str())
-        .map(|s| {
-            // Strip simple tags for preview
-            let plain = s
-                .replace("<p>", "")
-                .replace("</p>", "")
-                .replace("&lt;", "<")
-                .replace("&gt;", ">")
-                .replace("&amp;", "&")
-                .replace("&quot;", "\"");
-            plain.chars().take(200).collect::<String>()
-        });
+    let preview = preview_from_ap_object(object);
 
     db.execute(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
@@ -1031,6 +1220,80 @@ async fn insert_author_timeline(
     .map_err(db_err)?;
 
     Ok(())
+}
+
+/// Plain preview from an AP Note/Article object (prefers source plain text).
+fn preview_from_ap_object(object: &serde_json::Value) -> Option<String> {
+    object
+        .pointer("/source/content")
+        .and_then(|v| v.as_str())
+        .or_else(|| object.get("content").and_then(|v| v.as_str()))
+        .or_else(|| object.get("summary").and_then(|v| v.as_str()))
+        .or_else(|| object.get("content_preview").and_then(|v| v.as_str()))
+        .or_else(|| object.get("mfp:contentPreview").and_then(|v| v.as_str()))
+        .or_else(|| object.get("mfp:summary").and_then(|v| v.as_str()))
+        .or_else(|| object.get("name").and_then(|v| v.as_str()))
+        .map(|s| strip_tags_preview(s, 200))
+        .filter(|s| !s.is_empty())
+}
+
+/// title / summary / content_preview from a stored Create activity JSON
+/// (`object_json` column holds the full Create envelope).
+fn published_fields_from_activity_json(
+    activity_json: Option<&serde_json::Value>,
+) -> (Option<String>, Option<String>, Option<String>) {
+    let Some(root) = activity_json else {
+        return (None, None, None);
+    };
+    // Prefer nested object (Create envelope); fall back to root if it is already the object.
+    let object = if root.get("object").map(|o| o.is_object()).unwrap_or(false) {
+        &root["object"]
+    } else {
+        root
+    };
+
+    let title = object
+        .get("name")
+        .and_then(|v| v.as_str())
+        .map(|s| s.chars().take(200).collect::<String>())
+        .filter(|s| !s.is_empty());
+
+    let summary = object
+        .get("summary")
+        .and_then(|v| v.as_str())
+        .or_else(|| object.get("mfp:summary").and_then(|v| v.as_str()))
+        .map(|s| strip_tags_preview(s, 300))
+        .filter(|s| !s.is_empty());
+
+    let content_preview = preview_from_ap_object(object).or_else(|| summary.clone());
+
+    (title, summary, content_preview)
+}
+
+fn strip_tags_preview(s: &str, max_chars: usize) -> String {
+    let plain = s
+        .replace("<br>", "\n")
+        .replace("<br/>", "\n")
+        .replace("<br />", "\n")
+        .replace("<p>", "")
+        .replace("</p>", "\n")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+        .replace("&quot;", "\"");
+    // Drop remaining simple tags
+    let mut out = String::with_capacity(plain.len());
+    let mut in_tag = false;
+    for c in plain.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    let trimmed = out.split_whitespace().collect::<Vec<_>>().join(" ");
+    trimmed.chars().take(max_chars).collect()
 }
 
 // ==================== 辅助函数 ====================
@@ -1244,5 +1507,51 @@ mod tests {
         let long = "x".repeat(800);
         let capped: String = long.chars().take(500).collect();
         assert_eq!(capped.chars().count(), 500);
+    }
+
+    #[test]
+    fn published_fields_from_create_note_activity() {
+        let create = json!({
+            "type": "Create",
+            "object": {
+                "type": "Note",
+                "content": "<p>Hello world post</p>",
+                "source": { "content": "Hello world post", "mediaType": "text/plain" },
+                "name": null
+            }
+        });
+        let (title, summary, preview) = published_fields_from_activity_json(Some(&create));
+        assert!(title.is_none());
+        assert!(summary.is_none());
+        assert_eq!(preview.as_deref(), Some("Hello world post"));
+    }
+
+    #[test]
+    fn published_fields_from_article_name() {
+        let create = json!({
+            "type": "Create",
+            "object": {
+                "type": "Article",
+                "name": "Spring Report",
+                "summary": "A short summary of the report body text"
+            }
+        });
+        let (title, summary, preview) = published_fields_from_activity_json(Some(&create));
+        assert_eq!(title.as_deref(), Some("Spring Report"));
+        assert!(summary.as_ref().is_some_and(|s| s.contains("short summary")));
+        assert!(preview.is_some());
+    }
+
+    #[test]
+    fn local_username_from_inbox_url_matches_base() {
+        let base = "https://myriad.example.com";
+        assert_eq!(
+            local_username_from_inbox_url(base, "https://myriad.example.com/users/bob/inbox"),
+            Some("bob".to_string())
+        );
+        assert_eq!(
+            local_username_from_inbox_url(base, "https://other.example.com/users/bob/inbox"),
+            None
+        );
     }
 }

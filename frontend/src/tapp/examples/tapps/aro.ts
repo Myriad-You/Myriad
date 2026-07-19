@@ -1584,6 +1584,8 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "installFailed": "Install failed — tap to retry",
     "installingBtn": "Installing…",
     "installSuccess": "Installed",
+    "tappDirectInstall": "Install package included in share",
+    "tappInstallNoPackage": "This shared Tapp is not in the store and no install package was attached. Ask the sender to re-share.",
     "invite": "Invite",
     "inviteBtn": "Invite",
     "invited": "Invited",
@@ -1841,6 +1843,8 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "installFailed": "インストールに失敗しました。タップして再試行",
     "installingBtn": "インストール中…",
     "installSuccess": "インストール完了",
+    "tappDirectInstall": "共有にインストールパッケージが含まれています",
+    "tappInstallNoPackage": "この Tapp はストアになく、インストールパッケージもありません。送信者に再共有を依頼してください。",
     "invite": "招待",
     "inviteBtn": "招待",
     "invited": "招待済み",
@@ -2098,6 +2102,8 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "installFailed": "安装失败，点击重试",
     "installingBtn": "安装中…",
     "installSuccess": "安装成功",
+    "tappDirectInstall": "分享中已包含可安装包",
+    "tappInstallNoPackage": "该 Tapp 不在商店中，且分享未附带安装包。请让对方重新分享。",
     "invite": "邀请",
     "inviteBtn": "邀请",
     "invited": "已邀请",
@@ -3642,8 +3648,40 @@ function openTappPicker(icons, titles, iconColors) {
 
   confirmBtn.addEventListener('click', function () {
     if (!selectedTapp) return;
-    setPendingAttach({ type: type, name: selectedTapp.name, desc: selectedTapp.description || selectedTapp.id, icon: icons[type], label: lang.attachTapp || 'Tapp', tappId: selectedTapp.id, tappVersion: selectedTapp.version || '', tappIcon: selectedTapp.iconSvg || selectedTapp.icon || '' });
-    dismissPickerOverlay(overlay);
+    confirmBtn.disabled = true;
+    var pending = {
+      type: type,
+      name: selectedTapp.name,
+      desc: selectedTapp.description || selectedTapp.id,
+      icon: icons[type],
+      label: lang.attachTapp || 'Tapp',
+      tappId: selectedTapp.id,
+      tappVersion: selectedTapp.version || '',
+      tappIcon: selectedTapp.iconSvg || selectedTapp.icon || ''
+    };
+    // Prefetch direct-install package so peers can install custom/example tapps
+    // that are not in the remote store (size-capped for channel/room payload).
+    var finish = function () {
+      setPendingAttach(pending);
+      dismissPickerOverlay(overlay);
+    };
+    if (typeof Tapp.tappList !== 'undefined' && typeof Tapp.tappList.getInstallPackage === 'function') {
+      Tapp.tappList.getInstallPackage(selectedTapp.id, { maxBytes: 8 * 1024 * 1024 })
+        .then(function (pkgRes) {
+          if (pkgRes && pkgRes.package) {
+            pending.installPackage = pkgRes.package;
+          } else if (pkgRes && pkgRes.reason) {
+            pending.installPackageOmitted = pkgRes.reason;
+          }
+          finish();
+        })
+        .catch(function (e) {
+          console.warn('[Aro] getInstallPackage failed; share will be metadata-only', e);
+          finish();
+        });
+    } else {
+      finish();
+    }
   });
 }
 
@@ -4990,6 +5028,16 @@ function openTappDetail(tappId, card) {
   var remoteName = (card.querySelector('.msg-share-title') || {}).textContent || card.dataset.tappName || tappId;
   var remoteDesc = (card.querySelector('.msg-share-desc') || {}).textContent || '';
   var remoteVersion = card.dataset.tappVersion || '';
+  // Peer install package lives on the message payload (not data-attrs — too large).
+  var installPackage = null;
+  var installOmitted = '';
+  if (card && card.dataset.msgIdx != null && state.messages) {
+    var m = state.messages[parseInt(card.dataset.msgIdx, 10)];
+    if (m && m.payload) {
+      installPackage = m.payload.install_package || m.payload.installPackage || null;
+      installOmitted = m.payload.install_package_omitted || m.payload.installPackageOmitted || '';
+    }
+  }
 
   var overlay = createDetailOverlay(remoteName, SVG_ICONS.tapp, 'rgba(var(--tapp-primary-rgb,100,100,255),.1)');
   var body = overlay.querySelector('.picker-body');
@@ -5000,17 +5048,18 @@ function openTappDetail(tappId, card) {
     var installed = local && local.status && local.status !== 'uninstalled';
     var localVer = installed ? (local.version || '') : '';
     var needsUpdate = installed && remoteVersion && localVer && localVer !== remoteVersion;
-    renderTappDetailView(body, tappId, remoteName, remoteDesc, remoteVersion, installed, localVer, needsUpdate);
+    renderTappDetailView(body, tappId, remoteName, remoteDesc, remoteVersion, installed, localVer, needsUpdate, installPackage, installOmitted);
   }).catch(function () {
     // Can't determine local status — assume not installed
-    renderTappDetailView(body, tappId, remoteName, remoteDesc, remoteVersion, false, '', false);
+    renderTappDetailView(body, tappId, remoteName, remoteDesc, remoteVersion, false, '', false, installPackage, installOmitted);
   });
 }
 
-function renderTappDetailView(body, tappId, name, desc, remoteVer, installed, localVer, needsUpdate) {
+function renderTappDetailView(body, tappId, name, desc, remoteVer, installed, localVer, needsUpdate, installPackage, installOmitted) {
   var statusColor = installed ? (needsUpdate ? '#f59e0b' : '#22c55e') : '#ef4444';
   var statusText = installed ? (needsUpdate ? lang.tappUpdateAvail : lang.tappInstalled) : lang.tappNotInstalled;
   var statusIcon = installed ? (needsUpdate ? '⚠️' : '✅') : '❌';
+  var hasDirectPkg = !!(installPackage && installPackage.manifest && installPackage.code);
 
   var html = '<div style="padding:16px;display:flex;flex-direction:column;gap:14px">'
     + '<div style="font-size:18px;font-weight:700">' + esc(name) + '</div>'
@@ -5029,13 +5078,20 @@ function renderTappDetailView(body, tappId, name, desc, remoteVer, installed, lo
   if (localVer) {
     html += '<div style="font-size:12px;color:var(--text-secondary,#888)">' + esc(lang.localVer) + ': v' + esc(localVer) + '</div>';
   }
+  if (!installed && hasDirectPkg) {
+    html += '<div style="font-size:11px;color:var(--text-secondary,#888)">' + esc(lang.tappDirectInstall || 'Install package included in share') + '</div>';
+  } else if (!installed && installOmitted) {
+    html += '<div style="font-size:11px;color:#f59e0b">' + esc(installOmitted) + '</div>';
+  }
   html += '</div>';
 
   // Action button
   if (!installed) {
     html += '<button class="tapp-action-btn" data-action="install" style="width:100%;padding:12px;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;background:var(--tapp-primary,#6366f1);color:#fff">' + esc(lang.installBtn) + '</button>';
+    html += '<div class="tapp-install-error" style="display:none;font-size:12px;color:#ef4444;line-height:1.4"></div>';
   } else if (needsUpdate) {
     html += '<button class="tapp-action-btn" data-action="update" style="width:100%;padding:12px;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;background:#f59e0b;color:#fff">' + esc(lang.updatingBtn) + '</button>';
+    html += '<div class="tapp-install-error" style="display:none;font-size:12px;color:#ef4444;line-height:1.4"></div>';
   } else {
     html += '<div style="text-align:center;font-size:12px;color:var(--text-secondary,#888)">' + esc(lang.alreadyLatest) + '</div>';
   }
@@ -5043,25 +5099,58 @@ function renderTappDetailView(body, tappId, name, desc, remoteVer, installed, lo
   html += '</div>';
   body.innerHTML = html;
 
-  // Bind install/update button
+  // Bind install/update button — prefer direct package from share; store only as fallback.
   var actionBtn = body.querySelector('.tapp-action-btn');
+  var errEl = body.querySelector('.tapp-install-error');
   if (actionBtn) {
     actionBtn.addEventListener('click', function handleInstallClick() {
       if (actionBtn.disabled) return;
       actionBtn.disabled = true;
       actionBtn.textContent = lang.installingBtn;
       actionBtn.style.opacity = '0.7';
+      if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
 
-      Tapp.tappList.install({ source: 'store', tappId: tappId }).then(function (result) {
+      var installReq;
+      if (hasDirectPkg) {
+        installReq = {
+          source: 'direct',
+          manifest: installPackage.manifest,
+          code: installPackage.code,
+          styles: installPackage.styles,
+          pageTemplate: installPackage.pageTemplate,
+          widgetTemplates: installPackage.widgetTemplates,
+          widgetCss: installPackage.widgetCss,
+          pageCss: installPackage.pageCss,
+          i18n: installPackage.i18n,
+          pageModules: installPackage.pageModules,
+          assets: installPackage.assets,
+          permissions: installPackage.permissions
+        };
+      } else {
+        // Store fallback only when we have a real catalog source (rare for chat shares).
+        installReq = { source: 'store', tappId: tappId };
+      }
+
+      Tapp.tappList.install(installReq).then(function () {
         actionBtn.textContent = lang.installSuccess;
         actionBtn.style.background = '#22c55e';
         actionBtn.style.opacity = '1';
         actionBtn.removeEventListener('click', handleInstallClick);
-      }).catch(function () {
+      }).catch(function (err) {
+        var msg = (err && err.message) ? String(err.message) : (lang.installFailed || 'Install failed');
+        // Clear store-only failure for non-store shares.
+        if (!hasDirectPkg) {
+          msg = lang.tappInstallNoPackage ||
+            'This shared Tapp is not in the store and no install package was attached. Ask the sender to re-share.';
+        }
         actionBtn.textContent = lang.installFailed;
         actionBtn.style.background = '#ef4444';
         actionBtn.style.opacity = '1';
         actionBtn.disabled = false;
+        if (errEl) {
+          errEl.style.display = 'block';
+          errEl.textContent = msg;
+        }
       });
     });
   }
@@ -5605,6 +5694,9 @@ async function doSend() {
       if (attach.tappVersion) msgPayload.tapp_version = attach.tappVersion;
       if (attach.tappIcon) msgPayload.tapp_icon = attach.tappIcon;
       if (attach.name && attach.type === 'tapp') msgPayload.tapp_name = attach.name;
+      // Direct-install package for peer (custom / example / non-store tapps)
+      if (attach.installPackage) msgPayload.install_package = attach.installPackage;
+      if (attach.installPackageOmitted) msgPayload.install_package_omitted = attach.installPackageOmitted;
       if (attach.brewId) msgPayload.brew_id = attach.brewId;
       if (attach.brewLink) msgPayload.brew_link = attach.brewLink;
       // Library share: title, description, platform_id, item_id, image, content_type (like report snapshot).
@@ -6443,6 +6535,18 @@ function updateFeedCountBadges() {
   });
 }
 
+/** Normalize list API shapes: {items}, bare array, or double-wrapped data. */
+function unwrapListResponse(res) {
+  if (!res) return [];
+  if (Array.isArray(res)) return res;
+  if (Array.isArray(res.items)) return res.items;
+  if (res.data) {
+    if (Array.isArray(res.data)) return res.data;
+    if (Array.isArray(res.data.items)) return res.data.items;
+  }
+  return [];
+}
+
 function updateFeedProfileHeader() {
   if (state.isGuest) {
     state.following = [];
@@ -6457,11 +6561,15 @@ function updateFeedProfileHeader() {
     Tapp.federation.getFollowers().catch(function () { return { items: [] }; }),
     Tapp.federation.getPublished().catch(function () { return { items: [] }; })
   ]).then(function (results) {
-    state.following = (results[0] && results[0].items) || [];
-    state.followers = (results[1] && results[1].items) || [];
-    state.published = (results[2] && results[2].items) || [];
+    state.following = unwrapListResponse(results[0]);
+    state.followers = unwrapListResponse(results[1]);
+    state.published = unwrapListResponse(results[2]);
     updateFeedCountBadges();
     updateFeedHeader();
+    // If user is already on followers/following/published, re-render with fresh counts.
+    if (state.currentView === 'feed' && state.feedSubTab !== 'timeline') {
+      renderFeedContent();
+    }
   });
 }
 
@@ -6496,18 +6604,18 @@ async function loadFeedSubTab() {
         }
       }
       if (!res && feedErr) throw feedErr;
-      state.timeline = (res && res.items) || [];
+      state.timeline = unwrapListResponse(res);
     } else if (sub === 'following') {
       var res = await Tapp.federation.getFollowing();
-      state.following = (res && res.items) || [];
+      state.following = unwrapListResponse(res);
       updateFeedCountBadges();
     } else if (sub === 'followers') {
       var res = await Tapp.federation.getFollowers();
-      state.followers = (res && res.items) || [];
+      state.followers = unwrapListResponse(res);
       updateFeedCountBadges();
     } else if (sub === 'published') {
       var res = await Tapp.federation.getPublished();
-      state.published = (res && res.items) || [];
+      state.published = unwrapListResponse(res);
       updateFeedCountBadges();
     }
     if (state.feedSubTab !== sub) return;
@@ -6811,13 +6919,32 @@ function renderTimelineMedia(attachments) {
   return h;
 }
 
+function actorLabelFromUrl(url) {
+  if (!url) return '';
+  try {
+    var path = String(url).replace(/\\/+$/, '');
+    var seg = path.split('/').pop() || '';
+    return seg || url;
+  } catch (e) {
+    return String(url);
+  }
+}
+
 function renderTimelineItem(item) {
   var actor = item.actor || {};
-  var name = actor.display_name || actor.username || '?';
-  var handle = actor.username ? '@' + actor.username + (actor.domain ? '@' + actor.domain : '') : '';
+  var name = actor.display_name || actor.username || actorLabelFromUrl(actor.actor_url) || '?';
+  var handle = actor.username
+    ? '@' + actor.username + (actor.domain ? '@' + actor.domain : '')
+    : (actor.actor_url ? actor.actor_url : '');
   var ts = '';
   try { ts = timeAgo(item.created_at || item.received_at || item.timestamp); } catch (e) {}
-  var contentJson = item.content_json || item.content || null;
+  // content_json is normally the AP object; tolerate full Create envelope or aliases.
+  var contentJson = item.content_json || item.content || item.object || null;
+  if (contentJson && contentJson.object && typeof contentJson.object === 'object'
+      && !contentJson.content && !(contentJson.source && contentJson.source.content)
+      && !contentJson.summary && !contentJson.name) {
+    contentJson = contentJson.object;
+  }
   var text = '';
   var linkUrl = '';
   if (contentJson) {
@@ -6827,6 +6954,7 @@ function renderTimelineItem(item) {
       (contentJson.source && typeof contentJson.source === 'object' && contentJson.source.content) ||
       contentJson.content ||
       contentJson.summary ||
+      contentJson.content_preview ||
       ''
     );
     linkUrl = contentJson.link || contentJson.url || '';
@@ -6836,6 +6964,10 @@ function renderTimelineItem(item) {
   }
   if (!text && item.content_preview) text = stripHtmlPreview(item.content_preview);
   var attachments = extractNoteAttachments(contentJson);
+  // Media-only Note: still show a short placeholder so the card is not blank.
+  if (!text && attachments.length) {
+    text = lang.composeMedia || '📎';
+  }
   var h = '<div class="feed-item">';
   h += '<div class="feed-item-avatar">' + avatarContentHtml(actor.avatar_url || '', name) + '</div>';
   h += '<div class="feed-item-body">';
@@ -6863,8 +6995,11 @@ function pendingStatusLabel(status) {
 }
 
 function renderActorItem(actor, context) {
-  var name = actor.display_name || actor.username || '?';
-  var handle = actor.username ? '@' + actor.username + (actor.domain ? '@' + actor.domain : '') : actor.domain || '';
+  // username may be null for unresolved remote actors — fall back to actor_url.
+  var name = actor.display_name || actor.username || actorLabelFromUrl(actor.actor_url) || '?';
+  var handle = actor.username
+    ? '@' + actor.username + (actor.domain ? '@' + actor.domain : '')
+    : (actor.actor_url || actor.domain || '');
   var h = '<div class="feed-item">';
   h += '<div class="feed-item-avatar">' + avatarContentHtml(actor.avatar_url || '', name) + '</div>';
   h += '<div class="feed-item-body">';
@@ -6904,16 +7039,26 @@ function renderPublishedItem(item) {
   var icon = typeIcons[item.content_type] || SVG_ICONS.page;
   var dateStr = '';
   try { dateStr = timeAgo(item.published_at); } catch (e) {}
-  // 优先展示内容本身（标题/摘要/预览），而不是裸 ID
-  var preview = stripHtmlPreview(item.title || item.name || item.summary || item.content_preview || '');
+  // Prefer title as header line when useful; body uses summary/content_preview.
+  var titleLine = stripHtmlPreview(item.title || item.name || '');
+  var preview = stripHtmlPreview(item.content_preview || item.summary || '');
+  if (!preview && titleLine) preview = titleLine;
+  if (!preview) preview = stripHtmlPreview(item.content_id || '');
   var h = '<div class="feed-item">';
   h += '<div class="feed-item-icon">' + icon + '</div>';
   h += '<div class="feed-item-body">';
   h += '<div class="feed-item-header">';
-  h += '<span class="feed-item-name">' + esc(publishedTypeLabel(item.content_type)) + '</span>';
+  h += '<span class="feed-item-name">' + esc(titleLine || publishedTypeLabel(item.content_type)) + '</span>';
   if (dateStr) h += '<span class="feed-item-sep">&middot;</span><span class="feed-item-time">' + esc(dateStr) + '</span>';
   h += '</div>';
-  if (preview) h += '<div class="feed-item-text">' + esc(preview) + '</div>';
+  if (titleLine && preview && preview !== titleLine) {
+    h += '<div class="feed-item-text">' + esc(preview) + '</div>';
+  } else if (preview) {
+    h += '<div class="feed-item-text">' + esc(preview) + '</div>';
+  }
+  if (titleLine && item.content_type && item.content_type !== 'note') {
+    h += '<div class="feed-item-meta" style="font-size:11px;color:var(--text-secondary,#888)">' + esc(publishedTypeLabel(item.content_type)) + '</div>';
+  }
   h += '<div class="feed-item-actions">';
   h += '<button class="feed-item-action feed-item-action-danger" data-action-unpublish data-content-type="' + esc(item.content_type) + '" data-content-id="' + esc(item.content_id) + '">'
     + '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>'

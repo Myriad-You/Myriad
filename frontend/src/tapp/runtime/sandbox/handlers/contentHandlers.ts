@@ -87,17 +87,111 @@ export function registerTappListHandlers(
     }
   })
 
-  // 安装 Tapp（从商店）
+  // 安装 Tapp — source: 'store' | 'direct' (peer share / custom / example)
   bridge.registerHandler('tappList.install', async (message) => {
     const [request] = getArgs(message) as [
-      { source: string; tappId: string; permissions?: string[] },
+      {
+        source?: string
+        tappId?: string
+        storeSource?: string
+        permissions?: string[]
+        manifest?: unknown
+        code?: string
+        styles?: string
+        pageTemplate?: string
+        widgetTemplates?: Record<string, Record<string, string>>
+        widgetCss?: string
+        pageCss?: string
+        i18n?: Record<string, unknown>
+        pageModules?: Record<string, string>
+        assets?: Record<string, string>
+      },
     ]
     try {
-      const result = await TappApiService.installFromStore(request)
-      return {
-        success: true,
-        data: { id: result.id, name: result.name, status: result.status },
+      const source = (request?.source || '').toLowerCase()
+      if (source === 'direct') {
+        if (!request?.manifest || typeof request.code !== 'string') {
+          return {
+            success: false,
+            error:
+              'Direct install requires manifest and code (shared package missing)',
+          }
+        }
+        const result = await TappApiService.installDirect({
+          manifest: request.manifest as Parameters<
+            typeof TappApiService.installDirect
+          >[0]['manifest'],
+          code: request.code,
+          styles: request.styles,
+          pageTemplate: request.pageTemplate,
+          widgetTemplates: request.widgetTemplates,
+          widgetCss: request.widgetCss,
+          pageCss: request.pageCss,
+          i18n: request.i18n,
+          pageModules: request.pageModules,
+          assets: request.assets,
+          permissions: request.permissions,
+        })
+        return {
+          success: true,
+          data: { id: result.id, name: result.name, status: result.status },
+        }
       }
+
+      if (source === 'store') {
+        const storeSource = request.storeSource || request.source
+        const tappId = request.tappId
+        if (!tappId) {
+          return { success: false, error: 'tappId is required for store install' }
+        }
+        // Aro historically passed { source: 'store', tappId } without a real
+        // catalog URL — that cannot resolve. Require a non-placeholder source.
+        if (
+          !storeSource ||
+          storeSource === 'store' ||
+          storeSource === 'direct'
+        ) {
+          return {
+            success: false,
+            error:
+              'This Tapp is not in the app store. Open the share again with an install package, or install from the store catalog.',
+          }
+        }
+        const result = await TappApiService.installFromStore({
+          source: storeSource,
+          tappId,
+          permissions: request.permissions,
+        })
+        return {
+          success: true,
+          data: { id: result.id, name: result.name, status: result.status },
+        }
+      }
+
+      return {
+        success: false,
+        error: "Invalid source, must be 'direct' or 'store'",
+      }
+    } catch (error) {
+      return fail(error)
+    }
+  })
+
+  // Build a shareable direct-install package from an installed Tapp.
+  bridge.registerHandler('tappList.getInstallPackage', async (message) => {
+    const [tappId, opts] = getArgs(message) as [
+      string,
+      { maxBytes?: number } | undefined,
+    ]
+    if (!tappId || typeof tappId !== 'string') {
+      return { success: false, error: 'tappId is required' }
+    }
+    try {
+      const result = await TappApiService.buildInstallPackageFromInstalled(
+        tappId,
+        { maxBytes: opts?.maxBytes },
+      )
+      return { success: true, data: result }
     } catch (error) {
       return fail(error)
     }

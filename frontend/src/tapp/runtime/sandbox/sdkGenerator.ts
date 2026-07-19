@@ -414,6 +414,8 @@ export function generateFullSDK(
       list: () => sendRequest('tappList', 'list', []),
       get: (id) => sendRequest('tappList', 'get', [id]),
       getRecent: (limit) => sendRequest('tappList', 'getRecent', [limit]),
+      /** Build a direct-install package from an installed Tapp (for chat share). */
+      getInstallPackage: (id, opts) => sendRequest('tappList', 'getInstallPackage', [id, opts]),
       install: (req) => sendRequest('tappList', 'install', [req]),
       uninstall: (id) => sendRequest('tappList', 'uninstall', [id]),
       start: (id) => sendRequest('tappList', 'start', [id]),

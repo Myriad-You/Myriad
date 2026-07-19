@@ -51,6 +51,8 @@ export interface TimelineItem {
   activity_type?: string
   object_type?: string
   content_preview?: string
+  /** AP Note/Article object (or Create envelope) for rich render. */
+  content_json?: Record<string, unknown> | null
   is_read: boolean
   /** ISO timestamp when the activity was received (preferred by Aro timeAgo) */
   created_at?: string
@@ -126,6 +128,12 @@ export interface PublishedItem {
   activity_id: string
   visibility: string
   published_at: string
+  /** Plain-text body/title preview from joined Create object (Aro 已发布). */
+  content_preview?: string
+  /** AP object name / report title when present. */
+  title?: string
+  /** AP summary when present. */
+  summary?: string
 }
 
 export interface PublishedListResponse {

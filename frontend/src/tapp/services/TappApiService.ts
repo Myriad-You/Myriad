@@ -28,6 +28,8 @@ import {
   updateTappReport,
 } from './TappHostIntegrationApi'
 import {
+  buildInstallPackageFromInstalled,
+  installDirect,
   installFromCode,
   installFromStore,
   installTapp,
@@ -96,6 +98,8 @@ export default {
   installTappFile,
   installFromCode,
   installFromStore,
+  installDirect,
+  buildInstallPackageFromInstalled,
   updateTappFromCode,
   updateTappFromStore,
   getTapp,

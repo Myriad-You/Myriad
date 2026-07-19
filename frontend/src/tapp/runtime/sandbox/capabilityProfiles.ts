@@ -20,6 +20,7 @@ export const HEADLESS_DENIED_ACTIONS = [
   'tappList.list',
   'tappList.get',
   'tappList.getRecent',
+  'tappList.getInstallPackage',
   'tappList.install',
   'tappList.uninstall',
   'tappList.start',

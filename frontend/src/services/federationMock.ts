@@ -209,6 +209,9 @@ const MOCK_PUBLISHED: PublishedItem[] = [
     activity_id: 'act-pub-001',
     visibility: 'public',
     published_at: '2026-03-10T08:30:00Z',
+    title: '2026 Spring Report',
+    summary: 'Quarterly activity overview',
+    content_preview: 'Quarterly activity overview across platforms',
   },
   {
     id: 2,
@@ -217,6 +220,8 @@ const MOCK_PUBLISHED: PublishedItem[] = [
     activity_id: 'act-pub-002',
     visibility: 'public',
     published_at: '2026-03-08T14:20:00Z',
+    title: 'RSS Guide',
+    content_preview: 'How to subscribe and publish with Brew',
   },
   {
     id: 3,
@@ -225,6 +230,8 @@ const MOCK_PUBLISHED: PublishedItem[] = [
     activity_id: 'act-pub-003',
     visibility: 'followers',
     published_at: '2026-03-05T20:15:00Z',
+    title: 'Cyberpunk: Edgerunners',
+    content_preview: 'Anime series in my library',
   },
   {
     id: 4,
@@ -233,6 +240,17 @@ const MOCK_PUBLISHED: PublishedItem[] = [
     activity_id: 'act-pub-004',
     visibility: 'public',
     published_at: '2026-02-28T10:00:00Z',
+    title: 'Winter Recap',
+    content_preview: 'End-of-season summary',
+  },
+  {
+    id: 5,
+    content_type: 'note',
+    content_id: 'note_mock_1',
+    activity_id: 'act-pub-005',
+    visibility: 'public',
+    published_at: '2026-03-12T09:00:00Z',
+    content_preview: 'Hello from freeform note — preview text for 已发布',
   },
 ]
 

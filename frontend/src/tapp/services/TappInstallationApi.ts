@@ -19,7 +19,7 @@ interface CompiledCssPayload {
 /**
  * 安装 Tapp 请求体（统一格式）
  */
-interface InstallTappRequest {
+export interface InstallTappRequest {
   source: 'direct' | 'store'
   // direct 模式
   manifest?: TappManifest
@@ -42,6 +42,15 @@ interface InstallTappRequest {
   tappId?: string
   // 通用
   permissions?: string[]
+}
+
+/**
+ * Direct-install package payload (share / peer install).
+ * Matches POST /api/tapps/install source=direct body minus `source`.
+ */
+export type DirectInstallPackage = Omit<InstallTappRequest, 'source' | 'storeSource' | 'tappId'> & {
+  manifest: TappManifest
+  code: string
 }
 
 /**
@@ -294,6 +303,117 @@ export async function installFromStore(
     )
     return installFromStoreViaClient(request)
   }
+}
+
+/**
+ * Install from a peer-shared / playground direct package (source=direct).
+ * Used by Aro chat share install and custom/example tapps not in the store.
+ */
+export async function installDirect(
+  packagePayload: DirectInstallPackage,
+): Promise<TappListItem> {
+  if (!packagePayload?.manifest || typeof packagePayload.code !== 'string') {
+    throw new Error('Direct install requires manifest and code')
+  }
+  const requestBody: InstallTappRequest = {
+    source: 'direct',
+    manifest: packagePayload.manifest,
+    code: packagePayload.code,
+    permissions:
+      packagePayload.permissions ?? packagePayload.manifest.permissions,
+  }
+  if (packagePayload.styles !== undefined) requestBody.styles = packagePayload.styles
+  if (packagePayload.pageTemplate !== undefined) {
+    requestBody.pageTemplate = packagePayload.pageTemplate
+  }
+  if (packagePayload.widgetTemplates) {
+    requestBody.widgetTemplates = packagePayload.widgetTemplates
+  }
+  if (packagePayload.widgetCss !== undefined) {
+    requestBody.widgetCss = packagePayload.widgetCss
+  }
+  if (packagePayload.pageCss !== undefined) {
+    requestBody.pageCss = packagePayload.pageCss
+  }
+  if (packagePayload.i18n) requestBody.i18n = packagePayload.i18n
+  if (packagePayload.pageModules) {
+    requestBody.pageModules = packagePayload.pageModules
+  }
+  if (packagePayload.assets) requestBody.assets = packagePayload.assets
+
+  return apiRequest('/api/tapps/install', {
+    method: 'POST',
+    body: JSON.stringify(requestBody),
+  })
+}
+
+/**
+ * Build a direct-install package from an installed Tapp (for peer share).
+ * Omits heavy assets when the package JSON would exceed `maxBytes` (if set).
+ */
+export async function buildInstallPackageFromInstalled(
+  tappId: string,
+  options?: { maxBytes?: number },
+): Promise<{
+  package: DirectInstallPackage | null
+  sizeBytes: number
+  omitted: boolean
+  reason?: string
+}> {
+  const { getTapp } = await import('./TappLifecycleApi')
+  const { getTappResources } = await import('./TappPackageResourceApi')
+
+  const detail = await getTapp(tappId)
+  const resources = await getTappResources(tappId)
+
+  const pkg: DirectInstallPackage = {
+    manifest: detail.manifest,
+    code: resources.code || '',
+    permissions: detail.granted_permissions?.length
+      ? detail.granted_permissions
+      : detail.manifest.permissions,
+  }
+  if (resources.styles) pkg.styles = resources.styles
+  if (resources.pageTemplate) pkg.pageTemplate = resources.pageTemplate
+  if (resources.widgetTemplates) pkg.widgetTemplates = resources.widgetTemplates
+  // Prefer generated widget/page CSS when present (install API field names).
+  if (resources.widgetCSS) pkg.widgetCss = resources.widgetCSS
+  else if (resources.widgetStyles) pkg.widgetCss = resources.widgetStyles
+  if (resources.pageCSS) pkg.pageCss = resources.pageCSS
+  else if (resources.pageStyles) pkg.pageCss = resources.pageStyles
+  if (resources.i18n) pkg.i18n = resources.i18n
+  if (resources.pageModules) pkg.pageModules = resources.pageModules
+
+  if (!pkg.code) {
+    return {
+      package: null,
+      sizeBytes: 0,
+      omitted: true,
+      reason: 'Installed Tapp has no code to share',
+    }
+  }
+
+  let serialized = JSON.stringify(pkg)
+  let sizeBytes = new Blob([serialized]).size
+  const max = options?.maxBytes
+
+  if (max != null && sizeBytes > max) {
+    // Drop optional heavy fields and retry once.
+    delete pkg.assets
+    delete pkg.i18n
+    serialized = JSON.stringify(pkg)
+    sizeBytes = new Blob([serialized]).size
+    if (sizeBytes > max) {
+      return {
+        package: null,
+        sizeBytes,
+        omitted: true,
+        reason: `Package too large to share (${sizeBytes} bytes, max ${max})`,
+      }
+    }
+  }
+
+  return { package: pkg, sizeBytes, omitted: false }
 }
 
 /**

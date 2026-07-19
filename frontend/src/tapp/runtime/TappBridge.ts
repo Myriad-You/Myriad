@@ -270,7 +270,7 @@ export class TappBridge {
     }
 
     // payload 大小检查（防止内存攻击）
-    // 默认 1 MiB；file.download / federation.uploadMedia 有专用上限（对齐业务）。
+    // 默认 1 MiB；file.download / federation.uploadMedia / package share 有专用上限。
     if (msg.payload !== undefined) {
       if (msg.action === 'file.download') {
         const args = (msg.payload as { args?: unknown[] }).args
@@ -304,7 +304,8 @@ export class TappBridge {
         if (typeof options.data !== 'string') {
           return {
             valid: false,
-            error: 'Invalid federation.uploadMedia payload: data must be a string',
+            error:
+              'Invalid federation.uploadMedia payload: data must be a string',
           }
         }
         if (options.data.length > MAX_MEDIA_DATA_CHARS) {
@@ -339,6 +340,26 @@ export class TappBridge {
           return {
             valid: false,
             error: 'Invalid federation.uploadMedia payload: media_type',
+          }
+        }
+      } else if (
+        msg.action === 'federation.sendMessage' ||
+        msg.action === 'federation.sendRoomMessage' ||
+        msg.action === 'tappList.install' ||
+        msg.action === 'tappList.getInstallPackage'
+      ) {
+        // Channel/room message + direct install packages (raised further in later commit).
+        const MAX_FED_CHARS = 10 * 1024 * 1024 + 256 * 1024
+        let payloadStr: string
+        try {
+          payloadStr = JSON.stringify(msg.payload)
+        } catch {
+          return { valid: false, error: 'Payload must be JSON-serializable' }
+        }
+        if (payloadStr.length > MAX_FED_CHARS) {
+          return {
+            valid: false,
+            error: `Payload too large for ${msg.action} (max ~10 MiB)`,
           }
         }
       } else {

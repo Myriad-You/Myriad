@@ -587,11 +587,8 @@ async fn handle_content_activity(
     .await
     .map_err(db_err)?;
 
-    // 添加到 Timeline
-    let preview = activity["object"]["content"]
-        .as_str()
-        .or_else(|| activity["object"]["summary"].as_str())
-        .map(|s| s.chars().take(200).collect::<String>());
+    // 添加到 Timeline — prefer plain source.content for Note objects
+    let preview = timeline_preview_from_object(&activity["object"]);
 
     db.execute(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
@@ -618,6 +615,32 @@ async fn handle_content_activity(
     Ok(StatusCode::ACCEPTED)
 }
 
+/// Plain timeline preview from an AP object (Note prefers source.content).
+fn timeline_preview_from_object(object: &serde_json::Value) -> Option<String> {
+    object
+        .pointer("/source/content")
+        .and_then(|v| v.as_str())
+        .or_else(|| object.get("content").and_then(|v| v.as_str()))
+        .or_else(|| object.get("summary").and_then(|v| v.as_str()))
+        .or_else(|| object.get("content_preview").and_then(|v| v.as_str()))
+        .or_else(|| object.get("mfp:contentPreview").and_then(|v| v.as_str()))
+        .or_else(|| object.get("name").and_then(|v| v.as_str()))
+        .map(|s| {
+            let plain = s
+                .replace("<p>", "")
+                .replace("</p>", "")
+                .replace("<br>", " ")
+                .replace("<br/>", " ")
+                .replace("<br />", " ")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&amp;", "&")
+                .replace("&quot;", "\"");
+            plain.chars().take(200).collect::<String>()
+        })
+        .filter(|s| !s.trim().is_empty())
+}
+
 /// 将共享收件箱的活动分发给所有关注该 Actor 的本地用户
 async fn distribute_to_followers(
     db: &DatabaseConnection,
@@ -627,10 +650,7 @@ async fn distribute_to_followers(
 ) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
     let activity_id_str = activity["id"].as_str().unwrap_or("");
     let object_type = activity["object"]["type"].as_str().map(|s| s.to_string());
-    let preview = activity["object"]["content"]
-        .as_str()
-        .or_else(|| activity["object"]["summary"].as_str())
-        .map(|s| s.chars().take(200).collect::<String>());
+    let preview = timeline_preview_from_object(&activity["object"]);
 
     // 批量 INSERT — 一次 SQL 分发到所有关注者的时间线，避免 N+1
     let _ = db
