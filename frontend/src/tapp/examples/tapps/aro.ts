@@ -3135,13 +3135,61 @@ function openReportPicker(icons, titles, iconColors) {
 
   confirmBtn.addEventListener('click', function () {
     if (!selectedReport) return;
-    var name = selectedReport.summary || selectedReport.type || 'Report';
-    var desc = '';
-    if (selectedReport.platform) desc = selectedReport.platform;
+    var snap = buildReportShareSnapshot(selectedReport);
+    var name = snap.summary || selectedReport.type || 'Report';
+    var desc = snap.platform || '';
     if (selectedReport.createdAt) desc += (desc ? ' · ' : '') + new Date(selectedReport.createdAt).toLocaleDateString();
-    setPendingAttach({ type: type, name: name, desc: desc, icon: icons[type], label: lang.attachReport, reportId: selectedReport.id });
+    // Snapshot fields travel with the message so recipients can render without getReport (user-scoped).
+    setPendingAttach({
+      type: type,
+      name: name,
+      desc: desc,
+      icon: icons[type],
+      label: lang.attachReport,
+      reportId: snap.report_id,
+      summary: snap.summary,
+      platform: snap.platform,
+      contentPreview: snap.content_preview,
+    });
     overlay.remove();
   });
+}
+
+/**
+ * Build a chat/federation-safe report snapshot.
+ * Field names align with Aro payload: report_id, summary, platform, content_preview.
+ * Does not include full report JSON — only what chat recipients need to render a card/detail.
+ */
+function buildReportShareSnapshot(report) {
+  var reportId = report && (report.id != null ? report.id : report.report_id);
+  var platform = (report && (report.platform || report.platform_id)) || '';
+  var summary = '';
+  if (report) {
+    if (report.summary) summary = String(report.summary);
+    else if (report.report_title) summary = String(report.report_title);
+    else if (report.type) summary = String(report.type);
+  }
+  var preview = '';
+  if (report) {
+    if (report.content_preview) preview = String(report.content_preview);
+    else if (report.summary) preview = String(report.summary);
+    else if (typeof report.content === 'string') preview = report.content;
+    else if (report.content && typeof report.content === 'object') {
+      if (report.content.summary) preview = String(report.content.summary);
+      else if (Array.isArray(report.content.insights) && report.content.insights.length) {
+        preview = String(report.content.insights[0]);
+      }
+    }
+  }
+  preview = stripHtmlPreview(preview || '').trim();
+  if (preview.length > 500) preview = preview.slice(0, 500);
+  if (!summary) summary = preview ? preview.slice(0, 80) : 'Report';
+  return {
+    report_id: reportId != null ? String(reportId) : '',
+    summary: summary,
+    platform: platform ? String(platform) : '',
+    content_preview: preview,
+  };
 }
 
 function setPendingAttach(attach) {
@@ -3674,6 +3722,18 @@ function renderMessages(opts) {
         var stKey = 'tapp_accept_' + payload.tapp_id + '_' + idx;
         tappAcceptStatus = (state.tappAcceptMap && state.tappAcceptMap[stKey]) || '';
       }
+      // Prefer explicit snapshot fields for report shares (title/description are legacy).
+      var shareTitle = payload.title || payload.summary || '';
+      var shareDesc = payload.description || '';
+      if (msgType === 'report') {
+        if (!shareTitle) shareTitle = payload.summary || '';
+        if (!shareDesc) {
+          shareDesc = payload.content_preview || payload.platform || '';
+          if (payload.platform && payload.content_preview && payload.content_preview !== payload.platform) {
+            shareDesc = payload.platform + ' · ' + payload.content_preview;
+          }
+        }
+      }
       html += '<div class="msg-share-card" id="' + shareCardId + '"'
         + ' style="cursor:pointer" data-type="' + esc(msgType) + '"'
         + (payload.tapp_id ? ' data-tapp-id="' + esc(payload.tapp_id) + '"' : '')
@@ -3682,13 +3742,16 @@ function renderMessages(opts) {
         + (payload.brew_id ? ' data-brew-id="' + esc(String(payload.brew_id)) + '"' : '')
         + (payload.brew_link ? ' data-brew-link="' + esc(payload.brew_link) + '"' : '')
         + (payload.report_id ? ' data-report-id="' + esc(payload.report_id) + '"' : '')
+        + (payload.summary ? ' data-report-summary="' + esc(payload.summary) + '"' : '')
+        + (payload.platform ? ' data-report-platform="' + esc(payload.platform) + '"' : '')
+        + (payload.content_preview ? ' data-report-content-preview="' + esc(payload.content_preview) + '"' : '')
         + ' data-msg-idx="' + idx + '"'
         + '>'
         + '<div class="msg-share-icon" style="background:' + (shareBgs[msgType] || '') + '">' + iconContent + '</div>'
         + '<div class="msg-share-body">'
         + '<div class="msg-share-type">' + esc(shareTypeLabel(msgType)) + '</div>'
-        + '<div class="msg-share-title">' + esc(payload.title || '') + '</div>'
-        + (payload.description ? '<div class="msg-share-desc">' + esc(payload.description) + '</div>' : '');
+        + '<div class="msg-share-title">' + esc(shareTitle) + '</div>'
+        + (shareDesc ? '<div class="msg-share-desc">' + esc(shareDesc) + '</div>' : '');
       // Version badge + status pill for tapp
       if (msgType === 'tapp') {
         html += '<div class="msg-share-meta">';
@@ -3906,19 +3969,65 @@ function openBrewDetail(brewId, brewLink, card) {
 }
 
 function openReportDetail(reportId, card) {
-  var overlay = createDetailOverlay(card.querySelector('.msg-share-title').textContent || 'Report', SVG_ICONS.report, 'rgba(239,68,68,.1)');
+  // Snapshot fields travel in the message payload; getReport is user-scoped and fails for recipients.
+  var snapSummary = (card && card.dataset.reportSummary) || (card && card.querySelector('.msg-share-title') && card.querySelector('.msg-share-title').textContent) || 'Report';
+  var snapPlatform = (card && card.dataset.reportPlatform) || '';
+  var snapPreview = (card && card.dataset.reportContentPreview) || '';
+  if (!snapPreview && card) {
+    var descEl = card.querySelector('.msg-share-desc');
+    if (descEl && descEl.textContent) snapPreview = descEl.textContent;
+  }
+
+  var overlay = createDetailOverlay(snapSummary || 'Report', SVG_ICONS.report, 'rgba(239,68,68,.1)');
   var body = overlay.querySelector('.picker-body');
   showPickerLoading(body);
-  Tapp.report.getReport(reportId).then(function (detail) {
-    if (!detail) { body.innerHTML = '<div class="picker-empty">' + esc(lang.pickerEmpty) + '</div>'; return; }
+
+  function renderReportSnapshot(summary, platform, contentText, createdAt, typeLabel) {
+    var meta = '';
+    if (platform) meta += platform;
+    if (typeLabel) meta += (meta ? ' · ' : '') + typeLabel;
+    if (createdAt) {
+      try { meta += (meta ? ' · ' : '') + new Date(createdAt).toLocaleDateString(); } catch (e) { /* ignore */ }
+    }
+    var bodyText = '';
+    if (contentText != null && contentText !== '') {
+      bodyText = typeof contentText === 'string' ? contentText : (typeof contentText === 'object' && contentText.summary ? String(contentText.summary) : JSON.stringify(contentText));
+    }
+    bodyText = stripHtmlPreview(bodyText || '').trim();
     body.innerHTML =
       '<div style="padding:16px;display:flex;flex-direction:column;gap:12px">'
-      + '<div style="font-size:18px;font-weight:600">' + esc(detail.summary || detail.type || 'Report') + '</div>'
-      + '<div style="font-size:12px;color:var(--text-secondary,#888)">' + esc((detail.platform || '') + (detail.type ? ' · ' + detail.type : '') + (detail.createdAt ? ' · ' + new Date(detail.createdAt).toLocaleDateString() : '')) + '</div>'
-      + (detail.content ? '<div style="font-size:13px;line-height:1.6;max-height:300px;overflow-y:auto">' + esc(detail.content) + '</div>' : '')
+      + '<div style="font-size:18px;font-weight:600">' + esc(summary || 'Report') + '</div>'
+      + (meta ? '<div style="font-size:12px;color:var(--text-secondary,#888)">' + esc(meta) + '</div>' : '')
+      + (bodyText ? '<div style="font-size:13px;line-height:1.6;max-height:300px;overflow-y:auto">' + esc(bodyText) + '</div>' : '')
       + '</div>';
+  }
+
+  // Prefer local catalog when the report belongs to the current user; otherwise use the share snapshot.
+  Tapp.report.getReport(reportId).then(function (detail) {
+    if (!detail) {
+      renderReportSnapshot(snapSummary, snapPlatform, snapPreview, null, null);
+      return;
+    }
+    var contentBody = detail.content;
+    if (contentBody && typeof contentBody === 'object' && !contentBody.summary && Array.isArray(contentBody.insights)) {
+      contentBody = (detail.summary || '') + (contentBody.insights.length ? '\n' + contentBody.insights.join('\n') : '');
+    } else if (contentBody && typeof contentBody === 'object' && contentBody.summary) {
+      var insights = Array.isArray(contentBody.insights) ? contentBody.insights.join('\n') : '';
+      contentBody = contentBody.summary + (insights ? '\n' + insights : '');
+    }
+    renderReportSnapshot(
+      detail.summary || detail.type || snapSummary,
+      detail.platform || snapPlatform,
+      contentBody || snapPreview,
+      detail.createdAt,
+      detail.type
+    );
   }).catch(function () {
-    body.innerHTML = '<div class="picker-empty">' + esc(lang.pickerEmpty) + '</div>';
+    if (snapSummary || snapPreview || snapPlatform) {
+      renderReportSnapshot(snapSummary, snapPlatform, snapPreview, null, null);
+    } else {
+      body.innerHTML = '<div class="picker-empty">' + esc(lang.pickerEmpty) + '</div>';
+    }
   });
 }
 
@@ -4281,6 +4390,13 @@ async function doSend() {
         if (attach.platformId) msgPayload.platform_id = attach.platformId;
         if (attach.itemId) msgPayload.item_id = attach.itemId;
         if (attach.reportId) msgPayload.report_id = attach.reportId;
+        // Report share snapshot: receivers cannot call user-scoped getReport.
+        if (attach.type === 'report') {
+          if (attach.summary) msgPayload.summary = attach.summary;
+          else if (attach.name) msgPayload.summary = attach.name;
+          if (attach.platform) msgPayload.platform = attach.platform;
+          if (attach.contentPreview) msgPayload.content_preview = attach.contentPreview;
+        }
       }
       clearPendingAttach();
     } else {

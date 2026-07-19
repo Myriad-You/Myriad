@@ -673,20 +673,47 @@ async fn build_ap_object(
             let report_json: serde_json::Value = row.try_get("", "report").unwrap_or_default();
             let title: Option<String> = row.try_get("", "report_title").ok();
 
-            let summary = if platform == "all" {
-                title.unwrap_or_else(|| "综合分析报告".to_string())
+            // Display title for the Article name
+            let name = if platform == "all" {
+                title
+                    .clone()
+                    .filter(|t| !t.is_empty())
+                    .unwrap_or_else(|| "综合分析报告".to_string())
             } else {
-                format!("{} 平台报告", platform)
+                title
+                    .clone()
+                    .filter(|t| !t.is_empty())
+                    .unwrap_or_else(|| format!("{} 平台报告", platform))
             };
 
-            // 提取报告摘要作为 content
+            // Align with Aro chat snapshot fields: report_id, summary, platform, content_preview
+            // so remote instances can render without a user-scoped catalog lookup.
+            let summary_plain = extract_report_summary_plain(&report_json);
+            let summary = if !summary_plain.is_empty() {
+                summary_plain.clone()
+            } else {
+                name.clone()
+            };
+            let content_preview = {
+                let src = if !summary_plain.is_empty() {
+                    summary_plain
+                } else {
+                    name.clone()
+                };
+                if src.chars().count() > 500 {
+                    src.chars().take(500).collect::<String>()
+                } else {
+                    src
+                }
+            };
             let content_text = extract_report_summary(&report_json);
 
             Ok(json!({
                 "type": "Article",
                 "id": format!("{}/reports/{}", base_url, report_id),
                 "attributedTo": &local_actor,
-                "name": &summary,
+                "name": &name,
+                "summary": &summary,
                 "content": &content_text,
                 "mediaType": "text/html",
                 "published": now_iso8601(),
@@ -694,7 +721,11 @@ async fn build_ap_object(
                 "cc": cc,
                 "mfp:contentType": "report",
                 "mfp:contentId": content_id,
+                "mfp:reportId": report_id,
                 "mfp:platform": &platform,
+                // Explicit Aro-aligned snapshot fields for chat/federation consumers
+                "mfp:summary": &summary,
+                "mfp:contentPreview": &content_preview,
             }))
         }
         "brew-article" => {
@@ -917,25 +948,39 @@ fn resolve_audience(
     }
 }
 
-/// 从报告 JSON 中提取摘要
-fn extract_report_summary(report_json: &serde_json::Value) -> String {
+/// 从报告 JSON 中提取纯文本摘要（chat / mfp snapshot 用）
+fn extract_report_summary_plain(report_json: &serde_json::Value) -> String {
     // 尝试从综合分析中提取
     if let Some(analysis) = report_json.get("综合分析") {
         if let Some(profile) = analysis.get("总体画像").and_then(|v| v.as_str()) {
-            return format!("<p>{}</p>", profile);
+            return profile.to_string();
         }
         if let Some(content) = analysis.get("content") {
             if let Some(profile) = content.get("总体画像").and_then(|v| v.as_str()) {
-                return format!("<p>{}</p>", profile);
+                return profile.to_string();
             }
         }
     }
     // 尝试从单平台报告提取 summary
     if let Some(summary) = report_json.get("summary").and_then(|v| v.as_str()) {
-        return format!("<p>{}</p>", summary);
+        return summary.to_string();
     }
-    // 回退
-    "<p>数据分析报告</p>".to_string()
+    // 首条 insight 作为预览
+    if let Some(insights) = report_json.get("insights").and_then(|v| v.as_array()) {
+        if let Some(first) = insights.first().and_then(|v| v.as_str()) {
+            return first.to_string();
+        }
+    }
+    String::new()
+}
+
+/// 从报告 JSON 中提取摘要（HTML，用于 AP Article content）
+fn extract_report_summary(report_json: &serde_json::Value) -> String {
+    let plain = extract_report_summary_plain(report_json);
+    if plain.is_empty() {
+        return "<p>数据分析报告</p>".to_string();
+    }
+    format!("<p>{}</p>", escape_html(&plain))
 }
 
 fn escape_html(s: &str) -> String {
@@ -1000,5 +1045,43 @@ mod tests {
     #[test]
     fn escape_html_basic() {
         assert_eq!(escape_html("a<b>&c"), "a&lt;b&gt;&amp;c");
+    }
+
+    #[test]
+    fn extract_report_summary_plain_from_summary_and_insights() {
+        let with_summary = json!({"summary": "活跃开发者", "insights": ["ignored when summary present"]});
+        assert_eq!(
+            extract_report_summary_plain(&with_summary),
+            "活跃开发者"
+        );
+
+        let with_insights = json!({"insights": ["首条洞察", "第二条"]});
+        assert_eq!(
+            extract_report_summary_plain(&with_insights),
+            "首条洞察"
+        );
+
+        let comprehensive = json!({
+            "综合分析": { "总体画像": "跨平台综合画像" }
+        });
+        assert_eq!(
+            extract_report_summary_plain(&comprehensive),
+            "跨平台综合画像"
+        );
+
+        assert_eq!(extract_report_summary_plain(&json!({})), "");
+    }
+
+    #[test]
+    fn extract_report_summary_html_escapes_and_falls_back() {
+        let xss = json!({"summary": "a<b>&c"});
+        assert_eq!(
+            extract_report_summary(&xss),
+            "<p>a&lt;b&gt;&amp;c</p>"
+        );
+        assert_eq!(
+            extract_report_summary(&json!({})),
+            "<p>数据分析报告</p>"
+        );
     }
 }
