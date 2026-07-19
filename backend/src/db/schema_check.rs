@@ -15,16 +15,15 @@ use std::collections::HashSet;
 /// 格式建议：YYYY.MM.DD 或语义版本 X.Y.Z
 ///
 /// 变更日志：
-/// - 2026.07.19.2: 去掉 approved_permissions 等冗余 field-fill 特判；缺列走 get_expected_schema
-/// - 2026.07.19.1: 退休 007–011 薄 ALTER 迁移；列并入 001/002 CREATE，运行时靠 schema_check
-/// - 2026.07.18.2: owner implies admin（is_owner 行强制 is_admin=true；ensure_single_owner）
-/// - 2026.07.18.1: users.is_owner 站点 owner 标记（取代 id=1 主管理员启发式）
-/// - 2026.07.17.1: 新增 tapp_ai_cost_ledger 独立 AI 费用账本表与索引
-/// - 2026.07.16.2: activity_events / runtime registry 等并入基础迁移，并由 schema 自愈补齐旧库
-/// - 2026.07.16.1: 补齐 activity_events 表与索引
-/// - 2026.07.11.1: 新增 Discord 数据平台种子
-/// - 2026.07.10.1: 默认平台种子同步（含 X），与 001 插入列表对齐
-const SCHEMA_VERSION: &str = "2026.07.19.2";
+/// - 2026.07.19.3: 删掉过期升级补齐（approved_permissions heal、整表 create 兜底）；只留权威结构列表 + 持续机制
+/// - 2026.07.19.2: 去掉 approved_permissions 专用 ADD COLUMN；缺列走 get_expected_schema
+/// - 2026.07.19.1: 退休 007–011 薄 ALTER 迁移；列并入 001/002 CREATE
+/// - 2026.07.18.2: owner implies admin（ensure_single_owner）
+/// - 2026.07.18.1: users.is_owner 站点 owner 标记
+/// - 2026.07.17.1: tapp_ai_cost_ledger 表与索引
+/// - 2026.07.11.1: Discord 数据平台种子
+/// - 2026.07.10.1: 默认平台种子同步（含 X）
+const SCHEMA_VERSION: &str = "2026.07.19.3";
 
 /// 内置平台种子定义（与 migrations/001_initial_schema.rs 中 INSERT 保持同步）
 ///
@@ -167,7 +166,7 @@ END $$;
 ///
 /// 这是「数据表种子同步」入口：结构由列/索引检查负责，默认业务行由本函数负责。
 pub async fn ensure_default_platforms(db: &DatabaseConnection) -> Result<usize, DbErr> {
-    // 表不存在则跳过（ensure_tables_exist 会在此之前处理）
+    // 表不存在则跳过（整表由 Migrator 001 创建；此处只补种子行）
     let existing_tables = get_existing_tables(db).await?;
     if !existing_tables.contains("platforms") {
         tracing::debug!("platforms table missing, skip default platform seed");
@@ -4328,714 +4327,9 @@ fn get_expected_indexes() -> Vec<IndexDef> {
     ]
 }
 
-/// 获取创建缺失表的 DDL 语句
-fn get_create_table_ddl() -> Vec<(&'static str, &'static str)> {
-    vec![
-        (
-            "tapp_runtime_registry",
-            r#"
-            CREATE TABLE IF NOT EXISTS tapp_runtime_registry (
-                namespace VARCHAR(64) NOT NULL,
-                record_id VARCHAR(160) NOT NULL,
-                subject_id INTEGER,
-                owner_id INTEGER,
-                tapp_id VARCHAR(255),
-                runtime_id VARCHAR(160),
-                payload JSONB NOT NULL,
-                expires_at BIGINT NOT NULL,
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                PRIMARY KEY (namespace, record_id)
-            )
-            "#,
-        ),
-        (
-            "tapp_runtime_mailbox",
-            r#"
-            CREATE TABLE IF NOT EXISTS tapp_runtime_mailbox (
-                message_id BIGSERIAL PRIMARY KEY,
-                channel VARCHAR(64) NOT NULL,
-                runtime_id VARCHAR(160) NOT NULL,
-                payload JSONB NOT NULL,
-                expires_at BIGINT NOT NULL,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-            "#,
-        ),
-        (
-            "tapp_ai_cost_ledger",
-            r#"
-            CREATE TABLE IF NOT EXISTS tapp_ai_cost_ledger (
-                id BIGSERIAL PRIMARY KEY,
-                occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                subject_id INTEGER NOT NULL,
-                owner_id INTEGER NOT NULL,
-                tapp_id VARCHAR(255) NOT NULL,
-                task_id VARCHAR(160) NOT NULL,
-                source VARCHAR(64) NOT NULL,
-                operation VARCHAR(32) NOT NULL,
-                provider VARCHAR(64) NOT NULL,
-                model VARCHAR(255) NOT NULL,
-                input_tokens INTEGER NOT NULL DEFAULT 0,
-                output_tokens INTEGER NOT NULL DEFAULT 0,
-                tokens_estimated BOOLEAN NOT NULL DEFAULT TRUE,
-                cost_micro_usd BIGINT,
-                status VARCHAR(16) NOT NULL,
-                error_code VARCHAR(64)
-            )
-            "#,
-        ),
-        (
-            "activity_events",
-            r#"
-            CREATE TABLE IF NOT EXISTS activity_events (
-                id SERIAL PRIMARY KEY,
-                metadata_history_id INTEGER NOT NULL UNIQUE,
-                metadata_id INTEGER,
-                user_id INTEGER NOT NULL,
-                platform_name VARCHAR(64) NOT NULL,
-                event_type VARCHAR(32) NOT NULL,
-                title VARCHAR(255) NOT NULL,
-                changes JSONB NOT NULL DEFAULT '[]'::jsonb,
-                change_count INTEGER NOT NULL DEFAULT 0,
-                importance SMALLINT NOT NULL DEFAULT 0,
-                occurred_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                CONSTRAINT fk_activity_events_history
-                    FOREIGN KEY (metadata_history_id)
-                    REFERENCES metadata_history(id)
-                    ON DELETE CASCADE
-            )
-            "#,
-        ),
-        // brew_annotations 表
-        (
-            "brew_annotations",
-            r#"
-            CREATE TABLE IF NOT EXISTS brew_annotations (
-                id SERIAL PRIMARY KEY,
-                item_id INTEGER NOT NULL,
-                annotation_type VARCHAR(20) NOT NULL DEFAULT 'term',
-                term TEXT NOT NULL,
-                explanation TEXT NOT NULL,
-                position INTEGER,
-                context_hint TEXT,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                CONSTRAINT fk_brew_annotations_item
-                    FOREIGN KEY (item_id)
-                    REFERENCES brew_items(id)
-                    ON DELETE CASCADE
-            )
-            "#,
-        ),
-        // brew_podcasts 表
-        (
-            "brew_podcasts",
-            r#"
-            CREATE TABLE IF NOT EXISTS brew_podcasts (
-                id SERIAL PRIMARY KEY,
-                item_id INTEGER NOT NULL,
-                title TEXT NOT NULL,
-                language VARCHAR(20),
-                dialogues JSONB NOT NULL,
-                estimated_duration INTEGER,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                CONSTRAINT fk_brew_podcasts_item
-                    FOREIGN KEY (item_id)
-                    REFERENCES brew_items(id)
-                    ON DELETE CASCADE,
-                CONSTRAINT uq_brew_podcasts_item UNIQUE (item_id)
-            )
-            "#,
-        ),
-        // brew_comments 表
-        (
-            "brew_comments",
-            r#"
-            CREATE TABLE IF NOT EXISTS brew_comments (
-                id SERIAL PRIMARY KEY,
-                item_id INTEGER NOT NULL,
-                user_id INTEGER NOT NULL,
-                selected_text TEXT NOT NULL,
-                comment TEXT NOT NULL,
-                start_offset INTEGER,
-                end_offset INTEGER,
-                context_before TEXT,
-                context_after TEXT,
-                color VARCHAR(20),
-                is_public BOOLEAN NOT NULL DEFAULT FALSE,
-                parent_id INTEGER,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                CONSTRAINT fk_brew_comments_item
-                    FOREIGN KEY (item_id)
-                    REFERENCES brew_items(id)
-                    ON DELETE CASCADE,
-                CONSTRAINT fk_brew_comments_parent
-                    FOREIGN KEY (parent_id)
-                    REFERENCES brew_comments(id)
-                    ON DELETE CASCADE
-            )
-            "#,
-        ),
-        // brew_categories 表
-        (
-            "brew_categories",
-            r#"
-            CREATE TABLE IF NOT EXISTS brew_categories (
-                id SERIAL PRIMARY KEY,
-                user_id INTEGER NOT NULL,
-                name VARCHAR(100) NOT NULL,
-                icon VARCHAR(50),
-                color VARCHAR(20),
-                sort_order INTEGER NOT NULL DEFAULT 0,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-            "#,
-        ),
-        // brew_user_states 表
-        (
-            "brew_user_states",
-            r#"
-            CREATE TABLE IF NOT EXISTS brew_user_states (
-                id SERIAL PRIMARY KEY,
-                user_id INTEGER NOT NULL,
-                item_id INTEGER NOT NULL,
-                is_read BOOLEAN NOT NULL DEFAULT FALSE,
-                is_starred BOOLEAN NOT NULL DEFAULT FALSE,
-                read_at TIMESTAMPTZ,
-                read_progress REAL,
-                starred_at TIMESTAMPTZ,
-                notes TEXT,
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                CONSTRAINT fk_brew_user_states_item
-                    FOREIGN KEY (item_id)
-                    REFERENCES brew_items(id)
-                    ON DELETE CASCADE
-            )
-            "#,
-        ),
-        // brew_items 表
-        (
-            "brew_items",
-            r#"
-            CREATE TABLE IF NOT EXISTS brew_items (
-                id SERIAL PRIMARY KEY,
-                source_id INTEGER NOT NULL,
-                guid VARCHAR(512) NOT NULL,
-                title TEXT NOT NULL,
-                link TEXT NOT NULL,
-                summary TEXT,
-                content TEXT,
-                author VARCHAR(255),
-                image TEXT,
-                audio_url TEXT,
-                video_url TEXT,
-                enclosures JSONB,
-                categories JSONB,
-                published_at TIMESTAMPTZ NOT NULL,
-                fetched_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                word_count INTEGER,
-                reading_time INTEGER,
-                fulltext_fetched BOOLEAN NOT NULL DEFAULT FALSE,
-                CONSTRAINT fk_brew_items_source
-                    FOREIGN KEY (source_id)
-                    REFERENCES brew_sources(id)
-                    ON DELETE CASCADE
-            )
-            "#,
-        ),
-        // brew_sources 表
-        (
-            "brew_sources",
-            r#"
-            CREATE TABLE IF NOT EXISTS brew_sources (
-                id SERIAL PRIMARY KEY,
-                user_id INTEGER NOT NULL,
-                name VARCHAR(255) NOT NULL,
-                url TEXT NOT NULL,
-                feed_type VARCHAR(20) NOT NULL DEFAULT 'rss',
-                source_type VARCHAR(20) NOT NULL DEFAULT 'rss',
-                category VARCHAR(100),
-                icon TEXT,
-                description TEXT,
-                site_url TEXT,
-                update_interval INTEGER NOT NULL DEFAULT 30,
-                last_fetched_at TIMESTAMPTZ,
-                last_success_at TIMESTAMPTZ,
-                last_error TEXT,
-                error_count INTEGER NOT NULL DEFAULT 0,
-                enabled BOOLEAN NOT NULL DEFAULT TRUE,
-                item_count INTEGER NOT NULL DEFAULT 0,
-                unread_count INTEGER NOT NULL DEFAULT 0,
-                card_size VARCHAR(20),
-                theme_color VARCHAR(20),
-                sort_order INTEGER,
-                ai_style_tags JSONB,
-                extra_config JSONB,
-                rsshub_route TEXT,
-                admin_only BOOLEAN NOT NULL DEFAULT FALSE,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-            "#,
-        ),
-        // rsshub_instances 表
-        (
-            "rsshub_instances",
-            r#"
-            CREATE TABLE IF NOT EXISTS rsshub_instances (
-                id SERIAL PRIMARY KEY,
-                user_id INTEGER,
-                name VARCHAR(100) NOT NULL,
-                url TEXT NOT NULL,
-                access_key VARCHAR(255),
-                priority INTEGER NOT NULL DEFAULT 100,
-                enabled BOOLEAN NOT NULL DEFAULT TRUE,
-                health_status VARCHAR(20) NOT NULL DEFAULT 'unknown',
-                last_health_check TIMESTAMPTZ,
-                last_response_time_ms INTEGER,
-                consecutive_failures INTEGER NOT NULL DEFAULT 0,
-                total_requests INTEGER NOT NULL DEFAULT 0,
-                success_requests INTEGER NOT NULL DEFAULT 0,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-            "#,
-        ),
-        // ==================== Agent 表 ====================
-        (
-            "agent_tasks",
-            r#"
-            CREATE TABLE IF NOT EXISTS agent_tasks (
-                id VARCHAR(64) PRIMARY KEY,
-                user_id INTEGER NOT NULL,
-                recipe_id VARCHAR(64) NOT NULL,
-                name VARCHAR(255),
-                status VARCHAR(32) NOT NULL DEFAULT 'pending',
-                current_step INTEGER NOT NULL DEFAULT 0,
-                total_steps INTEGER NOT NULL DEFAULT 0,
-                step_results JSON NOT NULL,
-                execution_context JSON,
-                pending_question JSON,
-                progress SMALLINT NOT NULL DEFAULT 0,
-                error TEXT,
-                original_request TEXT,
-                session_id VARCHAR(64),
-                lane_id VARCHAR(128),
-                started_at TIMESTAMPTZ NOT NULL,
-                completed_at TIMESTAMPTZ,
-                updated_at TIMESTAMPTZ NOT NULL
-            )
-            "#,
-        ),
-        (
-            "agent_sessions",
-            r#"
-            CREATE TABLE IF NOT EXISTS agent_sessions (
-                id VARCHAR(64) PRIMARY KEY,
-                user_id INTEGER NOT NULL,
-                title VARCHAR(255),
-                context JSON,
-                message_count INTEGER NOT NULL DEFAULT 0,
-                archived BOOLEAN NOT NULL DEFAULT FALSE,
-                created_at TIMESTAMPTZ NOT NULL,
-                last_active_at TIMESTAMPTZ NOT NULL
-            )
-            "#,
-        ),
-        (
-            "agent_messages",
-            r#"
-            CREATE TABLE IF NOT EXISTS agent_messages (
-                id SERIAL PRIMARY KEY,
-                session_id VARCHAR(64) NOT NULL,
-                task_id VARCHAR(64),
-                role VARCHAR(16) NOT NULL,
-                content TEXT NOT NULL,
-                metadata JSON,
-                created_at TIMESTAMPTZ NOT NULL
-            )
-            "#,
-        ),
-        (
-            "agent_notifications",
-            r#"
-            CREATE TABLE IF NOT EXISTS agent_notifications (
-                id VARCHAR(64) PRIMARY KEY,
-                notification_type VARCHAR(32) NOT NULL,
-                priority VARCHAR(16) NOT NULL DEFAULT 'normal',
-                title TEXT NOT NULL,
-                body TEXT NOT NULL,
-                user_id INTEGER,
-                metadata JSON,
-                read BOOLEAN NOT NULL DEFAULT FALSE,
-                created_at TIMESTAMPTZ NOT NULL
-            )
-            "#,
-        ),
-        // agent_task_presets 表（合并了 Session 系统）
-        (
-            "agent_task_presets",
-            r#"
-            CREATE TABLE IF NOT EXISTS agent_task_presets (
-                id SERIAL PRIMARY KEY,
-                user_id INTEGER NOT NULL,
-                input TEXT NOT NULL,
-                preset_type VARCHAR(16) NOT NULL DEFAULT 'history',
-                parsed_steps JSONB,
-                intent_summary VARCHAR(255),
-                title VARCHAR(255),
-                conversation_data JSONB,
-                last_used_at TIMESTAMPTZ NOT NULL,
-                use_count INTEGER NOT NULL DEFAULT 1,
-                created_at TIMESTAMPTZ NOT NULL
-            )
-            "#,
-        ),
-        // ==================== 联邦表 ====================
-        (
-            "federation_keys",
-            r#"
-            CREATE TABLE IF NOT EXISTS federation_keys (
-                id SERIAL PRIMARY KEY,
-                user_id INTEGER NOT NULL UNIQUE,
-                public_key_pem TEXT NOT NULL,
-                private_key_encrypted TEXT NOT NULL,
-                key_id TEXT NOT NULL UNIQUE,
-                algorithm VARCHAR(20) NOT NULL DEFAULT 'RSA-SHA256',
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                rotated_at TIMESTAMPTZ
-            )
-            "#,
-        ),
-        (
-            "federation_remote_actors",
-            r#"
-            CREATE TABLE IF NOT EXISTS federation_remote_actors (
-                id SERIAL PRIMARY KEY,
-                actor_url TEXT NOT NULL UNIQUE,
-                username TEXT,
-                domain TEXT NOT NULL,
-                display_name TEXT,
-                avatar_url TEXT,
-                summary TEXT,
-                inbox_url TEXT NOT NULL,
-                outbox_url TEXT,
-                shared_inbox_url TEXT,
-                public_key_pem TEXT,
-                public_key_id TEXT,
-                software VARCHAR(50),
-                mfp_version VARCHAR(20),
-                tapp_capabilities JSON,
-                last_fetched_at TIMESTAMPTZ,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMPTZ
-            )
-            "#,
-        ),
-        (
-            "federation_instances",
-            r#"
-            CREATE TABLE IF NOT EXISTS federation_instances (
-                id SERIAL PRIMARY KEY,
-                domain TEXT NOT NULL UNIQUE,
-                software VARCHAR(50),
-                software_version VARCHAR(50),
-                mfp_version VARCHAR(20),
-                nodeinfo_url TEXT,
-                shared_inbox_url TEXT,
-                trust_level SMALLINT NOT NULL DEFAULT 0,
-                is_blocked BOOLEAN NOT NULL DEFAULT FALSE,
-                block_reason TEXT,
-                total_users INTEGER,
-                active_users_monthly INTEGER,
-                open_registrations BOOLEAN,
-                tapp_capabilities JSON,
-                last_seen_at TIMESTAMPTZ,
-                last_success_at TIMESTAMPTZ,
-                failure_count INTEGER NOT NULL DEFAULT 0,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMPTZ
-            )
-            "#,
-        ),
-        (
-            "federation_follows",
-            r#"
-            CREATE TABLE IF NOT EXISTS federation_follows (
-                id SERIAL PRIMARY KEY,
-                user_id INTEGER NOT NULL,
-                remote_actor_id INTEGER NOT NULL,
-                direction VARCHAR(10) NOT NULL,
-                status VARCHAR(20) NOT NULL DEFAULT 'pending',
-                activity_id TEXT,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                accepted_at TIMESTAMPTZ
-            )
-            "#,
-        ),
-        (
-            "federation_activities",
-            r#"
-            CREATE TABLE IF NOT EXISTS federation_activities (
-                id SERIAL PRIMARY KEY,
-                activity_id TEXT NOT NULL UNIQUE,
-                user_id INTEGER,
-                remote_actor_id INTEGER,
-                activity_type VARCHAR(50) NOT NULL,
-                object_type VARCHAR(50),
-                object_json JSON NOT NULL,
-                is_local BOOLEAN NOT NULL DEFAULT TRUE,
-                published_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                received_at TIMESTAMPTZ
-            )
-            "#,
-        ),
-        (
-            "federation_delivery_queue",
-            r#"
-            CREATE TABLE IF NOT EXISTS federation_delivery_queue (
-                id SERIAL PRIMARY KEY,
-                activity_id INTEGER NOT NULL,
-                target_inbox TEXT NOT NULL,
-                target_domain TEXT NOT NULL,
-                status VARCHAR(20) NOT NULL DEFAULT 'pending',
-                attempts INTEGER NOT NULL DEFAULT 0,
-                max_attempts INTEGER NOT NULL DEFAULT 12,
-                last_attempt_at TIMESTAMPTZ,
-                next_retry_at TIMESTAMPTZ DEFAULT NOW(),
-                error_message TEXT,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-            "#,
-        ),
-        (
-            "federation_channels",
-            r#"
-            CREATE TABLE IF NOT EXISTS federation_channels (
-                id SERIAL PRIMARY KEY,
-                channel_id TEXT NOT NULL UNIQUE,
-                user_id INTEGER NOT NULL,
-                remote_actor_id INTEGER NOT NULL,
-                channel_type VARCHAR(30) NOT NULL,
-                tapp_id VARCHAR(255),
-                status VARCHAR(20) NOT NULL DEFAULT 'pending',
-                transport VARCHAR(10) NOT NULL DEFAULT 'http',
-                properties JSON,
-                initiated_by VARCHAR(10) NOT NULL,
-                last_activity_at TIMESTAMPTZ,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                closed_at TIMESTAMPTZ
-            )
-            "#,
-        ),
-        (
-            "federation_channel_messages",
-            r#"
-            CREATE TABLE IF NOT EXISTS federation_channel_messages (
-                id SERIAL PRIMARY KEY,
-                channel_id TEXT NOT NULL,
-                message_id TEXT NOT NULL UNIQUE,
-                sender_actor TEXT NOT NULL,
-                message_type VARCHAR(30) NOT NULL,
-                payload JSON NOT NULL,
-                reply_to TEXT,
-                is_encrypted BOOLEAN NOT NULL DEFAULT FALSE,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-            "#,
-        ),
-        (
-            "federation_rooms",
-            r#"
-            CREATE TABLE IF NOT EXISTS federation_rooms (
-                id SERIAL PRIMARY KEY,
-                room_id TEXT NOT NULL UNIQUE,
-                name VARCHAR(255) NOT NULL,
-                description TEXT,
-                avatar_url TEXT,
-                owner_actor TEXT NOT NULL,
-                home_server TEXT NOT NULL,
-                governance_type VARCHAR(20) NOT NULL DEFAULT 'owner',
-                governance_config JSON,
-                enabled_tapps JSON,
-                shared_data_config JSON,
-                distribution_strategy VARCHAR(20) NOT NULL DEFAULT 'fan-out',
-                max_members INTEGER NOT NULL DEFAULT 50,
-                is_public BOOLEAN NOT NULL DEFAULT FALSE,
-                invite_policy VARCHAR(20) NOT NULL DEFAULT 'admin-only',
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMPTZ
-            )
-            "#,
-        ),
-        (
-            "federation_room_members",
-            r#"
-            CREATE TABLE IF NOT EXISTS federation_room_members (
-                id SERIAL PRIMARY KEY,
-                room_id TEXT NOT NULL,
-                actor_url TEXT NOT NULL,
-                is_local BOOLEAN NOT NULL DEFAULT FALSE,
-                local_user_id INTEGER,
-                role VARCHAR(20) NOT NULL DEFAULT 'member',
-                custom_permissions JSON,
-                joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                invited_by TEXT
-            )
-            "#,
-        ),
-        (
-            "federation_room_messages",
-            r#"
-            CREATE TABLE IF NOT EXISTS federation_room_messages (
-                id SERIAL PRIMARY KEY,
-                room_id TEXT NOT NULL,
-                message_id TEXT NOT NULL UNIQUE,
-                sender_actor TEXT NOT NULL,
-                message_type VARCHAR(30) NOT NULL,
-                payload JSON NOT NULL,
-                thread_id TEXT,
-                reply_to TEXT,
-                reactions JSON NOT NULL DEFAULT '{}',
-                is_pinned BOOLEAN NOT NULL DEFAULT FALSE,
-                is_encrypted BOOLEAN NOT NULL DEFAULT FALSE,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-            "#,
-        ),
-        (
-            "federation_ring_memberships",
-            r#"
-            CREATE TABLE IF NOT EXISTS federation_ring_memberships (
-                id SERIAL PRIMARY KEY,
-                ring_id TEXT NOT NULL UNIQUE,
-                ring_name VARCHAR(255),
-                ring_type VARCHAR(30) NOT NULL,
-                gossip_config JSON,
-                known_peers JSON,
-                last_sync_at TIMESTAMPTZ,
-                joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-            "#,
-        ),
-        (
-            "federation_published_content",
-            r#"
-            CREATE TABLE IF NOT EXISTS federation_published_content (
-                id SERIAL PRIMARY KEY,
-                user_id INTEGER NOT NULL,
-                content_type VARCHAR(30) NOT NULL,
-                content_id TEXT NOT NULL,
-                activity_id TEXT NOT NULL,
-                visibility VARCHAR(20) NOT NULL DEFAULT 'public',
-                published_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMPTZ
-            )
-            "#,
-        ),
-        (
-            "federation_timeline",
-            r#"
-            CREATE TABLE IF NOT EXISTS federation_timeline (
-                id SERIAL PRIMARY KEY,
-                user_id INTEGER NOT NULL,
-                activity_id TEXT NOT NULL,
-                remote_actor_id INTEGER,
-                activity_type VARCHAR(50),
-                object_type VARCHAR(50),
-                content_preview TEXT,
-                content_json JSON,
-                is_read BOOLEAN NOT NULL DEFAULT FALSE,
-                is_bookmarked BOOLEAN NOT NULL DEFAULT FALSE,
-                received_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-            "#,
-        ),
-        (
-            "federation_file_transfers",
-            r#"
-            CREATE TABLE IF NOT EXISTS federation_file_transfers (
-                id SERIAL PRIMARY KEY,
-                channel_id TEXT NOT NULL,
-                transfer_id TEXT NOT NULL UNIQUE,
-                filename TEXT NOT NULL,
-                file_size BIGINT NOT NULL,
-                mime_type VARCHAR(255),
-                checksum_sha256 TEXT,
-                direction VARCHAR(10) NOT NULL,
-                status VARCHAR(20) NOT NULL DEFAULT 'pending',
-                chunks_total INTEGER,
-                chunks_completed INTEGER NOT NULL DEFAULT 0,
-                local_path TEXT,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                completed_at TIMESTAMPTZ
-            )
-            "#,
-        ),
-    ]
-}
-
-/// 确保所有必需的表都存在
-async fn ensure_tables_exist(db: &DatabaseConnection) -> Result<u32, DbErr> {
-    let existing_tables = get_existing_tables(db).await?;
-    let table_ddls = get_create_table_ddl();
-    let mut created = 0u32;
-
-    // 按依赖顺序创建缺失表。
-    let creation_order = [
-        "tapp_runtime_registry",
-        "tapp_runtime_mailbox",
-        "tapp_ai_cost_ledger",
-        "activity_events",
-        "brew_sources",
-        "brew_items",
-        "brew_user_states",
-        "brew_categories",
-        "brew_annotations",
-        "brew_podcasts",
-        "brew_comments",
-        "rsshub_instances",
-        // Agent 表（按依赖顺序：sessions → messages, tasks 独立）
-        "agent_tasks",
-        "agent_sessions",
-        "agent_messages",
-        "agent_task_presets",
-        "agent_notifications",
-        // 联邦表（按依赖顺序）
-        "federation_keys",
-        "federation_remote_actors",
-        "federation_instances",
-        "federation_follows",
-        "federation_activities",
-        "federation_delivery_queue",
-        "federation_channels",
-        "federation_channel_messages",
-        "federation_rooms",
-        "federation_room_members",
-        "federation_room_messages",
-        "federation_ring_memberships",
-        "federation_published_content",
-        "federation_timeline",
-        "federation_file_transfers",
-    ];
-
-    for table_name in creation_order {
-        if !existing_tables.contains(table_name) {
-            if let Some((_, ddl)) = table_ddls.iter().find(|(name, _)| *name == table_name) {
-                tracing::info!("📝 Creating missing table: {}", table_name);
-                if let Err(e) = db.execute_unprepared(ddl).await {
-                    tracing::error!("Failed to create table {}: {}", table_name, e);
-                } else {
-                    created += 1;
-                    tracing::info!("✅ Created table: {}", table_name);
-                }
-            }
-        }
-    }
-
-    Ok(created)
-}
+/// Whole-table CREATE fallbacks were removed (2026.07.19.3).
+/// Tables come from Migrator 001–006; schema_check only reconciles missing
+/// columns/indexes on tables that already exist, plus ongoing data/object heals.
 
 /// 确保存储配额函数和触发器存在。
 ///
@@ -5273,8 +4567,8 @@ async fn mark_schema_version_applied(db: &DatabaseConnection, version: &str) -> 
 ///
 /// 工作流程：
 /// 1. 读取版本标记（仅日志；已标记也会继续做安全比对）
-/// 2. 确保缺失整表存在，再比对期望列/索引并补齐
-/// 3. 运行数据种子与运行时对象 heal（平台、owner、配额触发器等）
+/// 2. 比对期望列/索引并补齐（整表由 Migrator 负责，不再 create 兜底）
+/// 3. 运行持续机制：平台种子、owner heal、配额触发器等
 /// 4. 记录版本标记
 pub async fn ensure_schema(db: &DatabaseConnection) -> Result<(), DbErr> {
     // 1. 尝试获取 Advisory Lock（非阻塞）
@@ -5352,30 +4646,21 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     let mut ddl_statements: Vec<String> = Vec::new();
     let mut changes_made = 0;
 
-    // 1.5 首先确保所有必需的表存在
-    let tables_created = ensure_tables_exist(db).await?;
-    if tables_created > 0 {
-        tracing::info!("✅ Created {} missing tables", tables_created);
-        changes_made += tables_created as usize;
-    }
-
-    // 1.6 同步默认平台种子行（结构齐全后再补业务目录数据）
+    // 1. 同步默认平台种子行（表由 Migrator 创建；此处只补业务目录数据）
     match ensure_default_platforms(db).await {
         Ok(n) if n > 0 => changes_made += n,
         Ok(_) => {}
         Err(e) => tracing::warn!("Default platforms seed warning: {}", e),
     }
 
-    // 2. 获取现有表（更新后重新获取）
+    // 2. 比对期望列/索引（整表创建已不再由 schema_check 兜底）
     let existing_tables = get_existing_tables(db).await?;
     let expected_tables = get_expected_schema();
 
-    // 3. 对每个期望的表，检查缺失的列（含 tapps.approved_permissions 等；
-    //    不再为单列保留独立 ADD COLUMN 特判，统一走 ColumnDef + generate_add_column_ddl）
     for table_def in &expected_tables {
         if !existing_tables.contains(&table_def.name) {
             tracing::debug!(
-                "Table '{}' does not exist, skipping column check",
+                "Table '{}' does not exist, skipping column check (rely on Migrator)",
                 table_def.name
             );
             continue;
@@ -5393,13 +4678,12 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
         }
     }
 
-    // 4. 检查缺失的索引
+    // 3. 检查缺失的索引
     let existing_indexes = get_existing_indexes(db).await?;
     let expected_indexes = get_expected_indexes();
 
     for idx in &expected_indexes {
         if !existing_indexes.contains(&idx.name) {
-            // 确保表存在
             if existing_tables.contains(&idx.table) {
                 let ddl = generate_create_index_ddl(idx);
                 tracing::info!("📝 Missing index: {}", idx.name);
@@ -5409,7 +4693,7 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
         }
     }
 
-    // 5. 执行所有 DDL
+    // 4. 执行所有 DDL
     if !ddl_statements.is_empty() {
         tracing::info!("🔧 Applying {} schema changes...", ddl_statements.len());
 
@@ -5425,19 +4709,13 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
         tracing::info!("✅ Database schema is up to date (no changes needed)");
     }
 
-    // Optional one-shot data heal for ancient partial upgrades: if approved_permissions
-    // exists but is still NULL (pre-NOT NULL state), copy from granted_permissions.
-    // Column ADD itself is handled above via get_expected_schema (002 + ColumnDef).
-    heal_tapp_approved_permissions_nulls(db).await?;
-
-    // storage quota 触发器/函数：等缺失字段补齐后再创建。
+    // Ongoing object/data heals (not historical one-shot upgrade paths).
     ensure_tapp_storage_quota(db).await?;
-    // ensure exactly one site owner (and owner implies admin); also creates idx_users_single_owner.
     if let Err(e) = ensure_single_owner(db).await {
         tracing::warn!("Site owner seed warning: {}", e);
     }
 
-    // 6. 记录版本已应用
+    // 5. 记录版本已应用
     mark_schema_version_applied(db, SCHEMA_VERSION).await?;
     tracing::info!("📌 Schema version {} marked as applied", SCHEMA_VERSION);
 
@@ -5548,8 +4826,6 @@ pub async fn force_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
 
 /// 强制 schema 检查的内部实现
 async fn do_force_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
-    // 先确保表存在，再同步种子行
-    let _ = ensure_tables_exist(db).await?;
     if let Err(e) = ensure_default_platforms(db).await {
         tracing::warn!("Force check: default platforms seed warning: {}", e);
     }
@@ -5572,44 +4848,11 @@ async fn do_force_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
         }
     }
 
-    heal_tapp_approved_permissions_nulls(db).await?;
     ensure_tapp_storage_quota(db).await?;
     if let Err(e) = ensure_single_owner(db).await {
         tracing::warn!("Force check: site owner seed warning: {}", e);
     }
 
-    Ok(())
-}
-
-/// One-shot NULL→granted_permissions heal for partial legacy upgrades.
-///
-/// Does **not** ADD the column — that is covered by `get_expected_schema` /
-/// `generate_add_column_ddl` (default `'[]'`, matching 002 CREATE). Only copies
-/// from `granted_permissions` when the column already exists and still has NULLs.
-async fn heal_tapp_approved_permissions_nulls(db: &DatabaseConnection) -> Result<(), DbErr> {
-    let col_check = db
-        .query_one(sea_orm::Statement::from_sql_and_values(
-            sea_orm::DatabaseBackend::Postgres,
-            "SELECT 1 AS ok FROM information_schema.columns \
-             WHERE table_schema = 'public' AND table_name = 'tapps' \
-               AND column_name = 'approved_permissions' \
-             LIMIT 1",
-            vec![],
-        ))
-        .await?;
-    if col_check.is_none() {
-        return Ok(());
-    }
-
-    db.execute_unprepared(
-        r#"
-UPDATE tapps
-   SET approved_permissions = granted_permissions
- WHERE approved_permissions IS NULL
-   AND granted_permissions IS NOT NULL
-"#,
-    )
-    .await?;
     Ok(())
 }
 
@@ -5684,47 +4927,6 @@ mod tests {
         assert_eq!(col.data_type, "jsonb");
         assert!(!col.is_nullable);
         assert_eq!(col.default_value.as_deref(), Some("'[]'"));
-    }
-
-    #[tokio::test]
-    async fn approved_permissions_null_heal_copies_granted_when_database_is_provided() {
-        let Ok(database_url) = std::env::var("TAPP_PERMISSION_MIGRATION_TEST_DATABASE_URL") else {
-            return;
-        };
-        use sea_orm::{Database, DatabaseBackend, Statement};
-        use sea_orm_migration::MigratorTrait;
-
-        let db = Database::connect(&database_url).await.unwrap();
-        // Base migrations (001–006) CREATE approved_permissions on greenfield.
-        migration::Migrator::up(&db, None).await.unwrap();
-        // Simulate partial legacy: column present but still NULL (no dedicated ADD path).
-        db.execute_unprepared(
-            r#"
-ALTER TABLE tapps ALTER COLUMN approved_permissions DROP NOT NULL;
-DELETE FROM tapps WHERE tapp_id = 'com.example.legacy-consent';
-INSERT INTO tapps
-    (tapp_id, user_id, name, version, manifest, granted_permissions, approved_permissions,
-     file_path, code_path)
-VALUES
-    ('com.example.legacy-consent', 1, 'Legacy', '1.0.0', '{}'::jsonb,
-     '["storage", "ai:generate"]'::jsonb, NULL, 'manifest.json', 'main.js')
-"#,
-        )
-        .await
-        .unwrap();
-
-        // UPDATE-only heal (column ADD is generic expected-schema path).
-        heal_tapp_approved_permissions_nulls(&db).await.unwrap();
-        let row = db
-            .query_one(Statement::from_string(
-                DatabaseBackend::Postgres,
-                "SELECT approved_permissions::text AS value FROM tapps WHERE tapp_id = 'com.example.legacy-consent'".to_string(),
-            ))
-            .await
-            .unwrap()
-            .unwrap();
-        let approved = row.try_get::<String>("", "value").unwrap();
-        assert_eq!(approved, "[\"storage\", \"ai:generate\"]");
     }
 
     #[test]

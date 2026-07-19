@@ -28,16 +28,16 @@ Base CREATE tables (001–006) include the current column set for greenfield ins
 Thin ALTER-only migrations that only added columns or healed data were retired:
 
 - `007_notification_preferences` → `users.notification_preferences` in 001
-- `008_tapp_approved_permissions` → `tapps.approved_permissions` in 002 + generic column reconcile in schema_check (`get_expected_schema` / `generate_add_column_ddl`); optional NULL→`granted_permissions` data heal only
+- `008_tapp_approved_permissions` → `tapps.approved_permissions` in 002; missing column via generic `get_expected_schema` ADD only (no dedicated backfill)
 - `009_user_presence` → `users.last_seen_at` / `online_seconds` in 001 + schema_check
 - `010_user_owner` / `011_owner_is_admin` → `users.is_owner` in 001 + `ensure_single_owner`
 
-Existing deployments receive missing tables, columns, indexes, owner/admin heals,
-and default platform seeds through the backend's independent startup schema
-reconciliation (`schema_check`). The `_schema_versions` mark records the baseline
-but does **not** skip the safety check — full reconcile still runs every boot.
-Retired migration history rows are removed by `reconcile_retired_migration_history`
-before `Migrator::up`.
+Whole tables are created by Migrator (001–006). Runtime `schema_check` keeps
+**structure authority** (expected columns/indexes) and **ongoing** heals (platform
+seeds, single owner, storage-quota trigger). It does **not** re-create long-stable
+tables for ancient half-upgraded DBs. The `_schema_versions` mark records the
+baseline but does **not** skip the safety check. Retired migration history rows are
+removed by `reconcile_retired_migration_history` before `Migrator::up`.
 
 ## Manual SQL Migration
 

@@ -33,9 +33,8 @@ impl MigratorTrait for Migrator {
             Box::new(oauth_identities::Migration),
             // 原 007–011 薄 ALTER 迁移已并入 001/002 CREATE + runtime schema_check：
             // notification_preferences / presence / is_owner → 001 + ensure_single_owner
-            // approved_permissions → 002 CREATE + get_expected_schema 通用补列
-            // 默认平台种子行（含 X）统一由 001 + runtime schema_check::ensure_default_platforms 维护，
-            // 不再为单个平台开独立 migration。
+            // approved_permissions → 002 CREATE；缺列靠 get_expected_schema 通用补列
+            // 默认平台种子：001 + ensure_default_platforms（持续机制，非过期升级路径）
         ]
     }
 }
