@@ -73,7 +73,7 @@ const PAGE_HTML = `\
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
               </button>
               <textarea id="msg-input" class="msg-input" rows="1" placeholder="输入消息..."></textarea>
-              <button id="send-btn" class="send-btn">
+              <button id="send-btn" class="send-btn" disabled aria-label="Send">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M12 20V4M5 11l7-7 7 7"/>
                 </svg>
@@ -180,10 +180,6 @@ const PAGE_HTML = `\
       <main class="feed-main">
         <div class="feed-main-header">
           <div class="feed-header-leading">
-            <button id="feed-compose-btn" class="feed-compose-btn" type="button" title="发帖" style="display:none">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-              <span id="feed-compose-btn-label">发帖</span>
-            </button>
             <div class="feed-main-heading">
               <div id="feed-section-title" class="feed-section-title">动态</div>
               <div id="feed-section-meta" class="feed-section-meta"></div>
@@ -192,6 +188,10 @@ const PAGE_HTML = `\
           <div class="feed-header-actions">
             <button id="refresh-feed-btn" class="feed-refresh-btn" title="刷新">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            </button>
+            <button id="feed-compose-btn" class="feed-compose-btn" type="button" title="发帖" style="display:none">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+              <span id="feed-compose-btn-label">发帖</span>
             </button>
           </div>
         </div>
@@ -345,10 +345,10 @@ const PAGE_HTML = `\
       <div class="create-form">
         <input id="ring-name-input" class="create-input" type="text" placeholder="环网名称" />
         <select id="ring-type-select" class="create-input" style="height:40px;cursor:pointer">
-          <option value="brew-recommend">Brew 推荐</option>
-          <option value="tapp-store">Tapp 商店</option>
-          <option value="library-exchange">Library 交换</option>
-          <option value="instance-directory">实例目录</option>
+          <option id="ring-type-opt-brew" value="brew-recommend">Brew 推荐</option>
+          <option id="ring-type-opt-tapp" value="tapp-store">Tapp 商店</option>
+          <option id="ring-type-opt-library" value="library-exchange">资料交换</option>
+          <option id="ring-type-opt-instance" value="instance-directory">实例目录</option>
         </select>
         <button id="create-ring-btn" class="create-submit">创建</button>
       </div>
@@ -475,7 +475,8 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .feed-mobile-stats{display:none;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:8px 16px 0;flex-shrink:0}
 .feed-mobile-stat{min-width:0;display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 10px;border-radius:10px;background:rgba(128,128,128,.04);color:var(--text-secondary,#536471);font-size:11px}
 /* Feed Main */
-.feed-main{flex:1;min-width:0;display:flex;flex-direction:column;overflow-y:auto;position:relative}
+.feed-main{flex:1;min-width:0;max-width:760px;display:flex;flex-direction:column;overflow-y:auto;position:relative;border-right:1px solid rgba(128,128,128,.06)}
+.dark .feed-main{border-right-color:rgba(255,255,255,.05)}
 /* Feed header */
 .feed-main-header{min-height:56px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px;border-bottom:1px solid rgba(128,128,128,.06);flex-shrink:0;background:rgba(255,255,255,.45);backdrop-filter:blur(12px)}
 .feed-header-leading{display:flex;align-items:center;gap:10px;min-width:0;flex:1}
@@ -499,9 +500,12 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .feed-compose-cancel{padding:7px 14px;border-radius:8px;border:1px solid rgba(128,128,128,.15);background:transparent;color:var(--text-secondary,#666);font-size:13px;cursor:pointer}
 .feed-compose-publish{padding:7px 16px;border-radius:8px;border:none;background:var(--tapp-primary,#6366f1);color:#fff;font-size:13px;font-weight:600;cursor:pointer}
 .feed-compose-publish:disabled,.feed-compose-cancel:disabled,.feed-compose-tool:disabled{opacity:.5;cursor:not-allowed}
-.feed-item-media{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
-.feed-item-media img,.feed-item-media video{max-width:100%;max-height:280px;border-radius:12px;object-fit:cover;background:rgba(128,128,128,.06)}
-.feed-item-media video{width:100%}
+.feed-item-media{margin-top:10px}
+.feed-item-media-single{display:block}
+.feed-item-media-single img,.feed-item-media-single video{display:block;width:100%;max-height:320px;border-radius:14px;object-fit:cover;background:rgba(128,128,128,.06)}
+.feed-item-media-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px;border-radius:14px;overflow:hidden}
+.feed-media-cell{position:relative;aspect-ratio:1;background:rgba(128,128,128,.08);overflow:hidden}
+.feed-media-cell img,.feed-media-cell video{width:100%;height:100%;object-fit:cover;display:block}
 .feed-main-heading{min-width:0;display:flex;flex-direction:column;gap:2px}
 .feed-section-title{font-size:16px;font-weight:750;color:var(--text-primary,#0f1419);line-height:1.2}
 .feed-section-meta{min-height:15px;font-size:11px;font-weight:500;color:var(--text-secondary,#536471);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -625,7 +629,7 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .sidebar-title{margin:0;font-size:15px;font-weight:600;color:var(--text-primary,#1a1a1a);letter-spacing:-.01em}
 .create-btn{width:28px;height:28px;border-radius:50%;border:none;background:var(--tapp-primary,#888);color:#fff;font-size:18px;font-weight:300;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:opacity .15s;flex-shrink:0;line-height:1}
 .create-btn:hover{opacity:.85}
-.conv-list{flex:1;min-height:0;overflow-y:auto;padding:4px 0;display:flex;flex-direction:column}
+.conv-list{flex:1;min-height:0;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:6px}
 .chat-main{flex:1;min-width:0;display:flex;flex-direction:column;position:relative;overflow:hidden}
 .member-panel{display:flex;flex-direction:column;width:220px;border-left:1px solid rgba(128,128,128,.08);flex-shrink:0;overflow:hidden;transition:width .2s}
 .member-panel.member-collapsed{width:0;border-left:none;overflow:hidden}
@@ -666,21 +670,33 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .invite-btn:disabled{opacity:.5;cursor:not-allowed}
 
 /* ===== Conversation Items ===== */
-.conv-item{display:flex;align-items:center;gap:10px;width:100%;padding:10px 14px;border:none;background:none;cursor:pointer;text-align:left;transition:background .15s}
-.conv-item:hover{background:rgba(var(--tapp-primary-rgb,128,128,128),.06)}
-.conv-active{background:rgba(var(--tapp-primary-rgb,128,128,128),.1)!important}
-.conv-avatar{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;flex-shrink:0;overflow:hidden}
+.conv-item{position:relative;display:flex;align-items:center;gap:12px;width:100%;padding:12px 12px 12px 14px;border:1px solid transparent;border-radius:14px;background:rgba(128,128,128,.04);cursor:pointer;text-align:left;transition:background .15s,border-color .15s,box-shadow .15s;overflow:hidden}
+.conv-item:hover{background:rgba(var(--tapp-primary-rgb,99,102,241),.08);border-color:rgba(var(--tapp-primary-rgb,99,102,241),.12)}
+.conv-active{background:rgba(var(--tapp-primary-rgb,99,102,241),.14)!important;border-color:rgba(var(--tapp-primary-rgb,99,102,241),.28)!important;box-shadow:0 1px 0 rgba(var(--tapp-primary-rgb,99,102,241),.08)}
+.conv-accent{position:absolute;left:0;top:10px;bottom:10px;width:3px;border-radius:0 3px 3px 0;background:transparent;transition:background .15s}
+.conv-active .conv-accent,.conv-unread .conv-accent{background:var(--tapp-primary,#6366f1)}
+.conv-avatar{width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:600;flex-shrink:0;overflow:hidden}
 .conv-avatar img{width:100%;height:100%;object-fit:cover}
-.avatar-channel{background:rgba(var(--tapp-primary-rgb,128,128,128),.1);color:var(--tapp-primary,#888)}
-.avatar-room{background:rgba(var(--tapp-primary-rgb,128,128,128),.1);color:var(--tapp-primary,#888)}
-.conv-info{min-width:0;flex:1}
-.conv-name{font-size:13px;font-weight:500;color:var(--text-primary,#1a1a1a);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.conv-subtitle{font-size:11px;color:var(--text-secondary,#999);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.conv-badge{min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--tapp-primary,#888);color:#fff;font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.avatar-channel{background:rgba(var(--tapp-primary-rgb,99,102,241),.14);color:var(--tapp-primary,#6366f1)}
+.avatar-room{background:rgba(var(--tapp-primary-rgb,99,102,241),.14);color:var(--tapp-primary,#6366f1)}
+.conv-info{min-width:0;flex:1;display:flex;flex-direction:column;gap:3px}
+.conv-top{display:flex;align-items:center;gap:8px;min-width:0}
+.conv-name{flex:1;min-width:0;font-size:13.5px;font-weight:600;color:var(--text-primary,#1a1a1a);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.conv-time{flex-shrink:0;font-size:11px;font-weight:500;color:var(--text-secondary,#999);white-space:nowrap}
+.conv-bottom{display:flex;align-items:center;gap:6px;min-width:0}
+.conv-preview{flex:1;min-width:0;font-size:12px;color:var(--text-secondary,#888);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.conv-unread .conv-preview{color:var(--text-primary,#333);font-weight:500}
+.conv-badge{min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--tapp-primary,#6366f1);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .conv-closed{font-size:10px;color:var(--text-secondary,#999);background:rgba(128,128,128,.08);padding:2px 6px;border-radius:6px;flex-shrink:0}
 .conv-pending{font-size:10px;color:#f59e0b;background:rgba(245,158,11,.1);padding:2px 6px;border-radius:6px;flex-shrink:0}
 .conv-empty{padding:40px 16px;text-align:center;font-size:13px;color:var(--text-secondary,#999)}
 .conv-empty-fill{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:0 16px}
+.dark .conv-item{background:rgba(255,255,255,.04)}
+.dark .conv-item:hover{background:rgba(var(--tapp-primary-rgb,99,102,241),.14)}
+.dark .conv-active{background:rgba(var(--tapp-primary-rgb,99,102,241),.2)!important}
+.dark .conv-name{color:rgba(255,255,255,.92)}
+.dark .conv-preview{color:rgba(255,255,255,.55)}
+.dark .conv-unread .conv-preview{color:rgba(255,255,255,.82)}
 
 /* ===== Empty State ===== */
 .empty-state{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-secondary,#999)}
@@ -731,19 +747,29 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .pinned-bar-close:hover{background:rgba(128,128,128,.1)}
 
 /* ===== Messages ===== */
-.messages-area{flex:1;overflow-y:auto;padding:16px;padding-bottom:72px;display:flex;flex-direction:column;gap:4px}
+.messages-area{flex:1;overflow-y:auto;padding:16px;padding-bottom:72px;display:flex;flex-direction:column;gap:8px}
 .messages-empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-secondary,#999)}
 .messages-empty-icon{width:44px;height:44px;border-radius:13px;background:rgba(var(--tapp-primary-rgb,128,128,128),.06);display:flex;align-items:center;justify-content:center;font-size:0;margin-bottom:10px}
 .messages-empty-icon svg{width:21px;height:21px;stroke-width:1.8}
-.msg-row{display:flex;gap:8px;align-items:flex-end}
+.msg-day-sep{display:flex;align-items:center;justify-content:center;margin:10px 0 4px;user-select:none}
+.msg-day-label{font-size:11px;font-weight:600;color:var(--text-secondary,#888);background:rgba(128,128,128,.1);padding:4px 12px;border-radius:999px;letter-spacing:.2px}
+.msg-row{display:flex;gap:8px;align-items:flex-end;position:relative}
+.msg-row.msg-compact{margin-top:-4px;gap:8px}
 .msg-local{justify-content:flex-end;padding-left:48px}
 .msg-remote{justify-content:flex-start;padding-right:48px}
 .msg-avatar{width:28px;height:28px;border-radius:50%;overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;background:rgba(var(--tapp-primary-rgb,128,128,128),.12);color:var(--tapp-primary,#888);margin-bottom:2px}
 .msg-avatar img{width:100%;height:100%;object-fit:cover}
 .msg-avatar-spacer{width:28px;flex-shrink:0}
-.msg-bubble{max-width:85%;padding:8px 12px;border-radius:16px;font-size:13px;line-height:1.5}
-.bubble-local{background:var(--tapp-primary,#888);color:#fff;border-bottom-right-radius:6px}
+.msg-bubble{position:relative;max-width:72%;padding:8px 12px;border-radius:16px;font-size:13px;line-height:1.5}
+.bubble-local{background:var(--tapp-primary,#6366f1);color:#fff;border-bottom-right-radius:6px}
 .bubble-remote{background:rgba(128,128,128,.07);color:var(--text-primary,#1a1a1a);border-bottom-left-radius:6px}
+.msg-more-btn{position:absolute;top:4px;width:24px;height:24px;border:none;border-radius:8px;background:rgba(0,0,0,.06);color:inherit;opacity:0;pointer-events:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:opacity .12s,background .12s;z-index:2}
+.msg-local .msg-more-btn{left:-30px}
+.msg-remote .msg-more-btn{right:-30px}
+.msg-row:hover .msg-more-btn,.msg-more-btn:focus-visible{opacity:1;pointer-events:auto}
+.msg-more-btn:hover{background:rgba(0,0,0,.12)}
+.bubble-local .msg-more-btn{background:rgba(255,255,255,.18);color:#fff}
+.bubble-local .msg-more-btn:hover{background:rgba(255,255,255,.28)}
 .msg-sender{font-size:11px;font-weight:500;color:var(--tapp-primary,#888);margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .msg-text{white-space:pre-wrap;overflow-wrap:break-word}
 .msg-footer{display:flex;align-items:center;gap:4px;margin-top:4px}
@@ -751,6 +777,10 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .msg-remote .msg-footer{justify-content:flex-start}
 .msg-pin{font-size:10px}
 .msg-time{font-size:10px;opacity:.45}
+.msg-compact .msg-footer{margin-top:2px}
+.dark .msg-day-label{background:rgba(255,255,255,.08);color:rgba(255,255,255,.6)}
+.dark .msg-more-btn{background:rgba(255,255,255,.1)}
+.dark .msg-more-btn:hover{background:rgba(255,255,255,.18)}
 
 /* ===== Input ===== */
 .input-float-wrap{position:absolute;bottom:0;left:0;right:0;z-index:20;padding:8px 12px;padding-bottom:calc(8px + env(safe-area-inset-bottom,0px));background:linear-gradient(to top,var(--bg-primary,#fff) 70%,transparent);pointer-events:none}
@@ -761,10 +791,15 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .attach-btn.attach-btn-active{background:rgba(var(--tapp-primary-rgb,100,100,255),.12);color:var(--tapp-primary,#6366f1);transform:rotate(45deg)}
 .msg-input{flex:1;min-height:20px;padding:6px 0;border:none;background:transparent;color:var(--text-primary,#1a1a1a);font-size:13px;line-height:1.45;outline:none;resize:none;overflow-y:hidden;font-family:inherit}
 .msg-input::placeholder{color:var(--text-secondary,#bbb)}
-.send-btn{width:32px;height:32px;border-radius:50%;border:none;background:none;color:var(--text-secondary,#999);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .2s;margin-bottom:2px}
-.send-btn:hover{color:var(--tapp-primary,#6366f1);background:rgba(var(--tapp-primary-rgb,100,100,255),.08)}
+.send-btn{width:32px;height:32px;border-radius:50%;border:none;background:rgba(128,128,128,.08);color:var(--text-secondary,#999);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .2s;margin-bottom:2px}
+.send-btn:hover{color:var(--tapp-primary,#6366f1);background:rgba(var(--tapp-primary-rgb,100,100,255),.12)}
 .send-btn:active{transform:translateY(-1px);color:var(--tapp-primary,#6366f1)}
-.send-btn:disabled{opacity:.3;cursor:not-allowed;transform:none}
+.send-btn:disabled{opacity:.35;cursor:not-allowed;transform:none;background:rgba(128,128,128,.06);color:var(--text-secondary,#bbb)}
+.send-btn.send-ready{background:var(--tapp-primary,#6366f1);color:#fff;box-shadow:0 2px 8px rgba(var(--tapp-primary-rgb,99,102,241),.35)}
+.send-btn.send-ready:hover{background:var(--tapp-primary,#6366f1);color:#fff;filter:brightness(1.06)}
+.send-btn.send-ready:active{transform:scale(.96)}
+.dark .send-btn{background:rgba(255,255,255,.08)}
+.dark .send-btn.send-ready{background:var(--tapp-primary,#6366f1);color:#fff}
 .dark .input-float-wrap{background:linear-gradient(to top,var(--bg-primary,#1a1a1a) 70%,transparent)}
 .dark .input-bar{background:var(--bg-primary,#1a1a1a);border-color:rgba(255,255,255,.1);box-shadow:0 2px 12px rgba(0,0,0,.2)}
 
@@ -1054,6 +1089,20 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .member-kick{margin-left:auto;width:20px;height:20px;border:none;background:none;color:var(--text-secondary,#999);cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s,background .15s}
 .member-item:hover .member-kick{opacity:1}
 .member-kick:hover{background:rgba(239,68,68,.1);color:#ef4444}
+
+/* ===== In-app Confirm Dialog (native confirm() is blocked in the sandboxed iframe) ===== */
+.confirm-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:300;animation:ctxFadeIn .12s ease}
+.confirm-dialog{background:var(--bg-primary,#fff);border-radius:16px;width:min(320px,88vw);padding:20px;box-shadow:0 16px 48px rgba(0,0,0,.18)}
+.confirm-message{font-size:14px;line-height:1.6;color:var(--text-primary,#1a1a1a);margin-bottom:18px;overflow-wrap:break-word}
+.confirm-actions{display:flex;gap:8px;justify-content:flex-end}
+.confirm-btn{padding:8px 18px;border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .15s;font-family:inherit}
+.confirm-btn:hover{opacity:.85}
+.confirm-btn-cancel{background:rgba(128,128,128,.08);color:var(--text-primary,#1a1a1a)}
+.confirm-btn-ok{background:var(--tapp-primary,#6366f1);color:#fff}
+.confirm-btn-danger{background:#ef4444}
+.dark .confirm-dialog{background:var(--bg-primary,#1a1a1a)}
+.dark .confirm-message{color:rgba(255,255,255,.9)}
+.dark .confirm-btn-cancel{background:rgba(255,255,255,.08);color:rgba(255,255,255,.9)}
 `
 
 const ARO_I18N: Record<string, Record<string, string>> = {
@@ -1080,9 +1129,9 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "attachSending": "Sending...",
     "attachTapp": "Tapp",
     "attachTappPrompt": "Enter Tapp ID or name",
-    "channelNotAccepted": "Accept the channel before sending files",
     "channelPlaceholder": "Actor URL or @user@domain",
     "close": "Close",
+    "closeChannelConfirm": "Close this channel? You won't be able to send messages afterwards.",
     "closed": "Closed",
     "collapseDetails": "Collapse",
     "composeAddImage": "Image",
@@ -1096,6 +1145,8 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "composePublishing": "Publishing…",
     "composeSuccess": "Published",
     "composeUploading": "Uploading…",
+    "confirmCancel": "Cancel",
+    "confirmOk": "OK",
     "connected": "Connected",
     "copied": "Copied",
     "copy": "Copy",
@@ -1108,6 +1159,8 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "createRingTitle": "Create Ring",
     "createRoom": "Create Room",
     "creating": "Creating...",
+    "dateToday": "Today",
+    "dateYesterday": "Yesterday",
     "disconnected": "Disconnected",
     "dissolve": "Dissolve Group",
     "dissolveConfirm": "Are you sure you want to dissolve this group? This cannot be undone.",
@@ -1129,8 +1182,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "feedLoadFail": "Failed to load feed",
     "feedPublished": "Published",
     "feedTimeline": "Feed",
-    "fileTooLarge": "File too large (max 100MB)",
-    "fileTooLargeRoom": "File too large for group chat — use a DM channel for larger files",
+    "fileTooLarge": "File too large (max 10MB)",
     "followBtn": "Follow",
     "followFail": "Follow failed",
     "followPlaceholder": "Actor URL or @user@domain",
@@ -1152,6 +1204,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "invited": "Invited",
     "inviting": "Inviting...",
     "kick": "Remove",
+    "kickConfirm": "Remove this member?",
     "kickFail": "Remove failed",
     "leave": "Leave",
     "leaveBtn": "Leave Ring",
@@ -1164,6 +1217,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "mediaTooLarge": "File too large",
     "mediaUnsupported": "Unsupported file type",
     "members": "Members",
+    "msgActions": "Message actions",
     "msgForward": "Forward",
     "msgPin": "Pin",
     "msgQuote": "Quote",
@@ -1176,6 +1230,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "newRoom": "New Room",
     "noContacts": "No contacts to invite",
     "noConv": "No conversations",
+    "noConvHint": "Tap + to start a conversation",
     "openOriginal": "Open original",
     "openTappBtn": "Open Tapp",
     "peers": "peers",
@@ -1204,6 +1259,13 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "ringNamePlaceholder": "Ring name",
     "ringPeersTitle": "Peers",
     "ringType": "Type",
+    "ringTypeBrewRecommend": "Brew Picks",
+    "ringTypeInstanceDirectory": "Instance Directory",
+    "ringTypeLibraryExchange": "Library Exchange",
+    "ringTypeTappStore": "Tapp Store",
+    "roleAdmin": "Admin",
+    "roleMember": "Member",
+    "roleOwner": "Owner",
     "roomDesc": "Description",
     "roomName": "Room name",
     "roomPlaceholder": "Room name",
@@ -1230,15 +1292,11 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "tappShareRejected": "Declined",
     "tappUpdateAvail": "Update available",
     "title": "Messenger",
-    "transferComplete": "File sent",
-    "transferFail": "File upload failed",
-    "transferProgress": "Uploading… {pct}%",
-    "transferStarting": "Uploading file…",
     "typing": "Type a message...",
     "unfollowBtn": "Unfollow",
     "unfollowFail": "Unfollow failed",
     "unpublishFail": "Unpublish failed",
-    "updatingBtn": "Update"
+    "updatingBtn": "Update",
   },
   "ja": {
     "accept": "承認",
@@ -1263,9 +1321,9 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "attachSending": "送信中...",
     "attachTapp": "Tapp",
     "attachTappPrompt": "Tapp IDまたは名前を入力",
-    "channelNotAccepted": "ファイル送信前にチャンネルを承認してください",
     "channelPlaceholder": "Actor URL または @user@domain",
     "close": "閉じる",
+    "closeChannelConfirm": "このチャネルを閉じますか？閉じると送信できなくなります。",
     "closed": "クローズ",
     "collapseDetails": "閉じる",
     "composeAddImage": "画像",
@@ -1279,6 +1337,8 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "composePublishing": "公開中…",
     "composeSuccess": "公開しました",
     "composeUploading": "アップロード中…",
+    "confirmCancel": "キャンセル",
+    "confirmOk": "OK",
     "connected": "接続済み",
     "copied": "コピーしました",
     "copy": "コピー",
@@ -1291,6 +1351,8 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "createRingTitle": "リング作成",
     "createRoom": "ルーム作成",
     "creating": "作成中...",
+    "dateToday": "今日",
+    "dateYesterday": "昨日",
     "disconnected": "切断",
     "dissolve": "グループ解散",
     "dissolveConfirm": "このグループを解散しますか？この操作は元に戻せません。",
@@ -1312,8 +1374,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "feedLoadFail": "フィードの読み込みに失敗",
     "feedPublished": "公開済み",
     "feedTimeline": "フィード",
-    "fileTooLarge": "ファイルが大きすぎます（最大100MB）",
-    "fileTooLargeRoom": "グループチャットでは大きすぎます — 大きいファイルはDMチャンネルを使ってください",
+    "fileTooLarge": "ファイルが大きすぎます（最大10MB）",
     "followBtn": "フォロー",
     "followFail": "フォロー失敗",
     "followPlaceholder": "Actor URL または @user@domain",
@@ -1335,6 +1396,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "invited": "招待済み",
     "inviting": "招待中...",
     "kick": "除外",
+    "kickConfirm": "このメンバーを削除しますか？",
     "kickFail": "除外失敗",
     "leave": "退出",
     "leaveBtn": "リング退出",
@@ -1347,6 +1409,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "mediaTooLarge": "ファイルが大きすぎます",
     "mediaUnsupported": "未対応のファイル形式です",
     "members": "メンバー",
+    "msgActions": "メッセージ操作",
     "msgForward": "転送",
     "msgPin": "ピン留め",
     "msgQuote": "引用",
@@ -1359,6 +1422,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "newRoom": "新規ルーム",
     "noContacts": "招待可能な連絡先なし",
     "noConv": "会話なし",
+    "noConvHint": "右上の + から会話を開始",
     "openOriginal": "元記事を開く",
     "openTappBtn": "Tappを開く",
     "peers": "ピア",
@@ -1387,6 +1451,13 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "ringNamePlaceholder": "リング名",
     "ringPeersTitle": "ピア",
     "ringType": "タイプ",
+    "ringTypeBrewRecommend": "Brew おすすめ",
+    "ringTypeInstanceDirectory": "インスタンス一覧",
+    "ringTypeLibraryExchange": "資料交換",
+    "ringTypeTappStore": "Tapp ストア",
+    "roleAdmin": "管理者",
+    "roleMember": "メンバー",
+    "roleOwner": "オーナー",
     "roomDesc": "説明",
     "roomName": "ルーム名",
     "roomPlaceholder": "ルーム名",
@@ -1413,15 +1484,11 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "tappShareRejected": "拒否済み",
     "tappUpdateAvail": "更新あり",
     "title": "メッセンジャー",
-    "transferComplete": "ファイルを送信しました",
-    "transferFail": "ファイルのアップロードに失敗しました",
-    "transferProgress": "アップロード中… {pct}%",
-    "transferStarting": "ファイルをアップロード中…",
     "typing": "メッセージを入力...",
     "unfollowBtn": "フォロー解除",
     "unfollowFail": "フォロー解除失敗",
     "unpublishFail": "公開取消失敗",
-    "updatingBtn": "更新"
+    "updatingBtn": "更新",
   },
   "zh": {
     "accept": "接受",
@@ -1446,9 +1513,9 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "attachSending": "发送中...",
     "attachTapp": "Tapp",
     "attachTappPrompt": "输入 Tapp ID 或名称",
-    "channelNotAccepted": "请先接受通道再发送文件",
     "channelPlaceholder": "Actor URL 或 @user@domain",
     "close": "关闭",
+    "closeChannelConfirm": "确定关闭此私信通道？关闭后将无法继续发送消息。",
     "closed": "已关闭",
     "collapseDetails": "收起",
     "composeAddImage": "图片",
@@ -1462,6 +1529,8 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "composePublishing": "发布中…",
     "composeSuccess": "已发布",
     "composeUploading": "上传中…",
+    "confirmCancel": "取消",
+    "confirmOk": "确定",
     "connected": "已连接",
     "copied": "已复制",
     "copy": "复制",
@@ -1474,6 +1543,8 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "createRingTitle": "创建环网",
     "createRoom": "创建房间",
     "creating": "创建中...",
+    "dateToday": "今天",
+    "dateYesterday": "昨天",
     "disconnected": "未连接",
     "dissolve": "解散群组",
     "dissolveConfirm": "确定要解散此群组吗？此操作不可撤销。",
@@ -1495,8 +1566,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "feedLoadFail": "动态加载失败",
     "feedPublished": "已发布",
     "feedTimeline": "动态",
-    "fileTooLarge": "文件过大（最大 100MB）",
-    "fileTooLargeRoom": "群聊不支持大文件 — 请通过私信通道发送",
+    "fileTooLarge": "文件过大（最大 10MB）",
     "followBtn": "关注",
     "followFail": "关注失败",
     "followPlaceholder": "Actor URL 或 @user@domain",
@@ -1518,6 +1588,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "invited": "已邀请",
     "inviting": "邀请中...",
     "kick": "移除",
+    "kickConfirm": "确定移除该成员？",
     "kickFail": "移除失败",
     "leave": "离开",
     "leaveBtn": "退出环网",
@@ -1530,6 +1601,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "mediaTooLarge": "文件过大",
     "mediaUnsupported": "不支持的文件类型",
     "members": "成员",
+    "msgActions": "消息操作",
     "msgForward": "转发",
     "msgPin": "置顶",
     "msgQuote": "引用",
@@ -1542,6 +1614,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "newRoom": "新建群聊",
     "noContacts": "暂无可邀请的联系人",
     "noConv": "暂无会话",
+    "noConvHint": "点击右上角 + 开始新会话",
     "openOriginal": "查看原文",
     "openTappBtn": "打开 Tapp",
     "peers": "节点",
@@ -1570,6 +1643,13 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "ringNamePlaceholder": "环网名称",
     "ringPeersTitle": "节点",
     "ringType": "类型",
+    "ringTypeBrewRecommend": "Brew 推荐",
+    "ringTypeInstanceDirectory": "实例目录",
+    "ringTypeLibraryExchange": "资料交换",
+    "ringTypeTappStore": "Tapp 商店",
+    "roleAdmin": "管理员",
+    "roleMember": "成员",
+    "roleOwner": "群主",
     "roomDesc": "房间描述",
     "roomName": "房间名称",
     "roomPlaceholder": "房间名称",
@@ -1596,15 +1676,11 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "tappShareRejected": "已拒绝",
     "tappUpdateAvail": "有更新可用",
     "title": "信使",
-    "transferComplete": "文件已发送",
-    "transferFail": "文件上传失败",
-    "transferProgress": "上传中… {pct}%",
-    "transferStarting": "正在上传文件…",
     "typing": "输入消息...",
     "unfollowBtn": "取消关注",
     "unfollowFail": "取消关注失败",
     "unpublishFail": "取消发布失败",
-    "updatingBtn": "更新"
+    "updatingBtn": "更新",
   }
 }
 
@@ -1649,7 +1725,7 @@ var state = {
   isGuest: true,
   isAdmin: false,
   // Attachment
-  pendingAttach: null, // { type, file?, data?, name, size, mime, ... }
+  pendingAttach: null, // { type: 'image'|'file'|'tapp'|'brew'|'library'|'report', data, name, size, mime }
   // Aro views
   currentView: 'feed',
   // Feed (merged timeline + profile)
@@ -1705,6 +1781,50 @@ const PAGE_MOD_HELPERS = `\
 // ==================== Helpers ====================
 function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 function timeStr(iso) { try { return new Date(iso).toLocaleTimeString(currentLocale, { hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; } }
+function fullTimeStr(iso) { try { return new Date(iso).toLocaleString(currentLocale); } catch (e) { return ''; } }
+/** Relative short time for conv list (e.g. 5m, 2h, 3d). */
+function relTimeStr(iso) {
+  if (!iso) return '';
+  try {
+    if (typeof timeAgo === 'function') return timeAgo(iso);
+  } catch (e) { /* fall through */ }
+  try {
+    var d = new Date(iso);
+    var sec = Math.floor((Date.now() - d) / 1000);
+    if (sec < 60) return sec + 's';
+    var min = Math.floor(sec / 60);
+    if (min < 60) return min + 'm';
+    var hr = Math.floor(min / 60);
+    if (hr < 24) return hr + 'h';
+    var day = Math.floor(hr / 24);
+    if (day < 30) return day + 'd';
+    return d.toLocaleDateString(currentLocale, { month: 'short', day: 'numeric' });
+  } catch (e2) { return ''; }
+}
+
+/** 消息日期分隔线标签：今天/昨天/日期 */
+function dayLabel(iso) {
+  var d = new Date(iso);
+  if (isNaN(d)) return '';
+  var now = new Date();
+  var startOfDay = function (x) { return new Date(x.getFullYear(), x.getMonth(), x.getDate()); };
+  var diffDays = Math.round((startOfDay(now) - startOfDay(d)) / 86400000);
+  if (diffDays === 0) return lang.dateToday || 'Today';
+  if (diffDays === 1) return lang.dateYesterday || 'Yesterday';
+  var opts = { month: 'short', day: 'numeric' };
+  if (d.getFullYear() !== now.getFullYear()) opts.year = 'numeric';
+  try { return d.toLocaleDateString(currentLocale, opts); } catch (e) { return d.toLocaleDateString(); }
+}
+
+/** 发送按钮状态：有文字或附件时才可点，且高亮为主色 */
+function updateSendState() {
+  var btn = $('send-btn');
+  if (!btn) return;
+  var input = $('msg-input');
+  var ready = !!((input && input.value.trim()) || state.pendingAttach);
+  btn.disabled = !ready;
+  btn.classList.toggle('send-ready', ready);
+}
 function autoResizeInput(el) {
   el.style.height = 'auto';
   el.style.height = el.scrollHeight + 'px';
@@ -1799,6 +1919,52 @@ function requireAdminAction() {
   return false;
 }
 
+/** 本地化环网类型标签；未知类型原样返回 */
+function ringTypeLabel(type) {
+  var map = {
+    'brew-recommend': lang.ringTypeBrewRecommend,
+    'tapp-store': lang.ringTypeTappStore,
+    'library-exchange': lang.ringTypeLibraryExchange,
+    'instance-directory': lang.ringTypeInstanceDirectory,
+  };
+  return map[type] || type || '';
+}
+
+/** 本地化成员角色标签 */
+function roleLabel(role) {
+  var map = { owner: lang.roleOwner, admin: lang.roleAdmin, member: lang.roleMember };
+  return map[role] || role || '';
+}
+
+/** 本地化分享卡片类型标签 */
+function shareTypeLabel(type) {
+  var map = { tapp: lang.attachTapp, brew: lang.attachBrew, library: lang.attachLibrary, report: lang.attachReport };
+  return map[type] || type || '';
+}
+
+/**
+ * 应用内确认对话框（沙箱 iframe 中原生 confirm() 会被浏览器拦截并静默返回 false）。
+ * 返回 Promise<boolean>。
+ */
+function aroConfirm(message, danger) {
+  return new Promise(function (resolve) {
+    var overlay = document.createElement('div');
+    overlay.className = 'confirm-overlay';
+    overlay.innerHTML = '<div class="confirm-dialog">'
+      + '<div class="confirm-message">' + esc(message) + '</div>'
+      + '<div class="confirm-actions">'
+      + '<button class="confirm-btn confirm-btn-cancel">' + esc(lang.confirmCancel || 'Cancel') + '</button>'
+      + '<button class="confirm-btn confirm-btn-ok' + (danger ? ' confirm-btn-danger' : '') + '">' + esc(lang.confirmOk || 'OK') + '</button>'
+      + '</div></div>';
+    var done = function (result) { overlay.remove(); resolve(result); };
+    overlay.querySelector('.confirm-btn-cancel').addEventListener('click', function () { done(false); });
+    overlay.querySelector('.confirm-btn-ok').addEventListener('click', function () { done(true); });
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) done(false); });
+    document.body.appendChild(overlay);
+    overlay.querySelector('.confirm-btn-ok').focus();
+  });
+}
+
 function setAdminElementVisible(selector, visible) {
   document.querySelectorAll(selector).forEach(function (el) {
     el.style.display = visible ? '' : 'none';
@@ -1824,6 +1990,8 @@ function applyAdminControls() {
 
 function applyRoleControls() {
   var privateOnly = !state.isGuest;
+  // 访客只有「动态」一个视图，整条顶部导航都没有意义，直接隐藏
+  setAdminElementVisible('#aro-nav', privateOnly);
   setAdminElementVisible('#nav-messages', privateOnly);
   setAdminElementVisible('#nav-rings', privateOnly);
   setAdminElementVisible('.feed-nav-item[data-sub="following"]', privateOnly);
@@ -2250,6 +2418,10 @@ function applyLabels() {
   el = $('create-ring-btn'); if (el) el.textContent = lang.createRingBtn;
   el = $('ring-peer-input'); if (el) el.placeholder = lang.addPeerPlaceholder;
   el = $('ring-add-peer-btn'); if (el) el.textContent = lang.addPeerBtn;
+  el = $('ring-type-opt-brew'); if (el) el.textContent = lang.ringTypeBrewRecommend;
+  el = $('ring-type-opt-tapp'); if (el) el.textContent = lang.ringTypeTappStore;
+  el = $('ring-type-opt-library'); if (el) el.textContent = lang.ringTypeLibraryExchange;
+  el = $('ring-type-opt-instance'); if (el) el.textContent = lang.ringTypeInstanceDirectory;
 }
 
 function applyDialogLabels() {
@@ -2273,11 +2445,7 @@ function applyDialogLabels() {
 const PAGE_MOD_ATTACHMENTS = `\
 // ==================== Attachment Menu ====================
 var _attachMenu = null;
-var MAX_ATTACH_SIZE = 100 * 1024 * 1024; // 100MB overall attach cap (large files use chunked transfer)
-// Inline base64 only under this raw size so JSON payload stays under 10 MiB backend cap.
-var INLINE_ATTACH_MAX = 2 * 1024 * 1024; // 2 MiB raw
-// Must match backend federation file_transfer DEFAULT_CHUNK_SIZE (1 MiB).
-var TRANSFER_CHUNK_SIZE = 1024 * 1024;
+var MAX_ATTACH_SIZE = 10 * 1024 * 1024; // 10MB
 
 function toggleAttachMenu() {
   if (_attachMenu) { closeAttachMenu(); return; }
@@ -2335,107 +2503,12 @@ function handleFileSelect(file, forceType) {
     try { Tapp.ui.showNotification({ title: lang.fileTooLarge, type: 'error' }); } catch (e) { /* ignore */ }
     return;
   }
-  var type = forceType || (file.type && file.type.indexOf('image/') === 0 ? 'image' : 'file');
-  // Keep the File for chunked upload; dataURL preview only for images.
-  if (type === 'image') {
-    var reader = new FileReader();
-    reader.onload = function () {
-      setPendingAttach({ type: type, file: file, data: reader.result, name: file.name, size: file.size, mime: file.type || 'image/*' });
-    };
-    reader.onerror = function () {
-      setPendingAttach({ type: type, file: file, name: file.name, size: file.size, mime: file.type || 'image/*' });
-    };
-    reader.readAsDataURL(file);
-  } else {
-    setPendingAttach({ type: type, file: file, name: file.name, size: file.size, mime: file.type || 'application/octet-stream' });
-  }
-}
-
-function readFileAsDataURL(file) {
-  return new Promise(function (resolve, reject) {
-    var reader = new FileReader();
-    reader.onload = function () { resolve(reader.result); };
-    reader.onerror = function () { reject(reader.error || new Error('read failed')); };
-    reader.readAsDataURL(file);
-  });
-}
-
-function arrayBufferToBase64(buffer) {
-  var bytes = new Uint8Array(buffer);
-  var binary = '';
-  var step = 0x8000;
-  for (var i = 0; i < bytes.length; i += step) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + step));
-  }
-  return btoa(binary);
-}
-
-/** Chunked channel transfer for files above INLINE_ATTACH_MAX. */
-async function sendChannelFileTransfer(attach, text, replyTo) {
-  var file = attach.file;
-  if (!file) throw new Error('Missing file data');
-
-  var chStatus = state.channelDetail && state.channelDetail.status;
-  if (chStatus && chStatus !== 'active' && chStatus !== 'accepted') {
-    throw new Error(lang.channelNotAccepted || 'Channel must be accepted first');
-  }
-
-  try {
-    Tapp.ui.showNotification({ title: lang.transferStarting || 'Uploading…', type: 'info' });
-  } catch (e0) { /* ignore */ }
-
-  var transfer = await Tapp.federation.initiateTransfer(state.activeId, {
-    filename: attach.name,
-    file_size: attach.size,
-    mime_type: attach.mime || 'application/octet-stream',
-  });
-  var transferId = transfer && transfer.transfer_id;
-  if (!transferId) throw new Error('No transfer_id returned');
-
-  var buf = await file.arrayBuffer();
-  var bytes = new Uint8Array(buf);
-  var totalChunks = Math.max(1, Math.ceil(bytes.length / TRANSFER_CHUNK_SIZE));
-  var lastPct = -1;
-
-  for (var i = 0; i < totalChunks; i++) {
-    var start = i * TRANSFER_CHUNK_SIZE;
-    var end = Math.min(start + TRANSFER_CHUNK_SIZE, bytes.length);
-    var slice = bytes.subarray(start, end);
-    var chunkData = arrayBufferToBase64(slice);
-    await Tapp.federation.uploadChunk(transferId, {
-      chunk_index: i,
-      chunk_data: chunkData,
-      chunk_size: slice.length,
-    });
-    var pct = Math.round(((i + 1) / totalChunks) * 100);
-    if (pct >= lastPct + 20 || pct === 100) {
-      lastPct = pct;
-      try {
-        var prog = (lang.transferProgress || 'Uploading… {pct}%').replace('{pct}', String(pct));
-        Tapp.ui.showNotification({ title: prog, type: 'info' });
-      } catch (e1) { /* ignore */ }
-    }
-  }
-
-  var msgPayload = {
-    filename: attach.name,
-    size: attach.size,
-    mime_type: attach.mime || 'application/octet-stream',
-    transfer_id: transferId,
-    text: text || '',
+  var type = forceType || (file.type.startsWith('image/') ? 'image' : 'file');
+  var reader = new FileReader();
+  reader.onload = function () {
+    setPendingAttach({ type: type, data: reader.result, name: file.name, size: file.size, mime: file.type });
   };
-  if (state.quoteMsg) {
-    msgPayload.quote_sender = state.quoteMsg.sender;
-    msgPayload.quote_text = state.quoteMsg.text;
-    msgPayload.quote_id = state.quoteMsg.message_id;
-  }
-  var sendReq = { payload: msgPayload, message_type: 'file-meta' };
-  if (replyTo) sendReq.reply_to = replyTo;
-  await Tapp.federation.sendMessage(state.activeId, sendReq);
-
-  try {
-    Tapp.ui.showNotification({ title: lang.transferComplete || 'File sent', type: 'success' });
-  } catch (e2) { /* ignore */ }
+  reader.readAsDataURL(file);
 }
 
 function pickFedContent(type) {
@@ -2727,6 +2800,7 @@ function openReportPicker(icons, titles, iconColors) {
 function setPendingAttach(attach) {
   state.pendingAttach = attach;
   renderAttachPreview();
+  updateSendState();
 }
 
 function clearPendingAttach() {
@@ -2736,6 +2810,7 @@ function clearPendingAttach() {
   // Reset file inputs
   var fi = $('attach-file-input'); if (fi) fi.value = '';
   var ii = $('attach-image-input'); if (ii) ii.value = '';
+  updateSendState();
 }
 
 function renderAttachPreview() {
@@ -2775,7 +2850,7 @@ function renderConvList() {
       kind: 'channel', id: ch.channel_id,
       name: ch.remote_actor_name || (ch.remote_actor_url || '').split('/').pop() || '?',
       avatar: ch.remote_actor_avatar || '',
-      subtitle: ch.channel_type || lang.dm,
+      preview: lang.dm,
       unread: ch.unread_count || 0,
       status: ch.status,
       initiatedBy: ch.initiated_by,
@@ -2787,7 +2862,7 @@ function renderConvList() {
       kind: 'room', id: rm.room_id,
       name: rm.name || '?',
       avatar: rm.avatar_url || '',
-      subtitle: (rm.member_count || 0) + ' ' + lang.members,
+      preview: (rm.member_count || 0) + ' ' + lang.members,
       unread: rm.unread_count || 0,
       sortTime: rm.last_message_at || rm.created_at || '',
     });
@@ -2795,7 +2870,8 @@ function renderConvList() {
   items.sort(function (a, b) { return (b.sortTime || '').localeCompare(a.sortTime || ''); });
 
   if (items.length === 0) {
-    list.innerHTML = '<div class="conv-empty conv-empty-fill">' + esc(lang.noConv) + '</div>';
+    list.innerHTML = '<div class="conv-empty conv-empty-fill"><span>' + esc(lang.noConv)
+      + '<br><span style="font-size:11px;opacity:.75">' + esc(lang.noConvHint || '') + '</span></span></div>';
     return;
   }
 
@@ -2803,12 +2879,17 @@ function renderConvList() {
   items.forEach(function (item) {
     var isActive = item.id === state.activeId;
     var avatarClass = item.kind === 'channel' ? 'avatar-channel' : 'avatar-room';
-    html += '<button class="conv-item' + (isActive ? ' conv-active' : '') + '" data-kind="' + item.kind + '" data-id="' + esc(item.id) + '">'
+    var rel = item.sortTime ? relTimeStr(item.sortTime) : '';
+    html += '<button class="conv-item' + (isActive ? ' conv-active' : '') + (item.unread > 0 ? ' conv-unread' : '') + '" data-kind="' + item.kind + '" data-id="' + esc(item.id) + '">'
+      + '<span class="conv-accent" aria-hidden="true"></span>'
       + '<div class="conv-avatar ' + avatarClass + '">' + avatarContentHtml(item.avatar || '', item.name) + '</div>'
       + '<div class="conv-info">'
-      + '<div class="conv-name">' + esc(item.name) + '</div>'
-      + '<div class="conv-subtitle">' + esc(item.subtitle) + '</div>'
-      + '</div>';
+      + '<div class="conv-top">'
+      + '<span class="conv-name">' + esc(item.name) + '</span>'
+      + (rel ? '<span class="conv-time">' + esc(rel) + '</span>' : '')
+      + '</div>'
+      + '<div class="conv-bottom">'
+      + '<span class="conv-preview">' + esc(item.preview) + '</span>';
     if (item.unread > 0) {
       html += '<span class="conv-badge">' + (item.unread > 9 ? '9+' : item.unread) + '</span>';
     }
@@ -2818,7 +2899,7 @@ function renderConvList() {
     if (item.status === 'pending' && item.initiatedBy === 'remote') {
       html += '<span class="conv-pending">' + esc(lang.pending) + '</span>';
     }
-    html += '</button>';
+    html += '</div></div></button>';
   });
   list.innerHTML = html;
 
@@ -3064,10 +3145,9 @@ function renderMessages() {
   }
 
   var html = '';
-  console.log('[Aro] renderMessages: count=' + state.messages.length + ', localActorUrl=' + state.localActorUrl + ', kind=' + state.activeKind + ', remoteActor=' + (state.channelDetail ? state.channelDetail.remote_actor_url : 'N/A'));
+  var lastDayKey = '';
   state.messages.forEach(function (msg, idx) {
     var local = isLocalActor(msg.sender_actor);
-    if (idx === 0) console.log('[Aro] msg[0] sender=' + msg.sender_actor + ' local=' + local);
     var sender = (msg.sender_actor || '').split('/').pop() || '?';
     var payload = (typeof msg.payload === 'object' && msg.payload) ? msg.payload : {};
     var msgType = msg.message_type || 'text';
@@ -3083,8 +3163,6 @@ function renderMessages() {
         msgType = 'report';
       } else if (payload.data && payload.mime_type && payload.mime_type.indexOf('image/') === 0) {
         msgType = 'image';
-      } else if (payload.transfer_id && payload.filename) {
-        msgType = 'file-meta';
       } else if (payload.data && payload.filename) {
         msgType = 'file';
       }
@@ -3108,20 +3186,41 @@ function renderMessages() {
       }
     }
 
-    // Check if previous message is from same sender (skip avatar to reduce clutter)
+    // Day separators
+    var dayKey = '';
+    try {
+      var md = new Date(msg.created_at);
+      if (!isNaN(md)) dayKey = md.getFullYear() + '-' + md.getMonth() + '-' + md.getDate();
+    } catch (e) { dayKey = ''; }
+    if (dayKey && dayKey !== lastDayKey) {
+      lastDayKey = dayKey;
+      html += '<div class="msg-day-sep"><span class="msg-day-label">' + esc(dayLabel(msg.created_at)) + '</span></div>';
+    }
+
+    // Compact: same sender within ~5 minutes
     var prevMsg = idx > 0 ? state.messages[idx - 1] : null;
     var sameSender = prevMsg && sameActorUrl(prevMsg.sender_actor, msg.sender_actor);
+    var compact = false;
+    if (sameSender && prevMsg && prevMsg.created_at && msg.created_at) {
+      try {
+        var dt = Math.abs(new Date(msg.created_at) - new Date(prevMsg.created_at));
+        compact = dt < 5 * 60 * 1000;
+      } catch (e2) { compact = false; }
+    }
 
-    html += '<div class="msg-row ' + (local ? 'msg-local' : 'msg-remote') + '" data-msg-id="' + esc(msg.message_id || '') + '">';
+    html += '<div class="msg-row ' + (local ? 'msg-local' : 'msg-remote') + (compact ? ' msg-compact' : '') + '" data-msg-id="' + esc(msg.message_id || '') + '">';
     if (!local) {
-      if (sameSender) {
+      if (compact) {
         html += '<div class="msg-avatar-spacer"></div>';
       } else {
         html += '<div class="msg-avatar">' + avatarContentHtml(avatarUrl, displayName) + '</div>';
       }
     }
     html += '<div class="msg-bubble ' + (local ? 'bubble-local' : 'bubble-remote') + '">';
-    if (!local && !sameSender) {
+    html += '<button type="button" class="msg-more-btn" title="' + esc(lang.msgActions || 'Message actions') + '" aria-label="' + esc(lang.msgActions || 'Message actions') + '">'
+      + '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>'
+      + '</button>';
+    if (!local && !compact) {
       html += '<div class="msg-sender">' + esc(displayName) + '</div>';
     }
 
@@ -3139,19 +3238,13 @@ function renderMessages() {
     if (msgType === 'image' && payload.data) {
       html += '<img class="msg-image" src="' + esc(payload.data) + '" alt="' + esc(payload.filename || '') + '" />';
       if (payload.text) html += '<div class="msg-text">' + esc(payload.text) + '</div>';
-    } else if (msgType === 'file' || msgType === 'file-meta') {
+    } else if (msgType === 'file') {
       var ext = (payload.filename || '').split('.').pop().toUpperCase();
-      var sizeLabel = payload.size ? formatFileSize(payload.size) : ext;
-      if (payload.transfer_id) {
-        sizeLabel = (sizeLabel ? sizeLabel + ' · ' : '') + 'transfer';
-      }
-      html += '<div class="msg-file-card"'
-        + (payload.transfer_id ? ' data-transfer-id="' + esc(payload.transfer_id) + '"' : '')
-        + '>'
+      html += '<div class="msg-file-card">'
         + '<div class="msg-file-icon">' + SVG_ICONS.file + '</div>'
         + '<div class="msg-file-info">'
         + '<div class="msg-file-name">' + esc(payload.filename || 'file') + '</div>'
-        + '<div class="msg-file-size">' + esc(sizeLabel || '') + '</div>'
+        + '<div class="msg-file-size">' + (payload.size ? formatFileSize(payload.size) : ext) + '</div>'
         + '</div></div>';
       if (payload.text) html += '<div class="msg-text">' + esc(payload.text) + '</div>';
     } else if (msgType === 'tapp' || msgType === 'brew' || msgType === 'library' || msgType === 'report') {
@@ -3183,7 +3276,7 @@ function renderMessages() {
         + '>'
         + '<div class="msg-share-icon" style="background:' + (shareBgs[msgType] || '') + '">' + iconContent + '</div>'
         + '<div class="msg-share-body">'
-        + '<div class="msg-share-type">' + esc(msgType) + '</div>'
+        + '<div class="msg-share-type">' + esc(shareTypeLabel(msgType)) + '</div>'
         + '<div class="msg-share-title">' + esc(payload.title || '') + '</div>'
         + (payload.description ? '<div class="msg-share-desc">' + esc(payload.description) + '</div>' : '');
       // Version badge + status pill for tapp
@@ -3213,11 +3306,23 @@ function renderMessages() {
       html += '<div class="msg-text">' + esc(text) + '</div>';
     }
 
-    html += '<div class="msg-footer">' + pinned + '<span class="msg-time">' + timeStr(msg.created_at) + '</span></div>'
+    html += '<div class="msg-footer">' + pinned + '<span class="msg-time" title="' + esc(fullTimeStr(msg.created_at)) + '">' + timeStr(msg.created_at) + '</span></div>'
       + '</div></div>';
   });
   container.innerHTML = html;
   container.scrollTop = container.scrollHeight;
+
+  // Hover ⋯ opens message menu (desktop); long-press still handled in bindMsgContextMenu
+  container.querySelectorAll('.msg-more-btn').forEach(function (btn) {
+    btn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      var row = btn.closest('.msg-row');
+      if (!row) return;
+      var rect = btn.getBoundingClientRect();
+      showMsgMenu(row, rect.left, rect.bottom + 4);
+    });
+  });
 
   // Bind tapp accept/reject buttons
   container.querySelectorAll('.msg-share-btn-accept').forEach(function (btn) {
@@ -3434,11 +3539,13 @@ const PAGE_MOD_MEMBERS = `\
   var html = '';
   state.members.forEach(function (m) {
     var name = m.display_name || (m.actor_url || '').split('/').pop() || '?';
+    // 普通成员不显示角色，减少列表噪音；仅标出群主/管理员
+    var roleText = (m.role && m.role !== 'member') ? roleLabel(m.role) : '';
     html += '<div class="member-item">'
       + '<div class="member-avatar">' + avatarContentHtml(m.avatar_url || '', name) + '</div>'
       + '<div class="member-info">'
       + '<div class="member-name">' + esc(name) + '</div>'
-      + '<div class="member-role">' + esc(m.role || '') + '</div>'
+      + (roleText ? '<div class="member-role">' + esc(roleText) + '</div>' : '')
       + '</div>';
     if (m.is_local) {
       html += '<span class="member-local">' + esc(lang.local) + '</span>';
@@ -3502,7 +3609,7 @@ function renderChatHeader() {
     if (avatarEl) {
       avatarEl.innerHTML = avatarContentHtml(ch.remote_actor_avatar || '', chName);
     }
-    metaEl.innerHTML = '<span class="meta-badge badge-channel">' + esc(ch.channel_type || lang.dm) + '</span>'
+    metaEl.innerHTML = '<span class="meta-badge badge-channel">' + esc(lang.dm) + '</span>'
       + (ch.status === 'pending' ? '<span class="meta-badge badge-pending">' + esc(lang.pending) + '</span>' : '');
     var actionsHtml = '';
     if (ch.status === 'pending' && ch.initiated_by === 'remote') {
@@ -3525,7 +3632,7 @@ function renderChatHeader() {
       avatarEl.innerHTML = avatarContentHtml(rm.avatar_url || '', rm.name || '?');
     }
     metaEl.innerHTML = '<span class="meta-badge badge-room">' + (rm.member_count || 0) + ' ' + esc(lang.members) + '</span>'
-      + (rm.my_role ? '<span class="meta-badge badge-role">' + esc(rm.my_role) + '</span>' : '');
+      + (rm.my_role && rm.my_role !== 'member' ? '<span class="meta-badge badge-role">' + esc(roleLabel(rm.my_role)) + '</span>' : '');
     var menuItems = '';
     if (rm.my_role === 'owner' || rm.my_role === 'admin') {
       menuItems += '<button class="manage-item" id="action-edit-room">'
@@ -3657,7 +3764,7 @@ async function openConversation(kind, id) {
     if (kind === 'channel') {
       var results = await Promise.all([
         Tapp.federation.getChannel(id),
-        Tapp.federation.getMessages(id, undefined, 200),
+        Tapp.federation.getMessages(id, undefined, 100),
       ]);
       if (results[0]) {
         state.channelDetail = results[0];
@@ -3681,7 +3788,7 @@ async function openConversation(kind, id) {
       var results = await Promise.all([
         Tapp.federation.getRoom(id),
         Tapp.federation.getRoomMembers(id),
-        Tapp.federation.getRoomMessages(id, undefined, 200),
+        Tapp.federation.getRoomMessages(id, undefined, 100),
       ]);
       if (results[0]) state.roomDetail = results[0];
       if (results[1]) {
@@ -3708,8 +3815,13 @@ async function openConversation(kind, id) {
   renderMessages();
   renderMembers();
   renderConvList();
+  updateSendState();
   startPolling();
   subscribeRealtime();
+  var focusInput = $('msg-input');
+  if (focusInput) {
+    try { focusInput.focus(); } catch (e) { /* ignore */ }
+  }
 }
 
 async function doSend() {
@@ -3724,6 +3836,7 @@ async function doSend() {
 
   input.value = '';
   autoResizeInput(input);
+  updateSendState();
   state.sending = true;
   closeAttachMenu();
 
@@ -3731,56 +3844,40 @@ async function doSend() {
     var msgPayload;
     var msgType;
 
-    // Attach quote info if replying to a message
-    var replyTo = null;
-    if (state.quoteMsg) {
-      replyTo = state.quoteMsg.message_id;
-    }
-
-    if (attach && (attach.type === 'image' || attach.type === 'file')) {
-      var useChunked = attach.size > INLINE_ATTACH_MAX;
-      if (useChunked) {
-        if (state.activeKind !== 'channel') {
-          throw new Error(lang.fileTooLargeRoom || lang.fileTooLarge || 'File too large');
-        }
-        clearPendingAttach();
-        await sendChannelFileTransfer(attach, text, replyTo);
-        if (state.quoteMsg) clearQuote();
-        await pollMessages(true);
-        return;
+    if (attach) {
+      if (attach.type === 'image') {
+        msgType = 'image';
+        msgPayload = { data: attach.data, filename: attach.name, mime_type: attach.mime, size: attach.size, text: text || '' };
+      } else if (attach.type === 'file') {
+        msgType = 'file';
+        msgPayload = { data: attach.data, filename: attach.name, mime_type: attach.mime, size: attach.size, text: text || '' };
+      } else {
+        // Federation content: tapp, brew, library, report
+        msgType = attach.type;
+        msgPayload = { title: attach.name, description: attach.desc || '', content_type: attach.type, icon: attach.icon || '', text: text || '' };
+        // Include resource IDs so the receiver can fetch detail
+        if (attach.tappId) msgPayload.tapp_id = attach.tappId;
+        if (attach.tappVersion) msgPayload.tapp_version = attach.tappVersion;
+        if (attach.tappIcon) msgPayload.tapp_icon = attach.tappIcon;
+        if (attach.brewId) msgPayload.brew_id = attach.brewId;
+        if (attach.brewLink) msgPayload.brew_link = attach.brewLink;
+        if (attach.platformId) msgPayload.platform_id = attach.platformId;
+        if (attach.itemId) msgPayload.item_id = attach.itemId;
+        if (attach.reportId) msgPayload.report_id = attach.reportId;
       }
-
-      // Small files: inline base64 under backend 10 MiB payload budget
-      var dataUrl = attach.data;
-      if (!dataUrl && attach.file) {
-        dataUrl = await readFileAsDataURL(attach.file);
-      }
-      if (!dataUrl) throw new Error('Failed to read file');
-      msgType = attach.type === 'image' ? 'image' : 'file';
-      msgPayload = { data: dataUrl, filename: attach.name, mime_type: attach.mime, size: attach.size, text: text || '' };
-      clearPendingAttach();
-    } else if (attach) {
-      // Federation content: tapp, brew, library, report
-      msgType = attach.type;
-      msgPayload = { title: attach.name, description: attach.desc || '', content_type: attach.type, icon: attach.icon || '', text: text || '' };
-      if (attach.tappId) msgPayload.tapp_id = attach.tappId;
-      if (attach.tappVersion) msgPayload.tapp_version = attach.tappVersion;
-      if (attach.tappIcon) msgPayload.tapp_icon = attach.tappIcon;
-      if (attach.brewId) msgPayload.brew_id = attach.brewId;
-      if (attach.brewLink) msgPayload.brew_link = attach.brewLink;
-      if (attach.platformId) msgPayload.platform_id = attach.platformId;
-      if (attach.itemId) msgPayload.item_id = attach.itemId;
-      if (attach.reportId) msgPayload.report_id = attach.reportId;
       clearPendingAttach();
     } else {
       msgType = 'text';
       msgPayload = { text: text };
     }
 
+    // Attach quote info if replying to a message
+    var replyTo = null;
     if (state.quoteMsg) {
       msgPayload.quote_sender = state.quoteMsg.sender;
       msgPayload.quote_text = state.quoteMsg.text;
       msgPayload.quote_id = state.quoteMsg.message_id;
+      replyTo = state.quoteMsg.message_id;
       clearQuote();
     }
 
@@ -3797,6 +3894,7 @@ async function doSend() {
     notifyError(lang.sendFail, e);
   } finally {
     state.sending = false;
+    updateSendState();
     input.focus();
   }
 }
@@ -3837,9 +3935,9 @@ async function pollMessages(force) {
   try {
     var res;
     if (state.activeKind === 'channel') {
-      res = await Tapp.federation.getMessages(state.activeId, undefined, 200);
+      res = await Tapp.federation.getMessages(state.activeId, undefined, 100);
     } else {
-      res = await Tapp.federation.getRoomMessages(state.activeId, undefined, 200);
+      res = await Tapp.federation.getRoomMessages(state.activeId, undefined, 100);
     }
     if (res) {
       var msgs = res.messages || [];
@@ -3995,6 +4093,7 @@ function bindRealtimeListeners() {
 
 async function doCloseChannel() {
   if (!state.activeId || state.activeKind !== 'channel') return;
+  if (!(await aroConfirm(lang.closeChannelConfirm, true))) return;
   try {
     await unsubscribeRealtime();
     await Tapp.federation.closeChannel(state.activeId);
@@ -4201,6 +4300,7 @@ async function doSaveRoom() {
 // ==================== Kick Member ====================
 async function doKickMember(actorUrl) {
   if (!state.activeId || state.activeKind !== 'room') return;
+  if (!(await aroConfirm(lang.kickConfirm, true))) return;
   try {
     await Tapp.federation.removeMember(state.activeId, actorUrl);
     // Refresh members
@@ -4218,7 +4318,7 @@ async function doKickMember(actorUrl) {
 // ==================== Dissolve Room ====================
 async function doDissolveRoom() {
   if (!state.activeId || state.activeKind !== 'room') return;
-  if (!confirm(lang.dissolveConfirm)) return;
+  if (!(await aroConfirm(lang.dissolveConfirm, true))) return;
   try {
     await unsubscribeRealtime();
     await Tapp.federation.deleteRoom(state.activeId);
@@ -4482,20 +4582,11 @@ function updateFeedHeader() {
   var sub = state.feedSubTab;
   if (title) title.textContent = getFeedTitle(sub);
   if (!meta) return;
-  if (state.feedLoading && !state.feedLoaded[sub]) {
-    meta.textContent = lang.pickerLoading || '加载中...';
-    return;
-  }
-  if (state.feedError && !state.feedLoaded[sub]) {
-    meta.textContent = lang.feedLoadFail || lang.disconnected || '加载失败';
-    return;
-  }
+  // 加载/错误状态由骨架屏和空状态呈现，这里只在有数据时给出计数，避免文案闪换
   var items = getFeedItems(sub) || [];
-  if (state.feedLoaded[sub]) {
-    meta.textContent = items.length + ' ' + (lang.feedItems || '项');
-    return;
-  }
-  meta.textContent = getIdentityHandle() || '';
+  meta.textContent = (state.feedLoaded[sub] && items.length > 0)
+    ? items.length + ' ' + (lang.feedItems || '项')
+    : '';
 }
 
 function getFeedItems(sub) {
@@ -4520,8 +4611,17 @@ function showFeedEmpty(message, kind) {
   empty.style.display = '';
   empty.classList.toggle('feed-empty-error', kind === 'error');
   empty.classList.toggle('feed-empty-loading', kind === 'loading');
+  // 普通空态不重复视图标题（头部已有），只在错误时显示标题行
   var title = $('feed-empty-title');
-  if (title) title.textContent = kind === 'error' ? (lang.feedLoadFail || lang.disconnected || '加载失败') : getFeedTitle(state.feedSubTab);
+  if (title) {
+    if (kind === 'error') {
+      title.style.display = '';
+      title.textContent = lang.feedLoadFail || lang.disconnected || '加载失败';
+    } else {
+      title.style.display = 'none';
+      title.textContent = '';
+    }
+  }
   var text = $('feed-empty-text');
   if (text) text.textContent = message;
 }
@@ -4632,13 +4732,22 @@ function extractNoteAttachments(contentJson) {
 
 function renderTimelineMedia(attachments) {
   if (!attachments || !attachments.length) return '';
-  var h = '<div class="feed-item-media">';
+  var multi = attachments.length >= 2;
+  var h = '<div class="feed-item-media' + (multi ? ' feed-item-media-grid' : ' feed-item-media-single') + '">';
   attachments.forEach(function (att) {
     var url = att.url;
     var mime = (att.mediaType || att.media_type || '').toLowerCase();
     var type = (att.type || '').toLowerCase();
     var isVideo = type === 'video' || mime.indexOf('video/') === 0;
-    if (isVideo) {
+    if (multi) {
+      h += '<div class="feed-media-cell">';
+      if (isVideo) {
+        h += '<video src="' + esc(url) + '" controls playsinline preload="metadata"></video>';
+      } else {
+        h += '<img src="' + esc(url) + '" alt="" loading="lazy" />';
+      }
+      h += '</div>';
+    } else if (isVideo) {
       h += '<video src="' + esc(url) + '" controls playsinline preload="metadata"></video>';
     } else {
       h += '<img src="' + esc(url) + '" alt="" loading="lazy" />';
@@ -4679,10 +4788,6 @@ function renderTimelineItem(item) {
     h += '<div class="feed-item-text">' + esc(text) + '</div>';
   }
   h += renderTimelineMedia(attachments);
-  h += '<div class="feed-item-badges">';
-  h += '<span class="aro-badge aro-badge-type">' + esc(item.object_type || item.activity_type || lang.activityType) + '</span>';
-  if (item.visibility) h += '<span class="aro-badge aro-badge-vis">' + esc(item.visibility) + '</span>';
-  h += '</div>';
   h += '</div></div>';
   return h;
 }
@@ -4718,25 +4823,33 @@ function renderActorItem(actor, context) {
   return h;
 }
 
+/** 已发布内容的可读类型名 */
+function publishedTypeLabel(type) {
+  var map = {
+    'note': lang.composePost,
+    'tapp': lang.attachTapp,
+    'brew-article': lang.attachBrew,
+    'library': lang.attachLibrary,
+    'report': lang.attachReport,
+  };
+  return map[type] || type || '';
+}
+
 function renderPublishedItem(item) {
   var typeIcons = { 'report': SVG_ICONS.report, 'brew-article': SVG_ICONS.memo, 'tapp': SVG_ICONS.tapp, 'library': SVG_ICONS.library, 'note': SVG_ICONS.page };
   var icon = typeIcons[item.content_type] || SVG_ICONS.page;
   var dateStr = '';
   try { dateStr = timeAgo(item.published_at); } catch (e) {}
-  var label = item.content_type === 'note'
-    ? (lang.composePost || 'note') + ' #' + String(item.content_id || '').slice(0, 12)
-    : (item.content_type + ' #' + item.content_id);
+  // 优先展示内容本身（标题/摘要/预览），而不是裸 ID
+  var preview = stripHtmlPreview(item.title || item.name || item.summary || item.content_preview || '');
   var h = '<div class="feed-item">';
   h += '<div class="feed-item-icon">' + icon + '</div>';
   h += '<div class="feed-item-body">';
   h += '<div class="feed-item-header">';
-  h += '<span class="feed-item-name">' + esc(label) + '</span>';
+  h += '<span class="feed-item-name">' + esc(publishedTypeLabel(item.content_type)) + '</span>';
   if (dateStr) h += '<span class="feed-item-sep">&middot;</span><span class="feed-item-time">' + esc(dateStr) + '</span>';
   h += '</div>';
-  h += '<div class="feed-item-badges">';
-  h += '<span class="aro-badge aro-badge-type">' + esc(item.content_type) + '</span>';
-  if (item.visibility) h += '<span class="aro-badge aro-badge-vis">' + esc(item.visibility) + '</span>';
-  h += '</div>';
+  if (preview) h += '<div class="feed-item-text">' + esc(preview) + '</div>';
   h += '<div class="feed-item-actions">';
   h += '<button class="feed-item-action feed-item-action-danger" data-action-unpublish data-content-type="' + esc(item.content_type) + '" data-content-id="' + esc(item.content_id) + '">'
     + '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>'
@@ -5036,7 +5149,7 @@ function renderRingsSidebar() {
       + '<div class="conv-avatar avatar-room" style="border-radius:8px;font-size:16px">' + icon + '</div>'
       + '<div class="conv-info">'
       + '<div class="conv-name">' + esc(name) + '</div>'
-      + '<div class="conv-subtitle">' + esc(ring.ring_type) + ' · ' + esc(peerText) + '</div>'
+      + '<div class="conv-subtitle">' + esc(ringTypeLabel(ring.ring_type)) + ' · ' + esc(peerText) + '</div>'
       + '</div>'
       + '</button>';
   });
@@ -5140,10 +5253,10 @@ function renderRingDetail() {
   var metaEl = $('ring-detail-meta');
   if (metaEl) {
     var parts = [];
-    parts.push('<span class="meta-badge">' + esc(ring.ring_type || '') + '</span>');
+    parts.push('<span class="meta-badge">' + esc(ringTypeLabel(ring.ring_type)) + '</span>');
     parts.push('<span class="meta-badge">' + esc(state.ringPeers.length + ' ' + lang.peers) + '</span>');
     if (ring.last_sync_at) {
-      try { parts.push('<span class="meta-badge">' + esc(new Date(ring.last_sync_at).toLocaleString(currentLocale)) + '</span>'); } catch (e) {}
+      try { parts.push('<span class="meta-badge">' + esc(timeAgo(ring.last_sync_at)) + '</span>'); } catch (e) {}
     }
     metaEl.innerHTML = parts.join('');
   }
@@ -5295,9 +5408,9 @@ const PAGE_MOD_EVENTS = `\
     if (dd) dd.classList.toggle('open');
   });
   var ringLeaveBtn2 = $('ring-leave-btn');
-  if (ringLeaveBtn2) ringLeaveBtn2.addEventListener('click', function () {
+  if (ringLeaveBtn2) ringLeaveBtn2.addEventListener('click', async function () {
     var dd = $('ring-manage-dropdown'); if (dd) dd.classList.remove('open');
-    if (state.activeRingId && confirm(lang.leaveRingConfirm)) {
+    if (state.activeRingId && (await aroConfirm(lang.leaveRingConfirm, true))) {
       doLeaveRing(state.activeRingId);
     }
   });
@@ -5407,8 +5520,12 @@ const PAGE_MOD_EVENTS = `\
     input.addEventListener('keydown', function (e) {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); }
     });
-    input.addEventListener('input', function () { autoResizeInput(this); });
+    input.addEventListener('input', function () {
+      autoResizeInput(this);
+      updateSendState();
+    });
   }
+  updateSendState();
 
   var backBtn = $('back-btn');
   if (backBtn) {
@@ -5487,8 +5604,6 @@ const PAGE_MOD_EVENTS = `\
 
 // ==================== Init ====================
 async function init() {
-  console.log('[Aro] init, Tapp.federation:', typeof Tapp.federation, Tapp.federation ? Object.keys(Tapp.federation) : 'N/A');
-
   try {
     var user = await Tapp.context.getUser();
     var actorUrl = user ? normalizeFederationUrl(user.actor_url) : '';
@@ -5708,7 +5823,7 @@ const CORE_CODE = buildCoreCode()
 const manifest: TappManifest = {
   id: 'com.myriad.aro',
   name: 'Aro',
-  version: '1.0.2',
+  version: '1.0.0',
   minSystemVersion: '0.2.1',
   description: '社交中心，统一管理消息、时间线、环网与个人资料',
   category: 'social',
@@ -5724,7 +5839,6 @@ const manifest: TappManifest = {
     'federation:read',
     'federation:write',
     'federation:message',
-    'federation:files',
     'platform:read',
     'report:read',
     'tappList:read',
