@@ -179,9 +179,15 @@ const PAGE_HTML = `\
       <!-- Main content -->
       <main class="feed-main">
         <div class="feed-main-header">
-          <div class="feed-main-heading">
-            <div id="feed-section-title" class="feed-section-title">动态</div>
-            <div id="feed-section-meta" class="feed-section-meta"></div>
+          <div class="feed-header-leading">
+            <button id="feed-compose-btn" class="feed-compose-btn" type="button" title="发帖" style="display:none">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+              <span id="feed-compose-btn-label">发帖</span>
+            </button>
+            <div class="feed-main-heading">
+              <div id="feed-section-title" class="feed-section-title">动态</div>
+              <div id="feed-section-meta" class="feed-section-meta"></div>
+            </div>
           </div>
           <div class="feed-header-actions">
             <button id="refresh-feed-btn" class="feed-refresh-btn" title="刷新">
@@ -189,8 +195,34 @@ const PAGE_HTML = `\
             </button>
           </div>
         </div>
+        <!-- Freeform note composer (owner only) -->
+        <div id="feed-composer" class="feed-composer" style="display:none">
+          <textarea id="feed-compose-text" class="feed-compose-text" rows="3" placeholder="分享点什么…"></textarea>
+          <div id="feed-compose-previews" class="feed-compose-previews"></div>
+          <div class="feed-compose-actions">
+            <div class="feed-compose-attach">
+              <button type="button" id="feed-compose-image-btn" class="feed-compose-tool" title="图片">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+                <span id="feed-compose-image-label">图片</span>
+              </button>
+              <button type="button" id="feed-compose-video-btn" class="feed-compose-tool" title="视频">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M10 9l5 3-5 3V9z"/></svg>
+                <span id="feed-compose-video-label">视频</span>
+              </button>
+              <input id="feed-compose-image-input" type="file" accept="image/jpeg,image/png,image/gif,image/webp" multiple style="display:none" />
+              <input id="feed-compose-video-input" type="file" accept="video/mp4,video/webm,video/quicktime" multiple style="display:none" />
+            </div>
+            <div class="feed-compose-submit">
+              <button type="button" id="feed-compose-cancel" class="feed-compose-cancel">取消</button>
+              <button type="button" id="feed-compose-publish" class="feed-compose-publish">发布</button>
+            </div>
+          </div>
+        </div>
         <!-- Mobile tabs (visible only on small screens) -->
         <div class="feed-mobile-tabs" id="feed-mobile-tabs">
+          <button id="feed-compose-mobile-btn" class="feed-mobile-compose" type="button" title="发帖" style="display:none">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
           <button class="feed-mobile-tab feed-mobile-tab-active" data-sub="timeline" id="feed-tab-timeline">动态</button>
           <button class="feed-mobile-tab" data-sub="following" id="feed-tab-following">关注</button>
           <button class="feed-mobile-tab" data-sub="followers" id="feed-tab-followers">粉丝</button>
@@ -446,6 +478,30 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .feed-main{flex:1;min-width:0;display:flex;flex-direction:column;overflow-y:auto;position:relative}
 /* Feed header */
 .feed-main-header{min-height:56px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px;border-bottom:1px solid rgba(128,128,128,.06);flex-shrink:0;background:rgba(255,255,255,.45);backdrop-filter:blur(12px)}
+.feed-header-leading{display:flex;align-items:center;gap:10px;min-width:0;flex:1}
+.feed-compose-btn{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;border:none;background:var(--tapp-primary,#6366f1);color:#fff;font-size:13px;font-weight:600;cursor:pointer;flex-shrink:0;transition:opacity .15s,transform .12s}
+.feed-compose-btn:hover{opacity:.92}
+.feed-compose-btn:active{transform:scale(.97)}
+.feed-composer{padding:12px 16px;border-bottom:1px solid rgba(128,128,128,.08);background:rgba(255,255,255,.35);flex-shrink:0}
+.dark .feed-composer{background:rgba(0,0,0,.25);border-color:rgba(255,255,255,.06)}
+.feed-compose-text{width:100%;min-height:72px;resize:vertical;border:1px solid rgba(128,128,128,.15);border-radius:12px;padding:10px 12px;font-size:14px;line-height:1.5;background:rgba(255,255,255,.7);color:var(--text-primary,#1a1a1a);outline:none;font-family:inherit}
+.dark .feed-compose-text{background:rgba(20,20,20,.7);border-color:rgba(255,255,255,.1);color:rgba(255,255,255,.92)}
+.feed-compose-text:focus{border-color:var(--tapp-primary,#6366f1);box-shadow:0 0 0 3px rgba(99,102,241,.15)}
+.feed-compose-previews{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.feed-compose-preview{position:relative;width:88px;height:88px;border-radius:10px;overflow:hidden;background:rgba(128,128,128,.08);border:1px solid rgba(128,128,128,.12)}
+.feed-compose-preview img,.feed-compose-preview video{width:100%;height:100%;object-fit:cover;display:block}
+.feed-compose-preview-remove{position:absolute;top:4px;right:4px;width:22px;height:22px;border:none;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;cursor:pointer;font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center}
+.feed-compose-actions{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;flex-wrap:wrap}
+.feed-compose-attach{display:flex;gap:6px}
+.feed-compose-tool{display:inline-flex;align-items:center;gap:5px;padding:6px 10px;border-radius:8px;border:1px solid rgba(128,128,128,.12);background:transparent;color:var(--text-secondary,#666);font-size:12px;cursor:pointer}
+.feed-compose-tool:hover{border-color:var(--tapp-primary,#6366f1);color:var(--tapp-primary,#6366f1)}
+.feed-compose-submit{display:flex;gap:8px;margin-left:auto}
+.feed-compose-cancel{padding:7px 14px;border-radius:8px;border:1px solid rgba(128,128,128,.15);background:transparent;color:var(--text-secondary,#666);font-size:13px;cursor:pointer}
+.feed-compose-publish{padding:7px 16px;border-radius:8px;border:none;background:var(--tapp-primary,#6366f1);color:#fff;font-size:13px;font-weight:600;cursor:pointer}
+.feed-compose-publish:disabled,.feed-compose-cancel:disabled,.feed-compose-tool:disabled{opacity:.5;cursor:not-allowed}
+.feed-item-media{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.feed-item-media img,.feed-item-media video{max-width:100%;max-height:280px;border-radius:12px;object-fit:cover;background:rgba(128,128,128,.06)}
+.feed-item-media video{width:100%}
 .feed-main-heading{min-width:0;display:flex;flex-direction:column;gap:2px}
 .feed-section-title{font-size:16px;font-weight:750;color:var(--text-primary,#0f1419);line-height:1.2}
 .feed-section-meta{min-height:15px;font-size:11px;font-weight:500;color:var(--text-secondary,#536471);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -461,6 +517,8 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .feed-mobile-tab{flex:1;padding:12px 4px;border:none;background:none;font-size:13px;font-weight:500;color:var(--text-secondary,#536471);cursor:pointer;text-align:center;transition:all .15s;border-bottom:2px solid transparent}
 .feed-mobile-tab:hover{background:rgba(128,128,128,.04)}
 .feed-mobile-tab-active{color:var(--text-primary,#0f1419)!important;font-weight:700;border-bottom-color:var(--tapp-primary,#6366f1)!important}
+.feed-mobile-compose{width:44px;border:none;background:none;color:var(--tapp-primary,#6366f1);display:flex;align-items:center;justify-content:center;cursor:pointer;border-bottom:2px solid transparent;flex-shrink:0}
+.feed-mobile-compose:hover{background:rgba(99,102,241,.08)}
 .feed-mobile-refresh{width:44px;border:none;background:none;color:var(--text-secondary,#536471);display:flex;align-items:center;justify-content:center;cursor:pointer;border-bottom:2px solid transparent}
 .feed-mobile-refresh:hover{background:rgba(128,128,128,.04);color:var(--tapp-primary,#6366f1)}
 .feed-mobile-refresh:disabled{opacity:.55;cursor:default}
@@ -999,493 +1057,537 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 `
 
 const ARO_I18N: Record<string, Record<string, string>> = {
-  en: {
-    accept: 'Accept',
-    acceptConfirmDesc: 'Someone shared a Tapp app with you',
-    acceptConfirmTitle: 'Install this Tapp?',
-    acceptFail: 'Accept failed',
-    acceptTapp: 'Accept',
-    activityType: 'Activity',
-    addPeerBtn: 'Add',
-    addPeerFail: 'Add failed',
-    addPeerPlaceholder: 'Actor URL or @user@domain',
-    adminRequired: 'Administrator access required',
-    alreadyLatest: 'Already up to date',
-    attachBrew: 'Brew',
-    attachBrewPrompt: 'Enter Brew article title',
-    attachFile: 'File',
-    attachImage: 'Image',
-    attachLibrary: 'Library',
-    attachLibraryPrompt: 'Enter library name',
-    attachReport: 'Report',
-    attachReportPrompt: 'Enter report title',
-    attachSending: 'Sending...',
-    attachTapp: 'Tapp',
-    attachTappPrompt: 'Enter Tapp ID or name',
-    channelPlaceholder: 'Actor URL or @user@domain',
-    close: 'Close',
-    closed: 'Closed',
-    connected: 'Connected',
-    copied: 'Copied',
-    copy: 'Copy',
-    copyFail: 'Copy failed',
-    collapseDetails: 'Collapse',
-    create: 'New',
-    createChannel: 'Create Channel',
-    createFail: 'Create failed',
-    createRingBtn: 'Create',
-    createRingFail: 'Create failed',
-    createRingTitle: 'Create Ring',
-    createRoom: 'Create Room',
-    creating: 'Creating...',
-    disconnected: 'Disconnected',
-    expandDetails: 'Expand',
-    dissolve: 'Dissolve Group',
-    dissolveConfirm:
-      'Are you sure you want to dissolve this group? This cannot be undone.',
-    dissolveFail: 'Dissolve failed',
-    dm: 'DM',
-    editRoom: 'Edit Room',
-    emptyChatHint: 'Send the first message',
-    emptyFollowers: 'No followers',
-    emptyFollowing: 'Not following anyone',
-    emptyPeers: 'No peers',
-    emptyPublished: 'No published content',
-    emptyRings: 'No rings',
-    emptyRoomHint: 'Send the first message to start group chat',
-    emptyTimeline: 'No activity',
-    feedFollowers: 'Followers',
-    feedFollowing: 'Following',
-    feedItems: 'items',
-    feedLoadFail: 'Failed to load feed',
-    feedPublished: 'Published',
-    feedTimeline: 'Feed',
-    publicFeed: 'Public feed',
-    fileTooLarge: 'File too large (max 10MB)',
-    followBtn: 'Follow',
-    followFail: 'Follow failed',
-    followPlaceholder: 'Actor URL or @user@domain',
-    forwardSuccess: 'Forwarded',
-    forwardTo: 'Forward to...',
-    installBtn: 'Install',
-    installFailed: 'Install failed, tap to retry',
-    installSuccess: '✓ Installed',
-    installedAt: 'Installed',
-    installingBtn: 'Installing...',
-    invite: 'Invite...',
-    inviteBtn: 'Invite',
-    inviteFail: 'Invite failed',
-    inviteFromContacts: 'From contacts',
-    inviteManual: 'Manual invite',
-    invitePlaceholder: 'Actor URL or @user@domain',
-    inviteSuccess: 'Invited',
-    invited: 'Invited',
-    inviting: 'Inviting...',
-    kick: 'Remove',
-    kickFail: 'Remove failed',
-    leave: 'Leave',
-    leaveBtn: 'Leave Ring',
-    leaveRingConfirm: 'Leave this ring?',
-    leaveRingFail: 'Leave failed',
-    local: 'Local',
-    localVer: 'Local',
-    manage: 'Manage',
-    members: 'Members',
-    msgForward: 'Forward',
-    msgPin: 'Pin',
-    msgQuote: 'Quote',
-    msgUnpin: 'Unpin',
-    navFeed: 'Feed',
-    navMessages: 'Messages',
-    navRings: 'Rings',
-    newChannel: 'New DM',
-    newRoom: 'New Room',
-    noContacts: 'No contacts to invite',
-    noConv: 'No conversations',
-    openOriginal: 'Open original',
-    openTappBtn: 'Open Tapp',
-    peers: 'peers',
-    pending: 'Pending',
-    pickerCancel: 'Cancel',
-    pickerConfirm: 'Confirm',
-    pickerDesc: 'Description (optional)',
-    pickerEmpty: 'No data',
-    pickerLoading: 'Loading...',
-    pickerSearchPlaceholder: 'Search...',
-    pickerSelectPlatform: 'Select platform',
-    pickerTitle: 'Title',
-    pinFail: 'Pin failed',
-    pinnedMsg: 'Pinned',
-    quoteLabel: 'Quote',
-    refresh: 'Refresh',
-    rejectTapp: 'Decline',
-    remoteVer: 'Shared',
-    removeBtn: 'Unpublish',
-    removePeerFail: 'Remove failed',
-    ringNamePlaceholder: 'Ring name',
-    ringPeersTitle: 'Peers',
-    ringType: 'Type',
-    roomDesc: 'Description',
-    roomName: 'Room name',
-    roomPlaceholder: 'Room name',
-    save: 'Save',
-    saveFail: 'Save failed',
-    saving: 'Saving...',
-    selectBrew: 'Select Brew article',
-    selectHint: 'Select a conversation to start chatting',
-    selectLibrary: 'Select from library',
-    selectReport: 'Select report',
-    selectRing: 'Select a ring to view details',
-    selectTapp: 'Select Tapp',
-    send: 'Send',
-    sendFail: 'Send failed',
-    loadFail: 'Load failed',
-    syncBtn: 'Sync',
-    syncFail: 'Sync failed',
-    syncSuccess: 'Sync complete',
-    syncing: 'Syncing...',
-    tappInstalled: 'Installed',
-    tappNotInstalled: 'Not installed',
-    tappReceived: 'Tapp shared',
-    tappShareAccepted: 'Accepted',
-    tappSharePending: 'Waiting for acceptance',
-    tappShareRejected: 'Declined',
-    tappUpdateAvail: 'Update available',
-    title: 'Messenger',
-    typing: 'Type a message...',
-    unfollowBtn: 'Unfollow',
-    unfollowFail: 'Unfollow failed',
-    unpublishFail: 'Unpublish failed',
-    updatingBtn: 'Update',
-    newMessage: 'New message',
-    previewImage: '📷 Image',
-    previewFile: '📎 File',
-    previewSystem: 'System message',
+  "en": {
+    "accept": "Accept",
+    "acceptConfirmDesc": "Someone shared a Tapp app with you",
+    "acceptConfirmTitle": "Install this Tapp?",
+    "acceptFail": "Accept failed",
+    "acceptTapp": "Accept",
+    "activityType": "Activity",
+    "addPeerBtn": "Add",
+    "addPeerFail": "Add failed",
+    "addPeerPlaceholder": "Actor URL or @user@domain",
+    "adminRequired": "Administrator access required",
+    "alreadyLatest": "Already up to date",
+    "attachBrew": "Brew",
+    "attachBrewPrompt": "Enter Brew article title",
+    "attachFile": "File",
+    "attachImage": "Image",
+    "attachLibrary": "Library",
+    "attachLibraryPrompt": "Enter library name",
+    "attachReport": "Report",
+    "attachReportPrompt": "Enter report title",
+    "attachSending": "Sending...",
+    "attachTapp": "Tapp",
+    "attachTappPrompt": "Enter Tapp ID or name",
+    "channelPlaceholder": "Actor URL or @user@domain",
+    "close": "Close",
+    "closed": "Closed",
+    "collapseDetails": "Collapse",
+    "composeAddImage": "Image",
+    "composeAddVideo": "Video",
+    "composeCancel": "Cancel",
+    "composeEmpty": "Add text or attach an image/video",
+    "composeFail": "Publish failed",
+    "composePlaceholder": "Share something…",
+    "composePost": "Post",
+    "composePublish": "Publish",
+    "composePublishing": "Publishing…",
+    "composeSuccess": "Published",
+    "composeUploading": "Uploading…",
+    "connected": "Connected",
+    "copied": "Copied",
+    "copy": "Copy",
+    "copyFail": "Copy failed",
+    "create": "New",
+    "createChannel": "Create Channel",
+    "createFail": "Create failed",
+    "createRingBtn": "Create",
+    "createRingFail": "Create failed",
+    "createRingTitle": "Create Ring",
+    "createRoom": "Create Room",
+    "creating": "Creating...",
+    "disconnected": "Disconnected",
+    "dissolve": "Dissolve Group",
+    "dissolveConfirm": "Are you sure you want to dissolve this group? This cannot be undone.",
+    "dissolveFail": "Dissolve failed",
+    "dm": "DM",
+    "editRoom": "Edit Room",
+    "emptyChatHint": "Send the first message",
+    "emptyFollowers": "No followers",
+    "emptyFollowing": "Not following anyone",
+    "emptyPeers": "No peers",
+    "emptyPublished": "No published content",
+    "emptyRings": "No rings",
+    "emptyRoomHint": "Send the first message to start group chat",
+    "emptyTimeline": "No activity",
+    "expandDetails": "Expand",
+    "feedFollowers": "Followers",
+    "feedFollowing": "Following",
+    "feedItems": "items",
+    "feedLoadFail": "Failed to load feed",
+    "feedPublished": "Published",
+    "feedTimeline": "Feed",
+    "fileTooLarge": "File too large (max 10MB)",
+    "followBtn": "Follow",
+    "followFail": "Follow failed",
+    "followPlaceholder": "Actor URL or @user@domain",
+    "followQueued": "Follow request sent; the remote instance auto-accepts (no manual approval)",
+    "forwardSuccess": "Forwarded",
+    "forwardTo": "Forward to...",
+    "installBtn": "Install",
+    "installFailed": "Install failed, tap to retry",
+    "installSuccess": "✓ Installed",
+    "installedAt": "Installed",
+    "installingBtn": "Installing...",
+    "invite": "Invite...",
+    "inviteBtn": "Invite",
+    "inviteFail": "Invite failed",
+    "inviteFromContacts": "From contacts",
+    "inviteManual": "Manual invite",
+    "invitePlaceholder": "Actor URL or @user@domain",
+    "inviteSuccess": "Invited",
+    "invited": "Invited",
+    "inviting": "Inviting...",
+    "kick": "Remove",
+    "kickFail": "Remove failed",
+    "leave": "Leave",
+    "leaveBtn": "Leave Ring",
+    "leaveRingConfirm": "Leave this ring?",
+    "leaveRingFail": "Leave failed",
+    "loadFail": "Load failed",
+    "local": "Local",
+    "localVer": "Local",
+    "manage": "Manage",
+    "mediaTooLarge": "File too large",
+    "mediaUnsupported": "Unsupported file type",
+    "members": "Members",
+    "msgForward": "Forward",
+    "msgPin": "Pin",
+    "msgQuote": "Quote",
+    "msgUnpin": "Unpin",
+    "navFeed": "Feed",
+    "navMessages": "Messages",
+    "navRings": "Rings",
+    "newChannel": "New DM",
+    "newMessage": "New message",
+    "newRoom": "New Room",
+    "noContacts": "No contacts to invite",
+    "noConv": "No conversations",
+    "openOriginal": "Open original",
+    "openTappBtn": "Open Tapp",
+    "peers": "peers",
+    "pending": "Pending",
+    "pendingConfirm": "Awaiting confirmation",
+    "pickerCancel": "Cancel",
+    "pickerConfirm": "Confirm",
+    "pickerDesc": "Description (optional)",
+    "pickerEmpty": "No data",
+    "pickerLoading": "Loading...",
+    "pickerSearchPlaceholder": "Search...",
+    "pickerSelectPlatform": "Select platform",
+    "pickerTitle": "Title",
+    "pinFail": "Pin failed",
+    "pinnedMsg": "Pinned",
+    "previewFile": "📎 File",
+    "previewImage": "📷 Image",
+    "previewSystem": "System message",
+    "publicFeed": "Public feed",
+    "quoteLabel": "Quote",
+    "refresh": "Refresh",
+    "rejectTapp": "Decline",
+    "remoteVer": "Shared",
+    "removeBtn": "Unpublish",
+    "removePeerFail": "Remove failed",
+    "ringNamePlaceholder": "Ring name",
+    "ringPeersTitle": "Peers",
+    "ringType": "Type",
+    "roomDesc": "Description",
+    "roomName": "Room name",
+    "roomPlaceholder": "Room name",
+    "save": "Save",
+    "saveFail": "Save failed",
+    "saving": "Saving...",
+    "selectBrew": "Select Brew article",
+    "selectHint": "Select a conversation to start chatting",
+    "selectLibrary": "Select from library",
+    "selectReport": "Select report",
+    "selectRing": "Select a ring to view details",
+    "selectTapp": "Select Tapp",
+    "send": "Send",
+    "sendFail": "Send failed",
+    "syncBtn": "Sync",
+    "syncFail": "Sync failed",
+    "syncSuccess": "Sync complete",
+    "syncing": "Syncing...",
+    "tappInstalled": "Installed",
+    "tappNotInstalled": "Not installed",
+    "tappReceived": "Tapp shared",
+    "tappShareAccepted": "Accepted",
+    "tappSharePending": "Waiting for acceptance",
+    "tappShareRejected": "Declined",
+    "tappUpdateAvail": "Update available",
+    "title": "Messenger",
+    "typing": "Type a message...",
+    "unfollowBtn": "Unfollow",
+    "unfollowFail": "Unfollow failed",
+    "unpublishFail": "Unpublish failed",
+    "updatingBtn": "Update"
   },
-  ja: {
-    accept: '承認',
-    acceptConfirmDesc: 'Tappアプリが共有されました',
-    acceptConfirmTitle: 'このTappをインストール？',
-    acceptFail: '承認失敗',
-    acceptTapp: '承認',
-    activityType: 'アクティビティ',
-    addPeerBtn: '追加',
-    addPeerFail: '追加失敗',
-    addPeerPlaceholder: 'Actor URL または @user@domain',
-    adminRequired: '管理者権限が必要です',
-    alreadyLatest: '最新版です',
-    attachBrew: 'Brew',
-    attachBrewPrompt: 'Brew記事タイトルを入力',
-    attachFile: 'ファイル',
-    attachImage: '画像',
-    attachLibrary: 'ライブラリ',
-    attachLibraryPrompt: 'ライブラリ名を入力',
-    attachReport: 'レポート',
-    attachReportPrompt: 'レポートタイトルを入力',
-    attachSending: '送信中...',
-    attachTapp: 'Tapp',
-    attachTappPrompt: 'Tapp IDまたは名前を入力',
-    channelPlaceholder: 'Actor URL または @user@domain',
-    close: '閉じる',
-    closed: 'クローズ',
-    connected: '接続済み',
-    copied: 'コピーしました',
-    copy: 'コピー',
-    copyFail: 'コピー失敗',
-    collapseDetails: '閉じる',
-    create: '新規',
-    createChannel: 'チャンネル作成',
-    createFail: '作成失敗',
-    createRingBtn: '作成',
-    createRingFail: '作成失敗',
-    createRingTitle: 'リング作成',
-    createRoom: 'ルーム作成',
-    creating: '作成中...',
-    disconnected: '切断',
-    expandDetails: '展開',
-    dissolve: 'グループ解散',
-    dissolveConfirm: 'このグループを解散しますか？この操作は元に戻せません。',
-    dissolveFail: '解散失敗',
-    dm: 'DM',
-    editRoom: 'ルーム編集',
-    emptyChatHint: '最初のメッセージを送信してください',
-    emptyFollowers: 'フォロワーなし',
-    emptyFollowing: 'フォローなし',
-    emptyPeers: 'ピアなし',
-    emptyPublished: '公開コンテンツなし',
-    emptyRings: 'リングなし',
-    emptyRoomHint: '最初のメッセージを送信してグループチャットを始めましょう',
-    emptyTimeline: 'アクティビティなし',
-    feedFollowers: 'フォロワー',
-    feedFollowing: 'フォロー中',
-    feedItems: '件',
-    feedLoadFail: 'フィードの読み込みに失敗',
-    feedPublished: '公開済み',
-    feedTimeline: 'フィード',
-    publicFeed: '公開フィード',
-    fileTooLarge: 'ファイルが大きすぎます（最大10MB）',
-    followBtn: 'フォロー',
-    followFail: 'フォロー失敗',
-    followPlaceholder: 'Actor URL または @user@domain',
-    forwardSuccess: '転送済み',
-    forwardTo: '転送先...',
-    installBtn: 'インストール',
-    installFailed: 'インストール失敗、タップで再試行',
-    installSuccess: '✓ インストール完了',
-    installedAt: 'インストール日',
-    installingBtn: 'インストール中...',
-    invite: '招待...',
-    inviteBtn: '招待',
-    inviteFail: '招待失敗',
-    inviteFromContacts: '連絡先から選択',
-    inviteManual: '手動招待',
-    invitePlaceholder: 'Actor URL または @user@domain',
-    inviteSuccess: '招待済み',
-    invited: '招待済み',
-    inviting: '招待中...',
-    kick: '除外',
-    kickFail: '除外失敗',
-    leave: '退出',
-    leaveBtn: 'リング退出',
-    leaveRingConfirm: 'このリングから退出しますか？',
-    leaveRingFail: '退出失敗',
-    local: 'ローカル',
-    localVer: 'ローカル',
-    manage: '管理',
-    members: 'メンバー',
-    msgForward: '転送',
-    msgPin: 'ピン留め',
-    msgQuote: '引用',
-    msgUnpin: 'ピン解除',
-    navFeed: 'フィード',
-    navMessages: 'メッセージ',
-    navRings: 'リング',
-    newChannel: '新規DM',
-    newRoom: '新規ルーム',
-    noContacts: '招待可能な連絡先なし',
-    noConv: '会話なし',
-    openOriginal: '元記事を開く',
-    openTappBtn: 'Tappを開く',
-    peers: 'ピア',
-    pending: '保留中',
-    pickerCancel: 'キャンセル',
-    pickerConfirm: '確認',
-    pickerDesc: '説明（任意）',
-    pickerEmpty: 'データなし',
-    pickerLoading: '読み込み中...',
-    pickerSearchPlaceholder: '検索...',
-    pickerSelectPlatform: 'プラットフォーム選択',
-    pickerTitle: 'タイトル',
-    pinFail: 'ピン留めに失敗',
-    pinnedMsg: 'ピン留め',
-    quoteLabel: '引用',
-    refresh: 'リフレッシュ',
-    rejectTapp: '拒否',
-    remoteVer: '共有',
-    removeBtn: '公開取消',
-    removePeerFail: '削除失敗',
-    ringNamePlaceholder: 'リング名',
-    ringPeersTitle: 'ピア',
-    ringType: 'タイプ',
-    roomDesc: '説明',
-    roomName: 'ルーム名',
-    roomPlaceholder: 'ルーム名',
-    save: '保存',
-    saveFail: '保存失敗',
-    saving: '保存中...',
-    selectBrew: 'Brew記事を選択',
-    selectHint: '会話を選んでチャットを始めましょう',
-    selectLibrary: 'ライブラリから選択',
-    selectReport: 'レポートを選択',
-    selectRing: 'リングを選択して詳細を表示',
-    selectTapp: 'Tappを選択',
-    send: '送信',
-    sendFail: '送信失敗',
-    loadFail: '読み込み失敗',
-    syncBtn: '同期',
-    syncFail: '同期失敗',
-    syncSuccess: '同期完了',
-    syncing: '同期中...',
-    tappInstalled: 'インストール済み',
-    tappNotInstalled: '未インストール',
-    tappReceived: 'Tappが共有されました',
-    tappShareAccepted: '承認済み',
-    tappSharePending: '承認待ち',
-    tappShareRejected: '拒否済み',
-    tappUpdateAvail: '更新あり',
-    title: 'メッセンジャー',
-    typing: 'メッセージを入力...',
-    unfollowBtn: 'フォロー解除',
-    unfollowFail: 'フォロー解除失敗',
-    unpublishFail: '公開取消失敗',
-    updatingBtn: '更新',
-    newMessage: '新しいメッセージ',
-    previewImage: '📷 画像',
-    previewFile: '📎 ファイル',
-    previewSystem: 'システムメッセージ',
+  "ja": {
+    "accept": "承認",
+    "acceptConfirmDesc": "Tappアプリが共有されました",
+    "acceptConfirmTitle": "このTappをインストール？",
+    "acceptFail": "承認失敗",
+    "acceptTapp": "承認",
+    "activityType": "アクティビティ",
+    "addPeerBtn": "追加",
+    "addPeerFail": "追加失敗",
+    "addPeerPlaceholder": "Actor URL または @user@domain",
+    "adminRequired": "管理者権限が必要です",
+    "alreadyLatest": "最新版です",
+    "attachBrew": "Brew",
+    "attachBrewPrompt": "Brew記事タイトルを入力",
+    "attachFile": "ファイル",
+    "attachImage": "画像",
+    "attachLibrary": "ライブラリ",
+    "attachLibraryPrompt": "ライブラリ名を入力",
+    "attachReport": "レポート",
+    "attachReportPrompt": "レポートタイトルを入力",
+    "attachSending": "送信中...",
+    "attachTapp": "Tapp",
+    "attachTappPrompt": "Tapp IDまたは名前を入力",
+    "channelPlaceholder": "Actor URL または @user@domain",
+    "close": "閉じる",
+    "closed": "クローズ",
+    "collapseDetails": "閉じる",
+    "composeAddImage": "画像",
+    "composeAddVideo": "動画",
+    "composeCancel": "キャンセル",
+    "composeEmpty": "テキストか画像/動画を追加してください",
+    "composeFail": "公開に失敗しました",
+    "composePlaceholder": "いまどうしてる？",
+    "composePost": "投稿",
+    "composePublish": "公開",
+    "composePublishing": "公開中…",
+    "composeSuccess": "公開しました",
+    "composeUploading": "アップロード中…",
+    "connected": "接続済み",
+    "copied": "コピーしました",
+    "copy": "コピー",
+    "copyFail": "コピー失敗",
+    "create": "新規",
+    "createChannel": "チャンネル作成",
+    "createFail": "作成失敗",
+    "createRingBtn": "作成",
+    "createRingFail": "作成失敗",
+    "createRingTitle": "リング作成",
+    "createRoom": "ルーム作成",
+    "creating": "作成中...",
+    "disconnected": "切断",
+    "dissolve": "グループ解散",
+    "dissolveConfirm": "このグループを解散しますか？この操作は元に戻せません。",
+    "dissolveFail": "解散失敗",
+    "dm": "DM",
+    "editRoom": "ルーム編集",
+    "emptyChatHint": "最初のメッセージを送信してください",
+    "emptyFollowers": "フォロワーなし",
+    "emptyFollowing": "フォローなし",
+    "emptyPeers": "ピアなし",
+    "emptyPublished": "公開コンテンツなし",
+    "emptyRings": "リングなし",
+    "emptyRoomHint": "最初のメッセージを送信してグループチャットを始めましょう",
+    "emptyTimeline": "アクティビティなし",
+    "expandDetails": "展開",
+    "feedFollowers": "フォロワー",
+    "feedFollowing": "フォロー中",
+    "feedItems": "件",
+    "feedLoadFail": "フィードの読み込みに失敗",
+    "feedPublished": "公開済み",
+    "feedTimeline": "フィード",
+    "fileTooLarge": "ファイルが大きすぎます（最大10MB）",
+    "followBtn": "フォロー",
+    "followFail": "フォロー失敗",
+    "followPlaceholder": "Actor URL または @user@domain",
+    "followQueued": "フォローリクエストを送信しました。相手側は自動承認します（手動承認は不要）",
+    "forwardSuccess": "転送済み",
+    "forwardTo": "転送先...",
+    "installBtn": "インストール",
+    "installFailed": "インストール失敗、タップで再試行",
+    "installSuccess": "✓ インストール完了",
+    "installedAt": "インストール日",
+    "installingBtn": "インストール中...",
+    "invite": "招待...",
+    "inviteBtn": "招待",
+    "inviteFail": "招待失敗",
+    "inviteFromContacts": "連絡先から選択",
+    "inviteManual": "手動招待",
+    "invitePlaceholder": "Actor URL または @user@domain",
+    "inviteSuccess": "招待済み",
+    "invited": "招待済み",
+    "inviting": "招待中...",
+    "kick": "除外",
+    "kickFail": "除外失敗",
+    "leave": "退出",
+    "leaveBtn": "リング退出",
+    "leaveRingConfirm": "このリングから退出しますか？",
+    "leaveRingFail": "退出失敗",
+    "loadFail": "読み込み失敗",
+    "local": "ローカル",
+    "localVer": "ローカル",
+    "manage": "管理",
+    "mediaTooLarge": "ファイルが大きすぎます",
+    "mediaUnsupported": "未対応のファイル形式です",
+    "members": "メンバー",
+    "msgForward": "転送",
+    "msgPin": "ピン留め",
+    "msgQuote": "引用",
+    "msgUnpin": "ピン解除",
+    "navFeed": "フィード",
+    "navMessages": "メッセージ",
+    "navRings": "リング",
+    "newChannel": "新規DM",
+    "newMessage": "新しいメッセージ",
+    "newRoom": "新規ルーム",
+    "noContacts": "招待可能な連絡先なし",
+    "noConv": "会話なし",
+    "openOriginal": "元記事を開く",
+    "openTappBtn": "Tappを開く",
+    "peers": "ピア",
+    "pending": "保留中",
+    "pendingConfirm": "確認待ち",
+    "pickerCancel": "キャンセル",
+    "pickerConfirm": "確認",
+    "pickerDesc": "説明（任意）",
+    "pickerEmpty": "データなし",
+    "pickerLoading": "読み込み中...",
+    "pickerSearchPlaceholder": "検索...",
+    "pickerSelectPlatform": "プラットフォーム選択",
+    "pickerTitle": "タイトル",
+    "pinFail": "ピン留めに失敗",
+    "pinnedMsg": "ピン留め",
+    "previewFile": "📎 ファイル",
+    "previewImage": "📷 画像",
+    "previewSystem": "システムメッセージ",
+    "publicFeed": "公開フィード",
+    "quoteLabel": "引用",
+    "refresh": "リフレッシュ",
+    "rejectTapp": "拒否",
+    "remoteVer": "共有",
+    "removeBtn": "公開取消",
+    "removePeerFail": "削除失敗",
+    "ringNamePlaceholder": "リング名",
+    "ringPeersTitle": "ピア",
+    "ringType": "タイプ",
+    "roomDesc": "説明",
+    "roomName": "ルーム名",
+    "roomPlaceholder": "ルーム名",
+    "save": "保存",
+    "saveFail": "保存失敗",
+    "saving": "保存中...",
+    "selectBrew": "Brew記事を選択",
+    "selectHint": "会話を選んでチャットを始めましょう",
+    "selectLibrary": "ライブラリから選択",
+    "selectReport": "レポートを選択",
+    "selectRing": "リングを選択して詳細を表示",
+    "selectTapp": "Tappを選択",
+    "send": "送信",
+    "sendFail": "送信失敗",
+    "syncBtn": "同期",
+    "syncFail": "同期失敗",
+    "syncSuccess": "同期完了",
+    "syncing": "同期中...",
+    "tappInstalled": "インストール済み",
+    "tappNotInstalled": "未インストール",
+    "tappReceived": "Tappが共有されました",
+    "tappShareAccepted": "承認済み",
+    "tappSharePending": "承認待ち",
+    "tappShareRejected": "拒否済み",
+    "tappUpdateAvail": "更新あり",
+    "title": "メッセンジャー",
+    "typing": "メッセージを入力...",
+    "unfollowBtn": "フォロー解除",
+    "unfollowFail": "フォロー解除失敗",
+    "unpublishFail": "公開取消失敗",
+    "updatingBtn": "更新"
   },
-  zh: {
-    accept: '接受',
-    acceptConfirmDesc: '对方向你分享了一个 Tapp 应用',
-    acceptConfirmTitle: '安装此 Tapp？',
-    acceptFail: '接受失败',
-    acceptTapp: '接受',
-    activityType: '活动类型',
-    addPeerBtn: '添加',
-    addPeerFail: '添加失败',
-    addPeerPlaceholder: 'Actor URL 或 @user@domain',
-    adminRequired: '需要管理员权限',
-    alreadyLatest: '已是最新版本',
-    attachBrew: 'Brew',
-    attachBrewPrompt: '输入 Brew 文章标题',
-    attachFile: '文件',
-    attachImage: '图片',
-    attachLibrary: '资料库',
-    attachLibraryPrompt: '输入资料库名称',
-    attachReport: '报告',
-    attachReportPrompt: '输入报告标题',
-    attachSending: '发送中...',
-    attachTapp: 'Tapp',
-    attachTappPrompt: '输入 Tapp ID 或名称',
-    channelPlaceholder: 'Actor URL 或 @user@domain',
-    close: '关闭',
-    closed: '已关闭',
-    connected: '已连接',
-    copied: '已复制',
-    copy: '复制',
-    copyFail: '复制失败',
-    collapseDetails: '收起',
-    create: '新建',
-    createChannel: '创建通道',
-    createFail: '创建失败',
-    createRingBtn: '创建',
-    createRingFail: '创建失败',
-    createRingTitle: '创建环网',
-    createRoom: '创建房间',
-    creating: '创建中...',
-    disconnected: '未连接',
-    expandDetails: '展开',
-    dissolve: '解散群组',
-    dissolveConfirm: '确定要解散此群组吗？此操作不可撤销。',
-    dissolveFail: '解散失败',
-    dm: '私信',
-    editRoom: '编辑房间',
-    emptyChatHint: '发送第一条消息开始聊天',
-    emptyFollowers: '暂无粉丝',
-    emptyFollowing: '暂无关注',
-    emptyPeers: '暂无节点',
-    emptyPublished: '暂无发布内容',
-    emptyRings: '暂无环网',
-    emptyRoomHint: '发送第一条消息开始群聊',
-    emptyTimeline: '暂无动态',
-    feedFollowers: '粉丝',
-    feedFollowing: '关注',
-    feedItems: '项',
-    feedLoadFail: '动态加载失败',
-    feedPublished: '已发布',
-    feedTimeline: '动态',
-    publicFeed: '公开动态',
-    fileTooLarge: '文件过大（最大 10MB）',
-    followBtn: '关注',
-    followFail: '关注失败',
-    followPlaceholder: 'Actor URL 或 @user@domain',
-    forwardSuccess: '已转发',
-    forwardTo: '转发到...',
-    installBtn: '安装',
-    installFailed: '安装失败，点击重试',
-    installSuccess: '✓ 安装成功',
-    installedAt: '安装时间',
-    installingBtn: '安装中...',
-    invite: '邀请...',
-    inviteBtn: '邀请',
-    inviteFail: '邀请失败',
-    inviteFromContacts: '从联系人中选择',
-    inviteManual: '手动邀请',
-    invitePlaceholder: 'Actor URL 或 @user@domain',
-    inviteSuccess: '已邀请',
-    invited: '已邀请',
-    inviting: '邀请中...',
-    kick: '移除',
-    kickFail: '移除失败',
-    leave: '离开',
-    leaveBtn: '退出环网',
-    leaveRingConfirm: '确定退出此环网？',
-    leaveRingFail: '退出失败',
-    local: '本地',
-    localVer: '本地版本',
-    manage: '管理',
-    members: '成员',
-    msgForward: '转发',
-    msgPin: '置顶',
-    msgQuote: '引用',
-    msgUnpin: '取消置顶',
-    navFeed: '动态',
-    navMessages: '信使',
-    navRings: '环网',
-    newChannel: '新建私信',
-    newRoom: '新建群聊',
-    noContacts: '暂无可邀请的联系人',
-    noConv: '暂无会话',
-    openOriginal: '查看原文',
-    openTappBtn: '打开 Tapp',
-    peers: '节点',
-    pending: '待接受',
-    pickerCancel: '取消',
-    pickerConfirm: '确认',
-    pickerDesc: '描述（可选）',
-    pickerEmpty: '暂无数据',
-    pickerLoading: '加载中...',
-    pickerSearchPlaceholder: '搜索...',
-    pickerSelectPlatform: '选择平台',
-    pickerTitle: '标题',
-    pinFail: '置顶失败',
-    pinnedMsg: '置顶消息',
-    quoteLabel: '引用',
-    refresh: '刷新',
-    rejectTapp: '拒绝',
-    remoteVer: '分享版本',
-    removeBtn: '取消发布',
-    removePeerFail: '移除失败',
-    ringNamePlaceholder: '环网名称',
-    ringPeersTitle: '节点',
-    ringType: '类型',
-    roomDesc: '房间描述',
-    roomName: '房间名称',
-    roomPlaceholder: '房间名称',
-    save: '保存',
-    saveFail: '保存失败',
-    saving: '保存中...',
-    selectBrew: '选择 Brew 文章',
-    selectHint: '选择一个会话开始聊天',
-    selectLibrary: '选择资料',
-    selectReport: '选择报告',
-    selectRing: '选择一个环网查看详情',
-    selectTapp: '选择 Tapp',
-    send: '发送',
-    sendFail: '发送失败',
-    loadFail: '加载失败',
-    syncBtn: '同步',
-    syncFail: '同步失败',
-    syncSuccess: '同步完成',
-    syncing: '同步中...',
-    tappInstalled: '已安装',
-    tappNotInstalled: '未安装',
-    tappReceived: '收到 Tapp 分享',
-    tappShareAccepted: '已接受',
-    tappSharePending: '等待对方接受',
-    tappShareRejected: '已拒绝',
-    tappUpdateAvail: '有更新可用',
-    title: '信使',
-    typing: '输入消息...',
-    unfollowBtn: '取消关注',
-    unfollowFail: '取消关注失败',
-    unpublishFail: '取消发布失败',
-    updatingBtn: '更新',
-    newMessage: '新消息',
-    previewImage: '📷 图片',
-    previewFile: '📎 文件',
-    previewSystem: '系统消息',
-  },
+  "zh": {
+    "accept": "接受",
+    "acceptConfirmDesc": "对方向你分享了一个 Tapp 应用",
+    "acceptConfirmTitle": "安装此 Tapp？",
+    "acceptFail": "接受失败",
+    "acceptTapp": "接受",
+    "activityType": "活动类型",
+    "addPeerBtn": "添加",
+    "addPeerFail": "添加失败",
+    "addPeerPlaceholder": "Actor URL 或 @user@domain",
+    "adminRequired": "需要管理员权限",
+    "alreadyLatest": "已是最新版本",
+    "attachBrew": "Brew",
+    "attachBrewPrompt": "输入 Brew 文章标题",
+    "attachFile": "文件",
+    "attachImage": "图片",
+    "attachLibrary": "资料库",
+    "attachLibraryPrompt": "输入资料库名称",
+    "attachReport": "报告",
+    "attachReportPrompt": "输入报告标题",
+    "attachSending": "发送中...",
+    "attachTapp": "Tapp",
+    "attachTappPrompt": "输入 Tapp ID 或名称",
+    "channelPlaceholder": "Actor URL 或 @user@domain",
+    "close": "关闭",
+    "closed": "已关闭",
+    "collapseDetails": "收起",
+    "composeAddImage": "图片",
+    "composeAddVideo": "视频",
+    "composeCancel": "取消",
+    "composeEmpty": "请输入文字或添加图片/视频",
+    "composeFail": "发布失败",
+    "composePlaceholder": "分享点什么…",
+    "composePost": "发帖",
+    "composePublish": "发布",
+    "composePublishing": "发布中…",
+    "composeSuccess": "已发布",
+    "composeUploading": "上传中…",
+    "connected": "已连接",
+    "copied": "已复制",
+    "copy": "复制",
+    "copyFail": "复制失败",
+    "create": "新建",
+    "createChannel": "创建通道",
+    "createFail": "创建失败",
+    "createRingBtn": "创建",
+    "createRingFail": "创建失败",
+    "createRingTitle": "创建环网",
+    "createRoom": "创建房间",
+    "creating": "创建中...",
+    "disconnected": "未连接",
+    "dissolve": "解散群组",
+    "dissolveConfirm": "确定要解散此群组吗？此操作不可撤销。",
+    "dissolveFail": "解散失败",
+    "dm": "私信",
+    "editRoom": "编辑房间",
+    "emptyChatHint": "发送第一条消息开始聊天",
+    "emptyFollowers": "暂无粉丝",
+    "emptyFollowing": "暂无关注",
+    "emptyPeers": "暂无节点",
+    "emptyPublished": "暂无发布内容",
+    "emptyRings": "暂无环网",
+    "emptyRoomHint": "发送第一条消息开始群聊",
+    "emptyTimeline": "暂无动态",
+    "expandDetails": "展开",
+    "feedFollowers": "粉丝",
+    "feedFollowing": "关注",
+    "feedItems": "项",
+    "feedLoadFail": "动态加载失败",
+    "feedPublished": "已发布",
+    "feedTimeline": "动态",
+    "fileTooLarge": "文件过大（最大 10MB）",
+    "followBtn": "关注",
+    "followFail": "关注失败",
+    "followPlaceholder": "Actor URL 或 @user@domain",
+    "followQueued": "关注请求已发送；对方实例将自动接受（无需手动批准）",
+    "forwardSuccess": "已转发",
+    "forwardTo": "转发到...",
+    "installBtn": "安装",
+    "installFailed": "安装失败，点击重试",
+    "installSuccess": "✓ 安装成功",
+    "installedAt": "安装时间",
+    "installingBtn": "安装中...",
+    "invite": "邀请...",
+    "inviteBtn": "邀请",
+    "inviteFail": "邀请失败",
+    "inviteFromContacts": "从联系人中选择",
+    "inviteManual": "手动邀请",
+    "invitePlaceholder": "Actor URL 或 @user@domain",
+    "inviteSuccess": "已邀请",
+    "invited": "已邀请",
+    "inviting": "邀请中...",
+    "kick": "移除",
+    "kickFail": "移除失败",
+    "leave": "离开",
+    "leaveBtn": "退出环网",
+    "leaveRingConfirm": "确定退出此环网？",
+    "leaveRingFail": "退出失败",
+    "loadFail": "加载失败",
+    "local": "本地",
+    "localVer": "本地版本",
+    "manage": "管理",
+    "mediaTooLarge": "文件过大",
+    "mediaUnsupported": "不支持的文件类型",
+    "members": "成员",
+    "msgForward": "转发",
+    "msgPin": "置顶",
+    "msgQuote": "引用",
+    "msgUnpin": "取消置顶",
+    "navFeed": "动态",
+    "navMessages": "信使",
+    "navRings": "环网",
+    "newChannel": "新建私信",
+    "newMessage": "新消息",
+    "newRoom": "新建群聊",
+    "noContacts": "暂无可邀请的联系人",
+    "noConv": "暂无会话",
+    "openOriginal": "查看原文",
+    "openTappBtn": "打开 Tapp",
+    "peers": "节点",
+    "pending": "待接受",
+    "pendingConfirm": "等待确认",
+    "pickerCancel": "取消",
+    "pickerConfirm": "确认",
+    "pickerDesc": "描述（可选）",
+    "pickerEmpty": "暂无数据",
+    "pickerLoading": "加载中...",
+    "pickerSearchPlaceholder": "搜索...",
+    "pickerSelectPlatform": "选择平台",
+    "pickerTitle": "标题",
+    "pinFail": "置顶失败",
+    "pinnedMsg": "置顶消息",
+    "previewFile": "📎 文件",
+    "previewImage": "📷 图片",
+    "previewSystem": "系统消息",
+    "publicFeed": "公开动态",
+    "quoteLabel": "引用",
+    "refresh": "刷新",
+    "rejectTapp": "拒绝",
+    "remoteVer": "分享版本",
+    "removeBtn": "取消发布",
+    "removePeerFail": "移除失败",
+    "ringNamePlaceholder": "环网名称",
+    "ringPeersTitle": "节点",
+    "ringType": "类型",
+    "roomDesc": "房间描述",
+    "roomName": "房间名称",
+    "roomPlaceholder": "房间名称",
+    "save": "保存",
+    "saveFail": "保存失败",
+    "saving": "保存中...",
+    "selectBrew": "选择 Brew 文章",
+    "selectHint": "选择一个会话开始聊天",
+    "selectLibrary": "选择资料",
+    "selectReport": "选择报告",
+    "selectRing": "选择一个环网查看详情",
+    "selectTapp": "选择 Tapp",
+    "send": "发送",
+    "sendFail": "发送失败",
+    "syncBtn": "同步",
+    "syncFail": "同步失败",
+    "syncSuccess": "同步完成",
+    "syncing": "同步中...",
+    "tappInstalled": "已安装",
+    "tappNotInstalled": "未安装",
+    "tappReceived": "收到 Tapp 分享",
+    "tappShareAccepted": "已接受",
+    "tappSharePending": "等待对方接受",
+    "tappShareRejected": "已拒绝",
+    "tappUpdateAvail": "有更新可用",
+    "title": "信使",
+    "typing": "输入消息...",
+    "unfollowBtn": "取消关注",
+    "unfollowFail": "取消关注失败",
+    "unpublishFail": "取消发布失败",
+    "updatingBtn": "更新"
+  }
 }
 
 // ==================== Page Modules ====================
@@ -1719,6 +1821,10 @@ function applyRoleControls() {
     state.currentView = 'feed';
     var followBar = $('feed-follow-bar');
     if (followBar) followBar.style.display = 'none';
+    if (typeof closeComposer === 'function') closeComposer();
+  }
+  if (typeof updateComposeButtonVisibility === 'function') {
+    updateComposeButtonVisibility();
   }
 }
 
@@ -2104,8 +2210,16 @@ function applyLabels() {
   el = $('feed-mobile-lbl-published'); if (el) el.textContent = lang.feedPublished;
   el = $('feed-follow-input'); if (el) el.placeholder = lang.followPlaceholder;
   el = $('feed-follow-btn'); if (el) el.textContent = lang.followBtn;
+  el = $('feed-compose-btn-label'); if (el) el.textContent = lang.composePost || 'Post';
+  el = $('feed-compose-btn'); if (el) el.setAttribute('title', lang.composePost || 'Post');
+  el = $('feed-compose-text'); if (el) el.placeholder = lang.composePlaceholder || '';
+  el = $('feed-compose-image-label'); if (el) el.textContent = lang.composeAddImage || 'Image';
+  el = $('feed-compose-video-label'); if (el) el.textContent = lang.composeAddVideo || 'Video';
+  el = $('feed-compose-cancel'); if (el) el.textContent = lang.composeCancel || 'Cancel';
+  el = $('feed-compose-publish'); if (el) el.textContent = lang.composePublish || 'Publish';
   el = $('refresh-feed-btn'); if (el) el.setAttribute('title', lang.refresh);
   el = $('refresh-feed-mobile-btn'); if (el) el.setAttribute('title', lang.refresh);
+  if (typeof updateComposeButtonVisibility === 'function') updateComposeButtonVisibility();
   document.querySelectorAll('[data-copy-fed]').forEach(function (node) { node.setAttribute('title', lang.copy); });
   document.querySelectorAll('[data-fed-profile]').forEach(function (card) {
     setFeedProfileExpanded(card, card.classList.contains('feed-profile-expanded'));
@@ -4352,12 +4466,66 @@ function renderFeedContent() {
   bindFeedContentActions(content);
 }
 
+function stripHtmlPreview(html) {
+  if (!html) return '';
+  return String(html)
+    .replace(/<br\\s*\\/?>/gi, '\\n')
+    .replace(/<\\/p>/gi, '\\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+    .trim();
+}
+
+function extractNoteAttachments(contentJson) {
+  if (!contentJson) return [];
+  var atts = contentJson.attachment || contentJson.attachments || [];
+  if (!Array.isArray(atts)) {
+    if (atts && typeof atts === 'object') atts = [atts];
+    else return [];
+  }
+  return atts.filter(function (a) { return a && a.url; });
+}
+
+function renderTimelineMedia(attachments) {
+  if (!attachments || !attachments.length) return '';
+  var h = '<div class="feed-item-media">';
+  attachments.forEach(function (att) {
+    var url = att.url;
+    var mime = (att.mediaType || att.media_type || '').toLowerCase();
+    var type = (att.type || '').toLowerCase();
+    var isVideo = type === 'video' || mime.indexOf('video/') === 0;
+    if (isVideo) {
+      h += '<video src="' + esc(url) + '" controls playsinline preload="metadata"></video>';
+    } else {
+      h += '<img src="' + esc(url) + '" alt="" loading="lazy" />';
+    }
+  });
+  h += '</div>';
+  return h;
+}
+
 function renderTimelineItem(item) {
   var actor = item.actor || {};
   var name = actor.display_name || actor.username || '?';
   var handle = actor.username ? '@' + actor.username + (actor.domain ? '@' + actor.domain : '') : '';
   var ts = '';
   try { ts = timeAgo(item.created_at || item.received_at || item.timestamp); } catch (e) {}
+  var contentJson = item.content_json || item.content || null;
+  var text = '';
+  if (contentJson) {
+    text = stripHtmlPreview(
+      (contentJson.source && contentJson.source.content) ||
+      contentJson.content ||
+      contentJson.summary ||
+      contentJson.name ||
+      ''
+    );
+  }
+  if (!text && item.content_preview) text = stripHtmlPreview(item.content_preview);
+  var attachments = extractNoteAttachments(contentJson);
   var h = '<div class="feed-item">';
   h += '<div class="feed-item-avatar">' + avatarContentHtml(actor.avatar_url || '', name) + '</div>';
   h += '<div class="feed-item-body">';
@@ -4366,15 +4534,22 @@ function renderTimelineItem(item) {
   if (handle) h += '<span class="feed-item-handle">' + esc(handle) + '</span>';
   if (ts) h += '<span class="feed-item-sep">&middot;</span><span class="feed-item-time">' + esc(ts) + '</span>';
   h += '</div>';
-  if (item.content_preview) {
-    h += '<div class="feed-item-text">' + esc(item.content_preview) + '</div>';
+  if (text) {
+    h += '<div class="feed-item-text">' + esc(text) + '</div>';
   }
+  h += renderTimelineMedia(attachments);
   h += '<div class="feed-item-badges">';
-  h += '<span class="aro-badge aro-badge-type">' + esc(item.activity_type || lang.activityType) + '</span>';
+  h += '<span class="aro-badge aro-badge-type">' + esc(item.object_type || item.activity_type || lang.activityType) + '</span>';
   if (item.visibility) h += '<span class="aro-badge aro-badge-vis">' + esc(item.visibility) + '</span>';
   h += '</div>';
   h += '</div></div>';
   return h;
+}
+
+function pendingStatusLabel(status) {
+  if (!status || status === 'accepted') return '';
+  if (status === 'pending') return lang.pendingConfirm || lang.pending || 'pending';
+  return status;
 }
 
 function renderActorItem(actor, context) {
@@ -4388,10 +4563,10 @@ function renderActorItem(actor, context) {
   if (handle) h += '<span class="feed-item-handle">' + esc(handle) + '</span>';
   h += '</div>';
   if (actor.bio) h += '<div class="feed-item-text">' + esc(actor.bio) + '</div>';
-  // Status + action
+  // Status + action — localize non-accepted (pending) badge
   h += '<div class="feed-item-actions">';
   if (actor.status && actor.status !== 'accepted') {
-    h += '<span class="aro-badge aro-badge-pending">' + esc(actor.status) + '</span>';
+    h += '<span class="aro-badge aro-badge-pending">' + esc(pendingStatusLabel(actor.status)) + '</span>';
   }
   if (context === 'following') {
     h += '<button class="feed-item-action feed-item-action-danger" data-action-unfollow="' + esc(actor.actor_url || '') + '">'
@@ -4403,15 +4578,18 @@ function renderActorItem(actor, context) {
 }
 
 function renderPublishedItem(item) {
-  var typeIcons = { 'report': SVG_ICONS.report, 'brew-article': SVG_ICONS.memo, 'tapp': SVG_ICONS.tapp, 'library': SVG_ICONS.library };
+  var typeIcons = { 'report': SVG_ICONS.report, 'brew-article': SVG_ICONS.memo, 'tapp': SVG_ICONS.tapp, 'library': SVG_ICONS.library, 'note': SVG_ICONS.page };
   var icon = typeIcons[item.content_type] || SVG_ICONS.page;
   var dateStr = '';
   try { dateStr = timeAgo(item.published_at); } catch (e) {}
+  var label = item.content_type === 'note'
+    ? (lang.composePost || 'note') + ' #' + String(item.content_id || '').slice(0, 12)
+    : (item.content_type + ' #' + item.content_id);
   var h = '<div class="feed-item">';
   h += '<div class="feed-item-icon">' + icon + '</div>';
   h += '<div class="feed-item-body">';
   h += '<div class="feed-item-header">';
-  h += '<span class="feed-item-name">' + esc(item.content_type) + ' #' + esc(item.content_id) + '</span>';
+  h += '<span class="feed-item-name">' + esc(label) + '</span>';
   if (dateStr) h += '<span class="feed-item-sep">&middot;</span><span class="feed-item-time">' + esc(dateStr) + '</span>';
   h += '</div>';
   h += '<div class="feed-item-badges">';
@@ -4465,12 +4643,206 @@ async function doFollow() {
   try {
     await Tapp.federation.follow(target);
     input.value = '';
-    loadFeedSubTab();
+    // Refresh following list; auto-accept is remote (no manual approve UI).
+    if (state.feedSubTab !== 'following') {
+      state.feedSubTab = 'following';
+      switchFeedSubTab('following');
+    } else {
+      loadFeedSubTab();
+    }
     updateFeedProfileHeader();
+    try {
+      Tapp.ui.showNotification({
+        title: lang.followBtn || 'Follow',
+        message: lang.followQueued || '',
+        type: 'info'
+      });
+    } catch (e2) { /* ignore */ }
   } catch (e) {
     notifyError(lang.followFail, e);
   } finally {
     if (btn) btn.disabled = false;
+  }
+}
+
+// ==================== Feed composer (freeform Note) ====================
+var composeAttachments = []; // { file, previewUrl, kind: 'image'|'video' }
+
+function updateComposeButtonVisibility() {
+  var show = state.isGuest ? 'none' : '';
+  var btn = $('feed-compose-btn');
+  if (btn) btn.style.display = show;
+  var mobile = $('feed-compose-mobile-btn');
+  if (mobile) mobile.style.display = show;
+}
+
+function openComposer() {
+  if (state.isGuest) return;
+  var el = $('feed-composer');
+  if (!el) return;
+  el.style.display = '';
+  var ta = $('feed-compose-text');
+  if (ta) { ta.focus(); }
+}
+
+function closeComposer() {
+  var el = $('feed-composer');
+  if (el) el.style.display = 'none';
+  var ta = $('feed-compose-text');
+  if (ta) ta.value = '';
+  composeAttachments.forEach(function (a) {
+    if (a.previewUrl) try { URL.revokeObjectURL(a.previewUrl); } catch (e) {}
+  });
+  composeAttachments = [];
+  renderComposePreviews();
+}
+
+function renderComposePreviews() {
+  var box = $('feed-compose-previews');
+  if (!box) return;
+  if (!composeAttachments.length) {
+    box.innerHTML = '';
+    return;
+  }
+  var h = '';
+  composeAttachments.forEach(function (a, idx) {
+    h += '<div class="feed-compose-preview">';
+    if (a.kind === 'video') {
+      h += '<video src="' + esc(a.previewUrl) + '" muted></video>';
+    } else {
+      h += '<img src="' + esc(a.previewUrl) + '" alt="" />';
+    }
+    h += '<button type="button" class="feed-compose-preview-remove" data-compose-remove="' + idx + '" aria-label="remove">&times;</button>';
+    h += '</div>';
+  });
+  box.innerHTML = h;
+  box.querySelectorAll('[data-compose-remove]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var i = parseInt(btn.getAttribute('data-compose-remove'), 10);
+      if (isNaN(i) || i < 0 || i >= composeAttachments.length) return;
+      var removed = composeAttachments.splice(i, 1)[0];
+      if (removed && removed.previewUrl) try { URL.revokeObjectURL(removed.previewUrl); } catch (e) {}
+      renderComposePreviews();
+    });
+  });
+}
+
+function addComposeFiles(fileList, forceKind) {
+  if (!fileList || !fileList.length) return;
+  var maxImage = 10 * 1024 * 1024;
+  var maxVideo = 50 * 1024 * 1024;
+  for (var i = 0; i < fileList.length; i++) {
+    if (composeAttachments.length >= 8) break;
+    var file = fileList[i];
+    var mime = (file.type || '').toLowerCase();
+    var kind = forceKind || (mime.indexOf('video/') === 0 ? 'video' : 'image');
+    if (kind === 'image' && mime && mime.indexOf('image/') !== 0) {
+      notifyError(lang.mediaUnsupported || 'Unsupported');
+      continue;
+    }
+    if (kind === 'video' && mime && mime.indexOf('video/') !== 0) {
+      notifyError(lang.mediaUnsupported || 'Unsupported');
+      continue;
+    }
+    var max = kind === 'video' ? maxVideo : maxImage;
+    if (file.size > max) {
+      notifyError(lang.mediaTooLarge || lang.fileTooLarge || 'Too large');
+      continue;
+    }
+    composeAttachments.push({
+      file: file,
+      previewUrl: URL.createObjectURL(file),
+      kind: kind
+    });
+  }
+  renderComposePreviews();
+}
+
+function fileToDataUrl(file) {
+  return new Promise(function (resolve, reject) {
+    var reader = new FileReader();
+    reader.onload = function () { resolve(reader.result); };
+    reader.onerror = function () { reject(new Error('read failed')); };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadComposeMedia(entry) {
+  var file = entry.file;
+  if (typeof Tapp.federation.uploadMedia === 'function') {
+    var dataUrl = await fileToDataUrl(file);
+    var res = await Tapp.federation.uploadMedia({
+      data: dataUrl,
+      name: file.name || 'upload.bin',
+      mime: file.type || (entry.kind === 'video' ? 'video/mp4' : 'image/jpeg')
+    });
+    return res;
+  }
+  // Fallback: publish path unavailable
+  throw new Error('uploadMedia not available');
+}
+
+async function publishComposeNote() {
+  if (state.isGuest) return;
+  var ta = $('feed-compose-text');
+  var text = ta ? ta.value.trim() : '';
+  if (!text && !composeAttachments.length) {
+    notifyError(lang.composeEmpty || 'Empty');
+    return;
+  }
+  var publishBtn = $('feed-compose-publish');
+  var cancelBtn = $('feed-compose-cancel');
+  var setBusy = function (busy) {
+    if (publishBtn) {
+      publishBtn.disabled = busy;
+      publishBtn.textContent = busy
+        ? (lang.composePublishing || '…')
+        : (lang.composePublish || 'Publish');
+    }
+    if (cancelBtn) cancelBtn.disabled = busy;
+  };
+  setBusy(true);
+  try {
+    var attachments = [];
+    for (var i = 0; i < composeAttachments.length; i++) {
+      if (publishBtn) publishBtn.textContent = lang.composeUploading || '…';
+      var uploaded = await uploadComposeMedia(composeAttachments[i]);
+      attachments.push({
+        url: uploaded.url,
+        media_type: uploaded.media_type || uploaded.mediaType || composeAttachments[i].file.type,
+        name: uploaded.name || composeAttachments[i].file.name
+      });
+    }
+    if (typeof Tapp.federation.createNote === 'function') {
+      await Tapp.federation.createNote({
+        text: text,
+        attachments: attachments,
+        visibility: 'public'
+      });
+    } else {
+      await Tapp.federation.publish({
+        content_type: 'note',
+        text: text,
+        attachments: attachments,
+        visibility: 'public'
+      });
+    }
+    closeComposer();
+    try {
+      Tapp.ui.showNotification({ title: lang.composeSuccess || 'OK', type: 'success' });
+    } catch (e2) {}
+    state.feedLoaded.timeline = false;
+    state.feedLoaded.published = false;
+    if (state.feedSubTab !== 'timeline') {
+      switchFeedSubTab('timeline');
+    } else {
+      loadFeedSubTab();
+    }
+    updateFeedProfileHeader();
+  } catch (e) {
+    notifyError(lang.composeFail || lang.unpublishFail || 'Fail', e);
+  } finally {
+    setBusy(false);
   }
 }
 
@@ -4812,6 +5184,38 @@ const PAGE_MOD_EVENTS = `\
   if (feedFollowInput) feedFollowInput.addEventListener('keydown', function (e) {
     if (e.key === 'Enter') { e.preventDefault(); doFollow(); }
   });
+  // Feed freeform note composer
+  function toggleComposerPanel() {
+    var composer = $('feed-composer');
+    if (composer && composer.style.display !== 'none') closeComposer();
+    else openComposer();
+  }
+  var composeOpenBtn = $('feed-compose-btn');
+  if (composeOpenBtn) composeOpenBtn.addEventListener('click', toggleComposerPanel);
+  var composeMobileBtn = $('feed-compose-mobile-btn');
+  if (composeMobileBtn) composeMobileBtn.addEventListener('click', toggleComposerPanel);
+  var composeCancel = $('feed-compose-cancel');
+  if (composeCancel) composeCancel.addEventListener('click', closeComposer);
+  var composePublish = $('feed-compose-publish');
+  if (composePublish) composePublish.addEventListener('click', publishComposeNote);
+  var composeImageBtn = $('feed-compose-image-btn');
+  var composeImageInput = $('feed-compose-image-input');
+  if (composeImageBtn && composeImageInput) {
+    composeImageBtn.addEventListener('click', function () { composeImageInput.click(); });
+    composeImageInput.addEventListener('change', function () {
+      addComposeFiles(composeImageInput.files, 'image');
+      composeImageInput.value = '';
+    });
+  }
+  var composeVideoBtn = $('feed-compose-video-btn');
+  var composeVideoInput = $('feed-compose-video-input');
+  if (composeVideoBtn && composeVideoInput) {
+    composeVideoBtn.addEventListener('click', function () { composeVideoInput.click(); });
+    composeVideoInput.addEventListener('change', function () {
+      addComposeFiles(composeVideoInput.files, 'video');
+      composeVideoInput.value = '';
+    });
+  }
   document.querySelectorAll('[data-fed-toggle]').forEach(function (summary) {
     summary.addEventListener('click', function (e) {
       if (e.target && (e.target.closest('[data-copy-fed]') || e.target.closest('[data-fed-toggle-button]'))) return;
@@ -5110,12 +5514,12 @@ const PAGE_MODULES: Record<string, string> = {
 function buildCoreCode(): string {
   const inlineLang = [
     '  // ==================== i18n ====================',
-    `  var LANG = ${
+    '  var LANG = ' +
       JSON.stringify(ARO_I18N, null, 2)
         .split('\n')
-        .map((l, i) => (i === 0 ? l : `  ${l}`))
-        .join('\n')
-      };`,
+        .map((l, i) => (i === 0 ? l : '  ' + l))
+        .join('\n') +
+      ';',
     '',
     '  var lang = LANG.zh;',
     "  var currentLocale = 'zh';",
@@ -5141,7 +5545,7 @@ function buildCoreCode(): string {
     .map((m) =>
       m
         .split('\n')
-        .map((l) => (l ? `  ${l}` : l))
+        .map((l) => (l ? '  ' + l : l))
         .join('\n'),
     )
     .join('\n\n')
@@ -5192,21 +5596,8 @@ const manifest: TappManifest = {
   // 声明真实后台需求：关窗后仍由 headless core 轮询新消息并通知。
   backgroundRequirements: ['notification'],
   settings: [
-    {
-      key: 'pollInterval',
-      type: 'number',
-      defaultValue: 15,
-      label: '轮询间隔 (秒)',
-      min: 5,
-      max: 120,
-      step: 5,
-    },
-    {
-      key: 'notifyOnMessage',
-      type: 'toggle',
-      defaultValue: true,
-      label: '新消息通知',
-    },
+    { key: 'pollInterval', type: 'number', defaultValue: 15, label: '轮询间隔 (秒)', min: 5, max: 120, step: 5 },
+    { key: 'notifyOnMessage', type: 'toggle', defaultValue: true, label: '新消息通知' },
   ],
   pageModules: [
     'i18n.js',

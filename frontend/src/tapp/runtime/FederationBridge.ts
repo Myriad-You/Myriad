@@ -22,6 +22,21 @@ import type { TappBridge } from './TappBridge'
 import { federationApi } from '../../services/federationApi'
 import { getFederationFeed } from '../services/TappApiService'
 
+/** Convert a data URL or raw base64 string to a Blob for multipart upload. */
+function dataUrlOrBase64ToBlob(data: string, fallbackMime: string): Blob {
+  let mime = fallbackMime
+  let b64 = data
+  const dataUrlMatch = /^data:([^;,]+)?(;base64)?,(.*)$/s.exec(data)
+  if (dataUrlMatch) {
+    mime = dataUrlMatch[1] || fallbackMime
+    b64 = dataUrlMatch[3] || ''
+  }
+  const binary = atob(b64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return new Blob([bytes], { type: mime })
+}
+
 /**
  * 注册联邦处理器到 TappBridge
  *
@@ -239,6 +254,67 @@ export function registerFederationHandlers(
       }
     }
   })
+
+  bridge.registerHandler(
+    'federation.createNote',
+    async (message: TappMessage) => {
+      const [req] = (message.payload as { args: unknown[] }).args || []
+      if (!req || typeof req !== 'object')
+        return { success: false, error: 'Create note request is required' }
+      try {
+        const runtimeGrant = await bridge.getRuntimeGrant()
+        const data = await federationApi.createNote(
+          req as Parameters<typeof federationApi.createNote>[0],
+          runtimeGrant,
+        )
+        return { success: true, data }
+      } catch (error) {
+        return {
+          success: false,
+          error:
+            error instanceof Error ? error.message : 'Failed to create note',
+        }
+      }
+    },
+  )
+
+  bridge.registerHandler(
+    'federation.uploadMedia',
+    async (message: TappMessage) => {
+      const [req] = (message.payload as { args: unknown[] }).args || []
+      if (!req || typeof req !== 'object')
+        return { success: false, error: 'Upload media request is required' }
+      const body = req as {
+        data?: string
+        name?: string
+        mime?: string
+        media_type?: string
+      }
+      if (!body.data || typeof body.data !== 'string')
+        return {
+          success: false,
+          error: 'data (data URL or base64) is required',
+        }
+      try {
+        const runtimeGrant = await bridge.getRuntimeGrant()
+        const blob = dataUrlOrBase64ToBlob(
+          body.data,
+          body.mime || body.media_type || 'application/octet-stream',
+        )
+        const data = await federationApi.uploadMedia(blob, {
+          filename: body.name || 'upload.bin',
+          runtimeGrant,
+        })
+        return { success: true, data }
+      } catch (error) {
+        return {
+          success: false,
+          error:
+            error instanceof Error ? error.message : 'Failed to upload media',
+        }
+      }
+    },
+  )
 
   bridge.registerHandler(
     'federation.unpublish',

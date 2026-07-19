@@ -300,6 +300,8 @@ export const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> =
     ['federation.follow', 'federation:write'],
     ['federation.unfollow', 'federation:write'],
     ['federation.publish', 'federation:write'],
+    ['federation.createNote', 'federation:write'],
+    ['federation.uploadMedia', 'federation:write'],
     ['federation.unpublish', 'federation:write'],
     ['federation.createChannel', 'federation:write'],
     ['federation.acceptChannel', 'federation:write'],

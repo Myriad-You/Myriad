@@ -306,6 +306,18 @@
     {
       "domain": "federation",
       "method": "POST",
+      "path": "/api/federation/notes",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "method": "POST",
+      "path": "/api/federation/media",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "method": "POST",
       "path": "/api/federation/unpublish",
       "permission": "federation:write"
     },

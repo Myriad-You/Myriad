@@ -1,12 +1,13 @@
 //! 联邦内容发布模块（Phase 2 — Layer 4）
 //!
-//! 将本地内容（Report / Brew / Tapp / Library）发布为 AP Activity，
-//! 自动推送给所有关注者。
+//! 将本地内容（Report / Brew / Tapp / Library / freeform Note）发布为 AP Activity，
+//! 自动推送给所有关注者，并把本地 Note 写入作者时间线。
 
 use axum::{http::StatusCode, Json};
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::path::{Path, PathBuf};
 
 use crate::federation::types::*;
 
@@ -15,12 +16,35 @@ use crate::federation::types::*;
 /// 发布内容请求
 #[derive(Debug, Deserialize)]
 pub struct PublishRequest {
-    /// 内容类型: report, brew-article, tapp, library
+    /// 内容类型: report, brew-article, tapp, library, note
     pub content_type: String,
-    /// 内容 ID（本地数据库 ID 或标识符）
-    pub content_id: String,
+    /// 内容 ID（本地数据库 ID 或标识符；note 可省略，由服务端生成）
+    #[serde(default)]
+    pub content_id: Option<String>,
     /// 可见性: public, followers, direct
     pub visibility: Option<String>,
+    /// Freeform Note 正文（content_type = note）
+    pub text: Option<String>,
+    /// Freeform Note 附件（已上传的公开 URL）
+    pub attachments: Option<Vec<NoteAttachmentInput>>,
+}
+
+/// Freeform Note 创建请求（POST /api/federation/notes）
+#[derive(Debug, Deserialize)]
+pub struct CreateNoteRequest {
+    pub text: Option<String>,
+    pub attachments: Option<Vec<NoteAttachmentInput>>,
+    pub visibility: Option<String>,
+}
+
+/// 附件输入（来自 media 上传返回的公开 URL）
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct NoteAttachmentInput {
+    pub url: String,
+    /// MIME type，如 image/jpeg / video/mp4
+    pub media_type: String,
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 /// 发布响应
@@ -44,15 +68,33 @@ pub struct PublishedItem {
     pub published_at: String,
 }
 
+/// 媒体上传响应
+#[derive(Debug, Serialize)]
+pub struct MediaUploadResponse {
+    pub url: String,
+    pub media_type: String,
+    pub name: String,
+    pub size: u64,
+    pub attachment_type: String,
+}
+
+// ==================== 媒体限制 ====================
+
+const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
+const MAX_VIDEO_BYTES: usize = 50 * 1024 * 1024;
+const MAX_NOTE_ATTACHMENTS: usize = 8;
+const MAX_NOTE_TEXT_CHARS: usize = 10_000;
+
 // ==================== 核心发布功能 ====================
 
 /// 发布本地内容到联邦网络
 ///
-/// 1. 拉取本地内容详情
+/// 1. 拉取本地内容详情（或构建 freeform Note）
 /// 2. 转换为 AP Note/Article 对象
 /// 3. 创建 Create Activity
 /// 4. 存入 federation_published_content
 /// 5. 推送给所有 followers
+/// 6. Note：立即写入作者时间线
 pub async fn publish_content(
     user_id: i32,
     username: &str,
@@ -61,13 +103,40 @@ pub async fn publish_content(
 ) -> Result<PublishResponse, (StatusCode, Json<serde_json::Value>)> {
     let base_url = get_base_url().await;
     let visibility = req.visibility.as_deref().unwrap_or("public");
+    let content_type = req.content_type.trim();
+    if content_type.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "content_type required"})),
+        ));
+    }
+
+    let content_id = if content_type == "note" {
+        match req.content_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            Some(id) => id.to_string(),
+            None => format!("note_{}", uuid::Uuid::new_v4()),
+        }
+    } else {
+        let id = req
+            .content_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "content_id required"})),
+                )
+            })?;
+        id.to_string()
+    };
 
     // 检查是否已发布
     let existing = db
         .query_one(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT id FROM federation_published_content WHERE content_type = $1 AND content_id = $2",
-            [req.content_type.clone().into(), req.content_id.clone().into()],
+            [content_type.into(), content_id.clone().into()],
         ))
         .await
         .map_err(db_err)?;
@@ -85,9 +154,11 @@ pub async fn publish_content(
         user_id,
         username,
         &base_url,
-        &req.content_type,
-        &req.content_id,
+        content_type,
+        &content_id,
         visibility,
+        req.text.as_deref(),
+        req.attachments.as_deref(),
     )
     .await?;
 
@@ -108,6 +179,11 @@ pub async fn publish_content(
         "object": ap_object,
     });
 
+    let object_type = activity_json["object"]["type"]
+        .as_str()
+        .unwrap_or(content_type)
+        .to_string();
+
     // 存入 federation_activities
     let act_row = db
         .query_one(Statement::from_sql_and_values(
@@ -119,7 +195,7 @@ pub async fn publish_content(
             [
                 activity_id.clone().into(),
                 user_id.into(),
-                req.content_type.clone().into(),
+                object_type.clone().into(),
                 activity_json.clone().into(),
             ],
         ))
@@ -138,8 +214,8 @@ pub async fn publish_content(
            VALUES ($1, $2, $3, $4, $5, NOW())"#,
         [
             user_id.into(),
-            req.content_type.clone().into(),
-            req.content_id.clone().into(),
+            content_type.into(),
+            content_id.clone().into(),
             activity_id.clone().into(),
             visibility.into(),
         ],
@@ -147,13 +223,24 @@ pub async fn publish_content(
     .await
     .map_err(db_err)?;
 
+    // Note / 本地发帖：立即出现在作者时间线
+    insert_author_timeline(
+        db,
+        user_id,
+        &activity_id,
+        "Create",
+        &object_type,
+        &activity_json,
+    )
+    .await?;
+
     // 推送给所有 followers
     fan_out_to_followers(db, user_id, act_db_id, &activity_json).await?;
 
     tracing::info!(
         "📢 Published {} #{} as {} ({})",
-        req.content_type,
-        req.content_id,
+        content_type,
+        content_id,
         activity_id,
         visibility
     );
@@ -161,10 +248,27 @@ pub async fn publish_content(
     Ok(PublishResponse {
         success: true,
         activity_id,
-        content_type: req.content_type.clone(),
-        content_id: req.content_id.clone(),
+        content_type: content_type.to_string(),
+        content_id,
         visibility: visibility.to_string(),
     })
+}
+
+/// 创建 freeform Note（Aro 发帖）
+pub async fn create_note(
+    user_id: i32,
+    username: &str,
+    db: &DatabaseConnection,
+    req: &CreateNoteRequest,
+) -> Result<PublishResponse, (StatusCode, Json<serde_json::Value>)> {
+    let publish_req = PublishRequest {
+        content_type: "note".to_string(),
+        content_id: None,
+        visibility: req.visibility.clone(),
+        text: req.text.clone(),
+        attachments: req.attachments.clone(),
+    };
+    publish_content(user_id, username, db, &publish_req).await
 }
 
 /// 取消发布（Delete Activity）
@@ -242,6 +346,15 @@ pub async fn unpublish_content(
     .await
     .map_err(db_err)?;
 
+    // 从作者与本地时间线移除原 Create
+    let _ = db
+        .execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "DELETE FROM federation_timeline WHERE activity_id = $1",
+            [original_activity_id.clone().into()],
+        ))
+        .await;
+
     // 推送 Delete 给所有 followers
     fan_out_to_followers(db, user_id, del_db_id, &delete_json).await?;
 
@@ -294,9 +407,162 @@ pub async fn list_published(
     Ok(items)
 }
 
+// ==================== 媒体上传 ====================
+
+/// 保存联邦媒体附件，返回可被 AP attachment 引用的公开 URL。
+pub async fn store_federation_media(
+    user_id: i32,
+    filename: &str,
+    mime: &str,
+    bytes: &[u8],
+) -> Result<MediaUploadResponse, (StatusCode, Json<serde_json::Value>)> {
+    let mime = mime.split(';').next().unwrap_or(mime).trim().to_ascii_lowercase();
+    let attachment_type = classify_media_mime(&mime).ok_or_else(|| {
+        (
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            Json(json!({
+                "error": "Unsupported media type",
+                "allowed": ["image/jpeg","image/png","image/gif","image/webp","video/mp4","video/webm","video/quicktime"]
+            })),
+        )
+    })?;
+
+    let max = if attachment_type == "Image" {
+        MAX_IMAGE_BYTES
+    } else {
+        MAX_VIDEO_BYTES
+    };
+    if bytes.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Empty file"})),
+        ));
+    }
+    if bytes.len() > max {
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(json!({
+                "error": format!("File too large (max {} bytes for {})", max, attachment_type),
+                "max_bytes": max,
+            })),
+        ));
+    }
+
+    let ext_raw = extension_for_mime(&mime).map(|s| s.to_string()).unwrap_or_else(|| {
+        Path::new(filename)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("bin")
+            .to_ascii_lowercase()
+    });
+    // Sanitize extension
+    let ext: String = ext_raw
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .take(8)
+        .collect();
+    let ext = if ext.is_empty() {
+        "bin".to_string()
+    } else {
+        ext
+    };
+
+    let media_id = uuid::Uuid::new_v4();
+    let stored_name = format!("{}.{}", media_id, ext);
+    let dir = federation_media_dir(user_id);
+    tokio::fs::create_dir_all(&dir).await.map_err(|e| {
+        tracing::error!("Failed to create media dir: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Failed to store media"})),
+        )
+    })?;
+
+    let path = dir.join(&stored_name);
+    tokio::fs::write(&path, bytes).await.map_err(|e| {
+        tracing::error!("Failed to write media file: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Failed to store media"})),
+        )
+    })?;
+
+    let base_url = get_base_url().await;
+    let url = format!(
+        "{}/media/federation/{}/{}",
+        base_url.trim_end_matches('/'),
+        user_id,
+        stored_name
+    );
+
+    let safe_name = Path::new(filename)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("upload")
+        .chars()
+        .take(200)
+        .collect::<String>();
+
+    Ok(MediaUploadResponse {
+        url,
+        media_type: mime,
+        name: safe_name,
+        size: bytes.len() as u64,
+        attachment_type: attachment_type.to_string(),
+    })
+}
+
+pub fn federation_media_root() -> PathBuf {
+    crate::services::data_paths::paths()
+        .root
+        .join("federation_media")
+}
+
+fn federation_media_dir(user_id: i32) -> PathBuf {
+    federation_media_root().join(user_id.to_string())
+}
+
+fn classify_media_mime(mime: &str) -> Option<&'static str> {
+    match mime {
+        "image/jpeg" | "image/png" | "image/gif" | "image/webp" => Some("Image"),
+        "video/mp4" | "video/webm" | "video/quicktime" => Some("Video"),
+        _ => None,
+    }
+}
+
+fn extension_for_mime(mime: &str) -> Option<&'static str> {
+    match mime {
+        "image/jpeg" => Some("jpg"),
+        "image/png" => Some("png"),
+        "image/gif" => Some("gif"),
+        "image/webp" => Some("webp"),
+        "video/mp4" => Some("mp4"),
+        "video/webm" => Some("webm"),
+        "video/quicktime" => Some("mov"),
+        _ => None,
+    }
+}
+
+/// Validate that attachment URLs belong to this instance's federation media for the user.
+fn validate_attachment_url(base_url: &str, user_id: i32, url: &str) -> bool {
+    let base = base_url.trim_end_matches('/');
+    let prefix = format!("{}/media/federation/{}/", base, user_id);
+    if !url.starts_with(&prefix) {
+        return false;
+    }
+    let rest = &url[prefix.len()..];
+    !rest.is_empty()
+        && !rest.contains("..")
+        && !rest.contains('/')
+        && rest
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
+}
+
 // ==================== 内容 → AP 对象转换 ====================
 
 /// 根据内容类型构建对应的 AP 对象
+#[allow(clippy::too_many_arguments)]
 async fn build_ap_object(
     db: &DatabaseConnection,
     user_id: i32,
@@ -305,11 +571,89 @@ async fn build_ap_object(
     content_type: &str,
     content_id: &str,
     visibility: &str,
+    note_text: Option<&str>,
+    note_attachments: Option<&[NoteAttachmentInput]>,
 ) -> Result<serde_json::Value, (StatusCode, Json<serde_json::Value>)> {
     let local_actor = actor_url(base_url, username);
     let (to, cc) = resolve_audience(visibility, base_url, username);
 
     match content_type {
+        "note" => {
+            let text = note_text.unwrap_or("").trim();
+            let attachments = note_attachments.unwrap_or(&[]);
+            if text.is_empty() && attachments.is_empty() {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "Note requires text and/or attachments"})),
+                ));
+            }
+            if text.chars().count() > MAX_NOTE_TEXT_CHARS {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "error": format!("Note text too long (max {} chars)", MAX_NOTE_TEXT_CHARS)
+                    })),
+                ));
+            }
+            if attachments.len() > MAX_NOTE_ATTACHMENTS {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "error": format!("Too many attachments (max {})", MAX_NOTE_ATTACHMENTS)
+                    })),
+                ));
+            }
+
+            let mut ap_attachments = Vec::new();
+            for att in attachments {
+                let mime = att.media_type.split(';').next().unwrap_or("").trim();
+                let kind = classify_media_mime(&mime.to_ascii_lowercase()).ok_or_else(|| {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({"error": format!("Unsupported attachment MIME: {}", att.media_type)})),
+                    )
+                })?;
+                if !validate_attachment_url(base_url, user_id, att.url.trim()) {
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({
+                            "error": "Attachment URL must be a media uploaded via /api/federation/media for this user",
+                            "url": att.url,
+                        })),
+                    ));
+                }
+                ap_attachments.push(json!({
+                    "type": kind,
+                    "mediaType": mime,
+                    "url": att.url.trim(),
+                    "name": att.name,
+                }));
+            }
+
+            let content_html = if text.is_empty() {
+                String::new()
+            } else {
+                format!("<p>{}</p>", escape_html(text))
+            };
+
+            Ok(json!({
+                "type": "Note",
+                "id": format!("{}/notes/{}", base_url.trim_end_matches('/'), content_id),
+                "attributedTo": &local_actor,
+                "content": content_html,
+                "source": {
+                    "content": text,
+                    "mediaType": "text/plain",
+                },
+                "mediaType": "text/html",
+                "published": now_iso8601(),
+                "to": to,
+                "cc": cc,
+                "attachment": ap_attachments,
+                "mfp:contentType": "note",
+                "mfp:contentId": content_id,
+            }))
+        }
         "report" => {
             // 综合报告 → AP Article
             let report_id: i32 = content_id.parse().unwrap_or(0);
@@ -459,7 +803,7 @@ async fn build_ap_object(
     }
 }
 
-// ==================== Fan-out 投递 ====================
+// ==================== Fan-out / Timeline ====================
 
 /// 将 Activity 推送给所有关注者（fan-out on send）
 async fn fan_out_to_followers(
@@ -504,6 +848,57 @@ async fn fan_out_to_followers(
     Ok(())
 }
 
+/// Insert Create into the author's local timeline so freeform posts show up immediately.
+async fn insert_author_timeline(
+    db: &DatabaseConnection,
+    user_id: i32,
+    activity_id: &str,
+    activity_type: &str,
+    object_type: &str,
+    activity_json: &serde_json::Value,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    let object = &activity_json["object"];
+    let preview = object["content"]
+        .as_str()
+        .or_else(|| object["source"]["content"].as_str())
+        .or_else(|| object["summary"].as_str())
+        .or_else(|| object["name"].as_str())
+        .map(|s| {
+            // Strip simple tags for preview
+            let plain = s
+                .replace("<p>", "")
+                .replace("</p>", "")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&amp;", "&")
+                .replace("&quot;", "\"");
+            plain.chars().take(200).collect::<String>()
+        });
+
+    db.execute(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        r#"INSERT INTO federation_timeline
+               (user_id, activity_id, remote_actor_id, activity_type, object_type, content_preview, content_json, received_at)
+           SELECT $1, $2, NULL, $3, $4, $5, $6, NOW()
+           WHERE NOT EXISTS (
+               SELECT 1 FROM federation_timeline
+               WHERE user_id = $1 AND activity_id = $2
+           )"#,
+        [
+            user_id.into(),
+            activity_id.into(),
+            activity_type.into(),
+            object_type.into(),
+            preview.into(),
+            object.clone().into(),
+        ],
+    ))
+    .await
+    .map_err(db_err)?;
+
+    Ok(())
+}
+
 // ==================== 辅助函数 ====================
 
 /// 解析观众列表
@@ -543,10 +938,67 @@ fn extract_report_summary(report_json: &serde_json::Value) -> String {
     "<p>数据分析报告</p>".to_string()
 }
 
+fn escape_html(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\n' => out.push_str("<br>"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 async fn get_base_url() -> String {
     crate::federation::types::get_base_url().await
 }
 
 fn not_found(msg: &str) -> (StatusCode, Json<serde_json::Value>) {
     (StatusCode::NOT_FOUND, Json(json!({"error": msg})))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classify_media_mime_allows_image_and_video() {
+        assert_eq!(classify_media_mime("image/jpeg"), Some("Image"));
+        assert_eq!(classify_media_mime("video/mp4"), Some("Video"));
+        assert_eq!(classify_media_mime("application/pdf"), None);
+    }
+
+    #[test]
+    fn validate_attachment_url_requires_local_media_path() {
+        let base = "https://example.com";
+        assert!(validate_attachment_url(
+            base,
+            1,
+            "https://example.com/media/federation/1/abc.jpg"
+        ));
+        assert!(!validate_attachment_url(
+            base,
+            1,
+            "https://evil.com/media/federation/1/abc.jpg"
+        ));
+        assert!(!validate_attachment_url(
+            base,
+            1,
+            "https://example.com/media/federation/1/../2/x.jpg"
+        ));
+        assert!(!validate_attachment_url(
+            base,
+            2,
+            "https://example.com/media/federation/1/abc.jpg"
+        ));
+    }
+
+    #[test]
+    fn escape_html_basic() {
+        assert_eq!(escape_html("a<b>&c"), "a&lt;b&gt;&amp;c");
+    }
 }

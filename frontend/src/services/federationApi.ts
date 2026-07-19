@@ -22,6 +22,8 @@ import type {
   InviteMemberRequest,
   MessageListResponse,
   PublishedListResponse,
+  CreateNoteRequest,
+  MediaUploadResponse,
   PublishRequest,
   PublishResponse,
   RingDetail,
@@ -248,6 +250,58 @@ export const federationApi = {
       req,
       attributionOptions(runtimeGrant),
     )
+  },
+
+  /** 创建 freeform Note（文本 + 图片/视频附件） */
+  createNote(
+    req: CreateNoteRequest,
+    runtimeGrant?: string,
+  ): Promise<PublishResponse> {
+    return apiService.post<PublishResponse>(
+      `${PREFIX}/notes`,
+      req,
+      attributionOptions(runtimeGrant),
+    )
+  },
+
+  /**
+   * 上传联邦媒体（multipart）。返回可嵌入 AP attachment 的公开 URL。
+   * 不经过 apiService JSON Content-Type，以便浏览器设置 multipart boundary。
+   */
+  async uploadMedia(
+    file: Blob,
+    options?: { filename?: string; runtimeGrant?: string },
+  ): Promise<MediaUploadResponse> {
+    const { API_URL } = await import('../config')
+    const { getCSRFToken } = await import('../utils/csrf')
+    const formData = new FormData()
+    const filename =
+      options?.filename ||
+      (file instanceof File && file.name ? file.name : 'upload.bin')
+    formData.append('file', file, filename)
+
+    const headers: Record<string, string> = {}
+    const csrf = await getCSRFToken()
+    if (csrf) headers['X-CSRF-Token'] = csrf
+    if (options?.runtimeGrant) {
+      headers['X-Tapp-Runtime-Grant'] = options.runtimeGrant
+    }
+
+    const response = await fetch(`${API_URL}/api${PREFIX}/media`, {
+      method: 'POST',
+      headers,
+      body: formData,
+      credentials: 'include',
+    })
+    if (!response.ok) {
+      const errBody = await response.json().catch(() => ({}))
+      throw new Error(
+        (errBody as { error?: string; message?: string }).error ||
+          (errBody as { message?: string }).message ||
+          `Media upload failed: ${response.status}`,
+      )
+    }
+    return (await response.json()) as MediaUploadResponse
   },
 
   /** 取消发布 */

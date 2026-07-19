@@ -72,10 +72,34 @@ export interface TimelineResponse {
 
 // ==================== 内容发布 ====================
 
+export interface NoteAttachmentInput {
+  url: string
+  media_type: string
+  name?: string
+}
+
 export interface PublishRequest {
-  content_type: 'report' | 'brew-article' | 'tapp' | 'library'
-  content_id: string
+  content_type: 'report' | 'brew-article' | 'tapp' | 'library' | 'note'
+  /** Required except for freeform notes (server generates id). */
+  content_id?: string
   visibility?: 'public' | 'followers' | 'direct'
+  /** Freeform note body when content_type is `note`. */
+  text?: string
+  attachments?: NoteAttachmentInput[]
+}
+
+export interface CreateNoteRequest {
+  text?: string
+  attachments?: NoteAttachmentInput[]
+  visibility?: 'public' | 'followers' | 'direct'
+}
+
+export interface MediaUploadResponse {
+  url: string
+  media_type: string
+  name: string
+  size: number
+  attachment_type: string
 }
 
 export interface PublishResponse {

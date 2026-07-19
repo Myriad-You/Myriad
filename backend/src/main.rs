@@ -1946,6 +1946,123 @@ async fn federation_publish_wrapper(req: axum::extract::Request) -> Response {
     }
 }
 
+/// POST /api/federation/notes — 创建 freeform Note（文本 + 附件）
+async fn federation_create_note_wrapper(req: axum::extract::Request) -> Response {
+    let claims = match req.extensions().get::<middleware::auth::Claims>().cloned() {
+        Some(c) => c,
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "Not authenticated"})),
+            )
+                .into_response()
+        }
+    };
+    let body_bytes = match axum::body::Bytes::from_request(req, &()).await {
+        Ok(b) => b,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Invalid body"})),
+            )
+                .into_response()
+        }
+    };
+    let payload: federation::content::CreateNoteRequest = match serde_json::from_slice(&body_bytes) {
+        Ok(p) => p,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Invalid JSON"})),
+            )
+                .into_response()
+        }
+    };
+    let db_opt = DB_CONNECTION.read().await;
+    match db_opt.as_ref() {
+        Some(db) => {
+            let user_id: i32 = claims.sub.parse().unwrap_or(0);
+            match federation::content::create_note(user_id, &claims.username, db, &payload).await {
+                Ok(resp) => {
+                    (StatusCode::OK, Json(serde_json::to_value(resp).unwrap())).into_response()
+                }
+                Err((status, json)) => (status, json).into_response(),
+            }
+        }
+        None => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Database not connected"})),
+        )
+            .into_response(),
+    }
+}
+
+/// POST /api/federation/media — multipart 上传图片/视频，返回公开 URL
+async fn federation_media_upload_wrapper(req: axum::extract::Request) -> Response {
+    let claims = match req.extensions().get::<middleware::auth::Claims>().cloned() {
+        Some(c) => c,
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "Not authenticated"})),
+            )
+                .into_response()
+        }
+    };
+    let user_id: i32 = claims.sub.parse().unwrap_or(0);
+    let mut multipart = match axum::extract::Multipart::from_request(req, &()).await {
+        Ok(m) => m,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Expected multipart/form-data"})),
+            )
+                .into_response()
+        }
+    };
+
+    let mut file_bytes: Option<Vec<u8>> = None;
+    let mut filename = "upload.bin".to_string();
+    let mut mime = "application/octet-stream".to_string();
+
+    while let Ok(Some(field)) = multipart.next_field().await {
+        let name = field.name().unwrap_or("").to_string();
+        if name != "file" {
+            continue;
+        }
+        if let Some(fname) = field.file_name() {
+            filename = fname.to_string();
+        }
+        if let Some(ct) = field.content_type() {
+            mime = ct.to_string();
+        }
+        match field.bytes().await {
+            Ok(b) => file_bytes = Some(b.to_vec()),
+            Err(_) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "Failed to read file field"})),
+                )
+                    .into_response()
+            }
+        }
+        break;
+    }
+
+    let Some(bytes) = file_bytes else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Missing multipart field 'file'"})),
+        )
+            .into_response();
+    };
+
+    match federation::content::store_federation_media(user_id, &filename, &mime, &bytes).await {
+        Ok(resp) => (StatusCode::OK, Json(serde_json::to_value(resp).unwrap())).into_response(),
+        Err((status, json)) => (status, json).into_response(),
+    }
+}
+
 /// POST /api/federation/unpublish — 取消发布
 async fn federation_unpublish_wrapper(req: axum::extract::Request) -> Response {
     let claims = match req.extensions().get::<middleware::auth::Claims>().cloned() {
@@ -3729,14 +3846,17 @@ async fn get_federation_timeline(
     user_id: i32,
 ) -> Result<serde_json::Value, String> {
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    let base_url = federation::types::get_base_url().await;
     let rows = db
         .query_all(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT t.activity_id, t.activity_type, t.object_type,
                       t.content_preview, t.content_json, t.is_read, t.received_at,
-                      ra.actor_url, ra.username, ra.domain, ra.display_name, ra.avatar_url
+                      ra.actor_url, ra.username, ra.domain, ra.display_name, ra.avatar_url,
+                      u.username AS local_username
                FROM federation_timeline t
                LEFT JOIN federation_remote_actors ra ON ra.id = t.remote_actor_id
+               LEFT JOIN users u ON u.id = t.user_id
                WHERE t.user_id = $1
                ORDER BY t.received_at DESC
                LIMIT 50"#,
@@ -3752,22 +3872,56 @@ async fn get_federation_timeline(
                 .try_get::<chrono::DateTime<chrono::FixedOffset>>("", "received_at")
                 .ok()
                 .map(|t| t.to_rfc3339());
+            let remote_actor_url = r
+                .try_get::<Option<String>>("", "actor_url")
+                .ok()
+                .flatten()
+                .filter(|s| !s.is_empty());
+            let content_json = r
+                .try_get::<Option<serde_json::Value>>("", "content_json")
+                .ok()
+                .flatten();
+            // Local author posts have remote_actor_id = NULL — fill actor from local user.
+            let actor = if let Some(url) = remote_actor_url {
+                json!({
+                    "actor_url": url,
+                    "username": r.try_get::<Option<String>>("", "username").ok().flatten(),
+                    "domain": r.try_get::<Option<String>>("", "domain").ok().flatten(),
+                    "display_name": r.try_get::<Option<String>>("", "display_name").ok().flatten(),
+                    "avatar_url": r.try_get::<Option<String>>("", "avatar_url").ok().flatten(),
+                })
+            } else {
+                let local_username = r
+                    .try_get::<Option<String>>("", "local_username")
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
+                let actor_url = if local_username.is_empty() {
+                    String::new()
+                } else {
+                    federation::types::actor_url(&base_url, &local_username)
+                };
+                let domain = federation::types::extract_domain(&base_url);
+                json!({
+                    "actor_url": actor_url,
+                    "username": local_username,
+                    "domain": domain,
+                    "display_name": null,
+                    "avatar_url": null,
+                    "is_local": true,
+                })
+            };
             json!({
                 "activity_id": r.try_get::<String>("", "activity_id").unwrap_or_default(),
                 "activity_type": r.try_get::<Option<String>>("", "activity_type").ok().flatten(),
                 "object_type": r.try_get::<Option<String>>("", "object_type").ok().flatten(),
                 "content_preview": r.try_get::<Option<String>>("", "content_preview").ok().flatten(),
+                "content_json": content_json,
                 "is_read": r.try_get::<bool>("", "is_read").unwrap_or(false),
                 // Frontend (Aro) expects created_at / timestamp for timeAgo()
                 "created_at": received_at.clone(),
                 "received_at": received_at,
-                "actor": {
-                    "actor_url": r.try_get::<Option<String>>("", "actor_url").ok().flatten(),
-                    "username": r.try_get::<Option<String>>("", "username").ok().flatten(),
-                    "domain": r.try_get::<Option<String>>("", "domain").ok().flatten(),
-                    "display_name": r.try_get::<Option<String>>("", "display_name").ok().flatten(),
-                    "avatar_url": r.try_get::<Option<String>>("", "avatar_url").ok().flatten(),
-                },
+                "actor": actor,
             })
         })
         .collect();
@@ -3785,7 +3939,7 @@ async fn get_federation_timeline(
 /// executing with host identity when a per-route layer is forgotten
 /// (fail-closed). Admin-only trust management keeps its extra admin gate.
 fn federation_api_router() -> Router {
-    Router::new()
+    let main_router = Router::new()
         .route("/api/federation/identity", get(federation_identity_wrapper))
         .route("/api/federation/follow", post(federation_follow_wrapper))
         .route("/api/federation/unfollow", post(federation_unfollow_wrapper))
@@ -3799,6 +3953,7 @@ fn federation_api_router() -> Router {
         )
         .route("/api/federation/timeline", get(federation_timeline_wrapper))
         .route("/api/federation/publish", post(federation_publish_wrapper))
+        .route("/api/federation/notes", post(federation_create_note_wrapper))
         .route(
             "/api/federation/unpublish",
             post(federation_unpublish_wrapper),
@@ -3945,11 +4100,23 @@ fn federation_api_router() -> Router {
         )
         // Federation control-plane writes are JSON (follow/channel/room/message).
         // ~2MiB is enough for those payloads and for base64 file-transfer chunks
-        // (DEFAULT_CHUNK_SIZE = 256KiB → ~350KiB base64). Global 50MB stays for
-        // media uploads outside this router — do not lower it here.
+        // (DEFAULT_CHUNK_SIZE = 256KiB → ~350KiB base64). Note media uploads use a
+        // separate route below with a higher limit.
         .layer(axum::extract::DefaultBodyLimit::max(2 * 1024 * 1024))
         .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
-        .route_layer(from_fn(middleware::auth::auth_middleware))
+        .route_layer(from_fn(middleware::auth::auth_middleware));
+
+    // Freeform Note media: images ≤10MB, video ≤50MB — dedicated limit + same auth/attribution.
+    let media_router = Router::new()
+        .route(
+            "/api/federation/media",
+            post(federation_media_upload_wrapper),
+        )
+        .layer(axum::extract::DefaultBodyLimit::max(55 * 1024 * 1024))
+        .route_layer(from_fn(api::tapp_runtime::federation_host_attribution))
+        .route_layer(from_fn(middleware::auth::auth_middleware));
+
+    main_router.merge(media_router)
 }
 
 async fn start_unified_server(config: AppConfig) -> anyhow::Result<()> {
@@ -4249,6 +4416,18 @@ async fn start_unified_server(config: AppConfig) -> anyhow::Result<()> {
                     axum::http::HeaderValue::from_static("public, max-age=604800, immutable"),
                 ))
                 .service(ServeDir::new(&services::data_paths::paths().cache_images)),
+        )
+        // Public federation media (Note attachments Image/Video) — URLs embedded in AP.
+        .nest_service(
+            "/media/federation",
+            tower::ServiceBuilder::new()
+                .layer(SetResponseHeaderLayer::if_not_present(
+                    axum::http::header::CACHE_CONTROL,
+                    axum::http::HeaderValue::from_static("public, max-age=604800"),
+                ))
+                .service(ServeDir::new(
+                    federation::content::federation_media_root(),
+                )),
         )
         .route(
             "/users/{username}/outbox",

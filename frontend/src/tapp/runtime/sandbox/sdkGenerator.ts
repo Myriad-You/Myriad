@@ -779,6 +779,8 @@ export function generateFullSDK(
       getFollowers: () => sendRequest('federation', 'getFollowers', []),
       // 发布
       publish: (req) => sendRequest('federation', 'publish', [req]),
+      createNote: (req) => sendRequest('federation', 'createNote', [req]),
+      uploadMedia: (req) => sendRequest('federation', 'uploadMedia', [req]),
       unpublish: (req) => sendRequest('federation', 'unpublish', [req]),
       getPublished: () => sendRequest('federation', 'getPublished', []),
       // Channel

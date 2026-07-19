@@ -245,6 +245,16 @@
     },
     {
       "domain": "federation",
+      "action": "federation.createNote",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.uploadMedia",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
       "action": "federation.unpublish",
       "permission": "federation:write"
     },

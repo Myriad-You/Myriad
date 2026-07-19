@@ -247,6 +247,16 @@ async fn handle_follow(
     let local_username = get_username_by_id(db, local_user_id).await?;
     let local_actor_url = actor_url(&base_url, &local_username);
 
+    // Embed a minimal Follow object (type/id/actor/object). Full inbound JSON
+    // may omit id or carry extra @context noise that confuses remote Accept matching.
+    let follow_activity_id = activity["id"].as_str().unwrap_or("").to_string();
+    let accept_object = json!({
+        "type": "Follow",
+        "id": &follow_activity_id,
+        "actor": actor_url_str,
+        "object": &local_actor_url,
+    });
+
     let accept = Activity {
         context: build_ap_context(),
         activity_type: "Accept".to_string(),
@@ -255,7 +265,7 @@ async fn handle_follow(
         to: Some(vec![actor_url_str.to_string()]),
         cc: None,
         published: Some(now_iso8601()),
-        object: activity.clone(),
+        object: accept_object,
         target: None,
     };
 
@@ -351,63 +361,158 @@ async fn handle_accept(
             }
         }
     } else {
-        // 标准 Follow Accept
-        if !follow_id.is_empty() {
-            let pending = db
-                .query_one(Statement::from_sql_and_values(
-                    DatabaseBackend::Postgres,
-                    r#"SELECT ra.actor_url
-                       FROM federation_follows f
-                       JOIN federation_remote_actors ra ON f.remote_actor_id = ra.id
-                       WHERE f.user_id = $1 AND f.direction = 'outgoing' AND f.activity_id = $2"#,
-                    [local_user_id.into(), follow_id.into()],
-                ))
-                .await
-                .map_err(db_err)?;
+        // Standard Follow Accept — match Follow object.id, then fallback to a single
+        // pending outgoing toward Accept.actor (same_actor_url). Idempotent notify.
+        handle_follow_accept(db, local_user_id, accept_actor, follow_id, activity).await?;
+    }
 
-            let remote_url = pending
-                .and_then(|row| row.try_get::<String>("", "actor_url").ok())
-                .unwrap_or_default();
-            let authorized =
-                !remote_url.is_empty() && same_actor_url(accept_actor, &remote_url);
+    Ok(StatusCode::ACCEPTED)
+}
 
-            if authorized {
-                let result = db
-                    .execute(Statement::from_sql_and_values(
-                        DatabaseBackend::Postgres,
-                        r#"UPDATE federation_follows
-                           SET status = 'accepted', accepted_at = NOW()
-                           WHERE user_id = $1 AND direction = 'outgoing' AND activity_id = $2"#,
-                        [local_user_id.into(), follow_id.into()],
-                    ))
-                    .await
-                    .map_err(db_err)?;
-
-                if result.rows_affected() > 0 {
-                    let label = crate::federation::notify::actor_label(db, &remote_url).await;
-                    crate::federation::notify::notify_follow_accepted(
-                        local_user_id,
-                        if accept_actor.is_empty() {
-                            follow_id
-                        } else {
-                            accept_actor
-                        },
-                        &label,
-                    )
-                    .await;
-                    tracing::info!("✅ Our follow accepted: {}", follow_id);
-                }
-            } else {
-                tracing::debug!(
-                    "Follow accept no-op (missing row or actor mismatch): follow={} accept_actor={}",
-                    follow_id,
-                    accept_actor
-                );
+/// Resolve which outgoing Follow an Accept refers to.
+///
+/// 1. Prefer exact `activity_id` match (trim trailing slash) where Accept.actor
+///    is the remote peer (`same_actor_url`).
+/// 2. Fallback: exactly one pending outgoing follow to Accept.actor.
+///
+/// Returns `(activity_id, remote_actor_url, already_accepted)`.
+pub fn resolve_follow_accept_target(
+    follow_id: &str,
+    accept_actor: &str,
+    candidates: &[(String, String, String)], // activity_id, remote_actor_url, status
+) -> Option<(String, String, bool)> {
+    let follow_norm = follow_id.trim().trim_end_matches('/');
+    if !follow_norm.is_empty() {
+        for (aid, remote, status) in candidates {
+            if aid.trim().trim_end_matches('/') == follow_norm
+                && same_actor_url(accept_actor, remote)
+            {
+                return Some((aid.clone(), remote.clone(), status == "accepted"));
             }
         }
     }
 
-    Ok(StatusCode::ACCEPTED)
+    let pending_to_actor: Vec<_> = candidates
+        .iter()
+        .filter(|(_, remote, status)| {
+            status == "pending" && same_actor_url(accept_actor, remote)
+        })
+        .collect();
+    if pending_to_actor.len() == 1 {
+        let (aid, remote, _) = pending_to_actor[0];
+        tracing::info!(
+            follow_id = follow_id,
+            activity_id = %aid,
+            accept_actor = accept_actor,
+            "Follow Accept fallback: matched single pending outgoing to Accept actor"
+        );
+        return Some((aid.clone(), remote.clone(), false));
+    }
+
+    if pending_to_actor.len() > 1 {
+        tracing::warn!(
+            follow_id = follow_id,
+            accept_actor = accept_actor,
+            candidates = pending_to_actor.len(),
+            "Follow Accept fallback ambiguous: multiple pending outgoing to Accept actor"
+        );
+    }
+    None
+}
+
+async fn handle_follow_accept(
+    db: &DatabaseConnection,
+    local_user_id: i32,
+    accept_actor: &str,
+    follow_id: &str,
+    activity: &serde_json::Value,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    if accept_actor.is_empty() {
+        tracing::warn!(
+            activity_id = %activity["id"].as_str().unwrap_or(""),
+            "Follow Accept missing actor; ignoring"
+        );
+        return Ok(());
+    }
+
+    // Load outgoing follows that could match: pending, or exact activity_id.
+    let rows = db
+        .query_all(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"SELECT f.activity_id, f.status, ra.actor_url
+               FROM federation_follows f
+               JOIN federation_remote_actors ra ON f.remote_actor_id = ra.id
+               WHERE f.user_id = $1 AND f.direction = 'outgoing'
+                 AND (f.status = 'pending'
+                      OR ($2 <> '' AND f.activity_id = $2)
+                      OR ($2 <> '' AND rtrim(f.activity_id, '/') = rtrim($2::text, '/')))"#,
+            [local_user_id.into(), follow_id.into()],
+        ))
+        .await
+        .map_err(db_err)?;
+
+    let candidates: Vec<(String, String, String)> = rows
+        .iter()
+        .map(|r| {
+            (
+                r.try_get::<String>("", "activity_id").unwrap_or_default(),
+                r.try_get::<String>("", "actor_url").unwrap_or_default(),
+                r.try_get::<String>("", "status").unwrap_or_default(),
+            )
+        })
+        .filter(|(aid, remote, _)| !aid.is_empty() && !remote.is_empty())
+        .collect();
+
+    let Some((matched_id, remote_url, already_accepted)) =
+        resolve_follow_accept_target(follow_id, accept_actor, &candidates)
+    else {
+        tracing::warn!(
+            follow_id = follow_id,
+            accept_actor = accept_actor,
+            candidates = candidates.len(),
+            "Follow Accept no match (activity_id + fallback failed)"
+        );
+        return Ok(());
+    };
+
+    if already_accepted {
+        tracing::debug!(
+            activity_id = %matched_id,
+            accept_actor = accept_actor,
+            "Follow Accept idempotent: already accepted"
+        );
+        return Ok(());
+    }
+
+    let result = db
+        .execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"UPDATE federation_follows
+               SET status = 'accepted', accepted_at = NOW()
+               WHERE user_id = $1 AND direction = 'outgoing' AND activity_id = $2
+                 AND status IS DISTINCT FROM 'accepted'"#,
+            [local_user_id.into(), matched_id.clone().into()],
+        ))
+        .await
+        .map_err(db_err)?;
+
+    if result.rows_affected() == 0 {
+        tracing::debug!(
+            activity_id = %matched_id,
+            "Follow Accept race: row already accepted"
+        );
+        return Ok(());
+    }
+
+    let label = crate::federation::notify::actor_label(db, &remote_url).await;
+    crate::federation::notify::notify_follow_accepted(local_user_id, accept_actor, &label).await;
+    tracing::info!(
+        activity_id = %matched_id,
+        accept_actor = accept_actor,
+        follow_object_id = follow_id,
+        "✅ Our follow accepted"
+    );
+    Ok(())
 }
 
 /// 处理 Undo（包括 Undo Follow）
@@ -978,5 +1083,118 @@ async fn handle_mfp_activity(
             tracing::info!("Unhandled MFP activity type: {}", activity_type);
             Ok(StatusCode::ACCEPTED)
         }
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accept_matches_follow_activity_id() {
+        let candidates = vec![(
+            "https://a.example/activities/1".into(),
+            "https://b.example/users/bob".into(),
+            "pending".into(),
+        )];
+        let got = resolve_follow_accept_target(
+            "https://a.example/activities/1",
+            "https://b.example/users/bob",
+            &candidates,
+        );
+        assert_eq!(
+            got,
+            Some((
+                "https://a.example/activities/1".into(),
+                "https://b.example/users/bob".into(),
+                false
+            ))
+        );
+    }
+
+    #[test]
+    fn accept_matches_activity_id_trailing_slash() {
+        let candidates = vec![(
+            "https://a.example/activities/1".into(),
+            "https://b.example/users/bob".into(),
+            "pending".into(),
+        )];
+        let got = resolve_follow_accept_target(
+            "https://a.example/activities/1/",
+            "https://B.example/users/bob",
+            &candidates,
+        );
+        assert!(got.is_some());
+    }
+
+    #[test]
+    fn accept_fallback_single_pending_to_actor() {
+        let candidates = vec![(
+            "https://a.example/activities/missing".into(),
+            "https://b.example/users/bob".into(),
+            "pending".into(),
+        )];
+        let got = resolve_follow_accept_target(
+            "https://other/activities/x",
+            "https://b.example/users/bob/",
+            &candidates,
+        );
+        assert_eq!(
+            got.map(|(id, _, already)| (id, already)),
+            Some(("https://a.example/activities/missing".into(), false))
+        );
+    }
+
+    #[test]
+    fn accept_fallback_ambiguous_does_not_match() {
+        let candidates = vec![
+            (
+                "https://a.example/activities/1".into(),
+                "https://b.example/users/bob".into(),
+                "pending".into(),
+            ),
+            (
+                "https://a.example/activities/2".into(),
+                "https://b.example/users/bob".into(),
+                "pending".into(),
+            ),
+        ];
+        let got = resolve_follow_accept_target(
+            "https://unknown/activities/z",
+            "https://b.example/users/bob",
+            &candidates,
+        );
+        assert!(got.is_none());
+    }
+
+    #[test]
+    fn accept_rejects_actor_mismatch_even_with_id() {
+        let candidates = vec![(
+            "https://a.example/activities/1".into(),
+            "https://b.example/users/bob".into(),
+            "pending".into(),
+        )];
+        let got = resolve_follow_accept_target(
+            "https://a.example/activities/1",
+            "https://evil.example/users/mallory",
+            &candidates,
+        );
+        assert!(got.is_none());
+    }
+
+    #[test]
+    fn accept_idempotent_already_accepted_by_id() {
+        let candidates = vec![(
+            "https://a.example/activities/1".into(),
+            "https://b.example/users/bob".into(),
+            "accepted".into(),
+        )];
+        let got = resolve_follow_accept_target(
+            "https://a.example/activities/1",
+            "https://b.example/users/bob",
+            &candidates,
+        );
+        assert_eq!(got.map(|(_, _, already)| already), Some(true));
     }
 }

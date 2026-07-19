@@ -20,6 +20,7 @@ struct FeedRow {
     activity_type: Option<String>,
     object_type: Option<String>,
     content_preview: Option<String>,
+    content_json: Option<Value>,
     received_at: DateTime<FixedOffset>,
     actor_url: Option<String>,
     username: Option<String>,
@@ -27,6 +28,7 @@ struct FeedRow {
     display_name: Option<String>,
     avatar_url: Option<String>,
     scope: String,
+    is_local: Option<bool>,
 }
 
 fn db_unavailable() -> (StatusCode, Json<Value>) {
@@ -43,6 +45,7 @@ fn feed_item(row: FeedRow) -> Value {
         "activity_type": row.activity_type,
         "object_type": row.object_type,
         "content_preview": row.content_preview,
+        "content_json": row.content_json,
         "is_read": false,
         "created_at": timestamp,
         "received_at": timestamp,
@@ -53,6 +56,7 @@ fn feed_item(row: FeedRow) -> Value {
             "domain": row.domain,
             "display_name": row.display_name,
             "avatar_url": row.avatar_url,
+            "is_local": row.is_local.unwrap_or(false),
         },
     })
 }
@@ -61,18 +65,25 @@ async fn load_personal_feed(
     db: &DatabaseConnection,
     user_id: i32,
 ) -> Result<Vec<Value>, (StatusCode, Json<Value>)> {
+    let base_url = crate::federation::types::get_base_url().await;
     let rows = FeedRow::find_by_statement(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"SELECT t.activity_id, t.activity_type, t.object_type,
-                  t.content_preview, t.received_at,
-                  ra.actor_url, ra.username, ra.domain, ra.display_name, ra.avatar_url,
-                  'personal'::TEXT AS scope
+                  t.content_preview, t.content_json, t.received_at,
+                  COALESCE(ra.actor_url, CASE WHEN u.username IS NOT NULL THEN $2 || '/users/' || u.username ELSE NULL END) AS actor_url,
+                  COALESCE(ra.username, u.username) AS username,
+                  ra.domain,
+                  COALESCE(ra.display_name, u.username) AS display_name,
+                  ra.avatar_url,
+                  'personal'::TEXT AS scope,
+                  (ra.id IS NULL) AS is_local
            FROM federation_timeline t
            LEFT JOIN federation_remote_actors ra ON ra.id = t.remote_actor_id
+           LEFT JOIN users u ON u.id = t.user_id
            WHERE t.user_id = $1
            ORDER BY t.received_at DESC
            LIMIT 100"#,
-        [user_id.into()],
+        [user_id.into(), base_url.trim_end_matches('/').into()],
     ))
     .all(db)
     .await
@@ -96,10 +107,15 @@ async fn load_public_feed(
                       a.object_type,
                       LEFT(COALESCE(
                           a.object_json #>> '{object,content}',
+                          a.object_json #>> '{object,source,content}',
                           a.object_json ->> 'content',
                           a.object_json #>> '{object,summary}',
                           a.object_json ->> 'summary'
                       ), 200) AS content_preview,
+                      COALESCE(
+                          a.object_json -> 'object',
+                          a.object_json
+                      ) AS content_json,
                       COALESCE(a.received_at, a.published_at) AS received_at,
                       COALESCE(
                           a.object_json ->> 'actor',
@@ -111,7 +127,8 @@ async fn load_public_feed(
                       ra.domain,
                       COALESCE(u.display_name, ra.display_name, u.username, ra.username) AS display_name,
                       COALESCE(u.avatar_url, ra.avatar_url) AS avatar_url,
-                      'public'::TEXT AS scope
+                      'public'::TEXT AS scope,
+                      a.is_local AS is_local
                FROM federation_activities a
                LEFT JOIN federation_published_content pc ON pc.activity_id = a.activity_id
                LEFT JOIN users u ON u.id = a.user_id
