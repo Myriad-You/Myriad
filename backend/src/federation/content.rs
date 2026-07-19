@@ -556,11 +556,6 @@ fn extension_for_mime(mime: &str) -> Option<&'static str> {
     }
 }
 
-/// Validate that attachment URLs belong to this instance's federation media for the user.
-fn validate_attachment_url(base_url: &str, user_id: i32, url: &str) -> bool {
-    attachment_url_rejection_reason(base_url, user_id, url).is_none()
-}
-
 /// Human-readable reason if `url` is not a valid local federation media URL for this user.
 /// Returns `None` when the URL is acceptable.
 fn attachment_url_rejection_reason(base_url: &str, user_id: i32, url: &str) -> Option<&'static str> {
@@ -1117,6 +1112,10 @@ mod tests {
         assert_eq!(classify_media_mime("image/jpeg"), Some("Image"));
         assert_eq!(classify_media_mime("video/mp4"), Some("Video"));
         assert_eq!(classify_media_mime("application/pdf"), None);
+    }
+
+    fn validate_attachment_url(base_url: &str, user_id: i32, url: &str) -> bool {
+        attachment_url_rejection_reason(base_url, user_id, url).is_none()
     }
 
     #[test]
