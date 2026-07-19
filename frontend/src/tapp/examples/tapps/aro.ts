@@ -393,7 +393,7 @@ const PAGE_HTML = `\
   </div>
 
   <!-- Feed + action menu (compose / follow) -->
-  <div id="feed-add-menu" class="feed-add-menu" role="menu" hidden>
+  <div id="feed-add-menu" class="feed-add-menu" role="menu" style="display:none">
     <button type="button" class="feed-add-menu-item" role="menuitem" data-feed-add="compose" id="feed-add-action-compose">
       <span class="feed-add-menu-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
@@ -1463,6 +1463,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "emptyRoomHint": "No messages yet — start the conversation",
     "emptyTimeline": "Your feed is empty",
     "expandDetails": "Show more",
+    "feedAdd": "Add",
     "feedFollowers": "Followers",
     "feedFollowing": "Following",
     "feedItems": "posts",
@@ -1472,6 +1473,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "feedTimeline": "Home",
     "fileTooLarge": "File too large (max 10 MB)",
     "followBtn": "Follow",
+    "followDialogTitle": "Follow someone",
     "followFail": "Couldn't follow",
     "followPlaceholder": "@user@domain or profile link",
     "followQueued": "Follow request sent. Most instances accept automatically.",
@@ -1660,6 +1662,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "emptyRoomHint": "まだメッセージがありません。会話を始めましょう",
     "emptyTimeline": "フィードはまだ空です",
     "expandDetails": "もっと見る",
+    "feedAdd": "追加",
     "feedFollowers": "フォロワー",
     "feedFollowing": "フォロー中",
     "feedItems": "件",
@@ -1669,6 +1672,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "feedTimeline": "ホーム",
     "fileTooLarge": "ファイルが大きすぎます（最大10MB）",
     "followBtn": "フォロー",
+    "followDialogTitle": "フォローする",
     "followFail": "フォローに失敗しました",
     "followPlaceholder": "@user@domain またはプロフィールURL",
     "followQueued": "フォローリクエストを送信しました。多くのインスタンスは自動承認します。",
@@ -1857,6 +1861,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "emptyRoomHint": "还没有消息，开始群聊吧",
     "emptyTimeline": "动态还是空的",
     "expandDetails": "展开",
+    "feedAdd": "添加",
     "feedFollowers": "粉丝",
     "feedFollowing": "关注",
     "feedItems": "条",
@@ -1866,6 +1871,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "feedTimeline": "首页",
     "fileTooLarge": "文件过大（最大 10 MB）",
     "followBtn": "关注",
+    "followDialogTitle": "关注账号",
     "followFail": "关注失败",
     "followPlaceholder": "@用户@域名 或个人主页链接",
     "followQueued": "关注请求已发送，对方实例通常会自动接受。",
@@ -2388,11 +2394,13 @@ function applyRoleControls() {
   if (state.isGuest) {
     state.feedSubTab = 'timeline';
     state.currentView = 'feed';
-    var followBar = $('feed-follow-bar');
-    if (followBar) followBar.style.display = 'none';
+    if (typeof hideFollowDialog === 'function') hideFollowDialog();
+    if (typeof closeFeedAddMenu === 'function') closeFeedAddMenu(true);
     if (typeof closeComposer === 'function') closeComposer();
   }
-  if (typeof updateComposeButtonVisibility === 'function') {
+  if (typeof updateFeedAddVisibility === 'function') {
+    updateFeedAddVisibility();
+  } else if (typeof updateComposeButtonVisibility === 'function') {
     updateComposeButtonVisibility();
   }
 }
@@ -2789,9 +2797,20 @@ function applyLabels() {
   el = $('feed-mobile-lbl-published'); if (el) el.textContent = lang.feedPublished;
   el = $('feed-follow-input'); if (el) el.placeholder = lang.followPlaceholder;
   el = $('feed-follow-btn'); if (el) el.textContent = lang.followBtn;
-  el = $('feed-compose-btn-label'); if (el) el.textContent = lang.composePost || 'Post';
-  el = $('feed-compose-btn'); if (el) { el.setAttribute('title', lang.composePost || 'Post'); el.setAttribute('aria-label', lang.composePost || 'Post'); }
-  el = $('feed-compose-mobile-btn'); if (el) { el.setAttribute('title', lang.composePost || 'Post'); el.setAttribute('aria-label', lang.composePost || 'Post'); }
+  el = $('feed-follow-dialog-title'); if (el) el.textContent = lang.followDialogTitle || lang.followBtn || 'Follow';
+  el = $('feed-follow-dialog-close'); if (el) el.setAttribute('aria-label', lang.dismiss || lang.confirmCancel || 'Close');
+  el = $('feed-add-compose-label'); if (el) el.textContent = lang.composePost || 'Post';
+  el = $('feed-add-follow-label'); if (el) el.textContent = lang.followBtn || 'Follow';
+  el = $('feed-add-btn'); if (el) {
+    var addLabel = lang.feedAdd || lang.create || 'Add';
+    el.setAttribute('title', addLabel);
+    el.setAttribute('aria-label', addLabel);
+  }
+  el = $('feed-add-mobile-btn'); if (el) {
+    var addLabelM = lang.feedAdd || lang.create || 'Add';
+    el.setAttribute('title', addLabelM);
+    el.setAttribute('aria-label', addLabelM);
+  }
   el = $('feed-compose-text'); if (el) el.placeholder = lang.composePlaceholder || '';
   el = $('feed-compose-image-label'); if (el) el.textContent = lang.composeAddImage || 'Image';
   el = $('feed-compose-image-btn'); if (el) el.setAttribute('title', lang.composeAddImage || 'Image');
@@ -2805,7 +2824,8 @@ function applyLabels() {
   if (el && !state.feedLoading && typeof getFeedTitle === 'function') {
     el.textContent = getFeedTitle(state.feedSubTab);
   }
-  if (typeof updateComposeButtonVisibility === 'function') updateComposeButtonVisibility();
+  if (typeof updateFeedAddVisibility === 'function') updateFeedAddVisibility();
+  else if (typeof updateComposeButtonVisibility === 'function') updateComposeButtonVisibility();
   document.querySelectorAll('[data-copy-fed]').forEach(function (node) { node.setAttribute('title', lang.copy); });
   document.querySelectorAll('[data-fed-profile]').forEach(function (card) {
     setFeedProfileExpanded(card, card.classList.contains('feed-profile-expanded'));
@@ -5536,13 +5556,17 @@ function openFeedAddMenu(anchor) {
   }
 
   _feedAddAnchor = anchor || $('feed-add-btn') || $('feed-add-mobile-btn');
-  menu.hidden = false;
   menu.style.display = 'flex';
   menu.classList.remove('aro-leaving');
+  // Restart enter animation
+  try {
+    menu.style.animation = 'none';
+    void menu.offsetWidth;
+    menu.style.animation = '';
+  } catch (e) { /* ignore */ }
   _feedAddOpen = true;
   setFeedAddExpanded(true);
   positionFeedAddMenu(_feedAddAnchor);
-  aroPlayEnter(menu, 'aro-compose-enter');
 }
 
 function closeFeedAddMenu(immediate) {
@@ -5550,27 +5574,19 @@ function closeFeedAddMenu(immediate) {
   _feedAddOpen = false;
   _feedAddAnchor = null;
   setFeedAddExpanded(false);
-  if (!menu || menu.hidden || menu.style.display === 'none') {
+  if (!menu || menu.style.display === 'none') {
     if (menu) {
-      menu.hidden = true;
       menu.style.display = 'none';
       menu.classList.remove('aro-leaving');
     }
     return;
   }
   if (immediate || prefersReducedMotion()) {
-    menu.hidden = true;
     menu.style.display = 'none';
     menu.classList.remove('aro-leaving');
     return;
   }
-  aroDismiss(menu, {
-    ms: 150,
-    onDone: function () {
-      menu.hidden = true;
-      menu.style.display = 'none';
-    },
-  });
+  aroDismiss(menu, { ms: 150 });
 }
 
 function toggleFeedAddMenu(anchor) {
@@ -6179,16 +6195,65 @@ const PAGE_MOD_EVENTS = `\
   if (feedFollowInput) feedFollowInput.addEventListener('keydown', function (e) {
     if (e.key === 'Enter') { e.preventDefault(); doFollow(); }
   });
-  // Feed freeform note composer
-  function toggleComposerPanel() {
-    var composer = $('feed-composer');
-    if (composer && composer.style.display !== 'none') closeComposer();
-    else openComposer();
+  // Feed + menu (compose / follow)
+  var feedAddBtn = $('feed-add-btn');
+  if (feedAddBtn) {
+    feedAddBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      toggleFeedAddMenu(feedAddBtn);
+    });
   }
-  var composeOpenBtn = $('feed-compose-btn');
-  if (composeOpenBtn) composeOpenBtn.addEventListener('click', toggleComposerPanel);
-  var composeMobileBtn = $('feed-compose-mobile-btn');
-  if (composeMobileBtn) composeMobileBtn.addEventListener('click', toggleComposerPanel);
+  var feedAddMobileBtn = $('feed-add-mobile-btn');
+  if (feedAddMobileBtn) {
+    feedAddMobileBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      toggleFeedAddMenu(feedAddMobileBtn);
+    });
+  }
+  var feedAddMenu = $('feed-add-menu');
+  if (feedAddMenu) {
+    feedAddMenu.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var item = e.target && e.target.closest ? e.target.closest('[data-feed-add]') : null;
+      if (!item) return;
+      onFeedAddAction(item.getAttribute('data-feed-add'));
+    });
+  }
+  document.addEventListener('click', function (e) {
+    if (!_feedAddOpen) return;
+    if (e.target && e.target.closest && (
+      e.target.closest('#feed-add-menu')
+      || e.target.closest('#feed-add-btn')
+      || e.target.closest('#feed-add-mobile-btn')
+    )) return;
+    closeFeedAddMenu();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+      if (_feedAddOpen) {
+        e.preventDefault();
+        closeFeedAddMenu();
+        return;
+      }
+      var followDlg = $('feed-follow-dialog');
+      if (followDlg && followDlg.style.display !== 'none') {
+        e.preventDefault();
+        hideFollowDialog();
+      }
+    }
+  });
+  window.addEventListener('resize', function () {
+    if (_feedAddOpen && _feedAddAnchor) positionFeedAddMenu(_feedAddAnchor);
+  });
+  var followDialog = $('feed-follow-dialog');
+  if (followDialog) {
+    followDialog.addEventListener('click', function (e) {
+      if (e.target === followDialog) hideFollowDialog();
+    });
+  }
+  var followDialogClose = $('feed-follow-dialog-close');
+  if (followDialogClose) followDialogClose.addEventListener('click', hideFollowDialog);
+
   var composeCancel = $('feed-compose-cancel');
   if (composeCancel) composeCancel.addEventListener('click', closeComposer);
   var composePublish = $('feed-compose-publish');
