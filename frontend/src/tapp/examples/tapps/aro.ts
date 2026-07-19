@@ -1227,6 +1227,28 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 /* Message appear (new only) */
 .msg-row.msg-appear{animation:aroMsgIn .2s var(--aro-ease) both}
 
+/* Unread badge + status chips */
+@keyframes aroBadgeIn{from{opacity:0;transform:scale(.7)}to{opacity:1;transform:scale(1)}}
+.conv-badge{animation:aroBadgeIn .16s var(--aro-ease) both}
+.conv-pending,.conv-closed{animation:aroFadeIn .16s var(--aro-ease) both}
+
+/* Quote / pinned / attach chrome */
+.quote-preview{animation:aroSlideUp .18s var(--aro-ease) both}
+.pinned-bar{animation:aroSlideUp .2s var(--aro-ease) both}
+.attach-preview{transition:opacity .15s,transform .15s}
+.attach-btn{transition:background .15s,color .15s,transform .12s}
+.attach-btn:active{transform:scale(.94)}
+.attach-btn.attach-btn-active{transition:background .15s,color .15s,transform .18s}
+
+/* Day separator soft enter */
+.msg-day-sep{animation:aroFadeIn .18s var(--aro-ease) both}
+
+/* Feed media fade-in (avoid jank: opacity only) */
+.feed-item-media-single img,.feed-item-media-single video,
+.feed-media-cell img,.feed-media-cell video{
+  animation:aroFadeIn .22s var(--aro-ease) both;
+}
+
 /* Press feedback — lists & chrome (100–150ms) */
 .conv-item,.feed-nav-item,.aro-nav-item,.feed-item-action,.manage-item,.msg-ctx-item,
 .create-btn,.create-submit,.action-btn,.ring-action-sync,.feed-empty-retry,.confirm-btn,
@@ -1274,7 +1296,10 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
   .manage-dropdown.open,
   .invite-popover,
   .member-panel.member-open-mobile,
-  .feed-compose-preview{
+  .feed-compose-preview,
+  .quote-preview,.pinned-bar,.conv-badge,.conv-pending,.conv-closed,.msg-day-sep,
+  .feed-item-media-single img,.feed-item-media-single video,
+  .feed-media-cell img,.feed-media-cell video{
     animation:none!important;
   }
   .create-overlay.aro-leaving,
@@ -3441,6 +3466,8 @@ function renderQuotePreview() {
     + '<button class="quote-preview-close" id="quote-close" aria-label="' + esc(lang.close || 'Close') + '">&times;</button>';
   var closeBtn = $('quote-close');
   if (closeBtn) closeBtn.addEventListener('click', clearQuote);
+  // Restart enter motion when quote target changes
+  aroPlayEnter(wrap, 'aro-attach-enter');
 }
 
 function doForward(msg) {
