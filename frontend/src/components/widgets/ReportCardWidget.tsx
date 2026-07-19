@@ -35,6 +35,12 @@ import { useI18n } from '../../contexts/I18nContext'
 import { useLoopAnimation } from '../../hooks/animation'
 import { useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { extractColorsFromLoadedImage } from '../../utils/colorExtractor'
+import {
+  extractCardVisuals,
+  hasRenderableCardVisuals,
+  pickPlatformCardVisuals,
+  resolveReportPlatformId,
+} from '../../utils/reportCardVisuals'
 import { getLatestReportDeduped } from '../../utils/requestDedup'
 import { RatingBadge } from '../RatingBadge'
 import { GlowBackground } from './shared/GlowBackground'
@@ -4951,7 +4957,9 @@ export const ReportCardWidget = memo(
     const { t } = useI18n()
     const navigate = useNavigate()
     const localRef = useRef<HTMLDivElement | null>(null)
-    const platformId = (config.config?.platformId || 'bilibili') as string
+    // Prefer config.platformId; fall back to widget type `report-{platform}` so
+    // saved home layouts without nested config still load the right report.
+    const platformId = resolveReportPlatformId(config)
     const [reportData, setReportData] = useState<any>(null)
     const [loading, setLoading] = useState(true)
     const isOverviewControlled = controlledShowOverview !== undefined
@@ -5362,7 +5370,15 @@ export const ReportCardWidget = memo(
 
       // 外部直接提供数据（报告页复用）：不再自行请求，跟随 prop 更新
       if (externalData !== undefined) {
-        setReportData(externalData)
+        // Accept raw card_visuals or a full platform report envelope
+        const visuals =
+          extractCardVisuals(externalData) ??
+          (externalData &&
+          typeof externalData === 'object' &&
+          !Array.isArray(externalData)
+            ? (externalData as Record<string, unknown>)
+            : null)
+        setReportData(hasRenderableCardVisuals(visuals) ? visuals : null)
         setLoading(false)
         return
       }
@@ -5371,12 +5387,12 @@ export const ReportCardWidget = memo(
         try {
           // 使用去重机制避免多个 ReportCardWidget 同时请求
           const data = await getLatestReportDeduped()
-          const report = data.platform_reports?.find(
-            (r: any) => r.platform === platformId,
-          )
-          if (report) setReportData(report.card_visuals)
+          // Fail closed on empty / mismatched mapping so home never mounts a
+          // blank shell when card_visuals is missing or {}.
+          setReportData(pickPlatformCardVisuals(data, platformId))
         } catch (err) {
           console.error(`${t.reportCardWidget.fetchReportFailed}:`, err)
+          setReportData(null)
         } finally {
           setLoading(false)
         }
