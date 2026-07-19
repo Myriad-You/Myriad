@@ -2548,25 +2548,136 @@ function applyRoleControls() {
   }
 }
 
+/**
+ * Apply a known role string onto state.
+ * @returns {boolean} true if role was recognized
+ */
+function applyKnownUserRole(role) {
+  var r = role == null ? '' : String(role).trim().toLowerCase();
+  if (r === 'admin') {
+    state.userRole = 'admin';
+    state.isAdmin = true;
+    state.isGuest = false;
+    return true;
+  }
+  if (r === 'user' || r === 'member' || r === 'owner') {
+    state.userRole = 'user';
+    state.isAdmin = false;
+    state.isGuest = false;
+    return true;
+  }
+  if (r === 'guest') {
+    state.userRole = 'guest';
+    state.isAdmin = false;
+    state.isGuest = true;
+    return true;
+  }
+  return false;
+}
+
+/** True when context.getUser looks like a real authenticated account (not empty guest). */
+function isAuthenticatedUserContext(user) {
+  if (!user || typeof user !== 'object') return false;
+  // Explicit guest on context wins.
+  if (user.role === 'guest') return false;
+  var id = user.id != null ? String(user.id).trim() : '';
+  var username = user.username != null ? String(user.username).trim() : '';
+  if (id && id !== '0' && id.toLowerCase() !== 'guest' && id.toLowerCase() !== 'anonymous') {
+    return true;
+  }
+  if (username && username.toLowerCase() !== 'guest' && username.toLowerCase() !== 'anonymous') {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Resolve isGuest carefully.
+ * P0: do NOT stay guest forever when role APIs are missing/throw but a real user is logged in.
+ * Only force guest when role is explicitly 'guest' OR there is no authenticated user.
+ */
 async function loadUserRole() {
+  // Start pessimistic; promote as soon as we have evidence of membership.
   state.userRole = 'guest';
   state.isGuest = true;
   state.isAdmin = false;
+
+  var roleFromApi = null;
+  var roleApiFailed = false;
   try {
     if (Tapp.user && typeof Tapp.user.getRole === 'function') {
-      state.userRole = (await Tapp.user.getRole()) || 'guest';
-      state.isGuest = state.userRole === 'guest';
-      state.isAdmin = state.userRole === 'admin';
+      roleFromApi = await Tapp.user.getRole();
     } else if (Tapp.user && typeof Tapp.user.isAdmin === 'function') {
-      state.isAdmin = !!(await Tapp.user.isAdmin());
-      state.userRole = state.isAdmin ? 'admin' : 'user';
-      state.isGuest = false;
+      roleFromApi = (await Tapp.user.isAdmin()) ? 'admin' : 'user';
+    } else if (Tapp.user && typeof Tapp.user.isLoggedIn === 'function') {
+      // getRole missing: isLoggedIn true ⇒ at least a member.
+      roleFromApi = (await Tapp.user.isLoggedIn()) ? 'user' : 'guest';
+    } else {
+      roleApiFailed = true; // no role API surface at all
     }
   } catch (e) {
-    state.userRole = 'guest';
-    state.isGuest = true;
-    state.isAdmin = false;
+    roleApiFailed = true;
+    console.warn('[Aro] loadUserRole role API failed:', e);
   }
+
+  // Empty string / null / undefined are NOT definitive "guest" — fall through to getUser.
+  // Host getRole often does `userRole || 'guest'`; treat 'guest' as soft until getUser confirms.
+  if (roleFromApi != null && String(roleFromApi).trim() !== '') {
+    if (applyKnownUserRole(roleFromApi)) {
+      if (!state.isGuest) {
+        // Definitive member/admin from role API.
+        applyAdminControls();
+        applyRoleControls();
+        return;
+      }
+      // role API said guest — verify against context user before locking the whole UI.
+    }
+  }
+
+  // Role API missing, failed, guest-default, or unknown — probe authenticated user context.
+  var user = null;
+  try {
+    if (Tapp.context && typeof Tapp.context.getUser === 'function') {
+      user = await Tapp.context.getUser();
+    }
+  } catch (e2) {
+    console.warn('[Aro] loadUserRole getUser failed:', e2);
+  }
+
+  if (user && user.role != null && String(user.role).trim() !== '') {
+    if (applyKnownUserRole(user.role)) {
+      applyAdminControls();
+      applyRoleControls();
+      return;
+    }
+  }
+
+  if (user && user.isAdmin === true) {
+    state.userRole = 'admin';
+    state.isAdmin = true;
+    state.isGuest = false;
+  } else if (isAuthenticatedUserContext(user)) {
+    // Real user id/username present: default member, NOT guest-locked UI.
+    // Covers: getRole throw, getRole missing, getRole falsely 'guest' from host default.
+    state.userRole = 'user';
+    state.isAdmin = false;
+    state.isGuest = false;
+  } else {
+    // No authenticated user (or context role guest / empty) — keep guest lock.
+    state.userRole = 'guest';
+    state.isAdmin = false;
+    state.isGuest = true;
+  }
+
+  if (roleApiFailed || (roleFromApi != null && String(roleFromApi).trim().toLowerCase() === 'guest')) {
+    console.warn(
+      '[Aro] loadUserRole resolved isGuest=' + state.isGuest
+        + ' role=' + state.userRole
+        + ' roleApi=' + String(roleFromApi)
+        + ' user=' + (user && (user.username || user.id) ? (user.username || user.id) : 'none')
+    );
+  }
+
   applyAdminControls();
   applyRoleControls();
 }

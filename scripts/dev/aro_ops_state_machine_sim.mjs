@@ -218,6 +218,133 @@ console.log('9) currentView always set on switchView-like transition')
   )
 }
 
+// --- loadUserRole fail-open for authenticated members ---
+function applyKnownUserRole(state, role) {
+  const r = role == null ? '' : String(role).trim().toLowerCase()
+  if (r === 'admin') {
+    state.userRole = 'admin'
+    state.isAdmin = true
+    state.isGuest = false
+    return true
+  }
+  if (r === 'user' || r === 'member' || r === 'owner') {
+    state.userRole = 'user'
+    state.isAdmin = false
+    state.isGuest = false
+    return true
+  }
+  if (r === 'guest') {
+    state.userRole = 'guest'
+    state.isAdmin = false
+    state.isGuest = true
+    return true
+  }
+  return false
+}
+
+function isAuthenticatedUserContext(user) {
+  if (!user || typeof user !== 'object') return false
+  if (user.role === 'guest') return false
+  const id = user.id != null ? String(user.id).trim() : ''
+  const username = user.username != null ? String(user.username).trim() : ''
+  if (id && id !== '0' && id.toLowerCase() !== 'guest' && id.toLowerCase() !== 'anonymous') {
+    return true
+  }
+  if (
+    username &&
+    username.toLowerCase() !== 'guest' &&
+    username.toLowerCase() !== 'anonymous'
+  ) {
+    return true
+  }
+  return false
+}
+
+/** Mirrors fixed loadUserRole resolution order (pure). */
+function resolveUserRole({ roleFromApi, user }) {
+  const state = { userRole: 'guest', isGuest: true, isAdmin: false }
+  if (roleFromApi != null && String(roleFromApi).trim() !== '') {
+    if (applyKnownUserRole(state, roleFromApi)) {
+      if (!state.isGuest) return state
+      // soft guest — fall through to getUser
+    }
+  }
+  if (user && user.role != null && String(user.role).trim() !== '') {
+    if (applyKnownUserRole(state, user.role)) return state
+  }
+  if (user && user.isAdmin === true) {
+    state.userRole = 'admin'
+    state.isAdmin = true
+    state.isGuest = false
+    return state
+  }
+  if (isAuthenticatedUserContext(user)) {
+    state.userRole = 'user'
+    state.isAdmin = false
+    state.isGuest = false
+    return state
+  }
+  state.userRole = 'guest'
+  state.isAdmin = false
+  state.isGuest = true
+  return state
+}
+
+console.log('10) loadUserRole: role API fail + real user ⇒ NOT guest-locked')
+{
+  const r = resolveUserRole({
+    roleFromApi: null,
+    user: { id: '42', username: 'haru', role: undefined },
+  })
+  check('fallback member', !r.isGuest && r.userRole === 'user')
+}
+
+console.log('11) loadUserRole: host false guest + real user ⇒ promote to member')
+{
+  // Host returns userRole||'guest' even when logged in; getUser has real id.
+  const r = resolveUserRole({
+    roleFromApi: 'guest',
+    user: { id: '1', username: 'x' },
+  })
+  check('promote past false guest', !r.isGuest && r.userRole === 'user')
+}
+
+console.log('11b) loadUserRole: true guest (role guest + no auth identity)')
+{
+  const r = resolveUserRole({
+    roleFromApi: 'guest',
+    user: { role: 'guest' },
+  })
+  check('true guest context', r.isGuest)
+}
+
+console.log('12) loadUserRole: empty getRole + getUser.role=user')
+{
+  const r = resolveUserRole({
+    roleFromApi: '',
+    user: { id: '9', username: 'owner', role: 'user' },
+  })
+  check('empty role string falls through to user.role', !r.isGuest && r.userRole === 'user')
+}
+
+console.log('13) loadUserRole: no user, role API fail ⇒ guest')
+{
+  const r = resolveUserRole({
+    roleFromApi: null,
+    user: null,
+  })
+  check('true guest', r.isGuest)
+}
+
+console.log('14) loadUserRole: admin from getRole')
+{
+  const r = resolveUserRole({
+    roleFromApi: 'admin',
+    user: null,
+  })
+  check('admin', !r.isGuest && r.isAdmin && r.userRole === 'admin')
+}
+
 console.log('\n' + (failures.length ? `FAILED ${failures.length}` : 'ALL PASSED'))
 if (failures.length) {
   for (const f of failures) console.error(' -', f)
