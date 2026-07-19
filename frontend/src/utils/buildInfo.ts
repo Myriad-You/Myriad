@@ -12,7 +12,7 @@ function validCommit(value: string | null | undefined): string | null {
 }
 
 export function getBuildInfo(): BuildInfo {
-  const fallbackVersion = `v${__APP_VERSION__ || '0.3.1'}`
+  const fallbackVersion = `v${__APP_VERSION__ || '0.3.2'}`
   if (typeof document === 'undefined') {
     return { version: fallbackVersion, commitSha: null, commitUrl: null }
   }
