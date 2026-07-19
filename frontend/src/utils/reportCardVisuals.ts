@@ -6,13 +6,12 @@
  * are unit-tested so field-mapping regressions surface as test failures.
  */
 
+/** Minimal structural type — accepts WidgetConfig without index-signature friction. */
 export interface WidgetConfigLike {
   type?: string
   config?: {
     platformId?: unknown
-    [key: string]: unknown
-  }
-  [key: string]: unknown
+  } | null
 }
 
 /**
