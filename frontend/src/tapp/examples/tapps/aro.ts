@@ -6681,21 +6681,17 @@ var COMPOSE_DRAFT_KEY = 'aro_compose_draft';
 var composeDraftTextOnly = false;
 
 /**
- * Contextual + menu (owner feed only):
- * - timeline  → Post only
- * - following → Follow only
- * - followers / published / guest / non-feed → no +
+ * Tab-scoped + menu gates (GOAL LOCK / #118):
+ * - canComposePost: !guest && feed view && sub===timeline
+ * - canFollowFromFeed: !guest && feed view && sub===following
+ * Plus wrap only when either is true (never both items on every tab).
  */
 function canComposePost() {
-  return !state.isGuest
-    && state.currentView === 'feed'
-    && state.feedSubTab === 'timeline';
+  return !state.isGuest && state.currentView === 'feed' && state.feedSubTab === 'timeline';
 }
 
 function canFollowFromFeed() {
-  return !state.isGuest
-    && state.currentView === 'feed'
-    && state.feedSubTab === 'following';
+  return !state.isGuest && state.currentView === 'feed' && state.feedSubTab === 'following';
 }
 
 function isComposeBusy() {
@@ -6818,22 +6814,15 @@ function updateComposeButtonVisibility() {
 }
 
 /**
- * Strict + visibility (GOAL LOCK / #118):
- *   showPlusWrap = !isGuest && currentView==='feed'
- *     && (feedSubTab==='timeline' || feedSubTab==='following')
- * Menu:
- *   timeline  → Post only (hide Follow)
- *   following → Follow only (hide Post)
- * Never list both on the same tab.
+ * Strict + visibility:
+ *   showPlusWrap = canComposePost() || canFollowFromFeed()
+ *                = !guest && feed && (timeline || following)
+ * Menu: timeline→Post only; following→Follow only; never both on one tab.
  */
 function updateFeedPlusVisibility() {
-  var onFeed = state.currentView === 'feed';
-  var sub = state.feedSubTab;
-  var showPlusWrap = !state.isGuest && onFeed
-    && (sub === 'timeline' || sub === 'following');
-  // Tab-scoped menu items (not both on every tab)
-  var showPost = showPlusWrap && sub === 'timeline';
-  var showFollow = showPlusWrap && sub === 'following';
+  var showPost = canComposePost();     // !guest && feed && timeline
+  var showFollow = canFollowFromFeed(); // !guest && feed && following
+  var showPlusWrap = showPost || showFollow;
 
   var wrap = $('feed-plus-wrap');
   if (wrap) wrap.style.display = showPlusWrap ? '' : 'none';
