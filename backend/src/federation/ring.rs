@@ -160,7 +160,7 @@ pub async fn create_ring(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_ring_memberships
            (ring_id, ring_name, ring_type, gossip_config, known_peers, joined_at)
-           VALUES ($1, $2, $3, $4, '[]'::jsonb, NOW())"#,
+           VALUES ($1, $2, $3, $4, '[]'::json, NOW())"#,
         [
             ring_id.clone().into(),
             req.name.clone().into(),

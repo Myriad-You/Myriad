@@ -3525,6 +3525,8 @@ fn get_expected_schema() -> Vec<TableDef> {
                     is_nullable: true,
                     default_value: None,
                 },
+                // Plain json (not jsonb). SQL ops that need jsonb (@>, ||, jsonb_array_elements)
+                // must cast: COALESCE(known_peers, '[]'::json)::jsonb — see federation/ring.rs.
                 ColumnDef {
                     name: "known_peers".into(),
                     data_type: "json".into(),
