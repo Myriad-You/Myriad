@@ -1826,12 +1826,24 @@ function dayLabel(iso) {
   try { return d.toLocaleDateString(currentLocale, opts); } catch (e) { return d.toLocaleDateString(); }
 }
 
-/** 发送按钮状态：有文字或附件时才可点，且高亮为主色 */
+/** 发送按钮/composer 状态：关闭会话、发送中、无内容时不可发送 */
 function updateSendState() {
   var btn = $('send-btn');
-  if (!btn) return;
   var input = $('msg-input');
-  var ready = !!((input && input.value.trim()) || state.pendingAttach);
+  var attach = $('attach-btn');
+  var closed = !!(state.activeKind === 'channel' && state.channelDetail && state.channelDetail.status === 'closed');
+  var blocked = !state.activeId || closed || !!state.sending;
+
+  if (input) {
+    input.disabled = closed || !state.activeId;
+    if (closed) input.placeholder = lang.closed || lang.typing || '';
+    else if (lang.typing) input.placeholder = lang.typing;
+  }
+  if (attach) attach.disabled = blocked;
+
+  if (!btn) return;
+  var hasContent = !!((input && !input.disabled && input.value.trim()) || state.pendingAttach);
+  var ready = !blocked && hasContent;
   btn.disabled = !ready;
   btn.classList.toggle('send-ready', ready);
 }
@@ -2979,10 +2991,25 @@ function renderPinnedBar() {
 // ==================== Message Context Menu ====================
 var _msgMenu = null;
 var _longPressTimer = null;
+var _msgMenuIgnoreUntil = 0;
 
 function closeMsgMenu() {
   if (_msgMenu) { _msgMenu.remove(); _msgMenu = null; }
 }
+
+function onMsgMenuOutside(e) {
+  if (!_msgMenu) return;
+  if (Date.now() < _msgMenuIgnoreUntil) return;
+  // Keep open when interacting with the menu itself
+  if (_msgMenu.contains(e.target)) return;
+  // Opening control (⋯) handles its own toggle
+  if (e.target && e.target.closest && e.target.closest('.msg-more-btn')) return;
+  closeMsgMenu();
+}
+
+// Single document listeners (not re-bound per render)
+document.addEventListener('click', onMsgMenuOutside);
+document.addEventListener('contextmenu', onMsgMenuOutside);
 
 function showMsgMenu(msgEl, x, y) {
   closeMsgMenu();
@@ -2995,16 +3022,21 @@ function showMsgMenu(msgEl, x, y) {
   if (!msg) return;
 
   var isPinned = !!msg.is_pinned;
+  var canPin = state.activeKind === 'room' && typeof Tapp.federation.pinRoomMessage === 'function';
   var pinSvg = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 11V4a1 1 0 011-1h4a1 1 0 011 1v7"/><path d="M5 17h14"/><path d="M7 11l-2 6h14l-2-6"/></svg>';
   var quoteSvg = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V21z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3z"/></svg>';
   var forwardSvg = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/><path d="M14 9l3 3-3 3"/><path d="M17 12H9"/></svg>';
 
   var menu = document.createElement('div');
   menu.className = 'msg-ctx-menu';
-  menu.innerHTML =
-    '<button class="msg-ctx-item" data-action="pin">' + pinSvg + '<span>' + (isPinned ? esc(lang.msgUnpin) : esc(lang.msgPin)) + '</span></button>'
-    + '<button class="msg-ctx-item" data-action="quote">' + quoteSvg + '<span>' + esc(lang.msgQuote) + '</span></button>'
+  var html = '';
+  // Pin only for rooms — channel pin has no federation API
+  if (canPin) {
+    html += '<button class="msg-ctx-item" data-action="pin">' + pinSvg + '<span>' + (isPinned ? esc(lang.msgUnpin) : esc(lang.msgPin)) + '</span></button>';
+  }
+  html += '<button class="msg-ctx-item" data-action="quote">' + quoteSvg + '<span>' + esc(lang.msgQuote) + '</span></button>'
     + '<button class="msg-ctx-item" data-action="forward">' + forwardSvg + '<span>' + esc(lang.msgForward) + '</span></button>';
+  menu.innerHTML = html;
 
   document.body.appendChild(menu);
   var mw = menu.offsetWidth, mh = menu.offsetHeight;
@@ -3016,10 +3048,14 @@ function showMsgMenu(msgEl, x, y) {
   menu.style.left = left + 'px';
   menu.style.top = top + 'px';
   _msgMenu = menu;
+  // Ignore the opening gesture / synthetic click so long-press doesn't instantly dismiss
+  _msgMenuIgnoreUntil = Date.now() + 400;
 
   menu.addEventListener('click', function (e) {
     var btn = e.target.closest('[data-action]');
     if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
     var action = btn.dataset.action;
     closeMsgMenu();
     if (action === 'pin') doTogglePin(msg);
@@ -3028,9 +3064,11 @@ function showMsgMenu(msgEl, x, y) {
   });
 }
 
-document.addEventListener('click', function () { closeMsgMenu(); });
-
 function bindMsgContextMenu(container) {
+  // Bind once — renderMessages replaces innerHTML but reuses #messages
+  if (!container || container.dataset.msgMenuBound === '1') return;
+  container.dataset.msgMenuBound = '1';
+
   container.addEventListener('contextmenu', function (e) {
     var row = e.target.closest('.msg-row');
     if (!row) return;
@@ -3041,10 +3079,13 @@ function bindMsgContextMenu(container) {
     var row = e.target.closest('.msg-row');
     if (!row) return;
     if (e.target.closest('a, button, img')) return;
+    var touch = e.touches[0];
+    if (!touch) return;
+    var startX = touch.clientX;
+    var startY = touch.clientY;
     _longPressTimer = setTimeout(function () {
       _longPressTimer = null;
-      var touch = e.touches[0];
-      if (touch) showMsgMenu(row, touch.clientX, touch.clientY);
+      showMsgMenu(row, startX, startY);
     }, 500);
   }, { passive: true });
   container.addEventListener('touchend', function () {
@@ -3053,14 +3094,30 @@ function bindMsgContextMenu(container) {
   container.addEventListener('touchmove', function () {
     if (_longPressTimer) { clearTimeout(_longPressTimer); _longPressTimer = null; }
   });
+  container.addEventListener('click', function (e) {
+    var more = e.target.closest('.msg-more-btn');
+    if (!more || !container.contains(more)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var row = more.closest('.msg-row');
+    if (!row) return;
+    // Toggle if already open for this message
+    if (_msgMenu && row.dataset.msgId && _msgMenu.dataset.forMsg === row.dataset.msgId) {
+      closeMsgMenu();
+      return;
+    }
+    var rect = more.getBoundingClientRect();
+    showMsgMenu(row, rect.left, rect.bottom + 4);
+    if (_msgMenu) _msgMenu.dataset.forMsg = row.dataset.msgId || '';
+  });
 }
 
 async function doTogglePin(msg) {
+  if (state.activeKind !== 'room' || !state.activeId) return;
+  if (typeof Tapp.federation.pinRoomMessage !== 'function') return;
   var newPinned = !msg.is_pinned;
   try {
-    if (state.activeKind === 'room') {
-      await Tapp.federation.pinRoomMessage(state.activeId, msg.message_id, newPinned);
-    }
+    await Tapp.federation.pinRoomMessage(state.activeId, msg.message_id, newPinned);
     msg.is_pinned = newPinned;
     state.messagesFp = messagesFingerprint(state.messages);
     state.pinnedBarDismissed = false;
@@ -3342,17 +3399,7 @@ function renderMessages() {
   container.innerHTML = html;
   container.scrollTop = container.scrollHeight;
 
-  // Hover ⋯ opens message menu (desktop); long-press still handled in bindMsgContextMenu
-  container.querySelectorAll('.msg-more-btn').forEach(function (btn) {
-    btn.addEventListener('click', function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      var row = btn.closest('.msg-row');
-      if (!row) return;
-      var rect = btn.getBoundingClientRect();
-      showMsgMenu(row, rect.left, rect.bottom + 4);
-    });
-  });
+  // ⋯ / long-press / contextmenu bound once via bindMsgContextMenu
 
   // Bind tapp accept/reject buttons
   container.querySelectorAll('.msg-share-btn-accept').forEach(function (btn) {
@@ -3705,6 +3752,8 @@ function renderChatHeader() {
   if (toggleBtn) toggleBtn.addEventListener('click', toggleManageDropdown);
   var memberToggle = $('member-toggle-btn');
   if (memberToggle) memberToggle.addEventListener('click', toggleMemberPanel);
+
+  if (typeof updateSendState === 'function') updateSendState();
 }
 
 // ==================== Member Panel Toggle ====================
@@ -3863,12 +3912,14 @@ async function doSend() {
 
   // Need either text or attachment
   if ((!text && !attach) || !state.activeId || state.sending) return;
+  if (state.activeKind === 'channel' && state.channelDetail && state.channelDetail.status === 'closed') return;
 
   input.value = '';
   autoResizeInput(input);
-  updateSendState();
   state.sending = true;
+  updateSendState();
   closeAttachMenu();
+  closeMsgMenu();
 
   try {
     var msgPayload;
@@ -5433,7 +5484,8 @@ const PAGE_MOD_EVENTS = `\
   var ringSyncBtn = $('ring-sync-btn');
   if (ringSyncBtn) ringSyncBtn.addEventListener('click', doTriggerSync);
   var ringManageBtn = $('ring-manage-btn');
-  if (ringManageBtn) ringManageBtn.addEventListener('click', function () {
+  if (ringManageBtn) ringManageBtn.addEventListener('click', function (e) {
+    e.stopPropagation();
     var dd = $('ring-manage-dropdown');
     if (dd) dd.classList.toggle('open');
   });
@@ -5443,6 +5495,14 @@ const PAGE_MOD_EVENTS = `\
     if (state.activeRingId && (await aroConfirm(lang.leaveRingConfirm, true))) {
       doLeaveRing(state.activeRingId);
     }
+  });
+  // Close ring manage menu on outside click
+  document.addEventListener('click', function (e) {
+    var dd = $('ring-manage-dropdown');
+    if (!dd || !dd.classList.contains('open')) return;
+    var wrap = dd.closest('.manage-wrap') || dd.parentElement;
+    if (wrap && wrap.contains(e.target)) return;
+    dd.classList.remove('open');
   });
   var ringAddPeerBtn = $('ring-add-peer-btn');
   if (ringAddPeerBtn) ringAddPeerBtn.addEventListener('click', doAddPeer);
@@ -5560,19 +5620,33 @@ const PAGE_MOD_EVENTS = `\
   var backBtn = $('back-btn');
   if (backBtn) {
     backBtn.addEventListener('click', function () {
-      $('sidebar').classList.remove('sidebar-hidden-mobile');
-      $('chat-container').style.display = 'none';
-      $('member-panel').style.display = 'none';
-      $('member-panel').classList.remove('member-open-mobile');
-      $('empty-state').style.display = '';
+      var sidebar = $('sidebar');
+      var chat = $('chat-container');
+      var members = $('member-panel');
+      var empty = $('empty-state');
+      if (sidebar) sidebar.classList.remove('sidebar-hidden-mobile');
+      if (chat) chat.style.display = 'none';
+      if (members) {
+        members.style.display = 'none';
+        members.classList.remove('member-open-mobile');
+        members.classList.remove('member-expanded-tablet');
+      }
+      if (empty) empty.style.display = '';
       clearPendingAttach();
       closeAttachMenu();
+      if (typeof clearQuote === 'function') clearQuote();
+      closeMsgMenu();
       stopPolling();
       unsubscribeRealtime();
       state.activeKind = null;
       state.activeId = null;
       state.messages = [];
       state.messagesFp = '';
+      state.channelDetail = null;
+      state.roomDetail = null;
+      state.members = [];
+      renderConvList();
+      updateSendState();
     });
   }
 
