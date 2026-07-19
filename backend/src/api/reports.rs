@@ -1663,11 +1663,9 @@ fn finalize_public_platform_report(platform: &str, report: Value) -> Value {
         let normalized_visuals = match obj.get("card_visuals") {
             Some(v) if v.is_object() => {
                 // Unwrap double-nested card_visuals: { card_visuals: { …stats } }
-                if let Some(inner) = v.get("card_visuals").filter(|i| i.is_object()) {
-                    Some(inner.clone())
-                } else {
-                    None
-                }
+                v.get("card_visuals")
+                    .filter(|i| i.is_object())
+                    .cloned()
             }
             Some(v) if v.is_string() => {
                 let raw = v.as_str().unwrap_or("").to_string();
