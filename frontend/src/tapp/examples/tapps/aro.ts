@@ -1146,6 +1146,159 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .dark .confirm-dialog{background:var(--bg-primary,#1a1a1a)}
 .dark .confirm-message{color:rgba(255,255,255,.9)}
 .dark .confirm-btn-cancel{background:rgba(255,255,255,.08);color:rgba(255,255,255,.9)}
+
+/* ===== Motion layer (intentional, short, reduced-motion aware) ===== */
+:root{
+  --aro-ease:cubic-bezier(.2,.8,.2,1);
+  --aro-dur-fast:120ms;
+  --aro-dur:200ms;
+  --aro-dur-view:240ms;
+}
+@keyframes aroFadeIn{from{opacity:0}to{opacity:1}}
+@keyframes aroFadeOut{from{opacity:1}to{opacity:0}}
+@keyframes aroViewIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+@keyframes aroSlideInRight{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:translateX(0)}}
+@keyframes aroSlideInLeft{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:translateX(0)}}
+@keyframes aroSlideUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes aroScaleIn{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}
+@keyframes aroMsgIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+@keyframes aroPopIn{from{opacity:0;transform:scale(.94) translateY(4px)}to{opacity:1;transform:scale(1) translateY(0)}}
+@keyframes aroSheetOut{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(12px)}}
+@keyframes aroScaleOut{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(.97)}}
+
+/* View switch: messages / feed / rings */
+.aro-view.aro-view-active.aro-view-enter{
+  animation:aroViewIn var(--aro-dur-view) var(--aro-ease) both;
+}
+
+/* Chat open empty → thread; sidebar return */
+.chat-container.aro-panel-enter{animation:aroSlideInRight var(--aro-dur-view) var(--aro-ease) both}
+.empty-state.aro-panel-enter{animation:aroFadeIn var(--aro-dur) var(--aro-ease) both}
+.sidebar.aro-panel-enter{animation:aroSlideInLeft var(--aro-dur-view) var(--aro-ease) both}
+.panel-main.aro-panel-enter,
+.panel-detail.aro-panel-enter{animation:aroSlideInRight var(--aro-dur-view) var(--aro-ease) both}
+
+/* Mobile member sheet */
+@media(max-width:768px){
+  .member-panel.member-open-mobile{animation:aroSlideInRight 220ms var(--aro-ease) both}
+}
+
+/* Dialogs / sheets / confirm / menus */
+.create-overlay{animation:aroFadeIn var(--aro-dur) ease both}
+.create-dialog{animation:aroScaleIn var(--aro-dur) var(--aro-ease) both}
+.create-overlay.aro-leaving{animation:aroFadeOut 160ms ease both;pointer-events:none}
+.create-overlay.aro-leaving .create-dialog{animation:aroScaleOut 160ms ease both}
+
+.confirm-overlay{animation:aroFadeIn .16s ease both}
+.confirm-dialog{animation:aroScaleIn .16s var(--aro-ease) both}
+.confirm-overlay.aro-leaving{animation:aroFadeOut .14s ease both;pointer-events:none}
+.confirm-overlay.aro-leaving .confirm-dialog{animation:aroScaleOut .14s ease both}
+
+.picker-overlay.aro-leaving{animation:aroFadeOut .16s ease both;pointer-events:none}
+.picker-overlay.aro-leaving .picker-sheet{animation:aroSheetOut .16s ease both}
+
+.forward-sheet{animation:aroScaleIn .18s var(--aro-ease) both}
+.forward-overlay.aro-leaving{animation:aroFadeOut .14s ease both;pointer-events:none}
+.forward-overlay.aro-leaving .forward-sheet{animation:aroScaleOut .14s ease both}
+
+.msg-ctx-menu.aro-leaving{animation:aroFadeOut .1s ease both;pointer-events:none}
+.manage-dropdown.open{animation:aroPopIn .14s var(--aro-ease) both}
+.invite-popover{animation:aroPopIn .14s var(--aro-ease) both}
+
+/* Composer + attach */
+.feed-composer{
+  border-radius:0 0 14px 14px;
+  box-shadow:0 8px 24px rgba(0,0,0,.04);
+}
+.feed-composer.aro-compose-enter{animation:aroSlideUp .22s var(--aro-ease) both}
+.feed-compose-preview{animation:aroScaleIn .16s var(--aro-ease) both}
+.feed-compose-tool{transition:border-color .12s,color .12s,background .12s,transform .1s}
+.feed-compose-tool:active{transform:scale(.97)}
+.feed-compose-publish,.feed-compose-cancel{transition:opacity .15s,transform .1s,filter .12s}
+.feed-compose-publish:hover:not(:disabled){filter:brightness(1.05)}
+.feed-compose-publish:active:not(:disabled),.feed-compose-cancel:active:not(:disabled){transform:scale(.97)}
+.feed-compose-preview-remove{transition:background .12s,transform .1s}
+.feed-compose-preview-remove:active{transform:scale(.92)}
+
+.attach-preview.aro-attach-enter{animation:aroPopIn .18s var(--aro-ease) both}
+.send-btn{transition:background .15s,color .15s,opacity .15s,transform .12s,box-shadow .15s}
+.send-btn.send-ready{box-shadow:0 2px 10px rgba(var(--tapp-primary-rgb,99,102,241),.32)}
+
+/* Message appear (new only) */
+.msg-row.msg-appear{animation:aroMsgIn .2s var(--aro-ease) both}
+
+/* Press feedback — lists & chrome (100–150ms) */
+.conv-item,.feed-nav-item,.aro-nav-item,.feed-item-action,.manage-item,.msg-ctx-item,
+.create-btn,.create-submit,.action-btn,.ring-action-sync,.feed-empty-retry,.confirm-btn,
+.picker-footer-btn,.picker-item,.attach-menu-item,.feed-follow-btn,.invite-pop-contact,
+.member-item,.forward-item{
+  transition:background .12s,color .12s,opacity .12s,transform .1s,border-color .12s,filter .12s;
+}
+.conv-item:active,.feed-nav-item:active,.aro-nav-item:active,.feed-item-action:active,
+.manage-item:active,.msg-ctx-item:active,.create-btn:active,.create-submit:active:not(:disabled),
+.action-btn:active,.ring-action-sync:active,.feed-empty-retry:active,.confirm-btn:active,
+.picker-footer-btn:active,.picker-item:active,.attach-menu-item:active,.feed-follow-btn:active,
+.invite-pop-contact:active,.forward-item:active{
+  transform:scale(.97);
+}
+.create-btn:active{transform:scale(.94)}
+
+/* Empty / error soft enter */
+.feed-empty,.messages-empty,.conv-empty{animation:aroFadeIn var(--aro-dur) var(--aro-ease) both}
+.feed-item{transition:background .12s,transform .1s}
+.feed-item:active{background:rgba(128,128,128,.04)}
+
+/* Profile card polish */
+.feed-profile-card{transition:border-color .15s,box-shadow .15s,background .15s}
+.feed-profile-card:hover{border-color:rgba(var(--tapp-primary-rgb,100,100,255),.22);box-shadow:0 2px 10px rgba(0,0,0,.04)}
+.dark .feed-profile-card:hover{box-shadow:0 2px 12px rgba(0,0,0,.25)}
+
+/* Reduced motion: dampen intentional motion; keep spinners usable but quiet */
+@media (prefers-reduced-motion:reduce){
+  :root{
+    --aro-dur-fast:1ms;
+    --aro-dur:1ms;
+    --aro-dur-view:1ms;
+  }
+  .aro-view-enter,
+  .aro-panel-enter,
+  .aro-compose-enter,
+  .aro-attach-enter,
+  .msg-appear,
+  .feed-empty,.messages-empty,.conv-empty,
+  .create-overlay,.create-dialog,
+  .confirm-overlay,.confirm-dialog,
+  .picker-overlay,.picker-sheet,
+  .forward-overlay,.forward-sheet,
+  .msg-ctx-menu,
+  .manage-dropdown.open,
+  .invite-popover,
+  .member-panel.member-open-mobile,
+  .feed-compose-preview{
+    animation:none!important;
+  }
+  .create-overlay.aro-leaving,
+  .confirm-overlay.aro-leaving,
+  .picker-overlay.aro-leaving,
+  .forward-overlay.aro-leaving,
+  .msg-ctx-menu.aro-leaving,
+  .create-overlay.aro-leaving .create-dialog,
+  .confirm-overlay.aro-leaving .confirm-dialog,
+  .picker-overlay.aro-leaving .picker-sheet,
+  .forward-overlay.aro-leaving .forward-sheet{
+    animation:none!important;
+  }
+  .conv-item:active,.feed-nav-item:active,.aro-nav-item:active,.feed-item-action:active,
+  .manage-item:active,.msg-ctx-item:active,.create-btn:active,.create-submit:active:not(:disabled),
+  .action-btn:active,.ring-action-sync:active,.feed-empty-retry:active,.confirm-btn:active,
+  .picker-footer-btn:active,.picker-item:active,.attach-menu-item:active,.feed-follow-btn:active,
+  .invite-pop-contact:active,.forward-item:active,
+  .feed-compose-btn:active,.feed-compose-publish:active:not(:disabled),.feed-compose-cancel:active:not(:disabled),
+  .feed-compose-tool:active,.send-btn.send-ready:active:not(:disabled){
+    transform:none!important;
+  }
+  .feed-skeleton-avatar,.feed-skeleton-line{animation:none!important;background:rgba(128,128,128,.1)}
+}
 `
 
 const ARO_I18N: Record<string, Record<string, string>> = {
@@ -1207,6 +1360,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "dateToday": "Today",
     "dateYesterday": "Yesterday",
     "disconnected": "Offline",
+    "dismiss": "Dismiss",
     "dissolve": "Dissolve group",
     "dissolveConfirm": "Dissolve this group? Everyone will lose access. This can't be undone.",
     "dissolveFail": "Couldn't dissolve group",
@@ -1300,6 +1454,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "refresh": "Refresh",
     "rejectTapp": "Decline",
     "remoteVer": "Shared version",
+    "remove": "Remove",
     "removeBtn": "Unpublish",
     "removePeerFail": "Couldn't remove peer",
     "ringNamePlaceholder": "Ring name",
@@ -1402,6 +1557,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "dateToday": "今日",
     "dateYesterday": "昨日",
     "disconnected": "オフライン",
+    "dismiss": "閉じる",
     "dissolve": "グループを解散",
     "dissolveConfirm": "このグループを解散しますか？メンバーはアクセスできなくなり、元に戻せません。",
     "dissolveFail": "解散に失敗しました",
@@ -1495,6 +1651,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "refresh": "更新",
     "rejectTapp": "拒否",
     "remoteVer": "共有バージョン",
+    "remove": "削除",
     "removeBtn": "公開を取り消す",
     "removePeerFail": "ピアの削除に失敗しました",
     "ringNamePlaceholder": "リング名",
@@ -1597,6 +1754,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "dateToday": "今天",
     "dateYesterday": "昨天",
     "disconnected": "未连接",
+    "dismiss": "关闭",
     "dissolve": "解散群组",
     "dissolveConfirm": "确定解散此群组？所有成员将失去访问权限，且无法撤销。",
     "dissolveFail": "解散失败",
@@ -1690,6 +1848,7 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "refresh": "刷新",
     "rejectTapp": "拒绝",
     "remoteVer": "分享版本",
+    "remove": "移除",
     "removeBtn": "取消发布",
     "removePeerFail": "移除节点失败",
     "ringNamePlaceholder": "环网名称",
@@ -1759,6 +1918,8 @@ var state = {
   activeId: null,
   messages: [],
   messagesFp: '',
+  /** Skip bubble appear animation on next renderMessages (e.g. open chat). */
+  skipMsgAppear: false,
   members: [],
   channelDetail: null,
   roomDetail: null,
@@ -1832,6 +1993,67 @@ var SVG_ICONS = {
 const PAGE_MOD_HELPERS = `\
 // ==================== Helpers ====================
 function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+/** True when the user prefers reduced motion (a11y). */
+function prefersReducedMotion() {
+  try {
+    return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  } catch (e) { return false; }
+}
+
+/**
+ * Play a one-shot enter animation class (restarts if already present).
+ * Class is removed after animationend (or immediately under reduced motion).
+ */
+function aroPlayEnter(el, className) {
+  if (!el || !className) return;
+  el.classList.remove(className);
+  if (prefersReducedMotion()) return;
+  try { void el.offsetWidth; } catch (e) { /* ignore */ }
+  el.classList.add(className);
+  var done = function () {
+    el.classList.remove(className);
+    el.removeEventListener('animationend', done);
+  };
+  el.addEventListener('animationend', done);
+  setTimeout(done, 400);
+}
+
+/**
+ * Hide or remove an element after a short exit animation (class \`aro-leaving\`).
+ * @param {HTMLElement} el
+ * @param {{ remove?: boolean, ms?: number, onDone?: function }} opts
+ */
+function aroDismiss(el, opts) {
+  opts = opts || {};
+  if (!el) { if (opts.onDone) opts.onDone(); return; }
+  var finished = false;
+  var finish = function () {
+    if (finished) return;
+    finished = true;
+    el.classList.remove('aro-leaving');
+    el.removeEventListener('animationend', onAnimEnd);
+    if (opts.remove) {
+      try { el.remove(); } catch (e) { /* ignore */ }
+    } else {
+      el.style.display = 'none';
+    }
+    if (opts.onDone) opts.onDone();
+  };
+  var onAnimEnd = function (e) {
+    // Ignore bubbled end events from child sheet/dialog animations.
+    if (e && e.target && e.target !== el) return;
+    finish();
+  };
+  if (prefersReducedMotion() || el.style.display === 'none') {
+    finish();
+    return;
+  }
+  el.classList.add('aro-leaving');
+  el.addEventListener('animationend', onAnimEnd);
+  setTimeout(finish, opts.ms || 180);
+}
+
 function timeStr(iso) { try { return new Date(iso).toLocaleTimeString(currentLocale, { hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; } }
 function fullTimeStr(iso) { try { return new Date(iso).toLocaleString(currentLocale); } catch (e) { return ''; } }
 /** Relative short time for conv list (e.g. 5m, 2h, 3d). */
@@ -2020,7 +2242,16 @@ function aroConfirm(message, danger) {
       + '<button class="confirm-btn confirm-btn-cancel">' + esc(lang.confirmCancel || 'Cancel') + '</button>'
       + '<button class="confirm-btn confirm-btn-ok' + (danger ? ' confirm-btn-danger' : '') + '">' + esc(lang.confirmOk || 'OK') + '</button>'
       + '</div></div>';
-    var done = function (result) { overlay.remove(); resolve(result); };
+    var settled = false;
+    var done = function (result) {
+      if (settled) return;
+      settled = true;
+      aroDismiss(overlay, {
+        remove: true,
+        ms: 150,
+        onDone: function () { resolve(result); },
+      });
+    };
     overlay.querySelector('.confirm-btn-cancel').addEventListener('click', function () { done(false); });
     overlay.querySelector('.confirm-btn-ok').addEventListener('click', function () { done(true); });
     overlay.addEventListener('click', function (e) { if (e.target === overlay) done(false); });
@@ -2630,9 +2861,10 @@ function createPickerOverlay(type, icons, titles, iconColors) {
     + '<button class="picker-footer-btn picker-btn-confirm" disabled>' + esc(lang.pickerConfirm) + '</button>'
     + '</div>'
     + '</div>';
-  overlay.querySelector('.picker-close-btn').addEventListener('click', function () { overlay.remove(); });
-  overlay.querySelector('.picker-btn-cancel').addEventListener('click', function () { overlay.remove(); });
-  overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.remove(); });
+  var dismissPicker = function () { aroDismiss(overlay, { remove: true, ms: 170 }); };
+  overlay.querySelector('.picker-close-btn').addEventListener('click', dismissPicker);
+  overlay.querySelector('.picker-btn-cancel').addEventListener('click', dismissPicker);
+  overlay.addEventListener('click', function (e) { if (e.target === overlay) dismissPicker(); });
   document.body.appendChild(overlay);
   return overlay;
 }
@@ -2920,9 +3152,10 @@ function renderAttachPreview() {
     + '<div class="attach-preview-name">' + esc(a.name || '') + '</div>'
     + '<div class="attach-preview-meta">' + (a.size ? formatFileSize(a.size) : (a.label || a.type)) + '</div>'
     + '</div>'
-    + '<button class="attach-preview-remove" id="attach-remove" aria-label="' + esc(lang.close || 'Close') + '">&times;</button>';
+    + '<button class="attach-preview-remove" id="attach-remove" aria-label="' + esc(lang.remove || lang.dismiss || 'Remove') + '">&times;</button>';
   preview.innerHTML = html;
   preview.style.display = 'flex';
+  aroPlayEnter(preview, 'aro-attach-enter');
   var removeBtn = $('attach-remove');
   if (removeBtn) removeBtn.addEventListener('click', clearPendingAttach);
 }
@@ -3043,7 +3276,10 @@ var _longPressTimer = null;
 var _msgMenuIgnoreUntil = 0;
 
 function closeMsgMenu() {
-  if (_msgMenu) { _msgMenu.remove(); _msgMenu = null; }
+  if (!_msgMenu) return;
+  var menu = _msgMenu;
+  _msgMenu = null;
+  aroDismiss(menu, { remove: true, ms: 120 });
 }
 
 function onMsgMenuOutside(e) {
@@ -3260,13 +3496,16 @@ function doForward(msg) {
     });
     listEl.appendChild(btn);
   });
-  overlay.querySelector('.forward-close').addEventListener('click', function () { overlay.remove(); });
-  overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.remove(); });
+  overlay.querySelector('.forward-close').addEventListener('click', function () { aroDismiss(overlay, { remove: true, ms: 160 }); });
+  overlay.addEventListener('click', function (e) {
+    if (e.target === overlay) aroDismiss(overlay, { remove: true, ms: 160 });
+  });
   document.body.appendChild(overlay);
 }
 
 // ==================== Render: Messages ====================
-function renderMessages() {
+function renderMessages(opts) {
+  opts = opts || {};
   var container = $('messages');
   if (!container) return;
   state.pinnedBarDismissed = false;
@@ -3277,8 +3516,14 @@ function renderMessages() {
       + (state.activeKind === 'channel' ? SVG_ICONS.channel : SVG_ICONS.room)
       + '</div><p>' + esc(hint) + '</p></div>';
     var pb = $('pinned-bar'); if (pb) pb.style.display = 'none';
+    state.skipMsgAppear = false;
     return;
   }
+
+  var animateNew = !!opts.animateNew && !state.skipMsgAppear && !prefersReducedMotion();
+  var newCount = Math.max(0, opts.newCount || 0);
+  var appearFrom = animateNew ? Math.max(0, state.messages.length - newCount) : state.messages.length;
+  state.skipMsgAppear = false;
 
   var html = '';
   var lastDayKey = '';
@@ -3344,7 +3589,9 @@ function renderMessages() {
       } catch (e2) { compact = false; }
     }
 
-    html += '<div class="msg-row ' + (local ? 'msg-local' : 'msg-remote') + (compact ? ' msg-compact' : '') + '" data-msg-id="' + esc(msg.message_id || '') + '">';
+    html += '<div class="msg-row ' + (local ? 'msg-local' : 'msg-remote') + (compact ? ' msg-compact' : '')
+      + (idx >= appearFrom ? ' msg-appear' : '')
+      + '" data-msg-id="' + esc(msg.message_id || '') + '">';
     if (!local) {
       if (compact) {
         html += '<div class="msg-avatar-spacer"></div>';
@@ -3520,8 +3767,12 @@ function createDetailOverlay(title, iconHtml, bgColor) {
     + '</div>'
     + '<div class="picker-body"></div>'
     + '</div>';
-  overlay.querySelector('.picker-close-btn').addEventListener('click', function () { overlay.remove(); });
-  overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.remove(); });
+  overlay.querySelector('.picker-close-btn').addEventListener('click', function () {
+    aroDismiss(overlay, { remove: true, ms: 170 });
+  });
+  overlay.addEventListener('click', function (e) {
+    if (e.target === overlay) aroDismiss(overlay, { remove: true, ms: 170 });
+  });
   document.body.appendChild(overlay);
   return overlay;
 }
@@ -3881,12 +4132,17 @@ async function openConversation(kind, id) {
   state.activeId = id;
   state.messages = [];
   state.messagesFp = '';
+  state.skipMsgAppear = true;
   state.members = [];
   state.channelDetail = null;
   state.roomDetail = null;
 
   $('empty-state').style.display = 'none';
-  $('chat-container').style.display = '';
+  var chatEl = $('chat-container');
+  if (chatEl) {
+    chatEl.style.display = '';
+    aroPlayEnter(chatEl, 'aro-panel-enter');
+  }
   $('sidebar').classList.add('sidebar-hidden-mobile');
 
   renderMessages();
@@ -4060,7 +4316,7 @@ function mergeIncomingMessage(msg) {
   }
   state.messages.push(msg);
   state.messagesFp = messagesFingerprint(state.messages);
-  renderMessages();
+  renderMessages({ animateNew: true, newCount: 1 });
   return true;
 }
 
@@ -4077,9 +4333,17 @@ async function pollMessages(force) {
       var msgs = res.messages || [];
       var fp = messagesFingerprint(msgs);
       if (force || fp !== state.messagesFp) {
+        var prevLen = state.messages.length;
+        var prevLast = prevLen ? (state.messages[prevLen - 1].message_id || '') : '';
         state.messages = msgs;
         state.messagesFp = fp;
-        renderMessages();
+        var grew = msgs.length > prevLen;
+        var tailChanged = msgs.length && (msgs[msgs.length - 1].message_id || '') !== prevLast;
+        if (grew && tailChanged && !state.skipMsgAppear) {
+          renderMessages({ animateNew: true, newCount: Math.min(msgs.length - prevLen, 3) });
+        } else {
+          renderMessages();
+        }
       }
     }
   } catch (e) { /* ignore */ }
@@ -4395,12 +4659,14 @@ function showEditRoomDialog() {
   if (!overlay) return;
   $('edit-room-name').value = state.roomDetail.name || '';
   $('edit-room-desc').value = state.roomDetail.description || '';
+  overlay.classList.remove('aro-leaving');
   overlay.style.display = 'flex';
 }
 
 function hideEditRoomDialog() {
   var overlay = $('edit-room-dialog');
-  if (overlay) overlay.style.display = 'none';
+  if (!overlay || overlay.style.display === 'none') return;
+  aroDismiss(overlay, { ms: 170 });
 }
 
 async function doSaveRoom() {
@@ -4462,8 +4728,16 @@ async function doDissolveRoom() {
     $('chat-container').style.display = 'none';
     $('member-panel').style.display = 'none';
     $('member-panel').classList.remove('member-open-mobile');
-    $('empty-state').style.display = '';
-    $('sidebar').classList.remove('sidebar-hidden-mobile');
+    var emptyAfter = $('empty-state');
+    if (emptyAfter) {
+      emptyAfter.style.display = '';
+      aroPlayEnter(emptyAfter, 'aro-panel-enter');
+    }
+    var sideAfter = $('sidebar');
+    if (sideAfter) {
+      sideAfter.classList.remove('sidebar-hidden-mobile');
+      aroPlayEnter(sideAfter, 'aro-panel-enter');
+    }
     loadConversations();
   } catch (e) {
     notifyError(lang.dissolveFail, e);
@@ -4499,8 +4773,16 @@ async function doLeaveRoom() {
     $('chat-container').style.display = 'none';
     $('member-panel').style.display = 'none';
     $('member-panel').classList.remove('member-open-mobile');
-    $('empty-state').style.display = '';
-    $('sidebar').classList.remove('sidebar-hidden-mobile');
+    var emptyLeave = $('empty-state');
+    if (emptyLeave) {
+      emptyLeave.style.display = '';
+      aroPlayEnter(emptyLeave, 'aro-panel-enter');
+    }
+    var sideLeave = $('sidebar');
+    if (sideLeave) {
+      sideLeave.classList.remove('sidebar-hidden-mobile');
+      aroPlayEnter(sideLeave, 'aro-panel-enter');
+    }
     loadConversations();
   } catch (e) { /* ignore */ }
 }
@@ -4508,17 +4790,26 @@ async function doLeaveRoom() {
 // ==================== Create Dialog ====================
 function showCreateDialog() {
   var overlay = $('create-dialog');
-  if (overlay) overlay.style.display = 'flex';
+  if (overlay) {
+    overlay.classList.remove('aro-leaving');
+    overlay.style.display = 'flex';
+  }
   switchCreateTab('channel');
 }
 
 function hideCreateDialog() {
   var overlay = $('create-dialog');
-  if (overlay) overlay.style.display = 'none';
-  var channelInput = $('create-channel-input');
-  var roomInput = $('create-room-input');
-  if (channelInput) channelInput.value = '';
-  if (roomInput) roomInput.value = '';
+  var clearInputs = function () {
+    var channelInput = $('create-channel-input');
+    var roomInput = $('create-room-input');
+    if (channelInput) channelInput.value = '';
+    if (roomInput) roomInput.value = '';
+  };
+  if (!overlay || overlay.style.display === 'none') {
+    clearInputs();
+    return;
+  }
+  aroDismiss(overlay, { ms: 170, onDone: clearInputs });
 }
 
 function switchCreateTab(tab) {
@@ -4587,17 +4878,21 @@ async function doCreateRoom() {
 // ==================== View Switching ====================
 function switchView(view) {
   if (state.isGuest && view !== 'feed') view = 'feed';
+  var prev = state.currentView;
   state.currentView = view;
   var views = ['messages', 'feed', 'rings'];
   views.forEach(function (v) {
     var el = $('view-' + v);
     if (el) {
       el.classList.toggle('aro-view-active', v === view);
-      if (v !== view) el.style.display = 'none';
-      else { el.style.display = ''; el.classList.add('aro-view-active'); }
-`
-
-const PAGE_MOD_VIEWS = `\
+      if (v !== view) {
+        el.style.display = 'none';
+        el.classList.remove('aro-view-enter');
+      } else {
+        el.style.display = '';
+        el.classList.add('aro-view-active');
+        if (prev && prev !== view) aroPlayEnter(el, 'aro-view-enter');
+      }
     }
   });
   // Update nav buttons
@@ -4614,7 +4909,9 @@ const PAGE_MOD_VIEWS = `\
   if (view === 'feed') loadFeed();
   else if (view === 'rings') loadRings();
 }
+`
 
+const PAGE_MOD_VIEWS = `\
 // ==================== Feed View (merged Timeline + Profile) ====================
 async function loadFeed() {
   renderFederationIdentity();
@@ -5077,21 +5374,32 @@ function openComposer() {
   if (state.isGuest) return;
   var el = $('feed-composer');
   if (!el) return;
+  el.classList.remove('aro-leaving');
   el.style.display = '';
+  aroPlayEnter(el, 'aro-compose-enter');
   var ta = $('feed-compose-text');
   if (ta) { ta.focus(); }
 }
 
 function closeComposer() {
   var el = $('feed-composer');
-  if (el) el.style.display = 'none';
-  var ta = $('feed-compose-text');
-  if (ta) ta.value = '';
-  composeAttachments.forEach(function (a) {
-    if (a.previewUrl) try { URL.revokeObjectURL(a.previewUrl); } catch (e) {}
-  });
-  composeAttachments = [];
-  renderComposePreviews();
+  var clear = function () {
+    var ta = $('feed-compose-text');
+    if (ta) ta.value = '';
+    composeAttachments.forEach(function (a) {
+      if (a.previewUrl) try { URL.revokeObjectURL(a.previewUrl); } catch (e) {}
+    });
+    composeAttachments = [];
+    renderComposePreviews();
+  };
+  if (!el || el.style.display === 'none') {
+    clear();
+    return;
+  }
+  // Instant hide for composer (inline panel); enter already animates open.
+  el.style.display = 'none';
+  el.classList.remove('aro-compose-enter');
+  clear();
 }
 
 function renderComposePreviews() {
@@ -5109,7 +5417,7 @@ function renderComposePreviews() {
     } else {
       h += '<img src="' + esc(a.previewUrl) + '" alt="" />';
     }
-    h += '<button type="button" class="feed-compose-preview-remove" data-compose-remove="' + idx + '" aria-label="remove">&times;</button>';
+    h += '<button type="button" class="feed-compose-preview-remove" data-compose-remove="' + idx + '" aria-label="' + esc(lang.remove || 'Remove') + '">&times;</button>';
     h += '</div>';
   });
   box.innerHTML = h;
@@ -5319,7 +5627,8 @@ async function doCreateRing() {
   try {
     await Tapp.federation.createRing({ name: name, ring_type: type });
     input.value = '';
-    var d = $('ring-create-dialog'); if (d) d.style.display = 'none';
+    var d = $('ring-create-dialog');
+    if (d) aroDismiss(d, { ms: 170 });
     loadRings();
   } catch (e) {
     notifyError(lang.createRingFail, e);
@@ -5351,11 +5660,18 @@ function openRingDetail(ringId) {
   });
   // Show detail panel
   $('ring-empty-state').style.display = 'none';
-  $('ring-detail').style.display = '';
+  var detail = $('ring-detail');
+  if (detail) {
+    detail.style.display = '';
+    aroPlayEnter(detail, 'aro-panel-enter');
+  }
   // Mobile
   $('ring-sidebar').classList.add('sidebar-hidden-mobile');
-  var main = $('ring-detail').closest('.panel-main');
-  if (main) main.classList.add('panel-main-show-mobile');
+  var main = detail ? detail.closest('.panel-main') : null;
+  if (main) {
+    main.classList.add('panel-main-show-mobile');
+    aroPlayEnter(main, 'aro-panel-enter');
+  }
   loadRingDetail(ringId);
 }
 
@@ -5364,11 +5680,20 @@ function hideRingDetail() {
   state.ringDetail = null;
   state.ringPeers = [];
   var detail = $('ring-detail');
-  if (detail) detail.style.display = 'none';
+  if (detail) {
+    detail.style.display = 'none';
+    detail.classList.remove('aro-panel-enter');
+  }
   var empty = $('ring-empty-state');
-  if (empty) empty.style.display = '';
+  if (empty) {
+    empty.style.display = '';
+    aroPlayEnter(empty, 'aro-panel-enter');
+  }
   var sidebar = $('ring-sidebar');
-  if (sidebar) sidebar.classList.remove('sidebar-hidden-mobile');
+  if (sidebar) {
+    sidebar.classList.remove('sidebar-hidden-mobile');
+    aroPlayEnter(sidebar, 'aro-panel-enter');
+  }
   var main = detail ? detail.closest('.panel-main') : null;
   if (main) main.classList.remove('panel-main-show-mobile');
 }
@@ -5524,15 +5849,20 @@ function bindEvents() {
 `
 
 const PAGE_MOD_EVENTS = `\
-    var d = $('ring-create-dialog'); if (d) d.style.display = '';
+    var d = $('ring-create-dialog');
+    if (d) {
+      d.classList.remove('aro-leaving');
+      d.style.display = 'flex';
+    }
   });
   var ringCreateClose = $('ring-create-close');
   if (ringCreateClose) ringCreateClose.addEventListener('click', function () {
-    var d = $('ring-create-dialog'); if (d) d.style.display = 'none';
+    var d = $('ring-create-dialog');
+    if (d) aroDismiss(d, { ms: 170 });
   });
   var ringCreateOverlay = $('ring-create-dialog');
   if (ringCreateOverlay) ringCreateOverlay.addEventListener('click', function (e) {
-    if (e.target === ringCreateOverlay) ringCreateOverlay.style.display = 'none';
+    if (e.target === ringCreateOverlay) aroDismiss(ringCreateOverlay, { ms: 170 });
   });
 
   // Ring create submit
@@ -5689,14 +6019,23 @@ const PAGE_MOD_EVENTS = `\
       var chat = $('chat-container');
       var members = $('member-panel');
       var empty = $('empty-state');
-      if (sidebar) sidebar.classList.remove('sidebar-hidden-mobile');
-      if (chat) chat.style.display = 'none';
+      if (sidebar) {
+        sidebar.classList.remove('sidebar-hidden-mobile');
+        aroPlayEnter(sidebar, 'aro-panel-enter');
+      }
+      if (chat) {
+        chat.style.display = 'none';
+        chat.classList.remove('aro-panel-enter');
+      }
       if (members) {
         members.style.display = 'none';
         members.classList.remove('member-open-mobile');
         members.classList.remove('member-expanded-tablet');
       }
-      if (empty) empty.style.display = '';
+      if (empty) {
+        empty.style.display = '';
+        aroPlayEnter(empty, 'aro-panel-enter');
+      }
       clearPendingAttach();
       closeAttachMenu();
       if (typeof clearQuote === 'function') clearQuote();
@@ -5707,6 +6046,7 @@ const PAGE_MOD_EVENTS = `\
       state.activeId = null;
       state.messages = [];
       state.messagesFp = '';
+      state.skipMsgAppear = false;
       state.channelDetail = null;
       state.roomDetail = null;
       state.members = [];
