@@ -189,10 +189,21 @@ const PAGE_HTML = `\
             <button id="refresh-feed-btn" class="feed-refresh-btn" title="刷新">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
             </button>
-            <button id="feed-compose-btn" class="feed-compose-btn" type="button" title="发帖" style="display:none">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-              <span id="feed-compose-btn-label">发帖</span>
-            </button>
+            <div class="feed-plus-wrap" id="feed-plus-wrap" style="display:none">
+              <button id="feed-plus-btn" class="feed-plus-btn" type="button" title="添加" aria-haspopup="menu" aria-expanded="false" aria-controls="feed-plus-menu">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+              </button>
+              <div id="feed-plus-menu" class="feed-plus-menu" role="menu" hidden>
+                <button type="button" role="menuitem" class="feed-plus-item" data-feed-plus="post" id="feed-plus-post">
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                  <span id="feed-plus-post-label">发帖</span>
+                </button>
+                <button type="button" role="menuitem" class="feed-plus-item" data-feed-plus="follow" id="feed-plus-follow">
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>
+                  <span id="feed-plus-follow-label">关注</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
         <!-- Freeform note composer (owner only) -->
@@ -220,9 +231,21 @@ const PAGE_HTML = `\
         </div>
         <!-- Mobile tabs (visible only on small screens) -->
         <div class="feed-mobile-tabs" id="feed-mobile-tabs">
-          <button id="feed-compose-mobile-btn" class="feed-mobile-compose" type="button" title="发帖" style="display:none">
-            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-          </button>
+          <div class="feed-plus-wrap feed-plus-wrap-mobile" id="feed-plus-wrap-mobile" style="display:none">
+            <button id="feed-plus-mobile-btn" class="feed-mobile-compose" type="button" title="添加" aria-haspopup="menu" aria-expanded="false" aria-controls="feed-plus-menu-mobile">
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+            </button>
+            <div id="feed-plus-menu-mobile" class="feed-plus-menu feed-plus-menu-mobile" role="menu" hidden>
+              <button type="button" role="menuitem" class="feed-plus-item" data-feed-plus="post" id="feed-plus-post-mobile">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                <span id="feed-plus-post-label-mobile">发帖</span>
+              </button>
+              <button type="button" role="menuitem" class="feed-plus-item" data-feed-plus="follow" id="feed-plus-follow-mobile">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>
+                <span id="feed-plus-follow-label-mobile">关注</span>
+              </button>
+            </div>
+          </div>
           <button class="feed-mobile-tab feed-mobile-tab-active" data-sub="timeline" id="feed-tab-timeline">动态</button>
           <button class="feed-mobile-tab" data-sub="following" id="feed-tab-following">关注</button>
           <button class="feed-mobile-tab" data-sub="followers" id="feed-tab-followers">粉丝</button>
@@ -262,10 +285,6 @@ const PAGE_HTML = `\
             <span class="feed-stat-num" id="feed-mobile-count-published">0</span>
             <span class="feed-stat-lbl" id="feed-mobile-lbl-published">已发布</span>
           </div>
-        </div>
-        <div id="feed-follow-bar" class="feed-follow-bar" style="display:none">
-          <input id="feed-follow-input" class="feed-follow-input" type="text" placeholder="Actor URL 或 @user@domain" />
-          <button id="feed-follow-btn" class="feed-follow-btn">关注</button>
         </div>
         <div id="feed-content" class="feed-content"></div>
         <div id="feed-empty" class="feed-empty" style="display:none">
@@ -352,6 +371,20 @@ const PAGE_HTML = `\
           <option id="ring-type-opt-instance" value="instance-directory">实例目录</option>
         </select>
         <button id="create-ring-btn" class="create-submit">创建</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 关注对话框（从 feed + 菜单打开） -->
+  <div id="feed-follow-dialog" class="create-overlay" style="display:none">
+    <div class="create-dialog">
+      <div class="create-dialog-header">
+        <h3 id="feed-follow-dialog-title" class="create-dialog-title">关注</h3>
+        <button id="feed-follow-dialog-close" class="create-dialog-close" type="button">✕</button>
+      </div>
+      <div class="create-form">
+        <input id="feed-follow-input" class="create-input" type="text" placeholder="Actor URL 或 @user@domain" autocomplete="off" />
+        <button id="feed-follow-btn" class="create-submit" type="button">关注</button>
       </div>
     </div>
   </div>
@@ -480,11 +513,25 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 /* Feed Main — fills remaining width beside sidebar (no fake third column) */
 .feed-main{flex:1;min-width:0;display:flex;flex-direction:column;overflow-y:auto;position:relative}
 /* Feed header */
-.feed-main-header{min-height:56px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px;border-bottom:1px solid rgba(128,128,128,.06);flex-shrink:0;background:rgba(255,255,255,.45);backdrop-filter:blur(12px)}
+.feed-main-header{min-height:56px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px;border-bottom:1px solid rgba(128,128,128,.06);flex-shrink:0;background:rgba(255,255,255,.45);backdrop-filter:blur(12px);position:relative;z-index:5;overflow:visible}
 .feed-header-leading{display:flex;align-items:center;gap:10px;min-width:0;flex:1}
-.feed-compose-btn{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;border:none;background:var(--tapp-primary,#6366f1);color:#fff;font-size:13px;font-weight:600;cursor:pointer;flex-shrink:0;transition:opacity .15s,transform .12s}
-.feed-compose-btn:hover{opacity:.92}
-.feed-compose-btn:active{transform:scale(.97)}
+.feed-plus-wrap{position:relative;flex-shrink:0}
+.feed-plus-btn{width:34px;height:34px;border-radius:10px;border:none;background:var(--tapp-primary,#6366f1);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:opacity .15s,transform .12s,box-shadow .15s}
+.feed-plus-btn:hover{opacity:.92}
+.feed-plus-btn:active{transform:scale(.96)}
+.feed-plus-btn[aria-expanded="true"]{box-shadow:0 0 0 3px rgba(var(--tapp-primary-rgb,99,102,241),.22)}
+.feed-plus-btn:focus-visible{outline:2px solid rgba(var(--tapp-primary-rgb,99,102,241),.5);outline-offset:2px}
+.feed-plus-menu{display:none;position:absolute;right:0;top:calc(100% + 6px);min-width:148px;padding:4px;border-radius:12px;border:1px solid rgba(128,128,128,.12);background:var(--bg-primary,#fff);box-shadow:0 10px 28px rgba(0,0,0,.12);z-index:60;overflow:hidden}
+.feed-plus-menu.open{display:block}
+.feed-plus-menu-mobile{left:0;right:auto}
+.feed-plus-item{display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;border:none;border-radius:8px;background:none;color:var(--text-primary,#1a1a1a);font-size:13px;font-weight:600;cursor:pointer;text-align:left;transition:background .12s,transform .1s}
+.feed-plus-item:hover{background:rgba(var(--tapp-primary-rgb,99,102,241),.08);color:var(--tapp-primary,#6366f1)}
+.feed-plus-item:active{transform:scale(.98)}
+.feed-plus-item svg{flex-shrink:0;opacity:.85}
+.feed-plus-item[hidden]{display:none!important}
+.dark .feed-plus-menu{background:var(--bg-primary,#1a1a1a);border-color:rgba(255,255,255,.1);box-shadow:0 12px 32px rgba(0,0,0,.4)}
+.dark .feed-plus-item{color:rgba(255,255,255,.92)}
+.dark .feed-plus-item:hover{background:rgba(var(--tapp-primary-rgb,99,102,241),.16);color:var(--tapp-primary,#818cf8)}
 .feed-composer{padding:12px 16px;border-bottom:1px solid rgba(128,128,128,.08);background:rgba(255,255,255,.35);flex-shrink:0}
 .dark .feed-composer{background:rgba(0,0,0,.25);border-color:rgba(255,255,255,.06)}
 .feed-compose-text{width:100%;min-height:72px;resize:vertical;border:1px solid rgba(128,128,128,.15);border-radius:12px;padding:10px 12px;font-size:14px;line-height:1.5;background:rgba(255,255,255,.7);color:var(--text-primary,#1a1a1a);outline:none;font-family:inherit}
@@ -511,7 +558,7 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .feed-main-heading{min-width:0;display:flex;flex-direction:column;gap:2px}
 .feed-section-title{font-size:16px;font-weight:750;color:var(--text-primary,#0f1419);line-height:1.2}
 .feed-section-meta{min-height:15px;font-size:11px;font-weight:500;color:var(--text-secondary,#536471);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.feed-header-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.feed-header-actions{display:flex;align-items:center;gap:8px;flex-shrink:0;position:relative;z-index:6;overflow:visible}
 .feed-refresh-btn{width:34px;height:34px;border:none;border-radius:10px;background:rgba(128,128,128,.07);color:var(--text-secondary,#536471);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s,color .15s,transform .15s;flex-shrink:0}
 .feed-refresh-btn:hover{background:rgba(var(--tapp-primary-rgb,100,100,255),.11);color:var(--tapp-primary,#6366f1)}
 .feed-refresh-btn:active{transform:scale(.96)}
@@ -519,24 +566,21 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .feed-refresh-loading svg{animation:aroSpin .8s linear infinite}
 @keyframes aroSpin{to{transform:rotate(360deg)}}
 /* Feed Mobile Tabs (hidden on desktop) */
-.feed-mobile-tabs{display:none;border-bottom:1px solid rgba(128,128,128,.08);flex-shrink:0;background:rgba(255,255,255,.45)}
+.feed-mobile-tabs{display:none;border-bottom:1px solid rgba(128,128,128,.08);flex-shrink:0;background:rgba(255,255,255,.45);position:relative;z-index:5;overflow:visible}
 .feed-mobile-tab{flex:1;padding:12px 4px;border:none;background:none;font-size:13px;font-weight:500;color:var(--text-secondary,#536471);cursor:pointer;text-align:center;transition:all .15s;border-bottom:2px solid transparent}
 .feed-mobile-tab:hover{background:rgba(128,128,128,.04)}
 .feed-mobile-tab-active{color:var(--text-primary,#0f1419)!important;font-weight:700;border-bottom-color:var(--tapp-primary,#6366f1)!important}
+.feed-plus-wrap-mobile{display:flex;align-items:stretch;flex-shrink:0;position:relative}
 .feed-mobile-compose{width:44px;border:none;background:none;color:var(--tapp-primary,#6366f1);display:flex;align-items:center;justify-content:center;cursor:pointer;border-bottom:2px solid transparent;flex-shrink:0}
 .feed-mobile-compose:hover{background:rgba(99,102,241,.08)}
+.feed-mobile-compose[aria-expanded="true"]{background:rgba(99,102,241,.1)}
 .feed-mobile-refresh{width:44px;border:none;background:none;color:var(--text-secondary,#536471);display:flex;align-items:center;justify-content:center;cursor:pointer;border-bottom:2px solid transparent}
 .feed-mobile-refresh:hover{background:rgba(128,128,128,.04);color:var(--tapp-primary,#6366f1)}
 .feed-mobile-refresh:disabled{opacity:.55;cursor:default}
 .feed-mobile-refresh.feed-refresh-loading svg{animation:aroSpin .8s linear infinite}
-/* Follow bar */
-.feed-follow-bar{display:flex;gap:8px;padding:10px 16px;border-bottom:1px solid rgba(128,128,128,.06);flex-shrink:0;background:rgba(128,128,128,.02)}
-.feed-follow-input{flex:1;height:36px;padding:0 14px;border-radius:12px;border:1px solid rgba(128,128,128,.15);background:rgba(128,128,128,.04);color:var(--text-primary,#0f1419);font-size:13px;outline:none;transition:border-color .2s,background .2s}
-.feed-follow-input:focus{border-color:rgba(var(--tapp-primary-rgb,100,100,255),.5)}
-.feed-follow-input::placeholder{color:var(--text-secondary,#bbb)}
-.feed-follow-btn{padding:0 16px;height:36px;border-radius:12px;border:none;background:var(--tapp-primary,#6366f1);color:#fff;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;transition:opacity .15s}
-.feed-follow-btn:hover{opacity:.85}
-.feed-follow-btn:disabled{opacity:.5;cursor:not-allowed}
+/* Follow dialog form (reuses create-dialog shell) */
+.feed-follow-input,.create-form #feed-follow-input{width:100%}
+#feed-follow-btn:disabled{opacity:.5;cursor:not-allowed}
 /* Feed content / empty — stream may cap width; main column still fills rest */
 .feed-content{flex:1;min-height:0;width:100%;max-width:760px}
 .feed-empty{min-height:280px;padding:56px 24px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--text-secondary,#536471);font-size:13px;line-height:1.5;width:100%;max-width:760px;box-sizing:border-box}
@@ -1019,7 +1063,7 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .dark .feed-item-time{color:rgba(255,255,255,.4)}
 .dark .feed-item-action{color:rgba(255,255,255,.45)}
 .dark .feed-empty{color:rgba(255,255,255,.45)}
-.dark .feed-follow-bar{border-color:rgba(255,255,255,.06)}
+
 .dark .attach-preview{background:var(--bg-primary,#1a1a1a);border-color:rgba(255,255,255,.1)}
 .dark .attach-preview-name{color:rgba(255,255,255,.9)}
 .dark .picker-header-title{color:rgba(255,255,255,.92)}
@@ -1202,6 +1246,8 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 
 .msg-ctx-menu.aro-leaving{animation:aroFadeOut .1s ease both;pointer-events:none}
 .manage-dropdown.open{animation:aroPopIn .14s var(--aro-ease) both}
+.feed-plus-menu.open{animation:aroPopIn .14s var(--aro-ease) both}
+.feed-plus-menu.aro-leaving{animation:aroFadeOut .1s ease both;pointer-events:none}
 .invite-popover{animation:aroPopIn .14s var(--aro-ease) both}
 
 /* Composer + attach */
@@ -1251,14 +1297,14 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 /* Press feedback — lists & chrome (100–150ms) */
 .conv-item,.feed-nav-item,.aro-nav-item,.feed-item-action,.manage-item,.msg-ctx-item,
 .create-btn,.create-submit,.action-btn,.ring-action-sync,.feed-empty-retry,.confirm-btn,
-.picker-footer-btn,.picker-item,.attach-menu-item,.feed-follow-btn,.invite-pop-contact,
+.picker-footer-btn,.picker-item,.attach-menu-item,.feed-plus-item,.invite-pop-contact,
 .member-item,.forward-item{
   transition:background .12s,color .12s,opacity .12s,transform .1s,border-color .12s,filter .12s;
 }
 .conv-item:active,.feed-nav-item:active,.aro-nav-item:active,.feed-item-action:active,
 .manage-item:active,.msg-ctx-item:active,.create-btn:active,.create-submit:active:not(:disabled),
 .action-btn:active,.ring-action-sync:active,.feed-empty-retry:active,.confirm-btn:active,
-.picker-footer-btn:active,.picker-item:active,.attach-menu-item:active,.feed-follow-btn:active,
+.picker-footer-btn:active,.picker-item:active,.attach-menu-item:active,.feed-plus-item:active,
 .invite-pop-contact:active,.forward-item:active{
   transform:scale(.97);
 }
@@ -1293,6 +1339,7 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
   .forward-overlay,.forward-sheet,
   .msg-ctx-menu,
   .manage-dropdown.open,
+  .feed-plus-menu.open,
   .invite-popover,
   .member-panel.member-open-mobile,
   .feed-compose-preview,
@@ -1315,9 +1362,9 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
   .conv-item:active,.feed-nav-item:active,.aro-nav-item:active,.feed-item-action:active,
   .manage-item:active,.msg-ctx-item:active,.create-btn:active,.create-submit:active:not(:disabled),
   .action-btn:active,.ring-action-sync:active,.feed-empty-retry:active,.confirm-btn:active,
-  .picker-footer-btn:active,.picker-item:active,.attach-menu-item:active,.feed-follow-btn:active,
+  .picker-footer-btn:active,.picker-item:active,.attach-menu-item:active,.feed-plus-item:active,
   .invite-pop-contact:active,.forward-item:active,
-  .feed-compose-btn:active,.feed-compose-publish:active:not(:disabled),.feed-compose-cancel:active:not(:disabled),
+  .feed-plus-btn:active,.feed-compose-publish:active:not(:disabled),.feed-compose-cancel:active:not(:disabled),
   .feed-compose-tool:active,.send-btn.send-ready:active:not(:disabled){
     transform:none!important;
   }
@@ -1411,29 +1458,31 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "feedHintTimeline": "Updates from people you follow",
     "feedItems": "posts",
     "feedLoadFail": "Couldn't load feed",
+    "feedPlus": "Add",
     "feedPublished": "Published",
     "feedRetry": "Try again",
     "feedTimeline": "Home",
     "fileTooLarge": "File too large (max 10 MB)",
     "followBtn": "Follow",
+    "followDialogTitle": "Follow someone",
     "followFail": "Couldn't follow",
     "followPlaceholder": "@user@domain or profile link",
     "followQueued": "Follow request sent. Most instances accept automatically.",
     "forwardSuccess": "Forwarded",
     "forwardTo": "Forward to…",
     "installBtn": "Install",
-    "installFailed": "Install failed — tap to retry",
-    "installSuccess": "Installed",
     "installedAt": "Installed",
+    "installFailed": "Install failed — tap to retry",
     "installingBtn": "Installing…",
+    "installSuccess": "Installed",
     "invite": "Invite",
     "inviteBtn": "Invite",
+    "invited": "Invited",
     "inviteFail": "Couldn't invite",
     "inviteFromContacts": "From contacts",
     "inviteManual": "Invite by address",
     "invitePlaceholder": "@user@domain or profile link",
     "inviteSuccess": "Invite sent",
-    "invited": "Invited",
     "inviting": "Inviting…",
     "kick": "Remove",
     "kickConfirm": "Remove this member from the group?",
@@ -1515,8 +1564,8 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "sendFail": "Couldn't send",
     "syncBtn": "Sync",
     "syncFail": "Couldn't sync",
-    "syncSuccess": "Sync complete",
     "syncing": "Syncing…",
+    "syncSuccess": "Sync complete",
     "tappInstalled": "Installed",
     "tappNotInstalled": "Not installed",
     "tappReceived": "Tapp shared with you",
@@ -1616,29 +1665,31 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "feedHintTimeline": "フォロー中の人の更新",
     "feedItems": "件",
     "feedLoadFail": "フィードを読み込めませんでした",
+    "feedPlus": "追加",
     "feedPublished": "公開済み",
     "feedRetry": "再試行",
     "feedTimeline": "ホーム",
     "fileTooLarge": "ファイルが大きすぎます（最大10MB）",
     "followBtn": "フォロー",
+    "followDialogTitle": "フォローする",
     "followFail": "フォローに失敗しました",
     "followPlaceholder": "@user@domain またはプロフィールURL",
     "followQueued": "フォローリクエストを送信しました。多くのインスタンスは自動承認します。",
     "forwardSuccess": "転送しました",
     "forwardTo": "転送先…",
     "installBtn": "インストール",
-    "installFailed": "インストールに失敗しました。タップして再試行",
-    "installSuccess": "インストール完了",
     "installedAt": "インストール日",
+    "installFailed": "インストールに失敗しました。タップして再試行",
     "installingBtn": "インストール中…",
+    "installSuccess": "インストール完了",
     "invite": "招待",
     "inviteBtn": "招待",
+    "invited": "招待済み",
     "inviteFail": "招待に失敗しました",
     "inviteFromContacts": "連絡先から選ぶ",
     "inviteManual": "アドレスで招待",
     "invitePlaceholder": "@user@domain またはプロフィールURL",
     "inviteSuccess": "招待を送信しました",
-    "invited": "招待済み",
     "inviting": "招待中…",
     "kick": "削除",
     "kickConfirm": "このメンバーをグループから削除しますか？",
@@ -1720,8 +1771,8 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "sendFail": "送信に失敗しました",
     "syncBtn": "同期",
     "syncFail": "同期に失敗しました",
-    "syncSuccess": "同期完了",
     "syncing": "同期中…",
+    "syncSuccess": "同期完了",
     "tappInstalled": "インストール済み",
     "tappNotInstalled": "未インストール",
     "tappReceived": "Tappが共有されました",
@@ -1821,29 +1872,31 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "feedHintTimeline": "你关注的人的更新",
     "feedItems": "条",
     "feedLoadFail": "动态加载失败",
+    "feedPlus": "添加",
     "feedPublished": "已发布",
     "feedRetry": "重试",
     "feedTimeline": "首页",
     "fileTooLarge": "文件过大（最大 10 MB）",
     "followBtn": "关注",
+    "followDialogTitle": "关注用户",
     "followFail": "关注失败",
     "followPlaceholder": "@用户@域名 或个人主页链接",
     "followQueued": "关注请求已发送，对方实例通常会自动接受。",
     "forwardSuccess": "已转发",
     "forwardTo": "转发到…",
     "installBtn": "安装",
-    "installFailed": "安装失败，点击重试",
-    "installSuccess": "安装成功",
     "installedAt": "安装时间",
+    "installFailed": "安装失败，点击重试",
     "installingBtn": "安装中…",
+    "installSuccess": "安装成功",
     "invite": "邀请",
     "inviteBtn": "邀请",
+    "invited": "已邀请",
     "inviteFail": "邀请失败",
     "inviteFromContacts": "从联系人选择",
     "inviteManual": "通过地址邀请",
     "invitePlaceholder": "@用户@域名 或个人主页链接",
     "inviteSuccess": "邀请已发送",
-    "invited": "已邀请",
     "inviting": "邀请中…",
     "kick": "移除",
     "kickConfirm": "确定将此成员移出群聊？",
@@ -1925,8 +1978,8 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "sendFail": "发送失败",
     "syncBtn": "同步",
     "syncFail": "同步失败",
-    "syncSuccess": "同步完成",
     "syncing": "同步中…",
+    "syncSuccess": "同步完成",
     "tappInstalled": "已安装",
     "tappNotInstalled": "未安装",
     "tappReceived": "收到 Tapp 分享",
@@ -2348,11 +2401,13 @@ function applyRoleControls() {
   if (state.isGuest) {
     state.feedSubTab = 'timeline';
     state.currentView = 'feed';
-    var followBar = $('feed-follow-bar');
-    if (followBar) followBar.style.display = 'none';
+    if (typeof closeFollowDialog === 'function') closeFollowDialog();
+    if (typeof closeFeedPlusMenu === 'function') closeFeedPlusMenu();
     if (typeof closeComposer === 'function') closeComposer();
   }
-  if (typeof updateComposeButtonVisibility === 'function') {
+  if (typeof updateFeedPlusVisibility === 'function') {
+    updateFeedPlusVisibility();
+  } else if (typeof updateComposeButtonVisibility === 'function') {
     updateComposeButtonVisibility();
   }
 }
@@ -2749,9 +2804,18 @@ function applyLabels() {
   el = $('feed-mobile-lbl-published'); if (el) el.textContent = lang.feedPublished;
   el = $('feed-follow-input'); if (el) el.placeholder = lang.followPlaceholder;
   el = $('feed-follow-btn'); if (el) el.textContent = lang.followBtn;
-  el = $('feed-compose-btn-label'); if (el) el.textContent = lang.composePost || 'Post';
-  el = $('feed-compose-btn'); if (el) { el.setAttribute('title', lang.composePost || 'Post'); el.setAttribute('aria-label', lang.composePost || 'Post'); }
-  el = $('feed-compose-mobile-btn'); if (el) { el.setAttribute('title', lang.composePost || 'Post'); el.setAttribute('aria-label', lang.composePost || 'Post'); }
+  el = $('feed-follow-dialog-title'); if (el) el.textContent = lang.followDialogTitle || lang.followBtn || 'Follow';
+  var plusLabel = lang.feedPlus || lang.create || 'Add';
+  el = $('feed-plus-btn'); if (el) { el.setAttribute('title', plusLabel); el.setAttribute('aria-label', plusLabel); }
+  el = $('feed-plus-mobile-btn'); if (el) { el.setAttribute('title', plusLabel); el.setAttribute('aria-label', plusLabel); }
+  el = $('feed-plus-post-label'); if (el) el.textContent = lang.composePost || 'Post';
+  el = $('feed-plus-follow-label'); if (el) el.textContent = lang.followBtn || 'Follow';
+  el = $('feed-plus-post-label-mobile'); if (el) el.textContent = lang.composePost || 'Post';
+  el = $('feed-plus-follow-label-mobile'); if (el) el.textContent = lang.followBtn || 'Follow';
+  el = $('feed-plus-post'); if (el) el.setAttribute('aria-label', lang.composePost || 'Post');
+  el = $('feed-plus-follow'); if (el) el.setAttribute('aria-label', lang.followBtn || 'Follow');
+  el = $('feed-plus-post-mobile'); if (el) el.setAttribute('aria-label', lang.composePost || 'Post');
+  el = $('feed-plus-follow-mobile'); if (el) el.setAttribute('aria-label', lang.followBtn || 'Follow');
   el = $('feed-compose-text'); if (el) el.placeholder = lang.composePlaceholder || '';
   el = $('feed-compose-image-label'); if (el) el.textContent = lang.composeAddImage || 'Image';
   el = $('feed-compose-image-btn'); if (el) el.setAttribute('title', lang.composeAddImage || 'Image');
@@ -2765,7 +2829,8 @@ function applyLabels() {
   if (el && !state.feedLoading && typeof getFeedTitle === 'function') {
     el.textContent = getFeedTitle(state.feedSubTab);
   }
-  if (typeof updateComposeButtonVisibility === 'function') updateComposeButtonVisibility();
+  if (typeof updateFeedPlusVisibility === 'function') updateFeedPlusVisibility();
+  else if (typeof updateComposeButtonVisibility === 'function') updateComposeButtonVisibility();
   document.querySelectorAll('[data-copy-fed]').forEach(function (node) { node.setAttribute('title', lang.copy); });
   document.querySelectorAll('[data-fed-profile]').forEach(function (card) {
     setFeedProfileExpanded(card, card.classList.contains('feed-profile-expanded'));
@@ -4998,8 +5063,7 @@ function updateFeedProfileHeader() {
 
 async function loadFeedSubTab() {
   var sub = state.feedSubTab;
-  var followBar = $('feed-follow-bar');
-  if (followBar) followBar.style.display = (!state.isGuest && sub === 'following') ? '' : 'none';
+  if (typeof updateFeedPlusVisibility === 'function') updateFeedPlusVisibility();
 
   state.feedLoading = true;
   state.feedError = null;
@@ -5402,6 +5466,7 @@ async function doFollow() {
   try {
     await Tapp.federation.follow(target);
     input.value = '';
+    if (typeof closeFollowDialog === 'function') closeFollowDialog();
     // Refresh following list; auto-accept is remote (no manual approve UI).
     if (state.feedSubTab !== 'following') {
       state.feedSubTab = 'following';
@@ -5427,16 +5492,118 @@ async function doFollow() {
 // ==================== Feed composer (freeform Note) ====================
 var composeAttachments = []; // { file, previewUrl, kind: 'image'|'video' }
 
+function canComposePost() {
+  return !state.isGuest;
+}
+
+/** Follow is for owners only (same as the old bar's role gate; dialog replaces tab-only bar). */
+function canFollowFromFeed() {
+  return !state.isGuest;
+}
+
 function updateComposeButtonVisibility() {
-  var show = state.isGuest ? 'none' : '';
-  var btn = $('feed-compose-btn');
-  if (btn) btn.style.display = show;
-  var mobile = $('feed-compose-mobile-btn');
-  if (mobile) mobile.style.display = show;
+  updateFeedPlusVisibility();
+}
+
+function updateFeedPlusVisibility() {
+  var showPost = canComposePost();
+  var showFollow = canFollowFromFeed();
+  var showPlus = showPost || showFollow;
+  var display = showPlus ? '' : 'none';
+
+  var wrap = $('feed-plus-wrap');
+  if (wrap) wrap.style.display = display;
+  var wrapMobile = $('feed-plus-wrap-mobile');
+  if (wrapMobile) wrapMobile.style.display = display;
+
+  document.querySelectorAll('[data-feed-plus="post"]').forEach(function (el) {
+    if (showPost) el.removeAttribute('hidden');
+    else el.setAttribute('hidden', '');
+  });
+  document.querySelectorAll('[data-feed-plus="follow"]').forEach(function (el) {
+    if (showFollow) el.removeAttribute('hidden');
+    else el.setAttribute('hidden', '');
+  });
+
+  if (!showPlus) closeFeedPlusMenu();
+}
+
+function closeFeedPlusMenu() {
+  ['feed-plus-menu', 'feed-plus-menu-mobile'].forEach(function (id) {
+    var menu = $(id);
+    if (!menu || menu.hidden) return;
+    menu.classList.remove('open');
+    menu.classList.remove('aro-leaving');
+    menu.hidden = true;
+  });
+  ['feed-plus-btn', 'feed-plus-mobile-btn'].forEach(function (id) {
+    var btn = $(id);
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+  });
+}
+
+function openFeedPlusMenu(anchorBtn) {
+  if (!anchorBtn) return;
+  var menuId = anchorBtn.getAttribute('aria-controls') || 'feed-plus-menu';
+  var menu = $(menuId);
+  if (!menu) return;
+
+  // Close the other instance first
+  closeFeedPlusMenu();
+
+  menu.hidden = false;
+  menu.classList.remove('aro-leaving');
+  menu.classList.add('open');
+  anchorBtn.setAttribute('aria-expanded', 'true');
+
+  // Focus first visible item
+  var first = menu.querySelector('.feed-plus-item:not([hidden])');
+  if (first) {
+    try { first.focus(); } catch (e) { /* ignore */ }
+  }
+}
+
+function toggleFeedPlusMenu(anchorBtn) {
+  if (!anchorBtn) return;
+  var menuId = anchorBtn.getAttribute('aria-controls') || 'feed-plus-menu';
+  var menu = $(menuId);
+  if (menu && !menu.hidden && menu.classList.contains('open')) {
+    closeFeedPlusMenu();
+  } else {
+    openFeedPlusMenu(anchorBtn);
+  }
+}
+
+function handleFeedPlusAction(action) {
+  closeFeedPlusMenu();
+  if (action === 'post') {
+    openComposer();
+  } else if (action === 'follow') {
+    openFollowDialog();
+  }
+}
+
+function openFollowDialog() {
+  if (state.isGuest) return;
+  var d = $('feed-follow-dialog');
+  if (!d) return;
+  d.classList.remove('aro-leaving');
+  d.style.display = 'flex';
+  var input = $('feed-follow-input');
+  if (input) {
+    try { input.focus(); } catch (e) { /* ignore */ }
+  }
+}
+
+function closeFollowDialog() {
+  var d = $('feed-follow-dialog');
+  if (!d || d.style.display === 'none') return;
+  aroDismiss(d, { ms: 160 });
 }
 
 function openComposer() {
   if (state.isGuest) return;
+  closeFeedPlusMenu();
   var el = $('feed-composer');
   if (!el) return;
   el.classList.remove('aro-leaving');
@@ -5988,16 +6155,49 @@ const PAGE_MOD_EVENTS = `\
   if (feedFollowInput) feedFollowInput.addEventListener('keydown', function (e) {
     if (e.key === 'Enter') { e.preventDefault(); doFollow(); }
   });
-  // Feed freeform note composer
-  function toggleComposerPanel() {
-    var composer = $('feed-composer');
-    if (composer && composer.style.display !== 'none') closeComposer();
-    else openComposer();
+  var feedFollowClose = $('feed-follow-dialog-close');
+  if (feedFollowClose) feedFollowClose.addEventListener('click', closeFollowDialog);
+  var feedFollowOverlay = $('feed-follow-dialog');
+  if (feedFollowOverlay) feedFollowOverlay.addEventListener('click', function (e) {
+    if (e.target === feedFollowOverlay) closeFollowDialog();
+  });
+
+  // Unified feed + menu (Post / Follow)
+  function onFeedPlusClick(e) {
+    e.stopPropagation();
+    toggleFeedPlusMenu(e.currentTarget);
   }
-  var composeOpenBtn = $('feed-compose-btn');
-  if (composeOpenBtn) composeOpenBtn.addEventListener('click', toggleComposerPanel);
-  var composeMobileBtn = $('feed-compose-mobile-btn');
-  if (composeMobileBtn) composeMobileBtn.addEventListener('click', toggleComposerPanel);
+  var feedPlusBtn = $('feed-plus-btn');
+  if (feedPlusBtn) feedPlusBtn.addEventListener('click', onFeedPlusClick);
+  var feedPlusMobileBtn = $('feed-plus-mobile-btn');
+  if (feedPlusMobileBtn) feedPlusMobileBtn.addEventListener('click', onFeedPlusClick);
+  document.querySelectorAll('[data-feed-plus]').forEach(function (item) {
+    item.addEventListener('click', function (e) {
+      e.stopPropagation();
+      handleFeedPlusAction(item.getAttribute('data-feed-plus'));
+    });
+  });
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (t && (t.closest('#feed-plus-wrap') || t.closest('#feed-plus-wrap-mobile'))) return;
+    closeFeedPlusMenu();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    var menuOpen = document.querySelector('.feed-plus-menu.open');
+    if (menuOpen) {
+      e.preventDefault();
+      closeFeedPlusMenu();
+      return;
+    }
+    var followDlg = $('feed-follow-dialog');
+    if (followDlg && followDlg.style.display !== 'none') {
+      e.preventDefault();
+      closeFollowDialog();
+    }
+  });
+
+  // Feed freeform note composer
   var composeCancel = $('feed-compose-cancel');
   if (composeCancel) composeCancel.addEventListener('click', closeComposer);
   var composePublish = $('feed-compose-publish');
