@@ -237,8 +237,10 @@ fn expand_query_aliases(query: &str) -> String {
         ("安装", " install package manifest "),
         ("联邦", " federation publish media note uploadMedia createNote "),
         ("federation", " federation publish media note uploadMedia createNote "),
-        ("多语言", " locales i18n name description manifest "),
-        ("locales", " locales name description manifest catalog "),
+        ("多语言", " locales i18n name description manifest store catalog "),
+        ("locales", " locales name description manifest store catalog en-US ja-JP "),
+        ("标题", " locales name description manifest "),
+        ("商店", " store install locales package manifest "),
     ];
     aliases
         .iter()
@@ -298,5 +300,29 @@ mod tests {
                 || result.document == "TROUBLESHOOTING"
                 || result.document == "PLAYGROUND_GENERATION_CONTEXT"
         }));
+    }
+
+    #[test]
+    fn locales_queries_hit_manifest_or_generation_context() {
+        for query in ["locales", "多语言", "manifest locales en-US name description"] {
+            let results = search(query, 5);
+            assert!(
+                !results.is_empty(),
+                "expected knowledge hits for query {query:?}"
+            );
+            assert!(
+                results.iter().any(|result| {
+                    result.document == "MANIFEST"
+                        || result.document == "PLAYGROUND_GENERATION_CONTEXT"
+                        || result.document == "QUICKSTART"
+                        || result.document == "API_REFERENCE"
+                }),
+                "locales-related docs missing for query {query:?}: {:?}",
+                results
+                    .iter()
+                    .map(|r| r.document.as_str())
+                    .collect::<Vec<_>>()
+            );
+        }
     }
 }

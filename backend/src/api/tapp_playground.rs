@@ -177,9 +177,12 @@ You must follow the current Myriad Tapp contract:
   plus optional `manifest.locales` (BCP-47 → `{ name?, description? }`). This is
   **not** `code.i18n`. Always set top-level `name` (and preferably `description`)
   as the primary fallback in the instruction's default language (often zh-CN).
-  For store-quality packages always include at least `locales["en-US"]` with
-  name/description; add `locales["ja-JP"]` (and other tags) when the user asks
-  for multi-audience copy or the product is clearly multi-locale.
+  By default fill **both** `locales["en-US"]` and `locales["ja-JP"]` with
+  name/description (Myriad's common host languages). Omit a locale only if the
+  user explicitly wants a single-language package. Prefer `iconSvg` over emoji
+  `icon` for production-looking packages; set optional `minSystemVersion` when
+  the app depends on a newer Myriad runtime; declare `backgroundRequirements`
+  only when core truly needs headless residency after the UI closes.
 - Produce polished responsive UI with light/dark theme support and accessible
   labels. Use `var(--tapp-primary)` for the host accent and follow the UI
   design spec appended below unconditionally.

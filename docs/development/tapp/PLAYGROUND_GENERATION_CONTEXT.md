@@ -31,10 +31,23 @@ Playground 项目至少需要 **Page** 或 **Widgets** 之一（允许 Widget-on
 
 - 始终填写顶层 `name`（及建议的 `description`）作为主语言兜底（常用 `zh-CN` 文案或
   指令语言的默认文案）。
-- 面向商店质量的包应在 `locales` 中至少提供 **`en-US`** 的 `name`/`description`；
-  有日文受众或指令要求多语言时再补 **`ja-JP`**（及其它 BCP-47 标签）。
+- **默认同时填写** `locales["en-US"]` 与 `locales["ja-JP"]` 的 `name`/`description`
+  （Myriad 宿主常用语言；简短标题也要翻译）。仅当用户明确要求单语包时才可省略。
 - `locales` **不能**替代 `code.i18n`；应用内文案仍走 `Tapp.i18n`。
 - 完整字段与回退链见 [MANIFEST · 多语言名称与描述](./MANIFEST.md#多语言名称与描述locales)。
+
+示例（顶层中文兜底 + 宿主多语言目录文案）：
+
+```json
+{
+  "name": "番茄钟",
+  "description": "专注计时与休息提醒",
+  "locales": {
+    "en-US": { "name": "Pomodoro", "description": "Focus timer and break reminders" },
+    "ja-JP": { "name": "ポモドーロ", "description": "集中タイマーと休憩リマインダー" }
+  }
+}
+```
 
 ## 生命周期
 
@@ -84,23 +97,34 @@ await Tapp.storage.clear();
 
 ## 正式安装才可用（预览不要依赖）
 
-临时预览 **不签发 Runtime Grant**，handlers 仅覆盖 storage/settings、主题/语言、确认/
-全屏、受限 context 等（见 `playgroundPreviewHandlers.ts`）。下列能力在 SDK 完整版里
-可能仍有方法名，但 **Playground 预览中不可用**（调用失败或返回明确错误）：
+临时预览 **不签发 Runtime Grant**。`playgroundPreviewHandlers.ts` 实际注册的大致是：
+内存 `storage` / `settings`、`ui` 主题·语言·确认·全屏（通知禁用）、`context.*` 预览桩、
+`assets.list`（空）/`assets.get`（失败）、`api.list`（空）/`api.execute`（禁用）。
 
-- **Federation 全套**（`Tapp.federation.*`：Feed、关注、`uploadMedia` / `createNote` /
-  `publish`、Channel/Room/Ring、传输与 trust）
-- 平台写入、声明式网络 `Tapp.api` 执行、AI、宿主媒体控制、跨 Tapp 事件 Broker 等
+下列能力在完整 SDK 里可能有方法名，但 **Playground 预览中不可用**（失败或明确错误）：
 
-生成联邦/社交类 Tapp 时：
+- **Federation** 全套（`uploadMedia` → `createNote` 附件 URL、Channel/Room/Ring 等）
+- **platform** / **report** / **brewList** / **tappList**（含商店安装）
+- **dataExchange**、**ai**、**agent**、**event** Broker、**scheduler**、宿主 **media** 控制
+- 声明式 **`Tapp.api` 执行**（预览仅 list 空表）
+- **`Tapp.background.require`**（预览无后台常驻；勿空写 `backgroundRequirements`）
 
-- 可在 Manifest 声明真实 `federation:*`（或其它）权限，并按 [API_REFERENCE](./API_REFERENCE.md)
-  写正式运行时代码；
-- 预览只验证 UI、生命周期、主题、i18n 与内存 storage；
-- **不要**臆造「预览专用 mock 联邦 API」或未在 SDK/`permissionConfig` 中存在的方法。
+生成安装后才有意义的能力时：
 
-Bridge 默认 payload 约 1 MiB；`file.download` 与 `federation.uploadMedia` 在正式运行有
-更大专用上限（见 [SANDBOX](./SANDBOX.md#payload-大小)）。预览侧勿假设可上传大媒体。
+- 可在 Manifest 声明真实权限与正式运行时代码（见 [API_REFERENCE](./API_REFERENCE.md)）；
+- 预览只验证 UI、生命周期、主题、`code.i18n`、`manifest.locales` 与内存 storage；
+- **不要**臆造预览 mock 联邦 / Brew / platform API。
+
+Bridge 默认 payload 约 **1 MiB**；正式运行特例：`file.download` 内容 **10 MiB**，
+`federation.uploadMedia` 对齐图片 10 MiB / 视频 50 MiB 的 base64 预算（见
+[SANDBOX](./SANDBOX.md#payload-大小)）。预览侧勿假设可上传大媒体。
+
+## Manifest 质量字段（可选但推荐）
+
+- **`locales`**：见上文；默认 `en-US` + `ja-JP`。
+- **`iconSvg`**：生产包优先内联 SVG（优先于 emoji `icon`）；简单 demo 可用 emoji。
+- **`minSystemVersion`**：可选语义版本；声明后安装/更新会与宿主 Myriad 版本比较并拒绝过旧实例。新能力依赖新 runtime 时建议填写。
+- **`backgroundRequirements`**：仅当 `code.core` 真正依赖后台常驻（如 scheduler/sync）时填写；勿为「好看」空挂。
 
 ## 安全与兼容性
 

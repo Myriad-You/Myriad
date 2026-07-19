@@ -24,6 +24,7 @@
 - [用户角色 API](#用户角色-api)
 - [Federation API](#federation-api)
 - [Tapp 列表 API](#tapp-列表-api)
+- [Brew 列表 API](#brew-列表-api)
 - [组件注册 API](#组件注册-api)
 - [快捷键 API](#快捷键-api)
 - [事件 API](#事件-api)
@@ -897,6 +898,39 @@ await Tapp.tappList.export("com.example.app");
 
 ---
 
+## Brew 列表 API
+
+**权限**（按 action，见 `permissionConfig` / fixtures）：
+
+| 权限 | 典型方法 |
+| ---- | -------- |
+| `brew:read` | `list`, `get`, `sources`, `categories`, `stats`, `discover`, `exportOpml` |
+| `brew:write` | `markRead` / `star` / 源增删改刷新 / `importOpml` 等 |
+| `brew:comment` | `getComments`, `createComment`, `updateComment`, `deleteComment`, replies |
+| `brew:manage` | **`createCategory` / `deleteCategory`**（用户文件夹式分类） |
+
+Playground **临时预览不注册** brew handlers。完整 SDK（`Tapp.brewList`）仅在安装后可用：
+
+```javascript
+const items = await Tapp.brewList.list({ /* filters optional */ });
+const one = await Tapp.brewList.get(itemId);
+const cats = await Tapp.brewList.categories();
+const sources = await Tapp.brewList.sources();
+
+// 用户文件夹分类（需 brew:manage）
+await Tapp.brewList.createCategory({ name: "Later" });
+await Tapp.brewList.deleteCategory(categoryId);
+
+await Tapp.brewList.markRead(itemId);
+await Tapp.brewList.star(itemId);
+await Tapp.brewList.addSource({ url: "https://example.com/feed.xml" });
+await Tapp.brewList.exportOpml();
+```
+
+参数与 REST 字段以宿主 brew 服务类型为准；不要在预览中假设有 mock 数据。
+
+---
+
 ## 组件注册 API
 
 **权限**: `component:theme`, `component:agent`
@@ -1260,7 +1294,7 @@ Tapp.assets.revokeAll(); // 也会在 onDestroy 时自动调用
 | `file`, `speech`                           | 文件下载、TTS 和 ASR                                | `storage`, `speech:*`              |
 | `assets`                                   | 包内静态资源 list/get/blob URL                      | public（限 manifest.assets）       |
 | `tappList`                                 | Tapp 查询、安装、启停、卸载与导出                   | `tappList:*`                       |
-| `brewList`                                 | Brew 列表、订阅源、分类、评论和 OPML                | `brew:*`                           |
+| `brewList`                                 | Brew 列表、源、用户分类 create/delete、评论和 OPML  | `brew:*`                           |
 | `federation`                               | 身份、Feed、关注、Note/媒体发布、Channel、Room、Ring、信任和传输 | `federation:*`              |
 
 Widget SDK 只保留 Widget 渲染需要的生命周期、UI/主题、用户角色、存储、AI Task、平台读取、报告
