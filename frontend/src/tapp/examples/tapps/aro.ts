@@ -485,8 +485,9 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .ring-sync-bar.ring-sync-err{color:#ef4444;background:rgba(239,68,68,.04)}
 
 /* ===== Feed Layout (X-style sidebar + content) =====
-   Two columns only: [sidebar | main]. Main MUST fill remaining width —
-   never cap with max-width / border-right (that creates a phantom right gutter). */
+   Two columns only: [sidebar | main]. Main fills remaining width after sidebar
+   (no border-right phantom third column). Stream measure is capped on
+   .feed-content / .feed-empty, not on .feed-main itself. */
 .feed-layout{display:flex;flex:1 1 auto;width:100%;max-width:none;min-height:0;min-width:0;overflow:hidden}
 /* Feed Sidebar */
 .feed-sidebar{width:232px;flex:0 0 232px;flex-shrink:0;border-right:1px solid rgba(128,128,128,.08);display:flex;flex-direction:column;padding:14px 12px;overflow:hidden}
@@ -525,7 +526,7 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .feed-profile-mobile{display:none;margin:10px 16px 0;flex-shrink:0}
 .feed-mobile-stats{display:none;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:8px 16px 0;flex-shrink:0}
 .feed-mobile-stat{min-width:0;display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 10px;border-radius:10px;background:rgba(128,128,128,.04);color:var(--text-secondary,#536471);font-size:11px}
-/* Feed Main — fills ALL remaining width after sidebar (P0: no 760px cap, no third-column border) */
+/* Feed Main — fills remaining width after sidebar (header spans full main; no third-column border) */
 .feed-main{
   flex:1 1 0%;
   min-width:0;
@@ -621,11 +622,11 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 /* Follow dialog form (reuses create-dialog shell) */
 .feed-follow-input,.create-form #feed-follow-input{width:100%}
 #feed-follow-btn:disabled{opacity:.5;cursor:not-allowed}
-/* Feed content / empty — stretch with main column (readable measure only on text blocks if needed) */
-.feed-content{flex:1 1 auto;min-height:0;width:100%;max-width:none;box-sizing:border-box}
-.feed-empty{min-height:280px;padding:56px 24px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--text-secondary,#536471);font-size:13px;line-height:1.5;width:100%;max-width:none;box-sizing:border-box}
+/* Feed content / empty — readable stream measure (~720px), left under header */
+.feed-content{flex:1 1 auto;min-height:0;width:100%;max-width:720px;box-sizing:border-box}
+.feed-empty{min-height:280px;padding:56px 24px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--text-secondary,#536471);font-size:13px;line-height:1.5;width:100%;max-width:720px;box-sizing:border-box}
 .feed-main.feed-empty-visible .feed-content{display:none}
-.feed-main.feed-empty-visible .feed-empty{flex:1;min-height:0}
+.feed-main.feed-empty-visible .feed-empty{display:flex;flex:1;min-height:0}
 .aro-empty-mark{width:52px;height:52px;border-radius:16px;background:rgba(128,128,128,.06);color:var(--text-secondary,#536471);display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .aro-empty-mark svg{width:24px;height:24px}
 .feed-empty-title{display:block;font-size:15px;font-weight:700;color:var(--text-primary,#0f1419);letter-spacing:-.01em}
@@ -656,8 +657,8 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .feed-item-handle{font-size:13px;color:var(--text-secondary,#8b98a5);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
 .feed-item-sep{font-size:13px;color:var(--text-secondary,#c0c0c0)}
 .feed-item-time{font-size:12px;color:var(--text-secondary,#8b98a5);white-space:nowrap;flex-shrink:0;margin-left:auto}
-/* Soft measure for long text only — column/background still full width */
-.feed-item-text{font-size:14.5px;line-height:1.55;color:var(--text-primary,#1a1a1a);margin-top:6px;white-space:pre-wrap;overflow-wrap:break-word;max-width:48rem}
+/* Measure follows .feed-content (~720px); no separate ultra-wide text column */
+.feed-item-text{font-size:14.5px;line-height:1.55;color:var(--text-primary,#1a1a1a);margin-top:6px;white-space:pre-wrap;overflow-wrap:break-word;max-width:100%}
 .feed-item-badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
 .feed-item-actions{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap}
 .feed-item-action{display:inline-flex;align-items:center;gap:5px;background:none;border:1px solid transparent;color:var(--text-secondary,#8b98a5);font-size:12px;font-weight:500;cursor:pointer;padding:6px 10px;border-radius:8px;transition:color .12s,background .12s,border-color .12s}
