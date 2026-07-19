@@ -4327,14 +4327,14 @@ fn get_expected_indexes() -> Vec<IndexDef> {
     ]
 }
 
-/// Whole-table CREATE fallbacks were removed (2026.07.19.3).
-/// Tables come from Migrator 001–006; schema_check only reconciles missing
-/// columns/indexes on tables that already exist, plus ongoing data/object heals.
-
 /// 确保存储配额函数和触发器存在。
 ///
 /// 函数使用 `CREATE OR REPLACE` 保持逻辑最新；触发器仅在缺失时创建，
 /// 避免每次启动都重建对象。
+///
+/// Whole-table CREATE fallbacks were removed (2026.07.19.3). Tables come from
+/// Migrator 001–006; schema_check only reconciles missing columns/indexes on
+/// tables that already exist, plus ongoing data/object heals.
 async fn ensure_tapp_storage_quota(db: &DatabaseConnection) -> Result<(), DbErr> {
     db.execute_unprepared(
         r#"
@@ -4683,13 +4683,11 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     let expected_indexes = get_expected_indexes();
 
     for idx in &expected_indexes {
-        if !existing_indexes.contains(&idx.name) {
-            if existing_tables.contains(&idx.table) {
-                let ddl = generate_create_index_ddl(idx);
-                tracing::info!("📝 Missing index: {}", idx.name);
-                ddl_statements.push(ddl);
-                changes_made += 1;
-            }
+        if !existing_indexes.contains(&idx.name) && existing_tables.contains(&idx.table) {
+            let ddl = generate_create_index_ddl(idx);
+            tracing::info!("📝 Missing index: {}", idx.name);
+            ddl_statements.push(ddl);
+            changes_made += 1;
         }
     }
 

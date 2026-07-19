@@ -137,9 +137,9 @@ function Ensure-Env {
 function Ensure-CurrentLayout {
     Write-Info "==> Ensuring current proxy + updater layout"
     New-Item -ItemType Directory -Force -Path pgdata, state, state/snapshots, state/cache, backups | Out-Null
-    Ensure-Key "MYRIAD_TAG" "v0.3.2"
-    Ensure-Key "PROXY_TAG" "v0.3.2"
-    Ensure-Key "UPDATER_TAG" "v0.3.2"
+    Ensure-Key "MYRIAD_TAG" "v0.3.3"
+    Ensure-Key "PROXY_TAG" "v0.3.3"
+    Ensure-Key "UPDATER_TAG" "v0.3.3"
     Ensure-Key "COMPOSE_PROJECT_NAME" "myriad"
     Ensure-Key "CHANNEL" "stable"
     Ensure-Key "MYRIAD_GITHUB_REPO" "Myriad-You/Myriad"

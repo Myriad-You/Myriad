@@ -1,25 +1,25 @@
 {
   "schema_version": 1,
-  "version": "v0.3.2",
+  "version": "v0.3.3",
   "commit_sha": "0123456789abcdef0123456789abcdef01234567",
   "channel": "stable",
   "released_at": "2026-05-16T00:00:00Z",
   "min_from_version": "v0.1.0",
   "images": {
     "backend": {
-      "ref": "docker.io/somekawahitomi/myriad-backend:v0.3.2",
+      "ref": "docker.io/somekawahitomi/myriad-backend:v0.3.3",
       "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
     },
     "frontend": {
-      "ref": "docker.io/somekawahitomi/myriad-frontend:v0.3.2",
+      "ref": "docker.io/somekawahitomi/myriad-frontend:v0.3.3",
       "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
     },
     "proxy": {
-      "ref": "docker.io/somekawahitomi/myriad-proxy:v0.3.2",
+      "ref": "docker.io/somekawahitomi/myriad-proxy:v0.3.3",
       "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
     },
     "updater": {
-      "ref": "docker.io/somekawahitomi/myriad-updater:v0.3.2",
+      "ref": "docker.io/somekawahitomi/myriad-updater:v0.3.3",
       "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
     }
   },
@@ -34,13 +34,13 @@
     "requires_full_backup": true
   },
   "updater": {
-    "min_updater_version": "v0.3.2",
+    "min_updater_version": "v0.3.3",
     "self_update_required": false
   },
   "postgres": {
     "min_pg_version": "16",
     "max_pg_version": "unbounded"
   },
-  "notes_url": "https://github.com/Myriad-You/Myriad/releases/tag/v0.3.2",
+  "notes_url": "https://github.com/Myriad-You/Myriad/releases/tag/v0.3.3",
   "signature": null
 }
