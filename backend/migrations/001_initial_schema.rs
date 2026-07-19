@@ -189,6 +189,28 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(false),
                     )
+                    // 每用户通知策略（原 007；旧库由 schema_check 补列）
+                    .col(
+                        ColumnDef::new(Users::NotificationPreferences)
+                            .json_binary()
+                            .not_null()
+                            .default("{}"),
+                    )
+                    // 在线状态跟踪（原 009；旧库由 schema_check 补列）
+                    .col(ColumnDef::new(Users::LastSeenAt).timestamp_with_time_zone())
+                    .col(
+                        ColumnDef::new(Users::OnlineSeconds)
+                            .big_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    // 站点 owner（原 010/011；种子与 owner→admin 由 schema_check::ensure_single_owner）
+                    .col(
+                        ColumnDef::new(Users::IsOwner)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -587,6 +609,10 @@ enum Users {
     AuthProvider,
     LinkedGithubId,
     LocalLoginDisabled,
+    NotificationPreferences,
+    LastSeenAt,
+    OnlineSeconds,
+    IsOwner,
 }
 
 #[derive(DeriveIden)]

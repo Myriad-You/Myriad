@@ -15,14 +15,15 @@ use std::collections::HashSet;
 /// 格式建议：YYYY.MM.DD 或语义版本 X.Y.Z
 ///
 /// 变更日志：
-/// - 2026.07.18.2: owner implies admin（is_owner 行强制 is_admin=true；011 + ensure_single_owner）
+/// - 2026.07.19.1: 退休 007–011 薄 ALTER 迁移；列并入 001/002 CREATE，运行时靠 schema_check
+/// - 2026.07.18.2: owner implies admin（is_owner 行强制 is_admin=true；ensure_single_owner）
 /// - 2026.07.18.1: users.is_owner 站点 owner 标记（取代 id=1 主管理员启发式）
 /// - 2026.07.17.1: 新增 tapp_ai_cost_ledger 独立 AI 费用账本表与索引
 /// - 2026.07.16.2: 008 内容并入基础迁移，并由 schema 自愈补齐旧库
 /// - 2026.07.16.1: 补齐 activity_events 表与索引
 /// - 2026.07.11.1: 新增 Discord 数据平台种子
 /// - 2026.07.10.1: 默认平台种子同步（含 X），与 001 插入列表对齐
-const SCHEMA_VERSION: &str = "2026.07.18.2";
+const SCHEMA_VERSION: &str = "2026.07.19.1";
 
 /// 内置平台种子定义（与 migrations/001_initial_schema.rs 中 INSERT 保持同步）
 ///
@@ -141,7 +142,17 @@ DO $$
 BEGIN
     IF to_regclass('public.seaql_migrations') IS NOT NULL THEN
         DELETE FROM seaql_migrations
-         WHERE version IN ('008_tapp_runtime_registry', '009_activity_events');
+         WHERE version IN (
+            -- already folded earlier
+            '008_tapp_runtime_registry',
+            '009_activity_events',
+            -- retired thin ALTER-only migrations (covered by 001/002 + schema_check)
+            '007_notification_preferences',
+            '008_tapp_approved_permissions',
+            '009_user_presence',
+            '010_user_owner',
+            '011_owner_is_admin'
+         );
     END IF;
 END $$;
 "#,
@@ -422,7 +433,7 @@ fn get_expected_schema() -> Vec<TableDef> {
                     is_nullable: false,
                     default_value: Some("'{}'::jsonb".into()),
                 },
-                // 在线状态跟踪（migration 009）
+                // 在线状态跟踪（schema_check / base 001）
                 ColumnDef {
                     name: "last_seen_at".into(),
                     data_type: "timestamp with time zone".into(),
@@ -435,7 +446,7 @@ fn get_expected_schema() -> Vec<TableDef> {
                     is_nullable: false,
                     default_value: Some("0".into()),
                 },
-                // 站点 owner（migration 010）；was: privilege gates used id=1
+                // 站点 owner（schema_check / base 001）；was: privilege gates used id=1
                 ColumnDef {
                     name: "is_owner".into(),
                     data_type: "boolean".into(),
@@ -5434,10 +5445,10 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
         tracing::info!("✅ Database schema is up to date (no changes needed)");
     }
 
-    // 008 已并入基础迁移；等缺失字段补齐后再创建配额函数和触发器。
+    // approved_permissions / storage quota 已由 002 + schema_check 接管；等缺失字段补齐后再创建配额函数和触发器。
     ensure_tapp_storage_quota(db).await?;
 
-    // 010/011: ensure exactly one site owner (and owner implies admin).
+    // ensure exactly one site owner (and owner implies admin); also creates idx_users_single_owner.
     if let Err(e) = ensure_single_owner(db).await {
         tracing::warn!("Site owner seed warning: {}", e);
     }
@@ -5455,7 +5466,9 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
 /// Multiple owners collapse to the lowest id.
 ///
 /// After exactly one owner is ensured, heals `is_admin = true` on that row.
-/// Invariant: owner implies admin (mirrors migration 011). Zero users → no-op.
+/// Also creates partial unique index `idx_users_single_owner` (not in
+/// `get_expected_indexes` — expression/partial DDL is awkward for the generic
+/// index path). Invariant: owner implies admin. Zero users → no-op.
 pub async fn ensure_single_owner(db: &DatabaseConnection) -> Result<(), DbErr> {
     // Column may still be missing if DDL failed; skip quietly.
     let col_check = db
@@ -5609,7 +5622,7 @@ mod tests {
             .expect("users table");
         assert!(
             users.columns.iter().any(|c| c.name == "is_owner"),
-            "users must define is_owner (migration 010)"
+            "users must define is_owner (schema_check / base 001)"
         );
     }
 
@@ -5649,14 +5662,15 @@ mod tests {
         use sea_orm_migration::MigratorTrait;
 
         let db = Database::connect(&database_url).await.unwrap();
-        migration::Migrator::up(&db, Some(7)).await.unwrap();
-        // Recreate the exact legacy state: migrations 1-7 are recorded, but
-        // tapps predates approved_permissions.
-        db.execute_unprepared("ALTER TABLE tapps DROP COLUMN approved_permissions")
+        // Base migrations (001–006) already CREATE approved_permissions on greenfield.
+        migration::Migrator::up(&db, None).await.unwrap();
+        // Simulate legacy state: column missing, only granted_permissions present.
+        db.execute_unprepared("ALTER TABLE tapps DROP COLUMN IF EXISTS approved_permissions")
             .await
             .unwrap();
         db.execute_unprepared(
             r#"
+DELETE FROM tapps WHERE tapp_id = 'com.example.legacy-consent';
 INSERT INTO tapps
     (tapp_id, user_id, name, version, manifest, granted_permissions, file_path, code_path)
 VALUES
@@ -5667,7 +5681,8 @@ VALUES
         .await
         .unwrap();
 
-        migration::Migrator::up(&db, None).await.unwrap();
+        // Retired migration 008 is covered by ensure_tapp_approved_permissions (via ensure_schema).
+        ensure_tapp_approved_permissions(&db).await.unwrap();
         let row = db
             .query_one(Statement::from_string(
                 DatabaseBackend::Postgres,

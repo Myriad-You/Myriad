@@ -23,12 +23,19 @@ sea-orm-cli migrate generate create_new_table
 4. `004_agent_system` - Agent tasks, memory and notification state
 5. `005_federation` - Federation identities and messages
 6. `006_oauth_identities` - OAuth/OIDC identity bindings
-7. `007_notification_preferences` - Per-user notification preferences
-8. `008_tapp_approved_permissions` - Separate install consent from effective Tapp permissions
 
-The former runtime/activity migrations are folded into the owning base migrations.
-Existing deployments receive missing tables, columns, indexes and quota enforcement
-through the backend's independent startup schema reconciliation.
+Base CREATE tables (001–006) include the current column set for greenfield installs.
+Thin ALTER-only migrations that only added columns or healed data were retired:
+
+- `007_notification_preferences` → `users.notification_preferences` in 001
+- `008_tapp_approved_permissions` → `tapps.approved_permissions` in 002 + backfill via schema_check
+- `009_user_presence` → `users.last_seen_at` / `online_seconds` in 001
+- `010_user_owner` / `011_owner_is_admin` → `users.is_owner` in 001 + `ensure_single_owner`
+
+Existing deployments receive missing tables, columns, indexes, column backfills,
+owner/admin heals, and default platform seeds through the backend's independent
+startup schema reconciliation (`schema_check`). Retired migration history rows are
+removed by `reconcile_retired_migration_history` before `Migrator::up`.
 
 ## Manual SQL Migration
 
