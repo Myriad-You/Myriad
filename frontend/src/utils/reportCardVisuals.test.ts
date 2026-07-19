@@ -168,4 +168,44 @@ describe('pickPlatformCardVisuals', () => {
     )
     assert.deepEqual(picked, { vibe: 'builder', stats: { guilds: 3 } })
   })
+
+  it('matches platform case-insensitively (home type report-steam vs Steam)', () => {
+    const picked = pickPlatformCardVisuals(
+      {
+        success: true,
+        platform_reports: [
+          {
+            platform: 'Steam',
+            card_visuals: { hardcore_score: 77, games_count: 9 },
+          },
+        ],
+      },
+      'steam',
+    )
+    assert.deepEqual(picked, { hardcore_score: 77, games_count: 9 })
+  })
+
+  it('recovers visuals nested under report.report (older stored shape)', () => {
+    const picked = pickPlatformCardVisuals(
+      {
+        success: true,
+        platform_reports: [
+          {
+            platform: 'github',
+            report: {
+              card_visuals: {
+                contribution_level: 'senior',
+                total_stars: 42,
+              },
+            },
+          },
+        ],
+      },
+      'github',
+    )
+    assert.deepEqual(picked, {
+      contribution_level: 'senior',
+      total_stars: 42,
+    })
+  })
 })

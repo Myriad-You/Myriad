@@ -6,12 +6,13 @@
  * are unit-tested so field-mapping regressions surface as test failures.
  */
 
-/** Structural input for report-card platform resolution (accepts WidgetConfig). */
 export interface WidgetConfigLike {
   type?: string
   config?: {
     platformId?: unknown
-  } | null
+    [key: string]: unknown
+  }
+  [key: string]: unknown
 }
 
 /**
@@ -95,9 +96,17 @@ export function hasRenderableCardVisuals(
   return Object.keys(visuals).length > 0
 }
 
+function platformMatches(candidate: unknown, platformId: string): boolean {
+  if (typeof candidate !== 'string') return false
+  return candidate.trim().toLowerCase() === platformId.trim().toLowerCase()
+}
+
 /**
  * Pick a platform report from `/api/reports/latest` (or catalog) list and
  * return non-empty card_visuals, or null (empty-render guard).
+ *
+ * This is the home ReportCardWidget data path: wrong platform match or empty
+ * `{}` visuals previously mounted a blank shell with only the platform logo.
  */
 export function pickPlatformCardVisuals(
   data: unknown,
@@ -123,9 +132,24 @@ export function pickPlatformCardVisuals(
       r.content && typeof r.content === 'object'
         ? (r.content as Record<string, unknown>)
         : null
-    return r.platform === platformId || content?.platform === platformId
+    return (
+      platformMatches(r.platform, platformId) ||
+      platformMatches(content?.platform, platformId)
+    )
   })
 
-  const visuals = extractCardVisuals(report)
+  if (!report) return null
+
+  // Prefer nested card_visuals; if the row *is* the visuals object (or nested
+  // under `report` / `data` from older writers), still recover stats.
+  let visuals = extractCardVisuals(report)
+  if (!hasRenderableCardVisuals(visuals)) {
+    const row = report as Record<string, unknown>
+    for (const nestedKey of ['report', 'data', 'payload'] as const) {
+      const nested = row[nestedKey]
+      visuals = extractCardVisuals(nested)
+      if (hasRenderableCardVisuals(visuals)) break
+    }
+  }
   return hasRenderableCardVisuals(visuals) ? visuals : null
 }

@@ -27,7 +27,27 @@ const PLATFORM_CACHE_HOURS: i64 = 12; // 数据缓存12小时
 
 use std::collections::{HashMap, HashSet};
 
+/// Resolve the site owner's user id for public surfaces (home dashboard, profile,
+/// library, `/api/reports/latest`, …).
+///
+/// Prefer durable `users.is_owner` (the account that owns platform reports and
+/// dashboard content). Falling back to the lowest admin id keeps pre-`is_owner`
+/// databases working.
 pub(crate) async fn site_owner_user_id(db: &DatabaseConnection) -> Result<i32, String> {
+    // 1) Durable site owner flag
+    if let Ok(Some(row)) = db
+        .query_one(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT id FROM users WHERE is_owner = true ORDER BY id ASC LIMIT 1".to_string(),
+        ))
+        .await
+    {
+        if let Ok(id) = row.try_get::<i32>("", "id") {
+            return Ok(id);
+        }
+    }
+
+    // 2) Legacy: first admin (pre-is_owner installs / column missing)
     let row = db
         .query_one(Statement::from_string(
             DatabaseBackend::Postgres,
