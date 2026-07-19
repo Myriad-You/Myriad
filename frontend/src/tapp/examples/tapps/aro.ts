@@ -315,6 +315,14 @@ const PAGE_HTML = `\
               </div>
             </div>
           </div>
+          <!-- Ring ID (always visible for cross-instance join) -->
+          <div class="ring-id-bar" id="ring-id-bar">
+            <span class="ring-id-label" id="ring-id-label">Ring ID</span>
+            <code class="ring-id-value" id="ring-id-value" title=""></code>
+            <button type="button" class="ring-id-copy" id="ring-id-copy" title="Copy" aria-label="Copy">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+            </button>
+          </div>
           <!-- 同步状态 -->
           <div id="ring-sync-status" class="ring-sync-bar" style="display:none"></div>
           <!-- 添加节点 -->
@@ -483,6 +491,13 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .ring-sync-bar{font-size:11px;padding:8px 14px;border-bottom:1px solid rgba(128,128,128,.06);display:flex;align-items:center;gap:6px}
 .ring-sync-bar.ring-sync-ok{color:#22c55e;background:rgba(34,197,94,.04)}
 .ring-sync-bar.ring-sync-err{color:#ef4444;background:rgba(239,68,68,.04)}
+/* Ring ID row — always show id under header for cross-instance sharing */
+.ring-id-bar{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid rgba(128,128,128,.06);flex-shrink:0;background:rgba(128,128,128,.03);min-width:0}
+.ring-id-label{font-size:10px;font-weight:600;letter-spacing:.02em;color:var(--text-secondary,#536471);flex-shrink:0;text-transform:uppercase}
+.ring-id-value{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:11px;line-height:1.35;padding:6px 9px;border-radius:9px;background:rgba(128,128,128,.06);color:var(--text-primary,#0f1419)}
+.ring-id-copy{width:28px;height:28px;border:none;border-radius:9px;background:rgba(var(--tapp-primary-rgb,100,100,255),.08);color:var(--tapp-primary,#6366f1);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:background .15s}
+.ring-id-copy:hover{background:rgba(var(--tapp-primary-rgb,100,100,255),.14)}
+.ring-id-copy:disabled{opacity:.45;cursor:default}
 
 /* ===== Feed Layout (X-style sidebar + content) =====
    Two columns only: [sidebar | main]. Main fills remaining width after sidebar
@@ -1138,6 +1153,9 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .dark .ring-sync-bar{border-color:rgba(255,255,255,.04)}
 .dark .ring-sync-bar.ring-sync-ok{background:rgba(34,197,94,.08)}
 .dark .ring-sync-bar.ring-sync-err{background:rgba(239,68,68,.08)}
+.dark .ring-id-bar{border-color:rgba(255,255,255,.06);background:rgba(255,255,255,.03)}
+.dark .ring-id-label{color:rgba(255,255,255,.45)}
+.dark .ring-id-value{background:rgba(255,255,255,.06);color:rgba(255,255,255,.68)}
 .dark .conv-avatar{color:var(--tapp-primary,#818cf8)}
 .dark .member-avatar{color:var(--tapp-primary,#818cf8)}
 .dark .msg-file-card{background:rgba(255,255,255,.08)}
@@ -1646,6 +1664,8 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "reportInsights": "Insights",
     "reportSummary": "Summary",
     "reportUnavailable": "Report details unavailable",
+    "ringId": "Ring ID",
+    "ringIdCopied": "Ring ID copied",
     "ringNamePlaceholder": "Ring name",
     "ringPeersTitle": "Peers",
     "ringType": "Type",
@@ -1895,6 +1915,8 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "reportInsights": "インサイト",
     "reportSummary": "概要",
     "reportUnavailable": "レポートの詳細を読み込めません",
+    "ringId": "リングID",
+    "ringIdCopied": "リングIDをコピーしました",
     "ringNamePlaceholder": "リング名",
     "ringPeersTitle": "ピア",
     "ringType": "タイプ",
@@ -2144,6 +2166,8 @@ const ARO_I18N: Record<string, Record<string, string>> = {
     "reportInsights": "洞察",
     "reportSummary": "摘要",
     "reportUnavailable": "无法加载报告详情",
+    "ringId": "环网 ID",
+    "ringIdCopied": "已复制环网 ID",
     "ringNamePlaceholder": "环网名称",
     "ringPeersTitle": "节点",
     "ringType": "类型",
@@ -3223,6 +3247,12 @@ function applyLabels() {
   el = $('ring-sync-label'); if (el) el.textContent = lang.syncBtn;
   el = $('ring-sync-btn'); if (el) el.setAttribute('title', lang.syncBtn);
   el = $('ring-leave-label'); if (el) el.textContent = lang.leaveBtn;
+  el = $('ring-id-label'); if (el) el.textContent = lang.ringId || 'Ring ID';
+  el = $('ring-id-copy');
+  if (el) {
+    el.setAttribute('title', lang.copy || 'Copy');
+    el.setAttribute('aria-label', (lang.copy || 'Copy') + ' ' + (lang.ringId || 'Ring ID'));
+  }
   el = $('ring-type-opt-brew'); if (el) el.textContent = lang.ringTypeBrewRecommend;
   el = $('ring-type-opt-tapp'); if (el) el.textContent = lang.ringTypeTappStore;
   el = $('ring-type-opt-library'); if (el) el.textContent = lang.ringTypeLibraryExchange;
@@ -7441,6 +7471,24 @@ async function doLeaveRing(ringId) {
   }
 }
 
+/** Copy the active ring's id for sharing with another instance. */
+async function copyRingId() {
+  var ring = state.ringDetail;
+  var ringId = (ring && ring.ring_id) || state.activeRingId || '';
+  if (!ringId) {
+    try { Tapp.ui.showNotification({ title: lang.copyFail, type: 'error' }); } catch (e0) {}
+    return;
+  }
+  var ok = await copyTextToClipboard(ringId, { silent: true });
+  try {
+    Tapp.ui.showNotification({
+      title: ok ? (lang.ringIdCopied || lang.copied) : lang.copyFail,
+      message: ok ? ringId : undefined,
+      type: ok ? 'success' : 'error',
+    });
+  } catch (e1) {}
+}
+
 // ==================== Ring Detail (inline panel) ====================
 function openRingDetail(ringId) {
   state.activeRingId = ringId;
@@ -7457,6 +7505,19 @@ function openRingDetail(ringId) {
   if (detail) {
     detail.style.display = '';
     aroPlayEnter(detail, 'aro-panel-enter');
+  }
+  // Optimistic ring_id fill (full detail arrives from loadRingDetail)
+  var idLabelEl = $('ring-id-label');
+  if (idLabelEl) idLabelEl.textContent = lang.ringId || 'Ring ID';
+  var idValueEl = $('ring-id-value');
+  if (idValueEl) {
+    idValueEl.textContent = ringId || '';
+    idValueEl.setAttribute('title', ringId || '');
+  }
+  var idCopyBtn = $('ring-id-copy');
+  if (idCopyBtn) {
+    idCopyBtn.disabled = !ringId;
+    idCopyBtn.setAttribute('title', lang.copy || 'Copy');
   }
   // Mobile
   $('ring-sidebar').classList.add('sidebar-hidden-mobile');
@@ -7513,6 +7574,7 @@ function renderRingDetail() {
   var iconEl = $('ring-detail-icon');
   if (iconEl) iconEl.innerHTML = typeIcons[ring.ring_type] || SVG_ICONS.ring;
   var nameEl = $('ring-detail-name');
+  // Prefer display name; ring_id is always shown separately in the id bar
   if (nameEl) nameEl.textContent = ring.ring_name || ring.ring_id;
   var metaEl = $('ring-detail-meta');
   if (metaEl) {
@@ -7523,6 +7585,22 @@ function renderRingDetail() {
       try { parts.push('<span class="meta-badge">' + esc(timeAgo(ring.last_sync_at)) + '</span>'); } catch (e) {}
     }
     metaEl.innerHTML = parts.join('');
+  }
+
+  // Always show ring_id (separate from title) for cross-instance sharing
+  var ringId = ring.ring_id || state.activeRingId || '';
+  var idLabelEl = $('ring-id-label');
+  if (idLabelEl) idLabelEl.textContent = lang.ringId || 'Ring ID';
+  var idValueEl = $('ring-id-value');
+  if (idValueEl) {
+    idValueEl.textContent = ringId;
+    idValueEl.setAttribute('title', ringId);
+  }
+  var idCopyBtn = $('ring-id-copy');
+  if (idCopyBtn) {
+    idCopyBtn.disabled = !ringId;
+    idCopyBtn.setAttribute('title', lang.copy || 'Copy');
+    idCopyBtn.setAttribute('aria-label', (lang.copy || 'Copy') + ' ' + (lang.ringId || 'Ring ID'));
   }
 
   // Sync / leave labels
@@ -7669,6 +7747,8 @@ const PAGE_MOD_EVENTS = `\
   // Ring detail inline panel events
   var ringBackBtn = $('ring-back-btn');
   if (ringBackBtn) ringBackBtn.addEventListener('click', hideRingDetail);
+  var ringIdCopyBtn = $('ring-id-copy');
+  if (ringIdCopyBtn) ringIdCopyBtn.addEventListener('click', copyRingId);
   var ringSyncBtn = $('ring-sync-btn');
   if (ringSyncBtn) ringSyncBtn.addEventListener('click', doTriggerSync);
   var ringManageBtn = $('ring-manage-btn');
