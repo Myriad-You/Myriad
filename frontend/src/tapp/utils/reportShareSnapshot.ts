@@ -9,14 +9,14 @@
  * Keep both in sync when changing field names or extraction rules.
  */
 
-export type ReportShareSnapshot = {
+export interface ReportShareSnapshot {
   report_id: string
   summary: string
   platform: string
   content_preview: string
 }
 
-export type ReportShareSource = {
+export interface ReportShareSource {
   id?: string | number | null
   report_id?: string | number | null
   platform?: string | null
