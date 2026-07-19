@@ -164,7 +164,7 @@ export function registerTappListHandlers(
           return { success: false, error: 'tappId is required for store install' }
         }
         // Prefer explicit storeSource; then HTTP source; never use mode "store".
-        let catalogRef = storeSourceCandidate
+        const catalogRef = storeSourceCandidate
         if (
           !catalogRef ||
           catalogRef.toLowerCase() === 'store' ||

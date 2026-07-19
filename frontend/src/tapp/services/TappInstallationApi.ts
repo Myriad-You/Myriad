@@ -302,7 +302,7 @@ export async function resolveStoreSourceForTapp(tappId: string): Promise<{
   matchedApp: boolean
 }> {
   const { default: RemoteStoreService, OFFICIAL_STORE } = await import(
-    './RemoteStoreService'
+    './RemoteStoreService',
   )
   const sources = await RemoteStoreService.getEnabledSources()
   const ordered = [...sources].sort((a, b) => {
