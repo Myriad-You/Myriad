@@ -91,8 +91,8 @@ const PAGE_HTML = `\
           <button id="member-back-btn" class="member-back-btn">←</button>
           <h3 id="member-title" class="member-title">成员</h3>
           <div id="invite-wrap" class="invite-wrap" style="display:none">
-            <button id="invite-toggle" class="invite-toggle" title="邀请成员">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+            <button id="invite-toggle" class="aro-icon-btn invite-toggle" title="邀请成员">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
             </button>
           </div>
         </div>
@@ -305,7 +305,7 @@ const PAGE_HTML = `\
                 <span id="ring-sync-label">同步</span>
               </button>
               <div class="manage-wrap">
-                <button id="ring-manage-btn" class="manage-btn">⋯</button>
+                <button id="ring-manage-btn" class="aro-icon-btn manage-btn">⋯</button>
                 <div id="ring-manage-dropdown" class="manage-dropdown">
                   <button id="ring-leave-btn" class="manage-item manage-item-danger">
                     <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg>
@@ -542,7 +542,7 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .feed-main-header{min-height:56px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px;border-bottom:1px solid rgba(128,128,128,.06);flex-shrink:0;background:rgba(255,255,255,.45);backdrop-filter:blur(12px);position:relative;z-index:5;overflow:visible}
 .feed-header-leading{display:flex;align-items:center;gap:10px;min-width:0;flex:1}
 .feed-plus-wrap{position:relative;flex-shrink:0}
-.feed-plus-btn{width:34px;height:34px;border-radius:10px;border:none;background:var(--tapp-primary,#6366f1);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:opacity .15s,transform .12s,box-shadow .15s}
+.feed-plus-btn{width:36px;height:36px;min-width:36px;min-height:36px;border-radius:10px;border:none;background:var(--tapp-primary,#6366f1);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:opacity .15s,transform .12s,box-shadow .15s}
 .feed-plus-btn:hover{opacity:.92}
 .feed-plus-btn:active{transform:scale(.96)}
 .feed-plus-btn[aria-expanded="true"]{box-shadow:0 0 0 3px rgba(var(--tapp-primary-rgb,99,102,241),.22)}
@@ -599,7 +599,7 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .feed-section-title{font-size:16px;font-weight:750;color:var(--text-primary,#0f1419);line-height:1.2}
 .feed-section-meta{min-height:15px;font-size:11px;font-weight:500;color:var(--text-secondary,#536471);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .feed-header-actions{display:flex;align-items:center;gap:8px;flex-shrink:0;position:relative;z-index:6;overflow:visible}
-.feed-refresh-btn{width:34px;height:34px;border:none;border-radius:10px;background:rgba(128,128,128,.07);color:var(--text-secondary,#536471);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s,color .15s,transform .15s;flex-shrink:0}
+.feed-refresh-btn{width:36px;height:36px;min-width:36px;min-height:36px;border:none;border-radius:8px;background:rgba(128,128,128,.06);color:var(--text-secondary,#536471);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s,color .15s,transform .15s;flex-shrink:0}
 .feed-refresh-btn:hover{background:rgba(var(--tapp-primary-rgb,100,100,255),.11);color:var(--tapp-primary,#6366f1)}
 .feed-refresh-btn:active{transform:scale(.96)}
 .feed-refresh-btn:disabled{opacity:.65;cursor:default;transform:none}
@@ -718,7 +718,7 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .sidebar{display:flex;flex-direction:column;width:280px;border-right:1px solid rgba(128,128,128,.08);flex-shrink:0;overflow:hidden}
 .sidebar-header{padding:14px 14px 12px;border-bottom:1px solid rgba(128,128,128,.06);flex-shrink:0;display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:52px}
 .sidebar-title{margin:0;font-size:16px;font-weight:700;color:var(--text-primary,#1a1a1a);letter-spacing:-.02em}
-.create-btn{width:32px;height:32px;border-radius:10px;border:none;background:var(--tapp-primary,#6366f1);color:#fff;font-size:20px;font-weight:400;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:opacity .15s,transform .12s;flex-shrink:0;line-height:1}
+.create-btn{width:36px;height:36px;min-width:36px;min-height:36px;border-radius:10px;border:none;background:var(--tapp-primary,#6366f1);color:#fff;font-size:22px;font-weight:400;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:opacity .15s,transform .12s;flex-shrink:0;line-height:1}
 .create-btn:hover{opacity:.9}
 .create-btn:active{transform:scale(.96)}
 .create-btn:focus-visible{outline:2px solid rgba(var(--tapp-primary-rgb,99,102,241),.5);outline-offset:2px}
@@ -733,7 +733,15 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .member-list{flex:1;overflow-y:auto;padding:8px}
 /* Invite popover */
 .invite-wrap{position:relative}
-.invite-toggle{width:36px;height:36px;min-width:36px;min-height:36px;border:none;background:none;color:var(--tapp-primary,#6366f1);cursor:pointer;display:flex;align-items:center;justify-content:center;border-radius:8px;transition:background .15s}
+/* Shared 36×36 toolbar icon-button token (hit target + chrome). Variants set color/bg. */
+.aro-icon-btn,.member-toggle-btn,.manage-btn,.invite-toggle{
+  width:36px;height:36px;min-width:36px;min-height:36px;padding:0;
+  border-radius:8px;border:none;cursor:pointer;flex-shrink:0;line-height:1;
+  display:flex;align-items:center;justify-content:center;
+  transition:background .15s,color .15s;
+}
+.aro-icon-btn svg,.member-toggle-btn svg,.invite-toggle svg{width:18px;height:18px;flex-shrink:0}
+.invite-toggle{background:none;color:var(--tapp-primary,#6366f1)}
 .invite-toggle:hover{background:rgba(var(--tapp-primary-rgb,100,100,255),.1)}
 .invite-popover{position:fixed;width:240px;background:var(--bg-primary,#fff);border:1px solid rgba(128,128,128,.1);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.12);z-index:200;overflow:hidden}
 .invite-popover.aro-menu-enter{animation:aroPopIn .14s var(--aro-ease) both}
@@ -822,14 +830,13 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .badge-closed{background:rgba(128,128,128,.08);color:var(--text-secondary,#999)}
 .badge-pending{background:rgba(245,158,11,.1);color:#f59e0b}
 .chat-actions{display:flex;gap:6px;flex-shrink:0;align-items:center}
-.member-toggle-btn{width:28px;height:28px;border-radius:8px;border:none;background:rgba(128,128,128,.06);color:var(--text-secondary,#999);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s}
-.member-toggle-btn:hover{background:rgba(128,128,128,.12)}
+/* Muted header chrome — same family as .aro-icon-btn (size from shared rule above) */
+.member-toggle-btn,.manage-btn{background:rgba(128,128,128,.06);color:var(--text-secondary,#999);font-size:16px}
+.member-toggle-btn:hover,.manage-btn:hover{background:rgba(128,128,128,.12)}
 .action-btn{font-size:11px;padding:4px 10px;border-radius:10px;border:none;cursor:pointer;transition:background .15s}
 .action-accept{color:#fff;background:#22c55e}
 .action-accept:hover{background:#16a34a}
 .manage-wrap{position:relative}
-.manage-btn{width:36px;height:36px;min-width:36px;min-height:36px;border-radius:8px;border:none;background:rgba(128,128,128,.06);color:var(--text-secondary,#999);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s;line-height:1}
-.manage-btn:hover{background:rgba(128,128,128,.12)}
 .manage-dropdown{display:none;position:absolute;right:0;top:calc(100% + 4px);min-width:120px;background:var(--bg-primary,#fff);border:1px solid rgba(128,128,128,.1);border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.1);z-index:50;padding:4px;overflow:hidden}
 .manage-dropdown.open{display:block}
 .manage-item{display:flex;align-items:center;gap:8px;width:100%;padding:7px 10px;border:none;background:none;border-radius:7px;font-size:12px;color:var(--text-primary,#333);cursor:pointer;transition:background .12s;text-align:left}
@@ -1096,8 +1103,7 @@ body.dark{background:#0a0a0a;color:rgba(255,255,255,.92)}
 .dark .member-name{color:rgba(255,255,255,.9)}
 .dark .member-title{color:rgba(255,255,255,.45)}
 .dark .member-back-btn{color:rgba(255,255,255,.9)}
-.dark .member-toggle-btn{color:rgba(255,255,255,.6)}
-.dark .manage-btn{color:rgba(255,255,255,.6)}
+.dark .member-toggle-btn,.dark .manage-btn{color:rgba(255,255,255,.6)}
 .dark .empty-icon{background:rgba(255,255,255,.06);color:rgba(255,255,255,.35)}
 .dark .empty-state{color:rgba(255,255,255,.5)}
 .dark .empty-text{color:rgba(255,255,255,.5)}
@@ -5117,7 +5123,7 @@ function renderChatHeader() {
       actionsHtml += '<button class="action-btn action-accept" id="action-accept">' + esc(lang.accept) + '</button>';
     }
     if (ch.status !== 'closed') {
-      actionsHtml += '<div class="manage-wrap"><button type="button" class="manage-btn" id="manage-toggle" title="' + esc(lang.manage) + '" aria-label="' + esc(lang.manage) + '">⋯</button>'
+      actionsHtml += '<div class="manage-wrap"><button type="button" class="aro-icon-btn manage-btn" id="manage-toggle" title="' + esc(lang.manage) + '" aria-label="' + esc(lang.manage) + '">⋯</button>'
         + '<div class="manage-dropdown" id="manage-dropdown" role="menu">'
         + '<button type="button" class="manage-item manage-item-danger" id="action-close" role="menuitem">'
         + '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>'
@@ -5151,11 +5157,11 @@ function renderChatHeader() {
         + esc(lang.dissolve) + '</button>';
     }
     // Member toggle button + manage menu
-    var memberToggleHtml = '<button type="button" class="member-toggle-btn" id="member-toggle-btn" title="' + esc(lang.members) + '" aria-label="' + esc(lang.members) + '">'
-      + '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>'
+    var memberToggleHtml = '<button type="button" class="aro-icon-btn member-toggle-btn" id="member-toggle-btn" title="' + esc(lang.members) + '" aria-label="' + esc(lang.members) + '">'
+      + '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>'
       + '</button>';
     if (menuItems) {
-      actionsEl.innerHTML = memberToggleHtml + '<div class="manage-wrap"><button type="button" class="manage-btn" id="manage-toggle" title="' + esc(lang.manage) + '" aria-label="' + esc(lang.manage) + '">⋯</button>'
+      actionsEl.innerHTML = memberToggleHtml + '<div class="manage-wrap"><button type="button" class="aro-icon-btn manage-btn" id="manage-toggle" title="' + esc(lang.manage) + '" aria-label="' + esc(lang.manage) + '">⋯</button>'
         + '<div class="manage-dropdown" id="manage-dropdown" role="menu">' + menuItems + '</div></div>';
     } else {
       actionsEl.innerHTML = memberToggleHtml;
