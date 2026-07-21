@@ -1178,4 +1178,20 @@ mod tests {
         assert_eq!(effective_max_requests(&policy, TrustLevel::Federated), 30);
 
     }
+
+    #[test]
+    fn w175_filter_block_keyword() {
+        let rules = vec![ContentFilterRule {
+            name: "kw".into(),
+            filter_type: "block_keyword".into(),
+            value: "spam".into(),
+            enabled: true,
+        }];
+        let act = serde_json::json!({"type": "Create", "content": "buy spam now"});
+        assert!(matches!(
+            apply_content_filters(&act, TrustLevel::Discovered, &rules),
+            FilterVerdict::Reject(_)
+        ));
+
+    }
 }
