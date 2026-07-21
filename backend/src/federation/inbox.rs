@@ -2055,6 +2055,47 @@ mod tests {
     }
 
     #[test]
+    fn extract_activity_actor_id_link_href_and_string_array() {
+        let link = serde_json::json!({
+            "actor": {"type": "Link", "href": "https://b.example/users/bob"}
+        });
+        assert_eq!(
+            extract_activity_actor_id(&link),
+            "https://b.example/users/bob"
+        );
+        let arr = serde_json::json!({
+            "actor": ["", "  https://b.example/users/bob  "]
+        });
+        assert_eq!(
+            extract_activity_actor_id(&arr),
+            "https://b.example/users/bob"
+        );
+        let arr_obj = serde_json::json!({
+            "actor": [
+                {"type": "Person"},
+                {"type": "Person", "id": "https://b.example/users/carol"}
+            ]
+        });
+        assert_eq!(
+            extract_activity_actor_id(&arr_obj),
+            "https://b.example/users/carol"
+        );
+    }
+
+    #[test]
+    fn extract_accept_object_skips_empty_array_entries() {
+        let activity = serde_json::json!({
+            "type": "Accept",
+            "actor": "https://b.example/users/bob",
+            "object": ["", "   ", "https://a.example/activities/keep"]
+        });
+        assert_eq!(
+            extract_accept_object_id(&activity),
+            "https://a.example/activities/keep"
+        );
+    }
+
+    #[test]
     fn accept_matches_with_expanded_actor_object() {
         let candidates = vec![(
             "https://a.example/activities/1".into(),

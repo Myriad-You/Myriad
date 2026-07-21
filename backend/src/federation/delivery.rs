@@ -1471,4 +1471,41 @@ mod tests {
             "remote said: cancelled by policy"
         )));
     }
+
+    /// Parity with suite `wait_delivery_side` / `dead_fail_count`:
+    /// dead + cancelled:% must NOT fail waiters; other dead messages must.
+    #[test]
+    fn wait_delivery_fail_filter_mirrors_suite_cancelled_exclusion() {
+        // Suite SQL: status=dead AND error_message NOT ILIKE 'cancelled:%'
+        // → fail wait only when is_user_cancelled is false (and there is a dead row).
+        let suite_would_fail = |err: Option<&str>| !is_user_cancelled_delivery_error(err);
+        assert!(!suite_would_fail(Some("cancelled: by user")));
+        assert!(!suite_would_fail(Some("CANCELLED: by user")));
+        assert!(!suite_would_fail(Some("cancelled: suite")));
+        assert!(suite_would_fail(Some("suite seeded dead")));
+        assert!(suite_would_fail(Some("Key load failed")));
+        assert!(suite_would_fail(Some("HTTP 500")));
+        // NULL / empty message: not a cancel — suite still counts the dead row.
+        assert!(suite_would_fail(None));
+        assert!(suite_would_fail(Some("")));
+    }
+
+    #[test]
+    fn bulk_retry_skip_matrix_cancelled_vs_real_dead() {
+        // Documents retry_all_dead_for_user skip branch without DB.
+        let cases: &[(&str, bool)] = &[
+            ("cancelled: by user", true),
+            ("cancelled: pending cleared", true),
+            ("suite seeded dead", false),
+            ("Key decryption failed", false),
+            ("PERMANENT HTTP 401", false),
+        ];
+        for (msg, skip) in cases {
+            assert_eq!(
+                is_user_cancelled_delivery_error(Some(msg)),
+                *skip,
+                "msg={msg}"
+            );
+        }
+    }
 }
