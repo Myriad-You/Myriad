@@ -569,11 +569,11 @@ html.dark[data-surface='liquid'] .surface-dialog {
 /* 流体下对话框遮罩略减黑：让玻璃 backdrop 能拾一点壁纸色，而不是纯黑 slab。
    仅限 .surface-dialog-backdrop，不改全局 overlay */
 :root[data-surface='liquid'] .surface-dialog-backdrop {
-  background-color: rgb(0 0 0 / 0.18);
+  background-color: rgb(0 0 0 / 18%);
 }
 
 html.dark[data-surface='liquid'] .surface-dialog-backdrop {
-  background-color: rgb(0 0 0 / 0.2);
+  background-color: rgb(0 0 0 / 20%);
 }
 
 /* 控制面板信息岛的流体边框适配：组件自带的中性边框/阴影换成表面令牌
