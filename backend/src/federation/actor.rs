@@ -1330,4 +1330,25 @@ mod tests {
         assert!(needs_federation_key_generation(Some("\r\n  ")));
         assert!(needs_federation_key_generation(None));
     }
+
+    #[test]
+    fn r34_rotation_confirm_accepted_requires_json_true() {
+        assert!(!rotation_confirm_accepted(&serde_json::json!({"confirm": 0})));
+        assert!(!rotation_confirm_accepted(&serde_json::json!({"confirm": "true"})));
+        assert!(!rotation_confirm_accepted(&serde_json::json!({"ok": true})));
+        assert!(rotation_confirm_accepted(&serde_json::json!({"confirm": true})));
+    }
+
+    #[test]
+    fn r35_rotation_confirm_accepted_ignores_nested_confirm() {
+        assert!(!rotation_confirm_accepted(&serde_json::json!({
+            "body": {"confirm": true}
+        })));
+    }
+
+    #[test]
+    fn r36_needs_federation_key_generation_whitespace_only() {
+        assert!(needs_federation_key_generation(Some("\t\t")));
+        assert!(!needs_federation_key_generation(Some("pem-bytes")));
+    }
 }
