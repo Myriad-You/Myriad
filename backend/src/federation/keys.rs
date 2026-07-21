@@ -197,4 +197,19 @@ mod tests {
         assert!(KeyPair::verify(&pem, data, &sig).unwrap());
         assert!(!KeyPair::verify(&pem, b"tampered", &sig).unwrap());
     }
+
+    #[test]
+    fn w175_encrypt_twice_different_ct() {
+        let kp = KeyPair::generate().unwrap();
+        let secret = "jwt-secret-for-unit-test-long-enough";
+        let e1 = kp.encrypt_private_key(secret).unwrap();
+        let e2 = kp.encrypt_private_key(secret).unwrap();
+        assert_ne!(e1, e2);
+        let pem = kp.public_key_pem().unwrap();
+        assert_eq!(
+            KeyPair::from_encrypted(&pem, &e1, secret).unwrap().public_key_pem().unwrap(),
+            KeyPair::from_encrypted(&pem, &e2, secret).unwrap().public_key_pem().unwrap()
+        );
+
+    }
 }
