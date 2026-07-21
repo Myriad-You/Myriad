@@ -638,16 +638,52 @@ fn split_actor_host_user(normalized: &str) -> (String, String) {
     (host, user)
 }
 
+/// Same host + username-compatible for Accept authorization under path drift.
+///
+/// Used when `same_actor_or_user` fails (e.g. Accept.actor is `/@bob` while the
+/// stored remote is `/users/bob`) but we must **never** let a different
+/// `/users/{name}` on the same host accept someone else's Follow.
+fn same_host_username_compatible(accept_actor: &str, remote: &str) -> bool {
+    let an = normalize_actor_url(accept_actor);
+    let rn = normalize_actor_url(remote);
+    let (ah, a_user) = split_actor_host_user(&an);
+    let (rh, r_user) = split_actor_host_user(&rn);
+    if ah.is_empty() || ah != rh {
+        return false;
+    }
+    // Both standard `/users/{name}`: require same username (case-insensitive).
+    // (Normally covered by `same_actor_or_user`; kept for defense-in-depth.)
+    if !a_user.is_empty() && !r_user.is_empty() {
+        return a_user.eq_ignore_ascii_case(&r_user);
+    }
+    // Accept uses a non-`/users/` path form (e.g. `/@bob`, `/ap/users/bob`):
+    // last path segment (strip leading `@`) must match the stored remote user.
+    if a_user.is_empty() && !r_user.is_empty() {
+        if let Ok(url) = url::Url::parse(&an) {
+            let last = url
+                .path()
+                .trim_end_matches('/')
+                .rsplit('/')
+                .next()
+                .unwrap_or("")
+                .trim_start_matches('@');
+            return !last.is_empty() && last.eq_ignore_ascii_case(&r_user);
+        }
+    }
+    false
+}
+
 /// Resolve which outgoing Follow an Accept refers to.
 ///
 /// Matching order (safe, no silent multi-pick):
 /// 1. Normalized `activity_id` + Accept.actor is remote peer (`same_actor_or_user`)
-/// 2. Unique normalized `activity_id` + **same host** (path/alias drift only —
-///    never cross-host username-only)
+/// 2. Unique normalized `activity_id` + **same host + username-compatible**
+///    (path/alias drift only — never cross-user on the same host, never
+///    cross-host username-only)
 /// 3. Exactly one **pending** outgoing to Accept.actor via `same_actor_or_user`
 ///
 /// Already-`accepted` rows only yield idempotent success when matched by id
-/// (or unique id+host). Ambiguous multi-pending → no match.
+/// (or unique id+host+user). Ambiguous multi-pending → no match.
 ///
 /// Returns `(activity_id, remote_actor_url, already_accepted)`.
 pub fn resolve_follow_accept_target(
@@ -663,15 +699,14 @@ pub fn resolve_follow_accept_target(
                 return Some((aid.clone(), remote.clone(), status == "accepted"));
             }
         }
-        // Unique id match with same host (actor path/alias drift only)
+        // Unique id match with same host **and** username-compatible path drift.
+        // Host-only was insufficient: multi-user instances share a host, and
+        // activity ids can leak; a different /users/{name} must not Accept.
         let id_hits: Vec<_> = candidates
             .iter()
             .filter(|(aid, remote, _)| {
-                same_activity_id(aid, &follow_norm) && {
-                    let (ah, _) = split_actor_host_user(&normalize_actor_url(accept_actor));
-                    let (rh, _) = split_actor_host_user(&normalize_actor_url(remote));
-                    !ah.is_empty() && ah == rh
-                }
+                same_activity_id(aid, &follow_norm)
+                    && same_host_username_compatible(accept_actor, remote)
             })
             .collect();
         if id_hits.len() == 1 {
@@ -681,7 +716,7 @@ pub fn resolve_follow_accept_target(
                 activity_id = %aid,
                 accept_actor = accept_actor,
                 remote = %remote,
-                "Follow Accept: unique activity_id + host match (actor path drift)"
+                "Follow Accept: unique activity_id + host+user match (actor path drift)"
             );
             return Some((aid.clone(), remote.clone(), status == "accepted"));
         }
@@ -690,7 +725,7 @@ pub fn resolve_follow_accept_target(
                 follow_id = follow_id,
                 accept_actor = accept_actor,
                 hits = id_hits.len(),
-                "Follow Accept ambiguous: multiple activity_id matches on same host"
+                "Follow Accept ambiguous: multiple activity_id matches on same host+user"
             );
         }
     }
@@ -1668,8 +1703,9 @@ mod tests {
     }
 
     #[test]
-    fn accept_unique_id_same_host_path_drift() {
-        // Same host, different path form still matches via host+id uniqueness.
+    fn accept_rejects_same_host_different_user_even_with_id() {
+        // Multi-user instances share a host. activity_id is not a capability:
+        // Carol must not Accept Alice→Bob by citing Bob's Follow id.
         let candidates = vec![(
             "https://a.example/activities/1".into(),
             "https://b.example/users/bob".into(),
@@ -1677,11 +1713,32 @@ mod tests {
         )];
         let got = resolve_follow_accept_target(
             "https://a.example/activities/1",
-            "https://b.example/users/bob.extra", // different user path → host match only if /users/x
+            "https://b.example/users/carol",
             &candidates,
         );
-        // bob.extra is not under /users/ only as single segment — actually path is /users/bob.extra
-        // which is a different username; same_actor_or_user fails; host matches so unique id works.
+        assert!(got.is_none());
+        // Substring username tricks (/users/bob.extra) must also fail.
+        let got2 = resolve_follow_accept_target(
+            "https://a.example/activities/1",
+            "https://b.example/users/bob.extra",
+            &candidates,
+        );
+        assert!(got2.is_none());
+    }
+
+    #[test]
+    fn accept_unique_id_same_host_path_drift_alias() {
+        // Same host+user under non-standard Accept.actor path form.
+        let candidates = vec![(
+            "https://a.example/activities/1".into(),
+            "https://b.example/users/bob".into(),
+            "pending".into(),
+        )];
+        let got = resolve_follow_accept_target(
+            "https://a.example/activities/1",
+            "https://b.example/@bob",
+            &candidates,
+        );
         assert!(got.is_some());
     }
 
@@ -1756,18 +1813,26 @@ mod tests {
             ),
             (
                 "https://a.example/activities/1/?x=1".into(), // normalizes to same id
-                "https://b.example/users/carol".into(),
+                "https://b.example/users/bob".into(), // same user, duplicate id rows
                 "pending".into(),
             ),
         ];
-        // Accept.actor matches neither path uniquely for actor-auth; unique id+host
-        // would hit both on b.example → must not silent-pick.
+        // Accept.actor is neither authorized nor username-compatible uniquely
+        // across ambiguous id rows → must not silent-pick.
         let got = resolve_follow_accept_target(
             "https://a.example/activities/1",
             "https://b.example/users/other",
             &candidates,
         );
         assert!(got.is_none());
+        // Same user but two candidate rows with same normalized id → ambiguous.
+        let got2 = resolve_follow_accept_target(
+            "https://a.example/activities/1",
+            "https://b.example/users/bob",
+            &candidates,
+        );
+        // Step 1 iterates and returns the first actor-auth hit (non-ambiguous by design).
+        assert!(got2.is_some());
     }
 
     #[test]

@@ -178,13 +178,16 @@ pub async fn process_delivery_queue_detailed(
         let reclaim = prev_status == "delivering";
         if reclaim && attempts >= max_attempts {
             let err = "Exceeded max attempts after reclaim";
-            let _ = db
+            let mark = db
                 .execute(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
-                    "UPDATE federation_delivery_queue SET status = 'dead', error_message = $1, last_attempt_at = NOW() WHERE id = $2",
+                    "UPDATE federation_delivery_queue SET status = 'dead', error_message = $1, last_attempt_at = NOW() WHERE id = $2 AND status = 'delivering'",
                     [err.into(), queue_id.into()],
                 ))
                 .await;
+            if mark.as_ref().map(|r| r.rows_affected()).unwrap_or(0) == 0 {
+                continue;
+            }
             mark_delivery_dead(user_id, &activity_type, &target_domain, err).await;
             stats.dead += 1;
             continue;
@@ -192,15 +195,18 @@ pub async fn process_delivery_queue_detailed(
 
         // 投递前：目标实例信任策略检查（黑名单等）
         if let Err(reason) = crate::federation::trust::enforce_outbound(db, &target_domain).await {
-            let _ = db
+            let mark = db
                 .execute(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     r#"UPDATE federation_delivery_queue
                        SET status = 'dead', error_message = $1, last_attempt_at = NOW()
-                       WHERE id = $2"#,
+                       WHERE id = $2 AND status = 'delivering'"#,
                     [reason.clone().into(), queue_id.into()],
                 ))
                 .await;
+            if mark.as_ref().map(|r| r.rows_affected()).unwrap_or(0) == 0 {
+                continue;
+            }
             tracing::warn!(
                 "🛑 Delivery blocked by trust policy: target={}, reason={}",
                 target_inbox,
@@ -247,14 +253,23 @@ pub async fn process_delivery_queue_detailed(
                 .await
                 {
                     Ok(()) => {
-                        // 投递成功
-                        let _ = db
+                        // 投递成功 — only if still `delivering` (user cancel may
+                        // have marked dead mid-flight; do not resurrect).
+                        let mark = db
                             .execute(Statement::from_sql_and_values(
                                 DatabaseBackend::Postgres,
-                                "UPDATE federation_delivery_queue SET status = 'delivered', last_attempt_at = NOW() WHERE id = $1",
+                                "UPDATE federation_delivery_queue SET status = 'delivered', last_attempt_at = NOW() WHERE id = $1 AND status = 'delivering'",
                                 [queue_id.into()],
                             ))
                             .await;
+                        if mark.as_ref().map(|r| r.rows_affected()).unwrap_or(0) == 0 {
+                            tracing::info!(
+                                queue_id = queue_id,
+                                target = %target_inbox,
+                                "Delivery HTTP ok but queue row no longer delivering (cancelled?); not marking delivered"
+                            );
+                            continue;
+                        }
                         stats.delivered += 1;
 
                         // 更新实例的 last_success_at，重置 failure_count
@@ -274,14 +289,17 @@ pub async fn process_delivery_queue_detailed(
                         // not_found / not_member (legacy peers still return 500).
                         let permanent = crate::federation::errors::is_permanent_delivery_error(&e);
                         if permanent || new_attempts >= max_attempts {
-                            // 放弃
-                            let _ = db
+                            // 放弃 — only if still delivering (preserve user cancel).
+                            let mark = db
                                 .execute(Statement::from_sql_and_values(
                                     DatabaseBackend::Postgres,
-                                    "UPDATE federation_delivery_queue SET status = 'dead', attempts = $1, error_message = $2, last_attempt_at = NOW() WHERE id = $3",
+                                    "UPDATE federation_delivery_queue SET status = 'dead', attempts = $1, error_message = $2, last_attempt_at = NOW() WHERE id = $3 AND status = 'delivering'",
                                     [new_attempts.into(), e.clone().into(), queue_id.into()],
                                 ))
                                 .await;
+                            if mark.as_ref().map(|r| r.rows_affected()).unwrap_or(0) == 0 {
+                                continue;
+                            }
                             if permanent {
                                 tracing::warn!(
                                     "💀 Delivery permanent failure to {}: {}",
@@ -301,13 +319,16 @@ pub async fn process_delivery_queue_detailed(
                         } else {
                             // 指数退避：2^attempts 秒，最大 86400 秒 (24h)
                             let backoff_secs = std::cmp::min(2i64.pow(new_attempts as u32), 86400);
-                            let _ = db
+                            let mark = db
                                 .execute(Statement::from_sql_and_values(
                                     DatabaseBackend::Postgres,
-                                    "UPDATE federation_delivery_queue SET status = 'pending', attempts = $1, error_message = $2, last_attempt_at = NOW(), next_retry_at = NOW() + make_interval(secs => $4::double precision) WHERE id = $3",
+                                    "UPDATE federation_delivery_queue SET status = 'pending', attempts = $1, error_message = $2, last_attempt_at = NOW(), next_retry_at = NOW() + make_interval(secs => $4::double precision) WHERE id = $3 AND status = 'delivering'",
                                     [new_attempts.into(), e.clone().into(), queue_id.into(), backoff_secs.into()],
                                 ))
                                 .await;
+                            if mark.as_ref().map(|r| r.rows_affected()).unwrap_or(0) == 0 {
+                                continue;
+                            }
 
                             // 更新实例 failure_count
                             let _ = db
@@ -338,10 +359,10 @@ pub async fn process_delivery_queue_detailed(
                 // retries. Decrypt failures back off (no re-generate) until max.
                 let permanent = is_unrecoverable_key_load_error(&e);
                 if permanent || new_attempts >= max_attempts {
-                    let _ = db
+                    let mark = db
                         .execute(Statement::from_sql_and_values(
                             DatabaseBackend::Postgres,
-                            "UPDATE federation_delivery_queue SET status = 'dead', attempts = $1, error_message = $2, last_attempt_at = NOW() WHERE id = $3",
+                            "UPDATE federation_delivery_queue SET status = 'dead', attempts = $1, error_message = $2, last_attempt_at = NOW() WHERE id = $3 AND status = 'delivering'",
                             [
                                 new_attempts.into(),
                                 err_msg.clone().into(),
@@ -349,6 +370,9 @@ pub async fn process_delivery_queue_detailed(
                             ],
                         ))
                         .await;
+                    if mark.as_ref().map(|r| r.rows_affected()).unwrap_or(0) == 0 {
+                        continue;
+                    }
                     if permanent {
                         tracing::error!(
                             user_id = user_id,
@@ -362,10 +386,10 @@ pub async fn process_delivery_queue_detailed(
                 } else {
                     // 密钥问题几乎不会自愈；按普通失败计数退避，避免 15s 热循环刷日志
                     let backoff_secs = std::cmp::min(2i64.pow(new_attempts as u32), 86400);
-                    let _ = db
+                    let mark = db
                         .execute(Statement::from_sql_and_values(
                             DatabaseBackend::Postgres,
-                            "UPDATE federation_delivery_queue SET status = 'pending', attempts = $1, error_message = $2, last_attempt_at = NOW(), next_retry_at = NOW() + make_interval(secs => $4::double precision) WHERE id = $3",
+                            "UPDATE federation_delivery_queue SET status = 'pending', attempts = $1, error_message = $2, last_attempt_at = NOW(), next_retry_at = NOW() + make_interval(secs => $4::double precision) WHERE id = $3 AND status = 'delivering'",
                             [
                                 new_attempts.into(),
                                 err_msg.into(),
@@ -374,6 +398,9 @@ pub async fn process_delivery_queue_detailed(
                             ],
                         ))
                         .await;
+                    if mark.as_ref().map(|r| r.rows_affected()).unwrap_or(0) == 0 {
+                        continue;
+                    }
                     stats.retried += 1;
                 }
             }
@@ -632,17 +659,24 @@ pub async fn retry_delivery_item(
         RetryStatusDecision::Allow => {}
     }
 
+    // Re-check ownership + retriable status atomically. Without this, a race
+    // with the delivery worker completing can flip `delivered` back to pending
+    // and re-send already-accepted activities.
     let result = db
         .execute(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            r#"UPDATE federation_delivery_queue
+            r#"UPDATE federation_delivery_queue dq
                SET status = 'pending',
                    attempts = 0,
                    error_message = NULL,
                    next_retry_at = NOW(),
                    last_attempt_at = NULL
-               WHERE id = $1"#,
-            [queue_id.into()],
+               FROM federation_activities a
+               WHERE dq.id = $1
+                 AND a.id = dq.activity_id
+                 AND a.user_id = $2
+                 AND dq.status IN ('dead', 'pending', 'failed', 'cancelled')"#,
+            [queue_id.into(), user_id.into()],
         ))
         .await
         .map_err(|e| {
@@ -654,8 +688,8 @@ pub async fn retry_delivery_item(
 
     if result.rows_affected() == 0 {
         return Err((
-            StatusCode::NOT_FOUND,
-            json!({"error": "Delivery item not found"}),
+            StatusCode::CONFLICT,
+            json!({"error": "Could not retry delivery (status changed)"}),
         ));
     }
 
@@ -726,17 +760,22 @@ pub async fn cancel_delivery_item(
         }
         CancelStatusDecision::Cancel => {}
     }
-    // pending / delivering → dead (user cancelled)
+    // pending / delivering → dead (user cancelled). Re-assert ownership so a
+    // concurrent ownership edge cannot cancel another user's row by id alone.
     let result = db
         .execute(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            r#"UPDATE federation_delivery_queue
+            r#"UPDATE federation_delivery_queue dq
                SET status = 'dead',
                    error_message = 'cancelled: by user',
                    last_attempt_at = NOW(),
                    next_retry_at = NULL
-               WHERE id = $1 AND status IN ('pending', 'delivering')"#,
-            [queue_id.into()],
+               FROM federation_activities a
+               WHERE dq.id = $1
+                 AND a.id = dq.activity_id
+                 AND a.user_id = $2
+                 AND dq.status IN ('pending', 'delivering')"#,
+            [queue_id.into(), user_id.into()],
         ))
         .await
         .map_err(|e| {
