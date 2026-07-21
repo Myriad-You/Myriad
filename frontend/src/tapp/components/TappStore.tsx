@@ -1005,14 +1005,14 @@ function SourcesSettingsModal({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-60 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4"
+      className="surface-dialog-backdrop fixed inset-0 z-60 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4"
       onClick={onClose}
     >
       <motion.div
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.95, opacity: 0 }}
-        className="glass rounded-2xl shadow-xl max-w-lg w-full max-h-[70vh] overflow-hidden flex flex-col"
+        className="surface-dialog glass rounded-2xl shadow-xl max-w-lg w-full max-h-[70vh] overflow-hidden flex flex-col"
         onClick={(e: React.MouseEvent) => e.stopPropagation()}
       >
         {/* 头部 */}
@@ -1709,7 +1709,7 @@ export function TappStore({ isOpen, onClose, onInstalled }: TappStoreProps) {
       initial={modalAnimProps.backdrop.initial}
       animate={modalAnimProps.backdrop.animate}
       exit={modalAnimProps.backdrop.exit}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4"
+      className="surface-dialog-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4"
       onClick={onClose}
       data-no-ripple
     >
@@ -1727,7 +1727,7 @@ export function TappStore({ isOpen, onClose, onInstalled }: TappStoreProps) {
             : undefined
         }
         ref={modalRef}
-        className="glass-surface rounded-2xl shadow-xl max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col border border-gray-200/50 dark:border-neutral-700/50"
+        className="surface-dialog glass-surface rounded-2xl shadow-xl max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col border border-gray-200/50 dark:border-neutral-700/50"
         onClick={(e: React.MouseEvent) => e.stopPropagation()}
       >
         {/* 头部：列表态为 标题/搜索/操作 + 分类行；详情态为 返回/应用名/关闭 */}

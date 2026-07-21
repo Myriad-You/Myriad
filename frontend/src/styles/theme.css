@@ -497,12 +497,14 @@ html.dark[data-surface='liquid']
 /* 高不透明 chrome（84% tint，见下方覆盖）底下折射几乎不可见，
    纯付位移/合成成本 —— 退回普通磨砂链 */
 html.surface-lens[data-surface='liquid'] .control-bar-trigger,
-html.surface-lens[data-surface='liquid'] .arael-panel {
+html.surface-lens[data-surface='liquid'] .arael-panel,
+html.surface-lens[data-surface='liquid'] .surface-dialog {
   --surface-filter: blur(10px) saturate(200%) brightness(1.06);
 }
 
 html.dark.surface-lens[data-surface='liquid'] .control-bar-trigger,
-html.dark.surface-lens[data-surface='liquid'] .arael-panel {
+html.dark.surface-lens[data-surface='liquid'] .arael-panel,
+html.dark.surface-lens[data-surface='liquid'] .surface-dialog {
   --surface-filter: blur(10px) saturate(150%) brightness(0.88);
 }
 
@@ -538,13 +540,14 @@ html.dark.surface-lens[data-surface='liquid'] .arael-panel {
     box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* 内容密集的 chrome（控制面板信息岛 / Arael 面板）原生为 90%+ 不透明底，
+/* 内容密集的 chrome（控制面板信息岛 / Arael 面板 / 对话框）原生为 90%+ 不透明底，
    流体的高透底会压穿其可读性——升回 90% 不透明，噪点/高光/滤镜自动保留。
    ⚠️ 必须连 --surface-bg 一起在元素上重新声明：自定义属性里的 var()
    在「声明处」（根）即被替换烘焙后才继承，元素级只改 --surface-tint
    动不了已烘焙的 --surface-bg（此前仅覆盖 tint 的写法即因此失效） */
 :root[data-surface='liquid'] .control-bar-trigger,
-:root[data-surface='liquid'] .arael-panel {
+:root[data-surface='liquid'] .arael-panel,
+:root[data-surface='liquid'] .surface-dialog {
   --surface-tint: color-mix(
     in srgb,
     rgb(var(--surface-rgb) / 80%),
@@ -555,11 +558,22 @@ html.dark.surface-lens[data-surface='liquid'] .arael-panel {
     var(--surface-bounce), var(--surface-tint);
 }
 
-/* 控制面板不跟随暗色流体的近黑基色（用户要求它与整体隔离调校），
-   钉回原烟熏基色 */
+/* 控制面板 / 对话框不跟随暗色流体的近黑基色（用户要求它与整体隔离调校），
+   钉回原烟熏基色。对话框另见：全屏黑 scrim 上叠 near-black glass 会双倍压暗 */
 html.dark[data-surface='liquid'] .control-bar-trigger,
-html.dark[data-surface='liquid'] .arael-panel {
+html.dark[data-surface='liquid'] .arael-panel,
+html.dark[data-surface='liquid'] .surface-dialog {
   --surface-rgb: 26 26 26;
+}
+
+/* 流体下对话框遮罩略减黑：让玻璃 backdrop 能拾一点壁纸色，而不是纯黑 slab。
+   仅限 .surface-dialog-backdrop，不改全局 overlay */
+:root[data-surface='liquid'] .surface-dialog-backdrop {
+  background-color: rgb(0 0 0 / 0.18);
+}
+
+html.dark[data-surface='liquid'] .surface-dialog-backdrop {
+  background-color: rgb(0 0 0 / 0.2);
 }
 
 /* 控制面板信息岛的流体边框适配：组件自带的中性边框/阴影换成表面令牌

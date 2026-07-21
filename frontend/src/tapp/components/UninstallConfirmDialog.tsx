@@ -61,7 +61,7 @@ export function UninstallConfirmDialog({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.15 }}
-          className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+          className="surface-dialog-backdrop fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
           onClick={handleCancel}
         >
           <motion.div
@@ -69,7 +69,7 @@ export function UninstallConfirmDialog({
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.9, opacity: 0, y: 20 }}
             transition={{ type: 'spring', stiffness: 350, damping: 25 }}
-            className="glass rounded-2xl p-6 max-w-md w-full shadow-2xl"
+            className="surface-dialog glass rounded-2xl p-6 max-w-md w-full shadow-2xl"
             onClick={(e: React.MouseEvent) => e.stopPropagation()}
           >
             {/* 对话框头部 */}

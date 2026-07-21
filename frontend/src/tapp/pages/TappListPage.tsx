@@ -487,14 +487,14 @@ function InstallTappModal({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4"
+      className="surface-dialog-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4"
       onClick={onClose}
     >
       <motion.div
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.95, opacity: 0 }}
-        className="glass rounded-2xl shadow-xl max-w-md w-full overflow-hidden"
+        className="surface-dialog glass rounded-2xl shadow-xl max-w-md w-full overflow-hidden"
         onClick={(e: React.MouseEvent) => e.stopPropagation()}
       >
         {/* 澶撮儴 */}
