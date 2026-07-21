@@ -410,12 +410,15 @@ function backendDevProxyPlugin() {
 
 /**
  * 首屏 CSS 瘦身：Astro/Vite 会把懒加载路由的 CSS 也写成 HTML <link>，
- * 阻塞首页 FCP。将非首屏样式从 HTML 剥离，并在对应异步 JS chunk 执行时再注入。
+ * 阻塞首页 FCP。将非首屏样式从 HTML 剥离，并在对应 JS chunk 执行时再注入。
  *
  * 保留（首屏/全局需要）：
  * - tailwind / index / App 全局样式
- * - Toast（全局通知）
- * - MusicPlayer（控制面板常驻）
+ *
+ * 已 defer（从 HTML 剥离，随拥有方 JS 注入）：
+ * - Toast：Toast 组件 chunk；若并入 shell 则 App 也注入（幂等）
+ * - MusicPlayer：控制面板懒加载 MusicPlayer chunk
+ * - AraelPanel / Config / ConfigForm / Setup / TappPlaygroundPage
  */
 function deferNonCriticalCssIntegration() {
   /** CSS 文件名前缀 → 应注入该 CSS 的 JS chunk 前缀列表 */
@@ -425,6 +428,11 @@ function deferNonCriticalCssIntegration() {
     { cssPrefix: 'ConfigForm-', jsPrefixes: ['Config-', 'DataManagement-'] },
     { cssPrefix: 'Setup-', jsPrefixes: ['Setup-'] },
     { cssPrefix: 'TappPlaygroundPage-', jsPrefixes: ['TappPlaygroundPage-'] },
+    // Toast.css 来自 Toast.tsx；ToastContainer 在 AppLayout 同步引用，
+    // chunk 可能是 Toast-* 或并入 App-*，两者都注入（createElement 幂等）。
+    { cssPrefix: 'Toast-', jsPrefixes: ['Toast-', 'App-'] },
+    // MusicPlayer.css 由 ControlPanel/MusicPlayer 懒加载引入
+    { cssPrefix: 'MusicPlayer-', jsPrefixes: ['MusicPlayer-'] },
   ]
 
   function cssInjectorSnippet(href) {
