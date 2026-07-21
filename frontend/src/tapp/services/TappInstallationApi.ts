@@ -396,7 +396,7 @@ export async function installFromStore(
       message: 'server',
       percent: 30,
     })
-    const result = await apiRequest('/api/tapps/install', {
+    const result = await apiRequest<TappListItem>('/api/tapps/install', {
       method: 'POST',
       body: JSON.stringify({
         source: 'store',
@@ -654,7 +654,7 @@ async function installFromStoreViaClient(
     requestBody.assets = pkg.assets
   }
 
-  const result = await apiRequest('/api/tapps/install', {
+  const result = await apiRequest<TappListItem>('/api/tapps/install', {
     method: 'POST',
     body: JSON.stringify(requestBody),
   })
