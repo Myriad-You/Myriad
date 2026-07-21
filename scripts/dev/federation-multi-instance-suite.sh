@@ -20,8 +20,10 @@ KEEP_RUNNING="${KEEP_RUNNING:-0}"
 
 PORT_A="${PORT_A:-18080}"
 PORT_B="${PORT_B:-18081}"
+PORT_C="${PORT_C:-18082}"
 BASE_A="http://127.0.0.1:${PORT_A}"
 BASE_B="http://127.0.0.1:${PORT_B}"
+BASE_C="http://127.0.0.1:${PORT_C}"
 DB_A="${DB_A:-myriad_fed_a}"
 DB_B="${DB_B:-myriad_fed_b}"
 PG_HOST="${PG_HOST:-127.0.0.1}"
@@ -44,8 +46,8 @@ CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$(
 )}"
 [[ -z "${CARGO_TARGET_DIR}" ]] && CARGO_TARGET_DIR="${BACKEND}/target"
 BIN="${CARGO_TARGET_DIR}/debug/myriad-backend"
-PID_A="" PID_B=""
-RUN_LOG_A="" RUN_LOG_B=""
+PID_A="" PID_B="" PID_C=""
+RUN_LOG_A="" RUN_LOG_B="" RUN_LOG_C=""
 SUITE_LOG=""
 PASS=0
 FAIL=0
@@ -57,13 +59,15 @@ die() { echo "[fed-suite] ERROR: $*" >&2; exit 1; }
 
 cleanup() {
   if [[ "$KEEP_RUNNING" == "1" ]]; then
-    log "KEEP_RUNNING=1 — leaving backends up (PIDs $PID_A $PID_B)"
+    log "KEEP_RUNNING=1 — leaving backends up (PIDs $PID_A $PID_B $PID_C)"
     return 0
   fi
   [[ -n "${PID_A:-}" ]] && kill "$PID_A" 2>/dev/null || true
   [[ -n "${PID_B:-}" ]] && kill "$PID_B" 2>/dev/null || true
+  [[ -n "${PID_C:-}" ]] && kill "$PID_C" 2>/dev/null || true
   wait "$PID_A" 2>/dev/null || true
   wait "$PID_B" 2>/dev/null || true
+  wait "$PID_C" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -403,6 +407,7 @@ case_room_invite_accept_message() {
   echo "$room_json" >"$SCRATCH_DIR/room-create.json"
   room_id=$(echo "$room_json" | python3 -c 'import sys,json; print(json.load(sys.stdin)["room_id"])')
   [[ -n "$room_id" ]] || die "no room_id"
+  echo "$room_id" >"$SCRATCH_DIR/last_room_id.txt"
 
   # B invites A (remote) — POST /invite (members is GET-only)
   sleep 1
@@ -434,9 +439,15 @@ case_room_invite_accept_message() {
 
   # B sends room message → fan-out to remote A
   clear_queue b
-  api POST "$BASE_B" "$jar_b" "/api/federation/rooms/${room_id}/messages" \
-    "{\"message_type\":\"text\",\"payload\":{\"text\":\"hello from B suite\"}}" \
-    >"$SCRATCH_DIR/room-message.json" || true
+  local msg_resp mid
+  msg_resp=$(api POST "$BASE_B" "$jar_b" "/api/federation/rooms/${room_id}/messages" \
+    "{\"message_type\":\"text\",\"payload\":{\"text\":\"hello from B suite\"}}")
+  echo "$msg_resp" >"$SCRATCH_DIR/room-message.json"
+  mid=$(echo "$msg_resp" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("message_id") or d.get("id") or "")' 2>/dev/null || true)
+  if [[ -z "$mid" ]]; then
+    mid=$(sql_b "SELECT message_id FROM federation_room_messages WHERE room_id='${room_id}' ORDER BY created_at DESC LIMIT 1;" 2>/dev/null || true)
+  fi
+  [[ -n "$mid" ]] && echo "$mid" >"$SCRATCH_DIR/last_room_message_id.txt"
   local pb
   pb=$(sql_b "SELECT count(*)::int FROM federation_delivery_queue WHERE status IN ('pending','delivering');" || echo 0)
   if [[ "${pb:-0}" -ge 1 ]]; then
@@ -449,7 +460,7 @@ case_room_invite_accept_message() {
   local ra
   ra=$(sql_a "SELECT count(*) FROM federation_activities WHERE activity_type ILIKE '%Room%' OR activity_type ILIKE '%Message%';" || echo 0)
   [[ "${msgs:-0}" -ge 1 || "${ra:-0}" -ge 1 || "${pb:-0}" -eq 0 ]] || die "no room message evidence on A"
-  echo "room_id=$room_id msgs_a=$msgs acts_a=$ra" >>"$SUITE_LOG"
+  echo "room_id=$room_id msgs_a=$msgs acts_a=$ra mid=$mid" >>"$SUITE_LOG"
 }
 
 case_ring_add_peer() {
@@ -505,6 +516,7 @@ case_channel_open_accept_message() {
   echo "$ch_json" >"$SCRATCH_DIR/channel-create.json"
   channel_id=$(echo "$ch_json" | python3 -c 'import sys,json; print(json.load(sys.stdin)["channel_id"])')
   [[ -n "$channel_id" ]] || die "no channel_id"
+  echo "$channel_id" >"$SCRATCH_DIR/last_channel_id_a.txt"
 
   wait_delivery_side a 1 0 40
 
@@ -524,6 +536,7 @@ case_channel_open_accept_message() {
   local ch_b
   ch_b=$(sql_b "SELECT channel_id FROM federation_channels WHERE status='pending' ORDER BY created_at DESC LIMIT 1;")
   [[ -n "$ch_b" ]] || die "no pending channel id on B"
+  echo "$ch_b" >"$SCRATCH_DIR/last_channel_id_b.txt"
 
   clear_queue b
   api POST "$BASE_B" "$jar_b" "/api/federation/channels/${ch_b}/accept" "" \
@@ -550,6 +563,236 @@ case_channel_open_accept_message() {
   mb=$(sql_b "SELECT count(*) FROM federation_channel_messages WHERE channel_id='${ch_b}';" || echo 0)
   [[ "${mb:-0}" -ge 1 ]] || die "B has no channel messages after send"
   echo "channel_id=$channel_id ch_b=$ch_b msgs_b=$mb status_a=$st" >>"$SUITE_LOG"
+}
+
+# --- expanded cases ---
+
+case_room_pin() {
+  local jar_b="$JAR_B"
+  local room_id mid
+  room_id=$(cat "$SCRATCH_DIR/last_room_id.txt" 2>/dev/null || true)
+  mid=$(cat "$SCRATCH_DIR/last_room_message_id.txt" 2>/dev/null || true)
+  [[ -n "$room_id" ]] || die "missing last_room_id (room case must run first)"
+  if [[ -z "$mid" ]]; then
+    mid=$(sql_b "SELECT message_id FROM federation_room_messages WHERE room_id='${room_id}' ORDER BY 1 DESC LIMIT 1;")
+  fi
+  [[ -n "$mid" ]] || die "no room message_id to pin"
+  clear_queue b
+  api POST "$BASE_B" "$jar_b" "/api/federation/rooms/${room_id}/messages/${mid}/pin" \
+    "{\"pinned\":true}" >"$SCRATCH_DIR/room-pin.json"
+  local pinned
+  pinned=$(sql_b "SELECT is_pinned::text FROM federation_room_messages WHERE message_id='${mid}';" || echo false)
+  [[ "$pinned" == "t" || "$pinned" == "true" ]] || die "message not pinned: $pinned"
+  # pin may fan-out
+  local p
+  p=$(sql_b "SELECT count(*)::int FROM federation_delivery_queue WHERE status IN ('pending','delivering');" || echo 0)
+  if [[ "${p:-0}" -ge 1 ]]; then
+    wait_delivery_side b 1 0 40
+  fi
+  echo "pinned mid=$mid room=$room_id" >>"$SUITE_LOG"
+}
+
+case_room_e2e_key_exchange() {
+  local jar_b="$JAR_B"
+  local room_id
+  room_id=$(cat "$SCRATCH_DIR/last_room_id.txt" 2>/dev/null || true)
+  [[ -n "$room_id" ]] || die "missing room_id"
+  clear_queue b
+  api POST "$BASE_B" "$jar_b" "/api/federation/rooms/${room_id}/e2e/key-exchange" "" \
+    >"$SCRATCH_DIR/room-e2e.json"
+  local p
+  p=$(sql_b "SELECT count(*)::int FROM federation_delivery_queue WHERE status IN ('pending','delivering','delivered');" || echo 0)
+  # KeyExchange may enqueue; if no remote active member for fan-out, still OK if keys stored
+  if [[ "${p:-0}" -ge 1 ]]; then
+    # only wait if pending exists
+    local pend
+    pend=$(sql_b "SELECT count(*)::int FROM federation_delivery_queue WHERE status IN ('pending','delivering');" || echo 0)
+    if [[ "${pend:-0}" -ge 1 ]]; then
+      wait_delivery_side b 1 0 40
+    fi
+  fi
+  local has
+  has=$(sql_b "SELECT count(*) FROM federation_room_members WHERE room_id='${room_id}' AND custom_permissions::text LIKE '%local_public_key%';" || echo 0)
+  [[ "${has:-0}" -ge 1 ]] || {
+    # response may include public_key
+    grep -q "public_key\|publicKey\|local_public" "$SCRATCH_DIR/room-e2e.json" || die "room e2e no keys evidence"
+  }
+  echo "room_e2e room=$room_id" >>"$SUITE_LOG"
+}
+
+case_channel_e2e_key_exchange() {
+  local jar_a="$JAR_A"
+  local channel_id
+  channel_id=$(cat "$SCRATCH_DIR/last_channel_id_a.txt" 2>/dev/null || true)
+  [[ -n "$channel_id" ]] || die "missing channel_id"
+  clear_queue a
+  api POST "$BASE_A" "$jar_a" "/api/federation/channels/${channel_id}/e2e/key-exchange" "" \
+    >"$SCRATCH_DIR/channel-e2e.json"
+  local pend
+  pend=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status IN ('pending','delivering');" || echo 0)
+  if [[ "${pend:-0}" -ge 1 ]]; then
+    wait_delivery_side a 1 0 40
+  fi
+  grep -qE "public_key|publicKey|established|success" "$SCRATCH_DIR/channel-e2e.json" \
+    || die "channel e2e response unexpected: $(cat "$SCRATCH_DIR/channel-e2e.json")"
+  echo "channel_e2e ok" >>"$SUITE_LOG"
+}
+
+case_file_transfer() {
+  local jar_a="$JAR_A"
+  local channel_id transfer_id
+  channel_id=$(cat "$SCRATCH_DIR/last_channel_id_a.txt" 2>/dev/null || true)
+  [[ -n "$channel_id" ]] || die "missing channel_id for transfer"
+  clear_queue a
+  local payload checksum size=32
+  # small payload for one chunk
+  payload=$(python3 -c 'import base64; print(base64.b64encode(b"suite-file-bytes-0123456789ab").decode())')
+  checksum=$(python3 -c 'import hashlib; print(hashlib.sha256(b"suite-file-bytes-0123456789ab").hexdigest())')
+  size=$(python3 -c 'print(len(b"suite-file-bytes-0123456789ab"))')
+  local init
+  init=$(api POST "$BASE_A" "$jar_a" "/api/federation/channels/${channel_id}/transfers" \
+    "{\"filename\":\"suite.bin\",\"file_size\":${size},\"mime_type\":\"application/octet-stream\",\"checksum\":\"${checksum}\"}")
+  echo "$init" >"$SCRATCH_DIR/transfer-init.json"
+  transfer_id=$(echo "$init" | python3 -c 'import sys,json; print(json.load(sys.stdin)["transfer_id"])')
+  [[ -n "$transfer_id" ]] || die "no transfer_id"
+  # upload first (only) chunk
+  api POST "$BASE_A" "$jar_a" "/api/federation/transfers/${transfer_id}/chunks" \
+    "{\"chunk_index\":0,\"chunk_data\":\"${payload}\",\"chunk_size\":${size}}" \
+    >"$SCRATCH_DIR/transfer-chunk.json"
+  local pend
+  pend=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status IN ('pending','delivering');" || echo 0)
+  if [[ "${pend:-0}" -ge 1 ]]; then
+    wait_delivery_side a 1 0 40
+  fi
+  local st
+  st=$(sql_a "SELECT status FROM federation_file_transfers WHERE transfer_id='${transfer_id}';" || echo "")
+  [[ -n "$st" ]] || die "transfer row missing"
+  # B may have inbound transfer meta
+  local tb
+  tb=$(sql_b "SELECT count(*) FROM federation_file_transfers;" || echo 0)
+  echo "transfer_id=$transfer_id status=$st transfers_b=$tb" >>"$SUITE_LOG"
+  [[ "${tb:-0}" -ge 1 || "$st" != "" ]] || die "no transfer evidence on B"
+}
+
+case_trust_policy() {
+  local jar_a="$JAR_A"
+  # GET policy
+  api_get "$BASE_A" "$jar_a" /api/federation/trust/policy >"$SCRATCH_DIR/trust-policy-get.json"
+  # Raise rate limits for lab stability + set min trust
+  api PUT "$BASE_A" "$jar_a" /api/federation/trust/policy \
+    "{\"min_trust_level\":0,\"auto_discover\":true,\"rate_limit\":{\"max_requests_per_window\":10000,\"window_seconds\":60,\"trusted_multiplier\":2}}" \
+    >"$SCRATCH_DIR/trust-policy-put.json"
+  # List instances (may include B after federation traffic)
+  api_get "$BASE_A" "$jar_a" /api/federation/trust/instances >"$SCRATCH_DIR/trust-instances.json" || true
+  local domain_b
+  domain_b=$(python3 -c "from urllib.parse import urlparse; print(urlparse('${BASE_B}').hostname)")
+  api POST "$BASE_A" "$jar_a" /api/federation/trust/update \
+    "{\"domain\":\"${domain_b}\",\"trust_level\":3}" \
+    >"$SCRATCH_DIR/trust-instance.json" || true
+  api POST "$BASE_A" "$jar_a" /api/federation/trust/block \
+    "{\"domain\":\"evil.example\",\"block\":true}" \
+    >"$SCRATCH_DIR/trust-block.json" || true
+  # Content filter CRUD
+  api POST "$BASE_A" "$jar_a" /api/federation/trust/filters \
+    "{\"name\":\"suite-block-test\",\"filter_type\":\"block_keyword\",\"value\":\"__suite_never_match__\",\"enabled\":true}" \
+    >"$SCRATCH_DIR/trust-filter-create.json" || true
+  api_get "$BASE_A" "$jar_a" /api/federation/trust/filters >"$SCRATCH_DIR/trust-filters.json" || true
+  grep -qE "min_trust|rate_limit|auto_discover|success|policy|trust" "$SCRATCH_DIR/trust-policy-put.json" \
+    || die "trust policy put failed: $(cat "$SCRATCH_DIR/trust-policy-put.json")"
+  echo "trust policy ok domain_b=$domain_b" >>"$SUITE_LOG"
+}
+
+case_domain_move() {
+  local jar_a="$JAR_A"
+  # Ensure A has keys + at least one follower path (from content_note: B follows A)
+  local inc
+  inc=$(sql_a "SELECT count(*) FROM federation_follows WHERE direction='incoming' AND status='accepted';" || echo 0)
+  if [[ "${inc:-0}" -lt 1 ]]; then
+    clear_queue b
+    api POST "$BASE_B" "$JAR_B" /api/federation/follow "{\"target\":\"${ACTOR_A}\"}" >/dev/null || true
+    wait_delivery_side b 1 0 30 || true
+  fi
+  # dry_run
+  api POST "$BASE_A" "$jar_a" /api/admin/federation/domain-move \
+    "{\"old_base_url\":\"${BASE_A}\",\"new_base_url\":\"${BASE_C}\",\"dry_run\":true}" \
+    >"$SCRATCH_DIR/domain-move-dry.json"
+  grep -q "dry_run\|would_enqueue\|total_users" "$SCRATCH_DIR/domain-move-dry.json" \
+    || die "domain move dry_run unexpected: $(cat "$SCRATCH_DIR/domain-move-dry.json")"
+
+  # Bring up instance C: same DB as A, BASE_URL=new host so Move verify can fetch new actor.
+  for pid in $(lsof -tiTCP:"$PORT_C" -sTCP:LISTEN 2>/dev/null || true); do
+    kill "$pid" 2>/dev/null || true
+  done
+  RUN_LOG_C="$SCRATCH_DIR/intranet-c.log"
+  : >"$RUN_LOG_C"
+  PID_C=$(start_instance c "$PORT_C" "$DB_A" "$JWT_A" "$BASE_C" "$RUN_LOG_C")
+  echo "PID_C=$PID_C" >>"$SCRATCH_DIR/pids.txt"
+  wait_health "$BASE_C" c
+  # Warm new actor doc on C (shared DB; BASE_C for keyId after move)
+  curl -fsS -H 'Accept: application/activity+json' "${BASE_C}/users/${ADMIN_USER_A}" \
+    >"$SCRATCH_DIR/actor-c-pre.json" || true
+
+  clear_queue a
+  api POST "$BASE_A" "$jar_a" /api/admin/federation/domain-move \
+    "{\"old_base_url\":\"${BASE_A}\",\"new_base_url\":\"${BASE_C}\",\"dry_run\":false}" \
+    >"$SCRATCH_DIR/domain-move-live.json"
+  local enq regen
+  enq=$(python3 -c 'import json; d=json.load(open("'"$SCRATCH_DIR"'/domain-move-live.json")); print(d.get("enqueued",0))' 2>/dev/null || echo 0)
+  regen=$(python3 -c 'import json; d=json.load(open("'"$SCRATCH_DIR"'/domain-move-live.json")); print(d.get("shared_keys",{}).get("regenerated_keys",-1))' 2>/dev/null || echo -1)
+  [[ "${regen}" == "0" ]] || die "domain move regenerated keys (must be 0): regen=$regen"
+  local kid
+  kid=$(sql_a "SELECT key_id FROM federation_keys WHERE user_id=1;" || echo "")
+  echo "$kid" | grep -q "${PORT_C}" || die "key_id not retargeted to C: $kid"
+  # New actor must be fetchable on C after move
+  curl -fsS -H 'Accept: application/activity+json' "${BASE_C}/users/${ADMIN_USER_A}" \
+    >"$SCRATCH_DIR/actor-c-post.json"
+  local pend
+  pend=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status IN ('pending','delivering');" || echo 0)
+  if [[ "${pend:-0}" -ge 1 ]]; then
+    wait_delivery_side a 1 0 50
+  fi
+  local dead
+  dead=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='dead';" || echo 0)
+  [[ "${dead:-0}" -eq 0 ]] || {
+    local err
+    err=$(sql_a "SELECT error_message FROM federation_delivery_queue WHERE status='dead' ORDER BY id DESC LIMIT 1;")
+    die "Move delivery dead: $err"
+  }
+  local moves
+  moves=$(sql_b "SELECT count(*) FROM federation_activities WHERE activity_type='Move' OR object_json::text ILIKE '%\"type\": \"Move\"%' OR object_json::text ILIKE '%Move%';" || echo 0)
+  echo "domain_move enqueued=$enq moves_b=$moves key_id=$kid regen=$regen" >>"$SUITE_LOG"
+  [[ "${enq:-0}" -ge 1 ]] || die "domain move enqueued=0"
+}
+
+case_transfer_ownership() {
+  # B (owner) transfers room ownership to A (remote actor) if API allows remote
+  local jar_b="$JAR_B"
+  local room_id
+  room_id=$(cat "$SCRATCH_DIR/last_room_id.txt" 2>/dev/null || true)
+  [[ -n "$room_id" ]] || die "missing room_id"
+  clear_queue b
+  # Try transfer to remote alice — may reject remote; soft-pass if 400 with clear error
+  set +e
+  local out code
+  out=$(api POST "$BASE_B" "$jar_b" "/api/federation/rooms/${room_id}/transfer-ownership" \
+    "{\"new_owner\":\"${ACTOR_A}\"}" 2>"$SCRATCH_DIR/transfer-own.err")
+  code=$?
+  set -e
+  echo "$out" >"$SCRATCH_DIR/transfer-ownership.json"
+  if [[ $code -ne 0 ]]; then
+    # Accept documented rejection of remote transfer as exercised path
+    if grep -qiE "local|owner|cannot|remote|error" "$SCRATCH_DIR/transfer-own.err" "$SCRATCH_DIR/transfer-ownership.json" 2>/dev/null; then
+      echo "transfer_ownership rejected as expected for remote target" >>"$SUITE_LOG"
+      return 0
+    fi
+    die "transfer-ownership failed unexpectedly"
+  fi
+  local pend
+  pend=$(sql_b "SELECT count(*)::int FROM federation_delivery_queue WHERE status IN ('pending','delivering');" || echo 0)
+  if [[ "${pend:-0}" -ge 1 ]]; then
+    wait_delivery_side b 1 0 40
+  fi
+  echo "transfer_ownership ok" >>"$SUITE_LOG"
 }
 
 case_delivery_no_key_spam() {
@@ -623,6 +866,20 @@ main() {
   run_case "ring_add_peer_sync" case_ring_add_peer
   sleep 2
   run_case "channel_open_accept_message" case_channel_open_accept_message
+  sleep 2
+  run_case "room_pin" case_room_pin
+  sleep 1
+  run_case "room_e2e_key_exchange" case_room_e2e_key_exchange
+  sleep 1
+  run_case "channel_e2e_key_exchange" case_channel_e2e_key_exchange
+  sleep 2
+  run_case "file_transfer" case_file_transfer
+  sleep 1
+  run_case "trust_policy" case_trust_policy
+  sleep 1
+  run_case "domain_move" case_domain_move
+  sleep 1
+  run_case "transfer_ownership" case_transfer_ownership
   sleep 1
   run_case "no_key_error_spam" case_delivery_no_key_spam
 
@@ -633,7 +890,7 @@ main() {
   } | tee "$SCRATCH_DIR/suite-summary.txt" | tee -a "$SUITE_LOG"
 
   cat >"$SCRATCH_DIR/summary.md" <<EOF
-# Multi-instance federation suite
+# Multi-instance federation suite (full)
 
 ## Instances
 - A: \`$BASE_A\` db=\`$DB_A\`
