@@ -1517,4 +1517,17 @@ mod tests {
         assert_eq!(base3, "https://new.example");
         assert_eq!(user3, "alice");
     }
+
+    #[test]
+    fn move_signing_trims_trailing_slash_on_username() {
+        let act = json!({
+            "type": "Move",
+            "actor": "https://old.example/users/alice/",
+        });
+        let (base, user) = signing_identity_for_activity(
+            "Move", &act, "https://new.example", "bob",
+        );
+        assert_eq!(base, "https://old.example");
+        assert_eq!(user, "alice");
+    }
 }
