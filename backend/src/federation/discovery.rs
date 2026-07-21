@@ -266,4 +266,12 @@ mod tests {
         );
 
     }
+
+    #[test]
+    fn w175_parse_acct_rejects_bare() {
+        assert_eq!(parse_acct_uri("alice@example.com"), None);
+        assert_eq!(parse_acct_uri("acct:"), None);
+        assert_eq!(parse_acct_uri("acct:@only"), None);
+
+    }
 }
