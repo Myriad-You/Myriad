@@ -90,8 +90,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     setIsLoading(true)
-    let run!: Promise<void>
-    run = (async () => {
+    // Holder so the async body can compare against the same Promise without
+    // TS "used before assigned" / ESLint prefer-const friction.
+    const inflight = { current: null as Promise<void> | null }
+    inflight.current = (async () => {
       try {
         const response = await fetch(`${API_URL}/api/auth/me`, {
           credentials: 'include',
@@ -119,13 +121,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } finally {
         setIsLoading(false)
         setHasChecked(true)
-        if (checkAuthInflight.current === run) {
+        if (checkAuthInflight.current === inflight.current) {
           checkAuthInflight.current = null
         }
       }
     })()
-    checkAuthInflight.current = run
-    await run
+    checkAuthInflight.current = inflight.current
+    await inflight.current
   }, [])
 
   const logout = useCallback(() => {
