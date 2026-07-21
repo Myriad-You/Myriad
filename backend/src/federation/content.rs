@@ -2157,4 +2157,13 @@ mod tests {
         assert_eq!(classify_media_mime("video/webm"), Some("Video"));
 
     }
+
+    #[test]
+    fn w175_extension_for_mime_maps() {
+        assert_eq!(extension_for_mime("image/png"), Some("png"));
+        assert_eq!(extension_for_mime("image/webp"), Some("webp"));
+        assert_eq!(extension_for_mime("video/mp4"), Some("mp4"));
+        assert_eq!(extension_for_mime("audio/mpeg"), None);
+
+    }
 }
