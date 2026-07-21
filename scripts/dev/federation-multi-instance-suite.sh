@@ -817,6 +817,67 @@ restart_instance_a() {
   login_cookie "$BASE_A" "$ADMIN_USER_A" "$JAR_A"
 }
 
+case_deploy_second_local_user() {
+  # Deploy: second local account must get its own keys without clobbering user 1.
+  local jar_a="$JAR_A"
+  # Create second user via admin API if available
+  set +e
+  api POST "$BASE_A" "$jar_a" /api/admin/users \
+    "{\"username\":\"carol\",\"password\":\"${ADMIN_PASS}\",\"is_admin\":false}" \
+    >"$SCRATCH_DIR/deploy-user-carol.json" 2>"$SCRATCH_DIR/deploy-user-carol.err"
+  local rc=$?
+  set -e
+  # Alternate register path
+  if [[ $rc -ne 0 ]]; then
+    curl -fsS -X POST "$BASE_A/api/auth/register" \
+      -H 'Content-Type: application/json' \
+      -d "{\"username\":\"carol\",\"password\":\"${ADMIN_PASS}\"}" \
+      >"$SCRATCH_DIR/deploy-user-carol.json" 2>/dev/null || {
+      echo "deploy_second_user skip (cannot create carol)" >>"$SUITE_LOG"
+      return 0
+    }
+  fi
+  local jar_c="$SCRATCH_DIR/jar-carol.jar"
+  login_cookie "$BASE_A" "carol" "$jar_c" || {
+    echo "deploy_second_user skip (carol login failed)" >>"$SUITE_LOG"
+    return 0
+  }
+  local pem1
+  pem1=$(sql_a "SELECT public_key_pem FROM federation_keys WHERE user_id=1;")
+  api_get "$BASE_A" "$jar_c" /api/federation/identity >"$SCRATCH_DIR/identity-carol.json"
+  local n_carol
+  n_carol=$(sql_a "SELECT count(*) FROM federation_keys k JOIN users u ON u.id=k.user_id WHERE u.username='carol';")
+  [[ "$n_carol" == "1" ]] || die "carol has no federation_keys"
+  local pem1_after
+  pem1_after=$(sql_a "SELECT public_key_pem FROM federation_keys WHERE user_id=1;")
+  [[ "$pem1" == "$pem1_after" ]] || die "second user ensure rotated alice keys"
+  echo "deploy_second_local_user ok" >>"$SUITE_LOG"
+}
+
+case_deploy_cancel_during_backoff() {
+  # Cancel must win over a soon-to-retry pending row (stuck failure).
+  local jar_a="$JAR_A"
+  local act
+  act=$(sql_a "SELECT id FROM federation_activities WHERE user_id=1 ORDER BY id DESC LIMIT 1;")
+  [[ -n "$act" ]] || die "no activity for cancel-backoff"
+  sql_a "INSERT INTO federation_delivery_queue (activity_id, target_inbox, target_domain, status, attempts, max_attempts, error_message, created_at, next_retry_at)
+         VALUES (${act}, 'http://127.0.0.1:9/backoff', '127.0.0.1', 'pending', 5, 12, 'suite: backoff cancel', NOW(), NOW() + interval '30 seconds')
+         RETURNING id;" >/dev/null
+  local qid
+  qid=$(sql_a "SELECT id FROM federation_delivery_queue WHERE error_message='suite: backoff cancel' ORDER BY id DESC LIMIT 1;")
+  api POST "$BASE_A" "$jar_a" "/api/federation/delivery/${qid}/cancel" "" \
+    >"$SCRATCH_DIR/deploy-cancel-backoff.json"
+  local st
+  st=$(sql_a "SELECT status FROM federation_delivery_queue WHERE id=${qid};")
+  [[ "$st" == "dead" ]] || die "backoff cancel status=$st"
+  # Worker must not resurrect cancelled row
+  sleep 3
+  nudge_delivery a
+  st=$(sql_a "SELECT status FROM federation_delivery_queue WHERE id=${qid};")
+  [[ "$st" == "dead" ]] || die "cancelled row resurrected: $st"
+  echo "deploy_cancel_during_backoff ok" >>"$SUITE_LOG"
+}
+
 case_deploy_post_move_switch_base() {
   # Production: after domain Move, cut over BASE_URL to new host (C).
   # Restart A serving BASE_C with same DB so keyId host matches signatures.
@@ -1196,6 +1257,10 @@ main() {
   run_case "deploy_retry_dead" case_deploy_retry_dead
   sleep 1
   run_case "deploy_cancel_failed_send" case_deploy_cancel_failed_send
+  sleep 1
+  run_case "deploy_cancel_during_backoff" case_deploy_cancel_during_backoff
+  sleep 1
+  run_case "deploy_second_local_user" case_deploy_second_local_user
   sleep 1
   run_case "deploy_ssrf_lab_flag_off" case_deploy_ssrf_lab_flag_off
   sleep 1

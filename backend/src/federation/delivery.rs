@@ -229,15 +229,20 @@ pub async fn process_delivery_queue_detailed(
 
         // 获取用户密钥对 — if missing, ensure once then reload so already-queued
         // deliveries recover without waiting for GET /users/{username}.
+        // Prefer stored key_id from federation_keys (domain-move G retargets it);
+        // recompute from sign_base only when missing. Move always signs with the
+        // activity actor origin so old peers can verify against the departing doc.
         match load_user_keypair_ensuring(db, user_id, &username).await {
-            Ok(keypair) => {
+            Ok(loaded) => {
                 match deliver_activity(
-                    &keypair,
+                    &loaded.keypair,
                     &sign_base,
                     &sign_username,
                     &target_inbox,
                     &target_domain,
                     &body_bytes,
+                    loaded.stored_key_id.as_deref(),
+                    &activity_type,
                 )
                 .await
                 {
@@ -835,6 +840,12 @@ pub async fn cancel_all_pending_for_user(
 // ==================== 实际投递 ====================
 
 /// 投递 Activity 到目标 inbox
+///
+/// `stored_key_id`: canonical HTTP Signature keyId from `federation_keys` when
+/// present (survives domain-move G retarget). Fallback: recompute from base_url.
+/// For `Move`, always recompute from `base_url` (the **old** actor origin) so
+/// peers verifying against the departing actor document succeed.
+#[allow(clippy::too_many_arguments)]
 async fn deliver_activity(
     keypair: &KeyPair,
     base_url: &str,
@@ -842,6 +853,8 @@ async fn deliver_activity(
     target_inbox: &str,
     target_domain: &str,
     body: &[u8],
+    stored_key_id: Option<&str>,
+    activity_type: &str,
 ) -> Result<(), String> {
     // 纵深防御：即使 inbox URL 已入库，投递前仍验证不指向内网
     if is_internal_url(target_inbox) {
@@ -851,7 +864,7 @@ async fn deliver_activity(
         ));
     }
 
-    let kid = key_id(base_url, username);
+    let kid = resolve_signing_key_id(activity_type, base_url, username, stored_key_id);
 
     // Host 头/签名的 host 必须与 URL 一致（含非默认端口），否则对端验签失败；
     // target_domain（不带端口）仅用于信任策略与实例统计。
@@ -1008,6 +1021,32 @@ pub async fn cancel_pending_deliveries_for_resource(
     }
 }
 
+/// Loaded signing material + optional canonical keyId from storage.
+struct LoadedSigningKey {
+    keypair: KeyPair,
+    /// From `federation_keys.key_id` when non-empty (post domain-move G).
+    stored_key_id: Option<String>,
+}
+
+/// Pick HTTP Signature keyId for outbound delivery.
+///
+/// - **Move**: always `key_id(sign_base, username)` (old actor origin).
+/// - **Else**: prefer non-empty stored keyId; else recompute from sign_base.
+pub(crate) fn resolve_signing_key_id(
+    activity_type: &str,
+    sign_base: &str,
+    username: &str,
+    stored_key_id: Option<&str>,
+) -> String {
+    if activity_type == "Move" {
+        return key_id(sign_base, username);
+    }
+    if let Some(kid) = stored_key_id.map(str::trim).filter(|s| !s.is_empty()) {
+        return kid.to_string();
+    }
+    key_id(sign_base, username)
+}
+
 /// Load keypair; if none (or empty), generate once via ensure then reload.
 ///
 /// Universal choke point for all `federation_delivery_queue` producers.
@@ -1015,9 +1054,9 @@ async fn load_user_keypair_ensuring(
     db: &DatabaseConnection,
     user_id: i32,
     username: &str,
-) -> Result<KeyPair, String> {
+) -> Result<LoadedSigningKey, String> {
     match load_user_keypair(db, user_id).await {
-        Ok(kp) => Ok(kp),
+        Ok(loaded) => Ok(loaded),
         Err(e) if is_missing_federation_keys_error(&e) => {
             if username.trim().is_empty() {
                 tracing::error!(
@@ -1040,13 +1079,13 @@ async fn load_user_keypair_ensuring(
                 .await
             {
                 Ok(_) => match load_user_keypair(db, user_id).await {
-                    Ok(kp) => {
+                    Ok(loaded) => {
                         tracing::info!(
                             user_id = user_id,
                             username = %username,
                             "Ensured federation keys; retrying delivery sign"
                         );
-                        Ok(kp)
+                        Ok(loaded)
                     }
                     Err(reload_e) => {
                         tracing::error!(
@@ -1087,12 +1126,12 @@ fn is_unrecoverable_key_load_error(err: &str) -> bool {
     err.contains("username empty (cannot ensure)")
 }
 
-/// 加载用户的密钥对
-async fn load_user_keypair(db: &DatabaseConnection, user_id: i32) -> Result<KeyPair, String> {
+/// 加载用户的密钥对 + 库内 key_id（domain-move 后的规范 keyId）
+async fn load_user_keypair(db: &DatabaseConnection, user_id: i32) -> Result<LoadedSigningKey, String> {
     let row = db
         .query_one(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT public_key_pem, private_key_encrypted FROM federation_keys WHERE user_id = $1",
+            "SELECT public_key_pem, private_key_encrypted, key_id FROM federation_keys WHERE user_id = $1",
             [user_id.into()],
         ))
         .await
@@ -1101,6 +1140,7 @@ async fn load_user_keypair(db: &DatabaseConnection, user_id: i32) -> Result<KeyP
 
     let pub_pem: String = row.try_get("", "public_key_pem").unwrap_or_default();
     let encrypted: String = row.try_get("", "private_key_encrypted").unwrap_or_default();
+    let stored_kid: String = row.try_get("", "key_id").unwrap_or_default();
 
     if pub_pem.trim().is_empty() || encrypted.trim().is_empty() {
         return Err("No federation keys found for user".to_string());
@@ -1111,8 +1151,16 @@ async fn load_user_keypair(db: &DatabaseConnection, user_id: i32) -> Result<KeyP
         config.jwt_secret.clone()
     };
 
-    KeyPair::from_encrypted(&pub_pem, &encrypted, &jwt_secret)
-        .map_err(|e| format!("Key decryption failed: {}", e))
+    let keypair = KeyPair::from_encrypted(&pub_pem, &encrypted, &jwt_secret)
+        .map_err(|e| format!("Key decryption failed: {}", e))?;
+    Ok(LoadedSigningKey {
+        keypair,
+        stored_key_id: if stored_kid.trim().is_empty() {
+            None
+        } else {
+            Some(stored_kid)
+        },
+    })
 }
 
 async fn get_username_by_id(db: &DatabaseConnection, user_id: i32) -> Result<String, String> {
@@ -1173,6 +1221,34 @@ mod tests {
         assert!(!is_missing_federation_keys_error(
             "Key load failed (ensure): Key generation failed"
         ));
+    }
+
+    #[test]
+    fn resolve_signing_key_id_prefers_stored_except_move() {
+        let stored = "https://new.example/users/alice#main-key";
+        // Normal activities: stored keyId wins (post domain-move G).
+        assert_eq!(
+            resolve_signing_key_id(
+                "Follow",
+                "https://old.example",
+                "alice",
+                Some(stored),
+            ),
+            stored
+        );
+        assert_eq!(
+            resolve_signing_key_id("Create", "https://old.example", "alice", Some("  ")),
+            key_id("https://old.example", "alice")
+        );
+        assert_eq!(
+            resolve_signing_key_id("Follow", "https://old.example", "alice", None),
+            key_id("https://old.example", "alice")
+        );
+        // Move: always old actor origin, ignore stored (which may already be new host).
+        assert_eq!(
+            resolve_signing_key_id("Move", "https://old.example", "alice", Some(stored)),
+            key_id("https://old.example", "alice")
+        );
     }
 
     #[test]

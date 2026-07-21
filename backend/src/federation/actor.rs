@@ -128,9 +128,11 @@ pub async fn get_actor(
         }
     };
 
-    // keyId host matches the actor id we are serving (old Host → old keyId path;
-    // new base → new keyId path). PEM material is always `pub_key` from the store.
-    let kid = if stored_kid.contains(base_url.trim_end_matches('/')) {
+    // Prefer stored key_id (domain-move **G** retargets host; same PEM). Mid-cutover
+    // the process may still listen on the old BASE_URL — publicKey.id must still
+    // match outbound Signature keyId (delivery uses stored key_id). Only recompute
+    // when the column is empty.
+    let kid = if !stored_kid.trim().is_empty() {
         stored_kid
     } else {
         key_id(&base_url, &username)
