@@ -18,7 +18,8 @@ import {
 } from '@lib/icons'
 
 import { motionShim as motion } from '@lib/motionShim'
-import { memo, useCallback, type MouseEvent } from 'react'
+import type { MouseEvent } from 'react'
+import { memo, useCallback } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import { useLoopAnimation } from '../../hooks/animation'
 import { useAnimationLevel } from '../../hooks/useAnimationLevel'
