@@ -143,8 +143,9 @@ const GlobalControlPanel: React.FC = () => {
 
   // 展开面板的重型内容（小组件网格 + 音乐播放器 UI）延后到首屏之后挂载：
   // 面板收起时这些内容不可见，常挂载只会让启动期多拉一整套小组件目录。
-  // 用户在此之前点开面板时立即挂载（下方 isExpanded effect），
-  // 面板高度由既有的 control-panel-content-resize 事件重测兜底。
+  // 用户在此之前点开面板时立即挂载（下方 isExpanded effect）。
+  // 高度：panelContentReady 必须进入 measure effect deps；lazy 首帧与
+  // control-panel-content-resize / subtree MO / contentEl RO 共同重测（见 measure effect）。
   const [panelContentReady, setPanelContentReady] = useState(false)
   useEffect(() => {
     if (isExpanded) setPanelContentReady(true)
@@ -864,6 +865,13 @@ const GlobalControlPanel: React.FC = () => {
 
   // 动态计算展开面板的高度 - 🔧 事件驱动，无轮询
   // 外部可通过 dispatchEvent(new CustomEvent('gcp-remeasure')) 触发重测
+  //
+  // 首开/刷新高度偏矮根因（勿再靠轮询）：
+  // 1) panelContentReady 延后挂载 Widgets/MusicPlayer，若未进 deps，首测后内容
+  //    插入不会重跑 effect；
+  // 2) lazy+Suspense 首帧 chunk 未 paint 时 scrollHeight 偏短；
+  // 3) 内容增长事件若落在 morph 动画窗内且未 force，会被 isAnimating 吞掉；
+  // 4) 嵌套 DOM 增长在 childList-only MO 下不可见，移动端又跳过 ResizeObserver。
   useLayoutEffect(() => {
     if (!triggerRef.current) return
     const triggerEl = triggerRef.current
@@ -879,9 +887,12 @@ const GlobalControlPanel: React.FC = () => {
     let lastUpdateTime = 0
     let pendingMeasure = false
     let measureTimeout: number | null = null
+    const rafIds: number[] = []
+    let cancelled = false
     let isAnimating = false // 🔧 动画状态标记
 
-    // ⚠️ 移动端 / 低性能模式：加大节流、跳过 ResizeObserver
+    // ⚠️ 移动端 / 低性能模式：加大节流；contentEl 仍挂单目标 ResizeObserver
+    // （比整页 RO 便宜），用于兜底嵌套 lazy 布局
     const isMobileDevice =
       perf.isMobile ||
       perf.lowEndDevice ||
@@ -889,12 +900,24 @@ const GlobalControlPanel: React.FC = () => {
       anim.level === 'none'
 
     // ⚠️ 节流时间：防止短时间内多次事件触发重复测量
-    // 🔧 加大节流时间，减少克隆测量频率
     const THROTTLE_MS = isMobileDevice ? 1200 : 600
 
     const measure = (force = false) => {
+      if (cancelled) return
       // 🔧 动画期间跳过测量（除非强制）
       if (isAnimating && !force) return
+
+      // 折叠闲置 content-visibility:hidden 会使 scrollHeight 失真；展开态已摘除。
+      // 若仍不可见则跳过，避免把高度钉成 0/极矮（不写回错误值）
+      if (
+        typeof contentEl.checkVisibility === 'function' &&
+        !contentEl.checkVisibility({
+          checkOpacity: false,
+          checkVisibilityCSS: true,
+        })
+      ) {
+        return
+      }
 
       const now = Date.now()
       if (now - lastUpdateTime < THROTTLE_MS && !force) {
@@ -938,18 +961,30 @@ const GlobalControlPanel: React.FC = () => {
       // 直接读取真实布局高度即可 —— 无需克隆整棵面板到 body 测量，
       // 每次测量从"深克隆 + 插入 + 强制布局 + 移除"降为一次布局读取
       const raw = contentEl.scrollHeight
+      if (raw <= 0) return
 
-      // 适当补偿 (考虑内边距 + 过渡)
-      const compensated = Math.ceil(raw * 1.08)
+      // 小量安全余量（优先精确重测，不再依赖 ×1.08 fudge 扛首帧缺内容）
+      const compensated = Math.ceil(raw + 8)
 
-      if (Math.abs(compensated - lastHeight) > 4) {
+      if (Math.abs(compensated - lastHeight) > 2) {
         lastHeight = compensated
         triggerEl.style.height = `${compensated}px`
       }
     }
 
-    // 立即测量，确保动画起始帧即为正确高度
+    const forceMeasure = () => {
+      lastUpdateTime = 0
+      measure(true)
+    }
+
+    // 立即测量 + 双 rAF：覆盖 panelContentReady 翻转与 lazy chunk 首帧 paint
     measure(true)
+    rafIds.push(
+      requestAnimationFrame(() => {
+        measure(true)
+        rafIds.push(requestAnimationFrame(() => measure(true)))
+      }),
+    )
 
     // 🔧 监听动画状态
     const handleAnimationStart = () => {
@@ -957,25 +992,22 @@ const GlobalControlPanel: React.FC = () => {
     }
     const handleAnimationEnd = () => {
       isAnimating = false
-      // 动画结束后重新测量
-      lastUpdateTime = 0
-      measure(true)
+      // 动画结束后重新测量（含动画窗内被跳过的内容增长）
+      forceMeasure()
+      // 再等一帧：gcp-animation-end 与 Suspense resolve 可能同 tick 竞态
+      rafIds.push(requestAnimationFrame(() => measure(true)))
     }
     window.addEventListener('gcp-animation-start', handleAnimationStart)
     window.addEventListener('gcp-animation-end', handleAnimationEnd)
 
-    // 🔧 统一使用事件驱动重测（移除轮询）
-    const handleRemeasure = () => {
-      measure()
-    }
-    window.addEventListener('gcp-remeasure', handleRemeasure)
+    // 内容真实变化：force 重测，避免 isAnimating / 节流吞掉首开增长
+    window.addEventListener('gcp-remeasure', forceMeasure)
     // 兼容 ControlPanelWidgets 触发的事件
-    window.addEventListener('control-panel-content-resize', handleRemeasure)
+    window.addEventListener('control-panel-content-resize', forceMeasure)
 
     // 视口变化事件
     const handleViewportChange = () => {
-      lastUpdateTime = 0 // 重置节流
-      measure()
+      forceMeasure()
     }
     window.addEventListener('resize', handleViewportChange)
     window.addEventListener('orientationchange', handleViewportChange)
@@ -983,52 +1015,45 @@ const GlobalControlPanel: React.FC = () => {
     // 可见性变化时重新测量
     const handleVisibility = () => {
       if (!document.hidden) {
-        lastUpdateTime = 0
-        setTimeout(measure, 100)
+        setTimeout(forceMeasure, 100)
       }
     }
     document.addEventListener('visibilitychange', handleVisibility)
 
-    // 桌面端：使用 ResizeObserver 监听内容尺寸变化
-    let unobserveResize: (() => void) | null = null
-    if (!isMobileDevice) {
-      unobserveResize = observeResize(contentEl, () => measure())
-    }
+    // contentEl 尺寸变化（lazy 嵌套布局、字体、异步按钮）— 单目标 RO，移动端也挂
+    // 走节流路径；内容增长事件与 deps 翻转负责 force
+    const unobserveResize = observeResize(contentEl, () => measure())
 
-    // MutationObserver：只监听直接子节点变化
+    // MutationObserver：subtree 覆盖 Widgets/MusicPlayer 挂载（在孙节点内）
+    // characterData 关闭；measure 自带节流
     const mutationObserver = new MutationObserver(() => measure())
     mutationObserver.observe(contentEl, {
       childList: true,
-      // 不监听 subtree 和 characterData，减少触发频率
+      subtree: true,
     })
 
     return () => {
+      cancelled = true
       window.removeEventListener('gcp-animation-start', handleAnimationStart)
       window.removeEventListener('gcp-animation-end', handleAnimationEnd)
-      window.removeEventListener('gcp-remeasure', handleRemeasure)
-      window.removeEventListener(
-        'control-panel-content-resize',
-        handleRemeasure,
-      )
+      window.removeEventListener('gcp-remeasure', forceMeasure)
+      window.removeEventListener('control-panel-content-resize', forceMeasure)
       window.removeEventListener('resize', handleViewportChange)
       window.removeEventListener('orientationchange', handleViewportChange)
       document.removeEventListener('visibilitychange', handleVisibility)
-      if (unobserveResize) {
-        unobserveResize()
-      }
+      unobserveResize()
       mutationObserver.disconnect()
       if (measureTimeout !== null) {
         clearTimeout(measureTimeout)
       }
+      for (const id of rafIds) cancelAnimationFrame(id)
     }
-    // canRefreshWallpaper / user?.is_admin：壁纸配置与用户信息均为异步加载，
-    // 壁纸切换/系统配置两个控制项会在面板展开后才出现。它们渲染在
-    // .control-items-grid 内部（contentEl 的孙节点），MutationObserver
-    // （仅监听直接子节点）观察不到，移动端又没有 ResizeObserver 兜底——
-    // 历史上全靠 ×1.08 的冗余高度硬扛，不够时按钮被裁掉"第一时间不显示"。
-    // 加入 deps 后翻转即触发 measure(true) 精确重测
+    // panelContentReady：延后挂载重型内容后必须重跑本 effect 才能首开测准。
+    // canRefreshWallpaper / user?.is_admin：壁纸/管理按钮异步出现在孙节点内，
+    // 虽已有 subtree MO + RO，deps 翻转仍保证一次 force 精确重测。
   }, [
     isExpanded,
+    panelContentReady,
     perf.lowEndDevice,
     perf.isMobile,
     anim.level,
