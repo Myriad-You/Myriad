@@ -137,7 +137,7 @@ if (
             }
         }
 
-        /* 旋转复用全局 @keyframes spin（PageLoader.astro is:global 首屏内联） */
+        /* 旋转复用全局 @keyframes spin（animations.css / App 全局导入） */
 
         .playing-indicator {
             position: absolute;

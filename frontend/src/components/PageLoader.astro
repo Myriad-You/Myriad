@@ -15,12 +15,15 @@
 <!-- React 应用占位容器，初始隐藏，等待完全加载后显示 -->
 <style is:global>
   /* ============================================================
-     统一 Spinner 正典（全站唯一定义）
+     统一 Spinner 正典（.spinner / .spinner-center / spinner-reveal）
      内联于首屏 HTML：水合前的引导加载器与水合后的 React
      <Spinner> 组件（components/Spinner.tsx）共用这一份。
      尺寸/颜色/粗细/速度由 CSS 变量注入。
-     全站唯一的 @keyframes spin 也在此声明，供 .is-spinning 等
-     旋转类复用（tapp 沙箱因 DOM 隔离持有自己的副本，属 SDK 契约）。
+
+     @keyframes spin：App 全局正典在 styles/animations.css（随
+     App.tsx 加载）。此处保留同名副本，确保水合前引导环即可旋转
+     （animations.css 随 React 入口加载，晚于首屏）。tapp 沙箱因
+     DOM 隔离另有副本，属 SDK 契约。
      ============================================================ */
   .spinner {
     --spinner-size: 16px;
@@ -39,13 +42,15 @@
     border-radius: 50%;
 
     /* spinner-reveal（0s + backwards）令环在 --spinner-delay 内保持
-       不可见：快于该时长完成的加载全程不闪环。默认 0s 无任何影响 */
+       不可见：快于该时长完成的加载全程不闪环。默认 0s 无任何影响。
+       仅 spin 驱动 transform；reveal 只动 opacity，避免双动画抢 transform */
     animation:
       spin var(--spinner-speed) linear infinite,
       spinner-reveal 0s linear var(--spinner-delay, 0s) backwards;
 
-    /* GPU 合成层，避免旋转触发所在卡片重绘 */
-    transform: translateZ(0);
+    /* GPU 层提示：不写静态 transform，以免与 @keyframes spin 的
+       transform 插值在部分引擎上互相覆盖导致“看得见但不转” */
+    backface-visibility: hidden;
   }
 
   @keyframes spinner-reveal {
@@ -61,6 +66,7 @@
     justify-content: center;
   }
 
+  /* 首屏关键副本（与 animations.css 同名同值；水合前可用） */
   @keyframes spin {
     from {
       transform: rotate(0deg) translateZ(0);

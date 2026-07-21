@@ -119,8 +119,17 @@
   }
 }
 
-/* 旋转加载动画：全站唯一 @keyframes spin 定义在 PageLoader.astro
-   的 is:global 块（首屏内联，水合前后可用），此处不再重复声明 */
+/* 旋转加载动画：App 全局正典（App.tsx 导入 animations.css）。
+   PageLoader.astro 另有同名副本供水合前首屏引导环使用。 */
+@keyframes spin {
+  from {
+    transform: rotate(0deg) translateZ(0);
+  }
+
+  to {
+    transform: rotate(360deg) translateZ(0);
+  }
+}
 
 /* 脉冲动画 */
 @keyframes pulse {

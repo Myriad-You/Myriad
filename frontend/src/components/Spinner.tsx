@@ -5,9 +5,10 @@
  * 主题色（--color-primary）；有自己配色的调用处显式声明——
  * 按钮内用 color="current" 继承按钮文字色，品牌/语义色用外层
  * text-* 类 + color="current"，或直接传任意 CSS 颜色。
- * 样式定义（.spinner / .spinner-center / @keyframes spin）内联于
- * PageLoader.astro 的 is:global 块——首屏 HTML 即携带，水合前的
- * 引导加载器与本组件共用同一份，此处不再 import CSS。
+ * 样式：.spinner / .spinner-center 内联于 PageLoader.astro 的
+ * is:global 块（首屏即携带，水合前引导环与本组件共用）。
+ * @keyframes spin 正典在 styles/animations.css（App 全局导入）；
+ * PageLoader 另有首屏副本。此处不再 import CSS。
  */
 import type { CSSProperties } from 'react'
 
