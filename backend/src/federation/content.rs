@@ -2166,4 +2166,18 @@ mod tests {
         assert_eq!(extension_for_mime("audio/mpeg"), None);
 
     }
+
+    #[test]
+    fn w175_resolve_audience_matrix() {
+        let base = "https://myriad.example";
+        let (to, cc) = resolve_audience("public", base, "alice");
+        assert!(to.iter().any(|u| u == AP_PUBLIC || u.contains("Public")));
+        assert!(cc.iter().any(|u| u.ends_with("/users/alice/followers")));
+        let (to_f, cc_f) = resolve_audience("followers", base, "bob");
+        assert!(to_f.iter().any(|u| u.ends_with("/users/bob/followers")));
+        assert!(cc_f.is_empty());
+        let (to_d, cc_d) = resolve_audience("direct", base, "carol");
+        assert!(to_d.is_empty() && cc_d.is_empty());
+
+    }
 }
