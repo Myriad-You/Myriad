@@ -2256,4 +2256,20 @@ mod tests {
         assert_eq!(h4, "");
         assert_eq!(u4, "");
     }
+
+    #[test]
+    fn resolve_follow_accept_accepted_id_path_drift_idempotent() {
+        // Already accepted + @handle Accept.actor still yields already=true.
+        let candidates = vec![(
+            "https://a.example/activities/1".into(),
+            "https://b.example/users/bob".into(),
+            "accepted".into(),
+        )];
+        let got = resolve_follow_accept_target(
+            "https://a.example/activities/1/",
+            "https://b.example/@bob",
+            &candidates,
+        );
+        assert_eq!(got.map(|(_, remote, already)| (remote, already)), Some(("https://b.example/users/bob".into(), true)));
+    }
 }
