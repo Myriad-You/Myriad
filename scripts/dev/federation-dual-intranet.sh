@@ -125,6 +125,7 @@ start_instance() {
     export FRONTEND_URL="$base"
     export CORS_ORIGINS="$base"
     export MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND=1
+    export MYRIAD_FEDERATION_DELIVERY_INTERVAL_SECS=2
     export MYRIAD_DB_MODE=external
     export CONFIG_MODE=false
     exec "$BIN"
@@ -200,7 +201,7 @@ run_full_chain() {
   local jar_a="$SCRATCH_DIR/cookies-a${tag}.jar"
   local jar_b="$SCRATCH_DIR/cookies-b${tag}.jar"
   : >"$chain_log"
-
+  # Log to chain file and stdout; fail if the chain body fails (pipefail + PIPESTATUS).
   {
     echo "=== full-chain${tag} mode=${mode} start $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
     echo "BASE_A=$BASE_A BASE_B=$BASE_B"
@@ -259,8 +260,9 @@ run_full_chain() {
     echo "$FOLLOW_RESP" | tee "$SCRATCH_DIR/follow${tag}.json"
     echo
 
-    # Wait for delivery worker (15s poll)
+    # Wait for delivery worker (lab poll 2s)
     echo "--- waiting for delivery queue delivered ---"
+    sql_a "UPDATE federation_delivery_queue SET next_retry_at = NOW() - interval '1 second' WHERE status IN ('pending','delivering');" >/dev/null 2>&1 || true
     local ok=0
     local DELIVERED=0 DEAD=0 PENDING=0 STAT=""
     for i in $(seq 1 45); do
@@ -276,6 +278,10 @@ run_full_chain() {
       if [[ "${DEAD:-0}" -ge 1 && "${PENDING:-0}" -eq 0 ]]; then
         ERR=$(sql_a "SELECT error_message FROM federation_delivery_queue WHERE status='dead' ORDER BY id DESC LIMIT 1;" 2>/dev/null || echo unknown)
         die "delivery dead: $ERR"
+      fi
+      # Re-nudge pending rows every few ticks (defensive against clock/DEFAULT race)
+      if (( i % 5 == 0 )); then
+        sql_a "UPDATE federation_delivery_queue SET next_retry_at = NOW() - interval '1 second' WHERE status='pending';" >/dev/null 2>&1 || true
       fi
       sleep 2
     done
@@ -297,7 +303,9 @@ run_full_chain() {
     fi
 
     echo "=== full-chain${tag} OK ==="
-  } 2>&1 | tee -a "$chain_log"
+  } > >(tee -a "$chain_log") 2>&1
+  local chain_rc=${PIPESTATUS[0]:-0}
+  [[ "$chain_rc" -eq 0 ]] || die "full-chain${tag} failed (rc=$chain_rc); see $chain_log"
 
   # Fail if key error string appears without recovery in chain log itself
   if grep -F "No federation keys found for user" "$chain_log" >/dev/null; then

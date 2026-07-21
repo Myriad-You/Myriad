@@ -404,7 +404,14 @@ async fn mark_delivery_dead(
 /// 启动投递队列后台循环
 pub fn spawn_delivery_worker(db: DatabaseConnection) {
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(15));
+        // Lab dual-instance: `MYRIAD_FEDERATION_DELIVERY_INTERVAL_SECS` (e.g. 2)
+        // speeds full-chain harness without changing production default (15s).
+        let secs = std::env::var("MYRIAD_FEDERATION_DELIVERY_INTERVAL_SECS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .filter(|n| *n >= 1 && *n <= 3600)
+            .unwrap_or(15);
+        let mut interval = tokio::time::interval(Duration::from_secs(secs));
         loop {
             interval.tick().await;
             match process_delivery_queue_detailed(&db, 20).await {
