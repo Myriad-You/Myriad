@@ -791,6 +791,11 @@ export function generateFullSDK(
       getBookmarks: () => sendRequest('federation', 'getBookmarks', []),
       announce: (objectId, content) => sendRequest('federation', 'announce', [objectId, content]),
       unannounce: (objectId) => sendRequest('federation', 'unannounce', [objectId]),
+      /** X Web Intent compose only — returns intent_url; never posts server-side. */
+      getExternalShareStatus: () =>
+        sendRequest('federation', 'getExternalShareStatus', []),
+      composeExternalShare: (req) =>
+        sendRequest('federation', 'composeExternalShare', [req]),
       uploadMedia: (req) => sendRequest('federation', 'uploadMedia', [req]),
       unpublish: (req) => sendRequest('federation', 'unpublish', [req]),
       getPublished: () => sendRequest('federation', 'getPublished', []),
