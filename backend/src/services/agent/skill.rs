@@ -632,4 +632,104 @@ mod tests {
         let content = "No frontmatter here";
         assert!(SkillRegistry::split_frontmatter(content).is_none());
     }
+
+    /// Smoke: seeded manual skills under data/agent/skills must load via SkillRegistry.
+    #[tokio::test]
+    async fn test_load_seeded_brew_skills_from_data_dir() {
+        let skills_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data/agent/skills");
+        assert!(
+            skills_dir.is_dir(),
+            "expected skills dir at {}",
+            skills_dir.display()
+        );
+
+        let registry = SkillRegistry::new(skills_dir).await;
+        let all = registry.get_all().await;
+        let ids: Vec<String> = all.iter().map(|s| s.id.clone()).collect();
+
+        for required in [
+            "brew-friend-links",
+            "brew-source-latest",
+            "brew-latest-articles",
+            "platform-status",
+        ] {
+            assert!(
+                ids.iter().any(|id| id == required),
+                "missing seeded skill {required}; loaded: {ids:?}"
+            );
+        }
+
+        // Friend links: category filter on brew.sources, no fake caps
+        let friend = registry.get("brew-friend-links").await.expect("friend skill");
+        assert_eq!(friend.origin, SkillOrigin::Manual);
+        assert!(
+            friend.gating.capabilities.contains(&"brew.sources".to_string()),
+            "brew-friend-links must gate on brew.sources"
+        );
+        assert!(
+            !friend.full_instructions.is_empty(),
+            "instructions body required"
+        );
+        assert!(
+            friend.triggers.iter().any(|t| t.contains("友情链接") || t.contains("友链")),
+            "zh triggers required"
+        );
+
+        // Source latest: sourceId handoff + parameter slot
+        let source_latest = registry
+            .get("brew-source-latest")
+            .await
+            .expect("source-latest skill");
+        assert!(
+            source_latest.parameters.iter().any(|p| p == "source_name"),
+            "source_name parameter required, got {:?}",
+            source_latest.parameters
+        );
+        assert!(
+            source_latest
+                .gating
+                .capabilities
+                .contains(&"brew.items".to_string()),
+            "brew-source-latest must gate on brew.items"
+        );
+        let body_lower = source_latest.full_instructions.to_lowercase();
+        assert!(
+            body_lower.contains("sourceid"),
+            "instructions must require passing sourceId from list step"
+        );
+        assert!(
+            source_latest.full_instructions.contains("webSearch")
+                || source_latest.full_instructions.contains("联网"),
+            "instructions must mention forbidding web search for local lists"
+        );
+
+        // Latest articles: local-only
+        let latest = registry
+            .get("brew-latest-articles")
+            .await
+            .expect("latest skill");
+        assert!(
+            latest.gating.capabilities.contains(&"brew.items".to_string()),
+            "brew-latest-articles must gate on brew.items"
+        );
+        assert!(
+            latest
+                .gating
+                .capabilities
+                .iter()
+                .all(|c| c.starts_with("brew.") || c.starts_with("platform.")),
+            "gating must list real brew/platform IDs only, got {:?}",
+            latest.gating.capabilities
+        );
+
+        // Platform status: platform.read only
+        let platform = registry
+            .get("platform-status")
+            .await
+            .expect("platform skill");
+        assert_eq!(
+            platform.gating.capabilities,
+            vec!["platform.read".to_string()]
+        );
+    }
 }
