@@ -348,4 +348,12 @@ mod tests {
         assert!(verify_date_freshness(&fresh, now, Duration::minutes(5)).is_ok());
         assert!(verify_date_freshness(&stale, now, Duration::minutes(5)).is_err());
     }
+
+    #[test]
+    fn w175_verify_digest_bad_prefix() {
+        assert!(!verify_digest(b"hello", "md5=deadbeef"));
+        assert!(!verify_digest(b"hello", "SHA-256"));
+        assert!(!verify_digest(b"hello", ""));
+
+    }
 }
