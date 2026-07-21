@@ -2144,4 +2144,26 @@ mod tests {
             "https://c.example/users/bob"
         ));
     }
+
+    #[test]
+    fn same_host_username_compatible_at_handle_and_reject() {
+        assert!(same_host_username_compatible(
+            "https://b.example/@bob",
+            "https://b.example/users/bob"
+        ));
+        assert!(same_host_username_compatible(
+            "https://b.example/@Bob",
+            "https://b.example/users/bob"
+        ));
+        // Different user on same host
+        assert!(!same_host_username_compatible(
+            "https://b.example/@carol",
+            "https://b.example/users/bob"
+        ));
+        // Cross host
+        assert!(!same_host_username_compatible(
+            "https://evil.example/@bob",
+            "https://b.example/users/bob"
+        ));
+    }
 }
