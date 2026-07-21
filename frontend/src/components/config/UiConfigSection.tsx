@@ -3,6 +3,10 @@
  * 使用通用设置组件重构
  */
 
+import type {
+  ChangeSiteDomainResponse,
+  DomainChecklistItem,
+} from '../../services/siteDomainApi'
 import {
   FaExchangeAlt,
   FaGlobe,
@@ -15,15 +19,10 @@ import {
 import React, { useCallback, useMemo, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import { ApiError } from '../../services/api'
-import type {
-  ChangeSiteDomainResponse,
-  DomainChecklistItem,
-} from '../../services/siteDomainApi'
 import {
   changeSiteDomain,
   checklistItems,
 } from '../../services/siteDomainApi'
-
 import {
   ButtonItem,
   CheckboxGroupItem,
