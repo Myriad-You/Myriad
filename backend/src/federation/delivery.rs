@@ -1493,4 +1493,28 @@ mod tests {
         assert_eq!(classify_retry_status("Delivered"), RetryStatusDecision::Allow);
         assert_eq!(classify_retry_status("delivered"), RetryStatusDecision::AlreadyDelivered);
     }
+
+    #[test]
+    fn move_signing_empty_or_malformed_actor_fallback() {
+        let empty = json!({"type": "Move", "actor": ""});
+        let (base, user) = signing_identity_for_activity(
+            "Move", &empty, "https://new.example/", "alice",
+        );
+        assert_eq!(base, "https://new.example");
+        assert_eq!(user, "alice");
+
+        let bad = json!({"type": "Move", "actor": "https://old.example/not-users/alice"});
+        let (base2, user2) = signing_identity_for_activity(
+            "Move", &bad, "https://new.example", "alice",
+        );
+        assert_eq!(base2, "https://new.example");
+        assert_eq!(user2, "alice");
+
+        let nested = json!({"type": "Move", "actor": "https://old.example/users/alice/inbox"});
+        let (base3, user3) = signing_identity_for_activity(
+            "Move", &nested, "https://new.example", "alice",
+        );
+        assert_eq!(base3, "https://new.example");
+        assert_eq!(user3, "alice");
+    }
 }
