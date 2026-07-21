@@ -996,4 +996,25 @@ mod tests {
             "https://a.example/Activities/1"
         ));
     }
+
+    #[test]
+    fn local_username_from_actor_url_port_must_match() {
+        let base = "https://myriad.example:8443";
+        assert_eq!(
+            local_username_from_actor_url(base, "https://myriad.example:8443/users/alice"),
+            Some("alice".into())
+        );
+        // Default port mismatch → foreign
+        assert_eq!(
+            local_username_from_actor_url(base, "https://myriad.example/users/alice"),
+            None
+        );
+        assert_eq!(
+            local_username_from_actor_url(
+                "https://myriad.example",
+                "https://myriad.example:8443/users/alice"
+            ),
+            None
+        );
+    }
 }
