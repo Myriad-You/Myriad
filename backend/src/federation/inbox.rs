@@ -2311,4 +2311,111 @@ mod tests {
         )
         .is_none());
     }
+
+    #[test]
+    fn r45_same_host_username_compatible_users_path_case() {
+        assert!(same_host_username_compatible(
+            "https://b.example/users/Bob",
+            "https://b.example/users/bob"
+        ));
+        assert!(!same_host_username_compatible(
+            "https://b.example/users/bob",
+            "https://b.example/users/carol"
+        ));
+    }
+
+    #[test]
+    fn r46_same_host_username_compatible_at_handle_last_segment() {
+        assert!(same_host_username_compatible(
+            "https://b.example/@alice",
+            "https://b.example/users/alice"
+        ));
+        assert!(!same_host_username_compatible(
+            "https://evil.example/@alice",
+            "https://b.example/users/alice"
+        ));
+    }
+
+    #[test]
+    fn r47_resolve_follow_accept_target_no_candidates() {
+        assert!(resolve_follow_accept_target(
+            "https://a.example/activities/1",
+            "https://b.example/users/bob",
+            &[],
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn r48_resolve_follow_accept_target_id_match_trailing_slash() {
+        let candidates = vec![(
+            "https://a.example/activities/1".into(),
+            "https://b.example/users/bob".into(),
+            "pending".into(),
+        )];
+        assert!(resolve_follow_accept_target(
+            "https://a.example/activities/1/",
+            "https://b.example/users/bob",
+            &candidates,
+        )
+        .is_some());
+    }
+
+    #[test]
+    fn r49_resolve_follow_accept_target_rejects_cross_user_same_host() {
+        let candidates = vec![(
+            "https://a.example/activities/1".into(),
+            "https://b.example/users/bob".into(),
+            "pending".into(),
+        )];
+        assert!(resolve_follow_accept_target(
+            "https://a.example/activities/1",
+            "https://b.example/users/carol",
+            &candidates,
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn r50_resolve_follow_accept_target_idempotent_accepted() {
+        let candidates = vec![(
+            "https://a.example/activities/1".into(),
+            "https://b.example/users/bob".into(),
+            "accepted".into(),
+        )];
+        let got = resolve_follow_accept_target(
+            "https://a.example/activities/1",
+            "https://b.example/users/bob",
+            &candidates,
+        );
+        assert_eq!(got.map(|(_, _, already)| already), Some(true));
+    }
+
+    #[test]
+    fn r51_extract_accept_object_id_string_vs_nested() {
+        assert_eq!(
+            extract_accept_object_id(&serde_json::json!({
+                "object": "https://a.example/activities/z"
+            })),
+            "https://a.example/activities/z"
+        );
+        assert_eq!(
+            extract_accept_object_id(&serde_json::json!({
+                "object": {"id": "https://a.example/activities/n", "type": "Follow"}
+            })),
+            "https://a.example/activities/n"
+        );
+    }
+
+    #[test]
+    fn r52_same_actor_or_user_rejects_different_ports() {
+        assert!(!same_actor_or_user(
+            "https://b.example:8443/users/bob",
+            "https://b.example/users/bob"
+        ));
+        assert!(same_actor_or_user(
+            "https://b.example:8443/users/bob",
+            "https://b.example:8443/users/BOB/"
+        ));
+    }
 }
