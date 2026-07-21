@@ -166,11 +166,15 @@ async fn run_server() -> anyhow::Result<()> {
         }
     }
 
-    // Try to initialize database connection if URL is configured
+    // Try to initialize database connection if URL is configured.
+    // When DATABASE_URL is set (external DB / compose), retry with backoff before
+    // falling into CONFIGURATION MODE — a single pool timeout after stack restart
+    // must not permanently strand production deploys. Empty URL keeps first-boot setup.
     if !config.database_url.is_empty() {
-        match db::connection::establish_connection(&config.database_url).await {
+        let db_target = db::connection::redact_database_url(&config.database_url);
+        match db::connection::establish_connection_with_retry(&config.database_url).await {
             Ok(db) => {
-                tracing::info!("✅ Database connection established");
+                tracing::info!(db_target = %db_target, "✅ Database connection established");
 
                 // Retired migration files have been folded into the base schema.
                 // Remove only their known history rows before SeaORM validates
@@ -569,7 +573,13 @@ async fn run_server() -> anyhow::Result<()> {
                 CONFIG_MODE.store(false, Ordering::Relaxed);
             }
             Err(e) => {
-                tracing::warn!("⚠️  Database connection failed: {}", e);
+                let error_kind = db::connection::classify_connect_error(&e);
+                tracing::warn!(
+                    db_target = %db_target,
+                    error_kind = error_kind.as_str(),
+                    error = %e,
+                    "⚠️  Database connection failed after retries"
+                );
                 tracing::info!("🔧 Starting in CONFIGURATION MODE");
                 tracing::info!("📝 Only setup/status/bootstrap auth endpoints are available");
                 tracing::info!(
