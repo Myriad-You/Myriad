@@ -25,6 +25,7 @@ import type {
   UpdateMode,
   UpdaterStatus,
 } from '../../services/updaterApi'
+import type { MaintenancePollStop } from './updaterMaintenanceNav'
 import { LuRefreshCw } from '@lib/icons'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
@@ -35,6 +36,12 @@ import {
 } from '../../services/updaterApi'
 import { ButtonItem, SettingGroup } from '../settings'
 import { AGO_TICK_MS, computeAgo, isCheckStale } from './updaterCheckFreshness'
+import {
+  hasNavigatedForJob,
+  isLikelyMaintenanceHtml,
+  navigateToMaintenancePage,
+  startMaintenancePoll,
+} from './updaterMaintenanceNav'
 import './UpdaterConfigSection.css'
 
 /** Formal release tags look like v0.2.6 (`v`-prefixed semver, matching DeployTag). */
@@ -250,6 +257,15 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
   /** True while the open-panel stale auto-check is in flight. */
   const [autoRechecking, setAutoRechecking] = useState(false)
 
+  /** Job we are watching for maintenance → full-page navigate (once). */
+  const maintWatchJobRef = useRef<string | null>(null)
+  const maintPollStopRef = useRef<MaintenancePollStop | null>(null)
+  /** In-memory once-guard (sessionStorage is the cross-reload guard). */
+  const maintNavDoneRef = useRef<string | null>(null)
+  /** Latest status for the proxy poller fallback without re-subscribing. */
+  const statusRef = useRef<UpdaterStatus | null>(null)
+  statusRef.current = status
+
   const explain = useCallback(
     (e: unknown): string => {
       if (e instanceof UpdaterError) {
@@ -290,6 +306,46 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     [u],
   )
 
+  const stopMaintPoll = useCallback(() => {
+    if (maintPollStopRef.current) {
+      maintPollStopRef.current()
+      maintPollStopRef.current = null
+    }
+  }, [])
+
+  /** Full-page leave once per job when maintenance is active (or 503 HTML fallback). */
+  const navigateToMaintOnce = useCallback(
+    (jobId: string) => {
+      if (!jobId) return
+      if (maintNavDoneRef.current === jobId || hasNavigatedForJob(jobId)) return
+      maintNavDoneRef.current = jobId
+      stopMaintPoll()
+      navigateToMaintenancePage(jobId)
+    },
+    [stopMaintPoll],
+  )
+
+  /**
+   * After a successful triggerUpdate (or when a job is already in flight),
+   * poll /_proxy/status until maintenance.active then assign('/').
+   */
+  const beginMaintWatch = useCallback(
+    (jobId: string) => {
+      if (!jobId) return
+      if (maintNavDoneRef.current === jobId || hasNavigatedForJob(jobId)) return
+      if (maintWatchJobRef.current === jobId && maintPollStopRef.current) return
+      stopMaintPoll()
+      maintWatchJobRef.current = jobId
+      maintPollStopRef.current = startMaintenancePoll({
+        jobId,
+        getStatusMaintenanceActive: () =>
+          !!statusRef.current?.maintenance_active,
+        onNavigate: () => navigateToMaintOnce(jobId),
+      })
+    },
+    [stopMaintPoll, navigateToMaintOnce],
+  )
+
   const refresh = useCallback(async () => {
     setLoading(true)
     try {
@@ -307,6 +363,18 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
           setStatus(null)
           setSnapshots([])
           setActiveJob(null)
+          return
+        }
+        // Fallback: once a job is in flight, non-JSON 503 means proxy is
+        // serving maintenance HTML for /api/* — leave the SPA.
+        const watchJob = maintWatchJobRef.current
+        if (
+          watchJob &&
+          e instanceof UpdaterError &&
+          e.status === 503 &&
+          isLikelyMaintenanceHtml(e.message)
+        ) {
+          navigateToMaintOnce(watchJob)
           return
         }
       }
@@ -334,7 +402,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     } finally {
       setLoading(false)
     }
-  }, [api, transport, accessDenied])
+  }, [api, transport, accessDenied, navigateToMaintOnce])
 
   useEffect(() => {
     refresh()
@@ -354,6 +422,32 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
       if (pollRef.current) window.clearInterval(pollRef.current)
     }
   }, [status?.job_in_flight, refresh])
+
+  // Navigate when maintenance is already active while a job runs; watch otherwise.
+  // Clear the proxy poller on unmount or when the job ends without maintenance.
+  useEffect(() => {
+    const jobId = status?.job_in_flight
+    if (!jobId) {
+      if (!status?.maintenance_active) {
+        stopMaintPoll()
+        maintWatchJobRef.current = null
+      }
+      return
+    }
+    if (status.maintenance_active) {
+      navigateToMaintOnce(jobId)
+      return
+    }
+    beginMaintWatch(jobId)
+  }, [
+    status?.job_in_flight,
+    status?.maintenance_active,
+    beginMaintWatch,
+    navigateToMaintOnce,
+    stopMaintPoll,
+  ])
+
+  useEffect(() => () => stopMaintPoll(), [stopMaintPoll])
 
   // Live “N minutes ago” for last_checked_at (does not hit the network).
   useEffect(() => {
@@ -503,6 +597,9 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
           kind: 'ok',
           text: format(u.updaterDispatched, { jobId: r.job_id }),
         })
+        // Start proxy-status watch immediately (before refresh) so we leave the
+        // SPA as soon as maintenance.json flips active.
+        beginMaintWatch(r.job_id)
         await refresh()
       } catch (e) {
         // 服务端要求 allow_downgrade / allow_risk —— 再确认一次后重试。
@@ -531,20 +628,23 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
                 kind: 'ok',
                 text: format(u.updaterDispatched, { jobId: r.job_id }),
               })
+              beginMaintWatch(r.job_id)
               await refresh()
               return
             } catch (e2) {
+              // Preflight / trigger failure: stay on admin panel.
               setToast({ kind: 'error', text: explain(e2) })
               return
             }
           }
         }
+        // Preflight / trigger failure: stay on admin panel, no navigate.
         setToast({ kind: 'error', text: explain(e) })
       } finally {
         setBusy(null)
       }
     },
-    [api, status, refresh, tokenRequired, explain, u],
+    [api, status, refresh, tokenRequired, explain, u, beginMaintWatch],
   )
 
   const updateToLatest = useCallback(() => {
