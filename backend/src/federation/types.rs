@@ -930,4 +930,20 @@ mod tests {
         assert!(same_activity_id("opaque-id-xyz/", "opaque-id-xyz"));
         assert!(!same_activity_id("opaque-id-xyz", "opaque-id-other"));
     }
+
+    #[test]
+    fn extract_domain_http_only_rejects_userinfo() {
+        assert_eq!(
+            extract_domain("https://remote.example/users/bob"),
+            Some("remote.example".into())
+        );
+        assert_eq!(
+            extract_domain("http://127.0.0.1:18080/users/a"),
+            Some("127.0.0.1".into())
+        );
+        // userinfo must not be treated as the authority host for trust decisions
+        assert_eq!(extract_domain("https://evil@legitimate.example/users/x"), None);
+        assert_eq!(extract_domain("ftp://remote.example/users/x"), None);
+        assert_eq!(extract_domain("not a url"), None);
+    }
 }
