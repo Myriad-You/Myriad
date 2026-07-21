@@ -12,4 +12,4 @@
 mod evaluator;
 
 // 核心导出：ResultEvaluator 供 Agent.should_escalate / build_escalation_hint 使用
-pub use evaluator::ResultEvaluator;
+pub use evaluator::{EvaluationContext, ResultEvaluator};

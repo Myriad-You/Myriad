@@ -28,6 +28,8 @@ pub enum ErrorCategory {
     PermissionDenied,
     /// 资源未找到（404 等）
     NotFound,
+    /// 配置缺失（API Key 未配置等）—— 不可重试，不应消耗 retry budget
+    Configuration,
     /// 未知错误
     Unknown,
 }
@@ -76,6 +78,23 @@ impl ErrorAnalyzer {
         params: &HashMap<String, Value>,
     ) -> ErrorAnalysis {
         let error_lower = error.to_lowercase();
+
+        // 0. 配置缺失 / API Key 未配置 —— 不可重试，不消耗 global_retry_budget
+        // 必须在 Unknown 默认分支之前，且优先于通用 missing-param（避免被当成可修参数）
+        if Self::is_configuration_error(error, &error_lower) {
+            return ErrorAnalysis {
+                category: ErrorCategory::Configuration,
+                retryable: false,
+                param_fixes: HashMap::new(),
+                description: format!(
+                    "配置缺失（不可重试）: {}",
+                    truncate_str(error, 100)
+                ),
+                delay_multiplier: 1.0,
+                suggested_prepend_capability: None,
+                suggested_prepend_params: HashMap::new(),
+            };
+        }
 
         // 1. 内容策略违规
         if let Some(analysis) = Self::check_content_policy(&error_lower, capability_id, params) {
@@ -162,6 +181,33 @@ impl ErrorAnalyzer {
             suggested_prepend_capability: None,
             suggested_prepend_params: HashMap::new(),
         }
+    }
+
+    /// API Key / 服务未配置 —— 重试无效，且不应被当成 Unknown 烧掉预算
+    fn is_configuration_error(error: &str, error_lower: &str) -> bool {
+        // response_agent::api_key_not_configured → "{service} API Key 未配置"
+        if error.contains("API Key 未配置") || error_lower.contains("api key 未配置") {
+            return true;
+        }
+        if error_lower.contains("api key not configured")
+            || error_lower.contains("api_key not configured")
+            || error_lower.contains("api key is not configured")
+            || error_lower.contains("missing api key")
+            || error_lower.contains("no api key")
+            || error_lower.contains("api key is empty")
+            || error_lower.contains("api key missing")
+        {
+            return true;
+        }
+        // 通用「未配置 / not configured」（TTS、AI analyzer 等）
+        if error.contains("未配置") || error_lower.contains("not configured") {
+            return true;
+        }
+        // 英文配置缺失常见写法
+        if error_lower.contains("is not set") && error_lower.contains("key") {
+            return true;
+        }
+        false
     }
 
     /// 检测内容策略违规并生成修复建议
@@ -606,5 +652,67 @@ mod tests {
             &params,
         );
         assert_eq!(analysis.category, ErrorCategory::ContentPolicy);
+    }
+
+    // ── 配置缺失 / API Key：不可重试 ──
+
+    #[test]
+    fn test_gemini_api_key_not_configured_non_retryable() {
+        let params = HashMap::new();
+        // 与 response_agent::api_key_not_configured("Gemini") 一致
+        let analysis =
+            ErrorAnalyzer::analyze("Gemini API Key 未配置", "ai.webSearch", &params);
+        assert_eq!(analysis.category, ErrorCategory::Configuration);
+        assert!(
+            !analysis.retryable,
+            "API Key 未配置必须非重试，避免烧 global_retry_budget"
+        );
+        assert!(analysis.suggested_prepend_capability.is_none());
+    }
+
+    #[test]
+    fn test_api_key_not_configured_english_non_retryable() {
+        let params = HashMap::new();
+        let analysis = ErrorAnalyzer::analyze(
+            "Gemini API Key is not configured",
+            "ai.groundingSearch",
+            &params,
+        );
+        assert_eq!(analysis.category, ErrorCategory::Configuration);
+        assert!(!analysis.retryable);
+    }
+
+    #[test]
+    fn test_tts_not_configured_non_retryable() {
+        let params = HashMap::new();
+        let analysis = ErrorAnalyzer::analyze(
+            "TTS 服务未配置。请在设置中配置语音合成服务后重试。",
+            "ai.tts",
+            &params,
+        );
+        assert_eq!(analysis.category, ErrorCategory::Configuration);
+        assert!(!analysis.retryable);
+    }
+
+    #[test]
+    fn test_ai_analyzer_not_configured_non_retryable() {
+        let params = HashMap::new();
+        let analysis =
+            ErrorAnalyzer::analyze("AI analyzer not configured", "ai.analyze", &params);
+        assert_eq!(analysis.category, ErrorCategory::Configuration);
+        assert!(!analysis.retryable);
+    }
+
+    #[test]
+    fn test_previous_attempts_gemini_key_still_non_retryable() {
+        // 模拟重试历史文案，确保仍被识别为配置错误而非 Unknown
+        let params = HashMap::new();
+        let analysis = ErrorAnalyzer::analyze(
+            "previous 1 attempts: Gemini API Key 未配置",
+            "ai.webSearch",
+            &params,
+        );
+        assert_eq!(analysis.category, ErrorCategory::Configuration);
+        assert!(!analysis.retryable);
     }
 }

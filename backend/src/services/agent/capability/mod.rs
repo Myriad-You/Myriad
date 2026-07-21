@@ -127,15 +127,41 @@ pub async fn get_capability_summary() -> Value {
 pub async fn get_compact_index() -> Value {
     let registry = get_registry().await;
 
+    // Gemini Key 缺失时标记联网搜索能力不可用，避免 Planner 选中后必然失败
+    let gemini_available = {
+        let config = crate::GLOBAL_DYNAMIC_CONFIG.read().await;
+        config
+            .gemini_api_key
+            .as_ref()
+            .is_some_and(|k| !k.trim().is_empty())
+            || config
+                .pro_gemini_api_key
+                .as_ref()
+                .is_some_and(|k| !k.trim().is_empty())
+    };
+
     let mut by_category: std::collections::HashMap<String, Vec<Value>> =
         std::collections::HashMap::new();
 
     for cap in registry.get_all() {
-        let hint = get_capability_usage_hint(&cap.id);
+        let base_hint = get_capability_usage_hint(&cap.id);
         let category = get_capability_category_name(&cap.category);
+
+        let needs_gemini = cap.id == "ai.webSearch" || cap.id == "ai.groundingSearch";
+        let hint = if needs_gemini && !gemini_available {
+            format!("{}（不可用：Gemini API Key 未配置）", base_hint)
+        } else {
+            base_hint.to_string()
+        };
 
         // 提取必需参数名（帮助 AI 正确构建 params）
         let mut entry = json!({ "id": cap.id, "h": hint });
+        if needs_gemini && !gemini_available {
+            entry
+                .as_object_mut()
+                .unwrap()
+                .insert("unavailable".to_string(), json!(true));
+        }
         if let Some(required) = cap.input_schema.get("required").and_then(|v| v.as_array()) {
             let param_names: Vec<&str> = required.iter().filter_map(|v| v.as_str()).collect();
             if !param_names.is_empty() {
