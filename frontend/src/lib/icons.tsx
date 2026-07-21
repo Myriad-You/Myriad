@@ -268,93 +268,214 @@ import { FaGrip } from 'react-icons/fa6'
 // Simple Icons (Si*) - 品牌图标
 // ============================================================
 import {
-  SiAnilist,
-  SiApple,
-  SiArtstation,
-  SiBaidu,
-  SiBandcamp,
-  SiBehance,
-  SiBilibili,
-  SiBitbucket,
-  SiBlogger,
-  SiBluesky,
-  SiBuymeacoffee,
-  SiCloudflare,
-  SiDevdotto,
-  SiDeviantart,
-  SiDiscord,
-  SiDouban,
-  SiDribbble,
-  SiEpicgames,
-  SiFacebook,
-  SiFigma,
-  SiFlickr,
-  SiGithub,
-  SiGitlab,
-  SiGoodreads,
-  SiGoogle,
-  SiGooglegemini,
-  SiHashnode,
-  SiHuggingface,
-  SiInstagram,
-  SiItchdotio,
-  SiKaggle,
-  SiKakaotalk,
-  SiKofi,
-  SiLastdotfm,
-  SiLetterboxd,
-  SiLine,
-  SiMaildotru,
-  SiMastodon,
-  SiMedium,
-  SiMisskey,
-  SiMyanimelist,
-  SiNaver,
-  SiNeteasecloudmusic,
-  SiNiconico,
-  SiNotion,
-  SiOdnoklassniki,
-  SiOpenrouter,
-  SiOrigin,
-  SiPatreon,
-  SiPinterest,
-  SiPixiv,
-  SiPlaystation,
-  SiProducthunt,
-  SiQq,
-  SiReddit,
-  SiSinaweibo,
-  SiSnapchat,
-  SiSoundcloud,
-  SiSpotify,
-  SiStackoverflow,
-  SiSteam,
-  SiSubstack,
-  SiTelegram,
-  SiThreads,
-  SiTiktok,
-  SiTrakt,
-  SiTumblr,
-  SiTwitch,
-  SiUnsplash,
-  SiVk,
-  SiWechat,
-  SiWhatsapp,
-  SiWordpress,
-  SiX,
-  SiXiaohongshu,
-  SiYcombinator,
-  SiYoutube,
-  SiZhihu,
+  SiAnilist as SiAnilistRaw,
+  SiApple as SiAppleRaw,
+  SiArtstation as SiArtstationRaw,
+  SiBaidu as SiBaiduRaw,
+  SiBandcamp as SiBandcampRaw,
+  SiBehance as SiBehanceRaw,
+  SiBilibili as SiBilibiliRaw,
+  SiBitbucket as SiBitbucketRaw,
+  SiBlogger as SiBloggerRaw,
+  SiBluesky as SiBlueskyRaw,
+  SiBuymeacoffee as SiBuymeacoffeeRaw,
+  SiCloudflare as SiCloudflareRaw,
+  SiDevdotto as SiDevdottoRaw,
+  SiDeviantart as SiDeviantartRaw,
+  SiDiscord as SiDiscordRaw,
+  SiDouban as SiDoubanRaw,
+  SiDribbble as SiDribbbleRaw,
+  SiEpicgames as SiEpicgamesRaw,
+  SiFacebook as SiFacebookRaw,
+  SiFigma as SiFigmaRaw,
+  SiFlickr as SiFlickrRaw,
+  SiGithub as SiGithubRaw,
+  SiGitlab as SiGitlabRaw,
+  SiGoodreads as SiGoodreadsRaw,
+  SiGooglegemini as SiGooglegeminiRaw,
+  SiGoogle as SiGoogleRaw,
+  SiHashnode as SiHashnodeRaw,
+  SiHuggingface as SiHuggingfaceRaw,
+  SiInstagram as SiInstagramRaw,
+  SiItchdotio as SiItchdotioRaw,
+  SiKaggle as SiKaggleRaw,
+  SiKakaotalk as SiKakaotalkRaw,
+  SiKofi as SiKofiRaw,
+  SiLastdotfm as SiLastdotfmRaw,
+  SiLetterboxd as SiLetterboxdRaw,
+  SiLine as SiLineRaw,
+  SiMaildotru as SiMaildotruRaw,
+  SiMastodon as SiMastodonRaw,
+  SiMedium as SiMediumRaw,
+  SiMisskey as SiMisskeyRaw,
+  SiMyanimelist as SiMyanimelistRaw,
+  SiNaver as SiNaverRaw,
+  SiNeteasecloudmusic as SiNeteasecloudmusicRaw,
+  SiNiconico as SiNiconicoRaw,
+  SiNotion as SiNotionRaw,
+  SiOdnoklassniki as SiOdnoklassnikiRaw,
+  SiOpenrouter as SiOpenrouterRaw,
+  SiOrigin as SiOriginRaw,
+  SiPatreon as SiPatreonRaw,
+  SiPinterest as SiPinterestRaw,
+  SiPixiv as SiPixivRaw,
+  SiPlaystation as SiPlaystationRaw,
+  SiProducthunt as SiProducthuntRaw,
+  SiQq as SiQqRaw,
+  SiReddit as SiRedditRaw,
+  SiSinaweibo as SiSinaweiboRaw,
+  SiSnapchat as SiSnapchatRaw,
+  SiSoundcloud as SiSoundcloudRaw,
+  SiSpotify as SiSpotifyRaw,
+  SiStackoverflow as SiStackoverflowRaw,
+  SiSteam as SiSteamRaw,
+  SiSubstack as SiSubstackRaw,
+  SiTelegram as SiTelegramRaw,
+  SiThreads as SiThreadsRaw,
+  SiTiktok as SiTiktokRaw,
+  SiTrakt as SiTraktRaw,
+  SiTumblr as SiTumblrRaw,
+  SiTwitch as SiTwitchRaw,
+  SiUnsplash as SiUnsplashRaw,
+  SiVk as SiVkRaw,
+  SiWechat as SiWechatRaw,
+  SiWhatsapp as SiWhatsappRaw,
+  SiWordpress as SiWordpressRaw,
+  SiXiaohongshu as SiXiaohongshuRaw,
+  SiX as SiXRaw,
+  SiYcombinator as SiYcombinatorRaw,
+  SiYoutube as SiYoutubeRaw,
+  SiZhihu as SiZhihuRaw,
 } from 'react-icons/si'
 
-const SiCodepen = FaCodepen
+/**
+ * Decorative-by-default a11y for react-icons SVGs.
+ *
+ * Simple Icons bake role="img" into SVG attrs. Without title/aria-label that
+ * fails Lighthouse "svg-img-alt". Most call sites use icons next to visible
+ * labels, so default to aria-hidden and strip role=img. When the caller
+ * provides an accessible name (title / aria-label / aria-labelledby), keep
+ * role="img". Explicit role / aria-hidden from the caller always win.
+ */
+function withIconA11y(Icon: IconType): IconType {
+  const AccessibleIcon: IconType = (props) => {
+    const hasAccessibleName =
+      (props.title != null && props.title !== '') ||
+      (props['aria-label'] != null && props['aria-label'] !== '') ||
+      (props['aria-labelledby'] != null && props['aria-labelledby'] !== '')
+
+    const explicitAriaHidden = Object.hasOwn(props, 'aria-hidden')
+    const explicitRole = Object.hasOwn(props, 'role')
+
+    if (hasAccessibleName) {
+      return (
+        <Icon
+          {...props}
+          role={explicitRole ? props.role : 'img'}
+          aria-hidden={explicitAriaHidden ? props['aria-hidden'] : undefined}
+        />
+      )
+    }
+
+    return (
+      <Icon
+        {...props}
+        role={explicitRole ? props.role : undefined}
+        aria-hidden={explicitAriaHidden ? props['aria-hidden'] : true}
+      />
+    )
+  }
+
+  return AccessibleIcon
+}
+
+// Wrap all Simple Icons exports (decorative default)
+const SiAnilist = withIconA11y(SiAnilistRaw)
+const SiApple = withIconA11y(SiAppleRaw)
+const SiArtstation = withIconA11y(SiArtstationRaw)
+const SiBaidu = withIconA11y(SiBaiduRaw)
+const SiBandcamp = withIconA11y(SiBandcampRaw)
+const SiBehance = withIconA11y(SiBehanceRaw)
+const SiBilibili = withIconA11y(SiBilibiliRaw)
+const SiBitbucket = withIconA11y(SiBitbucketRaw)
+const SiBlogger = withIconA11y(SiBloggerRaw)
+const SiBluesky = withIconA11y(SiBlueskyRaw)
+const SiBuymeacoffee = withIconA11y(SiBuymeacoffeeRaw)
+const SiCloudflare = withIconA11y(SiCloudflareRaw)
+const SiDevdotto = withIconA11y(SiDevdottoRaw)
+const SiDeviantart = withIconA11y(SiDeviantartRaw)
+const SiDiscord = withIconA11y(SiDiscordRaw)
+const SiDouban = withIconA11y(SiDoubanRaw)
+const SiDribbble = withIconA11y(SiDribbbleRaw)
+const SiEpicgames = withIconA11y(SiEpicgamesRaw)
+const SiFacebook = withIconA11y(SiFacebookRaw)
+const SiFigma = withIconA11y(SiFigmaRaw)
+const SiFlickr = withIconA11y(SiFlickrRaw)
+const SiGithub = withIconA11y(SiGithubRaw)
+const SiGitlab = withIconA11y(SiGitlabRaw)
+const SiGoodreads = withIconA11y(SiGoodreadsRaw)
+const SiGoogle = withIconA11y(SiGoogleRaw)
+const SiGooglegemini = withIconA11y(SiGooglegeminiRaw)
+const SiHashnode = withIconA11y(SiHashnodeRaw)
+const SiHuggingface = withIconA11y(SiHuggingfaceRaw)
+const SiInstagram = withIconA11y(SiInstagramRaw)
+const SiItchdotio = withIconA11y(SiItchdotioRaw)
+const SiKaggle = withIconA11y(SiKaggleRaw)
+const SiKakaotalk = withIconA11y(SiKakaotalkRaw)
+const SiKofi = withIconA11y(SiKofiRaw)
+const SiLastdotfm = withIconA11y(SiLastdotfmRaw)
+const SiLetterboxd = withIconA11y(SiLetterboxdRaw)
+const SiLine = withIconA11y(SiLineRaw)
+const SiMaildotru = withIconA11y(SiMaildotruRaw)
+const SiMastodon = withIconA11y(SiMastodonRaw)
+const SiMedium = withIconA11y(SiMediumRaw)
+const SiMisskey = withIconA11y(SiMisskeyRaw)
+const SiMyanimelist = withIconA11y(SiMyanimelistRaw)
+const SiNaver = withIconA11y(SiNaverRaw)
+const SiNeteasecloudmusic = withIconA11y(SiNeteasecloudmusicRaw)
+const SiNiconico = withIconA11y(SiNiconicoRaw)
+const SiNotion = withIconA11y(SiNotionRaw)
+const SiOdnoklassniki = withIconA11y(SiOdnoklassnikiRaw)
+const SiOpenrouter = withIconA11y(SiOpenrouterRaw)
+const SiOrigin = withIconA11y(SiOriginRaw)
+const SiPatreon = withIconA11y(SiPatreonRaw)
+const SiPinterest = withIconA11y(SiPinterestRaw)
+const SiPixiv = withIconA11y(SiPixivRaw)
+const SiPlaystation = withIconA11y(SiPlaystationRaw)
+const SiProducthunt = withIconA11y(SiProducthuntRaw)
+const SiQq = withIconA11y(SiQqRaw)
+const SiReddit = withIconA11y(SiRedditRaw)
+const SiSinaweibo = withIconA11y(SiSinaweiboRaw)
+const SiSnapchat = withIconA11y(SiSnapchatRaw)
+const SiSoundcloud = withIconA11y(SiSoundcloudRaw)
+const SiSpotify = withIconA11y(SiSpotifyRaw)
+const SiStackoverflow = withIconA11y(SiStackoverflowRaw)
+const SiSteam = withIconA11y(SiSteamRaw)
+const SiSubstack = withIconA11y(SiSubstackRaw)
+const SiTelegram = withIconA11y(SiTelegramRaw)
+const SiThreads = withIconA11y(SiThreadsRaw)
+const SiTiktok = withIconA11y(SiTiktokRaw)
+const SiTrakt = withIconA11y(SiTraktRaw)
+const SiTumblr = withIconA11y(SiTumblrRaw)
+const SiTwitch = withIconA11y(SiTwitchRaw)
+const SiUnsplash = withIconA11y(SiUnsplashRaw)
+const SiVk = withIconA11y(SiVkRaw)
+const SiWechat = withIconA11y(SiWechatRaw)
+const SiWhatsapp = withIconA11y(SiWhatsappRaw)
+const SiWordpress = withIconA11y(SiWordpressRaw)
+const SiX = withIconA11y(SiXRaw)
+const SiXiaohongshu = withIconA11y(SiXiaohongshuRaw)
+const SiYcombinator = withIconA11y(SiYcombinatorRaw)
+const SiYoutube = withIconA11y(SiYoutubeRaw)
+const SiZhihu = withIconA11y(SiZhihuRaw)
+
+const SiCodepen = withIconA11y(FaCodepen)
 
 /**
  * OpenAI 品牌图标
  * Simple Icons 中已移除 SiOpenai（商标原因），使用官方 blossom 标志的自定义 SVG
  */
-const OpenAiIcon: IconType = ({ size, style, title, ...props }) => {
+const OpenAiIconRaw: IconType = ({ size, style, title, ...props }) => {
   const iconSize = size ?? '1em'
 
   return (
@@ -362,8 +483,6 @@ const OpenAiIcon: IconType = ({ size, style, title, ...props }) => {
       viewBox="0 0 24 24"
       width={iconSize}
       height={iconSize}
-      role={title ? 'img' : undefined}
-      aria-hidden={title ? undefined : true}
       xmlns="http://www.w3.org/2000/svg"
       fill="currentColor"
       style={{ verticalAlign: 'middle', ...style }}
@@ -375,9 +494,10 @@ const OpenAiIcon: IconType = ({ size, style, title, ...props }) => {
   )
 }
 
+const OpenAiIcon = withIconA11y(OpenAiIconRaw)
 const SiOpenai = OpenAiIcon
 
-const BangumiIcon: IconType = ({ size, style, title, ...props }) => {
+const BangumiIconRaw: IconType = ({ size, style, title, ...props }) => {
   const iconSize = size ?? '1em'
 
   return (
@@ -385,8 +505,6 @@ const BangumiIcon: IconType = ({ size, style, title, ...props }) => {
       viewBox="0 0 24 24"
       width={iconSize}
       height={iconSize}
-      role={title ? 'img' : undefined}
-      aria-hidden={title ? undefined : true}
       xmlns="http://www.w3.org/2000/svg"
       style={{ verticalAlign: 'middle', ...style }}
       {...props}
@@ -412,13 +530,14 @@ const BangumiIcon: IconType = ({ size, style, title, ...props }) => {
   )
 }
 
+const BangumiIcon = withIconA11y(BangumiIconRaw)
 const SiBangumi = BangumiIcon
 
 /**
  * QQ 音乐品牌图标
  * Simple Icons 仅有 SiQq（QQ 通讯），无 QQ 音乐；使用官方圆标 + 音符剪影的单色 currentColor 版
  */
-const QqMusicIcon: IconType = ({ size, style, title, ...props }) => {
+const QqMusicIconRaw: IconType = ({ size, style, title, ...props }) => {
   const iconSize = size ?? '1em'
 
   return (
@@ -426,8 +545,6 @@ const QqMusicIcon: IconType = ({ size, style, title, ...props }) => {
       viewBox="0 0 24 24"
       width={iconSize}
       height={iconSize}
-      role={title ? 'img' : undefined}
-      aria-hidden={title ? undefined : true}
       xmlns="http://www.w3.org/2000/svg"
       fill="currentColor"
       style={{ verticalAlign: 'middle', ...style }}
@@ -442,9 +559,10 @@ const QqMusicIcon: IconType = ({ size, style, title, ...props }) => {
   )
 }
 
+const QqMusicIcon = withIconA11y(QqMusicIconRaw)
 const SiQqmusic = QqMusicIcon
 
-const MyriadStoreIcon: IconType = ({ size, style, title, ...props }) => {
+const MyriadStoreIconRaw: IconType = ({ size, style, title, ...props }) => {
   const iconSize = size ?? '1em'
 
   return (
@@ -452,8 +570,6 @@ const MyriadStoreIcon: IconType = ({ size, style, title, ...props }) => {
       viewBox="0 0 24 24"
       width={iconSize}
       height={iconSize}
-      role={title ? 'img' : undefined}
-      aria-hidden={title ? undefined : true}
       xmlns="http://www.w3.org/2000/svg"
       style={{ verticalAlign: 'middle', ...style }}
       {...props}
@@ -487,6 +603,8 @@ const MyriadStoreIcon: IconType = ({ size, style, title, ...props }) => {
     </svg>
   )
 }
+
+const MyriadStoreIcon = withIconA11y(MyriadStoreIconRaw)
 
 // 导出 Simple Icons
 export {
@@ -842,7 +960,7 @@ export const FaXTwitter = SiX
  * Nintendo Switch 品牌图标
  * Simple Icons 已移除此图标，使用 Bootstrap Icons 的 BsNintendoSwitch 替代
  */
-export const SiNintendoswitch = BsNintendoSwitch
+export const SiNintendoswitch = withIconA11y(BsNintendoSwitch)
 
 // ============================================================
 // 图标映射表 - 用于动态查找 (getIconByName)
