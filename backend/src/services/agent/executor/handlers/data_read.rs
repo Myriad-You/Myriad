@@ -434,6 +434,36 @@ fn analyze_steam_stats(data: &Value) -> Result<Value, String> {
 // Brew 相关
 // ============================================================================
 
+/// Opt-in flag for external/web search fallback (brew.generateReadingList).
+/// Accepts allowWebSearch / useWebSearch / webSearch / allowExternal / external.
+/// Default false — local miss must not force ai.webSearch.
+fn parse_allow_web_search(params: &HashMap<String, Value>) -> bool {
+    const KEYS: &[&str] = &[
+        "allowWebSearch",
+        "useWebSearch",
+        "webSearch",
+        "allowExternal",
+        "external",
+    ];
+    for key in KEYS {
+        if let Some(v) = params.get(*key) {
+            if v.as_bool() == Some(true) {
+                return true;
+            }
+            if matches!(v.as_i64(), Some(1)) || matches!(v.as_u64(), Some(1)) {
+                return true;
+            }
+            if let Some(s) = v.as_str() {
+                let s = s.trim().to_lowercase();
+                if matches!(s.as_str(), "true" | "1" | "yes" | "on") {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 /// Parse a JSON value as optional i32 (integer, unsigned, or numeric string).
 fn parse_optional_i32(v: &Value) -> Option<i32> {
     if let Some(n) = v.as_i64() {
@@ -1455,6 +1485,9 @@ async fn execute_brew_generate_reading_list(
         .unwrap_or(10) as usize;
     let source_name_filter = params.get("sourceName").and_then(|v| v.as_str());
     let days_back = params.get("daysBack").and_then(|v| v.as_i64()).unwrap_or(7);
+    // Opt-in only: do not force ai.webSearch when local keyword miss.
+    // Cascade escalation for other capabilities is owned by myriad-149.
+    let allow_web_search = parse_allow_web_search(params);
 
     // 获取关键词过滤条件（支持多种参数名）
     let keyword = params
@@ -1479,6 +1512,7 @@ async fn execute_brew_generate_reading_list(
     tracing::info!(
         keyword = %keyword,
         criteria = %criteria,
+        allow_web_search = allow_web_search,
         "[brew.generateReadingList] Parameters parsed"
     );
 
@@ -1540,14 +1574,15 @@ async fn execute_brew_generate_reading_list(
             "[brew.generateReadingList] Keyword search results"
         );
 
-        // 🔴 关键修复：如果关键词搜索结果为空，不要补充无关文章
-        // 直接返回空，让后面的 AI 联网搜索来处理
+        // If keyword search is empty, do not pad with unrelated local articles.
+        // Web search is only attempted later when allowWebSearch is explicit.
         if keyword_items.is_empty() {
             tracing::info!(
                 keyword = %keyword,
-                "[brew.generateReadingList] No keyword matches, will trigger AI web search"
+                allow_web_search = allow_web_search,
+                "[brew.generateReadingList] No keyword matches in local brew_items"
             );
-            vec![] // 返回空，触发 AI 搜索
+            vec![]
         } else if keyword_items.len() < MIN_CANDIDATES {
             // 只有当有部分结果时才补充相关文章
             tracing::info!(
@@ -1583,16 +1618,29 @@ async fn execute_brew_generate_reading_list(
             .unwrap_or_default()
     };
 
-    // 如果数据库结果为空或不足，且有关键词，尝试 AI 联网搜索
-    if items.is_empty() || (items.len() < 3 && !keyword.is_empty()) {
-        tracing::info!(
-            keyword = %keyword,
-            db_results = items.len(),
-            "[brew.generateReadingList] Insufficient results, triggering AI web search"
-        );
+    // Local miss / thin results: only call AI web search when explicitly opted in.
+    // Default: honest empty + local suggestions (do not force ai.webSearch / Gemini).
+    let needs_more = items.is_empty() || (items.len() < 3 && !keyword.is_empty());
+    if needs_more {
+        let list_name = if !keyword.is_empty() {
+            keyword
+        } else {
+            criteria
+        };
+        let available_sources: Vec<&str> = sources
+            .iter()
+            .filter(|s| !s.name.is_empty())
+            .map(|s| s.name.as_str())
+            .take(8)
+            .collect();
 
-        // 尝试 AI 联网搜索
-        if !keyword.is_empty() || !criteria.is_empty() {
+        if allow_web_search && (!keyword.is_empty() || !criteria.is_empty()) {
+            tracing::info!(
+                keyword = %keyword,
+                db_results = items.len(),
+                "[brew.generateReadingList] allowWebSearch=true, trying AI web search"
+            );
+
             let search_query = if !keyword.is_empty() {
                 format!("{} 相关文章 新闻 资讯", keyword)
             } else {
@@ -1608,15 +1656,16 @@ async fn execute_brew_generate_reading_list(
                     return Ok(json!({
                         "readingList": web_results,
                         "totalMatched": web_results.len(),
-                        "listName": format!("网络搜索 - {}", if !keyword.is_empty() { keyword } else { criteria }),
+                        "listName": format!("网络搜索 - {}", list_name),
                         "criteria": criteria,
                         "fromWebSearch": true,
+                        "allowWebSearch": true,
                         "message": crate::services::agent::response_agent::web_search_fallback(web_results.len()),
                         "action": {
                             "type": "reading_list",
                             "payload": {
                                 "items": web_results,
-                                "name": format!("网络搜索 - {}", if !keyword.is_empty() { keyword } else { criteria }),
+                                "name": format!("网络搜索 - {}", list_name),
                                 "fromWebSearch": true
                             }
                         }
@@ -1629,40 +1678,111 @@ async fn execute_brew_generate_reading_list(
                     tracing::warn!(error = %e, "[brew.generateReadingList] AI web search failed");
                 }
             }
+
+            // Opt-in web search attempted but empty/failed
+            let mut suggestions = vec![
+                "尝试更换关键词".to_string(),
+                "放宽 daysBack 或去掉 sourceName 限制".to_string(),
+                "订阅更多相关的 RSS 源".to_string(),
+                "检查 Gemini API Key 是否已配置".to_string(),
+            ];
+            if !available_sources.is_empty() {
+                suggestions.insert(
+                    0,
+                    format!("本地已有订阅：{}", available_sources.join("、")),
+                );
+            }
+
+            return Ok(json!({
+                "readingList": [],
+                "totalMatched": 0,
+                "listName": list_name,
+                "criteria": criteria,
+                "matched": false,
+                "notFound": true,
+                "fromWebSearch": false,
+                "allowWebSearch": true,
+                "message": crate::services::agent::response_agent::no_articles_found(
+                    if keyword.is_empty() && criteria.is_empty() {
+                        "请提供搜索关键词"
+                    } else {
+                        "本地与联网搜索均未返回结果"
+                    }
+                ),
+                "suggestions": suggestions,
+                "availableSources": available_sources,
+                "action": {
+                    "type": "reading_list",
+                    "payload": {
+                        "items": [],
+                        "name": list_name
+                    }
+                }
+            }));
         }
 
-        // 如果联网搜索也失败，返回空结果，并说明原因
-        let ai_search_hint = if keyword.is_empty() && criteria.is_empty() {
-            "请提供搜索关键词"
+        // No explicit web/external request — if we still have a few local hits,
+        // continue to AI local ranking; otherwise honest empty.
+        if !items.is_empty() {
+            tracing::info!(
+                keyword = %keyword,
+                db_results = items.len(),
+                "[brew.generateReadingList] Thin local results, ranking without web search"
+            );
         } else {
-            "AI 联网搜索未返回结果，请检查 Gemini API 配置"
-        };
+            tracing::info!(
+                keyword = %keyword,
+                allow_web_search = false,
+                "[brew.generateReadingList] Local keyword empty; honest empty (no forced webSearch)"
+            );
 
-        let list_name = if !keyword.is_empty() {
-            keyword
-        } else {
-            criteria
-        };
-
-        return Ok(json!({
-            "readingList": [],
-            "totalMatched": 0,
-            "listName": list_name,
-            "criteria": criteria,
-            "message": crate::services::agent::response_agent::no_articles_found(ai_search_hint),
-            "suggestions": [
-                "检查 Gemini API Key 是否已配置",
-                "尝试更换关键词",
-                "订阅更多相关的 RSS 源"
-            ],
-            "action": {
-                "type": "reading_list",
-                "payload": {
-                    "items": [],
-                    "name": list_name
-                }
+            let searched = if !keyword.is_empty() {
+                keyword
+            } else {
+                criteria
+            };
+            let mut suggestions = vec![
+                "尝试更换或放宽关键词".to_string(),
+                "增大 daysBack 查看更早文章".to_string(),
+                "用 brew.items / brew.read 浏览本地订阅".to_string(),
+                "订阅更多相关 RSS 源后再生成列表".to_string(),
+            ];
+            if !available_sources.is_empty() {
+                suggestions.insert(
+                    0,
+                    format!("可浏览的本地订阅：{}", available_sources.join("、")),
+                );
             }
-        }));
+            if !allow_web_search {
+                suggestions.push(
+                    "如需联网补充，请显式传 allowWebSearch=true".to_string(),
+                );
+            }
+
+            return Ok(json!({
+                "readingList": [],
+                "totalMatched": 0,
+                "listName": list_name,
+                "criteria": criteria,
+                "matched": false,
+                "notFound": true,
+                "fromWebSearch": false,
+                "allowWebSearch": false,
+                "searchedFor": searched,
+                "message": crate::services::agent::response_agent::no_articles_found(
+                    &format!("本地订阅中无「{}」相关文章", searched)
+                ),
+                "suggestions": suggestions,
+                "availableSources": available_sources,
+                "action": {
+                    "type": "reading_list",
+                    "payload": {
+                        "items": [],
+                        "name": list_name
+                    }
+                }
+            }));
+        }
     }
 
     // 限制单个来源的最大数量（不超过总数的 1/2），确保多样性
@@ -5094,5 +5214,36 @@ mod brew_db_helpers_tests {
     fn extract_plain_text_strips_tags() {
         let plain = extract_plain_text("<p>Hello&nbsp;<b>world</b></p>");
         assert_eq!(plain, "Hello world");
+    }
+
+    #[test]
+    fn allow_web_search_is_opt_in_only() {
+        let empty = HashMap::new();
+        assert!(!parse_allow_web_search(&empty));
+
+        let mut params = HashMap::new();
+        params.insert("allowWebSearch".into(), json!(false));
+        assert!(!parse_allow_web_search(&params));
+
+        let mut params = HashMap::new();
+        params.insert("allowWebSearch".into(), json!(true));
+        assert!(parse_allow_web_search(&params));
+
+        let mut params = HashMap::new();
+        params.insert("useWebSearch".into(), json!("yes"));
+        assert!(parse_allow_web_search(&params));
+
+        let mut params = HashMap::new();
+        params.insert("webSearch".into(), json!(1));
+        assert!(parse_allow_web_search(&params));
+
+        let mut params = HashMap::new();
+        params.insert("external".into(), json!("on"));
+        assert!(parse_allow_web_search(&params));
+
+        // Explicit false / garbage must not enable
+        let mut params = HashMap::new();
+        params.insert("webSearch".into(), json!("no"));
+        assert!(!parse_allow_web_search(&params));
     }
 }

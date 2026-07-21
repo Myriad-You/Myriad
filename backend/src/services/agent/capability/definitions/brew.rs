@@ -278,20 +278,26 @@ pub fn register(registry: &mut CapabilityRegistry) {
         ..Default::default()
     });
 
-    // 生成阅读列表
+    // 生成阅读列表（默认仅本地 brew_items；联网需 allowWebSearch=true）
     registry.register(Capability {
         id: "brew.generateReadingList".to_string(),
         name: "生成阅读列表".to_string(),
-        description: "根据用户需求由 AI 筛选并生成符合条件的阅读列表。支持按主题、关键词、时间范围等条件筛选。".to_string(),
+        description: "根据用户需求从本地订阅筛选生成阅读列表。本地关键词无匹配时返回诚实空结果与建议，不会自动强制 ai.webSearch；仅当 allowWebSearch=true（或 useWebSearch/webSearch）时才联网补充。".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query, IntentAction::Recommend],
         input_schema: json!({
             "type": "object",
             "properties": {
                 "criteria": { "type": "string", "description": "用户的筛选条件/需求描述" },
+                "keyword": { "type": "string", "description": "本地标题/正文关键词" },
+                "topic": { "type": "string", "description": "同 keyword" },
+                "query": { "type": "string", "description": "同 keyword" },
                 "maxItems": { "type": "integer", "default": 10, "description": "列表最大文章数" },
                 "sourceName": { "type": "string", "description": "限定特定订阅源" },
-                "daysBack": { "type": "integer", "default": 7, "description": "查看最近多少天的文章" }
+                "daysBack": { "type": "integer", "default": 7, "description": "查看最近多少天的文章" },
+                "allowWebSearch": { "type": "boolean", "default": false, "description": "显式允许本地无结果时联网搜索；默认 false" },
+                "useWebSearch": { "type": "boolean", "description": "同 allowWebSearch" },
+                "webSearch": { "type": "boolean", "description": "同 allowWebSearch" }
             }
         }),
         output_schema: json!({
@@ -300,7 +306,12 @@ pub fn register(registry: &mut CapabilityRegistry) {
                 "readingList": { "type": "array" },
                 "totalMatched": { "type": "integer" },
                 "listName": { "type": "string" },
-                "criteria": { "type": "string" }
+                "criteria": { "type": "string" },
+                "fromWebSearch": { "type": "boolean" },
+                "allowWebSearch": { "type": "boolean" },
+                "notFound": { "type": "boolean" },
+                "suggestions": { "type": "array" },
+                "availableSources": { "type": "array" }
             }
         }),
         required_permissions: vec!["brew:read".to_string()],
