@@ -1320,4 +1320,14 @@ mod tests {
         assert!(!rotation_confirm_accepted(&serde_json::json!({"confirm": [true]})));
         assert!(rotation_confirm_accepted(&serde_json::json!({"confirm": true, "extra": 1})));
     }
+
+    #[test]
+    fn needs_federation_key_generation_boundary() {
+        // Single non-whitespace char is present material → no generate.
+        assert!(!needs_federation_key_generation(Some(".")));
+        assert!(!needs_federation_key_generation(Some("0")));
+        // Only whitespace → needs generation
+        assert!(needs_federation_key_generation(Some("\r\n  ")));
+        assert!(needs_federation_key_generation(None));
+    }
 }
