@@ -2,6 +2,7 @@
  * 综合报告卡片组件
  */
 
+import type { MouseEvent } from 'react'
 import type { ComprehensiveAnalysis } from './types'
 import {
   FaBrain,
@@ -18,13 +19,11 @@ import {
 } from '@lib/icons'
 
 import { motionShim as motion } from '@lib/motionShim'
-import type { MouseEvent } from 'react'
 import { memo, useCallback } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import { useLoopAnimation } from '../../hooks/animation'
 import { useAnimationLevel } from '../../hooks/useAnimationLevel'
 import {
-
   REPORT_CARD_FLEX_BASIS,
 } from './types'
 
