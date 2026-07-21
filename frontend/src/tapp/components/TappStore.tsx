@@ -1543,7 +1543,7 @@ export function TappStore({ isOpen, onClose, onInstalled }: TappStoreProps) {
           const { installFromStore } =
             await import('../services/TappApiService')
           const { isLargeTappInstall, clampInstallPercent } = await import(
-            '../utils/tappInstallProgress'
+            '../utils/tappInstallProgress',
           )
           const estimatedBytes = app.size ?? app.remoteApp.size ?? 0
           const showProgress = isLargeTappInstall(estimatedBytes)
