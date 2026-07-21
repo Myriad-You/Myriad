@@ -1911,6 +1911,81 @@ async fn federation_identity_wrapper(req: axum::extract::Request) -> Response {
     (StatusCode::OK, Json(identity)).into_response()
 }
 
+/// POST /api/federation/keys/rotate — explicit federation key rotation
+///
+/// Body: `{ "confirm": true }`. Generates a new RSA keypair, updates
+/// `federation_keys` and actor publicKey, best-effort fans out Update(Person).
+/// Does **not** change username / actor id. `ensure_user_federation_keys` never
+/// rotates live keys — only this endpoint does.
+async fn federation_keys_rotate_wrapper(req: axum::extract::Request) -> Response {
+    let claims = match req.extensions().get::<middleware::auth::Claims>().cloned() {
+        Some(c) => c,
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "Not authenticated"})),
+            )
+                .into_response()
+        }
+    };
+    let user_id: i32 = claims.sub.parse().unwrap_or(0);
+    if user_id <= 0 {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Invalid user"})),
+        )
+            .into_response();
+    }
+
+    let body_bytes = match axum::body::Bytes::from_request(req, &()).await {
+        Ok(b) => b,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Invalid body"})),
+            )
+                .into_response()
+        }
+    };
+    let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap_or(json!({}));
+    if !federation::actor::rotation_confirm_accepted(&body) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "Key rotation requires {\"confirm\": true}",
+                "hint": "This permanently replaces your federation signing key. Peers must re-fetch your actor document."
+            })),
+        )
+            .into_response();
+    }
+
+    let db_opt = DB_CONNECTION.read().await;
+    let Some(db) = db_opt.as_ref() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Database not connected"})),
+        )
+            .into_response();
+    };
+
+    match federation::actor::rotate_user_federation_keys(db, user_id, &claims.username).await {
+        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
+        Err(e) => {
+            tracing::error!(
+                user_id = user_id,
+                username = %claims.username,
+                error = %e,
+                "Federation key rotation failed"
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e})),
+            )
+                .into_response()
+        }
+    }
+}
+
 /// POST /api/federation/follow — 关注远程用户
 async fn federation_follow_wrapper(req: axum::extract::Request) -> Response {
     let claims = req.extensions().get::<middleware::auth::Claims>().cloned();
@@ -5574,6 +5649,10 @@ async fn get_federation_timeline(
 fn federation_api_router() -> Router {
     let main_router = Router::new()
         .route("/api/federation/identity", get(federation_identity_wrapper))
+        .route(
+            "/api/federation/keys/rotate",
+            post(federation_keys_rotate_wrapper),
+        )
         .route("/api/federation/follow", post(federation_follow_wrapper))
         .route("/api/federation/unfollow", post(federation_unfollow_wrapper))
         .route(

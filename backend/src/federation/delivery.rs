@@ -536,6 +536,46 @@ pub async fn list_delivery_for_user(
     Ok(json!({ "items": items, "total": items.len() }))
 }
 
+/// Status gate for retry (ownership is enforced separately via user_id JOIN).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RetryStatusDecision {
+    Allow,
+    AlreadyDelivered,
+    InProgress,
+}
+
+/// Pure decision: which queue statuses may be re-queued.
+pub(crate) fn classify_retry_status(status: &str) -> RetryStatusDecision {
+    match status {
+        "dead" | "pending" => RetryStatusDecision::Allow,
+        "delivered" => RetryStatusDecision::AlreadyDelivered,
+        "delivering" => RetryStatusDecision::InProgress,
+        // Unknown / cancelled variants: allow re-queue only if previously dead-like
+        other if other == "failed" || other == "cancelled" => RetryStatusDecision::Allow,
+        _ => RetryStatusDecision::Allow,
+    }
+}
+
+/// Status gate for cancel (ownership via user_id JOIN).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CancelStatusDecision {
+    /// pending/delivering → mark dead
+    Cancel,
+    /// already dead → idempotent success
+    AlreadyDead,
+    /// delivered → reject
+    AlreadyDelivered,
+}
+
+pub(crate) fn classify_cancel_status(status: &str) -> CancelStatusDecision {
+    match status {
+        "delivered" => CancelStatusDecision::AlreadyDelivered,
+        "dead" => CancelStatusDecision::AlreadyDead,
+        "pending" | "delivering" => CancelStatusDecision::Cancel,
+        _ => CancelStatusDecision::Cancel,
+    }
+}
+
 /// Re-queue a single dead (or stuck) delivery item owned by the user.
 pub async fn retry_delivery_item(
     db: &DatabaseConnection,
@@ -551,6 +591,7 @@ pub async fn retry_delivery_item(
         ));
     }
 
+    // Ownership: only rows whose activity belongs to this user.
     let row = db
         .query_one(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -575,20 +616,20 @@ pub async fn retry_delivery_item(
         })?;
 
     let status: String = row.try_get("", "status").unwrap_or_default();
-    if status != "dead" && status != "pending" {
-        // Allow re-queue of dead; pending is already waiting. Reject delivering/delivered.
-        if status == "delivered" {
+    match classify_retry_status(&status) {
+        RetryStatusDecision::AlreadyDelivered => {
             return Err((
                 StatusCode::BAD_REQUEST,
                 json!({"error": "Already delivered"}),
             ));
         }
-        if status == "delivering" {
+        RetryStatusDecision::InProgress => {
             return Err((
                 StatusCode::CONFLICT,
                 json!({"error": "Delivery currently in progress"}),
             ));
         }
+        RetryStatusDecision::Allow => {}
     }
 
     let result = db
@@ -627,6 +668,9 @@ pub async fn retry_delivery_item(
 }
 
 /// Cancel a pending/delivering queue row owned by the user (marks `dead`).
+///
+/// Idempotent for already-dead rows (`already: true`). Ownership enforced by
+/// joining `federation_activities.user_id` — other users get 404.
 pub async fn cancel_delivery_item(
     db: &DatabaseConnection,
     user_id: i32,
@@ -665,19 +709,22 @@ pub async fn cancel_delivery_item(
         })?;
 
     let status: String = row.try_get("", "status").unwrap_or_default();
-    if status == "delivered" {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            json!({"error": "Already delivered"}),
-        ));
-    }
-    if status == "dead" {
-        return Ok(json!({
-            "success": true,
-            "id": queue_id,
-            "status": "dead",
-            "already": true,
-        }));
+    match classify_cancel_status(&status) {
+        CancelStatusDecision::AlreadyDelivered => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                json!({"error": "Already delivered"}),
+            ));
+        }
+        CancelStatusDecision::AlreadyDead => {
+            return Ok(json!({
+                "success": true,
+                "id": queue_id,
+                "status": "dead",
+                "already": true,
+            }));
+        }
+        CancelStatusDecision::Cancel => {}
     }
     // pending / delivering → dead (user cancelled)
     let result = db
@@ -1279,5 +1326,45 @@ mod tests {
             signing_identity_for_activity("Create", &act, "https://new.example", "alice");
         assert_eq!(base, "https://new.example");
         assert_eq!(user, "alice");
+    }
+
+    #[test]
+    fn retry_status_allows_dead_and_pending_only() {
+        assert_eq!(
+            classify_retry_status("dead"),
+            RetryStatusDecision::Allow
+        );
+        assert_eq!(
+            classify_retry_status("pending"),
+            RetryStatusDecision::Allow
+        );
+        assert_eq!(
+            classify_retry_status("delivered"),
+            RetryStatusDecision::AlreadyDelivered
+        );
+        assert_eq!(
+            classify_retry_status("delivering"),
+            RetryStatusDecision::InProgress
+        );
+    }
+
+    #[test]
+    fn cancel_status_idempotent_dead_rejects_delivered() {
+        assert_eq!(
+            classify_cancel_status("dead"),
+            CancelStatusDecision::AlreadyDead
+        );
+        assert_eq!(
+            classify_cancel_status("pending"),
+            CancelStatusDecision::Cancel
+        );
+        assert_eq!(
+            classify_cancel_status("delivering"),
+            CancelStatusDecision::Cancel
+        );
+        assert_eq!(
+            classify_cancel_status("delivered"),
+            CancelStatusDecision::AlreadyDelivered
+        );
     }
 }

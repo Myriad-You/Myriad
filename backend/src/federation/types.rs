@@ -542,6 +542,38 @@ pub fn same_actor_url(left: &str, right: &str) -> bool {
     normalize_actor_url(left) == normalize_actor_url(right)
 }
 
+/// Normalize an Activity / object id for Follow Accept matching.
+///
+/// - trim whitespace
+/// - lowercase host
+/// - strip trailing slash on path
+/// - drop query string and fragment
+///
+/// Used so `https://A.example/activities/1/?x=1#frag` matches stored
+/// `https://a.example/activities/1`.
+pub fn normalize_activity_id(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if let Ok(url) = url::Url::parse(trimmed) {
+        let host = url.host_str().unwrap_or("").to_ascii_lowercase();
+        let path = url.path().trim_end_matches('/');
+        let port = url.port().map(|p| format!(":{}", p)).unwrap_or_default();
+        // Intentionally omit query + fragment for id equality.
+        return format!("{}://{}{}{}", url.scheme(), host, port, path);
+    }
+    // Non-URL ids: strip trailing slash only.
+    trimmed.trim_end_matches('/').to_string()
+}
+
+/// Compare activity ids after [`normalize_activity_id`].
+pub fn same_activity_id(left: &str, right: &str) -> bool {
+    let l = normalize_activity_id(left);
+    let r = normalize_activity_id(right);
+    !l.is_empty() && l == r
+}
+
 /// Normalize an HTTP Signature `keyId` URL: host case, trailing slash on path,
 /// **preserve fragment** (`#main-key`). Actor URL normalization drops fragments.
 pub fn normalize_key_id(raw: &str) -> String {
@@ -722,6 +754,23 @@ mod tests {
             Some(v) => std::env::set_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND", v),
             None => std::env::remove_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND"),
         }
+    }
+
+    #[test]
+    fn normalize_activity_id_strips_query_fragment_slash_and_host_case() {
+        assert_eq!(
+            normalize_activity_id("https://A.Example/activities/1/?x=1#frag"),
+            "https://a.example/activities/1"
+        );
+        assert!(same_activity_id(
+            "https://a.example/activities/1",
+            "https://A.example/activities/1/?q=1"
+        ));
+        assert!(!same_activity_id(
+            "https://a.example/activities/1",
+            "https://evil.example/activities/1"
+        ));
+        assert_eq!(normalize_activity_id("  "), "");
     }
 
     #[test]

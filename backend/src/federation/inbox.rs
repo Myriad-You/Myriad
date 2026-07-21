@@ -482,6 +482,33 @@ async fn handle_reject(
     Ok(StatusCode::ACCEPTED)
 }
 
+/// Extract the accepted object id from an Accept activity.
+///
+/// Supports:
+/// - `object`: string activity/object id
+/// - `object`: nested `{ "id", "type", ... }` (Follow / ChannelOpen / …)
+///
+/// Does not walk arbitrary nesting beyond one object level (AP Accept.object).
+pub fn extract_accept_object_id(activity: &serde_json::Value) -> String {
+    let object = &activity["object"];
+    if let Some(s) = object.as_str() {
+        return s.trim().to_string();
+    }
+    if let Some(id) = object.get("id").and_then(|v| v.as_str()) {
+        return id.trim().to_string();
+    }
+    String::new()
+}
+
+/// Nested object type for Accept routing (Channel vs Follow). Empty when object is a string id.
+fn extract_accept_object_type(activity: &serde_json::Value) -> String {
+    activity["object"]
+        .get("type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string()
+}
+
 /// 处理 Accept（我们发出的 Follow 被接受）
 ///
 /// 授权绑定：状态变更仅在 Accept 的签名 actor 正是该 Channel/Follow 的
@@ -494,18 +521,13 @@ async fn handle_accept(
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
     // 签名校验保证了 activity.actor 就是本次请求的签名者
     let accept_actor = activity["actor"].as_str().unwrap_or("");
-    // Accept 的 object 可能是 Follow 或 ChannelOpen
-    let object = &activity["object"];
-    let inner_type = object.get("type").and_then(|v| v.as_str()).unwrap_or("");
-    let follow_id = object
-        .get("id")
-        .and_then(|v| v.as_str())
-        .or_else(|| activity["object"].as_str())
-        .unwrap_or("");
+    // Accept.object: string id OR nested Follow/ChannelOpen {id,type,…}
+    let inner_type = extract_accept_object_type(activity);
+    let follow_id = extract_accept_object_id(activity);
 
     if inner_type == "myriad:ChannelOpen" || inner_type == "myriad:Channel" {
         // 远程方接受了我们的 Channel 开启请求
-        let channel_id = follow_id; // object.id 就是 channel_id
+        let channel_id = follow_id.as_str(); // object.id 就是 channel_id
         if !channel_id.is_empty() {
             // 先取 pending channel 的远程对端 URL，再在 Rust 侧用 same_actor_url 授权
             let pending = db
@@ -573,7 +595,7 @@ async fn handle_accept(
     } else {
         // Standard Follow Accept — match Follow object.id, then fallback to a single
         // pending outgoing toward Accept.actor (same_actor_url). Idempotent notify.
-        handle_follow_accept(db, local_user_id, accept_actor, follow_id, activity).await?;
+        handle_follow_accept(db, local_user_id, accept_actor, &follow_id, activity).await?;
     }
 
     Ok(StatusCode::ACCEPTED)
@@ -618,11 +640,14 @@ fn split_actor_host_user(normalized: &str) -> (String, String) {
 
 /// Resolve which outgoing Follow an Accept refers to.
 ///
-/// 1. Prefer exact `activity_id` match (trim trailing slash) where Accept.actor
-///    is the remote peer (`same_actor_url` / host+username).
-/// 2. Unique `activity_id` match even if actor URL drifted (still requires the
-///    id we generated — high entropy).
-/// 3. Fallback: exactly one pending outgoing follow to Accept.actor.
+/// Matching order (safe, no silent multi-pick):
+/// 1. Normalized `activity_id` + Accept.actor is remote peer (`same_actor_or_user`)
+/// 2. Unique normalized `activity_id` + **same host** (path/alias drift only —
+///    never cross-host username-only)
+/// 3. Exactly one **pending** outgoing to Accept.actor via `same_actor_or_user`
+///
+/// Already-`accepted` rows only yield idempotent success when matched by id
+/// (or unique id+host). Ambiguous multi-pending → no match.
 ///
 /// Returns `(activity_id, remote_actor_url, already_accepted)`.
 pub fn resolve_follow_accept_target(
@@ -630,13 +655,11 @@ pub fn resolve_follow_accept_target(
     accept_actor: &str,
     candidates: &[(String, String, String)], // activity_id, remote_actor_url, status
 ) -> Option<(String, String, bool)> {
-    let follow_norm = follow_id.trim().trim_end_matches('/');
+    let follow_norm = normalize_activity_id(follow_id);
     if !follow_norm.is_empty() {
-        // Prefer actor-authorized id match
+        // Prefer actor-authorized id match (host+user or same_actor_url)
         for (aid, remote, status) in candidates {
-            if aid.trim().trim_end_matches('/') == follow_norm
-                && same_actor_or_user(accept_actor, remote)
-            {
+            if same_activity_id(aid, &follow_norm) && same_actor_or_user(accept_actor, remote) {
                 return Some((aid.clone(), remote.clone(), status == "accepted"));
             }
         }
@@ -644,12 +667,11 @@ pub fn resolve_follow_accept_target(
         let id_hits: Vec<_> = candidates
             .iter()
             .filter(|(aid, remote, _)| {
-                aid.trim().trim_end_matches('/') == follow_norm
-                    && {
-                        let (ah, _) = split_actor_host_user(&normalize_actor_url(accept_actor));
-                        let (rh, _) = split_actor_host_user(&normalize_actor_url(remote));
-                        !ah.is_empty() && ah == rh
-                    }
+                same_activity_id(aid, &follow_norm) && {
+                    let (ah, _) = split_actor_host_user(&normalize_actor_url(accept_actor));
+                    let (rh, _) = split_actor_host_user(&normalize_actor_url(remote));
+                    !ah.is_empty() && ah == rh
+                }
             })
             .collect();
         if id_hits.len() == 1 {
@@ -663,8 +685,18 @@ pub fn resolve_follow_accept_target(
             );
             return Some((aid.clone(), remote.clone(), status == "accepted"));
         }
+        if id_hits.len() > 1 {
+            tracing::warn!(
+                follow_id = follow_id,
+                accept_actor = accept_actor,
+                hits = id_hits.len(),
+                "Follow Accept ambiguous: multiple activity_id matches on same host"
+            );
+        }
     }
 
+    // Fallback: only pending + same_actor_or_user (same host+user). Never
+    // username-only across hosts (same_actor_or_user enforces host).
     let pending_to_actor: Vec<_> = candidates
         .iter()
         .filter(|(_, remote, status)| {
@@ -708,7 +740,11 @@ async fn handle_follow_accept(
         return Ok(());
     }
 
-    // Load outgoing follows that could match: pending, or exact activity_id.
+    // Candidate window (not full-table scan):
+    // - all pending outgoing for this user (usually few)
+    // - accepted rows matching activity_id variants (idempotent re-Accept)
+    // - recent accepted (last 40) so normalized id compare can still hit after
+    //   query/host-case drift without scanning all history
     let rows = db
         .query_all(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -716,9 +752,27 @@ async fn handle_follow_accept(
                FROM federation_follows f
                JOIN federation_remote_actors ra ON f.remote_actor_id = ra.id
                WHERE f.user_id = $1 AND f.direction = 'outgoing'
-                 AND (f.status = 'pending'
-                      OR ($2 <> '' AND f.activity_id = $2)
-                      OR ($2 <> '' AND rtrim(f.activity_id, '/') = rtrim($2::text, '/')))"#,
+                 AND (
+                   f.status = 'pending'
+                   OR (
+                     f.status = 'accepted'
+                     AND (
+                       ($2 <> '' AND f.activity_id = $2)
+                       OR ($2 <> '' AND rtrim(f.activity_id, '/') = rtrim($2::text, '/'))
+                       OR ($2 <> '' AND lower(f.activity_id) = lower($2))
+                       OR ($2 <> '' AND rtrim(split_part(split_part(f.activity_id, '?', 1), '#', 1), '/')
+                           = rtrim(split_part(split_part($2::text, '?', 1), '#', 1), '/'))
+                       OR f.id IN (
+                         SELECT f2.id FROM federation_follows f2
+                         WHERE f2.user_id = $1 AND f2.direction = 'outgoing'
+                           AND f2.status = 'accepted'
+                         ORDER BY COALESCE(f2.accepted_at, f2.created_at) DESC NULLS LAST
+                         LIMIT 40
+                       )
+                     )
+                   )
+                 )
+               LIMIT 120"#,
             [local_user_id.into(), follow_id.into()],
         ))
         .await
@@ -1629,5 +1683,127 @@ mod tests {
         // bob.extra is not under /users/ only as single segment — actually path is /users/bob.extra
         // which is a different username; same_actor_or_user fails; host matches so unique id works.
         assert!(got.is_some());
+    }
+
+    #[test]
+    fn accept_matches_nested_follow_object_id() {
+        let activity = serde_json::json!({
+            "type": "Accept",
+            "actor": "https://b.example/users/bob",
+            "object": {
+                "type": "Follow",
+                "id": "https://a.example/activities/1",
+                "actor": "https://a.example/users/alice",
+                "object": "https://b.example/users/bob"
+            }
+        });
+        assert_eq!(
+            extract_accept_object_id(&activity),
+            "https://a.example/activities/1"
+        );
+        assert_eq!(extract_accept_object_type(&activity), "Follow");
+        let candidates = vec![(
+            "https://a.example/activities/1".into(),
+            "https://b.example/users/bob".into(),
+            "pending".into(),
+        )];
+        let follow_id = extract_accept_object_id(&activity);
+        let got = resolve_follow_accept_target(
+            &follow_id,
+            activity["actor"].as_str().unwrap(),
+            &candidates,
+        );
+        assert!(got.is_some());
+    }
+
+    #[test]
+    fn accept_matches_string_object_with_query_and_fragment() {
+        let candidates = vec![(
+            "https://a.example/activities/1".into(),
+            "https://b.example/users/bob".into(),
+            "pending".into(),
+        )];
+        let got = resolve_follow_accept_target(
+            "https://A.example/activities/1/?utm=1#section",
+            "https://b.example/users/bob",
+            &candidates,
+        );
+        assert!(got.is_some());
+    }
+
+    #[test]
+    fn accept_idempotent_already_accepted_with_query_drift() {
+        let candidates = vec![(
+            "https://a.example/activities/1".into(),
+            "https://b.example/users/bob".into(),
+            "accepted".into(),
+        )];
+        let got = resolve_follow_accept_target(
+            "https://a.example/activities/1?retry=1",
+            "https://b.example/users/bob",
+            &candidates,
+        );
+        assert_eq!(got.map(|(_, _, already)| already), Some(true));
+    }
+
+    #[test]
+    fn accept_ambiguous_id_hits_on_same_host_no_silent_pick() {
+        let candidates = vec![
+            (
+                "https://a.example/activities/1".into(),
+                "https://b.example/users/bob".into(),
+                "pending".into(),
+            ),
+            (
+                "https://a.example/activities/1/?x=1".into(), // normalizes to same id
+                "https://b.example/users/carol".into(),
+                "pending".into(),
+            ),
+        ];
+        // Accept.actor matches neither path uniquely for actor-auth; unique id+host
+        // would hit both on b.example → must not silent-pick.
+        let got = resolve_follow_accept_target(
+            "https://a.example/activities/1",
+            "https://b.example/users/other",
+            &candidates,
+        );
+        assert!(got.is_none());
+    }
+
+    #[test]
+    fn accept_rejects_evil_host_same_username() {
+        // Cross-host username-only must never match.
+        let candidates = vec![(
+            "https://a.example/activities/1".into(),
+            "https://b.example/users/bob".into(),
+            "pending".into(),
+        )];
+        let got = resolve_follow_accept_target(
+            "https://a.example/activities/1",
+            "https://evil.example/users/bob",
+            &candidates,
+        );
+        assert!(got.is_none());
+        // Fallback with wrong host id also fails
+        let got2 = resolve_follow_accept_target(
+            "https://unknown/activities/z",
+            "https://evil.example/users/bob",
+            &candidates,
+        );
+        assert!(got2.is_none());
+    }
+
+    #[test]
+    fn extract_accept_object_id_from_string() {
+        let activity = serde_json::json!({
+            "type": "Accept",
+            "actor": "https://b.example/users/bob",
+            "object": "https://a.example/activities/9"
+        });
+        assert_eq!(
+            extract_accept_object_id(&activity),
+            "https://a.example/activities/9"
+        );
+        assert_eq!(extract_accept_object_type(&activity), "");
     }
 }
