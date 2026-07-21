@@ -1,16 +1,23 @@
-import { describe, expect, it } from 'vitest'
-import { isImeComposing } from './ime'
+/**
+ *   pnpm exec tsx --test src/utils/ime.test.ts
+ */
+/* eslint-disable test/no-import-node-test -- node:test */
+
+import assert from 'node:assert/strict'
+import { describe, it } from 'node:test'
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { isImeComposing } from './ime.ts'
 
 function makeReactKeyEvent(partial: {
   isComposing?: boolean
   keyCode?: number
-}): React.KeyboardEvent {
+}): ReactKeyboardEvent {
   return {
     nativeEvent: {
       isComposing: partial.isComposing ?? false,
       keyCode: partial.keyCode ?? 13,
     },
-  } as React.KeyboardEvent
+  } as ReactKeyboardEvent
 }
 
 function makeNativeKeyEvent(partial: {
@@ -25,17 +32,17 @@ function makeNativeKeyEvent(partial: {
 
 describe('isImeComposing', () => {
   it('returns false for normal Enter', () => {
-    expect(isImeComposing(makeReactKeyEvent({}))).toBe(false)
-    expect(isImeComposing(makeNativeKeyEvent({}))).toBe(false)
+    assert.equal(isImeComposing(makeReactKeyEvent({})), false)
+    assert.equal(isImeComposing(makeNativeKeyEvent({})), false)
   })
 
   it('returns true when isComposing is set', () => {
-    expect(isImeComposing(makeReactKeyEvent({ isComposing: true }))).toBe(true)
-    expect(isImeComposing(makeNativeKeyEvent({ isComposing: true }))).toBe(true)
+    assert.equal(isImeComposing(makeReactKeyEvent({ isComposing: true })), true)
+    assert.equal(isImeComposing(makeNativeKeyEvent({ isComposing: true })), true)
   })
 
   it('returns true for legacy keyCode 229', () => {
-    expect(isImeComposing(makeReactKeyEvent({ keyCode: 229 }))).toBe(true)
-    expect(isImeComposing(makeNativeKeyEvent({ keyCode: 229 }))).toBe(true)
+    assert.equal(isImeComposing(makeReactKeyEvent({ keyCode: 229 })), true)
+    assert.equal(isImeComposing(makeNativeKeyEvent({ keyCode: 229 })), true)
   })
 })
