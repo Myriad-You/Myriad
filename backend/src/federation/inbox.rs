@@ -217,46 +217,8 @@ pub async fn post_shared_inbox(
             "Follow" | "Accept" | "Undo" | "Delete" | "Update" | "Like"
         )
     {
-        // Prefer first local user in `to` / `cc`, else first local user (single-tenant)
-        let mut target_user_id: Option<i32> = None;
-        for key in ["to", "cc"] {
-            if let Some(arr) = activity.get(key).and_then(|v| v.as_array()) {
-                for t in arr {
-                    if let Some(url) = t.as_str() {
-                        if let Some(uname) = url.rsplit('/').next() {
-                            if let Ok(Some(row)) = db
-                                .query_one(Statement::from_sql_and_values(
-                                    DatabaseBackend::Postgres,
-                                    "SELECT id FROM users WHERE username = $1",
-                                    [uname.into()],
-                                ))
-                                .await
-                            {
-                                target_user_id = row.try_get::<i32>("", "id").ok();
-                                if target_user_id.is_some() {
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            if target_user_id.is_some() {
-                break;
-            }
-        }
-        if target_user_id.is_none() {
-            if let Ok(Some(row)) = db
-                .query_one(Statement::from_sql_and_values(
-                    DatabaseBackend::Postgres,
-                    "SELECT id FROM users ORDER BY id LIMIT 1",
-                    [],
-                ))
-                .await
-            {
-                target_user_id = row.try_get::<i32>("", "id").ok();
-            }
-        }
+        let target_user_id =
+            resolve_shared_inbox_local_user(&db, &activity_type, &activity).await;
         if let Some(uid) = target_user_id {
             if activity_type.starts_with("myriad:") {
                 return handle_mfp_activity(&db, &actor_url_str, &activity_type, &activity).await;
@@ -275,6 +237,120 @@ pub async fn post_shared_inbox(
     }
 
     Ok(StatusCode::ACCEPTED)
+}
+
+/// Resolve which local user a shared-inbox activity targets.
+///
+/// Order:
+/// 1. Local usernames in `to` / `cc` (string or first array element; also arrays)
+/// 2. For **Accept**: owner of the outgoing Follow cited by object id (never guess)
+/// 3. Single local user instance fallback only when not Accept (avoids wrong-user
+///    Accept on multi-user hosts)
+async fn resolve_shared_inbox_local_user(
+    db: &DatabaseConnection,
+    activity_type: &str,
+    activity: &serde_json::Value,
+) -> Option<i32> {
+    // 1) to / cc — support string or array (AP allows both)
+    for key in ["to", "cc"] {
+        let Some(val) = activity.get(key) else {
+            continue;
+        };
+        let urls: Vec<&str> = if let Some(s) = val.as_str() {
+            vec![s]
+        } else if let Some(arr) = val.as_array() {
+            arr.iter().filter_map(|v| v.as_str()).collect()
+        } else {
+            continue;
+        };
+        for url in urls {
+            if let Some(uid) = local_user_id_from_actorish_url(db, url).await {
+                return Some(uid);
+            }
+        }
+    }
+
+    // 2) Accept: bind to the local user who owns the outgoing Follow activity_id
+    if activity_type == "Accept" {
+        let follow_id = extract_accept_object_id(activity);
+        if !follow_id.is_empty() {
+            if let Ok(Some(row)) = db
+                .query_one(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    r#"SELECT f.user_id
+                       FROM federation_follows f
+                       WHERE f.direction = 'outgoing'
+                         AND (
+                           f.activity_id = $1
+                           OR rtrim(f.activity_id, '/') = rtrim($1::text, '/')
+                           OR lower(f.activity_id) = lower($1)
+                           OR rtrim(split_part(split_part(f.activity_id, '?', 1), '#', 1), '/')
+                              = rtrim(split_part(split_part($1::text, '?', 1), '#', 1), '/')
+                         )
+                       ORDER BY CASE WHEN f.status = 'pending' THEN 0 ELSE 1 END
+                       LIMIT 1"#,
+                    [follow_id.into()],
+                ))
+                .await
+            {
+                if let Ok(uid) = row.try_get::<i32>("", "user_id") {
+                    if uid > 0 {
+                        return Some(uid);
+                    }
+                }
+            }
+        }
+        // No unambiguous Follow owner — do not fall through to first user.
+        return None;
+    }
+
+    // 3) Single-tenant convenience fallback (not for Accept)
+    if let Ok(Some(row)) = db
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT id FROM users ORDER BY id LIMIT 1",
+            [],
+        ))
+        .await
+    {
+        return row.try_get::<i32>("", "id").ok();
+    }
+    None
+}
+
+/// Best-effort: last path segment as username if that local user exists.
+async fn local_user_id_from_actorish_url(db: &DatabaseConnection, url: &str) -> Option<i32> {
+    let uname = url
+        .trim()
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .filter(|s| !s.is_empty() && *s != "users" && !s.contains('@'))?;
+    // Prefer /users/{name} exact form when base is known
+    let base = get_base_url().await;
+    if let Some(local) = local_username_from_actor_url(&base, url) {
+        if let Ok(Some(row)) = db
+            .query_one(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "SELECT id FROM users WHERE username = $1",
+                [local.into()],
+            ))
+            .await
+        {
+            return row.try_get::<i32>("", "id").ok();
+        }
+    }
+    if let Ok(Some(row)) = db
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT id FROM users WHERE username = $1",
+            [uname.into()],
+        ))
+        .await
+    {
+        return row.try_get::<i32>("", "id").ok();
+    }
+    None
 }
 
 // ==================== Activity 处理器 ====================
@@ -545,7 +621,8 @@ async fn handle_accept(
             let authorized = pending
                 .as_ref()
                 .and_then(|row| row.try_get::<String>("", "actor_url").ok())
-                .map(|remote_url| same_actor_url(accept_actor, &remote_url))
+                // Align with Follow Accept: host+username case / path form drift.
+                .map(|remote_url| same_actor_or_user(accept_actor, &remote_url))
                 .unwrap_or(false);
 
             if authorized {

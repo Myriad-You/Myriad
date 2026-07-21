@@ -129,11 +129,13 @@ pub async fn get_actor(
         }
     };
 
-    // Prefer stored key_id (domain-move **G** retargets host; same PEM). Mid-cutover
-    // the process may still listen on the old BASE_URL — publicKey.id must still
-    // match outbound Signature keyId (delivery uses stored key_id). Only recompute
-    // when the column is empty.
-    let kid = if !stored_kid.trim().is_empty() {
+    // Prefer stored key_id when it belongs under the **serve base** (domain-move
+    // **G** retargets host; same PEM). When Host resolves to the old base after
+    // G, stored kid is already the new host — rewrite to `key_id(serve_base, …)`
+    // so Move signatures (old origin) verify against the old actor document.
+    // Matches `move_actor::local_actor_document_for_base`. Empty column → recompute.
+    let serve = base_url.trim_end_matches('/');
+    let kid = if !stored_kid.trim().is_empty() && stored_kid.contains(serve) {
         stored_kid
     } else {
         key_id(&base_url, &username)
