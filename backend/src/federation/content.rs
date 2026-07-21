@@ -2148,4 +2148,13 @@ mod tests {
             None
         );
     }
+
+    #[test]
+    fn w175_classify_media_mime_rejects_unknown() {
+        assert_eq!(classify_media_mime("application/pdf"), None);
+        assert_eq!(classify_media_mime("text/html"), None);
+        assert_eq!(classify_media_mime("image/jpeg"), Some("Image"));
+        assert_eq!(classify_media_mime("video/webm"), Some("Video"));
+
+    }
 }
