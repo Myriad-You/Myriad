@@ -1310,4 +1310,14 @@ mod tests {
         assert!(!rotation_confirm_accepted(&serde_json::json!({"confirm": "yes"})));
         assert!(rotation_confirm_accepted(&serde_json::json!({"confirm": true})));
     }
+
+    #[test]
+    fn rotation_confirm_accepted_only_true_bool() {
+        assert!(!rotation_confirm_accepted(&serde_json::json!({"confirm": null})));
+        assert!(!rotation_confirm_accepted(&serde_json::json!({"confirm": 1})));
+        assert!(!rotation_confirm_accepted(&serde_json::json!({"confirm": "true"})));
+        assert!(!rotation_confirm_accepted(&serde_json::json!({"Confirm": true})));
+        assert!(!rotation_confirm_accepted(&serde_json::json!({"confirm": [true]})));
+        assert!(rotation_confirm_accepted(&serde_json::json!({"confirm": true, "extra": 1})));
+    }
 }
