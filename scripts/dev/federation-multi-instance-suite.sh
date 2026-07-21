@@ -260,27 +260,25 @@ assert_no_dead_fail() {
 wait_delivery_side() {
   # wait until side a|b has delivered_count >= min and pending==0 (or timeout)
   #
-  # IMPORTANT: only fail on *non-cancelled* dead rows. User cancel paths set
-  # error_message to 'cancelled: by user' (or cancelled:*) and must not kill
-  # unrelated cases that call wait_delivery_side (root cause of 24/25 flake:
-  # "delivery dead on a: cancelled: by user").
+  # Dead rows whose error_message starts with "cancelled:" are intentional user
+  # cancels — ignore them so cancel-during-backoff / cancel-pending cases do not
+  # poison unrelated waiters (cherry-pick efb8b71; hardened d167b1b3 helpers).
+  # Root cause of 24/25 flake: "delivery dead on a: cancelled: by user".
   local side="$1" min_delivered="${2:-1}" max_pending="${3:-0}" tries="${4:-40}"
-  local i d p dead dead_fail
+  local i d p dead
   for i in $(seq 1 "$tries"); do
     nudge_delivery "$side"
     if [[ "$side" == "a" ]]; then
       d=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='delivered';" || echo 0)
       p=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status IN ('pending','delivering');" || echo 0)
-      dead=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='dead';" || echo 0)
     else
       d=$(sql_b "SELECT count(*)::int FROM federation_delivery_queue WHERE status='delivered';" || echo 0)
       p=$(sql_b "SELECT count(*)::int FROM federation_delivery_queue WHERE status IN ('pending','delivering');" || echo 0)
-      dead=$(sql_b "SELECT count(*)::int FROM federation_delivery_queue WHERE status='dead';" || echo 0)
     fi
-    # dead_fail excludes cancelled:% — do NOT use raw `dead` for die()
-    dead_fail=$(dead_fail_count "$side")
-    echo "  wait_${side} t=$i delivered=$d pending=$p dead=$dead dead_fail=$dead_fail"
-    if [[ "${dead_fail:-0}" -ge 1 ]]; then
+    # Exclude cancelled:% (ILIKE via dead_fail_count — do NOT die on raw dead)
+    dead=$(dead_fail_count "$side")
+    echo "  wait_${side} t=$i delivered=$d pending=$p dead=$dead"
+    if [[ "${dead:-0}" -ge 1 ]]; then
       die "delivery dead on $side: $(dead_fail_error "$side")"
     fi
     if [[ "${d:-0}" -ge "$min_delivered" && "${p:-0}" -le "$max_pending" ]]; then
