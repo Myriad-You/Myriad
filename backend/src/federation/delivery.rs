@@ -791,10 +791,57 @@ pub async fn cancel_delivery_item(
         })?;
 
     if result.rows_affected() == 0 {
-        return Err((
-            StatusCode::CONFLICT,
-            json!({"error": "Could not cancel delivery (status changed)"}),
-        ));
+        // Race: worker may have finished (delivered/dead) between SELECT and UPDATE.
+        // Re-read so we never leave the client with a bare 409 when cancel "won"
+        // as a terminal dead row (including non-cancelled permanent fail).
+        let again = db
+            .query_one(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                r#"SELECT dq.status, dq.error_message
+                   FROM federation_delivery_queue dq
+                   JOIN federation_activities a ON a.id = dq.activity_id
+                   WHERE dq.id = $1 AND a.user_id = $2"#,
+                [queue_id.into(), user_id.into()],
+            ))
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    json!({"error": format!("DB error: {e}")}),
+                )
+            })?;
+        let Some(again) = again else {
+            return Err((
+                StatusCode::NOT_FOUND,
+                json!({"error": "Delivery item not found"}),
+            ));
+        };
+        let st: String = again.try_get("", "status").unwrap_or_default();
+        let err_msg: Option<String> = again.try_get("", "error_message").ok().flatten();
+        match st.as_str() {
+            "dead" => {
+                return Ok(json!({
+                    "success": true,
+                    "id": queue_id,
+                    "status": "dead",
+                    "already": true,
+                    "user_cancelled": is_user_cancelled_delivery_error(err_msg.as_deref()),
+                    "previous_status": status,
+                }));
+            }
+            "delivered" => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    json!({"error": "Already delivered"}),
+                ));
+            }
+            _ => {
+                return Err((
+                    StatusCode::CONFLICT,
+                    json!({"error": "Could not cancel delivery (status changed)", "status": st}),
+                ));
+            }
+        }
     }
 
     Ok(json!({
@@ -1469,6 +1516,25 @@ mod tests {
         // Substring alone must not match (real peer errors mentioning cancel).
         assert!(!is_user_cancelled_delivery_error(Some(
             "remote said: cancelled by policy"
+        )));
+    }
+
+    #[test]
+    fn cancel_race_terminal_dead_is_success_not_conflict() {
+        // When cancel UPDATE races the worker and rows_affected==0, re-read:
+        // dead → already success; delivered → reject. Suite wait_delivery_side
+        // only fails on non-cancelled dead (cancelled: by user is ignored).
+        assert_eq!(
+            classify_cancel_status("dead"),
+            CancelStatusDecision::AlreadyDead
+        );
+        assert_eq!(
+            classify_cancel_status("delivered"),
+            CancelStatusDecision::AlreadyDelivered
+        );
+        assert!(is_user_cancelled_delivery_error(Some("cancelled: by user")));
+        assert!(!is_user_cancelled_delivery_error(Some(
+            "Request failed: connection refused"
         )));
     }
 }
