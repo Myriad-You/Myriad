@@ -633,6 +633,10 @@ pub fn db_err(e: sea_orm::DbErr) -> (axum::http::StatusCode, axum::Json<serde_js
 /// SSRF 防护：检查 URL 是否指向内网/保留地址
 ///
 /// 阻止联邦模块请求 127.x / 10.x / 172.16-31.x / 192.168.x / [::1] / 169.254.x 等
+///
+/// When `MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND=1`, loopback/private targets are
+/// allowed after scheme validation so local dual-instance federation labs work.
+/// Production must leave that env unset.
 pub fn is_internal_url(url_str: &str) -> bool {
     let parsed = match url::Url::parse(url_str) {
         Ok(u) => u,
@@ -648,6 +652,11 @@ pub fn is_internal_url(url_str: &str) -> bool {
         Some(h) => h,
         None => return true,
     };
+
+    // Local dual-instance lab: after http(s) + host present, do not treat private as blocked.
+    if crate::services::outbound_security::federation_lab_private_outbound_enabled() {
+        return false;
+    }
 
     // 检查 IP 地址
     if let Ok(ip) = host.parse::<std::net::IpAddr>() {
@@ -692,6 +701,28 @@ pub const AP_PUBLIC: &str = "https://www.w3.org/ns/activitystreams#Public";
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn is_internal_url_lab_flag_toggles_private_hosts() {
+        // Serialize env mutation against other lab-flag tests in this crate.
+        let _guard = crate::services::outbound_security::tests_lab_env_lock();
+        let prev = std::env::var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND").ok();
+        std::env::remove_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND");
+        assert!(is_internal_url("http://127.0.0.1:18080/users/a"));
+        assert!(is_internal_url("http://localhost:18081/inbox"));
+        assert!(is_internal_url("http://10.0.0.5/inbox"));
+        assert!(!is_internal_url("https://example.com/users/a"));
+
+        std::env::set_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND", "1");
+        assert!(!is_internal_url("http://127.0.0.1:18081/users/bob/inbox"));
+        // Still reject non-http
+        assert!(is_internal_url("ftp://127.0.0.1/x"));
+        assert!(is_internal_url("not-a-url"));
+        match prev {
+            Some(v) => std::env::set_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND", v),
+            None => std::env::remove_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND"),
+        }
+    }
 
     #[test]
     fn normalize_actor_url_host_case_and_trailing_slash() {

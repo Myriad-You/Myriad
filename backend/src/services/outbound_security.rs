@@ -42,6 +42,21 @@ pub fn is_public_ip(ip: IpAddr) -> bool {
     }
 }
 
+/// Local dual-instance federation lab only.
+///
+/// When `MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND=1` (or `true`/`yes`), outbound
+/// HTTP may target loopback/private addresses so two real backends on one machine
+/// can federate over HTTP. **Never enable in production.**
+pub fn federation_lab_private_outbound_enabled() -> bool {
+    match std::env::var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND") {
+        Ok(v) => matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        ),
+        Err(_) => false,
+    }
+}
+
 pub fn validate_outbound_header(name: &reqwest::header::HeaderName) -> Result<(), String> {
     if matches!(
         name.as_str(),
@@ -98,11 +113,13 @@ pub async fn build_public_http_client(
     if addresses.is_empty() {
         return Err("DNS resolution returned no addresses".to_string());
     }
-    if let Some(blocked) = addresses.iter().find(|address| !is_public_ip(address.ip())) {
-        return Err(format!(
-            "Target resolves to a non-public address: {}",
-            blocked.ip()
-        ));
+    if !federation_lab_private_outbound_enabled() {
+        if let Some(blocked) = addresses.iter().find(|address| !is_public_ip(address.ip())) {
+            return Err(format!(
+                "Target resolves to a non-public address: {}",
+                blocked.ip()
+            ));
+        }
     }
 
     let mut builder: ClientBuilder = Client::builder()
@@ -144,6 +161,16 @@ pub async fn read_limited_body(
     Ok(body)
 }
 
+/// Test-only lock so concurrent tests do not race on
+/// `MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND`.
+#[cfg(test)]
+pub fn tests_lab_env_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -173,6 +200,8 @@ mod tests {
 
     #[tokio::test]
     async fn refuses_literal_internal_targets() {
+        let _guard = tests_lab_env_lock();
+        std::env::remove_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND");
         let result = build_public_http_client(
             "http://169.254.169.254/latest/meta-data/",
             Duration::from_secs(1),
@@ -180,6 +209,38 @@ mod tests {
         )
         .await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn lab_flag_allows_loopback_http_client() {
+        let _guard = tests_lab_env_lock();
+        std::env::set_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND", "1");
+        let result = build_public_http_client(
+            "http://127.0.0.1:18080/inbox",
+            Duration::from_secs(1),
+            None,
+        )
+        .await;
+        std::env::remove_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND");
+        assert!(
+            result.is_ok(),
+            "lab private outbound should allow loopback: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn lab_flag_env_parsing() {
+        let _guard = tests_lab_env_lock();
+        std::env::remove_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND");
+        assert!(!federation_lab_private_outbound_enabled());
+        std::env::set_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND", "1");
+        assert!(federation_lab_private_outbound_enabled());
+        std::env::set_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND", "true");
+        assert!(federation_lab_private_outbound_enabled());
+        std::env::set_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND", "0");
+        assert!(!federation_lab_private_outbound_enabled());
+        std::env::remove_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND");
     }
 
     #[test]

@@ -418,7 +418,7 @@ async fn handle_follow(
     }
 
     // 自动发送 Accept（Myriad 个人实例默认自动接受）
-    let base_url = get_base_url();
+    let base_url = get_base_url().await;
     let local_username = get_username_by_id(db, local_user_id).await?;
     let local_actor_url = actor_url(&base_url, &local_username);
 
@@ -1165,7 +1165,7 @@ async fn enqueue_delivery(
     // 序列化完整 Activity（含 @context/type/id/actor/object），供 delivery.rs 直接发送
     let activity_json = serde_json::to_value(activity).unwrap_or_default();
     let domain = extract_domain(target_inbox).unwrap_or_default();
-    let base_url = get_base_url();
+    let base_url = get_base_url().await;
 
     // 存 Activity 记录
     let act_row = db
@@ -1293,14 +1293,10 @@ pub async fn deliver_activity_locally(
 
 // ==================== 辅助函数 ====================
 
-fn get_base_url() -> String {
-    let config = crate::GLOBAL_CONFIG.blocking_read();
-    let base_url = config
-        .base_url
-        .clone()
-        .or_else(|| config.frontend_url.clone())
-        .unwrap_or_else(|| format!("http://{}:{}", config.server_host, config.server_port));
-    base_url.trim_end_matches('/').to_string()
+/// Prefer shared async helper — never `blocking_read` inside the tokio runtime
+/// (panics with "Cannot block the current thread from within a runtime").
+async fn get_base_url() -> String {
+    crate::federation::types::get_base_url().await
 }
 
 async fn get_db() -> Result<DatabaseConnection, String> {
