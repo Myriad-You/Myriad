@@ -20,6 +20,10 @@
 import type { TappInstance, TappMessage } from '../types'
 import type { TappBridge } from './TappBridge'
 import { federationApi } from '../../services/federationApi'
+import {
+  xShareApi,
+  type ComposeXShareRequest,
+} from '../../services/xShareApi'
 import { getFederationFeed } from '../services/TappApiService'
 import {
   federationMediaUrlRejectionReason,
@@ -433,6 +437,83 @@ export function registerFederationHandlers(
       }
     }
   })
+
+  // ==================== External share intent (X Web Intent only) ====================
+  // Compose share text + intent_url. Never posts server-side; user opens intent_url.
+
+  bridge.registerHandler('federation.getExternalShareStatus', async () => {
+    try {
+      const data = await xShareApi.getStatus()
+      return { success: true, data }
+    } catch (error) {
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Failed to get external share status',
+      }
+    }
+  })
+
+  bridge.registerHandler(
+    'federation.composeExternalShare',
+    async (message: TappMessage) => {
+      const [req] = (message.payload as { args: unknown[] }).args || []
+      if (!req || typeof req !== 'object') {
+        return {
+          success: false,
+          error: 'Share request object is required (text/title/summary/url)',
+        }
+      }
+      const body = req as ComposeXShareRequest
+      const hasText =
+        typeof body.text === 'string' && body.text.trim().length > 0
+      const hasTitle =
+        typeof body.title === 'string' && body.title.trim().length > 0
+      const hasSummary =
+        typeof body.summary === 'string' && body.summary.trim().length > 0
+      if (!hasText && !hasTitle && !hasSummary) {
+        return {
+          success: false,
+          error: 'Provide text, or title/summary, for external share compose',
+        }
+      }
+      try {
+        const data = await xShareApi.compose({
+          text: body.text,
+          title: body.title,
+          summary: body.summary,
+          url: body.url,
+          hashtags: Array.isArray(body.hashtags) ? body.hashtags : undefined,
+          max_length:
+            typeof body.max_length === 'number' ? body.max_length : undefined,
+        })
+        // Explicitly refuse post mode if backend ever changes (defense in depth).
+        if (data && (data as { can_post?: boolean }).can_post === true) {
+          return {
+            success: false,
+            error: 'Server-side external post is not supported',
+          }
+        }
+        if (!data?.intent_url || data.mode !== 'intent') {
+          return {
+            success: false,
+            error: 'Host did not return an intent URL',
+          }
+        }
+        return { success: true, data }
+      } catch (error) {
+        return {
+          success: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : 'Failed to compose external share',
+        }
+      }
+    },
+  )
 
   bridge.registerHandler(
     'federation.uploadMedia',
