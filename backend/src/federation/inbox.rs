@@ -2272,4 +2272,43 @@ mod tests {
         );
         assert_eq!(got.map(|(_, remote, already)| (remote, already)), Some(("https://b.example/users/bob".into(), true)));
     }
+
+
+    #[test]
+    fn resolve_follow_accept_prefers_actor_auth_over_host_only() {
+        // Two remotes same host different users; id matches bob only.
+        let candidates = vec![
+            (
+                "https://a.example/activities/1".into(),
+                "https://b.example/users/bob".into(),
+                "pending".into(),
+            ),
+            (
+                "https://a.example/activities/other".into(),
+                "https://b.example/users/carol".into(),
+                "pending".into(),
+            ),
+        ];
+        let got = resolve_follow_accept_target(
+            "https://a.example/activities/1",
+            "https://b.example/users/bob",
+            &candidates,
+        );
+        assert_eq!(
+            got.map(|(id, remote, _)| (id, remote)),
+            Some((
+                "https://a.example/activities/1".into(),
+                "https://b.example/users/bob".into()
+            ))
+        );
+        // Carol citing bob's id must fail when she has no own pending row
+        // (if she also has a pending, empty-id fallback could match her).
+        let bob_only = vec![candidates[0].clone()];
+        assert!(resolve_follow_accept_target(
+            "https://a.example/activities/1",
+            "https://b.example/users/carol",
+            &bob_only,
+        )
+        .is_none());
+    }
 }
