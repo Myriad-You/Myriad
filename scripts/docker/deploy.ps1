@@ -350,6 +350,17 @@ function Cmd-Doctor {
         } else {
             Write-Ok "PASS  docker-guard is not on business net $businessNet"
         }
+        # Proxy pulls go through docker-guard; missing repo in DOCKER_GUARD_ALLOWED_IMAGES
+        # yields 403 and blocks /admin/proxy-update (often misread as a missing Hub tag).
+        if (Test-ContainerExists "myriad-proxy") {
+            $allowedImages = Get-ContainerEnvValue "myriad-docker-guard" "DOCKER_GUARD_ALLOWED_IMAGES"
+            if ($allowedImages -and ($allowedImages -split ',' | Where-Object { $_ -match '(?i)proxy' })) {
+                Write-Ok "PASS  docker-guard DOCKER_GUARD_ALLOWED_IMAGES includes a proxy repository"
+            } else {
+                Write-Err "FAIL  docker-guard DOCKER_GUARD_ALLOWED_IMAGES omits proxy (proxy-update pulls will 403). Add `${PROXY_IMAGE:-docker.io/somekawahitomi/myriad-proxy} then: docker compose up -d --force-recreate docker-guard"
+                $fail++
+            }
+        }
     } else {
         Write-Err "FAIL  myriad-docker-guard not found (stack down or legacy pre-guard topology)"
         $fail++

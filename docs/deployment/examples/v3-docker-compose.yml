@@ -252,7 +252,7 @@ services:
       MYRIAD_DOCKER_GUARD_NETWORK: ${MYRIAD_DOCKER_GUARD_NETWORK:-myriad-docker-guard-net}
       DOCKER_GUARD_COMPOSE_DIR: /host/compose
       DOCKER_GUARD_ENV_FILE: /host/compose/.env
-      DOCKER_GUARD_ALLOWED_IMAGES: ${BACKEND_IMAGE:-docker.io/somekawahitomi/myriad-backend},${FRONTEND_IMAGE:-docker.io/somekawahitomi/myriad-frontend},${UPDATER_IMAGE:-docker.io/somekawahitomi/myriad-updater},postgres
+      DOCKER_GUARD_ALLOWED_IMAGES: ${BACKEND_IMAGE:-docker.io/somekawahitomi/myriad-backend},${FRONTEND_IMAGE:-docker.io/somekawahitomi/myriad-frontend},${PROXY_IMAGE:-docker.io/somekawahitomi/myriad-proxy},${UPDATER_IMAGE:-docker.io/somekawahitomi/myriad-updater},postgres
       RUST_LOG: ${DOCKER_GUARD_LOG:-info}
       TZ: Asia/Shanghai
     volumes:

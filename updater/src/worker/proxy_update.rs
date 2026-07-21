@@ -70,12 +70,7 @@ pub async fn run(
     let pulled_digest = worker
         .docker_pull_with_mirror(&resolved.image_ref)
         .await
-        .map_err(|e| {
-            UpdaterError::Precondition(format!(
-                "pull proxy {}: {e} (is the tag published on the registry / Docker Hub?)",
-                resolved.image_ref
-            ))
-        })?;
+        .map_err(|e| UpdaterError::Precondition(format_proxy_pull_error(&resolved.image_ref, &e)))?;
     if let Some(expected) = &resolved.expected_digest {
         if !pulled_digest.ends_with(expected) && pulled_digest != *expected {
             return Err(UpdaterError::Precondition(format!(
@@ -318,6 +313,30 @@ fn validate_immutable_component_tag(tag: &str) -> Result<()> {
     }
 }
 
+/// Operator-facing pull failure message. Allowlist denials are far more common
+/// than a missing Docker Hub tag after a release, so surface docker-guard config
+/// first when the error text indicates that.
+fn format_proxy_pull_error(image_ref: &str, err: &UpdaterError) -> String {
+    let detail = err.to_string();
+    if is_docker_guard_allowlist_denial(&detail) {
+        format!(
+            "pull proxy {image_ref}: {detail} — docker-guard DOCKER_GUARD_ALLOWED_IMAGES must include the proxy repository \
+(e.g. docker.io/somekawahitomi/myriad-proxy or your PROXY_IMAGE). After changing compose env, recreate docker-guard: \
+`docker compose up -d --force-recreate docker-guard`. If the allowlist already includes proxy, confirm the tag is published on the registry / Docker Hub."
+        )
+    } else {
+        format!(
+            "pull proxy {image_ref}: {detail} (is the tag published on the registry / Docker Hub?)"
+        )
+    }
+}
+
+fn is_docker_guard_allowlist_denial(detail: &str) -> bool {
+    let lower = detail.to_ascii_lowercase();
+    lower.contains("not allowlisted")
+        || (lower.contains("status code 403") && lower.contains("allowlist"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -332,5 +351,48 @@ mod tests {
     fn accepts_commit_and_release_tags() {
         assert!(validate_immutable_component_tag("dev-abc1234").is_ok());
         assert!(validate_immutable_component_tag("v0.3.6").is_ok());
+    }
+
+    #[test]
+    fn allowlist_denial_mentions_docker_guard_config() {
+        let err = UpdaterError::Docker(
+            "pull stream: Docker responded with status code 403: image pull repository is not allowlisted"
+                .into(),
+        );
+        let msg = format_proxy_pull_error(
+            "docker.io/somekawahitomi/myriad-proxy:v0.3.8",
+            &err,
+        );
+        assert!(
+            msg.contains("DOCKER_GUARD_ALLOWED_IMAGES"),
+            "expected allowlist hint, got: {msg}"
+        );
+        assert!(
+            msg.contains("force-recreate docker-guard"),
+            "expected recreate hint, got: {msg}"
+        );
+        assert!(
+            msg.contains("myriad-proxy"),
+            "expected proxy repo example, got: {msg}"
+        );
+        // Published-tag hint stays secondary, not the primary blame.
+        assert!(
+            !msg.contains("(is the tag published on the registry / Docker Hub?)"),
+            "allowlist path should not lead with tag-missing framing: {msg}"
+        );
+    }
+
+    #[test]
+    fn other_pull_errors_keep_registry_hint() {
+        let err = UpdaterError::Docker("pull stream: timeout waiting for registry".into());
+        let msg = format_proxy_pull_error("docker.io/example/myriad-proxy:v0.3.8", &err);
+        assert!(
+            msg.contains("is the tag published on the registry / Docker Hub?"),
+            "expected registry hint, got: {msg}"
+        );
+        assert!(
+            !msg.contains("DOCKER_GUARD_ALLOWED_IMAGES"),
+            "non-allowlist errors should not mention allowlist: {msg}"
+        );
     }
 }
