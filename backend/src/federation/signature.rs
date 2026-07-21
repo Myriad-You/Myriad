@@ -356,4 +356,16 @@ mod tests {
         assert!(!verify_digest(b"hello", ""));
 
     }
+
+    #[test]
+    fn w175_require_headers_missing_host() {
+        let parsed = ParsedSignature {
+            key_id: "k".into(),
+            algorithm: "rsa-sha256".into(),
+            headers: vec!["(request-target)".into(), "date".into()],
+            signature: vec![0u8; 8],
+        };
+        assert!(require_covered_headers(&parsed, false).is_err());
+
+    }
 }
