@@ -6,7 +6,7 @@ use tracing::{error, info, warn};
 
 use myriad_updater::{
     api,
-    config::Config,
+    config::{Config, DbMode},
     docker::DockerClient,
     log as logging, probe, self_version,
     state::StateDir,
@@ -115,13 +115,25 @@ async fn main() -> Result<()> {
         }
     }
 
-    // Phase 2: env-probe (compose binary, docker, pgdata fs type, etc.).
+    // Phase 2: resolve DB mode (process env / mounted .env; default bundled).
+    let db_mode = DbMode::resolve(Some(&cli.env_file)).map_err(|e| {
+        error!(err = %e, "invalid MYRIAD_DB_MODE");
+        e
+    })?;
+    info!(
+        db_mode = %db_mode,
+        pgdata_snapshot_enabled = db_mode.pgdata_snapshot_enabled(),
+        "database mode resolved"
+    );
+
+    // Phase 3: env-probe (compose binary, docker, pgdata fs type, etc.).
     // Any unsupported environment must fail loudly *before* we serve any API.
     let env_probe = probe::run_all(&probe::ProbeInputs {
         state_dir: cli.state_dir.clone(),
         compose_dir: cli.compose_dir.clone(),
         env_file: cli.env_file.clone(),
         pgdata: cli.pgdata.clone(),
+        db_mode,
     })
     .await?;
     state.write_env_probe(&env_probe)?;
@@ -133,20 +145,21 @@ async fn main() -> Result<()> {
         warn!(%w, "environment warning");
     }
 
-    // Phase 3: docker client (bollard).
+    // Phase 4: docker client (bollard).
     let docker = Arc::new(DockerClient::connect().await?);
 
-    // Phase 4: recover any in-flight job per §7.1.
+    // Phase 5: recover any in-flight job per §7.1.
     let recovery = Worker::recover_or_idle(state.clone(), docker.clone()).await?;
     info!(recovered = ?recovery, "state recovery complete");
 
-    // Phase 5: spawn worker.
+    // Phase 6: spawn worker.
     let worker_cli = WorkerCli {
         state_dir: cli.state_dir.clone(),
         compose_dir: cli.compose_dir.clone(),
         env_file: cli.env_file.clone(),
         pgdata: cli.pgdata.clone(),
         listen: cli.listen.clone(),
+        db_mode,
     };
     let worker = Arc::new(Worker::new(
         state.clone(),
@@ -170,7 +183,7 @@ async fn main() -> Result<()> {
     });
     let worker_handle = worker.clone().spawn();
 
-    // Phase 6: serve API.
+    // Phase 7: serve API.
     let api_state = api::ApiState {
         worker: worker.clone(),
         state: state.clone(),

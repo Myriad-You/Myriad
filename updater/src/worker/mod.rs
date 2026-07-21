@@ -41,6 +41,8 @@ pub struct WorkerCli {
     pub env_file: std::path::PathBuf,
     pub pgdata: std::path::PathBuf,
     pub listen: String,
+    /// Resolved `MYRIAD_DB_MODE` (`bundled` default). Controls pgdata snapshot/restore.
+    pub db_mode: crate::config::DbMode,
 }
 
 #[derive(Debug)]

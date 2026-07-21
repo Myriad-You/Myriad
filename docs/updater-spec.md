@@ -367,10 +367,35 @@ zfs dataset            → 支持，可选用 zfs snapshot
 其他                   → cp -a 兜底
 ```
 
-**M1 要求 pgdata 是 bind mount。** 跨设备会降级为 copy 兜底并写入 warning；
+**M1 要求 pgdata 是 bind mount（仅 bundled 模式）。** 跨设备会降级为 copy 兜底并写入 warning；
 docker named volume、rootless Docker、Podman 仍会启动时报错。
 **路径不存在**（例如首次部署、postgres 尚未初始化）在 env-probe 中为 **warning**，
 不阻止 updater 启动；真正需要快照/回滚恢复的操作会以 Precondition 失败。
+
+### 9.1.1 外部 Postgres（`MYRIAD_DB_MODE`）
+
+当数据库不在 compose 内、也没有宿主侧 `./pgdata` 可快照时，在 `.env`（或进程环境）设置：
+
+```bash
+MYRIAD_DB_MODE=external
+```
+
+| 取值 | 默认 | 行为 |
+|---|---|---|
+| `bundled` | **是**（未设置时） | 现有行为：更新前快照 `./pgdata`，回滚可恢复 pgdata + 镜像 tag |
+| `external` | 否 | **不要求** `UPDATER_PGDATA` / `./pgdata` 存在；**跳过** pgdata 快照与恢复；回滚/rescue **只恢复镜像 tag**（`MYRIAD_TAG` 等，与今日一致） |
+
+解析顺序：进程环境 `MYRIAD_DB_MODE` → 挂载的 `UPDATER_ENV_FILE`（`.env`）→ 默认 `bundled`。
+**不会**根据 `DATABASE_URL` 主机名静默切换模式。若 `MYRIAD_DB_MODE=bundled`（默认）且
+`DATABASE_URL` 主机明显不是 compose 服务名 `postgres`，env-probe 写入 **warning**，提示改为
+`external`。
+
+`GET /status`、`state/env-probe.json` 与 diagnostics 暴露：
+
+- `db_mode`: `"bundled"` | `"external"`
+- `pgdata_snapshot_enabled`: `true` 当且仅当 bundled
+
+外部模式下 preflight 磁盘检查（按 pgdata 体积估算快照空间）为 no-op 并打 warning。
 
 ### 9.2 快照流程
 

@@ -124,55 +124,65 @@ pub async fn run(
     }
     rec.finish_step_ok()?;
 
-    // Snapshot pgdata.
+    // Snapshot pgdata (bundled only). External DB: skip path requirement and snapshot.
     rec.enter(Phase::Snapshotting, "updater.phase.snapshotting")?;
-    if let Err(e) = crate::probe::filesystem::require_pgdata(&worker.cli().pgdata) {
-        rec.finish_step_err(e.to_string()).ok();
-        rec.finalize(JobStatus::Failed)?;
-        crate::worker::machine::clear_maintenance(worker.state())?;
-        return Err(e);
-    }
-    let stop_pg = compose.stop(&["postgres"], 60).await?;
-    if !stop_pg.ok() {
-        let err = format!("stop postgres failed: {}", stop_pg.error_summary());
-        rec.finish_step_err(&err)?;
-        rec.finalize(JobStatus::Failed)?;
-        crate::worker::machine::clear_maintenance(worker.state())?;
-        return Err(UpdaterError::Internal(anyhow::anyhow!(err)));
-    }
-
     let snap = SnapshotManager {
         state: worker.state(),
         pgdata: worker.cli().pgdata.clone(),
     };
-    let snapshot_id = format!("snap-{}", job_id);
-    let source_version = pre.from_version.clone().or_else(|| {
-        EnvFile::load(&worker.cli().env_file)
-            .ok()
-            .and_then(|e| e.get("MYRIAD_TAG").map(|s| s.to_string()))
-            .and_then(|t| DeployTag::parse(&t).ok())
-    });
-    let _ = snap
-        .create(&snapshot_id, source_version)
-        .await
-        .map_err(|e| {
-            rec.finish_step_err(format!("snapshot: {e}")).ok();
-            e
-        })?;
+    let snapshot_id = if worker.cli().db_mode.is_external() {
+        info!("db_mode=external; skipping pgdata snapshot");
+        let _ = worker
+            .state()
+            .append_history(&format!("job {job_id}: db_mode=external; skipping pgdata snapshot"));
+        // Empty id: rollback restores image tags only (never touches pgdata).
+        String::new()
+    } else {
+        if let Err(e) = crate::probe::filesystem::require_pgdata(&worker.cli().pgdata) {
+            rec.finish_step_err(e.to_string()).ok();
+            rec.finalize(JobStatus::Failed)?;
+            crate::worker::machine::clear_maintenance(worker.state())?;
+            return Err(e);
+        }
+        let stop_pg = compose.stop(&["postgres"], 60).await?;
+        if !stop_pg.ok() {
+            let err = format!("stop postgres failed: {}", stop_pg.error_summary());
+            rec.finish_step_err(&err)?;
+            rec.finalize(JobStatus::Failed)?;
+            crate::worker::machine::clear_maintenance(worker.state())?;
+            return Err(UpdaterError::Internal(anyhow::anyhow!(err)));
+        }
 
-    let start_pg = compose.start(&["postgres"]).await?;
-    if !start_pg.ok() {
-        let err = format!("restart postgres failed: {}", start_pg.error_summary());
-        rec.finish_step_err(&err)?;
-        rec.finalize(JobStatus::Failed)?;
-        crate::worker::machine::clear_maintenance(worker.state())?;
-        return Err(UpdaterError::Internal(anyhow::anyhow!(err)));
-    }
-    {
-        let mut job = worker.state().read_job(&job_id)?;
-        job.snapshot_id = Some(snapshot_id.clone());
-        worker.state().write_job(&job)?;
-    }
+        let snapshot_id = format!("snap-{}", job_id);
+        let source_version = pre.from_version.clone().or_else(|| {
+            EnvFile::load(&worker.cli().env_file)
+                .ok()
+                .and_then(|e| e.get("MYRIAD_TAG").map(|s| s.to_string()))
+                .and_then(|t| DeployTag::parse(&t).ok())
+        });
+        let _ = snap
+            .create(&snapshot_id, source_version)
+            .await
+            .map_err(|e| {
+                rec.finish_step_err(format!("snapshot: {e}")).ok();
+                e
+            })?;
+
+        let start_pg = compose.start(&["postgres"]).await?;
+        if !start_pg.ok() {
+            let err = format!("restart postgres failed: {}", start_pg.error_summary());
+            rec.finish_step_err(&err)?;
+            rec.finalize(JobStatus::Failed)?;
+            crate::worker::machine::clear_maintenance(worker.state())?;
+            return Err(UpdaterError::Internal(anyhow::anyhow!(err)));
+        }
+        {
+            let mut job = worker.state().read_job(&job_id)?;
+            job.snapshot_id = Some(snapshot_id.clone());
+            worker.state().write_job(&job)?;
+        }
+        snapshot_id
+    };
     rec.finish_step_ok()?;
 
     // ============================================================

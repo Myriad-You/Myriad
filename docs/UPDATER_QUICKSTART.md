@@ -5,15 +5,16 @@
 安全基线（已完成态 + 运维红线）：[deployment/UPDATER_SECURITY_BASELINE.md](./deployment/UPDATER_SECURITY_BASELINE.md)。
 
 > 运行模型：updater 不是 A/B 双活分区。Myriad 生产环境只有一套正在运行的
-> backend/frontend/postgres；更新时进入维护模式，停止业务容器，快照 `pgdata`，
-> 切换 `.env` 里的镜像 tag，再启动新版本。回滚依赖快照和旧 tag。
+> backend/frontend（以及可选的 compose 内 postgres）；更新时进入维护模式，停止业务容器，
+> 在 **bundled** 模式下快照 `pgdata`，切换 `.env` 里的镜像 tag，再启动新版本。
+> 回滚在 bundled 下依赖快照 + 旧 tag；**external** 下只恢复镜像 tag（绝不写外部库数据目录）。
 
 ## 0. 准备
 
 - Docker Engine 20.10+ 且支持 `docker compose` v2 子命令
 - 单机部署（updater 当前只支持 single-node）
-- **本地库模式**：pgdata 在宿主文件系统的目录（不能是 docker named volume）
-- **外部库模式**：见下方 [外部 PostgreSQL](#外部-postgresqlmyriad_db_modeexternal)；不要求 `./pgdata`
+- **本地库 / bundled（默认）**：pgdata 在宿主文件系统的目录（不能是 docker named volume）
+- **外部库 / external**：见下方 [外部 PostgreSQL](#外部-postgresqlmyriad_db_modeexternal)；不要求 `./pgdata`
 
 ## 1. 初始化当前生产布局
 
@@ -348,10 +349,11 @@ UPDATER_ALLOW_INSECURE_COSIGN=true   # 或 COSIGN_INSECURE_OK=true
 
 | 项 | 行为 |
 | --- | --- |
-| `MYRIAD_DB_MODE=external` | updater **跳过** pgdata 快照与恢复 |
-| `DATABASE_URL` | backend 连接的 **唯一真相源**（写完整连接串） |
-| 栈内 `postgres` / `./pgdata` | **不要** 再部署；勿留空 `./pgdata` 装样子 |
-| 镜像 tag / 维护模式 | updater **仍管理** |
+| `MYRIAD_DB_MODE=external` | updater **跳过** pgdata 快照与恢复（日志：`db_mode=external; skipping pgdata snapshot`） |
+| `DATABASE_URL` | backend 连接的 **唯一真相源**（写完整连接串）；**不会**据此静默改 `MYRIAD_DB_MODE` |
+| 栈内 `postgres` / `./pgdata` | **不要** 再部署；勿留空 `./pgdata` 装样子；更新**不要求**路径存在 |
+| 镜像 tag / 维护模式 | updater **仍管理**；回滚/rescue **只恢复镜像 tag**，从不写 pgdata |
+| `/status` · env-probe | `db_mode=external`、`pgdata_snapshot_enabled=false` |
 | 库备份 / 库级回滚 | **运维自管**（`pg_dump`、云快照、面板备份） |
 
 ```bash
@@ -360,9 +362,10 @@ MYRIAD_DB_MODE=external
 DATABASE_URL=postgres://user:pass@db-host:5432/myriad?sslmode=prefer
 ```
 
+未设置 `MYRIAD_DB_MODE` 时默认为 `bundled`（兼容现有部署）。完整契约见
+[updater-spec.md §9.1.1](./updater-spec.md)。
+
 Compose 形态与连通性（`host.docker.internal`、sslmode、容器内核对 `DATABASE_URL`）见：
 
 - [deployment/EXTERNAL_POSTGRES.md](./deployment/EXTERNAL_POSTGRES.md)
 - [deployment/examples/docker-compose.external-db.example.yml](./deployment/examples/docker-compose.external-db.example.yml)
-
-> 实现细节若另有 updater PR 落地，以该契约为准；在支持落地前也请用无 postgres 的 compose + 正确 `DATABASE_URL`，升级前自行 `pg_dump`。

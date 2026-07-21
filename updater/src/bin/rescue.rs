@@ -6,7 +6,9 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
-use myriad_updater::{log as logging, rescue, self_version, state::StateDir};
+use myriad_updater::{
+    config::DbMode, log as logging, rescue, self_version, state::StateDir,
+};
 
 #[derive(Debug, Parser)]
 #[command(name = "myriad-rescue", version = self_version(), about = "Offline rescue tool for Myriad updates")]
@@ -63,11 +65,13 @@ async fn main() -> Result<()> {
     // (e.g. for `status` / `diagnose`). Destructive subcommands like `rollback` assume the
     // operator has already stopped the updater container — documented in §16.3.
     let state = StateDir::open_readonly(&cli.state_dir)?;
+    let db_mode = DbMode::resolve(Some(&cli.env_file))?;
     let ctx = rescue::Context {
         state,
         compose_dir: cli.compose_dir,
         env_file: cli.env_file,
         pgdata: cli.pgdata,
+        db_mode,
     };
     match cli.cmd {
         Cmd::Status => rescue::status(&ctx).await,

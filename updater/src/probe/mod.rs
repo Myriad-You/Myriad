@@ -12,6 +12,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::config::DbMode;
 use crate::error::Result;
 
 pub struct ProbeInputs {
@@ -19,6 +20,8 @@ pub struct ProbeInputs {
     pub compose_dir: PathBuf,
     pub env_file: PathBuf,
     pub pgdata: PathBuf,
+    /// Resolved `MYRIAD_DB_MODE` (bundled default).
+    pub db_mode: DbMode,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,10 +31,24 @@ pub struct EnvProbe {
     pub docker: docker::DockerProbe,
     pub pgdata: filesystem::PgdataProbe,
     pub env_file: filesystem::EnvFileProbe,
+    /// `bundled` | `external` — see `MYRIAD_DB_MODE`.
+    #[serde(default = "default_db_mode_str")]
+    pub db_mode: String,
+    /// Whether update flow will snapshot/restore `pgdata` (false when external).
+    #[serde(default = "default_pgdata_snapshot_enabled")]
+    pub pgdata_snapshot_enabled: bool,
     #[serde(default)]
     pub fatal: Vec<String>,
     #[serde(default)]
     pub warnings: Vec<String>,
+}
+
+fn default_db_mode_str() -> String {
+    DbMode::Bundled.as_str().to_string()
+}
+
+fn default_pgdata_snapshot_enabled() -> bool {
+    true
 }
 
 impl EnvProbe {
@@ -46,6 +63,8 @@ impl EnvProbe {
 pub async fn run_all(inputs: &ProbeInputs) -> Result<EnvProbe> {
     let mut fatal = Vec::new();
     let mut warnings = Vec::new();
+    let db_mode = inputs.db_mode;
+    let pgdata_snapshot_enabled = db_mode.pgdata_snapshot_enabled();
 
     let compose = compose::probe(&inputs.compose_dir).await;
     if let Some(e) = &compose.error {
@@ -69,7 +88,7 @@ pub async fn run_all(inputs: &ProbeInputs) -> Result<EnvProbe> {
     }
 
     let pgdata = filesystem::probe_pgdata(&inputs.pgdata, &inputs.state_dir).await;
-    let (pg_fatal, pg_warn) = classify_pgdata(&pgdata, &inputs.pgdata);
+    let (pg_fatal, pg_warn) = classify_pgdata(&pgdata, &inputs.pgdata, db_mode);
     fatal.extend(pg_fatal);
     warnings.extend(pg_warn);
 
@@ -87,7 +106,15 @@ pub async fn run_all(inputs: &ProbeInputs) -> Result<EnvProbe> {
         );
     }
 
-    if pgdata.cross_device {
+    // Optional heuristic only: never auto-switch mode. Warn when URL host is clearly
+    // not the compose service name `postgres` while still in bundled mode.
+    if db_mode == DbMode::Bundled {
+        if let Some(w) = database_url_bundled_mismatch_warning(&inputs.env_file) {
+            warnings.push(w);
+        }
+    }
+
+    if pgdata_snapshot_enabled && pgdata.cross_device {
         warnings.push(format!(
             "pgdata is on a different filesystem from {}/snapshots; rename rollback unavailable, falling back to copy",
             inputs.state_dir.display()
@@ -107,6 +134,8 @@ pub async fn run_all(inputs: &ProbeInputs) -> Result<EnvProbe> {
         docker: docker_probe,
         pgdata,
         env_file,
+        db_mode: db_mode.as_str().to_string(),
+        pgdata_snapshot_enabled,
         fatal,
         warnings,
     })
@@ -114,14 +143,26 @@ pub async fn run_all(inputs: &ProbeInputs) -> Result<EnvProbe> {
 
 /// Classify pgdata probe outcomes into fatal vs warning strings.
 ///
-/// Missing path is warning-only (updater may boot before first postgres init).
-/// Named-volume remains fatal when the path exists and is flagged.
+/// Missing path is warning-only for bundled mode (updater may boot before first postgres init).
+/// Named-volume remains fatal when the path exists and is flagged (bundled only).
+/// External mode never requires local pgdata — skip snapshot-related fatals/warnings.
 fn classify_pgdata(
     pgdata: &filesystem::PgdataProbe,
     path: &std::path::Path,
+    db_mode: DbMode,
 ) -> (Vec<String>, Vec<String>) {
     let mut fatal = Vec::new();
     let mut warnings = Vec::new();
+
+    if db_mode.is_external() {
+        // External DB: local pgdata is unused for update/rollback. Surface probe errors
+        // only as soft warnings so operators can still inspect the path if mounted.
+        if let Some(e) = &pgdata.error {
+            warnings.push(format!("pgdata (ignored in external mode): {e}"));
+        }
+        return (fatal, warnings);
+    }
+
     if let Some(e) = &pgdata.error {
         fatal.push(format!("pgdata: {e}"));
     }
@@ -146,6 +187,48 @@ fn classify_pgdata(
     (fatal, warnings)
 }
 
+/// If `DATABASE_URL` host is set and is not the compose service name `postgres`,
+/// return a warning when running in bundled mode. Never changes mode.
+fn database_url_bundled_mismatch_warning(env_file: &std::path::Path) -> Option<String> {
+    let env = crate::env_file::EnvFile::load(env_file).ok()?;
+    let url = env.get("DATABASE_URL")?;
+    let host = database_url_host(url)?;
+    if host.eq_ignore_ascii_case("postgres") {
+        return None;
+    }
+    Some(format!(
+        "DATABASE_URL host is `{host}` but MYRIAD_DB_MODE=bundled (default); \
+         if Postgres is outside compose, set MYRIAD_DB_MODE=external so updater skips pgdata snapshots"
+    ))
+}
+
+/// Extract hostname from a `postgres://` / `postgresql://` URL (best-effort, no secrets).
+pub fn database_url_host(url: &str) -> Option<String> {
+    let trimmed = url.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    // Prefer url crate when scheme is present.
+    if let Ok(parsed) = url::Url::parse(trimmed) {
+        if let Some(host) = parsed.host_str() {
+            if !host.is_empty() {
+                return Some(host.to_string());
+            }
+        }
+    }
+    // Fallback: postgres://user:pass@host:port/db without full parse.
+    let rest = trimmed
+        .strip_prefix("postgres://")
+        .or_else(|| trimmed.strip_prefix("postgresql://"))?;
+    let after_at = rest.rsplit('@').next()?;
+    let host = after_at.split(&[':', '/'][..]).next()?.trim();
+    if host.is_empty() {
+        None
+    } else {
+        Some(host.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,8 +250,11 @@ mod tests {
 
     #[test]
     fn missing_pgdata_is_warning_not_fatal() {
-        let (fatal, warnings) =
-            classify_pgdata(&empty_probe(false), Path::new("/host/compose/pgdata"));
+        let (fatal, warnings) = classify_pgdata(
+            &empty_probe(false),
+            Path::new("/host/compose/pgdata"),
+            DbMode::Bundled,
+        );
         assert!(
             fatal.is_empty(),
             "missing path must not be fatal: {fatal:?}"
@@ -181,8 +267,11 @@ mod tests {
 
     #[test]
     fn present_pgdata_no_fatal_from_exists() {
-        let (fatal, warnings) =
-            classify_pgdata(&empty_probe(true), Path::new("/host/compose/pgdata"));
+        let (fatal, warnings) = classify_pgdata(
+            &empty_probe(true),
+            Path::new("/host/compose/pgdata"),
+            DbMode::Bundled,
+        );
         assert!(fatal.is_empty());
         assert!(warnings.is_empty());
     }
@@ -191,7 +280,7 @@ mod tests {
     fn named_volume_still_fatal_when_exists() {
         let mut p = empty_probe(true);
         p.is_named_volume = true;
-        let (fatal, _) = classify_pgdata(&p, Path::new("/host/compose/pgdata"));
+        let (fatal, _) = classify_pgdata(&p, Path::new("/host/compose/pgdata"), DbMode::Bundled);
         assert!(
             fatal.iter().any(|f| f.contains("named volume")),
             "expected named-volume fatal: {fatal:?}"
@@ -202,11 +291,48 @@ mod tests {
     fn named_volume_flag_ignored_when_missing() {
         let mut p = empty_probe(false);
         p.is_named_volume = true;
-        let (fatal, warnings) = classify_pgdata(&p, Path::new("/host/compose/pgdata"));
+        let (fatal, warnings) =
+            classify_pgdata(&p, Path::new("/host/compose/pgdata"), DbMode::Bundled);
         assert!(
             fatal.is_empty(),
             "missing path should not fatal on named-volume flag alone: {fatal:?}"
         );
         assert!(!warnings.is_empty());
+    }
+
+    #[test]
+    fn external_mode_skips_pgdata_requirement_warnings() {
+        let (fatal, warnings) = classify_pgdata(
+            &empty_probe(false),
+            Path::new("/host/compose/pgdata"),
+            DbMode::External,
+        );
+        assert!(fatal.is_empty());
+        assert!(
+            warnings.is_empty(),
+            "external mode must not warn about missing pgdata: {warnings:?}"
+        );
+
+        let mut named = empty_probe(true);
+        named.is_named_volume = true;
+        let (fatal, _) =
+            classify_pgdata(&named, Path::new("/host/compose/pgdata"), DbMode::External);
+        assert!(
+            fatal.is_empty(),
+            "external mode must not fatal on named volume: {fatal:?}"
+        );
+    }
+
+    #[test]
+    fn database_url_host_parses() {
+        assert_eq!(
+            database_url_host("postgres://myriad:secret@db.example.com:5432/myriad").as_deref(),
+            Some("db.example.com")
+        );
+        assert_eq!(
+            database_url_host("postgresql://u@postgres:5432/db").as_deref(),
+            Some("postgres")
+        );
+        assert_eq!(database_url_host("").as_deref(), None);
     }
 }

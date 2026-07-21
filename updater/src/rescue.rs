@@ -16,6 +16,7 @@ pub struct Context {
     pub compose_dir: PathBuf,
     pub env_file: PathBuf,
     pub pgdata: PathBuf,
+    pub db_mode: crate::config::DbMode,
 }
 
 pub async fn status(ctx: &Context) -> Result<()> {
@@ -25,6 +26,8 @@ pub async fn status(ctx: &Context) -> Result<()> {
     let snaps = ctx.state.read_snapshots()?;
     let out = serde_json::json!({
         "updater_version": crate::self_version(),
+        "db_mode": ctx.db_mode.as_str(),
+        "pgdata_snapshot_enabled": ctx.db_mode.pgdata_snapshot_enabled(),
         "updater": u,
         "maintenance": m,
         "current_job": cur,
@@ -48,25 +51,13 @@ pub async fn exit_maintenance(ctx: &Context, force: bool) -> Result<()> {
 }
 
 pub async fn rollback(ctx: &Context, snapshot_id: &str) -> Result<()> {
-    crate::probe::filesystem::require_pgdata(&ctx.pgdata)
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
-    let snap = SnapshotManager {
-        state: &ctx.state,
-        pgdata: ctx.pgdata.clone(),
-    };
     let snapshots = ctx.state.read_snapshots()?;
-    let meta = snapshots
-        .items
-        .iter()
-        .find(|s| s.id == snapshot_id)
-        .with_context(|| format!("snapshot {snapshot_id} not present in snapshots.json"))?;
+    let meta = snapshots.items.iter().find(|s| s.id == snapshot_id);
 
     // Same last-known-good resolution as the worker path: snapshot source_version,
     // then updater.json.current_version. Never invent a hardcoded tag.
     let prev_tag = meta
-        .source_version
-        .as_ref()
-        .map(|v| v.to_string())
+        .and_then(|m| m.source_version.as_ref().map(|v| v.to_string()))
         .or_else(|| {
             ctx.state
                 .read_updater()
@@ -86,8 +77,22 @@ pub async fn rollback(ctx: &Context, snapshot_id: &str) -> Result<()> {
 
     info!(snapshot = snapshot_id, "rescue rollback: stopping services");
     compose_v2_or_v1(ctx, &["stop", "-t", "30", "frontend", "backend"]).await?;
-    compose_v2_or_v1(ctx, &["stop", "-t", "60", "postgres"]).await?;
-    snap.restore(snapshot_id).await?;
+
+    if ctx.db_mode.is_external() {
+        info!("db_mode=external; skipping pgdata restore (tag-only rescue rollback)");
+    } else {
+        if meta.is_none() {
+            anyhow::bail!("snapshot {snapshot_id} not present in snapshots.json");
+        }
+        crate::probe::filesystem::require_pgdata(&ctx.pgdata)
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let snap = SnapshotManager {
+            state: &ctx.state,
+            pgdata: ctx.pgdata.clone(),
+        };
+        compose_v2_or_v1(ctx, &["stop", "-t", "60", "postgres"]).await?;
+        snap.restore(snapshot_id).await?;
+    }
 
     if let Some(ref tag) = prev_tag {
         let mut env = crate::env_file::EnvFile::load(&ctx.env_file)
@@ -102,7 +107,9 @@ pub async fn rollback(ctx: &Context, snapshot_id: &str) -> Result<()> {
         );
     }
 
-    compose_v2_or_v1(ctx, &["start", "postgres"]).await?;
+    if !ctx.db_mode.is_external() {
+        compose_v2_or_v1(ctx, &["start", "postgres"]).await?;
+    }
     compose_v2_or_v1(ctx, &["up", "-d", "--no-deps", "backend", "frontend"]).await?;
 
     if let Some(ref tag) = prev_tag {
@@ -117,12 +124,14 @@ pub async fn rollback(ctx: &Context, snapshot_id: &str) -> Result<()> {
     ctx.state.clear_maintenance()?;
     ctx.state.set_current_job(None)?;
     let hist = format!(
-        "rescue rollback to snapshot {snapshot_id} (tag={})",
-        prev_tag.as_deref().unwrap_or("unchanged")
+        "rescue rollback to snapshot {snapshot_id} (tag={}, db_mode={})",
+        prev_tag.as_deref().unwrap_or("unchanged"),
+        ctx.db_mode.as_str()
     );
     let audit = format!(
-        "audit: rescue_rollback snapshot={snapshot_id} tag={}",
-        prev_tag.as_deref().unwrap_or("unchanged")
+        "audit: rescue_rollback snapshot={snapshot_id} tag={} db_mode={}",
+        prev_tag.as_deref().unwrap_or("unchanged"),
+        ctx.db_mode.as_str()
     );
     ctx.state.append_history(&hist)?;
     let _ = ctx.state.append_audit(&audit);

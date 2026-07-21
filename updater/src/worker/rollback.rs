@@ -149,56 +149,68 @@ pub async fn execute_inline(
     };
 
     rec.enter(Phase::RestoreSnapshot, "updater.phase.restore_snapshot")?;
-    // Missing pgdata is non-fatal at startup; restore still needs the path to exist.
-    if let Err(e) = crate::probe::filesystem::require_pgdata(&worker.cli().pgdata) {
-        let msg = e.to_string();
-        let _ = rec.finish_step_err(&msg);
-        return Err(e);
-    }
-    let stop_pg = compose.stop(&["postgres"], 60).await?;
-    if !stop_pg.ok() {
-        warn!(
-            summary = %stop_pg.error_summary(),
-            "compose stop postgres non-zero; forcing stop"
-        );
-    }
-    // Hard guarantee: no process may hold open files under pgdata.
-    for name in ["myriad-postgres", "postgres"] {
-        if let Err(e) = worker.docker().force_stop_container(name).await {
-            warn!(%name, err = %e, "force_stop postgres attempt");
-        }
-    }
-    // Brief settle so the kernel releases bind-mount file handles.
-    tokio::time::sleep(Duration::from_secs(1)).await;
-
     let mut restore_failed: Option<String> = None;
-    if let Err(e) = snap.restore(snapshot_id).await {
-        // Do NOT abort the whole rollback here — tag is already restored; try to bring
-        // services back so the operator is not left with a fully stopped stack.
-        warn!(
-            err = %e,
-            snapshot = snapshot_id,
-            "rollback: snapshot restore failed; continuing to start rollback images \
-             (pgdata may still be post-upgrade)"
-        );
-        restore_failed = Some(e.to_string());
-        let _ = rec.finish_step_err(format!("restore snapshot (continuing): {e}"));
-    } else {
-        rec.finish_step_ok()?;
-    }
 
-    let start_pg = compose.start(&["postgres"]).await?;
-    if !start_pg.ok() {
-        // Try compose up for postgres if start failed (container removed).
-        let up_pg = compose.up_detached(&["postgres"]).await?;
-        if !up_pg.ok() {
-            let err = format!(
-                "post-restore start postgres failed: start={} up={}",
-                start_pg.error_summary(),
-                up_pg.error_summary()
+    if should_skip_pgdata_restore(worker.cli().db_mode, snapshot_id) {
+        // External Postgres (or no snapshot taken): restore image tags only.
+        // Never require or overwrite local pgdata paths.
+        info!(
+            db_mode = %worker.cli().db_mode,
+            snapshot = snapshot_id,
+            "db_mode=external or no snapshot; skipping pgdata restore (tag-only rollback)"
+        );
+        rec.finish_step_ok()?;
+    } else {
+        // Missing pgdata is non-fatal at startup; restore still needs the path to exist.
+        if let Err(e) = crate::probe::filesystem::require_pgdata(&worker.cli().pgdata) {
+            let msg = e.to_string();
+            let _ = rec.finish_step_err(&msg);
+            return Err(e);
+        }
+        let stop_pg = compose.stop(&["postgres"], 60).await?;
+        if !stop_pg.ok() {
+            warn!(
+                summary = %stop_pg.error_summary(),
+                "compose stop postgres non-zero; forcing stop"
             );
-            rec.finish_step_err(&err)?;
-            return Err(UpdaterError::Internal(anyhow::anyhow!(err)));
+        }
+        // Hard guarantee: no process may hold open files under pgdata.
+        for name in ["myriad-postgres", "postgres"] {
+            if let Err(e) = worker.docker().force_stop_container(name).await {
+                warn!(%name, err = %e, "force_stop postgres attempt");
+            }
+        }
+        // Brief settle so the kernel releases bind-mount file handles.
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        if let Err(e) = snap.restore(snapshot_id).await {
+            // Do NOT abort the whole rollback here — tag is already restored; try to bring
+            // services back so the operator is not left with a fully stopped stack.
+            warn!(
+                err = %e,
+                snapshot = snapshot_id,
+                "rollback: snapshot restore failed; continuing to start rollback images \
+                 (pgdata may still be post-upgrade)"
+            );
+            restore_failed = Some(e.to_string());
+            let _ = rec.finish_step_err(format!("restore snapshot (continuing): {e}"));
+        } else {
+            rec.finish_step_ok()?;
+        }
+
+        let start_pg = compose.start(&["postgres"]).await?;
+        if !start_pg.ok() {
+            // Try compose up for postgres if start failed (container removed).
+            let up_pg = compose.up_detached(&["postgres"]).await?;
+            if !up_pg.ok() {
+                let err = format!(
+                    "post-restore start postgres failed: start={} up={}",
+                    start_pg.error_summary(),
+                    up_pg.error_summary()
+                );
+                rec.finish_step_err(&err)?;
+                return Err(UpdaterError::Internal(anyhow::anyhow!(err)));
+            }
         }
     }
 
@@ -323,9 +335,18 @@ pub(crate) fn should_materialize_rollback_pair(missing_pins: &[String]) -> bool 
     missing_pins.is_empty()
 }
 
+/// Whether rollback should skip pgdata restore (external DB or no snapshot id).
+pub(crate) fn should_skip_pgdata_restore(
+    db_mode: crate::config::DbMode,
+    snapshot_id: &str,
+) -> bool {
+    db_mode.is_external() || snapshot_id.is_empty()
+}
+
 #[cfg(test)]
 mod pair_integrity_tests {
     use super::*;
+    use crate::config::DbMode;
 
     #[test]
     fn incomplete_pair_blocks_materialize() {
@@ -335,6 +356,14 @@ mod pair_integrity_tests {
             "frontend".into()
         ]));
         assert!(should_materialize_rollback_pair(&[]));
+    }
+
+    #[test]
+    fn external_or_empty_snapshot_skips_pgdata_restore() {
+        assert!(should_skip_pgdata_restore(DbMode::External, "snap-abc"));
+        assert!(should_skip_pgdata_restore(DbMode::External, ""));
+        assert!(should_skip_pgdata_restore(DbMode::Bundled, ""));
+        assert!(!should_skip_pgdata_restore(DbMode::Bundled, "snap-abc"));
     }
 }
 

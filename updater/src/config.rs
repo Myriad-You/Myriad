@@ -1,6 +1,8 @@
 //! Runtime configuration loaded from process environment variables.
 //! In production compose these come from the host `.env`.
 
+use std::path::Path;
+
 use crate::error::UpdaterError;
 use serde::{Deserialize, Serialize};
 
@@ -10,6 +12,77 @@ pub const UPDATE_TOKEN_MIN_LEN: usize = 32;
 /// Tokens at or below this length trigger a boot warning (barely minimum).
 /// Operators should use a longer random secret; hard minimum remains 32.
 pub const UPDATE_TOKEN_WARN_BELOW_LEN: usize = 40;
+
+/// How PostgreSQL is deployed relative to the compose stack.
+///
+/// - [`Bundled`](DbMode::Bundled) (default): postgres runs in compose with `./pgdata`;
+///   updater snapshots/restores that path on update/rollback.
+/// - [`External`](DbMode::External): DB lives outside compose; never require or touch
+///   `UPDATER_PGDATA` / `./pgdata` during update or rollback (image tags only).
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum DbMode {
+    #[default]
+    Bundled,
+    External,
+}
+
+impl DbMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DbMode::Bundled => "bundled",
+            DbMode::External => "external",
+        }
+    }
+
+    /// Whether the update flow should snapshot/restore `pgdata`.
+    pub fn pgdata_snapshot_enabled(self) -> bool {
+        matches!(self, DbMode::Bundled)
+    }
+
+    pub fn is_external(self) -> bool {
+        matches!(self, DbMode::External)
+    }
+
+    pub fn parse(raw: &str) -> Result<Self, UpdaterError> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "" | "bundled" => Ok(DbMode::Bundled),
+            "external" => Ok(DbMode::External),
+            other => Err(UpdaterError::Config(format!(
+                "unknown MYRIAD_DB_MODE: {other} (expected bundled|external)"
+            ))),
+        }
+    }
+
+    /// Resolve `MYRIAD_DB_MODE`: process env first, then mounted `.env`, else `bundled`.
+    ///
+    /// Does **not** auto-switch from `DATABASE_URL` host — external mode must be explicit.
+    pub fn resolve(env_file: Option<&Path>) -> Result<Self, UpdaterError> {
+        if let Ok(raw) = std::env::var("MYRIAD_DB_MODE") {
+            if !raw.trim().is_empty() {
+                return Self::parse(&raw);
+            }
+        }
+        if let Some(path) = env_file {
+            if path.exists() {
+                if let Ok(env) = crate::env_file::EnvFile::load(path) {
+                    if let Some(raw) = env.get("MYRIAD_DB_MODE") {
+                        if !raw.trim().is_empty() {
+                            return Self::parse(raw);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(DbMode::Bundled)
+    }
+}
+
+impl std::fmt::Display for DbMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -294,5 +367,47 @@ mod tests {
         assert!(!is_truthy("false"));
         assert!(!is_truthy(""));
         assert!(!is_truthy("maybe"));
+    }
+
+    #[test]
+    fn db_mode_parse() {
+        assert_eq!(DbMode::parse("bundled").unwrap(), DbMode::Bundled);
+        assert_eq!(DbMode::parse("BUNDLED").unwrap(), DbMode::Bundled);
+        assert_eq!(DbMode::parse("external").unwrap(), DbMode::External);
+        assert_eq!(DbMode::parse("").unwrap(), DbMode::Bundled);
+        assert!(DbMode::parse("managed").is_err());
+        assert!(DbMode::Bundled.pgdata_snapshot_enabled());
+        assert!(!DbMode::External.pgdata_snapshot_enabled());
+        assert!(DbMode::External.is_external());
+        assert!(!DbMode::Bundled.is_external());
+    }
+
+    #[test]
+    fn db_mode_resolve_defaults_bundled() {
+        // Unset process env + missing file → bundled.
+        std::env::remove_var("MYRIAD_DB_MODE");
+        let missing = std::path::Path::new("/tmp/myriad-db-mode-missing-env-xyz");
+        assert_eq!(DbMode::resolve(Some(missing)).unwrap(), DbMode::Bundled);
+        assert_eq!(DbMode::resolve(None).unwrap(), DbMode::Bundled);
+    }
+
+    #[test]
+    fn db_mode_resolve_from_env_file() {
+        std::env::remove_var("MYRIAD_DB_MODE");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".env");
+        std::fs::write(&path, "MYRIAD_DB_MODE=external\nMYRIAD_TAG=v1.0.0\n").unwrap();
+        assert_eq!(DbMode::resolve(Some(&path)).unwrap(), DbMode::External);
+    }
+
+    #[test]
+    fn db_mode_process_env_overrides_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".env");
+        std::fs::write(&path, "MYRIAD_DB_MODE=external\n").unwrap();
+        std::env::set_var("MYRIAD_DB_MODE", "bundled");
+        let got = DbMode::resolve(Some(&path));
+        std::env::remove_var("MYRIAD_DB_MODE");
+        assert_eq!(got.unwrap(), DbMode::Bundled);
     }
 }

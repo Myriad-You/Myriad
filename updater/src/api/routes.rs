@@ -103,6 +103,10 @@ struct StatusResp {
     /// Last TCB self-update helper outcome from `state/self-update-last.json` (if any).
     #[serde(skip_serializing_if = "Option::is_none")]
     self_update_last: Option<crate::docker::self_update_helper::SelfUpdateLastStatus>,
+    /// `bundled` | `external` — from `MYRIAD_DB_MODE` (default bundled).
+    db_mode: String,
+    /// Whether update flow snapshots/restores local pgdata (false when external).
+    pgdata_snapshot_enabled: bool,
 }
 
 /// Public liveness probe. Intentionally minimal: no versions, token status, or secrets.
@@ -139,6 +143,7 @@ async fn status(State(st): State<ApiState>) -> Result<Json<StatusResp>, ApiError
     let available_channels = vec!["stable", "preview"];
     let self_update_last = read_self_update_last(st.state.root());
 
+    let db_mode = st.worker.cli().db_mode;
     Ok(Json(StatusResp {
         schema_version: 1,
         updater_version: crate::self_version().to_string(),
@@ -162,6 +167,8 @@ async fn status(State(st): State<ApiState>) -> Result<Json<StatusResp>, ApiError
         rollback_version: u.rollback_version,
         available_channels,
         self_update_last,
+        db_mode: db_mode.as_str().to_string(),
+        pgdata_snapshot_enabled: db_mode.pgdata_snapshot_enabled(),
     }))
 }
 
@@ -844,12 +851,15 @@ async fn diagnostics(State(st): State<ApiState>) -> Result<Json<Value>, ApiError
 
     // Local *:myriad-rollback pair health (backend + frontend must both exist).
     let rollback_pair = probe_rollback_pair(&st).await;
+    let db_mode = st.worker.cli().db_mode;
     Ok(Json(json!({
         "updater_version": crate::self_version(),
         "config": {
             "channel": st.config.channel.to_string(),
             "registry_mirror": st.config.registry_mirror,
             "check_interval_secs": st.config.check_interval_secs,
+            "db_mode": db_mode.as_str(),
+            "pgdata_snapshot_enabled": db_mode.pgdata_snapshot_enabled(),
         },
         "state": {
             "updater": updater,

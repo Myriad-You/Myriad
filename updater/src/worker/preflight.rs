@@ -796,6 +796,11 @@ fn check_env_keys(worker: &Worker, manifest: Option<&Manifest>) -> Result<()> {
 }
 
 fn check_disk(worker: &Worker) -> Result<()> {
+    if worker.cli().db_mode.is_external() {
+        // External Postgres: no local pgdata snapshot; skip size/path requirements.
+        warn!("db_mode=external; skipping pgdata disk preflight");
+        return Ok(());
+    }
     // Updates snapshot pgdata; missing path must fail preflight, not pass silently.
     crate::probe::filesystem::require_pgdata(&worker.cli().pgdata)?;
     if let Ok(stat) = nix::sys::statvfs::statvfs(&worker.cli().pgdata) {
@@ -811,6 +816,12 @@ fn check_disk(worker: &Worker) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Pure helper used by unit tests — mirrors external short-circuit in [`check_disk`].
+#[cfg(test)]
+pub(crate) fn should_skip_pgdata_disk_check(db_mode: crate::config::DbMode) -> bool {
+    db_mode.is_external()
 }
 
 fn digest_matches(pulled: &str, expected: &str) -> bool {
@@ -914,5 +925,17 @@ mod github_manifest_fallback_tests {
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         ));
         assert!(!digest_matches("sha256:abc", "sha256:def"));
+    }
+}
+
+#[cfg(test)]
+mod external_db_tests {
+    use super::*;
+    use crate::config::DbMode;
+
+    #[test]
+    fn external_mode_skips_pgdata_disk_check() {
+        assert!(should_skip_pgdata_disk_check(DbMode::External));
+        assert!(!should_skip_pgdata_disk_check(DbMode::Bundled));
     }
 }
