@@ -1713,4 +1713,12 @@ mod tests {
         // empty alsoKnownAs skipped
         assert!(v2.get("alsoKnownAs").is_none());
     }
+
+    #[test]
+    fn w175_url_under_base_foreign() {
+        assert!(!url_is_under_base("https://evil.example/users/a", "https://old.example"));
+        assert!(url_is_under_base("https://old.example/users/a", "https://old.example"));
+        assert!(url_is_under_base("https://old.example/users/a#main-key", "https://old.example"));
+
+    }
 }
