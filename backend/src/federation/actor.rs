@@ -1261,6 +1261,13 @@ async fn get_db() -> Result<DatabaseConnection, String> {
         .ok_or_else(|| "Database not connected".to_string())
 }
 
+/// Shared confirm gate for POST /api/federation/keys/rotate (and unit tests).
+///
+/// Must live above `mod tests` (clippy `items_after_test_module`).
+pub fn rotation_confirm_accepted(body: &serde_json::Value) -> bool {
+    body.get("confirm").and_then(|v| v.as_bool()) == Some(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1301,9 +1308,4 @@ mod tests {
         assert!(!rotation_confirm_accepted(&serde_json::json!({"confirm": "yes"})));
         assert!(rotation_confirm_accepted(&serde_json::json!({"confirm": true})));
     }
-}
-
-/// Shared confirm gate for POST /api/federation/keys/rotate (and unit tests).
-pub fn rotation_confirm_accepted(body: &serde_json::Value) -> bool {
-    body.get("confirm").and_then(|v| v.as_bool()) == Some(true)
 }
