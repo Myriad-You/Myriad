@@ -896,8 +896,17 @@ pub(crate) fn needs_federation_key_generation(public_key_pem: Option<&str>) -> b
 /// Ensure the local user has a federation keypair.
 ///
 /// Generates and stores keys only when missing or empty. Never rotates an
-/// existing non-empty keypair (actor id / username unchanged). Safe to call from
-/// identity lookup, actor document serving, room fan-out, and delivery workers.
+/// existing non-empty keypair (actor id / username unchanged).
+///
+/// Call sites (defense-in-depth):
+/// - `GET /api/federation/identity` (`get_local_identity`)
+/// - `GET /users/{username}` actor document
+/// - Room fan-out, ring `add_peer`, follow outbound
+///
+/// **Universal recovery:** `delivery::load_user_keypair_ensuring` also ensures
+/// once before sign so every `federation_delivery_queue` producer (room, ring,
+/// follow, content, channel, inbox, interactions, file_transfer) recovers
+/// already-queued jobs without patching each INSERT.
 ///
 /// Returns `(public_key_pem, key_id)`.
 pub async fn ensure_user_federation_keys(

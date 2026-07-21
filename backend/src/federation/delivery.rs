@@ -9,6 +9,25 @@
 //! - Publish / createNote enqueues rows in `fan_out_to_followers` (content module);
 //!   this worker is what actually POSTs signed Activities to remote inboxes.
 //!
+//! ## Federation keys — universal choke point
+//!
+//! **This worker is the sole recovery path for already-queued deliveries.**
+//! Enqueue sites (room, ring, follow, content, channel, inbox, interactions,
+//! file_transfer) may insert `federation_delivery_queue` rows without keys.
+//! Before signing, `load_user_keypair_ensuring` loads keys and, if the row is
+//! missing/empty (`No federation keys found for user`), calls
+//! [`crate::federation::actor::ensure_user_federation_keys`] once then reloads.
+//!
+//! Defense-in-depth pre-ensure also runs on identity lookup, room fan-out, ring
+//! add_peer, and follow outbound so first enqueue races less often — but every
+//! path recovers here without patching all INSERT sites.
+//!
+//! Rules:
+//! - Generate only when missing/empty PEM; never rotate live keys.
+//! - Decrypt failure (`Key decryption failed`) does **not** trigger ensure
+//!   (would rotate public key and break federation).
+//! - Empty username cannot ensure; job is marked dead (unrecoverable).
+//!
 //! ## Public media (Note attachments)
 //! - Attachment URLs are served at `GET /media/federation/{userId}/{file}` with
 //!   **no auth** (public `ServeDir`) so remote instances can fetch Image/Video
@@ -308,10 +327,12 @@ pub async fn process_delivery_queue_detailed(
             }
             Err(e) => {
                 tracing::error!("Failed to load keypair for user {}: {}", user_id, e);
-                // 密钥问题几乎不会自愈；按普通失败计数退避，避免 15s 热循环刷日志
                 let new_attempts = attempts + 1;
                 let err_msg = format!("Key load failed: {}", e);
-                if new_attempts >= max_attempts {
+                // Empty username cannot ensure — mark dead instead of spinning
+                // retries. Decrypt failures back off (no re-generate) until max.
+                let permanent = is_unrecoverable_key_load_error(&e);
+                if permanent || new_attempts >= max_attempts {
                     let _ = db
                         .execute(Statement::from_sql_and_values(
                             DatabaseBackend::Postgres,
@@ -323,9 +344,18 @@ pub async fn process_delivery_queue_detailed(
                             ],
                         ))
                         .await;
+                    if permanent {
+                        tracing::error!(
+                            user_id = user_id,
+                            queue_id = queue_id,
+                            error = %err_msg,
+                            "federation key load permanent failure; marking dead"
+                        );
+                    }
                     mark_delivery_dead(user_id, &activity_type, &target_domain, &err_msg).await;
                     stats.dead += 1;
                 } else {
+                    // 密钥问题几乎不会自愈；按普通失败计数退避，避免 15s 热循环刷日志
                     let backoff_secs = std::cmp::min(2i64.pow(new_attempts as u32), 86400);
                     let _ = db
                         .execute(Statement::from_sql_and_values(
@@ -972,6 +1002,8 @@ pub async fn cancel_pending_deliveries_for_resource(
 }
 
 /// Load keypair; if none (or empty), generate once via ensure then reload.
+///
+/// Universal choke point for all `federation_delivery_queue` producers.
 async fn load_user_keypair_ensuring(
     db: &DatabaseConnection,
     user_id: i32,
@@ -986,7 +1018,10 @@ async fn load_user_keypair_ensuring(
                     error = %e,
                     "No federation keys and username lookup empty; cannot ensure keys"
                 );
-                return Err(e);
+                return Err(
+                    "No federation keys found for user and username empty (cannot ensure)"
+                        .to_string(),
+                );
             }
             tracing::warn!(
                 user_id = user_id,
@@ -1027,14 +1062,22 @@ async fn load_user_keypair_ensuring(
                 }
             }
         }
+        // Decrypt / other load errors: return as-is. Never ensure/regenerate.
         Err(e) => Err(e),
     }
 }
 
+/// True only for missing/empty key material (exact SELECT-no-row path).
+/// Decrypt failures must not match — regenerating would rotate the public key.
 fn is_missing_federation_keys_error(err: &str) -> bool {
-    // Only true absence/empty material — never re-generate on decrypt failure
-    // (that would rotate keys if JWT secret or ciphertext is broken).
     err.contains("No federation keys found for user")
+}
+
+/// Errors that cannot self-heal via ensure (mark dead immediately).
+/// Decrypt failures are *not* included: they must not re-generate, but may
+/// still back off until max_attempts if ops fix JWT/storage.
+fn is_unrecoverable_key_load_error(err: &str) -> bool {
+    err.contains("username empty (cannot ensure)")
 }
 
 /// 加载用户的密钥对
@@ -1108,13 +1151,39 @@ mod tests {
 
     #[test]
     fn missing_keys_error_is_detected() {
+        // Exact production log text from SELECT returning no row.
         assert!(is_missing_federation_keys_error(
             "No federation keys found for user"
         ));
+        assert!(is_missing_federation_keys_error(
+            "No federation keys found for user and username empty (cannot ensure)"
+        ));
+        // Decrypt path must never be treated as missing (no re-generate).
         assert!(!is_missing_federation_keys_error(
             "Key decryption failed: AES-GCM decryption failed"
         ));
         assert!(!is_missing_federation_keys_error("DB error: connection refused"));
+        assert!(!is_missing_federation_keys_error(
+            "Key load failed (ensure): Key generation failed"
+        ));
+    }
+
+    #[test]
+    fn unrecoverable_key_load_only_empty_username() {
+        assert!(is_unrecoverable_key_load_error(
+            "No federation keys found for user and username empty (cannot ensure)"
+        ));
+        // Decrypt: no ensure/rotate, but still backoff (not permanent here).
+        assert!(!is_unrecoverable_key_load_error(
+            "Key decryption failed: AES-GCM decryption failed"
+        ));
+        // Missing keys after ensure can still back off (race / DB blip).
+        assert!(!is_unrecoverable_key_load_error(
+            "No federation keys found for user"
+        ));
+        assert!(!is_unrecoverable_key_load_error(
+            "Key load failed (ensure): Key generation failed; original: No federation keys found for user"
+        ));
     }
 
     #[test]

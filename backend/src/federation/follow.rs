@@ -104,6 +104,19 @@ pub async fn follow_remote(
     .await
     .map_err(db_err)?;
 
+    // Defense-in-depth: ensure keys before enqueue. Delivery worker is the
+    // universal choke point and will also ensure-once if keys are still missing.
+    if let Err(e) =
+        crate::federation::actor::ensure_user_federation_keys(db, user_id, username).await
+    {
+        tracing::warn!(
+            user_id = user_id,
+            username = %username,
+            error = %e,
+            "Failed to ensure federation keys before Follow enqueue; delivery may ensure later"
+        );
+    }
+
     // 存 Activity 记录（完整 Activity JSON，供 delivery 直接发送）
     let act_row = db
         .query_one(Statement::from_sql_and_values(

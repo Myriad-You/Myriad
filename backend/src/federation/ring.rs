@@ -12,6 +12,33 @@ use serde_json::json;
 
 use crate::federation::types::*;
 
+/// Ensure signing keys before ring enqueue (defense-in-depth).
+///
+/// Delivery worker remains the universal choke point for already-queued rows;
+/// this avoids cold-key races on ring create/add_peer/leave/sync (same trap as
+/// room join in production logs).
+async fn ensure_keys_before_ring_outbound(
+    db: &DatabaseConnection,
+    user_id: i32,
+    username: &str,
+    context: &str,
+) {
+    if username.trim().is_empty() || user_id <= 0 {
+        return;
+    }
+    if let Err(e) =
+        crate::federation::actor::ensure_user_federation_keys(db, user_id, username).await
+    {
+        tracing::warn!(
+            user_id = user_id,
+            username = %username,
+            context = %context,
+            error = %e,
+            "Failed to ensure federation keys before ring outbound; delivery may ensure later"
+        );
+    }
+}
+
 /// 根据用户名查询实际的 user_id，避免硬编码 user_id = 1
 async fn resolve_user_id(
     db: &DatabaseConnection,
@@ -374,6 +401,7 @@ pub async fn leave_ring(
 
     // 向每个 peer 投递离开通知
     let local_user_id = resolve_user_id(db, username).await?;
+    ensure_keys_before_ring_outbound(db, local_user_id, username, "ring_leave").await;
     for peer in &peers {
         // 为每个 peer 生成独立的 activity_id，避免 DB 冲突
         let activity_id = generate_activity_id(&base_url);
@@ -553,6 +581,8 @@ pub async fn add_peer(
     if !remote.inbox_url.is_empty() {
         let domain = extract_domain(&remote.inbox_url).unwrap_or_default();
         let local_user_id = resolve_user_id(db, username).await?;
+        // Matches production log: add_peer enqueues without GET /users/{username}.
+        ensure_keys_before_ring_outbound(db, local_user_id, username, "ring_add_peer").await;
         let act_row = db
             .query_one(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
@@ -617,6 +647,7 @@ pub async fn remove_peer(
     // Notify removed peer so they drop us from known_peers (was local-only)
     let local_actor = actor_url(&base_url, username);
     let local_user_id = resolve_user_id(db, username).await?;
+    ensure_keys_before_ring_outbound(db, local_user_id, username, "ring_remove_peer").await;
     if let Ok(remote) = crate::federation::actor::fetch_remote_actor(db, peer_url).await {
         if !remote.inbox_url.is_empty() {
             let activity_id = generate_activity_id(&base_url);
@@ -721,6 +752,7 @@ pub async fn trigger_sync(
     }
 
     let local_user_id = resolve_user_id(db, username).await?;
+    ensure_keys_before_ring_outbound(db, local_user_id, username, "ring_sync").await;
     let category_filter = gossip_config
         .get("category")
         .or_else(|| gossip_config.get("brew_category"))
