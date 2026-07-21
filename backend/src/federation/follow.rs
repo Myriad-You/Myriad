@@ -541,4 +541,13 @@ mod tests {
         assert!(build_webfinger_url("alice@example.com#frag").is_err());
         assert!(build_webfinger_url("alice@example.com@evil").is_err());
     }
+
+    #[test]
+    fn build_webfinger_url_trims_outer_whitespace() {
+        let url = build_webfinger_url("  @alice@example.com  ").unwrap();
+        assert_eq!(
+            url,
+            "https://example.com/.well-known/webfinger?resource=acct%3Aalice%40example.com"
+        );
+    }
 }
