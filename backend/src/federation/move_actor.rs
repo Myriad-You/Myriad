@@ -1753,4 +1753,18 @@ mod tests {
         assert_eq!(normalize_base_url("https://a.example/").unwrap(), "https://a.example");
 
     }
+
+    #[test]
+    fn w175_activity_id_string_shapes() {
+        assert_eq!(
+            activity_id_string(&serde_json::json!("https://a.example/activities/1")),
+            Some("https://a.example/activities/1".into())
+        );
+        assert_eq!(
+            activity_id_string(&serde_json::json!({"id": "https://a.example/activities/2"})),
+            Some("https://a.example/activities/2".into())
+        );
+        assert_eq!(activity_id_string(&serde_json::json!({})), None);
+
+    }
 }
