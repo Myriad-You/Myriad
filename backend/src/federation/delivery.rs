@@ -1471,4 +1471,15 @@ mod tests {
             "remote said: cancelled by policy"
         )));
     }
+
+    #[test]
+    fn classify_cancel_status_unknown_and_failed() {
+        // Unknown / failed / cancelled → treat as cancelable (best-effort).
+        assert_eq!(classify_cancel_status("failed"), CancelStatusDecision::Cancel);
+        assert_eq!(classify_cancel_status("cancelled"), CancelStatusDecision::Cancel);
+        assert_eq!(classify_cancel_status(""), CancelStatusDecision::Cancel);
+        assert_eq!(classify_cancel_status("DEAD"), CancelStatusDecision::Cancel); // case-sensitive
+        // Canonical dead stays idempotent
+        assert_eq!(classify_cancel_status("dead"), CancelStatusDecision::AlreadyDead);
+    }
 }
