@@ -5,6 +5,7 @@
  * 通过 TappBridge 消息机制暴露受限的联邦操作
  *
  * 支持的操作域：
+ * - federation.getIdentity / rotateKeys — 联邦身份与显式密钥轮换（confirm:true）
  * - federation.timeline — 读取联邦时间线
  * - federation.follow / unfollow — 关注管理
  * - federation.channels — Channel 读取与消息发送
@@ -12,6 +13,7 @@
  * - federation.rings — Ring 信息读取
  * - federation.publish / unpublish — 内容发布管理
  * - federation.trust — 实例信任策略管理
+ * - federation.delivery* — stats/list/retry/cancel（bulk retry 跳过 cancelled: dead）
  * - federation.transfers — 文件传输
  * - federation.subscribeChannel / subscribeRoom — WS 实时事件订阅
  *   (mint one-time `tapp_ws_ticket` via grant-authenticated REST, then upgrade)

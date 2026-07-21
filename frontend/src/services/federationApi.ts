@@ -1055,11 +1055,20 @@ export const federationApi = {
     )
   },
 
-  /** Re-queue a single dead/stuck delivery item */
+  /**
+   * Re-queue a single dead/stuck delivery item.
+   * When the prior error was user cancel, server sets `revived_cancelled: true`.
+   */
   retryDelivery(
     queueId: number,
     runtimeGrant?: string,
-  ): Promise<{ success: boolean; id: number; status: string }> {
+  ): Promise<{
+    success: boolean
+    id: number
+    status: string
+    previous_status?: string
+    revived_cancelled?: boolean
+  }> {
     return apiService.post(
       `${PREFIX}/delivery/${queueId}/retry`,
       {},
@@ -1071,7 +1080,13 @@ export const federationApi = {
   cancelDelivery(
     queueId: number,
     runtimeGrant?: string,
-  ): Promise<{ success: boolean; id: number; status: string }> {
+  ): Promise<{
+    success: boolean
+    id: number
+    status: string
+    previous_status?: string
+    already?: boolean
+  }> {
     return apiService.post(
       `${PREFIX}/delivery/${queueId}/cancel`,
       {},
@@ -1079,11 +1094,19 @@ export const federationApi = {
     )
   },
 
-  /** Re-queue all dead delivery items (capped) */
+  /**
+   * Re-queue all dead delivery items (capped).
+   * Server skips `cancelled:*` rows and reports `skipped_cancelled`.
+   */
   retryAllDeadDelivery(
     limit?: number,
     runtimeGrant?: string,
-  ): Promise<{ success: boolean; retried: number }> {
+  ): Promise<{
+    success: boolean
+    retried: number
+    skipped_cancelled?: number
+    limit?: number
+  }> {
     const qs =
       limit != null ? `?limit=${encodeURIComponent(String(limit))}` : ''
     return apiService.post(

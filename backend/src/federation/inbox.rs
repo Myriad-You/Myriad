@@ -2096,6 +2096,28 @@ mod tests {
     }
 
     #[test]
+    fn extract_accept_object_type_from_array_first_typed() {
+        let activity = serde_json::json!({
+            "type": "Accept",
+            "actor": "https://b.example/users/bob",
+            "object": [
+                {"id": "https://a.example/activities/x"},
+                {"type": "Follow", "id": "https://a.example/activities/y"}
+            ]
+        });
+        assert_eq!(extract_accept_object_type(&activity), "Follow");
+        assert_eq!(
+            extract_accept_object_id(&activity),
+            "https://a.example/activities/x"
+        );
+        let link_only = serde_json::json!({
+            "object": {"type": "Link", "href": "https://a.example/activities/z"}
+        });
+        // Link has a type but Accept routing treats pure Link object type as reported.
+        assert_eq!(extract_accept_object_type(&link_only), "Link");
+    }
+
+    #[test]
     fn accept_matches_with_expanded_actor_object() {
         let candidates = vec![(
             "https://a.example/activities/1".into(),
