@@ -702,10 +702,10 @@ pub const AP_PUBLIC: &str = "https://www.w3.org/ns/activitystreams#Public";
 mod tests {
     use super::*;
 
-    #[test]
-    fn is_internal_url_lab_flag_toggles_private_hosts() {
+    #[tokio::test]
+    async fn is_internal_url_lab_flag_toggles_private_hosts() {
         // Serialize env mutation against other lab-flag tests in this crate.
-        let _guard = crate::services::outbound_security::tests_lab_env_lock();
+        let _guard = crate::services::outbound_security::tests_lab_env_lock().await;
         let prev = std::env::var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND").ok();
         std::env::remove_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND");
         assert!(is_internal_url("http://127.0.0.1:18080/users/a"));

@@ -162,13 +162,13 @@ pub async fn read_limited_body(
 }
 
 /// Test-only lock so concurrent tests do not race on
-/// `MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND`.
+/// Serialize lab-env mutations across tests (async-aware).
 #[cfg(test)]
-pub fn tests_lab_env_lock() -> std::sync::MutexGuard<'static, ()> {
-    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
-    LOCK.get_or_init(|| std::sync::Mutex::new(()))
+pub async fn tests_lab_env_lock() -> tokio::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
         .lock()
-        .unwrap_or_else(|e| e.into_inner())
+        .await
 }
 
 #[cfg(test)]
@@ -200,7 +200,7 @@ mod tests {
 
     #[tokio::test]
     async fn refuses_literal_internal_targets() {
-        let _guard = tests_lab_env_lock();
+        let _guard = tests_lab_env_lock().await;
         std::env::remove_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND");
         let result = build_public_http_client(
             "http://169.254.169.254/latest/meta-data/",
@@ -213,7 +213,7 @@ mod tests {
 
     #[tokio::test]
     async fn lab_flag_allows_loopback_http_client() {
-        let _guard = tests_lab_env_lock();
+        let _guard = tests_lab_env_lock().await;
         std::env::set_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND", "1");
         let result = build_public_http_client(
             "http://127.0.0.1:18080/inbox",
@@ -229,9 +229,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn lab_flag_env_parsing() {
-        let _guard = tests_lab_env_lock();
+    #[tokio::test]
+    async fn lab_flag_env_parsing() {
+        let _guard = tests_lab_env_lock().await;
         std::env::remove_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND");
         assert!(!federation_lab_private_outbound_enabled());
         std::env::set_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND", "1");
