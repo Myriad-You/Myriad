@@ -1585,4 +1585,20 @@ mod tests {
         assert_eq!(base, "https://new.example");
         assert_eq!(user, "carol");
     }
+
+    #[test]
+    fn classify_cancel_and_retry_pending_delivering_matrix() {
+        // pending: cancel + retry both allowed
+        assert_eq!(classify_cancel_status("pending"), CancelStatusDecision::Cancel);
+        assert_eq!(classify_retry_status("pending"), RetryStatusDecision::Allow);
+        // delivering: cancel ok, retry blocked as in-progress
+        assert_eq!(classify_cancel_status("delivering"), CancelStatusDecision::Cancel);
+        assert_eq!(classify_retry_status("delivering"), RetryStatusDecision::InProgress);
+        // dead: cancel idempotent, retry allowed
+        assert_eq!(classify_cancel_status("dead"), CancelStatusDecision::AlreadyDead);
+        assert_eq!(classify_retry_status("dead"), RetryStatusDecision::Allow);
+        // delivered: both terminal rejects
+        assert_eq!(classify_cancel_status("delivered"), CancelStatusDecision::AlreadyDelivered);
+        assert_eq!(classify_retry_status("delivered"), RetryStatusDecision::AlreadyDelivered);
+    }
 }
