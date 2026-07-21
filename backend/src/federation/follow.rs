@@ -524,4 +524,14 @@ mod tests {
         assert!(build_webfinger_url("acct:alice@example.com?x=1").is_err());
         assert!(build_webfinger_url("acct:alice@").is_err());
     }
+
+    #[test]
+    fn build_webfinger_url_rejects_empty_local_or_domain() {
+        assert!(build_webfinger_url("@example.com").is_err());
+        assert!(build_webfinger_url("alice@").is_err());
+        assert!(build_webfinger_url("alice").is_err());
+        assert!(build_webfinger_url("").is_err());
+        assert!(build_webfinger_url("   ").is_err());
+        assert!(build_webfinger_url("acct:@example.com").is_err());
+    }
 }
