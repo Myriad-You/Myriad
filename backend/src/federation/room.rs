@@ -502,6 +502,7 @@ pub(crate) async fn fanout_to_remote_members(
 }
 
 /// Fan-out with optional actor URL exclusions (e.g. skip invitee on RoomJoin roster announce).
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn fanout_to_remote_members_excluding(
     db: &DatabaseConnection,
     user_id: i32,
@@ -2873,6 +2874,7 @@ fn room_file_status(has_inline: bool, transfer_status: Option<&str>, has_transfe
 /// - `limit`: page size (default 50, max 200)
 /// - `filter`: all | image | file
 /// - `q`: case-insensitive filename substring
+#[allow(clippy::too_many_arguments)]
 pub async fn list_room_files(
     user_id: i32,
     username: &str,

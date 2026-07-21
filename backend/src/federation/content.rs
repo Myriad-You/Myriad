@@ -1351,11 +1351,7 @@ async fn deliver_create_to_local_follower(
     let object_type = object["type"].as_str().map(|s| s.to_string());
     let preview = preview_from_ap_object(object);
     // For Announce with a bare object id string, store as-is; Create stores the Note.
-    let content_json = if object.is_string() {
-        object.clone()
-    } else {
-        object.clone()
-    };
+    let content_json = object.clone();
 
     db.execute(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,

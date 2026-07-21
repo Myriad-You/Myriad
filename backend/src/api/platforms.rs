@@ -141,7 +141,7 @@ fn merge_cache_only_platforms(mut platforms: Vec<Value>, with_data: &HashSet<Str
         known.insert("netease".to_string());
     }
 
-    let mut next_id = platforms
+    let next_id = platforms
         .iter()
         .filter_map(|p| p.get("id").and_then(|v| v.as_i64()))
         .max()
@@ -155,7 +155,7 @@ fn merge_cache_only_platforms(mut platforms: Vec<Value>, with_data: &HashSet<Str
         .collect();
     missing.sort();
 
-    for slug in missing {
+    for (offset, slug) in missing.into_iter().enumerate() {
         let display = match slug.as_str() {
             "netease" => "Netease Music",
             "github" => "GitHub",
@@ -170,14 +170,13 @@ fn merge_cache_only_platforms(mut platforms: Vec<Value>, with_data: &HashSet<Str
             other => other,
         };
         platforms.push(platform_json(
-            next_id,
+            next_id + offset as i32,
             &slug,
             display,
             &slug,
             false,
             with_data,
         ));
-        next_id += 1;
     }
 
     platforms

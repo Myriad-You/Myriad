@@ -790,10 +790,14 @@ impl SmartFilter {
         let bangumi = data.get("bangumi").and_then(|v| v.as_array());
         let mut watch_list = Vec::new();
         // title → (cover, season_id, progress, season_type)
-        let mut bangumi_meta: std::collections::HashMap<
-            String,
-            (Option<String>, Option<String>, Option<String>, Option<String>),
-        > = std::collections::HashMap::new();
+        type BangumiMetaEntry = (
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        );
+        let mut bangumi_meta: std::collections::HashMap<String, BangumiMetaEntry> =
+            std::collections::HashMap::new();
 
         if let Some(items) = bangumi {
             for item in items {

@@ -146,7 +146,6 @@ pub(super) async fn install_tapp(
                     i18n,
                     page_modules,
                     assets,
-                    ..PreparedTappResources::default()
                 },
             )
         }
@@ -689,7 +688,6 @@ pub(super) async fn update_tapp(
                     i18n: req_i18n,
                     page_modules: req_page_modules,
                     assets: req_assets,
-                    ..PreparedTappResources::default()
                 },
             )
         }

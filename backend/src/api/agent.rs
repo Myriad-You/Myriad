@@ -3680,23 +3680,22 @@ async fn interrupt_session(
     let mut cancelled_count = 0;
     for task in &tasks {
         if crate::services::agent::executor::task_store::is_cancellable_task_status(&task.status)
+            && agent.cancel_task_for_user(&task.task_id, user_id).await
         {
-            if agent.cancel_task_for_user(&task.task_id, user_id).await {
-                cancelled_count += 1;
-                // 立即唤醒 wait-loop，避免通知/run 仍卡在 waiting
-                if let Some(waiting) = take_waiting_task(&task.task_id, user_id).await {
-                    let _ = waiting.done_tx.send(json!({
-                        "success": false,
-                        "responseType": "error",
-                        "message": "任务已取消",
-                        "streamTerminal": true,
-                        "task": {
-                            "taskId": task.task_id,
-                            "status": "cancelled",
-                            "progress": 0
-                        }
-                    }));
-                }
+            cancelled_count += 1;
+            // 立即唤醒 wait-loop，避免通知/run 仍卡在 waiting
+            if let Some(waiting) = take_waiting_task(&task.task_id, user_id).await {
+                let _ = waiting.done_tx.send(json!({
+                    "success": false,
+                    "responseType": "error",
+                    "message": "任务已取消",
+                    "streamTerminal": true,
+                    "task": {
+                        "taskId": task.task_id,
+                        "status": "cancelled",
+                        "progress": 0
+                    }
+                }));
             }
         }
     }

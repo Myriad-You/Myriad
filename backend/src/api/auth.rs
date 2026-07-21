@@ -190,6 +190,18 @@ pub async fn get_current_user(
     })))
 }
 
+/// `POST /api/auth/logout`
+pub async fn logout() -> impl IntoResponse {
+    tracing::info!("🚪 User logout - clearing auth cookie");
+    const COOKIE_VALUE: &str = "auth_token=deleted; Path=/; HttpOnly; SameSite=Strict; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT";
+    let mut response =
+        Json(json!({"success": true, "message": "Logged out successfully"})).into_response();
+    response
+        .headers_mut()
+        .insert(header::SET_COOKIE, HeaderValue::from_static(COOKIE_VALUE));
+    response
+}
+
 #[cfg(test)]
 mod auth_me_probe_tests {
     use super::*;
@@ -221,16 +233,4 @@ mod auth_me_probe_tests {
         );
         assert_eq!(extract_auth_token(&cookie_only), Some("cookie.jwt.sig"));
     }
-}
-
-/// `POST /api/auth/logout`
-pub async fn logout() -> impl IntoResponse {
-    tracing::info!("🚪 User logout - clearing auth cookie");
-    const COOKIE_VALUE: &str = "auth_token=deleted; Path=/; HttpOnly; SameSite=Strict; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT";
-    let mut response =
-        Json(json!({"success": true, "message": "Logged out successfully"})).into_response();
-    response
-        .headers_mut()
-        .insert(header::SET_COOKIE, HeaderValue::from_static(COOKIE_VALUE));
-    response
 }

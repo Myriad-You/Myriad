@@ -11,6 +11,7 @@ use sea_orm::{
     DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Statement,
 };
 use serde_json::json;
+use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -707,7 +708,7 @@ pub async fn get_user_tasks(user_id: i32) -> Vec<TaskState> {
     }
 
     let mut tasks: Vec<TaskState> = by_id.into_values().collect();
-    tasks.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+    tasks.sort_by_key(|b| Reverse(b.started_at));
     tasks
 }
 

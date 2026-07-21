@@ -1514,34 +1514,30 @@ pub async fn handle_inbound_undo_interaction(
     let inner_id = inner["id"].as_str().unwrap_or("");
 
     match inner_type {
-        "Like" => {
-            if !inner_id.is_empty() {
-                let _ = db
-                    .execute(Statement::from_sql_and_values(
-                        DatabaseBackend::Postgres,
-                        "DELETE FROM federation_activities WHERE activity_id = $1 AND is_local = false",
-                        [inner_id.into()],
-                    ))
-                    .await;
-            }
+        "Like" if !inner_id.is_empty() => {
+            let _ = db
+                .execute(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    "DELETE FROM federation_activities WHERE activity_id = $1 AND is_local = false",
+                    [inner_id.into()],
+                ))
+                .await;
         }
-        "Announce" => {
-            if !inner_id.is_empty() {
-                let _ = db
-                    .execute(Statement::from_sql_and_values(
-                        DatabaseBackend::Postgres,
-                        "DELETE FROM federation_timeline WHERE user_id = $1 AND activity_id = $2",
-                        [local_user_id.into(), inner_id.into()],
-                    ))
-                    .await;
-                let _ = db
-                    .execute(Statement::from_sql_and_values(
-                        DatabaseBackend::Postgres,
-                        "DELETE FROM federation_activities WHERE activity_id = $1 AND is_local = false",
-                        [inner_id.into()],
-                    ))
-                    .await;
-            }
+        "Announce" if !inner_id.is_empty() => {
+            let _ = db
+                .execute(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    "DELETE FROM federation_timeline WHERE user_id = $1 AND activity_id = $2",
+                    [local_user_id.into(), inner_id.into()],
+                ))
+                .await;
+            let _ = db
+                .execute(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    "DELETE FROM federation_activities WHERE activity_id = $1 AND is_local = false",
+                    [inner_id.into()],
+                ))
+                .await;
         }
         _ => {}
     }
