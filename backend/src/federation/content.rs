@@ -2180,4 +2180,12 @@ mod tests {
         assert!(to_d.is_empty() && cc_d.is_empty());
 
     }
+
+    #[test]
+    fn w175_strip_tags_preview_limit() {
+        let s = strip_tags_preview("<p>Hi&amp;there</p>", 50);
+        assert!(s.contains("Hi") && (s.contains("&") || s.contains("there")));
+        assert_eq!(strip_tags_preview(&"z".repeat(40), 8).chars().count(), 8);
+
+    }
 }
