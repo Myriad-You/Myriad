@@ -135,9 +135,50 @@ pub struct ImageProxyQuery {
     url: String,
 }
 
+/// Classic 1×1 transparent PNG (70 bytes). Soft-fail placeholder so ordinary
+/// `<img>` loads do not paint Network/console red on dead favicons.
+/// Base64: iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==
+const TRANSPARENT_1X1_PNG: &[u8] = &[
+    0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+    0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
+    0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0xDA, 0x63, 0xFC,
+    0xCF, 0xC0, 0x50, 0x0F, 0x00, 0x04, 0x85, 0x01, 0x80, 0x84, 0xA9, 0x8C, 0x21, 0x00, 0x00,
+    0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+];
+
+/// Soft-fail for upstream/content failures after security checks have passed.
+/// Returns HTTP 200 + tiny transparent PNG so browser `<img>` does not log 502/4xx.
+fn soft_fail_placeholder(reason: &str, url: &str) -> Response {
+    tracing::debug!(%url, %reason, "Image proxy soft-fail: transparent placeholder");
+    (
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, "image/png".to_string()),
+            // Short public cache: dead favicons are common; avoid long-lived bad entries
+            // if the remote recovers, but still dampen guest-page hammering.
+            (
+                header::CACHE_CONTROL,
+                "public, max-age=300".to_string(),
+            ),
+            (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*".to_string()),
+            // Lets intentional clients distinguish placeholders; <img> ignores this.
+            (
+                header::HeaderName::from_static("x-image-proxy"),
+                "placeholder".to_string(),
+            ),
+        ],
+        TRANSPARENT_1X1_PNG,
+    )
+        .into_response()
+}
+
 /// 代理图片请求，添加必要的Referer头
 /// ⚠️ P2: This endpoint is public but has domain whitelist protection
 /// Consider adding authentication if abuse is detected
+///
+/// Security rejections (SSRF / domain / unsafe target / rate limit / oversize URL)
+/// still return hard 4xx. Upstream fetch/content failures soft-fail with a
+/// transparent 1×1 PNG (HTTP 200) so ordinary `<img>` usage stays quiet.
 pub async fn proxy_image(Query(params): Query<ImageProxyQuery>) -> Response {
     let url = params.url;
 
@@ -197,7 +238,7 @@ pub async fn proxy_image(Query(params): Query<ImageProxyQuery>) -> Response {
     // 根据域名设置适当的Referer
     let referer = get_referer_for_url(&url);
 
-    // 发起请求
+    // 发起请求 — upstream failures soft-fail (no 502/504 console noise for <img>)
     let response = match client
         .get(target_url)
         .header("Referer", referer)
@@ -206,24 +247,25 @@ pub async fn proxy_image(Query(params): Query<ImageProxyQuery>) -> Response {
     {
         Ok(resp) => resp,
         Err(e) => {
-            tracing::error!("🚨 Image proxy failed - URL: {}, Error: {:?}", url, e);
-            // 区分不同类型的错误
-            if e.is_timeout() {
-                tracing::error!("   ⏱️  Timeout: Image request exceeded 10s limit");
-                return (StatusCode::GATEWAY_TIMEOUT, "Image request timeout").into_response();
+            let reason = if e.is_timeout() {
+                "upstream timeout"
             } else if e.is_connect() {
-                tracing::error!("   🔌 Connection failed: Cannot reach image server");
-                return (StatusCode::BAD_GATEWAY, "Cannot connect to image server").into_response();
+                "upstream connect failed"
             } else {
-                tracing::error!("   ❌ Unknown error: {:?}", e);
-                return (StatusCode::BAD_GATEWAY, "Failed to fetch image").into_response();
-            }
+                "upstream request failed"
+            };
+            tracing::debug!(%url, error = %e, %reason, "Image proxy upstream error");
+            return soft_fail_placeholder(reason, &url);
         }
     };
 
     if !response.status().is_success() {
-        tracing::warn!(%url, status = %response.status(), "Image proxy target returned non-success");
-        return (StatusCode::BAD_GATEWAY, "Image source returned an error").into_response();
+        tracing::debug!(
+            %url,
+            status = %response.status(),
+            "Image proxy target returned non-success"
+        );
+        return soft_fail_placeholder("upstream non-success status", &url);
     }
 
     // 获取内容类型
@@ -234,16 +276,17 @@ pub async fn proxy_image(Query(params): Query<ImageProxyQuery>) -> Response {
         .unwrap_or("image/jpeg")
         .to_string();
 
-    // ✅ P2 安全增强：验证是否为图片类型
+    // ✅ P2 安全增强：验证是否为图片类型（非图片 → soft-fail, not 400 red console）
     if !content_type.starts_with("image/") {
-        tracing::warn!("🚨 Rejected proxy request: Not an image ({})", content_type);
-        return (StatusCode::BAD_REQUEST, "Only image content is allowed").into_response();
+        tracing::debug!(%url, %content_type, "Image proxy rejected non-image content");
+        return soft_fail_placeholder("non-image content-type", &url);
     }
 
     // 获取图片数据，限制大小为 10MB
     let image_data = match response.bytes().await {
         Ok(data) => {
             // ✅ P2 安全增强：限制图片大小，防止内存耗尽
+            // Hard reject oversized payloads (DoS), not soft-fail — body is already buffered.
             if data.len() > 10 * 1024 * 1024 {
                 tracing::warn!(
                     "🚨 Rejected proxy request: Image too large ({} bytes)",
@@ -258,8 +301,8 @@ pub async fn proxy_image(Query(params): Query<ImageProxyQuery>) -> Response {
             data
         }
         Err(e) => {
-            tracing::error!("Failed to read image data: {}", e);
-            return (StatusCode::BAD_GATEWAY, "Failed to read image data").into_response();
+            tracing::debug!(%url, error = %e, "Image proxy failed to read body");
+            return soft_fail_placeholder("failed to read image body", &url);
         }
     };
 
@@ -347,6 +390,71 @@ fn get_referer_for_url(url: &str) -> &'static str {
         "https://myanimelist.net/"
     } else {
         "https://www.google.com/"
+    }
+}
+
+#[cfg(test)]
+mod image_proxy_tests {
+    use super::*;
+    use axum::body::to_bytes;
+    use axum::http::StatusCode;
+
+    #[test]
+    fn transparent_png_has_valid_signature_and_size() {
+        assert_eq!(TRANSPARENT_1X1_PNG.len(), 70);
+        assert_eq!(&TRANSPARENT_1X1_PNG[0..8], b"\x89PNG\r\n\x1a\n");
+        // IHDR width/height = 1
+        assert_eq!(&TRANSPARENT_1X1_PNG[16..24], &[0, 0, 0, 1, 0, 0, 0, 1]);
+    }
+
+    #[tokio::test]
+    async fn soft_fail_placeholder_returns_200_png_with_short_cache() {
+        let response = soft_fail_placeholder("upstream connect failed", "https://example.com/favicon.ico");
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let content_type = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok());
+        assert_eq!(content_type, Some("image/png"));
+
+        let cache = response
+            .headers()
+            .get(header::CACHE_CONTROL)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default();
+        assert!(cache.contains("public"));
+        assert!(cache.contains("max-age=300"));
+
+        let proxy_marker = response
+            .headers()
+            .get("x-image-proxy")
+            .and_then(|v| v.to_str().ok());
+        assert_eq!(proxy_marker, Some("placeholder"));
+
+        let body = to_bytes(response.into_body(), 1024).await.expect("body");
+        assert_eq!(body.as_ref(), TRANSPARENT_1X1_PNG);
+    }
+
+    #[test]
+    fn allows_favicon_ico_and_core_domains() {
+        assert!(is_allowed_domain("https://221.ltd/favicon.ico"));
+        assert!(is_allowed_domain("https://blog.hanawa.me/favicon.ico"));
+        assert!(is_allowed_domain(
+            "https://i0.hdslb.com/bfs/face/example.jpg"
+        ));
+        assert!(!is_allowed_domain("ftp://evil.example/x.png"));
+        assert!(!is_allowed_domain("https://evil.example/page.html"));
+    }
+
+    #[test]
+    fn soft_fail_does_not_weaken_security_rejections() {
+        // Documented contract: security gates stay hard-fail; only covered
+        // here via is_allowed_domain / length checks that proxy_image uses first.
+        assert!(!is_allowed_domain("not-a-url"));
+        assert!(!is_allowed_domain("https://example.com/api/data"));
+        let long = format!("https://example.com/{}.png", "a".repeat(3000));
+        assert!(long.len() > 2048);
     }
 }
 

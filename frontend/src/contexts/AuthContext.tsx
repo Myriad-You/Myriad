@@ -15,7 +15,11 @@ import {
   useState,
 } from 'react'
 import { API_URL } from '../config'
-import { clearSessionHint } from '../utils/sessionDetection'
+import {
+  clearSessionHint,
+  hasSessionHint,
+  setSessionHint,
+} from '../utils/sessionDetection'
 
 export interface User {
   id: number
@@ -86,7 +90,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     setIsLoading(true)
-    const run = (async () => {
+    let run!: Promise<void>
+    run = (async () => {
       try {
         const response = await fetch(`${API_URL}/api/auth/me`, {
           credentials: 'include',
@@ -95,11 +100,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (response.ok) {
           const userData = await response.json()
+          setSessionHint()
           setUser(userData)
           setIsAuthenticated(true)
           setIsAdmin(userData.is_admin || false)
         } else {
-          // 401 是正常的未登录状态，静默处理
+          // 401 是正常的未登录状态，静默处理（不 console.error）
+          clearSessionHint()
           setUser(null)
           setIsAuthenticated(false)
           setIsAdmin(false)
@@ -133,8 +140,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [resetTappSubjectState])
 
   // 页面加载时检查认证状态，包括：
-  // 1. OAuth 回调（auth=success 或 link=success）
-  // 2. 页面刷新时恢复登录状态（通过 Cookie 持久化）
+  // 1. OAuth 回调（auth=success 或 link=success）— 始终探测
+  // 2. 有 session hint 时恢复登录（Cookie 持久化）
+  // 3. 纯游客（无 hint）跳过 /api/auth/me，避免预期内的 401 网络红字
   // link=* query params are cleaned by useAuthUrlFeedback (toasts need them first).
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search)
@@ -144,7 +152,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (authSuccess || linkSuccess) {
       // OAuth 登录/绑定成功，立即检查认证状态
       console.debug('[AuthContext] OAuth callback detected, checking auth...')
-      checkAuth()
+      void checkAuth()
 
       // Strip only auth=success; leave link=* for the feedback toast hook
       if (authSuccess) {
@@ -153,11 +161,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const path = window.location.pathname
         window.history.replaceState({}, '', next ? `${path}?${next}` : path)
       }
+    } else if (hasSessionHint()) {
+      // 可能有活跃会话：探测 Cookie / 恢复登录态
+      console.debug('[AuthContext] Session hint present, checking auth...')
+      void checkAuth()
     } else {
-      // 页面加载时自动检查认证状态（恢复登录会话）
-      // 这确保了刷新页面后登录状态能够持久化
-      console.debug('[AuthContext] Page load, checking auth session...')
-      checkAuth()
+      // 纯游客：不打 /api/auth/me，消除浏览器 Network 上的预期 401
+      console.debug('[AuthContext] No session hint — guest, skip auth probe')
+      setUser(null)
+      setIsAuthenticated(false)
+      setIsAdmin(false)
+      setIsLoading(false)
+      setHasChecked(true)
     }
   }, [])
 

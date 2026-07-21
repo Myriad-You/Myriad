@@ -130,6 +130,13 @@ function FriendLinkIcon({
           loading="lazy"
           decoding="async"
           className="absolute inset-0 h-full w-full object-cover"
+          onLoad={(e) => {
+            // Soft-fail proxy returns 1×1 PNG for dead remote icons
+            const img = e.currentTarget
+            if (img.naturalWidth <= 1 && img.naturalHeight <= 1) {
+              setFailed(true)
+            }
+          }}
           onError={() => setFailed(true)}
         />
       ) : (

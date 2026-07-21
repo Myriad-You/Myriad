@@ -98,6 +98,14 @@ export function DefaultMode({
                   alt=""
                   className="w-6 h-6 shrink-0 object-contain drop-shadow-sm"
                   loading="lazy"
+                  onLoad={(e) => {
+                    // Soft-fail proxy returns 1×1 PNG for dead remote icons
+                    const img = e.currentTarget
+                    if (img.naturalWidth <= 1 && img.naturalHeight <= 1) {
+                      img.style.display = 'none'
+                      img.nextElementSibling?.classList.remove('hidden')
+                    }
+                  }}
                   onError={(e) => {
                     ;(e.target as HTMLImageElement).style.display = 'none'
                     ;(

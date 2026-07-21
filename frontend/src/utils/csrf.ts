@@ -47,6 +47,11 @@ async function fetchCSRFTokenFromServer(): Promise<string | null> {
  * 获取当前 CSRF Token，如果不存在则从服务器获取新的
  * ✅ 安全修复 P0: 改为从服务器获取而不是客户端生成
  *
+ * Guest note: backend requires a session for /api/csrf-token (401 otherwise).
+ * Callers should only invoke this for authenticated mutating requests — see
+ * `frontend/src/lib/api.ts` (GET skips CSRF) and Home.tsx (CSRF only when logged in).
+ * 401 is logged at debug, not error.
+ *
  * @param forceRefresh - 是否强制从服务器获取新 Token（默认 false）
  */
 export async function getCSRFToken(

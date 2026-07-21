@@ -159,6 +159,8 @@ export const SourceCard = React.memo(
     ) => {
       const [isHovered, setIsHovered] = useState(false)
       const [refreshing, setRefreshing] = useState(false)
+      // Soft-fail proxy returns 1×1 PNG (HTTP 200) for dead favicons — treat as missing
+      const [iconBroken, setIconBroken] = useState(false)
       const { t } = useI18n()
 
       // 接入动画调度器
@@ -180,14 +182,26 @@ export const SourceCard = React.memo(
         source.source_type === 'link'
           ? 'tiny'
           : previewSize || source.card_size || 'mini'
+      const needsColorExtract = !source.theme_color && Boolean(source.icon)
+      const showSourceIcon = Boolean(source.icon) && !iconBroken
 
-      // 图标加载后提取颜色
+      // Reset broken state when the source icon URL changes (no re-request loops)
+      useEffect(() => {
+        setIconBroken(false)
+      }, [source.icon])
+
+      // 图标加载后提取颜色；1×1 soft-fail placeholder → Rss fallback
       const handleIconLoad = useCallback(
         (e: React.SyntheticEvent<HTMLImageElement>) => {
+          const img = e.currentTarget
+          // Backend soft-fail placeholder is a 1×1 transparent PNG
+          if (img.naturalWidth <= 1 && img.naturalHeight <= 1) {
+            setIconBroken(true)
+            return
+          }
           if (source.theme_color || !source.icon) return
 
           try {
-            const img = e.currentTarget
             const palette = extractColorsFromLoadedImage(img)
             if (
               palette.primary &&
@@ -419,18 +433,20 @@ export const SourceCard = React.memo(
               <div
                 className={`${size === 'tiny' ? 'w-10 h-10' : size === 'mini' ? 'w-9 h-9' : 'w-11 h-11'} rounded-xl flex items-center justify-center relative overflow-hidden shrink-0 ${contentTransition}`}
               >
-                {source.icon ? (
+                {showSourceIcon ? (
                   <img
                     src={getIconUrl(source.icon) || ''}
                     alt=""
-                    crossOrigin="anonymous"
+                    // Only set CORS when canvas color extraction is needed;
+                    // otherwise avoid extra taint/CORS failures on some CDNs.
+                    {...(needsColorExtract
+                      ? { crossOrigin: 'anonymous' as const }
+                      : {})}
                     className={`${size === 'tiny' ? 'w-9 h-9' : size === 'mini' ? 'w-8 h-8' : 'w-10 h-10'} rounded-lg object-cover ${contentTransition}`}
                     loading="lazy"
                     decoding="async"
                     onLoad={handleIconLoad}
-                    onError={(e) => {
-                      ;(e.target as HTMLImageElement).style.display = 'none'
-                    }}
+                    onError={() => setIconBroken(true)}
                   />
                 ) : (
                   <div
