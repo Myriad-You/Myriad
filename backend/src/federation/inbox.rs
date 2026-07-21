@@ -2195,4 +2195,27 @@ mod tests {
         assert!(resolve_follow_accept_target("", "https://b.example/users/bob", &accepted_only)
             .is_none());
     }
+
+    #[test]
+    fn resolve_follow_accept_fallback_ignores_non_pending() {
+        // Wrong id + only accepted/rejected rows to actor → no match.
+        let candidates = vec![
+            (
+                "https://a.example/activities/1".into(),
+                "https://b.example/users/bob".into(),
+                "accepted".into(),
+            ),
+            (
+                "https://a.example/activities/2".into(),
+                "https://b.example/users/bob".into(),
+                "rejected".into(),
+            ),
+        ];
+        assert!(resolve_follow_accept_target(
+            "https://unknown/activities/z",
+            "https://b.example/users/bob",
+            &candidates,
+        )
+        .is_none());
+    }
 }
