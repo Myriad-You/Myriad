@@ -10,6 +10,10 @@
 # Env:
 #   SCRATCH_DIR  evidence dir (default ./tmp/federation-suite)
 #   KEEP_RUNNING=1 leave backends up
+#   PORT_A/B/C   listen ports (default 18080/18081/18082)
+#   DB_A/DB_B    postgres database names (default myriad_fed_a / myriad_fed_b)
+# Concurrent agents: use distinct PORT_* + DB_* + SCRATCH_DIR to avoid
+# SIGTERM/DB-reset collisions (shared defaults are not multi-tenant).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"

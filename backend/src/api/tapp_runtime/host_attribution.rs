@@ -537,6 +537,18 @@ mod tests {
     }
 
     #[test]
+    fn federation_keys_rotate_and_cancel_pending_are_write() {
+        assert_eq!(
+            federation_permission(&Method::POST, "/api/federation/keys/rotate"),
+            Some(TappPermission::FederationWrite)
+        );
+        assert_eq!(
+            federation_permission(&Method::POST, "/api/federation/delivery/cancel-pending"),
+            Some(TappPermission::FederationWrite)
+        );
+    }
+
+    #[test]
     fn federation_routes_map_to_frontend_permission_domains() {
         assert_eq!(
             federation_permission(&Method::GET, "/api/federation/timeline"),

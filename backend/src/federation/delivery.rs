@@ -622,7 +622,7 @@ pub async fn retry_delivery_item(
     let row = db
         .query_one(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            r#"SELECT dq.id, dq.status
+            r#"SELECT dq.id, dq.status, dq.error_message
                FROM federation_delivery_queue dq
                JOIN federation_activities a ON a.id = dq.activity_id
                WHERE dq.id = $1 AND a.user_id = $2"#,
@@ -643,6 +643,10 @@ pub async fn retry_delivery_item(
         })?;
 
     let status: String = row.try_get("", "status").unwrap_or_default();
+    let prev_error: Option<String> = row.try_get("", "error_message").ok().flatten();
+    // Explicit single-id retry may revive a user-cancelled row (unlike bulk
+    // retry-all-dead). Surface that so clients can warn.
+    let revived_cancelled = is_user_cancelled_delivery_error(prev_error.as_deref());
     match classify_retry_status(&status) {
         RetryStatusDecision::AlreadyDelivered => {
             return Err((
@@ -697,7 +701,8 @@ pub async fn retry_delivery_item(
         "success": true,
         "id": queue_id,
         "status": "pending",
-        "previous_status": status
+        "previous_status": status,
+        "revived_cancelled": revived_cancelled,
     }))
 }
 
