@@ -2557,5 +2557,70 @@ mod tests {
         ));
     }
 
+
+    #[test]
+    fn extract_activity_actor_id_from_string_array() {
+        // AS2 multi-value actor (rare for Accept, valid for some peers).
+        let activity = serde_json::json!({
+            "actor": ["https://b.example/users/bob", "https://b.example/users/other"]
+        });
+        assert_eq!(
+            extract_activity_actor_id(&activity),
+            "https://b.example/users/bob"
+        );
+        let empty_arr = serde_json::json!({ "actor": [] });
+        assert!(extract_activity_actor_id(&empty_arr).is_empty());
+        let blank_then_id = serde_json::json!({
+            "actor": ["  ", {"id": "https://b.example/users/carol"}]
+        });
+        assert_eq!(
+            extract_activity_actor_id(&blank_then_id),
+            "https://b.example/users/carol"
+        );
+    }
+
+
+    #[test]
+    fn extract_accept_object_id_prefers_id_over_href_on_same_object() {
+        // When both id and href exist, id wins (canonical activity id).
+        let activity = serde_json::json!({
+            "type": "Accept",
+            "object": {
+                "type": "Follow",
+                "id": "https://a.example/activities/id-wins",
+                "href": "https://a.example/activities/href-ignored"
+            }
+        });
+        assert_eq!(
+            extract_accept_object_id(&activity),
+            "https://a.example/activities/id-wins"
+        );
+    }
+
+
+    #[test]
+    fn accept_path_alias_ap_users_form_matches_stored_users_url() {
+        // Some peers emit Accept.actor as /ap/users/{name} while we store /users/{name}.
+        let candidates = vec![(
+            "https://a.example/activities/1".into(),
+            "https://b.example/users/bob".into(),
+            "pending".into(),
+        )];
+        let got = resolve_follow_accept_target(
+            "https://a.example/activities/1",
+            "https://b.example/ap/users/bob",
+            &candidates,
+        );
+        assert!(got.is_some());
+        // Different user under /ap/users must still fail.
+        let got_bad = resolve_follow_accept_target(
+            "https://a.example/activities/1",
+            "https://b.example/ap/users/carol",
+            &candidates,
+        );
+        assert!(got_bad.is_none());
+    }
+
 }
+
 
