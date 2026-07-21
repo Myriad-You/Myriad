@@ -308,6 +308,9 @@ export const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> =
     ['federation.bookmark', 'federation:write'],
     ['federation.unbookmark', 'federation:write'],
     ['federation.getBookmarks', 'federation:read'],
+    // External share intent (compose + status only; never server-side post)
+    ['federation.getExternalShareStatus', 'federation:read'],
+    ['federation.composeExternalShare', 'federation:read'],
     ['federation.announce', 'federation:write'],
     ['federation.unannounce', 'federation:write'],
     ['federation.uploadMedia', 'federation:write'],
