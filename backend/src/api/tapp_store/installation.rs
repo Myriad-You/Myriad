@@ -118,7 +118,19 @@ pub(super) async fn install_tapp(
                     api_error("code is required for direct install"),
                 )
             })?;
-            let unified_css = manifest.css_mode.as_deref() != Some("separated");
+            // separated: pageCss/widgetCss are the declared pageStyles/widgetStyles files.
+            // unified: they are generated tailwind (page.css / widget.css) sidecars.
+            let separated = manifest.css_mode.as_deref() == Some("separated");
+            let (widget_styles, generated_widget_css) = if separated {
+                (widget_css, None)
+            } else {
+                (None, widget_css)
+            };
+            let (page_styles, generated_page_css) = if separated {
+                (page_css, None)
+            } else {
+                (None, page_css)
+            };
             PreparedTappPackage::from_resources(
                 manifest,
                 PreparedTappResources {
@@ -126,8 +138,10 @@ pub(super) async fn install_tapp(
                     styles,
                     page_template,
                     widget_templates,
-                    generated_widget_css: unified_css.then_some(widget_css).flatten(),
-                    generated_page_css: unified_css.then_some(page_css).flatten(),
+                    widget_styles,
+                    page_styles,
+                    generated_widget_css,
+                    generated_page_css,
                     i18n,
                     page_modules,
                     assets,
@@ -649,7 +663,17 @@ pub(super) async fn update_tapp(
                     api_error("code is required for direct update"),
                 )
             })?;
-            let unified_css = manifest.css_mode.as_deref() != Some("separated");
+            let separated = manifest.css_mode.as_deref() == Some("separated");
+            let (widget_styles, generated_widget_css) = if separated {
+                (req_widget_css, None)
+            } else {
+                (None, req_widget_css)
+            };
+            let (page_styles, generated_page_css) = if separated {
+                (req_page_css, None)
+            } else {
+                (None, req_page_css)
+            };
             PreparedTappPackage::from_resources(
                 manifest,
                 PreparedTappResources {
@@ -657,8 +681,10 @@ pub(super) async fn update_tapp(
                     styles: req_styles,
                     page_template: req_page_template,
                     widget_templates: req_widget_templates,
-                    generated_widget_css: unified_css.then_some(req_widget_css).flatten(),
-                    generated_page_css: unified_css.then_some(req_page_css).flatten(),
+                    widget_styles,
+                    page_styles,
+                    generated_widget_css,
+                    generated_page_css,
                     i18n: req_i18n,
                     page_modules: req_page_modules,
                     assets: req_assets,

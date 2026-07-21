@@ -317,25 +317,68 @@ pub(super) async fn fetch_from_store(
     // 下载 Page 专用 CSS（分离模式）
     if let Some(page_styles_path) = download.get("page_styles").and_then(|v| v.as_str()) {
         let page_styles_url = format!("{}/{}", base_url, page_styles_path);
-        if let Ok(resp) = fetch_public_store_url(&page_styles_url).await {
-            if resp.status().is_success() {
-                if let Ok(content) = resp.text().await {
-                    page_styles_content = Some(content);
-                }
-            }
+        let resp = fetch_public_store_url(&page_styles_url).await.map_err(|e| {
+            (
+                StatusCode::BAD_GATEWAY,
+                api_error(format!("Failed to fetch page styles: {e}")),
+            )
+        })?;
+        if !resp.status().is_success() {
+            return Err((
+                StatusCode::BAD_GATEWAY,
+                api_error(format!(
+                    "Failed to fetch page styles: remote returned {}",
+                    resp.status()
+                )),
+            ));
         }
+        page_styles_content = Some(resp.text().await.map_err(|e| {
+            (
+                StatusCode::BAD_GATEWAY,
+                api_error(format!("Failed to read page styles: {e}")),
+            )
+        })?);
+    } else if manifest.page_styles.is_some() {
+        // Manifest declares pageStyles but store index omitted page_styles download path
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            api_error(
+                "Store index is missing download.page_styles for a manifest that declares pageStyles",
+            ),
+        ));
     }
 
     // 下载 Page 模板
     if let Some(page_path) = download.get("page_template").and_then(|v| v.as_str()) {
         let page_url = format!("{}/{}", base_url, page_path);
-        if let Ok(resp) = fetch_public_store_url(&page_url).await {
-            if resp.status().is_success() {
-                if let Ok(content) = resp.text().await {
-                    page_template_content = Some(content);
-                }
-            }
+        let resp = fetch_public_store_url(&page_url).await.map_err(|e| {
+            (
+                StatusCode::BAD_GATEWAY,
+                api_error(format!("Failed to fetch page template: {e}")),
+            )
+        })?;
+        if !resp.status().is_success() {
+            return Err((
+                StatusCode::BAD_GATEWAY,
+                api_error(format!(
+                    "Failed to fetch page template: remote returned {}",
+                    resp.status()
+                )),
+            ));
         }
+        page_template_content = Some(resp.text().await.map_err(|e| {
+            (
+                StatusCode::BAD_GATEWAY,
+                api_error(format!("Failed to read page template: {e}")),
+            )
+        })?);
+    } else if manifest.page_template.is_some() {
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            api_error(
+                "Store index is missing download.page_template for a manifest that declares pageTemplate",
+            ),
+        ));
     }
 
     // 下载 Widget 模板
