@@ -795,53 +795,8 @@ export function NavigationIsland() {
     updateModeMetrics,
   ])
 
-  // 首次挂载时初始化导航岛高度，并缓存 padding
-  useEffect(() => {
-    const content = navContentRef.current
-    if (!content) return
-
-    const island = content.closest('.dynamic-island') as HTMLElement
-    if (!island) return
-
-    let rafId: number
-    let retryCount = 0
-    const maxRetries = 5
-
-    const initHeight = () => {
-      const currentContent = navContentRef.current
-      const currentIsland = currentContent?.closest(
-        '.dynamic-island',
-      ) as HTMLElement
-      if (!currentContent || !currentIsland) return
-
-      // 首次计算时缓存 padding
-      const padding = getCachedPadding(currentIsland)
-
-      if (isDesktop()) {
-        const scrollHeight = currentContent.scrollHeight
-
-        if (
-          (!Number.isFinite(scrollHeight) ||
-            scrollHeight < MIN_ISLAND_HEIGHT) &&
-          retryCount < maxRetries
-        ) {
-          retryCount++
-          rafId = requestAnimationFrame(initHeight)
-          return
-        }
-
-        const validHeight = validateHeight(scrollHeight + padding)
-        if (validHeight !== null) {
-          currentIsland.style.height = `${validHeight}px`
-          updateModeMetrics('normal', { height: validHeight })
-        }
-      }
-    }
-
-    rafId = requestAnimationFrame(initHeight)
-
-    return () => cancelAnimationFrame(rafId)
-  }, [])
+  // 正常模式高度：挂载后 + 一级导航可见项变化时重算（见下方 primaryNavItems 之后的 effect）。
+  // 不可只在 mount 量一次：鉴权/模块可见性异步生效后项数会变，否则岛高度会偏大。
 
   // 窗口大小变化时更新尺寸 - 使用防抖避免频繁更新
   useEffect(() => {
@@ -967,6 +922,73 @@ export function NavigationIsland() {
       moduleVisibilityPreferences,
     ],
   )
+
+  /** 可见一级项签名：项增删时触发岛尺寸重测 */
+  const primaryNavSignature = useMemo(
+    () => primaryNavItems.map((item) => item.id).join('|'),
+    [primaryNavItems],
+  )
+
+  // 一级导航可见集合变化后重算正常模式高度/宽度（模块可见性、鉴权完成等）
+  useLayoutEffect(() => {
+    if (isAnimating || currentRenderMode !== 'normal') return
+
+    let rafId = 0
+    let retryCount = 0
+    const maxRetries = 8
+
+    const measure = () => {
+      const content = navContentRef.current
+      const island = content?.closest('.dynamic-island') as HTMLElement | null
+      if (!content || !island) return
+
+      if (isDesktop()) {
+        const padding = getCachedPadding(island)
+        const scrollHeight = content.scrollHeight
+        if (
+          (!Number.isFinite(scrollHeight) ||
+            scrollHeight < MIN_ISLAND_HEIGHT) &&
+          retryCount < maxRetries
+        ) {
+          retryCount++
+          rafId = requestAnimationFrame(measure)
+          return
+        }
+        const validHeight = validateHeight(scrollHeight + padding)
+        if (validHeight !== null) {
+          safeSetHeight(island, validHeight)
+          updateModeMetrics('normal', { height: validHeight })
+        }
+      } else {
+        // 移动端：项数变化后按内容重测自然宽度，避免沿用全量项时的缓存宽度
+        island.style.removeProperty('height')
+        const fromWidth = island.offsetWidth
+        island.style.removeProperty('width')
+        const naturalWidth = island.offsetWidth
+        if (naturalWidth > 0) {
+          if (fromWidth > 0 && fromWidth !== naturalWidth) {
+            island.style.width = `${fromWidth}px`
+            rafId = requestAnimationFrame(() => {
+              island.style.width = `${naturalWidth}px`
+              updateModeMetrics('normal', { width: naturalWidth })
+            })
+          } else {
+            island.style.width = `${naturalWidth}px`
+            updateModeMetrics('normal', { width: naturalWidth })
+          }
+        }
+      }
+    }
+
+    rafId = requestAnimationFrame(measure)
+    return () => cancelAnimationFrame(rafId)
+  }, [
+    primaryNavSignature,
+    currentRenderMode,
+    isAnimating,
+    getCachedPadding,
+    updateModeMetrics,
+  ])
 
   return (
     <nav
