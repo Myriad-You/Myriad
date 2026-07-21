@@ -75,6 +75,7 @@ html.dark .music-player-container:hover {
   display: flex;
   flex-direction: column;
   width: 100%;
+  min-width: 0;
 }
 
 @keyframes musicViewFadeIn {
@@ -797,6 +798,7 @@ html.dark .music-view-switch-btn:hover {
   flex-shrink: 0;
   width: 100%;
   min-width: 0;
+  max-width: 100%;
   box-sizing: border-box;
 }
 
@@ -814,12 +816,26 @@ html.dark .music-view-switch-btn:hover {
   line-height: 1;
 }
 
+/* Remaining includes leading "-"; slightly wider floor so labels don't jump */
+.music-time-remaining {
+  min-width: 3.25rem;
+}
+
 html.dark .music-time {
   color: rgb(255 255 255 / 50%);
 }
 
-.music-progress-bar {
+/* Flex shrink lives on the track wrapper; range fills it at 100% width */
+.music-progress-track {
   flex: 1 1 0%;
+  min-width: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.music-progress-bar {
+  flex: 1 1 auto;
   min-width: 0;
   width: 100%;
   height: 4px;
@@ -2160,16 +2176,30 @@ html.dark .music-vip-badge.trial {
   transition: color 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* 移动端适配 */
+/* 移动端适配（控制面板窄屏：展开内容约 calc(100vw - 4.25rem)） */
 @media (width <= 640px) {
+  .music-player-container {
+    padding: 0.75rem;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
   .music-album-cover {
     width: 50px;
     height: 50px;
   }
 
+  /* Control panel player uses cover-large; shrink so timeline keeps room */
+  .music-album-cover-large {
+    width: 52px;
+    height: 52px;
+  }
+
   .music-info-main {
-    gap: 0.1rem 0.625rem;
+    gap: 0.1rem 0.5rem;
     min-width: 0;
+    height: 52px;
   }
 
   .music-song-name {
@@ -2180,11 +2210,12 @@ html.dark .music-vip-badge.trial {
     font-size: 0.6875rem;
   }
 
-  /* Timeline: keep times + range bar inside narrow control panels (~320–390px) */
+  /* Timeline: keep times + seek bar inside narrow control panels (~320-390px) */
   .music-progress-container {
     gap: 0.25rem;
     width: 100%;
     min-width: 0;
+    max-width: 100%;
   }
 
   .music-time {
@@ -2192,8 +2223,16 @@ html.dark .music-vip-badge.trial {
     min-width: 2.5rem;
   }
 
-  .music-progress-bar {
+  .music-time-remaining {
+    min-width: 2.875rem;
+  }
+
+  .music-progress-track {
     flex: 1 1 0%;
+    min-width: 0;
+  }
+
+  .music-progress-bar {
     min-width: 0;
     width: 100%;
   }

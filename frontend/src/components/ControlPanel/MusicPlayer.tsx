@@ -146,27 +146,29 @@ const MusicInfoView: React.FC<MusicPlayerProps> = ({ player }) => {
 
           <div className="music-progress-container">
             <span className="music-time">{formatTime(currentTime)}</span>
-            <input
-              ref={progressBarRef}
-              type="range"
-              min="0"
-              max={audioDuration || currentSong.duration || 0}
-              value={currentTime}
-              onMouseDown={handleSeekStart}
-              onMouseUp={handleSeekEnd}
-              onTouchStart={handleSeekStart}
-              onTouchEnd={handleSeekEnd}
-              onInput={(e) =>
-                handleSeek(Number.parseFloat(e.currentTarget.value))
-              }
-              className="music-progress-bar"
-              aria-label={t.music.progress}
-            />
-            <span className="music-time">
-              -
-              {formatTime(
+            {/* Wrapper lets the range shrink in flex (input min-content is stubborn) */}
+            <div className="music-progress-track">
+              <input
+                ref={progressBarRef}
+                type="range"
+                min="0"
+                max={audioDuration || currentSong.duration || 0}
+                value={currentTime}
+                onMouseDown={handleSeekStart}
+                onMouseUp={handleSeekEnd}
+                onTouchStart={handleSeekStart}
+                onTouchEnd={handleSeekEnd}
+                onInput={(e) =>
+                  handleSeek(Number.parseFloat(e.currentTarget.value))
+                }
+                className="music-progress-bar"
+                aria-label={t.music.progress}
+              />
+            </div>
+            <span className="music-time music-time-remaining">
+              {`-${formatTime(
                 (audioDuration || currentSong.duration || 0) - currentTime,
-              )}
+              )}`}
             </span>
           </div>
         </div>

@@ -991,6 +991,9 @@ html.dark .control-panel-overlay {
      .control-bar-trigger(1rem)，实际生效的是 1.375rem */
   .expanded-panel-content {
     width: calc(100vw - 4.25rem);
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
   }
 
   .control-items-grid {
@@ -1258,13 +1261,20 @@ html.dark .control-panel-overlay {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
 }
 
-/* 控制面板内容：保持原有 flex 纵向布局与间距 */
+/* 控制面板内容：保持原有 flex 纵向布局与间距；
+   min-width:0 让子项（含音乐播放器时间轴）在窄屏可收缩 */
 .notif-control-content {
   display: flex;
   flex-direction: column;
   gap: 0.875rem;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
 }
 
 /* 切到通知 tab 时隐藏但保留布局（懒加载项出现仍可触发高度重测）。
