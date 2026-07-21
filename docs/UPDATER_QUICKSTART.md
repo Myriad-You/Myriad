@@ -12,7 +12,8 @@
 
 - Docker Engine 20.10+ 且支持 `docker compose` v2 子命令
 - 单机部署（updater 当前只支持 single-node）
-- pgdata 在宿主文件系统的目录（不能是 docker named volume）
+- **本地库模式**：pgdata 在宿主文件系统的目录（不能是 docker named volume）
+- **外部库模式**：见下方 [外部 PostgreSQL](#外部-postgresqlmyriad_db_modeexternal)；不要求 `./pgdata`
 
 ## 1. 初始化当前生产布局
 
@@ -332,9 +333,36 @@ UPDATER_ALLOW_INSECURE_COSIGN=true   # 或 COSIGN_INSECURE_OK=true
 ## 8. 关键约束（再次强调）
 
 - **永远不要推 `:latest`**：updater 的回滚依赖旧版本 tag 仍在 registry。
-- **pgdata 必须是 bind mount**：M1 不支持 docker named volume 上的快照。
+- **本地库：pgdata 必须是 bind mount**：M1 不支持 docker named volume 上的快照。
 - **首次部署 pgdata 尚不存在时 updater 仍可启动**（env-probe 记 warning）；完整更新快照会在路径就绪后才能执行。
+- **外部库**：`MYRIAD_DB_MODE=external` 时跳过 pgdata 快照/恢复；库备份由运维自管。
 - **修改 `.env`**：用户可以随便加自己的 key，updater 只触碰 `MYRIAD_TAG`/`PROXY_TAG`/`UPDATER_TAG` + release 声明的 `env.new`。
 - **每次更新的 token 验证**：5 次/分钟错误后封 10 分钟。
 
 更多 corner case 见 [updater-spec.md §16-17](./updater-spec.md)。
+
+## 外部 PostgreSQL（`MYRIAD_DB_MODE=external`）
+
+默认生产栈把 Postgres 放在 compose 内，并用 `./pgdata` bind 做升级前快照与失败回滚。
+若数据库在 **栈外**（1Panel 应用商店、云 RDS、宿主机 Postgres、独立 DB 容器）：
+
+| 项 | 行为 |
+| --- | --- |
+| `MYRIAD_DB_MODE=external` | updater **跳过** pgdata 快照与恢复 |
+| `DATABASE_URL` | backend 连接的 **唯一真相源**（写完整连接串） |
+| 栈内 `postgres` / `./pgdata` | **不要** 再部署；勿留空 `./pgdata` 装样子 |
+| 镜像 tag / 维护模式 | updater **仍管理** |
+| 库备份 / 库级回滚 | **运维自管**（`pg_dump`、云快照、面板备份） |
+
+```bash
+# .env 关键
+MYRIAD_DB_MODE=external
+DATABASE_URL=postgres://user:pass@db-host:5432/myriad?sslmode=prefer
+```
+
+Compose 形态与连通性（`host.docker.internal`、sslmode、容器内核对 `DATABASE_URL`）见：
+
+- [deployment/EXTERNAL_POSTGRES.md](./deployment/EXTERNAL_POSTGRES.md)
+- [deployment/examples/docker-compose.external-db.example.yml](./deployment/examples/docker-compose.external-db.example.yml)
+
+> 实现细节若另有 updater PR 落地，以该契约为准；在支持落地前也请用无 postgres 的 compose + 正确 `DATABASE_URL`，升级前自行 `pg_dump`。

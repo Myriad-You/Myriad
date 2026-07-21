@@ -160,6 +160,7 @@ Myriad/
 - [构建说明](docs/development/BUILD.md)
 - [API](docs/API.md)
 - [生产部署](docs/deployment/DOCKER_DEPLOYMENT.md)
+- [外部 PostgreSQL](docs/deployment/EXTERNAL_POSTGRES.md)
 - [端口清单](docs/deployment/PORTS.md)
 - [Updater 运维](docs/UPDATER_QUICKSTART.md)
 

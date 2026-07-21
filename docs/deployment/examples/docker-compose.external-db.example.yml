@@ -1,0 +1,262 @@
+# =============================================================================
+# Myriad 外部 PostgreSQL 拓扑示例（无栈内 postgres / 无 ./pgdata）
+# =============================================================================
+# 运维说明：
+#   - 完整文档：../EXTERNAL_POSTGRES.md
+#   - 与仓库根 docker-compose.yml 相同的业务/管理/guard 三网 + proxy + updater
+#   - 差异：无 postgres 服务；backend 使用 .env 中的 DATABASE_URL；
+#           MYRIAD_DB_MODE=external → updater 跳过 pgdata 快照/恢复
+#   - 数据库备份由运维自管（pg_dump / 云备份 / 1Panel），updater 不替代
+#   - 复制为部署目录 docker-compose.yml 前请先填好 .env（见下方变量清单）
+# =============================================================================
+#
+# 必需 .env（外部 DB）：
+#   MYRIAD_DB_MODE=external
+#   DATABASE_URL=postgres://user:pass@host:5432/myriad?sslmode=prefer
+#   MYRIAD_TAG / PROXY_TAG / UPDATER_TAG
+#   JWT_SECRET / CORS_ORIGINS
+#   UPDATE_TOKEN / UPDATER_GATEWAY_SECRET
+#   COMPOSE_PROJECT_NAME=myriad
+#
+# 可选：
+#   extra_hosts on backend for host.docker.internal:host-gateway
+#   BASE_URL / FRONTEND_URL / HTTP_PORT / CHANNEL / COSIGN_* 等同默认部署
+#
+# 不需要：
+#   POSTGRES_PASSWORD（无栈内 postgres 时）
+#   ./pgdata 目录或 bind（请勿挂空目录装样子）
+#   UPDATER_PGDATA（external 模式下可省略；见 updater 环境注释）
+# =============================================================================
+
+services:
+  backend-volume-init:
+    image: ${BACKEND_IMAGE:-docker.io/somekawahitomi/myriad-backend}:${MYRIAD_TAG}
+    container_name: myriad-backend-volume-init
+    user: "0:0"
+    environment:
+      MYRIAD_VOLUME_INIT_ONLY: "true"
+    volumes:
+      - backend_cache:/app/cache
+      - backend_data:/app/data
+    network_mode: none
+    restart: "no"
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs: [/tmp]
+
+  backend:
+    # NOTE: image tag is driven by updater via ${MYRIAD_TAG}.
+    image: ${BACKEND_IMAGE:-docker.io/somekawahitomi/myriad-backend}:${MYRIAD_TAG}
+    container_name: myriad-backend
+    deploy:
+      resources:
+        limits: { cpus: '2.0', memory: 2G }
+        reservations: { cpus: '0.5', memory: 512M }
+    environment:
+      # Source of truth for DB connectivity — set in .env, do not hardcode stack DNS.
+      DATABASE_URL: ${DATABASE_URL}
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: 1103
+      DATA_DIR: /app/data
+      CACHE_DIR: /app/cache
+      JWT_SECRET: ${JWT_SECRET}
+      TRUST_PROXY_HEADERS: "true"
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+      CSP_CONNECT_SRC: ${CSP_CONNECT_SRC:-'self' https:}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      FRONTEND_URL: ${FRONTEND_URL:-}
+      BASE_URL: ${BASE_URL:-}
+      RUST_LOG: ${RUST_LOG:-info}
+      TZ: Asia/Shanghai
+      MYRIAD_VERSION: ${MYRIAD_TAG}
+      MYRIAD_UPDATER_URL: http://updater-gateway:1104
+      UPDATER_GATEWAY_SECRET: ${UPDATER_GATEWAY_SECRET}
+    # No depends_on postgres — external DB is outside this compose project.
+    depends_on:
+      backend-volume-init: { condition: service_completed_successfully }
+    # Uncomment when Postgres runs on the Docker host and DATABASE_URL uses
+    # host.docker.internal (Linux needs explicit host-gateway mapping):
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:1103/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    volumes:
+      - backend_cache:/app/cache
+      - backend_data:/app/data
+    networks: [myriad-net, myriad-admin-net]
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    read_only: false
+    tmpfs: [/tmp]
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "3" }
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-docker.io/somekawahitomi/myriad-frontend}:${MYRIAD_TAG}
+    container_name: myriad-frontend
+    deploy:
+      resources:
+        limits: { cpus: '1.0', memory: 1G }
+        reservations: { cpus: '0.25', memory: 256M }
+    environment:
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-}
+      NODE_ENV: production
+      TZ: Asia/Shanghai
+      MYRIAD_VERSION: ${MYRIAD_TAG}
+    depends_on:
+      backend: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:1102"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks: [myriad-net]
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs: [/tmp]
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "3" }
+
+  proxy:
+    image: ${PROXY_IMAGE:-docker.io/somekawahitomi/myriad-proxy}:${PROXY_TAG}
+    container_name: myriad-proxy
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    environment:
+      PROXY_STATE_FILE: /state/maintenance.json
+      PROXY_BACKEND_UPSTREAM: http://backend:1103
+      PROXY_FRONTEND_UPSTREAM: http://frontend:1102
+      PROXY_UPDATER_UPSTREAM: http://updater:1101
+      PROXY_TRUSTED_UPSTREAMS: ${PROXY_TRUSTED_UPSTREAMS:-}
+      PROXY_ALLOW_DIRECT_UPDATER: ${PROXY_ALLOW_DIRECT_UPDATER:-false}
+      MYRIAD_VERSION: ${PROXY_TAG}
+      TZ: Asia/Shanghai
+    volumes:
+      - ./state:/state:ro
+    networks: [myriad-net, myriad-admin-net]
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs: [/tmp]
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "3" }
+
+  docker-guard:
+    image: ${UPDATER_IMAGE:-docker.io/somekawahitomi/myriad-updater}:${UPDATER_TAG}
+    container_name: myriad-docker-guard
+    entrypoint: ["/usr/bin/tini", "--", "/usr/local/bin/myriad-docker-guard"]
+    environment:
+      UPDATE_TOKEN: ${UPDATE_TOKEN}
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-myriad}
+      MYRIAD_DOCKER_NETWORK: ${MYRIAD_DOCKER_NETWORK:-myriad-net}
+      MYRIAD_ADMIN_NETWORK: ${MYRIAD_ADMIN_NETWORK:-myriad-admin-net}
+      MYRIAD_DOCKER_GUARD_NETWORK: ${MYRIAD_DOCKER_GUARD_NETWORK:-myriad-docker-guard-net}
+      DOCKER_GUARD_COMPOSE_DIR: /host/compose
+      DOCKER_GUARD_ENV_FILE: /host/compose/.env
+      # postgres remains in the allowlist so mixed/legacy pulls are not blocked;
+      # this stack does not run a postgres service.
+      DOCKER_GUARD_ALLOWED_IMAGES: ${BACKEND_IMAGE:-docker.io/somekawahitomi/myriad-backend},${FRONTEND_IMAGE:-docker.io/somekawahitomi/myriad-frontend},${PROXY_IMAGE:-docker.io/somekawahitomi/myriad-proxy},${UPDATER_IMAGE:-docker.io/somekawahitomi/myriad-updater},postgres
+      RUST_LOG: ${DOCKER_GUARD_LOG:-info}
+      TZ: Asia/Shanghai
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./:/host/compose:ro
+    networks: [myriad-docker-guard-net]
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs: [/tmp, /run]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:2375/_ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "3" }
+
+  updater:
+    image: ${UPDATER_IMAGE:-docker.io/somekawahitomi/myriad-updater}:${UPDATER_TAG}
+    container_name: myriad-updater
+    environment:
+      UPDATE_TOKEN: ${UPDATE_TOKEN}
+      CHANNEL: ${CHANNEL:-stable}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      REGISTRY_MIRROR: ${REGISTRY_MIRROR:-}
+      MYRIAD_GITHUB_REPO: ${MYRIAD_GITHUB_REPO:-Myriad-You/Myriad}
+      CHECK_INTERVAL_SECS: ${CHECK_INTERVAL_SECS:-3600}
+      UPDATER_STATE_DIR: /host/compose/state
+      UPDATER_ENV_FILE: /host/compose/.env
+      # External DB: skip pgdata snapshot/restore. Operator owns backups (pg_dump / cloud).
+      # UPDATER_PGDATA is intentionally omitted; do not create an empty ./pgdata bind.
+      MYRIAD_DB_MODE: ${MYRIAD_DB_MODE:-external}
+      UPDATER_COMPOSE_DIR: /host/compose
+      DOCKER_HOST: tcp://docker-guard:2375
+      DOCKER_GUARD_SELF_UPDATE_URL: http://docker-guard:2375/_myriad/self-update
+      COSIGN_VERIFY: ${COSIGN_VERIFY:-strict}
+      UPDATER_ALLOW_INSECURE_COSIGN: ${UPDATER_ALLOW_INSECURE_COSIGN:-}
+      COSIGN_INSECURE_OK: ${COSIGN_INSECURE_OK:-}
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-myriad}
+      MYRIAD_DOCKER_NETWORK: ${MYRIAD_DOCKER_NETWORK:-myriad-net}
+      MYRIAD_VERSION: ${UPDATER_TAG}
+      TZ: Asia/Shanghai
+    volumes:
+      # Deployment root only (state + .env + compose). No ./pgdata required.
+      - ./:/host/compose
+    networks: [myriad-admin-net, myriad-docker-guard-net]
+    depends_on:
+      docker-guard: { condition: service_healthy }
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "3" }
+
+  updater-gateway:
+    image: ${UPDATER_IMAGE:-docker.io/somekawahitomi/myriad-updater}:${UPDATER_TAG}
+    container_name: myriad-updater-gateway
+    entrypoint: ["/usr/bin/tini", "--", "/usr/local/bin/myriad-updater-gateway"]
+    environment:
+      UPDATE_TOKEN: ${UPDATE_TOKEN}
+      UPDATER_GATEWAY_SECRET: ${UPDATER_GATEWAY_SECRET}
+      UPDATER_UPSTREAM: http://updater:1101
+      GATEWAY_LISTEN: 0.0.0.0:1104
+      TZ: Asia/Shanghai
+    networks: [myriad-admin-net]
+    depends_on:
+      - updater
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs: [/tmp, /run]
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  backend_cache: { driver: local }
+  backend_data: { driver: local }
+
+networks:
+  myriad-net:
+    name: ${MYRIAD_DOCKER_NETWORK:-myriad-net}
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+  myriad-admin-net:
+    name: ${MYRIAD_ADMIN_NETWORK:-myriad-admin-net}
+    driver: bridge
+  myriad-docker-guard-net:
+    name: ${MYRIAD_DOCKER_GUARD_NETWORK:-myriad-docker-guard-net}
+    driver: bridge
+    internal: true

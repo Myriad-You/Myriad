@@ -59,6 +59,10 @@ Networks:
   docker-guard + gateway + three nets; examples under `examples/`) and
   [MIGRATION_DOCKER_GUARD.md](./MIGRATION_DOCKER_GUARD.md) (host `compose pull && up -d`;
   UI alone cannot switch topology).
+- **External PostgreSQL** (no in-stack `postgres`, `MYRIAD_DB_MODE=external`,
+  `DATABASE_URL` as source of truth): see
+  [EXTERNAL_POSTGRES.md](./EXTERNAL_POSTGRES.md) and
+  [examples/docker-compose.external-db.example.yml](./examples/docker-compose.external-db.example.yml).
 
 ## Files
 
@@ -69,9 +73,11 @@ Networks:
 | `scripts/docker/deploy.sh` | Linux/macOS bootstrap and stack management |
 | `scripts/docker/deploy.ps1` | Windows bootstrap and stack management |
 | `docs/deployment/PORTS.md` | Development and production port map |
+| `docs/deployment/EXTERNAL_POSTGRES.md` | External / 1Panel Postgres: `MYRIAD_DB_MODE=external`, no local pgdata |
 | `docs/deployment/MIGRATION_V2_TO_V3.md` | Chinese v2→v3 migration (sock → guard + gateway + three nets) |
 | `docs/deployment/examples/v3-docker-compose.yml` | Documented v3 compose snapshot (matches root topology) |
 | `docs/deployment/examples/v3.env.example` | Redacted v3 `.env` example (kiseki.blog operator shape) |
+| `docs/deployment/examples/docker-compose.external-db.example.yml` | Compose without `postgres`; external `DATABASE_URL` |
 | `docs/deployment/MIGRATION_DOCKER_GUARD.md` | Migrate from updater+sock to docker-guard dual-net |
 | `docs/deployment/UPDATER_SECURITY_BASELINE.md` | Done-state security baseline + operator red lines |
 | `docs/UPDATER_QUICKSTART.md` | Operator guide for update, rollback, rescue |
@@ -101,7 +107,9 @@ Open `http://localhost` or the port configured by `HTTP_PORT`.
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
-| `POSTGRES_PASSWORD` | yes | PostgreSQL password; set this yourself before first start |
+| `POSTGRES_PASSWORD` | yes\* | PostgreSQL password for **in-stack** `postgres`; set yourself before first start. \*Not used when `MYRIAD_DB_MODE=external` (see [EXTERNAL_POSTGRES.md](./EXTERNAL_POSTGRES.md)). |
+| `DATABASE_URL` | yes\*\* | Backend connection string. Default compose builds it from `POSTGRES_PASSWORD` + `postgres` service. \*\*Required explicitly for external DB. |
+| `MYRIAD_DB_MODE` | no | Omit or default = local stack postgres + updater `pgdata` snapshots. Set `external` to skip pgdata snapshot/restore (operator owns DB backups). |
 | `JWT_SECRET` | yes | JWT signing secret; set this yourself before first start |
 | `CORS_ORIGINS` | yes | Public frontend origins |
 | `BASE_URL` | no | Public HTTPS origin used for federation Actor URLs and OAuth fallback; required for federation |
@@ -196,15 +204,29 @@ Day-to-day updates should be started from the admin UI:
 ```
 
 The updater then handles maintenance mode, container stop/start, `pgdata`
-snapshotting, tag switching, health probes, rollback, and rescue state.
+snapshotting (local DB mode only), tag switching, health probes, rollback, and
+rescue state.
 Health probes use direct HTTP on the Compose network; they do not use Docker exec
 or create temporary probe containers.
+
+### External database
+
+When PostgreSQL is **outside** this compose project (cloud RDS, 1Panel Postgres,
+host install, separate DB stack):
+
+1. Set `MYRIAD_DB_MODE=external` and a full `DATABASE_URL` in `.env`.
+2. Do **not** run a `postgres` service or mount `./pgdata` for Myriad.
+3. Updater still manages image tags and maintenance; **you** own DB backups
+   (`pg_dump` / cloud / panel).
+
+Full runbook and example compose:
+[EXTERNAL_POSTGRES.md](./EXTERNAL_POSTGRES.md).
 
 ## Data Layout
 
 | Path | Git status | Purpose |
 | --- | --- | --- |
-| `./pgdata` | ignored | PostgreSQL bind mount used for updater snapshots |
+| `./pgdata` | ignored | PostgreSQL bind mount used for updater snapshots (**local DB only**; omit when external) |
 | `./state` | ignored | Proxy maintenance state and updater lock/history |
 | `./backups` | ignored | Operator-managed backups and diagnostics |
 | `backend_cache` volume | Docker volume | Backend cache |
@@ -214,6 +236,8 @@ or create temporary probe containers.
 rollback needs file-level snapshots.
 The updater mounts the deployment root once at `/host/compose`; `pgdata`, state,
 snapshots, and `.env` are accessed below that root without additional host binds.
+With `MYRIAD_DB_MODE=external`, do not leave an empty unused `./pgdata` directory
+as if it were live data.
 
 ## Development
 
