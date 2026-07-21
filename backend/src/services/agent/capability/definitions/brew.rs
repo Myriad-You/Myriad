@@ -47,8 +47,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
                 "query": { "type": "string", "description": "按名称/URL/分类/描述宽松匹配" },
                 "name": { "type": "string", "description": "同 query，按名称查找" },
                 "keyword": { "type": "string", "description": "同 query" },
-                "category": { "type": "string", "description": "按分类筛选" },
-                "sourceType": { "type": "string", "enum": ["rss", "link", "brewlia"], "description": "来源类型" },
+                "category": { "type": "string", "description": "按分类筛选；支持前端别名 friends→友情链接、mine→我；多分类逗号分隔按 token 匹配" },
+                "sourceType": { "type": "string", "description": "来源类型: rss|link|brewlia；friendlink/友链/友情链接 视为 link" },
                 "action": { "type": "string", "enum": ["list", "add", "refresh"] },
                 "url": { "type": "string" }
             }

@@ -460,7 +460,10 @@ async fn execute_brew_sources(
     params: &HashMap<String, Value>,
     ctx: &HandlerContext<'_>,
 ) -> Result<Value, String> {
-    use crate::services::agent::executor::utils::{best_loose_match, MatchKind};
+    use crate::services::agent::executor::utils::{
+        best_loose_match, brew_category_token_matches, normalize_brew_category_filter,
+        normalize_brew_source_type_filter, MatchKind,
+    };
 
     let query = params
         .get("query")
@@ -473,13 +476,15 @@ async fn execute_brew_sources(
         .get("category")
         .and_then(|v| v.as_str())
         .map(|s| s.trim())
-        .filter(|s| !s.is_empty());
+        .filter(|s| !s.is_empty())
+        .map(normalize_brew_category_filter);
     let source_type_filter = params
         .get("sourceType")
         .or_else(|| params.get("source_type"))
         .and_then(|v| v.as_str())
-        .map(|s| s.trim().to_lowercase())
-        .filter(|s| !s.is_empty());
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(normalize_brew_source_type_filter);
 
     let all_sources = brew_sources::Entity::find()
         .order_by_asc(brew_sources::Column::Name)
@@ -530,17 +535,29 @@ async fn execute_brew_sources(
         obj
     }
 
-    // Optional category / sourceType pre-filter (structural, not name search)
+    // Optional category / sourceType pre-filter (structural, not name search).
+    // 友情链接: category aliases (friends/friendlink/友链) normalize to "友情链接";
+    // sourceType aliases (friendlink/友情链接/友链) normalize to "link".
     let structurally_filtered: Vec<&brew_sources::Model> = all_sources
         .iter()
         .filter(|s| {
-            if let Some(cat) = category_filter {
-                let cat_lower = cat.to_lowercase();
+            if let Some(ref cat) = category_filter {
                 let ok = s
                     .category
                     .as_deref()
-                    .map(|c| c.to_lowercase().contains(&cat_lower))
+                    .map(|c| brew_category_token_matches(c, cat))
                     .unwrap_or(false);
+                // Friend-link category: also accept pure link sources tagged only via sourceType
+                // when category field is empty (legacy rows) — only for the friend-link bucket.
+                let ok = if !ok && cat == "友情链接" {
+                    s.source_type == brew_sources::SourceType::Link
+                        && s.category
+                            .as_deref()
+                            .map(|c| c.trim().is_empty())
+                            .unwrap_or(true)
+                } else {
+                    ok
+                };
                 if !ok {
                     return false;
                 }

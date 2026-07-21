@@ -134,6 +134,49 @@ pub fn best_loose_match(fields: &[&str], needle: &str) -> Option<MatchKind> {
     best
 }
 
+/// Normalize brew category filter aliases (frontend ids / colloquial → DB value).
+/// e.g. `friends` / `friendlink` / `友链` → `友情链接`.
+pub fn normalize_brew_category_filter(category: &str) -> String {
+    let c = category.trim();
+    let lower = c.to_lowercase();
+    match lower.as_str() {
+        "friends" | "friend" | "friendlink" | "friend-link" | "friend_link" | "friend-links"
+        | "friend_links" | "友链" => "友情链接".to_string(),
+        "mine" | "me" | "我的" => "我".to_string(),
+        _ => c.to_string(),
+    }
+}
+
+/// Normalize `sourceType` filter; friend-link aliases map to `link`.
+pub fn normalize_brew_source_type_filter(source_type: &str) -> String {
+    let lower = source_type.trim().to_lowercase();
+    match lower.as_str() {
+        "link" | "friendlink" | "friend" | "friends" | "friend-link" | "friend_link" | "友链"
+        | "友情链接" => "link".to_string(),
+        "rss" | "feed" | "atom" => "rss".to_string(),
+        "brewlia" | "ai" => "brewlia".to_string(),
+        _ => lower,
+    }
+}
+
+/// Multi-category token match for comma-separated `category` fields
+/// (e.g. `"友情链接, 技术"` matches `"友情链接"` or `"技术"`, not substring `"科"`).
+pub fn brew_category_token_matches(source_category: &str, category_name: &str) -> bool {
+    let cat = category_name.trim();
+    if cat.is_empty() {
+        return false;
+    }
+    let sc = source_category.trim();
+    if sc.is_empty() {
+        return false;
+    }
+    let cat_lower = cat.to_lowercase();
+    sc.split(',')
+        .map(|t| t.trim().to_lowercase())
+        .filter(|t| !t.is_empty())
+        .any(|t| t == cat_lower)
+}
+
 /// 从步骤输出中提取图片 URL（如果存在）
 pub fn extract_image_url(output: &Value) -> Option<String> {
     output
@@ -190,6 +233,36 @@ mod tests {
         );
         assert_eq!(kind, Some(MatchKind::Exact));
         assert_eq!(kind.unwrap().as_str(), "exact");
+    }
+
+    #[test]
+    fn test_normalize_brew_category_friendlink() {
+        assert_eq!(normalize_brew_category_filter("friends"), "友情链接");
+        assert_eq!(normalize_brew_category_filter("friendlink"), "友情链接");
+        assert_eq!(normalize_brew_category_filter("友链"), "友情链接");
+        assert_eq!(normalize_brew_category_filter("友情链接"), "友情链接");
+        assert_eq!(normalize_brew_category_filter("技术"), "技术");
+        assert_eq!(normalize_brew_category_filter("mine"), "我");
+    }
+
+    #[test]
+    fn test_normalize_brew_source_type_friendlink() {
+        assert_eq!(normalize_brew_source_type_filter("link"), "link");
+        assert_eq!(normalize_brew_source_type_filter("friendlink"), "link");
+        assert_eq!(normalize_brew_source_type_filter("友情链接"), "link");
+        assert_eq!(normalize_brew_source_type_filter("rss"), "rss");
+        assert_eq!(normalize_brew_source_type_filter("brewlia"), "brewlia");
+    }
+
+    #[test]
+    fn test_brew_category_token_matches_friendlink() {
+        assert!(brew_category_token_matches("友情链接", "友情链接"));
+        assert!(brew_category_token_matches("友情链接, 技术", "友情链接"));
+        assert!(brew_category_token_matches("技术, 友情链接", "友情链接"));
+        assert!(brew_category_token_matches("技术, 友情链接, 生活", "友情链接"));
+        assert!(!brew_category_token_matches("技术", "友情链接"));
+        // substring of a token must not match
+        assert!(!brew_category_token_matches("科学技术", "技术"));
     }
 
     #[test]
