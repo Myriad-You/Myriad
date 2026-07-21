@@ -17,13 +17,11 @@
  *   (mint one-time `tapp_ws_ticket` via grant-authenticated REST, then upgrade)
  */
 
+import type { ComposeXShareRequest } from '../../services/xShareApi'
 import type { TappInstance, TappMessage } from '../types'
 import type { TappBridge } from './TappBridge'
 import { federationApi } from '../../services/federationApi'
-import {
-  xShareApi,
-  type ComposeXShareRequest,
-} from '../../services/xShareApi'
+import { xShareApi } from '../../services/xShareApi'
 import { getFederationFeed } from '../services/TappApiService'
 import {
   federationMediaUrlRejectionReason,
