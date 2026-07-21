@@ -368,4 +368,14 @@ mod tests {
         assert!(require_covered_headers(&parsed, false).is_err());
 
     }
+
+    #[test]
+    fn w175_date_freshness_future() {
+        let now = Utc::now();
+        let future = (now + Duration::minutes(10))
+            .format("%a, %d %b %Y %H:%M:%S GMT")
+            .to_string();
+        assert!(verify_date_freshness(&future, now, Duration::minutes(5)).is_err());
+
+    }
 }
