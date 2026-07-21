@@ -2240,4 +2240,20 @@ mod tests {
         )
         .is_some());
     }
+
+    #[test]
+    fn split_actor_host_user_shapes() {
+        let (h, u) = split_actor_host_user("https://b.example/users/bob");
+        assert_eq!(h, "b.example");
+        assert_eq!(u, "bob");
+        let (h2, u2) = split_actor_host_user("https://b.example:8443/users/Bob");
+        assert_eq!(h2, "b.example:8443");
+        assert_eq!(u2, "Bob");
+        let (h3, u3) = split_actor_host_user("https://b.example/@bob");
+        assert_eq!(h3, "b.example");
+        assert_eq!(u3, ""); // non-/users/ path → empty user
+        let (h4, u4) = split_actor_host_user("not-a-url");
+        assert_eq!(h4, "");
+        assert_eq!(u4, "");
+    }
 }
