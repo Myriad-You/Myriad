@@ -1,14 +1,25 @@
 /**
- * Pure helpers for updater panel check freshness / stale policy.
+ * Pure helpers for updater panel check freshness and pre-update revalidation.
  *
- * Policy (open About → Updater):
+ * Open About → Updater policy:
+ * - On each panel mount (status OK, admin, not blocked): always silent
+ *   checkAvailable once. Remounting About = a new check is desired.
+ * - isCheckStale is for UI only (relative “ago”, unconfirmed badge, stale
+ *   hints) — not a gate for the auto recheck path.
+ * - Before applying “update to latest”: re-fetch available+status; abort if
+ *   no longer necessary (no target / identical / same version). On recheck
+ *   error, do not apply from stale cache.
+ *
+ * Stale age policy (display / messaging):
  * - Missing / invalid last_checked_at → stale (never checked).
  * - check_interval_secs > 0 → stale when age >= interval (same cadence as worker).
  * - check_interval_secs === 0 (auto-check off) → still stale after STALE_WHEN_OFF_SECS
- *   so visiting the panel never trusts multi-day cache.
+ *   so the UI never presents multi-day cache as “fresh”.
  */
 
-/** When worker auto-check is off, recheck if last check is at least this old (1h). */
+import type { UpdateMode } from '../../services/updaterApi'
+
+/** When worker auto-check is off, treat last check as stale after this age (1h). */
 export const STALE_WHEN_OFF_SECS = 3600
 
 /** How often the UI re-renders relative “ago” labels. */
@@ -29,7 +40,8 @@ export function checkAgeSecs(
 }
 
 /**
- * Whether cached updater status should be revalidated against GitHub.
+ * Whether cached updater status is old enough that the UI should show
+ * stale / unconfirmed messaging (not a gate for mount auto-recheck).
  *
  * @param lastCheckedAt ISO timestamp from status, or null/undefined if never checked
  * @param checkIntervalSecs effective interval from status (0 = worker auto-check off)
@@ -75,4 +87,101 @@ export function computeAgo(
   if (hr < 24) return { unit: 'hour', n: hr }
   const d = Math.round(hr / 24)
   return { unit: 'day', n: d }
+}
+
+// ----- Pre-update revalidation (update to latest) -----
+
+/** Why applying “latest” is no longer necessary after a fresh check. */
+export type LatestUpdateAbortReason =
+  | 'no_target'
+  | 'identical'
+  | 'same_version'
+
+export type LatestUpdatePlan =
+  | { proceed: false; reason: LatestUpdateAbortReason }
+  | {
+      proceed: true
+      target: string
+      mode: UpdateMode
+      isDowngrade: boolean
+      needsRisk: boolean
+    }
+
+/** Minimal tip / latest_available shape for planning. */
+export interface LatestTipFields {
+  version?: string | null
+  mode?: UpdateMode | null
+  relation?: string | null
+  is_upgrade?: boolean | null
+  is_downgrade?: boolean | null
+}
+
+/**
+ * Formal release tags look like v0.2.6 (`v`-prefixed semver, matching DeployTag).
+ * Kept local so planLatestUpdate stays free of UI imports.
+ */
+function isReleaseTag(tag: string): boolean {
+  return /^v\d+\.\d+\.\d+([.-][0-9A-Za-z.]+)?$/.test(tag.trim())
+}
+
+function modeForTarget(target: string, fallback: UpdateMode): UpdateMode {
+  return isReleaseTag(target)
+    ? 'release'
+    : fallback === 'commit'
+      ? 'commit'
+      : 'release'
+}
+
+function normalizeVersion(v: string): string {
+  return v.trim().toLowerCase()
+}
+
+/**
+ * Decide whether “update to latest” should still run after a fresh
+ * available + status recheck. Pure — no I/O.
+ *
+ * Aborts when there is no target, relation is identical, or the tip version
+ * equals the running version. Otherwise returns mode / risk flags from the
+ * fresh tip (prefer `available` over status.latest_available).
+ */
+export function planLatestUpdate(input: {
+  available: LatestTipFields | null | undefined
+  latestAvailable: LatestTipFields | null | undefined
+  currentVersion: string | null | undefined
+  downgradeAvailable?: boolean
+  channelMode: UpdateMode
+}): LatestUpdatePlan {
+  const tip = input.available ?? null
+  const la = input.latestAvailable ?? null
+  const target = (tip?.version || la?.version || '').trim()
+  if (!target) {
+    return { proceed: false, reason: 'no_target' }
+  }
+
+  const relation = tip?.relation ?? la?.relation
+  if (relation === 'identical') {
+    return { proceed: false, reason: 'identical' }
+  }
+
+  const current = (input.currentVersion ?? '').trim()
+  if (current && normalizeVersion(target) === normalizeVersion(current)) {
+    return { proceed: false, reason: 'same_version' }
+  }
+
+  const fallback: UpdateMode =
+    (tip?.mode ?? la?.mode ?? input.channelMode) === 'commit'
+      ? 'commit'
+      : 'release'
+  const mode = modeForTarget(target, fallback)
+  const isUpgrade = tip?.is_upgrade === true || la?.is_upgrade === true
+  const isDowngrade =
+    tip?.is_downgrade === true ||
+    la?.is_downgrade === true ||
+    input.downgradeAvailable === true
+  // Dev/commit: build-time upgrades may report relation=unknown without ancestry;
+  // only force risk confirm for diverged, or unknown when not a clear upgrade.
+  const needsRisk =
+    relation === 'diverged' || (relation === 'unknown' && !isUpgrade)
+
+  return { proceed: true, target, mode, isDowngrade, needsRisk }
 }

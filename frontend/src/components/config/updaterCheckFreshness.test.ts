@@ -1,8 +1,8 @@
 /**
- * Unit tests for updater check freshness helpers.
+ * Unit tests for updater check freshness + pre-update plan helpers.
  *
  * Run from frontend/:
- *   node --experimental-strip-types --test src/components/config/updaterCheckFreshness.test.ts
+ *   pnpm test:unit -- src/components/config/updaterCheckFreshness.test.ts
  */
 
 /* eslint-disable test/no-import-node-test -- node:test; project has no vitest dep */
@@ -14,6 +14,7 @@ import {
   checkAgeSecs,
   computeAgo,
   isCheckStale,
+  planLatestUpdate,
   STALE_WHEN_OFF_SECS,
 } from './updaterCheckFreshness.ts'
 
@@ -103,5 +104,184 @@ describe('computeAgo', () => {
   it('days at 24h+', () => {
     assert.deepEqual(computeAgo(isoAgo(24 * 3600), NOW), { unit: 'day', n: 1 })
     assert.deepEqual(computeAgo(isoAgo(48 * 3600), NOW), { unit: 'day', n: 2 })
+  })
+})
+
+describe('planLatestUpdate', () => {
+  const base = {
+    currentVersion: 'v0.3.9',
+    channelMode: 'release' as const,
+    downgradeAvailable: false,
+  }
+
+  it('aborts with no_target when tip is missing', () => {
+    assert.deepEqual(
+      planLatestUpdate({
+        ...base,
+        available: null,
+        latestAvailable: null,
+      }),
+      { proceed: false, reason: 'no_target' },
+    )
+    assert.deepEqual(
+      planLatestUpdate({
+        ...base,
+        available: { version: '  ' },
+        latestAvailable: undefined,
+      }),
+      { proceed: false, reason: 'no_target' },
+    )
+  })
+
+  it('aborts when relation is identical', () => {
+    assert.deepEqual(
+      planLatestUpdate({
+        ...base,
+        available: {
+          version: 'v0.3.10',
+          relation: 'identical',
+          is_upgrade: false,
+        },
+        latestAvailable: null,
+      }),
+      { proceed: false, reason: 'identical' },
+    )
+  })
+
+  it('aborts when tip version equals current (case-insensitive)', () => {
+    assert.deepEqual(
+      planLatestUpdate({
+        ...base,
+        available: { version: 'V0.3.9', relation: 'ahead' },
+        latestAvailable: null,
+      }),
+      { proceed: false, reason: 'same_version' },
+    )
+  })
+
+  it('prefers available over status.latest_available for target and relation', () => {
+    const plan = planLatestUpdate({
+      ...base,
+      available: {
+        version: 'v0.3.11',
+        mode: 'release',
+        relation: 'ahead',
+        is_upgrade: true,
+        is_downgrade: false,
+      },
+      latestAvailable: {
+        version: 'v0.3.10',
+        relation: 'diverged',
+        is_upgrade: false,
+        is_downgrade: false,
+      },
+    })
+    assert.deepEqual(plan, {
+      proceed: true,
+      target: 'v0.3.11',
+      mode: 'release',
+      isDowngrade: false,
+      needsRisk: false,
+    })
+  })
+
+  it('falls back to status.latest_available when available is null', () => {
+    const plan = planLatestUpdate({
+      ...base,
+      available: null,
+      latestAvailable: {
+        version: 'abc1234',
+        mode: 'commit',
+        relation: 'ahead',
+        is_upgrade: true,
+      },
+      channelMode: 'commit',
+    })
+    assert.deepEqual(plan, {
+      proceed: true,
+      target: 'abc1234',
+      mode: 'commit',
+      isDowngrade: false,
+      needsRisk: false,
+    })
+  })
+
+  it('uses release mode for formal v-tags even when channel is commit', () => {
+    const plan = planLatestUpdate({
+      ...base,
+      available: {
+        version: 'v0.3.10',
+        mode: 'commit',
+        relation: 'ahead',
+        is_upgrade: true,
+      },
+      latestAvailable: null,
+      channelMode: 'commit',
+    })
+    assert.equal(plan.proceed, true)
+    if (plan.proceed) {
+      assert.equal(plan.mode, 'release')
+    }
+  })
+
+  it('marks needsRisk for diverged or unknown-without-upgrade', () => {
+    const diverged = planLatestUpdate({
+      ...base,
+      available: {
+        version: 'deadbeef',
+        mode: 'commit',
+        relation: 'diverged',
+        is_upgrade: false,
+      },
+      latestAvailable: null,
+      channelMode: 'commit',
+    })
+    assert.equal(diverged.proceed, true)
+    if (diverged.proceed) assert.equal(diverged.needsRisk, true)
+
+    const unknownUpgrade = planLatestUpdate({
+      ...base,
+      available: {
+        version: 'deadbeef',
+        mode: 'commit',
+        relation: 'unknown',
+        is_upgrade: true,
+      },
+      latestAvailable: null,
+      channelMode: 'commit',
+    })
+    assert.equal(unknownUpgrade.proceed, true)
+    if (unknownUpgrade.proceed) assert.equal(unknownUpgrade.needsRisk, false)
+
+    const unknownNoUpgrade = planLatestUpdate({
+      ...base,
+      available: {
+        version: 'deadbeef',
+        mode: 'commit',
+        relation: 'unknown',
+        is_upgrade: false,
+      },
+      latestAvailable: null,
+      channelMode: 'commit',
+    })
+    assert.equal(unknownNoUpgrade.proceed, true)
+    if (unknownNoUpgrade.proceed) {
+      assert.equal(unknownNoUpgrade.needsRisk, true)
+    }
+  })
+
+  it('treats status.downgrade_available as isDowngrade', () => {
+    const plan = planLatestUpdate({
+      ...base,
+      available: {
+        version: 'v0.3.8',
+        relation: 'behind',
+        is_downgrade: false,
+      },
+      latestAvailable: null,
+      downgradeAvailable: true,
+    })
+    assert.equal(plan.proceed, true)
+    if (plan.proceed) assert.equal(plan.isDowngrade, true)
   })
 })

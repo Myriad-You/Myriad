@@ -35,7 +35,12 @@ import {
   UpdaterError,
 } from '../../services/updaterApi'
 import { ButtonItem, SettingGroup } from '../settings'
-import { AGO_TICK_MS, computeAgo, isCheckStale } from './updaterCheckFreshness'
+import {
+  AGO_TICK_MS,
+  computeAgo,
+  isCheckStale,
+  planLatestUpdate,
+} from './updaterCheckFreshness'
 import {
   hasNavigatedForJob,
   isLikelyMaintenanceHtml,
@@ -248,13 +253,14 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
   const selHydratedRef = useRef(false)
   const pollRef = useRef<number | null>(null)
   /**
-   * One auto recheck per panel mount session (avoids StrictMode / refresh loops
-   * spamming GitHub). Manual “Check now” is unaffected.
+   * One silent availability check per panel mount (avoids StrictMode / refresh
+   * loops spamming GitHub). Remounting About starts a new session. Manual
+   * “Check now” is unaffected.
    */
   const autoRecheckDoneRef = useRef(false)
   /** Drives live relative “ago” labels without a full status refresh. */
   const [nowTick, setNowTick] = useState(() => Date.now())
-  /** True while the open-panel stale auto-check is in flight. */
+  /** True while the open-panel always-once auto-check is in flight. */
   const [autoRechecking, setAutoRechecking] = useState(false)
 
   /** Job we are watching for maintenance → full-page navigate (once). */
@@ -496,7 +502,8 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     [api, refresh, tokenRequired, explain, u],
   )
 
-  // After first successful status(): recheck once if cache is stale.
+  // After first successful status(): always silent recheck once per mount.
+  // Do not gate on isCheckStale — opening About should always revalidate.
   useEffect(() => {
     if (autoRecheckDoneRef.current) return
     if (!status) return
@@ -504,17 +511,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     if (status.job_in_flight || status.maintenance_active) return
     // Wait until any in-flight panel action finishes before deciding.
     if (busy) return
-
-    if (
-      !isCheckStale(
-        status.last_checked_at,
-        status.check_interval_secs,
-        Date.now(),
-      )
-    ) {
-      autoRecheckDoneRef.current = true
-      return
-    }
 
     autoRecheckDoneRef.current = true
     setAutoRechecking(true)
@@ -647,32 +643,59 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     [api, status, refresh, tokenRequired, explain, u, beginMaintWatch],
   )
 
-  const updateToLatest = useCallback(() => {
-    const la = status?.latest_available
-    const target = available?.version ?? la?.version
-    if (!target) {
-      checkAvailable()
+  /**
+   * Update to latest: silent recheck available+status first; abort if no longer
+   * needed (identical / same version / no target). On recheck error, do not
+   * apply from the previous cache.
+   */
+  const updateToLatest = useCallback(async () => {
+    if (tokenRequired) {
+      setToast({ kind: 'error', text: u.updaterTokenRequiredDirect })
       return
     }
-    // Prefer target shape (formal vX.Y.Z → release path) over channel prefs mode so
-    // a dev-channel tip that is a formal release installs via release.json.
-    const fallback: UpdateMode =
-      (available?.mode ?? la?.mode ?? selOption.mode) === 'commit'
-        ? 'commit'
-        : 'release'
-    const mode = modeForTarget(target, fallback)
-    const relation = available?.relation ?? la?.relation
-    const isUpgrade = available?.is_upgrade === true || la?.is_upgrade === true
-    const isDowngrade =
-      available?.is_downgrade === true ||
-      la?.is_downgrade === true ||
-      status?.downgrade_available === true
-    // Dev/commit: build-time upgrades may report relation=unknown without ancestry;
-    // only force risk confirm for diverged, or unknown when not a clear upgrade.
-    const needsRisk =
-      relation === 'diverged' || (relation === 'unknown' && !isUpgrade)
-    dispatchUpdate(target, mode, { isDowngrade, needsRisk })
-  }, [available, status, selOption, dispatchUpdate, checkAvailable])
+    if (busy) return
+
+    setBusy('check')
+    setToast(null)
+    let manifest: ReleaseManifest | null = null
+    let freshStatus: UpdaterStatus | null = null
+    try {
+      // Same path as checkAvailable: no query overrides so /available matches /status.
+      manifest = await api.available()
+      setAvailable(manifest)
+      freshStatus = await api.status()
+      setStatus(freshStatus)
+    } catch (e) {
+      setToast({ kind: 'error', text: explain(e) })
+      return
+    } finally {
+      setBusy(null)
+    }
+
+    const plan = planLatestUpdate({
+      available: manifest,
+      latestAvailable: freshStatus?.latest_available,
+      currentVersion: freshStatus?.current_version,
+      downgradeAvailable: freshStatus?.downgrade_available,
+      channelMode: selOption.mode,
+    })
+    if (!plan.proceed) {
+      setToast({ kind: 'ok', text: u.updaterNoAvailable })
+      return
+    }
+    await dispatchUpdate(plan.target, plan.mode, {
+      isDowngrade: plan.isDowngrade,
+      needsRisk: plan.needsRisk,
+    })
+  }, [
+    api,
+    busy,
+    tokenRequired,
+    explain,
+    u,
+    selOption.mode,
+    dispatchUpdate,
+  ])
 
   const triggerSelfUpdate = useCallback(async () => {
     if (tokenRequired) {
@@ -1346,16 +1369,20 @@ function StatusHero({
             : 'btn-base btn-primary'
         }
         onClick={onUpdate}
-        disabled={busy === 'update' || tokenRequired}
+        disabled={
+          busy === 'update' || busy === 'check' || tokenRequired
+        }
       >
         <span>
           {busy === 'update'
             ? u.updaterDispatching
-            : mood === 'downgrade'
-              ? format(u.updaterDowngradeNow, {
-                  version: targetVersion ?? '…',
-                })
-              : u.updaterUpdateNow}
+            : busy === 'check'
+              ? u.updaterChecking
+              : mood === 'downgrade'
+                ? format(u.updaterDowngradeNow, {
+                    version: targetVersion ?? '…',
+                  })
+                : u.updaterUpdateNow}
         </span>
       </button>
     )
