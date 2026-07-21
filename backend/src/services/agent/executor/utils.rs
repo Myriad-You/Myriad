@@ -79,6 +79,61 @@ pub fn levenshtein_similar(a: &str, b: &str) -> bool {
     distance <= threshold.max(2)
 }
 
+/// How a needle matched a haystack field (exact → contains → fuzzy).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum MatchKind {
+    Fuzzy = 1,
+    Contains = 2,
+    Exact = 3,
+}
+
+impl MatchKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MatchKind::Exact => "exact",
+            MatchKind::Contains => "contains",
+            MatchKind::Fuzzy => "fuzzy",
+        }
+    }
+}
+
+/// Loose case-insensitive name match: exact → contains either way → Levenshtein.
+/// Empty needle or haystack never matches.
+pub fn loose_text_match(haystack: &str, needle: &str) -> Option<MatchKind> {
+    if haystack.is_empty() || needle.is_empty() {
+        return None;
+    }
+    let h = haystack.to_lowercase();
+    let n = needle.to_lowercase();
+    if h == n {
+        return Some(MatchKind::Exact);
+    }
+    if h.contains(&n) || n.contains(&h) {
+        return Some(MatchKind::Contains);
+    }
+    if levenshtein_similar(&h, &n) {
+        return Some(MatchKind::Fuzzy);
+    }
+    None
+}
+
+/// Best loose match across multiple text fields (skips empty fields).
+pub fn best_loose_match(fields: &[&str], needle: &str) -> Option<MatchKind> {
+    let mut best: Option<MatchKind> = None;
+    for field in fields {
+        if let Some(kind) = loose_text_match(field, needle) {
+            best = Some(match best {
+                Some(prev) if prev > kind => prev,
+                _ => kind,
+            });
+            if best == Some(MatchKind::Exact) {
+                break;
+            }
+        }
+    }
+    best
+}
+
 /// 从步骤输出中提取图片 URL（如果存在）
 pub fn extract_image_url(output: &Value) -> Option<String> {
     output
@@ -104,6 +159,37 @@ mod tests {
         assert!(levenshtein_similar("test", "tset"));
         assert!(!levenshtein_similar("abc", "xyz"));
         assert!(!levenshtein_similar("", "test"));
+    }
+
+    #[test]
+    fn test_loose_text_match_order() {
+        assert_eq!(loose_text_match("akiday", "akiday"), Some(MatchKind::Exact));
+        assert_eq!(
+            loose_text_match("Akiday Blog", "akiday"),
+            Some(MatchKind::Contains)
+        );
+        assert_eq!(
+            loose_text_match("akiday", "Akiday Blog"),
+            Some(MatchKind::Contains)
+        );
+        // typo / near miss
+        assert_eq!(
+            loose_text_match("akiday", "akday"),
+            Some(MatchKind::Fuzzy)
+        );
+        assert_eq!(loose_text_match("akiday", "zzzzzz"), None);
+        assert_eq!(loose_text_match("", "akiday"), None);
+        assert_eq!(loose_text_match("akiday", ""), None);
+    }
+
+    #[test]
+    fn test_best_loose_match_prefers_exact_name() {
+        let kind = best_loose_match(
+            &["https://example.com/akiday", "友情链接", "akiday"],
+            "akiday",
+        );
+        assert_eq!(kind, Some(MatchKind::Exact));
+        assert_eq!(kind.unwrap().as_str(), "exact");
     }
 
     #[test]

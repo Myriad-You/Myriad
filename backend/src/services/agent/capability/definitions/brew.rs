@@ -34,26 +34,35 @@ pub fn register(registry: &mut CapabilityRegistry) {
         ..Default::default()
     });
 
-    // 订阅源管理
+    // 订阅源列表（读 DB，支持宽松名称匹配）
     registry.register(Capability {
         id: "brew.sources".to_string(),
-        name: "订阅源管理".to_string(),
-        description: "获取、添加或管理 RSS/Atom 订阅源".to_string(),
+        name: "订阅源列表".to_string(),
+        description: "从数据库列出/查找 Brew 订阅源（含友情链接）。支持按名称宽松匹配（exact/contains/fuzzy）。用户说「看看 X」「X 是什么订阅」时先用本能力定位 source，再把 sourceId 传给 brew.items；有本地条目时不要改走 ai.webSearch。".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query, IntentAction::Create],
         input_schema: json!({
             "type": "object",
             "properties": {
+                "query": { "type": "string", "description": "按名称/URL/分类/描述宽松匹配" },
+                "name": { "type": "string", "description": "同 query，按名称查找" },
+                "keyword": { "type": "string", "description": "同 query" },
+                "category": { "type": "string", "description": "按分类筛选" },
+                "sourceType": { "type": "string", "enum": ["rss", "link", "brewlia"], "description": "来源类型" },
                 "action": { "type": "string", "enum": ["list", "add", "refresh"] },
-                "url": { "type": "string" },
-                "category": { "type": "string" }
+                "url": { "type": "string" }
             }
         }),
         output_schema: json!({
             "type": "object",
             "properties": {
                 "sources": { "type": "array" },
-                "count": { "type": "integer" }
+                "total": { "type": "integer" },
+                "totalInSystem": { "type": "integer" },
+                "matched": { "type": "boolean" },
+                "searchedFor": { "type": "string" },
+                "matchKind": { "type": "string" },
+                "suggestions": { "type": "array" }
             }
         }),
         required_permissions: vec!["brew:read".to_string()],
@@ -66,13 +75,16 @@ pub fn register(registry: &mut CapabilityRegistry) {
     registry.register(Capability {
         id: "brew.items".to_string(),
         name: "文章列表".to_string(),
-        description: "获取订阅源中的文章列表，支持按关键词筛选和导航到特定文章".to_string(),
+        description: "获取订阅源中的文章列表。优先传 sourceId（来自 brew.sources）；也支持 sourceName/name/query 宽松匹配订阅源名。用户说「看看 X」且本地有该源文章时用本能力，不要 webSearch。".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query, IntentAction::Navigate, IntentAction::Summarize, IntentAction::Analyze],
         input_schema: json!({
             "type": "object",
             "properties": {
-                "sourceId": { "type": "integer", "description": "订阅源ID" },
+                "sourceId": { "type": "integer", "description": "订阅源ID（推荐：由 brew.sources 返回后传入）" },
+                "sourceName": { "type": "string", "description": "订阅源名称（宽松匹配）" },
+                "name": { "type": "string", "description": "同 sourceName/query" },
+                "query": { "type": "string", "description": "按源名/作者/URL 筛选" },
                 "limit": { "type": "integer", "default": 20, "description": "返回数量" },
                 "unreadOnly": { "type": "boolean", "default": false },
                 "starred": { "type": "boolean" },

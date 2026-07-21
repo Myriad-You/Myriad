@@ -27,7 +27,7 @@ pub async fn execute(
         "platform.read" => execute_platform_read(params).await,
         "platform.stats" => execute_platform_stats(params).await,
         "brew.read" => execute_brew_read(params).await,
-        "brew.sources" => execute_brew_sources(params).await,
+        "brew.sources" => execute_brew_sources(params, ctx).await,
         "brew.items" => execute_brew_items(params, ctx).await,
         "brew.article" => execute_brew_article(params).await,
         "brew.stats" => execute_brew_stats(params).await,
@@ -456,12 +456,185 @@ async fn execute_brew_read(params: &HashMap<String, Value>) -> Result<Value, Str
     }))
 }
 
-async fn execute_brew_sources(_params: &HashMap<String, Value>) -> Result<Value, String> {
-    // 简化实现
+async fn execute_brew_sources(
+    params: &HashMap<String, Value>,
+    ctx: &HandlerContext<'_>,
+) -> Result<Value, String> {
+    use crate::services::agent::executor::utils::{best_loose_match, MatchKind};
+
+    let query = params
+        .get("query")
+        .or_else(|| params.get("name"))
+        .or_else(|| params.get("keyword"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty());
+    let category_filter = params
+        .get("category")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty());
+    let source_type_filter = params
+        .get("sourceType")
+        .or_else(|| params.get("source_type"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty());
+
+    let all_sources = brew_sources::Entity::find()
+        .order_by_asc(brew_sources::Column::Name)
+        .all(ctx.db)
+        .await
+        .map_err(|e| format!("Failed to fetch brew sources: {}", e))?;
+
+    let total_in_system = all_sources.len();
+
+    fn source_type_str(st: &brew_sources::SourceType) -> &'static str {
+        match st {
+            brew_sources::SourceType::Link => "link",
+            brew_sources::SourceType::Rss => "rss",
+            brew_sources::SourceType::Brewlia => "brewlia",
+        }
+    }
+
+    fn feed_type_str(ft: &brew_sources::FeedType) -> &'static str {
+        match ft {
+            brew_sources::FeedType::Rss => "rss",
+            brew_sources::FeedType::Atom => "atom",
+            brew_sources::FeedType::JsonFeed => "json_feed",
+            brew_sources::FeedType::Notion => "notion",
+            brew_sources::FeedType::RssHub => "rsshub",
+        }
+    }
+
+    fn source_to_json(s: &brew_sources::Model, match_kind: Option<MatchKind>) -> Value {
+        let mut obj = json!({
+            "id": s.id,
+            "name": s.name,
+            "url": s.url,
+            "siteUrl": s.site_url,
+            "category": s.category,
+            "sourceType": source_type_str(&s.source_type),
+            "feedType": feed_type_str(&s.feed_type),
+            "enabled": s.enabled,
+            "itemCount": s.item_count,
+            "unreadCount": s.unread_count,
+            "icon": s.icon,
+            "description": s.description,
+        });
+        if let Some(kind) = match_kind {
+            obj.as_object_mut()
+                .unwrap()
+                .insert("matchKind".to_string(), json!(kind.as_str()));
+        }
+        obj
+    }
+
+    // Optional category / sourceType pre-filter (structural, not name search)
+    let structurally_filtered: Vec<&brew_sources::Model> = all_sources
+        .iter()
+        .filter(|s| {
+            if let Some(cat) = category_filter {
+                let cat_lower = cat.to_lowercase();
+                let ok = s
+                    .category
+                    .as_deref()
+                    .map(|c| c.to_lowercase().contains(&cat_lower))
+                    .unwrap_or(false);
+                if !ok {
+                    return false;
+                }
+            }
+            if let Some(ref st) = source_type_filter {
+                if source_type_str(&s.source_type) != st.as_str() {
+                    return false;
+                }
+            }
+            true
+        })
+        .collect();
+
+    let Some(needle) = query else {
+        let sources: Vec<Value> = structurally_filtered
+            .iter()
+            .map(|s| source_to_json(s, None))
+            .collect();
+        return Ok(json!({
+            "sources": sources,
+            "total": sources.len(),
+            "totalInSystem": total_in_system,
+            "matched": true,
+        }));
+    };
+
+    tracing::info!(query = %needle, "[brew.sources] Filtering sources by name/keyword");
+
+    let mut scored: Vec<(&brew_sources::Model, MatchKind)> = Vec::new();
+    for s in &structurally_filtered {
+        let fields = [
+            s.name.as_str(),
+            s.url.as_str(),
+            s.site_url.as_deref().unwrap_or(""),
+            s.category.as_deref().unwrap_or(""),
+            s.description.as_deref().unwrap_or(""),
+        ];
+        if let Some(kind) = best_loose_match(&fields, needle) {
+            scored.push((s, kind));
+        }
+    }
+
+    // Prefer stronger matches, then name order (already sorted from DB)
+    scored.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.name.cmp(&b.0.name)));
+
+    if !scored.is_empty() {
+        let sources: Vec<Value> = scored
+            .iter()
+            .map(|(s, kind)| source_to_json(s, Some(*kind)))
+            .collect();
+        return Ok(json!({
+            "sources": sources,
+            "total": sources.len(),
+            "totalInSystem": total_in_system,
+            "matched": true,
+            "searchedFor": needle,
+            "matchKind": scored[0].1.as_str(),
+        }));
+    }
+
+    // Filter missed — do NOT claim the system has no sources
+    let name_pool: Vec<&str> = all_sources
+        .iter()
+        .filter(|s| !s.name.is_empty())
+        .map(|s| s.name.as_str())
+        .collect();
+    let suggestions: Vec<&str> = name_pool
+        .iter()
+        .copied()
+        .filter(|name| best_loose_match(&[*name], needle).is_some())
+        .take(5)
+        .collect();
+    let suggestions = if suggestions.is_empty() {
+        name_pool.into_iter().take(5).collect::<Vec<_>>()
+    } else {
+        suggestions
+    };
+
     Ok(json!({
         "sources": [],
         "total": 0,
-        "message": "Brew sources require database integration"
+        "totalInSystem": total_in_system,
+        "matched": false,
+        "notFound": true,
+        "searchedFor": needle,
+        "suggestions": suggestions,
+        "message": if total_in_system == 0 {
+            "系统中暂无订阅源".to_string()
+        } else {
+            format!(
+                "未找到匹配「{}」的订阅源（系统中共有 {} 个订阅源）",
+                needle, total_in_system
+            )
+        },
     }))
 }
 
@@ -469,7 +642,7 @@ async fn execute_brew_items(
     params: &HashMap<String, Value>,
     ctx: &HandlerContext<'_>,
 ) -> Result<Value, String> {
-    use crate::services::agent::executor::utils::levenshtein_similar;
+    use crate::services::agent::executor::utils::{best_loose_match, loose_text_match, MatchKind};
 
     let source_id = params.get("sourceId").and_then(|v| v.as_i64());
     let source_name = params.get("sourceName").and_then(|v| v.as_str());
@@ -574,118 +747,203 @@ async fn execute_brew_items(
         }));
     }
 
-    // 根据 filter_target 过滤
+    // Prefer explicit sourceId (from brew.sources → brew.items pipeline)
     let mut matched_source: Option<String> = None;
+    let mut match_kind: Option<&'static str> = None;
 
-    if let Some(name) = filter_target {
-        let name_lower = name.to_lowercase();
-        tracing::info!(filter = %name, "[brew.items] Filtering by source/author");
+    if let Some(sid) = source_id {
+        all_items.retain(|item| {
+            item.get("_sourceId")
+                .and_then(|v| v.as_i64())
+                .map(|id| id == sid)
+                .unwrap_or(false)
+        });
+        if let Some(src) = source_map.get(&(sid as i32)) {
+            matched_source = Some(src.name.clone());
+            match_kind = Some("sourceId");
+        }
+    }
 
-        let strict_matches: Vec<Value> = all_items
-            .iter()
-            .filter(|item| {
-                let author = item.get("author").and_then(|v| v.as_str()).unwrap_or("");
-                let feed_title = item
-                    .get("_feedTitle")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                feed_title.to_lowercase().contains(&name_lower)
-                    || author.to_lowercase().contains(&name_lower)
-            })
-            .cloned()
-            .collect();
+    // Name/author filter only when not already scoped by sourceId
+    if source_id.is_none() {
+        if let Some(name) = filter_target {
+            let name_lower = name.to_lowercase();
+            tracing::info!(filter = %name, "[brew.items] Filtering by source/author");
 
-        if !strict_matches.is_empty() {
-            all_items = strict_matches;
-            if let Some(first) = all_items.first() {
-                let feed_title = first
-                    .get("_feedTitle")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let author = first.get("author").and_then(|v| v.as_str()).unwrap_or("");
-                matched_source = Some(if !feed_title.is_empty() {
-                    feed_title.to_string()
-                } else if !author.is_empty() {
-                    author.to_string()
-                } else {
-                    "unknown".to_string()
-                });
-            }
-        } else {
-            // 尝试匹配 feed_url
-            let url_matches: Vec<Value> = all_items
+            let strict_matches: Vec<Value> = all_items
                 .iter()
                 .filter(|item| {
-                    let feed_url = item.get("_feedUrl").and_then(|v| v.as_str()).unwrap_or("");
-                    feed_url.to_lowercase().contains(&name_lower)
+                    let author = item.get("author").and_then(|v| v.as_str()).unwrap_or("");
+                    let feed_title = item
+                        .get("_feedTitle")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    feed_title.to_lowercase().contains(&name_lower)
+                        || author.to_lowercase().contains(&name_lower)
                 })
                 .cloned()
                 .collect();
 
-            if !url_matches.is_empty() {
-                all_items = url_matches;
+            if !strict_matches.is_empty() {
+                all_items = strict_matches;
+                match_kind = Some("contains");
                 if let Some(first) = all_items.first() {
                     let feed_title = first
                         .get("_feedTitle")
                         .and_then(|v| v.as_str())
                         .unwrap_or("");
+                    let author = first.get("author").and_then(|v| v.as_str()).unwrap_or("");
                     matched_source = Some(if !feed_title.is_empty() {
                         feed_title.to_string()
+                    } else if !author.is_empty() {
+                        author.to_string()
                     } else {
                         "unknown".to_string()
                     });
                 }
             } else {
-                all_items.clear();
-            }
-        }
-
-        if all_items.is_empty() {
-            let valid_sources: Vec<&String> =
-                available_sources.iter().filter(|s| !s.is_empty()).collect();
-            let valid_authors: Vec<&String> =
-                all_authors.iter().filter(|s| !s.is_empty()).collect();
-
-            let suggestions: Vec<&str> = valid_sources
-                .iter()
-                .chain(valid_authors.iter())
-                .filter(|s| {
-                    let s_lower = s.to_lowercase();
-                    s_lower.contains(&name_lower)
-                        || name_lower.contains(&s_lower)
-                        || levenshtein_similar(&s_lower, &name_lower)
-                })
-                .map(|s| s.as_str())
-                .take(5)
-                .collect();
-
-            let choices: Vec<Value> = if !suggestions.is_empty() {
-                suggestions
+                // 尝试匹配 feed_url
+                let url_matches: Vec<Value> = all_items
                     .iter()
-                    .map(|s| json!({ "value": s, "label": *s }))
-                    .collect()
-            } else {
-                valid_sources
+                    .filter(|item| {
+                        let feed_url =
+                            item.get("_feedUrl").and_then(|v| v.as_str()).unwrap_or("");
+                        feed_url.to_lowercase().contains(&name_lower)
+                    })
+                    .cloned()
+                    .collect();
+
+                if !url_matches.is_empty() {
+                    all_items = url_matches;
+                    match_kind = Some("contains");
+                    if let Some(first) = all_items.first() {
+                        let feed_title = first
+                            .get("_feedTitle")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        matched_source = Some(if !feed_title.is_empty() {
+                            feed_title.to_string()
+                        } else {
+                            "unknown".to_string()
+                        });
+                    }
+                } else {
+                    // Soft match: loose name match on feed titles / source names
+                    let mut soft_hits: Vec<(String, MatchKind)> = Vec::new();
+                    for src_name in &available_sources {
+                        if let Some(kind) = loose_text_match(src_name, name) {
+                            if !soft_hits.iter().any(|(n, _)| n == src_name) {
+                                soft_hits.push((src_name.clone(), kind));
+                            }
+                        }
+                    }
+                    // Also soft-match authors that appear on items
+                    for author in &all_authors {
+                        if let Some(kind) = loose_text_match(author, name) {
+                            if !soft_hits.iter().any(|(n, _)| n == author) {
+                                soft_hits.push((author.clone(), kind));
+                            }
+                        }
+                    }
+                    soft_hits.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
+                    if soft_hits.len() == 1 {
+                        let (picked, kind) = &soft_hits[0];
+                        let picked_lower = picked.to_lowercase();
+                        tracing::info!(
+                            filter = %name,
+                            picked = %picked,
+                            match_kind = %kind.as_str(),
+                            "[brew.items] Soft-matched single high-confidence source/author"
+                        );
+                        all_items = all_items
+                            .iter()
+                            .filter(|item| {
+                                let feed_title = item
+                                    .get("_feedTitle")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_lowercase();
+                                let author = item
+                                    .get("author")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_lowercase();
+                                feed_title == picked_lower || author == picked_lower
+                            })
+                            .cloned()
+                            .collect();
+                        matched_source = Some(picked.clone());
+                        match_kind = Some(kind.as_str());
+                    } else if soft_hits.len() > 1 {
+                        // Multiple close names → ambiguous; do not auto-pick
+                        let suggestions: Vec<&str> =
+                            soft_hits.iter().map(|(n, _)| n.as_str()).take(5).collect();
+                        let choices: Vec<Value> = suggestions
+                            .iter()
+                            .map(|s| json!({ "value": s, "label": *s }))
+                            .collect();
+                        return Ok(json!({
+                            "items": [],
+                            "total": 0,
+                            "sourceId": source_id,
+                            "notFound": false,
+                            "searchedFor": name,
+                            "ambiguous": true,
+                            "ambiguous_reason": crate::services::agent::response_agent::feed_ambiguous(name),
+                            "suggestions": suggestions,
+                            "choices": choices,
+                            "availableSources": available_sources.iter().filter(|s| !s.is_empty()).collect::<Vec<_>>(),
+                            "hint": crate::services::agent::response_agent::feed_hint(&suggestions.join(", "))
+                        }));
+                    } else {
+                        all_items.clear();
+                    }
+                }
+            }
+
+            if all_items.is_empty() {
+                let valid_sources: Vec<&String> =
+                    available_sources.iter().filter(|s| !s.is_empty()).collect();
+                let valid_authors: Vec<&String> =
+                    all_authors.iter().filter(|s| !s.is_empty()).collect();
+
+                let suggestions: Vec<&str> = valid_sources
                     .iter()
                     .chain(valid_authors.iter())
+                    .filter(|s| best_loose_match(&[s.as_str()], name).is_some())
+                    .map(|s| s.as_str())
                     .take(5)
-                    .map(|s| json!({ "value": s, "label": s }))
-                    .collect()
-            };
+                    .collect();
 
-            return Ok(json!({
-                "items": [],
-                "total": 0,
-                "sourceId": source_id,
-                "notFound": true,
-                "searchedFor": name,
-                "ambiguous": true,
-                "ambiguous_reason": crate::services::agent::response_agent::feed_ambiguous(name),
-                "suggestions": suggestions,
-                "choices": choices,
-                "availableSources": valid_sources,
-                "hint": crate::services::agent::response_agent::feed_hint(&suggestions.join(", "))
-            }));
+                let choices: Vec<Value> = if !suggestions.is_empty() {
+                    suggestions
+                        .iter()
+                        .map(|s| json!({ "value": s, "label": *s }))
+                        .collect()
+                } else {
+                    valid_sources
+                        .iter()
+                        .chain(valid_authors.iter())
+                        .take(5)
+                        .map(|s| json!({ "value": s, "label": s }))
+                        .collect()
+                };
+
+                // No close multi-match → not ambiguous; filter simply missed
+                return Ok(json!({
+                    "items": [],
+                    "total": 0,
+                    "sourceId": source_id,
+                    "notFound": true,
+                    "searchedFor": name,
+                    "ambiguous": false,
+                    "suggestions": suggestions,
+                    "choices": choices,
+                    "availableSources": valid_sources,
+                    "hint": crate::services::agent::response_agent::feed_hint(&suggestions.join(", "))
+                }));
+            }
         }
     }
 
@@ -722,6 +980,7 @@ async fn execute_brew_items(
             "total": all_items.len(),
             "sourceId": source_id,
             "matchedSource": matched_source,
+            "matchKind": match_kind,
             "frontendAction": {
                 "type": "brew_open_article",
                 "timestamp": chrono::Utc::now().timestamp_millis(),
@@ -743,7 +1002,8 @@ async fn execute_brew_items(
             "items": all_items,
             "total": all_items.len(),
             "sourceId": source_id,
-            "matchedSource": matched_source
+            "matchedSource": matched_source,
+            "matchKind": match_kind,
         }))
     }
 }

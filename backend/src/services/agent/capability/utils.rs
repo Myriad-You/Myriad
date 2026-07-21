@@ -350,11 +350,11 @@ pub fn get_sensitive_capabilities() -> HashMap<&'static str, (&'static str, Risk
 pub fn get_capability_usage_hint(capability_id: &str) -> &'static str {
     match capability_id {
         // ============ Brew 订阅系统 ============
-        "brew.items" => "获取文章。用户说'看看订阅'、'最新文章'、'打开文章'、'总结文章'时都用这个",
+        "brew.items" => "获取文章。用户说'看看订阅'、'最新文章'、'打开文章'、'总结文章'、'看看 X'时用这个。优先 sourceId；也可用 sourceName 宽松匹配。本地有文章时不要 webSearch",
         "brew.article" => {
             "【内部能力】根据已知ID获取文章详情。不要直接选择，由系统在已知文章ID时自动调用"
         }
-        "brew.sources" => "管理订阅源列表。用户说'我订阅了哪些'、'订阅源列表'时使用",
+        "brew.sources" => "【推荐·本地优先】从数据库列出/查找订阅源（含友情链接），支持名称宽松匹配。用户说'我订阅了哪些'、'订阅源列表'、'看看 X'、'有没有 X 这个源'时使用；匹配后把 sourceId 传给 brew.items。本地有该源时不要改用 ai.webSearch",
         "brew.discover" => "发现/搜索 RSS 源。用户想找某个网站的 RSS 时使用",
         "brew.subscribe" => "添加新订阅。用户说'订阅xxx'、'添加订阅'时使用",
         "brew.stats" => "阅读统计。用户问'读了多少文章'、'订阅统计'时使用",
