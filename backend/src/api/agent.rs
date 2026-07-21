@@ -3419,6 +3419,77 @@ async fn update_heartbeat(
     }
 }
 
+#[derive(Debug, Deserialize)]
+struct CreateHeartbeatBody {
+    name: String,
+    schedule: String,
+    action: String,
+    #[serde(default = "default_heartbeat_enabled")]
+    enabled: bool,
+    id: Option<String>,
+}
+
+fn default_heartbeat_enabled() -> bool {
+    true
+}
+
+/// 创建 Heartbeat 任务
+async fn create_heartbeat(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Json(body): Json<CreateHeartbeatBody>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    require_current_admin(&claims, &db).await?;
+    let manager = crate::services::agent::heartbeat::get_heartbeat().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({ "error": "Heartbeat not initialized" })),
+        )
+    })?;
+
+    match manager
+        .add_task(
+            body.id,
+            body.name,
+            body.schedule,
+            body.action,
+            body.enabled,
+        )
+        .await
+    {
+        Ok(task) => Ok(Json(json!({ "task": task }))),
+        Err(e) if e.contains("already exists") => Err((
+            StatusCode::CONFLICT,
+            Json(json!({ "error": e })),
+        )),
+        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({ "error": e })))),
+    }
+}
+
+/// 删除 Heartbeat 任务
+async fn delete_heartbeat(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path(task_id): Path<String>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    require_current_admin(&claims, &db).await?;
+    let manager = crate::services::agent::heartbeat::get_heartbeat().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({ "error": "Heartbeat not initialized" })),
+        )
+    })?;
+
+    match manager.delete_task(&task_id).await {
+        Ok(()) => Ok(Json(json!({ "deleted": true, "task_id": task_id }))),
+        Err(e) if e.contains("not found") => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": e })),
+        )),
+        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({ "error": e })))),
+    }
+}
+
 /// 热重载 MCP 配置（mcp_servers.json）
 async fn reload_mcp(
     State(db): State<DatabaseConnection>,
@@ -4793,20 +4864,24 @@ pub fn create_agent_routes() -> Router<DatabaseConnection> {
             "/queue/status",
             get(queue_status).route_layer(from_fn(middleware::auth::auth_middleware)),
         )
-        // Heartbeat 任务列表（需要认证）
+        // Heartbeat 任务列表 / 创建（需要认证 + admin）
         .route(
             "/heartbeat",
-            get(heartbeat_tasks).route_layer(from_fn(middleware::auth::auth_middleware)),
+            get(heartbeat_tasks)
+                .post(create_heartbeat)
+                .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         // 切换 Heartbeat 任务启用状态（需要认证）
         .route(
             "/heartbeat/{task_id}/toggle",
             post(toggle_heartbeat).route_layer(from_fn(middleware::auth::auth_middleware)),
         )
-        // 更新 Heartbeat 任务字段（需要认证）
+        // 更新 / 删除 Heartbeat 任务（需要认证）
         .route(
             "/heartbeat/{task_id}",
-            put(update_heartbeat).route_layer(from_fn(middleware::auth::auth_middleware)),
+            put(update_heartbeat)
+                .delete(delete_heartbeat)
+                .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         // 重新加载 Heartbeat 配置（需要认证）
         .route(

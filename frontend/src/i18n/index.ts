@@ -2965,9 +2965,13 @@ export interface TranslationKeys {
     manageActionError: string
     editHeartbeat: string
     saveHeartbeat: string
+    createHeartbeat: string
+    deleteHeartbeat: string
+    confirmDeleteHeartbeat: string
     heartbeatName: string
     heartbeatSchedule: string
     heartbeatAction: string
+    heartbeatEnabled: string
     cronEveryMinutes: string
     cronDaily: string
     originManual: string

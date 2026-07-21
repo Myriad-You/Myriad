@@ -455,6 +455,34 @@ class AgentService {
     return response.task
   }
 
+  /**
+   * 创建 Heartbeat 任务
+   */
+  async createHeartbeat(body: {
+    name: string
+    schedule: string
+    action: string
+    enabled?: boolean
+    id?: string
+  }): Promise<HeartbeatTask> {
+    const response = await apiService.post<{ task: HeartbeatTask }>(
+      `${this.baseUrl}/heartbeat`,
+      body,
+    )
+    return response.task
+  }
+
+  /**
+   * 删除 Heartbeat 任务
+   */
+  async deleteHeartbeat(
+    taskId: string,
+  ): Promise<{ deleted: boolean; task_id: string }> {
+    return apiService.delete(
+      `${this.baseUrl}/heartbeat/${encodeURIComponent(taskId)}`,
+    )
+  }
+
   // ============ 执行追踪 ============
 
   /**

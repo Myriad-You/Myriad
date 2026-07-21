@@ -94,7 +94,9 @@ impl TierRouter {
             // 系统和数据操作
             "data.transform" | "export.data" | "cache.status" | "cache.clear"
             | "system.metrics" | "stats.overview" | "profile.summary" | "task.status"
-            | "scheduler.list" | "scheduler.create" | "scheduler.trigger" | "setup.status"
+            | "scheduler.list" | "scheduler.create" | "scheduler.trigger"
+            | "heartbeat.list" | "heartbeat.create" | "heartbeat.update"
+            | "heartbeat.delete" | "heartbeat.toggle" | "setup.status"
             | "auth.status" | "time.info" | "config.get" | "metadata.history"
             | "rsshub.instances" | "rsshub.healthcheck" | "context.reference" => {
                 TaskComplexity::Simple

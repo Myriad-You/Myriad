@@ -1803,6 +1803,52 @@ html.dark .arael-manage-error-retry {
   color: var(--text-primary, #f3f4f6);
 }
 
+/* Heartbeat toolbar / create */
+.arael-hb-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 4px;
+}
+
+.arael-hb-create-btn {
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid rgb(99 102 241 / 25%);
+  background: rgb(99 102 241 / 8%);
+  color: #4f46e5;
+  font-weight: 500;
+}
+
+.arael-hb-create-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+html.dark .arael-hb-create-btn {
+  border-color: rgb(129 140 248 / 30%);
+  background: rgb(129 140 248 / 12%);
+  color: #a5b4fc;
+}
+
+.arael-manage-empty-cta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.arael-hb-edit-check {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px !important;
+}
+
+.arael-hb-create-form {
+  margin-bottom: 4px;
+}
+
 /* Heartbeat items */
 .arael-hb-item {
   display: flex;

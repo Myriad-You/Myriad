@@ -325,11 +325,27 @@ pub fn get_sensitive_capabilities() -> HashMap<&'static str, (&'static str, Risk
     );
     map.insert(
         "scheduler.create",
-        ("此操作将创建定时任务，可能影响系统资源", RiskLevel::Medium),
+        ("此操作将创建 Tapp 定时任务，可能影响系统资源", RiskLevel::Medium),
     );
     map.insert(
         "scheduler.trigger",
         ("此操作将立即触发调度任务", RiskLevel::Medium),
+    );
+    map.insert(
+        "heartbeat.create",
+        ("此操作将创建 Agent 心跳定时任务（HEARTBEAT.md）", RiskLevel::Medium),
+    );
+    map.insert(
+        "heartbeat.update",
+        ("此操作将修改 Agent 心跳任务配置", RiskLevel::Medium),
+    );
+    map.insert(
+        "heartbeat.delete",
+        ("此操作将删除 Agent 心跳定时任务", RiskLevel::High),
+    );
+    map.insert(
+        "heartbeat.toggle",
+        ("此操作将启用或禁用心跳任务", RiskLevel::Low),
     );
     map.insert("config.set", ("此操作将修改系统配置", RiskLevel::Medium));
     map.insert(
@@ -431,10 +447,17 @@ pub fn get_capability_usage_hint(capability_id: &str) -> &'static str {
         "image.cache" => "图片缓存。缓存外部图片到本地",
         "proxy.image" => "图片代理。代理获取外链图片",
 
-        // ============ 定时任务 ============
-        "scheduler.create" => "创建定时任务。创建定时执行的监控任务",
-        "scheduler.list" => "定时任务列表。获取所有定时任务列表",
-        "scheduler.trigger" => "立即执行任务。立即触发执行指定的定时任务",
+        // ============ Tapp 定时任务（tapp_scheduled_tasks）============
+        "scheduler.create" => "创建 Tapp 定时任务（需 tappId）。仅用于已安装 Tapp 的调度，不是 Agent 心跳",
+        "scheduler.list" => "Tapp 定时任务列表。获取当前用户的 Tapp 调度任务（非 HEARTBEAT.md）",
+        "scheduler.trigger" => "立即触发 Tapp 定时任务",
+
+        // ============ Agent Heartbeat（HEARTBEAT.md，自然语言指令）============
+        "heartbeat.list" => "【推荐·心跳列表】列出 Agent 心跳任务。用户问「有哪些定时任务」「心跳任务」时优先用这个（非 platform 自动刷新、非 Tapp scheduler）",
+        "heartbeat.create" => "【推荐·创建心跳】创建 Agent 心跳任务。用户说「定时」「每天」「每隔」「心跳」「帮我每小时检查」「每天早上总结」时必须用这个。params: name, schedule(5字段cron), action(自然语言指令), enabled默认true。例: schedule=\"0 * * * *\" action=\"检查 akiday 有没有更新\"。不要用 scheduler.create",
+        "heartbeat.update" => "更新心跳任务。按 id 修改 name/schedule/action/enabled",
+        "heartbeat.delete" => "删除心跳任务。按 id 删除 HEARTBEAT.md 中的任务",
+        "heartbeat.toggle" => "切换心跳任务启停。按 id 启用或禁用",
 
         // ============ 后台任务 ============
         "task.submit" => "提交后台任务。提交平台数据处理任务",
@@ -514,7 +537,8 @@ pub fn get_quick_reference() -> Value {
             "刷新数据": ["platform.refresh"],
             "清除缓存": ["cache.clear"],
             "导出数据": ["export.data"],
-            "定时任务": ["scheduler.create", "scheduler.list"],
+            "定时任务/每天/每隔/心跳/heartbeat": ["heartbeat.create", "heartbeat.list", "heartbeat.update", "heartbeat.delete"],
+            "Tapp定时任务": ["scheduler.create", "scheduler.list"],
             "生成图片/画图": ["prompt.generate", "ai.image"],
             "翻译": ["translate.text"],
             "文字转语音/朗读": ["speech.tts"],
@@ -563,7 +587,10 @@ pub fn get_quick_reference() -> Value {
             "用户说'给我推荐/找几篇文章/生成阅读列表' -> brew.generateReadingList",
             "用户说'注释文章/解读文章' -> brewlia.annotate (需要文章ID)",
             "用户说'做成播客/对话形式' -> brewlia.podcast (需要文章ID)",
-            "brew.article 是内部能力，不要主动使用，由 brew.items 链式调用"
+            "brew.article 是内部能力，不要主动使用，由 brew.items 链式调用",
+            "用户说'帮我每天/每小时/每隔/定时检查/总结' -> heartbeat.create（Agent 心跳，action 用自然语言；不要用 scheduler.create）",
+            "用户说'有哪些定时任务/心跳任务' -> heartbeat.list",
+            "platform 自动刷新、Tapp 内调度 -> 分别用 platform.refresh / scheduler.*，不要和 heartbeat 混淆"
         ],
         "常见参数示例": {
             "platform.read": {"platform": "bilibili|bangumi|mal|steam|github|netease|x|discord|xbox|psn", "type": "overview|favorites|recent"},
@@ -572,7 +599,8 @@ pub fn get_quick_reference() -> Value {
             "brew.items": {"limit": 10, "source_id": "可选源ID", "unread_only": true},
             "router.navigate": {"path": "/library, /brew, /reports, /config, /data-management, /tapp"},
             "music.control": {"action": "play|pause|next|prev|mute|unmute|volume", "volume": 50},
-            "scheduler.create": {"name": "任务名", "cron": "*/30 * * * *", "capability_id": "定时执行的能力"}
+            "scheduler.create": {"tappId": "已安装TappID", "name": "任务名", "scheduleType": "cron", "schedule": {"cron": "*/30 * * * *"}},
+            "heartbeat.create": {"name": "Brew早间总结", "schedule": "0 9 * * *", "action": "总结 brew 订阅", "enabled": true}
         }
     })
 }

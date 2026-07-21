@@ -34,11 +34,11 @@ pub fn register(registry: &mut CapabilityRegistry) {
         ..Default::default()
     });
 
-    // 创建定时任务
+    // 创建 Tapp 定时任务（tapp_scheduled_tasks，非 Agent Heartbeat）
     registry.register(Capability {
         id: "scheduler.create".to_string(),
-        name: "创建定时任务".to_string(),
-        description: "为已安装的 Tapp 创建真实可执行的定时任务".to_string(),
+        name: "创建 Tapp 定时任务".to_string(),
+        description: "为已安装的 Tapp 创建真实可执行的定时任务（Tapp 调度器，非 Agent Heartbeat）".to_string(),
         category: CapabilityCategory::SystemOp,
         supported_actions: vec![IntentAction::Monitor, IntentAction::Create],
         input_schema: json!({
@@ -99,11 +99,11 @@ pub fn register(registry: &mut CapabilityRegistry) {
         ..Default::default()
     });
 
-    // 定时任务列表
+    // Tapp 定时任务列表
     registry.register(Capability {
         id: "scheduler.list".to_string(),
-        name: "定时任务列表".to_string(),
-        description: "获取当前用户的 Tapp 定时任务列表".to_string(),
+        name: "Tapp 定时任务列表".to_string(),
+        description: "获取当前用户的 Tapp 定时任务列表（非 Agent Heartbeat）".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -126,10 +126,10 @@ pub fn register(registry: &mut CapabilityRegistry) {
         ..Default::default()
     });
 
-    // 立即执行任务
+    // 立即执行 Tapp 任务
     registry.register(Capability {
         id: "scheduler.trigger".to_string(),
-        name: "立即执行任务".to_string(),
+        name: "立即执行 Tapp 任务".to_string(),
         description: "立即触发当前用户的指定 Tapp 定时任务".to_string(),
         category: CapabilityCategory::SystemOp,
         supported_actions: vec![IntentAction::Update],
@@ -153,6 +153,151 @@ pub fn register(registry: &mut CapabilityRegistry) {
         required_permissions: vec!["scheduler:write".to_string()],
         requires_ai: false,
         estimated_duration_ms: Some(1000),
+        ..Default::default()
+    });
+
+    // ============ Agent Heartbeat（HEARTBEAT.md，与 Tapp scheduler 无关）============
+
+    registry.register(Capability {
+        id: "heartbeat.list".to_string(),
+        name: "心跳任务列表".to_string(),
+        description: "列出 Agent Heartbeat 定时任务（HEARTBEAT.md，按 cron 主动执行自然语言指令）".to_string(),
+        category: CapabilityCategory::DataRead,
+        supported_actions: vec![IntentAction::Query],
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "enabled": { "type": "boolean", "description": "可选：按启用状态过滤" }
+            }
+        }),
+        output_schema: json!({
+            "type": "object",
+            "properties": {
+                "tasks": { "type": "array" },
+                "total": { "type": "integer" }
+            }
+        }),
+        required_permissions: vec!["system:admin".to_string()],
+        requires_ai: false,
+        estimated_duration_ms: Some(100),
+        ..Default::default()
+    });
+
+    registry.register(Capability {
+        id: "heartbeat.create".to_string(),
+        name: "创建心跳任务".to_string(),
+        description: "创建 Agent Heartbeat 定时任务。用户说「定时」「每天」「每隔」「心跳」时用这个，而非 scheduler.create。schedule 为 5 字段 cron，action 为自然语言指令".to_string(),
+        category: CapabilityCategory::SystemOp,
+        supported_actions: vec![IntentAction::Create, IntentAction::Monitor],
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string", "description": "任务显示名称" },
+                "schedule": {
+                    "type": "string",
+                    "description": "标准 5 字段 cron（分 时 日 月 星期），如 0 9 * * * 表示每天 9:00"
+                },
+                "action": {
+                    "type": "string",
+                    "description": "到期时 Agent 执行的自然语言指令"
+                },
+                "enabled": { "type": "boolean", "default": true },
+                "id": { "type": "string", "description": "可选自定义 id；省略则从 name 生成" }
+            },
+            "required": ["name", "schedule", "action"]
+        }),
+        output_schema: json!({
+            "type": "object",
+            "properties": {
+                "task": { "type": "object" },
+                "success": { "type": "boolean" }
+            }
+        }),
+        required_permissions: vec!["system:admin".to_string()],
+        requires_ai: false,
+        estimated_duration_ms: Some(200),
+        ..Default::default()
+    });
+
+    registry.register(Capability {
+        id: "heartbeat.update".to_string(),
+        name: "更新心跳任务".to_string(),
+        description: "按 id 更新 Agent Heartbeat 任务的 name/schedule/action/enabled".to_string(),
+        category: CapabilityCategory::SystemOp,
+        supported_actions: vec![IntentAction::Update],
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string" },
+                "name": { "type": "string" },
+                "schedule": { "type": "string", "description": "5 字段 cron" },
+                "action": { "type": "string" },
+                "enabled": { "type": "boolean" }
+            },
+            "required": ["id"]
+        }),
+        output_schema: json!({
+            "type": "object",
+            "properties": {
+                "task": { "type": "object" },
+                "success": { "type": "boolean" }
+            }
+        }),
+        required_permissions: vec!["system:admin".to_string()],
+        requires_ai: false,
+        estimated_duration_ms: Some(200),
+        ..Default::default()
+    });
+
+    registry.register(Capability {
+        id: "heartbeat.delete".to_string(),
+        name: "删除心跳任务".to_string(),
+        description: "按 id 删除 Agent Heartbeat 定时任务".to_string(),
+        category: CapabilityCategory::SystemOp,
+        supported_actions: vec![IntentAction::Delete],
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string" }
+            },
+            "required": ["id"]
+        }),
+        output_schema: json!({
+            "type": "object",
+            "properties": {
+                "deleted": { "type": "boolean" },
+                "taskId": { "type": "string" }
+            }
+        }),
+        required_permissions: vec!["system:admin".to_string()],
+        requires_ai: false,
+        estimated_duration_ms: Some(150),
+        ..Default::default()
+    });
+
+    registry.register(Capability {
+        id: "heartbeat.toggle".to_string(),
+        name: "切换心跳任务".to_string(),
+        description: "启用或禁用指定的 Agent Heartbeat 任务".to_string(),
+        category: CapabilityCategory::SystemOp,
+        supported_actions: vec![IntentAction::Update],
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string" }
+            },
+            "required": ["id"]
+        }),
+        output_schema: json!({
+            "type": "object",
+            "properties": {
+                "taskId": { "type": "string" },
+                "enabled": { "type": "boolean" }
+            }
+        }),
+        required_permissions: vec!["system:admin".to_string()],
+        requires_ai: false,
+        estimated_duration_ms: Some(100),
         ..Default::default()
     });
 

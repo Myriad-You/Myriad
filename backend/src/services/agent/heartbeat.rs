@@ -312,6 +312,92 @@ impl HeartbeatManager {
         Ok(updated)
     }
 
+    /// 新增任务并持久化到 HEARTBEAT.md
+    ///
+    /// - `id` 为空时从 name 生成 slug，并保证唯一
+    /// - schedule 必须是合法 5 字段 cron
+    /// - action / name 不可为空
+    pub async fn add_task(
+        &self,
+        id: Option<String>,
+        name: String,
+        schedule: String,
+        action: String,
+        enabled: bool,
+    ) -> Result<HeartbeatTask, String> {
+        self.maybe_reload_if_changed().await;
+
+        let name = name.trim().to_string();
+        if name.is_empty() {
+            return Err("name must not be empty".to_string());
+        }
+        let action = action.trim().to_string();
+        if action.is_empty() {
+            return Err("action must not be empty".to_string());
+        }
+        let schedule = schedule.trim().to_string();
+        if !is_valid_cron_expr(&schedule) {
+            return Err(format!(
+                "Invalid cron schedule '{}': expected 5 fields (min hour dom month dow)",
+                schedule
+            ));
+        }
+
+        let task = {
+            let mut tasks = self.tasks.write().await;
+            let requested_id = id
+                .as_ref()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty());
+            let task_id = if let Some(raw) = requested_id {
+                let candidate = slugify_id(&raw);
+                if candidate.is_empty() {
+                    return Err("id must contain at least one alphanumeric character".to_string());
+                }
+                if tasks.iter().any(|t| t.id == candidate) {
+                    return Err(format!("Task id '{}' already exists", candidate));
+                }
+                candidate
+            } else {
+                unique_slug_from_name(&name, &tasks)
+            };
+
+            let task = HeartbeatTask {
+                id: task_id,
+                name,
+                schedule,
+                action,
+                enabled,
+                last_run: None,
+                last_result: None,
+                last_reserved: None,
+            };
+            tasks.push(task.clone());
+            task
+        };
+
+        self.persist().await;
+        tracing::info!(task_id = %task.id, "[Heartbeat] Task created");
+        Ok(task)
+    }
+
+    /// 删除任务并持久化（不存在则 Err）
+    pub async fn delete_task(&self, task_id: &str) -> Result<(), String> {
+        self.maybe_reload_if_changed().await;
+        let removed = {
+            let mut tasks = self.tasks.write().await;
+            let before = tasks.len();
+            tasks.retain(|t| t.id != task_id);
+            before != tasks.len()
+        };
+        if !removed {
+            return Err(format!("Task '{}' not found", task_id));
+        }
+        self.persist().await;
+        tracing::info!(task_id = %task_id, "[Heartbeat] Task deleted");
+        Ok(())
+    }
+
     /// 清理过期认领记录，防止表无限增长（默认保留 48 小时）
     pub async fn cleanup_old_claims(db: &DatabaseConnection, keep_hours: i64) -> u64 {
         let hours = keep_hours.max(1);
@@ -497,6 +583,50 @@ impl HeartbeatManager {
             tracing::info!("[Heartbeat] Reloaded configuration");
         }
     }
+}
+
+// ==================== ID / slug ====================
+
+/// 从字符串生成 URL-safe id（小写、非字母数字替换为 `-`）
+fn slugify_id(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut prev_dash = false;
+    for ch in raw.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+            prev_dash = false;
+        } else if !prev_dash && !out.is_empty() {
+            out.push('-');
+            prev_dash = true;
+        }
+    }
+    while out.ends_with('-') {
+        out.pop();
+    }
+    out
+}
+
+/// 从任务名生成唯一 id；纯非 ASCII 名称回退到 `task` 前缀
+fn unique_slug_from_name(name: &str, existing: &[HeartbeatTask]) -> String {
+    let base = {
+        let s = slugify_id(name);
+        if s.is_empty() {
+            "task".to_string()
+        } else {
+            s
+        }
+    };
+    if !existing.iter().any(|t| t.id == base) {
+        return base;
+    }
+    for n in 2u32.. {
+        let candidate = format!("{base}-{n}");
+        if !existing.iter().any(|t| t.id == candidate) {
+            return candidate;
+        }
+    }
+    // unreachable in practice
+    format!("{base}-{}", Utc::now().timestamp())
 }
 
 // ==================== Cron 匹配 ====================
@@ -842,5 +972,120 @@ mod tests {
         assert_eq!(tasks[0].last_result.as_deref(), Some("ok"));
 
         let _ = tokio::fs::remove_dir_all(&dir).await;
+    }
+
+    #[tokio::test]
+    async fn test_add_and_delete_task_persists() {
+        let dir = std::env::temp_dir().join(format!("hb_test_crud_{}", std::process::id()));
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        let path = dir.join("HEARTBEAT.md");
+        tokio::fs::write(
+            &path,
+            "---\ntasks:\n  - id: t1\n    name: \"One\"\n    schedule: \"0 9 * * *\"\n    action: \"a\"\n    enabled: true\n---\n\n# Keep me\n",
+        )
+        .await
+        .unwrap();
+
+        let mgr = HeartbeatManager::new(path.clone()).await;
+
+        // 无效 cron 拒绝
+        let err = mgr
+            .add_task(
+                None,
+                "Bad".into(),
+                "0 0 * *".into(),
+                "do it".into(),
+                true,
+            )
+            .await
+            .unwrap_err();
+        assert!(err.contains("Invalid cron"), "{err}");
+
+        // 空 action 拒绝
+        let err = mgr
+            .add_task(None, "Bad".into(), "0 9 * * *".into(), "  ".into(), true)
+            .await
+            .unwrap_err();
+        assert!(err.contains("action"), "{err}");
+
+        // 自动 slug id
+        let created = mgr
+            .add_task(
+                None,
+                "Brew Daily Summary".into(),
+                "0 9 * * *".into(),
+                "总结 brew 订阅".into(),
+                true,
+            )
+            .await
+            .unwrap();
+        assert_eq!(created.id, "brew-daily-summary");
+        assert!(created.enabled);
+
+        // 中文名回退 task / task-N
+        let cjk = mgr
+            .add_task(
+                None,
+                "每天检查".into(),
+                "0 * * * *".into(),
+                "检查更新".into(),
+                false,
+            )
+            .await
+            .unwrap();
+        assert_eq!(cjk.id, "task");
+        assert!(!cjk.enabled);
+
+        // 重复 slug 自动加后缀
+        let dup = mgr
+            .add_task(
+                None,
+                "Brew Daily Summary".into(),
+                "30 9 * * *".into(),
+                "再总结一次".into(),
+                true,
+            )
+            .await
+            .unwrap();
+        assert_eq!(dup.id, "brew-daily-summary-2");
+
+        // 指定 id 冲突
+        let err = mgr
+            .add_task(
+                Some("t1".into()),
+                "X".into(),
+                "0 0 * * *".into(),
+                "a".into(),
+                true,
+            )
+            .await
+            .unwrap_err();
+        assert!(err.contains("already exists"), "{err}");
+
+        let content = tokio::fs::read_to_string(&path).await.unwrap();
+        assert!(content.contains("brew-daily-summary"), "{content}");
+        assert!(content.contains("# Keep me"), "正文应保留: {content}");
+        assert!(!content.contains("lastRun"), "运行时状态不应落盘");
+
+        // 删除
+        mgr.delete_task("t1").await.unwrap();
+        let tasks = mgr.get_tasks().await;
+        assert!(!tasks.iter().any(|t| t.id == "t1"));
+        let err = mgr.delete_task("t1").await.unwrap_err();
+        assert!(err.contains("not found"), "{err}");
+
+        let content = tokio::fs::read_to_string(&path).await.unwrap();
+        assert!(!content.contains("id: t1"), "{content}");
+        assert!(content.contains("# Keep me"));
+
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+    }
+
+    #[test]
+    fn test_slugify_id() {
+        assert_eq!(slugify_id("Brew Daily Summary"), "brew-daily-summary");
+        assert_eq!(slugify_id("  Hello__World!! "), "hello-world");
+        assert_eq!(slugify_id("每天检查"), "");
+        assert_eq!(slugify_id("a--b"), "a-b");
     }
 }

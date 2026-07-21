@@ -28,6 +28,10 @@ pub async fn execute(
         "data.transform" => execute_data_transform(params).await,
         "scheduler.create" => execute_scheduler_create(params, ctx).await,
         "scheduler.trigger" => execute_scheduler_trigger(params, ctx).await,
+        "heartbeat.create" => execute_heartbeat_create(params, ctx).await,
+        "heartbeat.update" => execute_heartbeat_update(params, ctx).await,
+        "heartbeat.delete" => execute_heartbeat_delete(params, ctx).await,
+        "heartbeat.toggle" => execute_heartbeat_toggle(params, ctx).await,
         "system.metrics" => execute_system_metrics().await,
         "cache.status" => execute_cache_status(params).await,
         "cache.clear" => execute_cache_clear(params).await,
@@ -403,6 +407,164 @@ async fn execute_scheduler_trigger(
         "tappId": tapp_id,
         "timestamp": chrono::Utc::now().to_rfc3339()
     }))
+}
+
+// ============================================================================
+// Agent Heartbeat（HEARTBEAT.md，非 Tapp scheduler）
+// ============================================================================
+
+async fn require_heartbeat_admin(ctx: &HandlerContext<'_>) -> Result<(), String> {
+    if crate::services::agent::user_is_current_admin(ctx.db, ctx.user_id).await {
+        Ok(())
+    } else {
+        Err("Heartbeat 管理需要管理员权限".to_string())
+    }
+}
+
+fn heartbeat_manager() -> Result<&'static std::sync::Arc<crate::services::agent::heartbeat::HeartbeatManager>, String> {
+    crate::services::agent::heartbeat::get_heartbeat()
+        .ok_or_else(|| "Heartbeat not initialized".to_string())
+}
+
+async fn execute_heartbeat_create(
+    params: &HashMap<String, Value>,
+    ctx: &HandlerContext<'_>,
+) -> Result<Value, String> {
+    require_heartbeat_admin(ctx).await?;
+    let name = params
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or("Missing name parameter")?
+        .to_string();
+    let schedule = params
+        .get("schedule")
+        .or_else(|| params.get("cron"))
+        .and_then(Value::as_str)
+        .ok_or("Missing schedule parameter (5-field cron)")?
+        .to_string();
+    let action = params
+        .get("action")
+        .and_then(Value::as_str)
+        .ok_or("Missing action parameter")?
+        .to_string();
+    let enabled = params
+        .get("enabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    let id = params
+        .get("id")
+        .or_else(|| params.get("taskId"))
+        .or_else(|| params.get("task_id"))
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
+
+    let manager = heartbeat_manager()?;
+    let task = manager
+        .add_task(id, name, schedule, action, enabled)
+        .await?;
+
+    Ok(json!({
+        "success": true,
+        "task": task,
+        "taskId": task.id,
+        "frontendAction": {
+            "type": "show_notification",
+            "params": {
+                "title": "心跳任务已创建",
+                "message": format!("{} · {}", task.name, task.schedule),
+                "taskId": task.id
+            },
+            "timestamp": chrono::Utc::now().timestamp_millis()
+        }
+    }))
+}
+
+async fn execute_heartbeat_update(
+    params: &HashMap<String, Value>,
+    ctx: &HandlerContext<'_>,
+) -> Result<Value, String> {
+    require_heartbeat_admin(ctx).await?;
+    let task_id = params
+        .get("id")
+        .or_else(|| params.get("taskId"))
+        .or_else(|| params.get("task_id"))
+        .and_then(Value::as_str)
+        .ok_or("Missing id parameter")?;
+
+    let name = params
+        .get("name")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
+    let schedule = params
+        .get("schedule")
+        .or_else(|| params.get("cron"))
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
+    let action = params
+        .get("action")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
+    let enabled = params.get("enabled").and_then(Value::as_bool);
+
+    if name.is_none() && schedule.is_none() && action.is_none() && enabled.is_none() {
+        return Err("Provide at least one of name/schedule/action/enabled".to_string());
+    }
+
+    let manager = heartbeat_manager()?;
+    let task = manager
+        .update_task(task_id, name, schedule, action, enabled)
+        .await?;
+
+    Ok(json!({
+        "success": true,
+        "task": task,
+        "taskId": task.id
+    }))
+}
+
+async fn execute_heartbeat_delete(
+    params: &HashMap<String, Value>,
+    ctx: &HandlerContext<'_>,
+) -> Result<Value, String> {
+    require_heartbeat_admin(ctx).await?;
+    let task_id = params
+        .get("id")
+        .or_else(|| params.get("taskId"))
+        .or_else(|| params.get("task_id"))
+        .and_then(Value::as_str)
+        .ok_or("Missing id parameter")?;
+
+    let manager = heartbeat_manager()?;
+    manager.delete_task(task_id).await?;
+
+    Ok(json!({
+        "success": true,
+        "deleted": true,
+        "taskId": task_id
+    }))
+}
+
+async fn execute_heartbeat_toggle(
+    params: &HashMap<String, Value>,
+    ctx: &HandlerContext<'_>,
+) -> Result<Value, String> {
+    require_heartbeat_admin(ctx).await?;
+    let task_id = params
+        .get("id")
+        .or_else(|| params.get("taskId"))
+        .or_else(|| params.get("task_id"))
+        .and_then(Value::as_str)
+        .ok_or("Missing id parameter")?;
+
+    let manager = heartbeat_manager()?;
+    match manager.toggle_task(task_id).await {
+        Some(enabled) => Ok(json!({
+            "success": true,
+            "taskId": task_id,
+            "enabled": enabled
+        })),
+        None => Err(format!("Task '{}' not found", task_id)),
+    }
 }
 
 // ============================================================================

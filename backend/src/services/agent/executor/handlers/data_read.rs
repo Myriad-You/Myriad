@@ -59,6 +59,7 @@ pub async fn execute(
         "metadata.history" => execute_metadata_history(params).await,
         "tapp.list" => execute_tapp_list(params, ctx).await,
         "scheduler.list" => execute_scheduler_list(params, ctx).await,
+        "heartbeat.list" => execute_heartbeat_list(params, ctx).await,
         "rsshub.instances" => execute_rsshub_instances(params, ctx).await,
         "context.reference" => execute_context_reference(params).await,
         // 补充的能力
@@ -4517,6 +4518,41 @@ async fn execute_scheduler_list(
     Ok(json!({
         "tasks": tasks,
         "total": tasks.len()
+    }))
+}
+
+/// Agent Heartbeat 任务列表（HEARTBEAT.md）
+async fn execute_heartbeat_list(
+    params: &HashMap<String, Value>,
+    ctx: &HandlerContext<'_>,
+) -> Result<Value, String> {
+    if !crate::services::agent::user_is_current_admin(ctx.db, ctx.user_id).await {
+        return Err("Heartbeat 管理需要管理员权限".to_string());
+    }
+    let manager = crate::services::agent::heartbeat::get_heartbeat()
+        .ok_or_else(|| "Heartbeat not initialized".to_string())?;
+    let enabled_filter = params.get("enabled").and_then(Value::as_bool);
+    let tasks: Vec<Value> = manager
+        .get_tasks()
+        .await
+        .into_iter()
+        .filter(|t| enabled_filter.is_none_or(|en| t.enabled == en))
+        .map(|t| {
+            json!({
+                "id": t.id,
+                "name": t.name,
+                "schedule": t.schedule,
+                "action": t.action,
+                "enabled": t.enabled,
+                "lastRun": t.last_run.map(|dt| dt.to_rfc3339()),
+                "lastResult": t.last_result,
+            })
+        })
+        .collect();
+    let total = tasks.len();
+    Ok(json!({
+        "tasks": tasks,
+        "total": total
     }))
 }
 

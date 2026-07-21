@@ -230,6 +230,7 @@ impl AgentRouter {
             "tapp.storage".to_string(),
             "cache.".to_string(),
             "scheduler.".to_string(),
+            "heartbeat.".to_string(),
             "config.".to_string(),
             "auth.".to_string(),
             "system.".to_string(),
