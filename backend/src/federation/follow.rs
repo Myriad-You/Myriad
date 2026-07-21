@@ -550,4 +550,24 @@ mod tests {
             "https://example.com/.well-known/webfinger?resource=acct%3Aalice%40example.com"
         );
     }
+
+    #[test]
+    fn r53_build_webfinger_url_basic_acct() {
+        let url = build_webfinger_url("alice@example.com").unwrap();
+        assert!(url.starts_with("https://example.com/.well-known/webfinger?"));
+        assert!(url.contains("resource=acct%3Aalice%40example.com"));
+    }
+
+    #[test]
+    fn r54_build_webfinger_url_rejects_path_in_domain() {
+        assert!(build_webfinger_url("alice@example.com/x").is_err());
+        assert!(build_webfinger_url("alice@exam ple.com").is_err());
+    }
+
+    #[test]
+    fn r55_build_webfinger_url_accepts_at_prefix() {
+        let url = build_webfinger_url("@bob@remote.example").unwrap();
+        assert!(url.contains("remote.example"));
+        assert!(url.contains("acct%3Abob%40remote.example"));
+    }
 }
