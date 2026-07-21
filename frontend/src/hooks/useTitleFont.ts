@@ -1,9 +1,10 @@
 /**
  * 标题字体管理 Hook
- * 动态按需加载 Google Fonts 并管理全局标题字体、大小和颜色设置
+ * 按需加载 Astro Fonts API 自托管的标题装饰字体，并管理全局标题字体、大小和颜色设置
  *
  * 性能优化：
- * - 字体懒加载 + 缓存
+ * - 字体懒加载 + 缓存（仅当前/默认字体在 init 时加载；全量预加载仅在选择器打开时）
+ * - document.fonts.load 使用各字体实际字重，避免拉错 face
  * - 防抖保存
  * - 全局状态共享避免重复请求
  * - useMemo 缓存计算结果
@@ -25,6 +26,8 @@ export interface FontOption {
   family: string
   cssVariable: string
   cssClass: string
+  /** 实际注册/使用的字重，与 fonts.css .title-font-* 和 astro.config 对齐 */
+  weight: 400 | 700
 }
 
 export interface ColorOption {
@@ -98,7 +101,7 @@ export const FONT_SIZE_OPTIONS: readonly {
   { id: 'xxl', nameKey: 'sizeXXLarge', value: 1.4 },
 ])
 
-// 可用字体
+// 可用字体（weight 与 fonts.css / astro.config 单 face 注册对齐）
 export const AVAILABLE_FONTS: readonly FontOption[] = Object.freeze([
   {
     id: 'qwitcher-grypen',
@@ -106,6 +109,7 @@ export const AVAILABLE_FONTS: readonly FontOption[] = Object.freeze([
     family: 'var(--font-qwitcher-grypen), cursive',
     cssVariable: '--font-qwitcher-grypen',
     cssClass: 'title-font-qwitcher-grypen',
+    weight: 700,
   },
   {
     id: 'codystar',
@@ -113,6 +117,7 @@ export const AVAILABLE_FONTS: readonly FontOption[] = Object.freeze([
     family: 'var(--font-codystar), system-ui',
     cssVariable: '--font-codystar',
     cssClass: 'title-font-codystar',
+    weight: 400,
   },
   {
     id: 'henny-penny',
@@ -120,6 +125,7 @@ export const AVAILABLE_FONTS: readonly FontOption[] = Object.freeze([
     family: 'var(--font-henny-penny), system-ui',
     cssVariable: '--font-henny-penny',
     cssClass: 'title-font-henny-penny',
+    weight: 400,
   },
   {
     id: 'srisakdi',
@@ -127,6 +133,7 @@ export const AVAILABLE_FONTS: readonly FontOption[] = Object.freeze([
     family: 'var(--font-srisakdi), system-ui',
     cssVariable: '--font-srisakdi',
     cssClass: 'title-font-srisakdi',
+    weight: 700,
   },
   {
     id: 'fleur-de-leah',
@@ -134,6 +141,7 @@ export const AVAILABLE_FONTS: readonly FontOption[] = Object.freeze([
     family: 'var(--font-fleur-de-leah), cursive',
     cssVariable: '--font-fleur-de-leah',
     cssClass: 'title-font-fleur-de-leah',
+    weight: 400,
   },
   {
     id: 'league-script',
@@ -141,6 +149,7 @@ export const AVAILABLE_FONTS: readonly FontOption[] = Object.freeze([
     family: 'var(--font-league-script), cursive',
     cssVariable: '--font-league-script',
     cssClass: 'title-font-league-script',
+    weight: 400,
   },
   {
     id: 'megrim',
@@ -148,6 +157,7 @@ export const AVAILABLE_FONTS: readonly FontOption[] = Object.freeze([
     family: 'var(--font-megrim), system-ui',
     cssVariable: '--font-megrim',
     cssClass: 'title-font-megrim',
+    weight: 400,
   },
   {
     id: 'silkscreen',
@@ -155,6 +165,7 @@ export const AVAILABLE_FONTS: readonly FontOption[] = Object.freeze([
     family: 'var(--font-silkscreen), system-ui',
     cssVariable: '--font-silkscreen',
     cssClass: 'title-font-silkscreen',
+    weight: 700,
   },
   {
     id: 'unifraktur-maguntia',
@@ -162,6 +173,7 @@ export const AVAILABLE_FONTS: readonly FontOption[] = Object.freeze([
     family: 'var(--font-unifraktur-maguntia), serif',
     cssVariable: '--font-unifraktur-maguntia',
     cssClass: 'title-font-unifraktur-maguntia',
+    weight: 400,
   },
   {
     id: 'cinzel',
@@ -169,6 +181,7 @@ export const AVAILABLE_FONTS: readonly FontOption[] = Object.freeze([
     family: 'var(--font-cinzel), serif',
     cssVariable: '--font-cinzel',
     cssClass: 'title-font-cinzel',
+    weight: 700,
   },
 ])
 
@@ -194,7 +207,7 @@ function loadFont(font: FontOption): Promise<void> {
     return existing
   }
 
-  // Astro 6 Fonts API 已在构建时声明所有 @font-face 规则并自托管字体文件
+  // Astro Fonts API 已在构建时声明 @font-face 并自托管；按实际字重触发下载
   // 从 CSS 变量读取实际的哈希字体名，用 document.fonts.load() 触发浏览器下载
   const computedValue = getComputedStyle(document.documentElement)
     .getPropertyValue(font.cssVariable)
@@ -208,8 +221,9 @@ function loadFont(font: FontOption): Promise<void> {
         .replace(/^["']|["']$/g, '')
     : font.name
 
+  // 带字重加载，确保拉取与 @font-face / hero 使用一致的 face
   const promise = document.fonts
-    .load(`16px "${primaryFamily}"`)
+    .load(`${font.weight} 16px "${primaryFamily}"`)
     .then(() => {
       loadedFonts.add(font.id)
     })

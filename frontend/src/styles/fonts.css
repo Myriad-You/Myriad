@@ -1,45 +1,35 @@
 /* ============================================
-   字体定义 - 标题装饰字体 from Google Fonts
+   字体定义 - 标题装饰字体（Astro Fonts API 自托管）
    ============================================ */
 
 /*
  * ⚠️ 字体按需动态加载，由 useTitleFont hook 管理
  * 避免 CSS @import 阻塞渲染（Lighthouse: "渲染屏蔽请求"）
+ * @font-face 由 Astro Fonts API 在构建时生成并自托管，无运行时 Google CDN 请求
  *
  * 支持的字体：
- * 1. Qwitcher Grypen (默认)
- * 2. Codystar
- * 3. Henny Penny
- * 4. Srisakdi
- * 5. Fleur De Leah
- * 6. League Script
- * 7. Megrim
- * 8. Silkscreen
- * 9. UnifrakturMaguntia
- * 10. Cinzel
+ * 1. Qwitcher Grypen (默认, 700)
+ * 2. Codystar (400)
+ * 3. Henny Penny (400)
+ * 4. Srisakdi (700)
+ * 5. Fleur De Leah (400)
+ * 6. League Script (400)
+ * 7. Megrim (400)
+ * 8. Silkscreen (700)
+ * 9. UnifrakturMaguntia (400)
+ * 10. Cinzel (700)
  */
 
 /* ============================================
    Qwitcher Grypen - 原始默认字体
    ============================================ */
-.qwitcher-grypen-regular {
-  font-family: var(--font-qwitcher-grypen), cursive;
-  font-weight: 400;
-  font-style: normal;
-}
-
-.qwitcher-grypen-bold {
-  font-family: var(--font-qwitcher-grypen), cursive;
-  font-weight: 700;
-  font-style: normal;
-}
-
 .qwitcher-grypen {
   font-family: var(--font-qwitcher-grypen), cursive;
 }
 
 /* ============================================
    动态标题字体类 - 供 useTitleFont hook 使用
+   字重与 astro.config.mjs / FontOption.weight 对齐
    ============================================ */
 
 .title-font-qwitcher-grypen {
