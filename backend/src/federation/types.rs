@@ -1017,4 +1017,13 @@ mod tests {
             None
         );
     }
+
+
+    #[test]
+    fn normalize_actor_url_non_url_fallback_trim() {
+        assert_eq!(normalize_actor_url("  not-a-url/  "), "not-a-url");
+        assert_eq!(normalize_actor_url("opaque-actor-id"), "opaque-actor-id");
+        // slash-only after trim → empty
+        assert_eq!(normalize_actor_url("   /  "), "");
+    }
 }
