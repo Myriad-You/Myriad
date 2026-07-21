@@ -387,12 +387,21 @@ export const enUS: TranslationKeys = {
     federationUnblock: 'Unblock',
     federationContentFilters: 'Content filters',
     federationContentFiltersDesc:
-      'Applies to inbound activities only. Filter by activity type, keyword, or required trust level.',
+      'Inbound rejection rules applied by type and in order. Only inbound Activities are evaluated; matching traffic is refused.',
     federationFilterName: 'Name',
     federationFilterType: 'Type',
     federationFilterValue: 'Value',
-    federationFilterValuePlaceholder:
-      'keyword, activity type (e.g. Announce), or trust level 0–4',
+    federationFilterValuePlaceholder: 'See type-specific options below',
+    federationFilterValuePlaceholderKeyword:
+      'e.g. spam, casino, http://malicious.example',
+    federationFilterActivityType: 'Activity type',
+    federationFilterTrustLevel: 'Minimum trust level',
+    federationFilterDescBlockActivity:
+      'Blocks inbound Activities whose type field matches. For example, blocking Announce reduces boost/repost spam.',
+    federationFilterDescBlockKeyword:
+      'Matches keywords in the activity JSON/body (case-insensitive); a hit rejects the activity.',
+    federationFilterDescRequireTrust:
+      'Rejects inbound traffic when the source domain trust is below the selected level. Independent of the instance-policy trust floor above; both can apply.',
     federationAddFilter: 'Add filter',
     federationNoFilters: 'No content filters.',
     federationFilterEnabled: 'On',
@@ -409,7 +418,7 @@ export const enUS: TranslationKeys = {
     federationFilterTypeRequireTrust: 'Require trust level',
     federationAdvanced: 'Advanced',
     federationAdvancedDesc:
-      'Operational controls such as inbound rate limits. Defaults suit most deployments; incorrect values may reject legitimate federation traffic.',
+      'Operational controls such as inbound rate limits. These stack with instance policy (allowlist, min trust) above. Defaults suit most deployments; overly strict values may reject legitimate federation traffic.',
     federationRateLimit: 'Inbound rate limit',
     federationRateLimitDesc:
       'Limits inbound Activity volume per source domain. Domains with trust level ≥ 3 use the trusted multiplier.',

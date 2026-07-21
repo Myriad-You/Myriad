@@ -361,11 +361,21 @@ export const zhCN: TranslationKeys = {
     federationUnblock: '解封',
     federationContentFilters: '内容过滤',
     federationContentFiltersDesc:
-      '仅作用于入站 Activity。可按活动类型、关键词或最低信任要求进行拦截。',
+      '入站拦截规则，按类型与顺序生效。仅作用于入站 Activity；匹配规则的请求将被拒绝。',
     federationFilterName: '名称',
     federationFilterType: '类型',
     federationFilterValue: '值',
-    federationFilterValuePlaceholder: '关键词、活动类型（如 Announce）或信任等级 0–4',
+    federationFilterValuePlaceholder: '见下方类型说明',
+    federationFilterValuePlaceholderKeyword:
+      '例如 spam、casino、http://malicious.example',
+    federationFilterActivityType: '活动类型',
+    federationFilterTrustLevel: '最低信任等级',
+    federationFilterDescBlockActivity:
+      '拦截入站 Activity 的 type 字段；例如屏蔽 Announce 可减少转发刷屏。',
+    federationFilterDescBlockKeyword:
+      '匹配活动 JSON / 正文中的关键词（不区分大小写）；命中即拒绝。',
+    federationFilterDescRequireTrust:
+      '来源域名信任等级须达到或超过所选等级，否则拒绝该入站。与上方「实例策略」中的入站最低信任相互独立，可叠加。',
     federationAddFilter: '添加规则',
     federationNoFilters: '暂无内容过滤规则。',
     federationFilterEnabled: '开',
@@ -382,7 +392,7 @@ export const zhCN: TranslationKeys = {
     federationFilterTypeRequireTrust: '要求信任等级',
     federationAdvanced: '高级',
     federationAdvancedDesc:
-      '入站限流等运维参数。默认配置适用于多数部署；调整不当可能导致正常联邦流量被拒绝。',
+      '入站限流等运维参数，与上方「实例策略」（白名单、最低信任）独立生效并可叠加。默认适用于多数部署；过严会导致正常联邦流量被拒绝。',
     federationRateLimit: '入站限流',
     federationRateLimitDesc:
       '按来源域名限制入站 Activity 频率。信任等级 ≥ 3（受信）时适用下方倍率。',

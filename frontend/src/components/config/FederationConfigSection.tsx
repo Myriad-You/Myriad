@@ -15,6 +15,8 @@ import { federationApi } from '../../services/federationApi'
 import {
   ButtonItem,
   InputItem,
+  NumberItem,
+  SelectItem,
   SettingGroup,
   SettingSection,
   SwitchItem,
@@ -37,6 +39,63 @@ const FILTER_TYPES = [
   'require_trust_level',
 ] as const
 
+type FilterType = (typeof FILTER_TYPES)[number]
+
+/**
+ * Known ActivityPub + MFP activity `type` values handled (or accepted) by the
+ * federation inbox. Values are stored as-is for `block_activity_type` filters.
+ * Align with `backend/src/federation/inbox.rs`.
+ */
+const ACTIVITY_TYPES = [
+  // Standard ActivityPub
+  'Follow',
+  'Accept',
+  'Reject',
+  'Undo',
+  'Create',
+  'Update',
+  'Delete',
+  'Announce',
+  'Like',
+  'Move',
+  // MFP extensions (inbox whitelist)
+  'myriad:ChannelOpen',
+  'myriad:ChannelClose',
+  'myriad:ChannelAccept',
+  'myriad:ChannelMessage',
+  'myriad:RoomInvite',
+  'myriad:RoomJoin',
+  'myriad:RoomLeave',
+  'myriad:RoomDissolve',
+  'myriad:RoomMessage',
+  'myriad:RoomPin',
+  'myriad:RoomGovernance',
+  'myriad:RingJoin',
+  'myriad:RingSync',
+  'myriad:RingLeave',
+  'myriad:FileTransfer',
+  'myriad:KeyExchange',
+] as const
+
+function activityTypeLabel(type: string): string {
+  if (type.startsWith('myriad:')) {
+    return `${type.slice('myriad:'.length)} (MFP)`
+  }
+  return type
+}
+
+function defaultValueForFilterType(type: FilterType): string {
+  switch (type) {
+    case 'block_activity_type':
+      return 'Announce'
+    case 'require_trust_level':
+      return '0'
+    case 'block_keyword':
+    default:
+      return ''
+  }
+}
+
 export const FederationConfigSection: React.FC<
   FederationConfigSectionProps
 > = ({ title, icon, description, sectionId, onMessage }) => {
@@ -55,12 +114,10 @@ export const FederationConfigSection: React.FC<
   const [rateMax, setRateMax] = useState(100)
   const [rateWindow, setRateWindow] = useState(60)
   const [rateTrustedMul, setRateTrustedMul] = useState(5)
-  const [advancedOpen, setAdvancedOpen] = useState(false)
 
   // New filter draft
   const [newFilterName, setNewFilterName] = useState('')
-  const [newFilterType, setNewFilterType] =
-    useState<(typeof FILTER_TYPES)[number]>('block_keyword')
+  const [newFilterType, setNewFilterType] = useState<FilterType>('block_keyword')
   const [newFilterValue, setNewFilterValue] = useState('')
 
   const trustLevels = useMemo(
@@ -74,15 +131,49 @@ export const FederationConfigSection: React.FC<
     [c],
   )
 
-  const filterTypeLabels: Record<(typeof FILTER_TYPES)[number], string> =
-    useMemo(
-      () => ({
-        block_activity_type: c.federationFilterTypeBlockActivity,
-        block_keyword: c.federationFilterTypeBlockKeyword,
-        require_trust_level: c.federationFilterTypeRequireTrust,
-      }),
-      [c],
-    )
+  const trustLevelOptions = useMemo(
+    () =>
+      trustLevels.map((l) => ({
+        value: String(l.value),
+        label: l.label,
+      })),
+    [trustLevels],
+  )
+
+  const filterTypeLabels: Record<FilterType, string> = useMemo(
+    () => ({
+      block_activity_type: c.federationFilterTypeBlockActivity,
+      block_keyword: c.federationFilterTypeBlockKeyword,
+      require_trust_level: c.federationFilterTypeRequireTrust,
+    }),
+    [c],
+  )
+
+  const filterTypeOptions = useMemo(
+    () =>
+      FILTER_TYPES.map((ft) => ({
+        value: ft,
+        label: filterTypeLabels[ft],
+      })),
+    [filterTypeLabels],
+  )
+
+  const activityTypeOptions = useMemo(
+    () =>
+      ACTIVITY_TYPES.map((ty) => ({
+        value: ty,
+        label: activityTypeLabel(ty),
+      })),
+    [],
+  )
+
+  const filterTypeHelp = useMemo((): Record<FilterType, string> => {
+    return {
+      block_activity_type: c.federationFilterDescBlockActivity,
+      block_keyword: c.federationFilterDescBlockKeyword,
+      require_trust_level: c.federationFilterDescRequireTrust,
+    }
+  }, [c])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -183,6 +274,38 @@ export const FederationConfigSection: React.FC<
     }
   }
 
+  const handleFilterTypeChange = (next: string) => {
+    const type = next as FilterType
+    setNewFilterType(type)
+    setNewFilterValue(defaultValueForFilterType(type))
+  }
+
+  const formatFilterValue = useCallback(
+    (filterType: string, value: string): string => {
+      if (filterType === 'block_activity_type') {
+        return activityTypeLabel(value)
+      }
+      if (filterType === 'require_trust_level') {
+        const n = Number.parseInt(value, 10)
+        const level = trustLevels.find((l) => l.value === n)
+        return level?.label ?? value
+      }
+      return value
+    },
+    [trustLevels],
+  )
+
+  const formatFilterSummary = useCallback(
+    (f: ContentFilterItem): string => {
+      const typeLabel =
+        (filterTypeLabels as Record<string, string>)[f.filter_type] ||
+        f.filter_type
+      const valueLabel = formatFilterValue(f.filter_type, f.value)
+      return `${typeLabel} · ${valueLabel}`
+    },
+    [filterTypeLabels, formatFilterValue],
+  )
+
   const addFilter = async () => {
     if (!newFilterName.trim() || !newFilterValue.trim()) {
       onMessage?.(c.federationFilterNameValueRequired, 'warning')
@@ -196,7 +319,7 @@ export const FederationConfigSection: React.FC<
         enabled: true,
       })
       setNewFilterName('')
-      setNewFilterValue('')
+      setNewFilterValue(defaultValueForFilterType(newFilterType))
       await load()
       onMessage?.(c.federationFilterAdded, 'success')
     } catch (e) {
@@ -248,6 +371,9 @@ export const FederationConfigSection: React.FC<
     )
   }
 
+  const saveButtonText =
+    saving ? '…' : c.federationSavePolicy || t.common?.save || 'Save'
+
   return (
     <SettingSection
       title={title}
@@ -255,77 +381,53 @@ export const FederationConfigSection: React.FC<
       description={description}
       sectionId={sectionId}
     >
-      {/*
-        Only surface controls the admin can change.
-        Advanced rate-limit knobs are in the collapsible section below;
-        no decorative on/off line for rate-limit.
-      */}
+      <SettingGroup
+        title={c.federationInstancePolicy}
+        description={c.federationTrustLevelHelp}
+      >
+        <SelectItem
+          itemKey="fed-min-trust"
+          label={c.federationMinTrustInbound}
+          description={c.federationMinTrustInboundDesc}
+          value={String(minTrust)}
+          onChange={(v) => setMinTrust(Number(v))}
+          options={trustLevelOptions}
+          layout="vertical"
+        />
 
-      <SettingGroup title={c.federationInstancePolicy}>
-        <div className="space-y-3">
-          <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
-            {c.federationTrustLevelHelp}
-          </p>
-          <label className="block text-sm">
-            <span className="text-gray-600 dark:text-gray-400">
-              {c.federationMinTrustInbound}
-            </span>
-            <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
-              {c.federationMinTrustInboundDesc}
-            </p>
-            <select
-              className="mt-1.5 w-full rounded-lg border border-black/10 bg-white/50 px-3 py-2 text-sm dark:border-white/10 dark:bg-black/20"
-              value={minTrust}
-              onChange={(e) => setMinTrust(Number(e.target.value))}
-            >
-              {trustLevels.map((l) => (
-                <option key={l.value} value={l.value}>
-                  {l.label}
-                </option>
-              ))}
-            </select>
-          </label>
+        <InputItem
+          itemKey="fed-allowlist"
+          label={c.federationAllowlistDomains}
+          description={c.federationAllowlistDomainsDesc}
+          value={allowlistText}
+          onChange={setAllowlistText}
+          placeholder={c.federationAllowlistPlaceholder}
+          multiline
+          rows={4}
+          layout="vertical"
+        />
 
-          <label className="block text-sm">
-            <span className="text-gray-600 dark:text-gray-400">
-              {c.federationAllowlistDomains}
-            </span>
-            <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
-              {c.federationAllowlistDomainsDesc}
-            </p>
-            <textarea
-              className="mt-1.5 w-full rounded-lg border border-black/10 bg-white/50 px-3 py-2 text-sm font-mono dark:border-white/10 dark:bg-black/20"
-              rows={4}
-              value={allowlistText}
-              onChange={(e) => setAllowlistText(e.target.value)}
-              placeholder={c.federationAllowlistPlaceholder}
-            />
-          </label>
+        <SwitchItem
+          itemKey="fed-auto-discover"
+          label={c.federationAutoDiscover}
+          description={c.federationAutoDiscoverDesc}
+          value={autoDiscover}
+          onChange={setAutoDiscover}
+        />
 
-          <SwitchItem
-            itemKey="fed-auto-discover"
-            label={c.federationAutoDiscover}
-            description={c.federationAutoDiscoverDesc}
-            value={autoDiscover}
-            onChange={setAutoDiscover}
-          />
-
-          <ButtonItem
-            label={c.federationInstancePolicy}
-            buttonText={
-              saving ? '…' : c.federationSavePolicy || t.common?.save || 'Save'
-            }
-            onClick={() => void savePolicy()}
-            disabled={saving}
-            loading={saving}
-          />
-        </div>
+        <ButtonItem
+          label={c.federationInstancePolicy}
+          buttonText={saveButtonText}
+          onClick={() => void savePolicy()}
+          disabled={saving}
+          loading={saving}
+        />
       </SettingGroup>
 
-      <SettingGroup title={c.federationKnownInstances}>
-        <p className="mb-2 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
-          {c.federationKnownInstancesDesc}
-        </p>
+      <SettingGroup
+        title={c.federationKnownInstances}
+        description={c.federationKnownInstancesDesc}
+      >
         {instances.length === 0 ? (
           <p className="text-sm text-gray-500">{c.federationNoInstances}</p>
         ) : (
@@ -333,7 +435,7 @@ export const FederationConfigSection: React.FC<
             {instances.map((inst) => (
               <li
                 key={inst.domain}
-                className="flex flex-wrap items-center gap-2 rounded-lg border border-black/5 bg-black/2 px-3 py-2 text-sm dark:border-white/5 dark:bg-white/3"
+                className="flex flex-wrap items-center gap-2 rounded-lg border border-black/5 bg-black/[0.02] px-3 py-2.5 text-sm dark:border-white/5 dark:bg-white/[0.03]"
               >
                 <span className="min-w-0 flex-1 font-medium truncate">
                   {inst.domain}
@@ -344,11 +446,12 @@ export const FederationConfigSection: React.FC<
                   )}
                 </span>
                 <select
-                  className="rounded border border-black/10 bg-transparent px-2 py-1 text-xs dark:border-white/10"
+                  className="rounded-lg border border-black/10 bg-white/50 px-2 py-1.5 text-xs dark:border-white/10 dark:bg-black/20"
                   value={inst.trust_level}
                   onChange={(e) =>
                     void setInstanceTrust(inst.domain, Number(e.target.value))
                   }
+                  aria-label={c.federationMinTrustInbound}
                 >
                   {trustLevels.map((l) => (
                     <option key={l.value} value={l.value}>
@@ -359,7 +462,7 @@ export const FederationConfigSection: React.FC<
                 <button
                   type="button"
                   className={
-                    `rounded-full px-2.5 py-1 text-xs ${
+                    `rounded-full px-2.5 py-1 text-xs font-medium ${
                     inst.blocked
                       ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
                       : 'bg-red-500/10 text-red-600 dark:text-red-300'}`
@@ -374,51 +477,83 @@ export const FederationConfigSection: React.FC<
         )}
       </SettingGroup>
 
-      <SettingGroup title={c.federationContentFilters}>
-        <p className="mb-2 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
-          {c.federationContentFiltersDesc}
-        </p>
-        <div className="space-y-2 mb-3">
+      <SettingGroup
+        title={c.federationContentFilters}
+        description={c.federationContentFiltersDesc}
+      >
+        <div className="space-y-1 mb-3">
           <InputItem
             itemKey="fed-filter-name"
             label={c.federationFilterName}
             value={newFilterName}
             onChange={setNewFilterName}
             placeholder="spam-keyword"
+            layout="vertical"
           />
-          <label className="block text-sm">
-            <span className="text-gray-600 dark:text-gray-400">
-              {c.federationFilterType}
-            </span>
-            <select
-              className="mt-1 w-full rounded-lg border border-black/10 bg-white/50 px-3 py-2 text-sm dark:border-white/10 dark:bg-black/20"
-              value={newFilterType}
-              onChange={(e) =>
-                setNewFilterType(
-                  e.target.value as (typeof FILTER_TYPES)[number],
+
+          <SelectItem
+            itemKey="fed-filter-type"
+            label={c.federationFilterType}
+            description={filterTypeHelp[newFilterType]}
+            value={newFilterType}
+            onChange={handleFilterTypeChange}
+            options={filterTypeOptions}
+            layout="vertical"
+          />
+
+          {newFilterType === 'block_activity_type' && (
+            <SelectItem
+              itemKey="fed-filter-activity"
+              label={c.federationFilterActivityType}
+              hint={c.federationFilterDescBlockActivity}
+              value={
+                ACTIVITY_TYPES.includes(
+                  newFilterValue as (typeof ACTIVITY_TYPES)[number],
                 )
+                  ? newFilterValue
+                  : 'Announce'
               }
-            >
-              {FILTER_TYPES.map((ft) => (
-                <option key={ft} value={ft}>
-                  {filterTypeLabels[ft]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <InputItem
-            itemKey="fed-filter-value"
-            label={c.federationFilterValue}
-            value={newFilterValue}
-            onChange={setNewFilterValue}
-            placeholder={c.federationFilterValuePlaceholder}
-          />
+              onChange={setNewFilterValue}
+              options={activityTypeOptions}
+              layout="vertical"
+            />
+          )}
+
+          {newFilterType === 'require_trust_level' && (
+            <SelectItem
+              itemKey="fed-filter-trust"
+              label={c.federationFilterTrustLevel}
+              hint={c.federationFilterDescRequireTrust}
+              value={
+                ['0', '1', '2', '3', '4'].includes(newFilterValue)
+                  ? newFilterValue
+                  : '0'
+              }
+              onChange={setNewFilterValue}
+              options={trustLevelOptions}
+              layout="vertical"
+            />
+          )}
+
+          {newFilterType === 'block_keyword' && (
+            <InputItem
+              itemKey="fed-filter-value"
+              label={c.federationFilterValue}
+              hint={c.federationFilterDescBlockKeyword}
+              value={newFilterValue}
+              onChange={setNewFilterValue}
+              placeholder={c.federationFilterValuePlaceholderKeyword}
+              layout="vertical"
+            />
+          )}
+
           <ButtonItem
             label={c.federationContentFilters}
             buttonText={c.federationAddFilter}
             onClick={() => void addFilter()}
           />
         </div>
+
         {filters.length === 0 ? (
           <p className="text-sm text-gray-500">{c.federationNoFilters}</p>
         ) : (
@@ -426,20 +561,17 @@ export const FederationConfigSection: React.FC<
             {filters.map((f) => (
               <li
                 key={f.id}
-                className="flex flex-wrap items-center gap-2 rounded-lg border border-black/5 px-3 py-2 text-sm dark:border-white/5"
+                className="flex flex-wrap items-center gap-2 rounded-lg border border-black/5 bg-black/[0.02] px-3 py-2.5 text-sm dark:border-white/5 dark:bg-white/[0.03]"
               >
                 <span className="min-w-0 flex-1 truncate">
                   <strong>{f.name}</strong>{' '}
-                  <span className="text-xs text-gray-500">
-                    {(filterTypeLabels as Record<string, string>)[
-                      f.filter_type
-                    ] || f.filter_type}
-                    ={f.value}
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                    {formatFilterSummary(f)}
                   </span>
                 </span>
                 <button
                   type="button"
-                  className="text-xs rounded-full px-2 py-0.5 bg-black/5 dark:bg-white/10"
+                  className="text-xs rounded-full px-2.5 py-1 font-medium bg-black/5 dark:bg-white/10"
                   onClick={() => void toggleFilter(f)}
                 >
                   {f.enabled
@@ -448,7 +580,7 @@ export const FederationConfigSection: React.FC<
                 </button>
                 <button
                   type="button"
-                  className="text-xs text-red-500"
+                  className="text-xs font-medium text-red-500"
                   onClick={() => void deleteFilter(f.id)}
                 >
                   {t.common?.delete || 'Delete'}
@@ -459,100 +591,62 @@ export const FederationConfigSection: React.FC<
         )}
       </SettingGroup>
 
-      <SettingGroup title={c.federationAdvanced}>
-        <p className="mb-2 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
-          {c.federationAdvancedDesc}
-        </p>
-        <button
-          type="button"
-          className="mb-3 text-sm font-medium text-[var(--tapp-primary,#6366f1)] hover:underline"
-          onClick={() => setAdvancedOpen((o) => !o)}
-          aria-expanded={advancedOpen}
-        >
-          {advancedOpen ? '▾ ' : '▸ '}
-          {c.federationRateLimit}
-        </button>
-        {advancedOpen && (
-          <div className="space-y-3 rounded-lg border border-black/5 bg-black/[0.02] p-3 dark:border-white/5 dark:bg-white/[0.03]">
-            <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
-              {c.federationRateLimitDesc}
-            </p>
-            <label className="block text-sm">
-              <span className="text-gray-600 dark:text-gray-400">
-                {c.federationRateMaxRequests}
-              </span>
-              <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                {c.federationRateMaxRequestsDesc}
-              </p>
-              <input
-                type="number"
-                min={1}
-                max={1_000_000}
-                className="mt-1.5 w-full rounded-lg border border-black/10 bg-white/50 px-3 py-2 text-sm tabular-nums dark:border-white/10 dark:bg-black/20"
-                value={rateMax}
-                onChange={(e) =>
-                  setRateMax(Math.max(1, Number(e.target.value) || 1))
-                }
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="text-gray-600 dark:text-gray-400">
-                {c.federationRateWindowSeconds}
-              </span>
-              <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                {c.federationRateWindowSecondsDesc}
-              </p>
-              <input
-                type="number"
-                min={1}
-                max={86_400}
-                className="mt-1.5 w-full rounded-lg border border-black/10 bg-white/50 px-3 py-2 text-sm tabular-nums dark:border-white/10 dark:bg-black/20"
-                value={rateWindow}
-                onChange={(e) =>
-                  setRateWindow(Math.max(1, Number(e.target.value) || 1))
-                }
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="text-gray-600 dark:text-gray-400">
-                {c.federationRateTrustedMultiplier}
-              </span>
-              <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                {c.federationRateTrustedMultiplierDesc}
-              </p>
-              <input
-                type="number"
-                min={1}
-                max={100}
-                className="mt-1.5 w-full rounded-lg border border-black/10 bg-white/50 px-3 py-2 text-sm tabular-nums dark:border-white/10 dark:bg-black/20"
-                value={rateTrustedMul}
-                onChange={(e) =>
-                  setRateTrustedMul(Math.max(1, Number(e.target.value) || 1))
-                }
-              />
-            </label>
-            <div className="flex flex-wrap gap-2 pt-1">
-              <button
-                type="button"
-                className="rounded-lg border border-black/10 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-black/5 dark:border-white/10 dark:text-gray-200 dark:hover:bg-white/5"
-                onClick={resetRateDefaults}
-              >
-                {c.federationRateResetDefaults}
-              </button>
-              <ButtonItem
-                label={c.federationRateLimit}
-                buttonText={
-                  saving
-                    ? '…'
-                    : c.federationSavePolicy || t.common?.save || 'Save'
-                }
-                onClick={() => void savePolicy()}
-                disabled={saving}
-                loading={saving}
-              />
-            </div>
-          </div>
-        )}
+      <SettingGroup
+        title={c.federationAdvanced}
+        description={c.federationAdvancedDesc}
+        collapsible
+        defaultExpanded={false}
+      >
+        <NumberItem
+          itemKey="fed-rate-max"
+          label={c.federationRateMaxRequests}
+          description={c.federationRateMaxRequestsDesc}
+          value={rateMax}
+          onChange={(v) => setRateMax(Math.max(1, Math.min(1_000_000, v || 1)))}
+          min={1}
+          max={1_000_000}
+          step={1}
+          layout="vertical"
+        />
+        <NumberItem
+          itemKey="fed-rate-window"
+          label={c.federationRateWindowSeconds}
+          description={c.federationRateWindowSecondsDesc}
+          value={rateWindow}
+          onChange={(v) => setRateWindow(Math.max(1, Math.min(86_400, v || 1)))}
+          min={1}
+          max={86_400}
+          step={1}
+          unit="s"
+          layout="vertical"
+        />
+        <NumberItem
+          itemKey="fed-rate-trusted-mul"
+          label={c.federationRateTrustedMultiplier}
+          description={c.federationRateTrustedMultiplierDesc}
+          value={rateTrustedMul}
+          onChange={(v) =>
+            setRateTrustedMul(Math.max(1, Math.min(100, v || 1)))
+          }
+          min={1}
+          max={100}
+          step={1}
+          layout="vertical"
+        />
+        <ButtonItem
+          label={c.federationRateLimit}
+          description={c.federationRateLimitDesc}
+          buttonText={c.federationRateResetDefaults}
+          onClick={resetRateDefaults}
+          variant="secondary"
+        />
+        <ButtonItem
+          label={c.federationAdvanced}
+          buttonText={saveButtonText}
+          onClick={() => void savePolicy()}
+          disabled={saving}
+          loading={saving}
+        />
       </SettingGroup>
     </SettingSection>
   )

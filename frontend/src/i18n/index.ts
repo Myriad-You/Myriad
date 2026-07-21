@@ -340,7 +340,14 @@ export interface TranslationKeys {
     federationFilterName: string
     federationFilterType: string
     federationFilterValue: string
+    /** @deprecated Prefer type-specific placeholders; kept for compatibility */
     federationFilterValuePlaceholder: string
+    federationFilterValuePlaceholderKeyword: string
+    federationFilterActivityType: string
+    federationFilterTrustLevel: string
+    federationFilterDescBlockActivity: string
+    federationFilterDescBlockKeyword: string
+    federationFilterDescRequireTrust: string
     federationAddFilter: string
     federationNoFilters: string
     federationFilterEnabled: string

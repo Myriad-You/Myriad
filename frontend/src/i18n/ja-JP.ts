@@ -380,12 +380,21 @@ export const jaJP: TranslationKeys = {
     federationUnblock: '解除',
     federationContentFilters: 'コンテンツフィルタ',
     federationContentFiltersDesc:
-      '受信アクティビティにのみ適用されます。種別・キーワード・最低信頼レベルで拒否できます。',
+      '受信拒否ルールです。種別ごとに、定義順に適用されます。対象は受信 Activity のみで、一致した通信は拒否されます。',
     federationFilterName: '名前',
     federationFilterType: '種類',
     federationFilterValue: '値',
-    federationFilterValuePlaceholder:
-      'キーワード、アクティビティ種別（例: Announce）、信頼レベル 0–4',
+    federationFilterValuePlaceholder: '下の種別ごとの入力を参照',
+    federationFilterValuePlaceholderKeyword:
+      '例: spam、casino、http://malicious.example',
+    federationFilterActivityType: 'アクティビティ種別',
+    federationFilterTrustLevel: '最低信頼レベル',
+    federationFilterDescBlockActivity:
+      '受信 Activity の type フィールドを遮断します。例: Announce を遮断するとブースト／再投稿のスパムを減らせます。',
+    federationFilterDescBlockKeyword:
+      'Activity の JSON／本文中のキーワードに一致すると拒否します（大文字小文字は区別しません）。',
+    federationFilterDescRequireTrust:
+      '送信元ドメインの信頼レベルが選択値未満の場合に拒否します。上の「インスタンス方針」の最低信頼とは独立で、併用できます。',
     federationAddFilter: 'フィルタを追加',
     federationNoFilters: 'コンテンツフィルタはありません。',
     federationFilterEnabled: 'オン',
@@ -402,7 +411,7 @@ export const jaJP: TranslationKeys = {
     federationFilterTypeRequireTrust: '信頼レベルを要求',
     federationAdvanced: '詳細設定',
     federationAdvancedDesc:
-      '受信レート制限など運用向けパラメータです。既定値は一般的な構成向けです。不適切な値は正当な連合トラフィックを拒否する場合があります。',
+      '受信レート制限など運用パラメータです。上の「インスタンス方針」（許可リスト・最低信頼）とは独立して併用されます。既定値は一般構成向けで、厳しすぎると正当な連合トラフィックを拒否する場合があります。',
     federationRateLimit: '受信レート制限',
     federationRateLimitDesc:
       '送信元ドメイン単位で受信 Activity を制限します。信頼レベル ≥ 3 には下記倍率を適用します。',
