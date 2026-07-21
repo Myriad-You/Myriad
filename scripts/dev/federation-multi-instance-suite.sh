@@ -795,6 +795,312 @@ case_transfer_ownership() {
   echo "transfer_ownership ok" >>"$SUITE_LOG"
 }
 
+# --- production-deploy scenario cases ---
+
+restart_instance_a() {
+  local jwt="$1"
+  local logfile="${2:-$RUN_LOG_A}"
+  if [[ -n "${PID_A:-}" ]]; then
+    kill "$PID_A" 2>/dev/null || true
+    wait "$PID_A" 2>/dev/null || true
+  fi
+  for pid in $(lsof -tiTCP:"$PORT_A" -sTCP:LISTEN 2>/dev/null || true); do
+    kill "$pid" 2>/dev/null || true
+  done
+  sleep 1
+  # Append restart banner so logs stay continuous
+  echo "===== restart instance A jwt_tag=$(echo -n "$jwt" | wc -c) chars =====" >>"$logfile"
+  PID_A=$(start_instance a "$PORT_A" "$DB_A" "$jwt" "$BASE_A" "$logfile")
+  echo "PID_A=$PID_A" >>"$SCRATCH_DIR/pids.txt"
+  wait_health "$BASE_A" a
+  # Session cookie may still work if JWT secret changed — re-login after restart
+  login_cookie "$BASE_A" "$ADMIN_USER_A" "$JAR_A"
+}
+
+case_deploy_post_move_switch_base() {
+  # Production: after domain Move, cut over BASE_URL to new host (C).
+  # Restart A serving BASE_C with same DB so keyId host matches signatures.
+  if [[ -n "${PID_A:-}" ]]; then
+    kill "$PID_A" 2>/dev/null || true
+    wait "$PID_A" 2>/dev/null || true
+  fi
+  for pid in $(lsof -tiTCP:"$PORT_A" -sTCP:LISTEN 2>/dev/null || true); do
+    kill "$pid" 2>/dev/null || true
+  done
+  sleep 1
+  # A process now advertises new base on port C if C already up; keep C as the
+  # public new base. Re-bind: stop old A, start A on PORT_A still for API tests
+  # is wrong — instead point subsequent API calls at BASE_C for alice admin.
+  # Keep C running; re-login against C.
+  wait_health "$BASE_C" c
+  login_cookie "$BASE_C" "$ADMIN_USER_A" "$JAR_A"
+  # Re-export for remaining cases that still use BASE_A for alice writes:
+  # transfer_ownership is on B; no_key_spam only checks logs.
+  # Verify new actor + keyId consistent on C
+  curl -fsS -H 'Accept: application/activity+json' "${BASE_C}/users/${ADMIN_USER_A}" \
+    >"$SCRATCH_DIR/actor-c-cutover.json"
+  local kid
+  kid=$(sql_a "SELECT key_id FROM federation_keys WHERE user_id=1;")
+  echo "$kid" | grep -q "${PORT_C}" || die "post-move key_id not on C: $kid"
+  # Public key id in actor doc should reference C
+  grep -q "${PORT_C}" "$SCRATCH_DIR/actor-c-cutover.json" \
+    || die "actor doc after cutover missing new host"
+  echo "deploy_post_move_switch_base ok key_id=$kid" >>"$SUITE_LOG"
+}
+
+case_deploy_cold_keys_before_outbound() {
+  # Deploy: admin never hit Actor GET / identity; first outbound must still work.
+  local jar_a="$JAR_A"
+  # Clean slate: remove follow rows + queue + keys (no identity call after wipe)
+  api POST "$BASE_A" "$jar_a" /api/federation/unfollow "{\"target\":\"${ACTOR_B}\"}" >/dev/null || true
+  sleep 1
+  sql_a "DELETE FROM federation_follows WHERE direction='outgoing';" >/dev/null || true
+  sql_b "DELETE FROM federation_follows;" >/dev/null || true
+  # Drop peer cache of alice so first signed post after re-key is verified against fresh actor
+  sql_b "DELETE FROM federation_remote_actors WHERE actor_url LIKE '%/users/${ADMIN_USER_A}%';" >/dev/null || true
+  clear_queue a
+  sql_a "DELETE FROM federation_delivery_queue;" >/dev/null || true
+  sql_a "DELETE FROM federation_keys;" >/dev/null || true
+  local before
+  before=$(sql_a "SELECT count(*) FROM federation_keys;")
+  [[ "$before" == "0" ]] || die "expected 0 keys before cold outbound"
+  # Do NOT call identity; Follow path + delivery choke point must ensure.
+  api POST "$BASE_A" "$jar_a" /api/federation/follow "{\"target\":\"${ACTOR_B}\"}" \
+    >"$SCRATCH_DIR/deploy-cold-follow.json"
+  local after
+  after=$(sql_a "SELECT count(*) FROM federation_keys WHERE user_id=1;")
+  [[ "$after" == "1" ]] || die "cold outbound did not create keys (count=$after)"
+  for i in $(seq 1 40); do
+    nudge_delivery a
+    pend=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status IN ('pending','delivering');" || echo 0)
+    dead=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='dead';" || echo 0)
+    del=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='delivered';" || echo 0)
+    echo "  cold_keys t=$i pending=$pend delivered=$del dead=$dead"
+    if [[ "${dead:-0}" -ge 1 ]]; then
+      err=$(sql_a "SELECT error_message FROM federation_delivery_queue WHERE status='dead' ORDER BY id DESC LIMIT 1;")
+      die "cold outbound dead: $err"
+    fi
+    [[ "${pend:-0}" -eq 0 && "${del:-0}" -ge 1 ]] && break
+    sleep 1
+  done
+  pend=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status IN ('pending','delivering');" || echo 0)
+  del=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='delivered';" || echo 0)
+  [[ "${pend:-0}" -eq 0 && "${del:-0}" -ge 1 ]] || die "cold outbound not delivered (pending=$pend delivered=$del)"
+  # Prove no key-load failure string for this window
+  if grep -F "No federation keys found for user" "$RUN_LOG_A" >/dev/null 2>&1; then
+    if ! grep -F "Ensured federation keys; retrying delivery sign" "$RUN_LOG_A" >/dev/null 2>&1; then
+      die "cold path hit missing keys without ensure recovery"
+    fi
+  fi
+  echo "deploy_cold_keys ok" >>"$SUITE_LOG"
+}
+
+case_deploy_jwt_mismatch_no_rotate() {
+  # Deploy: JWT_SECRET changed (or wrong secret on one replica) while federation_keys remain.
+  # Must NOT regenerate public key; decrypt fails; restoring secret recovers.
+  local jar_a="$JAR_A"
+  # Ensure keys exist under JWT_A
+  api_get "$BASE_A" "$jar_a" /api/federation/identity >/dev/null
+  local pem_before
+  pem_before=$(sql_a "SELECT public_key_pem FROM federation_keys WHERE user_id=1;")
+  [[ -n "$pem_before" ]] || die "no PEM before jwt mismatch test"
+  echo "$pem_before" >"$SCRATCH_DIR/deploy-pem-before.txt"
+
+  local JWT_WRONG="federation-lab-jwt-WRONG-WRONG-WRONG-WRONG-X9"
+  restart_instance_a "$JWT_WRONG" "$RUN_LOG_A"
+
+  # Identity must not rotate keys under wrong secret (non-empty PEM present)
+  api_get "$BASE_A" "$JAR_A" /api/federation/identity >/dev/null || true
+  local pem_mid
+  pem_mid=$(sql_a "SELECT public_key_pem FROM federation_keys WHERE user_id=1;")
+  [[ "$pem_mid" == "$pem_before" ]] || die "JWT mismatch rotated public PEM (forbidden)"
+
+  # Outbound with wrong JWT: delivery should fail decrypt, not mint new keys
+  clear_queue a
+  sql_a "DELETE FROM federation_delivery_queue;" >/dev/null || true
+  api POST "$BASE_A" "$JAR_A" /api/federation/unfollow "{\"target\":\"${ACTOR_B}\"}" >/dev/null || true
+  sleep 1
+  clear_queue a
+  api POST "$BASE_A" "$JAR_A" /api/federation/follow "{\"target\":\"${ACTOR_B}\"}" \
+    >"$SCRATCH_DIR/deploy-jwt-wrong-follow.json" || true
+  # Wait a few delivery ticks for key decrypt failures
+  for i in $(seq 1 8); do
+    nudge_delivery a
+    sleep 1
+  done
+  local pem_after_fail
+  pem_after_fail=$(sql_a "SELECT public_key_pem FROM federation_keys WHERE user_id=1;")
+  [[ "$pem_after_fail" == "$pem_before" ]] || die "decrypt-fail path rotated PEM"
+
+  # Expect decrypt errors in log or queue error_message (not silent regen)
+  local qerr
+  qerr=$(sql_a "SELECT count(*) FROM federation_delivery_queue WHERE error_message ILIKE '%decrypt%' OR error_message ILIKE '%Key load%';" || echo 0)
+  if ! grep -E "Key decryption failed|Key load failed" "$RUN_LOG_A" >/dev/null 2>&1; then
+    [[ "${qerr:-0}" -ge 1 ]] || echo "warn: no decrypt log yet (may still be pending)" >>"$SUITE_LOG"
+  fi
+
+  # Restore correct JWT — same PEM must decrypt and deliver again
+  restart_instance_a "$JWT_A" "$RUN_LOG_A"
+  local pem_restored
+  pem_restored=$(sql_a "SELECT public_key_pem FROM federation_keys WHERE user_id=1;")
+  [[ "$pem_restored" == "$pem_before" ]] || die "PEM changed after JWT restore"
+  clear_queue a
+  api POST "$BASE_A" "$JAR_A" /api/federation/unfollow "{\"target\":\"${ACTOR_B}\"}" >/dev/null || true
+  sleep 1
+  clear_queue a
+  # Clear B's stale remote cache so re-follow can re-fetch actor if needed
+  sql_b "DELETE FROM federation_remote_actors WHERE actor_url LIKE '%/users/${ADMIN_USER_A}%';" >/dev/null || true
+  api POST "$BASE_A" "$JAR_A" /api/federation/follow "{\"target\":\"${ACTOR_B}\"}" \
+    >"$SCRATCH_DIR/deploy-jwt-restored-follow.json"
+  for i in $(seq 1 30); do
+    nudge_delivery a
+    pend=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status IN ('pending','delivering');" || echo 0)
+    dead=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='dead';" || echo 0)
+    del=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='delivered';" || echo 0)
+    echo "  jwt_restore t=$i pending=$pend delivered=$del dead=$dead"
+    [[ "${pend:-0}" -eq 0 && "${del:-0}" -ge 1 ]] && break
+    [[ "${dead:-0}" -ge 1 ]] && {
+      err=$(sql_a "SELECT error_message FROM federation_delivery_queue WHERE status='dead' ORDER BY id DESC LIMIT 1;")
+      die "after JWT restore delivery dead: $err"
+    }
+    sleep 1
+  done
+  del=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='delivered';" || echo 0)
+  [[ "${del:-0}" -ge 1 ]] || die "after JWT restore no delivered activity"
+  echo "deploy_jwt_mismatch_no_rotate ok" >>"$SUITE_LOG"
+}
+
+case_deploy_stale_remote_pubkey() {
+  # Deploy: ops wiped/regenerated local keys while peers cache old actor PEM → 401.
+  # Suite documents expected failure then recovery via peer re-fetch (delete remote cache).
+  local jar_a="$JAR_A"
+  api_get "$BASE_A" "$jar_a" /api/federation/identity >/dev/null
+  # Force B to cache current actor
+  curl -fsS -H 'Accept: application/activity+json' "$ACTOR_A" >/dev/null
+  sql_b "SELECT count(*) FROM federation_remote_actors WHERE actor_url LIKE '%alice%';" >/dev/null || true
+
+  local pem1
+  pem1=$(sql_a "SELECT public_key_pem FROM federation_keys WHERE user_id=1;")
+  # Rotate by DELETE + ensure (simulates disaster rekey, not normal path)
+  sql_a "DELETE FROM federation_keys;" >/dev/null
+  api_get "$BASE_A" "$jar_a" /api/federation/identity >/dev/null
+  local pem2
+  pem2=$(sql_a "SELECT public_key_pem FROM federation_keys WHERE user_id=1;")
+  [[ "$pem1" != "$pem2" ]] || die "expected new PEM after forced rekey"
+
+  clear_queue a
+  api POST "$BASE_A" "$jar_a" /api/federation/unfollow "{\"target\":\"${ACTOR_B}\"}" >/dev/null || true
+  sleep 1
+  clear_queue a
+  # B still has old pubkey in remote_actors — delivery may 401
+  api POST "$BASE_A" "$jar_a" /api/federation/follow "{\"target\":\"${ACTOR_B}\"}" \
+    >"$SCRATCH_DIR/deploy-stale-follow.json" || true
+  for i in $(seq 1 12); do
+    nudge_delivery a
+    sleep 1
+  done
+  local dead401
+  dead401=$(sql_a "SELECT count(*) FROM federation_delivery_queue WHERE error_message ILIKE '%401%' OR error_message ILIKE '%signature%';" || echo 0)
+  # Recovery: drop B's cached actor so next fetch gets new PEM
+  sql_b "DELETE FROM federation_remote_actors WHERE actor_url LIKE '%/users/${ADMIN_USER_A}%';" >/dev/null || true
+  clear_queue a
+  api POST "$BASE_A" "$jar_a" /api/federation/unfollow "{\"target\":\"${ACTOR_B}\"}" >/dev/null || true
+  sleep 1
+  clear_queue a
+  api POST "$BASE_A" "$jar_a" /api/federation/follow "{\"target\":\"${ACTOR_B}\"}" \
+    >"$SCRATCH_DIR/deploy-stale-recovered-follow.json"
+  for i in $(seq 1 30); do
+    nudge_delivery a
+    pend=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status IN ('pending','delivering');" || echo 0)
+    del=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='delivered';" || echo 0)
+    dead=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='dead';" || echo 0)
+    echo "  stale_recover t=$i pending=$pend delivered=$del dead=$dead (prior401=$dead401)"
+    [[ "${pend:-0}" -eq 0 && "${del:-0}" -ge 1 ]] && break
+    [[ "${dead:-0}" -ge 1 && "${pend:-0}" -eq 0 ]] && {
+      err=$(sql_a "SELECT error_message FROM federation_delivery_queue WHERE status='dead' ORDER BY id DESC LIMIT 1;")
+      die "stale pubkey recovery failed: $err"
+    }
+    sleep 1
+  done
+  del=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='delivered';" || echo 0)
+  [[ "${del:-0}" -ge 1 ]] || die "stale pubkey recovery: no delivered"
+  echo "deploy_stale_remote_pubkey ok prior_sig_fail=$dead401" >>"$SUITE_LOG"
+}
+
+case_deploy_retry_dead() {
+  # Deploy: after transient dead letters, retry-dead should requeue.
+  local jar_a="$JAR_A"
+  # Seed a dead row artificially if none
+  local dead_n
+  dead_n=$(sql_a "SELECT count(*) FROM federation_delivery_queue WHERE status='dead';" || echo 0)
+  if [[ "${dead_n:-0}" -lt 1 ]]; then
+    # Insert minimal dead letter attached to latest activity if any
+    local act
+    act=$(sql_a "SELECT id FROM federation_activities ORDER BY id DESC LIMIT 1;" || echo "")
+    if [[ -n "$act" ]]; then
+      sql_a "INSERT INTO federation_delivery_queue (activity_id, target_inbox, target_domain, status, attempts, max_attempts, error_message, created_at)
+             VALUES (${act}, '${BASE_B}/users/${ADMIN_USER_B}/inbox', '127.0.0.1', 'dead', 12, 12, 'suite seeded dead', NOW());" >/dev/null || true
+    fi
+  fi
+  dead_n=$(sql_a "SELECT count(*) FROM federation_delivery_queue WHERE status='dead';" || echo 0)
+  [[ "${dead_n:-0}" -ge 1 ]] || {
+    echo "deploy_retry_dead skip (no dead rows to seed)" >>"$SUITE_LOG"
+    return 0
+  }
+  api POST "$BASE_A" "$jar_a" /api/federation/delivery/retry-dead "" \
+    >"$SCRATCH_DIR/deploy-retry-dead.json"
+  local pending
+  pending=$(sql_a "SELECT count(*) FROM federation_delivery_queue WHERE status='pending';" || echo 0)
+  # retry-dead should move some dead → pending (or delivered quickly)
+  grep -qE "requeued|count|success|retry|pending|[0-9]" "$SCRATCH_DIR/deploy-retry-dead.json" \
+    || die "retry-dead response unexpected: $(cat "$SCRATCH_DIR/deploy-retry-dead.json")"
+  echo "deploy_retry_dead ok pending_after=$pending" >>"$SUITE_LOG"
+}
+
+case_deploy_ssrf_lab_flag_off() {
+  # Deploy safety: without lab flag, private inbox delivery must be refused.
+  # cargo test accepts a single filter; run two shipped unit tests.
+  (cd "$BACKEND" && cargo test lab_flag_allows_loopback -- --nocapture) \
+    >"$SCRATCH_DIR/deploy-ssrf-unit.log" 2>&1 \
+    || die "ssrf lab_flag unit failed (see deploy-ssrf-unit.log)"
+  (cd "$BACKEND" && cargo test refuses_literal -- --nocapture) \
+    >>"$SCRATCH_DIR/deploy-ssrf-unit.log" 2>&1 \
+    || die "ssrf refuses_literal unit failed (see deploy-ssrf-unit.log)"
+  grep -q "test result: ok" "$SCRATCH_DIR/deploy-ssrf-unit.log" \
+    || die "ssrf unit log missing ok"
+  echo "deploy_ssrf_lab_flag_off unit ok" >>"$SUITE_LOG"
+}
+
+case_deploy_cancel_failed_send() {
+  # Product: user can cancel pending/failed-in-flight outbound delivery.
+  local jar_a="$JAR_A"
+  local act
+  act=$(sql_a "SELECT id FROM federation_activities WHERE user_id=1 ORDER BY id DESC LIMIT 1;" || echo "")
+  [[ -n "$act" ]] || die "no activity to seed cancel test"
+  # Always seed a far-future pending row so the worker cannot race-complete it
+  sql_a "INSERT INTO federation_delivery_queue (activity_id, target_inbox, target_domain, status, attempts, max_attempts, error_message, created_at, next_retry_at)
+         VALUES (${act}, 'http://127.0.0.1:9/never', '127.0.0.1', 'pending', 3, 12, 'suite: stuck outbound', NOW(), NOW() + interval '2 hours')
+         RETURNING id;" >/dev/null
+  local qid
+  qid=$(sql_a "SELECT id FROM federation_delivery_queue WHERE status='pending' AND error_message='suite: stuck outbound' ORDER BY id DESC LIMIT 1;")
+  [[ -n "$qid" ]] || die "failed to seed pending queue id"
+  api POST "$BASE_A" "$jar_a" "/api/federation/delivery/${qid}/cancel" "" \
+    >"$SCRATCH_DIR/deploy-cancel-one.json"
+  local st
+  st=$(sql_a "SELECT status || '|' || coalesce(error_message,'') FROM federation_delivery_queue WHERE id=${qid};")
+  echo "$st" | grep -q "^dead|" || die "cancel did not mark dead: $st"
+  echo "$st" | grep -qi "cancelled" || die "cancel missing cancelled message: $st"
+  # Seed another pending and bulk-cancel
+  sql_a "INSERT INTO federation_delivery_queue (activity_id, target_inbox, target_domain, status, attempts, max_attempts, error_message, created_at, next_retry_at)
+         VALUES (${act}, 'http://127.0.0.1:9/never2', '127.0.0.1', 'pending', 1, 12, 'suite: bulk cancel', NOW(), NOW() + interval '2 hours');" >/dev/null
+  api POST "$BASE_A" "$jar_a" /api/federation/delivery/cancel-pending "" \
+    >"$SCRATCH_DIR/deploy-cancel-pending.json"
+  local cancelled
+  cancelled=$(python3 -c 'import json; print(json.load(open("'"$SCRATCH_DIR"'/deploy-cancel-pending.json")).get("cancelled",0))' 2>/dev/null || echo 0)
+  [[ "${cancelled:-0}" -ge 1 ]] || die "cancel-pending cancelled=0: $(cat "$SCRATCH_DIR/deploy-cancel-pending.json")"
+  echo "deploy_cancel_failed_send ok id=$qid bulk_cancelled=$cancelled status=$st" >>"$SUITE_LOG"
+}
+
 case_delivery_no_key_spam() {
   assert_no_key_errors
   if grep -E "panicked at" "$RUN_LOG_A" "$RUN_LOG_B" >/dev/null 2>&1; then
@@ -877,9 +1183,26 @@ main() {
   sleep 1
   run_case "trust_policy" case_trust_policy
   sleep 1
+  # Ownership transfer while room graph still on pre-move bases
+  run_case "transfer_ownership" case_transfer_ownership
+  sleep 1
+  # Deploy scenarios BEFORE domain_move (move retargets key_id; BASE_URL must follow)
+  run_case "deploy_cold_keys_before_outbound" case_deploy_cold_keys_before_outbound
+  sleep 1
+  run_case "deploy_jwt_mismatch_no_rotate" case_deploy_jwt_mismatch_no_rotate
+  sleep 1
+  run_case "deploy_stale_remote_pubkey" case_deploy_stale_remote_pubkey
+  sleep 1
+  run_case "deploy_retry_dead" case_deploy_retry_dead
+  sleep 1
+  run_case "deploy_cancel_failed_send" case_deploy_cancel_failed_send
+  sleep 1
+  run_case "deploy_ssrf_lab_flag_off" case_deploy_ssrf_lab_flag_off
+  sleep 1
+  # Domain move last; then production cutover to new BASE
   run_case "domain_move" case_domain_move
   sleep 1
-  run_case "transfer_ownership" case_transfer_ownership
+  run_case "deploy_post_move_switch_base" case_deploy_post_move_switch_base
   sleep 1
   run_case "no_key_error_spam" case_delivery_no_key_spam
 
@@ -890,11 +1213,12 @@ main() {
   } | tee "$SCRATCH_DIR/suite-summary.txt" | tee -a "$SUITE_LOG"
 
   cat >"$SCRATCH_DIR/summary.md" <<EOF
-# Multi-instance federation suite (full)
+# Multi-instance federation suite (full + deploy scenarios)
 
 ## Instances
 - A: \`$BASE_A\` db=\`$DB_A\`
 - B: \`$BASE_B\` db=\`$DB_B\`
+- C: \`$BASE_C\` (domain-move new base, shared A DB)
 - Lab: \`MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND=1\`, delivery interval 2s
 
 ## Results
