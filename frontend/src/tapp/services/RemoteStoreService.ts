@@ -574,14 +574,34 @@ class RemoteStoreServiceImpl {
 
     const downloadText = async (
       relativePath?: string,
+      requiredLabel?: string,
     ): Promise<string | undefined> => {
-      if (!relativePath) return undefined
+      if (!relativePath) {
+        if (requiredLabel) {
+          throw new Error(
+            `Store index is missing download path for required ${requiredLabel}`,
+          )
+        }
+        return undefined
+      }
       try {
         const url = this.resolveUrl(relativePath, baseUrl)
         const response = await fetch(url)
-        if (!response.ok) return undefined
+        if (!response.ok) {
+          if (requiredLabel) {
+            throw new Error(
+              `Failed to download ${requiredLabel} (${relativePath}): HTTP ${response.status}`,
+            )
+          }
+          return undefined
+        }
         return await response.text()
-      } catch {
+      } catch (e) {
+        if (requiredLabel) {
+          throw e instanceof Error
+            ? e
+            : new Error(`Failed to download ${requiredLabel}: ${String(e)}`)
+        }
         return undefined
       }
     }
@@ -608,16 +628,40 @@ class RemoteStoreServiceImpl {
     })
 
     const indexWithBase = { ...storeIndex, base_url: baseUrl }
-    const [downloadedManifest, code, styles, widgetCss, pageCss, pageTemplate] =
-      await Promise.all([
-        this.downloadManifest(app, indexWithBase),
-        this.downloadCode(app, indexWithBase),
-        downloadText(app.download.styles),
-        downloadText(app.download.widget_styles),
-        downloadText(app.download.page_styles),
-        downloadText(app.download.page_template),
-      ])
+    // Manifest first so we know which package fields are required (pageStyles etc.)
+    const downloadedManifest = await this.downloadManifest(app, indexWithBase)
     const manifest: TappManifest = downloadedManifest
+    const needsPageCss = !!manifest.pageStyles
+    const needsPageTemplate = !!manifest.pageTemplate
+    const needsWidgetCss = !!manifest.widgetStyles
+
+    const [code, styles, widgetCss, pageCss, pageTemplate] = await Promise.all([
+      this.downloadCode(app, indexWithBase),
+      downloadText(app.download.styles),
+      downloadText(
+        app.download.widget_styles,
+        needsWidgetCss ? 'widgetStyles' : undefined,
+      ),
+      downloadText(
+        app.download.page_styles,
+        needsPageCss ? 'pageStyles' : undefined,
+      ),
+      downloadText(
+        app.download.page_template,
+        needsPageTemplate ? 'pageTemplate' : undefined,
+      ),
+    ])
+
+    if (needsPageCss && !pageCss) {
+      throw new Error(
+        'Downloaded package is missing pageStyles content (page.css). Check store download.page_styles.',
+      )
+    }
+    if (needsPageTemplate && !pageTemplate) {
+      throw new Error(
+        'Downloaded package is missing pageTemplate content. Check store download.page_template.',
+      )
+    }
 
     report?.({
       phase: 'download',

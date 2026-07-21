@@ -639,7 +639,14 @@ async function installFromStoreViaClient(
   if (pkg.pageTemplate) requestBody.pageTemplate = pkg.pageTemplate
   if (pkg.widgetTemplates) requestBody.widgetTemplates = pkg.widgetTemplates
   if (pkg.widgetCss) requestBody.widgetCss = pkg.widgetCss
-  if (pkg.pageCss) requestBody.pageCss = pkg.pageCss
+  // Always send pageCss when present — required for cssMode=separated (pageStyles → page.css)
+  if (pkg.pageCss != null && pkg.pageCss !== '') {
+    requestBody.pageCss = pkg.pageCss
+  } else if (pkg.manifest.pageStyles) {
+    throw new Error(
+      `Client install package is missing pageCss for manifest.pageStyles=${pkg.manifest.pageStyles}`,
+    )
+  }
   if (pkg.i18n) requestBody.i18n = pkg.i18n
   if (pkg.pageModules) requestBody.pageModules = pkg.pageModules
   // Binary package assets (manifest.assets) so Tapp.assets works after store install

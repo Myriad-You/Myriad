@@ -133,6 +133,59 @@ impl PreparedTappPackage {
                 validate_widget_template_contents(&self.manifest, templates)
                     .map_err(|error| (StatusCode::BAD_REQUEST, api_error(error)))?;
             }
+            // Separated CSS: declared pageStyles/widgetStyles must include content to write.
+            // Without this, validate_installed_resources fails with a misleading
+            // "not a regular file: page.css" after stage.
+            if self.manifest.page_styles.is_some() {
+                let has_page = resources
+                    .page_styles
+                    .as_ref()
+                    .is_some_and(|s| !s.is_empty())
+                    || resources
+                        .generated_page_css
+                        .as_ref()
+                        .is_some_and(|s| !s.is_empty());
+                if !has_page {
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        api_error(
+                            "Install package is missing pageStyles content required by manifest.pageStyles (page.css)",
+                        ),
+                    ));
+                }
+            }
+            if self.manifest.page_template.is_some() {
+                let has_tpl = resources
+                    .page_template
+                    .as_ref()
+                    .is_some_and(|s| !s.is_empty());
+                if !has_tpl {
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        api_error(
+                            "Install package is missing pageTemplate content required by manifest.pageTemplate",
+                        ),
+                    ));
+                }
+            }
+            if self.manifest.widget_styles.is_some() {
+                let has_widget = resources
+                    .widget_styles
+                    .as_ref()
+                    .is_some_and(|s| !s.is_empty())
+                    || resources
+                        .generated_widget_css
+                        .as_ref()
+                        .is_some_and(|s| !s.is_empty());
+                if !has_widget {
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        api_error(
+                            "Install package is missing widgetStyles content required by manifest.widgetStyles",
+                        ),
+                    ));
+                }
+            }
             validate_named_resource_keys(
                 resources
                     .i18n

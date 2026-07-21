@@ -871,8 +871,17 @@ pub(crate) fn validate_installed_resources(
         }
     }
     for relative in resources {
-        let path = regular_resource_path(tapp_dir, relative)
-            .ok_or_else(|| format!("Declared Tapp resource is not a regular file: {relative}"))?;
+        let joined = resource_path(tapp_dir, relative)
+            .ok_or_else(|| format!("Declared Tapp resource has invalid path: {relative}"))?;
+        if !joined.is_file() {
+            return Err(format!(
+                "Declared Tapp resource is missing after install (expected regular file): {relative}. \
+If this is page.css, the install payload likely omitted pageStyles/pageCss content for cssMode=separated."
+            ));
+        }
+        let path = regular_resource_path(tapp_dir, relative).ok_or_else(|| {
+            format!("Declared Tapp resource is not a regular in-sandbox file: {relative}")
+        })?;
         let bytes = std::fs::read(path)
             .map_err(|_| format!("Declared Tapp resource not found: {relative}"))?;
         std::str::from_utf8(&bytes)
