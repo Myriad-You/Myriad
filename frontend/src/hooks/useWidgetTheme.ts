@@ -19,6 +19,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { API_URL } from '../config'
 import { getUIConfigDeduped } from '../utils/requestDedup'
+import { resyncWallpaperBlur } from '../utils/wallpaperState'
 
 // ==================== 类型定义 ====================
 
@@ -85,6 +86,9 @@ function applyThemeToRoot(state: WidgetThemeState): void {
   } else {
     root.dataset.glow = state.glow
   }
+  // liquid 表面收敛壁纸基础模糊（壁纸清晰、玻璃负责模糊），
+  // 切换表面时立即按当前主题重算，不等下一次壁纸应用
+  resyncWallpaperBlur()
 }
 
 function isSurface(v: unknown): v is WidgetSurface {

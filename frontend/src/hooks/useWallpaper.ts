@@ -10,11 +10,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { API_URL } from '../config'
 import { fetchJsonWithRetry } from '../utils/apiRetry'
-import { getUIConfigDeduped } from '../utils/requestDedup'
 import { loadImagePooled } from '../utils/objectPool'
+import { getUIConfigDeduped } from '../utils/requestDedup'
 import { getCacheInfo } from '../utils/wallpaperColorCache'
 import {
   areUrlsEquivalent,
+  effectiveWallpaperBlur,
   extractBackgroundUrl,
   normalizeWallpaperUrl,
   wallpaperState,
@@ -254,7 +255,7 @@ async function applyWallpaperToDOM(
   if (!forceRefresh && currentUrl && areUrlsEquivalent(currentUrl, imageUrl)) {
     // 已经是目标壁纸，只需更新模糊度（如果不同）
     const currentFilter = wallpaperEl.style.filter
-    const targetFilter = `blur(${blur}px)`
+    const targetFilter = `blur(${effectiveWallpaperBlur(blur)}px)`
     if (currentFilter !== targetFilter) {
       wallpaperEl.style.filter = targetFilter
     }
@@ -307,7 +308,7 @@ async function applyWallpaperToDOM(
 
     // 应用到 DOM（先不可见，再渐显）
     wallpaperEl.style.backgroundImage = `url(${imageUrl})`
-    wallpaperEl.style.filter = `blur(${blur}px)`
+    wallpaperEl.style.filter = `blur(${effectiveWallpaperBlur(blur)}px)`
     wallpaperEl.classList.remove('wallpaper-fading')
 
     // 更新全局状态

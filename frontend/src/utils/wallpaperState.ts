@@ -276,6 +276,43 @@ class WallpaperStateManager {
 export const wallpaperState = new WallpaperStateManager()
 
 // ============================================================================
+// liquid 表面的壁纸模糊收敛
+// ============================================================================
+
+/**
+ * liquid 表面下壁纸基础模糊的收敛系数。Liquid Glass 的光学前提是
+ *  「壁纸保持清晰、玻璃负责模糊」：背后已经糊了，玻璃的折射与拾光
+ *  就没有素材。其余表面维持配置原值。
+ */
+const LIQUID_WALLPAPER_BLUR_SCALE = 0.35
+
+/**
+ * 按当前表面主题折算壁纸模糊值 ——
+ *  所有写 #wallpaper style.filter 的路径统一经过这里
+ */
+export function effectiveWallpaperBlur(blur: number): number {
+  if (
+    typeof document !== 'undefined'
+    && document.documentElement.dataset.surface === 'liquid'
+  ) {
+    return Math.round(blur * LIQUID_WALLPAPER_BLUR_SCALE * 10) / 10
+  }
+  return blur
+}
+
+/**
+ * 表面主题切换后立即重算壁纸模糊（useWidgetTheme.applyThemeToRoot 调用；
+ *  evocative 动态模糊若在运行，会在后续帧以同一折算接管）
+ */
+export function resyncWallpaperBlur(): void {
+  if (typeof document === 'undefined') return
+  const el = document.getElementById(WALLPAPER_ELEMENT_ID)
+  if (!el || !wallpaperState.getActiveUrl()) return
+  const blur = effectiveWallpaperBlur(wallpaperState.getSnapshot().blur)
+  el.style.filter = `blur(${blur}px)`
+}
+
+// ============================================================================
 // 便捷导出函数（向后兼容）
 // ============================================================================
 

@@ -122,16 +122,9 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
           opacity: 1;
         }
       }
-      .glass {
-        background: rgba(255, 255, 255, 0.7);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.3);
-      }
-      html.dark .glass {
-        background: rgba(26, 26, 26, 0.8);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-      }
+      /* .glass 表面样式统一由 theme.css 的表面令牌驱动。
+         勿在页面级重复声明：html.dark .glass 的特异性 (0,2,1) 会
+         盖掉令牌系统，导致 data-surface 主题在暗色下永远不生效 */
       .nav-container {
         position: fixed;
         bottom: 1rem;
@@ -381,21 +374,7 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
         font-style: normal;
       }
 
-      /* Glass effect - 浅色模式 */
-      .glass {
-        background: rgba(255, 255, 255, 0.7);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.1);
-      }
-
-      /* Glass effect - 深色模式 */
-      html.dark .glass {
-        background: rgba(10, 10, 10, 0.85);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.7);
-      }
+      /* Glass effect：统一由 theme.css 表面令牌驱动（见上方说明，勿在此重复声明） */
 
       /* 深色模式背景 - 纯色 */
       html.dark #bg-container {
@@ -1940,19 +1919,9 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
          Mobile Performance Optimizations
          ======================================== */
 
-      /* 移动端性能优化 */
+      /* 移动端性能优化（.glass 的移动端降级由 theme.css 表面令牌统一处理） */
       @media (max-width: 767px) {
-        /* 减少阴影复杂度 */
-        .glass {
-          box-shadow: 0 4px 16px 0 rgba(31, 38, 135, 0.08);
-        }
-
-        html.dark .glass {
-          box-shadow: 0 4px 16px 0 rgba(0, 0, 0, 0.4);
-        }
-
         /* 简化背景模糊 */
-        .glass,
         .dynamic-island {
           backdrop-filter: blur(12px);
           -webkit-backdrop-filter: blur(12px);

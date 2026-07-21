@@ -20,6 +20,7 @@
  */
 
 import { useEffect, useRef } from 'react'
+import { effectiveWallpaperBlur } from '../utils/wallpaperState'
 import { batchWrite, isPageVisible, onVisibility } from './animation/core'
 
 // ==================== 共享配置常量 ====================
@@ -565,7 +566,7 @@ export function useEvocativeWallpaper(
       el.style.transform = IDLE_TF
     }
     if (enableDynamicBlur) {
-      el.style.filter = `${BLUR_PREFIX}${baseBlur}${BLUR_SUFFIX}`
+      el.style.filter = `${BLUR_PREFIX}${effectiveWallpaperBlur(baseBlur)}${BLUR_SUFFIX}`
     }
 
     // 创建涟漪 Canvas
@@ -771,7 +772,7 @@ export function useEvocativeWallpaper(
               const rounded = ((s.blurCurrentBlur * 10 + 0.5) | 0) / 10
               batchWrite(() => {
                 if (s.el)
-                  s.el.style.filter = `${BLUR_PREFIX}${rounded}${BLUR_SUFFIX}`
+                  s.el.style.filter = `${BLUR_PREFIX}${effectiveWallpaperBlur(rounded)}${BLUR_SUFFIX}`
               })
             }
           } else {
@@ -782,7 +783,7 @@ export function useEvocativeWallpaper(
               s.blurLastRendered = rounded
               batchWrite(() => {
                 if (s.el)
-                  s.el.style.filter = `${BLUR_PREFIX}${rounded}${BLUR_SUFFIX}`
+                  s.el.style.filter = `${BLUR_PREFIX}${effectiveWallpaperBlur(rounded)}${BLUR_SUFFIX}`
               })
             }
             needsContinue = true
