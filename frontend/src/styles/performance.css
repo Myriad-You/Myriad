@@ -8,10 +8,8 @@
    ============================================ */
 
 /* 动画元素默认开启 GPU 加速 */
-.will-animate,
 [data-animation],
 .animate-fade-in,
-.animate-slide-up,
 .animate-scale-in {
   will-change: transform, opacity;
   backface-visibility: hidden;
@@ -19,15 +17,13 @@
 }
 
 /* 拖拽元素：在拖拽期间开启加速 */
-[data-dragging='true'],
-.is-dragging {
+[data-dragging='true'] {
   will-change: transform;
   transform: translateZ(0);
   backface-visibility: hidden;
 }
 
 /* 滚动容器优化 */
-.scroll-container,
 [data-scroll-optimized='true'] {
   /* 启用原生惯性滚动 */
   -webkit-overflow-scrolling: touch;
@@ -40,50 +36,27 @@
 }
 
 /* 横向滚动容器 */
-.scroll-horizontal {
-  touch-action: pan-x;
-  overflow: auto hidden;
-  -webkit-overflow-scrolling: touch;
-}
 
 /* ============================================
    Contain 属性优化 - 限制重排/重绘范围
    ============================================ */
 
 /* 独立组件：不受外部布局影响，不影响外部 */
-.contain-strict {
-  contain: strict;
-}
 
 /* 布局独立：布局计算不扩散到外部 */
-.contain-layout {
-  contain: layout;
-}
 
 /* 绘制独立：绘制不会影响外部 */
-.contain-paint {
-  contain: paint;
-}
 
 /* 内容独立：尺寸由内部决定 */
-.contain-content {
-  contain: content;
-}
 
 /* 卡片类组件：推荐使用 layout paint */
 .card,
 .widget,
-.grid-item,
 [data-card] {
   contain: layout paint;
 }
 
 /* 虚拟列表项：使用 content 避免全局重排 */
-.virtual-list-item {
-  contain: content;
-  content-visibility: auto;
-  contain-intrinsic-size: 0 80px; /* 估计高度 */
-}
 
 /* ============================================
    content-visibility: auto 优化
@@ -91,22 +64,10 @@
    ============================================ */
 
 /* 长列表中的单项 */
-.lazy-render-item {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 100px; /* 估计尺寸 */
-}
 
 /* 资料库网格项 */
-.library-grid-item {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 200px; /* 估计尺寸 */
-}
 
 /* 大型卡片 */
-.large-card {
-  content-visibility: auto;
-  contain-intrinsic-size: 400px 300px;
-}
 
 /* ============================================
    Transform 优化
@@ -130,56 +91,22 @@
  */
 
 /* 强制 GPU 层 - 用于需要高性能的元素 */
-.force-gpu {
-  transform: translate3d(0, 0, 0);
-  backface-visibility: hidden;
-  perspective: 1000px;
-}
 
 /* ============================================
    滚动性能优化
    ============================================ */
 
 /* 滚动时隐藏复杂元素 */
-@media (prefers-reduced-motion: no-preference) {
-  .hide-while-scrolling {
-    transition: opacity 0.15s ease-out;
-  }
-
-  [data-scrolling='true'] .hide-while-scrolling {
-    opacity: 0;
-    pointer-events: none;
-  }
-}
 
 /* 滚动时简化的元素 */
-[data-scrolling='true'] .simplify-while-scrolling {
-  /* 禁用昂贵的效果 */
-  box-shadow: none !important;
-  backdrop-filter: none !important;
-  filter: none !important;
-}
 
 /* ============================================
    图片加载优化
    ============================================ */
 
 /* 懒加载图片占位符 */
-.lazy-image {
-  /* 默认显示占位背景 */
-  background: linear-gradient(
-    90deg,
-    var(--color-placeholder, #f0f0f0) 0%,
-    var(--color-placeholder-light, #f8f8f8) 50%,
-    var(--color-placeholder, #f0f0f0) 100%
-  );
-  background-size: 200% 100%;
-}
 
 /* 加载中的骨架屏动画 */
-.lazy-image.loading {
-  animation: shimmer 1.5s infinite;
-}
 
 @keyframes shimmer {
   0% {
@@ -192,10 +119,6 @@
 }
 
 /* 图片加载完成后 */
-.lazy-image.loaded {
-  background: none;
-  animation: none;
-}
 
 /* 异步解码提示 */
 img[loading='lazy'] {
@@ -219,32 +142,17 @@ img[loading='lazy'] {
   }
 
   /* 禁用昂贵的视觉效果 */
-  .complex-animation,
-  .expensive-effect {
-    animation: none !important;
-    transition: none !important;
-    backdrop-filter: none !important;
-    filter: none !important;
-  }
 }
 
 /* 低端设备优化（html[data-low-end-device] 由 usePerformanceProfile 写入）
    不改写壁纸 filter；仅降级 UI 毛玻璃，减轻 GPU 合成压力。
    手动选 light / none 时同样降级（data-perf-mode，与设备档位正交）。 */
-html[data-low-end-device='true'] .blur-effect,
-html[data-perf-mode='light'] .blur-effect,
-html[data-perf-mode='none'] .blur-effect {
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-  background-color: rgb(255 255 255 / 95%) !important;
-}
 
 /* Tailwind backdrop-blur 工具类：低端 / light 下去掉昂贵合成 */
 html[data-low-end-device='true'] [class*='backdrop-blur'],
 html[data-perf-mode='light'] [class*='backdrop-blur'],
 html[data-perf-mode='none'] [class*='backdrop-blur'] {
   backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
 }
 
 /* ============================================
@@ -263,26 +171,10 @@ html[data-perf-mode='none'] [class*='backdrop-blur'] {
 }
 
 /* 长动画完成后清理 */
-.animation-done {
-  will-change: auto;
-}
 
 /* ============================================
    Dark Mode 性能优化
    ============================================ */
-
-@media (prefers-color-scheme: dark) {
-  .lazy-image {
-    background: linear-gradient(90deg, #1f1f1f 0%, #2a2a2a 50%, #1f1f1f 100%);
-    background-size: 200% 100%;
-  }
-
-  html[data-low-end-device='true'] .blur-effect,
-  html[data-perf-mode='light'] .blur-effect,
-  html[data-perf-mode='none'] .blur-effect {
-    background-color: rgb(0 0 0 / 95%) !important;
-  }
-}
 
 /* ============================================
    打印优化
@@ -325,26 +217,12 @@ html[data-perf-mode='none'] [class*='backdrop-blur'] {
 }
 
 /* 🔧 热力图单元格优化 */
-.heatmap-cell {
-  contain: strict;
-}
 
 /* 🔧 弹幕动画项 */
-.danmaku-item {
-  will-change: transform;
-  contain: layout style;
-}
 
 /* 🔧 小组件卡片容器 */
 .widget-card {
   contain: content;
-}
-
-/* 🔧 报告卡片优化 */
-.report-card {
-  contain: layout style;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 300px;
 }
 
 /* ============================================
@@ -357,23 +235,10 @@ html[data-perf-mode='none'] [class*='backdrop-blur'] {
 }
 
 /* 🔧 大标题装饰文字位置 */
-.decorative-title-position {
-  top: calc(25px - 1em);
-}
 
 /* 🔧 主题色透明混合文字 */
-.text-primary-mix {
-  color: color-mix(in srgb, var(--color-primary) 70%, transparent);
-  -webkit-text-stroke: 0.5px
-    color-mix(in srgb, var(--color-primary) 30%, transparent);
-}
 
 /* 🔧 强调色透明混合文字 */
-.text-accent-mix {
-  color: color-mix(in srgb, var(--color-accent) 70%, transparent);
-  -webkit-text-stroke: 0.5px
-    color-mix(in srgb, var(--color-accent) 30%, transparent);
-}
 
 /* 🔧 弹幕文字颜色 */
 .danmaku-text-color {

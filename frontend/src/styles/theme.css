@@ -25,6 +25,26 @@
   --shadow-color: rgb(0 0 0 / 10%);
   --input-bg: rgb(255 255 255 / 80%);
   --input-border: rgb(0 0 0 / 15%);
+
+  /* 主题色切换过渡（自 astro 页面级样式迁移）。:root 特异性 (0,1,0)
+   * 高于下方 html 规则，本声明是 html 元素 transition 的实际生效值 */
+  transition:
+    --color-primary 0.6s ease-in-out,
+    --color-secondary 0.6s ease-in-out,
+    --color-accent 0.6s ease-in-out,
+    --color-light 0.6s ease-in-out,
+    --color-dark 0.6s ease-in-out;
+}
+
+/* 不支持自定义属性过渡的浏览器：退化为通配过渡（自 astro 迁移） */
+@supports not (transition: --color-primary 0.6s) {
+  * {
+    transition:
+      color 0.6s ease-in-out,
+      background-color 0.6s ease-in-out,
+      border-color 0.6s ease-in-out,
+      box-shadow 0.6s ease-in-out;
+  }
 }
 
 /* 深色模式变量 */
@@ -776,6 +796,19 @@ html.dark ::selection {
 
 html.dark ::placeholder {
   opacity: 0.5;
+}
+
+/* 移动端基础字号（自 astro 页面级样式迁移） */
+@media (width <= 640px) {
+  body {
+    font-size: 15px;
+  }
+}
+
+@media (width <= 375px) {
+  body {
+    font-size: 14px;
+  }
 }
 
 /* 移动端优化 */

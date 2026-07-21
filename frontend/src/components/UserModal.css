@@ -33,22 +33,6 @@ html.dark .user-info-button:hover {
    音乐播放器小组件动画
    ========================================== */
 
-@keyframes music-bar {
-  0%,
-  100% {
-    transform: scaleY(0.5);
-  }
-
-  50% {
-    transform: scaleY(1);
-  }
-}
-
-.animate-music-bar {
-  animation: music-bar 0.8s ease-in-out infinite;
-  transform-origin: bottom;
-}
-
 /* ==========================================
    用户弹窗样式
    ========================================== */
@@ -419,21 +403,6 @@ html.dark .badge-local {
   color: #93c5fd;
 }
 
-.badge-linked {
-  background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
-  color: #047857;
-  box-shadow: 0 2px 8px rgb(16 185 129 / 20%);
-}
-
-html.dark .badge-linked {
-  background: linear-gradient(
-    135deg,
-    rgb(16 185 129 / 20%) 0%,
-    rgb(5 150 105 / 20%) 100%
-  );
-  color: #6ee7b7;
-}
-
 /* 混合账户徽章（本地管理员 + GitHub 绑定） */
 .badge-hybrid {
   background: linear-gradient(135deg, #a5b4fc 0%, #818cf8 100%);
@@ -491,29 +460,6 @@ html.dark .user-modal-bio {
   cursor: pointer;
   transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
   text-decoration: none;
-}
-
-.action-github {
-  background: rgb(36 41 46 / 15%);
-  color: #24292e;
-  border: 1px solid rgb(36 41 46 / 20%);
-  box-shadow: 0 2px 8px rgb(36 41 46 / 10%);
-}
-
-html.dark .action-github {
-  background: rgb(255 255 255 / 10%);
-  color: #e5e7eb;
-  border-color: rgb(255 255 255 / 15%);
-}
-
-.action-github:hover {
-  transform: translateY(-2px);
-  background: rgb(36 41 46 / 25%);
-  box-shadow: 0 6px 20px rgb(36 41 46 / 15%);
-}
-
-html.dark .action-github:hover {
-  background: rgb(255 255 255 / 18%);
 }
 
 .action-password {
@@ -593,24 +539,6 @@ html.dark .action-logout:hover {
   opacity: 0.6;
   cursor: not-allowed;
   transform: none;
-}
-
-.action-cancel {
-  background: rgb(0 0 0 / 5%);
-  color: #6b7280;
-}
-
-html.dark .action-cancel {
-  background: rgb(255 255 255 / 10%);
-  color: #9ca3af;
-}
-
-.action-cancel:hover {
-  background: rgb(0 0 0 / 10%);
-}
-
-html.dark .action-cancel:hover {
-  background: rgb(255 255 255 / 15%);
 }
 
 /* 修改密码表单 */

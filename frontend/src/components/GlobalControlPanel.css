@@ -524,135 +524,8 @@ html.dark .info-card-title {
 }
 
 /* 天气卡片 */
-.weather-card {
-  background: linear-gradient(
-    135deg,
-    rgb(59 130 246 / 8%),
-    rgb(147 197 253 / 4%)
-  );
-  border-color: rgb(59 130 246 / 20%);
-}
-
-html.dark .weather-card {
-  background: linear-gradient(
-    135deg,
-    rgb(59 130 246 / 12%),
-    rgb(147 197 253 / 6%)
-  );
-  border-color: rgb(59 130 246 / 30%);
-}
-
-.weather-details {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  flex: 1;
-}
-
-.weather-primary {
-  display: flex;
-  align-items: baseline;
-  gap: 0.75rem;
-}
-
-.weather-temp-large {
-  font-size: 1.75rem;
-  font-weight: 700;
-  color: var(--text-primary, #1f2937);
-  line-height: 1;
-}
-
-html.dark .weather-temp-large {
-  color: rgb(255 255 255 / 95%);
-}
-
-.weather-location {
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--text-secondary, #6b7280);
-}
-
-html.dark .weather-location {
-  color: rgb(255 255 255 / 70%);
-}
-
-.weather-secondary {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.weather-status {
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--text-primary, #374151);
-}
-
-html.dark .weather-status {
-  color: rgb(255 255 255 / 85%);
-}
-
-.weather-extra-info {
-  display: flex;
-  flex-wrap: nowrap;
-  gap: 0.625rem;
-  font-size: 0.75rem;
-  color: var(--text-tertiary, #9ca3af);
-  align-items: center;
-}
-
-html.dark .weather-extra-info {
-  color: rgb(255 255 255 / 55%);
-}
-
-.weather-extra-info span {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  white-space: nowrap;
-}
 
 /* 名言卡片 */
-.quote-card {
-  background: rgb(139 92 246 / 5%);
-  border-color: rgb(139 92 246 / 15%);
-}
-
-html.dark .quote-card {
-  background: rgb(139 92 246 / 8%);
-  border-color: rgb(139 92 246 / 25%);
-}
-
-.quote-details {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  flex: 1;
-  justify-content: center;
-}
-
-.quote-text-main {
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--text-primary, #1f2937);
-  line-height: 1.5;
-  font-style: italic;
-}
-
-html.dark .quote-text-main {
-  color: rgb(255 255 255 / 90%);
-}
-
-.quote-author-main {
-  font-size: 0.75rem;
-  font-weight: 400;
-  color: var(--text-tertiary, #9ca3af);
-  text-align: right;
-}
-
-html.dark .quote-author-main {
-  color: rgb(255 255 255 / 50%);
-}
 
 /* ==========================================
    6. 卡片导航�?
@@ -663,36 +536,6 @@ html.dark .quote-author-main {
   justify-content: center;
   gap: 0.5rem;
   margin-top: 0.75rem;
-}
-
-.nav-dot {
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 50%;
-  border: none;
-  background: rgb(0 0 0 / 20%);
-  cursor: pointer;
-  transition: all 0.3s ease;
-  padding: 0;
-}
-
-html.dark .nav-dot {
-  background: rgb(255 255 255 / 20%);
-}
-
-.nav-dot:hover {
-  background: rgb(0 0 0 / 40%);
-  transform: scale(1.2);
-}
-
-html.dark .nav-dot:hover {
-  background: rgb(255 255 255 / 40%);
-}
-
-.nav-dot.active {
-  width: 1.5rem;
-  border-radius: 0.25rem;
-  background: var(--color-primary, #94a3b8);
 }
 
 /* ==========================================
@@ -1091,92 +934,6 @@ html.dark .control-action-btn:hover {
    10. 账户信息
    ========================================== */
 
-.account-info {
-  display: flex;
-  flex-direction: column;
-  gap: 0.625rem;
-}
-
-.account-header {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.75rem;
-  background: rgb(0 0 0 / 3%);
-  border-radius: 0.75rem;
-}
-
-html.dark .account-header {
-  background: rgb(255 255 255 / 5%);
-}
-
-.account-avatar {
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: 50%;
-  box-shadow: 0 2px 8px rgb(0 0 0 / 10%);
-  flex-shrink: 0;
-}
-
-.account-details {
-  flex: 1;
-  min-width: 0;
-}
-
-.account-name {
-  font-size: 0.875rem;
-  font-weight: 700;
-  color: var(--text-primary);
-  margin: 0 0 0.125rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.account-role {
-  font-size: 0.7rem;
-  color: var(--text-secondary);
-  margin: 0;
-}
-
-.account-action-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.375rem;
-  padding: 0.625rem 0.875rem;
-  border: none;
-  border-radius: 0.625rem;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  cursor: pointer;
-  text-decoration: none;
-  transition: all 0.2s ease;
-}
-
-.account-action-danger {
-  background: rgb(239 68 68 / 10%);
-  color: #dc2626;
-  border: 1px solid rgb(239 68 68 / 20%);
-}
-
-html.dark .account-action-danger {
-  background: rgb(239 68 68 / 15%);
-  border-color: rgb(239 68 68 / 30%);
-  color: #ef4444;
-}
-
-.account-action-danger:hover {
-  background: rgb(239 68 68 / 15%);
-  border-color: rgb(239 68 68 / 30%);
-  transform: translateY(-1px);
-}
-
-html.dark .account-action-danger:hover {
-  background: rgb(239 68 68 / 20%);
-  border-color: rgb(239 68 68 / 40%);
-}
-
 /* ==========================================
    11. 遮罩�?
    ========================================== */
@@ -1330,11 +1087,6 @@ html.dark .control-panel-overlay {
     font-size: 0.625rem;
   }
 
-  .account-avatar {
-    width: 3rem;
-    height: 3rem;
-  }
-
   .control-close-btn {
     width: 2.5rem;
     height: 2.5rem;
@@ -1385,29 +1137,6 @@ html.dark .control-panel-overlay {
   .card-nav-dots {
     gap: 0.375rem;
     margin-top: 0.5rem;
-  }
-
-  .nav-dot {
-    width: 0.5rem;
-    height: 0.5rem;
-    min-width: 0.5rem;
-    min-height: 0.5rem;
-  }
-
-  .nav-dot.active {
-    width: 1rem;
-    min-width: 1rem;
-  }
-
-  .weather-secondary {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.25rem;
-  }
-
-  .weather-extra-info {
-    flex-wrap: wrap;
-    gap: 0.5rem;
   }
 
   /* 用户信息按钮移动端适配 */

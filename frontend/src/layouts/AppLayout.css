@@ -107,6 +107,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+  gap: 0.25rem; /* 自 astro 页面级样式迁移（原双份声明，astro 版已删） */
 
   /* 确保内容始终可见，防止消失 */
   min-height: 36px;
@@ -147,6 +148,20 @@
   .nav-group-spaced {
     margin-left: 0;
     margin-top: 8px;
+  }
+}
+
+/* 移动端横向排布时收紧组间距（自 astro 页面级样式迁移；须位于顶层 8px 声明之后） */
+@media (width <= 767px) {
+  .nav-group-spaced {
+    margin-top: 0;
+    margin-left: 6px;
+  }
+}
+
+@media (width <= 480px) {
+  .nav-group-spaced {
+    margin-left: 4px;
   }
 }
 
@@ -289,6 +304,15 @@ html.dark .nav-item.active-secondary {
   box-shadow:
     0 2px 10px color-mix(in srgb, var(--color-primary) 35%, transparent),
     inset 0 1px 0 0 rgb(255 255 255 / 10%);
+}
+
+/* 移动端安全区域适配：页面内容底部留出刘海屏指示条空间（自 astro 迁移） */
+@supports (padding: env(safe-area-inset-bottom)) {
+  @media (width <= 767px) {
+    section {
+      padding-bottom: max(7rem, calc(7rem + env(safe-area-inset-bottom)));
+    }
+  }
 }
 
 /* 减少不必要的动画以提升性能 */

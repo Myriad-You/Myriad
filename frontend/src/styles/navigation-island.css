@@ -59,8 +59,51 @@ html.dark .dynamic-island:hover {
   box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 15%);
 }
 
+/* 流动渐变边框（自 astro 页面级样式迁移，原双份声明已删） */
+.dynamic-island::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 26px;
+  padding: 2px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-primary) 60%, transparent),
+    color-mix(in srgb, var(--color-secondary) 40%, transparent),
+    color-mix(in srgb, var(--color-accent) 40%, transparent),
+    color-mix(in srgb, var(--color-primary) 60%, transparent)
+  );
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  animation: border-flow 8s linear infinite;
+  background-size: 300% 300%;
+  pointer-events: none;
+  opacity: 0.8;
+  transition: opacity 0.3s ease;
+}
+
 .dynamic-island:hover::before {
-  /* 保留选择器占位，防止未来恢复渐变边框动画时遗漏 */
+  opacity: 1;
+}
+
+@keyframes border-flow {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+/* 桌面端纵向岛限高（自 astro 迁移；padding/max-width 由上方基础规则统一） */
+@media (width >= 768px) {
+  .dynamic-island {
+    max-height: 85vh;
+  }
 }
 
 /* 折叠状态 */
@@ -85,40 +128,6 @@ html.dark .dynamic-island:hover {
   transform: scale(0.8);
   pointer-events: none;
   position: absolute;
-}
-
-/* 副岛 */
-.secondary-island {
-  background: rgb(255 255 255 / 50%);
-  backdrop-filter: blur(20px);
-  border-radius: 26px;
-  padding: 10px 14px;
-  border: 2px solid rgb(99 102 241 / 15%);
-  border: 2px solid color-mix(in srgb, var(--color-primary) 15%, transparent);
-  box-shadow:
-    0 8px 32px 0 rgb(99 102 241 / 15%),
-    inset 0 1px 0 0 rgb(255 255 255 / 80%);
-  box-shadow:
-    0 8px 32px 0 color-mix(in srgb, var(--color-primary) 15%, transparent),
-    inset 0 1px 0 0 rgb(255 255 255 / 80%);
-  overflow: hidden;
-  max-width: 95vw;
-  margin-top: 8px;
-  position: relative;
-  transition:
-    padding 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
-    background 0.3s ease,
-    box-shadow 0.3s ease;
-  transform: translateZ(0);
-}
-
-html.dark .secondary-island {
-  background: rgb(26 26 26 / 50%);
-  border: 2px solid rgb(99 102 241 / 20%);
-  border: 2px solid color-mix(in srgb, var(--color-primary) 20%, transparent);
-  box-shadow:
-    0 8px 32px 0 rgb(0 0 0 / 50%),
-    inset 0 1px 0 0 rgb(255 255 255 / 10%);
 }
 
 /* 导航项 */
@@ -163,6 +172,19 @@ html.dark .nav-item:hover {
     color-mix(in srgb, var(--color-primary) 25%, transparent);
 }
 
+html.dark .nav-item:active {
+  transform: scale(1.02) translateZ(0);
+  box-shadow: 0 2px 6px
+    color-mix(in srgb, var(--color-primary) 20%, transparent);
+}
+
+/* 焦点状态（键盘导航，自 astro 迁移） */
+.nav-item:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 4px;
+  border-radius: 18px;
+}
+
 /* 选中状态 */
 [aria-current='page'].nav-item {
   color: var(--color-primary);
@@ -176,6 +198,10 @@ html.dark [aria-current='page'].nav-item {
   box-shadow:
     0 2px 10px color-mix(in srgb, var(--color-primary) 35%, transparent),
     inset 0 1px 0 0 rgb(255 255 255 / 10%);
+}
+
+html.dark [aria-current='page'].nav-item::after {
+  box-shadow: 0 0 12px var(--color-primary);
 }
 
 [aria-current='page'].nav-item::after {
@@ -204,80 +230,6 @@ html.dark [aria-current='page'].nav-item {
   }
 }
 
-/* 分隔线 */
-.nav-separator {
-  width: 1px;
-  height: 32px;
-  background: linear-gradient(
-    to bottom,
-    transparent,
-    color-mix(in srgb, var(--color-primary) 30%, transparent) 50%,
-    transparent
-  );
-  margin: 0 8px 0 0;
-  transition: all 0.3s ease;
-}
-
-@media (width >= 768px) {
-  .nav-separator {
-    width: 32px;
-    height: 1px;
-    background: linear-gradient(
-      to right,
-      transparent,
-      color-mix(in srgb, var(--color-primary) 30%, transparent) 50%,
-      transparent
-    );
-    margin: 0 0 8px;
-  }
-}
-
-/* Generate按钮 */
-.generate-btn {
-  position: relative;
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--color-primary) 18%, transparent),
-    color-mix(in srgb, var(--color-secondary) 18%, transparent)
-  );
-  border: 2px solid transparent;
-  cursor: pointer;
-  z-index: 1;
-  border-radius: 18px;
-  transform: translateZ(0);
-  backface-visibility: hidden;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.generate-btn:hover {
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--color-primary) 28%, transparent),
-    color-mix(in srgb, var(--color-secondary) 28%, transparent)
-  );
-  transform: scale(1.15) translateZ(0);
-  box-shadow: 0 4px 16px
-    color-mix(in srgb, var(--color-primary) 30%, transparent);
-}
-
-.generate-btn.loading {
-  border-radius: 50%;
-  animation: pulse-glow 1.5s ease-in-out infinite;
-}
-
-@keyframes pulse-glow {
-  0%,
-  100% {
-    box-shadow: 0 0 20px
-      color-mix(in srgb, var(--color-primary) 40%, transparent);
-  }
-
-  50% {
-    box-shadow: 0 0 30px
-      color-mix(in srgb, var(--color-secondary) 50%, transparent);
-  }
-}
-
 /* 移动端优化 */
 @media (width <= 767px) {
   .nav-container {
@@ -297,24 +249,54 @@ html.dark [aria-current='page'].nav-item {
     overflow: hidden;
   }
 
-  .nav-separator {
-    width: 1px !important;
-    height: 28px !important;
-    margin: 0 6px !important;
-    background: linear-gradient(
-      to bottom,
-      transparent,
-      color-mix(in srgb, var(--color-primary) 30%, transparent) 50%,
-      transparent
-    ) !important;
-  }
-
   /* 选中点：仍在按钮下方，但由 scroll 内边距承接，避免被 overflow 裁掉 */
   [aria-current='page'].nav-item::after {
     left: 50% !important;
     top: auto !important;
     bottom: -4px !important;
     transform: translateX(-50%) !important;
+  }
+
+  /* 以下均自 astro 页面级样式迁移（原双份声明已删） */
+
+  /* 渐变边框动画降档：省电，静态呈现 */
+  .dynamic-island::before {
+    animation: none;
+    opacity: 0.6;
+  }
+
+  /* 图标间距（压过 Tailwind gap-1 的 4px） */
+  .dynamic-island > .nav-island-scroll {
+    gap: 6px;
+  }
+
+  /* 交互元素禁用文本选择 */
+  .dynamic-island,
+  .nav-item,
+  button {
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+}
+
+/* 小屏收紧（自 astro 迁移） */
+@media (width <= 480px) {
+  .dynamic-island > .nav-island-scroll {
+    gap: 4px;
+  }
+
+  .nav-item svg {
+    width: 18px;
+    height: 18px;
+  }
+}
+
+/* 安全区域适配（刘海屏/底部指示条；须位于上方 inset !important 之后才能生效） */
+@supports (padding: env(safe-area-inset-bottom)) {
+  @media (width <= 767px) {
+    .nav-container {
+      bottom: max(1rem, env(safe-area-inset-bottom)) !important;
+    }
   }
 }
 
@@ -329,6 +311,11 @@ html.dark [aria-current='page'].nav-item {
     transform: scale(0.95);
     background: color-mix(in srgb, var(--color-primary) 20%, transparent);
     transition-duration: 0.1s;
+  }
+
+  /* 触摸反馈（自 astro 迁移） */
+  .dynamic-island:active {
+    transform: scale(0.98);
   }
 }
 

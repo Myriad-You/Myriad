@@ -9,32 +9,5 @@
 }
 
 /* 子标题样式 */
-.setting-section .section-subtitle {
-  font-size: 0.9375rem;
-  font-weight: 600;
-  color: #374151;
-  margin: 1.5rem 0 0.75rem;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.setting-section .section-subtitle:first-child {
-  margin-top: 0;
-}
-
-html.dark .setting-section .section-subtitle {
-  color: #e5e7eb;
-}
 
 /* 子标题提示 */
-.setting-section .section-subtitle-hint {
-  font-size: 0.75rem;
-  font-weight: 400;
-  color: #6b7280;
-  margin-top: 0.25rem;
-}
-
-html.dark .setting-section .section-subtitle-hint {
-  color: #9ca3af;
-}

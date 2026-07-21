@@ -282,17 +282,6 @@ html.dark .arael-header-btn:hover {
   animation: arael-spin 0.7s linear infinite;
 }
 
-.arael-spinner-step {
-  width: 12px;
-  height: 12px;
-  border-width: 1.5px;
-}
-
-.arael-spinner-waiting {
-  border-color: rgb(245 158 11 / 20%);
-  border-top-color: #f59e0b;
-}
-
 .arael-spinner {
   display: inline-block;
   width: 16px;
@@ -636,28 +625,6 @@ html.dark .arael-msg-system-line {
 }
 
 /* Process status message — shown during execution */
-.arael-msg-status {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  padding: 4px 0;
-}
-
-.arael-msg-status span {
-  background: linear-gradient(
-    90deg,
-    var(--text-muted, #9ca3af) 0%,
-    var(--text-muted, #9ca3af) 35%,
-    color-mix(in srgb, var(--color-primary, #10b981) 80%, white) 50%,
-    var(--text-muted, #9ca3af) 65%,
-    var(--text-muted, #9ca3af) 100%
-  );
-  background-size: 200% 100%;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  animation: arael-status-shimmer 2s ease-in-out infinite;
-}
 
 @keyframes arael-status-shimmer {
   0% {
@@ -667,21 +634,6 @@ html.dark .arael-msg-system-line {
   100% {
     background-position: -100% 0;
   }
-}
-
-html.dark .arael-msg-status span {
-  background: linear-gradient(
-    90deg,
-    #9ca3af 0%,
-    #9ca3af 35%,
-    color-mix(in srgb, var(--color-primary, #10b981) 80%, white) 50%,
-    #9ca3af 65%,
-    #9ca3af 100%
-  );
-  background-size: 200% 100%;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  animation: arael-status-shimmer 2s ease-in-out infinite;
 }
 
 /* Message content */
@@ -1179,174 +1131,12 @@ html.dark .arael-retry-btn {
    ========================================== */
 
 /* Steps */
-.arael-exec-steps {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  margin-bottom: 6px;
-}
-
-.arael-exec-step {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  padding: 3px 0;
-}
-
-.arael-step-icon {
-  flex-shrink: 0;
-  color: var(--text-muted, #9ca3af);
-}
-
-.arael-step-icon-ok {
-  color: var(--arael-success);
-}
-
-.arael-step-icon-err {
-  color: var(--arael-error);
-}
-
-.arael-exec-step-running .arael-step-icon {
-  color: var(--color-primary, #10b981);
-}
-
-.arael-step-role-label {
-  font-size: 9px;
-  font-weight: 700;
-  padding: 1px 4px;
-  border-radius: 3px;
-  background: rgb(99 102 241 / 8%);
-  color: rgb(99 102 241 / 70%);
-  flex-shrink: 0;
-  line-height: 1;
-  letter-spacing: 0.02em;
-}
-
-html.dark .arael-step-role-label {
-  background: rgb(99 102 241 / 15%);
-  color: rgb(165 180 252 / 80%);
-}
-
-.arael-exec-step-text {
-  color: var(--text-secondary, #6b7280);
-  flex: 1;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-html.dark .arael-exec-step-text {
-  color: #9ca3af;
-}
-
-.arael-exec-step-completed .arael-exec-step-text {
-  color: var(--text-primary, #374151);
-}
-
-html.dark .arael-exec-step-completed .arael-exec-step-text {
-  color: #e5e7eb;
-}
 
 /* Step images */
-.arael-step-image {
-  margin-top: 6px;
-  width: 100%;
-}
-
-.arael-step-image img {
-  max-width: 100%;
-  max-height: 300px;
-  border-radius: 8px;
-  object-fit: contain;
-  background: var(--bg-secondary, #f3f4f6);
-  cursor: pointer;
-  transition: opacity 0.2s;
-}
-
-.arael-step-image img:hover {
-  opacity: 0.9;
-}
-
-html.dark .arael-step-image img {
-  background: #1f2937;
-}
 
 /* Agent tags */
-.arael-exec-agent-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 6px;
-}
-
-.arael-agent-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 6px;
-  background: rgb(59 130 246 / 6%);
-  border: 1px solid rgb(59 130 246 / 15%);
-  color: rgb(0 0 0 / 60%);
-}
-
-html.dark .arael-agent-tag {
-  color: rgb(255 255 255 / 55%);
-  background: rgb(59 130 246 / 10%);
-  border-color: rgb(59 130 246 / 20%);
-}
-
-.arael-agent-tag[data-tier='pro'] {
-  background: rgb(168 85 247 / 6%);
-  border-color: rgb(168 85 247 / 20%);
-}
-
-html.dark .arael-agent-tag[data-tier='pro'] {
-  background: rgb(168 85 247 / 10%);
-  border-color: rgb(168 85 247 / 25%);
-}
-
-.arael-agent-name {
-  font-weight: 500;
-}
-
-.arael-agent-count {
-  opacity: 0.5;
-  font-size: 10px;
-}
-
-.arael-agent-count::before {
-  content: '\00D7';
-}
 
 /* Interrupt button */
-.arael-exec-interrupt {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 8px;
-  background: rgb(239 68 68 / 8%);
-  color: #ef4444;
-  border: 1px solid rgb(239 68 68 / 20%);
-  border-radius: 8px;
-  padding: 4px 12px;
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.arael-exec-interrupt:hover {
-  background: rgb(239 68 68 / 15%);
-  border-color: rgb(239 68 68 / 40%);
-}
-
-html.dark .arael-exec-interrupt {
-  background: rgb(239 68 68 / 12%);
-  border-color: rgb(239 68 68 / 25%);
-}
 
 /* ==========================================
    7. Question Options & Suggestion Chips
@@ -1474,13 +1264,6 @@ html.dark .arael-question-context {
   color: rgb(255 255 255 / 45%);
 }
 
-.arael-question-text-input {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 8px;
-}
-
 .arael-question-input {
   flex: 1;
   min-width: 0;
@@ -1501,35 +1284,6 @@ html.dark .arael-question-context {
 html.dark .arael-question-input {
   background: rgb(24 24 27 / 60%);
   border-color: rgb(255 255 255 / 10%);
-}
-
-.arael-question-submit {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  background: var(--color-primary, #10b981);
-  border: none;
-  border-radius: 50%;
-  color: white;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition:
-    opacity 0.15s ease,
-    transform 0.1s ease;
-}
-
-.arael-question-submit:hover {
-  opacity: 0.85;
-  transform: scale(1.05);
-}
-
-.arael-question-submit:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-  transform: none;
 }
 
 /* ==========================================
@@ -1966,29 +1720,6 @@ html.dark .arael-sessions-item-title {
 html.dark .arael-manage-sidebar {
   border-right-color: rgb(255 255 255 / 6%);
   background: rgb(255 255 255 / 2%);
-}
-
-.arael-manage-back-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  background: none;
-  border: none;
-  border-radius: 8px;
-  color: var(--color-primary, #10b981);
-  cursor: pointer;
-  transition: background 0.15s;
-  margin-bottom: 4px;
-}
-
-.arael-manage-back-icon:hover {
-  background: rgb(0 0 0 / 6%);
-}
-
-html.dark .arael-manage-back-icon:hover {
-  background: rgb(255 255 255 / 8%);
 }
 
 .arael-manage-nav {

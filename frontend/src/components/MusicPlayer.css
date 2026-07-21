@@ -262,10 +262,6 @@ html.dark .music-song-artist {
 }
 
 /* 只在播放状态时激活动�? */
-.music-playing-indicator.is-playing,
-.music-player.is-playing .music-playing-indicator {
-  animation-play-state: running;
-}
 
 .music-playing-indicator svg {
   width: 100%;

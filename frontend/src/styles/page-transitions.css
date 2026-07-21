@@ -16,6 +16,7 @@
 html,
 body,
 * {
+  scrollbar-width: none !important; /* Firefox（自 astro 页面级样式迁移） */
   -ms-overflow-style: none !important; /* IE/Edge */
 }
 

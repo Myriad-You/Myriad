@@ -93,12 +93,6 @@ html.dark .site-footer-content:hover {
   text-decoration: underline;
 }
 
-.gongan-icon {
-  width: 0.625rem;
-  height: 0.625rem;
-  opacity: 0.5;
-}
-
 /* 云赞助商 */
 .footer-sponsors {
   display: flex;
@@ -262,7 +256,6 @@ html.dark .tooltip-content {
     display: none;
   }
 
-  .footer-gongan .gongan-icon + span,
   .footer-icp {
     max-width: 8rem;
     overflow: hidden;

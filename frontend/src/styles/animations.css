@@ -34,17 +34,6 @@
 }
 
 /* 左滑进入 */
-@keyframes slideInLeft {
-  from {
-    opacity: 0;
-    transform: translateX(-30px) translateZ(0);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateX(0) translateZ(0);
-  }
-}
 
 /* 上滑进入 */
 @keyframes slideUp {
@@ -73,30 +62,8 @@
 }
 
 /* 右滑进入 */
-@keyframes slideInRight {
-  from {
-    opacity: 0;
-    transform: translateX(30px) translateZ(0);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateX(0) translateZ(0);
-  }
-}
 
 /* 缩放进入 */
-@keyframes scaleIn {
-  from {
-    opacity: 0;
-    transform: scale(0.9) translateZ(0);
-  }
-
-  to {
-    opacity: 1;
-    transform: scale(1) translateZ(0);
-  }
-}
 
 /* 卡片淡入 */
 @keyframes cardFadeIn {
@@ -137,40 +104,8 @@
 }
 
 /* 遮罩层淡入 */
-@keyframes overlayFadeIn {
-  from {
-    opacity: 0;
-  }
-
-  to {
-    opacity: 1;
-  }
-}
 
 /* 性能优化版本动画类名 */
-@keyframes fade-in-up {
-  from {
-    opacity: 0;
-    transform: translateY(20px) translateZ(0);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0) translateZ(0);
-  }
-}
-
-@keyframes slide-in-right {
-  from {
-    opacity: 0;
-    transform: translateX(30px) translateZ(0);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateX(0) translateZ(0);
-  }
-}
 
 @keyframes scale-in {
   from {

@@ -271,941 +271,95 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
 
     <!-- 全局样式 (从 Layout.astro 提取) -->
     <style is:global>
-      :root {
-        --color-primary: #94a3b8;
-        --color-secondary: #94a3b8;
-        --color-accent: #cbd5e1;
-        --color-light: #cbd5e1;
-        --color-dark: #475569;
-
-        /* 浅色模式背景色 - 纯色透明 */
-        --bg-primary: #f5f5f5;
-        --bg-secondary: #ffffff;
-        --bg-tertiary: #fafafa;
-        --bg-card: rgba(255, 255, 255, 0.9);
-        --bg-hover: rgba(0, 0, 0, 0.05);
-        --text-primary: #1f2937;
-        --text-secondary: #4b5563;
-        --text-tertiary: #6b7280;
-        --text-muted: #9ca3af;
-        --border-color: rgba(0, 0, 0, 0.1);
-        --border-hover: rgba(0, 0, 0, 0.2);
-        --shadow-color: rgba(0, 0, 0, 0.1);
-        --input-bg: rgba(255, 255, 255, 0.8);
-        --input-border: rgba(0, 0, 0, 0.15);
-
-        /* 颜色切换平滑过渡 */
-        transition:
-          --color-primary 0.6s ease-in-out,
-          --color-secondary 0.6s ease-in-out,
-          --color-accent 0.6s ease-in-out,
-          --color-light 0.6s ease-in-out,
-          --color-dark 0.6s ease-in-out;
-      }
-
       /* 深色模式变量 */
-      html.dark {
-        --bg-primary: #0a0a0a;
-        --bg-secondary: #0f0f0f;
-        --bg-tertiary: #141414;
-        --bg-card: rgba(10, 10, 10, 0.95);
-        --bg-hover: rgba(255, 255, 255, 0.08);
-        --text-primary: #f9fafb;
-        --text-secondary: #d1d5db;
-        --text-tertiary: #9ca3af;
-        --text-muted: #6b7280;
-        --border-color: rgba(255, 255, 255, 0.1);
-        --border-hover: rgba(255, 255, 255, 0.2);
-        --shadow-color: rgba(0, 0, 0, 0.5);
-        --input-bg: rgba(10, 10, 10, 0.85);
-        --input-border: rgba(255, 255, 255, 0.15);
-      }
 
       /* 全局过渡 */
-      html {
-        transition:
-          background-color 0.3s ease,
-          color 0.3s ease;
-      }
-
-      body {
-        background: var(--bg-primary);
-        color: var(--text-primary);
-        transition:
-          background-color 0.3s ease,
-          color 0.3s ease;
-      }
-
-      @supports not (transition: --color-primary 0.6s) {
-        /* 对于不支持 CSS 变量过渡的浏览器，使用通配符 */
-        * {
-          transition:
-            color 0.6s ease-in-out,
-            background-color 0.6s ease-in-out,
-            border-color 0.6s ease-in-out,
-            box-shadow 0.6s ease-in-out;
-        }
-      }
-
-      .bg-grid-pattern {
-        background-image:
-          linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
-        background-size: 50px 50px;
-      }
-
-      body {
-        font-family: var(--font-inter), sans-serif;
-        overflow-x: hidden;
-        -webkit-font-smoothing: antialiased;
-        -moz-osx-font-smoothing: grayscale;
-      }
 
       /* Qwitcher Grypen 字体 - Astro 6 Fonts API 自托管 */
-      .qwitcher-grypen-regular {
-        font-family: var(--font-qwitcher-grypen), cursive;
-        font-weight: 400;
-        font-style: normal;
-      }
-
-      .qwitcher-grypen-bold {
-        font-family: var(--font-qwitcher-grypen), cursive;
-        font-weight: 700;
-        font-style: normal;
-      }
 
       /* Glass effect：统一由 theme.css 表面令牌驱动（见上方说明，勿在此重复声明） */
 
       /* 深色模式背景 - 纯色 */
-      html.dark #bg-container {
-        background: #0a0a0a;
-      }
-
-      html.dark #bg-gradient {
-        background: linear-gradient(
-          to bottom,
-          transparent 45%,
-          rgba(10, 10, 10, 0.6) 50%,
-          rgba(10, 10, 10, 0.95) 100%
-        ) !important;
-      }
 
       /* 深色模式下的背景网格 */
-      html.dark .bg-grid-pattern {
-        background-image:
-          linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-      }
 
       /* 导航容器 - 移动端底部 / 桌面端左侧 */
-      .nav-container {
-        /* 移动端默认样式 */
-        position: fixed;
-        bottom: 1rem;
-        left: 50%;
-        transform: translateX(-50%);
-        z-index: 50;
-      }
 
       /* 桌面端样式 */
-      @media (min-width: 768px) {
-        .nav-container {
-          left: 1.5rem;
-          top: 50%;
-          bottom: auto;
-          transform: translateY(-50%);
-        }
-      }
 
       /* Dynamic Island - 灵动岛样式 */
-      .dynamic-island {
-        background: rgba(255, 255, 255, 0.75);
-        backdrop-filter: blur(20px);
-        -webkit-backdrop-filter: blur(20px);
-        border-radius: 26px;
-        padding: 10px 14px;
-        border: 2px solid color-mix(in srgb, var(--color-primary) 40%, transparent);
-        box-shadow:
-          0 8px 32px 0 color-mix(in srgb, var(--color-primary) 15%, transparent),
-          inset 0 1px 0 0 rgba(255, 255, 255, 0.8);
-        transition: all 0.3s ease;
-        position: relative;
-        max-width: 95vw;
-      }
 
       /* 导航岛内容容器 */
-      .nav-island-content {
-        display: flex;
-        flex-direction: inherit;
-        align-items: center;
-        gap: 0.25rem;
-        width: 100%;
-      }
 
       /* 主岛折叠状态 - 只显示返回按钮 */
-      .dynamic-island.collapsed {
-        padding: 10px;
-      }
 
       /* 主岛内容容器 - 用于淡入淡出动画 */
-      .dynamic-island > div:first-child {
-        transition:
-          opacity 0.3s ease,
-          transform 0.3s ease;
-        opacity: 1;
-        transform: scale(1);
-      }
 
       /* 主岛折叠状态下淡出内容 */
-      .dynamic-island.collapsed > div:first-child {
-        opacity: 0;
-        transform: scale(0.8);
-        pointer-events: none;
-        position: absolute;
-      }
 
       /* 关键帧动画定义 - 供 JS 使用 */
-      @keyframes expandContent {
-        from {
-          opacity: 0;
-          transform: scale(0.85) translateZ(0);
-        }
-        to {
-          opacity: 1;
-          transform: scale(1) translateZ(0);
-        }
-      }
-
-      @keyframes fadeInScale {
-        from {
-          opacity: 0;
-          transform: scale(0.7) rotate(-10deg) translateZ(0);
-        }
-        to {
-          opacity: 1;
-          transform: scale(1) rotate(0deg) translateZ(0);
-        }
-      }
-
-      @keyframes slideInSecondary {
-        from {
-          opacity: 0;
-          transform: translateY(30px) scale(0.9) translateZ(0);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0) scale(1) translateZ(0);
-        }
-      }
 
       /* 桌面端样式 */
-      @media (min-width: 768px) {
-        .dynamic-island {
-          padding: 14px 10px;
-          max-height: 85vh;
-          max-width: none;
-        }
-
-        .dynamic-island.collapsed {
-          padding: 10px;
-        }
-      }
 
       /* Secondary Island - 副岛样式（纵向排列） */
-      .secondary-island {
-        background: rgba(255, 255, 255, 0.75);
-        backdrop-filter: blur(20px);
-        -webkit-backdrop-filter: blur(20px);
-        border-radius: 26px;
-        padding: 10px 14px; /* 移动端横向padding - 与主岛同步 */
-        border: 2px solid color-mix(in srgb, var(--color-primary) 40%, transparent);
-        box-shadow:
-          0 8px 32px 0 color-mix(in srgb, var(--color-primary) 15%, transparent),
-          inset 0 1px 0 0 rgba(255, 255, 255, 0.8);
-        overflow: hidden;
-        max-width: 95vw;
-        will-change: padding;
-        transform: translateZ(0);
-        -webkit-transform: translateZ(0);
-        margin-top: 8px; /* 在主岛下方，间隔8px */
-        position: relative;
-        transition:
-          padding 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
-          background 0.3s ease,
-          box-shadow 0.3s ease;
-      }
 
       /* 副岛内容容器 - 用于淡入淡出动画 */
-      .secondary-island > div:first-child {
-        transition:
-          opacity 0.3s ease,
-          transform 0.3s ease;
-        opacity: 1;
-        transform: scale(1);
-      }
 
       /* 副岛折叠状态 - 只显示一个图标 */
-      .secondary-island.collapsed {
-        padding: 10px;
-      }
 
       /* 副岛折叠状态下淡出内容 */
-      .secondary-island.collapsed > div:first-child {
-        opacity: 0;
-        transform: scale(0.8);
-        pointer-events: none;
-        position: absolute;
-      }
-
-      @media (min-width: 768px) {
-        .secondary-island {
-          padding: 14px 10px; /* 桌面端纵向padding - 与主岛同步 */
-          max-height: 85vh;
-        }
-
-        .secondary-island.collapsed {
-          padding: 10px;
-        }
-
-        /* 桌面端出现动画 - 从下方弹出 */
-        @keyframes slideInSecondary {
-          from {
-            opacity: 0;
-            transform: translateY(30px) scale(0.9) translateZ(0);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0) scale(1) translateZ(0);
-          }
-        }
-      }
 
       /* 深色模式下的副岛 */
-      html.dark .secondary-island {
-        background: rgba(10, 10, 10, 0.85);
-        border: 2px solid color-mix(in srgb, var(--color-primary) 50%, transparent);
-        box-shadow:
-          0 8px 32px 0 rgba(0, 0, 0, 0.7),
-          inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
-      }
 
       /* 副岛导航项样式 */
-      .secondary-nav-item {
-        /* 继承主岛导航项的基础样式 */
-      }
 
       /* 副岛激活状态 */
-      .secondary-nav-item.active-secondary {
-        color: var(--color-primary);
-        background: color-mix(in srgb, var(--color-primary) 15%, white);
-        box-shadow: 0 2px 10px color-mix(in srgb, var(--color-primary) 25%, transparent);
-      }
-
-      html.dark .secondary-nav-item.active-secondary {
-        background: color-mix(in srgb, var(--color-primary) 25%, transparent);
-        box-shadow:
-          0 2px 10px color-mix(in srgb, var(--color-primary) 35%, transparent),
-          inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
-      }
 
       /* 深色模式下的灵动岛 */
-      html.dark .dynamic-island {
-        background: rgba(10, 10, 10, 0.85);
-        border: 2px solid color-mix(in srgb, var(--color-primary) 50%, transparent);
-        box-shadow:
-          0 8px 32px 0 rgba(0, 0, 0, 0.7),
-          inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
-      }
 
       /* 动态渐变边框动画 */
-      .dynamic-island::before {
-        content: '';
-        position: absolute;
-        inset: -2px;
-        border-radius: 26px;
-        padding: 2px;
-        background: linear-gradient(
-          135deg,
-          color-mix(in srgb, var(--color-primary) 60%, transparent),
-          color-mix(in srgb, var(--color-secondary) 40%, transparent),
-          color-mix(in srgb, var(--color-accent) 40%, transparent),
-          color-mix(in srgb, var(--color-primary) 60%, transparent)
-        );
-        -webkit-mask:
-          linear-gradient(#fff 0 0) content-box,
-          linear-gradient(#fff 0 0);
-        -webkit-mask-composite: xor;
-        mask-composite: exclude;
-        animation: border-flow 8s linear infinite;
-        background-size: 300% 300%;
-        pointer-events: none;
-        opacity: 0.8;
-        transition: opacity 0.3s ease;
-      }
-
-      @keyframes border-flow {
-        0%,
-        100% {
-          background-position: 0% 50%;
-        }
-        50% {
-          background-position: 100% 50%;
-        }
-      }
-
-      .dynamic-island:hover {
-        background: rgba(255, 255, 255, 0.85);
-        box-shadow:
-          0 12px 48px 0 color-mix(in srgb, var(--color-primary) 25%, transparent),
-          inset 0 1px 0 0 rgba(255, 255, 255, 0.9);
-        border-color: color-mix(in srgb, var(--color-primary) 50%, transparent);
-      }
-
-      html.dark .dynamic-island:hover {
-        background: rgba(10, 10, 10, 0.95);
-        box-shadow:
-          0 12px 48px 0 rgba(0, 0, 0, 0.9),
-          inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
-      }
-
-      .dynamic-island:hover::before {
-        opacity: 1;
-      }
 
       /* 导航组 - 移动端横向 / 桌面端纵向 */
-      .nav-group {
-        display: flex;
-        flex-direction: row;
-        align-items: center;
-      }
-
-      @media (min-width: 768px) {
-        .nav-group {
-          flex-direction: column;
-        }
-      }
 
       /* 不同间距的导航组 - 移动端左右间距 / 桌面端上下间距 */
-      .nav-group-spaced {
-        margin-left: 8px;
-      }
-
-      @media (min-width: 768px) {
-        .nav-group-spaced {
-          margin-left: 0;
-          margin-top: 8px;
-        }
-      }
-
-      .nav-group-large-spaced {
-        margin-left: 8px;
-      }
-
-      @media (min-width: 768px) {
-        .nav-group-large-spaced {
-          margin-left: 0;
-          margin-top: 0;
-        }
-      }
 
       /* 分隔线样式 - 移动端竖线 / 桌面端横线 */
-      .nav-separator {
-        width: 1px;
-        height: 32px;
-        background: linear-gradient(
-          to bottom,
-          transparent,
-          color-mix(in srgb, var(--color-primary) 30%, transparent) 50%,
-          transparent
-        );
-        margin: 0 8px 0 0;
-        transition: all 0.3s ease;
-      }
-
-      @media (min-width: 768px) {
-        .nav-separator {
-          width: 32px;
-          height: 1px;
-          background: linear-gradient(
-            to right,
-            transparent,
-            color-mix(in srgb, var(--color-primary) 30%, transparent) 50%,
-            transparent
-          );
-          margin: 0 0 8px 0;
-        }
-      }
-
-      .nav-group:hover .nav-separator {
-        background: linear-gradient(
-          to right,
-          transparent,
-          color-mix(in srgb, var(--color-primary) 50%, transparent) 50%,
-          transparent
-        );
-      }
 
       /* Navigation items */
-      .nav-item {
-        position: relative;
-        padding: 12px;
-        border-radius: 18px;
-        z-index: 10;
-        cursor: pointer;
-        color: var(--text-tertiary);
-        -webkit-tap-highlight-color: transparent;
-        user-select: none;
-        transition: all 0.2s ease;
-        min-width: 44px;
-        min-height: 44px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-
-      @media (min-width: 768px) {
-        .nav-item {
-          padding: 10px;
-          min-width: auto;
-          min-height: auto;
-        }
-      }
-
-      .nav-item:hover {
-        color: var(--color-primary);
-        background: color-mix(in srgb, var(--color-primary) 12%, transparent);
-        transform: scale(1.08) translateZ(0);
-        box-shadow: 0 3px 10px color-mix(in srgb, var(--color-primary) 18%, transparent);
-      }
-
-      .nav-item:active {
-        transform: scale(1.02) translateZ(0);
-        box-shadow: 0 2px 6px color-mix(in srgb, var(--color-primary) 15%, transparent);
-      }
 
       /* 深色模式下的导航按钮 */
-      html.dark .nav-item {
-        color: var(--text-secondary);
-      }
-
-      html.dark .nav-item:hover {
-        background: color-mix(in srgb, var(--color-primary) 18%, transparent);
-        box-shadow: 0 3px 12px color-mix(in srgb, var(--color-primary) 25%, transparent);
-      }
-
-      html.dark .nav-item:active {
-        transform: scale(1.02) translateZ(0);
-        box-shadow: 0 2px 6px color-mix(in srgb, var(--color-primary) 20%, transparent);
-      }
 
       /* Active nav item indicator */
-      [aria-current='page'].nav-item {
-        color: var(--color-primary);
-        background: color-mix(in srgb, var(--color-primary) 15%, white);
-        box-shadow: 0 2px 10px color-mix(in srgb, var(--color-primary) 25%, transparent);
-      }
 
       /* 深色模式下的选中状态 */
-      html.dark [aria-current='page'].nav-item {
-        background: color-mix(in srgb, var(--color-primary) 25%, transparent);
-        box-shadow:
-          0 2px 10px color-mix(in srgb, var(--color-primary) 35%, transparent),
-          inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
-      }
-
-      [aria-current='page'].nav-item::after {
-        content: '';
-        position: absolute;
-        left: -8px;
-        top: 50%;
-        transform: translateY(-50%);
-        width: 5px;
-        height: 5px;
-        background: var(--color-primary);
-        border-radius: 50%;
-        box-shadow: 0 0 8px color-mix(in srgb, var(--color-primary) 60%, transparent);
-      }
-
-      html.dark [aria-current='page'].nav-item::after {
-        box-shadow: 0 0 12px var(--color-primary);
-      }
 
       /* 用户头像特殊样式 */
-      .avatar-item {
-        border: 2px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-      }
-
-      .avatar-item img {
-        transition: transform 0.3s ease;
-      }
-
-      .avatar-item:hover {
-        border-color: var(--color-primary);
-        box-shadow: 0 4px 16px color-mix(in srgb, var(--color-primary) 40%, transparent);
-      }
-
-      .avatar-item:hover img {
-        transform: scale(1.08);
-      }
 
       /* Generate button with gradient border - 简洁旋转版 */
-      .generate-btn {
-        position: relative;
-        background: linear-gradient(
-          135deg,
-          color-mix(in srgb, var(--color-primary) 18%, transparent),
-          color-mix(in srgb, var(--color-secondary) 18%, transparent)
-        );
-        border: 2px solid transparent;
-        cursor: pointer;
-        z-index: 1;
-        border-radius: 18px;
-        /* 硬件加速优化 */
-        transform: translateZ(0);
-        backface-visibility: hidden;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-      }
 
       /* 加载时变圆形 */
-      .generate-btn.loading {
-        border-radius: 50%;
-        animation: pulse-glow 1.5s ease-in-out infinite;
-      }
-
-      @keyframes pulse-glow {
-        0%,
-        100% {
-          box-shadow: 0 0 20px color-mix(in srgb, var(--color-primary) 40%, transparent);
-        }
-        50% {
-          box-shadow: 0 0 30px color-mix(in srgb, var(--color-secondary) 50%, transparent);
-        }
-      }
-
-      .generate-btn svg {
-        position: relative;
-        z-index: 2;
-        pointer-events: none;
-        transition: transform 0.3s ease;
-      }
-
-      .generate-btn:hover svg {
-        transform: scale(1.1) rotate(5deg);
-      }
-
-      .generate-btn.loading svg {
-        animation: icon-pulse 1.5s ease-in-out infinite;
-      }
-
-      @keyframes icon-pulse {
-        0%,
-        100% {
-          transform: scale(1);
-          opacity: 1;
-        }
-        50% {
-          transform: scale(1.15);
-          opacity: 0.8;
-        }
-      }
 
       /* 边框容器 */
-      .generate-btn::before {
-        content: '';
-        position: absolute;
-        inset: -2px;
-        border-radius: 18px;
-        z-index: -1;
-        pointer-events: none;
-        overflow: hidden;
-        transition: border-radius 0.3s ease;
-      }
-
-      .generate-btn.loading::before {
-        border-radius: 50%;
-      }
 
       /* 渐变层 - 旋转 */
-      .generate-btn::after {
-        content: '';
-        position: absolute;
-        inset: -2px;
-        border-radius: 18px;
-        padding: 2px;
-        z-index: -1;
-        pointer-events: none;
-        background: conic-gradient(
-          from 0deg,
-          rgba(34, 197, 94, 0.9),
-          /* 绿 */ rgba(251, 191, 36, 0.9),
-          /* 黄 */ rgba(236, 72, 153, 0.9),
-          /* 粉 */ rgba(139, 92, 246, 0.9),
-          /* 紫 */ rgba(59, 130, 246, 0.9),
-          /* 蓝 */ rgba(16, 185, 129, 0.9),
-          /* 青绿 */ rgba(34, 197, 94, 0.9) /* 绿（循环） */
-        );
-        -webkit-mask:
-          linear-gradient(#fff 0 0) content-box,
-          linear-gradient(#fff 0 0);
-        -webkit-mask-composite: xor;
-        mask-composite: exclude;
-        /* 硬件加速 */
-        will-change: transform;
-        transform: translateZ(0) rotate(0deg);
-        backface-visibility: hidden;
-        transition: border-radius 0.3s ease;
-        opacity: 0;
-      }
-
-      .generate-btn:hover::after {
-        opacity: 0.5;
-      }
-
-      .generate-btn.loading::after {
-        border-radius: 50%;
-        animation: rainbow-spin 1.5s linear infinite;
-        opacity: 1;
-      }
 
       /* 彩虹边框旋转 */
-      @keyframes rainbow-spin {
-        0% {
-          transform: translateZ(0) rotate(0deg);
-        }
-        100% {
-          transform: translateZ(0) rotate(360deg);
-        }
-      }
-
-      .generate-btn:hover {
-        background: linear-gradient(
-          135deg,
-          color-mix(in srgb, var(--color-primary) 28%, transparent),
-          color-mix(in srgb, var(--color-secondary) 28%, transparent)
-        );
-        transform: scale(1.15) translateZ(0);
-        box-shadow: 0 4px 16px color-mix(in srgb, var(--color-primary) 30%, transparent);
-      }
-
-      .generate-btn:active {
-        transform: scale(1.05);
-      }
 
       /* 移动端导航岛优化 - 水平布局 */
-      @media (max-width: 767px) {
-        /* 导航容器位置 - 底部居中 */
-        .nav-container {
-          left: 50% !important;
-          right: auto !important;
-          top: auto !important;
-          bottom: 1rem !important;
-          transform: translateX(-50%) !important;
-        }
-
-        /* 灵动岛 - 水平布局 */
-        .dynamic-island {
-          padding: 10px 14px;
-          max-width: calc(100vw - 2rem);
-          display: flex;
-          flex-direction: row;
-        }
-
-        .dynamic-island > div {
-          flex-direction: row !important;
-          gap: 6px;
-        }
-
-        /* 导航组 - 水平排列 */
-        .nav-group {
-          flex-direction: row !important;
-        }
-
-        .nav-group-spaced {
-          margin-top: 0 !important;
-          margin-left: 6px !important;
-        }
-
-        .nav-group-large-spaced {
-          margin-top: 0 !important;
-          margin-left: 6px !important;
-        }
-
-        /* 分隔线 - 竖线 */
-        .nav-separator {
-          width: 1px !important;
-          height: 28px !important;
-          margin: 0 6px !important;
-          background: linear-gradient(
-            to bottom,
-            transparent,
-            color-mix(in srgb, var(--color-primary) 30%, transparent) 50%,
-            transparent
-          ) !important;
-        }
-
-        /* 导航按钮尺寸优化 */
-        .nav-item {
-          padding: 10px;
-          min-width: 44px;
-          min-height: 44px;
-        }
-
-        .nav-item svg {
-          width: 20px;
-          height: 20px;
-        }
-
-        .avatar-item {
-          width: 44px !important;
-          height: 44px !important;
-        }
-
-        /* 选中指示器位置 - 移到底部 */
-        [aria-current='page'].nav-item::after {
-          left: 50% !important;
-          top: auto !important;
-          bottom: -6px !important;
-          transform: translateX(-50%) !important;
-        }
-      }
 
       /* 小屏幕进一步优化 */
-      @media (max-width: 480px) {
-        .nav-container {
-          bottom: 0.75rem !important;
-        }
-
-        .dynamic-island {
-          padding: 8px 12px;
-          max-width: calc(100vw - 1.5rem);
-        }
-
-        .dynamic-island > div {
-          gap: 4px;
-        }
-
-        .nav-group-spaced,
-        .nav-group-large-spaced {
-          margin-left: 4px !important;
-        }
-
-        .nav-separator {
-          margin: 0 4px !important;
-          height: 24px !important;
-        }
-
-        .nav-item {
-          padding: 8px;
-          min-width: 40px;
-          min-height: 40px;
-        }
-
-        .nav-item svg {
-          width: 18px;
-          height: 18px;
-        }
-
-        .avatar-item {
-          width: 40px !important;
-          height: 40px !important;
-        }
-      }
 
       /* 超小屏幕 */
-      @media (max-width: 375px) {
-        .dynamic-island {
-          padding: 8px 10px;
-        }
-
-        .nav-item {
-          padding: 7px;
-        }
-      }
 
       /* 触摸设备优化 */
-      @media (hover: none) and (pointer: coarse) {
-        .nav-item {
-          min-width: 44px;
-          min-height: 44px;
-        }
-
-        /* 触摸设备上禁用悬浮效果,使用active状态 */
-        .nav-item:hover {
-          transform: none;
-          background: transparent;
-        }
-
-        .nav-item:active {
-          transform: scale(0.95);
-          background: color-mix(in srgb, var(--color-primary) 20%, transparent);
-          transition-duration: 0.1s;
-        }
-
-        .generate-btn:hover {
-          transform: none;
-        }
-
-        .generate-btn:active {
-          transform: scale(0.95);
-        }
-
-        /* 触摸反馈增强 */
-        .dynamic-island:active {
-          transform: scale(0.98);
-        }
-      }
 
       /* 移动端优化 */
-      @media (max-width: 767px) {
-        /* 移动端样式优化 */
-        [data-group='theme'] .nav-separator {
-          display: none;
-        }
-
-        [data-group='theme'] {
-          margin-left: 8px;
-        }
-      }
 
       /* 用户头像角标样式 */
-      .avatar-badge {
-        background: var(--color-primary);
-      }
 
       /* 焦点状态（键盘导航） */
-      .nav-item:focus-visible {
-        outline: 2px solid var(--color-primary);
-        outline-offset: 4px;
-        border-radius: 18px;
-      }
-
-      .generate-btn:focus-visible {
-        outline: 2px solid var(--color-primary);
-        outline-offset: 4px;
-      }
 
       /* Smooth scrolling + 彻底隐藏所有原生滚动条 */
-      html,
-      body,
-      * {
-        scrollbar-width: none !important; /* Firefox */
-        -ms-overflow-style: none !important; /* IE/Edge */
-      }
-
-      html::-webkit-scrollbar,
-      body::-webkit-scrollbar,
-      *::-webkit-scrollbar {
-        display: none !important; /* Chrome/Safari/Opera */
-        width: 0 !important;
-        height: 0 !important;
-      }
-
-      html {
-        scroll-behavior: smooth;
-        overflow-y: auto;
-        overflow-x: hidden;
-      }
 
       /* 动态颜色样式 - 替代内联样式 */
       .progress-bar-fill {
@@ -1224,11 +378,6 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
 
       .platform-indicator {
         background-color: var(--color-primary);
-      }
-
-      .report-card {
-        border-color: color-mix(in srgb, var(--color-primary) 20%, transparent);
-        box-shadow: 0 4px 20px color-mix(in srgb, var(--color-primary) 10%, transparent);
       }
 
       .tag-badge {
@@ -1254,24 +403,6 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
 
       .ai-insight-border {
         border-color: transparent;
-      }
-
-      .btn-primary-large {
-        background-color: var(--color-primary);
-        box-shadow: 0 4px 14px color-mix(in srgb, var(--color-primary) 40%, transparent);
-      }
-
-      .btn-secondary-large {
-        background-color: var(--color-secondary);
-        box-shadow: 0 4px 14px color-mix(in srgb, var(--color-secondary) 40%, transparent);
-      }
-
-      .btn-primary {
-        background-color: var(--color-primary);
-      }
-
-      .btn-secondary {
-        background-color: var(--color-secondary);
       }
 
       /* 弹窗动画 */
@@ -1323,22 +454,6 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
           opacity: 0;
           transform: scale(0.9) translateY(20px);
         }
-      }
-
-      .animate-fade-in {
-        animation: fade-in 0.25s ease-out;
-      }
-
-      .animate-fade-out {
-        animation: fade-out 0.2s ease-in;
-      }
-
-      .animate-scale-in {
-        animation: scale-in 0.35s cubic-bezier(0.16, 1, 0.3, 1);
-      }
-
-      .animate-scale-out {
-        animation: scale-out 0.25s cubic-bezier(0.4, 0, 1, 1);
       }
 
       .animate-pulse-slow {
@@ -1412,70 +527,8 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
       }
 
       /* 弹窗样式 - 确保在视口中心 */
-      .modal-overlay {
-        width: 100%;
-        height: 100%;
-        background-color: rgba(0, 0, 0, 0.4);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 1rem;
-        overflow-y: auto;
-      }
-
-      .modal-overlay-portal {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        z-index: 9999;
-        width: 100%;
-        height: 100%;
-        background-color: rgba(0, 0, 0, 0.4);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 1rem;
-        overflow-y: auto;
-        opacity: 0;
-        transition: opacity 0.25s ease-out;
-      }
-
-      .modal-overlay-portal.modal-opening {
-        opacity: 1;
-      }
-
-      .modal-overlay-portal.modal-closing {
-        opacity: 0;
-        transition: opacity 0.2s ease-in;
-      }
-
-      .modal-content {
-        position: relative;
-        background-color: rgba(255, 255, 255, 0.98);
-        backdrop-filter: blur(40px);
-        -webkit-backdrop-filter: blur(40px);
-        border-radius: 1.5rem;
-        max-width: 56rem;
-        width: 100%;
-        max-height: 85vh;
-        overflow: hidden;
-        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-        border: 1px solid rgba(255, 255, 255, 0.6);
-        transform-origin: center center;
-      }
 
       /* 深色模式弹窗 */
-      html.dark .modal-content {
-        background-color: rgba(10, 10, 10, 0.98);
-        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.9);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-      }
-
-      html.dark .modal-overlay-portal {
-        background-color: rgba(0, 0, 0, 0.6);
-      }
 
       /* 移动端弹窗优化 - 底部滑出样式 */
       @media (max-width: 640px) {
@@ -1562,9 +615,6 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
       }
 
       /* 渐变工具类 */
-      .via-primary {
-        --tw-gradient-stops: var(--tw-gradient-from), var(--color-primary), var(--tw-gradient-to);
-      }
 
       /* 萌宠走动动画 - 精灵图 */
       .pet-walker {
@@ -1638,16 +688,6 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
         animation: pet-excited 0.6s ease-out;
       }
 
-      @keyframes pet-walk-shadow {
-        0%,
-        100% {
-          filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
-        }
-        50% {
-          filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.25));
-        }
-      }
-
       /* ========================================
          Library Grid - Waterfall Layout Styles
          ======================================== */
@@ -1663,20 +703,6 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
         }
       }
 
-      .line-clamp-1 {
-        display: -webkit-box;
-        -webkit-line-clamp: 1;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
-      }
-
-      .line-clamp-2 {
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
-      }
-
       /* 移除旧的library样式，使用新的瀑布流布局 */
 
       /* ========================================
@@ -1684,155 +710,26 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
          ======================================== */
 
       /* 文本颜色覆盖 */
-      .text-gray-700 {
-        color: var(--text-primary) !important;
-      }
-      .text-gray-800 {
-        color: var(--text-primary) !important;
-      }
-      .text-gray-600 {
-        color: var(--text-secondary) !important;
-      }
-      .text-gray-500 {
-        color: var(--text-tertiary) !important;
-      }
-      .text-gray-400 {
-        color: var(--text-muted) !important;
-      }
-      .text-gray-300 {
-        color: var(--text-secondary) !important;
-      }
-
-      html.dark .dark\:text-gray-100 {
-        color: var(--text-primary) !important;
-      }
-      html.dark .dark\:text-gray-300 {
-        color: var(--text-secondary) !important;
-      }
-      html.dark .dark\:text-gray-400 {
-        color: var(--text-tertiary) !important;
-      }
-      html.dark .dark\:text-gray-500 {
-        color: var(--text-muted) !important;
-      }
 
       /* 背景颜色覆盖 */
-      html.dark .dark\:bg-gray-700 {
-        background-color: var(--bg-tertiary) !important;
-      }
-      html.dark .dark\:bg-gray-800\/50 {
-        background-color: color-mix(in srgb, var(--bg-tertiary) 50%, transparent) !important;
-      }
-      html.dark .dark\:hover\:bg-gray-700:hover {
-        background-color: var(--bg-hover) !important;
-      }
 
       /* 边框颜色覆盖 */
-      .border-gray-200\/50 {
-        border-color: color-mix(in srgb, var(--border-color) 50%, transparent) !important;
-      }
-      .border-gray-300 {
-        border-color: var(--border-color) !important;
-      }
-      html.dark .dark\:border-gray-600 {
-        border-color: var(--border-color) !important;
-      }
-      html.dark .dark\:border-gray-700\/50 {
-        border-color: color-mix(in srgb, var(--border-color) 50%, transparent) !important;
-      }
 
       /* 主题色覆盖 */
-      .bg-indigo-500,
-      .bg-indigo-600 {
-        background-color: var(--color-primary) !important;
-      }
-      .hover\:bg-indigo-600:hover,
-      html.dark .dark\:hover\:bg-indigo-700:hover {
-        background-color: color-mix(in srgb, var(--color-primary) 90%, black) !important;
-      }
-      .focus\:ring-indigo-500:focus {
-        --tw-ring-color: color-mix(in srgb, var(--color-primary) 50%, transparent) !important;
-      }
-      .bg-gray-900 {
-        background: linear-gradient(135deg, var(--color-primary), var(--color-secondary)) !important;
-      }
-      .hover\:bg-gray-800:hover {
-        background: linear-gradient(
-          135deg,
-          color-mix(in srgb, var(--color-primary) 90%, black),
-          color-mix(in srgb, var(--color-secondary) 90%, black)
-        ) !important;
-      }
 
       /* ========================================
          Form and Input Styles - Dark Mode Support
          ======================================== */
 
       /* 输入框通用样式 */
-      input[type='text'],
-      input[type='email'],
-      input[type='password'],
-      input[type='url'],
-      input[type='number'],
-      textarea,
-      select {
-        background: var(--input-bg);
-        border-color: var(--input-border);
-        color: var(--text-primary);
-        transition: all 0.2s ease;
-      }
-
-      input[type='text']:focus,
-      input[type='email']:focus,
-      input[type='password']:focus,
-      input[type='url']:focus,
-      input[type='number']:focus,
-      textarea:focus,
-      select:focus {
-        background: var(--bg-secondary);
-        border-color: var(--color-primary);
-        outline: none;
-        box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 15%, transparent);
-      }
 
       /* 占位符样式 */
-      ::placeholder {
-        color: var(--text-muted);
-        opacity: 0.7;
-      }
-
-      html.dark ::placeholder {
-        opacity: 0.5;
-      }
 
       /* 按钮通用样式 */
-      button:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-      }
 
       /* 卡片样式 */
-      .card {
-        background: var(--bg-card);
-        border: 1px solid var(--border-color);
-        transition: all 0.3s ease;
-      }
-
-      .card:hover {
-        border-color: var(--border-hover);
-        box-shadow: 0 8px 24px var(--shadow-color);
-      }
 
       /* 深色模式下的文本选择 */
-      html.dark ::selection {
-        background: color-mix(in srgb, var(--color-primary) 40%, transparent);
-        color: #fff;
-      }
-
-      ::selection {
-        background: color-mix(in srgb, var(--color-primary) 30%, transparent);
-        color: var(--text-primary);
-      }
 
       /* ========================================
          Mobile Responsive Enhancements
@@ -1840,9 +737,6 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
 
       /* 移动端文字大小优化 */
       @media (max-width: 640px) {
-        body {
-          font-size: 15px; /* 基础字号稍大 */
-        }
 
         /* 仅限 prose 内容区域的标题缩放，避免覆盖卡片组件中的 Tailwind 字体类 */
         .prose h1 {
@@ -1872,9 +766,6 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
 
       /* 超小屏幕优化 (iPhone SE等) */
       @media (max-width: 375px) {
-        body {
-          font-size: 14px;
-        }
 
         .px-4 {
           padding-left: 0.75rem !important;
@@ -1894,83 +785,20 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
       }
 
       /* 减少动画效果 (用户偏好) */
-      @media (prefers-reduced-motion: reduce) {
-        *,
-        *::before,
-        *::after {
-          animation-duration: 0.01ms !important;
-          animation-iteration-count: 1 !important;
-          transition-duration: 0.01ms !important;
-        }
-      }
 
       /* 高对比度模式支持 */
-      @media (prefers-contrast: high) {
-        :root {
-          --border-color: rgba(0, 0, 0, 0.3);
-        }
-
-        html.dark {
-          --border-color: rgba(255, 255, 255, 0.3);
-        }
-      }
 
       /* ========================================
          Mobile Performance Optimizations
          ======================================== */
 
       /* 移动端性能优化（.glass 的移动端降级由 theme.css 表面令牌统一处理） */
-      @media (max-width: 767px) {
-        /* 简化背景模糊 */
-        .dynamic-island {
-          backdrop-filter: blur(12px);
-          -webkit-backdrop-filter: blur(12px);
-        }
-
-        /* 简化边框动画 */
-        .dynamic-island::before {
-          animation: none;
-          opacity: 0.6;
-        }
-      }
 
       /* 移动端安全区域适配 (刘海屏、底部指示条) */
-      @supports (padding: env(safe-area-inset-bottom)) {
-        @media (max-width: 767px) {
-          .nav-container {
-            bottom: max(1rem, env(safe-area-inset-bottom)) !important;
-          }
-
-          /* 页面内容底部安全区 */
-          section {
-            padding-bottom: max(7rem, calc(7rem + env(safe-area-inset-bottom)));
-          }
-        }
-      }
 
       /* iOS平滑滚动优化 */
-      @media (max-width: 767px) {
-        body {
-          -webkit-overflow-scrolling: touch;
-        }
-
-        /* 防止过度滚动 */
-        html,
-        body {
-          overscroll-behavior-y: contain;
-        }
-      }
 
       /* 移动端禁用文本选择 (交互元素) */
-      @media (max-width: 767px) {
-        .nav-item,
-        .dynamic-island,
-        button {
-          -webkit-user-select: none;
-          user-select: none;
-          -webkit-touch-callout: none;
-        }
-      }
     </style>
   </body>
 </html>

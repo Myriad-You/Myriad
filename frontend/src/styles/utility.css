@@ -48,63 +48,16 @@
    ============================================ */
 
 /* 大型列表容器优化 - 自动跳过屏幕外渲染 */
-.cv-auto {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 200px; /* 默认预估高度 */
-}
 
 /* 不同尺寸的预估高度 */
-.cv-auto-sm {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 100px;
-}
-
-.cv-auto-md {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 300px;
-}
-
-.cv-auto-lg {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 500px;
-}
 
 /* Widget 卡片专用 - 基于典型 widget 尺寸 */
-.cv-widget {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 280px;
-}
 
 /* 列表项专用 */
-.cv-list-item {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 60px;
-}
 
 /* 动画区域优化 - 配合 AnimationCoordinator 使用 */
-.cv-animated {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 200px;
-
-  /* 当元素离开视口时自动暂停渲染计算 */
-}
 
 /* 严格 contain 用于完全隔离的组件 */
-.contain-strict {
-  contain: strict;
-}
-
-.contain-content {
-  contain: content;
-}
-
-.contain-layout {
-  contain: layout;
-}
-
-.contain-paint {
-  contain: paint;
-}
 
 /* ============================================
    🔧 新增：动画性能优化类
@@ -141,15 +94,6 @@
 }
 
 /* 退出动画 - 脱离文档流，不影响其他元素 */
-.anim-exit {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: -1;
-  pointer-events: none;
-  will-change: opacity, transform;
-}
 
 /* ============================================
    🔧 新增：DOM 节点稳定性优化
@@ -157,72 +101,10 @@
    ============================================ */
 
 /* 占位容器 - 保持固定尺寸避免跳跃 */
-.placeholder-stable {
-  /* 使用 min-height 保持空间 */
-  min-height: var(--placeholder-height, 100px);
-
-  /* 禁止尺寸收缩 */
-  flex-shrink: 0;
-}
 
 /* 内容替换容器 - 平滑切换内容 */
-.content-swap {
-  position: relative;
-
-  /* 使用 contain 隔离布局影响 */
-  contain: layout style;
-}
-
-.content-swap > .swap-out {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-
-.content-swap > .swap-in {
-  position: relative;
-}
 
 /* 骨架屏到内容的平滑过渡 */
-.skeleton-to-content {
-  position: relative;
-  contain: layout;
-}
-
-.skeleton-to-content > .skeleton-layer {
-  position: absolute;
-  inset: 0;
-  transition: opacity 0.3s ease;
-}
-
-.skeleton-to-content > .content-layer {
-  position: relative;
-  transition:
-    opacity 0.3s ease,
-    transform 0.3s ease;
-}
-
-.skeleton-to-content.loading > .skeleton-layer {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.skeleton-to-content.loading > .content-layer {
-  opacity: 0;
-  transform: translateY(8px);
-  pointer-events: none;
-}
-
-.skeleton-to-content.loaded > .skeleton-layer {
-  opacity: 0;
-  pointer-events: none;
-}
-
-.skeleton-to-content.loaded > .content-layer {
-  opacity: 1;
-  transform: translateY(0);
-  pointer-events: auto;
-}
 
 /* ============================================
    🔧 新增：渲染层优化
@@ -230,22 +112,10 @@
    ============================================ */
 
 /* 强制创建独立合成层（谨慎使用） */
-.layer-promote {
-  transform: translateZ(0);
-  will-change: transform;
-}
 
 /* 避免不必要的层创建 */
-.layer-flatten {
-  transform: none;
-  will-change: auto;
-  isolation: auto;
-}
 
 /* 隔离渲染上下文 */
-.layer-isolate {
-  isolation: isolate;
-}
 
 /* ============================================
    🔧 新增：交互状态优化
@@ -253,16 +123,6 @@
    ============================================ */
 
 /* 预设 hover 状态的 GPU 层（用于频繁交互的元素） */
-.hover-optimized {
-  transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease;
-}
-
-.hover-optimized:hover {
-  /* 使用 transform 而非 top/left 移动 */
-  transform: translateY(-2px);
-}
 
 /* ============================================
    🔧 新增：帧率优化 CSS
@@ -270,21 +130,10 @@
    ============================================ */
 
 /* 减少重绘的过渡 - 只允许 transform 和 opacity */
-.transition-gpu {
-  transition-property: transform, opacity;
-  transition-duration: 0.3s;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-}
 
 /* 禁用所有过渡（用于批量 DOM 操作） */
-.no-transition {
-  transition: none !important;
-}
 
 /* 禁用所有动画 */
-.no-animation {
-  animation: none !important;
-}
 
 /* 滚动时降级（通过 JS 添加） */
 .is-scrolling [class*='transition-'] {
@@ -292,35 +141,12 @@
 }
 
 /* 拖拽时降级 */
-.is-dragging * {
-  pointer-events: none !important;
-}
-
-.is-dragging [class*='transition-']:not(.drag-item) {
-  transition: none !important;
-}
 
 /* 高性能滚动容器 */
-.scroll-container {
-  overflow: hidden auto;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
-
-  /* 使用 transform 创建独立层 */
-  transform: translateZ(0);
-  will-change: scroll-position;
-}
 
 /* 滚动时隐藏复杂内容 */
-.scroll-container.is-scrolling .complex-content {
-  visibility: hidden;
-}
 
 /* 虚拟滚动占位 */
-.virtual-item {
-  contain: strict;
-  content-visibility: auto;
-}
 
 /* ============================================
    🔧 新增：Paint 优化
@@ -328,26 +154,12 @@
    ============================================ */
 
 /* 隔离重绘区域 */
-.paint-isolated {
-  isolation: isolate;
-  contain: paint;
-}
 
 /* 固定尺寸元素（避免布局计算） */
-.size-fixed {
-  contain: size layout;
-}
 
 /* 仅样式隔离 */
-.style-isolated {
-  contain: style;
-}
 
 /* 完全隔离（最高性能） */
-.fully-isolated {
-  contain: strict;
-  content-visibility: auto;
-}
 
 /* ============================================
    🔧 新增：Transform 优化
@@ -362,46 +174,18 @@
 }
 
 /* 平滑的 transform 动画 */
-.transform-smooth {
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  will-change: transform;
-}
 
 /* 退出 GPU 加速（节省内存） */
-.gpu-normal {
-  transform: none;
-  will-change: auto;
-  backface-visibility: visible;
-}
 
 /* ============================================
    🔧 新增：图片优化
    ============================================ */
 
 /* 图片加载占位 */
-.img-placeholder {
-  background: linear-gradient(110deg, #ececec 8%, #f5f5f5 18%, #ececec 33%);
-  background-size: 200% 100%;
-  animation: img-shimmer 1.5s linear infinite;
-}
-
-@keyframes img-shimmer {
-  to {
-    background-position-x: -200%;
-  }
-}
 
 /* 图片加载完成后移除占位 */
-.img-loaded {
-  animation: none;
-  background: transparent;
-}
 
 /* 懒加载图片容器 */
-.lazy-img-container {
-  contain: layout style;
-  overflow: hidden;
-}
 
 /* 移动端禁用选择 */
 @media (width <= 767px) {

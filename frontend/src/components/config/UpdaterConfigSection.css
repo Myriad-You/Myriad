@@ -1392,7 +1392,7 @@ html.dark .updater-infra-current {
   white-space: nowrap;
 }
 
-@media (max-width: 640px) {
+@media (width <= 640px) {
   .updater-infra-row {
     flex-direction: column;
     align-items: stretch;
