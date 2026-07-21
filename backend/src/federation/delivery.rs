@@ -1549,4 +1549,14 @@ mod tests {
             key_id("https://old.example", "alice")
         );
     }
+
+    #[test]
+    fn is_missing_federation_keys_error_no_false_positive() {
+        assert!(!is_missing_federation_keys_error("No keys found for user"));
+        assert!(!is_missing_federation_keys_error("federation keys missing"));
+        assert!(!is_missing_federation_keys_error(""));
+        assert!(is_missing_federation_keys_error(
+            "error while loading: No federation keys found for user (id=3)"
+        ));
+    }
 }
