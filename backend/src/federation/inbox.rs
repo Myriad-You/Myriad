@@ -2124,4 +2124,24 @@ mod tests {
             "myriad:ChannelOpen"
         );
     }
+
+    #[test]
+    fn same_actor_or_user_matches_host_user_case() {
+        assert!(same_actor_or_user(
+            "https://B.Example/users/Bob",
+            "https://b.example/users/bob/"
+        ));
+        assert!(same_actor_or_user(
+            "https://b.example:8443/users/bob",
+            "https://b.example:8443/users/BOB"
+        ));
+        assert!(!same_actor_or_user(
+            "https://b.example:8443/users/bob",
+            "https://b.example/users/bob"
+        ));
+        assert!(!same_actor_or_user(
+            "https://b.example/users/bob",
+            "https://c.example/users/bob"
+        ));
+    }
 }
