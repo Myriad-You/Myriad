@@ -522,81 +522,52 @@ fn speech_error_to_response(error: TencentSpeechError) -> (StatusCode, String) {
     }
 }
 
-/// 文本转语音 API
+/// Shared standalone TTS synthesis used by HTTP `/api/speech/tts` and agent `speech.tts`.
 ///
-/// POST /api/speech/tts
-pub async fn text_to_speech(Json(request): Json<TtsApiRequest>) -> impl IntoResponse {
-    // 验证文本
-    if request.text.is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(TtsApiResponse {
-                success: false,
-                audio: None,
-                session_id: None,
-                cached: None,
-                error: Some("文本不能为空".to_string()),
-            }),
-        );
+/// Returns the same cache + Tencent path as the product API (base64 audio when successful).
+pub async fn synthesize_standalone_tts(request: &TtsApiRequest) -> Result<TtsApiResponse, String> {
+    if request.text.trim().is_empty() {
+        return Err("文本不能为空".to_string());
     }
 
     let codec = request.codec.as_deref().unwrap_or("mp3");
     let voice_type = request.voice_type.unwrap_or(10510000);
     let speed = request.speed.unwrap_or(0.0);
     let sample_rate = request.sample_rate.unwrap_or(16000);
-
-    // 生成文本哈希
     let text_hash = generate_text_hash(&request.text);
 
-    // 1. 检查新格式精确缓存
     if let Some(cached_audio) =
         find_exact_tts(&text_hash, voice_type, speed, sample_rate, codec).await
     {
-        return (
-            StatusCode::OK,
-            Json(TtsApiResponse {
-                success: true,
-                audio: Some(cached_audio),
-                session_id: Some(format!("cached-{}", &text_hash[..8])),
-                cached: Some(true),
-                error: None,
-            }),
-        );
+        return Ok(TtsApiResponse {
+            success: true,
+            audio: Some(cached_audio),
+            session_id: Some(format!("cached-{}", &text_hash[..8])),
+            cached: Some(true),
+            error: None,
+        });
     }
 
-    // 2. 查找任意音色缓存
     if let Some(cached_audio) = find_any_tts(&text_hash, codec).await {
-        return (
-            StatusCode::OK,
-            Json(TtsApiResponse {
-                success: true,
-                audio: Some(cached_audio),
-                session_id: Some(format!("cached-any-{}", &text_hash[..8])),
-                cached: Some(true),
-                error: None,
-            }),
-        );
+        return Ok(TtsApiResponse {
+            success: true,
+            audio: Some(cached_audio),
+            session_id: Some(format!("cached-any-{}", &text_hash[..8])),
+            cached: Some(true),
+            error: None,
+        });
     }
 
-    // 创建服务
-    let service = match TencentSpeechService::new().await {
-        Ok(s) => s,
-        Err(e) => {
-            let (_, msg) = speech_error_to_response(e);
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(TtsApiResponse {
-                    success: false,
-                    audio: None,
-                    session_id: None,
-                    cached: None,
-                    error: Some(msg),
-                }),
-            );
+    let service = TencentSpeechService::new().await.map_err(|e| match e {
+        TencentSpeechError::ApiKeyNotConfigured => {
+            crate::services::agent::response_agent::tts_not_configured()
         }
-    };
+        other => {
+            let (_, msg) = speech_error_to_response(other);
+            msg
+        }
+    })?;
 
-    // 构建TTS请求
     let tts_request = TtsRequest {
         text: request.text.clone(),
         voice_type: request.voice_type,
@@ -604,14 +575,12 @@ pub async fn text_to_speech(Json(request): Json<TtsApiRequest>) -> impl IntoResp
         volume: request.volume,
         codec: Some(codec.to_string()),
         sample_rate: request.sample_rate,
-        emotion_category: request.emotion,
+        emotion_category: request.emotion.clone(),
         ..Default::default()
     };
 
-    // 调用TTS服务
     match service.text_to_speech(tts_request).await {
         Ok(response) => {
-            // 写入新格式缓存
             if let Some(ref audio) = response.audio {
                 if let Err(e) =
                     write_tts_file(&text_hash, voice_type, speed, sample_rate, codec, audio).await
@@ -619,20 +588,39 @@ pub async fn text_to_speech(Json(request): Json<TtsApiRequest>) -> impl IntoResp
                     tracing::warn!("Failed to write TTS file: {}", e);
                 }
             }
-
-            (
-                StatusCode::OK,
-                Json(TtsApiResponse {
-                    success: true,
-                    audio: response.audio,
-                    session_id: response.session_id,
-                    cached: Some(false),
-                    error: None,
-                }),
-            )
+            Ok(TtsApiResponse {
+                success: true,
+                audio: response.audio,
+                session_id: response.session_id,
+                cached: Some(false),
+                error: None,
+            })
         }
         Err(e) => {
-            let (status, msg) = speech_error_to_response(e);
+            let (_, msg) = speech_error_to_response(e);
+            Err(msg)
+        }
+    }
+}
+
+/// 文本转语音 API
+///
+/// POST /api/speech/tts
+pub async fn text_to_speech(Json(request): Json<TtsApiRequest>) -> impl IntoResponse {
+    match synthesize_standalone_tts(&request).await {
+        Ok(response) => (StatusCode::OK, Json(response)),
+        Err(msg) => {
+            let status = if msg.contains("不能为空") {
+                StatusCode::BAD_REQUEST
+            } else if msg.contains("未配置") || msg.contains("过长") {
+                if msg.contains("过长") {
+                    StatusCode::BAD_REQUEST
+                } else {
+                    StatusCode::SERVICE_UNAVAILABLE
+                }
+            } else {
+                StatusCode::BAD_GATEWAY
+            };
             (
                 status,
                 Json(TtsApiResponse {

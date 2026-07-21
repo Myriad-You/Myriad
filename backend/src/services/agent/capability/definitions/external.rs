@@ -63,11 +63,11 @@ pub fn register(registry: &mut CapabilityRegistry) {
         ..Default::default()
     });
 
-    // RSSHub 实例列表
+    // RSSHub 实例列表（brew rsshub_instances 表，与 Brew UI 同源）
     registry.register(Capability {
         id: "rsshub.instances".to_string(),
         name: "RSSHub 实例列表".to_string(),
-        description: "获取 RSSHub 实例列表及状态".to_string(),
+        description: "获取 RSSHub 实例列表及健康状态（与 Brew 设置同源）".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -87,25 +87,25 @@ pub fn register(registry: &mut CapabilityRegistry) {
         ..Default::default()
     });
 
-    // RSSHub 健康检查
+    // RSSHub 健康检查（对已配置实例探测，非硬编码公共 URL）
     registry.register(Capability {
         id: "rsshub.healthcheck".to_string(),
         name: "RSSHub 健康检查".to_string(),
-        description: "对 RSSHub 实例进行健康检查".to_string(),
+        description: "对已配置的 RSSHub 实例做实时健康检查（可选 instanceId）".to_string(),
         category: CapabilityCategory::SystemOp,
         supported_actions: vec![IntentAction::Monitor],
         input_schema: json!({
             "type": "object",
             "properties": {
-                "instanceId": { "type": "integer" }
+                "instanceId": { "type": "integer", "description": "可选；省略则检查全部已配置实例" }
             }
         }),
         output_schema: json!({
             "type": "object",
             "properties": {
-                "healthy": { "type": "boolean" },
-                "responseTime": { "type": "integer" },
-                "status": { "type": "string" }
+                "instances": { "type": "array" },
+                "healthyCount": { "type": "integer" },
+                "checkedAt": { "type": "string" }
             }
         }),
         required_permissions: vec!["rsshub:write".to_string()],

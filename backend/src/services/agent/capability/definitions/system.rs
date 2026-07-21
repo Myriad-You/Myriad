@@ -156,11 +156,12 @@ pub fn register(registry: &mut CapabilityRegistry) {
         ..Default::default()
     });
 
-    // 系统监控
+    // 系统监控（进程级：内存/uptime/任务计数，非完整主机监控）
     registry.register(Capability {
         id: "system.metrics".to_string(),
         name: "系统监控".to_string(),
-        description: "获取系统运行状态和指标".to_string(),
+        description: "获取本进程运行状态：内存、uptime、后台/agent 任务计数（非完整主机监控）"
+            .to_string(),
         category: CapabilityCategory::SystemOp,
         supported_actions: vec![IntentAction::Query, IntentAction::Monitor],
         input_schema: json!({
@@ -172,7 +173,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
             "properties": {
                 "memory": { "type": "object" },
                 "tasks": { "type": "object" },
-                "alerts": { "type": "array" }
+                "system": { "type": "object" },
+                "scope": { "type": "string" }
             }
         }),
         required_permissions: vec!["system:read".to_string()],
@@ -473,18 +475,19 @@ pub fn register(registry: &mut CapabilityRegistry) {
         ..Default::default()
     });
 
-    // 任务状态查询
+    // 任务状态查询（agent_tasks / TASK_STORE，需 taskId 或返回最近任务列表）
     registry.register(Capability {
         id: "task.status".to_string(),
         name: "任务状态查询".to_string(),
-        description: "查询后台任务状态和进度".to_string(),
+        description: "查询 agent 任务状态与进度（按 taskId；省略则返回当前用户最近任务）"
+            .to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
             "type": "object",
             "properties": {
-                "taskId": { "type": "string" },
-                "platform": { "type": "string" }
+                "taskId": { "type": "string", "description": "Agent 任务 ID" },
+                "limit": { "type": "integer", "description": "未指定 taskId 时返回的最近任务数", "default": 20 }
             }
         }),
         output_schema: json!({
@@ -493,7 +496,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
                 "taskId": { "type": "string" },
                 "status": { "type": "string" },
                 "progress": { "type": "number" },
-                "error": { "type": "string" }
+                "error": { "type": "string" },
+                "tasks": { "type": "array" }
             }
         }),
         required_permissions: vec!["task:read".to_string()],
@@ -502,18 +506,19 @@ pub fn register(registry: &mut CapabilityRegistry) {
         ..Default::default()
     });
 
-    // 语音服务
+    // 语音服务（与 /api/speech/tts 同一实现：缓存 + 腾讯云合成）
     registry.register(Capability {
         id: "speech.tts".to_string(),
         name: "文字转语音".to_string(),
-        description: "将文字内容转换为语音".to_string(),
+        description: "将文字转为语音（与产品 /api/speech/tts 相同路径，返回 base64 音频）"
+            .to_string(),
         category: CapabilityCategory::AiProcess,
         supported_actions: vec![IntentAction::Create],
         input_schema: json!({
             "type": "object",
             "properties": {
                 "text": { "type": "string" },
-                "voice": { "type": "string" },
+                "voice": { "type": "string", "description": "音色 ID（腾讯云 voice_type）" },
                 "speed": { "type": "number", "default": 1.0 }
             },
             "required": ["text"]
@@ -521,12 +526,15 @@ pub fn register(registry: &mut CapabilityRegistry) {
         output_schema: json!({
             "type": "object",
             "properties": {
-                "audioUrl": { "type": "string" },
-                "duration": { "type": "number" }
+                "audio": { "type": "string", "description": "base64 音频（与 /api/speech/tts 一致）" },
+                "duration": { "type": "number" },
+                "codec": { "type": "string" },
+                "cached": { "type": "boolean" }
             }
         }),
         required_permissions: vec!["speech:tts".to_string()],
-        requires_ai: true,
+        // 走 speech 服务，不依赖 AI analyzer
+        requires_ai: false,
         estimated_duration_ms: Some(5000),
         ..Default::default()
     });

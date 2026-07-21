@@ -53,11 +53,11 @@ pub async fn execute(
         "stats.overview" => execute_stats_overview(params).await,
         "profile.summary" => execute_profile_summary(params).await,
         "search.global" => execute_search_global(params).await,
-        "task.status" => execute_task_status(params).await,
+        "task.status" => execute_task_status(params, ctx).await,
         "metadata.history" => execute_metadata_history(params).await,
         "tapp.list" => execute_tapp_list(params, ctx).await,
         "scheduler.list" => execute_scheduler_list(params, ctx).await,
-        "rsshub.instances" => execute_rsshub_instances(params).await,
+        "rsshub.instances" => execute_rsshub_instances(params, ctx).await,
         "context.reference" => execute_context_reference(params).await,
         // 补充的能力
         "database.anime" | "database.game" | "database.artist" => {
@@ -3726,18 +3726,79 @@ async fn execute_search_global(params: &HashMap<String, Value>) -> Result<Value,
     }))
 }
 
-/// 查询后台任务状态
-async fn execute_task_status(params: &HashMap<String, Value>) -> Result<Value, String> {
-    let task_id = params.get("taskId").and_then(|v| v.as_str());
-    let platform = params.get("platform").and_then(|v| v.as_str());
+/// 查询后台任务状态（agent_tasks / in-memory TASK_STORE）
+async fn execute_task_status(
+    params: &HashMap<String, Value>,
+    ctx: &HandlerContext<'_>,
+) -> Result<Value, String> {
+    use crate::services::agent::executor::{get_task_for_user, get_user_tasks};
+    use crate::services::agent::types::TaskStatus;
 
-    // 模拟任务状态查询
+    fn status_str(status: &TaskStatus) -> &'static str {
+        match status {
+            TaskStatus::Pending => "pending",
+            TaskStatus::Running => "running",
+            TaskStatus::WaitingForInput => "waiting_for_input",
+            TaskStatus::Paused => "paused",
+            TaskStatus::Completed => "completed",
+            TaskStatus::Failed => "failed",
+            TaskStatus::Cancelled => "cancelled",
+        }
+    }
+
+    fn task_to_json(task: &crate::services::agent::types::TaskState) -> Value {
+        json!({
+            "taskId": task.task_id,
+            "recipeId": task.recipe_id,
+            "status": status_str(&task.status),
+            "progress": task.progress,
+            "currentStep": task.current_step,
+            "error": task.error,
+            "startedAt": task.started_at.to_rfc3339(),
+            "completedAt": task.completed_at.map(|t| t.to_rfc3339()),
+            "pendingQuestion": task.pending_question.as_ref().map(|q| json!({
+                "question": q.question,
+                "options": q.options,
+            })),
+        })
+    }
+
+    let task_id = params
+        .get("taskId")
+        .or_else(|| params.get("task_id"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
+    if let Some(task_id) = task_id {
+        return match get_task_for_user(task_id, ctx.user_id).await {
+            Some(task) => Ok(task_to_json(&task)),
+            None => Err(format!(
+                "任务不存在或无权访问: {}。请确认 taskId 属于当前用户的 agent 任务。",
+                task_id
+            )),
+        };
+    }
+
+    // 无 taskId：返回当前用户最近任务列表（非空成功假装“已完成”）
+    let mut tasks = get_user_tasks(ctx.user_id).await;
+    tasks.sort_by_key(|t| std::cmp::Reverse(t.started_at));
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(20)
+        .min(100) as usize;
+    tasks.truncate(limit);
+
+    let items: Vec<Value> = tasks.iter().map(task_to_json).collect();
     Ok(json!({
-        "taskId": task_id,
-        "platform": platform,
-        "status": "completed",
-        "progress": 100.0,
-        "message": "Task status query - requires database integration"
+        "tasks": items,
+        "total": items.len(),
+        "message": if items.is_empty() {
+            "当前没有可查询的 agent 任务"
+        } else {
+            "未指定 taskId，已返回最近任务列表"
+        }
     }))
 }
 
@@ -3904,14 +3965,65 @@ async fn execute_scheduler_list(
     }))
 }
 
-/// RSSHub 实例列表
-async fn execute_rsshub_instances(params: &HashMap<String, Value>) -> Result<Value, String> {
-    let _ = params; // 未使用参数
-                    // RSSHub 实例列表 - 简化实现
+/// RSSHub 实例列表（来自 brew 的 rsshub_instances 表）
+async fn execute_rsshub_instances(
+    params: &HashMap<String, Value>,
+    ctx: &HandlerContext<'_>,
+) -> Result<Value, String> {
+    use crate::models::entities::rsshub_instances::{self, HealthStatus};
+    use crate::services::rsshub_service::RsshubService;
+
+    let _ = params;
+    let service = RsshubService::new(ctx.db.clone());
+
+    service.ensure_default_instances().await.map_err(|e| {
+        format!(
+            "初始化 RSSHub 默认实例失败: {}。请确认数据库已迁移且可写（rsshub_instances 表）。",
+            e
+        )
+    })?;
+
+    let instances = service
+        .get_instances(Some(ctx.user_id))
+        .await
+        .map_err(|e| format!("读取 RSSHub 实例失败: {}。请确认数据库连接与 brew 迁移状态。", e))?;
+
+    if instances.is_empty() {
+        return Err(
+            "RSSHub 实例表为空：请在 Brew 设置 → RSSHub 中添加实例，或检查全局默认实例初始化是否成功。"
+                .to_string(),
+        );
+    }
+
+    let healthy_count = instances
+        .iter()
+        .filter(|i| i.enabled && matches!(i.health_status, HealthStatus::Healthy))
+        .count();
+
+    let items: Vec<Value> = instances
+        .into_iter()
+        .map(|m| {
+            let response: rsshub_instances::InstanceResponse = m.into();
+            json!({
+                "id": response.id,
+                "name": response.name,
+                "url": response.url,
+                "enabled": response.enabled,
+                "priority": response.priority,
+                "healthStatus": response.health_status,
+                "lastHealthCheck": response.last_health_check,
+                "lastResponseTimeMs": response.last_response_time_ms,
+                "consecutiveFailures": response.consecutive_failures,
+                "successRate": response.success_rate,
+                "isGlobal": response.user_id.is_none(),
+            })
+        })
+        .collect();
+
     Ok(json!({
-        "instances": [],
-        "healthyCount": 0,
-        "message": "RSSHub instances require database integration"
+        "instances": items,
+        "total": items.len(),
+        "healthyCount": healthy_count,
     }))
 }
 

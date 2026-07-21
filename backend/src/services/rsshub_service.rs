@@ -313,6 +313,23 @@ impl RsshubService {
         }
     }
 
+    /// Live health check and persist success/failure stats (same path as brew admin checks).
+    pub async fn health_check_and_record(
+        &self,
+        instance: &InstanceModel,
+    ) -> Result<i32, String> {
+        match self.health_check(instance).await {
+            Ok(ms) => {
+                self.record_success(instance, ms).await;
+                Ok(ms)
+            }
+            Err(e) => {
+                self.record_failure(instance).await;
+                Err(e)
+            }
+        }
+    }
+
     /// 执行健康检查（出站经 outbound_security，防 SSRF）
     pub async fn health_check(&self, instance: &InstanceModel) -> Result<i32, String> {
         // 使用一个简单的路由进行健康检查

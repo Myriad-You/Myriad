@@ -963,9 +963,9 @@ pub fn active_platforms(count: usize) -> String {
     format!("活跃在 {} 个平台", count)
 }
 
-/// TTS 未配置
+/// TTS 未配置（operator guidance; full code path still implemented）
 pub fn tts_not_configured() -> String {
-    "TTS 服务未配置。请在设置中配置语音合成服务后重试。".to_string()
+    "TTS 服务未配置：请在系统设置中配置腾讯云 SecretId/SecretKey（tencent_secret_id / tencent_secret_key），与 /api/speech/tts 使用同一套密钥。".to_string()
 }
 
 /// 图片生成完成但无法提取 URL

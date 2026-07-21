@@ -43,6 +43,11 @@ pub fn mark_startup() {
     let _ = STARTED_AT.set(std::time::Instant::now());
 }
 
+/// Process uptime in seconds since `mark_startup` (0 if not marked).
+pub fn process_uptime_seconds() -> u64 {
+    STARTED_AT.get().map(|t| t.elapsed().as_secs()).unwrap_or(0)
+}
+
 pub fn build_version() -> &'static str {
     option_env!("MYRIAD_VERSION").unwrap_or(concat!("v", env!("CARGO_PKG_VERSION")))
 }
@@ -84,7 +89,7 @@ pub async fn health() -> (StatusCode, Json<Value>) {
     let version = build_version();
     let commit_sha = build_commit_sha();
 
-    let uptime = STARTED_AT.get().map(|t| t.elapsed().as_secs()).unwrap_or(0);
+    let uptime = process_uptime_seconds();
 
     (
         StatusCode::OK,

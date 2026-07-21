@@ -152,6 +152,35 @@ impl TaskStore {
             .unwrap_or_default()
     }
 
+    /// In-memory task counts by status (process-local; not cross-replica).
+    pub fn status_counts(&self) -> (usize, usize, usize, usize, usize, usize, usize) {
+        let mut pending = 0usize;
+        let mut running = 0usize;
+        let mut waiting = 0usize;
+        let mut completed = 0usize;
+        let mut failed = 0usize;
+        let mut cancelled = 0usize;
+        for task in self.tasks.values() {
+            match task.status {
+                TaskStatus::Pending => pending += 1,
+                TaskStatus::Running => running += 1,
+                TaskStatus::WaitingForInput | TaskStatus::Paused => waiting += 1,
+                TaskStatus::Completed => completed += 1,
+                TaskStatus::Failed => failed += 1,
+                TaskStatus::Cancelled => cancelled += 1,
+            }
+        }
+        (
+            self.tasks.len(),
+            pending,
+            running,
+            waiting,
+            completed,
+            failed,
+            cancelled,
+        )
+    }
+
     /// 清理过期任务
     ///
     /// - 已完成/失败超过24小时的任务

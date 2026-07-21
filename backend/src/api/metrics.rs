@@ -99,6 +99,12 @@ fn check_alerts(
     alerts
 }
 
+/// Process memory info (cross-platform, best-effort).
+/// Public for agent `system.metrics` and HTTP `/api/metrics`.
+pub fn process_memory_info() -> serde_json::Value {
+    get_memory_info()
+}
+
 /// 获取内存信息（跨平台）
 fn get_memory_info() -> serde_json::Value {
     #[cfg(target_os = "linux")]
@@ -131,6 +137,7 @@ fn get_memory_info() -> serde_json::Value {
                 "rss_mb": vm_rss / 1024,
                 "virtual_kb": vm_size,
                 "virtual_mb": vm_size / 1024,
+                "platform": "linux",
             })
         } else {
             json!({
@@ -152,10 +159,25 @@ fn get_memory_info() -> serde_json::Value {
 
     #[cfg(target_os = "macos")]
     {
-        // macOS: 可以使用 mach API
+        // Cheap RSS via `ps` (KB). Honest limited metric — not full host monitoring.
+        let pid = std::process::id();
+        if let Ok(output) = std::process::Command::new("ps")
+            .args(["-o", "rss=", "-p", &pid.to_string()])
+            .output()
+        {
+            if let Ok(s) = String::from_utf8(output.stdout) {
+                if let Ok(rss_kb) = s.trim().parse::<u64>() {
+                    return json!({
+                        "rss_kb": rss_kb,
+                        "rss_mb": rss_kb / 1024,
+                        "platform": "macos",
+                    });
+                }
+            }
+        }
         json!({
             "platform": "macos",
-            "note": "Detailed memory metrics require additional dependencies"
+            "note": "Unable to read process RSS via ps"
         })
     }
 

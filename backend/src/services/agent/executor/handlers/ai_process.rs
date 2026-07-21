@@ -103,6 +103,11 @@ pub async fn execute(
     params: &HashMap<String, Value>,
     ctx: &HandlerContext<'_>,
 ) -> Result<Value, String> {
+    // speech.tts 走腾讯云语音服务，不依赖 AI analyzer
+    if capability_id == "speech.tts" {
+        return execute_speech_tts(params).await;
+    }
+
     let analyzer = ctx.ai_analyzer.ok_or("AI analyzer not configured")?;
 
     // 注入角色身份上下文到 systemPrompt（如果 Orchestrator 提供了角色 identity）
@@ -1036,8 +1041,88 @@ async fn execute_brewlia_podcast(
 // 其他 AI 能力
 // ============================================================================
 
-async fn execute_speech_tts(_params: &HashMap<String, Value>) -> Result<Value, String> {
-    Err(crate::services::agent::response_agent::tts_not_configured())
+async fn execute_speech_tts(params: &HashMap<String, Value>) -> Result<Value, String> {
+    use crate::api::speech::{synthesize_standalone_tts, TtsApiRequest};
+
+    let text = params
+        .get("text")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "缺少 text 参数，无法进行文字转语音".to_string())?;
+
+    let voice_type = params
+        .get("voice")
+        .or_else(|| params.get("voice_type"))
+        .or_else(|| params.get("voiceType"))
+        .and_then(|v| {
+            v.as_i64()
+                .or_else(|| v.as_u64().map(|u| u as i64))
+                .or_else(|| v.as_str().and_then(|s| s.parse::<i64>().ok()))
+        })
+        .map(|v| v as i32);
+
+    // Agent schema uses speed as relative multiplier (default 1.0).
+    // Product / Tencent API expects speed in roughly [-2, 6]; map 1.0 → 0.0.
+    let speed = params.get("speed").and_then(|v| v.as_f64()).map(|s| {
+        let mapped = if (0.5..=2.0).contains(&s) {
+            (s - 1.0) * 2.0
+        } else {
+            s
+        };
+        mapped as f32
+    });
+
+    let codec = params
+        .get("codec")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let volume = params
+        .get("volume")
+        .and_then(|v| v.as_f64())
+        .map(|v| v as f32);
+
+    let sample_rate = params
+        .get("sample_rate")
+        .or_else(|| params.get("sampleRate"))
+        .and_then(|v| v.as_i64().or_else(|| v.as_u64().map(|u| u as i64)))
+        .map(|v| v as i32);
+
+    let emotion = params
+        .get("emotion")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let request = TtsApiRequest {
+        text: text.to_string(),
+        voice_type,
+        speed,
+        volume,
+        codec: codec.clone(),
+        sample_rate,
+        emotion,
+    };
+
+    let response = synthesize_standalone_tts(&request).await?;
+    let audio = response
+        .audio
+        .ok_or_else(|| "语音服务返回成功但未包含音频数据".to_string())?;
+
+    let estimated_duration_sec = text.chars().count() as f64 / 200.0 * 60.0;
+    let codec_out = codec.unwrap_or_else(|| "mp3".to_string());
+
+    Ok(json!({
+        "success": true,
+        "audio": audio,
+        "audioBase64": audio,
+        "codec": codec_out,
+        "sessionId": response.session_id,
+        "cached": response.cached,
+        "duration": estimated_duration_sec,
+        "voice": voice_type,
+        "textLength": text.chars().count(),
+    }))
 }
 
 async fn execute_smart_filter(

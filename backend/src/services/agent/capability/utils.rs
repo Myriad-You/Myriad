@@ -421,7 +421,7 @@ pub fn get_capability_usage_hint(capability_id: &str) -> &'static str {
         "search.fuzzy" => "模糊搜索。基于模糊匹配的搜索",
 
         // ============ 系统操作 ============
-        "system.metrics" => "系统监控。获取系统运行状态和指标",
+        "system.metrics" => "系统监控。本进程内存/uptime/任务计数（非完整主机监控）",
         "cache.status" => "缓存状态。获取各平台缓存状态",
         "cache.clear" => "清除缓存。清除指定平台的缓存数据",
         "config.get" => "获取配置。获取系统配置信息",
@@ -438,7 +438,7 @@ pub fn get_capability_usage_hint(capability_id: &str) -> &'static str {
 
         // ============ 后台任务 ============
         "task.submit" => "提交后台任务。提交平台数据处理任务",
-        "task.status" => "任务状态查询。查询后台任务状态和进度",
+        "task.status" => "任务状态查询。按 taskId 查 agent 任务，或列出最近任务",
 
         // ============ 数据处理 ============
         "data.transform" => "数据转换。对数据进行过滤、排序、聚合等操作",
@@ -457,8 +457,8 @@ pub fn get_capability_usage_hint(capability_id: &str) -> &'static str {
         // ============ 外部集成 ============
         "http.fetch" => "HTTP 请求。发起外部 HTTP 请求",
         "notion.query" => "Notion 数据查询。查询 Notion 数据库内容",
-        "rsshub.instances" => "RSSHub 实例列表。获取 RSSHub 实例列表及状态",
-        "rsshub.healthcheck" => "RSSHub 健康检查。对 RSSHub 实例进行健康检查",
+        "rsshub.instances" => "RSSHub 实例列表。读取 Brew 已配置实例及健康状态",
+        "rsshub.healthcheck" => "RSSHub 健康检查。探测已配置实例（可指定 instanceId）",
         "hitokoto.get" => "获取一言。获取随机一言/语录",
         "weather.get" => "获取天气。获取天气信息",
         "time.info" => "时间信息。获取当前时间和日期信息",
@@ -468,7 +468,7 @@ pub fn get_capability_usage_hint(capability_id: &str) -> &'static str {
         "brewlia.podcast" => "AI 播客生成。将文章转换为对话式播客文稿",
 
         // ============ 语音服务 ============
-        "speech.tts" => "文字转语音。将文字内容转换为语音",
+        "speech.tts" => "文字转语音。与 /api/speech/tts 相同路径，返回 base64 音频",
 
         // ============ 存储 ============
         "storage.set" => "存储数据。保存数据到 Tapp 存储",

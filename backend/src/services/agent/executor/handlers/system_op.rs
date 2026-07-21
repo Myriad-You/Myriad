@@ -31,7 +31,7 @@ pub async fn execute(
         "system.metrics" => execute_system_metrics().await,
         "cache.status" => execute_cache_status(params).await,
         "cache.clear" => execute_cache_clear(params).await,
-        "rsshub.healthcheck" => execute_rsshub_healthcheck().await,
+        "rsshub.healthcheck" => execute_rsshub_healthcheck(params, ctx).await,
         "image.cache" => execute_image_cache(params).await,
         "export.data" => execute_export_data(params).await,
         "task.submit" => execute_task_submit(params).await,
@@ -410,12 +410,55 @@ async fn execute_scheduler_trigger(
 // ============================================================================
 
 async fn execute_system_metrics() -> Result<Value, String> {
+    // Process-level metrics only — honest limited payload, not full host monitoring.
+    let memory = crate::api::metrics::process_memory_info();
+    let uptime_seconds = crate::api::process_uptime_seconds();
+    let version = crate::api::build_version();
+    let config_mode = crate::CONFIG_MODE.load(std::sync::atomic::Ordering::Relaxed);
+    let db_connected = crate::DB_CONNECTION.read().await.is_some();
+
+    let (bg_total, bg_pending, bg_processing, bg_completed, bg_failed) =
+        BACKGROUND_PROCESSOR.get_task_stats().await;
+
+    let agent_task_counts = {
+        use crate::services::agent::executor::TASK_STORE;
+        let store = TASK_STORE.read().await;
+        let (total, pending, running, waiting, completed, failed, cancelled) =
+            store.status_counts();
+        json!({
+            "total": total,
+            "pending": pending,
+            "running": running,
+            "waitingOrPaused": waiting,
+            "completed": completed,
+            "failed": failed,
+            "cancelled": cancelled,
+            "scope": "in_memory_task_store",
+        })
+    };
+
     Ok(json!({
         "status": "ok",
         "timestamp": chrono::Utc::now().to_rfc3339(),
-        "memory": { "description": "Memory metrics not available in this context" },
-        "tasks": { "description": "Task metrics available via TASK_STORE" },
-        "system": { "uptime": "Available" }
+        "scope": "process",
+        "note": "Limited process-level metrics (memory/uptime/task counts). Not full host or cluster monitoring.",
+        "memory": memory,
+        "system": {
+            "uptime_seconds": uptime_seconds,
+            "version": version,
+            "config_mode": config_mode,
+            "db_connected": db_connected,
+        },
+        "tasks": {
+            "background_processor": {
+                "total": bg_total,
+                "pending": bg_pending,
+                "processing": bg_processing,
+                "completed": bg_completed,
+                "failed": bg_failed,
+            },
+            "agent": agent_task_counts,
+        },
     }))
 }
 
@@ -510,34 +553,98 @@ async fn execute_cache_clear(params: &HashMap<String, Value>) -> Result<Value, S
 // 健康检查
 // ============================================================================
 
-async fn execute_rsshub_healthcheck() -> Result<Value, String> {
-    let rsshub_instances = vec!["https://rsshub.app", "https://rss.shab.fun"];
+async fn execute_rsshub_healthcheck(
+    params: &HashMap<String, Value>,
+    ctx: &HandlerContext<'_>,
+) -> Result<Value, String> {
+    use crate::services::rsshub_service::RsshubService;
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .map_err(|e| format!("Failed to create client: {}", e))?;
+    let service = RsshubService::new(ctx.db.clone());
+    if let Err(e) = service.ensure_default_instances().await {
+        tracing::warn!("[rsshub.healthcheck] Failed to ensure defaults: {}", e);
+    }
+
+    let instance_id = params
+        .get("instanceId")
+        .or_else(|| params.get("instance_id"))
+        .and_then(|v| {
+            v.as_i64()
+                .or_else(|| v.as_u64().map(|u| u as i64))
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        })
+        .map(|id| id as i32);
+
+    let mut instances = service
+        .get_instances(Some(ctx.user_id))
+        .await
+        .map_err(|e| format!("读取 RSSHub 实例失败: {}", e))?;
+
+    if let Some(id) = instance_id {
+        instances.retain(|i| i.id == id);
+        if instances.is_empty() {
+            return Err(format!(
+                "RSSHub 实例不存在或无权访问: {}。请用 rsshub.instances 查看已配置实例。",
+                id
+            ));
+        }
+    }
+
+    if instances.is_empty() {
+        return Err(
+            "没有配置的 RSSHub 实例可检查。请在 Brew 设置中添加实例。"
+                .to_string(),
+        );
+    }
 
     let mut results = Vec::new();
-    for instance in rsshub_instances {
-        let status = match client.get(instance).send().await {
-            Ok(resp) => json!({
-                "url": instance,
-                "status": "healthy",
-                "response_code": resp.status().as_u16()
-            }),
-            Err(e) => json!({
-                "url": instance,
-                "status": "unhealthy",
-                "error": e.to_string()
-            }),
-        };
-        results.push(status);
+    let mut healthy_count = 0usize;
+
+    for instance in instances {
+        if !instance.enabled && instance_id.is_none() {
+            results.push(json!({
+                "id": instance.id,
+                "name": instance.name,
+                "url": instance.url,
+                "status": "skipped",
+                "enabled": false,
+                "healthy": false,
+            }));
+            continue;
+        }
+
+        match service.health_check_and_record(&instance).await {
+            Ok(response_time_ms) => {
+                healthy_count += 1;
+                results.push(json!({
+                    "id": instance.id,
+                    "name": instance.name,
+                    "url": instance.url,
+                    "status": "healthy",
+                    "healthy": true,
+                    "responseTimeMs": response_time_ms,
+                    "enabled": instance.enabled,
+                }));
+            }
+            Err(e) => {
+                results.push(json!({
+                    "id": instance.id,
+                    "name": instance.name,
+                    "url": instance.url,
+                    "status": "unhealthy",
+                    "healthy": false,
+                    "error": e,
+                    "enabled": instance.enabled,
+                }));
+            }
+        }
     }
 
     Ok(json!({
         "instances": results,
-        "checked_at": chrono::Utc::now().to_rfc3339()
+        "total": results.len(),
+        "healthyCount": healthy_count,
+        "checkedAt": chrono::Utc::now().to_rfc3339(),
+        "source": "configured_instances",
     }))
 }
 
