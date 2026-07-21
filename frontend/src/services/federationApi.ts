@@ -81,16 +81,17 @@ export const federationApi = {
   },
 
   /**
-   * Explicit federation key rotation.
-   * Requires `confirm: true` — never silent. Peers should re-fetch actor publicKey.
+   * Explicit federation signing-key rotation.
+   * Body must include `confirm: true` (server rejects otherwise).
+   * Replaces RSA keypair + best-effort Update(Person) fan-out.
    */
   rotateKeys(
-    confirm: boolean,
+    body: { confirm: true },
     runtimeGrant?: string,
   ): Promise<FederationKeyRotationResult> {
     return apiService.post<FederationKeyRotationResult>(
       `${PREFIX}/keys/rotate`,
-      { confirm },
+      body,
       attributionOptions(runtimeGrant),
     )
   },

@@ -404,6 +404,35 @@ export const zhCN: TranslationKeys = {
     federationRateTrustedMultiplierDesc:
       '信任等级 ≥ 3 的域名，有效上限 = 最大请求数 × 倍率（默认 5）。',
     federationRateResetDefaults: '恢复默认限流',
+    federationKeysIdentity: '身份与密钥',
+    federationKeysIdentityDesc:
+      '你的 ActivityPub Actor 与签名密钥。轮换会替换 RSA 密钥对并尽力扇出 Update(Person)；对端需刷新你的公钥。ensure-keys 绝不会静默轮换。',
+    federationIdentityHandle: '句柄',
+    federationIdentityActor: 'Actor URL',
+    federationIdentityKeyId: '密钥 ID',
+    federationKeysRotate: '轮换签名密钥…',
+    federationKeysRotateConfirm:
+      '确定轮换联邦签名密钥？出站签名将使用新密钥。缓存了旧公钥的对端在刷新你的 Actor 文档前可能会拒绝投递。',
+    federationKeysRotateSuccess: '签名密钥已轮换',
+    federationKeysRotateFailed: '密钥轮换失败',
+    federationKeysNoIdentity: '无法加载联邦身份。',
+    federationDeliveryQueue: '出站投递队列',
+    federationDeliveryQueueDesc:
+      '你的账户待处理与失败的 ActivityPub 投递。用户取消的行在批量重试时保持 dead；可用单条重试恢复。',
+    federationDeliveryStatsLine:
+      '待处理 {pending} · 投递中 {delivering} · 已投递 {delivered} · 失败 {dead}',
+    federationDeliveryEmpty: '暂无投递队列记录。',
+    federationDeliveryRetry: '重试',
+    federationDeliveryCancel: '取消',
+    federationDeliveryRetryAllDead: '重试全部失败',
+    federationDeliveryCancelAllPending: '取消全部待处理',
+    federationDeliveryRetryAllConfirm:
+      '重新排队所有非用户取消的失败投递？用户取消的行会被跳过。',
+    federationDeliveryCancelAllConfirm:
+      '将所有 pending/delivering 标记为已取消？它们不会被批量重试。',
+    federationDeliveryActionOk: '投递队列已更新',
+    federationDeliveryActionFailed: '投递操作失败',
+    federationDeliveryRefresh: '刷新队列',
     federationFilterNamePlaceholder: '例如 block-announce',
     federationActivityFollow: '关注 (Follow)',
     federationActivityAccept: '接受 (Accept)',

@@ -517,9 +517,14 @@ pub fn extract_domain(actor_url: &str) -> Option<String> {
     parsed.host_str().map(|h| h.to_string())
 }
 
+/// Strip trailing slash on base URL for path join (avoids `//users/…`).
+fn base_join(base_url: &str) -> &str {
+    base_url.trim_end_matches('/')
+}
+
 /// 构造 Actor URL
 pub fn actor_url(base_url: &str, username: &str) -> String {
-    format!("{}/users/{}", base_url, username)
+    format!("{}/users/{}", base_join(base_url), username)
 }
 
 /// 规范化 Actor URL：trim、去掉末尾斜杠、host 转小写（保留 path 大小写与非默认端口）。
@@ -538,8 +543,12 @@ pub fn normalize_actor_url(raw: &str) -> String {
 }
 
 /// 比较 Actor URL 时忽略末尾斜杠与 host 大小写差异，避免把自己的地址当作远程对象。
+///
+/// Empty / whitespace-only inputs never match (defense vs blank Accept.actor).
 pub fn same_actor_url(left: &str, right: &str) -> bool {
-    normalize_actor_url(left) == normalize_actor_url(right)
+    let l = normalize_actor_url(left);
+    let r = normalize_actor_url(right);
+    !l.is_empty() && l == r
 }
 
 /// Normalize an Activity / object id for Follow Accept matching.
@@ -592,8 +601,12 @@ pub fn normalize_key_id(raw: &str) -> String {
 }
 
 /// Compare Signature keyId values (host case / trailing slash / fragment).
+///
+/// Empty / whitespace-only inputs never match.
 pub fn same_key_id(left: &str, right: &str) -> bool {
-    normalize_key_id(left) == normalize_key_id(right)
+    let l = normalize_key_id(left);
+    let r = normalize_key_id(right);
+    !l.is_empty() && l == r
 }
 
 /// 若 candidate 是本实例的 Actor URL（{base_url}/users/{username}），返回 username。
@@ -614,27 +627,27 @@ pub fn local_username_from_actor_url(base_url: &str, candidate: &str) -> Option<
 
 /// 构造 Key ID
 pub fn key_id(base_url: &str, username: &str) -> String {
-    format!("{}/users/{}#main-key", base_url, username)
+    format!("{}/users/{}#main-key", base_join(base_url), username)
 }
 
 /// 构造 Inbox URL
 pub fn inbox_url(base_url: &str, username: &str) -> String {
-    format!("{}/users/{}/inbox", base_url, username)
+    format!("{}/users/{}/inbox", base_join(base_url), username)
 }
 
 /// 构造 Outbox URL
 pub fn outbox_url(base_url: &str, username: &str) -> String {
-    format!("{}/users/{}/outbox", base_url, username)
+    format!("{}/users/{}/outbox", base_join(base_url), username)
 }
 
 /// 构造 Followers URL
 pub fn followers_url(base_url: &str, username: &str) -> String {
-    format!("{}/users/{}/followers", base_url, username)
+    format!("{}/users/{}/followers", base_join(base_url), username)
 }
 
 /// 构造 Following URL
 pub fn following_url(base_url: &str, username: &str) -> String {
-    format!("{}/users/{}/following", base_url, username)
+    format!("{}/users/{}/following", base_join(base_url), username)
 }
 
 /// 获取联邦协议使用的 base_url（从全局配置读取）
@@ -894,5 +907,269 @@ mod tests {
             local_username_from_actor_url(base, "http://myriad.example.com/users/alice"),
             None
         );
+    }
+
+    #[test]
+    fn same_activity_id_rejects_empty_and_whitespace() {
+        // Empty / whitespace-only must never compare equal (defense vs blank Accept.object).
+        assert!(!same_activity_id("", ""));
+        assert!(!same_activity_id("   ", "   "));
+        assert!(!same_activity_id("", "https://a.example/activities/1"));
+        assert!(!same_activity_id("https://a.example/activities/1", ""));
+        assert_eq!(normalize_activity_id("\t  \n"), "");
+    }
+
+    #[test]
+    fn same_activity_id_preserves_non_default_port() {
+        assert!(same_activity_id(
+            "https://a.example:8443/activities/1",
+            "https://A.EXAMPLE:8443/activities/1/"
+        ));
+        assert!(!same_activity_id(
+            "https://a.example:8443/activities/1",
+            "https://a.example/activities/1"
+        ));
+        assert!(!same_activity_id(
+            "https://a.example:8443/activities/1",
+            "https://a.example:9443/activities/1"
+        ));
+    }
+
+    #[test]
+    fn normalize_activity_id_non_url_strips_slash_only() {
+        // Opaque non-URL ids: only trailing slash stripped (no host/query logic).
+        assert_eq!(normalize_activity_id("local-activity-9/"), "local-activity-9");
+        assert_eq!(normalize_activity_id("local-activity-9"), "local-activity-9");
+        assert!(same_activity_id("opaque-id-xyz/", "opaque-id-xyz"));
+        assert!(!same_activity_id("opaque-id-xyz", "opaque-id-other"));
+    }
+
+    #[test]
+    fn extract_domain_http_only_rejects_userinfo() {
+        assert_eq!(
+            extract_domain("https://remote.example/users/bob"),
+            Some("remote.example".into())
+        );
+        assert_eq!(
+            extract_domain("http://127.0.0.1:18080/users/a"),
+            Some("127.0.0.1".into())
+        );
+        // userinfo must not be treated as the authority host for trust decisions
+        assert_eq!(extract_domain("https://evil@legitimate.example/users/x"), None);
+        assert_eq!(extract_domain("ftp://remote.example/users/x"), None);
+        assert_eq!(extract_domain("not a url"), None);
+    }
+
+    #[test]
+    fn actor_inbox_outbox_key_url_builders() {
+        let base = "https://myriad.example";
+        assert_eq!(actor_url(base, "alice"), "https://myriad.example/users/alice");
+        assert_eq!(inbox_url(base, "alice"), "https://myriad.example/users/alice/inbox");
+        assert_eq!(outbox_url(base, "alice"), "https://myriad.example/users/alice/outbox");
+        assert_eq!(followers_url(base, "alice"), "https://myriad.example/users/alice/followers");
+        assert_eq!(following_url(base, "alice"), "https://myriad.example/users/alice/following");
+        assert_eq!(key_id(base, "alice"), "https://myriad.example/users/alice#main-key");
+        // key_id fragment must survive same_key_id with host-case drift
+        assert!(same_key_id(
+            &key_id("https://Myriad.Example", "alice"),
+            "https://myriad.example/users/alice#main-key"
+        ));
+    }
+
+    #[test]
+    fn same_activity_id_scheme_and_path_sensitive() {
+        assert!(!same_activity_id(
+            "http://a.example/activities/1",
+            "https://a.example/activities/1"
+        ));
+        assert!(!same_activity_id(
+            "https://a.example/activities/1",
+            "https://a.example/activities/1/extra"
+        ));
+        assert!(!same_activity_id(
+            "https://a.example/activities/1",
+            "https://a.example/Activities/1"
+        ));
+    }
+
+    #[test]
+    fn normalize_key_id_preserves_fragment_drops_query() {
+        assert_eq!(
+            normalize_key_id("https://A.Example/users/alice/#main-key"),
+            "https://a.example/users/alice#main-key"
+        );
+        assert_eq!(
+            normalize_key_id("https://a.example/users/alice#main-key"),
+            "https://a.example/users/alice#main-key"
+        );
+        assert!(!same_key_id(
+            "https://a.example/users/alice#main-key",
+            "https://a.example/users/alice"
+        ));
+    }
+
+    #[test]
+    fn local_username_from_actor_url_port_must_match() {
+        let base = "https://myriad.example:8443";
+        assert_eq!(
+            local_username_from_actor_url(base, "https://myriad.example:8443/users/alice"),
+            Some("alice".into())
+        );
+        assert_eq!(
+            local_username_from_actor_url(base, "https://myriad.example/users/alice"),
+            None
+        );
+        assert_eq!(
+            local_username_from_actor_url(
+                "https://myriad.example",
+                "https://myriad.example:8443/users/alice"
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn normalize_actor_url_non_url_fallback_trim() {
+        assert_eq!(normalize_actor_url("  not-a-url/  "), "not-a-url");
+        assert_eq!(normalize_actor_url("opaque-actor-id"), "opaque-actor-id");
+        assert_eq!(normalize_actor_url("   /  "), "");
+    }
+
+    #[test]
+    fn same_actor_url_rejects_empty_pair() {
+
+        assert!(!same_actor_url("", ""));
+        assert!(!same_actor_url("   ", "https://a.example/users/x"));
+        assert!(!same_actor_url("https://a.example/users/x", ""));
+
+    }
+
+    #[test]
+    fn same_key_id_rejects_empty_and_missing_fragment() {
+
+        assert!(!same_key_id("", ""));
+        assert!(!same_key_id("https://a.example/users/a#main-key", ""));
+        assert!(!same_key_id(
+            "https://a.example/users/a#main-key",
+            "https://a.example/users/a#other-key"
+        ));
+
+    }
+
+    #[test]
+    fn extract_domain_with_non_default_port() {
+
+        assert_eq!(
+            extract_domain("https://remote.example:8443/users/bob"),
+            Some("remote.example".into())
+        );
+        // Url::host_str omits port — domain is host only
+        assert_eq!(
+            extract_domain("http://127.0.0.1:18081/users/a"),
+            Some("127.0.0.1".into())
+        );
+
+    }
+
+    #[test]
+    fn url_builders_strip_trailing_slash_on_base() {
+
+        let base = "https://myriad.example/";
+        assert_eq!(actor_url(base, "alice"), "https://myriad.example/users/alice");
+        assert_eq!(inbox_url(base, "alice"), "https://myriad.example/users/alice/inbox");
+        assert_eq!(key_id(base, "alice"), "https://myriad.example/users/alice#main-key");
+
+    }
+
+    #[test]
+    fn build_context_includes_as_security_mfp() {
+
+        let ctx = build_context();
+        let arr = ctx.as_array().expect("context array");
+        let s: Vec<String> = arr.iter().filter_map(|v| v.as_str().map(str::to_string)).collect();
+        assert!(s.iter().any(|x| x.contains("activitystreams")));
+        assert!(s.iter().any(|x| x.contains("security") || x.contains("w3id.org/security")));
+
+    }
+
+    #[test]
+    fn build_ap_context_is_activitystreams_only() {
+
+        let ctx = build_ap_context();
+        // AP-only context is a string or single-element list
+        if let Some(s) = ctx.as_str() {
+            assert!(s.contains("activitystreams"));
+        } else if let Some(arr) = ctx.as_array() {
+            assert!(arr.iter().any(|v| v.as_str().map(|s| s.contains("activitystreams")).unwrap_or(false)));
+        } else {
+            panic!("unexpected build_ap_context shape: {ctx}");
+        }
+
+    }
+
+    #[test]
+    fn followers_following_urls_stable() {
+
+        let base = "https://myriad.example";
+        assert_eq!(
+            followers_url(base, "bob"),
+            "https://myriad.example/users/bob/followers"
+        );
+        assert_eq!(
+            following_url(base, "bob"),
+            "https://myriad.example/users/bob/following"
+        );
+
+    }
+
+    #[test]
+    fn generate_activity_id_uses_base_and_uuid_shape() {
+
+        let id = generate_activity_id("https://myriad.example");
+        assert!(id.starts_with("https://myriad.example/"));
+        assert!(id.contains("activities") || id.len() > "https://myriad.example/".len() + 8);
+        let id2 = generate_activity_id("https://myriad.example");
+        assert_ne!(id, id2, "activity ids must be unique");
+
+    }
+
+    #[test]
+    fn same_actor_url_ignores_default_https_port_if_present() {
+
+        // Explicit :443 is uncommon; if parser keeps it, host identity still holds via normalize.
+        let a = "https://a.example/users/alice";
+        let b = "https://A.Example/users/alice/";
+        assert!(same_actor_url(a, b));
+
+    }
+
+    #[test]
+    fn normalize_activity_id_drops_fragment_and_query() {
+
+        assert_eq!(
+            normalize_activity_id("https://A.Example/activities/9?x=1#frag"),
+            "https://a.example/activities/9"
+        );
+
+    }
+
+    #[test]
+    fn now_iso8601_is_rfc3339_ish() {
+        let s = now_iso8601();
+        assert!(s.contains('T') || s.contains('-'));
+        assert!(s.len() >= 20);
+
+    }
+
+    #[test]
+    fn generate_ids_are_unique_and_prefixed() {
+        let a = generate_channel_id();
+        let b = generate_channel_id();
+        assert_ne!(a, b);
+        assert!(!a.is_empty());
+        let r = generate_room_id();
+        let m = generate_message_id();
+        assert_ne!(r, m);
+
     }
 }

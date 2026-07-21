@@ -524,4 +524,41 @@ mod tests {
         assert!(build_webfinger_url("acct:alice@example.com?x=1").is_err());
         assert!(build_webfinger_url("acct:alice@").is_err());
     }
+
+    #[test]
+    fn build_webfinger_url_rejects_domain_whitespace() {
+
+        assert!(build_webfinger_url("alice@ex ample.com").is_err());
+        assert!(build_webfinger_url("alice@example.com ").is_ok() || build_webfinger_url(" alice@example.com ").is_ok());
+        // domain internal whitespace must fail
+        assert!(build_webfinger_url("alice@exam	ple.com").is_err());
+
+    }
+
+    #[test]
+    fn build_webfinger_url_rejects_hash_and_at_in_domain() {
+
+        assert!(build_webfinger_url("alice@example.com#x").is_err());
+        assert!(build_webfinger_url("alice@ex@ample.com").is_err());
+
+    }
+
+    #[test]
+    fn build_webfinger_url_trims_outer_whitespace() {
+
+        let url = build_webfinger_url("  alice@example.com  ").unwrap();
+        assert!(url.starts_with("https://example.com/.well-known/webfinger"));
+        assert!(url.contains("resource=acct%3Aalice%40example.com"));
+
+    }
+
+    #[test]
+    fn build_webfinger_url_rejects_empty_user_or_domain() {
+
+        assert!(build_webfinger_url("@example.com").is_err());
+        assert!(build_webfinger_url("alice@").is_err());
+        assert!(build_webfinger_url("alice").is_err());
+        assert!(build_webfinger_url("").is_err());
+
+    }
 }

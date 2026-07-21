@@ -1713,4 +1713,67 @@ mod tests {
         // empty alsoKnownAs skipped
         assert!(v2.get("alsoKnownAs").is_none());
     }
+
+    #[test]
+    fn url_is_under_base_rejects_foreign_host() {
+        assert!(!url_is_under_base(
+            "https://evil.example/users/alice",
+            "https://old.example"
+        ));
+        assert!(url_is_under_base(
+            "https://old.example/users/alice",
+            "https://old.example"
+        ));
+        assert!(url_is_under_base(
+            "https://old.example/users/alice#main-key",
+            "https://old.example"
+        ));
+
+    }
+
+    #[test]
+    fn url_is_under_base_empty_inputs() {
+        assert!(!url_is_under_base("", "https://a.example"));
+        assert!(!url_is_under_base("https://a.example/users/x", ""));
+
+    }
+
+    #[test]
+    fn rewrite_url_if_local_preserves_path() {
+        let got = rewrite_url_if_local(
+            "https://old.example/users/alice/inbox",
+            "https://old.example",
+            "https://new.example",
+        );
+        assert_eq!(got.as_deref(), Some("https://new.example/users/alice/inbox"));
+        assert!(rewrite_url_if_local(
+            "https://foreign.example/users/alice",
+            "https://old.example",
+            "https://new.example",
+        ).is_none());
+
+    }
+
+    #[test]
+    fn normalize_base_url_rejects_empty() {
+        assert!(normalize_base_url("").is_err());
+        assert!(normalize_base_url("   ").is_err());
+        let ok = normalize_base_url("https://a.example/").unwrap();
+        assert_eq!(ok, "https://a.example");
+
+    }
+
+    #[test]
+    fn activity_id_string_from_string_and_object() {
+        assert_eq!(
+            activity_id_string(&serde_json::json!("https://a.example/activities/1")),
+            Some("https://a.example/activities/1".into())
+        );
+        assert_eq!(
+            activity_id_string(&serde_json::json!({"id": "https://a.example/activities/2"})),
+            Some("https://a.example/activities/2".into())
+        );
+        assert_eq!(activity_id_string(&serde_json::json!({})), None);
+
+    }
 }

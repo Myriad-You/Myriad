@@ -348,4 +348,54 @@ mod tests {
         assert!(verify_date_freshness(&fresh, now, Duration::minutes(5)).is_ok());
         assert!(verify_date_freshness(&stale, now, Duration::minutes(5)).is_err());
     }
+
+    #[test]
+    fn require_covered_headers_body_requires_digest() {
+
+        let mut parsed = ParsedSignature {
+            key_id: "k".into(),
+            algorithm: "rsa-sha256".into(),
+            headers: vec![
+                "(request-target)".into(),
+                "host".into(),
+                "date".into(),
+            ],
+            signature: vec![0u8; 32],
+        };
+        assert!(require_covered_headers(&parsed, false).is_ok());
+        assert!(require_covered_headers(&parsed, true).is_err());
+        parsed.headers.push("digest".into());
+        assert!(require_covered_headers(&parsed, true).is_ok());
+
+    }
+
+    #[test]
+    fn verify_digest_rejects_non_sha256_prefix() {
+        assert!(!verify_digest(b"hello", "md5=deadbeef"));
+        assert!(!verify_digest(b"hello", "SHA-256"));
+        assert!(!verify_digest(b"hello", ""));
+
+    }
+
+    #[test]
+    fn require_covered_headers_missing_host() {
+        let parsed = ParsedSignature {
+            key_id: "k".into(),
+            algorithm: "rsa-sha256".into(),
+            headers: vec!["(request-target)".into(), "date".into()],
+            signature: vec![0u8; 8],
+        };
+        assert!(require_covered_headers(&parsed, false).is_err());
+
+    }
+
+    #[test]
+    fn verify_date_freshness_rejects_future_skew() {
+        let now = Utc::now();
+        let future = (now + Duration::minutes(10))
+            .format("%a, %d %b %Y %H:%M:%S GMT")
+            .to_string();
+        assert!(verify_date_freshness(&future, now, Duration::minutes(5)).is_err());
+
+    }
 }

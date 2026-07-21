@@ -197,4 +197,52 @@ mod tests {
         assert!(KeyPair::verify(&pem, data, &sig).unwrap());
         assert!(!KeyPair::verify(&pem, b"tampered", &sig).unwrap());
     }
+
+    #[test]
+    fn wrong_jwt_secret_fails_decrypt() {
+        let kp = KeyPair::generate().unwrap();
+        let secret = "correct-jwt-secret-long-enough-for-tests";
+        let encrypted = kp.encrypt_private_key(secret).unwrap();
+        let public_pem = kp.public_key_pem().unwrap();
+        let err = KeyPair::from_encrypted(&public_pem, &encrypted, "wrong-secret").unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("AES-GCM decryption failed") || msg.contains("decryption"),
+            "unexpected error: {msg}"
+        );
+    }
+
+    #[test]
+    fn short_encrypted_blob_is_rejected() {
+        let kp = KeyPair::generate().unwrap();
+        let public_pem = kp.public_key_pem().unwrap();
+        // Too short to hold nonce + ciphertext
+        let short = BASE64.encode([0u8; 4]);
+        let err = KeyPair::from_encrypted(&public_pem, &short, "secret").unwrap_err();
+        assert!(
+            format!("{err:#}").contains("too short") || format!("{err}").contains("too short")
+        );
+    }
+
+    #[test]
+    fn debug_redacts_private_key() {
+        let kp = KeyPair::generate().unwrap();
+        let dbg = format!("{:?}", kp);
+        assert!(dbg.contains("REDACTED"));
+        assert!(!dbg.contains("BEGIN PRIVATE KEY"));
+    }
+
+    #[test]
+    fn encrypt_twice_yields_different_ciphertext() {
+        let kp = KeyPair::generate().unwrap();
+        let secret = "jwt-secret-for-unit-test-long-enough";
+        let e1 = kp.encrypt_private_key(secret).unwrap();
+        let e2 = kp.encrypt_private_key(secret).unwrap();
+        assert_ne!(e1, e2, "random nonce should diversify ciphertext");
+        let pem = kp.public_key_pem().unwrap();
+        let r1 = KeyPair::from_encrypted(&pem, &e1, secret).unwrap();
+        let r2 = KeyPair::from_encrypted(&pem, &e2, secret).unwrap();
+        assert_eq!(r1.public_key_pem().unwrap(), r2.public_key_pem().unwrap());
+
+    }
 }

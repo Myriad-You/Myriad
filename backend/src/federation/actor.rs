@@ -1310,4 +1310,30 @@ mod tests {
         assert!(!rotation_confirm_accepted(&serde_json::json!({"confirm": "yes"})));
         assert!(rotation_confirm_accepted(&serde_json::json!({"confirm": true})));
     }
+
+    #[test]
+    fn key_rotation_confirm_rejects_truthy_non_bool() {
+        // JSON numbers / null / missing nested keys must not open rotate.
+        assert!(!rotation_confirm_accepted(&serde_json::json!({"confirm": 1})));
+        assert!(!rotation_confirm_accepted(&serde_json::json!({"confirm": null})));
+        assert!(!rotation_confirm_accepted(&serde_json::json!({"confirm": "true"})));
+        assert!(!rotation_confirm_accepted(&serde_json::json!({"ok": true})));
+    }
+
+    #[test]
+    fn needs_generation_rejects_whitespace_only_pem() {
+        assert!(needs_federation_key_generation(Some("\n\n")));
+        assert!(needs_federation_key_generation(Some(" \t")));
+        // Any non-whitespace material is treated as present (no silent rotate).
+        assert!(!needs_federation_key_generation(Some("BEGIN")));
+    }
+
+    #[test]
+    fn rotation_confirm_requires_boolean_true_only() {
+
+        assert!(!rotation_confirm_accepted(&serde_json::json!({"confirm": [true]})));
+        assert!(!rotation_confirm_accepted(&serde_json::json!({"confirm": {"ok": true}})));
+        assert!(rotation_confirm_accepted(&serde_json::json!({"confirm": true, "extra": 1})));
+
+    }
 }

@@ -424,6 +424,35 @@ export const jaJP: TranslationKeys = {
     federationRateTrustedMultiplierDesc:
       '信頼レベル ≥ 3 の場合、有効上限 = 最大リクエスト数 × 倍率（既定 5）。',
     federationRateResetDefaults: 'レート制限を既定に戻す',
+    federationKeysIdentity: 'アイデンティティと鍵',
+    federationKeysIdentityDesc:
+      'ActivityPub アクターと署名鍵。ローテーションは RSA 鍵ペアを差し替え Update(Person) を扇出します。ensure-keys は黙って鍵を回しません。',
+    federationIdentityHandle: 'ハンドル',
+    federationIdentityActor: 'Actor URL',
+    federationIdentityKeyId: '鍵 ID',
+    federationKeysRotate: '署名鍵をローテート…',
+    federationKeysRotateConfirm:
+      '連邦署名鍵をローテートしますか？送信署名は新鍵になります。旧公開鍵をキャッシュしたピアは Actor を再取得するまで拒否することがあります。',
+    federationKeysRotateSuccess: '署名鍵をローテートしました',
+    federationKeysRotateFailed: '鍵ローテーションに失敗しました',
+    federationKeysNoIdentity: '連邦アイデンティティを読み込めませんでした。',
+    federationDeliveryQueue: '送信配信キュー',
+    federationDeliveryQueueDesc:
+      'アカウントの保留中・失敗した ActivityPub 配信。ユーザー取消し行は一括リトライ対象外です。個別リトライで復帰できます。',
+    federationDeliveryStatsLine:
+      '保留 {pending} · 配信中 {delivering} · 配信済 {delivered} · 失敗 {dead}',
+    federationDeliveryEmpty: '最近の配信キュー行はありません。',
+    federationDeliveryRetry: '再試行',
+    federationDeliveryCancel: '取消',
+    federationDeliveryRetryAllDead: '失敗をすべて再試行',
+    federationDeliveryCancelAllPending: '保留をすべて取消',
+    federationDeliveryRetryAllConfirm:
+      'ユーザー取消し以外の失敗配信を再キューしますか？取消し行はスキップされます。',
+    federationDeliveryCancelAllConfirm:
+      'pending/delivering をすべて取消にしますか？一括リトライ対象にはなりません。',
+    federationDeliveryActionOk: '配信キューを更新しました',
+    federationDeliveryActionFailed: '配信操作に失敗しました',
+    federationDeliveryRefresh: 'キューを更新',
     federationFilterNamePlaceholder: '例: block-announce',
     federationActivityFollow: 'フォロー (Follow)',
     federationActivityAccept: '承認 (Accept)',

@@ -805,20 +805,28 @@ pub async fn cancel_delivery_item(
     }))
 }
 
-/// True when a dead-letter was cancelled by the user (must not bulk-retry).
+/// True when a dead-letter row was intentionally cancelled by the user/API.
+///
+/// Bulk `retry-dead` must not requeue these (would surprise the user and
+/// re-fire deliberately stopped outbound). Per-item retry still allows them
+/// so an explicit click on a cancelled row can recover it.
+///
+/// Matches production cancel markers: exact `cancelled: by user` and any
+/// `cancelled:…` prefix used by resource teardown (room dissolve, channel close).
 pub(crate) fn is_user_cancelled_delivery_error(error_message: Option<&str>) -> bool {
-    let Some(msg) = error_message.map(str::trim).filter(|s| !s.is_empty()) else {
-        return false;
-    };
-    // Canonical: "cancelled: by user"; accept cancelled: prefix for suite/UI variants.
-    msg.eq_ignore_ascii_case("cancelled: by user")
-        || msg.to_ascii_lowercase().starts_with("cancelled:")
+    error_message
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .is_some_and(|s| {
+            s.eq_ignore_ascii_case("cancelled: by user")
+                || s.to_ascii_lowercase().starts_with("cancelled:")
+        })
 }
 
 /// Re-queue all dead delivery items for the user (capped).
 ///
-/// Skips rows whose `error_message` is a user cancel (`cancelled:…`) so
-/// cancel-pending work is not silently revived by retry-all-dead.
+/// Skips rows whose `error_message` indicates user cancel (`cancelled:…`).
+/// Transient / peer failures and suite-seeded dead letters still requeue.
 pub async fn retry_all_dead_for_user(
     db: &DatabaseConnection,
     user_id: i32,
@@ -1453,11 +1461,15 @@ mod tests {
     #[test]
     fn user_cancelled_error_classifier() {
         assert!(is_user_cancelled_delivery_error(Some("cancelled: by user")));
-        assert!(is_user_cancelled_delivery_error(Some("Cancelled: by user")));
-        assert!(is_user_cancelled_delivery_error(Some("cancelled: suite")));
         assert!(is_user_cancelled_delivery_error(Some(
             "cancelled: room closed"
         )));
+        assert!(is_user_cancelled_delivery_error(Some("Cancelled: by user")));
+        assert!(is_user_cancelled_delivery_error(Some("cancelled: suite")));
+        assert!(is_user_cancelled_delivery_error(Some(
+            "cancelled: channel closed"
+        )));
+        assert!(is_user_cancelled_delivery_error(Some("CANCELLED: by user")));
         assert!(!is_user_cancelled_delivery_error(Some("suite seeded dead")));
         assert!(!is_user_cancelled_delivery_error(Some("Key load failed")));
         assert!(!is_user_cancelled_delivery_error(Some(
@@ -1470,6 +1482,106 @@ mod tests {
         assert!(!is_user_cancelled_delivery_error(Some(
             "remote said: cancelled by policy"
         )));
+        assert!(!is_user_cancelled_delivery_error(Some(
+            "not cancelled: by user"
+        )));
+    }
+
+    #[test]
+    fn retry_status_allows_failed_and_cancelled_status_strings() {
+        // Historical / alternate status spellings still requeue.
+        assert_eq!(
+            classify_retry_status("failed"),
+            RetryStatusDecision::Allow
+        );
+        assert_eq!(
+            classify_retry_status("cancelled"),
+            RetryStatusDecision::Allow
+        );
+    }
+
+    #[test]
+    fn cancel_status_unknown_defaults_to_cancel() {
+        // Defensive: unknown status is treated as cancellable rather than stuck.
+        assert_eq!(
+            classify_cancel_status("unknown"),
+            CancelStatusDecision::Cancel
+        );
+        assert_eq!(
+            classify_cancel_status(""),
+            CancelStatusDecision::Cancel
+        );
+    }
+
+    #[test]
+    fn resolve_signing_key_id_trims_stored_whitespace() {
+        assert_eq!(
+            resolve_signing_key_id(
+                "Follow",
+                "https://example.com",
+                "alice",
+                Some("  https://example.com/users/alice#main-key  "),
+            ),
+            "https://example.com/users/alice#main-key"
+        );
+    }
+
+    #[test]
+    fn is_missing_federation_keys_error_no_false_positive() {
+        assert!(is_missing_federation_keys_error(
+            "No federation keys found for user"
+        ));
+        // Must not treat "keys" substrings in unrelated errors as missing material.
+        assert!(!is_missing_federation_keys_error(
+            "HTTP 500: failed to load remote keys endpoint"
+        ));
+        assert!(!is_missing_federation_keys_error("signature keys mismatch"));
+    }
+
+    #[test]
+    fn move_signing_empty_actor_falls_back_to_default() {
+        use serde_json::json;
+        let act = json!({"type": "Move", "actor": ""});
+        let (base, user) = signing_identity_for_activity(
+            "Move",
+            &act,
+            "https://new.example",
+            "alice",
+        );
+        assert_eq!(base, "https://new.example");
+        assert_eq!(user, "alice");
+    }
+
+    #[test]
+    fn move_signing_malformed_actor_path_falls_back() {
+        use serde_json::json;
+        let act = json!({"type": "Move", "actor": "https://old.example/not-users/alice"});
+        let (base, user) = signing_identity_for_activity(
+            "Move",
+            &act,
+            "https://new.example",
+            "alice",
+        );
+        assert_eq!(base, "https://new.example");
+        assert_eq!(user, "alice");
+    }
+
+    #[test]
+    fn is_unrecoverable_key_load_requires_empty_username_phrase() {
+        assert!(is_unrecoverable_key_load_error(
+            "No federation keys found for user and username empty (cannot ensure)"
+        ));
+        assert!(!is_unrecoverable_key_load_error(
+            "No federation keys found for user"
+        ));
+    }
+
+    #[test]
+    fn classify_retry_delivering_is_in_progress() {
+        assert_eq!(
+            classify_retry_status("delivering"),
+            RetryStatusDecision::InProgress
+        );
     }
 
     /// Parity with suite `wait_delivery_side` / `dead_fail_count`:

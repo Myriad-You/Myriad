@@ -372,6 +372,31 @@ export interface TranslationKeys {
     federationRateTrustedMultiplier: string
     federationRateTrustedMultiplierDesc: string
     federationRateResetDefaults: string
+    /** Local identity + explicit key rotation */
+    federationKeysIdentity: string
+    federationKeysIdentityDesc: string
+    federationIdentityHandle: string
+    federationIdentityActor: string
+    federationIdentityKeyId: string
+    federationKeysRotate: string
+    federationKeysRotateConfirm: string
+    federationKeysRotateSuccess: string
+    federationKeysRotateFailed: string
+    federationKeysNoIdentity: string
+    /** Outbound delivery queue ops */
+    federationDeliveryQueue: string
+    federationDeliveryQueueDesc: string
+    federationDeliveryStatsLine: string
+    federationDeliveryEmpty: string
+    federationDeliveryRetry: string
+    federationDeliveryCancel: string
+    federationDeliveryRetryAllDead: string
+    federationDeliveryCancelAllPending: string
+    federationDeliveryRetryAllConfirm: string
+    federationDeliveryCancelAllConfirm: string
+    federationDeliveryActionOk: string
+    federationDeliveryActionFailed: string
+    federationDeliveryRefresh: string
     /** Placeholder for content-filter rule name */
     federationFilterNamePlaceholder: string
     /** Human-readable labels for ActivityPub / MFP activity types (filter dropdown) */

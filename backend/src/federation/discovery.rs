@@ -257,4 +257,30 @@ mod tests {
         assert_eq!(parse_acct_uri("acct:alice@"), None);
         assert_eq!(parse_acct_uri("acct:alice"), None);
     }
+
+    #[test]
+    fn parse_acct_uri_lowercases_domain() {
+        assert_eq!(
+            parse_acct_uri("acct:Bob@Example.COM"),
+            Some(("Bob".into(), "example.com".into()))
+        );
+
+    }
+
+    #[test]
+    fn parse_acct_uri_rejects_no_acct_prefix() {
+        assert_eq!(parse_acct_uri("bob@example.com"), None);
+        assert_eq!(parse_acct_uri("acct:"), None);
+        assert_eq!(parse_acct_uri("acct:@onlydomain"), None);
+
+    }
+
+    #[test]
+    fn parse_acct_uri_trims_whitespace() {
+        assert_eq!(
+            parse_acct_uri("  acct:alice@example.com  "),
+            Some(("alice".into(), "example.com".into()))
+        );
+
+    }
 }

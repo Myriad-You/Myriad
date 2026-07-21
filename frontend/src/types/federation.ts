@@ -28,15 +28,19 @@ export interface FederationIdentity {
   followers_url: string
   following_url: string
   profile_url: string
+  /** Present when keys exist; may be omitted for cold identity. */
+  key_id?: string
+  public_key_pem?: string
 }
 
-/** Response from POST /api/federation/keys/rotate */
+/** POST /api/federation/keys/rotate response (confirm:true required). */
 export interface FederationKeyRotationResult {
   public_key_pem: string
   key_id: string
   previous_public_key_pem?: string | null
+  /** Update(Person) fan-out rows enqueued (0 if no followers / enqueue fail). */
   update_queued: number
-  note: string
+  note?: string
 }
 
 export interface RemoteActor {
