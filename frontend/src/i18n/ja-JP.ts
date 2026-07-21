@@ -1701,6 +1701,7 @@ export const jaJP: TranslationKeys = {
     allPlatformReport: '全プラットフォーム総合レポート',
     confirmDeleteReport:
       'この総合レポートを削除してもよろしいですか？この操作は元に戻せません。',
+    deleteReport: 'レポートを削除',
     tenThousandSuffix: '万',
     noComprehensiveReport: '総合レポートがありません',
     useInputToGenerate:

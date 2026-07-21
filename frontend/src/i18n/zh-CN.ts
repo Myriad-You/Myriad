@@ -1629,6 +1629,7 @@ export const zhCN: TranslationKeys = {
     styleDescPlaceholder: '输入风格描述...',
     allPlatformReport: '全平台综合报告',
     confirmDeleteReport: '确定要删除这份综合报告吗？此操作不可恢复。',
+    deleteReport: '删除报告',
     tenThousandSuffix: '万',
     noComprehensiveReport: '暂无综合报告',
     useInputToGenerate: '使用上方的输入框生成你的第一份综合报告',

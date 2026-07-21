@@ -13,11 +13,12 @@ import {
   FaPalette,
   FaRobot,
   FaRocket,
+  FaTrash,
   LuPalette,
 } from '@lib/icons'
 
 import { motionShim as motion } from '@lib/motionShim'
-import { memo, useCallback } from 'react'
+import { memo, useCallback, type MouseEvent } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import { useLoopAnimation } from '../../hooks/animation'
 import { useAnimationLevel } from '../../hooks/useAnimationLevel'
@@ -103,10 +104,12 @@ interface ComprehensiveReportCardProps {
   }
   index: number
   onOpen: (analysis: any, id: number, createdAt: string) => void
+  /** When provided, shows a delete control (owner/admin only from parent). */
+  onDelete?: (id: number) => void
 }
 
 export const ComprehensiveReportCard = memo<ComprehensiveReportCardProps>(
-  ({ compReport, index, onOpen }) => {
+  ({ compReport, index, onOpen, onDelete }) => {
     const anim = useAnimationLevel()
     const { t } = useI18n()
 
@@ -118,6 +121,7 @@ export const ComprehensiveReportCard = memo<ComprehensiveReportCardProps>(
     })
 
     const canAnimate = anim.loop && isAnimating
+    const canDelete = typeof onDelete === 'function'
 
     if (!compReport.综合分析) return null
 
@@ -127,6 +131,17 @@ export const ComprehensiveReportCard = memo<ComprehensiveReportCardProps>(
     const handleClick = useCallback(() => {
       onOpen(analysis, compReport.id, compReport.created_at)
     }, [analysis, compReport.id, compReport.created_at, onOpen])
+
+    const handleDeleteClick = useCallback(
+      (e: MouseEvent) => {
+        e.stopPropagation()
+        e.preventDefault()
+        if (!onDelete) return
+        if (!window.confirm(t.reportsPage.confirmDeleteReport)) return
+        onDelete(compReport.id)
+      },
+      [onDelete, compReport.id, t.reportsPage.confirmDeleteReport],
+    )
 
     return (
       <motion.div
@@ -156,6 +171,18 @@ export const ComprehensiveReportCard = memo<ComprehensiveReportCardProps>(
           ease: [0.4, 0, 0.2, 1],
         }}
       >
+        {canDelete && (
+          <button
+            type="button"
+            onClick={handleDeleteClick}
+            onPointerDown={(e) => e.stopPropagation()}
+            className="absolute top-2 right-2 z-20 w-8 h-8 rounded-lg flex items-center justify-center bg-black/40 hover:bg-red-500/90 text-white/80 hover:text-white opacity-100 md:opacity-0 md:group-hover:opacity-100 focus:opacity-100 focus-visible:opacity-100 transition-all shadow-sm backdrop-blur-sm"
+            aria-label={t.reportsPage.deleteReport}
+            title={t.reportsPage.deleteReport}
+          >
+            <FaTrash size={12} />
+          </button>
+        )}
         <div className="absolute inset-0">
           <div
             className="absolute -right-10 -top-10 w-40 h-40 rounded-full blur-3xl opacity-20"

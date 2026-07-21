@@ -1721,6 +1721,7 @@ export const enUS: TranslationKeys = {
     allPlatformReport: 'All Platform Report',
     confirmDeleteReport:
       'Are you sure you want to delete this report? This cannot be undone.',
+    deleteReport: 'Delete report',
     tenThousandSuffix: 'W',
     noComprehensiveReport: 'No Comprehensive Report',
     useInputToGenerate:

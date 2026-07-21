@@ -8,6 +8,7 @@ import {
   FaSteam,
   FaSync,
   FaTimes,
+  FaTrash,
   FaXbox,
   FaXTwitter,
   LuGlobe,
@@ -465,6 +466,7 @@ export default function Reports() {
     insights?: string[]
     card_visuals?: any
     // 综合报告字段
+    id?: number // 综合报告 ID（删除/关闭舞台时匹配）
     综合分析?: any
     library_items?: Array<{
       title: string
@@ -1151,6 +1153,64 @@ export default function Reports() {
     t.reportsPage.generateFailedRetry,
   ])
 
+  // 删除综合报告（仅所有者/管理员；与生成按钮可见性一致）
+  const handleDeleteComprehensive = useCallback(
+    async (id: number) => {
+      try {
+        const csrfToken = await getCSRFToken(true)
+        if (!csrfToken) {
+          showToastMessage(t.reportsPage.getTokenFailed, 'error')
+          return
+        }
+
+        const response = await fetch(
+          `${API_URL}/api/reports/comprehensive/${id}/delete`,
+          {
+            method: 'DELETE',
+            headers: {
+              'X-CSRF-Token': csrfToken,
+            },
+            credentials: 'include',
+          },
+        )
+
+        const data = await response.json().catch(() => ({}))
+        if (!response.ok || !data.success) {
+          throw new Error(
+            (data as { message?: string }).message ||
+              t.reportsPage.deleteFailed,
+          )
+        }
+
+        setComprehensiveReports((prev) => prev.filter((r) => r.id !== id))
+
+        // 若舞台正在查看该报告，关闭舞台
+        if (
+          stageReportData?.type === 'comprehensive' &&
+          stageReportData.id === id
+        ) {
+          setIsStageMode(false)
+          setStageReportData(null)
+        }
+      } catch (err) {
+        console.error('Delete comprehensive report failed:', err)
+        showToastMessage(
+          err instanceof Error
+            ? err.message
+            : t.reportsPage.deleteFailedRetry,
+          'error',
+        )
+      }
+    },
+    [
+      showToastMessage,
+      stageReportData,
+      t.reportsPage.deleteFailed,
+      t.reportsPage.deleteFailedRetry,
+      t.reportsPage.getTokenFailed,
+    ],
+  )
+
   return (
     <AnimatedView className="min-h-screen md:h-screen md:overflow-hidden">
       {/* Toast提示 */}
@@ -1348,6 +1408,32 @@ export default function Reports() {
                               </motion.svg>
                             </button>
                           )}
+
+                          {/* 删除综合报告 - 仅管理员且综合报告显示 */}
+                          {isAdmin &&
+                            stageReportData?.type === 'comprehensive' &&
+                            stageReportData.id != null && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (
+                                    !window.confirm(
+                                      t.reportsPage.confirmDeleteReport,
+                                    )
+                                  ) {
+                                    return
+                                  }
+                                  void handleDeleteComprehensive(
+                                    stageReportData.id!,
+                                  )
+                                }}
+                                className="w-8 h-8 rounded-lg bg-white dark:bg-neutral-800 hover:bg-red-50 dark:hover:bg-red-900/30 flex items-center justify-center text-gray-600 dark:text-gray-300 hover:text-red-600 dark:hover:text-red-400 transition-all shadow-sm"
+                                title={t.reportsPage.deleteReport}
+                                aria-label={t.reportsPage.deleteReport}
+                              >
+                                <FaTrash size={12} />
+                              </button>
+                            )}
 
                           {/* 播放/暂停按钮 */}
                           <button
@@ -1808,9 +1894,14 @@ export default function Reports() {
                               key={compReport.id}
                               compReport={compReport}
                               index={index}
+                              onDelete={
+                                isAdmin
+                                  ? handleDeleteComprehensive
+                                  : undefined
+                              }
                               onOpen={(
                                 analysis: any,
-                                _id: number,
+                                id: number,
                                 _createdAt: string,
                               ) => {
                                 // 打开综合报告的舞台模式
@@ -1849,6 +1940,7 @@ export default function Reports() {
 
                                 setStageReportData({
                                   type: 'comprehensive',
+                                  id,
                                   综合分析: analysis,
                                   library_items: allLibraryItems,
                                   title:

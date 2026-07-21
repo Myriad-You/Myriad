@@ -1539,6 +1539,7 @@ export interface TranslationKeys {
     styleDescPlaceholder: string
     allPlatformReport: string
     confirmDeleteReport: string
+    deleteReport: string
     tenThousandSuffix: string
     noComprehensiveReport: string
     useInputToGenerate: string
