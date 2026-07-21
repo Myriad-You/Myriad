@@ -201,30 +201,28 @@ pub fn rewrite_url_if_local(url: &str, old_base: &str, new_base: &str) -> Option
     let new_base = new_base.trim().trim_end_matches('/');
 
     // Prefer raw-prefix replace preserving path case; fall back to normalized.
-    let old_raw = old_base;
-    if url.starts_with(old_raw) {
-        return Some(format!("{}{}", new_base, &url[old_raw.len()..]));
+    if let Some(rest) = url.strip_prefix(old_base) {
+        return Some(format!("{}{}", new_base, rest));
     }
     // Case drift on host: parse and rebuild
     let url_norm = normalize_actor_url(url);
     let old_norm = normalize_actor_url(old_base);
-    if !url_norm.starts_with(old_norm.as_str()) {
-        // Fragment-only suffix after path match
-        if let Some((path, frag)) = url.split_once('#') {
-            if let Some(rewritten_path) = rewrite_url_if_local(path, old_base, new_base) {
-                return Some(format!("{}#{}", rewritten_path, frag));
+    if let Some(rest) = url_norm.strip_prefix(old_norm.as_str()) {
+        // Preserve original fragment if present and not already in rest
+        if let Some((_, frag)) = url.split_once('#') {
+            if !rest.contains('#') {
+                return Some(format!("{}{}#{}", new_base, rest, frag));
             }
         }
-        return None;
+        return Some(format!("{}{}", new_base, rest));
     }
-    let rest = &url_norm[old_norm.len()..];
-    // Preserve original fragment if present
-    if let Some((_, frag)) = url.split_once('#') {
-        if !rest.contains('#') {
-            return Some(format!("{}{}#{}", new_base, rest, frag));
+    // Fragment-only suffix after path match (rare host-case + fragment)
+    if let Some((path, frag)) = url.split_once('#') {
+        if let Some(rewritten_path) = rewrite_url_if_local(path, old_base, new_base) {
+            return Some(format!("{}#{}", rewritten_path, frag));
         }
     }
-    Some(format!("{}{}", new_base, rest))
+    None
 }
 
 /// SQL LIKE pattern for prefix match (old_base + '%'). Escapes `%` / `_` in base.
@@ -902,14 +900,19 @@ pub async fn retarget_shared_keys(
         }
 
         // Canonical new keyId on new domain; same PEM advertised by actor builder.
-        let new_kid = key_id(new_base, &username);
+        // Prefer pure local rewrite of the stored keyId (preserves path/fragment);
+        // fall back to `key_id(new_base, username)` when the stored value is empty
+        // or not under old_base.
+        let new_kid = rewrite_url_if_local(&old_kid, old_base, new_base)
+            .unwrap_or_else(|| key_id(new_base, &username));
 
-        // Only rewrite if key_id is under old base or already not equal to new target.
-        let needs = old_kid != new_kid
-            && (url_is_under_base(&old_kid, old_base)
-                || old_kid.is_empty()
-                || !url_is_under_base(&old_kid, new_base));
-
+        // Only rewrite if key_id changes (under old base, empty, or not yet on new).
+        if old_kid == new_kid {
+            continue;
+        }
+        let needs = url_is_under_base(&old_kid, old_base)
+            || old_kid.is_empty()
+            || !url_is_under_base(&old_kid, new_base);
         if !needs {
             continue;
         }
