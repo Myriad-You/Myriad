@@ -2201,4 +2201,18 @@ mod tests {
         assert!(attachment_url_rejection_reason(base, 7, "").is_some());
 
     }
+
+    #[test]
+    fn w175_local_username_from_inbox_host() {
+        let base = "https://myriad.example";
+        assert_eq!(
+            local_username_from_inbox_url(base, "https://myriad.example/users/alice/inbox"),
+            Some("alice".into())
+        );
+        assert_eq!(
+            local_username_from_inbox_url(base, "https://evil.example/users/alice/inbox"),
+            None
+        );
+
+    }
 }
