@@ -24,6 +24,7 @@ tower-http = { version = "0.6", features = [
 ] }
 
 # Database
+# sea-orm 2.0 is a major rewrite; skipped until a dedicated migration
 sea-orm = { version = "1.1", features = [
     "sqlx-postgres",
     "runtime-tokio-rustls",
@@ -50,7 +51,7 @@ jsonwebtoken = { version = "10.4", features = ["rust_crypto"] }
 sha2 = "0.10"        # pinned: rsa 0.9 federation signing requires digest 0.10
 hex = "0.4"
 argon2 = "0.5"
-regex = "1.12"
+regex = "1.13"
 hmac = "0.12"        # For Tencent Cloud API signing; digest 0.10 to match sha2 0.10
 base64 = "0.22"      # For audio data encoding
 flate2 = "1"         # zlib inflate for KuGou KRC (逐字歌词) decode
@@ -77,8 +78,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Utilities
 chrono = { version = "0.4", features = ["serde"] }
-cron = "0.16"                                           # For cron expression parsing
-uuid = { version = "1.23", features = ["v4", "serde"] }
+cron = "0.17"                                           # For cron expression parsing
+uuid = { version = "1.24", features = ["v4", "serde"] }
 rand = "0.10"
 lazy_static = "1.5"
 once_cell = "1.21"
@@ -87,12 +88,12 @@ async-stream = "0.3"
 tokio-stream = "0.1"                                    # For SSE streaming
 zip = "8.6"                                             # For .tapp file handling
 md5 = "0.8"
-quick-xml = "0.40.1"
+quick-xml = "0.41.0"
 serde_yaml = "0.9.34"
 scraper = "0.27"                                        # HTML parsing for web.scrape capability
 
 [dev-dependencies]
-mockall = "0.14"
+mockall = "0.15"
 
 [profile.release]
 opt-level = 3
