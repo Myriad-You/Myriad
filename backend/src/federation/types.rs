@@ -980,4 +980,20 @@ mod tests {
             "https://a.example/users/alice"
         ));
     }
+
+    #[test]
+    fn same_activity_id_scheme_and_path_sensitive() {
+        assert!(!same_activity_id(
+            "http://a.example/activities/1",
+            "https://a.example/activities/1"
+        ));
+        assert!(!same_activity_id(
+            "https://a.example/activities/1",
+            "https://a.example/activities/1/extra"
+        ));
+        assert!(!same_activity_id(
+            "https://a.example/activities/1",
+            "https://a.example/Activities/1"
+        ));
+    }
 }
