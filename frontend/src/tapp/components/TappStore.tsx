@@ -354,6 +354,9 @@ const UnifiedAppCard = forwardRef<
     /** 点击卡片打开详情视图 */
     onOpen: () => void
     installing: boolean
+    /** 0–100 when showing large-package install progress */
+    installPercent?: number | null
+    installPhase?: string | null
     updating?: boolean
     animConfig?: ReturnType<typeof useAnimationLevel>
     index?: number
@@ -370,6 +373,8 @@ const UnifiedAppCard = forwardRef<
       onUninstall,
       onOpen,
       installing,
+      installPercent,
+      installPhase: _installPhase,
       updating,
       animConfig,
       index = 0,
@@ -377,6 +382,7 @@ const UnifiedAppCard = forwardRef<
     ref,
   ) => {
     const [isHovered, setIsHovered] = useState(false)
+    void _installPhase
     const { t } = useI18n()
 
     // 检查是否有更新可用
@@ -563,13 +569,24 @@ const UnifiedAppCard = forwardRef<
                 title={
                   isInstalled
                     ? t.tapp.installed
-                    : installing
-                      ? t.tapp.installing
-                      : t.tapp.install
+                    : installing && installPercent != null
+                      ? t.tapp.installProgress.replace(
+                          '{percent}',
+                          String(installPercent),
+                        )
+                      : installing
+                        ? t.tapp.installing
+                        : t.tapp.install
                 }
               >
                 {installing ? (
-                  <Spinner size="sm" color="current" />
+                  installPercent != null ? (
+                    <span className="text-[10px] font-bold tabular-nums min-w-[1.75rem] text-center">
+                      {installPercent}%
+                    </span>
+                  ) : (
+                    <Spinner size="sm" color="current" />
+                  )
                 ) : isInstalled ? (
                   <FaCheckCircle className="w-4 h-4" />
                 ) : (
@@ -640,6 +657,19 @@ const UnifiedAppCard = forwardRef<
               'inset 0 0 0 1px rgba(var(--color-primary-rgb, 99, 102, 241), 0.3)',
           }}
         />
+
+        {/* ≥1 MiB install progress strip */}
+        {installing && installPercent != null && (
+          <div
+            className="absolute bottom-0 left-0 right-0 z-20 h-1 bg-indigo-500/15 overflow-hidden"
+            aria-hidden
+          >
+            <div
+              className="h-full bg-indigo-500 transition-[width] duration-200 ease-out"
+              style={{ width: `${installPercent}%` }}
+            />
+          </div>
+        )}
       </motion.div>
     )
   },
@@ -654,6 +684,8 @@ function AppDetailView({
   installedVersion,
   canUninstall,
   installing,
+  installPercent,
+  installPhase,
   updating,
   onInstall,
   onUpdate,
@@ -664,6 +696,8 @@ function AppDetailView({
   installedVersion?: string
   canUninstall: boolean
   installing: boolean
+  installPercent?: number | null
+  installPhase?: string | null
   updating: boolean
   onInstall: () => void
   onUpdate: () => void
@@ -796,8 +830,35 @@ function AppDetailView({
                 ) : (
                   <FaDownload className="w-3.5 h-3.5" />
                 )}
-                {installing ? t.tapp.installing : t.tapp.install}
+                {installing && installPercent != null
+                  ? (
+                      installPhase === 'register' || installPhase === 'install'
+                        ? t.tapp.installRegistering
+                        : installPhase === 'download' || installPhase === 'prepare'
+                          ? t.tapp.installDownloading
+                          : t.tapp.installProgress
+                    ).replace('{percent}', String(installPercent))
+                  : installing
+                    ? t.tapp.installing
+                    : t.tapp.install}
               </button>
+            )}
+            {installing && installPercent != null && (
+              <div className="w-full max-w-xs mt-2">
+                <div className="h-1.5 rounded-full bg-black/10 dark:bg-white/10 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-[var(--color-primary)] transition-[width] duration-200 ease-out"
+                    style={{ width: `${installPercent}%` }}
+                  />
+                </div>
+                <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400 tabular-nums">
+                  {(
+                    installPhase === 'register' || installPhase === 'install'
+                      ? t.tapp.installRegistering
+                      : t.tapp.installDownloading
+                  ).replace('{percent}', String(installPercent))}
+                </p>
+              </div>
             )}
             {isInstalled && canUninstall && (
               <button
@@ -1200,6 +1261,13 @@ export function TappStore({ isOpen, onClose, onInstalled }: TappStoreProps) {
     Map<string, { userRole: string; isTemporary?: boolean; version: string }>
   >(new Map())
   const [installing, setInstalling] = useState<string | null>(null)
+  /** Progress for ≥1 MiB installs: percent + phase message key */
+  const [installProgress, setInstallProgress] = useState<{
+    id: string
+    percent: number
+    phase: string
+    detail?: string
+  } | null>(null)
   const [updating, setUpdating] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -1459,6 +1527,7 @@ export function TappStore({ isOpen, onClose, onInstalled }: TappStoreProps) {
       }
 
       setInstalling(app.id)
+      setInstallProgress(null)
       try {
         if (app.source === 'local' && app.localTapp) {
           // 安装本地示例
@@ -1471,14 +1540,34 @@ export function TappStore({ isOpen, onClose, onInstalled }: TappStoreProps) {
             throw new Error('无法找到商店源')
           }
 
-          // 通过后端 API 从远程商店安装（后端直接下载所有资源）
           const { installFromStore } =
             await import('../services/TappApiService')
-          await installFromStore({
-            source: source.id ? String(source.id) : source.url,
-            tappId: app.id,
-            permissions: app.permissions,
-          })
+          const { isLargeTappInstall, clampInstallPercent } = await import(
+            '../utils/tappInstallProgress'
+          )
+          const estimatedBytes = app.size ?? app.remoteApp.size ?? 0
+          const showProgress = isLargeTappInstall(estimatedBytes)
+
+          await installFromStore(
+            {
+              source: source.id ? String(source.id) : source.url,
+              tappId: app.id,
+              permissions: app.permissions,
+            },
+            {
+              estimatedBytes,
+              onProgress: showProgress
+                ? (p) => {
+                    setInstallProgress({
+                      id: app.id,
+                      percent: clampInstallPercent(p.percent ?? 0),
+                      phase: p.message || p.phase,
+                      detail: p.detail,
+                    })
+                  }
+                : undefined,
+            },
+          )
 
           // 刷新 runtime 缓存
           await runtime.syncFromBackend(true)
@@ -1511,6 +1600,7 @@ export function TappStore({ isOpen, onClose, onInstalled }: TappStoreProps) {
         )
       } finally {
         setInstalling(null)
+        setInstallProgress(null)
       }
     },
     [runtime, onInstalled, sources, t, isAuthenticated],
@@ -1939,6 +2029,16 @@ export function TappStore({ isOpen, onClose, onInstalled }: TappStoreProps) {
                     installedVersion={detailTappInfo?.version}
                     canUninstall={detailCanUninstall}
                     installing={installing === detailApp.id}
+                    installPercent={
+                      installProgress?.id === detailApp.id
+                        ? installProgress.percent
+                        : null
+                    }
+                    installPhase={
+                      installProgress?.id === detailApp.id
+                        ? installProgress.phase
+                        : null
+                    }
                     updating={updating === detailApp.id}
                     onInstall={() => handleInstall(detailApp)}
                     onUpdate={() => handleUpdate(detailApp)}
@@ -2018,6 +2118,16 @@ export function TappStore({ isOpen, onClose, onInstalled }: TappStoreProps) {
                               }
                               onOpen={() => openDetail(app)}
                               installing={installing === app.id}
+                              installPercent={
+                                installProgress?.id === app.id
+                                  ? installProgress.percent
+                                  : null
+                              }
+                              installPhase={
+                                installProgress?.id === app.id
+                                  ? installProgress.phase
+                                  : null
+                              }
                               updating={updating === app.id}
                               animConfig={animConfig}
                               index={index}

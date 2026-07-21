@@ -1883,6 +1883,12 @@ export interface TranslationKeys {
     stopped: string
     installed: string
     installing: string
+    /** Large package install progress, e.g. "Installing… 42%" */
+    installProgress: string
+    /** Downloading package files for large installs */
+    installDownloading: string
+    /** Registering package on server after download */
+    installRegistering: string
     version: string
     author: string
     dataExchangeConsentTitle: string

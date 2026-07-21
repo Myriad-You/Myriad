@@ -551,6 +551,10 @@ class RemoteStoreServiceImpl {
   async downloadAppPackage(
     app: RemoteApp,
     storeIndex: RemoteStoreIndex,
+    options?: {
+      onProgress?: import('../utils/tappInstallProgress').TappInstallProgressCallback
+      estimatedBytes?: number
+    },
   ): Promise<{
     manifest: TappManifest
     code: string
@@ -565,6 +569,8 @@ class RemoteStoreServiceImpl {
     assets?: Record<string, string>
   }> {
     const baseUrl = storeIndex.base_url || this.deriveBaseUrl(storeIndex)
+    const { clampInstallPercent } = await import('../utils/tappInstallProgress')
+    const report = options?.onProgress
 
     const downloadText = async (
       relativePath?: string,
@@ -594,6 +600,13 @@ class RemoteStoreServiceImpl {
       }
     }
 
+    report?.({
+      phase: 'download',
+      message: 'download',
+      percent: 8,
+      detail: 'manifest',
+    })
+
     const indexWithBase = { ...storeIndex, base_url: baseUrl }
     const [downloadedManifest, code, styles, widgetCss, pageCss, pageTemplate] =
       await Promise.all([
@@ -605,6 +618,13 @@ class RemoteStoreServiceImpl {
         downloadText(app.download.page_template),
       ])
     const manifest: TappManifest = downloadedManifest
+
+    report?.({
+      phase: 'download',
+      message: 'download',
+      percent: 18,
+      detail: 'package',
+    })
 
     let widgetTemplates: Record<string, Record<string, string>> | undefined
     if (app.download.widget_templates) {
@@ -664,7 +684,17 @@ class RemoteStoreServiceImpl {
       manifest,
       packageRoot,
       baseUrl,
+      {
+        onProgress: report,
+        estimatedBytes: options?.estimatedBytes ?? app.size,
+      },
     )
+
+    report?.({
+      phase: 'download',
+      message: 'download',
+      percent: clampInstallPercent(90),
+    })
 
     return {
       manifest,
@@ -689,6 +719,10 @@ class RemoteStoreServiceImpl {
     manifest: TappManifest,
     packageRoot: string,
     baseUrl: string,
+    options?: {
+      onProgress?: import('../utils/tappInstallProgress').TappInstallProgressCallback
+      estimatedBytes?: number
+    },
   ): Promise<Record<string, string> | undefined> {
     const declared = manifest.assets
     if (!declared || declared.length === 0) return undefined
@@ -698,11 +732,24 @@ class RemoteStoreServiceImpl {
       )
     }
 
+    const { clampInstallPercent } = await import('../utils/tappInstallProgress')
+    const report = options?.onProgress
     const out: Record<string, string> = {}
-    await Promise.all(
-      declared.map(async (assetPath) => {
+    const total = declared.length
+    let completed = 0
+
+    // Bound concurrency so progress updates are visible and we don't melt the browser
+    const concurrency = 4
+    let nextIndex = 0
+
+    const worker = async () => {
+      while (nextIndex < declared.length) {
+        const i = nextIndex++
+        const assetPath = declared[i]!
         if (!assetPath.startsWith('assets/')) {
-          throw new Error(`Invalid asset path (must be under assets/): ${assetPath}`)
+          throw new Error(
+            `Invalid asset path (must be under assets/): ${assetPath}`,
+          )
         }
         const storeRel = storeAssetStorePath(packageRoot, assetPath)
         const url = this.resolveUrl(storeRel, baseUrl)
@@ -714,7 +761,22 @@ class RemoteStoreServiceImpl {
         }
         const buffer = await response.arrayBuffer()
         out[assetPath] = arrayBufferToBase64(buffer)
-      }),
+        completed += 1
+        // Assets occupy ~20%–90% of the install bar
+        const pct = 20 + (completed / total) * 70
+        report?.({
+          phase: 'download',
+          message: 'download',
+          percent: clampInstallPercent(pct),
+          detail: assetPath,
+          loadedBytes: completed,
+          totalBytes: total,
+        })
+      }
+    }
+
+    await Promise.all(
+      Array.from({ length: Math.min(concurrency, total) }, () => worker()),
     )
     return out
   }

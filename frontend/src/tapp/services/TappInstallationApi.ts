@@ -344,6 +344,13 @@ export async function resolveStoreSourceForTapp(tappId: string): Promise<{
   }
 }
 
+export interface InstallFromStoreOptions {
+  /** Progress for large packages (download + register). */
+  onProgress?: import('../utils/tappInstallProgress').TappInstallProgressCallback
+  /** Catalog `size` in bytes; ≥1 MiB uses client download for measurable progress. */
+  estimatedBytes?: number
+}
+
 /**
  * 从远程应用商店安装 Tapp
  *
@@ -351,11 +358,15 @@ export async function resolveStoreSourceForTapp(tappId: string): Promise<{
  * 生产环境常见问题：backend 容器无法访问 raw.githubusercontent.com 等外网，
  * 会返回 502；此时回退为浏览器下载资源 + direct 安装（与商店列表同源）。
  *
+ * Packages with estimatedBytes ≥ 1 MiB always use client download so the UI can
+ * show real progress while fetching text + binary assets.
+ *
  * @param request 安装请求 — `source` must be catalog URL/id, never `"store"`
  * @returns 安装后的 Tapp 信息
  */
 export async function installFromStore(
   request: InstallFromStoreRequest,
+  options?: InstallFromStoreOptions,
 ): Promise<TappListItem> {
   if (isInstallModePlaceholder(request.source)) {
     throw new Error(
@@ -363,8 +374,29 @@ export async function installFromStore(
     )
   }
 
+  const { isLargeTappInstall, clampInstallPercent } = await import(
+    '../utils/tappInstallProgress',
+  )
+  const report = options?.onProgress
+  const large = isLargeTappInstall(options?.estimatedBytes)
+
+  // Large packages: client path for download progress (assets dominate size).
+  if (large) {
+    report?.({
+      phase: 'prepare',
+      message: 'prepare',
+      percent: 0,
+    })
+    return installFromStoreViaClient(request, options)
+  }
+
   try {
-    return await apiRequest('/api/tapps/install', {
+    report?.({
+      phase: 'install',
+      message: 'server',
+      percent: 30,
+    })
+    const result = await apiRequest('/api/tapps/install', {
       method: 'POST',
       body: JSON.stringify({
         source: 'store',
@@ -373,6 +405,12 @@ export async function installFromStore(
         permissions: request.permissions,
       }),
     })
+    report?.({
+      phase: 'done',
+      message: 'done',
+      percent: 100,
+    })
+    return result
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     // Also fall back when peer has no matching DB row for the shared catalog URL —
@@ -390,7 +428,12 @@ export async function installFromStore(
       '[Tapp] Backend store install failed, falling back to client-side download:',
       message,
     )
-    return installFromStoreViaClient(request)
+    report?.({
+      phase: 'download',
+      message: 'download',
+      percent: clampInstallPercent(5),
+    })
+    return installFromStoreViaClient(request, options)
   }
 }
 
@@ -513,8 +556,11 @@ export async function buildInstallPackageFromInstalled(
  */
 async function installFromStoreViaClient(
   request: InstallFromStoreRequest,
+  options?: InstallFromStoreOptions,
 ): Promise<TappListItem> {
   const { default: RemoteStoreService } = await import('./RemoteStoreService')
+  const { clampInstallPercent } = await import('../utils/tappInstallProgress')
+  const report = options?.onProgress
 
   if (isInstallModePlaceholder(request.source)) {
     throw new Error(
@@ -548,6 +594,12 @@ async function installFromStoreViaClient(
     )
   }
 
+  report?.({
+    phase: 'prepare',
+    message: 'prepare',
+    percent: 2,
+  })
+
   const index = await RemoteStoreService.fetchStoreIndex(source)
   const baseUrl =
     index.base_url ||
@@ -559,7 +611,22 @@ async function installFromStoreViaClient(
     throw new Error(`商店中未找到应用: ${request.tappId}`)
   }
 
-  const pkg = await RemoteStoreService.downloadAppPackage(app, storeIndex)
+  report?.({
+    phase: 'download',
+    message: 'download',
+    percent: 5,
+  })
+
+  const pkg = await RemoteStoreService.downloadAppPackage(app, storeIndex, {
+    onProgress: report,
+    estimatedBytes: options?.estimatedBytes ?? app.size,
+  })
+
+  report?.({
+    phase: 'install',
+    message: 'register',
+    percent: clampInstallPercent(92),
+  })
 
   const requestBody: InstallTappRequest = {
     source: 'direct',
@@ -580,10 +647,17 @@ async function installFromStoreViaClient(
     requestBody.assets = pkg.assets
   }
 
-  return apiRequest('/api/tapps/install', {
+  const result = await apiRequest('/api/tapps/install', {
     method: 'POST',
     body: JSON.stringify(requestBody),
   })
+
+  report?.({
+    phase: 'done',
+    message: 'done',
+    percent: 100,
+  })
+  return result
 }
 
 /**
