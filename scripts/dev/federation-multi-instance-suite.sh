@@ -227,6 +227,36 @@ nudge_delivery() {
   fi
 }
 
+# Non-cancelled dead count / latest error (user-cancel must not fail waits).
+dead_fail_count() {
+  local side="$1"
+  if [[ "$side" == "a" ]]; then
+    sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='dead' AND COALESCE(error_message,'') NOT ILIKE 'cancelled:%';" || echo 0
+  else
+    sql_b "SELECT count(*)::int FROM federation_delivery_queue WHERE status='dead' AND COALESCE(error_message,'') NOT ILIKE 'cancelled:%';" || echo 0
+  fi
+}
+
+dead_fail_error() {
+  local side="$1"
+  if [[ "$side" == "a" ]]; then
+    sql_a "SELECT error_message FROM federation_delivery_queue WHERE status='dead' AND COALESCE(error_message,'') NOT ILIKE 'cancelled:%' ORDER BY id DESC LIMIT 1;"
+  else
+    sql_b "SELECT error_message FROM federation_delivery_queue WHERE status='dead' AND COALESCE(error_message,'') NOT ILIKE 'cancelled:%' ORDER BY id DESC LIMIT 1;"
+  fi
+}
+
+# Die if side has non-cancelled dead rows (optional label for message).
+assert_no_dead_fail() {
+  local side="$1" label="${2:-delivery}"
+  local n err
+  n=$(dead_fail_count "$side")
+  if [[ "${n:-0}" -ge 1 ]]; then
+    err=$(dead_fail_error "$side")
+    die "${label} dead on $side: $err"
+  fi
+}
+
 wait_delivery_side() {
   # wait until side a|b has delivered_count >= min and pending==0 (or timeout)
   # User-cancelled dead rows (error_message cancelled:*) do not fail the wait —
@@ -239,22 +269,15 @@ wait_delivery_side() {
       d=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='delivered';" || echo 0)
       p=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status IN ('pending','delivering');" || echo 0)
       dead=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='dead';" || echo 0)
-      dead_fail=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='dead' AND COALESCE(error_message,'') NOT ILIKE 'cancelled:%';" || echo 0)
     else
       d=$(sql_b "SELECT count(*)::int FROM federation_delivery_queue WHERE status='delivered';" || echo 0)
       p=$(sql_b "SELECT count(*)::int FROM federation_delivery_queue WHERE status IN ('pending','delivering');" || echo 0)
       dead=$(sql_b "SELECT count(*)::int FROM federation_delivery_queue WHERE status='dead';" || echo 0)
-      dead_fail=$(sql_b "SELECT count(*)::int FROM federation_delivery_queue WHERE status='dead' AND COALESCE(error_message,'') NOT ILIKE 'cancelled:%';" || echo 0)
     fi
+    dead_fail=$(dead_fail_count "$side")
     echo "  wait_${side} t=$i delivered=$d pending=$p dead=$dead dead_fail=$dead_fail"
     if [[ "${dead_fail:-0}" -ge 1 ]]; then
-      local err
-      if [[ "$side" == "a" ]]; then
-        err=$(sql_a "SELECT error_message FROM federation_delivery_queue WHERE status='dead' AND COALESCE(error_message,'') NOT ILIKE 'cancelled:%' ORDER BY id DESC LIMIT 1;")
-      else
-        err=$(sql_b "SELECT error_message FROM federation_delivery_queue WHERE status='dead' AND COALESCE(error_message,'') NOT ILIKE 'cancelled:%' ORDER BY id DESC LIMIT 1;")
-      fi
-      die "delivery dead on $side: $err"
+      die "delivery dead on $side: $(dead_fail_error "$side")"
     fi
     if [[ "${d:-0}" -ge "$min_delivered" && "${p:-0}" -le "$max_pending" ]]; then
       return 0
@@ -759,13 +782,7 @@ case_domain_move() {
   if [[ "${pend:-0}" -ge 1 ]]; then
     wait_delivery_side a 1 0 50
   fi
-  local dead
-  dead=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='dead';" || echo 0)
-  [[ "${dead:-0}" -eq 0 ]] || {
-    local err
-    err=$(sql_a "SELECT error_message FROM federation_delivery_queue WHERE status='dead' ORDER BY id DESC LIMIT 1;")
-    die "Move delivery dead: $err"
-  }
+  assert_no_dead_fail a "Move delivery"
   local moves
   moves=$(sql_b "SELECT count(*) FROM federation_activities WHERE activity_type='Move' OR object_json::text ILIKE '%\"type\": \"Move\"%' OR object_json::text ILIKE '%Move%';" || echo 0)
   echo "domain_move enqueued=$enq moves_b=$moves key_id=$kid regen=$regen" >>"$SUITE_LOG"
@@ -944,10 +961,10 @@ case_deploy_cold_keys_before_outbound() {
     pend=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status IN ('pending','delivering');" || echo 0)
     dead=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='dead';" || echo 0)
     del=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='delivered';" || echo 0)
-    echo "  cold_keys t=$i pending=$pend delivered=$del dead=$dead"
-    if [[ "${dead:-0}" -ge 1 ]]; then
-      err=$(sql_a "SELECT error_message FROM federation_delivery_queue WHERE status='dead' ORDER BY id DESC LIMIT 1;")
-      die "cold outbound dead: $err"
+    dead_fail=$(dead_fail_count a)
+    echo "  cold_keys t=$i pending=$pend delivered=$del dead=$dead dead_fail=$dead_fail"
+    if [[ "${dead_fail:-0}" -ge 1 ]]; then
+      die "cold outbound dead: $(dead_fail_error a)"
     fi
     [[ "${pend:-0}" -eq 0 && "${del:-0}" -ge 1 ]] && break
     sleep 1
@@ -1026,12 +1043,10 @@ case_deploy_jwt_mismatch_no_rotate() {
     pend=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status IN ('pending','delivering');" || echo 0)
     dead=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='dead';" || echo 0)
     del=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='delivered';" || echo 0)
-    echo "  jwt_restore t=$i pending=$pend delivered=$del dead=$dead"
+    dead_fail=$(dead_fail_count a)
+    echo "  jwt_restore t=$i pending=$pend delivered=$del dead=$dead dead_fail=$dead_fail"
     [[ "${pend:-0}" -eq 0 && "${del:-0}" -ge 1 ]] && break
-    [[ "${dead:-0}" -ge 1 ]] && {
-      err=$(sql_a "SELECT error_message FROM federation_delivery_queue WHERE status='dead' ORDER BY id DESC LIMIT 1;")
-      die "after JWT restore delivery dead: $err"
-    }
+    [[ "${dead_fail:-0}" -ge 1 ]] && die "after JWT restore delivery dead: $(dead_fail_error a)"
     sleep 1
   done
   del=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='delivered';" || echo 0)
@@ -1083,12 +1098,11 @@ case_deploy_stale_remote_pubkey() {
     pend=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status IN ('pending','delivering');" || echo 0)
     del=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='delivered';" || echo 0)
     dead=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='dead';" || echo 0)
-    echo "  stale_recover t=$i pending=$pend delivered=$del dead=$dead (prior401=$dead401)"
+    dead_fail=$(dead_fail_count a)
+    echo "  stale_recover t=$i pending=$pend delivered=$del dead=$dead dead_fail=$dead_fail (prior401=$dead401)"
     [[ "${pend:-0}" -eq 0 && "${del:-0}" -ge 1 ]] && break
-    [[ "${dead:-0}" -ge 1 && "${pend:-0}" -eq 0 ]] && {
-      err=$(sql_a "SELECT error_message FROM federation_delivery_queue WHERE status='dead' ORDER BY id DESC LIMIT 1;")
-      die "stale pubkey recovery failed: $err"
-    }
+    [[ "${dead_fail:-0}" -ge 1 && "${pend:-0}" -eq 0 ]] && \
+      die "stale pubkey recovery failed: $(dead_fail_error a)"
     sleep 1
   done
   del=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='delivered';" || echo 0)
@@ -1183,10 +1197,10 @@ case_deploy_keys_rotate() {
     pend=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status IN ('pending','delivering');" || echo 0)
     dead=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='dead';" || echo 0)
     del=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='delivered';" || echo 0)
-    echo "  keys_rotate t=$i pending=$pend delivered=$del dead=$dead"
-    if [[ "${dead:-0}" -ge 1 ]]; then
-      err=$(sql_a "SELECT error_message FROM federation_delivery_queue WHERE status='dead' ORDER BY id DESC LIMIT 1;")
-      die "post-rotate outbound dead: $err"
+    dead_fail=$(dead_fail_count a)
+    echo "  keys_rotate t=$i pending=$pend delivered=$del dead=$dead dead_fail=$dead_fail"
+    if [[ "${dead_fail:-0}" -ge 1 ]]; then
+      die "post-rotate outbound dead: $(dead_fail_error a)"
     fi
     [[ "${pend:-0}" -eq 0 && "${del:-0}" -ge 1 ]] && break
     sleep 1
