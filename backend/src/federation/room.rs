@@ -4897,4 +4897,13 @@ mod tests {
             "Room rm_abc12"
         );
     }
+
+    #[test]
+    fn w175_is_admin_role() {
+        assert!(is_admin_role("owner"));
+        assert!(is_admin_role("admin"));
+        assert!(!is_admin_role("member"));
+        assert!(!is_admin_role(""));
+
+    }
 }
