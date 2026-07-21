@@ -592,7 +592,10 @@ export const MobileReaderBar = memo(
                           className={`py-8 text-center ${currentTheme.secondary}`}
                         >
                           {annotationsLoading ? (
-                            <Spinner size="lg" className="text-purple-500" />
+                            <div className="flex flex-col items-center gap-2">
+                              <Spinner size="lg" className="text-purple-500" />
+                              <p className="text-sm">{t.brew.analyzing}</p>
+                            </div>
                           ) : (
                             <div className="flex flex-col items-center gap-2">
                               <Sparkles className="w-8 h-8 opacity-30" />
@@ -773,7 +776,12 @@ export const MobileReaderBar = memo(
                           className={`py-8 text-center ${currentTheme.secondary}`}
                         >
                           {podcastLoading ? (
-                            <Spinner size="lg" className="text-emerald-500" />
+                            <div className="flex flex-col items-center gap-2">
+                              <Spinner size="lg" className="text-emerald-500" />
+                              <p className="text-sm">
+                                {t.brew.generatingPodcast}
+                              </p>
+                            </div>
                           ) : (
                             <div className="flex flex-col items-center gap-2">
                               <Mic className="w-8 h-8 opacity-30" />

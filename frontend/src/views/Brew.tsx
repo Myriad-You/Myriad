@@ -1180,10 +1180,7 @@ export default function Brew() {
   if (loading) {
     return (
       <AnimatedView className="min-h-screen flex items-center justify-center pt-20 pb-28 sm:pb-24 md:pb-12">
-        <div className="flex flex-col items-center gap-4">
-          <Spinner size="lg" className="text-orange-500" />
-          <p className="text-gray-500">加载中...</p>
-        </div>
+        <Spinner size="lg" className="text-orange-500" />
       </AnimatedView>
     )
   }

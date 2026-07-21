@@ -519,7 +519,10 @@ export default memo(
                       className={`py-6 text-center ${currentTheme.secondary}`}
                     >
                       {annotationsLoading ? (
-                        <Spinner size="md" className="text-purple-500" />
+                        <div className="flex flex-col items-center gap-2">
+                          <Spinner size="md" className="text-purple-500" />
+                          <p className="text-xs">{t.brew.analyzing}</p>
+                        </div>
                       ) : (
                         <div className="flex flex-col items-center gap-2">
                           <Sparkles className="w-6 h-6 opacity-30" />
