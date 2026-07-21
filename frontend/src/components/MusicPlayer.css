@@ -101,6 +101,7 @@ html.dark .music-player-container:hover {
   align-items: stretch;
   gap: 0.1rem 1rem;
   flex: 1;
+  min-width: 0;
   height: 64px;
 }
 
@@ -794,13 +795,23 @@ html.dark .music-view-switch-btn:hover {
   align-items: center;
   gap: 0.5rem;
   flex-shrink: 0;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .music-time {
   font-size: 0.625rem;
   color: var(--text-tertiary);
-  min-width: 2rem;
+
+  /* Fit "00:00" / remaining "-00:00"; content-sized, never grow the row */
+  min-width: 2.75rem;
+  flex: 0 0 auto;
   text-align: center;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+  line-height: 1;
 }
 
 html.dark .music-time {
@@ -808,7 +819,9 @@ html.dark .music-time {
 }
 
 .music-progress-bar {
-  flex: 1;
+  flex: 1 1 0%;
+  min-width: 0;
+  width: 100%;
   height: 4px;
   border-radius: 2px;
   background: rgb(0 0 0 / 8%);
@@ -2154,12 +2167,35 @@ html.dark .music-vip-badge.trial {
     height: 50px;
   }
 
+  .music-info-main {
+    gap: 0.1rem 0.625rem;
+    min-width: 0;
+  }
+
   .music-song-name {
     font-size: 0.8125rem;
   }
 
   .music-song-artist {
     font-size: 0.6875rem;
+  }
+
+  /* Timeline: keep times + range bar inside narrow control panels (~320–390px) */
+  .music-progress-container {
+    gap: 0.25rem;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .music-time {
+    font-size: 0.5625rem;
+    min-width: 2.5rem;
+  }
+
+  .music-progress-bar {
+    flex: 1 1 0%;
+    min-width: 0;
+    width: 100%;
   }
 
   .music-play-btn {
