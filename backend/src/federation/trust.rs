@@ -1166,4 +1166,16 @@ mod tests {
         assert_eq!(effective_max_requests(&policy, TrustLevel::Followed), 50);
 
     }
+
+    #[test]
+    fn w175_effective_max_trusted_mul() {
+        let policy = RateLimitPolicy {
+            max_requests_per_window: 10,
+            window_seconds: 60,
+            trusted_multiplier: 3,
+        };
+        assert_eq!(effective_max_requests(&policy, TrustLevel::Trusted), 30);
+        assert_eq!(effective_max_requests(&policy, TrustLevel::Federated), 30);
+
+    }
 }
