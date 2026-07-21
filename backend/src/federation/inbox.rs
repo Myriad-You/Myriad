@@ -2077,4 +2077,29 @@ mod tests {
         let got = resolve_follow_accept_target(&follow_id, &actor, &candidates);
         assert!(got.is_some());
     }
+
+    #[test]
+    fn extract_accept_object_id_missing_or_empty() {
+        assert_eq!(
+            extract_accept_object_id(&serde_json::json!({"type": "Accept"})),
+            ""
+        );
+        assert_eq!(
+            extract_accept_object_id(&serde_json::json!({"object": {}})),
+            ""
+        );
+        assert_eq!(
+            extract_accept_object_id(&serde_json::json!({"object": {"id": "  "}})),
+            ""
+        );
+        assert_eq!(
+            extract_accept_object_id(&serde_json::json!({"object": 42})),
+            ""
+        );
+        // whitespace-only string object trims to empty
+        assert_eq!(
+            extract_accept_object_id(&serde_json::json!({"object": "   "})),
+            ""
+        );
+    }
 }
