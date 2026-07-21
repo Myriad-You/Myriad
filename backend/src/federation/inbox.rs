@@ -98,6 +98,7 @@ pub async fn post_inbox(
         "Accept" => handle_accept(&db, user_id, &activity).await,
         "Reject" => handle_reject(&db, user_id, &actor_url_str, &activity).await,
         "Undo" => handle_undo(&db, user_id, &actor_url_str, &activity).await,
+        "Move" => handle_move(&db, &actor_url_str, &activity).await,
         "Create" | "Update" | "Delete" | "Announce" | "Like" => {
             handle_content_activity(&db, user_id, &actor_url_str, &activity_type, &activity).await
         }
@@ -203,6 +204,11 @@ pub async fn post_shared_inbox(
         return Ok(StatusCode::ACCEPTED);
     }
 
+    // Move is not user-targeted: re-point local follow graph for the migrating remote.
+    if activity_type == "Move" {
+        return handle_move(&db, &actor_url_str, &activity).await;
+    }
+
     // MFP / social: route through same handlers as personal inbox when addressed
     // to a local user (to/cc) or when object has room/channel ids.
     if activity_type.starts_with("myriad:")
@@ -272,6 +278,94 @@ pub async fn post_shared_inbox(
 }
 
 // ==================== Activity 处理器 ====================
+
+/// Handle ActivityPub Move (domain / account migration).
+///
+/// Fail-closed unless **all** pass:
+/// 1. HTTP Signature already verified (caller)
+/// 2. `actor` == signed actor == `object` (old id); `target` present and distinct
+/// 3. Fresh fetch of old actor has `movedTo` == target
+/// 4. Fresh fetch of new actor has `alsoKnownAs` containing old id
+///
+/// On accept: re-point local `federation_follows` from old remote actor → new.
+async fn handle_move(
+    db: &DatabaseConnection,
+    signed_actor: &str,
+    activity: &serde_json::Value,
+) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
+    use crate::federation::move_actor::{
+        fetch_actor_document, migrate_follows_old_to_new, verify_move_structure,
+        verify_new_actor_also_known_as, verify_old_actor_moved_to,
+    };
+
+    let (old_actor, new_actor) = verify_move_structure(activity, signed_actor).map_err(|e| {
+        tracing::warn!("Move rejected (structure): {}", e);
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": e})),
+        )
+    })?;
+
+    let old_doc = fetch_actor_document(db, &old_actor).await.map_err(|e| {
+        tracing::warn!("Move rejected (old actor fetch): {}", e);
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Cannot fetch old actor for Move verify: {}", e)})),
+        )
+    })?;
+
+    verify_old_actor_moved_to(&old_doc, &old_actor, &new_actor).map_err(|e| {
+        tracing::warn!("Move rejected (movedTo): {}", e);
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": e})),
+        )
+    })?;
+
+    let new_doc = fetch_actor_document(db, &new_actor).await.map_err(|e| {
+        tracing::warn!("Move rejected (new actor fetch): {}", e);
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Cannot fetch new actor for Move verify: {}", e)})),
+        )
+    })?;
+
+    verify_new_actor_also_known_as(&new_doc, &new_actor, &old_actor).map_err(|e| {
+        tracing::warn!("Move rejected (alsoKnownAs): {}", e);
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": e})),
+        )
+    })?;
+
+    let migrated = migrate_follows_old_to_new(db, &old_actor, &new_actor)
+        .await
+        .map_err(|e| inbox_err("Move follow migration failed", e))?;
+
+    // Record inbound Move for audit
+    let activity_id = activity["id"].as_str().unwrap_or("").to_string();
+    if !activity_id.is_empty() {
+        let _ = db
+            .execute(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                r#"INSERT INTO federation_activities
+                       (activity_id, activity_type, object_type, object_json, is_local, received_at, published_at)
+                   VALUES ($1, 'Move', 'Person', $2, false, NOW(), NOW())
+                   ON CONFLICT (activity_id) DO NOTHING"#,
+                [activity_id.clone().into(), activity.clone().into()],
+            ))
+            .await;
+    }
+
+    tracing::info!(
+        old_actor = %old_actor,
+        new_actor = %new_actor,
+        migrated_follows = migrated,
+        "Accepted ActivityPub Move"
+    );
+
+    Ok(StatusCode::ACCEPTED)
+}
 
 /// 处理 Follow 请求
 async fn handle_follow(
@@ -1179,6 +1273,7 @@ pub async fn deliver_activity_locally(
         "Accept" => handle_accept(db, user_id, activity).await,
         "Reject" => handle_reject(db, user_id, actor_url_str, activity).await,
         "Undo" => handle_undo(db, user_id, actor_url_str, activity).await,
+        "Move" => handle_move(db, actor_url_str, activity).await,
         "Create" | "Update" | "Delete" | "Announce" | "Like" => {
             handle_content_activity(db, user_id, actor_url_str, activity_type, activity).await
         }

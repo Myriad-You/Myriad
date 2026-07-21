@@ -45,6 +45,19 @@ pub struct Actor {
     pub icon: Option<MediaObject>,
     pub image: Option<MediaObject>,
 
+    /// ActivityPub alias list (e.g. previous actor IDs after domain Move).
+    /// Present on the **new** actor so peers can bind old→new identity.
+    #[serde(
+        rename = "alsoKnownAs",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub also_known_as: Vec<String>,
+    /// ActivityPub Move target: set on the **old** actor document while the
+    /// previous domain remains reachable during domain migration.
+    #[serde(rename = "movedTo", skip_serializing_if = "Option::is_none")]
+    pub moved_to: Option<String>,
+
     // MFP 扩展字段
     #[serde(
         rename = "myriad:instanceVersion",

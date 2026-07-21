@@ -198,13 +198,23 @@ pub async fn process_delivery_queue_detailed(
 
         let body_bytes = serde_json::to_vec(&object_json).unwrap_or_default();
 
+        // Move is signed as the **old** actor. Prefer activity.actor origin for
+        // keyId so peers verifying against the old actor document succeed even
+        // after local base_url has switched to the new domain.
+        let (sign_base, sign_username) = signing_identity_for_activity(
+            &activity_type,
+            &object_json,
+            &base_url,
+            &username,
+        );
+
         // 获取用户密钥对
         match load_user_keypair(db, user_id).await {
             Ok(keypair) => {
                 match deliver_activity(
                     &keypair,
-                    &base_url,
-                    &username,
+                    &sign_base,
+                    &sign_username,
                     &target_inbox,
                     &target_domain,
                     &body_bytes,
@@ -869,6 +879,45 @@ async fn deliver_activity(
 
 // ==================== 辅助函数 ====================
 
+/// Choose base URL + username for HTTP Signature keyId.
+///
+/// For `Move`, use the activity's `actor` URL origin so the signature keyId
+/// matches the departing actor document (`{old}/users/{u}#main-key`).
+pub(crate) fn signing_identity_for_activity(
+    activity_type: &str,
+    object_json: &serde_json::Value,
+    default_base: &str,
+    default_username: &str,
+) -> (String, String) {
+    if activity_type != "Move" {
+        return (
+            default_base.trim_end_matches('/').to_string(),
+            default_username.to_string(),
+        );
+    }
+    let actor = object_json
+        .get("actor")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if actor.is_empty() {
+        return (
+            default_base.trim_end_matches('/').to_string(),
+            default_username.to_string(),
+        );
+    }
+    // actor = `{base}/users/{username}`
+    if let Some((base, uname)) = actor.rsplit_once("/users/") {
+        let uname = uname.trim_end_matches('/');
+        if !base.is_empty() && !uname.is_empty() && !uname.contains('/') {
+            return (base.trim_end_matches('/').to_string(), uname.to_string());
+        }
+    }
+    (
+        default_base.trim_end_matches('/').to_string(),
+        default_username.to_string(),
+    )
+}
+
 /// Cancel pending/delivering queue rows whose activity body mentions `resource_id`
 /// (room_id or channel_id). Call when the local resource is closed or deleted so
 /// we stop fan-out KeyExchange / messages at a peer that will never accept them.
@@ -961,4 +1010,40 @@ async fn get_username_by_id(db: &DatabaseConnection, user_id: i32) -> Result<Str
 
 async fn get_base_url() -> String {
     crate::federation::types::get_base_url().await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn move_signing_uses_old_actor_base() {
+        let act = json!({
+            "type": "Move",
+            "actor": "https://old.example/users/alice",
+            "object": "https://old.example/users/alice",
+            "target": "https://new.example/users/alice",
+        });
+        let (base, user) = signing_identity_for_activity(
+            "Move",
+            &act,
+            "https://new.example",
+            "alice",
+        );
+        assert_eq!(base, "https://old.example");
+        assert_eq!(user, "alice");
+    }
+
+    #[test]
+    fn non_move_signing_uses_default_base() {
+        let act = json!({
+            "type": "Create",
+            "actor": "https://new.example/users/alice",
+        });
+        let (base, user) =
+            signing_identity_for_activity("Create", &act, "https://new.example", "alice");
+        assert_eq!(base, "https://new.example");
+        assert_eq!(user, "alice");
+    }
 }

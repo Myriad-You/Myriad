@@ -15,6 +15,7 @@ use std::collections::HashSet;
 /// 格式建议：YYYY.MM.DD 或语义版本 X.Y.Z
 ///
 /// 变更日志：
+/// - 2026.07.21.1: federation_domain_aliases（ActivityPub domain Move old→new bases）
 /// - 2026.07.20.6: federation_object_interactions（like/bookmark/announce）
 /// - 2026.07.20.5: heartbeat_claims（多副本 heartbeat 分钟桶认领）
 /// - 2026.07.20.4: federation_policy_settings（allowlist / min_trust / auto_discover）
@@ -29,7 +30,7 @@ use std::collections::HashSet;
 /// - 2026.07.17.1: tapp_ai_cost_ledger 表与索引
 /// - 2026.07.11.1: Discord 数据平台种子
 /// - 2026.07.10.1: 默认平台种子同步（含 X）
-const SCHEMA_VERSION: &str = "2026.07.20.6";
+const SCHEMA_VERSION: &str = "2026.07.21.1";
 
 /// 内置平台种子定义（与 migrations/001_initial_schema.rs 中 INSERT 保持同步）
 ///
@@ -4514,6 +4515,24 @@ CREATE INDEX IF NOT EXISTS idx_heartbeat_claims_claimed_at
     Ok(())
 }
 
+/// Domain migration aliases for ActivityPub Move (alsoKnownAs / movedTo on actors).
+async fn ensure_federation_domain_aliases_table(db: &DatabaseConnection) -> Result<(), DbErr> {
+    db.execute_unprepared(
+        r#"
+CREATE TABLE IF NOT EXISTS federation_domain_aliases (
+    id SERIAL PRIMARY KEY,
+    old_base_url TEXT NOT NULL UNIQUE,
+    new_base_url TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_federation_domain_aliases_new
+    ON federation_domain_aliases (new_base_url);
+"#,
+    )
+    .await?;
+    Ok(())
+}
+
 /// Local Like / Bookmark / Announce records (Aro feed interactions).
 async fn ensure_federation_object_interactions_table(
     db: &DatabaseConnection,
@@ -4925,6 +4944,9 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     if let Err(e) = ensure_heartbeat_claims_table(db).await {
         tracing::warn!("heartbeat_claims table ensure warning: {}", e);
     }
+    if let Err(e) = ensure_federation_domain_aliases_table(db).await {
+        tracing::warn!("federation_domain_aliases table ensure warning: {}", e);
+    }
     if let Err(e) = ensure_federation_object_interactions_table(db).await {
         tracing::warn!("federation_object_interactions table ensure warning: {}", e);
     }
@@ -5080,6 +5102,12 @@ async fn do_force_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     }
     if let Err(e) = ensure_heartbeat_claims_table(db).await {
         tracing::warn!("Force check: heartbeat_claims table ensure warning: {}", e);
+    }
+    if let Err(e) = ensure_federation_domain_aliases_table(db).await {
+        tracing::warn!(
+            "Force check: federation_domain_aliases table ensure warning: {}",
+            e
+        );
     }
     if let Err(e) = ensure_federation_object_interactions_table(db).await {
         tracing::warn!(

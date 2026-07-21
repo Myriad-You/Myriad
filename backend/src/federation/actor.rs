@@ -4,7 +4,7 @@
 
 use axum::{
     extract::Path,
-    http::{header, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
@@ -19,14 +19,28 @@ use crate::services::image_cache::ImageCacheService;
 ///
 /// 返回本地用户的 AP Actor 对象
 /// Accept: application/activity+json 时返回 AP JSON
+///
+/// Domain migration: when `Host` matches a recorded **old** base, the document
+/// is served as the old actor with `movedTo`. On the configured (new) base,
+/// `alsoKnownAs` lists previous actor ids from `federation_domain_aliases`.
 pub async fn get_actor(
     Path(username): Path<String>,
+    headers: HeaderMap,
 ) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, Json<serde_json::Value>)> {
     let db = get_db()
         .await
         .map_err(|e| (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error": e}))))?;
 
-    let base_url = get_base_url().await;
+    let configured_base = get_base_url().await;
+    let aliases = crate::federation::move_actor::load_domain_aliases(&db).await;
+    let host = headers
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok());
+    let base_url = crate::federation::move_actor::resolve_serve_base(
+        &configured_base,
+        host,
+        &aliases,
+    );
 
     // 查询用户 + 联邦密钥
     let user = db
@@ -89,12 +103,12 @@ pub async fn get_actor(
     let public_key_pem: Option<String> = row.try_get("", "public_key_pem").ok();
     let fetched_key_id: Option<String> = row.try_get("", "key_id").ok();
 
-    // 如果用户还没有联邦密钥，自动生成
-    let (pub_key, kid) = match (public_key_pem, fetched_key_id) {
+    // 如果用户还没有联邦密钥，自动生成（key_id under configured/current base)
+    let (pub_key, stored_kid) = match (public_key_pem, fetched_key_id) {
         (Some(pk), Some(ki)) => (pk, ki),
         _ => {
             // 自动为该用户生成密钥对
-            generate_and_store_keys(&db, user_id, &base_url, &username)
+            generate_and_store_keys(&db, user_id, &configured_base, &username)
                 .await
                 .map_err(|e| {
                     tracing::error!(
@@ -110,7 +124,18 @@ pub async fn get_actor(
         }
     };
 
+    // Public key id must match the actor document base we are serving
+    // (old domain during Move still advertises `{old}/users/u#main-key`).
+    let kid = if stored_kid.contains(base_url.trim_end_matches('/')) {
+        stored_kid
+    } else {
+        key_id(&base_url, &username)
+    };
+
     let actor_id = actor_url(&base_url, &username);
+    let (also_known_as, moved_to) =
+        crate::federation::move_actor::actor_move_fields(&base_url, &username, &aliases);
+
     let actor = Actor {
         context: build_context(),
         actor_type: "Person".to_string(),
@@ -134,6 +159,8 @@ pub async fn get_actor(
             url: avatar_proxy_url(&base_url, &username),
         }),
         image: None,
+        also_known_as,
+        moved_to,
         mfp_instance_version: Some(env!("CARGO_PKG_VERSION").to_string()),
         mfp_tapp_capabilities: None,
         mfp_channels_url: Some(format!("{}/users/{}/channels", base_url, username)),

@@ -1799,6 +1799,61 @@ async fn federation_admin_required(claims: &middleware::auth::Claims) -> Option<
     }
 }
 
+/// POST /api/admin/federation/domain-move
+///
+/// Emit ActivityPub Move for every local user (domain migration). Admin only.
+async fn admin_federation_domain_move_wrapper(req: axum::extract::Request) -> Response {
+    let claims = match req.extensions().get::<middleware::auth::Claims>().cloned() {
+        Some(c) => c,
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "Not authenticated"})),
+            )
+                .into_response()
+        }
+    };
+    if let Some(resp) = federation_admin_required(&claims).await {
+        return resp;
+    }
+
+    let body_bytes = match axum::body::Bytes::from_request(req, &()).await {
+        Ok(b) => b,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Invalid body"})),
+            )
+                .into_response()
+        }
+    };
+
+    let payload: federation::move_actor::DomainMoveRequest = match serde_json::from_slice(&body_bytes)
+    {
+        Ok(p) => p,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("Invalid JSON: {}", e)})),
+            )
+                .into_response()
+        }
+    };
+
+    let db_guard = crate::DB_CONNECTION.read().await;
+    match db_guard.as_ref() {
+        Some(db) => match federation::move_actor::domain_move_all_users(db, &payload).await {
+            Ok(resp) => (StatusCode::OK, Json(resp)).into_response(),
+            Err((status, body)) => (status, body).into_response(),
+        },
+        None => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Database not connected"})),
+        )
+            .into_response(),
+    }
+}
+
 /// GET /api/federation/identity — 获取当前登录用户的联邦地址
 async fn federation_identity_wrapper(req: axum::extract::Request) -> Response {
     let claims = match req.extensions().get::<middleware::auth::Claims>().cloned() {
@@ -5909,6 +5964,12 @@ async fn start_unified_server(config: AppConfig) -> anyhow::Result<()> {
         .route(
             "/api/admin/site/domain",
             post(change_site_domain_wrapper)
+                .route_layer(from_fn(middleware::auth::admin_middleware)),
+        )
+        // ActivityPub domain Move (emit Move to followers for every local user)
+        .route(
+            "/api/admin/federation/domain-move",
+            post(admin_federation_domain_move_wrapper)
                 .route_layer(from_fn(middleware::auth::admin_middleware)),
         )
         // PR #4: 公开注册（开关受 allow_local_registration 控制） + 后补密码 + 本地登录开关

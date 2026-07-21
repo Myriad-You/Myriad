@@ -1206,6 +1206,7 @@ pub(crate) async fn fan_out_to_followers(
         }
 
         // Same-instance follower → direct timeline insert (no HTTP / no SSRF block).
+        // Move must run inbox verification + follow re-point, not a Create timeline path.
         if let Some(local_username) =
             local_username_from_inbox_url(&base_url, &inbox).or_else(|| {
                 if follower_actor.is_empty() {
@@ -1215,6 +1216,30 @@ pub(crate) async fn fan_out_to_followers(
                 }
             })
         {
+            if activity_json.get("type").and_then(|v| v.as_str()) == Some("Move") {
+                match crate::federation::inbox::deliver_activity_locally(
+                    db,
+                    &local_username,
+                    activity_json,
+                )
+                .await
+                {
+                    Ok(()) => {
+                        local_delivered += 1;
+                        queued += 1;
+                    }
+                    Err(e) => {
+                        failed += 1;
+                        tracing::error!(
+                            "Fan-out local Move failed username={} activity_db_id={}: {}",
+                            local_username,
+                            activity_db_id,
+                            e
+                        );
+                    }
+                }
+                continue;
+            }
             match deliver_create_to_local_follower(db, &local_username, activity_json).await {
                 Ok(true) => {
                     local_delivered += 1;

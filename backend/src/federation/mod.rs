@@ -19,6 +19,7 @@ pub mod delivery;
 pub mod discovery;
 pub mod follow;
 pub mod inbox;
+pub mod move_actor;
 pub mod outbox;
 
 // Phase 2: 内容发布
