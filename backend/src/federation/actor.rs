@@ -112,7 +112,7 @@ pub async fn get_actor(
         (Some(pk), None) if !pk.trim().is_empty() => (pk, key_id(&configured_base, &username)),
         _ => {
             // First-time only: generate once under configured base.
-            generate_and_store_keys(&db, user_id, &configured_base, &username)
+            ensure_user_federation_keys(&db, user_id, &username)
                 .await
                 .map_err(|e| {
                     tracing::error!(
@@ -750,6 +750,10 @@ pub struct LocalFederationIdentity {
 }
 
 /// 构造当前用户可分享给远端的联邦身份。
+///
+/// Also ensures federation keys exist so Aro opening federation settings (or any
+/// client calling `GET /api/federation/identity`) initializes signing material
+/// before the first outbound delivery.
 pub async fn get_local_identity(username: &str) -> LocalFederationIdentity {
     let base_url = get_base_url().await;
     let frontend_url = get_frontend_url().await;
@@ -762,7 +766,7 @@ pub async fn get_local_identity(username: &str) -> LocalFederationIdentity {
         if let Ok(Some(row)) = db
             .query_one(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
-                r#"SELECT display_name,
+                r#"SELECT id, display_name,
                           COALESCE(
                               NULLIF(
                                   CASE
@@ -791,8 +795,19 @@ pub async fn get_local_identity(username: &str) -> LocalFederationIdentity {
             ))
             .await
         {
+            let user_id: i32 = row.try_get("", "id").unwrap_or(0);
             display_name = row.try_get("", "display_name").ok();
             avatar_url = row.try_get("", "avatar_url").ok();
+            if user_id > 0 {
+                if let Err(e) = ensure_user_federation_keys(&db, user_id, username).await {
+                    tracing::warn!(
+                        user_id = user_id,
+                        username = %username,
+                        error = %e,
+                        "Failed to ensure federation keys on identity lookup"
+                    );
+                }
+            }
         }
     }
 
@@ -868,7 +883,66 @@ async fn get_local_avatar_url(
 
 // ==================== 辅助函数 ====================
 
-/// 为用户生成联邦密钥并存库
+/// Whether stored public key material is missing or empty and needs generation.
+///
+/// Existing non-empty PEMs must never be rotated by ensure/generate paths.
+pub(crate) fn needs_federation_key_generation(public_key_pem: Option<&str>) -> bool {
+    match public_key_pem {
+        Some(pk) => pk.trim().is_empty(),
+        None => true,
+    }
+}
+
+/// Ensure the local user has a federation keypair.
+///
+/// Generates and stores keys only when missing or empty. Never rotates an
+/// existing non-empty keypair (actor id / username unchanged). Safe to call from
+/// identity lookup, actor document serving, room fan-out, and delivery workers.
+///
+/// Returns `(public_key_pem, key_id)`.
+pub async fn ensure_user_federation_keys(
+    db: &DatabaseConnection,
+    user_id: i32,
+    username: &str,
+) -> Result<(String, String), String> {
+    if let Some((pub_pem, kid)) = load_stored_federation_keys(db, user_id).await? {
+        if !needs_federation_key_generation(Some(&pub_pem)) {
+            let base_url = get_base_url().await;
+            let resolved_kid = if kid.trim().is_empty() {
+                key_id(&base_url, username)
+            } else {
+                kid
+            };
+            return Ok((pub_pem, resolved_kid));
+        }
+    }
+
+    let base_url = get_base_url().await;
+    generate_and_store_keys(db, user_id, &base_url, username).await
+}
+
+async fn load_stored_federation_keys(
+    db: &DatabaseConnection,
+    user_id: i32,
+) -> Result<Option<(String, String)>, String> {
+    let row = db
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT public_key_pem, key_id FROM federation_keys WHERE user_id = $1",
+            [user_id.into()],
+        ))
+        .await
+        .map_err(|e| format!("DB error loading federation keys: {}", e))?;
+
+    Ok(row.map(|r| {
+        let pub_pem: String = r.try_get("", "public_key_pem").unwrap_or_default();
+        let kid: String = r.try_get("", "key_id").unwrap_or_default();
+        (pub_pem, kid)
+    }))
+}
+
+/// Generate a new keypair and store it. Only overwrites on conflict when the
+/// existing row has an empty public key (no rotation of live keys).
 async fn generate_and_store_keys(
     db: &DatabaseConnection,
     user_id: i32,
@@ -893,12 +967,18 @@ async fn generate_and_store_keys(
 
     let kid = key_id(base_url, username);
 
+    // Same ON CONFLICT shape as before, but only apply the update when the
+    // stored public key is missing/empty so concurrent ensures cannot rotate.
     db.execute(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_keys (user_id, public_key_pem, private_key_encrypted, key_id, algorithm, created_at)
            VALUES ($1, $2, $3, $4, 'RSA-SHA256', NOW())
            ON CONFLICT (user_id) DO UPDATE SET
-               public_key_pem = $2, private_key_encrypted = $3, key_id = $4, rotated_at = NOW()"#,
+               public_key_pem = EXCLUDED.public_key_pem,
+               private_key_encrypted = EXCLUDED.private_key_encrypted,
+               key_id = EXCLUDED.key_id,
+               rotated_at = NOW()
+           WHERE TRIM(COALESCE(federation_keys.public_key_pem, '')) = ''"#,
         [
             user_id.into(),
             pub_pem.clone().into(),
@@ -909,7 +989,18 @@ async fn generate_and_store_keys(
     .await
     .map_err(|e| format!("Failed to store keys: {}", e))?;
 
-    Ok((pub_pem, kid))
+    // Re-read so a concurrent winner's keys are returned instead of our discarded pair.
+    match load_stored_federation_keys(db, user_id).await? {
+        Some((stored_pem, stored_kid)) if !needs_federation_key_generation(Some(&stored_pem)) => {
+            let resolved_kid = if stored_kid.trim().is_empty() {
+                kid
+            } else {
+                stored_kid
+            };
+            Ok((stored_pem, resolved_kid))
+        }
+        _ => Ok((pub_pem, kid)),
+    }
 }
 
 /// Upsert 实例信息
@@ -978,4 +1069,28 @@ async fn get_db() -> Result<DatabaseConnection, String> {
     db_opt
         .clone()
         .ok_or_else(|| "Database not connected".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn needs_generation_when_missing() {
+        assert!(needs_federation_key_generation(None));
+    }
+
+    #[test]
+    fn needs_generation_when_empty_or_whitespace() {
+        assert!(needs_federation_key_generation(Some("")));
+        assert!(needs_federation_key_generation(Some("   \n\t  ")));
+    }
+
+    #[test]
+    fn no_generation_when_pem_present() {
+        let pem = "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A\n-----END PUBLIC KEY-----\n";
+        assert!(!needs_federation_key_generation(Some(pem)));
+        // Non-empty material must not be treated as missing (no rotate).
+        assert!(!needs_federation_key_generation(Some("not-empty-pem")));
+    }
 }

@@ -208,8 +208,9 @@ pub async fn process_delivery_queue_detailed(
             &username,
         );
 
-        // 获取用户密钥对
-        match load_user_keypair(db, user_id).await {
+        // 获取用户密钥对 — if missing, ensure once then reload so already-queued
+        // deliveries recover without waiting for GET /users/{username}.
+        match load_user_keypair_ensuring(db, user_id, &username).await {
             Ok(keypair) => {
                 match deliver_activity(
                     &keypair,
@@ -970,6 +971,72 @@ pub async fn cancel_pending_deliveries_for_resource(
     }
 }
 
+/// Load keypair; if none (or empty), generate once via ensure then reload.
+async fn load_user_keypair_ensuring(
+    db: &DatabaseConnection,
+    user_id: i32,
+    username: &str,
+) -> Result<KeyPair, String> {
+    match load_user_keypair(db, user_id).await {
+        Ok(kp) => Ok(kp),
+        Err(e) if is_missing_federation_keys_error(&e) => {
+            if username.trim().is_empty() {
+                tracing::error!(
+                    user_id = user_id,
+                    error = %e,
+                    "No federation keys and username lookup empty; cannot ensure keys"
+                );
+                return Err(e);
+            }
+            tracing::warn!(
+                user_id = user_id,
+                username = %username,
+                error = %e,
+                "Federation keys missing for outbound delivery; ensuring once"
+            );
+            match crate::federation::actor::ensure_user_federation_keys(db, user_id, username)
+                .await
+            {
+                Ok(_) => match load_user_keypair(db, user_id).await {
+                    Ok(kp) => {
+                        tracing::info!(
+                            user_id = user_id,
+                            username = %username,
+                            "Ensured federation keys; retrying delivery sign"
+                        );
+                        Ok(kp)
+                    }
+                    Err(reload_e) => {
+                        tracing::error!(
+                            user_id = user_id,
+                            username = %username,
+                            error = %reload_e,
+                            "Federation keys still missing after ensure"
+                        );
+                        Err(reload_e)
+                    }
+                },
+                Err(ensure_e) => {
+                    tracing::error!(
+                        user_id = user_id,
+                        username = %username,
+                        error = %ensure_e,
+                        "Failed to ensure federation keys before delivery"
+                    );
+                    Err(format!("Key load failed (ensure): {}; original: {}", ensure_e, e))
+                }
+            }
+        }
+        Err(e) => Err(e),
+    }
+}
+
+fn is_missing_federation_keys_error(err: &str) -> bool {
+    // Only true absence/empty material — never re-generate on decrypt failure
+    // (that would rotate keys if JWT secret or ciphertext is broken).
+    err.contains("No federation keys found for user")
+}
+
 /// 加载用户的密钥对
 async fn load_user_keypair(db: &DatabaseConnection, user_id: i32) -> Result<KeyPair, String> {
     let row = db
@@ -984,6 +1051,10 @@ async fn load_user_keypair(db: &DatabaseConnection, user_id: i32) -> Result<KeyP
 
     let pub_pem: String = row.try_get("", "public_key_pem").unwrap_or_default();
     let encrypted: String = row.try_get("", "private_key_encrypted").unwrap_or_default();
+
+    if pub_pem.trim().is_empty() || encrypted.trim().is_empty() {
+        return Err("No federation keys found for user".to_string());
+    }
 
     let jwt_secret = {
         let config = crate::GLOBAL_CONFIG.read().await;
@@ -1033,6 +1104,17 @@ mod tests {
         );
         assert_eq!(base, "https://old.example");
         assert_eq!(user, "alice");
+    }
+
+    #[test]
+    fn missing_keys_error_is_detected() {
+        assert!(is_missing_federation_keys_error(
+            "No federation keys found for user"
+        ));
+        assert!(!is_missing_federation_keys_error(
+            "Key decryption failed: AES-GCM decryption failed"
+        ));
+        assert!(!is_missing_federation_keys_error("DB error: connection refused"));
     }
 
     #[test]
