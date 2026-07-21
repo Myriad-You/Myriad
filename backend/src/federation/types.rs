@@ -962,4 +962,22 @@ mod tests {
             "https://myriad.example/users/alice#main-key"
         ));
     }
+
+    #[test]
+    fn normalize_key_id_preserves_fragment_drops_query() {
+        // keyId equality is host/path/fragment; query on keyId is unusual but path normalizes.
+        assert_eq!(
+            normalize_key_id("https://A.Example/users/alice/#main-key"),
+            "https://a.example/users/alice#main-key"
+        );
+        assert_eq!(
+            normalize_key_id("https://a.example/users/alice#main-key"),
+            "https://a.example/users/alice#main-key"
+        );
+        // Unlike activity ids, fragment is required for key identity.
+        assert!(!same_key_id(
+            "https://a.example/users/alice#main-key",
+            "https://a.example/users/alice"
+        ));
+    }
 }
