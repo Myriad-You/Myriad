@@ -1601,4 +1601,76 @@ mod tests {
         assert_eq!(classify_cancel_status("delivered"), CancelStatusDecision::AlreadyDelivered);
         assert_eq!(classify_retry_status("delivered"), RetryStatusDecision::AlreadyDelivered);
     }
+
+    #[test]
+    fn r37_classify_cancel_status_pending_and_delivering() {
+        assert_eq!(classify_cancel_status("pending"), CancelStatusDecision::Cancel);
+        assert_eq!(classify_cancel_status("delivering"), CancelStatusDecision::Cancel);
+        assert_eq!(classify_cancel_status("dead"), CancelStatusDecision::AlreadyDead);
+        assert_eq!(classify_cancel_status("delivered"), CancelStatusDecision::AlreadyDelivered);
+    }
+
+    #[test]
+    fn r38_classify_retry_status_dead_vs_delivering() {
+        assert_eq!(classify_retry_status("dead"), RetryStatusDecision::Allow);
+        assert_eq!(classify_retry_status("delivering"), RetryStatusDecision::InProgress);
+        assert_eq!(classify_retry_status("delivered"), RetryStatusDecision::AlreadyDelivered);
+    }
+
+    #[test]
+    fn r39_classify_retry_status_failed_and_cancelled_allow() {
+        assert_eq!(classify_retry_status("failed"), RetryStatusDecision::Allow);
+        assert_eq!(classify_retry_status("cancelled"), RetryStatusDecision::Allow);
+    }
+
+    #[test]
+    fn r40_is_missing_federation_keys_error_exact_substring() {
+        assert!(is_missing_federation_keys_error("No federation keys found for user"));
+        assert!(is_missing_federation_keys_error("x: No federation keys found for user"));
+        assert!(!is_missing_federation_keys_error("No keys found for user"));
+        assert!(!is_missing_federation_keys_error("Key decryption failed"));
+    }
+
+    #[test]
+    fn r41_is_user_cancelled_delivery_error_prefix() {
+        assert!(is_user_cancelled_delivery_error(Some("cancelled: pending by user")));
+        assert!(is_user_cancelled_delivery_error(Some("CANCELLED: x")));
+        assert!(!is_user_cancelled_delivery_error(Some("not-cancelled: x")));
+        assert!(!is_user_cancelled_delivery_error(None));
+    }
+
+    #[test]
+    fn r42_signing_identity_move_parses_old_actor() {
+        let act = serde_json::json!({
+            "type": "Move",
+            "actor": "https://old.example/users/alice"
+        });
+        let (base, user) = signing_identity_for_activity(
+            "Move", &act, "https://new.example", "alice",
+        );
+        assert_eq!(base, "https://old.example");
+        assert_eq!(user, "alice");
+    }
+
+    #[test]
+    fn r43_resolve_signing_key_id_move_ignores_stored() {
+        assert_eq!(
+            resolve_signing_key_id(
+                "Move",
+                "https://old.example",
+                "alice",
+                Some("https://new.example/users/alice#main-key"),
+            ),
+            key_id("https://old.example", "alice")
+        );
+    }
+
+    #[test]
+    fn r44_resolve_signing_key_id_follow_prefers_stored() {
+        let stored = "https://new.example/users/alice#main-key";
+        assert_eq!(
+            resolve_signing_key_id("Follow", "https://old.example", "alice", Some(stored)),
+            stored
+        );
+    }
 }
