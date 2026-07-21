@@ -1721,4 +1721,11 @@ mod tests {
         assert!(url_is_under_base("https://old.example/users/a#main-key", "https://old.example"));
 
     }
+
+    #[test]
+    fn w175_url_under_base_empty() {
+        assert!(!url_is_under_base("", "https://a.example"));
+        assert!(!url_is_under_base("https://a.example/x", ""));
+
+    }
 }
