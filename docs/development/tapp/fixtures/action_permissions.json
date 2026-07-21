@@ -21,7 +21,6 @@
       "action": "speech.asr",
       "permission": "speech:asr"
     },
-
     {
       "domain": "brew",
       "action": "brewList.list",
@@ -147,7 +146,6 @@
       "action": "brewList.deleteCategory",
       "permission": "brew:manage"
     },
-
     {
       "domain": "federation",
       "action": "federation.getIdentity",
@@ -271,6 +269,16 @@
     {
       "domain": "federation",
       "action": "federation.getBookmarks",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.getExternalShareStatus",
+      "permission": "federation:read"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.composeExternalShare",
       "permission": "federation:read"
     },
     {
