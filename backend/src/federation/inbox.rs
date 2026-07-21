@@ -2102,4 +2102,26 @@ mod tests {
             ""
         );
     }
+
+    #[test]
+    fn extract_accept_object_id_trims_string_and_nested() {
+        assert_eq!(
+            extract_accept_object_id(&serde_json::json!({
+                "object": "  https://a.example/activities/1  "
+            })),
+            "https://a.example/activities/1"
+        );
+        assert_eq!(
+            extract_accept_object_id(&serde_json::json!({
+                "object": {"id": "  https://a.example/activities/2  ", "type": "Follow"}
+            })),
+            "https://a.example/activities/2"
+        );
+        assert_eq!(
+            extract_accept_object_type(&serde_json::json!({
+                "object": {"id": "x", "type": "myriad:ChannelOpen"}
+            })),
+            "myriad:ChannelOpen"
+        );
+    }
 }
