@@ -1408,7 +1408,10 @@ export interface TranslationKeys {
     githubBinding: string
     githubLinked: string
     githubNotLinked: string
+    /** @deprecated Prefer hybridAccountWithProviders; kept for fallbacks */
     hybridAccount: string
+    /** e.g. 本地 + {providers} — providers already joined */
+    hybridAccountWithProviders: string
     bindGithub: string
     changePassword: string
     currentPassword: string
@@ -1449,6 +1452,12 @@ export interface TranslationKeys {
     oauthUnbindFailed: string
     oauthNoProviders: string
     oauthNotConfigured: string
+    profileSourceTitle: string
+    profileSourceHint: string
+    profileSourceEmpty: string
+    profileSourceCurrent: string
+    profileSourceAvatarHint: string
+    profileSourceFailed: string
   }
 
   // 小组件网格

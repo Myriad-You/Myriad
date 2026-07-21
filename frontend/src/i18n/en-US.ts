@@ -1590,6 +1590,7 @@ export const enUS: TranslationKeys = {
     githubLinked: 'Linked',
     githubNotLinked: 'Not Linked',
     hybridAccount: 'Local + GitHub',
+    hybridAccountWithProviders: 'Local + {providers}',
     bindGithub: 'Link GitHub Account',
     changePassword: 'Change Password',
     currentPassword: 'Current Password',
@@ -1633,6 +1634,13 @@ export const enUS: TranslationKeys = {
     oauthUnbindFailed: 'Failed to unlink',
     oauthNoProviders: 'No third-party sign-in methods configured yet',
     oauthNotConfigured: 'This sign-in method is disabled',
+    profileSourceTitle: 'Profile source',
+    profileSourceHint:
+      'Use avatar and display name from a linked account. This updates your site profile.',
+    profileSourceEmpty: 'No linked accounts to choose from.',
+    profileSourceCurrent: 'Current',
+    profileSourceAvatarHint: 'Change',
+    profileSourceFailed: 'Could not switch profile source',
   },
 
   // Widget Grid

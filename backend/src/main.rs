@@ -1652,6 +1652,36 @@ async fn oauth_list_my_identities_wrapper(headers: axum::http::HeaderMap) -> Res
     }
 }
 
+/// Wrapper: set which linked OAuth identity supplies profile avatar / primary flag.
+async fn oauth_set_primary_identity_wrapper(
+    axum::extract::Path(identity_id): axum::extract::Path<i32>,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    let db_opt = DB_CONNECTION.read().await;
+    match db_opt.as_ref() {
+        Some(db) => {
+            match api::oauth::set_primary_identity(
+                axum::extract::Path(identity_id),
+                axum::extract::State(db.clone()),
+                headers,
+            )
+            .await
+            {
+                Ok(json) => json.into_response(),
+                Err((status, json)) => (status, json).into_response(),
+            }
+        }
+        None => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "error": "Database not connected",
+                "message": "数据库未连接，无法设置画像源"
+            })),
+        )
+            .into_response(),
+    }
+}
+
 /// Wrapper for get_user_info that gets DB from global state
 async fn get_user_info_wrapper() -> Response {
     let db_opt = DB_CONNECTION.read().await;
@@ -5945,6 +5975,11 @@ async fn start_unified_server(config: AppConfig) -> anyhow::Result<()> {
         .route(
             "/api/auth/identities",
             get(oauth_list_my_identities_wrapper)
+                .route_layer(from_fn(middleware::auth::auth_middleware)),
+        )
+        .route(
+            "/api/auth/identities/{identity_id}/primary",
+            post(oauth_set_primary_identity_wrapper)
                 .route_layer(from_fn(middleware::auth::auth_middleware)),
         )
         .route(

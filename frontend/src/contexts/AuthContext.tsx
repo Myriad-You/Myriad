@@ -22,6 +22,15 @@ import {
   setSessionHint,
 } from '../utils/sessionDetection'
 
+/** Linked OAuth/OIDC identity from /api/auth/me or /api/auth/identities */
+export interface AuthIdentity {
+  id: number
+  provider: string
+  provider_username?: string | null
+  is_primary?: boolean
+  linked_at?: string | null
+}
+
 export interface User {
   id: number
   username: string
@@ -35,6 +44,8 @@ export interface User {
   avatar_url?: string
   bio?: string
   has_password?: boolean
+  /** Linked OAuth providers (GitHub + generic OIDC slugs) */
+  identities?: AuthIdentity[]
 }
 
 interface AuthContextType {
@@ -108,6 +119,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (parsed.authenticated) {
             const u = parsed.user
             setSessionHint()
+            const rawIdentities = (u as { identities?: unknown }).identities
+            const identities = Array.isArray(rawIdentities)
+              ? rawIdentities
+                  .filter(
+                    (row): row is Record<string, unknown> =>
+                      !!row && typeof row === 'object',
+                  )
+                  .map((row) => ({
+                    id: Number(row.id) || 0,
+                    provider: String(row.provider ?? ''),
+                    provider_username:
+                      typeof row.provider_username === 'string'
+                        ? row.provider_username
+                        : null,
+                    is_primary: row.is_primary === true,
+                    linked_at:
+                      typeof row.linked_at === 'string' ? row.linked_at : null,
+                  }))
+                  .filter((row) => row.provider)
+              : undefined
             setUser({
               id: u.id,
               username: u.username,
@@ -120,6 +151,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               avatar_url: u.avatar_url,
               bio: u.bio,
               has_password: u.has_password,
+              identities,
             })
             setIsAuthenticated(true)
             setIsAdmin(u.is_admin || false)

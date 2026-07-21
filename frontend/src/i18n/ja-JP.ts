@@ -1569,6 +1569,7 @@ export const jaJP: TranslationKeys = {
     githubLinked: '連携済み',
     githubNotLinked: '未連携',
     hybridAccount: 'ローカル + GitHub',
+    hybridAccountWithProviders: 'ローカル + {providers}',
     bindGithub: 'GitHubアカウントを連携',
     changePassword: 'パスワード変更',
     currentPassword: '現在のパスワード',
@@ -1613,6 +1614,13 @@ export const jaJP: TranslationKeys = {
     oauthUnbindFailed: '連携解除に失敗しました',
     oauthNoProviders: '外部ログインはまだ設定されていません',
     oauthNotConfigured: 'このログイン方法は無効になっています',
+    profileSourceTitle: 'プロフィール情報源',
+    profileSourceHint:
+      '連携アカウントのアバターと表示名を使います。選択するとサイトのプロフィールに反映されます。',
+    profileSourceEmpty: '選択できる連携アカウントがありません。',
+    profileSourceCurrent: '使用中',
+    profileSourceAvatarHint: '変更',
+    profileSourceFailed: '情報源の切り替えに失敗しました',
   },
 
   // ウィジェットグリッド

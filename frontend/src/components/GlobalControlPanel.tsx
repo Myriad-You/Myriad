@@ -1572,7 +1572,10 @@ const GlobalControlPanel: React.FC = () => {
             >
               {/* 头部 - 用户信息按钮 */}
               <div className="control-panel-header">
-                <UserSection onClosePanel={handleClosePanel} />
+                <UserSection
+                  onClosePanel={handleClosePanel}
+                  onNavigateFromPanel={handleNavigateFromPanel}
+                />
                 <button
                   onClick={handleClosePanel}
                   className="control-close-btn"

@@ -18,6 +18,14 @@ export interface AuthMeUser {
   avatar_url?: string
   bio?: string
   has_password?: boolean
+  /** Linked OAuth/OIDC rows when server includes them */
+  identities?: Array<{
+    id?: number
+    provider?: string
+    provider_username?: string | null
+    is_primary?: boolean
+    linked_at?: string | null
+  }>
   authenticated: true
   [key: string]: unknown
 }

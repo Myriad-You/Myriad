@@ -9,6 +9,7 @@
 //!   GET    /api/auth/oauth/:slug/link             绑定 (需 JWT + is_admin)
 //!   DELETE /api/auth/oauth/:slug/unlink/:id       解绑
 //!   GET    /api/auth/identities                   当前用户所有 identities
+//!   POST   /api/auth/identities/:id/primary       设为画像源（is_primary + 同步头像等）
 
 use axum::{
     extract::{Path, Query, State},
@@ -961,4 +962,135 @@ pub async fn list_my_identities(
         .collect();
 
     Ok(Json(json!({ "identities": identities })))
+}
+
+// ---------- POST /api/auth/identities/{identity_id}/primary ----------
+// 将指定 OAuth/OIDC identity 设为画像源（is_primary），并同步 avatar 等到 users 表。
+
+pub async fn set_primary_identity(
+    Path(identity_id): Path<i32>,
+    State(db): State<DatabaseConnection>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    use crate::middleware::auth::verify_jwt_token;
+    let claims = verify_jwt_token(&headers).map_err(|_| {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Unauthorized"})),
+        )
+    })?;
+    let user_id: i32 = claims.sub.parse().map_err(|_| err_400("Invalid user id"))?;
+
+    let row = db
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT id, provider, provider_username, avatar_url, provider_user_id \
+             FROM user_identities WHERE id = $1 AND user_id = $2",
+            vec![
+                SeaValue::Int(Some(identity_id)),
+                SeaValue::Int(Some(user_id)),
+            ],
+        ))
+        .await
+        .map_err(|e| err_500(format!("DB error: {e}")))?;
+
+    let Some(row) = row else {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Identity not found"})),
+        ));
+    };
+
+    let provider: String = row.try_get("", "provider").unwrap_or_default();
+    let provider_username: Option<String> =
+        row.try_get("", "provider_username").unwrap_or(None);
+    let avatar_url: Option<String> = row.try_get("", "avatar_url").unwrap_or(None);
+    let provider_user_id: String = row
+        .try_get("", "provider_user_id")
+        .unwrap_or_default();
+
+    // Clear other primaries, then mark this one
+    db.execute(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE user_identities SET is_primary = FALSE WHERE user_id = $1",
+        vec![SeaValue::Int(Some(user_id))],
+    ))
+    .await
+    .map_err(|e| err_500(format!("DB error: {e}")))?;
+
+    db.execute(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE user_identities SET is_primary = TRUE WHERE id = $1 AND user_id = $2",
+        vec![
+            SeaValue::Int(Some(identity_id)),
+            SeaValue::Int(Some(user_id)),
+        ],
+    ))
+    .await
+    .map_err(|e| err_500(format!("DB error: {e}")))?;
+
+    // Apply profile snapshot onto users (avatar; GitHub linked id when applicable)
+    let avatar_trim = avatar_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+
+    if provider == "github" {
+        let github_id = provider_user_id.parse::<i64>().ok();
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "UPDATE users SET \
+                linked_github_id = COALESCE($1, linked_github_id), \
+                avatar_url = COALESCE($2, avatar_url), \
+                updated_at = NOW() \
+             WHERE id = $3",
+            vec![
+                SeaValue::BigInt(github_id),
+                avatar_trim
+                    .clone()
+                    .map(|s| SeaValue::String(Some(Box::new(s))))
+                    .unwrap_or(SeaValue::String(None)),
+                SeaValue::Int(Some(user_id)),
+            ],
+        ))
+        .await
+        .map_err(|e| err_500(format!("Failed to apply profile: {e}")))?;
+    } else if let Some(avatar) = avatar_trim.clone() {
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "UPDATE users SET avatar_url = $1, updated_at = NOW() WHERE id = $2",
+            vec![
+                SeaValue::String(Some(Box::new(avatar))),
+                SeaValue::Int(Some(user_id)),
+            ],
+        ))
+        .await
+        .map_err(|e| err_500(format!("Failed to apply avatar: {e}")))?;
+    }
+
+    // Prefer provider display username when present (does not change login username)
+    if let Some(ref name) = provider_username {
+        let name = name.trim();
+        if !name.is_empty() {
+            let _ = db
+                .execute(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    "UPDATE users SET display_name = $1, updated_at = NOW() WHERE id = $2",
+                    vec![
+                        SeaValue::String(Some(Box::new(name.to_string()))),
+                        SeaValue::Int(Some(user_id)),
+                    ],
+                ))
+                .await;
+        }
+    }
+
+    Ok(Json(json!({
+        "success": true,
+        "identity_id": identity_id,
+        "provider": provider,
+        "provider_username": provider_username,
+        "avatar_url": avatar_url,
+    })))
 }

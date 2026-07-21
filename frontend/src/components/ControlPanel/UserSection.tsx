@@ -23,6 +23,8 @@ interface UserInfo {
 
 interface UserSectionProps {
   onClosePanel: () => void
+  /** 面板内路由跳转：收起 GCP 并替换历史哨兵（见 GlobalControlPanel.handleNavigateFromPanel） */
+  onNavigateFromPanel: (path: string) => void
 }
 
 /**
@@ -30,11 +32,15 @@ interface UserSectionProps {
  * 包含顶部用户信息按钮和用户弹窗逻辑
  *
  * memo：宿主 GlobalControlPanel 因音乐进度/歌词轮播频繁重渲染，
- * 本组件仅依赖稳定的 onClosePanel 回调，隔离后不再跟随重渲染
+ * 本组件仅依赖稳定的 onClosePanel / onNavigateFromPanel 回调，隔离后不再跟随重渲染
  */
 export const UserSection: React.FC<UserSectionProps> = memo(
-  ({ onClosePanel }) => {
-    const { isAuthenticated: authIsAuthenticated, user: authUser } = useAuth()
+  ({ onClosePanel, onNavigateFromPanel }) => {
+    const {
+      isAuthenticated: authIsAuthenticated,
+      user: authUser,
+      checkAuth,
+    } = useAuth()
     const { t } = useI18n()
     const [user, setUser] = useState<User | null>(null)
     const [isAuthenticated, setIsAuthenticated] = useState(false)
@@ -304,6 +310,13 @@ export const UserSection: React.FC<UserSectionProps> = memo(
                   canAnimate={modalState === 'visible'}
                   onClose={closeModal}
                   onLogout={handleLogout}
+                  onNavigateFromPanel={onNavigateFromPanel}
+                  onProfileApplied={() => {
+                    void (async () => {
+                      await checkAuth()
+                      await fetchUserInfo()
+                    })()
+                  }}
                 />
               ) : (
                 <div

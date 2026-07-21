@@ -6,7 +6,7 @@ import type {
   TappListItem,
 } from '../../tapp/services/TappLifecycleApi'
 import { FaGithub, LuCrown, LuLink, LuUser, MyriadStoreIcon } from '@lib/icons'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useNavigate } from 'react-router-dom'
 import { API_URL } from '../../config'
@@ -32,6 +32,8 @@ interface OAuthIdentity {
   provider_username: string | null
   is_primary: boolean
   linked_at: string | null
+  avatar_url?: string | null
+  email?: string | null
 }
 
 interface UserInfo {
@@ -48,6 +50,13 @@ interface UserModalProps {
   canAnimate: boolean
   onClose: () => void
   onLogout: () => void
+  /**
+   * 从控制面板内导航（收起面板并替换 GCP 历史哨兵）。
+   * 必须用此路径跳转 Tapp 等页，不能直接 navigate——否则关面板时 history.back() 会退回打开面板前的路由。
+   */
+  onNavigateFromPanel?: (path: string) => void
+  /** 切换画像源后刷新外侧头像/名称 */
+  onProfileApplied?: () => void
 }
 
 /**
@@ -61,8 +70,16 @@ export const UserModal: FC<UserModalProps> = ({
   canAnimate,
   onClose,
   onLogout,
+  onNavigateFromPanel,
+  onProfileApplied,
 }) => {
-  const [page, setPage] = useState<'main' | 'oauth' | 'password'>('main')
+  const [page, setPage] = useState<
+    'main' | 'oauth' | 'password' | 'profileSource'
+  >('main')
+  const [profileSelectingId, setProfileSelectingId] = useState<number | null>(
+    null,
+  )
+  const [profileSourceError, setProfileSourceError] = useState('')
   // 是否已有本地密码：有 → 修改密码；没有（纯 OAuth 账户）→ 设置密码
   // 旧版后端没有 has_password 字段时按 auth_provider 兜底
   const [hasPassword, setHasPassword] = useState(
@@ -110,7 +127,25 @@ export const UserModal: FC<UserModalProps> = ({
       }
       if (identitiesRes.ok) {
         const data = await identitiesRes.json()
-        setIdentities(Array.isArray(data?.identities) ? data.identities : [])
+        const list = Array.isArray(data?.identities) ? data.identities : []
+        setIdentities(
+          list.map(
+            (row: Record<string, unknown>): OAuthIdentity => ({
+              id: Number(row.id) || 0,
+              provider: String(row.provider ?? ''),
+              provider_username:
+                typeof row.provider_username === 'string'
+                  ? row.provider_username
+                  : null,
+              is_primary: row.is_primary === true,
+              linked_at:
+                typeof row.linked_at === 'string' ? row.linked_at : null,
+              avatar_url:
+                typeof row.avatar_url === 'string' ? row.avatar_url : null,
+              email: typeof row.email === 'string' ? row.email : null,
+            }),
+          ),
+        )
       }
     } catch (error) {
       console.error('Failed to load OAuth bindings:', error)
@@ -119,18 +154,167 @@ export const UserModal: FC<UserModalProps> = ({
     }
   }, [])
 
-  // 打开二级页面时才加载
+  // 主页徽章需要 identities；进入 OAuth 页再拉一次以同步解绑/绑定
+  useEffect(() => {
+    void loadOAuthBindings()
+  }, [loadOAuthBindings])
+
   useEffect(() => {
     if (page === 'oauth') {
-      loadOAuthBindings()
+      void loadOAuthBindings()
     }
   }, [page, loadOAuthBindings])
+
+  /** Prefer live bindings list; fall back to /me identities + legacy linked_github_id */
+  const linkedProviders = useMemo(() => {
+    const fromLive = identities
+      .map((i) => i.provider)
+      .filter((p): p is string => !!p && p.trim().length > 0)
+    if (fromLive.length > 0) {
+      return [...new Set(fromLive.map((p) => p.trim().toLowerCase()))]
+    }
+    const fromUser = (user.identities ?? [])
+      .map((i) => i.provider)
+      .filter((p): p is string => !!p && p.trim().length > 0)
+      .map((p) => p.trim().toLowerCase())
+    if (fromUser.length > 0) {
+      return [...new Set(fromUser)]
+    }
+    if (user.linked_github_id || user.github_id) {
+      return ['github']
+    }
+    return [] as string[]
+  }, [identities, user.identities, user.linked_github_id, user.github_id])
+
+  const providerDisplayName = useCallback(
+    (slug: string): string => {
+      const key = slug.toLowerCase()
+      if (key === 'github') return 'GitHub'
+      const match = oauthProviders.find(
+        (p) => p.slug.toLowerCase() === key,
+      )
+      if (match?.display_name?.trim()) return match.display_name.trim()
+      // oidc-google → Google-style fallback
+      const bare = key.replace(/^oidc[-_]?/, '')
+      if (bare.length === 0) return slug
+      return bare.charAt(0).toUpperCase() + bare.slice(1)
+    },
+    [oauthProviders],
+  )
+
+  const accountBadge = useMemo(() => {
+    const hasLocalPassword =
+      hasPassword ||
+      user.has_password === true ||
+      user.auth_provider === 'local'
+    const labels = linkedProviders.map(providerDisplayName)
+    const join = (names: string[]) =>
+      names.join(locale.startsWith('zh') ? '、' : ', ')
+
+    if (hasLocalPassword && linkedProviders.length > 0) {
+      const providersText = join(labels)
+      const text =
+        t.userModal.hybridAccountWithProviders?.replace(
+          '{providers}',
+          providersText,
+        ) ||
+        t.userModal.hybridAccount ||
+        `Local + ${providersText}`
+      const onlyGithub =
+        linkedProviders.length === 1 && linkedProviders[0] === 'github'
+      return {
+        kind: 'hybrid' as const,
+        text,
+        onlyGithub,
+      }
+    }
+
+    if (
+      user.auth_provider === 'github' ||
+      (linkedProviders.length === 1 &&
+        linkedProviders[0] === 'github' &&
+        !hasLocalPassword)
+    ) {
+      return { kind: 'github' as const, text: 'GitHub', onlyGithub: true }
+    }
+
+    if (
+      user.auth_provider === 'oidc' ||
+      (linkedProviders.length > 0 && !hasLocalPassword)
+    ) {
+      const text =
+        labels.length > 0
+          ? join(labels)
+          : t.userModal.oauthAccount || 'OAuth'
+      return { kind: 'oauth' as const, text, onlyGithub: false }
+    }
+
+    return {
+      kind: 'local' as const,
+      text: t.userModal.localAccount || 'Local',
+      onlyGithub: false,
+    }
+  }, [
+    hasPassword,
+    user.has_password,
+    user.auth_provider,
+    linkedProviders,
+    providerDisplayName,
+    locale,
+    t.userModal,
+  ])
 
   // 返回主页面，清空二级页面的临时状态
   const backToMain = () => {
     setPage('main')
     setOAuthError('')
     setPasswordError('')
+    setProfileSourceError('')
+    setProfileSelectingId(null)
+  }
+
+  const openProfileSource = () => {
+    if (identities.length === 0 && linkedProviders.length === 0) return
+    setProfileSourceError('')
+    setPage('profileSource')
+    void loadOAuthBindings()
+  }
+
+  const handleSelectProfileSource = async (identity: OAuthIdentity) => {
+    if (identity.is_primary || profileSelectingId != null) return
+    setProfileSourceError('')
+    setProfileSelectingId(identity.id)
+    try {
+      const csrfToken = await getCSRFToken()
+      if (!csrfToken) {
+        setProfileSourceError(t.userModal.cannotGetCsrf)
+        return
+      }
+      const response = await fetch(
+        `${API_URL}/api/auth/identities/${identity.id}/primary`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'X-CSRF-Token': csrfToken },
+        },
+      )
+      if (!response.ok) {
+        const body = await response.json().catch(() => null)
+        setProfileSourceError(
+          (typeof body?.message === 'string' && body.message) ||
+            (typeof body?.error === 'string' && body.error) ||
+            t.userModal.profileSourceFailed,
+        )
+        return
+      }
+      await loadOAuthBindings()
+      onProfileApplied?.()
+      setPage('main')
+    } catch {
+      setProfileSourceError(t.userModal.networkError)
+    } finally {
+      setProfileSelectingId(null)
+    }
   }
 
   // 解绑某个 OAuth identity
@@ -319,14 +503,21 @@ export const UserModal: FC<UserModalProps> = ({
     }
   }
 
-  const handleTappClick = (tappId: string) => {
+  const goFromPanel = (path: string) => {
     onClose()
-    navigate(`/tapp/run/${tappId}`)
+    if (onNavigateFromPanel) {
+      onNavigateFromPanel(path)
+    } else {
+      navigate(path)
+    }
+  }
+
+  const handleTappClick = (tappId: string) => {
+    goFromPanel(`/tapp/run/${tappId}`)
   }
 
   const handleViewAllTapps = () => {
-    onClose()
-    navigate('/tapp')
+    goFromPanel('/tapp')
   }
 
   return (
@@ -384,13 +575,86 @@ export const UserModal: FC<UserModalProps> = ({
               <h3 className="user-modal-page-title">
                 {page === 'oauth'
                   ? t.userModal.oauthBindings
-                  : hasPassword
-                    ? t.userModal.changePassword
-                    : t.userModal.setPassword}
+                  : page === 'profileSource'
+                    ? t.userModal.profileSourceTitle
+                    : hasPassword
+                      ? t.userModal.changePassword
+                      : t.userModal.setPassword}
               </h3>
             </div>
 
-            {page === 'oauth' ? (
+            {page === 'profileSource' ? (
+              <div className="user-modal-page-body">
+                <p className="user-modal-profile-source-hint">
+                  {t.userModal.profileSourceHint}
+                </p>
+                {oauthLoading && identities.length === 0 ? (
+                  <p className="user-modal-oauth-empty">…</p>
+                ) : identities.length === 0 ? (
+                  <p className="user-modal-oauth-empty">
+                    {t.userModal.profileSourceEmpty}
+                  </p>
+                ) : (
+                  <ul className="user-modal-profile-source-list">
+                    {identities.map((identity) => {
+                      const name = providerDisplayName(identity.provider)
+                      const avatar =
+                        identity.avatar_url ||
+                        `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                          identity.provider_username || name,
+                        )}&size=64&background=6366f1&color=fff`
+                      const selecting = profileSelectingId === identity.id
+                      return (
+                        <li key={identity.id}>
+                          <button
+                            type="button"
+                            className={`user-modal-profile-source-row ${identity.is_primary ? 'is-primary' : ''}`}
+                            disabled={selecting || profileSelectingId != null}
+                            onClick={() =>
+                              void handleSelectProfileSource(identity)
+                            }
+                          >
+                            <img
+                              src={avatar}
+                              alt=""
+                              className="user-modal-profile-source-avatar"
+                              onError={(e) => {
+                                e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&size=64&background=6366f1&color=fff`
+                              }}
+                            />
+                            <span className="user-modal-profile-source-info">
+                              <span className="user-modal-profile-source-name">
+                                {name}
+                                {identity.is_primary && (
+                                  <span className="user-modal-profile-source-current">
+                                    {t.userModal.profileSourceCurrent}
+                                  </span>
+                                )}
+                              </span>
+                              {identity.provider_username && (
+                                <span className="user-modal-profile-source-sub">
+                                  @{identity.provider_username}
+                                </span>
+                              )}
+                            </span>
+                            {selecting ? (
+                              <Spinner size="sm" />
+                            ) : identity.is_primary ? (
+                              <span className="user-modal-profile-source-check">
+                                ✓
+                              </span>
+                            ) : null}
+                          </button>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+                {profileSourceError && (
+                  <p className="user-modal-oauth-error">{profileSourceError}</p>
+                )}
+              </div>
+            ) : page === 'oauth' ? (
               <div className="user-modal-page-body">
                 {oauthLoading ? (
                   <p className="user-modal-oauth-empty">…</p>
@@ -582,16 +846,38 @@ export const UserModal: FC<UserModalProps> = ({
               {/* 装饰背景 */}
               <div className="user-modal-hero-bg" />
 
-              {/* 头像 - 居中 */}
+              {/* 头像：有 OAuth 绑定时可点击选择画像源 */}
               <div className="user-modal-avatar-wrapper">
-                <img
-                  src={userInfo.avatar}
-                  alt={userInfo.name}
-                  className="user-modal-avatar-lg"
-                  onError={(e) => {
-                    e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(userInfo.name)}&size=128&background=6366f1&color=fff`
-                  }}
-                />
+                {identities.length > 0 || linkedProviders.length > 0 ? (
+                  <button
+                    type="button"
+                    className="user-modal-avatar-btn"
+                    onClick={openProfileSource}
+                    title={t.userModal.profileSourceTitle}
+                    aria-label={t.userModal.profileSourceTitle}
+                  >
+                    <img
+                      src={userInfo.avatar}
+                      alt={userInfo.name}
+                      className="user-modal-avatar-lg"
+                      onError={(e) => {
+                        e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(userInfo.name)}&size=128&background=6366f1&color=fff`
+                      }}
+                    />
+                    <span className="user-modal-avatar-edit-hint">
+                      {t.userModal.profileSourceAvatarHint}
+                    </span>
+                  </button>
+                ) : (
+                  <img
+                    src={userInfo.avatar}
+                    alt={userInfo.name}
+                    className="user-modal-avatar-lg"
+                    onError={(e) => {
+                      e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(userInfo.name)}&size=128&background=6366f1&color=fff`
+                    }}
+                  />
+                )}
                 {/* 在线状态指示器 */}
                 <div className="user-modal-online-dot" />
               </div>
@@ -614,63 +900,30 @@ export const UserModal: FC<UserModalProps> = ({
                       </>
                     )}
                   </span>
-                  {/* 账户类型徽章 - 根据数据库记录正确判断 */}
-                  {/* 混合账户：auth_provider='local' + linked_github_id 存在 = 本地管理员绑定了 GitHub */}
-                  {user.auth_provider === 'local' && user.linked_github_id ? (
-                    // 混合账户（本地+GitHub绑定）- 显示特殊的混合标识
+                  {/* 账户类型：本地密码 + 任意 OAuth/OIDC 绑定 → 混合；否则按主 provider */}
+                  {accountBadge.kind === 'hybrid' ? (
                     <span className="user-modal-badge badge-hybrid">
-                      <svg
-                        className="w-3.5 h-3.5"
-                        fill="currentColor"
-                        viewBox="0 0 20 20"
-                      >
-                        <path
-                          fillRule="evenodd"
-                          d="M10 0C4.477 0 0 4.484 0 10.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0110 4.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.203 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.942.359.31.678.921.678 1.856 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0020 10.017C20 4.484 15.522 0 10 0z"
-                          clipRule="evenodd"
-                        />
-                      </svg>
-                      {t.userModal.hybridAccount || 'Local + GitHub'}
+                      {accountBadge.onlyGithub ? (
+                        <FaGithub size={13} className="inline" />
+                      ) : (
+                        <LuLink size={13} className="inline" />
+                      )}
+                      {accountBadge.text}
                     </span>
-                  ) : user.auth_provider === 'github' ? (
-                    // 纯 GitHub 用户
+                  ) : accountBadge.kind === 'github' ? (
                     <span className="user-modal-badge badge-github">
-                      <svg
-                        className="w-3.5 h-3.5"
-                        fill="currentColor"
-                        viewBox="0 0 20 20"
-                      >
-                        <path
-                          fillRule="evenodd"
-                          d="M10 0C4.477 0 0 4.484 0 10.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0110 4.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.203 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.942.359.31.678.921.678 1.856 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0020 10.017C20 4.484 15.522 0 10 0z"
-                          clipRule="evenodd"
-                        />
-                      </svg>
-                      GitHub
+                      <FaGithub size={13} className="inline" />
+                      {accountBadge.text}
                     </span>
-                  ) : user.auth_provider === 'oidc' ? (
-                    // OIDC 提供方（Google / Microsoft 等）创建的账户
+                  ) : accountBadge.kind === 'oauth' ? (
                     <span className="user-modal-badge badge-oauth">
                       <LuLink size={13} className="inline" />
-                      {t.userModal.oauthAccount}
+                      {accountBadge.text}
                     </span>
                   ) : (
-                    // 纯本地用户（未绑定 GitHub）
                     <span className="user-modal-badge badge-local">
-                      <svg
-                        className="w-3.5 h-3.5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-                        />
-                      </svg>
-                      Local
+                      <LuUser size={13} className="inline" />
+                      {accountBadge.text}
                     </span>
                   )}
                 </div>

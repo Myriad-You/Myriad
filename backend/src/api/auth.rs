@@ -112,7 +112,7 @@ pub async fn get_current_user(
                           ),
                           NULLIF(u.avatar_url, '')
                       ) AS avatar_url,
-                      u.github_id, u.linked_github_id, u.bio,
+                      u.github_id, u.linked_github_id, u.bio, u.display_name,
                       u.password_hash IS NOT NULL AS has_password
                FROM users u
                WHERE u.id = $1"#,
@@ -171,13 +171,14 @@ pub async fn get_current_user(
     let github_id: Option<i64> = user_row.try_get("", "github_id").ok();
     let linked_github_id: Option<i64> = user_row.try_get("", "linked_github_id").ok();
     let bio: Option<String> = user_row.try_get("", "bio").ok();
+    let display_name: Option<String> = user_row.try_get("", "display_name").ok();
     let has_password: bool = user_row.try_get("", "has_password").unwrap_or(false);
 
     Ok(Json(json!({
         "authenticated": true,
         "id": id,
         "username": username,
-        "display_name": username,
+        "display_name": display_name.filter(|s| !s.trim().is_empty()).unwrap_or(username.clone()),
         "auth_provider": auth_provider,
         "is_admin": is_admin,
         "is_owner": is_owner,

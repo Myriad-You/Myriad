@@ -1502,6 +1502,7 @@ export const zhCN: TranslationKeys = {
     githubLinked: '已绑定',
     githubNotLinked: '未绑定',
     hybridAccount: '本地 + GitHub',
+    hybridAccountWithProviders: '本地 + {providers}',
     bindGithub: '绑定 GitHub 账户',
     changePassword: '修改密码',
     currentPassword: '当前密码',
@@ -1543,6 +1544,13 @@ export const zhCN: TranslationKeys = {
     oauthUnbindFailed: '解绑失败',
     oauthNoProviders: '管理员尚未配置任何第三方登录方式',
     oauthNotConfigured: '该登录方式已停用',
+    profileSourceTitle: '选择画像信息源',
+    profileSourceHint:
+      '使用已绑定账号的头像与显示名。选择后将应用到本站个人资料。',
+    profileSourceEmpty: '还没有可选择的绑定账号。',
+    profileSourceCurrent: '当前',
+    profileSourceAvatarHint: '更换',
+    profileSourceFailed: '切换画像源失败',
   },
 
   // 小组件网格
