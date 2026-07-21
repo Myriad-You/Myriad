@@ -1734,7 +1734,9 @@ export default function BrewReader({
             <div
               ref={contentRef}
               className={`
-              prose prose-lg max-w-none ${currentTheme.text}
+              prose prose-lg max-w-none min-w-0 ${currentTheme.text}
+              /* 超长 URL / 无空格串不得撑破阅读器 */
+              break-words [overflow-wrap:anywhere]
 
               /* 标题 - 简洁无装饰 */
               prose-headings:font-semibold prose-headings:leading-snug
@@ -2036,6 +2038,7 @@ export default function BrewReader({
                 [&_.brewlia-annotation]:cursor-help [&_.brewlia-annotation]:rounded [&_.brewlia-annotation]:px-0.5
                 [&_.brewlia-annotation]:transition-all [&_.brewlia-annotation]:duration-200
                 [&_.brewlia-annotation]:border-b-2 [&_.brewlia-annotation]:border-dotted
+                [&_.brewlia-annotation]:break-words [&_.brewlia-annotation]:[overflow-wrap:anywhere]
                 [&_.brewlia-annotation[data-type="term"]]:text-orange-300 [&_.brewlia-annotation[data-type="term"]]:bg-orange-500/15 [&_.brewlia-annotation[data-type="term"]]:border-orange-400/50
                 [&_.brewlia-annotation[data-type="reference"]]:text-blue-300 [&_.brewlia-annotation[data-type="reference"]]:bg-blue-500/15 [&_.brewlia-annotation[data-type="reference"]]:border-blue-400/50
                 [&_.brewlia-annotation[data-type="implicit"]]:text-purple-300 [&_.brewlia-annotation[data-type="implicit"]]:bg-purple-500/15 [&_.brewlia-annotation[data-type="implicit"]]:border-purple-400/50
@@ -2264,6 +2267,7 @@ export default function BrewReader({
                 [&_.brewlia-annotation]:cursor-help [&_.brewlia-annotation]:rounded [&_.brewlia-annotation]:px-0.5
                 [&_.brewlia-annotation]:transition-all [&_.brewlia-annotation]:duration-200
                 [&_.brewlia-annotation]:border-b-2 [&_.brewlia-annotation]:border-dotted
+                [&_.brewlia-annotation]:break-words [&_.brewlia-annotation]:[overflow-wrap:anywhere]
                 [&_.brewlia-annotation[data-type="term"]]:text-orange-700 [&_.brewlia-annotation[data-type="term"]]:bg-orange-100 [&_.brewlia-annotation[data-type="term"]]:border-orange-400
                 [&_.brewlia-annotation[data-type="reference"]]:text-blue-700 [&_.brewlia-annotation[data-type="reference"]]:bg-blue-100 [&_.brewlia-annotation[data-type="reference"]]:border-blue-400
                 [&_.brewlia-annotation[data-type="implicit"]]:text-purple-700 [&_.brewlia-annotation[data-type="implicit"]]:bg-purple-100 [&_.brewlia-annotation[data-type="implicit"]]:border-purple-400

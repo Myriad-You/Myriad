@@ -562,23 +562,23 @@ export default memo(
                                 : `${isDark ? 'hover:bg-white/5' : 'hover:bg-black/2'}`
                             }`}
                           >
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
                               <span
-                                className={`text-xs px-1 py-0.5 rounded ${typeConfig.bgColor} ${typeConfig.color} shrink-0`}
+                                className={`text-xs px-1 py-0.5 rounded ${typeConfig.bgColor} ${typeConfig.color} shrink-0 whitespace-nowrap`}
                               >
-                                {typeConfig.icon}
+                                {typeConfig.label}
                               </span>
                               <span
-                                className={`text-sm font-medium ${currentTheme.text} truncate`}
+                                className={`text-sm font-medium ${currentTheme.text} min-w-0 flex-1 truncate`}
                               >
                                 {annotation.term}
                               </span>
                               <ArrowRight
-                                className={`w-3 h-3 ${currentTheme.secondary} opacity-0 group-hover:opacity-100 transition-opacity shrink-0 ml-auto`}
+                                className={`w-3 h-3 ${currentTheme.secondary} opacity-0 group-hover:opacity-100 transition-opacity shrink-0`}
                               />
                             </div>
                             <p
-                              className={`text-xs ${currentTheme.secondary} mt-1 ${isSelected ? '' : 'line-clamp-1'}`}
+                              className={`text-xs ${currentTheme.secondary} mt-1 break-words [overflow-wrap:anywhere] ${isSelected ? '' : 'line-clamp-1'}`}
                             >
                               {annotation.explanation}
                             </p>

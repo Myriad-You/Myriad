@@ -637,23 +637,23 @@ export const MobileReaderBar = memo(
                                     : `${isDark ? 'bg-white/5 hover:bg-white/10' : 'bg-black/2 hover:bg-black/5'}`
                                 }`}
                               >
-                                <div className="flex items-center gap-2 mb-1">
+                                <div className="flex items-center gap-2 mb-1 min-w-0">
                                   <span
-                                    className={`text-xs px-1.5 py-0.5 rounded ${typeConfig.bgColor} ${typeConfig.color} shrink-0`}
+                                    className={`text-xs px-1.5 py-0.5 rounded ${typeConfig.bgColor} ${typeConfig.color} shrink-0 whitespace-nowrap`}
                                   >
-                                    {typeConfig.icon}
+                                    {typeConfig.label}
                                   </span>
                                   <span
-                                    className={`text-sm font-medium ${currentTheme.text}`}
+                                    className={`text-sm font-medium ${currentTheme.text} min-w-0 flex-1 truncate`}
                                   >
                                     {annotation.term}
                                   </span>
                                   <ArrowRight
-                                    className={`w-3 h-3 ${currentTheme.secondary} ml-auto shrink-0`}
+                                    className={`w-3 h-3 ${currentTheme.secondary} shrink-0`}
                                   />
                                 </div>
                                 <p
-                                  className={`text-xs ${currentTheme.secondary} leading-relaxed ${isSelected ? '' : 'line-clamp-2'}`}
+                                  className={`text-xs ${currentTheme.secondary} leading-relaxed break-words [overflow-wrap:anywhere] ${isSelected ? '' : 'line-clamp-2'}`}
                                 >
                                   {annotation.explanation}
                                 </p>

@@ -71,7 +71,7 @@ export function AnnotationTooltip({
               ? { duration: 0.15, ease: [0.22, 1, 0.36, 1] }
               : undefined
           }
-          className={`fixed z-50 max-w-xs px-3 py-2.5 rounded-xl shadow-xl border ${currentTheme.border} ${currentTheme.surfaceSolid}`}
+          className={`fixed z-50 max-w-xs w-max min-w-0 px-3 py-2.5 rounded-xl shadow-xl border ${currentTheme.border} ${currentTheme.surfaceSolid}`}
           style={{
             left: Math.max(
               16,
@@ -81,11 +81,13 @@ export function AnnotationTooltip({
             x: '-50%',
             y: '-100%',
             pointerEvents: 'none' as const,
+            // 长词 / URL 编码串不得撑破视口
+            maxWidth: 'min(20rem, calc(100vw - 2rem))',
           }}
         >
-          <div className="flex items-center gap-2 mb-1.5">
+          <div className="flex items-center gap-2 mb-1.5 min-w-0">
             <span
-              className={`text-xs px-1.5 py-0.5 rounded shrink-0 ${
+              className={`text-xs px-1.5 py-0.5 rounded shrink-0 whitespace-nowrap ${
                 brewliaApi.ANNOTATION_TYPE_CONFIG[hoveredAnnotation.type]
                   ?.bgColor || 'bg-gray-100'
               } ${
@@ -93,19 +95,19 @@ export function AnnotationTooltip({
                   ?.color || 'text-gray-600'
               }`}
             >
-              {brewliaApi.ANNOTATION_TYPE_CONFIG[
-                hoveredAnnotation.type
-              ]?.label?.slice(0, 1) || ''}{' '}
+              {/* 只显示完整类型名，不要 label[0] + label 造成「背 背景」 */}
               {brewliaApi.ANNOTATION_TYPE_CONFIG[hoveredAnnotation.type]
                 ?.label || t.brew.annotationFallback}
             </span>
             <span
-              className={`text-sm font-medium ${currentTheme.text} truncate`}
+              className={`text-sm font-medium ${currentTheme.text} min-w-0 flex-1 truncate`}
             >
               {hoveredAnnotation.term}
             </span>
           </div>
-          <p className={`text-xs ${currentTheme.secondary} leading-relaxed`}>
+          <p
+            className={`text-xs ${currentTheme.secondary} leading-relaxed break-words [overflow-wrap:anywhere]`}
+          >
             {hoveredAnnotation.explanation}
           </p>
           {/* 小三角指示器 */}
