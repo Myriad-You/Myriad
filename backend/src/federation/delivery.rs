@@ -1428,6 +1428,29 @@ mod tests {
             classify_retry_status("delivering"),
             RetryStatusDecision::InProgress
         );
+        // Legacy / soft statuses: allow requeue (single-id path).
+        assert_eq!(
+            classify_retry_status("failed"),
+            RetryStatusDecision::Allow
+        );
+        assert_eq!(
+            classify_retry_status("cancelled"),
+            RetryStatusDecision::Allow
+        );
+    }
+
+    #[test]
+    fn single_retry_may_surface_revived_cancelled_flag() {
+        // Contract for retry_delivery_item response shaping (no DB):
+        // bulk retry-all skips cancelled; single-id may revive and should flag it.
+        assert!(is_user_cancelled_delivery_error(Some("cancelled: by user")));
+        // Non-cancelled dead letters must not set revived_cancelled.
+        assert!(!is_user_cancelled_delivery_error(Some(
+            "PERMANENT HTTP 401: signature failed"
+        )));
+        assert!(!is_user_cancelled_delivery_error(Some(
+            "suite seeded dead"
+        )));
     }
 
     #[test]

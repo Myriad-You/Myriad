@@ -1309,5 +1309,16 @@ mod tests {
         assert!(!rotation_confirm_accepted(&serde_json::json!({"confirm": false})));
         assert!(!rotation_confirm_accepted(&serde_json::json!({"confirm": "yes"})));
         assert!(rotation_confirm_accepted(&serde_json::json!({"confirm": true})));
+        // Nested / wrong-type must never pass (bridge/UI mistakes).
+        assert!(!rotation_confirm_accepted(&serde_json::json!({
+            "confirm": {"nested": true}
+        })));
+        assert!(!rotation_confirm_accepted(&serde_json::json!({"confirm": 1})));
+        assert!(!rotation_confirm_accepted(&serde_json::json!({"confirm": null})));
+        // Extra fields OK as long as confirm:true is present.
+        assert!(rotation_confirm_accepted(&serde_json::json!({
+            "confirm": true,
+            "reason": "compromised laptop"
+        })));
     }
 }

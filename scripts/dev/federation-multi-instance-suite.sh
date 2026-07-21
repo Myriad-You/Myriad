@@ -14,6 +14,15 @@
 #   DB_A/DB_B    postgres database names (default myriad_fed_a / myriad_fed_b)
 # Concurrent agents: use distinct PORT_* + DB_* + SCRATCH_DIR to avoid
 # SIGTERM/DB-reset collisions (shared defaults are not multi-tenant).
+#
+# Example isolation (AO multi-worker):
+#   PORT_A=18180 PORT_B=18181 PORT_C=18182 \
+#   DB_A=myriad_fed_173_a DB_B=myriad_fed_173_b \
+#   SCRATCH_DIR=/tmp/fed-suite-173 \
+#   ./scripts/dev/federation-multi-instance-suite.sh run
+#
+# Cancelled dead-letters (error_message LIKE 'cancelled:%') must not fail
+# delivery wait loops; bulk retry-dead skips them (single-id retry may revive).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"

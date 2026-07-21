@@ -546,6 +546,32 @@ mod tests {
             federation_permission(&Method::POST, "/api/federation/delivery/cancel-pending"),
             Some(TappPermission::FederationWrite)
         );
+        // Delivery observability stays read; mutations stay write.
+        assert_eq!(
+            federation_permission(&Method::GET, "/api/federation/delivery/stats"),
+            Some(TappPermission::FederationRead)
+        );
+        assert_eq!(
+            federation_permission(&Method::GET, "/api/federation/delivery"),
+            Some(TappPermission::FederationRead)
+        );
+        assert_eq!(
+            federation_permission(&Method::POST, "/api/federation/delivery/retry-dead"),
+            Some(TappPermission::FederationWrite)
+        );
+        assert_eq!(
+            federation_permission(&Method::POST, "/api/federation/delivery/{id}/retry"),
+            Some(TappPermission::FederationWrite)
+        );
+        assert_eq!(
+            federation_permission(&Method::POST, "/api/federation/delivery/{id}/cancel"),
+            Some(TappPermission::FederationWrite)
+        );
+        // GET identity is read (rotate is the only key mutation surface).
+        assert_eq!(
+            federation_permission(&Method::GET, "/api/federation/identity"),
+            Some(TappPermission::FederationRead)
+        );
     }
 
     #[test]
