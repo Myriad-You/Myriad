@@ -1661,4 +1661,14 @@ mod tests {
         );
 
     }
+
+    #[test]
+    fn w175_extract_object_id_trims() {
+        assert_eq!(
+            extract_object_id(&serde_json::json!("  https://a.example/notes/1  ")).as_deref(),
+            Some("https://a.example/notes/1")
+        );
+        assert!(extract_object_id(&serde_json::json!("")).is_none());
+
+    }
 }
