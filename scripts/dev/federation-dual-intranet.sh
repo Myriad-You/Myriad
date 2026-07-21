@@ -201,8 +201,10 @@ run_full_chain() {
   local jar_a="$SCRATCH_DIR/cookies-a${tag}.jar"
   local jar_b="$SCRATCH_DIR/cookies-b${tag}.jar"
   : >"$chain_log"
-  # Log to chain file and stdout; fail if the chain body fails (pipefail + PIPESTATUS).
-  {
+  # Capture body exit status under pipefail (do not mask failures with tee).
+  set +e
+  (
+    set -euo pipefail
     echo "=== full-chain${tag} mode=${mode} start $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
     echo "BASE_A=$BASE_A BASE_B=$BASE_B"
 
@@ -303,8 +305,9 @@ run_full_chain() {
     fi
 
     echo "=== full-chain${tag} OK ==="
-  } > >(tee -a "$chain_log") 2>&1
-  local chain_rc=${PIPESTATUS[0]:-0}
+  ) 2>&1 | tee -a "$chain_log"
+  local chain_rc=${PIPESTATUS[0]}
+  set -euo pipefail
   [[ "$chain_rc" -eq 0 ]] || die "full-chain${tag} failed (rc=$chain_rc); see $chain_log"
 
   # Fail if key error string appears without recovery in chain log itself
@@ -352,6 +355,17 @@ main() {
 
   create_admin "$BASE_A" "$ADMIN_USER_A"
   create_admin "$BASE_B" "$ADMIN_USER_B"
+
+  # Wait until federation schema is visible (migrator races with first admin create).
+  for i in $(seq 1 30); do
+    if sql_a "SELECT 1 FROM federation_keys LIMIT 0;" >/dev/null 2>&1 \
+      && sql_b "SELECT 1 FROM federation_keys LIMIT 0;" >/dev/null 2>&1; then
+      log "federation_keys tables ready"
+      break
+    fi
+    sleep 1
+    [[ "$i" -eq 30 ]] && die "federation_keys table never appeared"
+  done
 
   # Also ensure B has keys (actor GET) before follow — A will fetch actor too
   curl -fsS -H 'Accept: application/activity+json' "$BASE_B/users/${ADMIN_USER_B}" >/dev/null
