@@ -4906,4 +4906,11 @@ mod tests {
         assert!(!is_admin_role(""));
 
     }
+
+    #[test]
+    fn w175_fallback_room_name() {
+        assert_eq!(fallback_room_name("rm_abcdefghij"), "Room rm_abcde");
+        assert_eq!(fallback_room_name("short"), "Room short");
+
+    }
 }
