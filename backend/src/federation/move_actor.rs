@@ -1728,4 +1728,22 @@ mod tests {
         assert!(!url_is_under_base("https://a.example/x", ""));
 
     }
+
+    #[test]
+    fn w175_rewrite_url_preserves_path() {
+        assert_eq!(
+            rewrite_url_if_local(
+                "https://old.example/users/alice/inbox",
+                "https://old.example",
+                "https://new.example",
+            ).as_deref(),
+            Some("https://new.example/users/alice/inbox")
+        );
+        assert!(rewrite_url_if_local(
+            "https://foreign.example/users/alice",
+            "https://old.example",
+            "https://new.example",
+        ).is_none());
+
+    }
 }
