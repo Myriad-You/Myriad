@@ -4913,4 +4913,13 @@ mod tests {
         assert_eq!(fallback_room_name("short"), "Room short");
 
     }
+
+    #[test]
+    fn w175_public_transition_one_way() {
+        assert!(validate_public_transition(true, Some(false)).is_err());
+        assert!(validate_public_transition(true, Some(true)).is_ok());
+        assert!(validate_public_transition(false, Some(true)).is_ok());
+        assert!(validate_public_transition(false, None).is_ok());
+
+    }
 }
