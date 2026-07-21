@@ -1029,7 +1029,19 @@ async fn force_store_new_keys(
     .await
     .map_err(|e| format!("Failed to store rotated keys: {}", e))?;
 
-    Ok((pub_pem, kid))
+    // Concurrent rotates: last writer wins. Return DB winner so Update(Person)
+    // and the API response match what peers will fetch / what delivery signs with.
+    match load_stored_federation_keys(db, user_id).await? {
+        Some((stored_pem, stored_kid)) if !needs_federation_key_generation(Some(&stored_pem)) => {
+            let resolved_kid = if stored_kid.trim().is_empty() {
+                kid
+            } else {
+                stored_kid
+            };
+            Ok((stored_pem, resolved_kid))
+        }
+        _ => Ok((pub_pem, kid)),
+    }
 }
 
 /// Enqueue Update(Person) to incoming followers with the new publicKey.

@@ -1118,6 +1118,52 @@ case_deploy_retry_dead() {
   echo "deploy_retry_dead ok pending_after=$pending" >>"$SUITE_LOG"
 }
 
+case_deploy_keys_rotate() {
+  # Explicit rotate: PEM changes, ensure does not re-rotate, outbound still delivers.
+  local jar_a="$JAR_A"
+  api_get "$BASE_A" "$jar_a" /api/federation/identity >/dev/null
+  local pem_before
+  pem_before=$(sql_a "SELECT public_key_pem FROM federation_keys WHERE user_id=1;")
+  [[ -n "$pem_before" ]] || die "no PEM before rotate"
+  api POST "$BASE_A" "$jar_a" /api/federation/keys/rotate '{"confirm":true}' \
+    >"$SCRATCH_DIR/deploy-keys-rotate.json" \
+    || die "keys/rotate failed: $(cat "$SCRATCH_DIR/deploy-keys-rotate.json" 2>/dev/null || true)"
+  local pem_after
+  pem_after=$(sql_a "SELECT public_key_pem FROM federation_keys WHERE user_id=1;")
+  [[ -n "$pem_after" ]] || die "no PEM after rotate"
+  [[ "$pem_before" != "$pem_after" ]] || die "rotate did not change public PEM"
+  # ensure / identity must not rotate again
+  api_get "$BASE_A" "$jar_a" /api/federation/identity >/dev/null
+  local pem_ensure
+  pem_ensure=$(sql_a "SELECT public_key_pem FROM federation_keys WHERE user_id=1;")
+  [[ "$pem_ensure" == "$pem_after" ]] || die "ensure after rotate changed PEM"
+  # Outbound with new key: clear B cache + re-follow so B fetches fresh actor publicKey
+  sql_b "DELETE FROM federation_remote_actors WHERE actor_url LIKE '%/users/${ADMIN_USER_A}%';" >/dev/null || true
+  clear_queue a
+  api POST "$BASE_A" "$jar_a" /api/federation/unfollow "{\"target\":\"${ACTOR_B}\"}" >/dev/null || true
+  sleep 1
+  clear_queue a
+  api POST "$BASE_A" "$jar_a" /api/federation/follow "{\"target\":\"${ACTOR_B}\"}" \
+    >"$SCRATCH_DIR/deploy-keys-rotate-follow.json"
+  for i in $(seq 1 40); do
+    nudge_delivery a
+    pend=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status IN ('pending','delivering');" || echo 0)
+    dead=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='dead';" || echo 0)
+    del=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='delivered';" || echo 0)
+    echo "  keys_rotate t=$i pending=$pend delivered=$del dead=$dead"
+    if [[ "${dead:-0}" -ge 1 ]]; then
+      err=$(sql_a "SELECT error_message FROM federation_delivery_queue WHERE status='dead' ORDER BY id DESC LIMIT 1;")
+      die "post-rotate outbound dead: $err"
+    fi
+    [[ "${pend:-0}" -eq 0 && "${del:-0}" -ge 1 ]] && break
+    sleep 1
+  done
+  pend=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status IN ('pending','delivering');" || echo 0)
+  del=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='delivered';" || echo 0)
+  [[ "${pend:-0}" -eq 0 && "${del:-0}" -ge 1 ]] || die "post-rotate outbound not delivered"
+  echo "deploy_keys_rotate ok" >>"$SUITE_LOG"
+}
+
 case_deploy_ssrf_lab_flag_off() {
   # Deploy safety: without lab flag, private inbox delivery must be refused.
   # cargo test accepts a single filter; run two shipped unit tests.
@@ -1249,6 +1295,8 @@ main() {
   sleep 1
   # Deploy scenarios BEFORE domain_move (move retargets key_id; BASE_URL must follow)
   run_case "deploy_cold_keys_before_outbound" case_deploy_cold_keys_before_outbound
+  sleep 1
+  run_case "deploy_keys_rotate" case_deploy_keys_rotate
   sleep 1
   run_case "deploy_jwt_mismatch_no_rotate" case_deploy_jwt_mismatch_no_rotate
   sleep 1
