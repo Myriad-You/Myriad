@@ -37,6 +37,8 @@ pub struct Evaluation {
     pub suggests_expand_scope: bool,
     /// 建议优先使用本地能力（brew.page / search.fuzzy 等）
     pub suggests_local_alternatives: bool,
+    /// 本地 notFound 返回的可重试实体建议（源名/作者等），replan 应优先用这些值重试 brew
+    pub suggested_retry_values: Vec<String>,
     /// 建议的改进方向
     pub improvement_hints: Vec<String>,
     /// 检测到的失败模式
@@ -72,6 +74,7 @@ impl Default for Evaluation {
             suggests_web_search: false,
             suggests_expand_scope: false,
             suggests_local_alternatives: false,
+            suggested_retry_values: Vec::new(),
             improvement_hints: Vec::new(),
             failure_patterns: Vec::new(),
         }
@@ -139,11 +142,16 @@ impl ResultEvaluator {
         result: &Value,
         ctx: &EvaluationContext,
     ) {
+        // 提取 notFound 建议值（无论是否本地域，供 replan 使用）
+        eval.suggested_retry_values = self.extract_suggested_retry_values(result);
+
         let is_stub = eval
             .failure_patterns
             .contains(&FailurePattern::StubOrHollowSuccess)
             || self.has_stub_markers(result);
         let is_local = self.is_local_data_domain(&ctx.capability_ids);
+        // generateReadingList 空结果默认本地域：禁止空→web cascade（除非 allow_web_search）
+        let is_reading_list_empty = self.is_generate_reading_list_empty(result, &ctx.capability_ids);
 
         if is_stub {
             eval.suggests_web_search = false;
@@ -157,10 +165,35 @@ impl ResultEvaluator {
             return;
         }
 
-        if is_local && !ctx.allow_web_search {
+        // notFound + 实体建议：优先用建议值重试 brew，绝不 webSearch
+        if !eval.suggested_retry_values.is_empty()
+            && (is_local
+                || ctx
+                    .capability_ids
+                    .iter()
+                    .any(|id| id.starts_with("brew."))
+                || ctx.capability_ids.is_empty())
+        {
             eval.suggests_web_search = false;
             eval.suggests_local_alternatives = true;
             eval.suggests_expand_scope = true;
+            eval.improvement_hints
+                .push(self.suggestion_retry_hint(&eval.suggested_retry_values, &ctx.capability_ids));
+            eval.improvement_hints
+                .extend(self.local_data_hints(&ctx.capability_ids));
+            return;
+        }
+
+        if (is_local || is_reading_list_empty) && !ctx.allow_web_search {
+            eval.suggests_web_search = false;
+            eval.suggests_local_alternatives = true;
+            eval.suggests_expand_scope = true;
+            if is_reading_list_empty {
+                eval.improvement_hints.push(
+                    "brew.generateReadingList 本地无匹配：请放宽 keyword/daysBack、改用 brew.items / search.fuzzy，或引导订阅更多源；禁止空结果级联到 ai.webSearch（除非参数 allowWebSearch=true）"
+                        .to_string(),
+                );
+            }
             eval.improvement_hints
                 .extend(self.local_data_hints(&ctx.capability_ids));
             return;
@@ -170,6 +203,111 @@ impl ResultEvaluator {
         eval.suggests_web_search = true;
         eval.improvement_hints
             .push("本地数据不足，尝试联网搜索".to_string());
+    }
+
+    /// generateReadingList 空阅读列表（含无能力上下文但结构匹配）
+    fn is_generate_reading_list_empty(&self, result: &Value, capability_ids: &[String]) -> bool {
+        let cap_is_grl = capability_ids
+            .iter()
+            .any(|id| id == "brew.generateReadingList");
+        let looks_like_grl = result
+            .as_object()
+            .map(|o| o.contains_key("readingList") || o.contains_key("totalMatched"))
+            .unwrap_or(false);
+        if !(cap_is_grl || looks_like_grl) {
+            return false;
+        }
+        if let Some(obj) = result.as_object() {
+            if let Some(Value::Array(arr)) = obj.get("readingList") {
+                if arr.is_empty() {
+                    return true;
+                }
+            }
+            if let Some(n) = obj.get("totalMatched").and_then(|v| v.as_i64()) {
+                if n == 0 {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// 从 notFound / ambiguous 结果提取可重试的实体建议（源名、作者等）
+    pub fn extract_suggested_retry_values(&self, result: &Value) -> Vec<String> {
+        let Some(obj) = result.as_object() else {
+            return Vec::new();
+        };
+
+        let mut values = Vec::new();
+
+        // choices[].value 优先（结构化）
+        if let Some(choices) = obj.get("choices").and_then(|v| v.as_array()) {
+            for c in choices {
+                if let Some(v) = c.get("value").and_then(|v| v.as_str()) {
+                    let v = v.trim();
+                    if !v.is_empty() && Self::is_entity_suggestion(v) {
+                        values.push(v.to_string());
+                    }
+                }
+            }
+        }
+
+        // suggestions: string 数组（源名/作者），过滤掉操作提示类长句
+        if let Some(sugs) = obj.get("suggestions").and_then(|v| v.as_array()) {
+            for s in sugs {
+                if let Some(s) = s.as_str() {
+                    let s = s.trim();
+                    if !s.is_empty() && Self::is_entity_suggestion(s) {
+                        if !values.iter().any(|existing| existing == s) {
+                            values.push(s.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        values.truncate(5);
+        values
+    }
+
+    /// 判断 suggestions 项是否为可重试实体名（而非「检查 API Key」类操作提示）
+    fn is_entity_suggestion(s: &str) -> bool {
+        let t = s.trim();
+        if t.is_empty() {
+            return false;
+        }
+        // 操作提示通常较长
+        if t.chars().count() > 40 {
+            return false;
+        }
+        let lower = t.to_lowercase();
+        const TIP_MARKERS: &[&str] = &[
+            "检查",
+            "尝试",
+            "订阅更多",
+            "api key",
+            "api",
+            "配置",
+            "gemini",
+            "更换关键词",
+            "请提供",
+            "未返回",
+            "联网",
+        ];
+        !TIP_MARKERS.iter().any(|m| lower.contains(m))
+    }
+
+    /// replan 提示：用建议值重试 brew，而不是 webSearch
+    fn suggestion_retry_hint(&self, values: &[String], capability_ids: &[String]) -> String {
+        let joined = values.join(" / ");
+        let cap = capability_ids
+            .iter()
+            .find(|id| id.starts_with("brew."))
+            .map(|s| s.as_str())
+            .unwrap_or("brew.items");
+        format!(
+            "前次 {cap} 返回 notFound 且已有相近建议；请用同一 brew 能力重试，参数 sourceName/name/query/author 设为建议值之一：{joined}。禁止改用 ai.webSearch / ai.groundingSearch"
+        )
     }
 
     /// 本地数据域能力：brew.* / platform.* / search.fuzzy 等
@@ -320,6 +458,13 @@ impl ResultEvaluator {
                     return true;
                 }
             }
+
+            // brew.generateReadingList
+            if let Some(Value::Array(arr)) = obj.get("readingList") {
+                if arr.is_empty() {
+                    return true;
+                }
+            }
         }
 
         matches!(result, Value::Array(arr) if arr.is_empty())
@@ -462,8 +607,8 @@ impl ResultEvaluator {
                 }
             }
 
-            // 检查 resultCount
-            if let Some(count) = obj.get("resultCount") {
+            // 检查 resultCount / totalMatched
+            if let Some(count) = obj.get("resultCount").or_else(|| obj.get("totalMatched")) {
                 if let Some(n) = count.as_i64() {
                     if n == 0 {
                         return true;
@@ -481,16 +626,25 @@ impl ResultEvaluator {
             Value::Array(arr) => arr.len(),
             Value::Object(obj) => {
                 // 优先检查数组类型的字段
-                for key in &["items", "results", "data", "records", "entries", "sources"] {
+                for key in &[
+                    "items",
+                    "results",
+                    "data",
+                    "records",
+                    "entries",
+                    "sources",
+                    "readingList",
+                ] {
                     if let Some(Value::Array(arr)) = obj.get(*key) {
                         return arr.len();
                     }
                 }
 
-                // 检查 total/count 字段
+                // 检查 total/count/totalMatched 字段
                 if let Some(n) = obj
                     .get("total")
                     .or_else(|| obj.get("count"))
+                    .or_else(|| obj.get("totalMatched"))
                     .and_then(|v| v.as_u64())
                 {
                     return n as usize;
@@ -865,7 +1019,143 @@ mod tests {
         assert!(ResultEvaluator::is_local_data_capability("brew.items"));
         assert!(ResultEvaluator::is_local_data_capability("platform.read"));
         assert!(ResultEvaluator::is_local_data_capability("search.fuzzy"));
+        assert!(ResultEvaluator::is_local_data_capability("brew.generateReadingList"));
         assert!(!ResultEvaluator::is_local_data_capability("ai.webSearch"));
         assert!(!ResultEvaluator::is_local_data_capability("ai.image"));
+    }
+
+    #[test]
+    fn test_generate_reading_list_empty_does_not_cascade_to_web() {
+        let evaluator = ResultEvaluator::new();
+        let result = json!({
+            "readingList": [],
+            "totalMatched": 0,
+            "listName": "政治",
+            "criteria": "政治",
+            "message": "未找到符合条件的文章",
+            "suggestions": [
+                "检查 Gemini API Key 是否已配置",
+                "尝试更换关键词",
+                "订阅更多相关的 RSS 源"
+            ]
+        });
+        let ctx = EvaluationContext {
+            capability_ids: vec!["brew.generateReadingList".into()],
+            allow_web_search: false,
+        };
+        let eval = evaluator.evaluate_with_context(&result, &ctx);
+
+        assert!(!eval.is_satisfied);
+        assert!(
+            !eval.suggests_web_search,
+            "generateReadingList 空结果不得级联 webSearch: hints={:?}",
+            eval.improvement_hints
+        );
+        assert!(eval.suggests_local_alternatives);
+        // 操作提示不应被当成实体重试值
+        assert!(
+            eval.suggested_retry_values.is_empty(),
+            "API/配置类 tips 不是 brew 实体建议: {:?}",
+            eval.suggested_retry_values
+        );
+        let joined = eval.improvement_hints.join(" ");
+        assert!(
+            joined.contains("generateReadingList") || joined.contains("brew.items"),
+            "应提示本地 brew 路径: {:?}",
+            eval.improvement_hints
+        );
+    }
+
+    #[test]
+    fn test_generate_reading_list_empty_structure_without_cap_id() {
+        let evaluator = ResultEvaluator::new();
+        let result = json!({
+            "readingList": [],
+            "totalMatched": 0,
+            "message": "未找到符合条件的文章"
+        });
+        // 无 capability 上下文时仍按 readingList 结构门控
+        let eval = evaluator.evaluate_result(&result);
+        assert!(!eval.is_satisfied);
+        assert!(!eval.suggests_web_search);
+        assert!(eval.suggests_local_alternatives);
+    }
+
+    #[test]
+    fn test_not_found_with_suggestions_prefers_brew_retry() {
+        let evaluator = ResultEvaluator::new();
+        // 与 brew.items 未命中时返回形状一致
+        let result = json!({
+            "items": [],
+            "total": 0,
+            "notFound": true,
+            "searchedFor": "天利",
+            "ambiguous": true,
+            "suggestions": ["天利一下", "天利博客"],
+            "choices": [
+                { "value": "天利一下", "label": "天利一下" },
+                { "value": "天利博客", "label": "天利博客" }
+            ],
+            "hint": "你是不是想找: 天利一下, 天利博客?"
+        });
+        let ctx = EvaluationContext {
+            capability_ids: vec!["brew.items".into()],
+            allow_web_search: false,
+        };
+        let eval = evaluator.evaluate_with_context(&result, &ctx);
+
+        assert!(!eval.is_satisfied);
+        assert!(!eval.suggests_web_search, "有本地建议时禁止 webSearch");
+        assert!(eval.suggests_local_alternatives);
+        assert_eq!(
+            eval.suggested_retry_values,
+            vec!["天利一下".to_string(), "天利博客".to_string()]
+        );
+        let joined = eval.improvement_hints.join(" ");
+        assert!(
+            joined.contains("天利一下") && joined.contains("sourceName"),
+            "replan 应要求用建议值重试 brew: {:?}",
+            eval.improvement_hints
+        );
+        assert!(
+            joined.contains("禁止") && joined.contains("webSearch"),
+            "必须明确禁止 webSearch: {:?}",
+            eval.improvement_hints
+        );
+    }
+
+    #[test]
+    fn test_not_found_suggestions_override_allow_web_when_entity_present() {
+        // 即便 allow_web_search=true，本地 notFound+实体建议仍优先 brew 重试（不烧 key）
+        let evaluator = ResultEvaluator::new();
+        let result = json!({
+            "items": [],
+            "total": 0,
+            "notFound": true,
+            "suggestions": ["MyFeed"],
+            "choices": [{ "value": "MyFeed", "label": "MyFeed" }]
+        });
+        let ctx = EvaluationContext {
+            capability_ids: vec!["brew.items".into()],
+            allow_web_search: true,
+        };
+        let eval = evaluator.evaluate_with_context(&result, &ctx);
+
+        assert!(!eval.suggests_web_search);
+        assert_eq!(eval.suggested_retry_values, vec!["MyFeed".to_string()]);
+    }
+
+    #[test]
+    fn test_extract_suggested_retry_values_filters_tips() {
+        let evaluator = ResultEvaluator::new();
+        let result = json!({
+            "suggestions": [
+                "检查 Gemini API Key 是否已配置",
+                "zhilu",
+                "尝试更换关键词"
+            ]
+        });
+        let values = evaluator.extract_suggested_retry_values(&result);
+        assert_eq!(values, vec!["zhilu".to_string()]);
     }
 }

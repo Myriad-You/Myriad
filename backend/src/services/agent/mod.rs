@@ -1134,6 +1134,20 @@ impl Agent {
         if let Some(reason) = &eval.reason {
             hints.push(format!("失败原因：{}", reason));
         }
+        // notFound 建议值：replan 最高优先 — 用建议值重试 brew，禁止 webSearch
+        if !eval.suggested_retry_values.is_empty() {
+            let joined = eval.suggested_retry_values.join(" / ");
+            let brew_cap = ctx
+                .capability_ids
+                .iter()
+                .find(|id| id.starts_with("brew."))
+                .map(|s| s.as_str())
+                .unwrap_or("brew.items");
+            hints.push(format!(
+                "【最高优先】用 {} 重试，将 sourceName/name/query/author 设为建议值之一：{}。不要使用 ai.webSearch",
+                brew_cap, joined
+            ));
+        }
         for hint in &eval.improvement_hints {
             hints.push(hint.clone());
         }
@@ -1141,11 +1155,11 @@ impl Agent {
             hints.push("请尝试联网搜索能力（ai.webSearch 或 ai.groundingSearch）".to_string());
         } else if eval.suggests_local_alternatives {
             // 本地 brew miss：强制 replan 走 brew.page / search.fuzzy / brew.items
-            if !eval
+            let already_forbids = eval
                 .improvement_hints
                 .iter()
-                .any(|h| h.contains("禁止使用 ai.webSearch"))
-            {
+                .any(|h| h.contains("禁止使用 ai.webSearch") || h.contains("禁止改用 ai.webSearch"));
+            if !already_forbids {
                 hints.push(
                     "禁止使用 ai.webSearch / ai.groundingSearch；优先 brew.page、search.fuzzy 或 brew.items（放宽参数）"
                         .to_string(),
