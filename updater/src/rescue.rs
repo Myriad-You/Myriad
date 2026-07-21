@@ -48,6 +48,8 @@ pub async fn exit_maintenance(ctx: &Context, force: bool) -> Result<()> {
 }
 
 pub async fn rollback(ctx: &Context, snapshot_id: &str) -> Result<()> {
+    crate::probe::filesystem::require_pgdata(&ctx.pgdata)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
     let snap = SnapshotManager {
         state: &ctx.state,
         pgdata: ctx.pgdata.clone(),

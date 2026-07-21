@@ -796,6 +796,8 @@ fn check_env_keys(worker: &Worker, manifest: Option<&Manifest>) -> Result<()> {
 }
 
 fn check_disk(worker: &Worker) -> Result<()> {
+    // Updates snapshot pgdata; missing path must fail preflight, not pass silently.
+    crate::probe::filesystem::require_pgdata(&worker.cli().pgdata)?;
     if let Ok(stat) = nix::sys::statvfs::statvfs(&worker.cli().pgdata) {
         let block = stat.fragment_size();
         let avail = block * (stat.blocks_available() as u64);

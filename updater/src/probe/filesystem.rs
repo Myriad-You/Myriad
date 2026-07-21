@@ -7,6 +7,21 @@ use std::process::Stdio;
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 
+use crate::error::{Result, UpdaterError};
+
+/// Fail with a clear Precondition when an operation needs pgdata but the path is missing.
+/// Startup no longer treats a missing path as fatal; snapshot/restore must check explicitly.
+pub fn require_pgdata(path: &Path) -> Result<()> {
+    if !path.exists() {
+        return Err(UpdaterError::Precondition(format!(
+            "pgdata path {} does not exist; cannot snapshot or restore until postgres data is present \
+             (check volume mounts / first-time postgres init)",
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PgdataProbe {
     pub exists: bool,
@@ -32,8 +47,9 @@ pub async fn probe_pgdata(path: &Path, state_dir: &Path) -> PgdataProbe {
         error: None,
     };
 
+    // Missing path is non-fatal at startup: fresh deploys may not have created
+    // pgdata yet. Operations that need it (snapshot/restore) fail with Precondition.
     if !path.exists() {
-        out.error = Some(format!("{} not present", path.display()));
         return out;
     }
     out.exists = true;
@@ -195,4 +211,35 @@ fn device_id(_p: &Path) -> std::io::Result<u64> {
         std::io::ErrorKind::Unsupported,
         "device_id unsupported on this platform",
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[tokio::test]
+    async fn probe_pgdata_missing_path_is_non_fatal() {
+        let missing = PathBuf::from("/tmp/myriad-updater-pgdata-definitely-missing-xyz");
+        let _ = std::fs::remove_dir_all(&missing);
+        let state = tempfile::tempdir().unwrap();
+        let probe = probe_pgdata(&missing, state.path()).await;
+        assert!(!probe.exists);
+        assert!(probe.error.is_none(), "missing path must not set error: {:?}", probe.error);
+        assert!(!probe.is_named_volume);
+        assert!(require_pgdata(&missing).is_err());
+    }
+
+    #[tokio::test]
+    async fn probe_pgdata_present_path_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let pgdata = dir.path().join("pgdata");
+        std::fs::create_dir_all(&pgdata).unwrap();
+        let state = dir.path().join("state");
+        std::fs::create_dir_all(state.join("snapshots")).unwrap();
+        let probe = probe_pgdata(&pgdata, &state).await;
+        assert!(probe.exists);
+        assert!(probe.error.is_none());
+        assert!(require_pgdata(&pgdata).is_ok());
+    }
 }

@@ -69,22 +69,9 @@ pub async fn run_all(inputs: &ProbeInputs) -> Result<EnvProbe> {
     }
 
     let pgdata = filesystem::probe_pgdata(&inputs.pgdata, &inputs.state_dir).await;
-    if let Some(e) = &pgdata.error {
-        fatal.push(format!("pgdata: {e}"));
-    }
-    if pgdata.is_named_volume {
-        fatal.push(
-            "pgdata appears to be a docker named volume; M1 requires a bind mount. \
-             See docs/updater-spec.md §19 for migration steps."
-                .into(),
-        );
-    }
-    if !pgdata.exists {
-        fatal.push(format!(
-            "pgdata path {} does not exist inside the updater container; check volume mounts",
-            inputs.pgdata.display()
-        ));
-    }
+    let (pg_fatal, pg_warn) = classify_pgdata(&pgdata, &inputs.pgdata);
+    fatal.extend(pg_fatal);
+    warnings.extend(pg_warn);
 
     let env_file = filesystem::probe_env_file(&inputs.env_file).await;
     if !env_file.exists {
@@ -123,4 +110,103 @@ pub async fn run_all(inputs: &ProbeInputs) -> Result<EnvProbe> {
         fatal,
         warnings,
     })
+}
+
+/// Classify pgdata probe outcomes into fatal vs warning strings.
+///
+/// Missing path is warning-only (updater may boot before first postgres init).
+/// Named-volume remains fatal when the path exists and is flagged.
+fn classify_pgdata(
+    pgdata: &filesystem::PgdataProbe,
+    path: &std::path::Path,
+) -> (Vec<String>, Vec<String>) {
+    let mut fatal = Vec::new();
+    let mut warnings = Vec::new();
+    if let Some(e) = &pgdata.error {
+        fatal.push(format!("pgdata: {e}"));
+    }
+    // Named-volume remains fatal only when the path exists and is flagged.
+    if pgdata.exists && pgdata.is_named_volume {
+        fatal.push(
+            "pgdata appears to be a docker named volume; M1 requires a bind mount. \
+             See docs/updater-spec.md §19 for migration steps."
+                .into(),
+        );
+    }
+    // Missing pgdata is a warning, not fatal: updater can still boot, serve status,
+    // pull images, and manage non-DB updates. Snapshot/restore require the path later.
+    if !pgdata.exists {
+        warnings.push(format!(
+            "pgdata path {} does not exist inside the updater container; \
+             snapshot and rollback restore will fail until the path is mounted \
+             (normal on first boot before postgres has created data)",
+            path.display()
+        ));
+    }
+    (fatal, warnings)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::probe::filesystem::PgdataProbe;
+    use std::path::Path;
+
+    fn empty_probe(exists: bool) -> PgdataProbe {
+        PgdataProbe {
+            exists,
+            is_named_volume: false,
+            fs_type: None,
+            device_id: None,
+            cross_device: false,
+            size_bytes: None,
+            free_bytes_on_fs: None,
+            error: None,
+        }
+    }
+
+    #[test]
+    fn missing_pgdata_is_warning_not_fatal() {
+        let (fatal, warnings) =
+            classify_pgdata(&empty_probe(false), Path::new("/host/compose/pgdata"));
+        assert!(
+            fatal.is_empty(),
+            "missing path must not be fatal: {fatal:?}"
+        );
+        assert!(
+            warnings.iter().any(|w| w.contains("does not exist")),
+            "expected warning: {warnings:?}"
+        );
+    }
+
+    #[test]
+    fn present_pgdata_no_fatal_from_exists() {
+        let (fatal, warnings) =
+            classify_pgdata(&empty_probe(true), Path::new("/host/compose/pgdata"));
+        assert!(fatal.is_empty());
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn named_volume_still_fatal_when_exists() {
+        let mut p = empty_probe(true);
+        p.is_named_volume = true;
+        let (fatal, _) = classify_pgdata(&p, Path::new("/host/compose/pgdata"));
+        assert!(
+            fatal.iter().any(|f| f.contains("named volume")),
+            "expected named-volume fatal: {fatal:?}"
+        );
+    }
+
+    #[test]
+    fn named_volume_flag_ignored_when_missing() {
+        let mut p = empty_probe(false);
+        p.is_named_volume = true;
+        let (fatal, warnings) = classify_pgdata(&p, Path::new("/host/compose/pgdata"));
+        assert!(
+            fatal.is_empty(),
+            "missing path should not fatal on named-volume flag alone: {fatal:?}"
+        );
+        assert!(!warnings.is_empty());
+    }
 }

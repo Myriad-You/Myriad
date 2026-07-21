@@ -126,6 +126,12 @@ pub async fn run(
 
     // Snapshot pgdata.
     rec.enter(Phase::Snapshotting, "updater.phase.snapshotting")?;
+    if let Err(e) = crate::probe::filesystem::require_pgdata(&worker.cli().pgdata) {
+        rec.finish_step_err(e.to_string()).ok();
+        rec.finalize(JobStatus::Failed)?;
+        crate::worker::machine::clear_maintenance(worker.state())?;
+        return Err(e);
+    }
     let stop_pg = compose.stop(&["postgres"], 60).await?;
     if !stop_pg.ok() {
         let err = format!("stop postgres failed: {}", stop_pg.error_summary());

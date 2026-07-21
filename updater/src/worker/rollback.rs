@@ -149,6 +149,12 @@ pub async fn execute_inline(
     };
 
     rec.enter(Phase::RestoreSnapshot, "updater.phase.restore_snapshot")?;
+    // Missing pgdata is non-fatal at startup; restore still needs the path to exist.
+    if let Err(e) = crate::probe::filesystem::require_pgdata(&worker.cli().pgdata) {
+        let msg = e.to_string();
+        let _ = rec.finish_step_err(&msg);
+        return Err(e);
+    }
     let stop_pg = compose.stop(&["postgres"], 60).await?;
     if !stop_pg.ok() {
         warn!(

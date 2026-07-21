@@ -333,6 +333,7 @@ UPDATER_ALLOW_INSECURE_COSIGN=true   # 或 COSIGN_INSECURE_OK=true
 
 - **永远不要推 `:latest`**：updater 的回滚依赖旧版本 tag 仍在 registry。
 - **pgdata 必须是 bind mount**：M1 不支持 docker named volume 上的快照。
+- **首次部署 pgdata 尚不存在时 updater 仍可启动**（env-probe 记 warning）；完整更新快照会在路径就绪后才能执行。
 - **修改 `.env`**：用户可以随便加自己的 key，updater 只触碰 `MYRIAD_TAG`/`PROXY_TAG`/`UPDATER_TAG` + release 声明的 `env.new`。
 - **每次更新的 token 验证**：5 次/分钟错误后封 10 分钟。
 

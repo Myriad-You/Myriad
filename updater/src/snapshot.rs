@@ -42,6 +42,7 @@ impl<'a> SnapshotManager<'a> {
         snapshot_id: &str,
         source_version: Option<DeployTag>,
     ) -> Result<SnapshotMeta> {
+        crate::probe::filesystem::require_pgdata(&self.pgdata)?;
         let snapshots_dir = self.state.snapshots_dir();
         std::fs::create_dir_all(&snapshots_dir)?;
 
@@ -108,6 +109,7 @@ impl<'a> SnapshotManager<'a> {
     ///
     /// The snapshot itself is always *copied* (never renamed away) so retry remains possible.
     pub async fn restore(&self, snapshot_id: &str) -> Result<()> {
+        crate::probe::filesystem::require_pgdata(&self.pgdata)?;
         let snap_path = self.state.snapshots_dir().join(snapshot_id);
         if !snap_path.exists() {
             return Err(UpdaterError::NotFound(format!(

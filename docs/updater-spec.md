@@ -369,6 +369,8 @@ zfs dataset            → 支持，可选用 zfs snapshot
 
 **M1 要求 pgdata 是 bind mount。** 跨设备会降级为 copy 兜底并写入 warning；
 docker named volume、rootless Docker、Podman 仍会启动时报错。
+**路径不存在**（例如首次部署、postgres 尚未初始化）在 env-probe 中为 **warning**，
+不阻止 updater 启动；真正需要快照/回滚恢复的操作会以 Precondition 失败。
 
 ### 9.2 快照流程
 
