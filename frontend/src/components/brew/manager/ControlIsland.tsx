@@ -71,8 +71,9 @@ function generateDynamicTips(
     .sort((a, b) => b.unread_count - a.unread_count)[0]
 
   if (mostUnread && mostUnread.unread_count > 0) {
+    // 仅用网站图标；丢失/无图标时不展示 emoji 回退
     tips.push({
-      icon: '📚',
+      icon: '',
       iconUrl: mostUnread.icon || undefined,
       main: `${mostUnread.name}`,
       sub: (brewTranslations.tipUnreadCount || '{count} 条未读').replace(
@@ -95,7 +96,7 @@ function generateDynamicTips(
   if (recentlyUpdated.length > 0) {
     const source = recentlyUpdated[0]
     tips.push({
-      icon: '↻',
+      icon: '',
       iconUrl: source.icon || undefined,
       main: `${source.name}`,
       sub: brewTranslations.tipJustUpdated || '刚刚更新',
@@ -116,7 +117,7 @@ function generateDynamicTips(
           ? `${newItem.title.slice(0, 16)}...`
           : newItem.title
       tips.push({
-        icon: '📰',
+        icon: '',
         iconUrl: randomSource.icon || undefined,
         main: title,
         sub: (brewTranslations.tipFromSource || '来自 {source}').replace(

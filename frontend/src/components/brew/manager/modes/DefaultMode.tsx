@@ -99,26 +99,20 @@ export function DefaultMode({
                   className="w-6 h-6 shrink-0 object-contain drop-shadow-sm"
                   loading="lazy"
                   onLoad={(e) => {
-                    // Soft-fail proxy returns 1×1 PNG for dead remote icons
+                    // Soft-fail proxy returns 1×1 PNG for dead remote icons — hide, no emoji fallback
                     const img = e.currentTarget
                     if (img.naturalWidth <= 1 && img.naturalHeight <= 1) {
                       img.style.display = 'none'
-                      img.nextElementSibling?.classList.remove('hidden')
                     }
                   }}
                   onError={(e) => {
+                    // 网站图标丢失：只隐藏，不回退 emoji
                     ;(e.target as HTMLImageElement).style.display = 'none'
-                    ;(
-                      e.target as HTMLImageElement
-                    ).nextElementSibling?.classList.remove('hidden')
                   }}
                 />
+              ) : tip.icon ? (
+                <span className="text-base shrink-0">{tip.icon}</span>
               ) : null}
-              <span
-                className={`text-base shrink-0 ${tip.iconUrl ? 'hidden' : ''}`}
-              >
-                {tip.icon}
-              </span>
               <div className="flex flex-col justify-center leading-tight min-w-0">
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-200 truncate">
                   {tip.main}
@@ -203,19 +197,20 @@ export function DefaultMode({
                 alt=""
                 className="w-6 h-6 shrink-0 object-contain drop-shadow-sm"
                 loading="lazy"
+                onLoad={(e) => {
+                  const img = e.currentTarget
+                  if (img.naturalWidth <= 1 && img.naturalHeight <= 1) {
+                    img.style.display = 'none'
+                  }
+                }}
                 onError={(e) => {
+                  // 网站图标丢失：只隐藏，不回退 emoji
                   ;(e.target as HTMLImageElement).style.display = 'none'
-                  ;(
-                    e.target as HTMLImageElement
-                  ).nextElementSibling?.classList.remove('hidden')
                 }}
               />
+            ) : tip.icon ? (
+              <span className="text-base shrink-0">{tip.icon}</span>
             ) : null}
-            <span
-              className={`text-base shrink-0 ${tip.iconUrl ? 'hidden' : ''}`}
-            >
-              {tip.icon}
-            </span>
             <div className="flex flex-col justify-center leading-tight">
               <span className="text-sm font-medium text-gray-700 dark:text-gray-200 truncate max-w-36">
                 {tip.main}
