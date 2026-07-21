@@ -42,11 +42,11 @@ import { useLocation } from 'react-router-dom'
 import { useI18n } from '../../contexts/I18nContext'
 import { usePageContentOptional } from '../../contexts/PageContentContext'
 import { agentService, executeFrontendAction } from '../../services/agent'
-import { isImeComposing } from '../../utils/ime'
 import {
   collectReattachCandidates,
   isNonTerminalTaskStatus,
 } from '../../services/agent/reattach'
+import { isImeComposing } from '../../utils/ime'
 
 import { AraelChatMessage } from './components/AraelChatMessage'
 import { AraelDebugPanel } from './components/AraelDebugPanel'

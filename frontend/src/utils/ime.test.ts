@@ -3,9 +3,9 @@
  */
 /* eslint-disable test/no-import-node-test -- node:test */
 
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { isImeComposing } from './ime.ts'
 
 function makeReactKeyEvent(partial: {
