@@ -2218,4 +2218,26 @@ mod tests {
         )
         .is_none());
     }
+
+    #[test]
+    fn resolve_follow_accept_port_sensitive_actor_auth() {
+        let candidates = vec![(
+            "https://a.example/activities/1".into(),
+            "https://b.example:8443/users/bob".into(),
+            "pending".into(),
+        )];
+        // Port mismatch → not same actor
+        assert!(resolve_follow_accept_target(
+            "https://a.example/activities/1",
+            "https://b.example/users/bob",
+            &candidates,
+        )
+        .is_none());
+        assert!(resolve_follow_accept_target(
+            "https://a.example/activities/1",
+            "https://b.example:8443/users/bob",
+            &candidates,
+        )
+        .is_some());
+    }
 }
