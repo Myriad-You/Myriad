@@ -38,7 +38,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
     registry.register(Capability {
         id: "brew.sources".to_string(),
         name: "订阅源列表".to_string(),
-        description: "从数据库列出/查找 Brew 订阅源（含友情链接）。支持按名称宽松匹配（exact/contains/fuzzy）。用户说「看看 X」「X 是什么订阅」时先用本能力定位 source，再把 sourceId 传给 brew.items；有本地条目时不要改走 ai.webSearch。".to_string(),
+        description: "从数据库列出/查找 Brew 订阅源（含友情链接）。支持 category 筛选（友情链接/友链/friends）与 sourceType=link|rss|brewlia；名称宽松匹配（exact/contains/fuzzy）。用户说「友情链接」「友链」时用 category=友情链接；「看看 X」时先用本能力定位 source，再把 sourceId 传给 brew.items；有本地条目时不要改走 ai.webSearch。".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query, IntentAction::Create],
         input_schema: json!({
@@ -305,7 +305,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
     registry.register(Capability {
         id: "brew.page".to_string(),
         name: "Brew 页面内容".to_string(),
-        description: "读取 Brew 信息聚合页面的详细内容，包括订阅源列表、文章列表、文章详情等层级".to_string(),
+        description: "读取 Brew 信息聚合页面的详细内容。level=sources 返回订阅源列表（含 sourceType/category/siteUrl），可用 category 筛选友情链接等分类。".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -322,6 +322,10 @@ pub fn register(registry: &mut CapabilityRegistry) {
                     "type": "string", 
                     "enum": ["all", "unread", "starred", "today"],
                     "description": "筛选条件"
+                },
+                "category": {
+                    "type": "string",
+                    "description": "level=sources 时按分类筛选；支持 friends/友链→友情链接"
                 },
                 "limit": { "type": "integer", "default": 20 }
             }

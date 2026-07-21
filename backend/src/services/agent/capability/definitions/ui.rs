@@ -454,7 +454,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
     registry.register(Capability {
         id: "search.fuzzy".to_string(),
         name: "模糊搜索".to_string(),
-        description: "在 Brew 订阅源、Tapp 应用、内容等中进行模糊名称搜索，支持用户口语化查询"
+        description: "在 Brew 订阅源、Tapp 应用、内容等中进行模糊搜索。Brew 源匹配名称、category 与 site_url（如「友情链接」可返回友链分类源）。"
             .to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],

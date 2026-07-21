@@ -1839,8 +1839,40 @@ async fn execute_fuzzy_search(
                 .map_err(|e| format!("Database error: {}", e))?;
 
             for source in sources {
-                let name_lower = source.name.to_lowercase();
-                let score = calculate_fuzzy_score(&query_lower, &name_lower);
+                // Score name, category, and site_url so「友情链接」hits friend-link sources
+                let name_score =
+                    calculate_fuzzy_score(&query_lower, &source.name.to_lowercase());
+                let category_score = source
+                    .category
+                    .as_deref()
+                    .map(|c| calculate_fuzzy_score(&query_lower, &c.to_lowercase()))
+                    .unwrap_or(0.0);
+                let site_url_score = source
+                    .site_url
+                    .as_deref()
+                    .map(|u| calculate_fuzzy_score(&query_lower, &u.to_lowercase()))
+                    .unwrap_or(0.0);
+                // Also score normalized friend-link aliases against category tokens
+                let alias_category_score = {
+                    use crate::services::agent::executor::utils::normalize_brew_category_filter;
+                    let normalized = normalize_brew_category_filter(query);
+                    if normalized != query.trim() {
+                        source
+                            .category
+                            .as_deref()
+                            .map(|c| calculate_fuzzy_score(
+                                &normalized.to_lowercase(),
+                                &c.to_lowercase(),
+                            ))
+                            .unwrap_or(0.0)
+                    } else {
+                        0.0
+                    }
+                };
+                let score = name_score
+                    .max(category_score)
+                    .max(site_url_score)
+                    .max(alias_category_score);
 
                 if score > 0.3 {
                     results.push(json!({
@@ -1852,7 +1884,12 @@ async fn execute_fuzzy_search(
                         "metadata": {
                             "icon": source.icon,
                             "siteUrl": source.site_url,
-                            "category": source.category
+                            "category": source.category,
+                            "sourceType": match source.source_type {
+                                brew_sources::SourceType::Link => "link",
+                                brew_sources::SourceType::Rss => "rss",
+                                brew_sources::SourceType::Brewlia => "brewlia",
+                            }
                         }
                     }));
                 }
@@ -2652,6 +2689,10 @@ async fn execute_brew_page_content(
     params: &HashMap<String, Value>,
     ctx: &HandlerContext<'_>,
 ) -> Result<Value, String> {
+    use crate::services::agent::executor::utils::{
+        brew_category_token_matches, normalize_brew_category_filter,
+    };
+
     let level = params
         .get("level")
         .and_then(|v| v.as_str())
@@ -2662,6 +2703,12 @@ async fn execute_brew_page_content(
         .get("filter")
         .and_then(|v| v.as_str())
         .unwrap_or("all");
+    let category_filter = params
+        .get("category")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(normalize_brew_category_filter);
     let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(20);
 
     match level {
@@ -2672,21 +2719,56 @@ async fn execute_brew_page_content(
                 .await
                 .map_err(|e| format!("Failed to fetch sources: {}", e))?;
 
-            let source_list: Vec<Value> = sources
+            let filtered: Vec<&brew_sources::Model> = sources
+                .iter()
+                .filter(|s| {
+                    let Some(ref cat) = category_filter else {
+                        return true;
+                    };
+                    let ok = s
+                        .category
+                        .as_deref()
+                        .map(|c| brew_category_token_matches(c, cat))
+                        .unwrap_or(false);
+                    // Same friend-link legacy fallback as brew.sources
+                    if !ok && cat == "友情链接" {
+                        s.source_type == brew_sources::SourceType::Link
+                            && s.category
+                                .as_deref()
+                                .map(|c| c.trim().is_empty())
+                                .unwrap_or(true)
+                    } else {
+                        ok
+                    }
+                })
+                .collect();
+
+            let source_list: Vec<Value> = filtered
                 .iter()
                 .map(|s| {
                     json!({
                         "id": s.id,
                         "name": s.name,
                         "url": s.url.clone(),
+                        "siteUrl": s.site_url.clone(),
                         "icon": s.icon.clone(),
                         "category": s.category.clone(),
+                        "sourceType": match s.source_type {
+                            brew_sources::SourceType::Link => "link",
+                            brew_sources::SourceType::Rss => "rss",
+                            brew_sources::SourceType::Brewlia => "brewlia",
+                        },
                         "unreadCount": s.unread_count,
                         "itemCount": s.item_count,
                         "lastUpdated": s.updated_at.to_string()
                     })
                 })
                 .collect();
+
+            let title = category_filter
+                .as_deref()
+                .unwrap_or("订阅源")
+                .to_string();
 
             Ok(json!({
                 "level": "sources",
@@ -2695,17 +2777,22 @@ async fn execute_brew_page_content(
                     "current": { "view": "all_sources" }
                 },
                 "content": {
-                    "title": "订阅源",
+                    "title": title,
                     "sources": source_list,
-                    "metadata": { "totalSources": sources.len() }
+                    "metadata": {
+                        "totalSources": filtered.len(),
+                        "totalInSystem": sources.len(),
+                        "category": category_filter.clone()
+                    }
                 },
                 "stats": {
-                    "totalSources": sources.len(),
+                    "totalSources": filtered.len(),
                     "totalItems": 0,
                     "unreadCount": 0
                 },
                 "navigation": {
                     "currentFilter": filter,
+                    "category": category_filter,
                     "availableFilters": ["all", "unread", "starred", "today"],
                     "canGoBack": false,
                     "parentPath": "/"

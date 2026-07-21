@@ -354,12 +354,12 @@ pub fn get_capability_usage_hint(capability_id: &str) -> &'static str {
         "brew.article" => {
             "【内部能力】根据已知ID获取文章详情。不要直接选择，由系统在已知文章ID时自动调用"
         }
-        "brew.sources" => "【推荐·本地优先】从数据库列出/查找订阅源（含友情链接），支持名称宽松匹配。用户说'我订阅了哪些'、'订阅源列表'、'看看 X'、'有没有 X 这个源'时使用；匹配后把 sourceId 传给 brew.items。本地有该源时不要改用 ai.webSearch",
+        "brew.sources" => "【推荐·本地优先】从数据库列出/查找订阅源。用户说'友情链接'、'友链'时用 category=友情链接（或 friends）；说'我订阅了哪些'、'订阅源列表'、'看看 X'、'有没有 X 这个源'时使用。支持 sourceType=link|rss|brewlia。匹配后把 sourceId 传给 brew.items。本地有该源时不要改用 ai.webSearch",
         "brew.discover" => "发现/搜索 RSS 源。用户想找某个网站的 RSS 时使用",
         "brew.subscribe" => "添加新订阅。用户说'订阅xxx'、'添加订阅'时使用",
         "brew.stats" => "阅读统计。用户问'读了多少文章'、'订阅统计'时使用",
         "brew.read" => "通用订阅数据获取。读取 Brew RSS 订阅内容",
-        "brew.page" => "Brew 页面内容。获取订阅源列表/文章列表/文章详情层级",
+        "brew.page" => "Brew 页面内容。level=sources 返回含 sourceType/category 的订阅源列表；问友情链接可用 category=友情链接",
         "brew.schedule" => "Brew 调度控制。控制订阅调度器的启动/停止/刷新",
         "brew.generateReadingList" => "【推荐】生成阅读列表。用户说'给我推荐几篇文章'、'找些关于xx的文章'、'生成阅读列表'、'有什么值得看的'时使用",
 
@@ -418,7 +418,7 @@ pub fn get_capability_usage_hint(capability_id: &str) -> &'static str {
 
         // ============ 搜索 ============
         "search.global" => "全局搜索。跨平台搜索内容",
-        "search.fuzzy" => "模糊搜索。基于模糊匹配的搜索",
+        "search.fuzzy" => "模糊搜索。Brew 源匹配名称/category/site_url；查询'友情链接'可命中友链分类源",
 
         // ============ 系统操作 ============
         "system.metrics" => "系统监控。获取系统运行状态和指标",
