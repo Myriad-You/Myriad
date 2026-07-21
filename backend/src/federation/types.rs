@@ -905,4 +905,20 @@ mod tests {
         assert!(!same_activity_id("https://a.example/activities/1", ""));
         assert_eq!(normalize_activity_id("\t  \n"), "");
     }
+
+    #[test]
+    fn same_activity_id_preserves_non_default_port() {
+        assert!(same_activity_id(
+            "https://a.example:8443/activities/1",
+            "https://A.EXAMPLE:8443/activities/1/"
+        ));
+        assert!(!same_activity_id(
+            "https://a.example:8443/activities/1",
+            "https://a.example/activities/1"
+        ));
+        assert!(!same_activity_id(
+            "https://a.example:8443/activities/1",
+            "https://a.example:9443/activities/1"
+        ));
+    }
 }
