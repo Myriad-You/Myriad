@@ -1559,4 +1559,16 @@ mod tests {
             "error while loading: No federation keys found for user (id=3)"
         ));
     }
+
+    #[test]
+    fn is_unrecoverable_key_load_requires_empty_username_phrase() {
+        assert!(is_unrecoverable_key_load_error(
+            "username empty (cannot ensure)"
+        ));
+        assert!(is_unrecoverable_key_load_error(
+            "No federation keys found for user and username empty (cannot ensure)"
+        ));
+        assert!(!is_unrecoverable_key_load_error("cannot ensure keys"));
+        assert!(!is_unrecoverable_key_load_error("username empty"));
+    }
 }
