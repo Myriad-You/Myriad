@@ -15,7 +15,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const pkg = JSON.parse(
   readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'),
 )
-const APP_VERSION = pkg.version || '0.3.8'
+const APP_VERSION = pkg.version || '0.3.9'
 
 /**
  * 自定义 Vite 插件：SPA 路由回退
