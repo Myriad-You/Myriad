@@ -1,6 +1,6 @@
 [package]
 name = "myriad-proxy"
-version = "0.3.9"
+version = "0.3.10"
 edition = "2021"
 authors = ["Myriad Contributors"]
 description = "Minimal maintenance-aware reverse proxy for Myriad."
