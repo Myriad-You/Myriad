@@ -178,6 +178,15 @@ sql_b() {
     psql -U "$PG_USER" -d "$DB_B" -v ON_ERROR_STOP=1 -t -A -c "$1"
 }
 
+# First pure integer line only — strips docker/psql "INSERT 0 1" / NOTICE noise
+# that otherwise becomes e.g. "31INSERT01" after `tr -d '[:space:]'`.
+sql_int_a() {
+  sql_a "$1" 2>/dev/null | tr -d '\r' | grep -E '^[0-9]+$' | head -1
+}
+sql_int_b() {
+  sql_b "$1" 2>/dev/null | tr -d '\r' | grep -E '^[0-9]+$' | head -1
+}
+
 api() {
   # api METHOD BASE JAR PATH [json_body] — retries 429 briefly
   local method="$1" base="$2" jar="$3" path="$4"
@@ -882,35 +891,36 @@ case_deploy_second_local_user() {
 }
 
 case_deploy_cancel_during_backoff() {
-  # Cancel must win over a claimable pending row (worker may race cancel).
-  # Product: cancel sets dead+cancelled; worker only mutates status=delivering
-  # so a cancelled row is never resurrected to pending/delivered.
+  # Product: cancel a row that is waiting in exponential backoff (next_retry_at
+  # in the future) → dead + cancelled:; worker ticks must not resurrect.
   #
-  # Do NOT call wait_delivery_side here — that helper waits for fan-out success;
-  # this case only asserts cancel stickiness. clear_queue first so leftover
-  # dead rows from prior cases cannot confuse status checks.
+  # Do NOT seed next_retry_at in the past: that makes the row claimable and
+  # races the delivery worker (connection-refused → non-cancelled dead, or
+  # pollutes suite asserts). "During backoff" means not yet claimable.
+  #
+  # Never use RETURNING id via docker/psql (noise becomes "31INSERT01").
+  # Do NOT call wait_delivery_side (fan-out success waiter).
   local jar_a="$JAR_A"
   local act qid st err api_body marker
   clear_queue a
-  act=$(sql_a "SELECT id FROM federation_activities WHERE user_id=1 ORDER BY id DESC LIMIT 1;" | tr -d '[:space:]')
-  [[ -n "$act" && "$act" =~ ^[0-9]+$ ]] || die "no activity for cancel-backoff (act='$act')"
-  # Unique marker — avoid RETURNING id via docker/psql noise (e.g. "31INSERT01").
-  marker="suite: backoff cancel $(date +%s)-$$"
-  # next_retry_at in the past → eligible for claim so cancel races the worker.
+  act=$(sql_int_a "SELECT id FROM federation_activities WHERE user_id=1 ORDER BY id DESC LIMIT 1;")
+  [[ -n "$act" ]] || die "no activity for cancel-backoff (act empty)"
+  marker="suite: backoff cancel $(date +%s)-$$-$RANDOM"
   sql_a "INSERT INTO federation_delivery_queue
          (activity_id, target_inbox, target_domain, status, attempts, max_attempts, error_message, created_at, next_retry_at)
          VALUES (${act}, 'http://127.0.0.1:9/backoff-cancel', '127.0.0.1', 'pending', 5, 12,
-                 '${marker}', NOW(), NOW() - interval '1 second');" >/dev/null \
+                 '${marker}', NOW(), NOW() + interval '2 hours');" >/dev/null \
     || die "insert backoff-cancel queue row failed"
-  qid=$(sql_a "SELECT id FROM federation_delivery_queue WHERE error_message='${marker}' ORDER BY id DESC LIMIT 1;" | tr -d '[:space:]')
-  [[ -n "$qid" && "$qid" =~ ^[0-9]+$ ]] || die "lookup queue id failed: '$qid' marker='$marker'"
+  qid=$(sql_int_a "SELECT id FROM federation_delivery_queue WHERE error_message='${marker}' ORDER BY id DESC LIMIT 1;")
+  [[ -n "$qid" ]] || die "lookup queue id failed marker='$marker'"
 
   api POST "$BASE_A" "$jar_a" "/api/federation/delivery/${qid}/cancel" "" \
-    >"$SCRATCH_DIR/deploy-cancel-backoff.json"
+    >"$SCRATCH_DIR/deploy-cancel-backoff.json" \
+    || die "cancel API failed: $(cat "$SCRATCH_DIR/deploy-cancel-backoff.json" 2>/dev/null || true)"
   api_body=$(cat "$SCRATCH_DIR/deploy-cancel-backoff.json" 2>/dev/null || true)
 
-  # If worker already claimed as delivering mid-cancel, one more cancel wins.
   st=$(sql_a "SELECT status FROM federation_delivery_queue WHERE id=${qid};" | tr -d '[:space:]')
+  # Rare: status still pending/delivering if API flaked — one more cancel.
   if [[ "$st" == "pending" || "$st" == "delivering" ]]; then
     api POST "$BASE_A" "$jar_a" "/api/federation/delivery/${qid}/cancel" "" \
       >"$SCRATCH_DIR/deploy-cancel-backoff-retry.json" || true
@@ -926,7 +936,7 @@ case_deploy_cancel_during_backoff() {
   echo "$err" | grep -qi '^cancelled:' \
     || die "expected cancelled: error_message, got '$err' (api=$api_body)"
 
-  # Worker ticks must not resurrect — status stays dead; do not wait_delivery_side.
+  # Worker ticks must not resurrect cancelled dead (claim only pending/delivering).
   local i
   for i in 1 2 3 4 5; do
     nudge_delivery a
@@ -1270,19 +1280,18 @@ case_deploy_ssrf_lab_flag_off() {
 case_deploy_cancel_failed_send() {
   # Product: user can cancel pending/failed-in-flight outbound delivery.
   local jar_a="$JAR_A"
-  local act
-  act=$(sql_a "SELECT id FROM federation_activities WHERE user_id=1 ORDER BY id DESC LIMIT 1;" || echo "")
+  local act qid marker st cancelled
+  act=$(sql_int_a "SELECT id FROM federation_activities WHERE user_id=1 ORDER BY id DESC LIMIT 1;")
   [[ -n "$act" ]] || die "no activity to seed cancel test"
-  # Always seed a far-future pending row so the worker cannot race-complete it
+  # Far-future next_retry_at so worker cannot claim; unique marker avoids RETURNING.
+  marker="suite: stuck outbound $(date +%s)-$$"
   sql_a "INSERT INTO federation_delivery_queue (activity_id, target_inbox, target_domain, status, attempts, max_attempts, error_message, created_at, next_retry_at)
-         VALUES (${act}, 'http://127.0.0.1:9/never', '127.0.0.1', 'pending', 3, 12, 'suite: stuck outbound', NOW(), NOW() + interval '2 hours')
-         RETURNING id;" >/dev/null
-  local qid
-  qid=$(sql_a "SELECT id FROM federation_delivery_queue WHERE status='pending' AND error_message='suite: stuck outbound' ORDER BY id DESC LIMIT 1;")
+         VALUES (${act}, 'http://127.0.0.1:9/never', '127.0.0.1', 'pending', 3, 12, '${marker}', NOW(), NOW() + interval '2 hours');" >/dev/null \
+    || die "seed pending cancel row failed"
+  qid=$(sql_int_a "SELECT id FROM federation_delivery_queue WHERE error_message='${marker}' ORDER BY id DESC LIMIT 1;")
   [[ -n "$qid" ]] || die "failed to seed pending queue id"
   api POST "$BASE_A" "$jar_a" "/api/federation/delivery/${qid}/cancel" "" \
     >"$SCRATCH_DIR/deploy-cancel-one.json"
-  local st
   st=$(sql_a "SELECT status || '|' || coalesce(error_message,'') FROM federation_delivery_queue WHERE id=${qid};")
   echo "$st" | grep -q "^dead|" || die "cancel did not mark dead: $st"
   echo "$st" | grep -qi "cancelled" || die "cancel missing cancelled message: $st"
@@ -1291,7 +1300,6 @@ case_deploy_cancel_failed_send() {
          VALUES (${act}, 'http://127.0.0.1:9/never2', '127.0.0.1', 'pending', 1, 12, 'suite: bulk cancel', NOW(), NOW() + interval '2 hours');" >/dev/null
   api POST "$BASE_A" "$jar_a" /api/federation/delivery/cancel-pending "" \
     >"$SCRATCH_DIR/deploy-cancel-pending.json"
-  local cancelled
   cancelled=$(python3 -c 'import json; print(json.load(open("'"$SCRATCH_DIR"'/deploy-cancel-pending.json")).get("cancelled",0))' 2>/dev/null || echo 0)
   [[ "${cancelled:-0}" -ge 1 ]] || die "cancel-pending cancelled=0: $(cat "$SCRATCH_DIR/deploy-cancel-pending.json")"
   echo "deploy_cancel_failed_send ok id=$qid bulk_cancelled=$cancelled status=$st" >>"$SUITE_LOG"
