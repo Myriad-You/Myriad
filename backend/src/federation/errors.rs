@@ -165,4 +165,11 @@ mod tests {
             "PERMANENT HTTP 404: {\"error\":\"not_found\"}"
         ));
     }
+
+    #[test]
+    fn w175_access_denied_permanent() {
+        assert!(is_permanent_federation_error("access denied for peer"));
+        assert!(is_permanent_delivery_error("HTTP 500: access denied"));
+
+    }
 }
