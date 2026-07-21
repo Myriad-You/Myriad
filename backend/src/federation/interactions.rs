@@ -1649,4 +1649,16 @@ mod tests {
         }
         assert!(depth <= MAX_QUOTE_NEST_DEPTH);
     }
+
+    #[test]
+    fn w175_extract_object_id_update() {
+        assert_eq!(
+            extract_object_id(&serde_json::json!({
+                "type": "Update",
+                "object": {"id": "https://a.example/notes/9", "type": "Note"}
+            })).as_deref(),
+            Some("https://a.example/notes/9")
+        );
+
+    }
 }
