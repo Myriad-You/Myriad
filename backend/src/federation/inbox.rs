@@ -2166,4 +2166,33 @@ mod tests {
             "https://b.example/users/bob"
         ));
     }
+
+    #[test]
+    fn resolve_follow_accept_empty_candidates_and_empty_id() {
+        assert!(resolve_follow_accept_target(
+            "https://a.example/activities/1",
+            "https://b.example/users/bob",
+            &[],
+        )
+        .is_none());
+        // Empty follow_id skips id match; only unique pending-to-actor fallback.
+        let candidates = vec![(
+            "https://a.example/activities/9".into(),
+            "https://b.example/users/bob".into(),
+            "pending".into(),
+        )];
+        let got = resolve_follow_accept_target("", "https://b.example/users/bob", &candidates);
+        assert_eq!(
+            got.map(|(id, _, already)| (id, already)),
+            Some(("https://a.example/activities/9".into(), false))
+        );
+        // accepted-only with empty id → no pending fallback
+        let accepted_only = vec![(
+            "https://a.example/activities/9".into(),
+            "https://b.example/users/bob".into(),
+            "accepted".into(),
+        )];
+        assert!(resolve_follow_accept_target("", "https://b.example/users/bob", &accepted_only)
+            .is_none());
+    }
 }
