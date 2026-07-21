@@ -257,4 +257,13 @@ mod tests {
         assert_eq!(parse_acct_uri("acct:alice@"), None);
         assert_eq!(parse_acct_uri("acct:alice"), None);
     }
+
+    #[test]
+    fn w175_parse_acct_lowercases_domain() {
+        assert_eq!(
+            parse_acct_uri("acct:Alice@Example.COM"),
+            Some(("Alice".into(), "example.com".into()))
+        );
+
+    }
 }
