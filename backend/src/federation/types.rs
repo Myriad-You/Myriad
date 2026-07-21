@@ -921,4 +921,13 @@ mod tests {
             "https://a.example:9443/activities/1"
         ));
     }
+
+    #[test]
+    fn normalize_activity_id_non_url_strips_slash_only() {
+        // Opaque non-URL ids: only trailing slash stripped (no host/query logic).
+        assert_eq!(normalize_activity_id("local-activity-9/"), "local-activity-9");
+        assert_eq!(normalize_activity_id("local-activity-9"), "local-activity-9");
+        assert!(same_activity_id("opaque-id-xyz/", "opaque-id-xyz"));
+        assert!(!same_activity_id("opaque-id-xyz", "opaque-id-other"));
+    }
 }
