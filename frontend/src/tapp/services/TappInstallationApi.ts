@@ -575,6 +575,10 @@ async function installFromStoreViaClient(
   if (pkg.pageCss) requestBody.pageCss = pkg.pageCss
   if (pkg.i18n) requestBody.i18n = pkg.i18n
   if (pkg.pageModules) requestBody.pageModules = pkg.pageModules
+  // Binary package assets (manifest.assets) so Tapp.assets works after store install
+  if (pkg.assets && Object.keys(pkg.assets).length > 0) {
+    requestBody.assets = pkg.assets
+  }
 
   return apiRequest('/api/tapps/install', {
     method: 'POST',

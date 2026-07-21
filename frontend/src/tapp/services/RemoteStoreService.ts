@@ -9,6 +9,12 @@
 import type { TappManifest, TappManifestLocales } from '../types'
 import api from '../../lib/api'
 import { TAPP_ICON_TOKENS } from '../constants/icons'
+import {
+  storeAssetStorePath,
+  storePackageRoot,
+} from '../utils/storePackagePaths'
+
+export { storeAssetStorePath, storePackageRoot } from '../utils/storePackagePaths'
 
 // ============ 类型定义 ============
 
@@ -538,6 +544,9 @@ class RemoteStoreServiceImpl {
    *
    * 商店列表本就由浏览器直连远程 index；当 server 侧 /api/tapps/install(store)
    * 因容器无外网/GitHub 不可达返回 502 时，可用此方法拉取后走 direct 安装。
+   *
+   * When `manifest.assets` is present, also downloads each binary asset as base64
+   * (path → base64) so `Tapp.assets` works after install.
    */
   async downloadAppPackage(
     app: RemoteApp,
@@ -552,6 +561,8 @@ class RemoteStoreServiceImpl {
     widgetTemplates?: Record<string, Record<string, string>>
     i18n?: Record<string, unknown>
     pageModules?: Record<string, string>
+    /** Package-static assets (manifest path → standard base64) */
+    assets?: Record<string, string>
   }> {
     const baseUrl = storeIndex.base_url || this.deriveBaseUrl(storeIndex)
 
@@ -645,6 +656,16 @@ class RemoteStoreServiceImpl {
       if (Object.keys(modules).length > 0) pageModules = modules
     }
 
+    // Binary package assets declared in manifest.assets
+    const packageRoot = storePackageRoot(
+      app.download.code || app.download.manifest || '',
+    )
+    const assets = await this.downloadPackageAssets(
+      manifest,
+      packageRoot,
+      baseUrl,
+    )
+
     return {
       manifest,
       code,
@@ -655,7 +676,47 @@ class RemoteStoreServiceImpl {
       widgetTemplates,
       i18n,
       pageModules,
+      assets,
     }
+  }
+
+  /**
+   * Download manifest.assets files as base64 map for direct install.
+   * URL = `{base}/{packageRoot}/{assetPath}` e.g.
+   * `…/apps/com.myriad.doudizhu/assets/felt/table_felt.png`
+   */
+  private async downloadPackageAssets(
+    manifest: TappManifest,
+    packageRoot: string,
+    baseUrl: string,
+  ): Promise<Record<string, string> | undefined> {
+    const declared = manifest.assets
+    if (!declared || declared.length === 0) return undefined
+    if (declared.length > 64) {
+      throw new Error(
+        `Tapp assets accepts at most 64 entries (got ${declared.length})`,
+      )
+    }
+
+    const out: Record<string, string> = {}
+    await Promise.all(
+      declared.map(async (assetPath) => {
+        if (!assetPath.startsWith('assets/')) {
+          throw new Error(`Invalid asset path (must be under assets/): ${assetPath}`)
+        }
+        const storeRel = storeAssetStorePath(packageRoot, assetPath)
+        const url = this.resolveUrl(storeRel, baseUrl)
+        const response = await fetch(url)
+        if (!response.ok) {
+          throw new Error(
+            `Failed to fetch asset ${assetPath}: HTTP ${response.status}`,
+          )
+        }
+        const buffer = await response.arrayBuffer()
+        out[assetPath] = arrayBufferToBase64(buffer)
+      }),
+    )
+    return out
   }
 
   /** index 未提供 base_url 时返回空，由调用方用商店 URL 推导 */
@@ -715,6 +776,16 @@ class RemoteStoreServiceImpl {
       oldestEntry,
     }
   }
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  const chunk = 0x8000
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
+  }
+  return btoa(binary)
 }
 
 // 单例导出

@@ -1,11 +1,41 @@
 //! Remote Tapp store package discovery and resource download.
 
 use super::prepared_package::{PreparedTappPackage, PreparedTappResources};
+use super::validation::{
+    validate_asset_path, MAX_TAPP_ASSETS, MAX_TAPP_ASSETS_TOTAL_BYTES, MAX_TAPP_ASSET_BYTES,
+};
 use super::{api_error, ApiResponse, TappCategory, TappManifest, WidgetTemplateContents};
 use axum::{http::StatusCode, Json};
+use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
+use std::collections::HashMap;
 
 use crate::models::entities::tapp_store_sources;
+
+/// Package directory on the store host (parent of main.js / manifest.json).
+///
+/// Example: `apps/com.myriad.doudizhu/main.js` → `apps/com.myriad.doudizhu`
+pub(crate) fn store_package_root(code_or_manifest_path: &str) -> String {
+    let path = code_or_manifest_path.trim().trim_start_matches('/');
+    match path.rfind('/') {
+        Some(i) => path[..i].to_string(),
+        None => String::new(),
+    }
+}
+
+/// Store-relative path for a package asset.
+///
+/// Example: root `apps/com.myriad.doudizhu` + `assets/felt/table_felt.png`
+/// → `apps/com.myriad.doudizhu/assets/felt/table_felt.png`
+pub(crate) fn store_asset_store_path(package_root: &str, asset_path: &str) -> String {
+    let asset = asset_path.trim().trim_start_matches('/');
+    let root = package_root.trim().trim_start_matches('/').trim_end_matches('/');
+    if root.is_empty() {
+        asset.to_string()
+    } else {
+        format!("{root}/{asset}")
+    }
+}
 
 /// 从远程商店下载 Tapp 文件
 ///
@@ -385,6 +415,10 @@ pub(super) async fn fetch_from_store(
         Some(page_modules_data)
     };
 
+    // Package-static binary assets (manifest.assets → base64 map)
+    let package_root = store_package_root(code_path);
+    let assets_opt = download_store_package_assets(base_url, &package_root, &manifest).await?;
+
     Ok(PreparedTappPackage::from_resources(
         manifest,
         PreparedTappResources {
@@ -396,7 +430,135 @@ pub(super) async fn fetch_from_store(
             widget_templates: widget_templates_opt,
             i18n: i18n_opt,
             page_modules: page_modules_opt,
+            assets: assets_opt,
             ..PreparedTappResources::default()
         },
     ))
+}
+
+/// Download every path declared in `manifest.assets` from the store host.
+///
+/// Returns `None` when the app declares no assets. Fails if a declared asset
+/// is missing or invalid so texture packs cannot install half-empty.
+async fn download_store_package_assets(
+    base_url: &str,
+    package_root: &str,
+    manifest: &TappManifest,
+) -> Result<Option<HashMap<String, String>>, (StatusCode, Json<ApiResponse<()>>)> {
+    let Some(declared) = manifest.assets.as_ref() else {
+        return Ok(None);
+    };
+    if declared.is_empty() {
+        return Ok(None);
+    }
+    if declared.len() > MAX_TAPP_ASSETS {
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            api_error(format!(
+                "Tapp assets accepts at most {MAX_TAPP_ASSETS} entries (got {})",
+                declared.len()
+            )),
+        ));
+    }
+
+    let mut assets: HashMap<String, String> = HashMap::new();
+    let mut total: u64 = 0;
+
+    for relative in declared {
+        validate_asset_path(relative).map_err(|e| (StatusCode::BAD_GATEWAY, api_error(e)))?;
+
+        let store_rel = store_asset_store_path(package_root, relative);
+        let asset_url = format!("{}/{}", base_url.trim_end_matches('/'), store_rel);
+        tracing::info!(url = %asset_url, path = %relative, "fetching tapp store asset");
+
+        let resp = fetch_public_store_url(&asset_url).await.map_err(|e| {
+            (
+                StatusCode::BAD_GATEWAY,
+                api_error(format!("Failed to fetch asset {relative}: {e}")),
+            )
+        })?;
+
+        if !resp.status().is_success() {
+            return Err((
+                StatusCode::BAD_GATEWAY,
+                api_error(format!(
+                    "Failed to fetch asset {relative}: remote returned {}",
+                    resp.status()
+                )),
+            ));
+        }
+
+        let bytes = resp.bytes().await.map_err(|e| {
+            (
+                StatusCode::BAD_GATEWAY,
+                api_error(format!("Failed to read asset {relative}: {e}")),
+            )
+        })?;
+
+        let size = bytes.len() as u64;
+        if size > MAX_TAPP_ASSET_BYTES {
+            return Err((
+                StatusCode::BAD_GATEWAY,
+                api_error(format!(
+                    "Tapp asset exceeds {MAX_TAPP_ASSET_BYTES} bytes: {relative}"
+                )),
+            ));
+        }
+        total = total.checked_add(size).ok_or_else(|| {
+            (
+                StatusCode::BAD_GATEWAY,
+                api_error("Tapp assets total size overflow"),
+            )
+        })?;
+        if total > MAX_TAPP_ASSETS_TOTAL_BYTES {
+            return Err((
+                StatusCode::BAD_GATEWAY,
+                api_error(format!(
+                    "Tapp assets total size exceeds {MAX_TAPP_ASSETS_TOTAL_BYTES} bytes"
+                )),
+            ));
+        }
+
+        assets.insert(relative.clone(), B64.encode(&bytes));
+    }
+
+    Ok(Some(assets))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn package_root_from_code_path() {
+        assert_eq!(
+            store_package_root("apps/com.myriad.doudizhu/main.js"),
+            "apps/com.myriad.doudizhu"
+        );
+        assert_eq!(
+            store_package_root("apps/com.myriad.doudizhu/manifest.json"),
+            "apps/com.myriad.doudizhu"
+        );
+        assert_eq!(store_package_root("main.js"), "");
+        assert_eq!(store_package_root("/nested/a/b/c.js"), "nested/a/b");
+    }
+
+    #[test]
+    fn asset_store_path_joins_package_root() {
+        assert_eq!(
+            store_asset_store_path(
+                "apps/com.myriad.doudizhu",
+                "assets/felt/table_felt.png"
+            ),
+            "apps/com.myriad.doudizhu/assets/felt/table_felt.png"
+        );
+        assert_eq!(
+            store_asset_store_path("", "assets/x.png"),
+            "assets/x.png"
+        );
+        assert_eq!(
+            store_asset_store_path("apps/foo/", "/assets/x.png"),
+            "apps/foo/assets/x.png"
+        );
+    }
 }
