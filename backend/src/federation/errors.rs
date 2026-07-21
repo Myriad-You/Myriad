@@ -172,4 +172,12 @@ mod tests {
         assert!(is_permanent_delivery_error("HTTP 500: access denied"));
 
     }
+
+    #[test]
+    fn w175_unknown_error_500() {
+        let (st, body) = map_inbox_handler_error("DB connection refused".into());
+        assert_eq!(st, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(body.0.get("error").and_then(|v| v.as_str()), Some("DB connection refused"));
+
+    }
 }
