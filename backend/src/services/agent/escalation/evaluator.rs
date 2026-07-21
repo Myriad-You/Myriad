@@ -95,6 +95,8 @@ impl ResultEvaluator {
     /// 评估结果（无需 ParsedIntent，仅检测失败模式和数据充足性）
     ///
     /// 用于 Planner 管线的简化评估，不依赖旧的 ParsedIntent 类型。
+    /// 生产路径优先 `evaluate_with_context`；本方法供无能力上下文的简化调用与单测。
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn evaluate_result(&self, result: &Value) -> Evaluation {
         self.evaluate_with_context(result, &EvaluationContext::default())
     }
@@ -257,10 +259,11 @@ impl ResultEvaluator {
             for s in sugs {
                 if let Some(s) = s.as_str() {
                     let s = s.trim();
-                    if !s.is_empty() && Self::is_entity_suggestion(s) {
-                        if !values.iter().any(|existing| existing == s) {
-                            values.push(s.to_string());
-                        }
+                    if !s.is_empty()
+                        && Self::is_entity_suggestion(s)
+                        && !values.iter().any(|existing| existing == s)
+                    {
+                        values.push(s.to_string());
                     }
                 }
             }
