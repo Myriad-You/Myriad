@@ -103,11 +103,15 @@ pub async fn get_actor(
     let public_key_pem: Option<String> = row.try_get("", "public_key_pem").ok();
     let fetched_key_id: Option<String> = row.try_get("", "key_id").ok();
 
-    // 如果用户还没有联邦密钥，自动生成（key_id under configured/current base)
+    // **G shared keys**: one RSA keypair per local user for life of the account.
+    // Domain Move retargets `key_id` host only — never generates a fresh pair here
+    // when keys already exist. Same `public_key_pem` is advertised on old and new
+    // actor URLs; `keyId` host follows the document we serve (`#main-key`).
     let (pub_key, stored_kid) = match (public_key_pem, fetched_key_id) {
-        (Some(pk), Some(ki)) => (pk, ki),
+        (Some(pk), Some(ki)) if !pk.trim().is_empty() => (pk, ki),
+        (Some(pk), None) if !pk.trim().is_empty() => (pk, key_id(&configured_base, &username)),
         _ => {
-            // 自动为该用户生成密钥对
+            // First-time only: generate once under configured base.
             generate_and_store_keys(&db, user_id, &configured_base, &username)
                 .await
                 .map_err(|e| {
@@ -124,8 +128,8 @@ pub async fn get_actor(
         }
     };
 
-    // Public key id must match the actor document base we are serving
-    // (old domain during Move still advertises `{old}/users/u#main-key`).
+    // keyId host matches the actor id we are serving (old Host → old keyId path;
+    // new base → new keyId path). PEM material is always `pub_key` from the store.
     let kid = if stored_kid.contains(base_url.trim_end_matches('/')) {
         stored_kid
     } else {

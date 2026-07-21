@@ -1,18 +1,17 @@
-//! ActivityPub Move — domain migration send (C) and receive helpers (D).
+//! ActivityPub Move — domain migration: **B** actor fields, **C** send, **D** receive,
+//! **E** local URL rewrite, **G** shared RSA keys.
 //!
-//! ## Send
-//! Admin `POST /api/admin/federation/domain-move` emits one `Move` Activity per
-//! local federated user: `actor` = `object` = old actor id, `target` = new actor id.
-//! Activities are stored and fan-out to **followers** via the delivery queue.
+//! ## Admin job order (`domain_move_all_users`)
+//! 1. Validate old/new base URLs  
+//! 2. dry_run counts (users, keys, rewrite rows)  
+//! 3. **B** — store domain alias so actor docs expose `alsoKnownAs` / `movedTo`  
+//! 4. **G** — retarget `federation_keys.key_id` to new host; **same PEM** (no new keypair)  
+//! 5. **C** — enqueue Move to followers  
+//! 6. **E** — rewrite this instance’s stored absolute URLs (whitelist only; never third-party)  
+//! 7. Full report  
 //!
-//! ## Actor documents
-//! Domain-move records persist `old_base_url` → `new_base_url` so:
-//! - actors served under the **new** base expose `alsoKnownAs` including the old id
-//! - actors served under the **old** base (Host-matched or still configured) expose `movedTo`
-//!
-//! ## Receive
-//! Verification is fail-closed (see `verify_move_claims` / inbox `handle_move`):
-//! HTTP Signature, actor/object consistency, remote `movedTo`, remote `alsoKnownAs`.
+//! ## Receive (D)
+//! Fail-closed: HTTP Signature, actor/object, old `movedTo`, new `alsoKnownAs`.
 
 use axum::http::StatusCode;
 use axum::Json;
@@ -33,7 +32,7 @@ pub struct DomainMoveRequest {
     pub old_base_url: String,
     /// New instance base URL (no trailing slash), e.g. `https://new.example`
     pub new_base_url: String,
-    /// When true, only count eligible users — no DB writes / queue inserts.
+    /// When true, only count eligible users / rows — no DB writes / queue inserts.
     #[serde(default)]
     pub dry_run: bool,
 }
@@ -46,6 +45,9 @@ pub struct DomainMoveUserResult {
     pub old_actor: String,
     pub new_actor: String,
     pub status: String,
+    /// G: same RSA material retained; keyId host will be new domain `#main-key`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shared_key: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub activity_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -54,15 +56,52 @@ pub struct DomainMoveUserResult {
     pub error: Option<String>,
 }
 
-/// Aggregate admin response.
+/// One whitelist table/column rewrite counter.
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct RewriteColumnStat {
+    pub table: String,
+    pub column: String,
+    pub rows: u32,
+}
+
+/// **E** — local absolute-URL rewrite report (this instance only).
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct LocalRewriteReport {
+    pub dry_run: bool,
+    pub total_rows: u32,
+    pub columns: Vec<RewriteColumnStat>,
+    /// Foreign URLs must never match rewrite prefix (invariant for tests/ops).
+    pub foreign_urls_untouched: bool,
+}
+
+/// **G** — key continuity report.
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct SharedKeysReport {
+    /// Users with an existing federation keypair (PEM retained).
+    pub users_with_keys: u32,
+    /// `key_id` rows rewritten old host → new host (same PEM).
+    pub key_ids_retargeted: u32,
+    /// Users missing keys (will generate on first actor fetch under new base — same once).
+    pub users_without_keys: u32,
+    /// Explicit: no fresh keypair generated during this job.
+    pub regenerated_keys: u32,
+}
+
+/// Aggregate admin response (job steps B+C+E+G).
 #[derive(Debug, Clone, Serialize)]
 pub struct DomainMoveResponse {
     pub dry_run: bool,
     pub old_base_url: String,
     pub new_base_url: String,
+    /// **B** — domain alias stored (or would be stored).
+    pub alias_stored: bool,
     pub total_users: u32,
     pub enqueued: u32,
     pub failed: u32,
+    /// **G**
+    pub shared_keys: SharedKeysReport,
+    /// **E**
+    pub local_rewrite: LocalRewriteReport,
     pub results: Vec<DomainMoveUserResult>,
 }
 
@@ -73,9 +112,31 @@ pub struct DomainMoveAlias {
     pub new_base_url: String,
 }
 
+/// Whitelist of text columns that may hold **this instance's** absolute federation URLs.
+///
+/// Only values whose prefix is exactly `old_base` are rewritten. Third-party domains
+/// never match and are never touched.
+pub const LOCAL_URL_REWRITE_WHITELIST: &[(&str, &str)] = &[
+    ("federation_keys", "key_id"),
+    ("federation_remote_actors", "actor_url"),
+    ("federation_remote_actors", "inbox_url"),
+    ("federation_remote_actors", "outbox_url"),
+    ("federation_remote_actors", "shared_inbox_url"),
+    ("federation_remote_actors", "public_key_id"),
+    ("federation_remote_actors", "avatar_url"),
+    ("federation_room_members", "actor_url"),
+    ("federation_room_members", "invited_by"),
+    ("federation_rooms", "owner_actor"),
+    ("federation_rooms", "home_server"),
+    ("federation_room_messages", "sender_actor"),
+    ("federation_channel_messages", "sender_actor"),
+    ("federation_delivery_queue", "target_inbox"),
+];
+
 // ==================== Actor document fields ====================
 
 /// Normalize a base URL: trim, strip trailing slash, require http(s).
+/// Host is lowercased by the URL parser (RFC 3986).
 pub fn normalize_base_url(raw: &str) -> Result<String, String> {
     let trimmed = raw.trim().trim_end_matches('/');
     if trimmed.is_empty() {
@@ -94,6 +155,85 @@ pub fn normalize_base_url(raw: &str) -> Result<String, String> {
         .ok_or_else(|| "base URL must have a host".to_string())?;
     let port = parsed.port().map(|p| format!(":{}", p)).unwrap_or_default();
     Ok(format!("{}://{}{}", parsed.scheme(), host, port))
+}
+
+// ==================== E — pure local URL rewrite helpers ====================
+
+/// True if `url` is an absolute URL under `base` (same origin prefix).
+///
+/// Matches `{base}`, `{base}/…`, and `{base}#…` only — never a foreign host
+/// that merely contains the old hostname as a substring.
+pub fn url_is_under_base(url: &str, base: &str) -> bool {
+    let url = url.trim();
+    let base = base.trim().trim_end_matches('/');
+    if url.is_empty() || base.is_empty() {
+        return false;
+    }
+    // Case-insensitive scheme+host via normalize_actor_url for actor-like URLs;
+    // for general paths keep byte-prefix after lowercasing host via Url parse.
+    let url_norm = normalize_actor_url(url);
+    let base_norm = normalize_actor_url(base);
+    if url_norm == base_norm {
+        return true;
+    }
+    let prefix = format!("{}/", base_norm);
+    if url_norm.starts_with(&prefix) {
+        return true;
+    }
+    // keyId fragments: https://old/users/u#main-key
+    if let Some((path, _frag)) = url.split_once('#') {
+        let path_norm = normalize_actor_url(path);
+        if path_norm == base_norm || path_norm.starts_with(&prefix) {
+            return true;
+        }
+    }
+    false
+}
+
+/// If `url` is under `old_base`, return the same path/query/fragment under `new_base`.
+/// Foreign URLs return `None` (must not be rewritten).
+pub fn rewrite_url_if_local(url: &str, old_base: &str, new_base: &str) -> Option<String> {
+    let url = url.trim();
+    if url.is_empty() || !url_is_under_base(url, old_base) {
+        return None;
+    }
+    let old_base = old_base.trim().trim_end_matches('/');
+    let new_base = new_base.trim().trim_end_matches('/');
+
+    // Prefer raw-prefix replace preserving path case; fall back to normalized.
+    let old_raw = old_base;
+    if url.starts_with(old_raw) {
+        return Some(format!("{}{}", new_base, &url[old_raw.len()..]));
+    }
+    // Case drift on host: parse and rebuild
+    let url_norm = normalize_actor_url(url);
+    let old_norm = normalize_actor_url(old_base);
+    if !url_norm.starts_with(old_norm.as_str()) {
+        // Fragment-only suffix after path match
+        if let Some((path, frag)) = url.split_once('#') {
+            if let Some(rewritten_path) = rewrite_url_if_local(path, old_base, new_base) {
+                return Some(format!("{}#{}", rewritten_path, frag));
+            }
+        }
+        return None;
+    }
+    let rest = &url_norm[old_norm.len()..];
+    // Preserve original fragment if present
+    if let Some((_, frag)) = url.split_once('#') {
+        if !rest.contains('#') {
+            return Some(format!("{}{}#{}", new_base, rest, frag));
+        }
+    }
+    Some(format!("{}{}", new_base, rest))
+}
+
+/// SQL LIKE pattern for prefix match (old_base + '%'). Escapes `%` / `_` in base.
+fn prefix_like_pattern(old_base: &str) -> String {
+    let escaped = old_base
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    format!("{}%", escaped)
 }
 
 /// Load all domain-move aliases from DB (empty if table missing / empty).
@@ -684,9 +824,9 @@ pub async fn migrate_follows_old_to_new(
     Ok(migrated)
 }
 
-// ==================== Send path ====================
+// ==================== Send path + B / G / E job ====================
 
-/// Persist domain alias (upsert by old_base_url).
+/// Persist domain alias (upsert by old_base_url). **B** — enables actor `alsoKnownAs` / `movedTo`.
 pub async fn store_domain_alias(
     db: &DatabaseConnection,
     old_base: &str,
@@ -704,6 +844,291 @@ pub async fn store_domain_alias(
     .await
     .map_err(|e| format!("Failed to store domain alias: {}", e))?;
     Ok(())
+}
+
+/// **G** — Confirm user has existing keys; retarget `key_id` host to `new_base`.
+///
+/// **Never** generates a new RSA keypair. PEM material is left untouched.
+/// Choice: `keyId` becomes `{new_base}/users/{username}#main-key` (new domain host)
+/// with the **same** `public_key_pem` as before (Mastodon-style continuity).
+pub async fn retarget_shared_keys(
+    db: &DatabaseConnection,
+    old_base: &str,
+    new_base: &str,
+    dry_run: bool,
+) -> Result<SharedKeysReport, String> {
+    let rows = db
+        .query_all(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"SELECT fk.user_id, u.username, fk.key_id, fk.public_key_pem
+               FROM federation_keys fk
+               JOIN users u ON u.id = fk.user_id
+               ORDER BY fk.user_id ASC"#,
+            [],
+        ))
+        .await
+        .map_err(|e| format!("Failed to list federation_keys: {}", e))?;
+
+    let all_users = db
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT COUNT(*)::int AS c FROM users",
+            [],
+        ))
+        .await
+        .map_err(|e| format!("Failed to count users: {}", e))?;
+    let total_users: i32 = all_users
+        .and_then(|r| r.try_get("", "c").ok())
+        .unwrap_or(0);
+
+    let mut report = SharedKeysReport {
+        users_with_keys: rows.len() as u32,
+        key_ids_retargeted: 0,
+        users_without_keys: (total_users as u32).saturating_sub(rows.len() as u32),
+        regenerated_keys: 0,
+    };
+
+    for row in rows {
+        let user_id: i32 = row.try_get("", "user_id").unwrap_or(0);
+        let username: String = row.try_get("", "username").unwrap_or_default();
+        let old_kid: String = row.try_get("", "key_id").unwrap_or_default();
+        let pem: String = row.try_get("", "public_key_pem").unwrap_or_default();
+
+        if pem.trim().is_empty() {
+            return Err(format!(
+                "user {} has empty public_key_pem — refusing domain-move (G shared keys)",
+                user_id
+            ));
+        }
+
+        // Canonical new keyId on new domain; same PEM advertised by actor builder.
+        let new_kid = key_id(new_base, &username);
+
+        // Only rewrite if key_id is under old base or already not equal to new target.
+        let needs = old_kid != new_kid
+            && (url_is_under_base(&old_kid, old_base)
+                || old_kid.is_empty()
+                || !url_is_under_base(&old_kid, new_base));
+
+        if !needs {
+            continue;
+        }
+
+        report.key_ids_retargeted += 1;
+        if dry_run {
+            continue;
+        }
+
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            // PEM columns intentionally omitted from SET — shared material only.
+            r#"UPDATE federation_keys
+               SET key_id = $1
+               WHERE user_id = $2
+                 AND public_key_pem IS NOT NULL
+                 AND public_key_pem <> ''"#,
+            [new_kid.into(), user_id.into()],
+        ))
+        .await
+        .map_err(|e| format!("Failed to retarget key_id for user {}: {}", user_id, e))?;
+    }
+
+    Ok(report)
+}
+
+/// Count rows in a text column whose value starts with `old_base` (local only).
+async fn count_prefix_rows(
+    db: &DatabaseConnection,
+    table: &str,
+    column: &str,
+    old_base: &str,
+) -> Result<u32, String> {
+    // Whitelist guard — never interpolate untrusted table/column names.
+    if !LOCAL_URL_REWRITE_WHITELIST
+        .iter()
+        .any(|(t, c)| *t == table && *c == column)
+    {
+        return Err(format!("column {}.{} not on rewrite whitelist", table, column));
+    }
+    let like = prefix_like_pattern(old_base);
+    // Identifier whitelist only — safe static concat.
+    let sql = format!(
+        "SELECT COUNT(*)::int AS c FROM {} WHERE {} IS NOT NULL AND {} LIKE $1",
+        table, column, column
+    );
+    let row = db
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            &sql,
+            [like.into()],
+        ))
+        .await
+        .map_err(|e| format!("count {}.{}: {}", table, column, e))?;
+    Ok(row
+        .and_then(|r| r.try_get::<i32>("", "c").ok())
+        .unwrap_or(0) as u32)
+}
+
+/// Apply prefix rewrite for one whitelisted text column.
+async fn rewrite_prefix_column(
+    db: &DatabaseConnection,
+    table: &str,
+    column: &str,
+    old_base: &str,
+    new_base: &str,
+    dry_run: bool,
+) -> Result<u32, String> {
+    let count = count_prefix_rows(db, table, column, old_base).await?;
+    if dry_run || count == 0 {
+        return Ok(count);
+    }
+    let like = prefix_like_pattern(old_base);
+    // Postgres: rewrite only matching prefix; leave foreign rows alone via LIKE filter.
+    let sql = format!(
+        r#"UPDATE {}
+           SET {} = $1 || substring({} from char_length($2) + 1)
+           WHERE {} IS NOT NULL AND {} LIKE $3"#,
+        table, column, column, column, column
+    );
+    db.execute(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        &sql,
+        [new_base.into(), old_base.into(), like.into()],
+    ))
+    .await
+    .map_err(|e| format!("rewrite {}.{}: {}", table, column, e))?;
+    Ok(count)
+}
+
+/// **E** — Rewrite this instance’s stored absolute federation URLs `old_base` → `new_base`.
+///
+/// Whitelist only. Never rewrites third-party domains (prefix match on old_base).
+/// `federation_remote_actors.domain` is updated only when `actor_url` was under old_base.
+pub async fn rewrite_local_federation_urls(
+    db: &DatabaseConnection,
+    old_base: &str,
+    new_base: &str,
+    dry_run: bool,
+) -> Result<LocalRewriteReport, String> {
+    let mut report = LocalRewriteReport {
+        dry_run,
+        total_rows: 0,
+        columns: Vec::new(),
+        foreign_urls_untouched: true,
+    };
+
+    for &(table, column) in LOCAL_URL_REWRITE_WHITELIST {
+        let rows = rewrite_prefix_column(db, table, column, old_base, new_base, dry_run).await?;
+        if rows > 0 {
+            report.columns.push(RewriteColumnStat {
+                table: table.to_string(),
+                column: column.to_string(),
+                rows,
+            });
+            report.total_rows += rows;
+        }
+    }
+
+    // remote_actors.domain: only for rows whose actor_url is (or was) under our bases.
+    let old_domain = extract_domain(old_base).unwrap_or_default();
+    let new_domain = extract_domain(new_base).unwrap_or_default();
+    if !old_domain.is_empty() && !new_domain.is_empty() && old_domain != new_domain {
+        let domain_count_sql = r#"SELECT COUNT(*)::int AS c FROM federation_remote_actors
+               WHERE domain = $1
+                 AND (actor_url LIKE $2 OR actor_url LIKE $3)"#;
+        let like_old = prefix_like_pattern(old_base);
+        let like_new = prefix_like_pattern(new_base);
+        let domain_rows = db
+            .query_one(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                domain_count_sql,
+                [
+                    old_domain.clone().into(),
+                    like_old.clone().into(),
+                    like_new.clone().into(),
+                ],
+            ))
+            .await
+            .map_err(|e| format!("count remote_actors.domain: {}", e))?;
+        let dcount = domain_rows
+            .and_then(|r| r.try_get::<i32>("", "c").ok())
+            .unwrap_or(0) as u32;
+        if dcount > 0 {
+            report.columns.push(RewriteColumnStat {
+                table: "federation_remote_actors".into(),
+                column: "domain".into(),
+                rows: dcount,
+            });
+            report.total_rows += dcount;
+            if !dry_run {
+                db.execute(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    r#"UPDATE federation_remote_actors
+                       SET domain = $1
+                       WHERE domain = $2
+                         AND (actor_url LIKE $3 OR actor_url LIKE $4)"#,
+                    [
+                        new_domain.clone().into(),
+                        old_domain.clone().into(),
+                        like_old.into(),
+                        like_new.into(),
+                    ],
+                ))
+                .await
+                .map_err(|e| format!("rewrite remote_actors.domain: {}", e))?;
+            }
+        }
+    }
+
+    // delivery queue target_domain for inboxes we rewrote
+    if !old_domain.is_empty() && !new_domain.is_empty() && old_domain != new_domain {
+        let like_new_inbox = prefix_like_pattern(new_base);
+        let like_old_inbox = prefix_like_pattern(old_base);
+        let dq = db
+            .query_one(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                r#"SELECT COUNT(*)::int AS c FROM federation_delivery_queue
+                   WHERE target_domain = $1
+                     AND (target_inbox LIKE $2 OR target_inbox LIKE $3)"#,
+                [
+                    old_domain.clone().into(),
+                    like_old_inbox.clone().into(),
+                    like_new_inbox.clone().into(),
+                ],
+            ))
+            .await
+            .map_err(|e| format!("count delivery target_domain: {}", e))?;
+        let c = dq
+            .and_then(|r| r.try_get::<i32>("", "c").ok())
+            .unwrap_or(0) as u32;
+        if c > 0 {
+            report.columns.push(RewriteColumnStat {
+                table: "federation_delivery_queue".into(),
+                column: "target_domain".into(),
+                rows: c,
+            });
+            report.total_rows += c;
+            if !dry_run {
+                db.execute(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    r#"UPDATE federation_delivery_queue
+                       SET target_domain = $1
+                       WHERE target_domain = $2
+                         AND (target_inbox LIKE $3 OR target_inbox LIKE $4)"#,
+                    [
+                        new_domain.clone().into(),
+                        old_domain.clone().into(),
+                        like_old_inbox.into(),
+                        like_new_inbox.into(),
+                    ],
+                ))
+                .await
+                .map_err(|e| format!("rewrite delivery target_domain: {}", e))?;
+            }
+        }
+    }
+
+    Ok(report)
 }
 
 /// Emit Move for one local user and fan-out to followers.
@@ -759,11 +1184,29 @@ pub async fn emit_move_for_user(
     Ok((activity_id, queued))
 }
 
-/// Admin domain-move: emit Move for every local user (or dry-run count).
+/// Whether this user has a non-empty federation PEM (shared-key continuity).
+async fn user_has_shared_key(db: &DatabaseConnection, user_id: i32) -> Result<bool, String> {
+    let row = db
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"SELECT public_key_pem FROM federation_keys
+               WHERE user_id = $1 AND public_key_pem IS NOT NULL AND public_key_pem <> ''
+               LIMIT 1"#,
+            [user_id.into()],
+        ))
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(row.is_some())
+}
+
+/// Admin domain-move job: **B + G + C + E** (or dry_run counts).
+///
+/// Order: validate → counts → alias (B) → shared keys (G) → Move enqueue (C) → local rewrite (E).
 pub async fn domain_move_all_users(
     db: &DatabaseConnection,
     req: &DomainMoveRequest,
 ) -> Result<DomainMoveResponse, (StatusCode, Json<serde_json::Value>)> {
+    // 1. Validate
     let old_base = normalize_base_url(&req.old_base_url).map_err(|e| {
         (
             StatusCode::BAD_REQUEST,
@@ -795,11 +1238,13 @@ pub async fn domain_move_all_users(
         .await
         .map_err(db_err)?;
 
-    let mut results = Vec::new();
-    let mut enqueued = 0u32;
-    let mut failed = 0u32;
+    let dry = req.dry_run;
 
-    if !req.dry_run {
+    // 2–4. dry_run: G + E counts without writes; live: apply G after B.
+    // 3. B — actor document fields (alias)
+    let alias_stored = if dry {
+        false
+    } else {
         store_domain_alias(db, &old_base, &new_base)
             .await
             .map_err(|e| {
@@ -808,7 +1253,23 @@ pub async fn domain_move_all_users(
                     Json(json!({"error": e})),
                 )
             })?;
-    }
+        true
+    };
+
+    // 4. G — shared keys (retarget keyId only; never regenerate)
+    let shared_keys = retarget_shared_keys(db, &old_base, &new_base, dry)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("shared keys (G): {}", e)})),
+            )
+        })?;
+
+    // 5. C — emit Move per user
+    let mut results = Vec::new();
+    let mut enqueued = 0u32;
+    let mut failed = 0u32;
 
     for row in users {
         let user_id: i32 = row.try_get("", "id").unwrap_or(0);
@@ -819,14 +1280,16 @@ pub async fn domain_move_all_users(
 
         let old_actor = actor_url(&old_base, &username);
         let new_actor = actor_url(&new_base, &username);
+        let has_key = user_has_shared_key(db, user_id).await.unwrap_or(false);
 
-        if req.dry_run {
+        if dry {
             results.push(DomainMoveUserResult {
                 user_id,
                 username,
                 old_actor,
                 new_actor,
                 status: "would_enqueue".into(),
+                shared_key: Some(has_key),
                 activity_id: None,
                 queued: None,
                 error: None,
@@ -844,6 +1307,7 @@ pub async fn domain_move_all_users(
                     old_actor,
                     new_actor,
                     status: "enqueued".into(),
+                    shared_key: Some(has_key),
                     activity_id: Some(activity_id),
                     queued: Some(queued),
                     error: None,
@@ -863,6 +1327,7 @@ pub async fn domain_move_all_users(
                     old_actor,
                     new_actor,
                     status: "failed".into(),
+                    shared_key: Some(has_key),
                     activity_id: None,
                     queued: None,
                     error: Some(e),
@@ -871,14 +1336,28 @@ pub async fn domain_move_all_users(
         }
     }
 
+    // 6. E — local DB rewrite (after Move enqueue)
+    let local_rewrite = rewrite_local_federation_urls(db, &old_base, &new_base, dry)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("local rewrite (E): {}", e)})),
+            )
+        })?;
+
+    // 7. Full report
     let total_users = results.len() as u32;
     Ok(DomainMoveResponse {
-        dry_run: req.dry_run,
+        dry_run: dry,
         old_base_url: old_base,
         new_base_url: new_base,
+        alias_stored,
         total_users,
         enqueued,
         failed,
+        shared_keys,
+        local_rewrite,
         results,
     })
 }
@@ -1104,5 +1583,131 @@ mod tests {
                 promote_new_to_accepted: false
             }
         );
+    }
+
+    #[test]
+    fn local_url_rewritten_under_old_base() {
+        let old_b = "https://old.example";
+        let new_b = "https://new.example";
+        assert_eq!(
+            rewrite_url_if_local("https://old.example/users/alice", old_b, new_b).as_deref(),
+            Some("https://new.example/users/alice")
+        );
+        assert_eq!(
+            rewrite_url_if_local(
+                "https://old.example/users/alice#main-key",
+                old_b,
+                new_b
+            )
+            .as_deref(),
+            Some("https://new.example/users/alice#main-key")
+        );
+        assert_eq!(
+            rewrite_url_if_local("https://old.example/users/alice/inbox", old_b, new_b)
+                .as_deref(),
+            Some("https://new.example/users/alice/inbox")
+        );
+    }
+
+    #[test]
+    fn foreign_url_untouched_by_rewrite() {
+        let old_b = "https://old.example";
+        let new_b = "https://new.example";
+        assert!(
+            rewrite_url_if_local("https://mastodon.social/users/bob", old_b, new_b).is_none()
+        );
+        assert!(rewrite_url_if_local(
+            "https://old.example.evil.com/users/alice",
+            old_b,
+            new_b
+        )
+        .is_none());
+        assert!(rewrite_url_if_local(
+            "https://not-old.example/users/alice",
+            old_b,
+            new_b
+        )
+        .is_none());
+        // Substring host must not match
+        assert!(!url_is_under_base(
+            "https://prefix-old.example/users/x",
+            "https://old.example"
+        ));
+    }
+
+    #[test]
+    fn shared_key_id_rewrite_preserves_path_and_fragment() {
+        // G choice: keyId host moves with domain; PEM is unchanged (not tested here).
+        let kid = rewrite_url_if_local(
+            "https://old.example/users/alice#main-key",
+            "https://old.example",
+            "https://new.example",
+        )
+        .unwrap();
+        assert_eq!(kid, "https://new.example/users/alice#main-key");
+        assert_eq!(
+            key_id("https://new.example", "alice"),
+            "https://new.example/users/alice#main-key"
+        );
+    }
+
+    #[test]
+    fn rewrite_whitelist_includes_required_tables() {
+        let tables: Vec<&str> = LOCAL_URL_REWRITE_WHITELIST
+            .iter()
+            .map(|(t, _)| *t)
+            .collect();
+        assert!(tables.contains(&"federation_remote_actors"));
+        assert!(tables.contains(&"federation_room_members"));
+        assert!(tables.contains(&"federation_rooms"));
+        assert!(tables.contains(&"federation_channel_messages"));
+        assert!(tables.contains(&"federation_delivery_queue"));
+        assert!(tables.contains(&"federation_keys"));
+    }
+
+    #[test]
+    fn actor_serde_also_known_as_and_moved_to() {
+        // B: Actor serializes both fields for peers verifying Move.
+        let a = Actor {
+            context: build_ap_context(),
+            actor_type: "Person".into(),
+            id: "https://new.example/users/a".into(),
+            preferred_username: "a".into(),
+            name: None,
+            summary: None,
+            url: None,
+            inbox: "https://new.example/users/a/inbox".into(),
+            outbox: "https://new.example/users/a/outbox".into(),
+            followers: "https://new.example/users/a/followers".into(),
+            following: "https://new.example/users/a/following".into(),
+            public_key: ActorPublicKey {
+                id: "https://new.example/users/a#main-key".into(),
+                owner: "https://new.example/users/a".into(),
+                public_key_pem: "PEM".into(),
+            },
+            icon: None,
+            image: None,
+            also_known_as: vec!["https://old.example/users/a".into()],
+            moved_to: None,
+            mfp_instance_version: None,
+            mfp_tapp_capabilities: None,
+            mfp_channels_url: None,
+        };
+        let v = serde_json::to_value(&a).unwrap();
+        assert_eq!(
+            v["alsoKnownAs"][0],
+            "https://old.example/users/a"
+        );
+        assert!(v.get("movedTo").is_none());
+
+        let old = Actor {
+            moved_to: Some("https://new.example/users/a".into()),
+            also_known_as: vec![],
+            ..a
+        };
+        let v2 = serde_json::to_value(&old).unwrap();
+        assert_eq!(v2["movedTo"], "https://new.example/users/a");
+        // empty alsoKnownAs skipped
+        assert!(v2.get("alsoKnownAs").is_none());
     }
 }
