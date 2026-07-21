@@ -118,15 +118,16 @@ pub(super) async fn install_tapp(
                     api_error("code is required for direct install"),
                 )
             })?;
-            // separated: pageCss/widgetCss are the declared pageStyles/widgetStyles files.
-            // unified: they are generated tailwind (page.css / widget.css) sidecars.
-            let separated = manifest.css_mode.as_deref() == Some("separated");
-            let (widget_styles, generated_widget_css) = if separated {
+            // Prefer declared manifest paths: if pageStyles/widgetStyles are set,
+            // request pageCss/widgetCss fill those channels (cssMode=separated apps).
+            // Otherwise treat them as generated page.css / widget.css sidecars.
+            // Mapping by declared fields is more robust than cssMode string alone.
+            let (widget_styles, generated_widget_css) = if manifest.widget_styles.is_some() {
                 (widget_css, None)
             } else {
                 (None, widget_css)
             };
-            let (page_styles, generated_page_css) = if separated {
+            let (page_styles, generated_page_css) = if manifest.page_styles.is_some() {
                 (page_css, None)
             } else {
                 (None, page_css)
@@ -663,13 +664,13 @@ pub(super) async fn update_tapp(
                     api_error("code is required for direct update"),
                 )
             })?;
-            let separated = manifest.css_mode.as_deref() == Some("separated");
-            let (widget_styles, generated_widget_css) = if separated {
+            // Prefer declared pageStyles/widgetStyles over cssMode string alone.
+            let (widget_styles, generated_widget_css) = if manifest.widget_styles.is_some() {
                 (req_widget_css, None)
             } else {
                 (None, req_widget_css)
             };
-            let (page_styles, generated_page_css) = if separated {
+            let (page_styles, generated_page_css) = if manifest.page_styles.is_some() {
                 (req_page_css, None)
             } else {
                 (None, req_page_css)

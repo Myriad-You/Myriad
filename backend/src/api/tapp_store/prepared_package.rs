@@ -133,10 +133,10 @@ impl PreparedTappPackage {
                 validate_widget_template_contents(&self.manifest, templates)
                     .map_err(|error| (StatusCode::BAD_REQUEST, api_error(error)))?;
             }
-            // Separated CSS: declared pageStyles/widgetStyles must include content to write.
+            // Declared pageStyles/widgetStyles must include content to write.
             // Without this, validate_installed_resources fails with a misleading
             // "not a regular file: page.css" after stage.
-            if self.manifest.page_styles.is_some() {
+            if let Some(declared) = self.manifest.page_styles.as_deref() {
                 let has_page = resources
                     .page_styles
                     .as_ref()
@@ -148,9 +148,10 @@ impl PreparedTappPackage {
                 if !has_page {
                     return Err((
                         StatusCode::BAD_REQUEST,
-                        api_error(
-                            "Install package is missing pageStyles content required by manifest.pageStyles (page.css)",
-                        ),
+                        api_error(format!(
+                            "Install package is missing pageStyles/pageCss content required by \
+manifest.pageStyles={declared} (frontend must send pageCss; store fetch must download download.page_styles)"
+                        )),
                     ));
                 }
             }
@@ -168,7 +169,7 @@ impl PreparedTappPackage {
                     ));
                 }
             }
-            if self.manifest.widget_styles.is_some() {
+            if let Some(declared) = self.manifest.widget_styles.as_deref() {
                 let has_widget = resources
                     .widget_styles
                     .as_ref()
@@ -180,9 +181,10 @@ impl PreparedTappPackage {
                 if !has_widget {
                     return Err((
                         StatusCode::BAD_REQUEST,
-                        api_error(
-                            "Install package is missing widgetStyles content required by manifest.widgetStyles",
-                        ),
+                        api_error(format!(
+                            "Install package is missing widgetStyles/widgetCss content required by \
+manifest.widgetStyles={declared}"
+                        )),
                     ));
                 }
             }
@@ -266,27 +268,66 @@ impl PreparedTappPackage {
             self.write_text(tapp_dir, path, content, "styles", context)
                 .await?;
         }
-        if let Some(content) = &resources.widget_styles {
-            let path = self
-                .manifest
+        // Widget CSS: declared widgetStyles path first, else generated widget.css.
+        // Accept content from either channel so mis-routed payload still installs.
+        {
+            let content = resources
                 .widget_styles
-                .as_deref()
-                .unwrap_or("widget.css");
-            self.write_text(tapp_dir, path, content, "widget_styles", context)
-                .await?;
+                .as_ref()
+                .filter(|s| !s.is_empty())
+                .or_else(|| {
+                    resources
+                        .generated_widget_css
+                        .as_ref()
+                        .filter(|s| !s.is_empty())
+                });
+            if let Some(declared) = self.manifest.widget_styles.as_deref() {
+                if let Some(content) = content {
+                    self.write_text(tapp_dir, declared, content, "widget_styles", context)
+                        .await?;
+                } else {
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        api_error(format!(
+                            "Missing widgetStyles content for declared path {declared}"
+                        )),
+                    ));
+                }
+            } else if let Some(content) = resources.generated_widget_css.as_ref() {
+                self.write_text(tapp_dir, "widget.css", content, "widget_css", context)
+                    .await?;
+            }
         }
-        if let Some(content) = &resources.page_styles {
-            let path = self.manifest.page_styles.as_deref().unwrap_or("page.css");
-            self.write_text(tapp_dir, path, content, "page_styles", context)
-                .await?;
-        }
-        if let Some(content) = &resources.generated_widget_css {
-            self.write_text(tapp_dir, "widget.css", content, "widget_css", context)
-                .await?;
-        }
-        if let Some(content) = &resources.generated_page_css {
-            self.write_text(tapp_dir, "page.css", content, "page_css", context)
-                .await?;
+        // Page CSS: MUST write declared pageStyles (e.g. page.css) or install validation fails.
+        // Prefer page_styles content; fall back to generated_page_css if mis-routed by cssMode.
+        {
+            let content = resources
+                .page_styles
+                .as_ref()
+                .filter(|s| !s.is_empty())
+                .or_else(|| {
+                    resources
+                        .generated_page_css
+                        .as_ref()
+                        .filter(|s| !s.is_empty())
+                });
+            if let Some(declared) = self.manifest.page_styles.as_deref() {
+                if let Some(content) = content {
+                    self.write_text(tapp_dir, declared, content, "page_styles", context)
+                        .await?;
+                } else {
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        api_error(format!(
+                            "Missing pageStyles content for declared path {declared} \
+(frontend must send pageCss; store fetch must download download.page_styles)"
+                        )),
+                    ));
+                }
+            } else if let Some(content) = resources.generated_page_css.as_ref() {
+                self.write_text(tapp_dir, "page.css", content, "page_css", context)
+                    .await?;
+            }
         }
         if let Some(content) = &resources.page_template {
             let path = self
@@ -611,5 +652,198 @@ mod tests {
         assert!(root.join(super::super::TAPP_INSTALL_STATE_FILE).is_file());
 
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// doudizhu-like: cssMode=separated + pageStyles=page.css + non-empty pageCss
+    /// must write page.css before validate_installed_resources.
+    #[tokio::test]
+    async fn separated_page_styles_writes_declared_page_css() {
+        let root = std::env::temp_dir().join(format!(
+            "myriad-prepared-page-css-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let manifest: TappManifest = serde_json::from_value(json!({
+            "id": "com.myriad.doudizhu",
+            "name": "Dou Dizhu",
+            "version": "1.0.0",
+            "main": "main.js",
+            "cssMode": "separated",
+            "pageStyles": "page.css",
+            "hasPage": true,
+            "category": "game",
+            "permissions": []
+        }))
+        .unwrap();
+        let page_css = "/* doudizhu page styles */ .table { color: gold; }";
+        let package = PreparedTappPackage::from_resources(
+            manifest,
+            PreparedTappResources {
+                code: "export {};".to_string(),
+                page_styles: Some(page_css.to_string()),
+                ..PreparedTappResources::default()
+            },
+        );
+
+        package.validate(None).unwrap();
+        package
+            .stage_into(
+                &root,
+                Utc::now().fixed_offset(),
+                PackageStageContext {
+                    user_id: 1,
+                    installation_owner_id: 1,
+                },
+            )
+            .await
+            .unwrap();
+
+        assert!(root.join("page.css").is_file());
+        assert_eq!(std::fs::read_to_string(root.join("page.css")).unwrap(), page_css);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Content mis-routed into generated_page_css (e.g. cssMode mapping quirk) still
+    /// writes the declared pageStyles path.
+    #[tokio::test]
+    async fn declared_page_styles_accepts_generated_page_css_fallback() {
+        let root = std::env::temp_dir().join(format!(
+            "myriad-prepared-page-css-fallback-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let manifest: TappManifest = serde_json::from_value(json!({
+            "id": "com.example.separated-fallback",
+            "name": "Separated fallback",
+            "version": "1.0.0",
+            "main": "main.js",
+            "cssMode": "separated",
+            "pageStyles": "page.css",
+            "category": "game",
+            "permissions": []
+        }))
+        .unwrap();
+        let css = ".fallback { display: block; }";
+        let package = PreparedTappPackage::from_resources(
+            manifest,
+            PreparedTappResources {
+                code: "export {};".to_string(),
+                // Simulates pageCss landing in generated_page_css instead of page_styles
+                generated_page_css: Some(css.to_string()),
+                ..PreparedTappResources::default()
+            },
+        );
+
+        package.validate(None).unwrap();
+        package
+            .stage_into(
+                &root,
+                Utc::now().fixed_offset(),
+                PackageStageContext {
+                    user_id: 1,
+                    installation_owner_id: 1,
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(std::fs::read_to_string(root.join("page.css")).unwrap(), css);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn validate_rejects_missing_page_styles_content_with_clear_error() {
+        let manifest: TappManifest = serde_json::from_value(json!({
+            "id": "com.example.missing-page-css",
+            "name": "Missing page css",
+            "version": "1.0.0",
+            "main": "main.js",
+            "cssMode": "separated",
+            "pageStyles": "page.css",
+            "category": "game",
+            "permissions": []
+        }))
+        .unwrap();
+        let package = PreparedTappPackage::from_resources(
+            manifest,
+            PreparedTappResources {
+                code: "export {};".to_string(),
+                ..PreparedTappResources::default()
+            },
+        );
+
+        let err = package.validate(None).unwrap_err();
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+        let body = serde_json::to_string(&err.1 .0).unwrap_or_default();
+        assert!(
+            body.contains("pageStyles") || body.contains("pageCss"),
+            "error should mention pageStyles/pageCss, got: {body}"
+        );
+        assert!(
+            body.contains("page.css"),
+            "error should mention declared path page.css, got: {body}"
+        );
+    }
+
+    #[test]
+    fn validate_rejects_empty_page_styles_content() {
+        let manifest: TappManifest = serde_json::from_value(json!({
+            "id": "com.example.empty-page-css",
+            "name": "Empty page css",
+            "version": "1.0.0",
+            "main": "main.js",
+            "pageStyles": "styles/page.css",
+            "category": "utility",
+            "permissions": []
+        }))
+        .unwrap();
+        let package = PreparedTappPackage::from_resources(
+            manifest,
+            PreparedTappResources {
+                code: "export {};".to_string(),
+                page_styles: Some(String::new()),
+                generated_page_css: Some(String::new()),
+                ..PreparedTappResources::default()
+            },
+        );
+
+        let err = package.validate(None).unwrap_err();
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+        let body = serde_json::to_string(&err.1 .0).unwrap_or_default();
+        assert!(
+            body.contains("pageStyles") || body.contains("pageCss"),
+            "error should mention pageStyles/pageCss, got: {body}"
+        );
+        assert!(
+            body.contains("styles/page.css"),
+            "error should mention declared path, got: {body}"
+        );
+    }
+
+    #[test]
+    fn validate_rejects_missing_widget_styles_content() {
+        let manifest: TappManifest = serde_json::from_value(json!({
+            "id": "com.example.missing-widget-css",
+            "name": "Missing widget css",
+            "version": "1.0.0",
+            "main": "main.js",
+            "widgetStyles": "widget.css",
+            "category": "utility",
+            "permissions": []
+        }))
+        .unwrap();
+        let package = PreparedTappPackage::from_resources(
+            manifest,
+            PreparedTappResources {
+                code: "export {};".to_string(),
+                ..PreparedTappResources::default()
+            },
+        );
+
+        let err = package.validate(None).unwrap_err();
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+        let body = serde_json::to_string(&err.1 .0).unwrap_or_default();
+        assert!(
+            body.contains("widgetStyles") || body.contains("widgetCss"),
+            "error should mention widgetStyles/widgetCss, got: {body}"
+        );
     }
 }
