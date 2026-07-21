@@ -534,4 +534,11 @@ mod tests {
         assert!(build_webfinger_url("   ").is_err());
         assert!(build_webfinger_url("acct:@example.com").is_err());
     }
+
+    #[test]
+    fn build_webfinger_url_rejects_whitespace_in_domain() {
+        assert!(build_webfinger_url("alice@exam ple.com").is_err());
+        assert!(build_webfinger_url("alice@example.com#frag").is_err());
+        assert!(build_webfinger_url("alice@example.com@evil").is_err());
+    }
 }
