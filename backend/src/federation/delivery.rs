@@ -1571,4 +1571,18 @@ mod tests {
         assert!(!is_unrecoverable_key_load_error("cannot ensure keys"));
         assert!(!is_unrecoverable_key_load_error("username empty"));
     }
+
+    #[test]
+    fn non_move_signing_ignores_actor_field() {
+        // Follow/Create must use default base even if actor points elsewhere.
+        let act = json!({
+            "type": "Follow",
+            "actor": "https://old.example/users/alice",
+        });
+        let (base, user) = signing_identity_for_activity(
+            "Follow", &act, "https://new.example/", "carol",
+        );
+        assert_eq!(base, "https://new.example");
+        assert_eq!(user, "carol");
+    }
 }
