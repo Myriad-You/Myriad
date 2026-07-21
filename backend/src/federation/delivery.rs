@@ -1482,4 +1482,15 @@ mod tests {
         // Canonical dead stays idempotent
         assert_eq!(classify_cancel_status("dead"), CancelStatusDecision::AlreadyDead);
     }
+
+    #[test]
+    fn classify_retry_status_failed_cancelled_unknown() {
+        assert_eq!(classify_retry_status("failed"), RetryStatusDecision::Allow);
+        assert_eq!(classify_retry_status("cancelled"), RetryStatusDecision::Allow);
+        assert_eq!(classify_retry_status("unknown"), RetryStatusDecision::Allow);
+        assert_eq!(classify_retry_status(""), RetryStatusDecision::Allow);
+        // Case: delivered is exact match only
+        assert_eq!(classify_retry_status("Delivered"), RetryStatusDecision::Allow);
+        assert_eq!(classify_retry_status("delivered"), RetryStatusDecision::AlreadyDelivered);
+    }
 }
