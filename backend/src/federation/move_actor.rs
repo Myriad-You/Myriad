@@ -1746,4 +1746,11 @@ mod tests {
         ).is_none());
 
     }
+
+    #[test]
+    fn w175_normalize_base_empty() {
+        assert!(normalize_base_url("").is_err());
+        assert_eq!(normalize_base_url("https://a.example/").unwrap(), "https://a.example");
+
+    }
 }
