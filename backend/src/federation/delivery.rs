@@ -827,7 +827,8 @@ pub async fn retry_all_dead_for_user(
     use axum::http::StatusCode;
 
     let limit = limit.clamp(1, 100);
-    // Select ids first (ORDER BY + LIMIT), then update — clearer than nested UPDATE.
+    // Over-fetch so skipping cancelled rows still fills the limit.
+    let select_cap = (limit * 3).clamp(1, 300);
     let id_rows = db
         .query_all(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -837,7 +838,7 @@ pub async fn retry_all_dead_for_user(
                WHERE a.user_id = $1 AND dq.status = 'dead'
                ORDER BY dq.created_at DESC
                LIMIT $2"#,
-            [user_id.into(), limit.into()],
+            [user_id.into(), select_cap.into()],
         ))
         .await
         .map_err(|e| {
@@ -850,14 +851,24 @@ pub async fn retry_all_dead_for_user(
     let mut retried = 0u64;
     let mut skipped_cancelled = 0u64;
     for r in id_rows {
+        if retried >= limit as u64 {
+            break;
+        }
         let Ok(id) = r.try_get::<i32>("", "id") else {
             continue;
         };
-        let err_msg: Option<String> = r.try_get("", "error_message").ok().flatten();
+        // Nullable column: prefer Option, fall back to String (driver variance).
+        let err_msg = r
+            .try_get::<Option<String>>("", "error_message")
+            .ok()
+            .flatten()
+            .or_else(|| r.try_get::<String>("", "error_message").ok());
         if is_user_cancelled_delivery_error(err_msg.as_deref()) {
             skipped_cancelled += 1;
             continue;
         }
+        // Defense-in-depth: SQL re-asserts no `cancelled:` prefix so a race that
+        // wrote user-cancel after SELECT still cannot be bulk-retried.
         match db
             .execute(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
@@ -867,7 +878,13 @@ pub async fn retry_all_dead_for_user(
                        error_message = NULL,
                        next_retry_at = NOW(),
                        last_attempt_at = NULL
-                   WHERE id = $1 AND status = 'dead'"#,
+                   WHERE id = $1
+                     AND status = 'dead'
+                     AND (
+                       error_message IS NULL
+                       OR TRIM(error_message) = ''
+                       OR error_message NOT ILIKE 'cancelled:%'
+                     )"#,
                 [id.into()],
             ))
             .await
@@ -1098,7 +1115,8 @@ pub async fn cancel_pending_deliveries_for_resource(
             r#"UPDATE federation_delivery_queue dq
                SET status = 'dead',
                    error_message = $2,
-                   last_attempt_at = NOW()
+                   last_attempt_at = NOW(),
+                   next_retry_at = NULL
                FROM federation_activities a
                WHERE dq.activity_id = a.id
                  AND dq.status IN ('pending', 'delivering')
@@ -1437,9 +1455,20 @@ mod tests {
         assert!(is_user_cancelled_delivery_error(Some("cancelled: by user")));
         assert!(is_user_cancelled_delivery_error(Some("Cancelled: by user")));
         assert!(is_user_cancelled_delivery_error(Some("cancelled: suite")));
+        assert!(is_user_cancelled_delivery_error(Some(
+            "cancelled: room closed"
+        )));
         assert!(!is_user_cancelled_delivery_error(Some("suite seeded dead")));
         assert!(!is_user_cancelled_delivery_error(Some("Key load failed")));
+        assert!(!is_user_cancelled_delivery_error(Some(
+            "HTTP 401 Unauthorized"
+        )));
         assert!(!is_user_cancelled_delivery_error(None));
         assert!(!is_user_cancelled_delivery_error(Some("   ")));
+        assert!(!is_user_cancelled_delivery_error(Some("")));
+        // Substring alone must not match (real peer errors mentioning cancel).
+        assert!(!is_user_cancelled_delivery_error(Some(
+            "remote said: cancelled by policy"
+        )));
     }
 }

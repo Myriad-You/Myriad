@@ -56,7 +56,8 @@ pub async fn post_inbox(
     })?;
 
     let activity_type = activity["type"].as_str().unwrap_or("").to_string();
-    let actor_url_str = activity["actor"].as_str().unwrap_or("").to_string();
+    // Actor may be a string IRI or expanded object `{ "id": "...", "type": "Person" }`.
+    let actor_url_str = extract_activity_actor_id(&activity);
 
     if actor_url_str.is_empty() || activity_type.is_empty() {
         return Err((
@@ -157,7 +158,7 @@ pub async fn post_shared_inbox(
     })?;
 
     let activity_type = activity["type"].as_str().unwrap_or("").to_string();
-    let actor_url_str = activity["actor"].as_str().unwrap_or("").to_string();
+    let actor_url_str = extract_activity_actor_id(&activity);
 
     if actor_url_str.is_empty() {
         return Err((
@@ -558,31 +559,83 @@ async fn handle_reject(
     Ok(StatusCode::ACCEPTED)
 }
 
+/// Extract actor id from an ActivityPub activity.
+///
+/// Supports string IRI and expanded object `{ "id": "…", "type": "Person" }`.
+/// Some peers embed the actor document; treating only strings rejects valid
+/// Accept/Follow payloads even when the HTTP Signature keyId is correct.
+pub fn extract_activity_actor_id(activity: &serde_json::Value) -> String {
+    extract_iri_or_object_id(&activity["actor"])
+}
+
+/// Extract an IRI from a JSON value that may be a string, object with `id`/`href`,
+/// or a single-level array of either (ActivityStreams multi-value).
+fn extract_iri_or_object_id(value: &serde_json::Value) -> String {
+    if let Some(s) = value.as_str() {
+        return s.trim().to_string();
+    }
+    if let Some(id) = value.get("id").and_then(|v| v.as_str()) {
+        return id.trim().to_string();
+    }
+    // AS2 Link objects use `href` rather than `id`.
+    if let Some(href) = value.get("href").and_then(|v| v.as_str()) {
+        return href.trim().to_string();
+    }
+    if let Some(arr) = value.as_array() {
+        for item in arr {
+            if let Some(s) = item.as_str() {
+                let t = s.trim();
+                if !t.is_empty() {
+                    return t.to_string();
+                }
+            }
+            if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
+                let t = id.trim();
+                if !t.is_empty() {
+                    return t.to_string();
+                }
+            }
+            if let Some(href) = item.get("href").and_then(|v| v.as_str()) {
+                let t = href.trim();
+                if !t.is_empty() {
+                    return t.to_string();
+                }
+            }
+        }
+    }
+    String::new()
+}
+
 /// Extract the accepted object id from an Accept activity.
 ///
 /// Supports:
 /// - `object`: string activity/object id
 /// - `object`: nested `{ "id", "type", ... }` (Follow / ChannelOpen / …)
+/// - `object`: AS2 Link `{ "href": "…" }`
+/// - `object`: array of the above (first non-empty id)
 ///
-/// Does not walk arbitrary nesting beyond one object level (AP Accept.object).
+/// Does not walk arbitrary nesting beyond one object / array level.
 pub fn extract_accept_object_id(activity: &serde_json::Value) -> String {
-    let object = &activity["object"];
-    if let Some(s) = object.as_str() {
-        return s.trim().to_string();
-    }
-    if let Some(id) = object.get("id").and_then(|v| v.as_str()) {
-        return id.trim().to_string();
-    }
-    String::new()
+    extract_iri_or_object_id(&activity["object"])
 }
 
-/// Nested object type for Accept routing (Channel vs Follow). Empty when object is a string id.
+/// Nested object type for Accept routing (Channel vs Follow).
+/// Empty when object is a string id or Link-only. Arrays: first typed element.
 fn extract_accept_object_type(activity: &serde_json::Value) -> String {
-    activity["object"]
-        .get("type")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string()
+    let object = &activity["object"];
+    if let Some(t) = object.get("type").and_then(|v| v.as_str()) {
+        return t.to_string();
+    }
+    if let Some(arr) = object.as_array() {
+        for item in arr {
+            if let Some(t) = item.get("type").and_then(|v| v.as_str()) {
+                if !t.is_empty() {
+                    return t.to_string();
+                }
+            }
+        }
+    }
+    String::new()
 }
 
 /// 处理 Accept（我们发出的 Follow 被接受）
@@ -596,7 +649,8 @@ async fn handle_accept(
     activity: &serde_json::Value,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
     // 签名校验保证了 activity.actor 就是本次请求的签名者
-    let accept_actor = activity["actor"].as_str().unwrap_or("");
+    // (string IRI or expanded object `{id}`; see extract_activity_actor_id)
+    let accept_actor = extract_activity_actor_id(activity);
     // Accept.object: string id OR nested Follow/ChannelOpen {id,type,…}
     let inner_type = extract_accept_object_type(activity);
     let follow_id = extract_accept_object_id(activity);
@@ -622,7 +676,7 @@ async fn handle_accept(
                 .as_ref()
                 .and_then(|row| row.try_get::<String>("", "actor_url").ok())
                 // Align with Follow Accept: host+username case / path form drift.
-                .map(|remote_url| same_actor_or_user(accept_actor, &remote_url))
+                .map(|remote_url| same_actor_or_user(&accept_actor, &remote_url))
                 .unwrap_or(false);
 
             if authorized {
@@ -672,7 +726,7 @@ async fn handle_accept(
     } else {
         // Standard Follow Accept — match Follow object.id, then fallback to a single
         // pending outgoing toward Accept.actor (same_actor_url). Idempotent notify.
-        handle_follow_accept(db, local_user_id, accept_actor, &follow_id, activity).await?;
+        handle_follow_accept(db, local_user_id, &accept_actor, &follow_id, activity).await?;
     }
 
     Ok(StatusCode::ACCEPTED)
@@ -1429,10 +1483,11 @@ pub async fn deliver_activity_locally(
         .map_err(|(_, j)| j.0.get("error").and_then(|v| v.as_str()).unwrap_or("user not found").to_string())?;
 
     let activity_type = activity["type"].as_str().unwrap_or("");
-    let actor_url_str = activity["actor"].as_str().unwrap_or("");
-    if activity_type.is_empty() || actor_url_str.is_empty() {
+    let actor_url_owned = extract_activity_actor_id(activity);
+    if activity_type.is_empty() || actor_url_owned.is_empty() {
         return Err("Missing actor or type in activity".into());
     }
+    let actor_url_str = actor_url_owned.as_str();
 
     let result = match activity_type {
         "Follow" => handle_follow(db, user_id, actor_url_str, activity).await,
@@ -1947,5 +2002,79 @@ mod tests {
             "https://a.example/activities/9"
         );
         assert_eq!(extract_accept_object_type(&activity), "");
+    }
+
+    #[test]
+    fn extract_accept_object_id_from_array_and_link() {
+        let arr = serde_json::json!({
+            "type": "Accept",
+            "actor": "https://b.example/users/bob",
+            "object": [
+                {"type": "Follow", "id": "https://a.example/activities/arr-1"}
+            ]
+        });
+        assert_eq!(
+            extract_accept_object_id(&arr),
+            "https://a.example/activities/arr-1"
+        );
+        assert_eq!(extract_accept_object_type(&arr), "Follow");
+
+        let link = serde_json::json!({
+            "type": "Accept",
+            "actor": "https://b.example/users/bob",
+            "object": {"type": "Link", "href": "https://a.example/activities/link-1"}
+        });
+        assert_eq!(
+            extract_accept_object_id(&link),
+            "https://a.example/activities/link-1"
+        );
+    }
+
+    #[test]
+    fn extract_activity_actor_id_string_and_expanded() {
+        let plain = serde_json::json!({
+            "actor": "https://b.example/users/bob"
+        });
+        assert_eq!(
+            extract_activity_actor_id(&plain),
+            "https://b.example/users/bob"
+        );
+        let expanded = serde_json::json!({
+            "actor": {
+                "type": "Person",
+                "id": "https://b.example/users/bob",
+                "preferredUsername": "bob"
+            }
+        });
+        assert_eq!(
+            extract_activity_actor_id(&expanded),
+            "https://b.example/users/bob"
+        );
+        let empty = serde_json::json!({ "actor": {} });
+        assert!(extract_activity_actor_id(&empty).is_empty());
+    }
+
+    #[test]
+    fn accept_matches_with_expanded_actor_object() {
+        let candidates = vec![(
+            "https://a.example/activities/1".into(),
+            "https://b.example/users/bob".into(),
+            "pending".into(),
+        )];
+        let activity = serde_json::json!({
+            "type": "Accept",
+            "actor": {
+                "type": "Person",
+                "id": "https://b.example/users/bob"
+            },
+            "object": {
+                "type": "Follow",
+                "id": "https://a.example/activities/1"
+            }
+        });
+        let actor = extract_activity_actor_id(&activity);
+        let follow_id = extract_accept_object_id(&activity);
+        let got = resolve_follow_accept_target(&follow_id, &actor, &candidates);
+        assert!(got.is_some());
     }
 }
