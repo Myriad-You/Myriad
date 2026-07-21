@@ -106,8 +106,8 @@ api.interceptors.request.use(
   async (config) => {
     // ✅ 安全修复 P0: 异步获取 CSRF Token（从服务器）
     // 只有状态变更请求需要：后端 csrf_middleware 仅校验 POST/PUT/PATCH/DELETE。
-    // 对 GET 也去取会让游客首屏的每个只读请求都白打一次 /api/csrf-token
-    // 并拿到预期内的 401。
+    // Guest contract: GET /api/csrf-token returns 200 + csrf_token:null (not 401).
+    // Still skip on GET to avoid wasted probe traffic on every read.
     if (MUTATING_METHODS.has(config.method?.toLowerCase() ?? 'get')) {
       const csrfToken = await getCSRFToken()
       if (csrfToken) {

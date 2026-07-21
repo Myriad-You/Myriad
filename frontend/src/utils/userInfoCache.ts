@@ -9,6 +9,8 @@
  */
 
 import { API_URL } from '../config'
+import { parseAuthMeResponse } from './authMe'
+import { parseCsrfTokenResponse } from './csrf'
 
 // 缓存key - 仅用于展示信息（公开资料）
 const USER_INFO_CACHE_KEY = 'myriad_profile_display_cache'
@@ -100,13 +102,16 @@ async function getAuthInfoRealtime(): Promise<{
       credentials: 'include',
     })
 
+    // Contract: guest → 200 + authenticated:false (not 401). Require body parse.
     if (response.ok) {
-      const data = await response.json()
-      return {
-        isLoggedIn: true,
-        is_admin: data.is_admin || false,
-        username: data.username,
-        display_name: data.display_name,
+      const parsed = parseAuthMeResponse(await response.json())
+      if (parsed.authenticated) {
+        return {
+          isLoggedIn: true,
+          is_admin: parsed.user.is_admin || false,
+          username: parsed.user.username,
+          display_name: parsed.user.display_name,
+        }
       }
     }
   } catch {
@@ -270,15 +275,19 @@ export async function getCsrfTokenWithCache(): Promise<string> {
     const response = await fetch(`${API_URL}/api/csrf-token`, {
       credentials: 'include',
     })
+    // Contract: guest → 200 + csrf_token:null (not 401)
     if (response.ok) {
-      const data = await response.json()
-      if (data.csrf_token) {
+      const token = parseCsrfTokenResponse(await response.json())
+      if (token) {
         csrfTokenCache = {
-          token: data.csrf_token,
+          token,
           timestamp: Date.now(),
         }
-        return data.csrf_token
+        return token
       }
+      // null token = guest — clear any stale cache, return empty
+      csrfTokenCache = null
+      return ''
     }
   } catch (e) {
     console.warn('获取 CSRF Token 失败:', e)

@@ -226,15 +226,19 @@ fn is_csrf_exempt(path: &str) -> bool {
 
 /// 生成并返回 CSRF Token 的接口
 /// GET /api/csrf-token
+///
+/// **Contract (durable guest UX):** no session → **HTTP 200**
+/// `{ "csrf_token": null }` (not 401). Guests do not need CSRF tokens;
+/// middleware already skips CSRF checks when there is no session.
 pub async fn get_csrf_token(headers: HeaderMap) -> impl IntoResponse {
     let session_id = match extract_session_id(&headers) {
         Some(id) => id,
         None => {
+            tracing::debug!("[csrf] no session — returning null token (guest probe)");
             return (
-                StatusCode::UNAUTHORIZED,
+                StatusCode::OK,
                 Json(json!({
-                    "error": "Unauthorized",
-                    "message": "Authentication required to get CSRF token"
+                    "csrf_token": null
                 })),
             )
                 .into_response();
@@ -299,6 +303,7 @@ pub async fn get_csrf_token(headers: HeaderMap) -> impl IntoResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::to_bytes;
 
     #[test]
     fn test_generate_csrf_token() {
@@ -308,6 +313,19 @@ mod tests {
         assert_eq!(token1.len(), 32);
         assert_eq!(token2.len(), 32);
         assert_ne!(token1, token2);
+    }
+
+    #[tokio::test]
+    async fn csrf_token_guest_returns_200_with_null_token() {
+        let headers = HeaderMap::new();
+        let response = get_csrf_token(headers).await.into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = to_bytes(response.into_body(), 1024).await.expect("body");
+        let value: serde_json::Value = serde_json::from_slice(&body).expect("json");
+        assert!(value.get("csrf_token").is_some());
+        assert!(value["csrf_token"].is_null());
+        assert!(value.get("error").is_none());
     }
 
     #[test]

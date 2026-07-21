@@ -15,12 +15,15 @@ use std::env;
 // Re-export Claims so existing imports `super::auth::Claims` keep working
 pub use crate::middleware::auth::Claims;
 
-/// `GET /api/auth/me` — 返回当前登录用户信息
-pub async fn get_current_user(
-    State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let token = headers
+/// Guest body for the session probe. HTTP 200 — never 401 — so browsers do not
+/// paint Network red for expected unauthenticated state.
+pub fn unauthenticated_me_body() -> Value {
+    json!({ "authenticated": false })
+}
+
+/// Extract JWT from `Authorization: Bearer` or `auth_token` cookie.
+fn extract_auth_token(headers: &HeaderMap) -> Option<&str> {
+    headers
         .get("Authorization")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
@@ -39,12 +42,21 @@ pub async fn get_current_user(
                     })
                 })
         })
-        .ok_or_else(|| {
-            (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Unauthorized", "message": "Missing token"})),
-            )
-        })?;
+}
+
+/// `GET /api/auth/me` — session probe + current user profile.
+///
+/// **Contract (durable guest UX):** missing/invalid token or unknown user →
+/// **HTTP 200** `{ "authenticated": false }`. Real server faults stay 5xx.
+/// This is intentionally a probe, not a hard auth gate — protected mutating
+/// routes keep their own 401/403 checks.
+pub async fn get_current_user(
+    State(db): State<DatabaseConnection>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let Some(token) = extract_auth_token(&headers) else {
+        return Ok(Json(unauthenticated_me_body()));
+    };
 
     let jwt_secret = env::var("JWT_SECRET").map_err(|_| {
         (
@@ -53,28 +65,28 @@ pub async fn get_current_user(
         )
     })?;
 
-    let token_data = jsonwebtoken::decode::<Claims>(
+    let token_data = match jsonwebtoken::decode::<Claims>(
         token,
         &jsonwebtoken::DecodingKey::from_secret(jwt_secret.as_bytes()),
         &jsonwebtoken::Validation::default(),
-    )
-    .map_err(|_| {
-        (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Invalid token"})),
-        )
-    })?;
+    ) {
+        Ok(data) => data,
+        Err(_) => {
+            // Expired/forged cookie — expected guest for this probe, not 401 noise.
+            return Ok(Json(unauthenticated_me_body()));
+        }
+    };
 
-    let user_id: i32 = token_data.claims.sub.parse().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Invalid token data"})),
-        )
-    })?;
+    let user_id: i32 = match token_data.claims.sub.parse() {
+        Ok(id) => id,
+        Err(_) => {
+            return Ok(Json(unauthenticated_me_body()));
+        }
+    };
 
     use sea_orm::Value as SeaValue;
 
-    let user_row = db
+    let user_row = match db
         .query_one(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT u.id, u.username, u.auth_provider, u.is_admin,
@@ -107,18 +119,20 @@ pub async fn get_current_user(
             vec![SeaValue::Int(Some(user_id))],
         ))
         .await
-        .map_err(|_| {
-            (
+    {
+        Ok(row) => row,
+        Err(_) => {
+            return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({"error": "Database error"})),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "User not found"})),
-            )
-        })?;
+            ));
+        }
+    };
+
+    let Some(user_row) = user_row else {
+        // Token valid but user gone — still a session-probe miss, not auth gate.
+        return Ok(Json(unauthenticated_me_body()));
+    };
 
     // identities 列表（用 user_identities 表）
     let identity_rows = db
@@ -160,6 +174,7 @@ pub async fn get_current_user(
     let has_password: bool = user_row.try_get("", "has_password").unwrap_or(false);
 
     Ok(Json(json!({
+        "authenticated": true,
         "id": id,
         "username": username,
         "display_name": username,
@@ -173,6 +188,39 @@ pub async fn get_current_user(
         "has_password": has_password,
         "identities": identities,
     })))
+}
+
+#[cfg(test)]
+mod auth_me_probe_tests {
+    use super::*;
+    use axum::http::HeaderValue;
+
+    #[test]
+    fn unauthenticated_me_body_contract() {
+        let body = unauthenticated_me_body();
+        assert_eq!(body["authenticated"], false);
+        assert!(body.get("id").is_none());
+        assert!(body.get("error").is_none());
+    }
+
+    #[test]
+    fn extract_auth_token_from_bearer_and_cookie() {
+        let mut headers = HeaderMap::new();
+        assert!(extract_auth_token(&headers).is_none());
+
+        headers.insert(
+            "Authorization",
+            HeaderValue::from_static("Bearer abc.def.ghi"),
+        );
+        assert_eq!(extract_auth_token(&headers), Some("abc.def.ghi"));
+
+        let mut cookie_only = HeaderMap::new();
+        cookie_only.insert(
+            header::COOKIE,
+            HeaderValue::from_static("other=1; auth_token=cookie.jwt.sig; x=y"),
+        );
+        assert_eq!(extract_auth_token(&cookie_only), Some("cookie.jwt.sig"));
+    }
 }
 
 /// `POST /api/auth/logout`
