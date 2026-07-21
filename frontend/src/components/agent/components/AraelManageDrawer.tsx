@@ -15,6 +15,7 @@ import type {
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'
 import { agentService } from '../../../services/agent'
+import { isImeComposing } from '../../../utils/ime'
 import { Spinner } from '../../Spinner'
 
 type ManageTab = 'heartbeat' | 'skills' | 'memory'
@@ -116,7 +117,7 @@ const MemoryEditInput: React.FC<{
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey) {
+          if (e.key === 'Enter' && !e.shiftKey && !isImeComposing(e)) {
             e.preventDefault()
             if (text.trim()) onSave(text.trim())
           }

@@ -42,6 +42,7 @@ import { useLocation } from 'react-router-dom'
 import { useI18n } from '../../contexts/I18nContext'
 import { usePageContentOptional } from '../../contexts/PageContentContext'
 import { agentService, executeFrontendAction } from '../../services/agent'
+import { isImeComposing } from '../../utils/ime'
 import {
   collectReattachCandidates,
   isNonTerminalTaskStatus,
@@ -1594,10 +1595,14 @@ export const AraelPanel: React.FC = () => {
     answerQuestionRef.current = answerQuestion
   }, [answerQuestion])
 
-  // 键盘事件
+  // 键盘事件（IME 组字中确认候选时不发送）
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
+      if (
+        e.key === 'Enter' &&
+        !e.shiftKey &&
+        !isImeComposing(e)
+      ) {
         e.preventDefault()
         handleSend()
       }
