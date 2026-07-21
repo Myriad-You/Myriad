@@ -1,5 +1,5 @@
 import type { User } from '../../contexts/AuthContext'
-import React, { memo, useCallback, useEffect, useState } from 'react'
+import React, { memo, useCallback, useEffect, useRef, useState } from 'react'
 
 import { createPortal } from 'react-dom'
 import { API_URL } from '../../config'
@@ -81,67 +81,111 @@ export const UserSection: React.FC<UserSectionProps> = memo(
       }
     }, [modalState])
 
+    /**
+     * 切换 OAuth 画像源后，在本弹窗生命周期内优先用 /api/auth/me，
+     * 避免管理员仍被 /api/profile/user-info 站长资料盖掉头像。
+     */
+    const preferSessionProfileRef = useRef(false)
+
+    const applySessionUserInfo = useCallback(
+      (session: {
+        display_name?: string
+        username?: string
+        avatar_url?: string
+        bio?: string
+        auth_provider?: string
+      }) => {
+        const displayName =
+          session.display_name ||
+          session.username ||
+          t.userModal.unknownUser
+        const avatar =
+          session.avatar_url ||
+          `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random`
+        const bio = session.bio || t.userModal.defaultBio
+        const platform =
+          session.auth_provider === 'github'
+            ? 'GitHub'
+            : session.auth_provider === 'local'
+              ? 'Local'
+              : session.auth_provider || t.userModal.unknownPlatform
+        setUserInfo({
+          name: displayName,
+          avatar,
+          bio,
+          platform,
+        })
+      },
+      [t],
+    )
+
     // 获取用户信息
-    // 对于管理员：获取站长资料（/api/profile/user-info）
-    // 对于普通用户：使用 authUser 中的 GitHub 信息
-    const fetchUserInfo = useCallback(async () => {
-      // 先检查 authUser 是否有信息
-      if (!authUser) return
+    // 对于管理员：默认站长资料；切画像源后或 forceSession 时用登录会话（/api/auth/me）
+    // 对于普通用户：使用 authUser / 会话
+    const fetchUserInfo = useCallback(
+      async (opts?: { forceSession?: boolean }) => {
+        if (!authUser) return
 
-      // 如果是管理员，尝试获取站长资料（Bilibili/GitHub/Steam 绑定的资料）
-      if (authUser.is_admin) {
-        try {
-          const profileResponse = await fetch(
-            `${API_URL}/api/profile/user-info`,
-          )
-          if (profileResponse.ok) {
-            const profileData = await profileResponse.json()
-            if (profileData.success && profileData.user_info) {
-              setUserInfo({
-                name: profileData.user_info.name || t.userModal.unknownUser,
-                avatar: profileData.user_info.avatar || '',
-                bio: profileData.user_info.bio || t.userModal.defaultBio,
-                platform:
-                  profileData.user_info.platform || t.userModal.unknownPlatform,
-              })
-              return
+        const forceSession =
+          opts?.forceSession === true || preferSessionProfileRef.current
+
+        if (forceSession) {
+          try {
+            const meRes = await fetch(`${API_URL}/api/auth/me`, {
+              credentials: 'include',
+            })
+            if (meRes.ok) {
+              const me = await meRes.json()
+              if (me?.authenticated !== false && (me?.id || me?.username)) {
+                applySessionUserInfo(me)
+                return
+              }
             }
+          } catch {
+            /* fall through to authUser */
           }
-        } catch (_error) {
-          // 站长资料获取失败，回退到 authUser 信息
-          console.debug(
-            '[UserSection] Failed to fetch admin profile, using authUser info',
-          )
+          applySessionUserInfo(authUser)
+          return
         }
-      }
 
-      // 普通 GitHub 用户或管理员资料获取失败时，使用 authUser 中的信息
-      const displayName = authUser.display_name || authUser.username
-      const avatar =
-        authUser.avatar_url ||
-        `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random`
-      const bio = authUser.bio || t.userModal.defaultBio
-      const platform =
-        authUser.auth_provider === 'github'
-          ? 'GitHub'
-          : authUser.auth_provider === 'local'
-            ? 'Local'
-            : authUser.auth_provider || t.userModal.unknownPlatform
+        // 管理员默认站长资料（公开站点形象）
+        if (authUser.is_admin) {
+          try {
+            const profileResponse = await fetch(
+              `${API_URL}/api/profile/user-info`,
+            )
+            if (profileResponse.ok) {
+              const profileData = await profileResponse.json()
+              if (profileData.success && profileData.user_info) {
+                setUserInfo({
+                  name: profileData.user_info.name || t.userModal.unknownUser,
+                  avatar: profileData.user_info.avatar || '',
+                  bio: profileData.user_info.bio || t.userModal.defaultBio,
+                  platform:
+                    profileData.user_info.platform ||
+                    t.userModal.unknownPlatform,
+                })
+                return
+              }
+            }
+          } catch (_error) {
+            console.debug(
+              '[UserSection] Failed to fetch admin profile, using authUser info',
+            )
+          }
+        }
 
-      setUserInfo({
-        name: displayName,
-        avatar,
-        bio,
-        platform,
-      })
-    }, [authUser, t])
+        applySessionUserInfo(authUser)
+      },
+      [authUser, t, applySessionUserInfo],
+    )
 
     // 同步 AuthContext 的用户信息
     useEffect(() => {
       setIsAuthenticated(authIsAuthenticated)
       setUser(authUser as User | null)
       if (authUser) {
-        fetchUserInfo()
+        void fetchUserInfo()
       }
     }, [authIsAuthenticated, authUser, fetchUserInfo])
 
@@ -156,6 +200,13 @@ export const UserSection: React.FC<UserSectionProps> = memo(
     const closeModal = useCallback(() => {
       if (modalState === 'visible' || modalState === 'mounting') {
         setModalState('closing')
+      }
+    }, [modalState])
+
+    // 弹窗关闭后恢复管理员默认站长资料策略
+    useEffect(() => {
+      if (modalState === 'closed') {
+        preferSessionProfileRef.current = false
       }
     }, [modalState])
 
@@ -312,9 +363,11 @@ export const UserSection: React.FC<UserSectionProps> = memo(
                   onLogout={handleLogout}
                   onNavigateFromPanel={onNavigateFromPanel}
                   onProfileApplied={() => {
+                    preferSessionProfileRef.current = true
                     void (async () => {
                       await checkAuth()
-                      await fetchUserInfo()
+                      // 强制 /me，避免管理员站长资料盖过刚选的 OAuth 画像
+                      await fetchUserInfo({ forceSession: true })
                     })()
                   }}
                 />

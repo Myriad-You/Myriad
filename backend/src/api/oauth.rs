@@ -19,7 +19,10 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use jsonwebtoken::{encode, EncodingKey, Header};
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, Value as SeaValue};
+use sea_orm::{
+    ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait,
+    Value as SeaValue,
+};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::env;
@@ -966,6 +969,7 @@ pub async fn list_my_identities(
 
 // ---------- POST /api/auth/identities/{identity_id}/primary ----------
 // 将指定 OAuth/OIDC identity 设为画像源（is_primary），并同步 avatar 等到 users 表。
+// 全部写操作在同一事务内，避免清 primary 后中途失败导致无 primary。
 
 pub async fn set_primary_identity(
     Path(identity_id): Path<i32>,
@@ -981,7 +985,12 @@ pub async fn set_primary_identity(
     })?;
     let user_id: i32 = claims.sub.parse().map_err(|_| err_400("Invalid user id"))?;
 
-    let row = db
+    let txn = db
+        .begin()
+        .await
+        .map_err(|e| err_500(format!("Failed to begin transaction: {e}")))?;
+
+    let row = match txn
         .query_one(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT id, provider, provider_username, avatar_url, provider_user_id \
@@ -992,9 +1001,16 @@ pub async fn set_primary_identity(
             ],
         ))
         .await
-        .map_err(|e| err_500(format!("DB error: {e}")))?;
+    {
+        Ok(r) => r,
+        Err(e) => {
+            let _ = txn.rollback().await;
+            return Err(err_500(format!("DB error: {e}")));
+        }
+    };
 
     let Some(row) = row else {
+        let _ = txn.rollback().await;
         return Err((
             StatusCode::NOT_FOUND,
             Json(json!({"error": "Identity not found"})),
@@ -1009,72 +1025,86 @@ pub async fn set_primary_identity(
         .try_get("", "provider_user_id")
         .unwrap_or_default();
 
-    // Clear other primaries, then mark this one
-    db.execute(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        "UPDATE user_identities SET is_primary = FALSE WHERE user_id = $1",
-        vec![SeaValue::Int(Some(user_id))],
-    ))
-    .await
-    .map_err(|e| err_500(format!("DB error: {e}")))?;
-
-    db.execute(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        "UPDATE user_identities SET is_primary = TRUE WHERE id = $1 AND user_id = $2",
-        vec![
-            SeaValue::Int(Some(identity_id)),
-            SeaValue::Int(Some(user_id)),
-        ],
-    ))
-    .await
-    .map_err(|e| err_500(format!("DB error: {e}")))?;
-
-    // Apply profile snapshot onto users (avatar; GitHub linked id when applicable)
-    let avatar_trim = avatar_url
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string);
-
-    if provider == "github" {
-        let github_id = provider_user_id.parse::<i64>().ok();
-        db.execute(Statement::from_sql_and_values(
+    let run = async {
+        // Clear other primaries, then mark this one
+        txn.execute(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "UPDATE users SET \
-                linked_github_id = COALESCE($1, linked_github_id), \
-                avatar_url = COALESCE($2, avatar_url), \
-                updated_at = NOW() \
-             WHERE id = $3",
+            "UPDATE user_identities SET is_primary = FALSE WHERE user_id = $1",
+            vec![SeaValue::Int(Some(user_id))],
+        ))
+        .await
+        .map_err(|e| err_500(format!("DB error: {e}")))?;
+
+        txn.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "UPDATE user_identities SET is_primary = TRUE WHERE id = $1 AND user_id = $2",
             vec![
-                SeaValue::BigInt(github_id),
-                avatar_trim
-                    .clone()
-                    .map(|s| SeaValue::String(Some(Box::new(s))))
-                    .unwrap_or(SeaValue::String(None)),
+                SeaValue::Int(Some(identity_id)),
                 SeaValue::Int(Some(user_id)),
             ],
         ))
         .await
-        .map_err(|e| err_500(format!("Failed to apply profile: {e}")))?;
-    } else if let Some(avatar) = avatar_trim.clone() {
-        db.execute(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "UPDATE users SET avatar_url = $1, updated_at = NOW() WHERE id = $2",
-            vec![
-                SeaValue::String(Some(Box::new(avatar))),
-                SeaValue::Int(Some(user_id)),
-            ],
-        ))
-        .await
-        .map_err(|e| err_500(format!("Failed to apply avatar: {e}")))?;
-    }
+        .map_err(|e| err_500(format!("DB error: {e}")))?;
 
-    // Prefer provider display username when present (does not change login username)
-    if let Some(ref name) = provider_username {
-        let name = name.trim();
-        if !name.is_empty() {
-            let _ = db
-                .execute(Statement::from_sql_and_values(
+        // Apply profile snapshot onto users (avatar; GitHub linked id when applicable)
+        let avatar_trim = avatar_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+
+        if provider == "github" {
+            let github_id = provider_user_id.parse::<i64>().ok();
+            // Prefer identity avatar when present; never wipe with NULL
+            if let Some(avatar) = avatar_trim.clone() {
+                txn.execute(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    "UPDATE users SET \
+                        linked_github_id = COALESCE($1, linked_github_id), \
+                        avatar_url = $2, \
+                        updated_at = NOW() \
+                     WHERE id = $3",
+                    vec![
+                        SeaValue::BigInt(github_id),
+                        SeaValue::String(Some(Box::new(avatar))),
+                        SeaValue::Int(Some(user_id)),
+                    ],
+                ))
+                .await
+                .map_err(|e| err_500(format!("Failed to apply profile: {e}")))?;
+            } else if github_id.is_some() {
+                txn.execute(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    "UPDATE users SET \
+                        linked_github_id = COALESCE($1, linked_github_id), \
+                        updated_at = NOW() \
+                     WHERE id = $2",
+                    vec![
+                        SeaValue::BigInt(github_id),
+                        SeaValue::Int(Some(user_id)),
+                    ],
+                ))
+                .await
+                .map_err(|e| err_500(format!("Failed to apply profile: {e}")))?;
+            }
+        } else if let Some(avatar) = avatar_trim {
+            txn.execute(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "UPDATE users SET avatar_url = $1, updated_at = NOW() WHERE id = $2",
+                vec![
+                    SeaValue::String(Some(Box::new(avatar))),
+                    SeaValue::Int(Some(user_id)),
+                ],
+            ))
+            .await
+            .map_err(|e| err_500(format!("Failed to apply avatar: {e}")))?;
+        }
+
+        // Prefer provider display username when present (does not change login username)
+        if let Some(ref name) = provider_username {
+            let name = name.trim();
+            if !name.is_empty() {
+                txn.execute(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     "UPDATE users SET display_name = $1, updated_at = NOW() WHERE id = $2",
                     vec![
@@ -1082,15 +1112,31 @@ pub async fn set_primary_identity(
                         SeaValue::Int(Some(user_id)),
                     ],
                 ))
-                .await;
+                .await
+                .map_err(|e| err_500(format!("Failed to apply display_name: {e}")))?;
+            }
+        }
+
+        Ok::<(), (StatusCode, Json<Value>)>(())
+    }
+    .await;
+
+    match run {
+        Ok(()) => {
+            txn.commit()
+                .await
+                .map_err(|e| err_500(format!("Failed to commit transaction: {e}")))?;
+            Ok(Json(json!({
+                "success": true,
+                "identity_id": identity_id,
+                "provider": provider,
+                "provider_username": provider_username,
+                "avatar_url": avatar_url,
+            })))
+        }
+        Err(e) => {
+            let _ = txn.rollback().await;
+            Err(e)
         }
     }
-
-    Ok(Json(json!({
-        "success": true,
-        "identity_id": identity_id,
-        "provider": provider,
-        "provider_username": provider_username,
-        "avatar_url": avatar_url,
-    })))
 }
