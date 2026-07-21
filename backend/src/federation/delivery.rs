@@ -1530,4 +1530,23 @@ mod tests {
         assert_eq!(base, "https://old.example");
         assert_eq!(user, "alice");
     }
+
+    #[test]
+    fn resolve_signing_key_id_trims_stored_whitespace() {
+        let stored = "  https://new.example/users/alice#main-key  ";
+        assert_eq!(
+            resolve_signing_key_id("Announce", "https://old.example", "alice", Some(stored)),
+            "https://new.example/users/alice#main-key"
+        );
+        // Whitespace-only stored falls back to computed key_id
+        assert_eq!(
+            resolve_signing_key_id("Follow", "https://old.example", "alice", Some("\t  ")),
+            key_id("https://old.example", "alice")
+        );
+        // Move always ignores stored even when non-empty
+        assert_eq!(
+            resolve_signing_key_id("Move", "https://old.example", "alice", Some(stored)),
+            key_id("https://old.example", "alice")
+        );
+    }
 }
