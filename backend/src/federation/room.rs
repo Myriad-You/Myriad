@@ -4922,4 +4922,12 @@ mod tests {
         assert!(validate_public_transition(false, None).is_ok());
 
     }
+
+    #[test]
+    fn w175_non_empty_room_name() {
+        assert_eq!(non_empty_room_name(Some("  hi  ")).as_deref(), Some("hi"));
+        assert_eq!(non_empty_room_name(Some("  ")), None);
+        assert_eq!(non_empty_room_name(None), None);
+
+    }
 }
