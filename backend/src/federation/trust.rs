@@ -1194,4 +1194,20 @@ mod tests {
         ));
 
     }
+
+    #[test]
+    fn w175_filter_disabled_ignored() {
+        let rules = vec![ContentFilterRule {
+            name: "off".into(),
+            filter_type: "block_activity_type".into(),
+            value: "Announce".into(),
+            enabled: false,
+        }];
+        let act = serde_json::json!({"type": "Announce"});
+        assert!(matches!(
+            apply_content_filters(&act, TrustLevel::Unknown, &rules),
+            FilterVerdict::Allow
+        ));
+
+    }
 }
