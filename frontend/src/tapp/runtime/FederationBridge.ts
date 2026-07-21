@@ -173,26 +173,34 @@ export function registerFederationHandlers(
     }
   })
 
+  /**
+   * Explicit key rotation — mirrors POST /api/federation/keys/rotate.
+   * Payload: [confirm] where confirm must be boolean true (UI confirm gate).
+   */
   bridge.registerHandler(
     'federation.rotateKeys',
     async (message: TappMessage) => {
       const [confirmRaw] = (message.payload as { args: unknown[] }).args || []
-      const confirm = confirmRaw === true
-      if (!confirm) {
+      if (confirmRaw !== true) {
         return {
           success: false,
-          error: 'Key rotation requires confirm=true',
+          error: 'Key rotation requires confirm:true',
         }
       }
       try {
         const runtimeGrant = await bridge.getRuntimeGrant()
-        const data = await federationApi.rotateKeys(true, runtimeGrant)
+        const data = await federationApi.rotateKeys(
+          { confirm: true },
+          runtimeGrant,
+        )
         return { success: true, data }
       } catch (error) {
         return {
           success: false,
           error:
-            error instanceof Error ? error.message : 'Failed to rotate keys',
+            error instanceof Error
+              ? error.message
+              : 'Failed to rotate federation keys',
         }
       }
     },

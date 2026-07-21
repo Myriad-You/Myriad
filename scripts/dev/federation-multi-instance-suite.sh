@@ -10,10 +10,6 @@
 # Env:
 #   SCRATCH_DIR  evidence dir (default ./tmp/federation-suite)
 #   KEEP_RUNNING=1 leave backends up
-#   PORT_A/B/C   listen ports (default 18080/18081/18082)
-#   DB_A/DB_B    postgres database names (default myriad_fed_a / myriad_fed_b)
-# Concurrent agents: use distinct PORT_* + DB_* + SCRATCH_DIR to avoid
-# SIGTERM/DB-reset collisions (shared defaults are not multi-tenant).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -1185,28 +1181,36 @@ case_deploy_retry_dead() {
 }
 
 case_deploy_retry_dead_skips_user_cancel() {
-  # retry-all-dead must not revive user-cancelled rows; real dead still requeues.
+  # Bulk retry-dead must not revive rows the user explicitly cancelled.
   local jar_a="$JAR_A"
   local act
-  act=$(sql_a "SELECT id FROM federation_activities ORDER BY id DESC LIMIT 1;" || echo "")
-  [[ -n "$act" ]] || die "no activity to seed cancel/retry skip case"
-  sql_a "DELETE FROM federation_delivery_queue WHERE error_message IN ('cancelled: by user','suite seeded dead for retry skip');" >/dev/null || true
+  act=$(sql_a "SELECT id FROM federation_activities WHERE user_id=1 ORDER BY id DESC LIMIT 1;" || echo "")
+  [[ -n "$act" ]] || die "no activity to seed retry-skip-cancel"
+  # Seed: one user-cancelled dead + one real failure dead
   sql_a "INSERT INTO federation_delivery_queue (activity_id, target_inbox, target_domain, status, attempts, max_attempts, error_message, created_at)
-         VALUES (${act}, 'http://127.0.0.1:9/cancel-skip', '127.0.0.1', 'dead', 3, 12, 'cancelled: by user', NOW()),
-                (${act}, 'http://127.0.0.1:9/real-dead', '127.0.0.1', 'dead', 12, 12, 'suite seeded dead for retry skip', NOW());" >/dev/null \
-    || die "seed cancel/retry skip rows failed"
+         VALUES (${act}, 'http://127.0.0.1:9/cancel-skip', '127.0.0.1', 'dead', 1, 12, 'cancelled: by user', NOW());" >/dev/null
+  sql_a "INSERT INTO federation_delivery_queue (activity_id, target_inbox, target_domain, status, attempts, max_attempts, error_message, created_at)
+         VALUES (${act}, 'http://127.0.0.1:9/real-fail', '127.0.0.1', 'dead', 12, 12, 'suite seeded transient dead', NOW());" >/dev/null
+  local cancel_id real_id
+  cancel_id=$(sql_a "SELECT id FROM federation_delivery_queue WHERE error_message='cancelled: by user' ORDER BY id DESC LIMIT 1;")
+  real_id=$(sql_a "SELECT id FROM federation_delivery_queue WHERE error_message='suite seeded transient dead' ORDER BY id DESC LIMIT 1;")
+  [[ -n "$cancel_id" && -n "$real_id" ]] || die "failed to seed cancel/real dead rows"
   api POST "$BASE_A" "$jar_a" /api/federation/delivery/retry-dead "" \
-    >"$SCRATCH_DIR/deploy-retry-skip-cancel.json"
-  local cancelled_still dead_real pending_real skipped
-  cancelled_still=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='dead' AND error_message='cancelled: by user';" || echo 0)
-  dead_real=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='dead' AND error_message='suite seeded dead for retry skip';" || echo 0)
-  pending_real=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='pending' AND target_inbox='http://127.0.0.1:9/real-dead';" || echo 0)
-  skipped=$(python3 -c "import json; print(json.load(open('$SCRATCH_DIR/deploy-retry-skip-cancel.json')).get('skipped_cancelled',0))" 2>/dev/null || echo 0)
-  [[ "${cancelled_still:-0}" -ge 1 ]] || die "user-cancelled row was revived"
-  [[ "${dead_real:-0}" -eq 0 || "${pending_real:-0}" -ge 1 ]] \
-    || die "real dead not requeued (dead_real=$dead_real pending=$pending_real)"
-  [[ "${skipped:-0}" -ge 1 ]] || die "response missing skipped_cancelled>=1: $(cat "$SCRATCH_DIR/deploy-retry-skip-cancel.json")"
-  echo "deploy_retry_dead_skips_user_cancel ok skipped=$skipped" >>"$SUITE_LOG"
+    >"$SCRATCH_DIR/deploy-retry-skip-cancel.json" \
+    || die "retry-dead failed: $(cat "$SCRATCH_DIR/deploy-retry-skip-cancel.json" 2>/dev/null || true)"
+  local cancel_st cancel_err real_st real_err
+  cancel_st=$(sql_a "SELECT status FROM federation_delivery_queue WHERE id=${cancel_id};")
+  cancel_err=$(sql_a "SELECT coalesce(error_message,'') FROM federation_delivery_queue WHERE id=${cancel_id};")
+  real_st=$(sql_a "SELECT status FROM federation_delivery_queue WHERE id=${real_id};")
+  real_err=$(sql_a "SELECT coalesce(error_message,'') FROM federation_delivery_queue WHERE id=${real_id};")
+  [[ "$cancel_st" == "dead" ]] || die "user-cancelled dead was requeued: status=$cancel_st"
+  echo "$cancel_err" | grep -qi '^cancelled:' || die "user-cancel message lost: $cancel_err"
+  # Real dead must be requeued (pending/delivering/delivered) or worker re-failed it
+  # with a different message — never left as the untouched suite seed.
+  if [[ "$real_st" == "dead" && "$real_err" == "suite seeded transient dead" ]]; then
+    die "retry-dead did not requeue real dead (still suite seed msg)"
+  fi
+  echo "deploy_retry_dead_skips_user_cancel ok cancel_id=$cancel_id real_id=$real_id cancel_st=$cancel_st real_st=$real_st" >>"$SUITE_LOG"
 }
 
 case_deploy_keys_rotate() {

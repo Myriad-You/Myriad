@@ -2006,6 +2006,7 @@ mod tests {
 
     #[test]
     fn extract_accept_object_id_from_array_and_link() {
+        // AS2 multi-value object array (first non-empty id wins).
         let arr = serde_json::json!({
             "type": "Accept",
             "actor": "https://b.example/users/bob",
@@ -2019,6 +2020,7 @@ mod tests {
         );
         assert_eq!(extract_accept_object_type(&arr), "Follow");
 
+        // Link object uses href.
         let link = serde_json::json!({
             "type": "Accept",
             "actor": "https://b.example/users/bob",
@@ -2056,6 +2058,7 @@ mod tests {
 
     #[test]
     fn accept_matches_with_expanded_actor_object() {
+        // Peers that embed actor document must still authorize by id.
         let candidates = vec![(
             "https://a.example/activities/1".into(),
             "https://b.example/users/bob".into(),
@@ -2076,5 +2079,108 @@ mod tests {
         let follow_id = extract_accept_object_id(&activity);
         let got = resolve_follow_accept_target(&follow_id, &actor, &candidates);
         assert!(got.is_some());
+    }
+
+    #[test]
+    fn accept_fallback_skips_already_accepted_when_id_unknown() {
+        // Fallback only considers pending; an accepted-only set must not re-match.
+        let candidates = vec![(
+            "https://a.example/activities/old".into(),
+            "https://b.example/users/bob".into(),
+            "accepted".into(),
+        )];
+        let got = resolve_follow_accept_target(
+            "https://unknown/activities/z",
+            "https://b.example/users/bob",
+            &candidates,
+        );
+        assert!(got.is_none());
+    }
+
+    #[test]
+    fn extract_accept_object_id_trims_whitespace() {
+        let activity = serde_json::json!({
+            "type": "Accept",
+            "actor": "https://b.example/users/bob",
+            "object": "  https://a.example/activities/ws  "
+        });
+        assert_eq!(
+            extract_accept_object_id(&activity),
+            "https://a.example/activities/ws"
+        );
+    }
+
+    #[test]
+    fn extract_accept_object_id_missing_or_empty() {
+        assert_eq!(extract_accept_object_id(&serde_json::json!({})), "");
+        assert_eq!(
+            extract_accept_object_id(&serde_json::json!({"object": ""})),
+            ""
+        );
+        assert_eq!(
+            extract_accept_object_id(&serde_json::json!({"object": {}})),
+            ""
+        );
+        assert_eq!(
+            extract_accept_object_id(&serde_json::json!({"object": []})),
+            ""
+        );
+    }
+
+    #[test]
+    fn same_actor_or_user_matches_host_user_case() {
+        assert!(same_actor_or_user(
+            "https://b.example/users/Bob",
+            "https://B.EXAMPLE/users/bob"
+        ));
+        assert!(!same_actor_or_user(
+            "https://b.example/users/bob",
+            "https://evil.example/users/bob"
+        ));
+        assert!(!same_actor_or_user(
+            "https://b.example/users/bob",
+            "https://b.example/users/carol"
+        ));
+    }
+
+    #[test]
+    fn extract_accept_object_type_from_nested_follow() {
+
+        let activity = serde_json::json!({
+            "type": "Accept",
+            "object": {"type": "Follow", "id": "https://a.example/activities/1"}
+        });
+        assert_eq!(extract_accept_object_type(&activity), "Follow");
+        assert_eq!(
+            extract_accept_object_id(&activity),
+            "https://a.example/activities/1"
+        );
+
+    }
+
+    #[test]
+    fn extract_activity_actor_id_from_link_href() {
+
+        let activity = serde_json::json!({
+            "actor": {"type": "Link", "href": "https://b.example/users/bob"}
+        });
+        assert_eq!(
+            extract_activity_actor_id(&activity),
+            "https://b.example/users/bob"
+        );
+
+    }
+
+    #[test]
+    fn extract_iri_or_object_id_from_string_array() {
+
+        let activity = serde_json::json!({
+            "object": ["", "  https://a.example/activities/arr  "]
+        });
+        assert_eq!(
+            extract_accept_object_id(&activity),
+            "https://a.example/activities/arr"
+        );
+
     }
 }

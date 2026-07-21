@@ -1153,4 +1153,62 @@ mod tests {
             FilterVerdict::Reject(_)
         ));
     }
+
+    #[test]
+    fn effective_max_requests_untrusted_is_base() {
+        let policy = RateLimitPolicy {
+            max_requests_per_window: 100,
+            window_seconds: 60,
+            trusted_multiplier: 5,
+        };
+        assert_eq!(effective_max_requests(&policy, TrustLevel::Unknown), 100);
+        assert_eq!(effective_max_requests(&policy, TrustLevel::Discovered), 100);
+        assert_eq!(effective_max_requests(&policy, TrustLevel::Followed), 100);
+
+    }
+
+    #[test]
+    fn effective_max_requests_trusted_and_federated() {
+        let policy = RateLimitPolicy {
+            max_requests_per_window: 10,
+            window_seconds: 60,
+            trusted_multiplier: 3,
+        };
+        assert_eq!(effective_max_requests(&policy, TrustLevel::Trusted), 30);
+        assert_eq!(effective_max_requests(&policy, TrustLevel::Federated), 30);
+
+    }
+
+    #[test]
+    fn apply_content_filters_block_keyword() {
+        let rules = vec![ContentFilterRule {
+            name: "kw".into(),
+            filter_type: "block_keyword".into(),
+            value: "spam".into(),
+            enabled: true,
+        }];
+        let act = serde_json::json!({"type": "Create", "content": "buy spam now"});
+        assert!(
+            matches!(
+                apply_content_filters(&act, TrustLevel::Discovered, &rules),
+                FilterVerdict::Reject(_)
+            ),
+            "keyword spam should block"
+        );
+    }
+
+    #[test]
+    fn apply_content_filters_disabled_rule_ignored() {
+        let rules = vec![ContentFilterRule {
+            name: "off".into(),
+            filter_type: "block_activity_type".into(),
+            value: "Announce".into(),
+            enabled: false,
+        }];
+        let act = serde_json::json!({"type": "Announce"});
+        assert!(matches!(
+            apply_content_filters(&act, TrustLevel::Unknown, &rules),
+            FilterVerdict::Allow
+        ));
+    }
 }

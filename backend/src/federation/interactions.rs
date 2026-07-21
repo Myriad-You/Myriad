@@ -1649,4 +1649,40 @@ mod tests {
         }
         assert!(depth <= MAX_QUOTE_NEST_DEPTH);
     }
+
+    #[test]
+    fn extract_object_id_rejects_blank_and_accepts_nested() {
+
+        assert!(extract_object_id(&serde_json::json!("")).is_none());
+        assert!(extract_object_id(&serde_json::json!("   ")).is_none());
+        assert_eq!(
+            extract_object_id(&serde_json::json!({
+                "type": "Create",
+                "object": {"type": "Note", "id": "https://a.example/notes/1"}
+            })).as_deref(),
+            Some("https://a.example/notes/1")
+        );
+
+    }
+
+    #[test]
+    fn extract_object_id_from_update_envelope() {
+        assert_eq!(
+            extract_object_id(&serde_json::json!({
+                "type": "Update",
+                "object": {"id": "https://a.example/notes/9", "type": "Note"}
+            })).as_deref(),
+            Some("https://a.example/notes/9")
+        );
+
+    }
+
+    #[test]
+    fn extract_object_id_trims_string_id() {
+        assert_eq!(
+            extract_object_id(&serde_json::json!("  https://a.example/notes/1  ")).as_deref(),
+            Some("https://a.example/notes/1")
+        );
+
+    }
 }

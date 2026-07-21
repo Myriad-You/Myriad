@@ -380,11 +380,6 @@
     },
     {
       "domain": "federation",
-      "action": "federation.rotateKeys",
-      "permission": "federation:write"
-    },
-    {
-      "domain": "federation",
       "action": "federation.getDeliveryStats",
       "permission": "federation:read"
     },
@@ -411,6 +406,11 @@
     {
       "domain": "federation",
       "action": "federation.cancelAllPendingDelivery",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.rotateKeys",
       "permission": "federation:write"
     },
     {

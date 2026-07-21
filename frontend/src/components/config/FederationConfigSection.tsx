@@ -7,6 +7,9 @@
 
 import type {
   ContentFilterItem,
+  DeliveryQueueItem,
+  DeliveryStats,
+  FederationIdentity,
   FederationInstance,
 } from '../../types/federation'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
@@ -109,6 +112,11 @@ export const FederationConfigSection: React.FC<
   const [saving, setSaving] = useState(false)
   const [instances, setInstances] = useState<FederationInstance[]>([])
   const [filters, setFilters] = useState<ContentFilterItem[]>([])
+  const [identity, setIdentity] = useState<FederationIdentity | null>(null)
+  const [rotatingKeys, setRotatingKeys] = useState(false)
+  const [deliveryStats, setDeliveryStats] = useState<DeliveryStats | null>(null)
+  const [deliveryItems, setDeliveryItems] = useState<DeliveryQueueItem[]>([])
+  const [deliveryBusy, setDeliveryBusy] = useState(false)
 
   // Policy draft
   const [minTrust, setMinTrust] = useState(0)
@@ -217,15 +225,31 @@ export const FederationConfigSection: React.FC<
     }
   }, [c])
 
+  const loadDelivery = useCallback(async () => {
+    try {
+      const [stats, list] = await Promise.all([
+        federationApi.getDeliveryStats().catch(() => null),
+        federationApi.listDelivery(25).catch(() => ({ items: [], total: 0 })),
+      ])
+      setDeliveryStats(stats)
+      setDeliveryItems(list.items || [])
+    } catch {
+      // Non-admin sessions may lack delivery endpoints; keep trust UI usable.
+      setDeliveryStats(null)
+      setDeliveryItems([])
+    }
+  }, [])
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [p, inst, f] = await Promise.all([
+      const [p, inst, f, id] = await Promise.all([
         federationApi.getTrustPolicy(),
         federationApi.getInstances().catch(() => ({ instances: [], total: 0 })),
         federationApi
           .listContentFilters()
           .catch(() => ({ filters: [], total: 0 })),
+        federationApi.getIdentity().catch(() => null),
       ])
       setMinTrust(p.min_trust_level ?? 0)
       setAllowlistText((p.allowed_domains || []).join('\n'))
@@ -235,6 +259,8 @@ export const FederationConfigSection: React.FC<
       setRateTrustedMul(p.rate_limit?.trusted_multiplier ?? 5)
       setInstances(inst.instances || [])
       setFilters(f.filters || [])
+      setIdentity(id)
+      await loadDelivery()
     } catch (e) {
       onMessage?.(
         e instanceof Error ? e.message : c.federationLoadFailed,
@@ -243,11 +269,45 @@ export const FederationConfigSection: React.FC<
     } finally {
       setLoading(false)
     }
-  }, [onMessage, c.federationLoadFailed])
+  }, [onMessage, c.federationLoadFailed, loadDelivery])
 
   useEffect(() => {
     void load()
   }, [load])
+
+  const rotateKeys = async () => {
+    if (!window.confirm(c.federationKeysRotateConfirm)) return
+    setRotatingKeys(true)
+    try {
+      await federationApi.rotateKeys({ confirm: true })
+      onMessage?.(c.federationKeysRotateSuccess, 'success')
+      const id = await federationApi.getIdentity().catch(() => null)
+      setIdentity(id)
+    } catch (e) {
+      onMessage?.(
+        e instanceof Error ? e.message : c.federationKeysRotateFailed,
+        'error',
+      )
+    } finally {
+      setRotatingKeys(false)
+    }
+  }
+
+  const withDeliveryAction = async (fn: () => Promise<void>) => {
+    setDeliveryBusy(true)
+    try {
+      await fn()
+      onMessage?.(c.federationDeliveryActionOk, 'success')
+      await loadDelivery()
+    } catch (e) {
+      onMessage?.(
+        e instanceof Error ? e.message : c.federationDeliveryActionFailed,
+        'error',
+      )
+    } finally {
+      setDeliveryBusy(false)
+    }
+  }
 
   const savePolicy = async () => {
     setSaving(true)
@@ -416,6 +476,14 @@ export const FederationConfigSection: React.FC<
   const saveButtonText =
     saving ? '…' : c.federationSavePolicy || t.common?.save || 'Save'
 
+  const statsLine = deliveryStats
+    ? c.federationDeliveryStatsLine
+        .replace('{pending}', String(deliveryStats.pending ?? 0))
+        .replace('{delivering}', String(deliveryStats.delivering ?? 0))
+        .replace('{delivered}', String(deliveryStats.delivered ?? 0))
+        .replace('{dead}', String(deliveryStats.dead ?? 0))
+    : null
+
   return (
     <SettingSection
       title={title}
@@ -423,6 +491,152 @@ export const FederationConfigSection: React.FC<
       description={description}
       sectionId={sectionId}
     >
+      <SettingGroup
+        title={c.federationKeysIdentity}
+        description={c.federationKeysIdentityDesc}
+      >
+        {identity ? (
+          <div className="space-y-1.5 text-sm mb-3">
+            <p>
+              <span className="text-gray-500 dark:text-gray-400">
+                {c.federationIdentityHandle}:{' '}
+              </span>
+              <span className="font-medium break-all">
+                {identity.handle || identity.acct || identity.username}
+              </span>
+            </p>
+            <p>
+              <span className="text-gray-500 dark:text-gray-400">
+                {c.federationIdentityActor}:{' '}
+              </span>
+              <span className="font-mono text-xs break-all">
+                {identity.actor_url}
+              </span>
+            </p>
+            {identity.key_id ? (
+              <p>
+                <span className="text-gray-500 dark:text-gray-400">
+                  {c.federationIdentityKeyId}:{' '}
+                </span>
+                <span className="font-mono text-xs break-all">
+                  {identity.key_id}
+                </span>
+              </p>
+            ) : null}
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500 mb-3">{c.federationKeysNoIdentity}</p>
+        )}
+        <ButtonItem
+          label={c.federationKeysIdentity}
+          buttonText={
+            rotatingKeys ? '…' : c.federationKeysRotate
+          }
+          onClick={() => void rotateKeys()}
+          disabled={rotatingKeys || !identity}
+          loading={rotatingKeys}
+          variant="secondary"
+        />
+      </SettingGroup>
+
+      <SettingGroup
+        title={c.federationDeliveryQueue}
+        description={c.federationDeliveryQueueDesc}
+      >
+        {statsLine ? (
+          <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">
+            {statsLine}
+          </p>
+        ) : null}
+        <div className="flex flex-wrap gap-2 mb-3">
+          <ButtonItem
+            label={c.federationDeliveryRefresh}
+            buttonText={c.federationDeliveryRefresh}
+            onClick={() => void loadDelivery()}
+            disabled={deliveryBusy}
+            variant="secondary"
+          />
+          <ButtonItem
+            label={c.federationDeliveryRetryAllDead}
+            buttonText={c.federationDeliveryRetryAllDead}
+            onClick={() => {
+              if (!window.confirm(c.federationDeliveryRetryAllConfirm)) return
+              void withDeliveryAction(async () => {
+                await federationApi.retryAllDeadDelivery()
+              })
+            }}
+            disabled={deliveryBusy}
+          />
+          <ButtonItem
+            label={c.federationDeliveryCancelAllPending}
+            buttonText={c.federationDeliveryCancelAllPending}
+            onClick={() => {
+              if (!window.confirm(c.federationDeliveryCancelAllConfirm)) return
+              void withDeliveryAction(async () => {
+                await federationApi.cancelAllPendingDelivery()
+              })
+            }}
+            disabled={deliveryBusy}
+            variant="secondary"
+          />
+        </div>
+        {deliveryItems.length === 0 ? (
+          <p className="text-sm text-gray-500">{c.federationDeliveryEmpty}</p>
+        ) : (
+          <ul className="space-y-1.5 max-h-72 overflow-y-auto">
+            {deliveryItems.map((item) => (
+              <li
+                key={item.id}
+                className="flex flex-wrap items-center gap-2 rounded-lg border border-black/5 bg-black/[0.02] px-3 py-2 text-sm dark:border-white/5 dark:bg-white/[0.03]"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium truncate">
+                    #{item.id} · {item.status} · {item.activity_type || '—'}
+                  </div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                    {item.target_domain || item.target_inbox}
+                    {item.error_message
+                      ? ` · ${item.error_message}`
+                      : ''}
+                  </div>
+                </div>
+                {(item.status === 'dead' ||
+                  item.status === 'pending' ||
+                  item.status === 'failed') && (
+                  <button
+                    type="button"
+                    className="text-xs rounded-full px-2.5 py-1 font-medium bg-black/5 dark:bg-white/10 disabled:opacity-50"
+                    disabled={deliveryBusy}
+                    onClick={() =>
+                      void withDeliveryAction(async () => {
+                        await federationApi.retryDelivery(item.id)
+                      })
+                    }
+                  >
+                    {c.federationDeliveryRetry}
+                  </button>
+                )}
+                {(item.status === 'pending' ||
+                  item.status === 'delivering') && (
+                  <button
+                    type="button"
+                    className="text-xs font-medium text-red-500 disabled:opacity-50"
+                    disabled={deliveryBusy}
+                    onClick={() =>
+                      void withDeliveryAction(async () => {
+                        await federationApi.cancelDelivery(item.id)
+                      })
+                    }
+                  >
+                    {c.federationDeliveryCancel}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </SettingGroup>
+
       <SettingGroup
         title={c.federationInstancePolicy}
         description={c.federationTrustLevelHelp}

@@ -432,6 +432,35 @@ export const enUS: TranslationKeys = {
     federationRateTrustedMultiplierDesc:
       'For trust level ≥ 3, effective limit = max requests × multiplier (default 5).',
     federationRateResetDefaults: 'Reset rate limit defaults',
+    federationKeysIdentity: 'Identity & keys',
+    federationKeysIdentityDesc:
+      'Your ActivityPub actor and signing key. Rotation replaces the RSA keypair and fans out Update(Person); remote peers must refresh your public key. ensure-keys never rotates silently.',
+    federationIdentityHandle: 'Handle',
+    federationIdentityActor: 'Actor URL',
+    federationIdentityKeyId: 'Key id',
+    federationKeysRotate: 'Rotate signing keys…',
+    federationKeysRotateConfirm:
+      'Rotate federation signing keys? Outbound signatures will use the new key. Peers that cached the old public key may reject deliveries until they refresh your actor document.',
+    federationKeysRotateSuccess: 'Signing keys rotated',
+    federationKeysRotateFailed: 'Key rotation failed',
+    federationKeysNoIdentity: 'Could not load federation identity.',
+    federationDeliveryQueue: 'Outbound delivery queue',
+    federationDeliveryQueueDesc:
+      'Pending and failed ActivityPub deliveries for your account. User-cancelled rows stay dead when bulk-retrying; use per-item retry to recover a cancelled row.',
+    federationDeliveryStatsLine:
+      'pending {pending} · delivering {delivering} · delivered {delivered} · dead {dead}',
+    federationDeliveryEmpty: 'No recent delivery queue rows.',
+    federationDeliveryRetry: 'Retry',
+    federationDeliveryCancel: 'Cancel',
+    federationDeliveryRetryAllDead: 'Retry all dead',
+    federationDeliveryCancelAllPending: 'Cancel all pending',
+    federationDeliveryRetryAllConfirm:
+      'Re-queue all non-cancelled dead deliveries? User-cancelled rows are skipped.',
+    federationDeliveryCancelAllConfirm:
+      'Mark all pending/delivering items as cancelled? They will not be bulk-retried.',
+    federationDeliveryActionOk: 'Delivery queue updated',
+    federationDeliveryActionFailed: 'Delivery action failed',
+    federationDeliveryRefresh: 'Refresh queue',
     federationFilterNamePlaceholder: 'e.g. block-announce',
     federationActivityFollow: 'Follow',
     federationActivityAccept: 'Accept',
