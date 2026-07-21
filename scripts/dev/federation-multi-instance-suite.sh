@@ -880,27 +880,62 @@ case_deploy_second_local_user() {
 }
 
 case_deploy_cancel_during_backoff() {
-  # Cancel must win over a soon-to-retry pending row (stuck failure).
+  # Cancel must win over a claimable pending row (worker may race cancel).
+  # Product: cancel sets dead+cancelled; worker only mutates status=delivering
+  # so a cancelled row is never resurrected to pending/delivered.
   local jar_a="$JAR_A"
-  local act
-  act=$(sql_a "SELECT id FROM federation_activities WHERE user_id=1 ORDER BY id DESC LIMIT 1;")
-  [[ -n "$act" ]] || die "no activity for cancel-backoff"
-  sql_a "INSERT INTO federation_delivery_queue (activity_id, target_inbox, target_domain, status, attempts, max_attempts, error_message, created_at, next_retry_at)
-         VALUES (${act}, 'http://127.0.0.1:9/backoff', '127.0.0.1', 'pending', 5, 12, 'suite: backoff cancel', NOW(), NOW() + interval '30 seconds')
-         RETURNING id;" >/dev/null
-  local qid
-  qid=$(sql_a "SELECT id FROM federation_delivery_queue WHERE error_message='suite: backoff cancel' ORDER BY id DESC LIMIT 1;")
+  local act qid st err api_body marker
+  act=$(sql_a "SELECT id FROM federation_activities WHERE user_id=1 ORDER BY id DESC LIMIT 1;" | tr -d '[:space:]')
+  [[ -n "$act" && "$act" =~ ^[0-9]+$ ]] || die "no activity for cancel-backoff (act='$act')"
+  # Unique marker — avoid RETURNING id via docker/psql noise (e.g. "31INSERT01").
+  marker="suite: backoff cancel $(date +%s)-$$"
+  # next_retry_at in the past → eligible for claim so cancel races the worker.
+  sql_a "INSERT INTO federation_delivery_queue
+         (activity_id, target_inbox, target_domain, status, attempts, max_attempts, error_message, created_at, next_retry_at)
+         VALUES (${act}, 'http://127.0.0.1:9/backoff-cancel', '127.0.0.1', 'pending', 5, 12,
+                 '${marker}', NOW(), NOW() - interval '1 second');" >/dev/null \
+    || die "insert backoff-cancel queue row failed"
+  qid=$(sql_a "SELECT id FROM federation_delivery_queue WHERE error_message='${marker}' ORDER BY id DESC LIMIT 1;" | tr -d '[:space:]')
+  [[ -n "$qid" && "$qid" =~ ^[0-9]+$ ]] || die "lookup queue id failed: '$qid' marker='$marker'"
+
   api POST "$BASE_A" "$jar_a" "/api/federation/delivery/${qid}/cancel" "" \
     >"$SCRATCH_DIR/deploy-cancel-backoff.json"
-  local st
-  st=$(sql_a "SELECT status FROM federation_delivery_queue WHERE id=${qid};")
-  [[ "$st" == "dead" ]] || die "backoff cancel status=$st"
-  # Worker must not resurrect cancelled row
-  sleep 3
-  nudge_delivery a
-  st=$(sql_a "SELECT status FROM federation_delivery_queue WHERE id=${qid};")
-  [[ "$st" == "dead" ]] || die "cancelled row resurrected: $st"
-  echo "deploy_cancel_during_backoff ok" >>"$SUITE_LOG"
+  api_body=$(cat "$SCRATCH_DIR/deploy-cancel-backoff.json" 2>/dev/null || true)
+
+  # If worker already claimed as delivering mid-cancel, one more cancel wins.
+  st=$(sql_a "SELECT status FROM federation_delivery_queue WHERE id=${qid};" | tr -d '[:space:]')
+  if [[ "$st" == "pending" || "$st" == "delivering" ]]; then
+    api POST "$BASE_A" "$jar_a" "/api/federation/delivery/${qid}/cancel" "" \
+      >"$SCRATCH_DIR/deploy-cancel-backoff-retry.json" || true
+    st=$(sql_a "SELECT status FROM federation_delivery_queue WHERE id=${qid};" | tr -d '[:space:]')
+    api_body=$(cat "$SCRATCH_DIR/deploy-cancel-backoff-retry.json" 2>/dev/null || echo "$api_body")
+  fi
+
+  if [[ -z "$st" ]]; then
+    die "cancel-backoff row id=$qid vanished after cancel (api=$api_body)"
+  fi
+  err=$(sql_a "SELECT COALESCE(error_message,'') FROM federation_delivery_queue WHERE id=${qid};")
+  [[ "$st" == "dead" ]] || die "backoff cancel status=$st err=$err api=$api_body"
+  echo "$err" | grep -qi '^cancelled:' \
+    || die "expected cancelled: error_message, got '$err' (api=$api_body)"
+
+  # Worker ticks must not resurrect (status stays dead, cancel marker kept).
+  local i
+  for i in 1 2 3 4 5; do
+    nudge_delivery a
+    sleep 1
+    st=$(sql_a "SELECT status FROM federation_delivery_queue WHERE id=${qid};" | tr -d '[:space:]')
+    err=$(sql_a "SELECT COALESCE(error_message,'') FROM federation_delivery_queue WHERE id=${qid};")
+    if [[ -z "$st" ]]; then
+      die "cancelled row id=$qid vanished after worker tick t=$i"
+    fi
+    if [[ "$st" != "dead" ]]; then
+      die "cancelled row resurrected: status=$st err=$err id=$qid"
+    fi
+    echo "$err" | grep -qi '^cancelled:' \
+      || die "cancel marker lost after tick t=$i: err='$err' id=$qid"
+  done
+  echo "deploy_cancel_during_backoff ok qid=$qid" >>"$SUITE_LOG"
 }
 
 case_deploy_post_move_switch_base() {
