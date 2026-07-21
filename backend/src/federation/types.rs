@@ -895,4 +895,14 @@ mod tests {
             None
         );
     }
+
+    #[test]
+    fn same_activity_id_rejects_empty_and_whitespace() {
+        // Empty / whitespace-only must never compare equal (defense vs blank Accept.object).
+        assert!(!same_activity_id("", ""));
+        assert!(!same_activity_id("   ", "   "));
+        assert!(!same_activity_id("", "https://a.example/activities/1"));
+        assert!(!same_activity_id("https://a.example/activities/1", ""));
+        assert_eq!(normalize_activity_id("\t  \n"), "");
+    }
 }
