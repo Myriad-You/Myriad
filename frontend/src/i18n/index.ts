@@ -372,6 +372,35 @@ export interface TranslationKeys {
     federationRateTrustedMultiplier: string
     federationRateTrustedMultiplierDesc: string
     federationRateResetDefaults: string
+    /** Placeholder for content-filter rule name */
+    federationFilterNamePlaceholder: string
+    /** Human-readable labels for ActivityPub / MFP activity types (filter dropdown) */
+    federationActivityFollow: string
+    federationActivityAccept: string
+    federationActivityReject: string
+    federationActivityUndo: string
+    federationActivityCreate: string
+    federationActivityUpdate: string
+    federationActivityDelete: string
+    federationActivityAnnounce: string
+    federationActivityLike: string
+    federationActivityMove: string
+    federationActivityChannelOpen: string
+    federationActivityChannelClose: string
+    federationActivityChannelAccept: string
+    federationActivityChannelMessage: string
+    federationActivityRoomInvite: string
+    federationActivityRoomJoin: string
+    federationActivityRoomLeave: string
+    federationActivityRoomDissolve: string
+    federationActivityRoomMessage: string
+    federationActivityRoomPin: string
+    federationActivityRoomGovernance: string
+    federationActivityRingJoin: string
+    federationActivityRingSync: string
+    federationActivityRingLeave: string
+    federationActivityFileTransfer: string
+    federationActivityKeyExchange: string
     data: string
     dataDesc: string
     about: string

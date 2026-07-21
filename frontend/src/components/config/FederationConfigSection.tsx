@@ -77,7 +77,11 @@ const ACTIVITY_TYPES = [
   'myriad:KeyExchange',
 ] as const
 
-function activityTypeLabel(type: string): string {
+/**
+ * Fallback when a stored activity type has no i18n entry (custom / future types).
+ * Prefer `activityTypeLabels` from config keys when available.
+ */
+function activityTypeFallbackLabel(type: string): string {
   if (type.startsWith('myriad:')) {
     return `${type.slice('myriad:'.length)} (MFP)`
   }
@@ -158,13 +162,51 @@ export const FederationConfigSection: React.FC<
     [filterTypeLabels],
   )
 
+  /** Maps stored ActivityPub type values → localized display labels. */
+  const activityTypeLabels = useMemo((): Record<string, string> => {
+    return {
+      Follow: c.federationActivityFollow,
+      Accept: c.federationActivityAccept,
+      Reject: c.federationActivityReject,
+      Undo: c.federationActivityUndo,
+      Create: c.federationActivityCreate,
+      Update: c.federationActivityUpdate,
+      Delete: c.federationActivityDelete,
+      Announce: c.federationActivityAnnounce,
+      Like: c.federationActivityLike,
+      Move: c.federationActivityMove,
+      'myriad:ChannelOpen': c.federationActivityChannelOpen,
+      'myriad:ChannelClose': c.federationActivityChannelClose,
+      'myriad:ChannelAccept': c.federationActivityChannelAccept,
+      'myriad:ChannelMessage': c.federationActivityChannelMessage,
+      'myriad:RoomInvite': c.federationActivityRoomInvite,
+      'myriad:RoomJoin': c.federationActivityRoomJoin,
+      'myriad:RoomLeave': c.federationActivityRoomLeave,
+      'myriad:RoomDissolve': c.federationActivityRoomDissolve,
+      'myriad:RoomMessage': c.federationActivityRoomMessage,
+      'myriad:RoomPin': c.federationActivityRoomPin,
+      'myriad:RoomGovernance': c.federationActivityRoomGovernance,
+      'myriad:RingJoin': c.federationActivityRingJoin,
+      'myriad:RingSync': c.federationActivityRingSync,
+      'myriad:RingLeave': c.federationActivityRingLeave,
+      'myriad:FileTransfer': c.federationActivityFileTransfer,
+      'myriad:KeyExchange': c.federationActivityKeyExchange,
+    }
+  }, [c])
+
+  const resolveActivityTypeLabel = useCallback(
+    (type: string): string =>
+      activityTypeLabels[type] ?? activityTypeFallbackLabel(type),
+    [activityTypeLabels],
+  )
+
   const activityTypeOptions = useMemo(
     () =>
       ACTIVITY_TYPES.map((ty) => ({
         value: ty,
-        label: activityTypeLabel(ty),
+        label: resolveActivityTypeLabel(ty),
       })),
-    [],
+    [resolveActivityTypeLabel],
   )
 
   const filterTypeHelp = useMemo((): Record<FilterType, string> => {
@@ -283,7 +325,7 @@ export const FederationConfigSection: React.FC<
   const formatFilterValue = useCallback(
     (filterType: string, value: string): string => {
       if (filterType === 'block_activity_type') {
-        return activityTypeLabel(value)
+        return resolveActivityTypeLabel(value)
       }
       if (filterType === 'require_trust_level') {
         const n = Number.parseInt(value, 10)
@@ -292,7 +334,7 @@ export const FederationConfigSection: React.FC<
       }
       return value
     },
-    [trustLevels],
+    [trustLevels, resolveActivityTypeLabel],
   )
 
   const formatFilterSummary = useCallback(
@@ -487,7 +529,7 @@ export const FederationConfigSection: React.FC<
             label={c.federationFilterName}
             value={newFilterName}
             onChange={setNewFilterName}
-            placeholder="spam-keyword"
+            placeholder={c.federationFilterNamePlaceholder}
             layout="vertical"
           />
 
