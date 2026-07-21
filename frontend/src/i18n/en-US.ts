@@ -956,11 +956,39 @@ export const enUS: TranslationKeys = {
     howToGetToken: 'How to get Token?',
     basicConfigTitle: 'Basic Configuration',
     siteUrlConfig: 'Site URL',
-    baseUrl: 'Site URL',
+    baseUrl: 'Public site URL / BASE_URL',
     baseUrlPlaceholder:
       'https://yourdomain.com (for OAuth callback and Cookie settings)',
     baseUrlHint:
-      'Your site URL, used to auto-generate OAuth callback URL and determine HTTPS secure Cookie',
+      'Public site origin (BASE_URL). Saving also updates FRONTEND_URL and CORS_ORIGINS for the same origin (replace the old origin in multi-origin lists or append; never uses *). Used for OAuth callbacks and HTTPS secure cookies.',
+    domainChangeTitle: 'Change domain',
+    domainChangeDesc:
+      'Writes the public site origin to the config DB and .env (BASE_URL / FRONTEND_URL / CORS_ORIGINS). Site access only — does not run federation Move.',
+    domainChangeNewOrigin: 'New public origin',
+    domainChangePlaceholder: 'https://new.example.com',
+    domainChangeHint:
+      'https only (http allowed for localhost), no path. After apply, complete the operator checklist (DNS / TLS / OAuth / restart).',
+    domainChangeAction: 'Apply domain change',
+    domainChangeActionDesc:
+      'Atomically rewrite BASE_URL, FRONTEND_URL, and CORS_ORIGINS, then return the operator checklist.',
+    domainChangeApply: 'Confirm domain change',
+    domainChangeApplying: 'Applying…',
+    domainChangeConfirm:
+      'Change the public site origin to {origin}? This updates BASE_URL, FRONTEND_URL, and CORS_ORIGINS.',
+    domainChangeEmpty: 'Enter the new public origin',
+    domainChangeSuccess: 'Domain updated — finish the operator checklist',
+    domainChangeFailed: 'Domain update failed',
+    domainChecklistTitle: 'Post-change operator checklist',
+    domainChecklist: {
+      dns: 'DNS',
+      tls: 'TLS certificate',
+      reverse_proxy_301: 'Reverse proxy 301',
+      oauth_callbacks: 'OAuth callbacks',
+      federation_move_separate: 'Federation move (separate)',
+      backend_restart_for_cors: 'Restart backend for CORS',
+    },
+    domainFederationNote:
+      'For federation migration use federation domain-move (ActivityPub Move); this flow does not rewrite federation_* tables. See docs/deployment/MIGRATION_DOMAIN.md.',
     basicConfigDesc: 'Site URL, background, theme and interface style',
     oauthConfigTitle: 'Third-party Login (OAuth)',
     oauthConfigDesc:

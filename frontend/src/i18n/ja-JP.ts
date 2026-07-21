@@ -937,11 +937,39 @@ export const jaJP: TranslationKeys = {
     howToGetToken: 'トークンの取得方法',
     basicConfigTitle: '基本設定',
     siteUrlConfig: 'サイトURL',
-    baseUrl: 'サイトURL',
+    baseUrl: 'サイト公開アドレス / BASE_URL',
     baseUrlPlaceholder:
       'https://yourdomain.com（OAuthコールバックとCookie設定用）',
     baseUrlHint:
-      'サイトのURL。OAuthコールバックURLの自動生成とHTTPSセキュアCookieの判定に使用されます',
+      'サイトの公開 origin（BASE_URL）。保存時に同じ origin の FRONTEND_URL と CORS_ORIGINS も更新します（複数 origin では旧値を置換するか追加。* は使いません）。OAuth コールバックと HTTPS Cookie 判定に使用します。',
+    domainChangeTitle: 'ドメイン変更',
+    domainChangeDesc:
+      '公開 origin を設定 DB と .env（BASE_URL / FRONTEND_URL / CORS_ORIGINS）に書き込みます。サイトアクセス用のみで、フェデレーション Move は実行しません。',
+    domainChangeNewOrigin: '新しい公開 origin',
+    domainChangePlaceholder: 'https://new.example.com',
+    domainChangeHint:
+      'https のみ（localhost は http 可）、パス不可。適用後は運用チェックリスト（DNS / TLS / OAuth / 再起動）を完了してください。',
+    domainChangeAction: 'ドメイン変更を適用',
+    domainChangeActionDesc:
+      'BASE_URL・FRONTEND_URL・CORS_ORIGINS を原子的に書き換え、運用チェックリストを返します。',
+    domainChangeApply: 'ドメイン変更を確認',
+    domainChangeApplying: '適用中…',
+    domainChangeConfirm:
+      'サイト公開アドレスを {origin} に変更しますか？BASE_URL・FRONTEND_URL・CORS_ORIGINS が更新されます。',
+    domainChangeEmpty: '新しい公開 origin を入力してください',
+    domainChangeSuccess: 'ドメインを更新しました。運用チェックリストを完了してください',
+    domainChangeFailed: 'ドメイン更新に失敗しました',
+    domainChecklistTitle: 'ドメイン変更後の運用チェックリスト',
+    domainChecklist: {
+      dns: 'DNS',
+      tls: 'TLS 証明書',
+      reverse_proxy_301: 'リバースプロキシ 301',
+      oauth_callbacks: 'OAuth コールバック',
+      federation_move_separate: 'フェデレーション移行（別途）',
+      backend_restart_for_cors: 'CORS 反映のためのバックエンド再起動',
+    },
+    domainFederationNote:
+      'フェデレーション移行は federation domain-move（ActivityPub Move）を使用してください。この機能は federation_* テーブルを書き換えません。docs/deployment/MIGRATION_DOMAIN.md を参照。',
     basicConfigDesc: 'サイトURL、背景、テーマなどの基本設定',
     oauthConfigTitle: 'サードパーティログイン (OAuth)',
     oauthConfigDesc:

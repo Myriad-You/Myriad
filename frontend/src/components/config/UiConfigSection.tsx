@@ -4,6 +4,7 @@
  */
 
 import {
+  FaExchangeAlt,
   FaGlobe,
   FaInfoCircle,
   FaLink,
@@ -11,10 +12,18 @@ import {
   LuPalette,
   SiCloudflare,
 } from '@lib/icons'
-import React, { useCallback, useMemo } from 'react'
+import React, { useCallback, useMemo, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
+import { ApiError } from '../../services/api'
+import {
+  changeSiteDomain,
+  checklistItems,
+  type ChangeSiteDomainResponse,
+  type DomainChecklistItem,
+} from '../../services/siteDomainApi'
 
 import {
+  ButtonItem,
   CheckboxGroupItem,
   InputItem,
   SelectItem,
@@ -77,6 +86,18 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
   sectionId,
 }) => {
   const { t } = useI18n()
+  const [domainDraft, setDomainDraft] = useState('')
+  const [domainLoading, setDomainLoading] = useState(false)
+  const [domainResult, setDomainResult] = useState<{
+    success: boolean
+    message: string
+  } | null>(null)
+  const [domainChecklist, setDomainChecklist] = useState<
+    DomainChecklistItem[]
+  >([])
+  const [domainApplied, setDomainApplied] = useState<
+    ChangeSiteDomainResponse['applied'] | null
+  >(null)
 
   // 辅助函数：获取配置字段值
   const getFieldValue = useCallback(
@@ -85,6 +106,69 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
     },
     [configFields],
   )
+
+  const checklistLabel = useCallback(
+    (key: string) => {
+      const map = t.config.domainChecklist as Record<string, string> | undefined
+      return map?.[key] || key
+    },
+    [t.config.domainChecklist],
+  )
+
+  const handleChangeDomain = useCallback(async () => {
+    const next = domainDraft.trim()
+    if (!next) {
+      setDomainResult({
+        success: false,
+        message: t.config.domainChangeEmpty,
+      })
+      return
+    }
+    const current = getFieldValue('base_url').replace(/\/$/, '')
+    if (
+      !window.confirm(
+        t.config.domainChangeConfirm.replace('{origin}', next),
+      )
+    ) {
+      return
+    }
+
+    setDomainLoading(true)
+    setDomainResult(null)
+    setDomainChecklist([])
+    setDomainApplied(null)
+    try {
+      const res = await changeSiteDomain({
+        new_origin: next,
+        previous_origin: current || undefined,
+      })
+      if (res.success && res.applied) {
+        updateValue('base_url', res.applied.base_url)
+        setDomainDraft(res.applied.base_url)
+        setDomainApplied(res.applied)
+        setDomainChecklist(checklistItems(res.checklist))
+        setDomainResult({
+          success: true,
+          message: res.message || t.config.domainChangeSuccess,
+        })
+      } else {
+        setDomainResult({
+          success: false,
+          message: res.message || t.config.domainChangeFailed,
+        })
+      }
+    } catch (err) {
+      const message =
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : t.config.domainChangeFailed
+      setDomainResult({ success: false, message })
+    } finally {
+      setDomainLoading(false)
+    }
+  }, [domainDraft, getFieldValue, t, updateValue])
 
   // 站点元数据字段
   const siteMetadataFields = useMemo(
@@ -130,6 +214,92 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
           hint={t.config.baseUrlHint}
           layout="vertical"
         />
+      </SettingGroup>
+
+      {/* 更换域名（站点访问身份，非联邦 Move） */}
+      <SettingGroup
+        title={t.config.domainChangeTitle}
+        icon={<FaExchangeAlt />}
+        description={t.config.domainChangeDesc}
+      >
+        <InputItem
+          itemKey="new_site_origin"
+          label={t.config.domainChangeNewOrigin}
+          value={domainDraft}
+          onChange={setDomainDraft}
+          placeholder={t.config.domainChangePlaceholder}
+          hint={t.config.domainChangeHint}
+          layout="vertical"
+        />
+        <ButtonItem
+          label={t.config.domainChangeAction}
+          description={t.config.domainChangeActionDesc}
+          buttonText={
+            domainLoading
+              ? t.config.domainChangeApplying
+              : t.config.domainChangeApply
+          }
+          onClick={() => {
+            void handleChangeDomain()
+          }}
+          variant="primary"
+          disabled={domainLoading || !domainDraft.trim()}
+          loading={domainLoading}
+          result={domainResult}
+          layout="vertical"
+        />
+        {domainApplied && (
+          <div
+            className="setting-item-hint"
+            style={{ marginTop: '0.5rem', fontSize: '0.875rem' }}
+          >
+            <div>
+              <strong>BASE_URL / FRONTEND_URL:</strong>{' '}
+              {domainApplied.base_url}
+            </div>
+            <div>
+              <strong>CORS_ORIGINS:</strong> {domainApplied.cors_origins}
+            </div>
+          </div>
+        )}
+        {domainChecklist.length > 0 && (
+          <div style={{ marginTop: '0.75rem' }}>
+            <div
+              style={{
+                fontWeight: 600,
+                marginBottom: '0.5rem',
+                fontSize: '0.9rem',
+              }}
+            >
+              {t.config.domainChecklistTitle}
+            </div>
+            <ul
+              style={{
+                margin: 0,
+                paddingLeft: '1.25rem',
+                fontSize: '0.875rem',
+                lineHeight: 1.55,
+              }}
+            >
+              {domainChecklist.map((item) => (
+                <li key={item.key} style={{ marginBottom: '0.35rem' }}>
+                  <strong>{checklistLabel(item.key)}</strong>
+                  <span style={{ opacity: 0.75 }}> ({item.status})</span>
+                  <div style={{ opacity: 0.9 }}>{item.summary}</div>
+                </li>
+              ))}
+            </ul>
+            <p
+              style={{
+                marginTop: '0.75rem',
+                fontSize: '0.8125rem',
+                opacity: 0.8,
+              }}
+            >
+              {t.config.domainFederationNote}
+            </p>
+          </div>
+        )}
       </SettingGroup>
 
       {/* 站点元数据 */}

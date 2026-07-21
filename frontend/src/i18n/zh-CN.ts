@@ -884,10 +884,38 @@ export const zhCN: TranslationKeys = {
     basicConfigTitle: '基础配置',
     basicConfigDesc: '站点URL、背景、主题等基础设置',
     siteUrlConfig: '站点地址',
-    baseUrl: '站点 URL',
+    baseUrl: '站点公网地址 / BASE_URL',
     baseUrlPlaceholder: 'https://yourdomain.com（用于OAuth回调和Cookie设置）',
     baseUrlHint:
-      '您的站点访问地址，用于自动生成 OAuth 回调 URL 和判断是否启用 HTTPS 安全 Cookie',
+      '站点公网访问地址（BASE_URL）。修改并保存时会同步更新同 origin 的 FRONTEND_URL 与 CORS_ORIGINS（多 origin 时替换旧地址或追加新地址，不会使用 *）。用于 OAuth 回调与 HTTPS Cookie 判断。',
+    domainChangeTitle: '更换域名',
+    domainChangeDesc:
+      '将站点公网 origin 写入配置库与 .env（BASE_URL / FRONTEND_URL / CORS_ORIGINS）。仅影响站点访问身份，不会执行联邦 Move。',
+    domainChangeNewOrigin: '新公网 origin',
+    domainChangePlaceholder: 'https://new.example.com',
+    domainChangeHint:
+      '仅 https（localhost 可用 http），不要带路径。应用后请完成下方运维清单（DNS / TLS / OAuth / 重启）。',
+    domainChangeAction: '应用域名变更',
+    domainChangeActionDesc:
+      '原子写入 BASE_URL、FRONTEND_URL、CORS_ORIGINS，并返回运维清单。',
+    domainChangeApply: '确认更换域名',
+    domainChangeApplying: '正在应用…',
+    domainChangeConfirm:
+      '确定将站点公网地址更换为 {origin}？将更新 BASE_URL、FRONTEND_URL 与 CORS_ORIGINS。',
+    domainChangeEmpty: '请输入新的公网 origin',
+    domainChangeSuccess: '域名已更新，请完成运维清单',
+    domainChangeFailed: '域名更新失败',
+    domainChecklistTitle: '更换域名后运维清单',
+    domainChecklist: {
+      dns: 'DNS',
+      tls: 'TLS 证书',
+      reverse_proxy_301: '反向代理 301',
+      oauth_callbacks: 'OAuth 回调',
+      federation_move_separate: '联邦迁移（另做）',
+      backend_restart_for_cors: '重启后端以加载 CORS',
+    },
+    domainFederationNote:
+      '联邦迁移请使用联邦 domain-move（ActivityPub Move）；本功能不会改写 federation_* 表。详见 docs/deployment/MIGRATION_DOMAIN.md。',
     oauthConfigTitle: '第三方登录 (OAuth)',
     oauthConfigDesc:
       '配置 GitHub、Google、Microsoft 等第三方登录方式，以及本地账号注册策略',

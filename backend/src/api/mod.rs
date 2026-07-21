@@ -33,6 +33,7 @@ pub mod tapp_scheduler; // ✅ Tapp 定时任务调度 API
 pub mod tapp_store; // ✅ Tapp 应用商店/管理 API（安装、卸载、配置…）
 pub mod tasks; // ✅ 后台任务管理 API
 pub mod admin_users;
+pub mod site_domain; // 🌐 Site public domain (BASE_URL / FRONTEND_URL / CORS) — not federation Move
 pub mod updater_admin;
 pub mod x; // ✅ X (Twitter) 平台 API // 🚀 Updater admin proxy
 

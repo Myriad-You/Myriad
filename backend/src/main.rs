@@ -1085,6 +1085,35 @@ async fn update_config_wrapper(
     }
 }
 
+/// Site public domain change: rewrite BASE_URL / FRONTEND_URL / CORS_ORIGINS (not federation Move).
+async fn change_site_domain_wrapper(
+    headers: axum::http::HeaderMap,
+    Json(payload): Json<api::site_domain::ChangeSiteDomainRequest>,
+) -> Response {
+    if let Err((status, json)) = middleware::auth::verify_current_admin_from_headers(&headers).await
+    {
+        return (status, json).into_response();
+    }
+
+    let db_opt = DB_CONNECTION.read().await;
+    match db_opt.as_ref() {
+        Some(db) => {
+            let (status, json) =
+                api::site_domain::change_site_domain(axum::extract::State(db.clone()), Json(payload))
+                    .await;
+            (status, json).into_response()
+        }
+        None => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "error": "Database not connected",
+                "message": "数据库未连接，域名变更功能暂不可用"
+            })),
+        )
+            .into_response(),
+    }
+}
+
 /// Export every persisted setting plus the current administrator's user preferences.
 async fn export_settings_wrapper(headers: axum::http::HeaderMap) -> Response {
     let claims = match middleware::auth::verify_current_admin_from_headers(&headers).await {
@@ -5874,6 +5903,12 @@ async fn start_unified_server(config: AppConfig) -> anyhow::Result<()> {
         .route(
             "/api/admin/users/{id}/identities/{identity_id}",
             axum::routing::delete(admin_unlink_identity_wrapper)
+                .route_layer(from_fn(middleware::auth::admin_middleware)),
+        )
+        // Site public domain (BASE_URL / FRONTEND_URL / CORS) — not federation Move
+        .route(
+            "/api/admin/site/domain",
+            post(change_site_domain_wrapper)
                 .route_layer(from_fn(middleware::auth::admin_middleware)),
         )
         // PR #4: 公开注册（开关受 allow_local_registration 控制） + 后补密码 + 本地登录开关

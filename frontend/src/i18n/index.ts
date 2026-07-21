@@ -836,6 +836,29 @@ export interface TranslationKeys {
     baseUrl: string
     baseUrlPlaceholder: string
     baseUrlHint: string
+    domainChangeTitle: string
+    domainChangeDesc: string
+    domainChangeNewOrigin: string
+    domainChangePlaceholder: string
+    domainChangeHint: string
+    domainChangeAction: string
+    domainChangeActionDesc: string
+    domainChangeApply: string
+    domainChangeApplying: string
+    domainChangeConfirm: string
+    domainChangeEmpty: string
+    domainChangeSuccess: string
+    domainChangeFailed: string
+    domainChecklistTitle: string
+    domainChecklist: {
+      dns: string
+      tls: string
+      reverse_proxy_301: string
+      oauth_callbacks: string
+      federation_move_separate: string
+      backend_restart_for_cors: string
+    }
+    domainFederationNote: string
     oauthConfigTitle: string
     oauthConfigDesc: string
     oauthGuideTitle: string

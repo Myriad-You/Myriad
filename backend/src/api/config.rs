@@ -2886,7 +2886,13 @@ async fn save_all_configs(config: &ConfigResponse) -> Result<(), Box<dyn std::er
         env_content = update_env_var(&env_content, key, &field.value);
     }
 
+    // Capture previous public origin before rewriting BASE_URL so CORS replace
+    // can swap the old entry instead of treating the new value as previous.
+    let previous_base_url = crate::api::site_domain::read_env_key(&env_content, "BASE_URL")
+        .or_else(|| std::env::var("BASE_URL").ok().filter(|s| !s.is_empty()));
+
     // 保存 UI 配置
+    let mut saved_base_url: Option<String> = None;
     for field in &config.ui_config.config_fields {
         let key = match field.key.as_str() {
             "wallpaper_url" => "UI_WALLPAPER_URL",
@@ -2921,7 +2927,34 @@ async fn save_all_configs(config: &ConfigResponse) -> Result<(), Box<dyn std::er
             "github_api_base_url" => "GITHUB_API_BASE_URL",
             _ => continue,
         };
+        if field.key == "base_url" {
+            saved_base_url = Some(field.value.clone());
+        }
         env_content = update_env_var(&env_content, key, &field.value);
+    }
+
+    // When site base_url changes to a valid origin, also adapt FRONTEND_URL +
+    // CORS_ORIGINS for the same origin (site access only — not federation Move).
+    // Empty base_url must not wipe CORS_ORIGINS (production panics without it).
+    if let Some(ref base) = saved_base_url {
+        let base_trim = base.trim();
+        if !base_trim.is_empty() {
+            match crate::api::site_domain::apply_site_domain_to_env_content(
+                &env_content,
+                base_trim,
+                previous_base_url.as_deref(),
+            ) {
+                Ok((adapted, _)) => env_content = adapted,
+                Err(e) => {
+                    // Invalid base_url: leave generic BASE_URL write as-is.
+                    tracing::warn!(
+                        "Skipping FRONTEND_URL/CORS_ORIGINS adapt for base_url={:?}: {}",
+                        base_trim,
+                        e
+                    );
+                }
+            }
+        }
     }
 
     // 写回 .env 文件，确保使用 UTF-8 编码
@@ -2954,7 +2987,10 @@ async fn save_all_configs(config: &ConfigResponse) -> Result<(), Box<dyn std::er
 }
 
 /// 更新或添加环境变量
-fn update_env_var(content: &str, key: &str, value: &str) -> String {
+///
+/// `pub(crate)` so site-domain migration can rewrite BASE_URL / FRONTEND_URL /
+/// CORS_ORIGINS with the same quoting rules as the general config save path.
+pub(crate) fn update_env_var(content: &str, key: &str, value: &str) -> String {
     let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
     let key_prefix = format!("{}=", key);
 
