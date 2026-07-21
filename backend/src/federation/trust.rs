@@ -1153,4 +1153,17 @@ mod tests {
             FilterVerdict::Reject(_)
         ));
     }
+
+    #[test]
+    fn w175_effective_max_untrusted_base() {
+        let policy = RateLimitPolicy {
+            max_requests_per_window: 50,
+            window_seconds: 60,
+            trusted_multiplier: 4,
+        };
+        assert_eq!(effective_max_requests(&policy, TrustLevel::Unknown), 50);
+        assert_eq!(effective_max_requests(&policy, TrustLevel::Discovered), 50);
+        assert_eq!(effective_max_requests(&policy, TrustLevel::Followed), 50);
+
+    }
 }
