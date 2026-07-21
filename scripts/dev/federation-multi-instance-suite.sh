@@ -259,8 +259,11 @@ assert_no_dead_fail() {
 
 wait_delivery_side() {
   # wait until side a|b has delivered_count >= min and pending==0 (or timeout)
-  # User-cancelled dead rows (error_message cancelled:*) do not fail the wait —
-  # cancel-pending / cancel-one cases leave those on purpose.
+  #
+  # IMPORTANT: only fail on *non-cancelled* dead rows. User cancel paths set
+  # error_message to 'cancelled: by user' (or cancelled:*) and must not kill
+  # unrelated cases that call wait_delivery_side (root cause of 24/25 flake:
+  # "delivery dead on a: cancelled: by user").
   local side="$1" min_delivered="${2:-1}" max_pending="${3:-0}" tries="${4:-40}"
   local i d p dead dead_fail
   for i in $(seq 1 "$tries"); do
@@ -274,6 +277,7 @@ wait_delivery_side() {
       p=$(sql_b "SELECT count(*)::int FROM federation_delivery_queue WHERE status IN ('pending','delivering');" || echo 0)
       dead=$(sql_b "SELECT count(*)::int FROM federation_delivery_queue WHERE status='dead';" || echo 0)
     fi
+    # dead_fail excludes cancelled:% — do NOT use raw `dead` for die()
     dead_fail=$(dead_fail_count "$side")
     echo "  wait_${side} t=$i delivered=$d pending=$p dead=$dead dead_fail=$dead_fail"
     if [[ "${dead_fail:-0}" -ge 1 ]]; then
@@ -883,8 +887,13 @@ case_deploy_cancel_during_backoff() {
   # Cancel must win over a claimable pending row (worker may race cancel).
   # Product: cancel sets dead+cancelled; worker only mutates status=delivering
   # so a cancelled row is never resurrected to pending/delivered.
+  #
+  # Do NOT call wait_delivery_side here — that helper waits for fan-out success;
+  # this case only asserts cancel stickiness. clear_queue first so leftover
+  # dead rows from prior cases cannot confuse status checks.
   local jar_a="$JAR_A"
   local act qid st err api_body marker
+  clear_queue a
   act=$(sql_a "SELECT id FROM federation_activities WHERE user_id=1 ORDER BY id DESC LIMIT 1;" | tr -d '[:space:]')
   [[ -n "$act" && "$act" =~ ^[0-9]+$ ]] || die "no activity for cancel-backoff (act='$act')"
   # Unique marker — avoid RETURNING id via docker/psql noise (e.g. "31INSERT01").
@@ -919,7 +928,7 @@ case_deploy_cancel_during_backoff() {
   echo "$err" | grep -qi '^cancelled:' \
     || die "expected cancelled: error_message, got '$err' (api=$api_body)"
 
-  # Worker ticks must not resurrect (status stays dead, cancel marker kept).
+  # Worker ticks must not resurrect — status stays dead; do not wait_delivery_side.
   local i
   for i in 1 2 3 4 5; do
     nudge_delivery a
