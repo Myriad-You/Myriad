@@ -284,6 +284,7 @@ export const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> =
 
     // 联邦权限
     ['federation.getIdentity', 'federation:read'],
+    ['federation.rotateKeys', 'federation:write'],
     ['federation.getFeed', 'federation:read'],
     ['federation.getTimeline', 'federation:read'],
     ['federation.getFollowing', 'federation:read'],

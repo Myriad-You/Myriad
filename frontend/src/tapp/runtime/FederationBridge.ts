@@ -173,6 +173,31 @@ export function registerFederationHandlers(
     }
   })
 
+  bridge.registerHandler(
+    'federation.rotateKeys',
+    async (message: TappMessage) => {
+      const [confirmRaw] = (message.payload as { args: unknown[] }).args || []
+      const confirm = confirmRaw === true
+      if (!confirm) {
+        return {
+          success: false,
+          error: 'Key rotation requires confirm=true',
+        }
+      }
+      try {
+        const runtimeGrant = await bridge.getRuntimeGrant()
+        const data = await federationApi.rotateKeys(true, runtimeGrant)
+        return { success: true, data }
+      } catch (error) {
+        return {
+          success: false,
+          error:
+            error instanceof Error ? error.message : 'Failed to rotate keys',
+        }
+      }
+    },
+  )
+
   // ==================== 时间线 ====================
 
   bridge.registerHandler('federation.getFeed', async () => {

@@ -203,6 +203,12 @@
     },
     {
       "domain": "federation",
+      "method": "POST",
+      "path": "/api/federation/keys/rotate",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
       "method": "GET",
       "path": "/api/federation/timeline",
       "permission": "federation:read"
@@ -475,6 +481,12 @@
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/delivery/retry-dead",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "method": "POST",
+      "path": "/api/federation/delivery/cancel-pending",
       "permission": "federation:write"
     },
     {

@@ -19,6 +19,7 @@ import type {
   CreateRingRequest,
   CreateRoomRequest,
   FederationIdentity,
+  FederationKeyRotationResult,
   FollowListResponse,
   FollowRequest,
   FollowResponse,
@@ -75,6 +76,21 @@ export const federationApi = {
   getIdentity(runtimeGrant?: string): Promise<FederationIdentity> {
     return apiService.get<FederationIdentity>(
       `${PREFIX}/identity`,
+      attributionOptions(runtimeGrant),
+    )
+  },
+
+  /**
+   * Explicit federation key rotation.
+   * Requires `confirm: true` — never silent. Peers should re-fetch actor publicKey.
+   */
+  rotateKeys(
+    confirm: boolean,
+    runtimeGrant?: string,
+  ): Promise<FederationKeyRotationResult> {
+    return apiService.post<FederationKeyRotationResult>(
+      `${PREFIX}/keys/rotate`,
+      { confirm },
       attributionOptions(runtimeGrant),
     )
   },

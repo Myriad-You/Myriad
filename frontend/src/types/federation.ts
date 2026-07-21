@@ -30,6 +30,15 @@ export interface FederationIdentity {
   profile_url: string
 }
 
+/** Response from POST /api/federation/keys/rotate */
+export interface FederationKeyRotationResult {
+  public_key_pem: string
+  key_id: string
+  previous_public_key_pem?: string | null
+  update_queued: number
+  note: string
+}
+
 export interface RemoteActor {
   actor_url: string
   username?: string

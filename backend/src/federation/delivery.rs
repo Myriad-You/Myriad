@@ -800,7 +800,20 @@ pub async fn cancel_delivery_item(
     }))
 }
 
+/// True when a dead-letter was cancelled by the user (must not bulk-retry).
+pub(crate) fn is_user_cancelled_delivery_error(error_message: Option<&str>) -> bool {
+    let Some(msg) = error_message.map(str::trim).filter(|s| !s.is_empty()) else {
+        return false;
+    };
+    // Canonical: "cancelled: by user"; accept cancelled: prefix for suite/UI variants.
+    msg.eq_ignore_ascii_case("cancelled: by user")
+        || msg.to_ascii_lowercase().starts_with("cancelled:")
+}
+
 /// Re-queue all dead delivery items for the user (capped).
+///
+/// Skips rows whose `error_message` is a user cancel (`cancelled:…`) so
+/// cancel-pending work is not silently revived by retry-all-dead.
 pub async fn retry_all_dead_for_user(
     db: &DatabaseConnection,
     user_id: i32,
@@ -813,7 +826,7 @@ pub async fn retry_all_dead_for_user(
     let id_rows = db
         .query_all(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            r#"SELECT dq.id
+            r#"SELECT dq.id, dq.error_message
                FROM federation_delivery_queue dq
                JOIN federation_activities a ON a.id = dq.activity_id
                WHERE a.user_id = $1 AND dq.status = 'dead'
@@ -830,10 +843,16 @@ pub async fn retry_all_dead_for_user(
         })?;
 
     let mut retried = 0u64;
+    let mut skipped_cancelled = 0u64;
     for r in id_rows {
         let Ok(id) = r.try_get::<i32>("", "id") else {
             continue;
         };
+        let err_msg: Option<String> = r.try_get("", "error_message").ok().flatten();
+        if is_user_cancelled_delivery_error(err_msg.as_deref()) {
+            skipped_cancelled += 1;
+            continue;
+        }
         match db
             .execute(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
@@ -858,6 +877,7 @@ pub async fn retry_all_dead_for_user(
     Ok(json!({
         "success": true,
         "retried": retried,
+        "skipped_cancelled": skipped_cancelled,
         "limit": limit
     }))
 }
@@ -1405,5 +1425,16 @@ mod tests {
             classify_cancel_status("delivered"),
             CancelStatusDecision::AlreadyDelivered
         );
+    }
+
+    #[test]
+    fn user_cancelled_error_classifier() {
+        assert!(is_user_cancelled_delivery_error(Some("cancelled: by user")));
+        assert!(is_user_cancelled_delivery_error(Some("Cancelled: by user")));
+        assert!(is_user_cancelled_delivery_error(Some("cancelled: suite")));
+        assert!(!is_user_cancelled_delivery_error(Some("suite seeded dead")));
+        assert!(!is_user_cancelled_delivery_error(Some("Key load failed")));
+        assert!(!is_user_cancelled_delivery_error(None));
+        assert!(!is_user_cancelled_delivery_error(Some("   ")));
     }
 }

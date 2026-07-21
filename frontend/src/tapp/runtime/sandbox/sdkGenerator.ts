@@ -773,6 +773,8 @@ export function generateFullSDK(
     federation: {
       // 身份
       getIdentity: () => sendRequest('federation', 'getIdentity', []),
+      /** Explicit key rotation — pass true to confirm (never silent). */
+      rotateKeys: (confirm) => sendRequest('federation', 'rotateKeys', [confirm === true]),
       // 时间线
       getFeed: () => sendRequest('federation', 'getFeed', []),
       getTimeline: () => sendRequest('federation', 'getTimeline', []),

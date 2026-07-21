@@ -225,26 +225,30 @@ nudge_delivery() {
 
 wait_delivery_side() {
   # wait until side a|b has delivered_count >= min and pending==0 (or timeout)
+  # User-cancelled dead rows (error_message cancelled:*) do not fail the wait —
+  # cancel-pending / cancel-one cases leave those on purpose.
   local side="$1" min_delivered="${2:-1}" max_pending="${3:-0}" tries="${4:-40}"
-  local i d p dead
+  local i d p dead dead_fail
   for i in $(seq 1 "$tries"); do
     nudge_delivery "$side"
     if [[ "$side" == "a" ]]; then
       d=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='delivered';" || echo 0)
       p=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status IN ('pending','delivering');" || echo 0)
       dead=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='dead';" || echo 0)
+      dead_fail=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='dead' AND COALESCE(error_message,'') NOT ILIKE 'cancelled:%';" || echo 0)
     else
       d=$(sql_b "SELECT count(*)::int FROM federation_delivery_queue WHERE status='delivered';" || echo 0)
       p=$(sql_b "SELECT count(*)::int FROM federation_delivery_queue WHERE status IN ('pending','delivering');" || echo 0)
       dead=$(sql_b "SELECT count(*)::int FROM federation_delivery_queue WHERE status='dead';" || echo 0)
+      dead_fail=$(sql_b "SELECT count(*)::int FROM federation_delivery_queue WHERE status='dead' AND COALESCE(error_message,'') NOT ILIKE 'cancelled:%';" || echo 0)
     fi
-    echo "  wait_${side} t=$i delivered=$d pending=$p dead=$dead"
-    if [[ "${dead:-0}" -ge 1 ]]; then
+    echo "  wait_${side} t=$i delivered=$d pending=$p dead=$dead dead_fail=$dead_fail"
+    if [[ "${dead_fail:-0}" -ge 1 ]]; then
       local err
       if [[ "$side" == "a" ]]; then
-        err=$(sql_a "SELECT error_message FROM federation_delivery_queue WHERE status='dead' ORDER BY id DESC LIMIT 1;")
+        err=$(sql_a "SELECT error_message FROM federation_delivery_queue WHERE status='dead' AND COALESCE(error_message,'') NOT ILIKE 'cancelled:%' ORDER BY id DESC LIMIT 1;")
       else
-        err=$(sql_b "SELECT error_message FROM federation_delivery_queue WHERE status='dead' ORDER BY id DESC LIMIT 1;")
+        err=$(sql_b "SELECT error_message FROM federation_delivery_queue WHERE status='dead' AND COALESCE(error_message,'') NOT ILIKE 'cancelled:%' ORDER BY id DESC LIMIT 1;")
       fi
       die "delivery dead on $side: $err"
     fi
@@ -1118,6 +1122,31 @@ case_deploy_retry_dead() {
   echo "deploy_retry_dead ok pending_after=$pending" >>"$SUITE_LOG"
 }
 
+case_deploy_retry_dead_skips_user_cancel() {
+  # retry-all-dead must not revive user-cancelled rows; real dead still requeues.
+  local jar_a="$JAR_A"
+  local act
+  act=$(sql_a "SELECT id FROM federation_activities ORDER BY id DESC LIMIT 1;" || echo "")
+  [[ -n "$act" ]] || die "no activity to seed cancel/retry skip case"
+  sql_a "DELETE FROM federation_delivery_queue WHERE error_message IN ('cancelled: by user','suite seeded dead for retry skip');" >/dev/null || true
+  sql_a "INSERT INTO federation_delivery_queue (activity_id, target_inbox, target_domain, status, attempts, max_attempts, error_message, created_at)
+         VALUES (${act}, 'http://127.0.0.1:9/cancel-skip', '127.0.0.1', 'dead', 3, 12, 'cancelled: by user', NOW()),
+                (${act}, 'http://127.0.0.1:9/real-dead', '127.0.0.1', 'dead', 12, 12, 'suite seeded dead for retry skip', NOW());" >/dev/null \
+    || die "seed cancel/retry skip rows failed"
+  api POST "$BASE_A" "$jar_a" /api/federation/delivery/retry-dead "" \
+    >"$SCRATCH_DIR/deploy-retry-skip-cancel.json"
+  local cancelled_still dead_real pending_real skipped
+  cancelled_still=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='dead' AND error_message='cancelled: by user';" || echo 0)
+  dead_real=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='dead' AND error_message='suite seeded dead for retry skip';" || echo 0)
+  pending_real=$(sql_a "SELECT count(*)::int FROM federation_delivery_queue WHERE status='pending' AND target_inbox='http://127.0.0.1:9/real-dead';" || echo 0)
+  skipped=$(python3 -c "import json; print(json.load(open('$SCRATCH_DIR/deploy-retry-skip-cancel.json')).get('skipped_cancelled',0))" 2>/dev/null || echo 0)
+  [[ "${cancelled_still:-0}" -ge 1 ]] || die "user-cancelled row was revived"
+  [[ "${dead_real:-0}" -eq 0 || "${pending_real:-0}" -ge 1 ]] \
+    || die "real dead not requeued (dead_real=$dead_real pending=$pending_real)"
+  [[ "${skipped:-0}" -ge 1 ]] || die "response missing skipped_cancelled>=1: $(cat "$SCRATCH_DIR/deploy-retry-skip-cancel.json")"
+  echo "deploy_retry_dead_skips_user_cancel ok skipped=$skipped" >>"$SUITE_LOG"
+}
+
 case_deploy_keys_rotate() {
   # Explicit rotate: PEM changes, ensure does not re-rotate, outbound still delivers.
   local jar_a="$JAR_A"
@@ -1303,6 +1332,8 @@ main() {
   run_case "deploy_stale_remote_pubkey" case_deploy_stale_remote_pubkey
   sleep 1
   run_case "deploy_retry_dead" case_deploy_retry_dead
+  sleep 1
+  run_case "deploy_retry_dead_skips_user_cancel" case_deploy_retry_dead_skips_user_cancel
   sleep 1
   run_case "deploy_cancel_failed_send" case_deploy_cancel_failed_send
   sleep 1
