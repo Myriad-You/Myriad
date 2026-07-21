@@ -2188,4 +2188,17 @@ mod tests {
         assert_eq!(strip_tags_preview(&"z".repeat(40), 8).chars().count(), 8);
 
     }
+
+    #[test]
+    fn w175_attachment_url_rejects_traversal() {
+        let base = "https://myriad.example";
+        assert!(attachment_url_rejection_reason(
+            base, 7, "https://myriad.example/media/federation/7/../x"
+        ).is_some());
+        assert!(attachment_url_rejection_reason(
+            base, 7, "https://myriad.example/media/federation/7/ok.jpg"
+        ).is_none());
+        assert!(attachment_url_rejection_reason(base, 7, "").is_some());
+
+    }
 }
