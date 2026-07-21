@@ -1026,4 +1026,27 @@ mod tests {
         // slash-only after trim → empty
         assert_eq!(normalize_actor_url("   /  "), "");
     }
+
+
+    #[test]
+    fn same_actor_url_port_and_scheme_sensitive() {
+        assert!(!same_actor_url(
+            "https://a.example/users/alice",
+            "http://a.example/users/alice"
+        ));
+        // Non-default ports are significant.
+        assert!(!same_actor_url(
+            "https://a.example:8443/users/alice",
+            "https://a.example/users/alice"
+        ));
+        assert!(same_actor_url(
+            "https://a.example:8443/users/alice/",
+            "https://A.example:8443/users/alice"
+        ));
+        // url crate omits default https port 443 — treat as same origin.
+        assert!(same_actor_url(
+            "https://a.example:443/users/alice",
+            "https://a.example/users/alice"
+        ));
+    }
 }
