@@ -946,4 +946,20 @@ mod tests {
         assert_eq!(extract_domain("ftp://remote.example/users/x"), None);
         assert_eq!(extract_domain("not a url"), None);
     }
+
+    #[test]
+    fn actor_inbox_outbox_key_url_builders() {
+        let base = "https://myriad.example";
+        assert_eq!(actor_url(base, "alice"), "https://myriad.example/users/alice");
+        assert_eq!(inbox_url(base, "alice"), "https://myriad.example/users/alice/inbox");
+        assert_eq!(outbox_url(base, "alice"), "https://myriad.example/users/alice/outbox");
+        assert_eq!(followers_url(base, "alice"), "https://myriad.example/users/alice/followers");
+        assert_eq!(following_url(base, "alice"), "https://myriad.example/users/alice/following");
+        assert_eq!(key_id(base, "alice"), "https://myriad.example/users/alice#main-key");
+        // key_id fragment must survive same_key_id with host-case drift
+        assert!(same_key_id(
+            &key_id("https://Myriad.Example", "alice"),
+            "https://myriad.example/users/alice#main-key"
+        ));
+    }
 }
