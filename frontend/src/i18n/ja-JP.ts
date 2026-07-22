@@ -444,6 +444,13 @@ export const jaJP: TranslationKeys = {
     federationDeliveryEmpty: '最近の配信キュー行はありません。',
     federationDeliveryRetry: '再試行',
     federationDeliveryCancel: '取消',
+    federationDeliveryDismiss: '消去',
+    federationDeliveryPurgeCancelled: '取消しを消去',
+    federationDeliveryPurgeCancelledConfirm:
+      '意図的に取消した失敗行をキューからすべて削除しますか？元に戻せません。',
+    federationDeliveryStatusCancelled: '取消済み',
+    federationDeliveryStatusFailed: '失敗',
+    federationDeliveryAttempts: '試行 {attempts}/{max}',
     federationDeliveryRetryAllDead: '失敗をすべて再試行',
     federationDeliveryCancelAllPending: '保留をすべて取消',
     federationDeliveryRetryAllConfirm:

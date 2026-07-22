@@ -13,7 +13,7 @@
  * - federation.rings — Ring 信息读取
  * - federation.publish / unpublish — 内容发布管理
  * - federation.trust — 实例信任策略管理
- * - federation.delivery* — stats/list/retry/cancel（bulk retry 跳过 cancelled: dead）
+ * - federation.delivery* — stats/list/retry/cancel/dismiss/purge（bulk retry 跳过 cancelled: dead）
  * - federation.transfers — 文件传输
  * - federation.subscribeChannel / subscribeRoom — WS 实时事件订阅
  *   (mint one-time `tapp_ws_ticket` via grant-authenticated REST, then upgrade)
@@ -1481,6 +1481,58 @@ export function registerFederationHandlers(
         const runtimeGrant = await bridge.getRuntimeGrant()
         const data = await federationApi.cancelAllPendingDelivery(
           typeof limit === 'number' ? limit : undefined,
+          runtimeGrant,
+        )
+        return { success: true, data }
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed',
+        }
+      }
+    },
+  )
+
+  bridge.registerHandler(
+    'federation.dismissDelivery',
+    async (message: TappMessage) => {
+      const [queueIdRaw] = (message.payload as { args: unknown[] }).args || []
+      const queueId =
+        typeof queueIdRaw === 'number'
+          ? queueIdRaw
+          : typeof queueIdRaw === 'string'
+            ? Number.parseInt(queueIdRaw, 10)
+            : Number.NaN
+      if (!Number.isFinite(queueId) || queueId <= 0)
+        return { success: false, error: 'Delivery id is required' }
+      try {
+        const runtimeGrant = await bridge.getRuntimeGrant()
+        const data = await federationApi.dismissDelivery(queueId, runtimeGrant)
+        return { success: true, data }
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed',
+        }
+      }
+    },
+  )
+
+  bridge.registerHandler(
+    'federation.purgeDeadDelivery',
+    async (message: TappMessage) => {
+      const [optsRaw] = (message.payload as { args: unknown[] }).args || []
+      const opts =
+        optsRaw && typeof optsRaw === 'object' && !Array.isArray(optsRaw)
+          ? (optsRaw as { limit?: number; cancelledOnly?: boolean })
+          : undefined
+      try {
+        const runtimeGrant = await bridge.getRuntimeGrant()
+        const data = await federationApi.purgeDeadDelivery(
+          {
+            limit: typeof opts?.limit === 'number' ? opts.limit : undefined,
+            cancelledOnly: opts?.cancelledOnly === true,
+          },
           runtimeGrant,
         )
         return { success: true, data }

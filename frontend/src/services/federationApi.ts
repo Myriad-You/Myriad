@@ -1131,6 +1131,50 @@ export const federationApi = {
     )
   },
 
+  /**
+   * Dismiss (hard-delete) a single dead delivery queue row.
+   * Pending/delivering/delivered are rejected by the server.
+   */
+  dismissDelivery(
+    queueId: number,
+    runtimeGrant?: string,
+  ): Promise<{
+    success: boolean
+    id: number
+    dismissed?: boolean
+    was_cancelled?: boolean
+    previous_status?: string
+  }> {
+    return apiService.delete(
+      `${PREFIX}/delivery/${queueId}`,
+      attributionOptions(runtimeGrant),
+    )
+  },
+
+  /**
+   * Bulk-delete dead delivery rows (capped).
+   * When `cancelledOnly`, only `cancelled:%` error rows are removed.
+   */
+  purgeDeadDelivery(
+    opts?: { limit?: number; cancelledOnly?: boolean },
+    runtimeGrant?: string,
+  ): Promise<{
+    success: boolean
+    purged: number
+    limit?: number
+    cancelled_only?: boolean
+  }> {
+    const params = new URLSearchParams()
+    if (opts?.limit != null) params.set('limit', String(opts.limit))
+    if (opts?.cancelledOnly) params.set('cancelled_only', 'true')
+    const qs = params.toString() ? `?${params.toString()}` : ''
+    return apiService.post(
+      `${PREFIX}/delivery/purge-dead${qs}`,
+      {},
+      attributionOptions(runtimeGrant),
+    )
+  },
+
   /** Self-join an open-policy room */
   joinRoom(
     roomId: string,

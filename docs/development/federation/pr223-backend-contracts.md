@@ -37,7 +37,9 @@ behavior. Prefer pure tests (no DB) so CI stays fast.
 | Contract | Test location |
 |----------|----------------|
 | `POST keys/rotate` → federation:write | `host_attribution::federation_keys_rotate_and_cancel_pending_are_write` |
-| delivery list/stats read; retry/cancel write | same |
+| delivery list/stats read; retry/cancel/dismiss/purge write | same |
+| cancel_pending excludes RoomDissolve/ChannelClose | `delivery::tests::teardown_activity_types_excluded_from_resource_cancel` |
+| intentional cancel → no Retry UI | `delivery::tests::intentional_cancel_display_and_no_retry_helper` |
 
 ## Multi-instance suite isolation
 

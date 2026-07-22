@@ -4381,6 +4381,97 @@ async fn federation_cancel_all_pending_delivery_wrapper(req: axum::extract::Requ
     }
 }
 
+/// DELETE /api/federation/delivery/{id} — purge a dead queue row (user-owned dismiss)
+async fn federation_dismiss_delivery_wrapper(req: axum::extract::Request) -> Response {
+    let claims = match req.extensions().get::<middleware::auth::Claims>().cloned() {
+        Some(c) => c,
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "Not authenticated"})),
+            )
+                .into_response()
+        }
+    };
+    let user_id: i32 = claims.sub.parse().unwrap_or(0);
+    let path = req.uri().path().to_string();
+    let id_str = path
+        .strip_prefix("/api/federation/delivery/")
+        .unwrap_or("")
+        .trim_end_matches('/');
+    let queue_id: i32 = match id_str.parse() {
+        Ok(i) => i,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Invalid delivery id"})),
+            )
+                .into_response()
+        }
+    };
+    let db_opt = DB_CONNECTION.read().await;
+    match db_opt.as_ref() {
+        Some(db) => match federation::delivery::dismiss_delivery_item(db, user_id, queue_id).await {
+            Ok(v) => (StatusCode::OK, Json(v)).into_response(),
+            Err((status, v)) => (status, Json(v)).into_response(),
+        },
+        None => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Database not connected"})),
+        )
+            .into_response(),
+    }
+}
+
+/// POST /api/federation/delivery/purge-dead — bulk-delete dead rows (optional cancelled-only)
+async fn federation_purge_dead_delivery_wrapper(req: axum::extract::Request) -> Response {
+    let claims = match req.extensions().get::<middleware::auth::Claims>().cloned() {
+        Some(c) => c,
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "Not authenticated"})),
+            )
+                .into_response()
+        }
+    };
+    let user_id: i32 = claims.sub.parse().unwrap_or(0);
+    let query_str = req.uri().query().unwrap_or("");
+    let params: std::collections::HashMap<String, String> =
+        url::form_urlencoded::parse(query_str.as_bytes())
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+    let limit = params
+        .get("limit")
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(100);
+    let cancelled_only = params
+        .get("cancelled_only")
+        .map(|s| {
+            matches!(
+                s.to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false);
+    let db_opt = DB_CONNECTION.read().await;
+    match db_opt.as_ref() {
+        Some(db) => {
+            match federation::delivery::purge_dead_for_user(db, user_id, limit, cancelled_only)
+                .await
+            {
+                Ok(v) => (StatusCode::OK, Json(v)).into_response(),
+                Err((status, v)) => (status, Json(v)).into_response(),
+            }
+        }
+        None => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Database not connected"})),
+        )
+            .into_response(),
+    }
+}
+
 /// POST /api/federation/rooms/{room_id}/join — self-join open rooms
 async fn federation_join_room_wrapper(req: axum::extract::Request) -> Response {
     let claims = match req.extensions().get::<middleware::auth::Claims>().cloned() {
@@ -5825,12 +5916,20 @@ fn federation_api_router() -> Router {
             post(federation_cancel_all_pending_delivery_wrapper),
         )
         .route(
+            "/api/federation/delivery/purge-dead",
+            post(federation_purge_dead_delivery_wrapper),
+        )
+        .route(
             "/api/federation/delivery/{id}/retry",
             post(federation_retry_delivery_wrapper),
         )
         .route(
             "/api/federation/delivery/{id}/cancel",
             post(federation_cancel_delivery_wrapper),
+        )
+        .route(
+            "/api/federation/delivery/{id}",
+            delete(federation_dismiss_delivery_wrapper),
         )
         .route(
             "/api/federation/trust/policy",

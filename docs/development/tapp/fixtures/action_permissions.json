@@ -418,6 +418,16 @@
     },
     {
       "domain": "federation",
+      "action": "federation.dismissDelivery",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "action": "federation.purgeDeadDelivery",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
       "action": "federation.rotateKeys",
       "permission": "federation:write"
     },

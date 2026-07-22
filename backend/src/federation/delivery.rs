@@ -527,15 +527,27 @@ pub async fn list_delivery_for_user(
 
     let mut items = Vec::with_capacity(rows.len());
     for r in rows {
+        let status = r.try_get::<String>("", "status").unwrap_or_default();
+        let error_message = r
+            .try_get::<Option<String>>("", "error_message")
+            .unwrap_or(None);
+        let activity_type = r.try_get::<String>("", "activity_type").unwrap_or_default();
+        let intentional_cancel = is_intentional_cancel_delivery_error(error_message.as_deref());
+        // pending/failed always offer retry; dead only when not intentional cancel
+        let retryable = match status.as_str() {
+            "pending" | "failed" => true,
+            "dead" => should_offer_retry_for_dead_error(error_message.as_deref()),
+            _ => false,
+        };
         items.push(json!({
             "id": r.try_get::<i32>("", "id").unwrap_or(0),
-            "status": r.try_get::<String>("", "status").unwrap_or_default(),
+            "status": status,
             "target_domain": r.try_get::<String>("", "target_domain").unwrap_or_default(),
             "target_inbox": r.try_get::<String>("", "target_inbox").unwrap_or_default(),
             "attempts": r.try_get::<i32>("", "attempts").unwrap_or(0),
             "max_attempts": r.try_get::<i32>("", "max_attempts").unwrap_or(12),
-            "error_message": r.try_get::<Option<String>>("", "error_message").unwrap_or(None),
-            "activity_type": r.try_get::<String>("", "activity_type").unwrap_or_default(),
+            "error_message": error_message,
+            "activity_type": activity_type.clone(),
             "activity_id": r.try_get::<String>("", "ap_id").unwrap_or_default(),
             "created_at": r.try_get::<chrono::DateTime<chrono::FixedOffset>>("", "created_at")
                 .map(|t| t.to_rfc3339()).unwrap_or_default(),
@@ -543,6 +555,10 @@ pub async fn list_delivery_for_user(
                 .ok().flatten().map(|t| t.to_rfc3339()),
             "next_retry_at": r.try_get::<Option<chrono::DateTime<chrono::FixedOffset>>>("", "next_retry_at")
                 .ok().flatten().map(|t| t.to_rfc3339()),
+            // UI helpers (host + Aro) — avoid re-implementing cancel prefix rules
+            "intentional_cancel": intentional_cancel,
+            "retryable": retryable,
+            "is_teardown_activity": is_resource_teardown_activity_type(&activity_type),
         }));
     }
     Ok(json!({ "items": items, "total": items.len() }))
@@ -1137,9 +1153,47 @@ pub(crate) fn signing_identity_for_activity(
     )
 }
 
+/// Activity types that intentionally fan out resource teardown.
+///
+/// These must **not** be cancelled by [`cancel_pending_deliveries_for_resource`]:
+/// cancel-after-enqueue of RoomDissolve / ChannelClose would dead-letter the
+/// dissolve/close itself and remotes would never learn the resource is gone.
+///
+/// Accepts DB-stored short names (`RoomDissolve`, `ChannelClose`) and JSON
+/// `type` forms (`myriad:RoomDissolve`, `myriad:ChannelClose`).
+pub(crate) fn is_resource_teardown_activity_type(activity_type: &str) -> bool {
+    let t = activity_type.trim();
+    if t.is_empty() {
+        return false;
+    }
+    let bare = t
+        .strip_prefix("myriad:")
+        .or_else(|| t.strip_prefix("Myriad:"))
+        .unwrap_or(t);
+    bare.eq_ignore_ascii_case("RoomDissolve") || bare.eq_ignore_ascii_case("ChannelClose")
+}
+
+/// Whether a dead-letter error is an intentional local/API cancel (not a peer fail).
+///
+/// Used by UI classification (no Retry / show Cancelled) and bulk skip paths.
+/// Same prefix rules as [`is_user_cancelled_delivery_error`].
+pub(crate) fn is_intentional_cancel_delivery_error(error_message: Option<&str>) -> bool {
+    is_user_cancelled_delivery_error(error_message)
+}
+
+/// Whether the host/UI should offer Retry for a dead row with this error.
+/// Intentional cancels (`cancelled:…`) must not look retriable.
+pub(crate) fn should_offer_retry_for_dead_error(error_message: Option<&str>) -> bool {
+    !is_intentional_cancel_delivery_error(error_message)
+}
+
 /// Cancel pending/delivering queue rows whose activity body mentions `resource_id`
 /// (room_id or channel_id). Call when the local resource is closed or deleted so
 /// we stop fan-out KeyExchange / messages at a peer that will never accept them.
+///
+/// **Does not cancel** resource-teardown fan-outs ([`is_resource_teardown_activity_type`]):
+/// `RoomDissolve` / `ChannelClose` (and `myriad:` variants). Callers should prefer
+/// cancel-stale-**then** enqueue teardown so order is safe even without this filter.
 pub async fn cancel_pending_deliveries_for_resource(
     db: &DatabaseConnection,
     resource_id: &str,
@@ -1149,6 +1203,8 @@ pub async fn cancel_pending_deliveries_for_resource(
         return 0;
     }
     let needle = format!("%{}%", resource_id);
+    // Exclude teardown activity types so dissolve/close fan-out rows survive.
+    // Normalize `myriad:` prefix the same way as is_resource_teardown_activity_type.
     let res = db
         .execute(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -1163,7 +1219,14 @@ pub async fn cancel_pending_deliveries_for_resource(
                  AND (
                    a.object_json::text LIKE $1
                    OR a.activity_id LIKE $1
-                 )"#,
+                 )
+                 AND LOWER(
+                   CASE
+                     WHEN LOWER(a.activity_type) LIKE 'myriad:%'
+                       THEN SUBSTRING(a.activity_type FROM 8)
+                     ELSE a.activity_type
+                   END
+                 ) NOT IN ('roomdissolve', 'channelclose')"#,
             [needle.into(), reason.into()],
         ))
         .await;
@@ -1188,6 +1251,166 @@ pub async fn cancel_pending_deliveries_for_resource(
             0
         }
     }
+}
+
+/// Delete a single **dead** delivery queue row owned by the user.
+///
+/// Used to dismiss intentional cancels and other dead clutter from the UI.
+/// Pending/delivering/delivered rows are rejected — cancel or wait first.
+pub async fn dismiss_delivery_item(
+    db: &DatabaseConnection,
+    user_id: i32,
+    queue_id: i32,
+) -> Result<serde_json::Value, (axum::http::StatusCode, serde_json::Value)> {
+    use axum::http::StatusCode;
+
+    if queue_id <= 0 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            json!({"error": "Invalid delivery id"}),
+        ));
+    }
+
+    let row = db
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"SELECT dq.id, dq.status, dq.error_message
+               FROM federation_delivery_queue dq
+               JOIN federation_activities a ON a.id = dq.activity_id
+               WHERE dq.id = $1 AND a.user_id = $2"#,
+            [queue_id.into(), user_id.into()],
+        ))
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({"error": format!("DB error: {e}")}),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                json!({"error": "Delivery item not found"}),
+            )
+        })?;
+
+    let status: String = row.try_get("", "status").unwrap_or_default();
+    let prev_error: Option<String> = row.try_get("", "error_message").ok().flatten();
+    if status != "dead" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            json!({
+                "error": "Only dead delivery items can be dismissed",
+                "status": status,
+            }),
+        ));
+    }
+
+    let result = db
+        .execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"DELETE FROM federation_delivery_queue dq
+               USING federation_activities a
+               WHERE dq.id = $1
+                 AND a.id = dq.activity_id
+                 AND a.user_id = $2
+                 AND dq.status = 'dead'"#,
+            [queue_id.into(), user_id.into()],
+        ))
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({"error": format!("DB error: {e}")}),
+            )
+        })?;
+
+    if result.rows_affected() == 0 {
+        return Err((
+            StatusCode::CONFLICT,
+            json!({"error": "Could not dismiss delivery (status changed)"}),
+        ));
+    }
+
+    Ok(json!({
+        "success": true,
+        "id": queue_id,
+        "dismissed": true,
+        "previous_status": status,
+        "was_cancelled": is_user_cancelled_delivery_error(prev_error.as_deref()),
+    }))
+}
+
+/// Bulk-delete dead delivery rows for the user (capped).
+///
+/// When `cancelled_only` is true, only rows whose `error_message` matches
+/// `cancelled:%` are removed (intentional cancels / resource teardown leftovers).
+pub async fn purge_dead_for_user(
+    db: &DatabaseConnection,
+    user_id: i32,
+    limit: i64,
+    cancelled_only: bool,
+) -> Result<serde_json::Value, (axum::http::StatusCode, serde_json::Value)> {
+    use axum::http::StatusCode;
+
+    let limit = limit.clamp(1, 200);
+    let sql = if cancelled_only {
+        r#"DELETE FROM federation_delivery_queue dq
+           USING federation_activities a
+           WHERE a.id = dq.activity_id
+             AND a.user_id = $1
+             AND dq.status = 'dead'
+             AND dq.error_message IS NOT NULL
+             AND TRIM(dq.error_message) <> ''
+             AND dq.error_message ILIKE 'cancelled:%'
+             AND dq.id IN (
+               SELECT dq2.id
+               FROM federation_delivery_queue dq2
+               JOIN federation_activities a2 ON a2.id = dq2.activity_id
+               WHERE a2.user_id = $1
+                 AND dq2.status = 'dead'
+                 AND dq2.error_message IS NOT NULL
+                 AND TRIM(dq2.error_message) <> ''
+                 AND dq2.error_message ILIKE 'cancelled:%'
+               ORDER BY dq2.created_at DESC
+               LIMIT $2
+             )"#
+    } else {
+        r#"DELETE FROM federation_delivery_queue dq
+           USING federation_activities a
+           WHERE a.id = dq.activity_id
+             AND a.user_id = $1
+             AND dq.status = 'dead'
+             AND dq.id IN (
+               SELECT dq2.id
+               FROM federation_delivery_queue dq2
+               JOIN federation_activities a2 ON a2.id = dq2.activity_id
+               WHERE a2.user_id = $1 AND dq2.status = 'dead'
+               ORDER BY dq2.created_at DESC
+               LIMIT $2
+             )"#
+    };
+
+    let result = db
+        .execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            sql,
+            [user_id.into(), limit.into()],
+        ))
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({"error": format!("DB error: {e}")}),
+            )
+        })?;
+
+    Ok(json!({
+        "success": true,
+        "purged": result.rows_affected(),
+        "limit": limit,
+        "cancelled_only": cancelled_only,
+    }))
 }
 
 /// Loaded signing material + optional canonical keyId from storage.
@@ -1884,5 +2107,104 @@ mod tests {
             resolve_signing_key_id("Follow", "https://old.example", "alice", Some(stored)),
             stored
         );
+    }
+
+    /// Resource teardown fan-outs must never be cancelled by resource-id LIKE.
+    /// Production bug: delete_room enqueued RoomDissolve then cancelled all
+    /// object_json LIKE %room_id% — including dissolve itself.
+    #[test]
+    fn teardown_activity_types_excluded_from_resource_cancel() {
+        assert!(is_resource_teardown_activity_type("RoomDissolve"));
+        assert!(is_resource_teardown_activity_type("ChannelClose"));
+        assert!(is_resource_teardown_activity_type("myriad:RoomDissolve"));
+        assert!(is_resource_teardown_activity_type("myriad:ChannelClose"));
+        assert!(is_resource_teardown_activity_type("Myriad:RoomDissolve"));
+        assert!(is_resource_teardown_activity_type(" roomdissolve "));
+        assert!(is_resource_teardown_activity_type("CHANNELCLOSE"));
+        // Stale traffic — must remain cancellable.
+        assert!(!is_resource_teardown_activity_type("RoomMessage"));
+        assert!(!is_resource_teardown_activity_type("myriad:RoomMessage"));
+        assert!(!is_resource_teardown_activity_type("ChannelMessage"));
+        assert!(!is_resource_teardown_activity_type("myriad:ChannelMessage"));
+        assert!(!is_resource_teardown_activity_type("KeyExchange"));
+        assert!(!is_resource_teardown_activity_type("myriad:KeyExchange"));
+        assert!(!is_resource_teardown_activity_type("RoomInvite"));
+        assert!(!is_resource_teardown_activity_type("Follow"));
+        assert!(!is_resource_teardown_activity_type(""));
+        assert!(!is_resource_teardown_activity_type("RoomDissolveExtra"));
+    }
+
+    /// Semantic contract of cancel_pending_deliveries_for_resource without DB:
+    /// for a given room_id, RoomDissolve stays pending; RoomMessage is cancelled.
+    #[test]
+    fn cancel_pending_for_resource_cancels_message_not_dissolve() {
+        let room_id = "room-abc-123";
+        // Simulated activity rows mentioning the same room id.
+        let rows: &[(&str, &str)] = &[
+            ("RoomDissolve", room_id),
+            ("myriad:RoomDissolve", room_id),
+            ("RoomMessage", room_id),
+            ("myriad:RoomMessage", room_id),
+            ("KeyExchange", room_id),
+            ("RoomInvite", room_id),
+        ];
+        let would_cancel = |activity_type: &str, object_mentions_resource: bool| {
+            object_mentions_resource && !is_resource_teardown_activity_type(activity_type)
+        };
+        for (ty, rid) in rows {
+            let mentions = *rid == room_id;
+            let cancel = would_cancel(ty, mentions);
+            match *ty {
+                "RoomDissolve" | "myriad:RoomDissolve" => {
+                    assert!(!cancel, "teardown {ty} must stay pending");
+                }
+                _ => {
+                    assert!(cancel, "stale traffic {ty} must be cancelled");
+                }
+            }
+        }
+        // ChannelClose path: same exclusion when channel_id matches.
+        assert!(!would_cancel("ChannelClose", true));
+        assert!(!would_cancel("myriad:ChannelClose", true));
+        assert!(would_cancel("ChannelMessage", true));
+    }
+
+    #[test]
+    fn intentional_cancel_display_and_no_retry_helper() {
+        // cancelled:… → Cancelled label, no Retry
+        let cancelled_msgs = [
+            "cancelled: by user",
+            "cancelled: local channel closed",
+            "cancelled: local room dissolved",
+            "cancelled: remote room dissolved",
+            "cancelled: local channel deleted",
+            "CANCELLED: suite",
+        ];
+        for msg in cancelled_msgs {
+            assert!(
+                is_intentional_cancel_delivery_error(Some(msg)),
+                "msg={msg}"
+            );
+            assert!(
+                !should_offer_retry_for_dead_error(Some(msg)),
+                "no retry for {msg}"
+            );
+        }
+        // Real failures → show Failed + Retry
+        for msg in [
+            "PERMANENT HTTP 401: signature failed",
+            "HTTP 500: boom",
+            "suite seeded dead",
+            "Key load failed",
+        ] {
+            assert!(!is_intentional_cancel_delivery_error(Some(msg)));
+            assert!(should_offer_retry_for_dead_error(Some(msg)));
+        }
+        assert!(should_offer_retry_for_dead_error(None));
+        assert!(should_offer_retry_for_dead_error(Some("")));
+        // Mid-string "cancelled" is a peer error, still retriable.
+        assert!(should_offer_retry_for_dead_error(Some(
+            "remote said: cancelled by policy"
+        )));
     }
 }

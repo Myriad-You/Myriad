@@ -504,6 +504,18 @@
     {
       "domain": "federation",
       "method": "POST",
+      "path": "/api/federation/delivery/purge-dead",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "method": "DELETE",
+      "path": "/api/federation/delivery/{id}",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
+      "method": "POST",
       "path": "/api/federation/rooms/{room_id}/join",
       "permission": "federation:write"
     },

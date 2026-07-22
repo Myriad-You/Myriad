@@ -566,6 +566,14 @@ mod tests {
             federation_permission(&Method::POST, "/api/federation/delivery/{id}/cancel"),
             Some(TappPermission::FederationWrite)
         );
+        assert_eq!(
+            federation_permission(&Method::DELETE, "/api/federation/delivery/{id}"),
+            Some(TappPermission::FederationWrite)
+        );
+        assert_eq!(
+            federation_permission(&Method::POST, "/api/federation/delivery/purge-dead"),
+            Some(TappPermission::FederationWrite)
+        );
         // GET identity is read (rotate is the only key mutation surface).
         assert_eq!(
             federation_permission(&Method::GET, "/api/federation/identity"),

@@ -45,10 +45,16 @@ Statuses: `pending` → `delivering` → `delivered` | `dead`.
 | `POST …/delivery/cancel-pending` | bulk cancel (same message) |
 | `POST …/delivery/{id}/retry` | dead/pending (not delivered/in-progress) |
 | `POST …/delivery/retry-dead` | bulk requeue **skipping** `cancelled:…` rows (`skipped_cancelled` in JSON) |
+| `DELETE …/delivery/{id}` | purge a **dead** row (dismiss clutter; pending/delivered rejected) |
+| `POST …/delivery/purge-dead` | bulk delete dead rows; `?cancelled_only=true` keeps only `cancelled:%` |
 
 Classifier: `is_user_cancelled_delivery_error` — exact `cancelled: by user` (case-insensitive)
 or any `cancelled:` prefix (room/channel teardown). Peer errors that merely mention
 “cancelled” mid-string do **not** match.
+
+Resource teardown: `cancel_pending_deliveries_for_resource` **excludes** `RoomDissolve` /
+`ChannelClose` (and `myriad:` variants) so dissolve/close fan-out is never self-cancelled.
+`delete_room` cancels stale traffic **before** dissolve enqueue.
 
 Signing: prefer **stored** `key_id` except `Move` (old actor base). ensure-on-sign
 only when keys are missing; decrypt failures never regenerate.

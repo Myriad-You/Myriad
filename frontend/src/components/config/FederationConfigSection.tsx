@@ -16,6 +16,10 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import { federationApi } from '../../services/federationApi'
 import {
+  isCancelledDeliveryError,
+  shouldOfferDeliveryRetry,
+} from '../../utils/federationDeliveryUi'
+import {
   ButtonItem,
   InputItem,
   NumberItem,
@@ -579,30 +583,56 @@ export const FederationConfigSection: React.FC<
             disabled={deliveryBusy}
             variant="secondary"
           />
+          <ButtonItem
+            label={c.federationDeliveryPurgeCancelled}
+            buttonText={c.federationDeliveryPurgeCancelled}
+            onClick={() => {
+              if (!window.confirm(c.federationDeliveryPurgeCancelledConfirm))
+                return
+              void withDeliveryAction(async () => {
+                await federationApi.purgeDeadDelivery({ cancelledOnly: true })
+              })
+            }}
+            disabled={deliveryBusy}
+            variant="secondary"
+          />
         </div>
         {deliveryItems.length === 0 ? (
           <p className="text-sm text-gray-500">{c.federationDeliveryEmpty}</p>
         ) : (
           <ul className="space-y-1.5 max-h-72 overflow-y-auto">
-            {deliveryItems.map((item) => (
+            {deliveryItems.map((item) => {
+              const cancelled =
+                item.intentional_cancel === true ||
+                isCancelledDeliveryError(item.error_message)
+              const statusLabel =
+                item.status === 'dead' && cancelled
+                  ? c.federationDeliveryStatusCancelled
+                  : item.status === 'dead'
+                    ? c.federationDeliveryStatusFailed
+                    : item.status
+              const attemptsLabel = c.federationDeliveryAttempts
+                .replace('{attempts}', String(item.attempts ?? 0))
+                .replace('{max}', String(item.max_attempts ?? 0))
+              const showRetry = shouldOfferDeliveryRetry(item)
+              return (
               <li
                 key={item.id}
                 className="flex flex-wrap items-center gap-2 rounded-lg border border-black/5 bg-black/[0.02] px-3 py-2 text-sm dark:border-white/5 dark:bg-white/[0.03]"
               >
                 <div className="min-w-0 flex-1">
                   <div className="font-medium truncate">
-                    #{item.id} · {item.status} · {item.activity_type || '—'}
+                    #{item.id} · {statusLabel} · {item.activity_type || '—'}
                   </div>
                   <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
                     {item.target_domain || item.target_inbox}
+                    {` · ${attemptsLabel}`}
                     {item.error_message
                       ? ` · ${item.error_message}`
                       : ''}
                   </div>
                 </div>
-                {(item.status === 'dead' ||
-                  item.status === 'pending' ||
-                  item.status === 'failed') && (
+                {showRetry && (
                   <button
                     type="button"
                     className="text-xs rounded-full px-2.5 py-1 font-medium bg-black/5 dark:bg-white/10 disabled:opacity-50"
@@ -631,8 +661,23 @@ export const FederationConfigSection: React.FC<
                     {c.federationDeliveryCancel}
                   </button>
                 )}
+                {item.status === 'dead' && (
+                  <button
+                    type="button"
+                    className="text-xs rounded-full px-2.5 py-1 font-medium text-gray-600 dark:text-gray-300 bg-black/5 dark:bg-white/10 disabled:opacity-50"
+                    disabled={deliveryBusy}
+                    onClick={() =>
+                      void withDeliveryAction(async () => {
+                        await federationApi.dismissDelivery(item.id)
+                      })
+                    }
+                  >
+                    {c.federationDeliveryDismiss}
+                  </button>
+                )}
               </li>
-            ))}
+              )
+            })}
           </ul>
         )}
       </SettingGroup>

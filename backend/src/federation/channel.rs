@@ -608,7 +608,9 @@ pub async fn close_channel(
     .await
     .map_err(db_err)?;
 
-    // Drop pending KeyExchange / messages for this channel (remote will not accept after close)
+    // Drop pending KeyExchange / messages for this channel (remote will not accept after close).
+    // Order: cancel stale *before* enqueue ChannelClose. cancel_pending also excludes
+    // ChannelClose/RoomDissolve activity types so a reverse order would still be safe.
     let _ = crate::federation::delivery::cancel_pending_deliveries_for_resource(
         db,
         channel_id,

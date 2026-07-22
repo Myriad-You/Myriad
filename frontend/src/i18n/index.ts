@@ -390,6 +390,12 @@ export interface TranslationKeys {
     federationDeliveryEmpty: string
     federationDeliveryRetry: string
     federationDeliveryCancel: string
+    federationDeliveryDismiss: string
+    federationDeliveryPurgeCancelled: string
+    federationDeliveryPurgeCancelledConfirm: string
+    federationDeliveryStatusCancelled: string
+    federationDeliveryStatusFailed: string
+    federationDeliveryAttempts: string
     federationDeliveryRetryAllDead: string
     federationDeliveryCancelAllPending: string
     federationDeliveryRetryAllConfirm: string

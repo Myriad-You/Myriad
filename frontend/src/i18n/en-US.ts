@@ -452,6 +452,13 @@ export const enUS: TranslationKeys = {
     federationDeliveryEmpty: 'No recent delivery queue rows.',
     federationDeliveryRetry: 'Retry',
     federationDeliveryCancel: 'Cancel',
+    federationDeliveryDismiss: 'Dismiss',
+    federationDeliveryPurgeCancelled: 'Clear cancelled',
+    federationDeliveryPurgeCancelledConfirm:
+      'Remove all intentionally cancelled dead deliveries from the queue? This cannot be undone.',
+    federationDeliveryStatusCancelled: 'Cancelled',
+    federationDeliveryStatusFailed: 'Failed',
+    federationDeliveryAttempts: 'attempts {attempts}/{max}',
     federationDeliveryRetryAllDead: 'Retry all dead',
     federationDeliveryCancelAllPending: 'Cancel all pending',
     federationDeliveryRetryAllConfirm:

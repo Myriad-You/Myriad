@@ -851,6 +851,8 @@ export function generateFullSDK(
       retryAllDeadDelivery: (limit) => sendRequest('federation', 'retryAllDeadDelivery', [limit]),
       cancelAllPendingDelivery: (limit) =>
         sendRequest('federation', 'cancelAllPendingDelivery', [limit]),
+      dismissDelivery: (id) => sendRequest('federation', 'dismissDelivery', [id]),
+      purgeDeadDelivery: (opts) => sendRequest('federation', 'purgeDeadDelivery', [opts]),
       joinRoom: (roomId) => sendRequest('federation', 'joinRoom', [roomId]),
       updateInstanceTrust: (req) => sendRequest('federation', 'updateInstanceTrust', [req]),
       toggleInstanceBlock: (req) => sendRequest('federation', 'toggleInstanceBlock', [req]),

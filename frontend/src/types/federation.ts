@@ -321,6 +321,12 @@ export interface DeliveryQueueItem {
   created_at: string
   last_attempt_at?: string | null
   next_retry_at?: string | null
+  /** Server: error_message is intentional `cancelled:…` (not a peer fail) */
+  intentional_cancel?: boolean
+  /** Server: host should offer Retry for this row */
+  retryable?: boolean
+  /** Server: RoomDissolve / ChannelClose teardown fan-out */
+  is_teardown_activity?: boolean
 }
 
 export interface DeliveryListResponse {

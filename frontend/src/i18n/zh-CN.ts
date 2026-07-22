@@ -424,6 +424,13 @@ export const zhCN: TranslationKeys = {
     federationDeliveryEmpty: '暂无投递队列记录。',
     federationDeliveryRetry: '重试',
     federationDeliveryCancel: '取消',
+    federationDeliveryDismiss: '清除',
+    federationDeliveryPurgeCancelled: '清除已取消',
+    federationDeliveryPurgeCancelledConfirm:
+      '从队列中移除所有故意取消的失败记录？此操作不可撤销。',
+    federationDeliveryStatusCancelled: '已取消',
+    federationDeliveryStatusFailed: '失败',
+    federationDeliveryAttempts: '尝试 {attempts}/{max}',
     federationDeliveryRetryAllDead: '重试全部失败',
     federationDeliveryCancelAllPending: '取消全部待处理',
     federationDeliveryRetryAllConfirm:

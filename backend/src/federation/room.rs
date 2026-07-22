@@ -1041,6 +1041,17 @@ pub async fn delete_room(
         ));
     }
 
+    // Cancel stale traffic (messages / KeyExchange / invites) *before* dissolve
+    // fan-out. cancel_pending_deliveries_for_resource also excludes RoomDissolve /
+    // ChannelClose, but ordering first is defense-in-depth so dissolve rows are
+    // never present when we cancel.
+    let _ = crate::federation::delivery::cancel_pending_deliveries_for_resource(
+        db,
+        room_id,
+        "cancelled: local room dissolved",
+    )
+    .await;
+
     // Fan-out dissolve while remote members still exist for delivery targets
     let activity_id = generate_activity_id(&base_url);
     let dissolve_activity = json!({
@@ -1098,13 +1109,9 @@ pub async fn delete_room(
     .await
     .map_err(db_err)?;
 
-    // Stop outbound KeyExchange / Room* retries aimed at this id
-    let _ = crate::federation::delivery::cancel_pending_deliveries_for_resource(
-        db,
-        room_id,
-        "cancelled: local room dissolved",
-    )
-    .await;
+    // Do NOT cancel again after fan-out — that previously dead-lettered RoomDissolve
+    // itself (object.id = room_id matches LIKE %room_id%). Exclusion + pre-cancel
+    // above keep dissolve pending until the delivery worker finishes.
 
     tracing::info!("[Room] Deleted room {} by {}", room_id, username);
 
