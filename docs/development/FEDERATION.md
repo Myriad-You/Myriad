@@ -26,7 +26,7 @@ Host surface (stacked with this branch family):
 `extract_activity_actor_id` in `inbox.rs`:
 
 1. Normalized activity id + Accept.actor is the remote peer (`same_actor_or_user`)
-2. Unique id + **same host + username-compatible** path drift (`/@bob` vs `/users/bob`)
+2. Unique id + **same host + username-compatible** path drift (`/@bob` or `/ap/users/bob` vs `/users/bob`)
 3. Exactly one **pending** outgoing to Accept.actor
 
 Never: cross-host username-only, same-host different user with only an id leak,
@@ -64,7 +64,8 @@ Script: `scripts/dev/federation-multi-instance-suite.sh`
 - Case `deploy_retry_dead_skips_user_cancel` seeds one user-cancel dead + one real
   dead and asserts bulk retry-dead keeps the cancel dead.
 
-Lab dual backends: ports 18080/18081, DBs `myriad_fed_a` / `myriad_fed_b` (see script header).
+Lab dual backends: ports 18080/18081, DBs `myriad_fed_a` / `myriad_fed_b`.
+Override `PORT_*` / `DB_*` / `SCRATCH_DIR` when multiple agents share a host (see script header).
 
 ## Related docs / fixtures
 
