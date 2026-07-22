@@ -2246,4 +2246,316 @@ mod tests {
         );
 
     }
+
+    #[test]
+    fn extract_accept_object_id_trims_string_and_nested() {
+        assert_eq!(
+            extract_accept_object_id(&serde_json::json!({
+                "object": "  https://a.example/activities/1  "
+            })),
+            "https://a.example/activities/1"
+        );
+        assert_eq!(
+            extract_accept_object_id(&serde_json::json!({
+                "object": {"id": "  https://a.example/activities/2  ", "type": "Follow"}
+            })),
+            "https://a.example/activities/2"
+        );
+        assert_eq!(
+            extract_accept_object_type(&serde_json::json!({
+                "object": {"id": "x", "type": "myriad:ChannelOpen"}
+            })),
+            "myriad:ChannelOpen"
+        );
+    }
+
+
+    #[test]
+    fn same_host_username_compatible_at_handle_and_reject() {
+        assert!(same_host_username_compatible(
+            "https://b.example/@bob",
+            "https://b.example/users/bob"
+        ));
+        assert!(same_host_username_compatible(
+            "https://b.example/@Bob",
+            "https://b.example/users/bob"
+        ));
+        // Different user on same host
+        assert!(!same_host_username_compatible(
+            "https://b.example/@carol",
+            "https://b.example/users/bob"
+        ));
+        // Cross host
+        assert!(!same_host_username_compatible(
+            "https://evil.example/@bob",
+            "https://b.example/users/bob"
+        ));
+    }
+
+
+    #[test]
+    fn resolve_follow_accept_empty_candidates_and_empty_id() {
+        assert!(resolve_follow_accept_target(
+            "https://a.example/activities/1",
+            "https://b.example/users/bob",
+            &[],
+        )
+        .is_none());
+        // Empty follow_id skips id match; only unique pending-to-actor fallback.
+        let candidates = vec![(
+            "https://a.example/activities/9".into(),
+            "https://b.example/users/bob".into(),
+            "pending".into(),
+        )];
+        let got = resolve_follow_accept_target("", "https://b.example/users/bob", &candidates);
+        assert_eq!(
+            got.map(|(id, _, already)| (id, already)),
+            Some(("https://a.example/activities/9".into(), false))
+        );
+        // accepted-only with empty id → no pending fallback
+        let accepted_only = vec![(
+            "https://a.example/activities/9".into(),
+            "https://b.example/users/bob".into(),
+            "accepted".into(),
+        )];
+        assert!(resolve_follow_accept_target("", "https://b.example/users/bob", &accepted_only)
+            .is_none());
+    }
+
+
+    #[test]
+    fn resolve_follow_accept_fallback_ignores_non_pending() {
+        // Wrong id + only accepted/rejected rows to actor → no match.
+        let candidates = vec![
+            (
+                "https://a.example/activities/1".into(),
+                "https://b.example/users/bob".into(),
+                "accepted".into(),
+            ),
+            (
+                "https://a.example/activities/2".into(),
+                "https://b.example/users/bob".into(),
+                "rejected".into(),
+            ),
+        ];
+        assert!(resolve_follow_accept_target(
+            "https://unknown/activities/z",
+            "https://b.example/users/bob",
+            &candidates,
+        )
+        .is_none());
+    }
+
+
+    #[test]
+    fn resolve_follow_accept_port_sensitive_actor_auth() {
+        let candidates = vec![(
+            "https://a.example/activities/1".into(),
+            "https://b.example:8443/users/bob".into(),
+            "pending".into(),
+        )];
+        // Port mismatch → not same actor
+        assert!(resolve_follow_accept_target(
+            "https://a.example/activities/1",
+            "https://b.example/users/bob",
+            &candidates,
+        )
+        .is_none());
+        assert!(resolve_follow_accept_target(
+            "https://a.example/activities/1",
+            "https://b.example:8443/users/bob",
+            &candidates,
+        )
+        .is_some());
+    }
+
+
+    #[test]
+    fn split_actor_host_user_shapes() {
+        let (h, u) = split_actor_host_user("https://b.example/users/bob");
+        assert_eq!(h, "b.example");
+        assert_eq!(u, "bob");
+        let (h2, u2) = split_actor_host_user("https://b.example:8443/users/Bob");
+        assert_eq!(h2, "b.example:8443");
+        assert_eq!(u2, "Bob");
+        let (h3, u3) = split_actor_host_user("https://b.example/@bob");
+        assert_eq!(h3, "b.example");
+        assert_eq!(u3, ""); // non-/users/ path → empty user
+        let (h4, u4) = split_actor_host_user("not-a-url");
+        assert_eq!(h4, "");
+        assert_eq!(u4, "");
+    }
+
+
+    #[test]
+    fn resolve_follow_accept_accepted_id_path_drift_idempotent() {
+        // Already accepted + @handle Accept.actor still yields already=true.
+        let candidates = vec![(
+            "https://a.example/activities/1".into(),
+            "https://b.example/users/bob".into(),
+            "accepted".into(),
+        )];
+        let got = resolve_follow_accept_target(
+            "https://a.example/activities/1/",
+            "https://b.example/@bob",
+            &candidates,
+        );
+        assert_eq!(got.map(|(_, remote, already)| (remote, already)), Some(("https://b.example/users/bob".into(), true)));
+    }
+
+
+    #[test]
+    fn resolve_follow_accept_prefers_actor_auth_over_host_only() {
+        // Two remotes same host different users; id matches bob only.
+        let candidates = vec![
+            (
+                "https://a.example/activities/1".into(),
+                "https://b.example/users/bob".into(),
+                "pending".into(),
+            ),
+            (
+                "https://a.example/activities/other".into(),
+                "https://b.example/users/carol".into(),
+                "pending".into(),
+            ),
+        ];
+        let got = resolve_follow_accept_target(
+            "https://a.example/activities/1",
+            "https://b.example/users/bob",
+            &candidates,
+        );
+        assert_eq!(
+            got.map(|(id, remote, _)| (id, remote)),
+            Some((
+                "https://a.example/activities/1".into(),
+                "https://b.example/users/bob".into()
+            ))
+        );
+        // Carol citing bob's id must fail when she has no own pending row
+        // (if she also has a pending, empty-id fallback could match her).
+        let bob_only = vec![candidates[0].clone()];
+        assert!(resolve_follow_accept_target(
+            "https://a.example/activities/1",
+            "https://b.example/users/carol",
+            &bob_only,
+        )
+        .is_none());
+    }
+
+
+    #[test]
+    fn r45_same_host_username_compatible_users_path_case() {
+        assert!(same_host_username_compatible(
+            "https://b.example/users/Bob",
+            "https://b.example/users/bob"
+        ));
+        assert!(!same_host_username_compatible(
+            "https://b.example/users/bob",
+            "https://b.example/users/carol"
+        ));
+    }
+
+
+    #[test]
+    fn r46_same_host_username_compatible_at_handle_last_segment() {
+        assert!(same_host_username_compatible(
+            "https://b.example/@alice",
+            "https://b.example/users/alice"
+        ));
+        assert!(!same_host_username_compatible(
+            "https://evil.example/@alice",
+            "https://b.example/users/alice"
+        ));
+    }
+
+
+    #[test]
+    fn r47_resolve_follow_accept_target_no_candidates() {
+        assert!(resolve_follow_accept_target(
+            "https://a.example/activities/1",
+            "https://b.example/users/bob",
+            &[],
+        )
+        .is_none());
+    }
+
+
+    #[test]
+    fn r48_resolve_follow_accept_target_id_match_trailing_slash() {
+        let candidates = vec![(
+            "https://a.example/activities/1".into(),
+            "https://b.example/users/bob".into(),
+            "pending".into(),
+        )];
+        assert!(resolve_follow_accept_target(
+            "https://a.example/activities/1/",
+            "https://b.example/users/bob",
+            &candidates,
+        )
+        .is_some());
+    }
+
+
+    #[test]
+    fn r49_resolve_follow_accept_target_rejects_cross_user_same_host() {
+        let candidates = vec![(
+            "https://a.example/activities/1".into(),
+            "https://b.example/users/bob".into(),
+            "pending".into(),
+        )];
+        assert!(resolve_follow_accept_target(
+            "https://a.example/activities/1",
+            "https://b.example/users/carol",
+            &candidates,
+        )
+        .is_none());
+    }
+
+
+    #[test]
+    fn r50_resolve_follow_accept_target_idempotent_accepted() {
+        let candidates = vec![(
+            "https://a.example/activities/1".into(),
+            "https://b.example/users/bob".into(),
+            "accepted".into(),
+        )];
+        let got = resolve_follow_accept_target(
+            "https://a.example/activities/1",
+            "https://b.example/users/bob",
+            &candidates,
+        );
+        assert_eq!(got.map(|(_, _, already)| already), Some(true));
+    }
+
+
+    #[test]
+    fn r51_extract_accept_object_id_string_vs_nested() {
+        assert_eq!(
+            extract_accept_object_id(&serde_json::json!({
+                "object": "https://a.example/activities/z"
+            })),
+            "https://a.example/activities/z"
+        );
+        assert_eq!(
+            extract_accept_object_id(&serde_json::json!({
+                "object": {"id": "https://a.example/activities/n", "type": "Follow"}
+            })),
+            "https://a.example/activities/n"
+        );
+    }
+
+
+    #[test]
+    fn r52_same_actor_or_user_rejects_different_ports() {
+        assert!(!same_actor_or_user(
+            "https://b.example:8443/users/bob",
+            "https://b.example/users/bob"
+        ));
+        assert!(same_actor_or_user(
+            "https://b.example:8443/users/bob",
+            "https://b.example:8443/users/BOB/"
+        ));
+    }
+
 }
+

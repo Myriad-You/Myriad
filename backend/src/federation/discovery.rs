@@ -283,4 +283,34 @@ mod tests {
         );
 
     }
+
+    #[test]
+    fn w175_parse_acct_lowercases_domain() {
+        assert_eq!(
+            parse_acct_uri("acct:Alice@Example.COM"),
+            Some(("Alice".into(), "example.com".into()))
+        );
+
+    }
+
+
+    #[test]
+    fn w175_parse_acct_rejects_bare() {
+        assert_eq!(parse_acct_uri("alice@example.com"), None);
+        assert_eq!(parse_acct_uri("acct:"), None);
+        assert_eq!(parse_acct_uri("acct:@only"), None);
+
+    }
+
+
+    #[test]
+    fn w175_parse_acct_trims() {
+        assert_eq!(
+            parse_acct_uri("  acct:bob@example.com  "),
+            Some(("bob".into(), "example.com".into()))
+        );
+
+    }
+
 }
+

@@ -398,4 +398,38 @@ mod tests {
         assert!(verify_date_freshness(&future, now, Duration::minutes(5)).is_err());
 
     }
+
+    #[test]
+    fn w175_verify_digest_bad_prefix() {
+        assert!(!verify_digest(b"hello", "md5=deadbeef"));
+        assert!(!verify_digest(b"hello", "SHA-256"));
+        assert!(!verify_digest(b"hello", ""));
+
+    }
+
+
+    #[test]
+    fn w175_require_headers_missing_host() {
+        let parsed = ParsedSignature {
+            key_id: "k".into(),
+            algorithm: "rsa-sha256".into(),
+            headers: vec!["(request-target)".into(), "date".into()],
+            signature: vec![0u8; 8],
+        };
+        assert!(require_covered_headers(&parsed, false).is_err());
+
+    }
+
+
+    #[test]
+    fn w175_date_freshness_future() {
+        let now = Utc::now();
+        let future = (now + Duration::minutes(10))
+            .format("%a, %d %b %Y %H:%M:%S GMT")
+            .to_string();
+        assert!(verify_date_freshness(&future, now, Duration::minutes(5)).is_err());
+
+    }
+
 }
+

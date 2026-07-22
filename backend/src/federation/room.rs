@@ -4931,4 +4931,42 @@ mod tests {
         assert_eq!(non_empty_room_name(None), None);
 
     }
+
+    #[test]
+    fn w175_is_admin_role() {
+        assert!(is_admin_role("owner"));
+        assert!(is_admin_role("admin"));
+        assert!(!is_admin_role("member"));
+        assert!(!is_admin_role(""));
+
+    }
+
+
+    #[test]
+    fn w175_fallback_room_name() {
+        assert_eq!(fallback_room_name("rm_abcdefghij"), "Room rm_abcde");
+        assert_eq!(fallback_room_name("short"), "Room short");
+
+    }
+
+
+    #[test]
+    fn w175_public_transition_one_way() {
+        assert!(validate_public_transition(true, Some(false)).is_err());
+        assert!(validate_public_transition(true, Some(true)).is_ok());
+        assert!(validate_public_transition(false, Some(true)).is_ok());
+        assert!(validate_public_transition(false, None).is_ok());
+
+    }
+
+
+    #[test]
+    fn w175_non_empty_room_name() {
+        assert_eq!(non_empty_room_name(Some("  hi  ")).as_deref(), Some("hi"));
+        assert_eq!(non_empty_room_name(Some("  ")), None);
+        assert_eq!(non_empty_room_name(None), None);
+
+    }
+
 }
+

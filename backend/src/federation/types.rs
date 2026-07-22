@@ -1172,4 +1172,108 @@ mod tests {
         assert_ne!(r, m);
 
     }
+
+    #[test]
+    fn same_actor_url_port_and_scheme_sensitive() {
+        assert!(!same_actor_url(
+            "https://a.example/users/alice",
+            "http://a.example/users/alice"
+        ));
+        // Non-default ports are significant.
+        assert!(!same_actor_url(
+            "https://a.example:8443/users/alice",
+            "https://a.example/users/alice"
+        ));
+        assert!(same_actor_url(
+            "https://a.example:8443/users/alice/",
+            "https://A.example:8443/users/alice"
+        ));
+        // url crate omits default https port 443 — treat as same origin.
+        assert!(same_actor_url(
+            "https://a.example:443/users/alice",
+            "https://a.example/users/alice"
+        ));
+    }
+
+
+    #[test]
+    fn r26_same_activity_id_rejects_path_suffix_collision() {
+        assert!(!same_activity_id(
+            "https://a.example/activities/1",
+            "https://a.example/activities/10"
+        ));
+        assert!(!same_activity_id(
+            "https://a.example/activities/1",
+            "https://a.example/activities/1/x"
+        ));
+    }
+
+
+    #[test]
+    fn r27_normalize_activity_id_preserves_ipv6_host_brackets() {
+        let id = "https://[::1]:18080/activities/9/?q=1#f";
+        let n = normalize_activity_id(id);
+        assert!(n.contains("18080"), "port kept: {n}");
+        assert!(!n.contains('?') && !n.contains('#'));
+        assert!(same_activity_id(id, "https://[::1]:18080/activities/9/"));
+    }
+
+
+    #[test]
+    fn r28_same_activity_id_http_vs_https_never_equal() {
+        assert!(!same_activity_id(
+            "http://a.example/activities/1",
+            "https://a.example/activities/1"
+        ));
+    }
+
+
+    #[test]
+    fn r29_normalize_activity_id_trims_outer_whitespace() {
+        assert_eq!(
+            normalize_activity_id("  https://a.example/activities/1/  "),
+            "https://a.example/activities/1"
+        );
+        assert!(same_activity_id(
+            "\thttps://a.example/activities/1\n",
+            "https://a.example/activities/1"
+        ));
+    }
+
+
+    #[test]
+    fn r30_key_id_and_same_key_id_fragment_required() {
+        let kid = key_id("https://Myriad.Example", "alice");
+        assert!(kid.ends_with("#main-key"));
+        assert!(same_key_id(&kid, "https://myriad.example/users/alice#main-key"));
+        assert!(!same_key_id(&kid, "https://myriad.example/users/alice#other"));
+    }
+
+
+    #[test]
+    fn r31_generate_activity_id_under_base_and_unique() {
+        let a = generate_activity_id("https://a.example");
+        let b = generate_activity_id("https://a.example");
+        assert!(a.starts_with("https://a.example/"));
+        assert_ne!(a, b);
+    }
+
+
+    #[test]
+    fn r32_extract_domain_rejects_ftp_and_empty() {
+        assert_eq!(extract_domain("ftp://evil.example/x"), None);
+        assert_eq!(extract_domain(""), None);
+        assert_eq!(extract_domain("https://ok.example/users/a"), Some("ok.example".into()));
+    }
+
+
+    #[test]
+    fn r33_followers_following_urls_stable() {
+        let base = "https://a.example";
+        assert_eq!(followers_url(base, "u"), "https://a.example/users/u/followers");
+        assert_eq!(following_url(base, "u"), "https://a.example/users/u/following");
+        assert_eq!(inbox_url(base, "u"), "https://a.example/users/u/inbox");
+    }
+
 }
+

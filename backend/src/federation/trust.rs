@@ -1211,4 +1211,66 @@ mod tests {
             FilterVerdict::Allow
         ));
     }
+
+    #[test]
+    fn w175_effective_max_untrusted_base() {
+        let policy = RateLimitPolicy {
+            max_requests_per_window: 50,
+            window_seconds: 60,
+            trusted_multiplier: 4,
+        };
+        assert_eq!(effective_max_requests(&policy, TrustLevel::Unknown), 50);
+        assert_eq!(effective_max_requests(&policy, TrustLevel::Discovered), 50);
+        assert_eq!(effective_max_requests(&policy, TrustLevel::Followed), 50);
+
+    }
+
+
+    #[test]
+    fn w175_effective_max_trusted_mul() {
+        let policy = RateLimitPolicy {
+            max_requests_per_window: 10,
+            window_seconds: 60,
+            trusted_multiplier: 3,
+        };
+        assert_eq!(effective_max_requests(&policy, TrustLevel::Trusted), 30);
+        assert_eq!(effective_max_requests(&policy, TrustLevel::Federated), 30);
+
+    }
+
+
+    #[test]
+    fn w175_filter_block_keyword() {
+        let rules = vec![ContentFilterRule {
+            name: "kw".into(),
+            filter_type: "block_keyword".into(),
+            value: "spam".into(),
+            enabled: true,
+        }];
+        let act = serde_json::json!({"type": "Create", "content": "buy spam now"});
+        assert!(matches!(
+            apply_content_filters(&act, TrustLevel::Discovered, &rules),
+            FilterVerdict::Reject(_)
+        ));
+
+    }
+
+
+    #[test]
+    fn w175_filter_disabled_ignored() {
+        let rules = vec![ContentFilterRule {
+            name: "off".into(),
+            filter_type: "block_activity_type".into(),
+            value: "Announce".into(),
+            enabled: false,
+        }];
+        let act = serde_json::json!({"type": "Announce"});
+        assert!(matches!(
+            apply_content_filters(&act, TrustLevel::Unknown, &rules),
+            FilterVerdict::Allow
+        ));
+
+    }
+
 }
+

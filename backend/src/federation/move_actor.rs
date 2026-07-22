@@ -1776,4 +1776,64 @@ mod tests {
         assert_eq!(activity_id_string(&serde_json::json!({})), None);
 
     }
+
+    #[test]
+    fn w175_url_under_base_foreign() {
+        assert!(!url_is_under_base("https://evil.example/users/a", "https://old.example"));
+        assert!(url_is_under_base("https://old.example/users/a", "https://old.example"));
+        assert!(url_is_under_base("https://old.example/users/a#main-key", "https://old.example"));
+
+    }
+
+
+    #[test]
+    fn w175_url_under_base_empty() {
+        assert!(!url_is_under_base("", "https://a.example"));
+        assert!(!url_is_under_base("https://a.example/x", ""));
+
+    }
+
+
+    #[test]
+    fn w175_rewrite_url_preserves_path() {
+        assert_eq!(
+            rewrite_url_if_local(
+                "https://old.example/users/alice/inbox",
+                "https://old.example",
+                "https://new.example",
+            ).as_deref(),
+            Some("https://new.example/users/alice/inbox")
+        );
+        assert!(rewrite_url_if_local(
+            "https://foreign.example/users/alice",
+            "https://old.example",
+            "https://new.example",
+        ).is_none());
+
+    }
+
+
+    #[test]
+    fn w175_normalize_base_empty() {
+        assert!(normalize_base_url("").is_err());
+        assert_eq!(normalize_base_url("https://a.example/").unwrap(), "https://a.example");
+
+    }
+
+
+    #[test]
+    fn w175_activity_id_string_shapes() {
+        assert_eq!(
+            activity_id_string(&serde_json::json!("https://a.example/activities/1")),
+            Some("https://a.example/activities/1".into())
+        );
+        assert_eq!(
+            activity_id_string(&serde_json::json!({"id": "https://a.example/activities/2"})),
+            Some("https://a.example/activities/2".into())
+        );
+        assert_eq!(activity_id_string(&serde_json::json!({})), None);
+
+    }
+
 }
+

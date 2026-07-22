@@ -2218,4 +2218,78 @@ mod tests {
         );
 
     }
+
+    #[test]
+    fn w175_classify_media_mime_rejects_unknown() {
+        assert_eq!(classify_media_mime("application/pdf"), None);
+        assert_eq!(classify_media_mime("text/html"), None);
+        assert_eq!(classify_media_mime("image/jpeg"), Some("Image"));
+        assert_eq!(classify_media_mime("video/webm"), Some("Video"));
+
+    }
+
+
+    #[test]
+    fn w175_extension_for_mime_maps() {
+        assert_eq!(extension_for_mime("image/png"), Some("png"));
+        assert_eq!(extension_for_mime("image/webp"), Some("webp"));
+        assert_eq!(extension_for_mime("video/mp4"), Some("mp4"));
+        assert_eq!(extension_for_mime("audio/mpeg"), None);
+
+    }
+
+
+    #[test]
+    fn w175_resolve_audience_matrix() {
+        let base = "https://myriad.example";
+        let (to, cc) = resolve_audience("public", base, "alice");
+        assert!(to.iter().any(|u| u == AP_PUBLIC || u.contains("Public")));
+        assert!(cc.iter().any(|u| u.ends_with("/users/alice/followers")));
+        let (to_f, cc_f) = resolve_audience("followers", base, "bob");
+        assert!(to_f.iter().any(|u| u.ends_with("/users/bob/followers")));
+        assert!(cc_f.is_empty());
+        let (to_d, cc_d) = resolve_audience("direct", base, "carol");
+        assert!(to_d.is_empty() && cc_d.is_empty());
+
+    }
+
+
+    #[test]
+    fn w175_strip_tags_preview_limit() {
+        let s = strip_tags_preview("<p>Hi&amp;there</p>", 50);
+        assert!(s.contains("Hi") && (s.contains("&") || s.contains("there")));
+        assert_eq!(strip_tags_preview(&"z".repeat(40), 8).chars().count(), 8);
+
+    }
+
+
+    #[test]
+    fn w175_attachment_url_rejects_traversal() {
+        let base = "https://myriad.example";
+        assert!(attachment_url_rejection_reason(
+            base, 7, "https://myriad.example/media/federation/7/../x"
+        ).is_some());
+        assert!(attachment_url_rejection_reason(
+            base, 7, "https://myriad.example/media/federation/7/ok.jpg"
+        ).is_none());
+        assert!(attachment_url_rejection_reason(base, 7, "").is_some());
+
+    }
+
+
+    #[test]
+    fn w175_local_username_from_inbox_host() {
+        let base = "https://myriad.example";
+        assert_eq!(
+            local_username_from_inbox_url(base, "https://myriad.example/users/alice/inbox"),
+            Some("alice".into())
+        );
+        assert_eq!(
+            local_username_from_inbox_url(base, "https://evil.example/users/alice/inbox"),
+            None
+        );
+
+    }
+
 }
+
