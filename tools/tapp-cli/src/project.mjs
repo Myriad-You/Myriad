@@ -1,5 +1,6 @@
 import {
   access,
+  lstat,
   mkdir,
   readdir,
   readFile,
@@ -1148,7 +1149,7 @@ async function validateResources(root, manifest, diagnostics) {
       )
       continue
     }
-    const info = await stat(absolute)
+    const info = await lstat(absolute)
     if (!info.isFile()) {
       diagnostics.push(diagnostic('error', 'invalid-resource', `Resource is not a file: ${path}`))
       continue

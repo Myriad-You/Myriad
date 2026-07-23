@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { afterEach, describe, it } from 'node:test'
@@ -234,6 +234,24 @@ Tapp.storage.get(key)
     )
     assert.ok(report.packageFiles.includes('schemas/report-input.json'))
     assert.ok(report.packageFiles.includes('schemas/report-result.json'))
+  })
+
+  it('rejects declared resources that are symbolic links', async () => {
+    const root = await temporaryDirectory('symlink-resource')
+    const targetRoot = await temporaryDirectory('symlink-target')
+    await createProject(root, { type: 'page' })
+    const manifestPath = join(root, 'manifest.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+    manifest.assets = ['assets/linked.txt']
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+    await mkdir(join(root, 'assets'))
+    const target = join(targetRoot, 'outside.txt')
+    await writeFile(target, 'outside project')
+    await symlink(target, join(root, 'assets/linked.txt'))
+
+    const report = await inspectProject(root)
+    assert.ok(report.diagnostics.some(({ code }) => code === 'invalid-resource'))
+    await assert.rejects(packProject(root), /Project validation failed/)
   })
 
   it('rejects unsupported nested fields and invalid i18n resources', async () => {
