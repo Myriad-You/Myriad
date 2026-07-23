@@ -1,0 +1,1420 @@
+{
+  "generatedFrom": [
+    "backend/src/api/tapp_store/manifest.rs",
+    "backend/src/api/tapp_store/contract_rules.rs",
+    "frontend/src/tapp/runtime/permissionConfig.ts",
+    "frontend/src/tapp/runtime/sandbox/capabilityProfiles.ts"
+  ],
+  "limits": {
+    "agentIntents": 16,
+    "agentInteractions": 32,
+    "agentSchemaBytes": 65536,
+    "aiContextSources": 4,
+    "aiOperations": 4,
+    "aiOutputFormats": 3,
+    "apiCacheTtlSeconds": 86400,
+    "apiInjectAliases": 32,
+    "apiInjectTemplateLength": 2048,
+    "apiMethodLength": 16,
+    "archiveBytes": 26214400,
+    "archiveFiles": 512,
+    "archiveUncompressedBytes": 104857600,
+    "assetBytes": 5242880,
+    "assets": 64,
+    "assetsTotalBytes": 20971520,
+    "authorEmailLength": 320,
+    "backgroundRequirements": 16,
+    "dataExchangeDeclarations": 32,
+    "dataExchangeDescriptionLength": 500,
+    "dataExchangeIdLength": 128,
+    "dataExchangeRecords": 10000,
+    "dataExchangeResponseBytes": 524288,
+    "dataExchangeSchemaBytes": 65536,
+    "eventTopics": 100,
+    "httpUrlLength": 2048,
+    "i18nFiles": 32,
+    "i18nResourceBytes": 1048576,
+    "inlineSchemaDepth": 32,
+    "localeTagLength": 35,
+    "manifestBytes": 262144,
+    "pageModules": 64,
+    "resourceBytes": 26214400,
+    "resourcePathLength": 256,
+    "settingLabelLength": 255,
+    "settingOptionValueLength": 255,
+    "settingOptions": 100,
+    "storageKeyLength": 256,
+    "tappApis": 64,
+    "tappDescriptionLength": 2000,
+    "tappIconLength": 2048,
+    "tappIconSvgBytes": 65536,
+    "tappIdLength": 128,
+    "tappLocales": 32,
+    "tappNameLength": 255,
+    "tappPermissions": 64,
+    "tappSettings": 64,
+    "widgetRefreshIntervalMaxSeconds": 86400,
+    "widgetRefreshIntervalMinSeconds": 15,
+    "widgetSizes": 10,
+    "widgets": 64
+  },
+  "patterns": {
+    "httpMethod": "^[A-Za-z!#$%&'*+.^_`|~-]+$",
+    "localeTag": "^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{1,8})*$",
+    "namedValue": "^[A-Za-z0-9._-]+$",
+    "safeComponent": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+    "semver": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$",
+    "storageKey": "^[A-Za-z0-9_.:-]+$",
+    "themeColor": "^#[0-9A-Fa-f]{6}$"
+  },
+  "rules": {
+    "agentIntents": [
+      "ui.open",
+      "report.create",
+      "dataExchange.request"
+    ],
+    "agentSchemaFields": [
+      "inputSchema",
+      "resultSchema"
+    ],
+    "aiBuiltinOutputFormat": "text",
+    "aiContextPermissionRules": {
+      "platform": "platform:read",
+      "report": "report:read"
+    },
+    "aiOperationOutputRules": {
+      "image": "image"
+    },
+    "aiOperationPermissions": {
+      "analyze": "ai:analyze",
+      "chat": "ai:chat",
+      "generate": "ai:generate",
+      "image": "ai:image"
+    },
+    "apiBuiltinAiOperations": {
+      "ai:chat": "chat",
+      "ai:generate": "generate"
+    },
+    "apiBuiltinPermissions": {
+      "ai:chat": "ai:chat",
+      "ai:generate": "ai:generate"
+    },
+    "apiBuiltins": [
+      "geo",
+      "ai:chat",
+      "ai:generate"
+    ],
+    "apiInjectReservedPrefixes": [
+      "user.",
+      "geo.",
+      "secrets.",
+      "params."
+    ],
+    "apiTypes": [
+      "http",
+      "builtin"
+    ],
+    "assetDirectory": "assets",
+    "assetForbiddenExtensions": [
+      ".js",
+      ".html"
+    ],
+    "assetLiteralMethods": [
+      "get",
+      "getUrl",
+      "getArrayBuffer"
+    ],
+    "backgroundRequirements": [
+      "media",
+      "sync",
+      "notification",
+      "scheduler",
+      "event-listener",
+      "realtime"
+    ],
+    "builtinApiType": "builtin",
+    "cssModes": [
+      "unified",
+      "separated"
+    ],
+    "dataExchangeDirections": {
+      "exports": "export",
+      "imports": "import"
+    },
+    "defaultApiType": "http",
+    "defaultHttpMethod": "GET",
+    "eventPermissionRules": {
+      "publish": "event:publish",
+      "subscribe": "event:subscribe"
+    },
+    "eventSubscribePrefixes": [
+      "tapp.",
+      "system."
+    ],
+    "eventTopicPrefixes": {
+      "publish": [
+        "tapp.{id}."
+      ],
+      "subscribe": [
+        "tapp.",
+        "system."
+      ]
+    },
+    "httpApiPermission": "network:fetch",
+    "httpApiType": "http",
+    "httpOnlyApiFields": [
+      "endpoint",
+      "headers",
+      "body",
+      "spoof",
+      "inject"
+    ],
+    "httpUrlSchemes": [
+      "http",
+      "https"
+    ],
+    "inlineSchemaRootKeys": [
+      "type",
+      "properties",
+      "enum",
+      "const"
+    ],
+    "manifestResourceFields": {
+      "main": "main",
+      "pageStyles": "pageStyles",
+      "pageTemplate": "pageTemplate",
+      "styles": "styles",
+      "widgetStyles": "widgetStyles"
+    },
+    "packageJsonObjectDirectories": [
+      "i18n"
+    ],
+    "packageResourceByteLimits": {
+      "i18n": "i18nResourceBytes"
+    },
+    "packageResourceDirectories": [
+      "i18n",
+      "page",
+      "schemas"
+    ],
+    "packageResourceExtensions": {
+      "i18n": ".json",
+      "page": ".js",
+      "schemas": ".json"
+    },
+    "packageResourceFileLimits": {
+      "i18n": "i18nFiles"
+    },
+    "pageModuleDirectory": "page",
+    "protocolVersion": 2,
+    "requiredManifestFields": [
+      "category"
+    ],
+    "resourceExtensions": {
+      "agentSchema": ".json",
+      "i18n": ".json",
+      "main": ".js",
+      "pageModule": ".js",
+      "pageStyles": ".css",
+      "pageTemplate": ".html",
+      "styles": ".css",
+      "widgetStyles": ".css",
+      "widgetTemplate": ".html"
+    },
+    "semverPrefixes": [
+      "v"
+    ],
+    "settingDefaultKinds": {
+      "color": "string",
+      "input": "string",
+      "number": "number",
+      "select": "option",
+      "toggle": "boolean"
+    },
+    "settingFieldTypes": {
+      "max": "number",
+      "min": "number",
+      "options": "select",
+      "placeholder": "input",
+      "step": "number"
+    },
+    "settingTypes": [
+      "toggle",
+      "select",
+      "input",
+      "number",
+      "color"
+    ],
+    "sourceCodeExtensions": [
+      ".js",
+      ".mjs",
+      ".cjs",
+      ".ts",
+      ".tsx",
+      ".jsx"
+    ],
+    "sourceScanSkipDirectories": [
+      ".git",
+      "node_modules",
+      "dist",
+      "build",
+      "coverage"
+    ],
+    "tappCategoryAliases": [
+      "data-extension",
+      "platform",
+      "visualization",
+      "development",
+      "dev",
+      "games",
+      "entertainment",
+      "music",
+      "communication",
+      "demo",
+      "page",
+      "test",
+      "tool",
+      "tools",
+      "utilities",
+      "widget"
+    ],
+    "urlFields": [
+      "homepage",
+      "repository"
+    ],
+    "widgetCategoryAliases": [
+      "tool"
+    ],
+    "widgetManifestPermission": "widget:register",
+    "widgetRefreshModes": {
+      "event": "event",
+      "interval": "interval"
+    },
+    "widgetSizes": [
+      "1x1",
+      "1x2",
+      "2x1",
+      "2x2",
+      "2x3",
+      "3x2",
+      "4x1",
+      "4x2",
+      "2x4",
+      "3x3",
+      "4x4"
+    ]
+  },
+  "schema": {
+    "$defs": {
+      "TappAgentInteractionDef": {
+        "additionalProperties": false,
+        "properties": {
+          "inputSchema": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resultSchema": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      },
+      "TappAgentManifest": {
+        "additionalProperties": false,
+        "properties": {
+          "intents": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "interactions": {
+            "items": {
+              "$ref": "#/$defs/TappAgentInteractionDef"
+            },
+            "type": "array"
+          },
+          "protocolVersion": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "protocolVersion",
+          "interactions"
+        ],
+        "type": "object"
+      },
+      "TappAiContextSource": {
+        "enum": [
+          "platform",
+          "report",
+          "profile",
+          "custom"
+        ],
+        "type": "string"
+      },
+      "TappAiManifest": {
+        "additionalProperties": false,
+        "properties": {
+          "contextSources": {
+            "default": [],
+            "items": {
+              "$ref": "#/$defs/TappAiContextSource"
+            },
+            "type": "array"
+          },
+          "modelTier": {
+            "$ref": "#/$defs/TappAiModelTier"
+          },
+          "operations": {
+            "items": {
+              "$ref": "#/$defs/TappAiOperation"
+            },
+            "type": "array"
+          },
+          "outputFormats": {
+            "items": {
+              "$ref": "#/$defs/TappAiOutputFormat"
+            },
+            "type": "array"
+          },
+          "protocolVersion": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "protocolVersion",
+          "operations",
+          "modelTier",
+          "outputFormats"
+        ],
+        "type": "object"
+      },
+      "TappAiModelTier": {
+        "enum": [
+          "standard",
+          "pro"
+        ],
+        "type": "string"
+      },
+      "TappAiOperation": {
+        "enum": [
+          "generate",
+          "analyze",
+          "chat",
+          "image"
+        ],
+        "type": "string"
+      },
+      "TappAiOutputFormat": {
+        "enum": [
+          "text",
+          "json",
+          "image"
+        ],
+        "type": "string"
+      },
+      "TappApiAccess": {
+        "enum": [
+          "public",
+          "protected"
+        ],
+        "type": "string"
+      },
+      "TappApiDef": {
+        "additionalProperties": false,
+        "properties": {
+          "access": {
+            "$ref": "#/$defs/TappApiAccess",
+            "default": "protected"
+          },
+          "body": true,
+          "builtin": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cacheTtl": {
+            "default": 0,
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endpoint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "inject": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "method": {
+            "default": "GET",
+            "type": "string"
+          },
+          "spoof": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "default": "http",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "TappAuthor": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "TappCategory": {
+        "enum": [
+          "ai",
+          "data",
+          "developer",
+          "game",
+          "media",
+          "productivity",
+          "social",
+          "utility"
+        ],
+        "type": "string"
+      },
+      "TappDataExchangeManifest": {
+        "additionalProperties": false,
+        "properties": {
+          "exports": {
+            "default": [],
+            "items": {
+              "$ref": "#/$defs/TappDataExport"
+            },
+            "type": "array"
+          },
+          "imports": {
+            "default": [],
+            "items": {
+              "$ref": "#/$defs/TappDataImport"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "TappDataExport": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "maxBytes": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxRecords": {
+            "default": null,
+            "format": "uint",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "schema": {
+            "description": "Supported inline JSON Schema subset; remote and file `$ref` are denied."
+          }
+        },
+        "required": [
+          "id",
+          "schema",
+          "maxBytes"
+        ],
+        "type": "object"
+      },
+      "TappDataImport": {
+        "additionalProperties": false,
+        "properties": {
+          "exportId": {
+            "type": "string"
+          },
+          "tappId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tappId",
+          "exportId"
+        ],
+        "type": "object"
+      },
+      "TappEventsManifest": {
+        "additionalProperties": false,
+        "properties": {
+          "publish": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "subscribe": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "TappManifestLocaleEntry": {
+        "additionalProperties": false,
+        "description": "单个语言下的清单展示文案覆盖",
+        "properties": {
+          "description": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "TappSettingDef": {
+        "additionalProperties": false,
+        "properties": {
+          "defaultValue": true,
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "max": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "min": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "options": {
+            "items": {
+              "$ref": "#/$defs/TappSettingOption"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "placeholder": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "step": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "type"
+        ],
+        "type": "object"
+      },
+      "TappSettingOption": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "label"
+        ],
+        "type": "object"
+      },
+      "TappWidgetCategory": {
+        "enum": [
+          "stats",
+          "activity",
+          "visualization",
+          "utility",
+          "custom"
+        ],
+        "type": "string"
+      },
+      "TappWidgetDef": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/TappWidgetCategory"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "defaultSize": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "refreshPolicy": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/TappWidgetRefreshPolicy"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "settings": {
+            "items": {
+              "$ref": "#/$defs/TappSettingDef"
+            },
+            "type": "array"
+          },
+          "sizes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "templates": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "defaultSize",
+          "sizes"
+        ],
+        "type": "object"
+      },
+      "TappWidgetRefreshMode": {
+        "enum": [
+          "event",
+          "interval"
+        ],
+        "type": "string"
+      },
+      "TappWidgetRefreshPolicy": {
+        "additionalProperties": false,
+        "properties": {
+          "intervalSeconds": {
+            "default": null,
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "mode": {
+            "$ref": "#/$defs/TappWidgetRefreshMode"
+          },
+          "refreshOnVisible": {
+            "default": true,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "type": "object"
+      }
+    },
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "agent": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/TappAgentManifest"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "ai": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/TappAiManifest"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "apis": {
+        "additionalProperties": {
+          "$ref": "#/$defs/TappApiDef"
+        },
+        "default": null,
+        "type": [
+          "object",
+          "null"
+        ]
+      },
+      "assets": {
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "array",
+          "null"
+        ]
+      },
+      "author": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/TappAuthor"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "backgroundRequirements": {
+        "default": null,
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "array",
+          "null"
+        ]
+      },
+      "category": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/TappCategory"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "cssMode": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "dataExchange": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/TappDataExchangeManifest"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "description": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "events": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/TappEventsManifest"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "hasPage": {
+        "default": false,
+        "type": "boolean"
+      },
+      "homepage": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "icon": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "iconSvg": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "id": {
+        "type": "string"
+      },
+      "locales": {
+        "additionalProperties": {
+          "$ref": "#/$defs/TappManifestLocaleEntry"
+        },
+        "description": "展示文案的多语言覆盖：语言标签 → { name?, description? }",
+        "type": [
+          "object",
+          "null"
+        ]
+      },
+      "main": {
+        "type": "string"
+      },
+      "minSystemVersion": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "name": {
+        "type": "string"
+      },
+      "pageModules": {
+        "default": null,
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "array",
+          "null"
+        ]
+      },
+      "pageStyles": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "pageTemplate": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "permissions": {
+        "default": [],
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "repository": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "settings": {
+        "items": {
+          "$ref": "#/$defs/TappSettingDef"
+        },
+        "type": [
+          "array",
+          "null"
+        ]
+      },
+      "styles": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "themeColor": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "version": {
+        "type": "string"
+      },
+      "widgetStyles": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "widgets": {
+        "items": {
+          "$ref": "#/$defs/TappWidgetDef"
+        },
+        "type": [
+          "array",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "id",
+      "name",
+      "version",
+      "main"
+    ],
+    "title": "TappManifest",
+    "type": "object"
+  },
+  "permissions": {
+    "permissionLevels": {
+      "widget:register": "privileged",
+      "platform:read": "basic",
+      "platform:write": "privileged",
+      "platform:register": "privileged",
+      "ai:generate": "elevated",
+      "ai:analyze": "elevated",
+      "ai:chat": "elevated",
+      "ai:image": "elevated",
+      "report:read": "basic",
+      "report:write": "privileged",
+      "storage": "basic",
+      "ui:notification": "basic",
+      "ui:fullscreen": "basic",
+      "ui:theme": "basic",
+      "ui:confirm": "basic",
+      "network:fetch": "elevated",
+      "media:control": "elevated",
+      "media:read": "basic",
+      "media:audio": "basic",
+      "component:theme": "elevated",
+      "component:agent": "privileged",
+      "shortcut:register": "elevated",
+      "event:publish": "elevated",
+      "event:subscribe": "basic",
+      "scheduler:register": "elevated",
+      "speech:tts": "elevated",
+      "speech:asr": "elevated",
+      "tappList:read": "basic",
+      "tappList:manage": "privileged",
+      "brew:read": "basic",
+      "brew:write": "basic",
+      "brew:comment": "basic",
+      "brew:manage": "privileged",
+      "federation:read": "basic",
+      "federation:write": "basic",
+      "federation:message": "basic",
+      "federation:trust": "privileged",
+      "federation:files": "basic"
+    },
+    "actions": {
+      "lifecycle.ready": "public",
+      "lifecycle.error": "public",
+      "ui.getTheme": "public",
+      "ui.getPrimaryColor": "public",
+      "ui.getLocale": "public",
+      "ui.setTitle": "public",
+      "context.getApp": "public",
+      "context.getUser": "public",
+      "context.getPlayer": "public",
+      "context.getNavigation": "public",
+      "context.getSystem": "public",
+      "context.getGeo": "public",
+      "user.getRole": "public",
+      "user.isAdmin": "public",
+      "user.isGuest": "public",
+      "user.isLoggedIn": "public",
+      "user.getAllowedPermissionLevels": "public",
+      "user.canUsePermissionLevel": "public",
+      "component.list": "public",
+      "shortcut.list": "public",
+      "background.list": "public",
+      "background.has": "public",
+      "animation.getLevel": "public",
+      "animation.shouldAnimate": "public",
+      "animation.getConfig": "public",
+      "animation.getStaggerDelay": "public",
+      "dynamicContent.get": "public",
+      "api.execute": "public",
+      "api.list": "public",
+      "dataExchange.registerProvider": "public",
+      "dataExchange.unregisterProvider": "public",
+      "dataExchange.request": "public",
+      "dataExchange.respond": "public",
+      "widget.register": "widget:register",
+      "widget.unregister": "widget:register",
+      "widget.listRegistered": "widget:register",
+      "widget.updateConfig": "widget:register",
+      "widget.instanceSettings.update": "public",
+      "widget.invalidate": "public",
+      "tappList.list": "tappList:read",
+      "tappList.get": "tappList:read",
+      "tappList.getRecent": "tappList:read",
+      "tappList.getInstallPackage": "tappList:read",
+      "tappList.resolveStoreSource": "tappList:read",
+      "tappList.install": "tappList:manage",
+      "tappList.uninstall": "tappList:manage",
+      "tappList.start": "tappList:manage",
+      "tappList.stop": "tappList:manage",
+      "tappList.export": "tappList:manage",
+      "brewList.list": "brew:read",
+      "brewList.get": "brew:read",
+      "brewList.sources": "brew:read",
+      "brewList.categories": "brew:read",
+      "brewList.stats": "brew:read",
+      "brewList.discover": "brew:manage",
+      "brewList.exportOpml": "brew:read",
+      "brewList.markRead": "brew:write",
+      "brewList.markUnread": "brew:write",
+      "brewList.star": "brew:write",
+      "brewList.unstar": "brew:write",
+      "brewList.markAllRead": "brew:write",
+      "brewList.getComments": "brew:comment",
+      "brewList.createComment": "brew:comment",
+      "brewList.updateComment": "brew:comment",
+      "brewList.deleteComment": "brew:comment",
+      "brewList.getReplies": "brew:comment",
+      "brewList.createReply": "brew:comment",
+      "brewList.addSource": "brew:manage",
+      "brewList.updateSource": "brew:manage",
+      "brewList.deleteSource": "brew:manage",
+      "brewList.refreshSource": "brew:manage",
+      "brewList.importOpml": "brew:manage",
+      "brewList.createCategory": "brew:manage",
+      "brewList.deleteCategory": "brew:manage",
+      "platform.listEnabled": "platform:read",
+      "platform.getData": "platform:read",
+      "platform.getStats": "platform:read",
+      "platform.getDistribution": "platform:read",
+      "platform.addItem": "platform:write",
+      "platform.addItems": "platform:write",
+      "platform.registerPlatform": "platform:register",
+      "data.transform": "public",
+      "ai.tasks.create": "public",
+      "ai.tasks.get": "public",
+      "ai.tasks.cancel": "public",
+      "ai.tasks.usage": "public",
+      "ai.tasks.subscribe": "public",
+      "ai.tasks.unsubscribe": "public",
+      "report.listReports": "report:read",
+      "report.getReport": "report:read",
+      "report.getPlatformReport": "report:read",
+      "report.create": "report:write",
+      "report.list": "report:read",
+      "report.get": "report:read",
+      "report.update": "report:write",
+      "report.delete": "report:write",
+      "storage.get": "storage",
+      "storage.set": "storage",
+      "storage.remove": "storage",
+      "storage.keys": "storage",
+      "storage.getAll": "storage",
+      "storage.clear": "storage",
+      "storage.usage": "storage",
+      "settings.get": "storage",
+      "settings.set": "storage",
+      "settings.getAll": "storage",
+      "ui.showNotification": "ui:notification",
+      "ui.confirm": "ui:confirm",
+      "ui.requestFullscreen": "ui:fullscreen",
+      "ui.exitFullscreen": "ui:fullscreen",
+      "ui.toggleFullscreen": "ui:fullscreen",
+      "ui.isFullscreen": "ui:fullscreen",
+      "media.control": "media:control",
+      "media.getStatus": "media:read",
+      "media.getPlaylist": "media:read",
+      "media.playTrack": "media:control",
+      "media.jumpToIndex": "media:control",
+      "media.getSpectrum": "media:read",
+      "media.getLyrics": "media:read",
+      "media.getBeatGrid": "media:read",
+      "media.loadNeteasePlaylist": "media:control",
+      "media.getSkipVip": "media:read",
+      "media.setSkipVip": "media:control",
+      "component.registerTheme": "component:theme",
+      "component.registerAgent": "component:agent",
+      "component.unregister": "public",
+      "shortcut.register": "shortcut:register",
+      "shortcut.unregister": "shortcut:register",
+      "event.publish": "event:publish",
+      "agent.v2.accept": "public",
+      "agent.v2.result": "public",
+      "agent.v2.reject": "public",
+      "agent.v2.intent": "public",
+      "background.require": "event:subscribe",
+      "background.release": "event:subscribe",
+      "dynamicContent.set": "ui:notification",
+      "dynamicContent.update": "ui:notification",
+      "dynamicContent.remove": "ui:notification",
+      "file.download": "storage",
+      "assets.get": "public",
+      "assets.list": "public",
+      "scheduler.register": "scheduler:register",
+      "scheduler.unregister": "scheduler:register",
+      "scheduler.list": "scheduler:register",
+      "scheduler.get": "scheduler:register",
+      "scheduler.enable": "scheduler:register",
+      "scheduler.disable": "scheduler:register",
+      "scheduler.trigger": "scheduler:register",
+      "scheduler.subscribe": "scheduler:register",
+      "scheduler.unsubscribe": "scheduler:register",
+      "scheduler.complete": "scheduler:register",
+      "speech.tts": "speech:tts",
+      "speech.getVoices": "speech:tts",
+      "speech.getStatus": "speech:tts",
+      "speech.asr": "speech:asr",
+      "federation.getIdentity": "federation:read",
+      "federation.rotateKeys": "federation:write",
+      "federation.getFeed": "federation:read",
+      "federation.getTimeline": "federation:read",
+      "federation.getFollowing": "federation:read",
+      "federation.getFollowers": "federation:read",
+      "federation.getPublished": "federation:read",
+      "federation.getChannels": "federation:read",
+      "federation.getChannel": "federation:read",
+      "federation.getMessages": "federation:read",
+      "federation.getRooms": "federation:read",
+      "federation.getRoom": "federation:read",
+      "federation.getRoomMembers": "federation:read",
+      "federation.getRoomMessages": "federation:read",
+      "federation.getRings": "federation:read",
+      "federation.getRing": "federation:read",
+      "federation.getRingPeers": "federation:read",
+      "federation.follow": "federation:write",
+      "federation.unfollow": "federation:write",
+      "federation.publish": "federation:write",
+      "federation.createNote": "federation:write",
+      "federation.like": "federation:write",
+      "federation.unlike": "federation:write",
+      "federation.bookmark": "federation:write",
+      "federation.unbookmark": "federation:write",
+      "federation.getBookmarks": "federation:read",
+      "federation.getExternalShareStatus": "federation:read",
+      "federation.composeExternalShare": "federation:read",
+      "federation.announce": "federation:write",
+      "federation.unannounce": "federation:write",
+      "federation.uploadMedia": "federation:write",
+      "federation.unpublish": "federation:write",
+      "federation.createChannel": "federation:write",
+      "federation.acceptChannel": "federation:write",
+      "federation.closeChannel": "federation:write",
+      "federation.deleteChannel": "federation:write",
+      "federation.createRoom": "federation:write",
+      "federation.updateRoom": "federation:write",
+      "federation.deleteRoom": "federation:write",
+      "federation.inviteMember": "federation:write",
+      "federation.acceptRoomInvite": "federation:write",
+      "federation.rejectRoomInvite": "federation:write",
+      "federation.removeMember": "federation:write",
+      "federation.leaveRoom": "federation:write",
+      "federation.transferRoomOwnership": "federation:write",
+      "federation.initiateChannelE2e": "federation:write",
+      "federation.initiateRoomE2e": "federation:write",
+      "federation.pinRoomMessage": "federation:write",
+      "federation.createRing": "federation:write",
+      "federation.leaveRing": "federation:write",
+      "federation.addPeer": "federation:write",
+      "federation.removePeer": "federation:write",
+      "federation.triggerSync": "federation:write",
+      "federation.sendMessage": "federation:message",
+      "federation.sendRoomMessage": "federation:message",
+      "federation.subscribeChannel": "federation:message",
+      "federation.unsubscribeChannel": "federation:message",
+      "federation.subscribeRoom": "federation:message",
+      "federation.unsubscribeRoom": "federation:message",
+      "federation.getTrustPolicy": "federation:trust",
+      "federation.updateTrustPolicy": "federation:trust",
+      "federation.getInstances": "federation:trust",
+      "federation.getDeliveryStats": "federation:read",
+      "federation.listDelivery": "federation:read",
+      "federation.retryDelivery": "federation:write",
+      "federation.cancelDelivery": "federation:write",
+      "federation.retryAllDeadDelivery": "federation:write",
+      "federation.cancelAllPendingDelivery": "federation:write",
+      "federation.dismissDelivery": "federation:write",
+      "federation.purgeDeadDelivery": "federation:write",
+      "federation.joinRoom": "federation:write",
+      "federation.updateInstanceTrust": "federation:trust",
+      "federation.toggleInstanceBlock": "federation:trust",
+      "federation.initiateTransfer": "federation:files",
+      "federation.listTransfers": "federation:files",
+      "federation.initiateRoomTransfer": "federation:files",
+      "federation.listRoomTransfers": "federation:files",
+      "federation.listRoomFiles": "federation:files",
+      "federation.getTransfer": "federation:files",
+      "federation.downloadTransfer": "federation:files",
+      "federation.uploadChunk": "federation:files",
+      "federation.cancelTransfer": "federation:files"
+    }
+  },
+  "capabilities": {
+    "profiles": [
+      "page",
+      "widget",
+      "headless"
+    ],
+    "headlessDeniedActions": [
+      "ui.setTitle",
+      "ui.confirm",
+      "ui.requestFullscreen",
+      "ui.exitFullscreen",
+      "ui.toggleFullscreen",
+      "ui.isFullscreen",
+      "widget.register",
+      "widget.unregister",
+      "widget.listRegistered",
+      "widget.updateConfig",
+      "tappList.list",
+      "tappList.get",
+      "tappList.getRecent",
+      "tappList.getInstallPackage",
+      "tappList.resolveStoreSource",
+      "tappList.install",
+      "tappList.uninstall",
+      "tappList.start",
+      "tappList.stop",
+      "tappList.export",
+      "component.registerTheme",
+      "component.registerAgent",
+      "component.unregister",
+      "component.list",
+      "shortcut.register",
+      "shortcut.unregister",
+      "shortcut.list",
+      "dynamicContent.set",
+      "dynamicContent.update",
+      "dynamicContent.get",
+      "dynamicContent.remove",
+      "file.download"
+    ]
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "name": "@myriad/tapp-cli",
+  "version": "0.1.0",
+  "description": "Offline project tooling for Myriad Tapps",
+  "type": "module",
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
+  "bin": {
+    "myriad-tapp": "bin/myriad-tapp.mjs",
+    "tapp": "bin/myriad-tapp.mjs",
+    "tapp-cli": "bin/myriad-tapp.mjs"
+  },
+  "scripts": {
+    "sync-contract": "node ./scripts/sync-contract.mjs",
+    "sync-generated": "npm run sync-contract",
+    "test": "node --test",
+    "pack:check": "npm pack --dry-run",
+    "prepublishOnly": "npm run sync-contract && npm test"
+  },
+  "dependencies": {
+    "typescript": "^6.0.3"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "GPL-3.0-only",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/myriad-you/Myriad.git",
+    "directory": "tools/tapp-cli"
+  },
+  "homepage": "https://github.com/myriad-you/Myriad/tree/main/tools/tapp-cli",
+  "bugs": {
+    "url": "https://github.com/myriad-you/Myriad/issues"
+  }
+}

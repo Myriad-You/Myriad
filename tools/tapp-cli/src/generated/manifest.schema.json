@@ -1,0 +1,793 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myriad.local/tapp/manifest.schema.json",
+  "title": "TappManifest",
+  "description": "Generated from backend TappManifest schema. Semantic limits and permission rules live in contract.json.",
+  "$defs": {
+    "TappAgentInteractionDef": {
+      "additionalProperties": false,
+      "properties": {
+        "inputSchema": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "resultSchema": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    "TappAgentManifest": {
+      "additionalProperties": false,
+      "properties": {
+        "intents": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "interactions": {
+          "items": {
+            "$ref": "#/$defs/TappAgentInteractionDef"
+          },
+          "type": "array"
+        },
+        "protocolVersion": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "interactions"
+      ],
+      "type": "object"
+    },
+    "TappAiContextSource": {
+      "enum": [
+        "platform",
+        "report",
+        "profile",
+        "custom"
+      ],
+      "type": "string"
+    },
+    "TappAiManifest": {
+      "additionalProperties": false,
+      "properties": {
+        "contextSources": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/TappAiContextSource"
+          },
+          "type": "array"
+        },
+        "modelTier": {
+          "$ref": "#/$defs/TappAiModelTier"
+        },
+        "operations": {
+          "items": {
+            "$ref": "#/$defs/TappAiOperation"
+          },
+          "type": "array"
+        },
+        "outputFormats": {
+          "items": {
+            "$ref": "#/$defs/TappAiOutputFormat"
+          },
+          "type": "array"
+        },
+        "protocolVersion": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "operations",
+        "modelTier",
+        "outputFormats"
+      ],
+      "type": "object"
+    },
+    "TappAiModelTier": {
+      "enum": [
+        "standard",
+        "pro"
+      ],
+      "type": "string"
+    },
+    "TappAiOperation": {
+      "enum": [
+        "generate",
+        "analyze",
+        "chat",
+        "image"
+      ],
+      "type": "string"
+    },
+    "TappAiOutputFormat": {
+      "enum": [
+        "text",
+        "json",
+        "image"
+      ],
+      "type": "string"
+    },
+    "TappApiAccess": {
+      "enum": [
+        "public",
+        "protected"
+      ],
+      "type": "string"
+    },
+    "TappApiDef": {
+      "additionalProperties": false,
+      "properties": {
+        "access": {
+          "$ref": "#/$defs/TappApiAccess",
+          "default": "protected"
+        },
+        "body": true,
+        "builtin": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cacheTtl": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "endpoint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "inject": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "method": {
+          "default": "GET",
+          "type": "string"
+        },
+        "spoof": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "default": "http",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "TappAuthor": {
+      "additionalProperties": false,
+      "properties": {
+        "email": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "TappCategory": {
+      "enum": [
+        "ai",
+        "data",
+        "developer",
+        "game",
+        "media",
+        "productivity",
+        "social",
+        "utility"
+      ],
+      "type": "string"
+    },
+    "TappDataExchangeManifest": {
+      "additionalProperties": false,
+      "properties": {
+        "exports": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/TappDataExport"
+          },
+          "type": "array"
+        },
+        "imports": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/TappDataImport"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "TappDataExport": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "maxBytes": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "maxRecords": {
+          "default": null,
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "schema": {
+          "description": "Supported inline JSON Schema subset; remote and file `$ref` are denied."
+        }
+      },
+      "required": [
+        "id",
+        "schema",
+        "maxBytes"
+      ],
+      "type": "object"
+    },
+    "TappDataImport": {
+      "additionalProperties": false,
+      "properties": {
+        "exportId": {
+          "type": "string"
+        },
+        "tappId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tappId",
+        "exportId"
+      ],
+      "type": "object"
+    },
+    "TappEventsManifest": {
+      "additionalProperties": false,
+      "properties": {
+        "publish": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "subscribe": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "TappManifestLocaleEntry": {
+      "additionalProperties": false,
+      "description": "单个语言下的清单展示文案覆盖",
+      "properties": {
+        "description": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "TappSettingDef": {
+      "additionalProperties": false,
+      "properties": {
+        "defaultValue": true,
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "key": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "max": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "min": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/TappSettingOption"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "placeholder": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "step": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "label",
+        "type"
+      ],
+      "type": "object"
+    },
+    "TappSettingOption": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "value",
+        "label"
+      ],
+      "type": "object"
+    },
+    "TappWidgetCategory": {
+      "enum": [
+        "stats",
+        "activity",
+        "visualization",
+        "utility",
+        "custom"
+      ],
+      "type": "string"
+    },
+    "TappWidgetDef": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TappWidgetCategory"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "defaultSize": {
+          "type": "string"
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "icon": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "refreshPolicy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TappWidgetRefreshPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "settings": {
+          "items": {
+            "$ref": "#/$defs/TappSettingDef"
+          },
+          "type": "array"
+        },
+        "sizes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "templates": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "defaultSize",
+        "sizes"
+      ],
+      "type": "object"
+    },
+    "TappWidgetRefreshMode": {
+      "enum": [
+        "event",
+        "interval"
+      ],
+      "type": "string"
+    },
+    "TappWidgetRefreshPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "intervalSeconds": {
+          "default": null,
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "mode": {
+          "$ref": "#/$defs/TappWidgetRefreshMode"
+        },
+        "refreshOnVisible": {
+          "default": true,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "agent": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TappAgentManifest"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "ai": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TappAiManifest"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "apis": {
+      "additionalProperties": {
+        "$ref": "#/$defs/TappApiDef"
+      },
+      "default": null,
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "assets": {
+      "items": {
+        "type": "string"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "author": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TappAuthor"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "backgroundRequirements": {
+      "default": null,
+      "items": {
+        "type": "string"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "category": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TappCategory"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "cssMode": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "dataExchange": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TappDataExchangeManifest"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "description": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "events": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TappEventsManifest"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "hasPage": {
+      "default": false,
+      "type": "boolean"
+    },
+    "homepage": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "icon": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "iconSvg": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "id": {
+      "type": "string"
+    },
+    "locales": {
+      "additionalProperties": {
+        "$ref": "#/$defs/TappManifestLocaleEntry"
+      },
+      "description": "展示文案的多语言覆盖：语言标签 → { name?, description? }",
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "main": {
+      "type": "string"
+    },
+    "minSystemVersion": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "name": {
+      "type": "string"
+    },
+    "pageModules": {
+      "default": null,
+      "items": {
+        "type": "string"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "pageStyles": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "pageTemplate": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "permissions": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "repository": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "settings": {
+      "items": {
+        "$ref": "#/$defs/TappSettingDef"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "styles": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "themeColor": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "version": {
+      "type": "string"
+    },
+    "widgetStyles": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "widgets": {
+      "items": {
+        "$ref": "#/$defs/TappWidgetDef"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "version",
+    "main"
+  ],
+  "type": "object"
+}

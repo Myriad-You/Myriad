@@ -1,0 +1,41 @@
+{
+  "profiles": [
+    "page",
+    "widget",
+    "headless"
+  ],
+  "headlessDeniedActions": [
+    "ui.setTitle",
+    "ui.confirm",
+    "ui.requestFullscreen",
+    "ui.exitFullscreen",
+    "ui.toggleFullscreen",
+    "ui.isFullscreen",
+    "widget.register",
+    "widget.unregister",
+    "widget.listRegistered",
+    "widget.updateConfig",
+    "tappList.list",
+    "tappList.get",
+    "tappList.getRecent",
+    "tappList.getInstallPackage",
+    "tappList.resolveStoreSource",
+    "tappList.install",
+    "tappList.uninstall",
+    "tappList.start",
+    "tappList.stop",
+    "tappList.export",
+    "component.registerTheme",
+    "component.registerAgent",
+    "component.unregister",
+    "component.list",
+    "shortcut.register",
+    "shortcut.unregister",
+    "shortcut.list",
+    "dynamicContent.set",
+    "dynamicContent.update",
+    "dynamicContent.get",
+    "dynamicContent.remove",
+    "file.download"
+  ]
+}

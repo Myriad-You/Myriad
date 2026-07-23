@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
 pub enum TappCategory {
     #[serde(rename = "ai")]
     Ai,
@@ -38,6 +39,7 @@ pub enum TappCategory {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TappManifest {
     pub id: String,
@@ -88,6 +90,7 @@ pub struct TappManifest {
 
 /// 单个语言下的清单展示文案覆盖
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TappManifestLocaleEntry {
     #[serde(default)]
@@ -97,6 +100,7 @@ pub struct TappManifestLocaleEntry {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum TappAiOperation {
     Generate,
@@ -117,6 +121,7 @@ impl TappAiOperation {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum TappAiModelTier {
     Standard,
@@ -124,6 +129,7 @@ pub enum TappAiModelTier {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum TappAiContextSource {
     Platform,
@@ -133,6 +139,7 @@ pub enum TappAiContextSource {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum TappAiOutputFormat {
     Text,
@@ -141,6 +148,7 @@ pub enum TappAiOutputFormat {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TappAiManifest {
     pub protocol_version: u8,
@@ -152,6 +160,7 @@ pub struct TappAiManifest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TappEventsManifest {
     #[serde(default)]
@@ -172,6 +181,7 @@ pub(super) fn valid_event_topic(value: &str) -> bool {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TappAgentManifest {
     pub protocol_version: u8,
@@ -181,6 +191,7 @@ pub struct TappAgentManifest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TappAgentInteractionDef {
     #[serde(rename = "type")]
@@ -203,6 +214,7 @@ pub(super) fn valid_agent_name(value: &str) -> bool {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TappDataExchangeManifest {
     #[serde(default)]
@@ -212,6 +224,7 @@ pub struct TappDataExchangeManifest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TappDataExport {
     pub id: String,
@@ -225,6 +238,7 @@ pub struct TappDataExport {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TappDataImport {
     pub tapp_id: String,
@@ -232,6 +246,7 @@ pub struct TappDataImport {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum TappApiAccess {
     Public,
@@ -240,6 +255,7 @@ pub enum TappApiAccess {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TappApiDef {
     #[serde(default)]
@@ -268,6 +284,7 @@ fn default_http_method() -> String {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct TappAuthor {
     pub name: String,
@@ -276,6 +293,7 @@ pub struct TappAuthor {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TappWidgetDef {
     pub id: String,
@@ -293,6 +311,7 @@ pub struct TappWidgetDef {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
 pub enum TappWidgetCategory {
     #[serde(rename = "stats")]
     Stats,
@@ -319,6 +338,7 @@ impl TappWidgetCategory {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum TappWidgetRefreshMode {
     Event,
@@ -326,6 +346,7 @@ pub enum TappWidgetRefreshMode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TappWidgetRefreshPolicy {
     pub mode: TappWidgetRefreshMode,
@@ -340,6 +361,7 @@ fn default_true() -> bool {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TappSettingDef {
     pub key: String,
@@ -356,6 +378,7 @@ pub struct TappSettingDef {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct TappSettingOption {
     pub value: String,
