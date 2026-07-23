@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 pub const MAX_TAPP_ID_LEN: usize = 128;
 pub const MAX_RESOURCE_PATH_LEN: usize = 256;
 pub const MAX_TAPP_ARCHIVE_BYTES: usize = 25 * 1024 * 1024;

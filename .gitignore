@@ -79,6 +79,8 @@ out/
 /tools/tapp-cli/node_modules/
 /tools/tapp-cli/dist/
 /tools/tapp-contract-export/target/
+/crates/tapp-contract/Cargo.lock
+/crates/tapp-contract/target/
 
 # Updater state (per-host runtime data, never in git)
 /state/

@@ -86,6 +86,55 @@ describe('Tapp project core', () => {
     assert.match(sdkDts, /federation/)
   })
 
+  it('parses contract sources independently of quote style', async () => {
+    const permissionSource = await readFile(
+      resolve(packageRoot, '../../frontend/src/tapp/runtime/permissionConfig.ts'),
+      'utf8',
+    )
+    const capabilitySource = await readFile(
+      resolve(
+        packageRoot,
+        '../../frontend/src/tapp/runtime/sandbox/capabilityProfiles.ts',
+      ),
+      'utf8',
+    )
+
+    const quotedPermissionSource = permissionSource.replace(
+      /\['lifecycle\.ready', 'public'\]/,
+      '["lifecycle.ready", "public"]',
+    )
+    const quotedCapabilitySource = capabilitySource.replace(
+      "'ui.showNotification'",
+      '"ui.showNotification"',
+    )
+
+    assert.deepEqual(
+      parsePermissionSource(quotedPermissionSource),
+      parsePermissionSource(permissionSource),
+    )
+    assert.deepEqual(
+      parseCapabilitySource(quotedCapabilitySource),
+      parseCapabilitySource(capabilitySource),
+    )
+  })
+
+  it('rejects contract sources with syntax errors', async () => {
+    const permissionSource = await readFile(
+      resolve(packageRoot, '../../frontend/src/tapp/runtime/permissionConfig.ts'),
+      'utf8',
+    )
+    const capabilitySource = await readFile(
+      resolve(
+        packageRoot,
+        '../../frontend/src/tapp/runtime/sandbox/capabilityProfiles.ts',
+      ),
+      'utf8',
+    )
+
+    assert.throws(() => parsePermissionSource(`${permissionSource}\nconst =`))
+    assert.throws(() => parseCapabilitySource(`${capabilitySource}\nconst =`))
+  })
+
   for (const type of ['page', 'widget', 'both']) {
     it(`creates a valid ${type} starter`, async () => {
       const root = await temporaryDirectory(type)

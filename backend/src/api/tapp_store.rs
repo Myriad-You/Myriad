@@ -14,7 +14,6 @@ mod access;
 mod catalog;
 mod installation;
 mod lifecycle;
-mod manifest;
 mod package_api;
 mod package_files;
 mod prepared_package;
@@ -39,7 +38,7 @@ use catalog::tapp_detail_from_model;
 use catalog::{get_tapp, list_tapp_details, list_tapps};
 use installation::{install_tapp, install_tapp_file, update_tapp};
 use lifecycle::{get_recent_tapps, start_tapp, stop_tapp};
-pub use manifest::*;
+pub use myriad_tapp_contract::manifest::*;
 use package_api::{export_tapp, get_tapp_asset, get_tapp_code, get_tapp_resources};
 pub(crate) use package_files::*;
 use storage::{

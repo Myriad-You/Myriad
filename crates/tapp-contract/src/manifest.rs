@@ -169,7 +169,7 @@ pub struct TappEventsManifest {
     pub subscribe: Vec<String>,
 }
 
-pub(super) fn valid_event_topic(value: &str) -> bool {
+pub fn valid_event_topic(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 128
         && !value.starts_with('.')
@@ -202,7 +202,7 @@ pub struct TappAgentInteractionDef {
     pub result_schema: Option<String>,
 }
 
-pub(super) fn valid_agent_name(value: &str) -> bool {
+pub fn valid_agent_name(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 128
         && !value.starts_with('.')
@@ -326,7 +326,7 @@ pub enum TappWidgetCategory {
 }
 
 impl TappWidgetCategory {
-    pub(super) fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Stats => "stats",
             Self::Activity => "activity",

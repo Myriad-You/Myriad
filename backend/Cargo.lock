@@ -2230,6 +2230,7 @@ dependencies = [
  "md5",
  "migration",
  "mockall",
+ "myriad-tapp-contract",
  "oauth2",
  "once_cell",
  "quick-xml",
@@ -2259,6 +2260,14 @@ dependencies = [
  "uuid",
  "x25519-dalek",
  "zip",
+]
+
+[[package]]
+name = "myriad-tapp-contract"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
