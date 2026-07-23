@@ -1,38 +1,30 @@
 import {
   access,
-  lstat,
   mkdir,
   readdir,
   readFile,
-  stat,
   writeFile,
 } from 'node:fs/promises'
 import {
-  basename,
   dirname,
   extname,
   join,
-  relative,
   resolve,
-  sep,
 } from 'node:path'
-import ts from 'typescript'
 import {
   expectedPackagePaths,
   normalizeManifestPaths,
   PACKAGE_MARKERS,
 } from './package-layout.mjs'
 import { writeZip, zipSize } from './zip.mjs'
+import { createStarterTemplate } from './starter-template.mjs'
+import { analyzeProjectCode } from './source-analyzer.mjs'
+import { validateProjectResources } from './resource-validator.mjs'
 
 const contract = JSON.parse(
   await readFile(new URL('./generated/contract.json', import.meta.url), 'utf8'),
 )
 const catalog = contract.permissions
-const capabilities = contract.capabilities || {
-  profiles: ['page', 'widget', 'headless'],
-  headlessDeniedActions: [],
-}
-const HEADLESS_DENIED_ACTIONS = new Set(capabilities.headlessDeniedActions || [])
 const schemaDefinitions = contract.schema.$defs
 const schemaFields = (name) => Object.keys(schemaDefinitions[name].properties)
 const schemaEnum = (name) => schemaDefinitions[name].enum
@@ -67,14 +59,7 @@ const DATA_EXCHANGE_DIRECTIONS = contract.rules.dataExchangeDirections
 const API_BUILTIN_AI_OPERATIONS = contract.rules.apiBuiltinAiOperations
 const API_BUILTIN_PERMISSIONS = contract.rules.apiBuiltinPermissions
 const MANIFEST_RESOURCE_FIELDS = contract.rules.manifestResourceFields
-const AGENT_SCHEMA_FIELDS = new Set(contract.rules.agentSchemaFields)
 const URL_FIELDS = contract.rules.urlFields
-const PACKAGE_RESOURCE_EXTENSIONS = contract.rules.packageResourceExtensions
-const PACKAGE_JSON_OBJECT_DIRECTORIES = new Set(contract.rules.packageJsonObjectDirectories)
-const PACKAGE_RESOURCE_FILE_LIMITS = contract.rules.packageResourceFileLimits
-const PACKAGE_RESOURCE_BYTE_LIMITS = contract.rules.packageResourceByteLimits
-const ASSET_DIRECTORY = contract.rules.assetDirectory
-const PAGE_MODULE_DIRECTORY = contract.rules.pageModuleDirectory
 const DEFAULT_API_TYPE = contract.rules.defaultApiType
 const HTTP_API_TYPE = contract.rules.httpApiType
 const BUILTIN_API_TYPE = contract.rules.builtinApiType
@@ -89,20 +74,13 @@ const NAMED_VALUE = new RegExp(contract.patterns.namedValue)
 const STORAGE_KEY = new RegExp(contract.patterns.storageKey)
 const THEME_COLOR = new RegExp(contract.patterns.themeColor)
 const HTTP_METHOD = new RegExp(contract.patterns.httpMethod)
-const CODE_EXTENSIONS = new Set(contract.rules.sourceCodeExtensions)
-const SKIP_DIRECTORIES = new Set(contract.rules.sourceScanSkipDirectories)
 const REQUIRED_MANIFEST_FIELDS = new Set([
   ...contract.schema.required,
   ...contract.rules.requiredManifestFields,
 ])
-const ASSET_LITERAL_METHODS = new Set(contract.rules.assetLiteralMethods)
 const MAX_ARCHIVE_FILES = contract.limits.archiveFiles
 const MAX_ARCHIVE_BYTES = contract.limits.archiveBytes
 const MAX_UNCOMPRESSED_BYTES = contract.limits.archiveUncompressedBytes
-const MAX_ASSET_BYTES = contract.limits.assetBytes
-const MAX_ASSETS_BYTES = contract.limits.assetsTotalBytes
-const MAX_I18N_BYTES = contract.limits.i18nResourceBytes
-const MAX_AGENT_SCHEMA_BYTES = contract.limits.agentSchemaBytes
 
 function diagnostic(severity, code, message, file = 'manifest.json', line, column) {
   return { severity, code, message, file, line, column }
@@ -285,10 +263,6 @@ function validateSettings(settings, path, diagnostics) {
       }
     }
   }
-}
-
-function portablePath(value) {
-  return value.split(sep).join('/')
 }
 
 function validateResourcePath(value) {
@@ -897,178 +871,6 @@ function validateManifest(manifest, diagnostics, requiredPermissions) {
   if (manifest.agent !== undefined) validateAgent(manifest.agent, diagnostics)
 }
 
-function scriptKind(file) {
-  if (file.endsWith('.tsx')) return ts.ScriptKind.TSX
-  if (file.endsWith('.jsx')) return ts.ScriptKind.JSX
-  if (file.endsWith('.ts')) return ts.ScriptKind.TS
-  return ts.ScriptKind.JS
-}
-
-function unwrapExpression(node) {
-  while (
-    ts.isParenthesizedExpression(node) ||
-    ts.isAsExpression(node) ||
-    ts.isTypeAssertionExpression(node) ||
-    ts.isNonNullExpression(node) ||
-    ts.isSatisfiesExpression(node)
-  ) {
-    node = node.expression
-  }
-  return node
-}
-
-function staticMemberName(node) {
-  if (ts.isPropertyAccessExpression(node)) return node.name.text
-  if (ts.isElementAccessExpression(node)) {
-    const argument = unwrapExpression(node.argumentExpression)
-    if (ts.isStringLiteralLike(argument)) return argument.text
-  }
-  return undefined
-}
-
-function tappCallPath(expression) {
-  const path = []
-  let current = unwrapExpression(expression)
-  while (ts.isPropertyAccessExpression(current) || ts.isElementAccessExpression(current)) {
-    const name = staticMemberName(current)
-    if (name === undefined) return undefined
-    path.unshift(name)
-    current = unwrapExpression(current.expression)
-  }
-  return ts.isIdentifier(current) && current.text === 'Tapp' ? path : undefined
-}
-
-function literalString(node) {
-  const value = node && unwrapExpression(node)
-  return value && ts.isStringLiteralLike(value) ? value.text : undefined
-}
-
-function inspectCode(source, file, manifest, diagnostics, requiredPermissions, usedActions, surfaces) {
-  const sourceFile = ts.createSourceFile(
-    file,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    scriptKind(file),
-  )
-
-  for (const parseDiagnostic of sourceFile.parseDiagnostics) {
-    const location = sourceFile.getLineAndCharacterOfPosition(parseDiagnostic.start || 0)
-    diagnostics.push(
-      diagnostic(
-        'error',
-        'invalid-source-syntax',
-        ts.flattenDiagnosticMessageText(parseDiagnostic.messageText, '\n'),
-        file,
-        location.line + 1,
-        location.character + 1,
-      ),
-    )
-  }
-
-  function visit(node) {
-    if (!ts.isCallExpression(node)) {
-      ts.forEachChild(node, visit)
-      return
-    }
-
-    const path = tappCallPath(node.expression)
-    if (!path) {
-      ts.forEachChild(node, visit)
-      return
-    }
-    const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
-    const location = { line: position.line + 1, column: position.character + 1 }
-
-    if (path.length === 2) {
-      const action = path.join('.')
-      const permission = catalog.actions[action]
-      if (permission) {
-        usedActions.push({ action, permission, file, ...location })
-        addRequiredPermission(requiredPermissions, permission, `code calls ${action}`, file)
-      }
-      if (HEADLESS_DENIED_ACTIONS.has(action)) {
-        if (surfaces?.headlessOnly) {
-          diagnostics.push(
-            diagnostic(
-              'error',
-              'headless-denied-action',
-              `${action} is unavailable in headless-only Tapps`,
-              file,
-              location.line,
-              location.column,
-            ),
-          )
-        } else if (surfaces?.headless) {
-          diagnostics.push(
-            diagnostic(
-              'warning',
-              'headless-unavailable-action',
-              `${action} is unavailable in headless core; keep it in Page/Widget code paths`,
-              file,
-              location.line,
-              location.column,
-            ),
-          )
-        }
-      }
-    }
-
-    if (path.length === 1 && path[0] === 'api') {
-      const name = literalString(node.arguments[0])
-      if (name === undefined) {
-        diagnostics.push(
-          diagnostic(
-            'warning',
-            'dynamic-api-name',
-            'A dynamic Tapp.api name cannot be checked statically',
-            file,
-            location.line,
-            location.column,
-          ),
-        )
-      } else if (!manifest.apis || !Object.hasOwn(manifest.apis, name)) {
-        diagnostics.push(
-          diagnostic(
-            'error',
-            'undeclared-api',
-            `Tapp.api('${name}') is not declared in manifest.apis`,
-            file,
-            location.line,
-            location.column,
-          ),
-        )
-      }
-    }
-
-    if (path.length === 2 && path[0] === 'assets' && ASSET_LITERAL_METHODS.has(path[1])) {
-      const assetPath = literalString(node.arguments[0])
-      if (assetPath !== undefined) {
-        const normalized = assetPath.startsWith(`${ASSET_DIRECTORY}/`)
-          ? assetPath
-          : `${ASSET_DIRECTORY}/${assetPath}`
-        const declaredAssets = new Set(arrayValue(manifest.assets))
-        if (!declaredAssets.has(normalized)) {
-          diagnostics.push(
-            diagnostic(
-              'error',
-              'undeclared-asset',
-              `${normalized} is not declared in manifest.assets`,
-              file,
-              location.line,
-              location.column,
-            ),
-          )
-        }
-      }
-    }
-
-    ts.forEachChild(node, visit)
-  }
-
-  visit(sourceFile)
-}
-
 async function pathExists(path) {
   try {
     await access(path)
@@ -1076,157 +878,6 @@ async function pathExists(path) {
   } catch {
     return false
   }
-}
-
-async function walkCodeFiles(root, current = root) {
-  const files = []
-  for (const entry of await readdir(current, { withFileTypes: true })) {
-    if (entry.isDirectory() && (SKIP_DIRECTORIES.has(entry.name) || entry.name === 'types')) {
-      continue
-    }
-    const absolute = join(current, entry.name)
-    if (entry.isDirectory()) files.push(...(await walkCodeFiles(root, absolute)))
-    else if (
-      entry.isFile() &&
-      CODE_EXTENSIONS.has(extname(entry.name)) &&
-      !entry.name.endsWith('.d.ts')
-    ) {
-      files.push(absolute)
-    }
-  }
-  return files
-}
-
-function resourceDeclarations(manifest) {
-  const declarations = new Map()
-  const add = (path, kind, extension) => {
-    if (typeof path === 'string' && path) declarations.set(path, { kind, extension })
-  }
-  for (const [field, extensionKey] of Object.entries(MANIFEST_RESOURCE_FIELDS)) {
-    add(manifest[field], field, contract.rules.resourceExtensions[extensionKey])
-  }
-  for (const module of arrayValue(manifest.pageModules)) add(`${PAGE_MODULE_DIRECTORY}/${module}`, 'pageModule', contract.rules.resourceExtensions.pageModule)
-  for (const asset of arrayValue(manifest.assets)) add(asset, 'asset')
-  for (const widget of arrayValue(manifest.widgets)) {
-    if (!isObject(widget)) continue
-    for (const path of Object.values(widget.templates || {})) {
-      add(path, `widgetTemplate:${widget.id}`, contract.rules.resourceExtensions.widgetTemplate)
-    }
-  }
-  for (const interaction of arrayValue(manifest.agent?.interactions)) {
-    for (const field of AGENT_SCHEMA_FIELDS) {
-      add(interaction?.[field], 'agentSchema', contract.rules.resourceExtensions.agentSchema)
-    }
-  }
-  return declarations
-}
-
-async function validateResources(root, manifest, diagnostics) {
-  const declarations = resourceDeclarations(manifest)
-  const packagePaths = new Set(['manifest.json'])
-  let assetBytes = 0
-
-  for (const [path, metadata] of declarations) {
-    if (!validateResourcePath(path)) {
-      diagnostics.push(
-        diagnostic('error', 'invalid-resource-path', `Invalid ${metadata.kind} path: ${path}`),
-      )
-      continue
-    }
-    if (metadata.extension && extname(path) !== metadata.extension) {
-      diagnostics.push(
-        diagnostic(
-          'error',
-          'invalid-resource-extension',
-          `${metadata.kind} must use ${metadata.extension}: ${path}`,
-        ),
-      )
-    }
-    const absolute = resolve(root, path)
-    if (!absolute.startsWith(`${root}${sep}`) || !(await pathExists(absolute))) {
-      diagnostics.push(
-        diagnostic('error', 'missing-resource', `Declared resource not found: ${path}`),
-      )
-      continue
-    }
-    const info = await lstat(absolute)
-    if (!info.isFile()) {
-      diagnostics.push(diagnostic('error', 'invalid-resource', `Resource is not a file: ${path}`))
-      continue
-    }
-    packagePaths.add(path)
-    if (metadata.kind === 'asset') {
-      assetBytes += info.size
-      if (!path.startsWith(`${ASSET_DIRECTORY}/`) || contract.rules.assetForbiddenExtensions.includes(extname(path))) {
-        diagnostics.push(
-          diagnostic('error', 'invalid-asset', `Asset must be under ${ASSET_DIRECTORY}/ and cannot be JS/HTML: ${path}`),
-        )
-      }
-      if (info.size > MAX_ASSET_BYTES) {
-        diagnostics.push(
-          diagnostic('error', 'asset-too-large', `Asset exceeds ${formatBytes(MAX_ASSET_BYTES)}: ${path}`),
-        )
-      }
-    }
-    if (metadata.kind === 'agentSchema') {
-      if (info.size > MAX_AGENT_SCHEMA_BYTES) {
-        diagnostics.push(diagnostic('error', 'agent-schema-too-large', `${path} exceeds ${formatBytes(MAX_AGENT_SCHEMA_BYTES)}`))
-      }
-      try {
-        const schema = JSON.parse(await readFile(absolute, 'utf8'))
-        if (!validateInlineSchema(schema)) throw new Error('unsupported schema')
-      } catch {
-        diagnostics.push(diagnostic('error', 'invalid-agent-schema', `${path} is not a supported inline JSON Schema`))
-      }
-    }
-  }
-
-  if (arrayValue(manifest.assets).length > contract.limits.assets) {
-    diagnostics.push(diagnostic('error', 'too-many-assets', `assets accepts at most ${contract.limits.assets} entries`))
-  }
-  if (assetBytes > MAX_ASSETS_BYTES) {
-    diagnostics.push(diagnostic('error', 'assets-too-large', `Declared assets exceed ${formatBytes(MAX_ASSETS_BYTES)} total`))
-  }
-
-  for (const [directory, extension] of Object.entries(PACKAGE_RESOURCE_EXTENSIONS)) {
-    const absoluteDirectory = join(root, directory)
-    if (!(await pathExists(absoluteDirectory))) continue
-    const directoryEntries = await readdir(absoluteDirectory, { withFileTypes: true })
-    const fileLimitKey = PACKAGE_RESOURCE_FILE_LIMITS[directory]
-    if (fileLimitKey && directoryEntries.length > contract.limits[fileLimitKey]) {
-      diagnostics.push(diagnostic('error', `too-many-${directory}-files`, `${directory} accepts at most ${contract.limits[fileLimitKey]} files`))
-    }
-    for (const entry of directoryEntries) {
-      if (PACKAGE_JSON_OBJECT_DIRECTORIES.has(directory) && (!entry.isFile() || extname(entry.name) !== extension)) {
-        diagnostics.push(diagnostic('error', `invalid-${directory}`, `${directory}/${entry.name} must be a regular JSON file`))
-        continue
-      }
-      if (!entry.isFile()) continue
-      const path = `${directory}/${entry.name}`
-      if (!validateResourcePath(path)) {
-        diagnostics.push(diagnostic('error', 'invalid-resource-path', `Invalid path: ${path}`))
-        continue
-      }
-      const byteLimitKey = PACKAGE_RESOURCE_BYTE_LIMITS[directory]
-      if (byteLimitKey) {
-        const info = await stat(join(absoluteDirectory, entry.name))
-        if (info.size > contract.limits[byteLimitKey]) {
-          diagnostics.push(diagnostic('error', `${directory}-too-large`, `${path} exceeds ${contract.limits[byteLimitKey]} bytes`))
-        }
-        if (PACKAGE_JSON_OBJECT_DIRECTORIES.has(directory)) {
-          try {
-            const value = JSON.parse(await readFile(join(absoluteDirectory, entry.name), 'utf8'))
-            if (!isObject(value)) throw new Error('resource must be an object')
-          } catch {
-            diagnostics.push(diagnostic('error', `invalid-${directory}`, `${path} must contain a JSON object`))
-          }
-        }
-      }
-      if (!PACKAGE_JSON_OBJECT_DIRECTORIES.has(directory) && extname(entry.name) !== extension) continue
-      packagePaths.add(path)
-    }
-  }
-  return [...packagePaths].sort()
 }
 
 export async function inspectProject(projectRoot = '.') {
@@ -1270,20 +921,13 @@ export async function inspectProject(projectRoot = '.') {
   const requiredPermissions = new Map()
   validateManifest(manifest, diagnostics, requiredPermissions)
   const surfaces = validateModeConsistency(manifest, diagnostics, requiredPermissions)
-  const packageFiles = await validateResources(root, manifest, diagnostics)
-  const usedActions = []
-
-  for (const absolute of await walkCodeFiles(root)) {
-    const file = portablePath(relative(root, absolute))
-    inspectCode(
-      await readFile(absolute, 'utf8'),
-      file,
-      manifest,
-      diagnostics,
-      requiredPermissions,
-      usedActions,
-      surfaces,
-    )
+  const resources = await validateProjectResources(root, manifest)
+  const analysis = await analyzeProjectCode({ root, manifest, surfaces })
+  diagnostics.push(...resources.diagnostics, ...analysis.diagnostics)
+  for (const entry of analysis.requiredPermissions.values()) {
+    for (const reason of entry.reasons) {
+      for (const file of entry.locations) addRequiredPermission(requiredPermissions, entry.permission, reason, file)
+    }
   }
 
   const declared = Array.isArray(manifest.permissions) ? manifest.permissions : []
@@ -1315,60 +959,14 @@ export async function inspectProject(projectRoot = '.') {
         level: catalog.permissionLevels[entry.permission],
       })),
       missing,
-      usedActions,
+      usedActions: analysis.usedActions,
     },
-    packageFiles,
+    packageFiles: resources.packageFiles,
   }
-}
-
-function starterId(directory) {
-  const slug = basename(resolve(directory))
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/^[^a-z0-9]+/, '')
-    .replace(/[^a-z0-9]+$/, '')
-  return `com.example.${slug || 'my-tapp'}`
-}
-
-function starterName(directory) {
-  return basename(resolve(directory))
-    .split(/[-_.\s]+/)
-    .filter(Boolean)
-    .map((part) => part[0].toUpperCase() + part.slice(1))
-    .join(' ') || 'My Tapp'
-}
-
-function pageSource() {
-  return `// ========== Page Code ==========
-Tapp.lifecycle.onReady(async function () {
-  var root = document.getElementById('tapp-root');
-  root.querySelector('[data-action="notify"]').addEventListener('click', function () {
-    Tapp.ui.showNotification({
-      title: 'My Tapp',
-      message: 'The Page is running.',
-      type: 'success'
-    });
-  });
-});
-`
-}
-
-function widgetSource() {
-  return `// ========== Widget Code ==========
-Tapp.widgets['starter'] = {
-  render: function (container, props) {
-    container.innerHTML = '<section class="widget"><strong>My Tapp</strong><span>' + props.size + '</span></section>';
-  }
-};
-`
 }
 
 export async function createProject(directory, options = {}) {
   const root = resolve(directory)
-  const type = options.type || 'page'
-  if (!['page', 'widget', 'both'].includes(type)) {
-    throw new Error('type must be page, widget, or both')
-  }
   if (await pathExists(root)) {
     const existing = await readdir(root)
     if (existing.length > 0 && !options.force) {
@@ -1377,44 +975,7 @@ export async function createProject(directory, options = {}) {
   }
   await mkdir(root, { recursive: true })
 
-  const hasPage = type === 'page' || type === 'both'
-  const hasWidget = type === 'widget' || type === 'both'
-  const manifest = {
-    id: options.id || starterId(root),
-    name: options.name || starterName(root),
-    version: '0.1.0',
-    description: 'A Myriad Tapp',
-    category: 'utility',
-    main: 'main.js',
-    author: { name: options.author || 'Tapp Developer' },
-    permissions: [
-      ...(hasPage ? ['ui:notification'] : []),
-      ...(hasWidget ? ['widget:register'] : []),
-    ],
-    ...(hasPage ? { hasPage: true, pageTemplate: 'page.html' } : {}),
-    ...(hasWidget
-      ? {
-          widgets: [
-            {
-              id: 'starter',
-              name: 'Starter Widget',
-              defaultSize: '2x2',
-              sizes: ['2x2', '4x2'],
-              templates: {
-                '2x2': 'templates/widget-2x2.html',
-                '4x2': 'templates/widget-4x2.html',
-              },
-            },
-          ],
-        }
-      : {}),
-    styles: 'styles.css',
-    cssMode: 'unified',
-  }
-
-  const source = `${hasWidget ? widgetSource() : ''}${
-    hasWidget && hasPage ? '\n' : ''
-  }${hasPage ? pageSource() : ''}`
+  const { type, hasPage, hasWidget, manifest, source } = createStarterTemplate(root, options)
   await writeFile(join(root, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`)
   const typedSource = `/// <reference path="./types/tapp-sdk.d.ts" />\n${source}`
   await writeFile(join(root, 'main.js'), typedSource)
