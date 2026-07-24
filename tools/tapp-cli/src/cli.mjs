@@ -1,23 +1,87 @@
 import { createProject, inspectProject, packProject } from './project.mjs'
+import { readFile } from 'node:fs/promises'
+
+const { version: VERSION } = JSON.parse(
+  await readFile(new URL('../package.json', import.meta.url), 'utf8'),
+)
+
+const COMMANDS = {
+  init: {
+    usage: 'myriad-tapp init [directory] [options]',
+    summary: 'Create a Tapp project. directory defaults to the current directory.',
+    options: [
+      '--type <page|widget|both>  Starter surface; defaults to page.',
+      '--id <id>                  Manifest id.',
+      '--name <name>              Display name.',
+      '--author <name>            Author name.',
+      '--force                    Allow a non-empty target directory.',
+      '--json                     stdout is a single JSON object.',
+    ],
+    allowedOptions: new Set(['type', 'id', 'name', 'author', 'force', 'json']),
+    success: 'Project was created and passes validation.',
+  },
+  check: {
+    usage: 'myriad-tapp check [directory] [--json]',
+    summary: 'Validate a Tapp project. directory defaults to the current directory.',
+    options: ['--json  stdout is a single JSON object containing the inspection report.'],
+    allowedOptions: new Set(['json']),
+    success: 'Validation succeeded.',
+  },
+  permissions: {
+    usage: 'myriad-tapp permissions [directory] [--json]',
+    summary: 'List declared and statically inferred permissions.',
+    options: ['--json  stdout is a single JSON object containing the inspection report.'],
+    allowedOptions: new Set(['json']),
+    success: 'Permissions were inspected without validation errors.',
+  },
+  pack: {
+    usage: 'myriad-tapp pack [directory] [--out file.tapp] [--json]',
+    summary: 'Validate and package a Tapp project. directory defaults to the current directory.',
+    options: [
+      '-o, --out <path>  Archive path; defaults to dist/{manifest.id}.tapp.',
+      '--json             stdout is a single JSON object containing the package result.',
+    ],
+    allowedOptions: new Set(['out', 'json']),
+    success: 'Validation succeeded and the archive was written.',
+  },
+}
 
 const HELP = `Myriad Tapp CLI
 
 Usage:
-  myriad-tapp init [directory] [--type page|widget|both]
+  myriad-tapp init [directory] [options]
   myriad-tapp check [directory] [--json]
   myriad-tapp permissions [directory] [--json]
   myriad-tapp pack [directory] [--out file.tapp] [--json]
 
-Options:
-  --id <id>          Tapp id used by init
-  --name <name>      Display name used by init
-  --author <name>    Author name used by init
-  --force            Allow init in a non-empty directory
-  --json             Emit machine-readable output
-  -o, --out <path>   Package output path
-  -h, --help         Show help
-  -v, --version      Show version
+Run "myriad-tapp <command> --help" for command options, JSON output, and exit status.
+
+Global options:
+  -h, --help     Show help.
+  -v, --version  Show the CLI version.
 `
+
+class UsageError extends Error {}
+
+function commandHelp(command) {
+  const spec = COMMANDS[command]
+  if (!spec) return HELP.trimEnd()
+  return `Myriad Tapp CLI
+
+Usage:
+  ${spec.usage}
+
+${spec.summary}
+
+Options:
+  ${spec.options.join('\n  ')}
+  -h, --help          Show this command help.
+
+Exit status:
+  0  ${spec.success}
+  1  Project validation or packaging failed.
+  2  Command-line usage error.`
+}
 
 function parseArguments(args) {
   const options = {}
@@ -30,14 +94,36 @@ function parseArguments(args) {
     else if (value === '--version' || value === '-v') options.version = true
     else if (['--type', '--id', '--name', '--author', '--out', '-o'].includes(value)) {
       const next = args[index + 1]
-      if (!next || next.startsWith('-')) throw new Error(`${value} requires a value`)
+      if (!next || next.startsWith('-')) throw new UsageError(`${value} requires a value`)
       options[value === '-o' ? 'out' : value.slice(2)] = next
       index += 1
     } else if (value.startsWith('-')) {
-      throw new Error(`Unknown option: ${value}`)
+      throw new UsageError(`Unknown option: ${value}`)
     } else positional.push(value)
   }
   return { options, positional }
+}
+
+function validateCommand(command, options, positional) {
+  const spec = COMMANDS[command]
+  if (!spec) return
+  if (positional.length > 1) throw new UsageError(`${command} accepts at most one directory`)
+  for (const option of Object.keys(options)) {
+    if (option === 'help' || option === 'version') continue
+    if (!spec.allowedOptions.has(option)) {
+      throw new UsageError(`--${option} is only valid with ${Object.entries(COMMANDS)
+        .filter(([, value]) => value.allowedOptions.has(option))
+        .map(([name]) => name)
+        .join(' or ')}`)
+    }
+  }
+}
+
+function printUsageError(io, error, json) {
+  const message = error instanceof Error ? error.message : String(error)
+  if (json) io.stdout(JSON.stringify({ error: { code: 'usage-error', message }, exitCode: 2 }))
+  else io.stderr(`myriad-tapp: ${message}`)
+  return 2
 }
 
 function formatLocation(item) {
@@ -89,7 +175,14 @@ function defaultIo() {
 export async function runCli(argv, providedIo = defaultIo()) {
   const io = providedIo
   const command = argv[0]
-  const { options, positional } = parseArguments(argv.slice(command ? 1 : 0))
+  let options
+  let positional
+  try {
+    ;({ options, positional } = parseArguments(argv.slice(command ? 1 : 0)))
+    validateCommand(command, options, positional)
+  } catch (error) {
+    return printUsageError(io, error, argv.includes('--json'))
+  }
 
   if (
     !command ||
@@ -98,7 +191,7 @@ export async function runCli(argv, providedIo = defaultIo()) {
     command === '--help' ||
     command === '-h'
   ) {
-    io.stdout(HELP.trimEnd())
+    io.stdout(commandHelp(command === 'help' ? positional[0] : command))
     return 0
   }
   if (
@@ -107,7 +200,7 @@ export async function runCli(argv, providedIo = defaultIo()) {
     command === '--version' ||
     command === '-v'
   ) {
-    io.stdout('0.1.0')
+    io.stdout(VERSION)
     return 0
   }
 
@@ -163,6 +256,9 @@ export async function runCli(argv, providedIo = defaultIo()) {
     }
   }
 
+  if (options.json) {
+    return printUsageError(io, new UsageError(`Unknown command: ${command}`), true)
+  }
   io.stderr(`Unknown command: ${command}`)
   io.stderr('Run myriad-tapp --help for usage.')
   return 2

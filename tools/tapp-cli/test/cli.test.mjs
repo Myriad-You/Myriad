@@ -42,6 +42,49 @@ describe('CLI adapter', () => {
     assert.equal(version.stdout.trim(), '0.1.0')
   })
 
+  it('documents each command for agents and rejects unsupported options', () => {
+    const initHelp = run(['init', '--help'])
+    assert.equal(initHelp.status, 0)
+    assert.match(initHelp.stdout, /Usage:\n  myriad-tapp init/)
+    assert.match(initHelp.stdout, /--type <page\|widget\|both>/)
+    assert.doesNotMatch(initHelp.stdout, /--out <path>/)
+
+    const checkHelp = run(['check', '--help'])
+    assert.equal(checkHelp.status, 0)
+    assert.match(checkHelp.stdout, /Exit status:\n  0  Validation succeeded/)
+    assert.match(checkHelp.stdout, /--json.*stdout is a single JSON object/)
+
+    const invalid = run(['check', '.', '--type', 'page'])
+    assert.equal(invalid.status, 2)
+    assert.match(invalid.stderr, /--type is only valid with init/)
+  })
+
+  it('emits a structured JSON error when a JSON command cannot run', () => {
+    const failed = run(['init', packageRoot, '--json'])
+    assert.equal(failed.status, 1)
+    assert.equal(failed.stderr, '')
+    assert.deepEqual(JSON.parse(failed.stdout), {
+      error: {
+        code: 'execution-error',
+        message: `Target directory is not empty: ${packageRoot}`,
+      },
+      exitCode: 1,
+    })
+  })
+
+  it('emits a structured JSON usage error for an unknown command', () => {
+    const failed = run(['unknown', '--json'])
+    assert.equal(failed.status, 2)
+    assert.equal(failed.stderr, '')
+    assert.deepEqual(JSON.parse(failed.stdout), {
+      error: {
+        code: 'usage-error',
+        message: 'Unknown command: unknown',
+      },
+      exitCode: 2,
+    })
+  })
+
   it('runs init, check, permissions and pack end to end', () => {
     const initialized = run(['init', project, '--type', 'both', '--id', 'com.example.cli'])
     assert.equal(initialized.status, 0, initialized.stderr || initialized.stdout)

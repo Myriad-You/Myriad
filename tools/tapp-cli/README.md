@@ -3,30 +3,69 @@
 Offline project tooling for Myriad Tapps. The backend installer remains the final
 authority; this CLI catches common contract problems before upload.
 
-## Commands
+## Agent workflow
+
+Use a pinned package version and the explicit binary name in automation. `--yes`
+accepts npm's temporary-install prompt; `--package` makes the selected package and
+binary unambiguous in CI.
 
 ```bash
-npx --yes --package=@myriad/tapp-cli myriad-tapp init ./my-tapp --type page
-npx --yes --package=@myriad/tapp-cli myriad-tapp check ./my-tapp
-npx --yes --package=@myriad/tapp-cli myriad-tapp permissions ./my-tapp
-npx --yes --package=@myriad/tapp-cli myriad-tapp pack ./my-tapp
+npx --yes --package=@myriad/tapp-cli@0.1.0 myriad-tapp init ./my-tapp --type page
+npx --yes --package=@myriad/tapp-cli@0.1.0 myriad-tapp check ./my-tapp --json
+npx --yes --package=@myriad/tapp-cli@0.1.0 myriad-tapp pack ./my-tapp --json
 ```
 
-`init` supports `page`, `widget`, and `both`. `check --json` emits diagnostics for
-editor and CI integration. `pack` refuses projects with errors and writes
-`dist/{manifest.id}.tapp` by default.
+Treat a non-zero status as failure. When `check --json` returns status `1`, repair
+the reported diagnostics and repeat `check`; run `pack --json` only after it
+succeeds. `pack` writes `dist/{manifest.id}.tapp` unless `--out` is supplied.
 
-For a checked-in dependency or CI job, pin the package version:
+For a checked-in dependency, use the same pinned command:
 
 ```bash
 npm exec --yes --package=@myriad/tapp-cli@0.1.0 -- myriad-tapp check . --json
 ```
 
-The package exposes `myriad-tapp`, `tapp`, and `tapp-cli` binaries. The last name
-matches the unscoped part of `@myriad/tapp-cli`, so npm can infer the executable
-for the short form `npx @myriad/tapp-cli` according to its bin resolution rules.
-The explicit `--package ... myriad-tapp` form above is preferred in CI because it
-also makes the selected command and version obvious.
+## Commands
+
+Run `myriad-tapp <command> --help` for the command-specific interface and exit
+status. Each command accepts at most one optional directory; it defaults to the
+current directory.
+
+| Command | Purpose | Allowed options |
+| --- | --- | --- |
+| `init [directory]` | Create a project. | `--type <page\|widget\|both>`, `--id <id>`, `--name <name>`, `--author <name>`, `--force`, `--json` |
+| `check [directory]` | Validate a project. | `--json` |
+| `permissions [directory]` | List declared and inferred permissions. | `--json` |
+| `pack [directory]` | Validate and write a `.tapp` archive. | `-o, --out <path>`, `--json` |
+
+Unsupported options are usage errors. `--version` returns the installed CLI
+version; `--help` returns global help when supplied without a command.
+
+## Automation contract
+
+| Exit status | Meaning | JSON-mode output |
+| --- | --- | --- |
+| `0` | Requested operation succeeded. | Command result. |
+| `1` | Validation, packaging, or execution failed. | Inspection report for validation failures; error envelope for execution failures. |
+| `2` | Command-line usage is invalid. | Error envelope. |
+
+When executing a subcommand with `--json`, stdout is exactly one JSON object and
+stderr is empty. Successful `init` returns `{ result, report }`; `check` and
+`permissions` return an inspection report; successful `pack` returns
+`{ outputPath, sizeBytes, entries, diagnostics }`. Validation failures return their
+inspection report so callers can read diagnostics.
+Command-line errors return this envelope:
+
+```bash
+{
+  "error": { "code": "usage-error", "message": "..." },
+  "exitCode": 2
+}
+```
+
+Execution errors use the same shape with `code: "execution-error"` and
+`exitCode: 1`. The package also exposes `tapp` and `tapp-cli`; use `myriad-tapp`
+in automation to keep the selected binary explicit.
 
 ## Checks
 
