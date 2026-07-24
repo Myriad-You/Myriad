@@ -3,7 +3,15 @@
 Offline project tooling for Myriad Tapps. The backend installer remains the final
 authority; this CLI catches common contract problems before upload.
 
-## Agent workflow
+## Requirements
+
+- Node.js 20 or newer;
+- access to a Myriad instance when you are ready to install the generated package.
+
+The examples pin `@myriad/tapp-cli` to `0.1.0`. Keep the version explicit in
+automation and upgrade it deliberately when a newer release is available.
+
+## For agents
 
 Use a pinned package version and the explicit binary name in automation. `--yes`
 accepts npm's temporary-install prompt; `--package` makes the selected package and
@@ -19,11 +27,39 @@ Treat a non-zero status as failure. When `check --json` returns status `1`, repa
 the reported diagnostics and repeat `check`; run `pack --json` only after it
 succeeds. `pack` writes `dist/{manifest.id}.tapp` unless `--out` is supplied.
 
-For a checked-in dependency, use the same pinned command:
+For a checked-in dependency, pin the package in the lockfile and invoke its binary
+through `npm exec`:
 
 ```bash
-npm exec --yes --package=@myriad/tapp-cli@0.1.0 -- myriad-tapp check . --json
+npm install --save-dev --save-exact @myriad/tapp-cli@0.1.0
+npm exec -- myriad-tapp check . --json
 ```
+
+Do not infer success from human-readable output. Read the JSON object and process
+exit status described in [Automation contract](#automation-contract).
+
+## For users
+
+Install the pinned CLI globally when you want a short interactive command:
+
+```bash
+npm install --global @myriad/tapp-cli@0.1.0
+```
+
+Create a starter, edit its `manifest.json` and source files, then validate and
+package it:
+
+```bash
+myriad-tapp init ./my-tapp --type page
+cd ./my-tapp
+myriad-tapp check .
+myriad-tapp permissions .
+myriad-tapp pack .
+```
+
+`pack` writes `dist/{manifest.id}.tapp` by default. In Myriad, open the Tapp
+management page, choose the install action, and upload that file. The CLI does not
+currently log in to a Myriad server or upload packages itself.
 
 ## Commands
 

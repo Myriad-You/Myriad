@@ -1,67 +1,47 @@
 # Tapp 快速入门
 
 Tapp (Third-party App) 是 Myriad 的扩展应用系统，允许开发者创建自定义小组件、工具和功能扩展。
+当前推荐使用 `@myriad/tapp-cli` 创建、校验和打包项目；Manifest 字段与 SDK 能力分别见
+[Manifest 配置](MANIFEST.md)和 [API 参考](API_REFERENCE.md)。CLI 的完整命令契约见
+[Myriad Tapp CLI](../../../tools/tapp-cli/README.md)。
 
-## 5 分钟创建你的第一个 Tapp
+## For agents
 
-### 1. 创建 Manifest
+Agent 和 CI 应固定包版本、显式指定 `myriad-tapp` binary，并始终使用 `--json`：
 
-每个 Tapp 都需要一个 Manifest 配置文件：
-
-```json
-{
-  "id": "com.example.my-tapp",
-  "name": "我的应用",
-  "version": "1.0.0",
-  "description": "一个示例 Tapp 应用",
-  "locales": {
-    "en-US": {
-      "name": "My App",
-      "description": "A sample Tapp application"
-    },
-    "ja-JP": {
-      "name": "マイアプリ",
-      "description": "サンプル Tapp アプリ"
-    }
-  },
-  "category": "utility",
-  "main": "index.js",
-  "author": {
-    "name": "Your Name",
-    "email": "you@example.com"
-  },
-  "permissions": ["storage", "ui:notification"],
-  "icon": "🚀"
-}
+```bash
+npx --yes --package=@myriad/tapp-cli@0.1.0 myriad-tapp init ./my-tapp --type page
+npx --yes --package=@myriad/tapp-cli@0.1.0 myriad-tapp check ./my-tapp --json
+npx --yes --package=@myriad/tapp-cli@0.1.0 myriad-tapp pack ./my-tapp --json
 ```
 
-`locales` 只覆盖宿主侧标题/描述（商店、列表、详情、运行页标题等）；应用内文案仍用
-`i18n/*.json` 与 `Tapp.i18n`（见 [MANIFEST](./MANIFEST.md#多语言名称与描述locales)）。
+任何非零退出状态都表示失败。`check` 返回状态 `1` 时，读取 `diagnostics`、修复项目并重新
+执行；只有 `check` 成功后才执行 `pack`。默认产物为
+`my-tapp/dist/{manifest.id}.tapp`。CLI 当前不负责登录 Myriad 或上传产物。
 
-### 2. 编写代码
+## For users
 
-```javascript
-// 当 Tapp 准备就绪时执行
-Tapp.lifecycle.onReady(async () => {
-  console.log("Tapp 已启动!");
+需要 Node.js 20 或更新版本。全局安装固定版本后，创建一个 Page、Widget 或两者兼有的
+starter：
 
-  // 显示通知
-  await Tapp.ui.showNotification({
-    title: "欢迎",
-    message: "应用已启动",
-    type: "success",
-  });
-});
-
-// 当 Tapp 销毁时执行
-Tapp.lifecycle.onDestroy(() => {
-  console.log("Tapp 已停止");
-});
+```bash
+npm install --global @myriad/tapp-cli@0.1.0
+myriad-tapp init ./my-tapp --type page
 ```
 
-### 3. 安装
+编辑生成的 `manifest.json`、`main.js`、模板和样式，然后校验权限并打包：
 
-在 Tapp 管理页面点击"自定义安装"，粘贴 Manifest 和代码即可。
+```bash
+cd ./my-tapp
+myriad-tapp check .
+myriad-tapp permissions .
+myriad-tapp pack .
+```
+
+成功后，在 Myriad 的 Tapp 管理页面选择安装操作，上传
+`dist/{manifest.id}.tapp`。服务器通过 `POST /api/tapps/install-file` 安装该文件；浏览器
+会处理登录 Cookie 和 CSRF token。接口细节见 [Tapp REST API](REST_API.md#需要登录的变更路由)，
+包格式见 [`.tapp` 文件格式](../../features/TAPP_FILE_FORMAT.md)。
 
 ---
 
