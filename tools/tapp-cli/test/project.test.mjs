@@ -207,6 +207,26 @@ Tapp.api(apiName)
     assert.equal(report.permissions.required.some(({ permission }) => permission === 'ui:confirm'), false)
   })
 
+  it('reports generated actions with three or more path segments', async () => {
+    const root = await temporaryDirectory('nested-action')
+    await createProject(root, { type: 'page' })
+    await writeFile(
+      join(root, 'main.js'),
+      `Tapp.ai.tasks.create({})
+Tapp.ui.confirm.call(null, 'ok')
+`,
+    )
+
+    const report = await inspectProject(root)
+    assert.ok(
+      report.permissions.usedActions.some(
+        ({ action, permission, file }) =>
+          action === 'ai.tasks.create' && permission === 'public' && file === 'main.js',
+      ),
+    )
+    assert.ok(report.permissions.missing.some(({ permission }) => permission === 'ui:confirm'))
+  })
+
   it('parses TypeScript and reports source syntax errors with locations', async () => {
     const root = await temporaryDirectory('typescript-analysis')
     await createProject(root, { type: 'page' })
@@ -314,6 +334,22 @@ Tapp.storage.get(key)
     await assert.rejects(packProject(root), /Project validation failed/)
   })
 
+  it('rejects declared resources that escape through a symbolic-link directory', async () => {
+    const root = await temporaryDirectory('symlink-directory-resource')
+    const targetRoot = await temporaryDirectory('symlink-directory-target')
+    await createProject(root, { type: 'page' })
+    const manifestPath = join(root, 'manifest.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+    manifest.main = 'linked/outside.js'
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+    await writeFile(join(targetRoot, 'outside.js'), 'Tapp.lifecycle.ready()\n')
+    await symlink(targetRoot, join(root, 'linked'))
+
+    const report = await inspectProject(root)
+    assert.ok(report.diagnostics.some(({ code }) => code === 'invalid-resource'))
+    await assert.rejects(packProject(root), /Project validation failed/)
+  })
+
   it('rejects unsupported nested fields and invalid i18n resources', async () => {
     const root = await temporaryDirectory('nested')
     await createProject(root, { type: 'widget' })
@@ -371,6 +407,22 @@ Tapp.storage.get(key)
     assert.ok(composed.includes(PACKAGE_MARKERS.page))
     assert.ok(composed.indexOf('const shared') < composed.indexOf(PACKAGE_MARKERS.widget))
     assert.ok(composed.indexOf(PACKAGE_MARKERS.widget) < composed.indexOf(PACKAGE_MARKERS.page))
+  })
+
+  it('rejects declared resources over the general resource byte limit', async () => {
+    const root = await temporaryDirectory('oversized-resource')
+    await createProject(root, { type: 'page' })
+    await writeFile(
+      join(root, 'main.js'),
+      Buffer.alloc(generatedContract().limits.resourceBytes + 1, 0x20),
+    )
+
+    const report = await inspectProject(root)
+    assert.ok(
+      report.diagnostics.some(
+        ({ code, message }) => code === 'resource-too-large' && message.includes('main.js'),
+      ),
+    )
   })
 
   it('does not leave an archive behind when the stored ZIP exceeds 25 MiB', async () => {

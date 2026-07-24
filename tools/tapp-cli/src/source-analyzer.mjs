@@ -68,6 +68,14 @@ function tappCallPath(expression) {
   return ts.isIdentifier(current) && current.text === 'Tapp' ? path : undefined
 }
 
+function resolveAction(path) {
+  for (let end = path.length; end >= 2; end -= 1) {
+    const action = path.slice(0, end).join('.')
+    if (Object.hasOwn(ACTIONS, action)) return action
+  }
+  return undefined
+}
+
 function literalString(node) {
   const value = node && unwrapExpression(node)
   return value && ts.isStringLiteralLike(value) ? value.text : undefined
@@ -110,13 +118,11 @@ function inspectCode(source, file, manifest, diagnostics, requiredPermissions, u
     const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
     const location = { line: position.line + 1, column: position.character + 1 }
 
-    if (path.length === 2) {
-      const action = path.join('.')
+    const action = resolveAction(path)
+    if (action) {
       const permission = ACTIONS[action]
-      if (permission) {
-        usedActions.push({ action, permission, file, ...location })
-        addRequiredPermission(requiredPermissions, permission, `code calls ${action}`, file)
-      }
+      usedActions.push({ action, permission, file, ...location })
+      addRequiredPermission(requiredPermissions, permission, `code calls ${action}`, file)
       if (HEADLESS_DENIED_ACTIONS.has(action)) {
         if (surfaces?.headlessOnly) {
           diagnostics.push(diagnostic('error', 'headless-denied-action', `${action} is unavailable in headless-only Tapps`, file, location.line, location.column))

@@ -1063,8 +1063,14 @@ export async function packProject(projectRoot = '.', outputPath) {
       data = Buffer.from(`${JSON.stringify(normalizedManifest, null, 2)}\n`)
     } else {
       const absolute = join(report.root, path)
-      if (!(await pathExists(absolute))) continue
-      data = await readFile(absolute)
+      try {
+        data = await readFile(absolute)
+      } catch (error) {
+        if (error.code === 'ENOENT') {
+          throw new Error(`Package entry disappeared during packing: ${path}`, { cause: error })
+        }
+        throw error
+      }
     }
     uncompressedBytes += data.length
     entries.push({ path, data })

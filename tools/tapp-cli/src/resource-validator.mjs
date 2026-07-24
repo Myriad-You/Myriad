@@ -1,5 +1,5 @@
-import { access, lstat, readdir, readFile, stat } from 'node:fs/promises'
-import { extname, join, resolve, sep } from 'node:path'
+import { access, lstat, realpath, readdir, readFile, stat } from 'node:fs/promises'
+import { extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 const contract = JSON.parse(
   await readFile(new URL('./generated/contract.json', import.meta.url), 'utf8'),
@@ -52,6 +52,11 @@ function validateResourcePath(value) {
   return value.split('/').every((component) => component.length <= contract.limits.tappIdLength && component !== '.' && component !== '..' && SAFE_COMPONENT.test(component))
 }
 
+function isPathWithin(root, target) {
+  const path = relative(root, target)
+  return path !== '' && path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path)
+}
+
 async function pathExists(path) {
   try {
     await access(path)
@@ -85,6 +90,7 @@ export async function validateProjectResources(root, manifest) {
   const diagnostics = []
   const declarations = resourceDeclarations(manifest)
   const packagePaths = new Set(['manifest.json'])
+  const canonicalRoot = await realpath(root)
   let assetBytes = 0
 
   for (const [path, metadata] of declarations) {
@@ -96,7 +102,11 @@ export async function validateProjectResources(root, manifest) {
       diagnostics.push(diagnostic('error', 'invalid-resource-extension', `${metadata.kind} must use ${metadata.extension}: ${path}`))
     }
     const absolute = resolve(root, path)
-    if (!absolute.startsWith(`${root}${sep}`) || !(await pathExists(absolute))) {
+    if (!isPathWithin(root, absolute)) {
+      diagnostics.push(diagnostic('error', 'invalid-resource-path', `Resource escapes the project root: ${path}`))
+      continue
+    }
+    if (!(await pathExists(absolute))) {
       diagnostics.push(diagnostic('error', 'missing-resource', `Declared resource not found: ${path}`))
       continue
     }
@@ -105,7 +115,14 @@ export async function validateProjectResources(root, manifest) {
       diagnostics.push(diagnostic('error', 'invalid-resource', `Resource is not a file: ${path}`))
       continue
     }
+    if (!isPathWithin(canonicalRoot, await realpath(absolute))) {
+      diagnostics.push(diagnostic('error', 'invalid-resource', `Resource escapes the project root: ${path}`))
+      continue
+    }
     packagePaths.add(path)
+    if (info.size > contract.limits.resourceBytes) {
+      diagnostics.push(diagnostic('error', 'resource-too-large', `${path} exceeds ${formatBytes(contract.limits.resourceBytes)}`))
+    }
     if (metadata.kind === 'asset') {
       assetBytes += info.size
       if (!path.startsWith(`${ASSET_DIRECTORY}/`) || contract.rules.assetForbiddenExtensions.includes(extname(path))) {

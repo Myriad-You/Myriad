@@ -57,6 +57,7 @@ const contract = {
   capabilities,
 }
 
+// Keep CLI-facing metadata after the spread so backend schema fields cannot replace it.
 const manifestSchema = {
   ...backendContract.schema,
   $schema: 'https://json-schema.org/draft/2020-12/schema',

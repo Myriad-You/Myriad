@@ -38,6 +38,10 @@ current directory.
 | `permissions [directory]` | List declared and inferred permissions. | `--json` |
 | `pack [directory]` | Validate and write a `.tapp` archive. | `-o, --out <path>`, `--json` |
 
+`init --force` allows initialization in a non-empty directory. It overwrites only
+the starter files managed by the CLI; it does not delete unrelated files or clean
+existing package resource directories.
+
 Unsupported options are usage errors. `--version` returns the installed CLI
 version; `--help` returns global help when supplied without a command.
 
