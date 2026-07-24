@@ -1,8 +1,4 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://myriad.local/tapp/manifest.schema.json",
-  "title": "TappManifest",
-  "description": "Generated from backend TappManifest schema. Semantic limits and permission rules live in contract.json.",
   "$defs": {
     "TappAgentInteractionDef": {
       "additionalProperties": false,
@@ -554,6 +550,7 @@
       "type": "object"
     }
   },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
     "agent": {
@@ -789,5 +786,8 @@
     "version",
     "main"
   ],
-  "type": "object"
+  "title": "Myriad Tapp Manifest",
+  "type": "object",
+  "$id": "https://myriad.local/tapp/manifest.schema.json",
+  "description": "Generated from backend TappManifest schema. Semantic limits and permission rules live in contract.json."
 }

@@ -86,6 +86,17 @@ describe('Tapp project core', () => {
     assert.match(sdkDts, /federation/)
   })
 
+  it('keeps generated manifest schema metadata for CLI consumers', async () => {
+    const schema = JSON.parse(
+      await readFile(resolve(packageRoot, 'src/generated/manifest.schema.json'), 'utf8'),
+    )
+    assert.equal(schema.title, 'Myriad Tapp Manifest')
+    assert.equal(
+      schema.description,
+      'Generated from backend TappManifest schema. Semantic limits and permission rules live in contract.json.',
+    )
+  })
+
   it('parses contract sources independently of quote style', async () => {
     const permissionSource = await readFile(
       resolve(packageRoot, '../../frontend/src/tapp/runtime/permissionConfig.ts'),

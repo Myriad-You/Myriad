@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -82,6 +82,22 @@ describe('CLI adapter', () => {
         message: 'Unknown command: unknown',
       },
       exitCode: 2,
+    })
+  })
+
+  it('reports an existing file as an invalid init target', async () => {
+    const target = join(root, 'not-a-directory')
+    await writeFile(target, 'existing file\n')
+
+    const failed = run(['init', target, '--json'])
+    assert.equal(failed.status, 1)
+    assert.equal(failed.stderr, '')
+    assert.deepEqual(JSON.parse(failed.stdout), {
+      error: {
+        code: 'execution-error',
+        message: `Target path is not a directory: ${target}`,
+      },
+      exitCode: 1,
     })
   })
 

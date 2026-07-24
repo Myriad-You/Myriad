@@ -1,5 +1,6 @@
 import {
   access,
+  lstat,
   mkdir,
   readdir,
   readFile,
@@ -968,6 +969,9 @@ export async function inspectProject(projectRoot = '.') {
 export async function createProject(directory, options = {}) {
   const root = resolve(directory)
   if (await pathExists(root)) {
+    if (!(await lstat(root)).isDirectory()) {
+      throw new Error(`Target path is not a directory: ${root}`)
+    }
     const existing = await readdir(root)
     if (existing.length > 0 && !options.force) {
       throw new Error(`Target directory is not empty: ${root}`)

@@ -58,12 +58,12 @@ const contract = {
 }
 
 const manifestSchema = {
+  ...backendContract.schema,
   $schema: 'https://json-schema.org/draft/2020-12/schema',
   $id: 'https://myriad.local/tapp/manifest.schema.json',
   title: 'Myriad Tapp Manifest',
   description:
     'Generated from backend TappManifest schema. Semantic limits and permission rules live in contract.json.',
-  ...backendContract.schema,
 }
 
 const sdkDts = generateTappSdkDts({
