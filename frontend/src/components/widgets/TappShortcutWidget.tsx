@@ -38,6 +38,7 @@ import {
   listTapps,
 } from '../../tapp/services/TappLifecycleApi'
 import { resolveManifestText } from '../../tapp/utils/manifestLocale'
+import { Spinner } from '../Spinner'
 import { GlowBackground } from './shared/GlowBackground'
 import { WidgetShell } from './shared/WidgetShell'
 
@@ -619,7 +620,11 @@ export const TappShortcutWidget = memo(
             : config.size === '2x1'
               ? 'w-10 h-10'
               : 'w-14 h-14'
-        const glyph = (
+        // 编辑未配置：虚线 +；加载中：通用 Spinner；其余占位不放闪电
+        const spinnerPx =
+          (config.size === '2x2' ? 22 : config.size === '1x1' ? 20 : 18) *
+          fontScale
+        const glyph = isAddState ? (
           <span
             className="text-gray-400 dark:text-gray-500"
             aria-hidden
@@ -628,9 +633,11 @@ export const TappShortcutWidget = memo(
               lineHeight: 1,
             }}
           >
-            {isAddState ? '+' : '⚡'}
+            +
           </span>
-        )
+        ) : loading ? (
+          <Spinner size={spinnerPx} color="primary" />
+        ) : null
         const tile = (
           <div
             className={`${tileClass} rounded-2xl flex items-center justify-center shrink-0 ${
@@ -773,6 +780,7 @@ export const TappShortcutWidget = memo(
       isPreview,
       missing,
       tappId,
+      loading,
       config.size,
       resolved,
       locale,
