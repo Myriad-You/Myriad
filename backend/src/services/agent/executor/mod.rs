@@ -3371,9 +3371,8 @@ impl Executor {
         let output_str = {
             let full = serde_json::to_string_pretty(output).unwrap_or_default();
             if full.len() > 3000 {
-                // 在 char boundary 安全截断
-                let truncate_at = full.floor_char_boundary(3000);
-                format!("{}...(truncated)", &full[..truncate_at])
+                // 在 char boundary 安全截断（stable：truncate_str）
+                format!("{}...(truncated)", truncate_str(&full, 3000))
             } else {
                 full
             }

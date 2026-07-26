@@ -6,7 +6,7 @@ use super::HandlerContext;
 use crate::models::entities::{
     brew_items, brew_sources, brew_user_states, tapp_scheduled_tasks, tapps,
 };
-use crate::services::agent::executor::utils::{validate_platform_name, VALID_PLATFORMS};
+use crate::services::agent::executor::utils::{truncate_str, validate_platform_name, VALID_PLATFORMS};
 use crate::services::netease_utils::{get_random_china_ip, get_random_user_agent};
 use once_cell::sync::Lazy;
 use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect};
@@ -3277,7 +3277,7 @@ async fn execute_brew_page_content(
                         "guid": item.guid.clone(),
                         "title": item.title.clone(),
                         "summary": item.summary.as_ref().map(|s| {
-                            if s.len() > 200 { let i = s.floor_char_boundary(200); format!("{}...", &s[..i]) } else { s.clone() }
+                            if s.len() > 200 { format!("{}...", truncate_str(s, 200)) } else { s.clone() }
                         }),
                         "link": item.link.clone(),
                         "author": item.author.clone(),
