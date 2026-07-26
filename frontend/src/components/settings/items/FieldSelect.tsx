@@ -23,7 +23,7 @@ export interface FieldSelectProps<T extends string = string> {
 export function FieldSelect<T extends string = string>({
   id,
   value,
-  options,
+  options: optionsProp,
   onChange,
   disabled = false,
   className = '',
@@ -34,7 +34,9 @@ export function FieldSelect<T extends string = string>({
   const rootRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
   const autoId = useId()
-  const listboxId = `${id || autoId}-listbox`
+  // useId() 可能含冒号，querySelector 需 CSS.escape；这里只用 id 绑定，不走 selector 拼接
+  const listboxId = `${(id || autoId).replace(/:/g, '')}-listbox`
+  const options = optionsProp ?? []
 
   const selected =
     options.find((o) => o.value === value) ?? options.find((o) => !o.disabled)

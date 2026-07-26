@@ -20,6 +20,7 @@
   width: 100%;
   text-align: left;
   cursor: pointer;
+
   /* 复用 ConfigForm .field-select 的外观变量；这里补布局 */
 }
 

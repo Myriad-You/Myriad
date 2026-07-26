@@ -93,6 +93,7 @@ import {
 } from './config'
 import MyriadConfigIcon from './config/MyriadConfigIcon'
 import PlatformIcon from './PlatformIcon'
+import { Spinner } from './Spinner'
 import Toast from './Toast'
 import './ConfigForm.css'
 
@@ -2020,7 +2021,12 @@ const ModernConfigForm: React.FC = () => {
   }
 
   if (loading) {
-    return null
+    return (
+      <div className="modern-config-loading" role="status" aria-live="polite">
+        <Spinner size="lg" color="primary" />
+        <p>{t.common.loading}</p>
+      </div>
+    )
   }
 
   if (!config) {
