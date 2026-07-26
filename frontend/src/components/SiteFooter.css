@@ -241,8 +241,7 @@ html.dark .tooltip-content {
   white-space: normal;
   max-width: min(16rem, calc(100vw - 1rem));
   overflow-wrap: anywhere;
-  word-break: break-word;
-  text-align: right;
+    text-align: right;
   line-height: 1.35;
 }
 
