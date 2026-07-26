@@ -343,7 +343,7 @@ pub struct DynamicConfig {
     pub user_perm_report_write: bool,
     /// network:fetch - 发起网络请求
     pub user_perm_network_fetch: bool,
-    /// media:control - 控制媒体播放
+    /// media:control - 已降为 basic，始终允许；字段保留供 DB/API 兼容
     pub user_perm_media_control: bool,
     /// component:theme - 注册主题组件
     pub user_perm_component_theme: bool,
@@ -371,7 +371,7 @@ pub struct DynamicConfig {
     pub guest_perm_report_write: bool,
     /// network:fetch - 发起网络请求（游客）
     pub guest_perm_network_fetch: bool,
-    /// media:control - 控制媒体播放（游客）
+    /// media:control - 已降为 basic，始终允许；字段保留供 DB/API 兼容（游客）
     pub guest_perm_media_control: bool,
     /// component:theme - 注册主题组件（游客）
     pub guest_perm_component_theme: bool,

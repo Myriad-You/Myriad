@@ -3972,6 +3972,7 @@ async fn execute_permission_check(params: &HashMap<String, Value>) -> Result<Val
         "ui:theme",
         "ui:confirm",
         "media:read",
+        "media:control",
         "event:subscribe",
     ];
 
@@ -3981,7 +3982,6 @@ async fn execute_permission_check(params: &HashMap<String, Value>) -> Result<Val
         "ai:chat",
         "report:write",
         "network:fetch",
-        "media:control",
         "component:theme",
         "shortcut:register",
         "event:publish",

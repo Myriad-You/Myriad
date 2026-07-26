@@ -661,6 +661,7 @@ Tapp 私有 storage、报告和内部状态不会因为知道另一个 `tappId` 
 | `brew:comment`       | 操作 Brew 评论   |
 | `report:read`        | 读取报告         |
 | `media:read`         | 读取媒体状态     |
+| `media:control`      | 控制媒体播放     |
 | `media:audio`        | 播放包内/blob/data 音频 |
 | `event:subscribe`    | 订阅声明的 topic |
 | `federation:read`    | 读取联邦数据     |
@@ -677,7 +678,6 @@ Tapp 私有 storage、报告和内部状态不会因为知道另一个 `tappId` 
 | `ai:chat`            | AI 对话           |
 | `ai:image`           | AI 图片生成       |
 | `network:fetch`      | 发送 HTTP 请求    |
-| `media:control`      | 控制媒体播放      |
 | `component:theme`    | 注册自定义主题    |
 | `shortcut:register`  | 注册键盘快捷键    |
 | `event:publish`      | 发布本 Tapp topic |

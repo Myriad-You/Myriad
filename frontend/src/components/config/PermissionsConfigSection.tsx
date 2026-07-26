@@ -106,7 +106,6 @@ export interface PermissionConfigValues extends Record<
   user_perm_ai_chat: boolean
   user_perm_report_write: boolean
   user_perm_network_fetch: boolean
-  user_perm_media_control: boolean
   user_perm_component_theme: boolean
   user_perm_shortcut_register: boolean
   user_perm_event_publish: boolean
@@ -120,7 +119,6 @@ export interface PermissionConfigValues extends Record<
   guest_perm_ai_chat: boolean
   guest_perm_report_write: boolean
   guest_perm_network_fetch: boolean
-  guest_perm_media_control: boolean
   guest_perm_component_theme: boolean
   guest_perm_shortcut_register: boolean
   guest_perm_event_publish: boolean
@@ -210,13 +208,7 @@ export const PermissionsConfigSection: React.FC<
       label: t.config.permNetworkFetch,
       hint: t.config.permNetworkFetchHint,
     },
-    // 界面与交互
-    {
-      key: 'media_control',
-      code: 'media:control',
-      label: t.config.permMediaControl,
-      hint: t.config.permMediaControlHint,
-    },
+    // 界面与交互（media:control 已降 basic，始终开放，不再展示下放开关）
     {
       key: 'event_publish',
       code: 'event:publish',

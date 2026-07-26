@@ -39,7 +39,7 @@ export const PERMISSION_LEVELS: Record<TappPermission, TappPermissionLevel> = {
   'ui:theme': 'basic',
   'ui:confirm': 'basic',
   'network:fetch': 'elevated',
-  'media:control': 'elevated',
+  'media:control': 'basic',
   'media:read': 'basic',
   'media:audio': 'basic',
   'component:theme': 'elevated',
