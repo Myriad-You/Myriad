@@ -465,6 +465,25 @@ Tapp.storage.get(key)
     assert.ok(archive.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04])))
   })
 
+  it('packs declared resources under types/ while dropping editor scaffolding', async () => {
+    const root = await temporaryDirectory('types-resource')
+    await createProject(root, { type: 'page', id: 'com.example.types' })
+    const manifestPath = join(root, 'manifest.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+    manifest.main = 'types/main.js'
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+    await writeFile(
+      join(root, 'types/main.js'),
+      await readFile(join(root, 'main.js'), 'utf8'),
+    )
+
+    const result = await packProject(root)
+    const entries = listZipEntries(await readFile(result.outputPath))
+    assert.ok(entries.includes('types/main.js'))
+    assert.equal(entries.includes('types/tapp-sdk.d.ts'), false)
+    assert.equal(entries.includes('jsconfig.json'), false)
+  })
+
   it('matches Playground main.js composition markers', async () => {
     const { buildMainJs, PACKAGE_MARKERS } = await import('../src/package-layout.mjs')
     const composed = buildMainJs({

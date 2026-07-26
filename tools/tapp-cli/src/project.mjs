@@ -1066,11 +1066,10 @@ export async function packProject(projectRoot = '.', outputPath) {
       extraPaths: report.packageFiles,
     }),
   )
-  // Drop non-package editor scaffolding if it slipped into the walk.
+  // Drop only the starter's editor scaffolding; any other path under types/
+  // is a legitimately declared resource and must stay in the package.
   packagePaths.delete('jsconfig.json')
-  for (const path of [...packagePaths]) {
-    if (path.startsWith('types/')) packagePaths.delete(path)
-  }
+  packagePaths.delete('types/tapp-sdk.d.ts')
 
   const normalizedManifest = normalizeManifestPaths(report.manifest)
   for (const path of [...packagePaths].sort()) {

@@ -23,6 +23,9 @@ ENV MYRIAD_COMMIT_SHA=${MYRIAD_COMMIT_SHA}
 COPY backend/Cargo.toml backend/Cargo.lock ./backend/
 COPY backend/migrations ./backend/migrations
 
+# Path dependency: backend/Cargo.toml references ../crates/tapp-contract
+COPY crates/tapp-contract ./crates/tapp-contract
+
 # Copy actual source code early to avoid dummy build issues
 COPY backend/src ./backend/src
 

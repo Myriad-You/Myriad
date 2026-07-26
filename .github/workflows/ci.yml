@@ -50,7 +50,9 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: backend
+          workspaces: |
+            backend
+            crates/tapp-contract
       - name: Check all targets
         run: cargo check --all-targets
       - name: Tapp tests
