@@ -1,9 +1,11 @@
 /**
  * 下拉选择设置项组件
+ * 使用 FieldSelect 自定义列表，避免原生 option 深色不可控。
  */
 
 import type { SelectSettingConfig } from '../types'
 import React, { useCallback } from 'react'
+import { FieldSelect } from './FieldSelect'
 import './SettingItem.css'
 
 export interface SelectItemProps<T = string> extends Omit<
@@ -28,9 +30,9 @@ function SelectItemComponent<T extends string = string>({
   className = '',
 }: SelectItemProps<T>) {
   const handleChange = useCallback(
-    (e: React.ChangeEvent<HTMLSelectElement>) => {
+    (next: T) => {
       if (!disabled && !loading) {
-        onChange(e.target.value as T)
+        onChange(next)
       }
     },
     [onChange, disabled, loading],
@@ -53,23 +55,15 @@ function SelectItemComponent<T extends string = string>({
       </label>
 
       <div className="setting-control">
-        <select
+        <FieldSelect
           id={id}
-          value={value as string}
-          onChange={handleChange}
+          value={value as T & string}
+          options={options as Array<{ value: T & string; label: string; disabled?: boolean }>}
+          onChange={handleChange as (v: T & string) => void}
           disabled={disabled || loading}
-          className={`field-select ${error ? 'has-error' : ''}`}
-        >
-          {options.map((option) => (
-            <option
-              key={String(option.value)}
-              value={option.value as string}
-              disabled={option.disabled}
-            >
-              {option.label}
-            </option>
-          ))}
-        </select>
+          className={error ? 'has-error' : ''}
+          aria-label={label}
+        />
         {error && <p className="setting-error">{error}</p>}
         {hint && !error && <p className="setting-hint">{hint}</p>}
       </div>

@@ -1577,7 +1577,13 @@ const GlobalControlPanel: React.FC = () => {
                   onNavigateFromPanel={handleNavigateFromPanel}
                 />
                 <button
-                  onClick={handleClosePanel}
+                  type="button"
+                  onClick={(e) => {
+                    // 避免 touch 残留 focus / 父级 :active 干扰收起 morph
+                    e.stopPropagation()
+                    ;(e.currentTarget as HTMLButtonElement).blur()
+                    handleClosePanel()
+                  }}
                   className="control-close-btn"
                   aria-label={t.common.close}
                 >

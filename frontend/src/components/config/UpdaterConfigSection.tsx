@@ -1624,6 +1624,102 @@ const INTERVAL_OPTIONS: Array<{
   { value: 86400, labelKey: 'updaterCheckInterval24h' },
 ]
 
+/**
+ * 检查频率：自定义下拉（不用原生 select）。
+ * 系统原生 option 列表在深色模式下几乎不可样式化，改为可控 listbox。
+ */
+function IntervalSelect({
+  value,
+  disabled,
+  u,
+  onChange,
+}: {
+  value: number
+  disabled: boolean
+  u: U
+  onChange: (secs: number) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<HTMLUListElement>(null)
+  const selected =
+    INTERVAL_OPTIONS.find((o) => o.value === value) ?? INTERVAL_OPTIONS[1]
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const selectedEl = listRef.current?.querySelector(
+      '[aria-selected="true"]',
+    ) as HTMLElement | null
+    selectedEl?.focus()
+  }, [open])
+
+  return (
+    <div
+      className={`updater-select-wrap${open ? ' is-open' : ''}`}
+      ref={rootRef}
+    >
+      <button
+        type="button"
+        className="updater-select"
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={u.updaterCheckInterval}
+        onClick={() => {
+          if (!disabled) setOpen((v) => !v)
+        }}
+      >
+        <span className="updater-select-value">{u[selected.labelKey]}</span>
+        <span className="updater-select-chevron" aria-hidden="true" />
+      </button>
+      {open && (
+        <ul
+          ref={listRef}
+          className="updater-select-menu"
+          role="listbox"
+          aria-label={u.updaterCheckInterval}
+        >
+          {INTERVAL_OPTIONS.map((o) => {
+            const isSelected = o.value === value
+            return (
+              <li key={o.value} role="presentation">
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={isSelected}
+                  className={`updater-select-option${isSelected ? ' is-selected' : ''}`}
+                  onClick={() => {
+                    setOpen(false)
+                    if (o.value !== value) onChange(o.value)
+                  }}
+                >
+                  {u[o.labelKey]}
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 function AutoUpdatePrefs({
   status,
   disabled,
@@ -1646,29 +1742,23 @@ function AutoUpdatePrefs({
   return (
     <div className="updater-hero-auto">
       <div className="updater-auto-prefs">
-        <label className="updater-auto-row updater-auto-frequency">
+        {/* 频率行用 div：自定义下拉不能包在 label 里，否则会误触 */}
+        <div className="updater-auto-row updater-auto-frequency">
           <span className="updater-auto-label">
             <span className="updater-auto-title">{u.updaterCheckInterval}</span>
             <span className="updater-auto-desc">
               {u.updaterCheckIntervalDesc}
             </span>
           </span>
-          <select
-            className="updater-select"
+          <IntervalSelect
             value={intervalValue}
             disabled={disabled || !status}
-            onChange={(e) => {
-              const secs = Number(e.target.value)
+            u={u}
+            onChange={(secs) => {
               void onSave({ check_interval_secs: secs })
             }}
-          >
-            {INTERVAL_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {u[o.labelKey]}
-              </option>
-            ))}
-          </select>
-        </label>
+          />
+        </div>
         <label className="updater-auto-row updater-auto-install">
           <span className="updater-auto-label">
             <span className="updater-auto-title">{u.updaterAutoInstall}</span>

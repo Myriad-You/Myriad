@@ -21,6 +21,7 @@ import {
 } from '../../utils/federationDeliveryUi'
 import {
   ButtonItem,
+  FieldSelect,
   InputItem,
   NumberItem,
   SelectItem,
@@ -746,20 +747,16 @@ export const FederationConfigSection: React.FC<
                     </span>
                   )}
                 </span>
-                <select
-                  className="rounded-lg border border-black/10 bg-white/50 px-2 py-1.5 text-xs dark:border-white/10 dark:bg-black/20"
-                  value={inst.trust_level}
-                  onChange={(e) =>
-                    void setInstanceTrust(inst.domain, Number(e.target.value))
-                  }
+                <FieldSelect
+                  size="sm"
+                  value={String(inst.trust_level)}
+                  options={trustLevels.map((l) => ({
+                    value: String(l.value),
+                    label: l.label,
+                  }))}
+                  onChange={(v) => void setInstanceTrust(inst.domain, Number(v))}
                   aria-label={c.federationMinTrustInbound}
-                >
-                  {trustLevels.map((l) => (
-                    <option key={l.value} value={l.value}>
-                      {l.label}
-                    </option>
-                  ))}
-                </select>
+                />
                 <button
                   type="button"
                   className={

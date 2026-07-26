@@ -96,8 +96,14 @@ html.dark .control-bar-trigger {
   }
 }
 
-/* 悬停 - 仅收缩状�? */
-.control-bar-trigger:not(.expanded):hover {
+/*
+ * 悬停/按下缩放：仅闲置收缩态。
+ * 必须排除 .gcp-animating：点右上角关闭时手指仍按在岛内，
+ * 收起当帧 .expanded 摘掉后若仍匹配 :active，会套上 scale(0.96)
+ * 与 width/height 收起动画抢 transform，Android 上表现为关闭动画错误；
+ * 点遮罩关闭时手指不在岛上，不会踩这条路径。
+ */
+.control-bar-trigger:not(.expanded, .gcp-animating):hover {
   background: rgb(255 255 255 / 95%);
   transform: scale(1.03);
   box-shadow:
@@ -106,7 +112,7 @@ html.dark .control-bar-trigger {
   border-color: rgb(0 0 0 / 15%);
 }
 
-html.dark .control-bar-trigger:not(.expanded):hover {
+html.dark .control-bar-trigger:not(.expanded, .gcp-animating):hover {
   background: rgb(26 26 26 / 95%);
   box-shadow:
     0 8px 24px rgb(0 0 0 / 80%),
@@ -114,7 +120,7 @@ html.dark .control-bar-trigger:not(.expanded):hover {
   border-color: rgb(255 255 255 / 15%);
 }
 
-.control-bar-trigger:not(.expanded):active {
+.control-bar-trigger:not(.expanded, .gcp-animating):active {
   transform: scale(0.96);
   transition: transform 0.1s cubic-bezier(0.4, 0, 1, 1);
 }
@@ -205,7 +211,7 @@ html.dark .control-bar-trigger.expanded {
   object-fit: contain;
 }
 
-.control-bar-trigger:not(.expanded):hover .dynamic-icon {
+.control-bar-trigger:not(.expanded, .gcp-animating):hover .dynamic-icon {
   transform: scale(1.1);
 }
 
@@ -301,11 +307,13 @@ html.dark .dynamic-text-main::-webkit-scrollbar-thumb {
   background: rgb(255 255 255 / 20%);
 }
 
-.control-bar-trigger:not(.expanded):hover .dynamic-text-main {
+.control-bar-trigger:not(.expanded, .gcp-animating):hover .dynamic-text-main {
   color: var(--text-primary, #111827);
 }
 
-html.dark .control-bar-trigger:not(.expanded):hover .dynamic-text-main {
+html.dark
+  .control-bar-trigger:not(.expanded, .gcp-animating):hover
+  .dynamic-text-main {
   color: #fff;
 }
 
@@ -324,11 +332,13 @@ html.dark .dynamic-text-sub {
   color: rgb(255 255 255 / 50%);
 }
 
-.control-bar-trigger:not(.expanded):hover .dynamic-text-sub {
+.control-bar-trigger:not(.expanded, .gcp-animating):hover .dynamic-text-sub {
   color: var(--text-secondary, #4b5563);
 }
 
-html.dark .control-bar-trigger:not(.expanded):hover .dynamic-text-sub {
+html.dark
+  .control-bar-trigger:not(.expanded, .gcp-animating):hover
+  .dynamic-text-sub {
   color: rgb(255 255 255 / 70%);
 }
 
@@ -341,12 +351,12 @@ html.dark .control-bar-trigger:not(.expanded):hover .dynamic-text-sub {
   color: currentcolor;
 }
 
-.control-bar-trigger:not(.expanded):hover .dynamic-arrow {
+.control-bar-trigger:not(.expanded, .gcp-animating):hover .dynamic-arrow {
   opacity: 0.8;
   transform: translateY(2px) scale(1.1);
 }
 
-.control-bar-trigger:not(.expanded):active .dynamic-arrow {
+.control-bar-trigger:not(.expanded, .gcp-animating):active .dynamic-arrow {
   transform: translateY(3px) scale(1.05);
 }
 
@@ -1187,11 +1197,11 @@ html.dark .control-panel-overlay {
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.control-bar-trigger:not(.expanded):hover .dynamic-arrow-badge {
+.control-bar-trigger:not(.expanded, .gcp-animating):hover .dynamic-arrow-badge {
   transform: scale(1.1);
 }
 
-.control-bar-trigger:not(.expanded):active .dynamic-arrow-badge {
+.control-bar-trigger:not(.expanded, .gcp-animating):active .dynamic-arrow-badge {
   transform: scale(1.05);
 }
 

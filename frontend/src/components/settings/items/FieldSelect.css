@@ -1,0 +1,182 @@
+/**
+ * 自定义下拉：触发器 + 选项列表，完整深浅色适配。
+ */
+
+.field-select-wrap {
+  position: relative;
+  width: 100%;
+  z-index: 1;
+}
+
+.field-select-wrap.is-open {
+  z-index: 40;
+}
+
+.field-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  /* 复用 ConfigForm .field-select 的外观变量；这里补布局 */
+}
+
+.field-select-value {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.field-select-chevron {
+  flex-shrink: 0;
+  width: 0.75rem;
+  height: 0.75rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  transition: transform 150ms ease;
+}
+
+.field-select-wrap.is-open .field-select-chevron {
+  transform: rotate(180deg);
+}
+
+html.dark .field-select-chevron {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23d1d5db' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+}
+
+.field-select-menu {
+  position: absolute;
+  top: calc(100% + 0.3rem);
+  left: 0;
+  right: 0;
+  z-index: 50;
+  max-height: min(16rem, 50vh);
+  margin: 0;
+  padding: 0.3rem;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid rgb(209 213 219 / 70%);
+  border-radius: 0.75rem;
+  background: rgb(255 255 255 / 97%);
+  box-shadow:
+    0 12px 32px rgb(15 23 42 / 12%),
+    0 2px 8px rgb(15 23 42 / 6%);
+  backdrop-filter: blur(14px) saturate(140%);
+  animation: field-select-menu-in 140ms ease-out;
+}
+
+html.dark .field-select-menu {
+  border-color: rgb(75 85 99 / 70%);
+  background: rgb(31 41 55 / 97%);
+  box-shadow:
+    0 14px 36px rgb(0 0 0 / 45%),
+    0 2px 8px rgb(0 0 0 / 30%);
+}
+
+.field-select-option {
+  display: block;
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: #1f2937;
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-align: left;
+  line-height: 1.35;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.field-select-option:hover:not(:disabled),
+.field-select-option:focus-visible:not(:disabled) {
+  outline: none;
+  background: color-mix(in srgb, var(--color-primary, #6366f1) 10%, transparent);
+  color: #111827;
+}
+
+.field-select-option.is-selected {
+  background: color-mix(in srgb, var(--color-primary, #6366f1) 14%, transparent);
+  color: color-mix(in srgb, var(--color-primary, #4f46e5) 85%, #111827);
+  font-weight: 600;
+}
+
+.field-select-option:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+html.dark .field-select-option {
+  color: #e5e7eb;
+}
+
+html.dark .field-select-option:hover:not(:disabled),
+html.dark .field-select-option:focus-visible:not(:disabled) {
+  background: color-mix(in srgb, var(--color-primary, #818cf8) 16%, transparent);
+  color: #f9fafb;
+}
+
+html.dark .field-select-option.is-selected {
+  background: color-mix(in srgb, var(--color-primary, #818cf8) 22%, transparent);
+  color: #c7d2fe;
+}
+
+/* 行内紧凑（联邦实例列表等） */
+.field-select-size-sm {
+  width: auto;
+  min-width: 7.5rem;
+  max-width: 12rem;
+}
+
+.field-select-size-sm .field-select-trigger {
+  width: auto;
+  min-width: 7.5rem;
+  padding: 0.4rem 0.55rem 0.4rem 0.65rem;
+  font-size: 0.75rem;
+  border-radius: 0.5rem;
+}
+
+.field-select-size-sm .field-select-menu {
+  min-width: 100%;
+  width: max-content;
+  max-width: 14rem;
+  right: 0;
+  left: auto;
+}
+
+.field-select-size-sm .field-select-option {
+  padding: 0.4rem 0.6rem;
+  font-size: 0.75rem;
+}
+
+@keyframes field-select-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-0.2rem);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .field-select-chevron,
+  .field-select-option {
+    transition: none;
+  }
+
+  .field-select-menu {
+    animation: none;
+  }
+}

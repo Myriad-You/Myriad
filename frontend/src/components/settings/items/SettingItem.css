@@ -8,7 +8,13 @@
    ========================================== */
 
 .setting-item {
+  position: relative;
   margin-bottom: 0.625rem;
+}
+
+/* 自定义下拉展开时抬高，避免被后续设置项盖住 */
+.setting-item:has(.field-select-wrap.is-open) {
+  z-index: 30;
 }
 
 .setting-item.disabled {

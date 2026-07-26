@@ -681,6 +681,21 @@ html.dark .users-edit-form label.users-checkbox {
   color: #d1d5db;
 }
 
+/* 原生 checkbox：accent + color-scheme，避免深色下系统默认浅色方框 */
+.users-edit-form label.users-checkbox input[type='checkbox'] {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: var(--color-primary, #6366f1);
+  color-scheme: light;
+  cursor: pointer;
+}
+
+html.dark .users-edit-form label.users-checkbox input[type='checkbox'] {
+  accent-color: var(--color-primary, #818cf8);
+  color-scheme: dark;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .users-search-clear,
   .users-chip,

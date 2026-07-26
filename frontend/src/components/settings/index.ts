@@ -13,6 +13,7 @@ export { InputItem } from './items/InputItem'
 export { NumberGroupItem } from './items/NumberGroupItem'
 export { NumberItem } from './items/NumberItem'
 export { ProviderItem } from './items/ProviderItem'
+export { FieldSelect } from './items/FieldSelect'
 export { SelectItem } from './items/SelectItem'
 // 具体设置项组件
 export { SwitchItem } from './items/SwitchItem'
