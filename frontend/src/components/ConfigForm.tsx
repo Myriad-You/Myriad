@@ -1801,8 +1801,10 @@ const ModernConfigForm: React.FC = () => {
                     <div
                       key={platform.name}
                       className={`platform-card platform-card-enter${
-                        isDragging ? ' dragging' : ''
-                      }${isDragOver ? ' drag-over' : ''}`}
+                        platform.enabled ? ' platform-card--enabled' : ''
+                      }${isDragging ? ' dragging' : ''}${
+                        isDragOver ? ' drag-over' : ''
+                      }`}
                       style={{
                         cursor: 'pointer',
                         animationDelay: `${0.2 + index * 0.05}s`,

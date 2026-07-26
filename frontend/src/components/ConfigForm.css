@@ -1253,6 +1253,47 @@ html.dark .platform-card:hover {
   border-color: rgb(55 65 81 / 80%);
 }
 
+/* 已启用平台：轻微主题色描边，与关闭态卡片区分 */
+.platform-card.platform-card--enabled {
+  border-color: color-mix(
+    in srgb,
+    var(--color-primary, #3b82f6) 40%,
+    rgb(229 231 235 / 60%)
+  );
+  box-shadow:
+    0 4px 16px -4px rgb(31 38 135 / 8%),
+    0 0 0 1px
+      color-mix(in srgb, var(--color-primary, #3b82f6) 18%, transparent);
+}
+
+.platform-card.platform-card--enabled:hover {
+  border-color: color-mix(
+    in srgb,
+    var(--color-primary, #3b82f6) 55%,
+    rgb(229 231 235 / 80%)
+  );
+}
+
+html.dark .platform-card.platform-card--enabled {
+  border-color: color-mix(
+    in srgb,
+    var(--color-primary, #60a5fa) 45%,
+    rgb(55 65 81 / 60%)
+  );
+  box-shadow:
+    0 4px 16px -4px rgb(0 0 0 / 30%),
+    0 0 0 1px
+      color-mix(in srgb, var(--color-primary, #60a5fa) 22%, transparent);
+}
+
+html.dark .platform-card.platform-card--enabled:hover {
+  border-color: color-mix(
+    in srgb,
+    var(--color-primary, #60a5fa) 60%,
+    rgb(55 65 81 / 80%)
+  );
+}
+
 .platform-header {
   display: flex;
   align-items: center;
@@ -1433,7 +1474,7 @@ html.dark .platform-desc {
   color: #9ca3af;
 }
 
-/* 开关 */
+/* 开关 — OFF/ON 需在 light/dark 下都清晰可辨 */
 .toggle-switch {
   position: relative;
   display: inline-block;
@@ -1448,13 +1489,20 @@ html.dark .platform-desc {
   height: 0;
 }
 
+/* OFF: 更深的轨道 + 细边框，避免与 ON 混淆 */
 .toggle-slider {
   position: absolute;
   cursor: pointer;
   inset: 0;
-  background-color: #d1d5db;
-  transition: 0.3s;
+  background-color: #9ca3af;
+  border: 1.5px solid #6b7280;
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 14%);
+  transition:
+    background-color 0.3s,
+    border-color 0.3s,
+    box-shadow 0.3s;
   border-radius: 28px;
+  box-sizing: border-box;
 }
 
 .toggle-slider::before {
@@ -1462,25 +1510,54 @@ html.dark .platform-desc {
   content: '';
   height: 14px;
   width: 14px;
-  left: 4px;
-  bottom: 4px;
-  background-color: white;
-  transition: 0.3s;
+  left: 2.5px;
+  bottom: 2.5px;
+  background-color: #fff;
+  transition: transform 0.3s, box-shadow 0.3s;
   border-radius: 50%;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 28%);
 }
 
+/* ON: 主题渐变 + 更强光晕，与 OFF 灰轨形成鲜明对比 */
 .toggle-switch input:checked + .toggle-slider {
   background: linear-gradient(
     135deg,
     var(--color-primary),
     var(--color-secondary)
   );
-  box-shadow: 0 2px 8px -2px
-    color-mix(in srgb, var(--color-primary) 40%, transparent);
+  border-color: color-mix(in srgb, var(--color-primary) 55%, transparent);
+  box-shadow:
+    0 2px 10px -2px color-mix(in srgb, var(--color-primary) 50%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 25%, transparent);
 }
 
 .toggle-switch input:checked + .toggle-slider::before {
   transform: translateX(18px);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 22%);
+}
+
+.toggle-switch input:focus-visible + .toggle-slider {
+  outline: 2px solid var(--color-primary, #3b82f6);
+  outline-offset: 2px;
+}
+
+/* 深色模式 OFF：凹陷暗轨 + 可见边框，避免亮灰轨看起来像“已开” */
+html.dark .toggle-slider {
+  background-color: #374151;
+  border-color: #6b7280;
+  box-shadow: inset 0 1px 3px rgb(0 0 0 / 45%);
+}
+
+html.dark .toggle-slider::before {
+  background-color: #f3f4f6;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 50%);
+}
+
+html.dark .toggle-switch input:checked + .toggle-slider {
+  border-color: color-mix(in srgb, var(--color-primary) 65%, transparent);
+  box-shadow:
+    0 2px 12px -2px color-mix(in srgb, var(--color-primary) 55%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 30%, transparent);
 }
 
 /* 状态徽章 */
@@ -1798,11 +1875,15 @@ html.dark .checkbox-hint {
 
 .toggle-switch.disabled .toggle-slider {
   cursor: not-allowed;
-  background: rgb(0 0 0 / 10%);
+  background: #d1d5db;
+  border-color: #9ca3af;
+  box-shadow: none;
 }
 
 html.dark .toggle-switch.disabled .toggle-slider {
-  background: rgb(255 255 255 / 10%);
+  background: #1f2937;
+  border-color: #374151;
+  box-shadow: none;
 }
 
 /* 测试按钮 - 使用主题渐变色 */
