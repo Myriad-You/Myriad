@@ -4,6 +4,7 @@ import {
   mkdir,
   readdir,
   readFile,
+  stat,
   writeFile,
 } from 'node:fs/promises'
 import {
@@ -74,7 +75,8 @@ const SEMVER = new RegExp(contract.patterns.semver)
 const NAMED_VALUE = new RegExp(contract.patterns.namedValue)
 const STORAGE_KEY = new RegExp(contract.patterns.storageKey)
 const THEME_COLOR = new RegExp(contract.patterns.themeColor)
-const HTTP_METHOD = new RegExp(contract.patterns.httpMethod)
+// Fixed allow-list enforced identically by the backend installer.
+const HTTP_METHODS = new Set(contract.rules.httpMethods)
 const REQUIRED_MANIFEST_FIELDS = new Set([
   ...contract.schema.required,
   ...contract.rules.requiredManifestFields,
@@ -798,8 +800,8 @@ function validateManifest(manifest, diagnostics, requiredPermissions) {
         diagnostics.push(diagnostic('error', 'invalid-api', `API ${name} access is invalid`))
       }
       const method = definition.method || DEFAULT_HTTP_METHOD
-      if (typeof method !== 'string' || method.length > contract.limits.apiMethodLength || !HTTP_METHOD.test(method)) {
-        diagnostics.push(diagnostic('error', 'invalid-api', `API ${name} HTTP method is invalid`))
+      if (typeof method !== 'string' || !HTTP_METHODS.has(method)) {
+        diagnostics.push(diagnostic('error', 'invalid-api', `API ${name} HTTP method must be one of: ${contract.rules.httpMethods.join(', ')}`))
       }
       if (definition.inject !== undefined && !isObject(definition.inject)) {
         diagnostics.push(diagnostic('error', 'invalid-api', `API ${name} inject must be an object`))
@@ -888,6 +890,20 @@ export async function inspectProject(projectRoot = '.') {
   let manifest
 
   try {
+    // Check the size before loading the manifest into memory.
+    if ((await stat(manifestPath)).size > contract.limits.manifestBytes) {
+      diagnostics.push(
+        diagnostic('error', 'manifest-too-large', `manifest.json exceeds ${formatBytes(contract.limits.manifestBytes)}`),
+      )
+      return {
+        root,
+        manifest: null,
+        diagnostics,
+        surfaces: { page: false, widget: false, headless: false, headlessOnly: false },
+        permissions: { declared: [], required: [], missing: [], usedActions: [] },
+        packageFiles: [],
+      }
+    }
     manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
   } catch (error) {
     diagnostics.push(
@@ -1061,6 +1077,9 @@ export async function packProject(projectRoot = '.', outputPath) {
     let data
     if (path === 'manifest.json') {
       data = Buffer.from(`${JSON.stringify(normalizedManifest, null, 2)}\n`)
+      if (data.length > contract.limits.manifestBytes) {
+        throw new Error(`manifest.json exceeds ${formatBytes(contract.limits.manifestBytes)}`)
+      }
     } else {
       const absolute = join(report.root, path)
       try {
@@ -1070,6 +1089,9 @@ export async function packProject(projectRoot = '.', outputPath) {
           throw new Error(`Package entry disappeared during packing: ${path}`, { cause: error })
         }
         throw error
+      }
+      if (data.length > contract.limits.resourceBytes) {
+        throw new Error(`Package entry exceeds ${formatBytes(contract.limits.resourceBytes)}: ${path}`)
       }
     }
     uncompressedBytes += data.length

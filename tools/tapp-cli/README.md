@@ -96,7 +96,7 @@ stderr is empty. Successful `init` returns `{ result, report }`; `check` and
 inspection report so callers can read diagnostics.
 Command-line errors return this envelope:
 
-```bash
+```json
 {
   "error": { "code": "usage-error", "message": "..." },
   "exitCode": 2
@@ -111,12 +111,16 @@ in automation to keep the selected binary explicit.
 
 - strict Manifest fields including Widget settings/refresh, AI, events, Agent and Data Exchange;
 - declared paths, extensions, missing files, Agent schemas, i18n and asset quotas;
+- symlink containment: declared resources and auto-included `i18n/`, `page/`,
+  `schemas/` directories must be regular files inside the project root;
 - permission names and permissions inferred from static `Tapp.*` calls;
-- `Tapp.api("name")` declarations and HTTP/builtin API permissions;
+- `Tapp.api("name")` declarations, the fixed HTTP method allow-list, and
+  HTTP/builtin API permissions;
 - literal `Tapp.assets.*("path")` references;
 - runtime surface consistency (`hasPage` resources, widgets ↔ `widget:register`);
 - headless capability profile: actions denied in background core;
-- `.tapp` entry count and package size limits.
+- `manifest.json` size, per-resource byte limits, and `.tapp` entry count and
+  package size limits.
 
 Dynamic property access and computed API names cannot be proven statically. They are
 reported as warnings or left to the backend/runtime permission checks.
@@ -134,16 +138,17 @@ editor files are not packed into `.tapp`.
 
 ## Generated contract
 
-The committed contract combines the backend Rust Manifest schema and semantic
-rules with the runtime permission map and sandbox capability profiles:
+The committed contract combines the Rust Manifest schema and semantic rules
+from `crates/tapp-contract` (shared with backend install validation) with the
+runtime permission map and sandbox capability profiles:
 
 ```bash
 cd tools/tapp-cli
 npm run sync-contract
 ```
 
-Run this command after changing the backend Manifest types, Tapp contract rules,
-`frontend/src/tapp/runtime/permissionConfig.ts`, or
+Run this command after changing `crates/tapp-contract` (Manifest types or
+contract rules), `frontend/src/tapp/runtime/permissionConfig.ts`, or
 `frontend/src/tapp/runtime/sandbox/capabilityProfiles.ts`. Templates and ZIP
 packaging remain handwritten; validation consumes `src/generated/contract.json`.
 
@@ -153,11 +158,13 @@ end users only consume the committed generated contract.
 
 The generated contract has two layers:
 
-1. **Structure layer**: `manifest.rs` derives the JSON Schema used for Manifest
-   fields, nested objects, required fields and Rust enum values.
-2. **Semantic layer**: `contract_rules.rs` exports limits, path/extensions,
-   conditional field rules, API/event/Data Exchange relationships and permission
-   requirements.
+1. **Structure layer**: `crates/tapp-contract/src/manifest.rs` derives the JSON
+   Schema used for Manifest fields, nested objects, required fields and Rust
+   enum values.
+2. **Semantic layer**: `crates/tapp-contract/src/contract_rules.rs` exports
+   limits, path/extensions, conditional field rules, API/event/Data Exchange
+   relationships and permission requirements. Backend install validation reuses
+   the same constants, so `check` results cannot drift from the installer.
 
 `init` starter files and `pack` ZIP mechanics are intentionally handwritten;
 everything else in the CLI reads the generated contract rather than copying

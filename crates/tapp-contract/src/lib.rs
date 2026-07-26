@@ -5,8 +5,7 @@ use serde_json::{json, Value};
 #[cfg(feature = "tapp-contract-schema")]
 use std::collections::BTreeMap;
 
-#[cfg(feature = "tapp-contract-schema")]
-mod contract_rules;
+pub mod contract_rules;
 pub mod manifest;
 
 #[cfg(feature = "tapp-contract-schema")]
@@ -77,7 +76,6 @@ pub fn export_tapp_contract() -> Value {
             "settingOptionValueLength": contract_rules::MAX_SETTING_OPTION_VALUE_LEN,
             "widgetSizes": contract_rules::MAX_WIDGET_SIZES,
             "tappApis": contract_rules::MAX_TAPP_APIS,
-            "apiMethodLength": contract_rules::MAX_API_METHOD_LEN,
             "apiCacheTtlSeconds": contract_rules::MAX_API_CACHE_TTL_SECONDS,
             "apiInjectAliases": contract_rules::MAX_API_INJECT_ALIASES,
             "apiInjectTemplateLength": contract_rules::MAX_API_INJECT_TEMPLATE_LEN,
@@ -104,6 +102,7 @@ pub fn export_tapp_contract() -> Value {
             "builtinApiType": contract_rules::BUILTIN_API_TYPE,
             "defaultApiType": contract_rules::DEFAULT_API_TYPE,
             "defaultHttpMethod": contract_rules::DEFAULT_HTTP_METHOD,
+            "httpMethods": contract_rules::HTTP_METHODS,
             "cssModes": contract_rules::CSS_MODES,
             "httpUrlSchemes": contract_rules::HTTP_URL_SCHEMES,
             "resourceExtensions": string_map(contract_rules::RESOURCE_EXTENSIONS),
@@ -151,8 +150,7 @@ pub fn export_tapp_contract() -> Value {
             "semver": contract_rules::SEMVER_PATTERN,
             "namedValue": contract_rules::NAMED_VALUE_PATTERN,
             "storageKey": contract_rules::STORAGE_KEY_PATTERN,
-            "themeColor": contract_rules::THEME_COLOR_PATTERN,
-            "httpMethod": contract_rules::HTTP_METHOD_PATTERN
+            "themeColor": contract_rules::THEME_COLOR_PATTERN
         }
     })
 }

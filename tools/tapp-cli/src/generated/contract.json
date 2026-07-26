@@ -1,7 +1,7 @@
 {
   "generatedFrom": [
-    "backend/src/api/tapp_store/manifest.rs",
-    "backend/src/api/tapp_store/contract_rules.rs",
+    "crates/tapp-contract/src/manifest.rs",
+    "crates/tapp-contract/src/contract_rules.rs",
     "frontend/src/tapp/runtime/permissionConfig.ts",
     "frontend/src/tapp/runtime/sandbox/capabilityProfiles.ts"
   ],
@@ -15,7 +15,6 @@
     "apiCacheTtlSeconds": 86400,
     "apiInjectAliases": 32,
     "apiInjectTemplateLength": 2048,
-    "apiMethodLength": 16,
     "archiveBytes": 26214400,
     "archiveFiles": 512,
     "archiveUncompressedBytes": 104857600,
@@ -59,7 +58,6 @@
     "widgets": 64
   },
   "patterns": {
-    "httpMethod": "^[A-Za-z!#$%&'*+.^_`|~-]+$",
     "localeTag": "^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{1,8})*$",
     "namedValue": "^[A-Za-z0-9._-]+$",
     "safeComponent": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
@@ -162,6 +160,17 @@
     },
     "httpApiPermission": "network:fetch",
     "httpApiType": "http",
+    "httpMethods": [
+      "GET",
+      "HEAD",
+      "POST",
+      "PUT",
+      "DELETE",
+      "CONNECT",
+      "OPTIONS",
+      "TRACE",
+      "PATCH"
+    ],
     "httpOnlyApiFields": [
       "endpoint",
       "headers",
@@ -493,6 +502,17 @@
           },
           "method": {
             "default": "GET",
+            "enum": [
+              "GET",
+              "HEAD",
+              "POST",
+              "PUT",
+              "DELETE",
+              "CONNECT",
+              "OPTIONS",
+              "TRACE",
+              "PATCH"
+            ],
             "type": "string"
           },
           "spoof": {

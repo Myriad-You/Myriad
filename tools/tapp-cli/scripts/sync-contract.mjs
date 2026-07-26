@@ -47,8 +47,8 @@ const capabilities = parseCapabilitySource(capabilitySource)
 
 const contract = {
   generatedFrom: [
-    'backend/src/api/tapp_store/manifest.rs',
-    'backend/src/api/tapp_store/contract_rules.rs',
+    'crates/tapp-contract/src/manifest.rs',
+    'crates/tapp-contract/src/contract_rules.rs',
     'frontend/src/tapp/runtime/permissionConfig.ts',
     'frontend/src/tapp/runtime/sandbox/capabilityProfiles.ts',
   ],

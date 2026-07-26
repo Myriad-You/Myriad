@@ -4,6 +4,7 @@ pub const MAX_TAPP_ARCHIVE_BYTES: usize = 25 * 1024 * 1024;
 pub const MAX_TAPP_ARCHIVE_FILES: usize = 512;
 pub const MAX_TAPP_ARCHIVE_UNCOMPRESSED_BYTES: u64 = 100 * 1024 * 1024;
 pub const MAX_TAPP_RESOURCE_BYTES: u64 = 25 * 1024 * 1024;
+/// Declared package assets (textures, audio, wasm, levels). Binary allowed.
 pub const MAX_TAPP_ASSETS: usize = 64;
 pub const MAX_TAPP_ASSET_BYTES: u64 = 5 * 1024 * 1024;
 pub const MAX_TAPP_ASSETS_TOTAL_BYTES: u64 = 20 * 1024 * 1024;
@@ -34,7 +35,6 @@ pub const MAX_SETTING_OPTIONS: usize = 100;
 pub const MAX_SETTING_OPTION_VALUE_LEN: usize = 255;
 pub const MAX_WIDGET_SIZES: usize = 10;
 pub const MAX_TAPP_APIS: usize = 64;
-pub const MAX_API_METHOD_LEN: usize = 16;
 pub const MAX_API_CACHE_TTL_SECONDS: u32 = 86_400;
 pub const MAX_API_INJECT_ALIASES: usize = 32;
 pub const MAX_API_INJECT_TEMPLATE_LEN: usize = 2_048;
@@ -72,7 +72,11 @@ pub const DEFAULT_API_TYPE: &str = "http";
 pub const DEFAULT_HTTP_METHOD: &str = "GET";
 pub const CSS_MODES: &[&str] = &["unified", "separated"];
 pub const HTTP_URL_SCHEMES: &[&str] = &["http", "https"];
-pub const HTTP_METHOD_PATTERN: &str = r"^[A-Za-z!#$%&'*+.^_`|~-]+$";
+/// Fixed allow-list enforced identically by the backend installer and the
+/// offline CLI, so `check` results cannot drift from install validation.
+pub const HTTP_METHODS: &[&str] = &[
+    "GET", "HEAD", "POST", "PUT", "DELETE", "CONNECT", "OPTIONS", "TRACE", "PATCH",
+];
 pub const RESOURCE_EXTENSIONS: &[(&str, &str)] = &[
     ("main", ".js"),
     ("styles", ".css"),

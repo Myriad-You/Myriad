@@ -264,6 +264,10 @@ pub struct TappApiDef {
     pub api_type: String,
     pub endpoint: Option<String>,
     #[serde(default = "default_http_method")]
+    #[cfg_attr(
+        feature = "tapp-contract-schema",
+        schemars(extend("enum" = crate::contract_rules::HTTP_METHODS))
+    )]
     pub method: String,
     pub headers: Option<HashMap<String, String>>,
     pub body: Option<serde_json::Value>,

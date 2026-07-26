@@ -146,8 +146,26 @@ export async function validateProjectResources(root, manifest) {
 
   for (const [directory, extension] of Object.entries(PACKAGE_RESOURCE_EXTENSIONS)) {
     const absoluteDirectory = join(root, directory)
-    if (!(await pathExists(absoluteDirectory))) continue
-    const directoryEntries = await readdir(absoluteDirectory, { withFileTypes: true })
+    let directoryInfo
+    try {
+      directoryInfo = await lstat(absoluteDirectory)
+    } catch (error) {
+      if (error.code === 'ENOENT') continue
+      diagnostics.push(diagnostic('error', `invalid-${directory}`, `${directory} directory cannot be read`))
+      continue
+    }
+    // Reject symlinked directories so packed files cannot escape the project root.
+    if (!directoryInfo.isDirectory()) {
+      diagnostics.push(diagnostic('error', `invalid-${directory}`, `${directory} must be a regular directory inside the project`))
+      continue
+    }
+    let directoryEntries
+    try {
+      directoryEntries = await readdir(absoluteDirectory, { withFileTypes: true })
+    } catch {
+      diagnostics.push(diagnostic('error', `invalid-${directory}`, `${directory} directory cannot be read`))
+      continue
+    }
     const fileLimitKey = PACKAGE_RESOURCE_FILE_LIMITS[directory]
     if (fileLimitKey && directoryEntries.length > contract.limits[fileLimitKey]) diagnostics.push(diagnostic('error', `too-many-${directory}-files`, `${directory} accepts at most ${contract.limits[fileLimitKey]} files`))
     for (const entry of directoryEntries) {
@@ -156,25 +174,37 @@ export async function validateProjectResources(root, manifest) {
         continue
       }
       if (!entry.isFile()) continue
+      if (!PACKAGE_JSON_OBJECT_DIRECTORIES.has(directory) && extname(entry.name) !== extension) continue
       const path = `${directory}/${entry.name}`
       if (!validateResourcePath(path)) {
         diagnostics.push(diagnostic('error', 'invalid-resource-path', `Invalid path: ${path}`))
         continue
       }
+      // Dirent.isFile() uses lstat semantics and the parent directory is a
+      // verified non-symlink, so entries here cannot escape the project root.
+      const absoluteEntry = join(absoluteDirectory, entry.name)
+      let info
+      try {
+        info = await stat(absoluteEntry)
+      } catch {
+        diagnostics.push(diagnostic('error', `invalid-${directory}`, `${path} cannot be read`))
+        continue
+      }
       const byteLimitKey = PACKAGE_RESOURCE_BYTE_LIMITS[directory]
-      if (byteLimitKey) {
-        const info = await stat(join(absoluteDirectory, entry.name))
-        if (info.size > contract.limits[byteLimitKey]) diagnostics.push(diagnostic('error', `${directory}-too-large`, `${path} exceeds ${contract.limits[byteLimitKey]} bytes`))
-        if (PACKAGE_JSON_OBJECT_DIRECTORIES.has(directory)) {
-          try {
-            const value = JSON.parse(await readFile(join(absoluteDirectory, entry.name), 'utf8'))
-            if (!isObject(value)) throw new Error('resource must be an object')
-          } catch {
-            diagnostics.push(diagnostic('error', `invalid-${directory}`, `${path} must contain a JSON object`))
-          }
+      const directoryLimit = byteLimitKey ? contract.limits[byteLimitKey] : Number.POSITIVE_INFINITY
+      const byteLimit = Math.min(directoryLimit, contract.limits.resourceBytes)
+      if (info.size > byteLimit) {
+        const code = byteLimit === directoryLimit ? `${directory}-too-large` : 'resource-too-large'
+        diagnostics.push(diagnostic('error', code, `${path} exceeds ${formatBytes(byteLimit)}`))
+      }
+      if (PACKAGE_JSON_OBJECT_DIRECTORIES.has(directory)) {
+        try {
+          const value = JSON.parse(await readFile(absoluteEntry, 'utf8'))
+          if (!isObject(value)) throw new Error('resource must be an object')
+        } catch {
+          diagnostics.push(diagnostic('error', `invalid-${directory}`, `${path} must contain a JSON object`))
         }
       }
-      if (!PACKAGE_JSON_OBJECT_DIRECTORIES.has(directory) && extname(entry.name) !== extension) continue
       packagePaths.add(path)
     }
   }

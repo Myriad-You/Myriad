@@ -187,6 +187,17 @@
         },
         "method": {
           "default": "GET",
+          "enum": [
+            "GET",
+            "HEAD",
+            "POST",
+            "PUT",
+            "DELETE",
+            "CONNECT",
+            "OPTIONS",
+            "TRACE",
+            "PATCH"
+          ],
           "type": "string"
         },
         "spoof": {

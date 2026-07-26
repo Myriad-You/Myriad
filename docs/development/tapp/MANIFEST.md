@@ -481,7 +481,7 @@ Manifest 设置属于安装级配置：安装 owner 或管理员可修改，运�
 | `type`        | string | ❌   | `http`（默认）或 `builtin`                        |
 | `access`      | string | ❌   | 调用者范围：`protected`（默认，需登录）或 `public`（游客也可调用）；**不**表示可否免 `network:fetch` |
 | `endpoint`    | string | HTTP | HTTP URL，可使用 `{{params.*}}` 等模板            |
-| `method`      | string | ❌   | HTTP 方法，默认 `GET`                             |
+| `method`      | string | ❌   | HTTP 方法，默认 `GET`；仅接受大写的 `GET`/`HEAD`/`POST`/`PUT`/`DELETE`/`CONNECT`/`OPTIONS`/`TRACE`/`PATCH` |
 | `headers`     | object | ❌   | 请求头模板                                        |
 | `body`        | object | ❌   | JSON 请求体模板                                   |
 | `builtin`     | string | 内置 | `geo`、`ai:chat` 或 `ai:generate`                 |

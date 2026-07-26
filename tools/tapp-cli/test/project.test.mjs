@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, rm, symlink, truncate, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { afterEach, describe, it } from 'node:test'
@@ -50,6 +50,7 @@ describe('Tapp project core', () => {
     assert.deepEqual(current.schema, backendContract.schema)
     assert.deepEqual(current.limits, backendContract.limits)
     assert.deepEqual(current.rules, backendContract.rules)
+    assert.deepEqual(current.patterns, backendContract.patterns)
   })
 
   it('keeps the generated catalog aligned with permissionConfig', async () => {
@@ -348,6 +349,74 @@ Tapp.storage.get(key)
     const report = await inspectProject(root)
     assert.ok(report.diagnostics.some(({ code }) => code === 'invalid-resource'))
     await assert.rejects(packProject(root), /Project validation failed/)
+  })
+
+  it('rejects package resource directories that are symbolic links', async () => {
+    const root = await temporaryDirectory('symlink-package-directory')
+    const targetRoot = await temporaryDirectory('symlink-package-directory-target')
+    await createProject(root, { type: 'page' })
+    await writeFile(join(targetRoot, 'en-US.json'), '{"hello": "world"}\n')
+    await symlink(targetRoot, join(root, 'i18n'))
+
+    const report = await inspectProject(root)
+    assert.ok(report.diagnostics.some(({ code }) => code === 'invalid-i18n'))
+    assert.equal(report.packageFiles.some((path) => path.startsWith('i18n/')), false)
+    await assert.rejects(packProject(root), /Project validation failed/)
+  })
+
+  it('reports a diagnostic when a package resource path is not a directory', async () => {
+    const root = await temporaryDirectory('package-directory-file')
+    await createProject(root, { type: 'page' })
+    await writeFile(join(root, 'i18n'), 'not a directory\n')
+
+    const report = await inspectProject(root)
+    assert.ok(report.diagnostics.some(({ code }) => code === 'invalid-i18n'))
+    await assert.rejects(packProject(root), /Project validation failed/)
+  })
+
+  it('rejects HTTP methods outside the fixed allow-list', async () => {
+    const root = await temporaryDirectory('http-method')
+    await createProject(root, { type: 'page' })
+    const manifestPath = join(root, 'manifest.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+    manifest.permissions.push('network:fetch')
+    manifest.apis = {
+      allowed: { type: 'http', endpoint: 'https://example.com', method: 'POST' },
+      rejected: { type: 'http', endpoint: 'https://example.com', method: 'FETCH' },
+    }
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+
+    const report = await inspectProject(root)
+    const invalidApis = report.diagnostics.filter(({ code }) => code === 'invalid-api')
+    assert.equal(invalidApis.length, 1)
+    assert.match(invalidApis[0].message, /API rejected HTTP method/)
+  })
+
+  it('rejects manifests over the manifest byte limit', async () => {
+    const root = await temporaryDirectory('oversized-manifest')
+    await createProject(root, { type: 'page' })
+    const manifestPath = join(root, 'manifest.json')
+    const raw = await readFile(manifestPath, 'utf8')
+    await writeFile(manifestPath, raw + ' '.repeat(generatedContract().limits.manifestBytes))
+
+    const report = await inspectProject(root)
+    assert.ok(report.diagnostics.some(({ code }) => code === 'manifest-too-large'))
+  })
+
+  it('rejects directory-walk package files over the resource byte limit', async () => {
+    const root = await temporaryDirectory('oversized-walk')
+    await createProject(root, { type: 'page' })
+    await mkdir(join(root, 'schemas'))
+    // A sparse file is enough: the walk only checks the reported size.
+    await writeFile(join(root, 'schemas/big.json'), '')
+    await truncate(join(root, 'schemas/big.json'), generatedContract().limits.resourceBytes + 1)
+
+    const report = await inspectProject(root)
+    assert.ok(
+      report.diagnostics.some(
+        ({ code, message }) => code === 'resource-too-large' && message.includes('schemas/big.json'),
+      ),
+    )
   })
 
   it('rejects unsupported nested fields and invalid i18n resources', async () => {

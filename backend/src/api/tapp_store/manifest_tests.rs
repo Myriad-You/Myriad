@@ -1376,6 +1376,29 @@ fn validates_declared_api_shape_and_inject_aliases() {
         }
     }));
     assert!(removed_api_url.is_err());
+
+    // Methods come from the fixed allow-list shared with the offline CLI:
+    // RFC 7230 extension tokens and lowercase spellings are rejected.
+    for (method, expected_ok) in [("POST", true), ("PURGE", false), ("get", false)] {
+        let mut with_method = valid.clone();
+        with_method
+            .apis
+            .as_mut()
+            .unwrap()
+            .get_mut("weather.current")
+            .unwrap()
+            .method = method.to_string();
+        let result = validate_tapp_manifest(&with_method);
+        assert_eq!(result.is_ok(), expected_ok, "method {method}");
+        if let Err(message) = result {
+            // The rejection lists the allowed methods so LLM repair loops can
+            // fix the manifest without guessing.
+            assert!(
+                message.contains("GET"),
+                "message must list methods: {message}"
+            );
+        }
+    }
 }
 
 #[test]

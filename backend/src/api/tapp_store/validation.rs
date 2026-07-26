@@ -7,25 +7,15 @@ use super::{
 };
 use std::path::{Component, Path as FsPath};
 
-pub(crate) const MAX_TAPP_ID_LEN: usize = 128;
-pub(crate) const MAX_RESOURCE_PATH_LEN: usize = 256;
-pub(crate) const MAX_TAPP_ARCHIVE_BYTES: usize = 25 * 1024 * 1024;
-pub(crate) const MAX_TAPP_ARCHIVE_FILES: usize = 512;
-pub(crate) const MAX_TAPP_ARCHIVE_UNCOMPRESSED_BYTES: u64 = 100 * 1024 * 1024;
-pub(crate) const MAX_TAPP_RESOURCE_BYTES: u64 = 25 * 1024 * 1024;
-/// Declared package assets (textures, audio, wasm, levels). Binary allowed.
-pub(crate) const MAX_TAPP_ASSETS: usize = 64;
-pub(crate) const MAX_TAPP_ASSET_BYTES: u64 = 5 * 1024 * 1024;
-pub(crate) const MAX_TAPP_ASSETS_TOTAL_BYTES: u64 = 20 * 1024 * 1024;
-pub(crate) const MAX_TAPP_MANIFEST_BYTES: u64 = 256 * 1024;
-pub(crate) const MAX_WIDGETS_PER_TAPP: usize = 64;
-pub(crate) const MAX_DATA_EXCHANGE_DECLARATIONS: usize = 32;
-pub(crate) const MAX_DATA_EXCHANGE_ID_LEN: usize = 128;
-pub(crate) const MAX_DATA_EXCHANGE_SCHEMA_BYTES: usize = 64 * 1024;
-pub(crate) const MAX_DATA_EXCHANGE_RESPONSE_BYTES: usize = 512 * 1024;
-pub(crate) const MAX_AGENT_SCHEMA_RESOURCE_BYTES: usize = 64 * 1024;
-pub(crate) const MAX_TAPP_I18N_FILES: usize = 32;
-pub(crate) const MAX_TAPP_I18N_RESOURCE_BYTES: usize = 1024 * 1024;
+// Single source of truth shared with the offline CLI contract exporter.
+pub(crate) use myriad_tapp_contract::contract_rules::{
+    HTTP_METHODS, MAX_AGENT_SCHEMA_RESOURCE_BYTES, MAX_DATA_EXCHANGE_DECLARATIONS,
+    MAX_DATA_EXCHANGE_ID_LEN, MAX_DATA_EXCHANGE_RESPONSE_BYTES, MAX_DATA_EXCHANGE_SCHEMA_BYTES,
+    MAX_RESOURCE_PATH_LEN, MAX_TAPP_ARCHIVE_BYTES, MAX_TAPP_ARCHIVE_FILES,
+    MAX_TAPP_ARCHIVE_UNCOMPRESSED_BYTES, MAX_TAPP_ASSETS, MAX_TAPP_ASSETS_TOTAL_BYTES,
+    MAX_TAPP_ASSET_BYTES, MAX_TAPP_I18N_FILES, MAX_TAPP_I18N_RESOURCE_BYTES, MAX_TAPP_ID_LEN,
+    MAX_TAPP_MANIFEST_BYTES, MAX_TAPP_RESOURCE_BYTES, MAX_WIDGETS_PER_TAPP,
+};
 
 pub(crate) fn valid_data_exchange_id(value: &str) -> bool {
     !value.is_empty()
@@ -700,8 +690,11 @@ pub(crate) fn validate_tapp_manifest(manifest: &TappManifest) -> Result<(), Stri
                 }
                 other => return Err(format!("Unknown Tapp API type: {other}")),
             }
-            if api.method.len() > 16 || api.method.parse::<reqwest::Method>().is_err() {
-                return Err(format!("Invalid HTTP method for Tapp API {name}"));
+            if !HTTP_METHODS.contains(&api.method.as_str()) {
+                return Err(format!(
+                    "Invalid HTTP method for Tapp API {name}: must be one of {}",
+                    HTTP_METHODS.join(", ")
+                ));
             }
             if let Some(inject) = &api.inject {
                 if inject.len() > 32 {
