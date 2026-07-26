@@ -97,33 +97,34 @@ export const NetworkConfigSection: React.FC<NetworkConfigSectionProps> = ({
         layout="horizontal"
       />
 
-      {/* 代理配置（仅在启用时显示） */}
-      {isProxyEnabled && (
-        <>
-          <InputItem
-            itemKey="proxy_url"
-            label={t.config.proxyUrl || '代理地址'}
-            value={getFieldValue('proxy_url')}
-            onChange={(v) => updateValue('proxy_url', v)}
-            placeholder="http://127.0.0.1:7890 或 socks5://127.0.0.1:1080"
-            hint={t.config.proxyUrlHint || '支持 HTTP、HTTPS、SOCKS5 代理协议'}
-            layout="vertical"
-          />
+      {/* 代理 URL / 绕过列表始终可编辑，便于在关闭代理时清空残留配置 */}
+      <InputItem
+        itemKey="proxy_url"
+        label={t.config.proxyUrl || '代理地址'}
+        value={getFieldValue('proxy_url')}
+        onChange={(v) => updateValue('proxy_url', v)}
+        placeholder="http://127.0.0.1:7890 或 socks5://127.0.0.1:1080"
+        hint={
+          isProxyEnabled
+            ? t.config.proxyUrlHint || '支持 HTTP、HTTPS、SOCKS5 代理协议'
+            : t.config.proxyUrlDisabledHint ||
+              '代理已关闭（关闭时不会使用此地址）。可清空以移除保存的代理配置。'
+        }
+        layout="vertical"
+      />
 
-          <InputItem
-            itemKey="proxy_bypass"
-            label={t.config.proxyBypass || '代理绕过列表'}
-            value={getFieldValue('proxy_bypass')}
-            onChange={(v) => updateValue('proxy_bypass', v)}
-            placeholder="localhost,127.0.0.1,bilibili.com"
-            hint={
-              t.config.proxyBypassHint ||
-              '不使用代理的域名，用逗号分隔。国内服务（如 Bilibili）建议添加到绕过列表'
-            }
-            layout="vertical"
-          />
-        </>
-      )}
+      <InputItem
+        itemKey="proxy_bypass"
+        label={t.config.proxyBypass || '代理绕过列表'}
+        value={getFieldValue('proxy_bypass')}
+        onChange={(v) => updateValue('proxy_bypass', v)}
+        placeholder="localhost,127.0.0.1,bilibili.com"
+        hint={
+          t.config.proxyBypassHint ||
+          '不使用代理的域名，用逗号分隔。国内服务（如 Bilibili）建议添加到绕过列表'
+        }
+        layout="vertical"
+      />
 
       {/* API 镜像配置 */}
       <SettingGroup

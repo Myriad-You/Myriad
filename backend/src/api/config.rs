@@ -2263,6 +2263,88 @@ mod settings_backup_tests {
         assert!(!updates.contains_key("enable_auto_fetch"));
         assert!(!updates.contains_key("fetch_interval_hours"));
     }
+
+    fn ui_field(key: &str, value: &str) -> ConfigField {
+        ConfigField {
+            key: key.to_string(),
+            label: String::new(),
+            field_type: "text".to_string(),
+            value: value.to_string(),
+            placeholder: String::new(),
+            required: false,
+        }
+    }
+
+    #[test]
+    fn ui_network_proxy_and_mirror_fields_can_be_cleared() {
+        let mut config = empty_config();
+        config.ui_config.config_fields = vec![
+            ui_field("proxy_url", ""),
+            ui_field("proxy_bypass", ""),
+            ui_field("gemini_base_url", ""),
+            ui_field("github_api_base_url", ""),
+            ui_field("proxy_enabled", "false"),
+        ];
+
+        let updates = collect_database_updates(&config);
+        assert_eq!(updates.get("proxy_url"), Some(&json!("")));
+        assert_eq!(updates.get("proxy_bypass"), Some(&json!("")));
+        assert_eq!(updates.get("gemini_base_url"), Some(&json!("")));
+        assert_eq!(updates.get("github_api_base_url"), Some(&json!("")));
+        assert_eq!(updates.get("proxy_enabled"), Some(&json!(false)));
+    }
+
+    #[test]
+    fn ui_network_proxy_and_mirror_fields_persist_non_empty() {
+        let mut config = empty_config();
+        config.ui_config.config_fields = vec![
+            ui_field("proxy_url", "http://127.0.0.1:7890"),
+            ui_field("proxy_bypass", "localhost,127.0.0.1"),
+            ui_field("gemini_base_url", "https://gemini.example.com"),
+            ui_field("github_api_base_url", "https://gh.example.com"),
+        ];
+
+        let updates = collect_database_updates(&config);
+        assert_eq!(
+            updates.get("proxy_url"),
+            Some(&json!("http://127.0.0.1:7890"))
+        );
+        assert_eq!(
+            updates.get("proxy_bypass"),
+            Some(&json!("localhost,127.0.0.1"))
+        );
+        assert_eq!(
+            updates.get("gemini_base_url"),
+            Some(&json!("https://gemini.example.com"))
+        );
+        assert_eq!(
+            updates.get("github_api_base_url"),
+            Some(&json!("https://gh.example.com"))
+        );
+    }
+
+    #[test]
+    fn ui_secret_fields_skip_empty_and_masked_values() {
+        let mut config = empty_config();
+
+        // Empty secret must not overwrite
+        config.ui_config.config_fields = vec![ui_field("github_client_secret", "")];
+        let updates = collect_database_updates(&config);
+        assert!(!updates.contains_key("github_client_secret"));
+
+        // Masked secret must not overwrite
+        config.ui_config.config_fields = vec![ui_field("github_client_secret", "••••••••")];
+        let updates = collect_database_updates(&config);
+        assert!(!updates.contains_key("github_client_secret"));
+
+        // Real secret is persisted
+        config.ui_config.config_fields = vec![ui_field("github_client_secret", "real-secret")];
+        let updates = collect_database_updates(&config);
+        assert_eq!(
+            updates.get("github_client_secret"),
+            Some(&json!("real-secret"))
+        );
+    }
 }
 
 pub async fn update_config(
@@ -2687,13 +2769,11 @@ fn collect_database_updates(config: &ConfigResponse) -> std::collections::HashMa
                 let enabled = field.value == "true";
                 ("proxy_enabled", JsonValue::Bool(enabled))
             }
-            "proxy_url" => ("proxy_url", JsonValue::String(field.value.clone())),
-            "proxy_bypass" => ("proxy_bypass", JsonValue::String(field.value.clone())),
-            "gemini_base_url" => ("gemini_base_url", JsonValue::String(field.value.clone())),
-            "github_api_base_url" => (
-                "github_api_base_url",
-                JsonValue::String(field.value.clone()),
-            ),
+            // 代理 URL / 绕过列表 / API 镜像（允许清空以恢复默认）
+            "proxy_url" | "proxy_bypass" | "gemini_base_url" | "github_api_base_url" => {
+                updates.insert(field.key.clone(), JsonValue::String(field.value.clone()));
+                continue;
+            }
             // 站点备案和云赞助商（允许清空）
             "site_icp" | "site_gongan" | "cloud_sponsors" => {
                 updates.insert(field.key.clone(), JsonValue::String(field.value.clone()));
@@ -2701,7 +2781,8 @@ fn collect_database_updates(config: &ConfigResponse) -> std::collections::HashMa
             }
             _ => continue,
         };
-        // 🔒 忽略屏蔽值（前端返回的掩码）- github_client_secret 是敏感字段
+        // 🔒 忽略屏蔽值（前端返回的掩码）与空敏感字段，避免覆盖已保存的密钥
+        // 非敏感字符串若需允许清空，应在上方 match 中 early-insert（见 proxy_* / site_icp）
         if !field.value.is_empty() && !is_masked(&field.value) {
             updates.insert(key.to_string(), json_value);
         }
