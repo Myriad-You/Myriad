@@ -3,7 +3,6 @@ import type { ReportCardClickAction, ReportCardWidgetProps } from './types'
 /**
  * Report card shell: fetch/coerce platform report, overview flip, host platform faces.
  */
-import { motionShim as motion } from '@lib/motionShim'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useI18n } from '../../../contexts/I18nContext'
@@ -18,6 +17,7 @@ import {
 import { getLatestReportDeduped } from '../../../utils/requestDedup'
 import { Spinner } from '../../Spinner'
 import { GlowBackground } from '../shared/GlowBackground'
+import { WidgetLongPressHint } from '../shared/WidgetLongPressHint'
 import { WidgetShell } from '../shared/WidgetShell'
 import { CardLogoPill } from './CardLogoPill'
 import { PLATFORM_CONFIG } from './platformConfig'
@@ -351,36 +351,10 @@ export const ReportCardWidget = memo(
 
         <CardLogoPill platformId={platformId} cardContent={cardContent} />
 
-        {/* 长按设置提示（编辑模式）- 与社交网络小组件保持一致 */}
-        {interactive && isEditMode && (
-          <motion.div
-            className="absolute top-1.5 right-1.5 z-30 w-5 h-5 rounded-md flex items-center justify-center bg-black/15 dark:bg-white/15 backdrop-blur-sm pointer-events-none"
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ type: 'spring', stiffness: 400, damping: 20 }}
-            title={t.platformCard.longPressHint}
-          >
-            <svg
-              className="w-3 h-3 text-gray-700 dark:text-gray-200"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-              />
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-              />
-            </svg>
-          </motion.div>
-        )}
+        <WidgetLongPressHint
+          visible={interactive && isEditMode}
+          title={t.platformCard.longPressHint}
+        />
       </WidgetShell>
     )
   },
