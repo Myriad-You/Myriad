@@ -6,12 +6,60 @@ import { API_URL } from '../config'
 import { isUserInChinaMainland } from './geoLocation'
 
 /**
+ * 网易云「仅解析播放链」接口：后端 302 到 HTTPS CDN，音频字节仍直连网易。
+ * 替代已失效于 HTTPS 站点的 outer/url（会跳到 http CDN → Mixed Content）。
+ */
+export function getNeteasePlayUrl(songId: string): string {
+  return `${API_URL}/api/proxy/music/netease/play-url/${songId}`
+}
+
+/**
+ * 网易云全量音频代理（字节经本机回传）。海外 / 需 CORS / 方案 C 降级时使用。
+ */
+export function getNeteaseProxyAudioUrl(songId: string): string {
+  return `${API_URL}/api/proxy/music/netease/audio/${songId}`
+}
+
+/**
+ * 是否为网易「直连」播放地址（play-url / 旧 outer / 已解析的 CDN）。
+ * 已是全量代理 `/audio/` 时返回 false，避免方案 C 死循环。
+ */
+export function isNeteaseDirectPlayUrl(url: string): boolean {
+  if (!url) return false
+  if (url.includes('/api/proxy/music/netease/audio/')) return false
+  if (url.includes('/api/proxy/music/netease/play-url/')) return true
+  // 旧缓存 outer、或 302 后浏览器侧偶发残留的 CDN 绝对地址
+  if (
+    url.includes('music.126.net') ||
+    url.includes('music.163.com/song/media') ||
+    url.includes('music.163.com/song/media/outer')
+  ) {
+    return true
+  }
+  return false
+}
+
+/**
+ * 方案 C：直连失败时的全量代理 URL。
+ * 非网易、或已经是代理地址时返回 null。
+ */
+export function getNeteaseProxyFallbackUrl(
+  song: Pick<Song, 'id' | 'source' | 'url'>,
+): string | null {
+  if (song.source !== 'netease') return null
+  if (!isNeteaseDirectPlayUrl(song.url)) return null
+  return getNeteaseProxyAudioUrl(song.id)
+}
+
+/**
  * 获取网易云音乐音频URL
- * 根据用户地理位置决定是使用代理还是直连
+ * 根据用户地理位置决定策略：
+ * - 国内：play-url 解析后 302 到 HTTPS CDN（直连网易，无 Mixed Content）
+ * - 海外：全量代理拉流
  *
  * @param songId 歌曲ID
- * @param useProxy 是否强制使用代理（覆盖自动检测）
- * @returns 音频URL
+ * @param useProxy 是否强制使用全量代理（覆盖自动检测）
+ * @returns 音频URL（可直接赋给 audio.src）
  */
 export async function getNeteaseAudioUrl(
   songId: string,
@@ -19,23 +67,20 @@ export async function getNeteaseAudioUrl(
 ): Promise<string> {
   // 如果显式指定了是否使用代理
   if (useProxy !== undefined) {
-    if (useProxy) {
-      return `${API_URL}/api/proxy/music/netease/audio/${songId}`
-    } else {
-      // 直连网易云音乐API获取音频URL
-      return `https://music.163.com/song/media/outer/url?id=${songId}.mp3`
-    }
+    return useProxy
+      ? getNeteaseProxyAudioUrl(songId)
+      : getNeteasePlayUrl(songId)
   }
 
   // 自动检测是否需要代理
   const inChina = await isUserInChinaMainland()
 
   if (inChina) {
-    // 中国大陆用户：直连网易云音乐
-    return `https://music.163.com/song/media/outer/url?id=${songId}.mp3`
+    // 中国大陆：只解析 HTTPS CDN 链，音频仍直连网易
+    return getNeteasePlayUrl(songId)
   } else {
-    // 海外用户：通过后端代理
-    return `${API_URL}/api/proxy/music/netease/audio/${songId}`
+    // 海外用户：通过后端全量代理
+    return getNeteaseProxyAudioUrl(songId)
   }
 }
 
@@ -203,8 +248,8 @@ interface PlaylistCacheEntry {
 
 const playlistMemoryCache = new Map<string, PlaylistCacheEntry>()
 const PLAYLIST_CACHE_DURATION = 7 * 24 * 60 * 60 * 1000 // 7天
-// QQ 音频现由后端代理，旧缓存里的 fromtag=46 直连 URL 已失效
-const PLAYLIST_STORAGE_KEY = 'myriad_playlist_cache_v2'
+// v3：网易国内改 play-url（HTTPS CDN 302），淘汰 outer/url 旧缓存
+const PLAYLIST_STORAGE_KEY = 'myriad_playlist_cache_v3'
 const MAX_PLAYLIST_CACHE_SIZE = 5
 
 function setPlaylistMemoryCache(
@@ -520,7 +565,7 @@ export async function getNeteasePlaylist(playlistId: string): Promise<Song[]> {
     // 等待地理位置检测结果
     const inChina = await geoPromise
     console.log(
-      `[MusicPlayer] 歌单加载完成，用户在中国大陆: ${inChina}，${inChina ? '使用直连' : '使用代理'}`,
+      `[MusicPlayer] 歌单加载完成，用户在中国大陆: ${inChina}，${inChina ? 'play-url 直连 CDN' : '全量代理'}`,
     )
 
     const songs = tracks.map((track: any) => {
@@ -535,12 +580,12 @@ export async function getNeteasePlaylist(playlistId: string): Promise<Song[]> {
       const isTrial = false // 网易云playlist接口不返回试听信息
       const trialDuration = undefined
 
-      // 根据用户地理位置决定音频URL
-      // 中国大陆用户：直连网易云（更快，无需代理）
-      // 海外用户：通过后端代理（绕过地理限制）
+      // 国内：后端解析临时链并 302 到 HTTPS CDN（音频直连网易，无 Mixed Content）
+      // 海外：全量代理拉流（绕过地理限制）
+      // 方案 C：直连失败时在 useMusicPlayer 降级到 getNeteaseProxyAudioUrl
       const audioUrl = inChina
-        ? `https://music.163.com/song/media/outer/url?id=${track.id}.mp3`
-        : `${API_URL}/api/proxy/music/netease/audio/${track.id}`
+        ? getNeteasePlayUrl(String(track.id))
+        : getNeteaseProxyAudioUrl(String(track.id))
 
       return {
         id: track.id.toString(),

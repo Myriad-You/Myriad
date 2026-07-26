@@ -10,7 +10,8 @@ use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 
 use super::netease_utils::{
-    convert_http_to_https, generate_device_id, get_random_china_ip, get_random_user_agent,
+    convert_http_to_https, ensure_https_url, generate_device_id, get_random_china_ip,
+    get_random_user_agent,
 };
 
 // 🚀 内存保护：限制单个歌单最大处理数量（避免 OOM）
@@ -799,7 +800,8 @@ impl NeteaseService {
             ));
         }
 
-        Ok(audio_url.to_string())
+        // 官方接口偶发返回 http://music.126.net CDN；HTTPS 页面直连会 Mixed Content
+        Ok(ensure_https_url(audio_url))
     }
 }
 

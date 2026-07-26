@@ -21,6 +21,7 @@ import {
   getCurrentLyricIndex,
   getLyricsWithVerbatim,
   getNeteasePlaylist,
+  getNeteaseProxyFallbackUrl,
   getQQPlaylist,
   shouldPreserveNativeAudioOutput,
   throttle,
@@ -268,6 +269,17 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
   const pendingPlayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   )
+  /**
+   * 方案 C：本会话内已对某网易曲尝试过「直连 → 全量代理」降级的 songId。
+   * 防止代理也失败时在 error 里死循环。
+   */
+  const neteaseProxyFallbackTriedRef = useRef<Set<string>>(new Set())
+  /**
+   * 当前 audio 元素正在加载的曲目（与 selectGeneration 绑定）。
+   * 用于丢弃切歌后旧 load 触发的 stale error，避免误降级/误跳下一首。
+   */
+  const audioLoadSongIdRef = useRef<string | null>(null)
+  const audioLoadGenerationRef = useRef(0)
   isPlayingRef.current = isPlaying
   currentSongRef.current = currentSong
   currentSongIndexRef.current = currentSongIndex
@@ -537,7 +549,9 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
         if (!preloadAudio) return
 
         return new Promise<void>((resolve, reject) => {
-          const handleError = () => {
+          let usedFallback = false
+
+          const failPreload = () => {
             preloadErrorCountRef.current += 1
 
             if (preloadErrorCountRef.current >= 3) {
@@ -547,6 +561,31 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
 
             cleanup()
             reject(new Error('Preload failed'))
+          }
+
+          const handleError = () => {
+            // 方案 C：预加载直连失败 → 再试一次全量代理
+            if (!usedFallback && nextSong.source === 'netease') {
+              const fallback = getNeteaseProxyFallbackUrl(nextSong)
+              if (fallback) {
+                usedFallback = true
+                neteaseProxyFallbackTriedRef.current.add(nextSong.id)
+                console.warn(
+                  `[MusicPlayer] 预加载直连失败，降级代理: ${nextSong.name}`,
+                )
+                setPlaylist((prev) =>
+                  prev.map((s) =>
+                    s.id === nextSong.id && s.source === 'netease'
+                      ? { ...s, url: fallback }
+                      : s,
+                  ),
+                )
+                preloadAudio.src = fallback
+                preloadAudio.load()
+                return
+              }
+            }
+            failPreload()
           }
 
           const handleCanPlay = () => {
@@ -860,6 +899,9 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
 
         audioRef.current.pause()
         audioRef.current.currentTime = 0
+        // 绑定本次 load，供 error 路径识别 stale 事件
+        audioLoadSongIdRef.current = song.id
+        audioLoadGenerationRef.current = generation
         audioRef.current.src = song.url
         audioRef.current.load()
 
@@ -1032,6 +1074,8 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
       loadResource.medium(`music-playlist-${plistId}`, async () => {
         try {
           setMusicErrorKey('')
+          // 换歌单后允许重新尝试直连（方案 C 降级标记重置）
+          neteaseProxyFallbackTriedRef.current.clear()
           const songs =
             source === 'netease'
               ? await getNeteasePlaylist(plistId)
@@ -1426,12 +1470,89 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
 
     const handleError = () => {
       console.error('音频播放错误:', audio.error)
+
+      // 切歌后旧 load 的 abort/error：不降级、不跳曲
+      const song = currentSongRef.current
+      if (
+        !song ||
+        song.id !== audioLoadSongIdRef.current ||
+        selectGenerationRef.current !== audioLoadGenerationRef.current
+      ) {
+        return
+      }
+
+      // 方案 C：网易直连（play-url / CDN）失败 → 同一首切全量代理再试一次
+      if (song.source === 'netease') {
+        const fallback = getNeteaseProxyFallbackUrl(song)
+        const tried = neteaseProxyFallbackTriedRef.current
+        if (fallback && !tried.has(song.id)) {
+          tried.add(song.id)
+          console.warn(
+            `[MusicPlayer] 网易直连失败，降级全量代理: ${song.name} (${song.id})`,
+          )
+
+          const updated: Song = { ...song, url: fallback }
+          currentSongRef.current = updated
+          setCurrentSong(updated)
+          setPlaylist((prev) =>
+            prev.map((s) =>
+              s.id === song.id && s.source === 'netease' ? updated : s,
+            ),
+          )
+
+          setIsAudioLoading(true)
+          audio.pause()
+          audio.currentTime = 0
+          // 仍属同一 generation；更新 load 标记，代理 error 可继续处理
+          audioLoadSongIdRef.current = updated.id
+          audio.src = fallback
+          audio.load()
+          audioManager.setCurrentAudio(audio, updated)
+
+          if (userWantsPlayingRef.current) {
+            void audio.play().then(
+              () => {
+                if (
+                  selectGenerationRef.current !==
+                    audioLoadGenerationRef.current ||
+                  currentSongRef.current?.id !== updated.id
+                ) {
+                  return
+                }
+                setIsPlaying(true)
+                audioManager.setPlaybackState('playing')
+              },
+              () => {
+                // 代理可加载但 play 被策略拒绝时，由后续 error/用户手势处理
+                if (
+                  selectGenerationRef.current !==
+                    audioLoadGenerationRef.current ||
+                  currentSongRef.current?.id !== updated.id
+                ) {
+                  return
+                }
+                setIsPlaying(false)
+                audioManager.setPlaybackState('paused')
+              },
+            )
+          }
+          return
+        }
+      }
+
       setIsPlaying(false)
       setIsAudioLoading(false)
 
       if (playlist.length > 1 && playMode !== 'single') {
         if (errorAdvanceTimer !== null) clearTimeout(errorAdvanceTimer)
         errorAdvanceTimer = setTimeout(() => {
+          // 定时器触发时若已切歌，不要替用户跳下一首
+          if (
+            selectGenerationRef.current !== audioLoadGenerationRef.current ||
+            currentSongRef.current?.id !== audioLoadSongIdRef.current
+          ) {
+            return
+          }
           const nextIndex = (currentSongIndex + 1) % playlist.length
           if (playlist[nextIndex]) {
             selectSong(playlist[nextIndex], nextIndex, true)

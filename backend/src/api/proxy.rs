@@ -643,7 +643,112 @@ pub async fn proxy_netease_song(Path(song_id): Path<String>) -> Response {
     }
 }
 
+/// 解析网易云可播放 HTTPS CDN URL（不转发音频字节）
+///
+/// GET /api/proxy/music/netease/play-url/{id}
+/// - 默认 302 到 HTTPS CDN：浏览器/音频元素直连网易，流量不经本机
+/// - `?format=json` 返回 `{ "url": "https://..." }`，便于调试或后续客户端解析
+///
+/// 与 `/audio/{id}` 全量代理的区别：本接口只解析临时链并升级 http→https，
+/// 解决 HTTPS 站点上 outer/url 跳到 HTTP CDN 被 Mixed Content 拦截的问题。
+#[derive(Debug, Deserialize)]
+pub struct NeteasePlayUrlQuery {
+    /// `json` 时返回 JSON；其它/缺省时 302 重定向到 CDN
+    pub format: Option<String>,
+}
+
+pub async fn proxy_netease_play_url(
+    Path(song_id): Path<String>,
+    Query(query): Query<NeteasePlayUrlQuery>,
+) -> Response {
+    let song_id_i64 = match song_id.parse::<i64>() {
+        Ok(id) => id,
+        Err(_) => {
+            return (StatusCode::BAD_REQUEST, "Invalid song ID").into_response();
+        }
+    };
+
+    let cache_key = format!("netease_play_url:{}", song_id);
+    {
+        let mut limiter = RATE_LIMITER.write().await;
+        if !limiter.check_rate_limit(&cache_key) {
+            tracing::warn!("Rate limit exceeded for Netease play-url: {}", song_id);
+            return (
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(json!({"error": "Too many requests"})),
+            )
+                .into_response();
+        }
+    }
+
+    // 短缓存解析结果，减轻网易侧压力；CDN 链本身有时效，缓存不宜过长
+    {
+        let cache = MUSIC_CACHE.read().await;
+        if let Some(entry) = cache.get(&cache_key) {
+            if entry.expires_at > Instant::now() {
+                if let Some(url) = entry.data.get("url").and_then(|v| v.as_str()) {
+                    return respond_netease_play_url(url, query.format.as_deref());
+                }
+            }
+        }
+    }
+
+    let service = NeteaseService::new();
+    match service.fetch_audio_url(song_id_i64).await {
+        Ok(audio_url) => {
+            {
+                let mut cache = MUSIC_CACHE.write().await;
+                cache.insert(
+                    cache_key,
+                    CacheEntry {
+                        data: json!({ "url": audio_url }),
+                        expires_at: Instant::now() + Duration::from_secs(5 * 60),
+                    },
+                );
+            }
+            respond_netease_play_url(&audio_url, query.format.as_deref())
+        }
+        Err(e) => {
+            tracing::error!("Failed to resolve Netease play URL for {}: {}", song_id, e);
+            (
+                StatusCode::NOT_FOUND,
+                "Audio not available (copyright or geo-restriction)",
+            )
+                .into_response()
+        }
+    }
+}
+
+fn respond_netease_play_url(audio_url: &str, format: Option<&str>) -> Response {
+    if format == Some("json") {
+        return (
+            StatusCode::OK,
+            [
+                (header::CACHE_CONTROL, "private, max-age=300"),
+                (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
+            ],
+            Json(json!({ "url": audio_url })),
+        )
+            .into_response();
+    }
+
+    // 302：音频仍由浏览器直连网易 CDN（非本机拉流）
+    // 勿长期缓存 302：CDN 签名 URL 会过期
+    (
+        StatusCode::FOUND,
+        [
+            (header::LOCATION, audio_url.to_string()),
+            (header::CACHE_CONTROL, "private, max-age=60".to_string()),
+            (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*".to_string()),
+        ],
+    )
+        .into_response()
+}
+
 /// 代理网易云音乐音频流 - 使用统一服务层
+///
+/// 海外或需绕过 CORS/防盗链时使用：本机拉取 CDN 再回传（流量经服务器）。
+/// 国内 HTTPS 站点优先用 [`proxy_netease_play_url`] 直连 CDN。
 pub async fn proxy_netease_audio(Path(song_id): Path<String>) -> Response {
     let song_id_i64 = match song_id.parse::<i64>() {
         Ok(id) => id,

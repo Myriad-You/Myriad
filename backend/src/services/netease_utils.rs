@@ -83,6 +83,17 @@ pub fn get_random_user_agent() -> &'static str {
     user_agents[rng.random_range(0..user_agents.len())]
 }
 
+/// 将单条网易云相关 HTTP URL 升级为 HTTPS（避免浏览器 Mixed Content）
+pub fn ensure_https_url(url: &str) -> String {
+    if url.starts_with("http://")
+        && (url.contains("music.126.net") || url.contains("music.163.com"))
+    {
+        format!("https://{}", &url["http://".len()..])
+    } else {
+        url.to_string()
+    }
+}
+
 /// 将音乐数据中的 HTTP 图片 URL 转换为 HTTPS
 /// 递归处理 JSON 对象和数组，避免 Mixed Content 警告
 pub fn convert_http_to_https(value: &mut serde_json::Value) {
@@ -92,7 +103,7 @@ pub fn convert_http_to_https(value: &mut serde_json::Value) {
             if s.starts_with("http://")
                 && (s.contains("music.126.net") || s.contains("music.163.com"))
             {
-                *s = s.replace("http://", "https://");
+                *s = ensure_https_url(s);
             }
         }
         serde_json::Value::Array(arr) => {
@@ -106,5 +117,31 @@ pub fn convert_http_to_https(value: &mut serde_json::Value) {
             }
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ensure_https_upgrades_netease_cdn() {
+        let http = "http://m801.music.126.net/foo/bar.mp3";
+        assert_eq!(
+            ensure_https_url(http),
+            "https://m801.music.126.net/foo/bar.mp3"
+        );
+    }
+
+    #[test]
+    fn ensure_https_leaves_https_and_other_hosts() {
+        assert_eq!(
+            ensure_https_url("https://m801.music.126.net/a.mp3"),
+            "https://m801.music.126.net/a.mp3"
+        );
+        assert_eq!(
+            ensure_https_url("http://example.com/a.mp3"),
+            "http://example.com/a.mp3"
+        );
     }
 }

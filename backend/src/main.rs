@@ -6878,6 +6878,11 @@ async fn start_unified_server(config: AppConfig) -> anyhow::Result<()> {
                 "/api/proxy/music/netease/audio/{id}",
                 get(api::proxy::proxy_netease_audio),
             )
+            // 仅解析 HTTPS CDN 播放链（302），音频字节仍直连网易 — 国内站 Mixed Content 修复
+            .route(
+                "/api/proxy/music/netease/play-url/{id}",
+                get(api::proxy::proxy_netease_play_url),
+            )
             .route(
                 "/api/proxy/music/qq/playlist/{id}",
                 get(api::proxy::proxy_qq_playlist),
