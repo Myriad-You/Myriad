@@ -782,6 +782,7 @@ export interface TranslationKeys {
     enableProxyHint: string
     proxyUrl: string
     proxyUrlHint: string
+    proxyUrlDisabledHint: string
     proxyBypass: string
     proxyBypassHint: string
     apiMirrorConfig: string

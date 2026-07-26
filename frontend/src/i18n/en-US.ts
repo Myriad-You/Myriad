@@ -881,6 +881,8 @@ export const enUS: TranslationKeys = {
       'External API requests will be sent through the proxy when enabled',
     proxyUrl: 'Proxy URL',
     proxyUrlHint: 'Supports HTTP, HTTPS, and SOCKS5 proxy protocols',
+    proxyUrlDisabledHint:
+      'Proxy is off (this address is unused while disabled). Clear the field to remove the saved proxy.',
     proxyBypass: 'Proxy Bypass List',
     proxyBypassHint:
       'Domains that should bypass the proxy, separated by commas. Recommended for domestic services like Bilibili',

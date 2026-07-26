@@ -826,6 +826,7 @@ export const zhCN: TranslationKeys = {
     enableProxyHint: '开启后将使用代理访问外部API',
     proxyUrl: '代理地址',
     proxyUrlHint: '支持 HTTP、HTTPS、SOCKS5 代理协议',
+    proxyUrlDisabledHint: '代理已关闭（关闭时不会使用此地址）。可清空以移除保存的代理配置。',
     proxyBypass: '代理绕过列表',
     proxyBypassHint:
       '不使用代理的域名，用逗号分隔。国内服务（如 Bilibili）建议添加到绕过列表',

@@ -868,6 +868,8 @@ export const jaJP: TranslationKeys = {
       '有効にすると、外部APIリクエストはプロキシ経由で送信されます',
     proxyUrl: 'プロキシURL',
     proxyUrlHint: 'HTTP、HTTPS、SOCKS5プロキシプロトコルに対応',
+    proxyUrlDisabledHint:
+      'プロキシはオフです（無効中はこのアドレスは使いません）。保存済み設定を消すには空にしてください。',
     proxyBypass: 'プロキシバイパスリスト',
     proxyBypassHint:
       'プロキシを使用しないドメインをカンマ区切りで指定。Bilibiliなどの国内サービスに推奨',
