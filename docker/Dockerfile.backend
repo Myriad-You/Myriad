@@ -1,5 +1,8 @@
 # Backend Dockerfile - Multi-stage build for optimal size
-FROM rustlang/rust:nightly-bookworm-slim AS builder
+# Pin stable (same family as proxy/updater). Floating `rustlang/rust:nightly-*`
+# hit a rustc ICE compiling tokio under release LTO (nightly 2026-07-25).
+# CI already builds backend with stable; edition2024 is available on 1.90+.
+FROM rust:1.90-bookworm AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
