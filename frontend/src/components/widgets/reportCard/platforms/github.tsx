@@ -224,17 +224,23 @@ export const GithubStatsWidget = memo(({ data }: any) => {
         </div>
         {langSegments.length > 0 && (
           <div className="absolute bottom-3 right-3 w-[45%] flex flex-col items-end gap-1">
-            <div className="flex flex-wrap justify-end gap-x-2.5 gap-y-0.5">
+            {/* 首页 4x2 更窄时 flex-wrap 易折到 3 行；硬限制最多两行，多余裁切 */}
+            <div
+              className="flex max-h-[1.375rem] flex-wrap content-start justify-end gap-x-2.5 gap-y-0.5 overflow-hidden"
+              title={langSegments
+                .map((s) => `${s.name} ${Math.round(s.pct)}%`)
+                .join(' · ')}
+            >
               {langSegments.map((segment) => (
                 <motion.span
                   key={segment.name}
-                  className="flex items-center gap-1 text-[8px] font-bold text-gray-600 dark:text-gray-300"
+                  className="flex items-center gap-1 text-[8px] font-bold leading-none text-gray-600 dark:text-gray-300"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ duration: 0.3, delay: segment.delay }}
                 >
                   <span
-                    className="w-1.5 h-1.5 rounded-full"
+                    className="h-1.5 w-1.5 shrink-0 rounded-full"
                     style={{ backgroundColor: getLanguageColor(segment.name) }}
                   />
                   {segment.name}
