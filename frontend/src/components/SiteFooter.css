@@ -229,6 +229,27 @@ html.dark .tooltip-content {
   gap: 0.3rem;
 }
 
+/*
+ * Compact footer sits fixed bottom-right. Centered tooltips
+ * (left: 50%; translateX(-50%)) overflow the viewport for long
+ * 备案/公安 strings — pin to the right edge of each icon and allow wrap.
+ */
+.site-footer-compact .tooltip-content {
+  left: auto;
+  right: 0;
+  transform: translateY(4px);
+  white-space: normal;
+  max-width: min(16rem, calc(100vw - 1rem));
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  text-align: right;
+  line-height: 1.35;
+}
+
+.site-footer-compact .tooltip-wrapper:hover .tooltip-content {
+  transform: translateY(0);
+}
+
 .footer-icon-link {
   display: flex;
   align-items: center;
