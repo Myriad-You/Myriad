@@ -766,7 +766,13 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
             size="sm"
           />
           {isPrimaryAdmin && (
-            <div className="users-create-admin-row">
+            <div
+              className="users-create-admin-row"
+              role="presentation"
+              onClick={() =>
+                setCreateDraft((d) => ({ ...d, is_admin: !d.is_admin }))
+              }
+            >
               <span className="setting-label-text">
                 {t.config.usersCreateIsAdmin}
               </span>

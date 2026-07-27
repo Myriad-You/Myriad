@@ -34,7 +34,13 @@ import {
   makeUpdaterApi,
   UpdaterError,
 } from '../../services/updaterApi'
-import { ButtonItem, FieldSelect, SettingGroup, ToggleSwitch } from '../settings'
+import {
+  ButtonItem,
+  FieldSelect,
+  InputItem,
+  SettingGroup,
+  ToggleSwitch,
+} from '../settings'
 import {
   AGO_TICK_MS,
   computeAgo,
@@ -1971,20 +1977,22 @@ function TargetPicker({
       </div>
 
       {isCommit && (
-        <label className="updater-target-input-row">
-          <span>{u.updaterCommitTarget}</span>
-          <input
-            className="updater-input"
-            type="text"
-            placeholder={u.updaterCommitPlaceholder}
-            value={input}
-            disabled={disabled}
-            onChange={(e) => {
-              setInput(e.target.value)
-              if (e.target.value.trim()) setSelected('')
-            }}
-          />
-        </label>
+        <InputItem
+          itemKey="updater-commit-target"
+          label={u.updaterCommitTarget}
+          value={input}
+          disabled={disabled}
+          placeholder={u.updaterCommitPlaceholder}
+          inputType="text"
+          autoComplete="off"
+          layout="vertical"
+          size="sm"
+          className="updater-commit-input-item"
+          onChange={(value) => {
+            setInput(value)
+            if (value.trim()) setSelected('')
+          }}
+        />
       )}
 
       {compareText && target && (
@@ -2167,37 +2175,51 @@ function AdvancedPanel({
       )}
 
       <div className="updater-transport">
-        <div className="updater-transport-label">{u.updaterTransport}</div>
-        <label>
-          <input
-            type="radio"
-            name="updater-transport"
-            checked={transport === 'backend'}
-            onChange={() => onTransportChange('backend')}
-          />
-          {u.updaterTransportBackend}
-        </label>
-        <label>
-          <input
-            type="radio"
-            name="updater-transport"
-            checked={transport === 'direct'}
-            onChange={() => onTransportChange('direct')}
-          />
-          {u.updaterTransportDirect}
-        </label>
+        <div className="updater-transport-label" id="updater-transport-label">
+          {u.updaterTransport}
+        </div>
+        <div
+          className="updater-transport-options"
+          role="radiogroup"
+          aria-labelledby="updater-transport-label"
+        >
+          {(
+            [
+              { value: 'backend' as const, label: u.updaterTransportBackend },
+              { value: 'direct' as const, label: u.updaterTransportDirect },
+            ] as const
+          ).map((option) => {
+            const selected = transport === option.value
+            return (
+              <button
+                key={option.value}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                className={`updater-transport-option${selected ? ' is-selected' : ''}`}
+                onClick={() => onTransportChange(option.value)}
+              >
+                {option.label}
+              </button>
+            )
+          })}
+        </div>
         {transport === 'direct' && (
           <>
             <p className="updater-transport-hint">
               {u.updaterTransportDirectHint}
             </p>
-            <input
-              type="password"
+            <InputItem
+              itemKey="updater-transport-token"
+              label="UPDATE_TOKEN"
               value={token}
-              onChange={(e) => onTokenChange(e.target.value)}
+              onChange={onTokenChange}
               placeholder="UPDATE_TOKEN"
-              className="updater-token-input"
+              inputType="password"
               autoComplete="off"
+              layout="vertical"
+              size="sm"
+              className="updater-token-input-item"
             />
           </>
         )}

@@ -532,60 +532,18 @@ html.dark .updater-channel-desc {
   gap: 0.6rem;
 }
 
-.updater-target-input-row {
-  display: flex;
-  align-items: center;
-  gap: 0.7rem;
-  font-size: 0.8rem;
-  color: #4b5563;
+.updater-commit-input-item {
+  margin-bottom: 0;
 }
 
-html.dark .updater-target-input-row {
-  color: #d1d5db;
-}
-
-.updater-target-input-row span {
-  flex-shrink: 0;
+.updater-commit-input-item .field-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.8125rem;
 }
 
 .updater-target-actions {
   display: flex;
   gap: 0.5rem;
-}
-
-.updater-input {
-  flex: 1;
-  max-width: 18rem;
-  padding: 0.3rem 0.5rem;
-  border-radius: 0.4rem;
-  border: 1px solid rgb(209 213 219 / 80%);
-  background: rgb(255 255 255 / 90%);
-  color: #111827;
-  font-size: 0.8125rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  color-scheme: light;
-}
-
-html.dark .updater-input {
-  color-scheme: dark;
-  background: rgb(31 41 55 / 90%);
-  border-color: rgb(107 114 128 / 50%);
-  color: #f3f4f6;
-}
-
-.updater-input:focus {
-  outline: none;
-  border-color: rgb(var(--updater-accent, 99 102 241) / 55%);
-  box-shadow: 0 0 0 2px rgb(var(--updater-accent, 99 102 241) / 14%);
-}
-
-.updater-input::placeholder {
-  color: #9ca3af;
-  font-family: inherit;
-}
-
-html.dark .updater-input::placeholder {
-  color: #6b7280;
 }
 
 /* ===== 版本 / commit 列表 ===== */
@@ -1045,33 +1003,61 @@ html.dark .updater-transport-label {
   color: #9ca3af;
 }
 
-.updater-transport label {
+.updater-transport-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.updater-transport-option {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  font-size: 0.83rem;
+  min-height: 2rem;
+  padding: 0.35rem 0.75rem;
+  border: 1px solid rgb(209 213 219 / 70%);
+  border-radius: 0.55rem;
+  background: rgb(255 255 255 / 55%);
+  color: #4b5563;
+  font-size: 0.8125rem;
+  font-weight: 550;
   cursor: pointer;
-  color: #374151;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease;
 }
 
-html.dark .updater-transport label {
-  color: #e5e7eb;
+.updater-transport-option:hover {
+  border-color: rgb(156 163 175 / 80%);
+  background: rgb(255 255 255 / 80%);
+  color: #111827;
 }
 
-/* 原生 radio：深色下用 accent + color-scheme，避免系统默认浅色控件 */
-.updater-transport input[type='radio'] {
-  flex-shrink: 0;
-  width: 0.95rem;
-  height: 0.95rem;
-  margin: 0;
-  accent-color: #6366f1;
-  color-scheme: light;
-  cursor: pointer;
+.updater-transport-option.is-selected {
+  border-color: color-mix(in srgb, var(--color-primary, #6366f1) 48%, transparent);
+  background: color-mix(in srgb, var(--color-primary, #6366f1) 12%, transparent);
+  color: var(--color-primary, #4f46e5);
+  box-shadow: 0 0 0 1px
+    color-mix(in srgb, var(--color-primary, #6366f1) 10%, transparent);
 }
 
-html.dark .updater-transport input[type='radio'] {
-  accent-color: #818cf8;
-  color-scheme: dark;
+html.dark .updater-transport-option {
+  border-color: rgb(75 85 99 / 70%);
+  background: rgb(31 41 55 / 55%);
+  color: #d1d5db;
+}
+
+html.dark .updater-transport-option:hover {
+  border-color: rgb(107 114 128 / 75%);
+  background: rgb(31 41 55 / 75%);
+  color: #f3f4f6;
+}
+
+html.dark .updater-transport-option.is-selected {
+  border-color: color-mix(in srgb, var(--color-primary, #818cf8) 50%, transparent);
+  background: color-mix(in srgb, var(--color-primary, #818cf8) 16%, transparent);
+  color: #c7d2fe;
 }
 
 .updater-transport-hint {
@@ -1085,38 +1071,13 @@ html.dark .updater-transport-hint {
   color: #fde68a;
 }
 
-.updater-token-input {
-  width: 100%;
-  padding: 0.45rem 0.7rem;
-  border-radius: 0.5rem;
-  border: 1px solid rgb(209 213 219 / 60%);
-  background: rgb(255 255 255 / 65%);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+.updater-token-input-item {
+  margin-bottom: 0;
+}
+
+.updater-token-input-item .field-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.82rem;
-  color: #111827;
-  color-scheme: light;
-}
-
-.updater-token-input:focus {
-  outline: none;
-  border-color: #818cf8;
-  box-shadow: 0 0 0 2px rgb(129 140 248 / 18%);
-}
-
-html.dark .updater-token-input {
-  color-scheme: dark;
-  background: rgb(31 41 55 / 70%);
-  border-color: rgb(107 114 128 / 55%);
-  color: #f3f4f6;
-}
-
-html.dark .updater-token-input:focus {
-  border-color: #a5b4fc;
-  box-shadow: 0 0 0 2px rgb(129 140 248 / 22%);
-}
-
-html.dark .updater-token-input::placeholder {
-  color: #6b7280;
 }
 
 .updater-advanced-actions {

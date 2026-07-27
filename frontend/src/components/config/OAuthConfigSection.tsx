@@ -295,7 +295,11 @@ const ProviderCard: React.FC<ProviderCardProps> = ({
           </span>
         </span>
         <div className="oidc-provider-actions">
-          <div className="oidc-enable-toggle">
+          <div
+            className="oidc-enable-toggle"
+            role="presentation"
+            onClick={() => onChange({ enabled: !entry.enabled })}
+          >
             <span className="oidc-enable-toggle-label">
               {t.config.oidcEnabled}
             </span>
