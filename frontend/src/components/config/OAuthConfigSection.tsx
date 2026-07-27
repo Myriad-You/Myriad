@@ -28,7 +28,12 @@ import {
   preloadOAuthIcons,
 } from '../../utils/oauthIcons'
 import OAuthIconImage from '../OAuthIconImage'
-import { InfoCard, InputItem, SettingSection } from '../settings'
+import {
+  InfoCard,
+  InputItem,
+  SettingSection,
+  ToggleSwitch,
+} from '../settings'
 import { Spinner } from '../Spinner'
 import { findPreset, OAUTH_PRESETS } from './oauthPresets'
 
@@ -300,19 +305,20 @@ const ProviderCard: React.FC<ProviderCardProps> = ({
           </span>
         </span>
         <div className="oidc-provider-actions">
-          <label className="oidc-enable-toggle">
+          <div
+            className="oidc-enable-toggle"
+            role="presentation"
+            onClick={() => onChange({ enabled: !entry.enabled })}
+          >
             <span className="oidc-enable-toggle-label">
               {t.config.oidcEnabled}
             </span>
-            <span className="toggle-switch">
-              <input
-                type="checkbox"
-                checked={entry.enabled}
-                onChange={(e) => onChange({ enabled: e.target.checked })}
-              />
-              <span className="toggle-slider"></span>
-            </span>
-          </label>
+            <ToggleSwitch
+              checked={entry.enabled}
+              onChange={(checked) => onChange({ enabled: checked })}
+              aria-label={t.config.oidcEnabled}
+            />
+          </div>
           <button
             type="button"
             className="btn-base btn-danger btn-sm"

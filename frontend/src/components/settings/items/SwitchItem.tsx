@@ -4,6 +4,7 @@
 
 import type { SwitchSettingConfig } from '../types'
 import React, { useCallback } from 'react'
+import { ToggleSwitch } from './ToggleSwitch'
 import './SettingItem.css'
 
 export interface SwitchItemProps extends Omit<SwitchSettingConfig, 'type'> {}
@@ -23,9 +24,9 @@ export const SwitchItem = React.memo<SwitchItemProps>(
     className = '',
   }) => {
     const handleChange = useCallback(
-      (e: React.ChangeEvent<HTMLInputElement>) => {
+      (checked: boolean) => {
         if (!disabled && !loading) {
-          onChange(e.target.checked)
+          onChange(checked)
         }
       },
       [onChange, disabled, loading],
@@ -45,17 +46,13 @@ export const SwitchItem = React.memo<SwitchItemProps>(
             )}
           </label>
           <div className="setting-control">
-            <label className="toggle-switch">
-              <input
-                id={id}
-                type="checkbox"
-                checked={value}
-                onChange={handleChange}
-                disabled={disabled || loading}
-                aria-label={label}
-              />
-              <span className="toggle-slider"></span>
-            </label>
+            <ToggleSwitch
+              id={id}
+              checked={value}
+              onChange={handleChange}
+              disabled={disabled || loading}
+              aria-label={label}
+            />
           </div>
         </div>
         {hint && <p className="setting-hint">{hint}</p>}

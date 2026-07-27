@@ -41,11 +41,6 @@ export const SettingItem: React.FC<SettingItemConfig> = (props) => {
     case 'custom':
       return <>{props.render()}</>
 
-    case 'slider':
-      // TODO: 实现 SliderItem
-      console.warn('SliderItem not implemented yet')
-      return null
-
     default: {
       props satisfies never
       return null

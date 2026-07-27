@@ -34,7 +34,13 @@ import {
   makeUpdaterApi,
   UpdaterError,
 } from '../../services/updaterApi'
-import { ButtonItem, SettingGroup } from '../settings'
+import {
+  ButtonItem,
+  FieldSelect,
+  InputItem,
+  SettingGroup,
+  ToggleSwitch,
+} from '../settings'
 import { Spinner } from '../Spinner'
 import {
   AGO_TICK_MS,
@@ -1618,102 +1624,6 @@ const INTERVAL_OPTIONS: Array<{
   { value: 86400, labelKey: 'updaterCheckInterval24h' },
 ]
 
-/**
- * 检查频率：自定义下拉（不用原生 select）。
- * 系统原生 option 列表在深色模式下几乎不可样式化，改为可控 listbox。
- */
-function IntervalSelect({
-  value,
-  disabled,
-  u,
-  onChange,
-}: {
-  value: number
-  disabled: boolean
-  u: U
-  onChange: (secs: number) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const rootRef = useRef<HTMLDivElement>(null)
-  const listRef = useRef<HTMLUListElement>(null)
-  const selected =
-    INTERVAL_OPTIONS.find((o) => o.value === value) ?? INTERVAL_OPTIONS[1]
-
-  useEffect(() => {
-    if (!open) return
-    const onDoc = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDoc)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
-
-  useEffect(() => {
-    if (!open) return
-    const selectedEl = listRef.current?.querySelector(
-      '[aria-selected="true"]',
-    ) as HTMLElement | null
-    selectedEl?.focus()
-  }, [open])
-
-  return (
-    <div
-      className={`updater-select-wrap${open ? ' is-open' : ''}`}
-      ref={rootRef}
-    >
-      <button
-        type="button"
-        className="updater-select"
-        disabled={disabled}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-label={u.updaterCheckInterval}
-        onClick={() => {
-          if (!disabled) setOpen((v) => !v)
-        }}
-      >
-        <span className="updater-select-value">{u[selected.labelKey]}</span>
-        <span className="updater-select-chevron" aria-hidden="true" />
-      </button>
-      {open && (
-        <ul
-          ref={listRef}
-          className="updater-select-menu"
-          role="listbox"
-          aria-label={u.updaterCheckInterval}
-        >
-          {INTERVAL_OPTIONS.map((o) => {
-            const isSelected = o.value === value
-            return (
-              <li key={o.value} role="presentation">
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={isSelected}
-                  className={`updater-select-option${isSelected ? ' is-selected' : ''}`}
-                  onClick={() => {
-                    setOpen(false)
-                    if (o.value !== value) onChange(o.value)
-                  }}
-                >
-                  {u[o.labelKey]}
-                </button>
-              </li>
-            )
-          })}
-        </ul>
-      )}
-    </div>
-  )
-}
-
 function AutoUpdatePrefs({
   status,
   disabled,
@@ -1732,6 +1642,10 @@ function AutoUpdatePrefs({
   const known = INTERVAL_OPTIONS.some((o) => o.value === effectiveInterval)
   const intervalValue = known ? effectiveInterval : 3600
   const autoInstall = status?.auto_install === true
+  const intervalOptions = INTERVAL_OPTIONS.map((o) => ({
+    value: String(o.value),
+    label: u[o.labelKey],
+  }))
 
   return (
     <div className="updater-hero-auto">
@@ -1744,37 +1658,40 @@ function AutoUpdatePrefs({
               {u.updaterCheckIntervalDesc}
             </span>
           </span>
-          <IntervalSelect
-            value={intervalValue}
+          <FieldSelect
+            value={String(intervalValue)}
+            options={intervalOptions}
             disabled={disabled || !status}
-            u={u}
+            aria-label={u.updaterCheckInterval}
+            size="sm"
             onChange={(secs) => {
-              void onSave({ check_interval_secs: secs })
+              void onSave({ check_interval_secs: Number(secs) })
             }}
           />
         </div>
-        <label className="updater-auto-row updater-auto-install">
+        <div
+          className="updater-auto-row updater-auto-install"
+          role="presentation"
+          onClick={() => {
+            if (disabled || !status) return
+            void onSave({ auto_install: !autoInstall })
+          }}
+        >
           <span className="updater-auto-label">
             <span className="updater-auto-title">{u.updaterAutoInstall}</span>
             <span className="updater-auto-desc">
               {u.updaterAutoInstallDesc}
             </span>
           </span>
-          <span className="updater-switch-control">
-            <input
-              className="updater-switch-input"
-              type="checkbox"
-              checked={autoInstall}
-              disabled={disabled || !status}
-              onChange={(e) => {
-                void onSave({ auto_install: e.target.checked })
-              }}
-            />
-            <span className="updater-switch-track" aria-hidden="true">
-              <span className="updater-switch-thumb" />
-            </span>
-          </span>
-        </label>
+          <ToggleSwitch
+            checked={autoInstall}
+            disabled={disabled || !status}
+            aria-label={u.updaterAutoInstall}
+            onChange={(checked) => {
+              void onSave({ auto_install: checked })
+            }}
+          />
+        </div>
       </div>
     </div>
   )
@@ -2056,20 +1973,22 @@ function TargetPicker({
       </div>
 
       {isCommit && (
-        <label className="updater-target-input-row">
-          <span>{u.updaterCommitTarget}</span>
-          <input
-            className="updater-input"
-            type="text"
-            placeholder={u.updaterCommitPlaceholder}
-            value={input}
-            disabled={disabled}
-            onChange={(e) => {
-              setInput(e.target.value)
-              if (e.target.value.trim()) setSelected('')
-            }}
-          />
-        </label>
+        <InputItem
+          itemKey="updater-commit-target"
+          label={u.updaterCommitTarget}
+          value={input}
+          disabled={disabled}
+          placeholder={u.updaterCommitPlaceholder}
+          inputType="text"
+          autoComplete="off"
+          layout="vertical"
+          size="sm"
+          className="updater-commit-input-item"
+          onChange={(value) => {
+            setInput(value)
+            if (value.trim()) setSelected('')
+          }}
+        />
       )}
 
       {compareText && target && (
@@ -2260,37 +2179,51 @@ function AdvancedPanel({
       )}
 
       <div className="updater-transport">
-        <div className="updater-transport-label">{u.updaterTransport}</div>
-        <label>
-          <input
-            type="radio"
-            name="updater-transport"
-            checked={transport === 'backend'}
-            onChange={() => onTransportChange('backend')}
-          />
-          {u.updaterTransportBackend}
-        </label>
-        <label>
-          <input
-            type="radio"
-            name="updater-transport"
-            checked={transport === 'direct'}
-            onChange={() => onTransportChange('direct')}
-          />
-          {u.updaterTransportDirect}
-        </label>
+        <div className="updater-transport-label" id="updater-transport-label">
+          {u.updaterTransport}
+        </div>
+        <div
+          className="updater-transport-options"
+          role="radiogroup"
+          aria-labelledby="updater-transport-label"
+        >
+          {(
+            [
+              { value: 'backend' as const, label: u.updaterTransportBackend },
+              { value: 'direct' as const, label: u.updaterTransportDirect },
+            ] as const
+          ).map((option) => {
+            const selected = transport === option.value
+            return (
+              <button
+                key={option.value}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                className={`updater-transport-option${selected ? ' is-selected' : ''}`}
+                onClick={() => onTransportChange(option.value)}
+              >
+                {option.label}
+              </button>
+            )
+          })}
+        </div>
         {transport === 'direct' && (
           <>
             <p className="updater-transport-hint">
               {u.updaterTransportDirectHint}
             </p>
-            <input
-              type="password"
+            <InputItem
+              itemKey="updater-transport-token"
+              label="UPDATE_TOKEN"
               value={token}
-              onChange={(e) => onTokenChange(e.target.value)}
+              onChange={onTokenChange}
               placeholder="UPDATE_TOKEN"
-              className="updater-token-input"
+              inputType="password"
               autoComplete="off"
+              layout="vertical"
+              size="sm"
+              className="updater-token-input-item"
             />
           </>
         )}

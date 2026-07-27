@@ -2,6 +2,13 @@
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+
+  /* 原生控件（checkbox 等）跟随主题 */
+  color-scheme: light;
+}
+
+html.dark .notification-source-grid {
+  color-scheme: dark;
 }
 
 .notification-source-group {
@@ -26,6 +33,26 @@
 .notification-location-switches .checkbox-group-card {
   flex-basis: 10rem;
   max-width: 14rem;
+}
+
+/* 深色：卡片边框/底对比加强，避免与背景融在一起 */
+html.dark .notification-switch-group .checkbox-group-card {
+  border-color: rgb(75 85 99 / 70%);
+  background: rgb(31 41 55 / 55%);
+}
+
+html.dark .notification-switch-group .checkbox-group-card:hover {
+  border-color: rgb(107 114 128 / 75%);
+  background: rgb(31 41 55 / 75%);
+}
+
+html.dark .notification-switch-group .checkbox-group-card.active {
+  border-color: color-mix(in srgb, var(--color-primary, #818cf8) 50%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--color-primary, #818cf8) 14%,
+    rgb(31 41 55 / 70%)
+  );
 }
 
 @media (width <= 560px) {

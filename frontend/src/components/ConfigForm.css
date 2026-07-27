@@ -1490,91 +1490,7 @@ html.dark .platform-desc {
   color: #9ca3af;
 }
 
-/* 开关 — OFF/ON 需在 light/dark 下都清晰可辨 */
-.toggle-switch {
-  position: relative;
-  display: inline-block;
-  width: 40px;
-  height: 22px;
-  flex-shrink: 0;
-}
-
-.toggle-switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-/* OFF: 更深的轨道 + 细边框，避免与 ON 混淆 */
-.toggle-slider {
-  position: absolute;
-  cursor: pointer;
-  inset: 0;
-  background-color: #9ca3af;
-  border: 1.5px solid #6b7280;
-  box-shadow: inset 0 1px 2px rgb(0 0 0 / 14%);
-  transition:
-    background-color 0.3s,
-    border-color 0.3s,
-    box-shadow 0.3s;
-  border-radius: 28px;
-  box-sizing: border-box;
-}
-
-.toggle-slider::before {
-  position: absolute;
-  content: '';
-  height: 14px;
-  width: 14px;
-  left: 2.5px;
-  bottom: 2.5px;
-  background-color: #fff;
-  transition: transform 0.3s, box-shadow 0.3s;
-  border-radius: 50%;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 28%);
-}
-
-/* ON: 主题渐变 + 更强光晕，与 OFF 灰轨形成鲜明对比 */
-.toggle-switch input:checked + .toggle-slider {
-  background: linear-gradient(
-    135deg,
-    var(--color-primary),
-    var(--color-secondary)
-  );
-  border-color: color-mix(in srgb, var(--color-primary) 55%, transparent);
-  box-shadow:
-    0 2px 10px -2px color-mix(in srgb, var(--color-primary) 50%, transparent),
-    inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 25%, transparent);
-}
-
-.toggle-switch input:checked + .toggle-slider::before {
-  transform: translateX(18px);
-  box-shadow: 0 1px 4px rgb(0 0 0 / 22%);
-}
-
-.toggle-switch input:focus-visible + .toggle-slider {
-  outline: 2px solid var(--color-primary, #3b82f6);
-  outline-offset: 2px;
-}
-
-/* 深色模式 OFF：凹陷暗轨 + 可见边框，避免亮灰轨看起来像“已开” */
-html.dark .toggle-slider {
-  background-color: #374151;
-  border-color: #6b7280;
-  box-shadow: inset 0 1px 3px rgb(0 0 0 / 45%);
-}
-
-html.dark .toggle-slider::before {
-  background-color: #f3f4f6;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 50%);
-}
-
-html.dark .toggle-switch input:checked + .toggle-slider {
-  border-color: color-mix(in srgb, var(--color-primary) 65%, transparent);
-  box-shadow:
-    0 2px 12px -2px color-mix(in srgb, var(--color-primary) 55%, transparent),
-    inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 30%, transparent);
-}
+/* toggle-switch 样式见 settings/items/SettingItem.css（ToggleSwitch 组件） */
 
 /* 状态徽章 */
 .status-badge {
@@ -1883,29 +1799,6 @@ html.dark .field-checkbox:checked {
 
 html.dark .checkbox-hint {
   color: #9ca3af;
-}
-
-.toggle-switch.disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  filter: grayscale(1);
-}
-
-.toggle-switch.disabled input {
-  cursor: not-allowed;
-}
-
-.toggle-switch.disabled .toggle-slider {
-  cursor: not-allowed;
-  background: #d1d5db;
-  border-color: #9ca3af;
-  box-shadow: none;
-}
-
-html.dark .toggle-switch.disabled .toggle-slider {
-  background: #1f2937;
-  border-color: #374151;
-  box-shadow: none;
 }
 
 /* 测试按钮 - 使用主题渐变色 */
@@ -2383,6 +2276,10 @@ html.dark .copy-btn:hover {
   user-select: none;
 }
 
+.oidc-enable-toggle:focus-within {
+  outline: none;
+}
+
 .oidc-enable-toggle-label {
   font-size: 0.8125rem;
   color: var(--text-secondary);
@@ -2439,8 +2336,43 @@ html.dark .copy-btn:hover {
   margin: 0 0 0.625rem;
   padding: 0.375rem 0.625rem;
   background: color-mix(in srgb, var(--color-primary) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 12%, transparent);
   border-radius: 0.5rem;
   font-size: 0.75rem;
+}
+
+html.dark .oidc-callback-row {
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  border-color: color-mix(in srgb, var(--color-primary) 22%, transparent);
+}
+
+html.dark .oidc-provider-card {
+  background: color-mix(in srgb, var(--bg-card, #1f2937) 92%, transparent);
+  border-color: rgb(55 65 81 / 70%);
+}
+
+html.dark .oidc-provider-card:hover {
+  border-color: color-mix(
+    in srgb,
+    var(--color-primary) 45%,
+    rgb(55 65 81 / 70%)
+  );
+}
+
+html.dark .oidc-empty {
+  background: color-mix(in srgb, var(--bg-card, #1f2937) 50%, transparent);
+  border-color: rgb(75 85 99 / 65%);
+  color: #9ca3af;
+}
+
+html.dark .oidc-empty-clickable:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+}
+
+html.dark .oidc-enable-toggle-label {
+  color: #d1d5db;
 }
 
 .oidc-callback-label {

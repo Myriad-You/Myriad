@@ -1,242 +1,101 @@
 # 通用设置组件架构
 
-## 概述
+设置页统一使用本目录下的组件，避免各区块手写原生 `select` / `checkbox` / toggle DOM。
 
-设置组件系统提供一套统一、可复用的设置项组件，用于替换分散在项目中的各种设置实现。
-
-## 架构设计
+## 目录
 
 ```
 settings/
-├── types.ts              # 类型定义
-├── SettingItem.tsx       # 单个设置项组件（工厂组件）
-├── SettingGroup.tsx      # 设置项分组容器
-├── SettingSection.tsx    # 设置区块（带标题和图标）
-├── items/                # 具体设置项类型
-│   ├── SwitchItem.tsx    # 开关切换
-│   ├── InputItem.tsx     # 文本输入
-│   ├── NumberItem.tsx    # 数字输入
-│   ├── SelectItem.tsx    # 下拉选择
-│   ├── ProviderItem.tsx  # 服务提供商选择器
-│   ├── SliderItem.tsx    # 滑动条
-│   └── ButtonItem.tsx    # 操作按钮
-├── presets/              # 预设组合
-│   ├── PermissionGroup.tsx   # 权限设置组
-│   ├── QuotaGroup.tsx        # 配额设置组
-│   └── ProviderGroup.tsx     # 服务商选择组
-├── hooks/
-│   └── useSettingState.ts    # 设置状态管理 Hook
-└── index.ts              # 统一导出
+├── types.ts                 # 类型定义
+├── SettingItem.tsx          # 按 type 分发的工厂组件
+├── SettingGroup.tsx         # 分组容器
+├── SettingSection.tsx       # 带标题/图标的区块
+├── CompactSettingGroup.tsx
+├── InfoCard.tsx
+├── items/
+│   ├── ToggleSwitch.tsx     # 统一开关控件（无 label 壳）
+│   ├── SwitchItem.tsx       # 开关设置项
+│   ├── InputItem.tsx        # 文本输入
+│   ├── NumberItem.tsx       # 数字输入
+│   ├── SelectItem.tsx       # 下拉（内部用 FieldSelect）
+│   ├── FieldSelect.tsx      # 自定义 listbox（替代原生 select）
+│   ├── CheckboxItem.tsx
+│   ├── CheckboxGroupItem.tsx
+│   ├── NumberGroupItem.tsx
+│   ├── ProviderItem.tsx
+│   ├── ButtonItem.tsx
+│   └── SettingItem.css      # 含 toggle-switch 全局样式
+├── presets/
+│   ├── PermissionGroup.tsx
+│   └── QuotaGroup.tsx
+└── index.ts
 ```
 
-## 核心类型
+## 何时用哪个
 
-### SettingItemConfig
+| 场景 | 组件 |
+| ---- | ---- |
+| 带标签的开关设置行 | `SwitchItem` |
+| 卡片头/紧凑行内开关（无整行 label 壳） | `ToggleSwitch` |
+| 文本 / 密码 / URL / email | `InputItem` |
+| 数字 + 单位 | `NumberItem` |
+| 下拉（必须用自定义 listbox，勿用原生 `<select>`） | `FieldSelect` 或 `SelectItem` |
+| 多选芯片组 | `CheckboxGroupItem` |
+| 区块标题 | `SettingSection` + `SettingGroup` |
 
-```typescript
-export interface SettingItemConfig {
-  // 基础属性
-  key: string // 唯一标识
-  label: string // 显示标签
-  description?: string // 描述说明
-  hint?: string // 提示文本
+## 原则
 
-  // 类型相关
-  type: SettingType // 设置项类型
-  value: unknown // 当前值
-  defaultValue?: unknown // 默认值
+1. **一致性**：视觉与交互统一（hover / focus / dark）。
+2. **无原生 option 列表**：系统 `option` 弹层几乎不可样式化；统一 `FieldSelect`。
+3. **开关复用**：不要手写 `.toggle-switch` DOM，用 `ToggleSwitch`。
+4. **可访问性**：`aria-label` / `htmlFor` / 键盘 Escape 关菜单。
 
-  // 交互
-  onChange: (value: unknown) => void
-  onFocus?: () => void
-  onBlur?: () => void
-
-  // 验证
-  required?: boolean
-  validate?: (value: unknown) => string | null
-
-  // 状态
-  disabled?: boolean
-  loading?: boolean
-  error?: string
-
-  // 类型特定配置
-  options?: SettingOption[] // 用于 select/provider
-  min?: number // 用于 number/slider
-  max?: number
-  step?: number
-  placeholder?: string // 用于 input
-  inputType?: 'text' | 'password' | 'url' | 'email'
-  multiline?: boolean // 用于 textarea
-
-  // 样式
-  size?: 'sm' | 'md' | 'lg'
-  layout?: 'horizontal' | 'vertical'
-}
-```
-
-### SettingType 枚举
-
-```typescript
-export type SettingType =
-  | 'switch' // 开关
-  | 'input' // 文本输入
-  | 'number' // 数字输入
-  | 'select' // 下拉选择
-  | 'provider' // 服务商选择器（带图标的按钮组）
-  | 'slider' // 滑动条
-  | 'button' // 操作按钮
-  | 'checkbox' // 复选框
-  | 'custom' // 自定义渲染
-```
-
-## 使用示例
-
-### 基础开关
+## 示例
 
 ```tsx
-<SettingItem
-  type="switch"
-  key="music_enabled"
-  label="启用音乐播放器"
-  description="开启后将在底部显示音乐播放器"
-  value={config.music_enabled}
-  onChange={(v) => updateConfig('music_enabled', v)}
-/>
-```
+import {
+  FieldSelect,
+  InputItem,
+  SettingGroup,
+  SettingSection,
+  SwitchItem,
+  ToggleSwitch,
+} from '../settings'
 
-### 服务商选择器
-
-```tsx
-<SettingItem
-  type="provider"
-  key="ai_provider"
-  label="AI 服务商"
-  value={config.provider}
-  onChange={(v) => updateConfig('provider', v)}
-  options={[
-    { value: 'gemini', label: 'Gemini', icon: '🤖' },
-    { value: 'openai', label: 'OpenAI', icon: '✨' },
-  ]}
-/>
-```
-
-### 设置分组
-
-```tsx
-<SettingSection
-  title="AI 配置"
-  icon="🤖"
-  description="配置 AI 服务相关参数"
->
-  <SettingGroup title="基础设置">
-    <SettingItem type="provider" {...props} />
-    <SettingItem type="input" key="api_key" {...props} />
-  </SettingGroup>
-
-  <SettingGroup title="高级设置">
-    <SettingItem type="number" key="max_tokens" {...props} />
-    <SettingItem type="slider" key="temperature" {...props} />
+<SettingSection title="示例" sectionId="demo">
+  <SettingGroup title="基础">
+    <SwitchItem
+      itemKey="enabled"
+      label="启用"
+      value={enabled}
+      onChange={setEnabled}
+    />
+    <InputItem
+      itemKey="name"
+      label="名称"
+      value={name}
+      onChange={setName}
+      layout="vertical"
+    />
+    <FieldSelect
+      value={interval}
+      options={[
+        { value: '3600', label: '每小时' },
+        { value: '86400', label: '每天' },
+      ]}
+      onChange={setInterval}
+    />
   </SettingGroup>
 </SettingSection>
-```
 
-### 权限配置（预设组合）
-
-```tsx
-<PermissionGroup
-  title="普通用户权限"
-  description="控制普通用户可使用的 Tapp 权限"
-  permissions={[
-    {
-      key: 'ai:generate',
-      label: 'AI 生成',
-      hint: '允许 Tapp 调用 AI 生成内容',
-    },
-    { key: 'ai:analyze', label: 'AI 分析', hint: '允许 Tapp 调用 AI 分析内容' },
-    // ...
-  ]}
-  values={permissionConfig}
-  onChange={updatePermissionConfig}
+{/* 紧凑开关（平台卡 / OAuth 头） */}
+<ToggleSwitch
+  checked={on}
+  onChange={setOn}
+  aria-label="启用"
 />
 ```
 
-## 设计原则
+## 已迁移的设置区块
 
-### 1. 一致性
-
-- 所有设置项共享相同的视觉语言
-- 统一的交互模式（hover、focus、active）
-- 响应式布局适配移动端
-
-### 2. 可访问性
-
-- 完整的 ARIA 标签
-- 键盘导航支持
-- 屏幕阅读器友好
-
-### 3. 灵活性
-
-- 支持水平/垂直布局
-- 可配置尺寸
-- 自定义渲染插槽
-
-### 4. 性能
-
-- React.memo 优化
-- 受控/非受控模式
-- 防抖输入
-
-## 样式规范
-
-### 布局模式
-
-**水平模式 (horizontal)** - 默认
-
-```
-┌────────────────────────────────────────┐
-│ 标签和描述                      [控件] │
-└────────────────────────────────────────┘
-```
-
-**垂直模式 (vertical)** - 适用于复杂输入
-
-```
-┌────────────────────────────────────────┐
-│ 标签                                   │
-│ 描述文本                               │
-│ ┌────────────────────────────────────┐ │
-│ │ 输入控件                           │ │
-│ └────────────────────────────────────┘ │
-│ 提示文本                               │
-└────────────────────────────────────────┘
-```
-
-### 尺寸规范
-
-| 尺寸 | 内边距  | 字体大小  | 圆角    |
-| ---- | ------- | --------- | ------- |
-| sm   | 0.5rem  | 0.8125rem | 0.5rem  |
-| md   | 1rem    | 0.875rem  | 0.75rem |
-| lg   | 1.25rem | 1rem      | 1rem    |
-
-## 迁移计划
-
-1. **Phase 1**: 创建核心组件
-   - types.ts
-   - SettingItem.tsx (工厂组件)
-   - 基础 items/
-
-2. **Phase 2**: 创建预设组合
-   - PermissionGroup
-   - QuotaGroup
-   - ProviderGroup
-
-3. **Phase 3**: 迁移 ConfigForm
-   - 逐个 section 迁移
-   - 保持向后兼容
-
-4. **Phase 4**: 迁移其他设置页面
-   - BrewReader 设置
-   - TappDetailPage 设置
-   - 各种 Modal 中的设置
+见 `components/config/`：`Music`、`Network`、`OAuth`、`UI`、`Permissions`、`Module`、`Users`、`Notification`、`Updater` 等；`ConfigForm` 平台卡/平台弹层也使用 `ToggleSwitch` / `InputItem`。

@@ -16,6 +16,7 @@ export const NumberItem = React.memo<NumberItemProps>(
     hint,
     value,
     onChange,
+    onBlur,
     disabled = false,
     loading = false,
     required = false,
@@ -64,6 +65,7 @@ export const NumberItem = React.memo<NumberItemProps>(
                 type="number"
                 value={value}
                 onChange={handleChange}
+                onBlur={onBlur}
                 min={min}
                 max={max}
                 step={step}
