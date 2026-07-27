@@ -5,9 +5,10 @@
 
 import type { SecondaryNavItem } from '../contexts/NavigationContext'
 
-import { useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import AnimatedView from '../components/AnimatedView'
 import LibraryGrid from '../components/LibraryGrid'
+import { Spinner } from '../components/Spinner'
 import { useI18n } from '../contexts/I18nContext'
 import { useSecondaryNav } from '../contexts/NavigationContext'
 import { useLibraryScheduler } from '../hooks/animation'
@@ -136,6 +137,11 @@ export default function Library() {
   useLibraryScheduler()
 
   const { t } = useI18n()
+  // 与 Brew 一致：首屏加载用整页 flex 垂直居中 Spinner
+  const [initialLoading, setInitialLoading] = useState(true)
+  const handleInitialLoadingChange = useCallback((loading: boolean) => {
+    setInitialLoading(loading)
+  }, [])
 
   // 构建二级导航项
   const navItems: SecondaryNavItem[] = useMemo(
@@ -221,10 +227,26 @@ export default function Library() {
     }
   }, [setExpanded])
 
+  // 加载布局对齐 Brew：min-h-screen + flex 居中 + 同款顶/底安全区
+  // LibraryGrid 只挂载一次，避免加载完成后 remount 再次请求
   return (
-    <AnimatedView className="min-h-screen px-3 xs:px-4 sm:px-6 pt-20 pb-28 sm:pb-24 md:pb-12">
-      <div className="max-w-7xl mx-auto">
-        <LibraryGrid filter={activeId as FilterType} />
+    <AnimatedView
+      className={
+        initialLoading
+          ? 'min-h-screen flex items-center justify-center pt-20 pb-28 sm:pb-24 md:pb-12'
+          : 'min-h-screen px-3 xs:px-4 sm:px-6 pt-20 pb-28 sm:pb-24 md:pb-12'
+      }
+    >
+      {initialLoading && <Spinner size="lg" color="primary" />}
+      <div
+        className={
+          initialLoading ? 'hidden' : 'max-w-7xl mx-auto w-full'
+        }
+      >
+        <LibraryGrid
+          filter={activeId as FilterType}
+          onInitialLoadingChange={handleInitialLoadingChange}
+        />
       </div>
     </AnimatedView>
   )
