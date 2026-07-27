@@ -1050,7 +1050,14 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
   }, [])
 
   if (loading && allItems.length === 0) {
-    return null
+    return (
+      <div
+        className="flex min-h-[16rem] items-center justify-center"
+        role="status"
+      >
+        <Spinner size="lg" color="primary" />
+      </div>
+    )
   }
 
   return (
@@ -1466,11 +1473,9 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
             <div
               ref={observerTarget}
               className="flex justify-center mt-8 mb-4 py-4 w-full"
+              role="status"
             >
-              <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
-                <Spinner size="xs" color="primary" />
-                <span className="text-sm">{t.library.loadingMore}</span>
-              </div>
+              <Spinner size="sm" color="primary" />
             </div>
           )}
         </div>
