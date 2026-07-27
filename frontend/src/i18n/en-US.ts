@@ -1435,7 +1435,6 @@ export const enUS: TranslationKeys = {
     title: 'Library',
     noData: 'No data available',
     loadFailed: 'Failed to load',
-    loadingMore: 'Loading more...',
     // Game playtime
     playedHours: 'Played {hours} hours',
     // Music related

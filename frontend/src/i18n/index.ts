@@ -1250,7 +1250,6 @@ export interface TranslationKeys {
     title: string
     noData: string
     loadFailed: string
-    loadingMore: string
     // 游戏时长
     playedHours: string
     // 音乐相关

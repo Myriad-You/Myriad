@@ -1409,7 +1409,6 @@ export const jaJP: TranslationKeys = {
     title: 'ライブラリ',
     noData: 'データがありません',
     loadFailed: '読み込み失敗',
-    loadingMore: 'さらに読み込み中...',
     // ゲームプレイ時間
     playedHours: '{hours}時間プレイ',
     // 音楽関連

@@ -1348,7 +1348,6 @@ export const zhCN: TranslationKeys = {
     title: '资料库',
     noData: '暂无数据',
     loadFailed: '加载失败',
-    loadingMore: '正在加载更多内容...',
     // 游戏时长
     playedHours: '游玩 {hours} 小时',
     // 音乐相关
