@@ -40,6 +40,7 @@ import {
   getUIConfigDeduped,
 } from '../../utils/requestDedup'
 import { useThemeMode } from '../../utils/themeSubscriber'
+import { Spinner } from '../Spinner'
 import { GlowBackground } from './shared/GlowBackground'
 import { WidgetLongPressHint } from './shared/WidgetLongPressHint'
 import { WidgetShell } from './shared/WidgetShell'
@@ -762,7 +763,13 @@ const CustomPlatformForm = memo(
             }
             className="flex-1 px-4 py-2.5 rounded-lg bg-[var(--color-primary)] text-white font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
           >
-            {isGenerating ? t.socialNetwork.generating : t.socialNetwork.create}
+            {isGenerating ? (
+              <span className="inline-flex justify-center">
+                <Spinner size="xs" color="white" />
+              </span>
+            ) : (
+              t.socialNetwork.create
+            )}
           </button>
         </div>
       </div>

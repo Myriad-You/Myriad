@@ -169,10 +169,7 @@ const RegisterForm: FC = () => {
             className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed font-semibold shadow-lg"
           >
             {submitting ? (
-              <>
-                <Spinner size="xs" color="white" />
-                <span>{t.auth.registering}</span>
-              </>
+              <Spinner size="xs" color="white" />
             ) : (
               <span>{t.auth.register}</span>
             )}

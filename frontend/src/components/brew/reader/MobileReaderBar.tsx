@@ -776,11 +776,11 @@ export const MobileReaderBar = memo(
                           className={`py-8 text-center ${currentTheme.secondary}`}
                         >
                           {podcastLoading ? (
-                            <div className="flex flex-col items-center gap-2">
+                            <div
+                              className="flex flex-col items-center gap-2"
+                              role="status"
+                            >
                               <Spinner size="lg" className="text-emerald-500" />
-                              <p className="text-sm">
-                                {t.brew.generatingPodcast}
-                              </p>
                             </div>
                           ) : (
                             <div className="flex flex-col items-center gap-2">

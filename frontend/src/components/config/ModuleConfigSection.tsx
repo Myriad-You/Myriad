@@ -16,6 +16,7 @@ import {
 } from '../../utils/moduleVisibility'
 import PlatformIcon from '../PlatformIcon'
 import { SettingGroup, SettingSection, SwitchItem } from '../settings'
+import { Spinner } from '../Spinner'
 
 export type LibraryItemType =
   'game' | 'video' | 'music' | 'anime' | 'tv_series' | 'book'
@@ -690,13 +691,17 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
       >
         <div className="space-y-4">
           <div className="text-xs text-gray-500 dark:text-gray-400">
-            {rawTotal > 0
-              ? t.config.librarySourceVisibleCount
-                  .replace('{shown}', String(shownTotal))
-                  .replace('{total}', String(rawTotal))
-              : loading
-                ? t.common.loading
-                : t.config.librarySourceNoData}
+            {rawTotal > 0 ? (
+              t.config.librarySourceVisibleCount
+                .replace('{shown}', String(shownTotal))
+                .replace('{total}', String(rawTotal))
+            ) : loading ? (
+              <span className="inline-flex items-center" role="status">
+                <Spinner size="xs" color="primary" />
+              </span>
+            ) : (
+              t.config.librarySourceNoData
+            )}
           </div>
 
           <div className="grid gap-3 md:grid-cols-2">

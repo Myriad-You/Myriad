@@ -126,10 +126,7 @@ export function UninstallConfirmDialog({
                 className="flex-1 px-4 py-2.5 font-medium rounded-lg transition-colors bg-red-600 hover:bg-red-700 text-white disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {uninstalling ? (
-                  <>
-                    <Spinner size="sm" color="white" />
-                    {t.tapp.uninstalling}
-                  </>
+                  <Spinner size="sm" color="white" />
                 ) : (
                   <>
                     <FaTrash className="w-4 h-4" />

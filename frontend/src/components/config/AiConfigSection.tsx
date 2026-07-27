@@ -583,7 +583,6 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
           buttonIcon={<FaVolumeUp />}
           onClick={handleSpeechTest}
           loading={speechTesting}
-          loadingText={t.config.speechTestTesting}
           result={speechTestResult}
           variant="secondary"
           layout="vertical"

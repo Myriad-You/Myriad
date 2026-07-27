@@ -511,8 +511,11 @@ export const RecentActivityWidget = memo(
           className={`min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain pr-0.5 ${compact ? 'space-y-1' : 'space-y-1.5'}`}
         >
           {loading ? (
-            <div className="flex h-full items-center justify-center text-[10px] text-gray-500 dark:text-gray-400">
-              {t.common.loading}
+            <div
+              className="flex h-full items-center justify-center"
+              role="status"
+            >
+              <Spinner size="sm" color="primary" />
             </div>
           ) : activities.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center text-center text-[10px] text-gray-500 dark:text-gray-400">

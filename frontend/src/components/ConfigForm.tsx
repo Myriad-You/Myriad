@@ -2024,7 +2024,6 @@ const ModernConfigForm: React.FC = () => {
     return (
       <div className="modern-config-loading" role="status" aria-live="polite">
         <Spinner size="lg" color="primary" />
-        <p>{t.common.loading}</p>
       </div>
     )
   }

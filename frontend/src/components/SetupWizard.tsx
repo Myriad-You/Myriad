@@ -371,7 +371,6 @@ const SetupWizard: React.FC = () => {
       <div className="setup-state-card glass" role="status">
         <img src="/logo.webp" alt="Myriad" className="setup-state-logo" />
         <Spinner size="md" color="primary" />
-        <p>{t.setup.checkingStatus}</p>
       </div>
     )
   }

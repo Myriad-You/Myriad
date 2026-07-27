@@ -403,9 +403,6 @@ function TappRunPageStandard({ tappId, isMobile }: TappRunPageStandardProps) {
                       <div className="w-7 h-7 rounded-lg bg-gray-200 dark:bg-neutral-700 flex items-center justify-center shrink-0">
                         <Spinner size="sm" />
                       </div>
-                      <span className="text-sm text-gray-500 dark:text-gray-400">
-                        {t.tapp.loadingApp}
-                      </span>
                     </motion.div>
                   ) : hasError ? (
                     <motion.div

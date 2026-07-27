@@ -547,12 +547,7 @@ function InstallTappModal({
               aria-label={t.tapp.selectTappFile}
             />
             {loading ? (
-              <>
-                <Spinner size="xl" color="primary" center className="mb-4" />
-                <p className="text-gray-600 dark:text-gray-300 font-medium">
-                  {t.tapp.installing}
-                </p>
-              </>
+              <Spinner size="xl" color="primary" center />
             ) : (
               <>
                 <FaFileAlt className="w-12 h-12 mx-auto mb-4 text-gray-400 dark:text-gray-500" />

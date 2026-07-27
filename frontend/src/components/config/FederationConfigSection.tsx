@@ -29,6 +29,7 @@ import {
   SettingSection,
   SwitchItem,
 } from '../settings'
+import { Spinner } from '../Spinner'
 
 interface FederationConfigSectionProps {
   title: string
@@ -473,7 +474,9 @@ export const FederationConfigSection: React.FC<
         description={description}
         sectionId={sectionId}
       >
-        <p className="text-sm text-gray-500">{t.common?.loading || '…'}</p>
+        <div className="flex justify-center py-8" role="status">
+          <Spinner size="md" color="primary" />
+        </div>
       </SettingSection>
     )
   }

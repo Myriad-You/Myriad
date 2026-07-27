@@ -517,19 +517,11 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(
             />
 
             {window.loading ? (
-              <div className="flex items-center gap-2">
-                <div
-                  className="w-6 h-6 rounded-lg flex items-center justify-center"
-                  style={{ backgroundColor: 'var(--bg-hover)' }}
-                >
-                  <Spinner size="xs" color="var(--text-muted)" />
-                </div>
-                <span
-                  className="text-xs"
-                  style={{ color: 'var(--text-secondary)' }}
-                >
-                  {t.tapp.loadingApp}
-                </span>
+              <div
+                className="w-6 h-6 rounded-lg flex items-center justify-center"
+                style={{ backgroundColor: 'var(--bg-hover)' }}
+              >
+                <Spinner size="xs" color="var(--text-muted)" />
               </div>
             ) : window.error ? (
               <div className="flex items-center gap-2">

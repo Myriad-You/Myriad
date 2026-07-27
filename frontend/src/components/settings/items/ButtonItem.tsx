@@ -12,8 +12,6 @@ import './SettingItem.css'
 export interface ButtonItemProps extends Omit<ButtonSettingConfig, 'type'> {
   /** 异步操作 */
   asyncAction?: boolean
-  /** 加载中的文本 */
-  loadingText?: string
   /** 操作结果 */
   result?: {
     success: boolean
@@ -37,7 +35,6 @@ export const ButtonItem = React.memo<ButtonItemProps>(
     size = 'md',
     layout = 'vertical',
     asyncAction = false,
-    loadingText,
     result,
     renderResult,
     className = '',
@@ -61,9 +58,6 @@ export const ButtonItem = React.memo<ButtonItemProps>(
     }, [onClick, disabled, loading, asyncAction])
 
     const renderIcon = () => {
-      if (loading) {
-        return <ButtonSpinner />
-      }
       if (!buttonIcon) return null
       if (typeof buttonIcon === 'string') {
         return <span>{buttonIcon}</span>
@@ -90,9 +84,16 @@ export const ButtonItem = React.memo<ButtonItemProps>(
             onClick={handleClick}
             disabled={disabled || loading}
             className={`btn-base ${variantClass}`}
+            aria-busy={loading || undefined}
           >
-            {renderIcon()}
-            <span>{loading && loadingText ? loadingText : buttonText}</span>
+            {loading ? (
+              <ButtonSpinner />
+            ) : (
+              <>
+                {renderIcon()}
+                <span>{buttonText}</span>
+              </>
+            )}
           </button>
           {result &&
             (renderResult ? (

@@ -314,11 +314,8 @@ export function TappDetailPage({ tappId }: TappDetailPageProps) {
     return (
       <AnimatedView className="min-h-screen px-4 sm:px-6 pt-20 pb-24 md:pb-12">
         <div className="max-w-4xl mx-auto">
-          <div className="glass rounded-xl p-8 md:p-12 text-center">
-            <Spinner size="xl" color="primary" center className="mb-4" />
-            <h3 className="text-lg font-medium text-gray-800 dark:text-gray-100 mb-2">
-              {t.tapp.loading}
-            </h3>
+          <div className="glass rounded-xl p-8 md:p-12 flex justify-center">
+            <Spinner size="xl" color="primary" />
           </div>
         </div>
       </AnimatedView>

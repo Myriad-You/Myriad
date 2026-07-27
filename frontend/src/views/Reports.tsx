@@ -6,7 +6,6 @@ import {
   FaGithub,
   FaMagic,
   FaSteam,
-  FaSync,
   FaTimes,
   FaTrash,
   FaXbox,
@@ -1812,19 +1811,7 @@ export default function Reports() {
                                   }}
                                 >
                                   {loadingPlatform === 'comprehensive' ? (
-                                    <>
-                                      <motion.div
-                                        animate={{ rotate: 360 }}
-                                        transition={{
-                                          repeat: Infinity,
-                                          duration: 1,
-                                          ease: 'linear',
-                                        }}
-                                      >
-                                        <FaSync size={10} />
-                                      </motion.div>
-                                      <span>{t.reportsPage.generating}</span>
-                                    </>
+                                    <Spinner size="xs" color="white" />
                                   ) : (
                                     <>
                                       <motion.div

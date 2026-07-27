@@ -26,6 +26,7 @@ import { messageForAdminUserError } from '../../utils/authErrorMessages'
 import { getOAuthIconAsset } from '../../utils/oauthIcons'
 import OAuthIconImage from '../OAuthIconImage'
 import { SettingGroup, SettingSection, SwitchItem } from '../settings'
+import { Spinner } from '../Spinner'
 import './UsersConfigSection.css'
 
 const KNOWN_PROVIDER_ICONS: Record<string, string> = {
@@ -599,7 +600,11 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
 
   const emptyListMessage = (isAdminGroup: boolean) => {
     if (loading && users.length === 0) {
-      return <div className="users-muted">…</div>
+      return (
+        <div className="users-muted flex justify-center py-4" role="status">
+          <Spinner size="sm" color="primary" />
+        </div>
+      )
     }
     if (hasActiveFilter) {
       // Only surface the no-match copy once (in the section that remains visible).
@@ -706,7 +711,11 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
               disabled={loading}
               onClick={loadUsers}
             >
-              <LuRefreshCw aria-hidden className={loading ? 'spinning' : ''} />
+              {loading ? (
+                <Spinner size="xs" color="current" />
+              ) : (
+                <LuRefreshCw aria-hidden />
+              )}
               {t.config.usersRefresh}
             </button>
             <button

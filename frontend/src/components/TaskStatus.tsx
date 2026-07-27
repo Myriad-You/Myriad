@@ -184,11 +184,8 @@ export function TaskStatus({
   if (!task) {
     return (
       <div className="bg-gray-50 dark:bg-neutral-900 border border-gray-200 dark:border-neutral-700 rounded-lg p-4">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center justify-center py-1">
           <Spinner size="sm" />
-          <span className="text-gray-600 dark:text-gray-300">
-            {t.task.loadingInfo}
-          </span>
         </div>
       </div>
     )

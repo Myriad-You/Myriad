@@ -806,10 +806,7 @@ export default function EditModal({
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-purple-500 text-white hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     {generatingTags ? (
-                      <>
-                        <Spinner size="xs" color="current" />
-                        {t.brew.generating}
-                      </>
+                      <Spinner size="xs" color="current" />
                     ) : (
                       <>
                         <Sparkles className="w-3 h-3" />

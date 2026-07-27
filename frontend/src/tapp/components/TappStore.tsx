@@ -826,21 +826,19 @@ function AppDetailView({
                 style={{ background: 'var(--color-primary)' }}
               >
                 {installing ? (
-                  <Spinner size="xs" color="current" />
+                  installPercent != null ? (
+                    <span className="text-[11px] font-bold tabular-nums">
+                      {installPercent}%
+                    </span>
+                  ) : (
+                    <Spinner size="xs" color="current" />
+                  )
                 ) : (
-                  <FaDownload className="w-3.5 h-3.5" />
+                  <>
+                    <FaDownload className="w-3.5 h-3.5" />
+                    {t.tapp.install}
+                  </>
                 )}
-                {installing && installPercent != null
-                  ? (
-                      installPhase === 'register' || installPhase === 'install'
-                        ? t.tapp.installRegistering
-                        : installPhase === 'download' || installPhase === 'prepare'
-                          ? t.tapp.installDownloading
-                          : t.tapp.installProgress
-                    ).replace('{percent}', String(installPercent))
-                  : installing
-                    ? t.tapp.installing
-                    : t.tapp.install}
               </button>
             )}
             {installing && installPercent != null && (
@@ -2055,16 +2053,8 @@ export function TappStore({ isOpen, onClose, onInstalled }: TappStoreProps) {
               >
                 <div ref={contentHeight.attachContent} className="p-4 sm:p-6">
                   {loading && remoteApps.length === 0 ? (
-                    <div className="text-center py-12">
-                      <Spinner
-                        size="xl"
-                        color="primary"
-                        center
-                        className="mb-4"
-                      />
-                      <p className="text-gray-500 dark:text-gray-400">
-                        {t.tapp.loadingRemoteApps}
-                      </p>
+                    <div className="flex justify-center py-12" role="status">
+                      <Spinner size="xl" color="primary" />
                     </div>
                   ) : error && remoteApps.length === 0 ? (
                     <div className="text-center py-12">

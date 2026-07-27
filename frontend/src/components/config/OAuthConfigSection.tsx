@@ -29,6 +29,7 @@ import {
 } from '../../utils/oauthIcons'
 import OAuthIconImage from '../OAuthIconImage'
 import { InfoCard, InputItem, SettingSection } from '../settings'
+import { Spinner } from '../Spinner'
 import { findPreset, OAUTH_PRESETS } from './oauthPresets'
 
 /** 把字符串中反引号 `foo` 包裹的片段渲染为 <code>foo</code> */
@@ -200,7 +201,11 @@ export const OAuthConfigSection: React.FC<OAuthConfigSectionProps> = ({
           />
         )}
 
-        {loading && <p className="oidc-loading">…</p>}
+        {loading && (
+          <div className="oidc-loading flex justify-center" role="status">
+            <Spinner size="sm" color="primary" />
+          </div>
+        )}
 
         {!loading && providers.length === 0 && !picker && (
           <button

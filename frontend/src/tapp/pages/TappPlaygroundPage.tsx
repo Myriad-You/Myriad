@@ -1569,11 +1569,11 @@ export function TappPlaygroundPage() {
             transition={{ duration: 0.2 }}
             className="absolute inset-0 z-30 grid place-items-center bg-white/40 dark:bg-black/40 backdrop-blur-sm"
           >
-            <div className="flex items-center gap-2.5 rounded-full px-4 py-2 text-sm font-semibold text-gray-700 dark:text-gray-200 bg-white/85 dark:bg-black/70 backdrop-blur-xl shadow-lg ring-1 ring-inset ring-black/5 dark:ring-white/10">
+            <div
+              className="flex items-center justify-center rounded-full p-3 bg-white/85 dark:bg-black/70 backdrop-blur-xl shadow-lg ring-1 ring-inset ring-black/5 dark:ring-white/10"
+              role="status"
+            >
               <Spinner size="sm" color="primary" />
-              {busyMode === 'runtime-repair'
-                ? t.tapp.playgroundRepairingRuntime
-                : t.tapp.playgroundGenerating}
             </div>
           </motion.div>
         )}
