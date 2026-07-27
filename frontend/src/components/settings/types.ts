@@ -15,7 +15,6 @@ export type SettingType =
   | 'number' // 数字输入
   | 'select' // 下拉选择
   | 'provider' // 服务商选择器（带图标的按钮组）
-  | 'slider' // 滑动条
   | 'button' // 操作按钮
   | 'checkbox' // 复选框
   | 'custom' // 自定义渲染
@@ -114,6 +113,7 @@ export interface NumberSettingConfig extends BaseSettingItemConfig {
   type: 'number'
   value: number
   onChange: (value: number) => void
+  onBlur?: () => void
   min?: number
   max?: number
   step?: number
@@ -137,22 +137,6 @@ export interface ProviderSettingConfig<
   value: T
   onChange: (value: T) => void
   options: SettingOption<T>[]
-}
-
-/** 滑动条设置项配置 */
-export interface SliderSettingConfig extends BaseSettingItemConfig {
-  type: 'slider'
-  value: number
-  onChange: (value: number) => void
-  min: number
-  max: number
-  step?: number
-  /** 显示当前值 */
-  showValue?: boolean
-  /** 值格式化函数 */
-  formatValue?: (value: number) => string
-  /** 刻度标记 */
-  marks?: Record<number, string>
 }
 
 /** 按钮设置项配置 */
@@ -187,7 +171,6 @@ export type SettingItemConfig =
   | NumberSettingConfig
   | SelectSettingConfig
   | ProviderSettingConfig
-  | SliderSettingConfig
   | ButtonSettingConfig
   | CustomSettingConfig
 
@@ -310,13 +293,11 @@ export type SettingConfigByType<T extends SettingType> = T extends 'switch'
           ? SelectSettingConfig
           : T extends 'provider'
             ? ProviderSettingConfig
-            : T extends 'slider'
-              ? SliderSettingConfig
-              : T extends 'button'
-                ? ButtonSettingConfig
-                : T extends 'custom'
-                  ? CustomSettingConfig
-                  : never
+            : T extends 'button'
+              ? ButtonSettingConfig
+              : T extends 'custom'
+                ? CustomSettingConfig
+                : never
 
 /** 设置值类型映射 */
 export type SettingValueType<T extends SettingType> = T extends
@@ -324,7 +305,7 @@ export type SettingValueType<T extends SettingType> = T extends
   ? boolean
   : T extends 'input'
     ? string
-    : T extends 'number' | 'slider'
+    : T extends 'number'
       ? number
       : T extends 'select' | 'provider'
         ? string

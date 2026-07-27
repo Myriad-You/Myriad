@@ -25,7 +25,13 @@ import adminUsersApi from '../../services/adminUsersApi'
 import { messageForAdminUserError } from '../../utils/authErrorMessages'
 import { getOAuthIconAsset } from '../../utils/oauthIcons'
 import OAuthIconImage from '../OAuthIconImage'
-import { SettingGroup, SettingSection, SwitchItem } from '../settings'
+import {
+  InputItem,
+  SettingGroup,
+  SettingSection,
+  SwitchItem,
+  ToggleSwitch,
+} from '../settings'
 import './UsersConfigSection.css'
 
 const KNOWN_PROVIDER_ICONS: Record<string, string> = {
@@ -723,56 +729,55 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
 
       {creating && (
         <div className="users-edit-form users-create-form">
-          <label>
-            <span className="setting-label-text">{t.config.usersCreateUsername}</span>
-            <input
-              type="text"
-              className="field-input"
-              autoComplete="off"
-              value={createDraft.username}
-              onChange={(e) =>
-                setCreateDraft((d) => ({ ...d, username: e.target.value }))
-              }
-            />
-          </label>
-          <label>
-            <span className="setting-label-text">{t.config.usersCreatePassword}</span>
-            <input
-              type="password"
-              className="field-input"
-              autoComplete="new-password"
-              value={createDraft.password}
-              onChange={(e) =>
-                setCreateDraft((d) => ({ ...d, password: e.target.value }))
-              }
-            />
-          </label>
-          <label>
-            <span className="setting-label-text">{t.config.usersEmail}</span>
-            <input
-              type="email"
-              className="field-input"
-              autoComplete="off"
-              value={createDraft.email}
-              onChange={(e) =>
-                setCreateDraft((d) => ({ ...d, email: e.target.value }))
-              }
-            />
-          </label>
+          <InputItem
+            itemKey="users-create-username"
+            label={t.config.usersCreateUsername}
+            value={createDraft.username}
+            onChange={(username) =>
+              setCreateDraft((d) => ({ ...d, username }))
+            }
+            inputType="text"
+            autoComplete="off"
+            layout="vertical"
+            size="sm"
+            required
+          />
+          <InputItem
+            itemKey="users-create-password"
+            label={t.config.usersCreatePassword}
+            value={createDraft.password}
+            onChange={(password) =>
+              setCreateDraft((d) => ({ ...d, password }))
+            }
+            inputType="password"
+            autoComplete="new-password"
+            layout="vertical"
+            size="sm"
+            required
+          />
+          <InputItem
+            itemKey="users-create-email"
+            label={t.config.usersEmail}
+            value={createDraft.email}
+            onChange={(email) => setCreateDraft((d) => ({ ...d, email }))}
+            inputType="email"
+            autoComplete="off"
+            layout="vertical"
+            size="sm"
+          />
           {isPrimaryAdmin && (
-            <label className="users-checkbox">
-              <input
-                type="checkbox"
+            <div className="users-create-admin-row">
+              <span className="setting-label-text">
+                {t.config.usersCreateIsAdmin}
+              </span>
+              <ToggleSwitch
                 checked={createDraft.is_admin}
-                onChange={(e) =>
-                  setCreateDraft((d) => ({
-                    ...d,
-                    is_admin: e.target.checked,
-                  }))
+                onChange={(is_admin) =>
+                  setCreateDraft((d) => ({ ...d, is_admin }))
                 }
+                aria-label={t.config.usersCreateIsAdmin}
               />
-              {t.config.usersCreateIsAdmin}
-            </label>
+            </div>
           )}
           <div className="users-actions">
             <button

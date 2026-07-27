@@ -93,6 +93,7 @@ import {
 } from './config'
 import MyriadConfigIcon from './config/MyriadConfigIcon'
 import PlatformIcon from './PlatformIcon'
+import { InputItem, ToggleSwitch } from './settings'
 import { Spinner } from './Spinner'
 import Toast from './Toast'
 import './ConfigForm.css'
@@ -1871,20 +1872,13 @@ const ModernConfigForm: React.FC = () => {
                           </div>
                         </div>
                         <div className="platform-actions">
-                          <label
-                            className={`toggle-switch ${platformConfigured ? '' : 'disabled'}`}
-                            onClick={(e) => e.stopPropagation()}
+                          <ToggleSwitch
+                            checked={platform.enabled}
+                            onChange={() => togglePlatform(index)}
+                            disabled={!platformConfigured}
+                            aria-label={`Enable ${platform.name}`}
                             title={toggleTitle}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={platform.enabled}
-                              onChange={() => togglePlatform(index)}
-                              aria-label={`Enable ${platform.name}`}
-                              disabled={!platformConfigured}
-                            />
-                            <span className="toggle-slider"></span>
-                          </label>
+                          />
                         </div>
                       </div>
                     </div>
@@ -2250,43 +2244,35 @@ const ModernConfigForm: React.FC = () => {
                     </div>
                   )}
 
-                  {platform.config_fields.map((field) => (
-                    <div key={field.key} className="config-field">
-                      <label
-                        htmlFor={`modal-platform-${platformIndex}-${field.key}`}
-                        className="field-label"
-                      >
-                        {getPlatformFieldLabel(platform, field)}
-                        {field.required && <span className="required">*</span>}
-                      </label>
-                      <input
-                        id={`modal-platform-${platformIndex}-${field.key}`}
-                        type={field.field_type}
+                  {platform.config_fields.map((field) => {
+                    const rawType = field.field_type
+                    const inputType =
+                      rawType === 'password' ||
+                      rawType === 'url' ||
+                      rawType === 'email'
+                        ? rawType
+                        : 'text'
+                    return (
+                      <InputItem
+                        key={field.key}
+                        itemKey={`modal-platform-${platformIndex}-${field.key}`}
+                        label={getPlatformFieldLabel(platform, field)}
                         value={field.value}
-                        onChange={(e) =>
-                          updateFieldValue(
-                            platformIndex,
-                            field.key,
-                            e.target.value,
-                          )
+                        onChange={(value) =>
+                          updateFieldValue(platformIndex, field.key, value)
                         }
-                        onFocus={(e) => {
-                          // 🔒 如果是掩码值，自动选中全部内容，用户输入会直接替换
-                          const isMasked =
-                            e.target.value === '••••••••' ||
-                            e.target.value === '********'
-                          if (isMasked) {
-                            e.target.select()
-                          }
-                        }}
                         placeholder={getPlatformFieldPlaceholder(
                           platform,
                           field,
                         )}
-                        className="field-input"
+                        inputType={inputType}
+                        required={field.required}
+                        layout="vertical"
+                        size="sm"
+                        autoSelectOnMask
                       />
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
                 <div className="modal-footer">
                   <button

@@ -28,7 +28,7 @@ import {
   preloadOAuthIcons,
 } from '../../utils/oauthIcons'
 import OAuthIconImage from '../OAuthIconImage'
-import { InfoCard, InputItem, SettingSection } from '../settings'
+import { InfoCard, InputItem, SettingSection, ToggleSwitch } from '../settings'
 import { findPreset, OAUTH_PRESETS } from './oauthPresets'
 
 /** 把字符串中反引号 `foo` 包裹的片段渲染为 <code>foo</code> */
@@ -295,19 +295,16 @@ const ProviderCard: React.FC<ProviderCardProps> = ({
           </span>
         </span>
         <div className="oidc-provider-actions">
-          <label className="oidc-enable-toggle">
+          <div className="oidc-enable-toggle">
             <span className="oidc-enable-toggle-label">
               {t.config.oidcEnabled}
             </span>
-            <span className="toggle-switch">
-              <input
-                type="checkbox"
-                checked={entry.enabled}
-                onChange={(e) => onChange({ enabled: e.target.checked })}
-              />
-              <span className="toggle-slider"></span>
-            </span>
-          </label>
+            <ToggleSwitch
+              checked={entry.enabled}
+              onChange={(checked) => onChange({ enabled: checked })}
+              aria-label={t.config.oidcEnabled}
+            />
+          </div>
           <button
             type="button"
             className="btn-base btn-danger btn-sm"

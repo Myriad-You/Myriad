@@ -17,6 +17,7 @@ export { ProviderItem } from './items/ProviderItem'
 export { SelectItem } from './items/SelectItem'
 // 具体设置项组件
 export { SwitchItem } from './items/SwitchItem'
+export { ToggleSwitch } from './items/ToggleSwitch'
 // 预设组合组件
 export { PermissionGroup, QuotaGroup } from './presets'
 export { SettingGroup } from './SettingGroup'
@@ -46,6 +47,5 @@ export type {
   SettingSectionConfig,
   SettingSize,
   SettingType,
-  SliderSettingConfig,
   SwitchSettingConfig,
 } from './types'

@@ -15,7 +15,13 @@ import {
   normalizeModuleVisibilityPreferences,
 } from '../../utils/moduleVisibility'
 import PlatformIcon from '../PlatformIcon'
-import { SettingGroup, SettingSection, SwitchItem } from '../settings'
+import {
+  InputItem,
+  NumberItem,
+  SettingGroup,
+  SettingSection,
+  SwitchItem,
+} from '../settings'
 
 export type LibraryItemType =
   'game' | 'video' | 'music' | 'anime' | 'tv_series' | 'book'
@@ -640,46 +646,32 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
             }
             disabled={!reportSettingsDraft.expiryEnabled}
           />
-          <label
-            className={`${MODULE_SETTING_CARD_CLASS} block space-y-1 ${
-              reportSettingsDraft.expiryEnabled ? '' : 'opacity-50'
-            }`}
-          >
-            <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">
-              {t.config.reportExpiryDays}
-            </span>
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                min={1}
-                max={365}
-                step={1}
-                disabled={!reportSettingsDraft.expiryEnabled}
-                value={reportSettingsDraft.expiryDays}
-                onChange={(event) => {
-                  const value = Number(event.target.value)
-                  if (Number.isFinite(value)) {
-                    updateReportSettings({ expiryDays: value })
-                  }
-                }}
-                onBlur={() =>
-                  updateReportSettings({
-                    expiryDays: Math.min(
-                      365,
-                      Math.max(1, Math.round(reportSettingsDraft.expiryDays)),
-                    ),
-                  })
-                }
-                className="w-24 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-800 outline-none focus:border-[var(--color-primary)] disabled:cursor-not-allowed dark:border-white/10 dark:bg-neutral-900 dark:text-gray-100"
-              />
-              <span className="text-xs text-gray-500 dark:text-gray-400">
-                {t.config.reportExpiryDaysUnit}
-              </span>
-            </div>
-            <span className="text-[11px] text-gray-500 dark:text-gray-400">
-              {t.config.reportExpiryDaysHint}
-            </span>
-          </label>
+          <NumberItem
+            itemKey="report-expiry-days"
+            label={t.config.reportExpiryDays}
+            description={t.config.reportExpiryDaysHint}
+            value={reportSettingsDraft.expiryDays}
+            onChange={(value) => {
+              if (Number.isFinite(value)) {
+                updateReportSettings({ expiryDays: value })
+              }
+            }}
+            onBlur={() =>
+              updateReportSettings({
+                expiryDays: Math.min(
+                  365,
+                  Math.max(1, Math.round(reportSettingsDraft.expiryDays)),
+                ),
+              })
+            }
+            min={1}
+            max={365}
+            step={1}
+            unit={t.config.reportExpiryDaysUnit}
+            disabled={!reportSettingsDraft.expiryEnabled}
+            layout="horizontal"
+            size="sm"
+          />
         </div>
       </SettingGroup>
 
@@ -812,61 +804,45 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
           </div>
 
           {hitokotoDraft.sourceId === 'custom' && (
-            <div className={`${MODULE_SETTING_CARD_CLASS} space-y-3`}>
-              <label className="block space-y-1">
-                <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">
-                  {t.config.hitokotoCustomUrl}
-                </span>
-                <input
-                  type="url"
-                  value={hitokotoDraft.customUrl ?? ''}
-                  onChange={(e) =>
-                    updateHitokotoConfig({ customUrl: e.target.value })
+            <div className={`${MODULE_SETTING_CARD_CLASS} space-y-1`}>
+              <InputItem
+                itemKey="hitokoto-custom-url"
+                label={t.config.hitokotoCustomUrl}
+                hint={t.config.hitokotoCustomUrlHint}
+                value={hitokotoDraft.customUrl ?? ''}
+                onChange={(customUrl) => updateHitokotoConfig({ customUrl })}
+                placeholder={t.config.hitokotoCustomUrlPlaceholder}
+                inputType="url"
+                layout="vertical"
+                size="sm"
+              />
+              <div className="grid gap-2 sm:grid-cols-2">
+                <InputItem
+                  itemKey="hitokoto-text-field"
+                  label={t.config.hitokotoTextField}
+                  hint={t.config.hitokotoTextFieldHint}
+                  value={hitokotoDraft.customTextField ?? ''}
+                  onChange={(customTextField) =>
+                    updateHitokotoConfig({ customTextField })
                   }
-                  placeholder={t.config.hitokotoCustomUrlPlaceholder}
-                  className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-800 outline-none focus:border-[var(--color-primary)] dark:border-white/10 dark:bg-neutral-900 dark:text-gray-100"
+                  placeholder="hitokoto"
+                  inputType="text"
+                  layout="vertical"
+                  size="sm"
                 />
-                <span className="text-[11px] text-gray-500 dark:text-gray-400">
-                  {t.config.hitokotoCustomUrlHint}
-                </span>
-              </label>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block space-y-1">
-                  <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">
-                    {t.config.hitokotoTextField}
-                  </span>
-                  <input
-                    type="text"
-                    value={hitokotoDraft.customTextField ?? ''}
-                    onChange={(e) =>
-                      updateHitokotoConfig({ customTextField: e.target.value })
-                    }
-                    placeholder="hitokoto"
-                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-800 outline-none focus:border-[var(--color-primary)] dark:border-white/10 dark:bg-neutral-900 dark:text-gray-100"
-                  />
-                  <span className="text-[11px] text-gray-500 dark:text-gray-400">
-                    {t.config.hitokotoTextFieldHint}
-                  </span>
-                </label>
-                <label className="block space-y-1">
-                  <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">
-                    {t.config.hitokotoAuthorField}
-                  </span>
-                  <input
-                    type="text"
-                    value={hitokotoDraft.customAuthorField ?? ''}
-                    onChange={(e) =>
-                      updateHitokotoConfig({
-                        customAuthorField: e.target.value,
-                      })
-                    }
-                    placeholder="from"
-                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-800 outline-none focus:border-[var(--color-primary)] dark:border-white/10 dark:bg-neutral-900 dark:text-gray-100"
-                  />
-                  <span className="text-[11px] text-gray-500 dark:text-gray-400">
-                    {t.config.hitokotoAuthorFieldHint}
-                  </span>
-                </label>
+                <InputItem
+                  itemKey="hitokoto-author-field"
+                  label={t.config.hitokotoAuthorField}
+                  hint={t.config.hitokotoAuthorFieldHint}
+                  value={hitokotoDraft.customAuthorField ?? ''}
+                  onChange={(customAuthorField) =>
+                    updateHitokotoConfig({ customAuthorField })
+                  }
+                  placeholder="from"
+                  inputType="text"
+                  layout="vertical"
+                  size="sm"
+                />
               </div>
             </div>
           )}
