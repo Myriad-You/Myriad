@@ -252,8 +252,6 @@ interface CardLayout {
 
 interface LibraryGridProps {
   filter: 'all' | 'game' | 'video' | 'music' | 'anime' | 'tv_series' | 'book'
-  /** 首屏数据加载态（与 Brew 页整页居中 Spinner 布局配合） */
-  onInitialLoadingChange?: (loading: boolean) => void
 }
 
 // 判断是否为 Bangumi 平台
@@ -349,10 +347,7 @@ function getItemGridSize(type: string, platform: string) {
   }
 }
 
-export default function LibraryGrid({
-  filter,
-  onInitialLoadingChange,
-}: LibraryGridProps) {
+export default function LibraryGrid({ filter }: LibraryGridProps) {
   const [allItems, setAllItems] = useState<LibraryItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -1054,14 +1049,16 @@ export default function LibraryGrid({
     }
   }, [])
 
-  // 首屏加载由 Library 页按 Brew 同款整页居中布局渲染 Spinner
-  const initialLoading = loading && allItems.length === 0
-  useEffect(() => {
-    onInitialLoadingChange?.(initialLoading)
-  }, [initialLoading, onInitialLoadingChange])
-
-  if (initialLoading) {
-    return null
+  // 首屏加载：单一 Spinner，垂直居中（扣除顶/底安全区，与 Brew 观感一致）
+  if (loading && allItems.length === 0) {
+    return (
+      <div
+        className="flex w-full items-center justify-center min-h-[calc(100dvh-12rem)] sm:min-h-[calc(100dvh-11rem)] md:min-h-[calc(100dvh-8rem)]"
+        role="status"
+      >
+        <Spinner size="lg" color="primary" />
+      </div>
+    )
   }
 
   return (
@@ -1473,14 +1470,13 @@ export default function LibraryGrid({
             </div>
           </QuickTransition>
 
+          {/* 无限滚动哨兵：不可见，避免底部常驻 Spinner 造成「卡住/双重加载」 */}
           {hasMore && (
             <div
               ref={observerTarget}
-              className="flex justify-center mt-8 mb-4 py-4 w-full"
-              role="status"
-            >
-              <Spinner size="sm" color="primary" />
-            </div>
+              className="h-px w-full"
+              aria-hidden="true"
+            />
           )}
         </div>
       )}
