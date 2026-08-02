@@ -1,24 +1,32 @@
-import { describe, expect, it } from 'vitest'
-import { resolvePlatformId } from './platformId'
+/**
+ * Run from frontend/:
+ *   pnpm test:unit -- src/utils/platformId.test.ts
+ */
+
+/* eslint-disable test/no-import-node-test -- node:test; project has no vitest dep */
+
+import assert from 'node:assert/strict'
+import { describe, it } from 'node:test'
+import { resolvePlatformId } from './platformId.ts'
 
 describe('resolvePlatformId', () => {
   it('maps display names and aliases to canonical ids', () => {
-    expect(resolvePlatformId('GitHub')).toBe('github')
-    expect(resolvePlatformId('MyAnimeList')).toBe('mal')
-    expect(resolvePlatformId('Netease Music')).toBe('netease')
-    expect(resolvePlatformId('PlayStation')).toBe('psn')
-    expect(resolvePlatformId('X (Twitter)')).toBe('x')
-    expect(resolvePlatformId('网易云音乐')).toBe('netease')
+    assert.equal(resolvePlatformId('GitHub'), 'github')
+    assert.equal(resolvePlatformId('MyAnimeList'), 'mal')
+    assert.equal(resolvePlatformId('Netease Music'), 'netease')
+    assert.equal(resolvePlatformId('PlayStation'), 'psn')
+    assert.equal(resolvePlatformId('X (Twitter)'), 'x')
+    assert.equal(resolvePlatformId('网易云音乐'), 'netease')
   })
 
   it('accepts already-canonical ids', () => {
-    expect(resolvePlatformId('mal')).toBe('mal')
-    expect(resolvePlatformId('psn')).toBe('psn')
-    expect(resolvePlatformId('netease')).toBe('netease')
+    assert.equal(resolvePlatformId('mal'), 'mal')
+    assert.equal(resolvePlatformId('psn'), 'psn')
+    assert.equal(resolvePlatformId('netease'), 'netease')
   })
 
   it('returns null for unknown platforms', () => {
-    expect(resolvePlatformId('')).toBeNull()
-    expect(resolvePlatformId('unknown-platform')).toBeNull()
+    assert.equal(resolvePlatformId(''), null)
+    assert.equal(resolvePlatformId('unknown-platform'), null)
   })
 })

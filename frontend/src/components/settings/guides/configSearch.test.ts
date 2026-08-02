@@ -1,4 +1,12 @@
-import { describe, expect, it } from 'vitest'
+/**
+ * Run from frontend/:
+ *   pnpm test:unit -- src/components/settings/guides/configSearch.test.ts
+ */
+
+/* eslint-disable test/no-import-node-test -- node:test; project has no vitest dep */
+
+import assert from 'node:assert/strict'
+import { describe, it } from 'node:test'
 import {
   extractMatchSnippet,
   itemMatchesQuery,
@@ -6,7 +14,7 @@ import {
   rankConfigSearch,
   scoreSearchItem,
   type ConfigSearchableItem,
-} from './configSearch'
+} from './configSearch.ts'
 
 const sample: ConfigSearchableItem[] = [
   {
@@ -47,30 +55,28 @@ const sample: ConfigSearchableItem[] = [
 
 describe('parseSearchQuery', () => {
   it('splits on spaces and full-width space', () => {
-    expect(parseSearchQuery('  代理  同步  ')).toEqual(['代理', '同步'])
-    expect(parseSearchQuery('proxy\u3000sync')).toEqual(['proxy', 'sync'])
+    assert.deepEqual(parseSearchQuery('  代理  同步  '), ['代理', '同步'])
+    assert.deepEqual(parseSearchQuery('proxy\u3000sync'), ['proxy', 'sync'])
   })
 })
 
 describe('itemMatchesQuery', () => {
   it('requires AND for multi tokens', () => {
     const item = sample[1]!
-    expect(itemMatchesQuery(item, ['代理'])).toBe(true)
-    expect(itemMatchesQuery(item, ['代理', '外网'])).toBe(true)
-    expect(itemMatchesQuery(item, ['代理', '备案'])).toBe(false)
+    assert.equal(itemMatchesQuery(item, ['代理']), true)
+    assert.equal(itemMatchesQuery(item, ['代理', '外网']), true)
+    assert.equal(itemMatchesQuery(item, ['代理', '备案']), false)
   })
 })
 
 describe('scoreSearchItem', () => {
   it('ranks title hits above body-only', () => {
-    const titleHit = scoreSearchItem(sample[0]!, ['代理'])
-    const bodyHit = scoreSearchItem(sample[1]!, ['代理'])
-    expect(titleHit && bodyHit).toBeTruthy()
-    // section title "高级配置" may not include 代理 — guide title does
     const guideTitle = scoreSearchItem(sample[1]!, ['代理'])
     const section = scoreSearchItem(sample[0]!, ['代理'])
-    expect(guideTitle!.score).toBeGreaterThan(0)
-    expect(section!.score).toBeGreaterThan(0)
+    assert.ok(guideTitle)
+    assert.ok(section)
+    assert.ok(guideTitle.score > 0)
+    assert.ok(section.score > 0)
   })
 
   it('prefers exact title match', () => {
@@ -86,7 +92,7 @@ describe('scoreSearchItem', () => {
       { ...item, title: 'ai provider settings' },
       ['ai'],
     )!
-    expect(exact.score).toBeGreaterThanOrEqual(partial.score)
+    assert.ok(exact.score >= partial.score)
   })
 })
 
@@ -94,24 +100,24 @@ describe('extractMatchSnippet', () => {
   it('wraps match with ellipsis context', () => {
     const hay = 'abcdefghij代理服务器地址klmnopqrstuvwxyz'
     const snip = extractMatchSnippet(hay, ['代理'], 'fallback', 4)
-    expect(snip).toContain('代理')
-    expect(snip.length).toBeLessThan(hay.length)
+    assert.ok(snip.includes('代理'))
+    assert.ok(snip.length < hay.length)
   })
 })
 
 describe('rankConfigSearch', () => {
   it('returns empty for blank query', () => {
-    expect(rankConfigSearch(sample, '   ')).toEqual([])
+    assert.deepEqual(rankConfigSearch(sample, '   '), [])
   })
 
   it('finds 备案 via guide haystack', () => {
     const r = rankConfigSearch(sample, '备案')
-    expect(r.some((x) => x.guidePath === 'ui.siteIcp')).toBe(true)
+    assert.ok(r.some(x => x.guidePath === 'ui.siteIcp'))
   })
 
   it('caps guides per section', () => {
     const many: ConfigSearchableItem[] = Array.from({ length: 8 }, (_, i) => ({
-      type: 'guide',
+      type: 'guide' as const,
       section: 'advanced',
       title: `代理相关说明 ${i}`,
       description: 'desc',
@@ -120,12 +126,12 @@ describe('rankConfigSearch', () => {
       guidePath: `advanced.x${i}`,
     }))
     const r = rankConfigSearch(many, '代理', { maxGuidesPerSection: 3 })
-    expect(r.filter((x) => x.type === 'guide').length).toBe(3)
+    assert.equal(r.filter(x => x.type === 'guide').length, 3)
   })
 
   it('AND query 代理 备案 matches neither alone item', () => {
     const r = rankConfigSearch(sample, '代理 备案')
     // no single item has both
-    expect(r.length).toBe(0)
+    assert.equal(r.length, 0)
   })
 })

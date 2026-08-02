@@ -1,60 +1,68 @@
-import { describe, expect, it } from 'vitest'
-import { formatCount, formatDuration, niceAxis, shortDay } from './format'
+/**
+ * Run from frontend/:
+ *   pnpm test:unit -- src/components/config/analytics/format.test.ts
+ */
+
+/* eslint-disable test/no-import-node-test -- node:test; project has no vitest dep */
+
+import assert from 'node:assert/strict'
+import { describe, it } from 'node:test'
+import { formatCount, formatDuration, niceAxis, shortDay } from './format.ts'
 
 describe('formatCount', () => {
   it('returns em dash for non-finite', () => {
-    expect(formatCount(Number.NaN, 'en-US')).toBe('—')
+    assert.equal(formatCount(Number.NaN, 'en-US'), '—')
   })
 
   it('formats integers', () => {
-    expect(formatCount(121, 'en-US')).toBe('121')
+    assert.equal(formatCount(121, 'en-US'), '121')
   })
 })
 
 describe('formatDuration', () => {
   it('returns em dash for zero or negative', () => {
-    expect(formatDuration(0, 'zh-CN')).toBe('—')
-    expect(formatDuration(-1, 'en-US')).toBe('—')
+    assert.equal(formatDuration(0, 'zh-CN'), '—')
+    assert.equal(formatDuration(-1, 'en-US'), '—')
   })
 
   it('formats seconds under a minute', () => {
-    expect(formatDuration(4500, 'zh-CN')).toBe('5 秒')
-    expect(formatDuration(4500, 'en-US')).toBe('5s')
+    assert.equal(formatDuration(4500, 'zh-CN'), '5 秒')
+    assert.equal(formatDuration(4500, 'en-US'), '5s')
   })
 
   it('formats minutes with remainder', () => {
-    expect(formatDuration(125_000, 'zh-CN')).toBe('2 分 5 秒')
-    expect(formatDuration(120_000, 'en-US')).toBe('2m')
+    assert.equal(formatDuration(125_000, 'zh-CN'), '2 分 5 秒')
+    assert.equal(formatDuration(120_000, 'en-US'), '2m')
   })
 })
 
 describe('shortDay', () => {
   it('strips year prefix', () => {
-    expect(shortDay('2026-07-30')).toBe('07-30')
+    assert.equal(shortDay('2026-07-30'), '07-30')
   })
 
   it('passes short values through', () => {
-    expect(shortDay('07-30')).toBe('07-30')
+    assert.equal(shortDay('07-30'), '07-30')
   })
 })
 
 describe('niceAxis', () => {
   it('covers zero as a single unit max', () => {
     const axis = niceAxis(0)
-    expect(axis.max).toBeGreaterThanOrEqual(1)
-    expect(axis.ticks[0]).toBe(0)
-    expect(axis.ticks[axis.ticks.length - 1]).toBe(axis.max)
+    assert.ok(axis.max >= 1)
+    assert.equal(axis.ticks[0], 0)
+    assert.equal(axis.ticks[axis.ticks.length - 1], axis.max)
   })
 
   it('produces integer ticks that cover the data', () => {
     const axis = niceAxis(47)
-    expect(axis.max).toBeGreaterThanOrEqual(47)
-    expect(axis.ticks.every((t) => Number.isInteger(t))).toBe(true)
-    expect(axis.ticks.length).toBeGreaterThanOrEqual(3)
+    assert.ok(axis.max >= 47)
+    assert.ok(axis.ticks.every(t => Number.isInteger(t)))
+    assert.ok(axis.ticks.length >= 3)
   })
 
   it('stays close for already-nice maxima', () => {
     const axis = niceAxis(100)
-    expect(axis.max).toBe(100)
+    assert.equal(axis.max, 100)
   })
 })

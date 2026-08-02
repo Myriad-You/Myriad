@@ -443,6 +443,12 @@
     },
     {
       "domain": "federation",
+      "method": "PUT",
+      "path": "/api/federation/rooms/{room_id}/members/{actor}/role",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
       "method": "POST",
       "path": "/api/federation/rooms/{room_id}/leave",
       "permission": "federation:write"

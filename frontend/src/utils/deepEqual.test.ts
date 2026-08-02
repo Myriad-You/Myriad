@@ -1,23 +1,31 @@
-import { describe, expect, it } from 'vitest'
-import { deepEqual } from './deepEqual'
+/**
+ * Run from frontend/:
+ *   pnpm test:unit -- src/utils/deepEqual.test.ts
+ */
+
+/* eslint-disable test/no-import-node-test -- node:test; project has no vitest dep */
+
+import assert from 'node:assert/strict'
+import { describe, it } from 'node:test'
+import { deepEqual } from './deepEqual.ts'
 
 describe('deepEqual', () => {
   it('compares primitives and null', () => {
-    expect(deepEqual(1, 1)).toBe(true)
-    expect(deepEqual('a', 'a')).toBe(true)
-    expect(deepEqual(null, null)).toBe(true)
-    expect(deepEqual(null, undefined)).toBe(false)
-    expect(deepEqual(1, 2)).toBe(false)
+    assert.equal(deepEqual(1, 1), true)
+    assert.equal(deepEqual('a', 'a'), true)
+    assert.equal(deepEqual(null, null), true)
+    assert.equal(deepEqual(null, undefined), false)
+    assert.equal(deepEqual(1, 2), false)
   })
 
   it('compares arrays by order', () => {
-    expect(deepEqual([1, 2], [1, 2])).toBe(true)
-    expect(deepEqual([1, 2], [2, 1])).toBe(false)
+    assert.equal(deepEqual([1, 2], [1, 2]), true)
+    assert.equal(deepEqual([1, 2], [2, 1]), false)
   })
 
   it('compares objects independent of key order', () => {
-    expect(deepEqual({ a: 1, b: 2 }, { b: 2, a: 1 })).toBe(true)
-    expect(deepEqual({ a: 1 }, { a: 2 })).toBe(false)
-    expect(deepEqual({ a: { c: 1 } }, { a: { c: 1 } })).toBe(true)
+    assert.equal(deepEqual({ a: 1, b: 2 }, { b: 2, a: 1 }), true)
+    assert.equal(deepEqual({ a: 1 }, { a: 2 }), false)
+    assert.equal(deepEqual({ a: { c: 1 } }, { a: { c: 1 } }), true)
   })
 })

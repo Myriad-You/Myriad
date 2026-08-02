@@ -368,6 +368,11 @@
     },
     {
       "domain": "federation",
+      "action": "federation.setMemberRole",
+      "permission": "federation:write"
+    },
+    {
+      "domain": "federation",
       "action": "federation.leaveRoom",
       "permission": "federation:write"
     },
