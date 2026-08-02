@@ -1,4 +1,18 @@
-import { useCallback, type Dispatch, type SetStateAction } from 'react'
+import type { Dispatch, SetStateAction } from 'react'
+import type { NotificationPreferences } from '../../../services/notificationPreferencesApi'
+import type { ModuleVisibilityPreferences } from '../../../utils/moduleVisibility'
+import type { OAuthSettings } from '../../../utils/oauthSettings'
+import type { HitokotoConfig } from '../../../utils/quote'
+import type { ReportSettings } from '../../../utils/reportSettings'
+import type { FederationPolicyDraft } from '../FederationConfigSection'
+import type { LibrarySourcePreferences } from '../ModuleConfigSection'
+import type { PermissionConfigValues } from '../PermissionsConfigSection'
+import type {
+  Config,
+  SaveLibrarySourcePreferencesResponse,
+  ShowMessage,
+} from './types'
+import { useCallback } from 'react'
 import { API_URL } from '../../../config'
 import {
   reloadSystemConfig,
@@ -10,53 +24,52 @@ import { federationApi } from '../../../services/federationApi'
 import notificationPreferencesApi, {
   areNotificationPreferencesEqual,
   cloneNotificationPreferences,
-  type NotificationPreferences,
+
 } from '../../../services/notificationPreferencesApi'
 import { getCSRFToken } from '../../../utils/csrf'
 import { deepEqual } from '../../../utils/deepEqual'
+import { dispatchLibraryPreferencesUpdated } from '../../../utils/libraryPreferences'
 import {
   areModuleVisibilityPreferencesEqual,
   dispatchModuleVisibilityPreferencesUpdated,
+
   normalizeModuleVisibilityPreferences,
   updateModuleVisibilityPreferences,
-  type ModuleVisibilityPreferences,
 } from '../../../utils/moduleVisibility'
 import {
   areOAuthSettingsEqual,
   cloneOAuthSettings,
+
   updateOAuthSettings,
-  type OAuthSettings,
 } from '../../../utils/oauthSettings'
 import {
   areHitokotoConfigsEqual,
+
   updateHitokotoConfig,
-  type HitokotoConfig,
 } from '../../../utils/quote'
 import {
   areReportSettingsEqual,
+
   updateReportSettings,
-  type ReportSettings,
 } from '../../../utils/reportSettings'
-import { dispatchLibraryPreferencesUpdated } from '../../../utils/libraryPreferences'
 import {
   clearDedupCache,
   clearLibraryDataCache,
 } from '../../../utils/requestDedup'
 import {
   areFederationPoliciesEqual,
+
   federationPolicyToUpdateRequest,
-  type FederationPolicyDraft,
 } from '../FederationConfigSection'
 import {
   areLibrarySourcePreferencesEqual,
+
   normalizeLibraryPreferences,
-  type LibrarySourcePreferences,
 } from '../ModuleConfigSection'
 import {
   hasBangumiCredential,
   isBangumiPlatform,
 } from '../PlatformsConfigSection'
-import type { PermissionConfigValues } from '../PermissionsConfigSection'
 import {
   configChangesNeedFooterReload,
   configChangesNeedHardReload,
@@ -66,14 +79,9 @@ import {
   configChangesNeedRuntimeReload,
   configChangesNeedWallpaperReload,
 } from '../uiBagOwnership'
-import type {
-  Config,
-  SaveLibrarySourcePreferencesResponse,
-  ShowMessage,
-} from './types'
 import { snapshotConfigNavScroll } from './configNavPersistence'
 
-type ConfigI18n = {
+interface ConfigI18n {
   configEmpty: string
   configSaved: string
   bangumiCredentialMissing: string

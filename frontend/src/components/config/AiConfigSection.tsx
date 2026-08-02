@@ -250,7 +250,7 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
   sectionId,
 }) => {
   const { t } = useI18n()
-  const { catalog: g, renderGuide, bindGuide } = useSettingGuide()
+  const { catalog: g, bindGuide } = useSettingGuide()
   const [speechTesting, setSpeechTesting] = useState(false)
 
   const fieldGuideFor = useCallback(

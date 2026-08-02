@@ -3,6 +3,7 @@
  */
 
 import type { ReleaseManifest, TransportMode, UpdaterStatus } from '../../../services/updaterApi'
+import type { U } from './helpers'
 import { LuRefreshCw } from '@lib/icons'
 import React from 'react'
 import {
@@ -12,7 +13,6 @@ import {
   SettingTitleGuideEntry,
   useSettingGuide,
 } from '../../settings'
-import type { U } from './helpers'
 
 export function AdvancedPanel({
   status,
@@ -130,4 +130,3 @@ export function AdvancedPanel({
     </>
   )
 }
-

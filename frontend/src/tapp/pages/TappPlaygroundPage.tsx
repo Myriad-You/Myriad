@@ -48,6 +48,10 @@ import {
   toSideBySide,
 } from '../utils/playgroundDiff'
 import {
+  mapPlaygroundGenerateError,
+  mapPlaygroundRuntimeError,
+} from '../utils/playgroundErrorMessages'
+import {
   buildPlaygroundMemoryHistory,
   clearSessionContent,
   createAndActivateSessionWithMeta,
@@ -60,10 +64,6 @@ import {
   switchSession,
   updateActiveSessionWithMeta,
 } from '../utils/playgroundSession'
-import {
-  mapPlaygroundGenerateError,
-  mapPlaygroundRuntimeError,
-} from '../utils/playgroundErrorMessages'
 import {
   formatPlaygroundPackageErrors,
   PlaygroundPackageValidationError,

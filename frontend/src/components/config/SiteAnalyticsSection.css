@@ -23,7 +23,6 @@
   --sa-baseline: color-mix(in srgb, var(--cfg-text-3) 55%, transparent);
   --sa-cursor: color-mix(in srgb, var(--cfg-text-3) 32%, transparent);
   --sa-surface: var(--cfg-frost-elevated-bg);
-
   --sa-table-radius: 0.55rem;
   --sa-table-pad-x: 0.55rem;
 }
@@ -35,7 +34,7 @@
 .site-analytics-table-wrap,
 .site-analytics-rank {
   /* 表体纯白；表头只比表体略沉一点，避免整块发灰 */
-  --sa-table-bg: #ffffff;
+  --sa-table-bg: #fff;
   --sa-table-head-bg: #f7f7f8;
   --sa-table-border: rgb(0 0 0 / 8%);
   --sa-table-divider: rgb(0 0 0 / 5%);
@@ -58,6 +57,7 @@ html.dark .site-analytics-rank {
 #visitor-stats > .setting-group-content,
 #ai-usage-stats > .setting-group-content {
   gap: var(--settings-gap-group, 1.25rem);
+
   /* 国家卡 hover tooltip 需要溢出 */
   overflow: visible;
 }
@@ -89,6 +89,7 @@ html.dark .site-analytics-rank {
  */
 .site-analytics-side-grid {
   display: grid;
+
   /* 半幅约 ≥18rem 时排行表仍可读；再窄自动单列 */
   grid-template-columns: repeat(
     auto-fit,
@@ -423,7 +424,7 @@ html.dark .site-analytics-country-tip {
 .site-analytics-tile-label svg {
   flex: 0 0 auto;
   margin-top: 0.05rem;
-  color: currentColor;
+  color: currentcolor;
 }
 
 /*
@@ -437,8 +438,7 @@ html.dark .site-analytics-country-tip {
   margin-top: auto;
   min-width: 0;
   max-width: 100%;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: auto hidden;
   scrollbar-width: thin;
   -webkit-overflow-scrolling: touch;
 }
@@ -748,6 +748,7 @@ html.dark .site-analytics-compare[data-palette='red-up'].is-down {
   position: sticky;
   top: 0;
   z-index: 1;
+
   /* background-color 实色；避免 background 简写被别处覆盖成透明 */
   background-color: var(--sa-table-head-bg);
   border-bottom: 1px solid var(--sa-table-divider);
@@ -824,7 +825,7 @@ html.dark .site-analytics-compare[data-palette='red-up'].is-down {
 
 .site-analytics-meta dd svg {
   align-self: center;
-  color: currentColor;
+  color: currentcolor;
 }
 
 .site-analytics-meta dd small {
@@ -876,8 +877,7 @@ html.dark .site-analytics-compare[data-palette='red-up'].is-down {
 .site-analytics-rank-row {
   display: grid;
   grid-template-columns: var(--sa-rank-cols);
-  column-gap: 0.45rem;
-  row-gap: 0.2rem;
+  gap: 0.2rem 0.45rem;
   align-items: center;
   min-width: 0;
   padding: 0.4rem var(--sa-table-pad-x);
@@ -949,18 +949,19 @@ html.dark .site-analytics-compare[data-palette='red-up'].is-down {
   padding: 0;
   list-style: none;
   background: transparent;
+
   /*
    * 视口大约 8 行（单行 ~2.05rem：上下 padding + 文案行高）。
    * DOM 可先挂 30 条，滚到尾再挂剩余；表头在外不跟着滚。
    */
   --sa-rank-visible-rows: 8;
   --sa-rank-row-est: 2.05rem;
+
   max-height: min(
     calc(var(--sa-rank-visible-rows) * var(--sa-rank-row-est)),
     45vh
   );
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: hidden auto;
   overscroll-behavior: contain;
 }
 
@@ -1011,6 +1012,7 @@ html.dark .site-analytics-compare[data-palette='red-up'].is-down {
   min-width: 0;
   height: 0.38rem;
   border-radius: 999px;
+
   /* 条轨道略深于表体，叠在 elevated 底上仍能看见 */
   background: color-mix(in srgb, var(--cfg-text-3) 12%, transparent);
   box-shadow: inset 0 0 0 1px var(--sa-table-divider);

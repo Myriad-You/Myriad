@@ -21,6 +21,7 @@ import React, {
   useState,
 } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
+import { useAnimationLevel } from '../../hooks/useAnimationLevel'
 import {
   formatTime,
   getSongVipStatus,
@@ -29,7 +30,6 @@ import {
 import { LyricWaveScroll } from '../shared/LyricWaveScroll'
 import { PlayingSpectrum } from '../shared/PlayingSpectrum'
 import { FitText } from '../widgets/shared/FitText'
-import { useAnimationLevel } from '../../hooks/useAnimationLevel'
 import '../MusicPlayer.css'
 
 interface MusicPlayerProps {
@@ -79,10 +79,10 @@ function musicInfoHiddenEqual(
 /**
  * 音乐信息视图（常驻 DOM；不可见时降频）
  */
-const MusicInfoView = memo(function MusicInfoView({
+const MusicInfoView = memo(({
   player,
   visible,
-}: MusicInfoViewProps) {
+}: MusicInfoViewProps) => {
   const { t } = useI18n()
   const anim = useAnimationLevel()
   // 不可见时彻底关掉实时频谱 rAF
@@ -591,13 +591,13 @@ const MusicInfoView = memo(function MusicInfoView({
  * 歌词页小封面：占位垫底 + 失败回退 + 缓存命中 complete 校正。
  * 避免条件挂载重进时偶发空白（load 事件已过 / 代理失败无回退）。
  */
-const MusicLyricsCover = memo(function MusicLyricsCover({
+const MusicLyricsCover = memo(({
   songId,
   cover,
 }: {
   songId: string
   cover?: string | null
-}) {
+}) => {
   const coverUrl = (cover || '').trim()
   const coverKey = `${songId}:${coverUrl}`
   /** 仅当 failKey 对应当前 cover 时视为失败，切歌自动失效 */
@@ -652,13 +652,13 @@ const MusicLyricsCover = memo(function MusicLyricsCover({
  * 歌词视图 — 切换逻辑与资料库卡片共用 LyricWaveScroll（Tapp 波浪）
  * visible=false 时 is-hidden 保 DOM（封面不卸载），波浪引擎 paused
  */
-const MusicLyricsView = memo(function MusicLyricsView({
+const MusicLyricsView = memo(({
   player,
   visible,
 }: {
   player: UseMusicPlayerReturn
   visible: boolean
-}) {
+}) => {
   const { t } = useI18n()
   const {
     currentSong,

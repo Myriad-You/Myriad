@@ -106,7 +106,7 @@ html.dark .section-toc-chip:focus-visible {
 .section-header-right > .section-toc + .section-header-actions-pinned {
   margin-left: 0.15rem;
   padding-left: 0.55rem;
-  border-left: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  border-left: 1px solid color-mix(in srgb, currentcolor 14%, transparent);
   color: var(--cfg-text-3);
 }
 
@@ -118,23 +118,23 @@ html.dark
   .section-header-right
   > .section-toc
   + .section-header-actions-pinned {
-  border-left-color: color-mix(in srgb, currentColor 22%, transparent);
+  border-left-color: color-mix(in srgb, currentcolor 22%, transparent);
 }
 
 .section-header-actions-divider {
   align-self: stretch;
   width: 1px;
   min-height: 1.75rem;
-  margin: 0.15rem 0.15rem;
+  margin: 0.15rem;
   flex-shrink: 0;
   border-radius: 1px;
-  background: color-mix(in srgb, currentColor 14%, transparent);
+  background: color-mix(in srgb, currentcolor 14%, transparent);
   color: var(--cfg-text-3);
 }
 
 html.dark .section-header-actions-divider {
   color: var(--cfg-text-3);
-  background: color-mix(in srgb, currentColor 22%, transparent);
+  background: color-mix(in srgb, currentcolor 22%, transparent);
 }
 
 /* 右上角特殊操作卡（与重置 / 显示说明同密度） */
@@ -201,6 +201,7 @@ html.dark .section-header-actions-divider {
     -webkit-overflow-scrolling: touch;
     scrollbar-width: thin;
     padding-bottom: 0.15rem;
+
     /* 右缘淡出，暗示可横滑 */
     mask-image: linear-gradient(
       to right,

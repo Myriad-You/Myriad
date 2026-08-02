@@ -20,7 +20,6 @@ export interface SelectItemProps<T = string> extends Omit<
 function SelectItemComponent<T extends string = string>({
   itemKey,
   label,
-  detail,
   guide,
   guidePath,
   description,

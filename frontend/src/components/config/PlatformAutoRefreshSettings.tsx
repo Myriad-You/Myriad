@@ -1,17 +1,17 @@
+import type { ChoiceOption } from '../settings'
 import { LuRefreshCw } from '@lib/icons'
-import React, { useMemo } from 'react'
 
+import React, { useMemo } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import {
+  guideDomProps,
   SegmentedControl,
   SettingGroup,
   SettingTitleGuideEntry,
   SettingTitleHelp,
   useSettingGuide,
   useSettingsHelp,
-  guideDomProps,
 } from '../settings'
-import type { ChoiceOption } from '../settings'
 
 export interface PlatformAutoFetchConfig {
   enabled: boolean

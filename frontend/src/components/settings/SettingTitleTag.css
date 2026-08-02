@@ -234,7 +234,7 @@ html.dark button.setting-title-tag:hover:not(:disabled) {
 
 .setting-title-tag-dismiss:hover:not(:disabled) {
   opacity: 1;
-  background: color-mix(in srgb, currentColor 12%, transparent);
+  background: color-mix(in srgb, currentcolor 12%, transparent);
 }
 
 .setting-title-tag-dismiss:focus-visible {

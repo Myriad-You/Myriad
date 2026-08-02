@@ -149,8 +149,7 @@
 .setting-group-grid-row {
   display: grid;
   grid-template-columns: repeat(var(--sg-row-cols, 2), minmax(0, 1fr));
-  column-gap: var(--sg-grid-gap);
-  row-gap: var(--sg-row-gap);
+  gap: var(--sg-row-gap) var(--sg-grid-gap);
   align-items: stretch;
   width: 100%;
   min-width: 0;

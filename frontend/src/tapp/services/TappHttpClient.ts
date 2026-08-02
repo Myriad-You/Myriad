@@ -36,7 +36,7 @@ function hostLocaleHeaders(): Record<string, string> {
   const locale = getDefaultLocale()
   let timezone = 'UTC'
   try {
-    timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+    timezone = new Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
   } catch {
     /* ignore */
   }

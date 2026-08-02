@@ -34,7 +34,6 @@ const WEBSITE_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 let activeWebsiteId: string | null = null
-let activeScriptUrl: string | null = null
 let scriptLoading = false
 let excludeStaff = false
 let pendingPath: string | null = null
@@ -104,7 +103,6 @@ function removeInjectedScript(): void {
 
 function disableUmami(): void {
   activeWebsiteId = null
-  activeScriptUrl = null
   pendingPath = null
   removeInjectedScript()
 }
@@ -185,7 +183,6 @@ export function configureUmami(
   }
 
   activeWebsiteId = id
-  activeScriptUrl = url
   injectScript(url, id)
 
   // Script already present and loaded

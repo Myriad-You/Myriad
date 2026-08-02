@@ -1,5 +1,6 @@
 import type { ToastType } from '../Toast'
 
+import type { PlatformDataPreviewHandle } from './PlatformDataPreview'
 import { FaSyncAlt, FaTrash } from '@lib/icons'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { API_URL } from '../../config'
@@ -11,9 +12,7 @@ import { resolvePlatformId } from '../../utils/platformId'
 import { notifyRecentActivityUpdated } from '../../utils/recentActivity'
 import { ButtonItem, SettingGroup, useSettingGuide } from '../settings'
 import { TaskStatus } from '../TaskStatus'
-import PlatformDataPreview, {
-  type PlatformDataPreviewHandle,
-} from './PlatformDataPreview'
+import PlatformDataPreview from './PlatformDataPreview'
 
 interface CacheInfo {
   platform: string
@@ -51,7 +50,7 @@ export default function PlatformDataManagement({
   showMessage,
 }: PlatformDataManagementProps) {
   const { t } = useI18n()
-  const { catalog: g, renderGuide, bindGuide } = useSettingGuide()
+  const { catalog: g, bindGuide } = useSettingGuide()
   const platformId = useMemo(
     () => resolvePlatformId(platformName),
     [platformName],

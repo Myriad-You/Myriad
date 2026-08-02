@@ -71,7 +71,7 @@ function sizeClass(size: SettingsButtonSize): string {
   }
 }
 
-export const SettingsButton = React.memo(function SettingsButton({
+export const SettingsButton = React.memo(({
   variant = 'secondary',
   size = 'md',
   loading = false,
@@ -84,7 +84,7 @@ export const SettingsButton = React.memo(function SettingsButton({
   onClick,
   type = 'button',
   ...rest
-}: SettingsButtonProps) {
+}: SettingsButtonProps) => {
   const handleClick = useCallback(
     (e: React.MouseEvent<HTMLButtonElement>) => {
       if (disabled || loading) return

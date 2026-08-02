@@ -4,7 +4,7 @@
  * technical detail when it helps debugging (validation failures, etc.).
  */
 
-export type PlaygroundErrorCopy = {
+export interface PlaygroundErrorCopy {
   playgroundTimeoutHint: string
   playgroundServerErrorHint: string
   playgroundGenerateFailed: string
@@ -24,7 +24,7 @@ export type PlaygroundErrorCopy = {
   playgroundRuntimeError: string
 }
 
-export type MapPlaygroundErrorOpts = {
+export interface MapPlaygroundErrorOpts {
   userCancelled?: boolean
   /** Replace `{key}` in copy templates that need a detail fragment. */
   format?: (template: string, params: Record<string, string | number>) => string
@@ -65,7 +65,7 @@ function compose(
 /** Pull the human-useful tail after "after N attempts:" etc. */
 function extractValidationDetail(raw: string): string {
   const m = raw.match(
-    /did not pass validation after\s+\d+\s+attempts?\s*:\s*(.+)$/i,
+    /did not pass validation after \d+ attempts?: (.+)$/i,
   )
   if (m?.[1]) return m[1].trim()
   const colon = raw.indexOf(': ')
@@ -262,13 +262,13 @@ export function mapPlaygroundGenerateError(
   // Unknown: keep raw if it looks user-authored / already localized;
   // otherwise wrap with generic primary + technical detail.
   const looksLocalized =
-    /[\u3040-\u30ff\u3400-\u9fff]/.test(raw) || // CJK
+    /[\u3040-\u30FF\u3400-\u9FFF]/.test(raw) || // CJK
     raw.length > 40
 
-  if (looksLocalized && !/^HTTP\s*\d+/i.test(raw) && !/^[A-Z][a-z]+Error$/i.test(raw)) {
+  if (looksLocalized && !/^HTTP\s*\d+/i.test(raw) && !/^[a-z]{2,}Error$/i.test(raw)) {
     // Prefer showing the server message when it's already descriptive.
     // Still prefix with generate-failed if it's a short English identifier.
-    if (/^[A-Za-z0-9 _.:/-]{1,48}$/.test(raw) && !/\s{2,}/.test(raw) && raw.split(' ').length <= 4) {
+    if (/^[\w .:/-]{1,48}$/.test(raw) && !/\s{2,}/.test(raw) && raw.split(' ').length <= 4) {
       return compose(
         copy.playgroundGenerateFailed,
         raw,

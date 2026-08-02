@@ -8,10 +8,10 @@
  */
 
 import type { ReactNode } from 'react'
-import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { FaCheck, FaCopy } from '@lib/icons'
-import { useI18n } from '../../contexts/I18nContext'
 import type { SettingsButtonVariant } from './items/SettingsButton'
+import { FaCheck, FaCopy } from '@lib/icons'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { useI18n } from '../../contexts/I18nContext'
 import { SettingsButton } from './items/SettingsButton'
 import './InfoActionCard.css'
 
@@ -140,7 +140,7 @@ async function writeClipboard(text: string): Promise<boolean> {
   }
 }
 
-const FieldRow = React.memo(function FieldRow({
+const FieldRow = React.memo(({
   field,
   allowCopy,
   copyLabel,
@@ -150,7 +150,7 @@ const FieldRow = React.memo(function FieldRow({
   allowCopy: boolean
   copyLabel: string
   copiedLabel: string
-}) {
+}) => {
   const [copied, setCopied] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const text = resolveCopyText(field)
@@ -169,7 +169,7 @@ const FieldRow = React.memo(function FieldRow({
     if (!ok) return
     setCopied(true)
     if (timerRef.current) clearTimeout(timerRef.current)
-    timerRef.current = setTimeout(() => setCopied(false), 1600)
+    timerRef.current = setTimeout(setCopied, 1600, false)
   }, [text])
 
   return (
@@ -205,7 +205,7 @@ const FieldRow = React.memo(function FieldRow({
   )
 })
 
-export const InfoActionCard = React.memo(function InfoActionCard({
+export const InfoActionCard = React.memo(({
   title,
   icon,
   fields,
@@ -220,7 +220,7 @@ export const InfoActionCard = React.memo(function InfoActionCard({
   copiedLabel: copiedLabelProp,
   embedded = false,
   className = '',
-}: InfoActionCardProps) {
+}: InfoActionCardProps) => {
   const { t } = useI18n()
   const copyLabel = copyLabelProp ?? t.common.copy
   const copiedLabel = copiedLabelProp ?? t.common.copied
@@ -257,9 +257,7 @@ export const InfoActionCard = React.memo(function InfoActionCard({
           <div className="info-action-card-empty" role="status">
             {emptyText}
           </div>
-        ) : children != null ? (
-          children
-        ) : hasFields ? (
+        ) : children ?? hasFields ? (
           <dl className="info-action-card-fields">
             {fields!.map((f) => (
               <FieldRow

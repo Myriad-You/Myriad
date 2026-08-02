@@ -5,8 +5,8 @@
  * 可选 onDismiss：右侧 × 关闭（默认值变更提示等）
  */
 
-import { LuX } from '@lib/icons'
 import type { ReactNode } from 'react'
+import { LuX } from '@lib/icons'
 import React, { useCallback } from 'react'
 import { SettingTitleHelp } from './SettingTitleHelp'
 import './SettingTitleTag.css'

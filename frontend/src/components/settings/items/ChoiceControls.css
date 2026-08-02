@@ -135,7 +135,7 @@ html.dark .choice-segmented {
   min-width: 0;
 }
 
-.choice-segmented-item:hover:not(:disabled):not(.is-selected) {
+.choice-segmented-item:hover:not(:disabled, .is-selected) {
   color: var(--cfg-text-2);
   background: rgb(255 255 255 / 45%);
 }
@@ -144,7 +144,7 @@ html.dark .choice-segmented-item {
   color: var(--cfg-text-3);
 }
 
-html.dark .choice-segmented-item:hover:not(:disabled):not(.is-selected) {
+html.dark .choice-segmented-item:hover:not(:disabled, .is-selected) {
   color: var(--cfg-text-1);
   background: rgb(255 255 255 / 6%);
 }
@@ -180,7 +180,7 @@ html.dark .choice-segmented-item.is-selected .choice-option-label {
   color: var(--cfg-text-1);
 }
 
-.choice-segmented-item:active:not(:disabled):not(.is-selected) {
+.choice-segmented-item:active:not(:disabled, .is-selected) {
   transform: scale(var(--sm-scale-press));
 }
 

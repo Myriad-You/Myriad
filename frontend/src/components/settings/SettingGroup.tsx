@@ -15,17 +15,17 @@ import type { SettingGroupConfig } from './types'
 import React, { useEffect, useMemo } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import { CollapseRegion } from './CollapseRegion'
-import { guideAnchorId, GUIDE_PATH_ATTR } from './guides/guideAnchor'
+import { GUIDE_PATH_ATTR, guideAnchorId } from './guides/guideAnchor'
+import { ToggleSwitch } from './items/ToggleSwitch'
 import { useSettingGroupGrid } from './SettingGroupGrid'
+import { SettingItem } from './SettingItem'
 import { useSettingsHelp } from './SettingsHelpContext'
 import {
   slugifySettingGroupId,
   useSettingsToc,
 } from './SettingsTocContext'
-import { SettingItem } from './SettingItem'
 import { SettingTitleGuideEntry } from './SettingTitleGuideEntry'
 import { SettingTitleHelp } from './SettingTitleHelp'
-import { ToggleSwitch } from './items/ToggleSwitch'
 import './SettingGroup.css'
 
 export interface SettingGroupProps extends SettingGroupConfig {}

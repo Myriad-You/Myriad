@@ -10,4 +10,4 @@ export function getSettingGuidesCatalog(locale: Locale): SettingGuidesCatalog {
   return en
 }
 
-export type { SettingGuidesCatalog, SettingGuideEntry } from './types'
+export type { SettingGuideEntry, SettingGuidesCatalog } from './types'

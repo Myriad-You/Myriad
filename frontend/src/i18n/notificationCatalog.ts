@@ -9,18 +9,18 @@
  * Public API: `getNotificationCopy(locale)` (also re-exported from `./index`).
  */
 
-import type { Locale } from "./index"
 import type {
   NotificationEventKey,
   NotificationSourceKey,
 } from "../services/notificationPreferencesApi"
+import type { Locale } from "./index"
 
-export type NotificationSourceCopy = {
+export interface NotificationSourceCopy {
   title: string
   description: string
 }
 
-export type NotificationUiCopy = {
+export interface NotificationUiCopy {
   master: string
   masterDesc: string
   delivery: string
@@ -41,7 +41,7 @@ export type NotificationUiCopy = {
   browserLocation: string
 }
 
-export type NotificationCopy = {
+export interface NotificationCopy {
   sources: Record<NotificationSourceKey, NotificationSourceCopy>
   events: Record<NotificationEventKey, string>
   ui: NotificationUiCopy

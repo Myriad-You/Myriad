@@ -147,6 +147,7 @@
   min-width: 0;
   box-sizing: border-box;
   cursor: pointer;
+
   /*
    * 命中区恒定：开合不得改 padding / 纵向 margin。
    * 仅水平负 margin，让 hover 底略宽于文字。
@@ -210,6 +211,7 @@ html.dark .setting-group-header-toggle:hover {
   justify-content: center;
   width: 1.75rem;
   height: 1.75rem;
+
   /* 防止 flex 按 img 固有尺寸（如 192² webp）把标题行撑高 */
   min-width: 1.75rem;
   min-height: 1.75rem;

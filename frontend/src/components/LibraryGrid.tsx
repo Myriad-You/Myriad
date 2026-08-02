@@ -18,10 +18,9 @@ import {
   buildCenterOutCanvasLayout,
   getLibraryCanvasFocusScale,
   getLibraryCanvasViewportBounds,
-  libraryCanvasLayoutIntersects,
   LIBRARY_CANVAS_STRIDE,
+  libraryCanvasLayoutIntersects,
 } from '../utils/libraryCanvas'
-import { isMobileNavLayout } from '../utils/navLayout'
 import { LIBRARY_PREFERENCES_UPDATED_EVENT } from '../utils/libraryPreferences'
 import {
   formatWatchProgressText,
@@ -33,6 +32,7 @@ import {
   getNeteaseAudioUrlImmediate,
   isNeteaseVipFromMeta,
 } from '../utils/musicPlayer'
+import { isMobileNavLayout } from '../utils/navLayout'
 import { proxyImageUrlOr } from '../utils/proxyImageUrl'
 import { getLibraryDataPageDeduped } from '../utils/requestDedup'
 import { showInfo } from '../utils/toastManager'
@@ -971,7 +971,7 @@ function resolveLibraryItemUrl(item: {
     const bvid = typeof m.bvid === 'string' ? m.bvid : null
     if (bvid) return `https://www.bilibili.com/video/${bvid}`
     const aid = m.aid ?? m.id
-    if (aid != null && String(aid).match(/^\d+$/)) {
+    if (aid != null && /^\d+$/.test(String(aid))) {
       return `https://www.bilibili.com/video/av${aid}`
     }
   }
@@ -1051,7 +1051,7 @@ function readCardCornerRadius(el: HTMLElement): { rx: number; ry: number } {
     const parts = raw
       .trim()
       .split(/\s+/)
-      .map((p) => parseFloat(p) || 0)
+      .map((p) => Number.parseFloat(p) || 0)
     if (parts.length >= 2) return [parts[0], parts[1]]
     return [parts[0] || 12, parts[0] || 12]
   }
@@ -1091,8 +1091,8 @@ function pointOnRoundedRect(
     const cos = Math.cos(a)
     const sin = Math.sin(a)
     // 椭圆外法线 ∝ (cos/rx, sin/ry)，取反为内
-    let nx = cos / ax
-    let ny = sin / ay
+    const nx = cos / ax
+    const ny = sin / ay
     const len = Math.hypot(nx, ny) || 1
     return {
       x: cx + ax * cos,
@@ -1160,7 +1160,7 @@ function sampleBand(bands: number[], t: number): number {
 
 /** 圆周距离 [0, 0.5] */
 function circDist(a: number, b: number): number {
-  let d = Math.abs((((a - b) % 1) + 1) % 1)
+  const d = Math.abs((((a - b) % 1) + 1) % 1)
   return d > 0.5 ? 1 - d : d
 }
 
@@ -1260,11 +1260,11 @@ function buildSpectrumWavePath(
     const d1 = circDist(t, peak1T) / sig1
     const d2 = circDist(t, peak2T) / sig2
     const e1 =
-      Math.exp(-Math.pow(d1, sharp1)) *
+      Math.exp(-(d1 ** sharp1)) *
       Math.max(0.05, peak1H) *
       (0.35 + local * 0.9 + bass * 0.35 + onset * 0.4)
     const e2 =
-      Math.exp(-Math.pow(d2, sharp2)) *
+      Math.exp(-(d2 ** sharp2)) *
       Math.max(0.05, peak2H) *
       (0.3 + local * 1.0 + treble * 0.5 + onset * 0.45)
     const peakBlob = Math.max(e1, e2)
@@ -1348,7 +1348,7 @@ function lerp(a: number, b: number, t: number): number {
 
 /** 圆周上最短弧插值 → 0..1 */
 function circLerp(a: number, b: number, t: number): number {
-  let d = ((b - a + 1.5) % 1) - 0.5
+  const d = ((b - a + 1.5) % 1) - 0.5
   return (a + d * t + 1) % 1
 }
 
@@ -1391,13 +1391,13 @@ function ouStep(
  * 频谱快响应 + 可见随机漂移；
  * 出场弹起 / 退场频谱残留收束，避免硬切与塌成细环
  */
-const LibraryPlayingWaveBorder = memo(function LibraryPlayingWaveBorder({
+const LibraryPlayingWaveBorder = memo(({
   musicColor,
   active,
 }: {
   musicColor: string
   active: boolean
-}) {
+}) => {
   const wrapRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const softRef = useRef<SVGPathElement>(null)
@@ -1949,7 +1949,7 @@ const LibraryPlayingWaveBorder = memo(function LibraryPlayingWaveBorder({
  * 父级轻量订阅：仅 songId / isPlaying / musicColor
  * 切句不触发 LibraryGrid 重渲染
  */
-type LibraryMusicIdentity = {
+interface LibraryMusicIdentity {
   songId: string | null
   isPlaying: boolean
   musicColor: string
@@ -1998,14 +1998,14 @@ function useLibraryMusicIdentity(): LibraryMusicIdentity {
  * 退场时冻结歌词快照：换歌会 resetLyrics，不能靠 live hasLyrics 决定是否卸载，
  * 否则 is-leaving 会被短路硬切。
  */
-const LibraryCardLyrics = memo(function LibraryCardLyrics({
+const LibraryCardLyrics = memo(({
   active,
   musicColor,
 }: {
   /** true=当前曲（含暂停）；false=换歌离场 */
   active: boolean
   musicColor: string
-}) {
+}) => {
   const { lyrics: liveLyrics, currentLyricIndex: liveIndex } =
     useMusicLyricsSlice()
   const hasLiveLyrics = useMemo(
@@ -2094,7 +2094,7 @@ const LibraryCardLyrics = memo(function LibraryCardLyrics({
 /**
  * 卡片外壳：封面占位 + 加载完再显示玻璃 chrome，避免滚动时标题/平台标先闪。
  */
-const LibraryCardShell = memo(function LibraryCardShell({
+const LibraryCardShell = memo(({
   cover,
   title,
   className,
@@ -2112,7 +2112,7 @@ const LibraryCardShell = memo(function LibraryCardShell({
   children: ReactNode
   /** 播放中封面呼吸动效 */
   coverBreathing?: boolean
-}) {
+}) => {
   const hasCover = Boolean(cover)
   const [mediaReady, setMediaReady] = useState(!hasCover)
   /** off | breathing | exiting — 退场播完再卸类，避免硬切 */
@@ -2152,7 +2152,7 @@ const LibraryCardShell = memo(function LibraryCardShell({
 
     if (!img || reduced) {
       clearCoverInline()
-      const t = window.setTimeout(() => setBreathPhase('off'), 40)
+      const t = window.setTimeout(setBreathPhase, 40, 'off')
       return () => window.clearTimeout(t)
     }
 
@@ -2495,10 +2495,7 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
       // 注意：此处 return 后不会执行下面的 liveSongId===null 清理，
       // 否则会立刻清掉 leavingSongId，退场动画被掐断。
       setLeavingSongId(prev)
-      const t = window.setTimeout(
-        () => setLeavingSongId(null),
-        LIBRARY_LIVE_MS.leaveHold,
-      )
+      const t = window.setTimeout(setLeavingSongId, LIBRARY_LIVE_MS.leaveHold, null)
       return () => window.clearTimeout(t)
     }
     // 仅「本来就没有曲 / 清空」时卸离场标记（非换歌路径）

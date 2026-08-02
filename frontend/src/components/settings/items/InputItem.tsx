@@ -36,7 +36,6 @@ export const InputItem = React.memo<InputItemProps>(
   ({
     itemKey,
     label,
-    detail,
     guide,
     guidePath,
     description,

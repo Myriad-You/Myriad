@@ -4,17 +4,17 @@
 
 import type {
   CompareResult,
-  ReleaseListItem,
+  makeUpdaterApi, ReleaseListItem,
 } from '../../../services/updaterApi'
-import { makeUpdaterApi } from '../../../services/updaterApi'
+import type { ChannelOption, U } from './helpers'
 import React, { useEffect, useRef, useState } from 'react'
 import { InputItem, SettingsButton } from '../../settings'
 import { Spinner } from '../../Spinner'
 import {
+
   format,
   isReleaseTag,
-  type ChannelOption,
-  type U,
+
 } from './helpers'
 
 interface PickerItem {
@@ -338,4 +338,3 @@ export function TargetPicker({
     </div>
   )
 }
-

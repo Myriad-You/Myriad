@@ -22,10 +22,6 @@ import { ToastContainer } from '../components/ToastContainer'
 
 import { API_URL } from '../config'
 import { useI18n } from '../contexts/I18nContext'
-import {
-  applyNavLayoutToDocument,
-  getNavLayoutSnapshot,
-} from '../utils/navLayout'
 // Live <html data-nav-layout> after first paint is owned by NavigationIsland
 // crossfade (chromeLayout). AppLayout only seeds FOUC once.
 import {
@@ -49,6 +45,10 @@ import {
   applyColorPalette,
   extractColorsFromImage,
 } from '../utils/colorExtractor'
+import {
+  applyNavLayoutToDocument,
+  getNavLayoutSnapshot,
+} from '../utils/navLayout'
 import { startFpsMonitor, stopFpsMonitor } from '../utils/performance'
 import {
   getColorFromCache,

@@ -16,6 +16,7 @@
   --as-fill: color-mix(in srgb, var(--as-label) 6%, transparent);
   --as-fill-strong: color-mix(in srgb, var(--as-label) 10%, transparent);
   --as-sep: color-mix(in srgb, var(--as-label) 5%, transparent);
+
   /* Set from TappStore via style; 1 = standard, ~0.6 light, ~0.4 exlight */
   --as-dur-scale: 1;
   --as-enter-ease: cubic-bezier(0.22, 1, 0.36, 1);

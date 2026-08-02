@@ -1,5 +1,3 @@
-/* eslint-disable test/no-import-node-test -- node:test is the repository test runner */
-
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { checkRateLimit } from './rateLimiter.ts'

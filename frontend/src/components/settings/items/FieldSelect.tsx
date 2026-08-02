@@ -8,15 +8,16 @@
  * - searchable：菜单顶部搜索框，按 label/value 过滤
  */
 
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type { SettingOption } from '../types'
 import {
+
   useCallback,
   useEffect,
   useId,
   useMemo,
   useRef,
   useState,
-  type KeyboardEvent as ReactKeyboardEvent,
 } from 'react'
 import './FieldSelect.css'
 

@@ -3,8 +3,7 @@
  *   pnpm test:unit -- src/components/config/analytics/compareDeltaLogic.test.ts
  */
 
-/* eslint-disable test/no-import-node-test -- node:test; project has no vitest dep */
-
+import type { CompareLabels } from './compareDeltaLogic.ts'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
@@ -13,7 +12,6 @@ import {
   compareTone,
   formatComparePct,
   formatCompareValue,
-  type CompareLabels,
 } from './compareDeltaLogic.ts'
 
 const labels: CompareLabels = {

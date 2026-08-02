@@ -8,8 +8,6 @@
  *   node --experimental-strip-types --test src/tapp/runtime/permissionMapConsistency.test.ts
  */
 
-/* eslint-disable test/no-import-node-test -- node:test; project has no vitest dep */
-
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'

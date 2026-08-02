@@ -1,4 +1,3 @@
-/* eslint-disable test/no-import-node-test -- node:test is the repository test runner */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'

@@ -9,9 +9,10 @@
  * 5. 移除调度器依赖，CSS 动画由浏览器原生优化
  */
 
+import type { AnimationLevel } from '../../../hooks/useAnimationLevel'
 import { memo, useMemo } from 'react'
 import {
-  type AnimationLevel,
+
   getCurrentAnimationConfig,
   isExlight,
   isStandardAnimation,

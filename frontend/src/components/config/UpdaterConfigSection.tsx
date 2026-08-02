@@ -26,6 +26,8 @@ import type {
   UpdateMode,
   UpdaterStatus,
 } from '../../services/updaterApi'
+import type { ManagedListItem } from '../settings/ManagedList'
+import type { ChannelKey, Mood, Toast } from './updater/helpers'
 import type { MaintenancePollStop } from './updaterMaintenanceNav'
 import {
   FaCog,
@@ -34,7 +36,6 @@ import {
   FaServer,
   FaTools,
   LuDownload,
-  LuRefreshCw,
 } from '@lib/icons'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
@@ -43,16 +44,40 @@ import {
   makeUpdaterApi,
   UpdaterError,
 } from '../../services/updaterApi'
-import type { ManagedListItem } from '../settings/ManagedList'
 import {
   ButtonItem,
   ManagedList,
   SettingGroup,
   SettingGroupGrid,
-  SettingTitleTag,
   SettingsButton,
+  SettingTitleTag,
   useSettingGuide,
 } from '../settings'
+import { AdvancedPanel } from './updater/AdvancedPanel'
+import {
+  CHANNEL_OPTIONS,
+  channelDesc,
+
+  channelLabel,
+
+  deriveMood,
+  deriveSelection,
+  format,
+  formatBytes,
+  INFRA_OUTCOME_MAX_TRIES,
+  INFRA_OUTCOME_POLL_MS,
+  isTransientUpdaterError,
+  modeForTarget,
+
+  POLL_INTERVAL,
+  sleep,
+  snapshotDeleteBlockReason,
+
+  upstreamDetail,
+} from './updater/helpers'
+import { SnapshotLimitPrefs } from './updater/SnapshotLimitPrefs'
+import { ProgressCard, StatusHero } from './updater/StatusHero'
+import { TargetPicker } from './updater/TargetPicker'
 import {
   AGO_TICK_MS,
   isCheckStale,
@@ -64,31 +89,6 @@ import {
   navigateToMaintenancePage,
   startMaintenancePoll,
 } from './updaterMaintenanceNav'
-import { AdvancedPanel } from './updater/AdvancedPanel'
-import {
-  CHANNEL_OPTIONS,
-  channelDesc,
-  channelLabel,
-  deriveMood,
-  deriveSelection,
-  format,
-  formatBytes,
-  INFRA_OUTCOME_MAX_TRIES,
-  INFRA_OUTCOME_POLL_MS,
-  isTransientUpdaterError,
-  modeForTarget,
-  POLL_INTERVAL,
-  sleep,
-  snapshotDeleteBlockReason,
-  upstreamDetail,
-  type ChannelKey,
-  type ChannelOption,
-  type Mood,
-  type Toast,
-} from './updater/helpers'
-import { SnapshotLimitPrefs } from './updater/SnapshotLimitPrefs'
-import { ProgressCard, StatusHero } from './updater/StatusHero'
-import { TargetPicker } from './updater/TargetPicker'
 import './UpdaterConfigSection.css'
 
 export interface UpdaterInlinePanelProps {
@@ -100,7 +100,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
 }) => {
   const { t } = useI18n()
   const u = t.config
-  const { catalog: g, renderGuide, bindGuide } = useSettingGuide()
+  const { catalog: g, bindGuide } = useSettingGuide()
 
   const [transport, setTransport] = useState<TransportMode>('backend')
   const [token, setToken] = useState('')

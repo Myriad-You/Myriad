@@ -4,7 +4,7 @@
  * 不轮询。
  */
 
-import { useCallback, useEffect, useImperativeHandle, useRef, useState, forwardRef } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { API_URL } from '../../config'
 import { useI18n } from '../../contexts/I18nContext'
 import { fetchJson } from '../../utils/apiHelper'
@@ -79,7 +79,7 @@ function formatPlaytimeMinutes(minutes: number, t: {
 export const PlatformDataPreview = forwardRef<
   PlatformDataPreviewHandle,
   PlatformDataPreviewProps
->(function PlatformDataPreview({ platformName }, ref) {
+>(({ platformName }, ref) => {
   const { t, locale } = useI18n()
   const dm = t.dataManagement
   const { catalog: g, bindGuide } = useSettingGuide()

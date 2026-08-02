@@ -23,6 +23,7 @@
   transition:
     opacity var(--ws-exit-ms, 280ms) cubic-bezier(0.22, 1, 0.36, 1),
     transform var(--ws-exit-ms, 280ms) cubic-bezier(0.22, 1, 0.36, 1);
+
   /* will-change only while exiting — avoid permanent layer promotion */
 }
 
@@ -68,6 +69,7 @@ html[data-perf-mode='exlight'] .widget-skeleton-cover {
   --ws-soft: color-mix(in srgb, var(--ws-accent) 12%, transparent);
   --ws-shine: color-mix(in srgb, var(--ws-accent) 28%, transparent);
   --ws-muted: color-mix(in srgb, var(--ws-accent) 7%, transparent);
+
   position: relative;
   display: flex;
   min-height: 0;
@@ -88,6 +90,7 @@ html[data-perf-mode='exlight'] .widget-skeleton-cover {
 /* Off-viewport / cheap hold: one paint layer, no bone DOM, no animation */
 .widget-skeleton--hold {
   background: var(--ws-soft);
+
   /* Allow browser to skip work when tile is far off-screen */
   content-visibility: auto;
   contain-intrinsic-size: auto 8rem;
@@ -136,6 +139,7 @@ html[data-perf-mode='exlight'] .widget-skeleton-cover {
   0% {
     transform: translate3d(-100%, 0, 0);
   }
+
   100% {
     transform: translate3d(100%, 0, 0);
   }

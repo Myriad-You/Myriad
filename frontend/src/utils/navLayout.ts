@@ -79,7 +79,8 @@ export function isMobileNavLayout(win?: Window): boolean {
   return getNavLayout(win) === 'mobile'
 }
 
-/** Sync layout token onto <html> so CSS can key off it without JS class thrash.
+/**
+ * Sync layout token onto <html> so CSS can key off it without JS class thrash.
  *  dataset.navLayout  ↔  data-nav-layout
  */
 export function applyNavLayoutToDocument(

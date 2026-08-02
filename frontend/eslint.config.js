@@ -7,6 +7,8 @@ export default antfu(
   },
   {
     rules: {
+      // Project runs tests with tsx + node:test (no vitest dependency).
+      'test/no-import-node-test': 'off',
       'react/forbid-dom-props': 'off',
       'ts/no-unused-expressions': 'off',
       'no-console': 'off',

@@ -5,6 +5,7 @@
  * then save (writes disk + hot-reloads children). Uses ManagedList + form items.
  */
 
+import type { McpServerConfig } from '../../services/agent/agentApi'
 import type {
   ManagedListItem,
   ManagedListStat,
@@ -20,7 +21,6 @@ import {
   FaSyncAlt,
   LuServer,
 } from '../../lib/icons'
-import type { McpServerConfig } from '../../services/agent/agentApi'
 import { agentService } from '../../services/agent'
 import {
   InfoActionCard,
@@ -92,6 +92,7 @@ function parseArgsText(text: string): string[] {
   const out: string[] = []
   const re = /"([^"]*)"|'([^']*)'|(\S+)/g
   let m: RegExpExecArray | null
+  // eslint-disable-next-line no-cond-assign -- standard re.exec loop
   while ((m = re.exec(text)) !== null) {
     out.push(m[1] ?? m[2] ?? m[3] ?? '')
   }
@@ -235,7 +236,7 @@ export function McpConfigPanel({ onMessage }: McpConfigPanelProps) {
       setFormError(c.mcpValidateIdRequired)
       return
     }
-    if (!/^[A-Za-z0-9._-]+$/.test(nextCfg.id)) {
+    if (!/^[\w.-]+$/.test(nextCfg.id)) {
       setFormError(c.mcpValidateIdCharset)
       return
     }

@@ -124,10 +124,10 @@ const LoginForm: FC = () => {
       // 产品埋点：登录成功（管理员 / 站长自访不计入）
       try {
         const { setAnalyticsStaffSession } = await import(
-          '../utils/siteAnalytics'
+          '../utils/siteAnalytics',
         )
         const { trackProductEvent, AnalyticsEvents } = await import(
-          '../utils/analyticsEvents'
+          '../utils/analyticsEvents',
         )
         const isStaff = Boolean(data.user?.is_admin || data.user?.is_owner)
         if (isStaff) {

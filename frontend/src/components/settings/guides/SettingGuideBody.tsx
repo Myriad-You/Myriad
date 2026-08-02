@@ -13,7 +13,7 @@ export interface SettingGuideBodyProps {
 }
 
 const STEP_LINE =
-  /^(?:[①②③④⑤⑥⑦⑧⑨⑩]|\d+[)）.\、]|[（(]\d+[)）])\s*/
+  /^(?:[①②③④⑤⑥⑦⑧⑨⑩]|\d+[)）.、]|[（(]\d+[)）])\s*/
 
 function renderText(text: string) {
   const lines = text

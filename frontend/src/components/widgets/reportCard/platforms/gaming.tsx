@@ -13,6 +13,7 @@ import { memo, useEffect, useMemo, useState } from 'react'
 import { API_URL } from '../../../../config'
 import { useI18n } from '../../../../contexts/I18nContext'
 import { useAnimationLevel } from '../../../../hooks/useAnimationLevel'
+import { proxyImageUrl } from '../../../../utils/proxyImageUrl'
 import {
   CONTENT_FADE_ANIMATE,
   CONTENT_FADE_EXIT,
@@ -25,7 +26,6 @@ import {
 } from '../animations'
 import { formatCompactNumber } from '../format'
 import { useCountUp, useLibraryItemRotation } from '../hooks'
-import { proxyImageUrl } from '../../../../utils/proxyImageUrl'
 import { normalizeHttpsMediaUrl, normalizeXboxMediaUrl } from '../media'
 import { fetchPlatformUserIds } from '../platformSocial'
 

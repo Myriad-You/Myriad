@@ -18,21 +18,25 @@
   inherits: true;
   initial-value: #6b7280;
 }
+
 @property --music-secondary {
   syntax: '<color>';
   inherits: true;
   initial-value: #9ca3af;
 }
+
 @property --music-accent {
   syntax: '<color>';
   inherits: true;
   initial-value: #4b5563;
 }
+
 @property --music-light {
   syntax: '<color>';
   inherits: true;
   initial-value: #d1d5db;
 }
+
 @property --music-dark {
   syntax: '<color>';
   inherits: true;
@@ -304,8 +308,10 @@ html.dark #bg-container.wallpaper-awaiting #wallpaper-awaiting-fx::after {
 :root {
   /* 基色（随明暗切换）；--surface-alpha 是透明度的抽象点，各组件可覆盖以保留自身配置 */
   --surface-rgb: 255 255 255;
+
   /* 默认底略提高透明度（更透一点点）；档位类 glass-60/70/90/95 仍可覆盖 */
   --surface-alpha: 74%;
+
   /* 边框：浅色提高透明度（更透、更淡）；仍是单层 1px solid（暗色见 html.dark） */
   --surface-border: rgb(255 255 255 / 10%);
   --surface-filter: blur(16px) saturate(180%);
@@ -332,6 +338,7 @@ html.dark #bg-container.wallpaper-awaiting #wallpaper-awaiting-fx::after {
 
 html.dark {
   --surface-rgb: 26 26 26;
+
   /* 暗色：低白度细边，靠底发丝 + 外影勾轮廓，避免发白 */
   --surface-border: rgb(255 255 255 / 12%);
   --surface-sheen: linear-gradient(
@@ -382,6 +389,7 @@ html.dark {
    边缘色散弯光环（见下方 liquid 环规则）。
    性能约定：强化全部走静态绘制层（渐变/inset 阴影，一次绘制可缓存），
    blur 半径与 backdrop 采样次数保持不变 —— 那才是这个表面的真实开销 */
+
 /* .glass-liquid 是局部强制入口：用于即使全局选择其他表面，也必须保持
    完整 Liquid 光学与交互的少量浮动 chrome。 */
 :root[data-surface='liquid'],
@@ -545,6 +553,7 @@ html.dark.surface-lens .glass-liquid {
       :is(.glass, .glass-surface):is(a, button, [role='button'], .cursor-pointer):hover,
   .glass-liquid:is(a, button, [role='button'], .cursor-pointer):hover {
     transform: translateY(-1px) scale(1.012);
+
     /* !important：压过上方 .glass 令牌夺回，保留流体悬停加亮边 */
     border-color: rgb(255 255 255 / 70%) !important;
   }
@@ -651,20 +660,10 @@ html.dark.surface-lens[data-surface='liquid'] .surface-dialog {
    .glass-surface 仍按设计保留使用处工具类，不在此夺回。 */
 html
   .glass:where(
-    :not([class*='border-red']):not([class*='border-rose']):not(
-        [class*='border-amber']
-      ):not([class*='border-orange']):not([class*='border-yellow']):not(
-        [class*='border-green']
-      ):not([class*='border-emerald']):not(.glass-chrome-free)
-  ),
+    :not([class*='border-red'], [class*='border-rose'], [class*='border-amber'], [class*='border-orange'], [class*='border-yellow'], [class*='border-green'], [class*='border-emerald'], .glass-chrome-free)),
 html.dark
   .glass:where(
-    :not([class*='border-red']):not([class*='border-rose']):not(
-        [class*='border-amber']
-      ):not([class*='border-orange']):not([class*='border-yellow']):not(
-        [class*='border-green']
-      ):not([class*='border-emerald']):not(.glass-chrome-free)
-  ) {
+    :not([class*='border-red'], [class*='border-rose'], [class*='border-amber'], [class*='border-orange'], [class*='border-yellow'], [class*='border-green'], [class*='border-emerald'], .glass-chrome-free)) {
   border-color: var(--surface-border) !important;
 }
 

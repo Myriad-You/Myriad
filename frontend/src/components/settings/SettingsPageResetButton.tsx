@@ -2,8 +2,8 @@
  * 设置页右上角「重置本页」：CheckboxCard 原地二次确认（默认灰 / hover 红 / 无弹窗）
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { FaUndo } from '@lib/icons'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import { CheckboxCard } from './items/CheckboxCard'
 import './SettingsPageResetButton.css'

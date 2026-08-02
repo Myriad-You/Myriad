@@ -16,8 +16,9 @@ import {
   RUNTIME_RELOAD_UI_BAG_KEYS,
 } from './uiBagOwnership'
 
-const deepEqual = (a: unknown, b: unknown) =>
-  JSON.stringify(a) === JSON.stringify(b)
+function deepEqual(a: unknown, b: unknown) {
+  return JSON.stringify(a) === JSON.stringify(b)
+}
 
 function cfg(fields: Array<{ key: string; value: string }>) {
   return {

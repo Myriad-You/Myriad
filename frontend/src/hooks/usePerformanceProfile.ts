@@ -1,10 +1,10 @@
+import type { HardwareSignals, OsKind } from '../utils/deviceHardwareTier'
 import { useEffect, useRef, useState } from 'react'
 import {
   collectHardwareSignals,
   detectAppleSiliconAsync,
   evaluateHighHardware,
-  type HardwareSignals,
-  type OsKind,
+
 } from '../utils/deviceHardwareTier'
 
 /**

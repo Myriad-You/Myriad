@@ -19,7 +19,7 @@ export interface ChoiceOption<T extends string = string> {
   disabled?: boolean
 }
 
-type SegmentedBaseProps<T extends string> = {
+interface SegmentedBaseProps<T extends string> {
   options: ChoiceOption<T>[]
   disabled?: boolean
   size?: ChoiceControlSize

@@ -4,7 +4,6 @@
  * Ensures Simple Icons re-exports from @lib/icons do not expose nameless
  * role="img" (Lighthouse svg-img-alt), while still supporting accessible names.
  */
-/* eslint-disable test/no-import-node-test -- node:test */
 
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'

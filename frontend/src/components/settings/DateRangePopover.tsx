@@ -8,6 +8,7 @@
  * - 关闭走 is-closing 退出动效再卸载
  */
 
+import type { IsoDate } from './dateCalendarLogic'
 import { LuChevronLeft, LuChevronRight } from '@lib/icons'
 import React, {
   useCallback,
@@ -24,10 +25,10 @@ import {
   applyRangeClick,
   buildMonthGrid,
   inclusiveDaySpan,
+
   parseIso,
   rangeDayState,
   toIso,
-  type IsoDate,
 } from './dateCalendarLogic'
 import './DateRangePopover.css'
 
@@ -665,13 +666,11 @@ export const DateRangePopover: React.FC<DateRangePopoverProps> = ({
               draftTo || (draftFrom && !pickingTo) ? undefined : 'is-empty'
             }
           >
-            {draftTo
-              ? draftTo
-              : pickingTo && draftFrom
+            {draftTo || (pickingTo && draftFrom
                 ? '…'
                 : draftFrom && picking === 'done'
                   ? draftFrom
-                  : '—'}
+                  : '—')}
           </strong>
         </span>
         {span > 0 ? (

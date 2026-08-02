@@ -1,11 +1,12 @@
 /** Language tags, icon style, permission level helpers for store UI. */
 
+import type { ReactElement } from 'react'
 import type { TappPermission } from '../../types'
 import type { IconStyle } from '../../utils/tappColors'
 import type { UnifiedAppItem } from './types'
+import { createElement } from 'react'
 import { PERMISSION_LEVELS } from '../../runtime/permissionConfig'
 import { getTappIconStyle } from '../../utils/tappColors'
-import { createElement, type ReactElement } from 'react'
 import { hasStandaloneTappIcon } from '../TappIcon'
 
 /** Official store source / verified catalog — certification mark after title. */

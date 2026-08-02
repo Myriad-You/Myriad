@@ -59,7 +59,7 @@ export function formatSize(bytes: number): string {
   return `${value >= 10 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`
 }
 
-type StoreProgressStrings = {
+interface StoreProgressStrings {
   updatePreparing: string
   installPreparing: string
   updateRegistering: string

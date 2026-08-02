@@ -1,7 +1,15 @@
+import type { NotificationEventDefinition, NotificationPreferences, NotificationSourceKey } from '../../../services/notificationPreferencesApi'
+import type { ModuleVisibilityPreferences } from '../../../utils/moduleVisibility'
+import type { OAuthSettings } from '../../../utils/oauthSettings'
+import type { HitokotoConfig } from '../../../utils/quote'
+import type { ReportSettings } from '../../../utils/reportSettings'
+import type { FederationPolicyDraft } from '../FederationConfigSection'
+import type { LibrarySourcePreferences } from '../ModuleConfigSection'
+import type { PermissionConfigValues } from '../PermissionsConfigSection'
+import type { SaveLibrarySourcePreferencesResponse, ShowMessage } from './types'
 import { useCallback, useState } from 'react'
 import {
   fetchPermissionsConfig,
-  updatePermissionsConfig,
 } from '../../../lib/api'
 import apiService from '../../../services/api'
 import { federationApi } from '../../../services/federationApi'
@@ -9,51 +17,47 @@ import notificationPreferencesApi, {
   cloneNotificationPreferences,
   DEFAULT_NOTIFICATION_CATALOG,
   DEFAULT_NOTIFICATION_PREFERENCES,
-  type NotificationEventDefinition,
-  type NotificationPreferences,
-  type NotificationSourceKey,
+
 } from '../../../services/notificationPreferencesApi'
+import { dispatchLibraryPreferencesUpdated } from '../../../utils/libraryPreferences'
 import {
   DEFAULT_MODULE_VISIBILITY_PREFERENCES,
   dispatchModuleVisibilityPreferencesUpdated,
   fetchModuleVisibilityPreferences,
+
   normalizeModuleVisibilityPreferences,
   updateModuleVisibilityPreferences,
-  type ModuleVisibilityPreferences,
 } from '../../../utils/moduleVisibility'
 import {
   cloneOAuthSettings,
   DEFAULT_OAUTH_SETTINGS,
   fetchOAuthSettings,
-  type OAuthSettings,
+
 } from '../../../utils/oauthSettings'
 import {
   DEFAULT_HITOKOTO_CONFIG,
   fetchHitokotoConfig,
+
   updateHitokotoConfig,
-  type HitokotoConfig,
 } from '../../../utils/quote'
 import {
   DEFAULT_REPORT_SETTINGS,
   fetchReportSettings,
+
   updateReportSettings,
-  type ReportSettings,
 } from '../../../utils/reportSettings'
-import { dispatchLibraryPreferencesUpdated } from '../../../utils/libraryPreferences'
 import { clearLibraryDataCache } from '../../../utils/requestDedup'
 import {
   DEFAULT_FEDERATION_POLICY,
+
   federationPolicyFromApi,
-  type FederationPolicyDraft,
 } from '../FederationConfigSection'
 import {
   DEFAULT_LIBRARY_SOURCE_PREFERENCES,
+
   normalizeLibraryPreferences,
-  type LibrarySourcePreferences,
 } from '../ModuleConfigSection'
-import type { PermissionConfigValues } from '../PermissionsConfigSection'
 import { DEFAULT_PERMISSION_CONFIG } from './defaults'
-import type { SaveLibrarySourcePreferencesResponse, ShowMessage } from './types'
 
 export function useConfigSideDrafts(
   isAdmin: boolean,

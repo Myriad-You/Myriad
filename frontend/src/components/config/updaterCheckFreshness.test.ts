@@ -5,8 +5,6 @@
  *   pnpm test:unit -- src/components/config/updaterCheckFreshness.test.ts
  */
 
-/* eslint-disable test/no-import-node-test -- node:test; project has no vitest dep */
-
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {

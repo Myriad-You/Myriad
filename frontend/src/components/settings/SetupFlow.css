@@ -39,8 +39,7 @@ html.dark .setup-flow-title {
 /* —— 横排（默认 / auto 宽屏） —— */
 .setup-flow.is-horizontal .setup-flow-track,
 .setup-flow.is-auto .setup-flow-track {
-  flex-direction: row;
-  flex-wrap: nowrap;
+  flex-flow: row nowrap;
   overflow-x: auto;
   padding-bottom: 0.15rem;
   scrollbar-width: thin;

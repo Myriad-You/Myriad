@@ -11,7 +11,7 @@
  * NOT treated as catalog refs unless also provided via `storeSource`.
  */
 
-export type TappListInstallRequestInput = {
+export interface TappListInstallRequestInput {
   source?: string
   tappId?: string
   storeSource?: string

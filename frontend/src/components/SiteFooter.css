@@ -310,6 +310,7 @@ html.dark .tooltip-content {
   transform: translateY(4px);
   white-space: normal;
   width: max-content;
+
   /* Stay fully inside the viewport: right inset 0.5rem + left margin 0.5rem */
   max-width: min(16rem, calc(100vw - 1rem - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
   overflow-wrap: break-word;

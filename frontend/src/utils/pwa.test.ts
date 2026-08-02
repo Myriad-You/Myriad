@@ -2,7 +2,7 @@
  * PWA install assets (manifest + icons under public/).
  * @vitest-environment node
  */
-/* eslint-disable test/no-import-node-test -- node:test is the repository test runner */
+
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
@@ -190,8 +190,8 @@ describe('PWA logo compositing geometry', () => {
     )
     assert.equal(
       resolvePwaIconSourceUrl('https://cdn.example/logo.png', origin, ''),
-      '/api/proxy/image?url=' +
-        encodeURIComponent('https://cdn.example/logo.png'),
+      `/api/proxy/image?url=${
+        encodeURIComponent('https://cdn.example/logo.png')}`,
     )
     assert.equal(
       resolvePwaIconSourceUrl(
@@ -199,8 +199,8 @@ describe('PWA logo compositing geometry', () => {
         origin,
         'https://api.example',
       ),
-      'https://api.example/api/proxy/image?url=' +
-        encodeURIComponent('https://cdn.example/logo.png'),
+      `https://api.example/api/proxy/image?url=${
+        encodeURIComponent('https://cdn.example/logo.png')}`,
     )
   })
 })

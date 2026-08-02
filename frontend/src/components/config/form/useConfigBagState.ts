@@ -1,9 +1,9 @@
+import type { PlatformAutoFetchConfig } from '../PlatformAutoRefreshSettings'
+import type { Config, ShowMessage } from './types'
 import { useCallback, useState } from 'react'
 import { fetchConfig } from '../../../lib/api'
-import type { PlatformAutoFetchConfig } from '../PlatformAutoRefreshSettings'
 import { sanitizeMaskedFieldValue } from '../PlatformsConfigSection'
 import { DEFAULT_AUTO_FETCH_CONFIG } from './defaults'
-import type { Config, ShowMessage } from './types'
 
 export function useConfigBagState(
   showMessage: ShowMessage,

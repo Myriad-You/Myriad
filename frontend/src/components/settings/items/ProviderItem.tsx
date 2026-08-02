@@ -16,7 +16,6 @@ export interface ProviderItemProps<T = string> extends Omit<
 
 function ProviderItemComponent<T extends string = string>({
   label,
-  detail,
   guide,
   guidePath,
   description,

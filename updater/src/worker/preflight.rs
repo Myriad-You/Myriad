@@ -847,6 +847,8 @@ fn check_disk(worker: &Worker) -> Result<()> {
     crate::probe::filesystem::require_pgdata(&worker.cli().pgdata)?;
     if let Ok(stat) = nix::sys::statvfs::statvfs(&worker.cli().pgdata) {
         let block = stat.fragment_size();
+        // fsblkcnt_t width differs by OS (Linux CI flags same-type cast as needless).
+        #[allow(clippy::unnecessary_cast)]
         let avail = block * (stat.blocks_available() as u64);
         let pgdata_size = fs_size(&worker.cli().pgdata).unwrap_or(0);
         let need = pgdata_size + (pgdata_size / 2) + (1024 * 1024 * 1024);

@@ -14,8 +14,6 @@
  *   pnpm test:unit -- src/utils/musicPlayerHighlight.test.ts
  */
 
-/* eslint-disable test/no-import-node-test -- node:test; project has no vitest dep */
-
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'

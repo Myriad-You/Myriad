@@ -1,7 +1,6 @@
 /**
  * cd frontend && node --experimental-strip-types --test src/tapp/services/RemoteStoreService.test.ts
  */
-/* eslint-disable test/no-import-node-test */
 
 import type {
   RemoteApp,

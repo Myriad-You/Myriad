@@ -7,6 +7,7 @@
  */
 
 import type { ReactNode } from 'react'
+import { LuInfo } from '@lib/icons'
 import React, {
   useCallback,
   useEffect,
@@ -16,7 +17,6 @@ import React, {
   useState,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { LuInfo } from '@lib/icons'
 import { useI18n } from '../../contexts/I18nContext'
 import './SettingTitleHelp.css'
 
@@ -37,7 +37,7 @@ export interface SettingTitleHelpProps {
 const VIEWPORT_PAD = 8
 const GAP = 6
 
-type Coords = {
+interface Coords {
   top: number
   left: number
   placement: 'top' | 'bottom'

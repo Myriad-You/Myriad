@@ -9,6 +9,7 @@
 
 .setting-item {
   position: relative;
+
   /* 默认保留，便于弹层等独立用法；在 .config-form / .setting-group-content / .settings-stack 内由 gap 接管并清零 */
   margin-bottom: var(--settings-gap-item, 0.625rem);
 }
@@ -37,6 +38,7 @@
   0% {
     box-shadow: 0 0 0 0 transparent;
   }
+
   12% {
     box-shadow: 0 0 0 2px
       color-mix(in srgb, var(--cfg-accent, #6c8cff) 75%, transparent);
@@ -46,10 +48,12 @@
       transparent
     );
   }
+
   55% {
     box-shadow: 0 0 0 2px
       color-mix(in srgb, var(--cfg-accent, #6c8cff) 40%, transparent);
   }
+
   100% {
     box-shadow: 0 0 0 0 transparent;
     background-color: transparent;
@@ -296,6 +300,7 @@ button.field-input.field-input--static {
   background: var(--cfg-input-bg);
   border: 1.5px solid var(--cfg-input-border);
   cursor: pointer;
+
   /* 给右侧编辑 chip 留空 */
   padding-right: 4.75rem;
 }
@@ -389,6 +394,7 @@ html.dark
 .field-input.field-input--composite {
   display: block;
   position: relative;
+
   /* 右侧留给保存/取消 */
   padding-right: 6.25rem;
   color: var(--cfg-text-1);
@@ -575,6 +581,7 @@ html.dark .field-input-actions .btn-secondary:hover:not(:disabled) {
   color: var(--cfg-text-1);
   background: var(--cfg-input-bg);
   border: 1.5px solid var(--cfg-input-border);
+
   /* 左侧预览 + 右侧 actions 由 flex 占位，内边距收紧 */
   padding-top: 0.45rem;
   padding-bottom: 0.45rem;
@@ -698,6 +705,7 @@ html.dark .number-unit {
 
 .slider-control {
   --slider-track-h: 0.7rem;
+
   /* 与 SliderItem THUMB_PX=20 一致；拇指 border-box */
   --slider-thumb: 20px;
   --slider-thumb-px: 20;
@@ -711,6 +719,7 @@ html.dark .number-unit {
   --slider-rail-inset: rgb(0 0 0 / 7%);
   --slider-tick: rgb(120 120 128 / 42%);
   --slider-tick-passed: rgb(255 255 255 / 90%);
+
   /* 气泡 idle：与设置页 chip 同思路 */
   --slider-value-fg: var(--slider-p);
   --slider-value-bg: color-mix(in srgb, var(--slider-p) 12%, #fff);
@@ -734,6 +743,7 @@ html.dark .number-unit {
     0 1px 2px rgb(0 0 0 / 8%);
   --slider-thumb-ring: #fff;
   --slider-thumb-outer: color-mix(in srgb, var(--slider-p) 28%, transparent);
+
   width: min(var(--slider-track-w), 100%);
   max-width: 100%;
   padding-top: 0;
@@ -745,7 +755,7 @@ html.dark .number-unit {
  * 有首尾数值/刻度时它们已占高度，气泡可叠上去，只需极少顶距；
  * 否则才用 padding-top 单独给气泡留空（避免贴到标题）。
  */
-.slider-control.has-value:not(.has-range):not(.has-ticks) {
+.slider-control.has-value:not(.has-range, .has-ticks) {
   padding-top: 1.55rem;
 }
 
@@ -848,6 +858,7 @@ html.dark .slider-control.has-error .slider-track-wrap {
   top: 0;
   left: 0;
   bottom: 0;
+
   /* fallback：与原生拇指行程一致 */
   width: calc(
     (var(--slider-thumb) / 2) +
@@ -864,6 +875,7 @@ html.dark .slider-control.has-error .slider-track-wrap {
   pointer-events: none;
   transition: width 0.06s linear;
   z-index: 0;
+
   /* 允许气泡溢出到轨道上方 */
   overflow: visible;
 }
@@ -902,6 +914,7 @@ html.dark .slider-control.is-active .slider-track-fill {
 
 .slider-tick {
   --tick-p: 0;
+
   position: absolute;
   left: calc(
     (var(--slider-thumb) / 2) +
@@ -962,7 +975,7 @@ html.dark .slider-tick.is-passed {
   border: 1px solid var(--slider-value-border);
   box-shadow: var(--slider-value-shadow);
   backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
   transition:
     transform var(--sm-dur-fast) var(--sm-ease-spring),
     background var(--sm-dur-fast) var(--sm-ease-standard),
@@ -1019,6 +1032,7 @@ html.dark .slider-value::after {
   background: var(--slider-value-active-bg);
   border-color: var(--slider-value-active-border);
   box-shadow: var(--slider-value-active-shadow);
+
   /* 仍以填充右缘为中心，仅略上抬 */
   transform: translateX(50%) translateY(-2px) scale(1.05);
 }
@@ -1099,6 +1113,7 @@ html.dark .slider-value::after {
   margin-top: calc((var(--slider-track-h) - var(--slider-thumb)) / 2);
   border-radius: 50%;
   border: 2px solid var(--slider-thumb-ring);
+
   /* 仅 primary × 白，保持色相 */
   background:
     radial-gradient(
@@ -1204,6 +1219,7 @@ html.dark .slider-range-num {
 /* 推荐：贴轨道下方；relative 撑开 footer 高度，left 按进度偏移 */
 .slider-recommended {
   --slider-rec-pct: 0;
+
   position: relative;
   left: calc(
     (var(--slider-thumb) / 2) +
@@ -1755,7 +1771,7 @@ html.dark .checkbox-group-card-desc {
     opacity var(--sm-dur-fast) var(--sm-ease-standard);
 }
 
-.checkbox-group-card--action:hover:not(:disabled):not(.is-disabled) {
+.checkbox-group-card--action:hover:not(:disabled, .is-disabled) {
   border-color: color-mix(
     in srgb,
     var(--cfg-accent, #3b82f6) 28%,
@@ -1769,8 +1785,8 @@ html.dark .checkbox-group-card-desc {
   box-shadow: 0 1px 2px rgb(0 0 0 / 5%);
 }
 
-.checkbox-group-card--action:active:not(:disabled):not(.is-disabled),
-.checkbox-group-card--action.is-pressing:not(:disabled):not(.is-disabled) {
+.checkbox-group-card--action:active:not(:disabled, .is-disabled),
+.checkbox-group-card--action.is-pressing:not(:disabled, .is-disabled) {
   transform: scale(var(--sm-scale-press));
   border-color: color-mix(
     in srgb,
@@ -1804,7 +1820,7 @@ html.dark .checkbox-group-card-desc {
       color-mix(in srgb, var(--cfg-accent, #3b82f6) 45%, transparent);
 }
 
-html.dark .checkbox-group-card--action:hover:not(:disabled):not(.is-disabled) {
+html.dark .checkbox-group-card--action:hover:not(:disabled, .is-disabled) {
   border-color: color-mix(
     in srgb,
     var(--cfg-accent, #60a5fa) 32%,
@@ -1818,9 +1834,9 @@ html.dark .checkbox-group-card--action:hover:not(:disabled):not(.is-disabled) {
   box-shadow: 0 1px 2px rgb(0 0 0 / 25%);
 }
 
-html.dark .checkbox-group-card--action:active:not(:disabled):not(.is-disabled),
+html.dark .checkbox-group-card--action:active:not(:disabled, .is-disabled),
 html.dark
-  .checkbox-group-card--action.is-pressing:not(:disabled):not(.is-disabled) {
+  .checkbox-group-card--action.is-pressing:not(:disabled, .is-disabled) {
   border-color: color-mix(
     in srgb,
     var(--cfg-accent, #60a5fa) 50%,
@@ -1861,9 +1877,7 @@ html.dark .checkbox-group-card:focus-visible {
 
 /* —— Action tones (bulk retry / clear) —— */
 
-.checkbox-group-card--action.checkbox-group-card--tone-primary:hover:not(
-    :disabled
-  ):not(.is-disabled) {
+.checkbox-group-card--action.checkbox-group-card--tone-primary:hover:not(:disabled, .is-disabled) {
   border-color: color-mix(
     in srgb,
     var(--cfg-accent, #3b82f6) 40%,
@@ -1908,21 +1922,15 @@ html.dark .checkbox-group-card:focus-visible {
   color: color-mix(in srgb, #dc2626 45%, var(--cfg-text-2));
 }
 
-.checkbox-group-card--action.checkbox-group-card--tone-danger:hover:not(
-    :disabled
-  ):not(.is-disabled) {
+.checkbox-group-card--action.checkbox-group-card--tone-danger:hover:not(:disabled, .is-disabled) {
   border-color: rgb(239 68 68 / 32%);
   background: rgb(239 68 68 / 6%);
   box-shadow: 0 1px 2px rgb(239 68 68 / 6%);
 }
 
-.checkbox-group-card--action.checkbox-group-card--tone-danger:hover:not(
-    :disabled
-  ):not(.is-disabled)
+.checkbox-group-card--action.checkbox-group-card--tone-danger:hover:not(:disabled, .is-disabled)
   .checkbox-group-card-icon,
-.checkbox-group-card--action.checkbox-group-card--tone-danger:hover:not(
-    :disabled
-  ):not(.is-disabled)
+.checkbox-group-card--action.checkbox-group-card--tone-danger:hover:not(:disabled, .is-disabled)
   .checkbox-group-card-label {
   color: color-mix(in srgb, #dc2626 70%, var(--cfg-text-1));
 }
@@ -1968,22 +1976,16 @@ html.dark
 }
 
 html.dark
-  .checkbox-group-card--action.checkbox-group-card--tone-danger:hover:not(
-    :disabled
-  ):not(.is-disabled) {
+  .checkbox-group-card--action.checkbox-group-card--tone-danger:hover:not(:disabled, .is-disabled) {
   border-color: rgb(248 113 113 / 32%);
   background: rgb(239 68 68 / 10%);
 }
 
 html.dark
-  .checkbox-group-card--action.checkbox-group-card--tone-danger:hover:not(
-    :disabled
-  ):not(.is-disabled)
+  .checkbox-group-card--action.checkbox-group-card--tone-danger:hover:not(:disabled, .is-disabled)
   .checkbox-group-card-icon,
 html.dark
-  .checkbox-group-card--action.checkbox-group-card--tone-danger:hover:not(
-    :disabled
-  ):not(.is-disabled)
+  .checkbox-group-card--action.checkbox-group-card--tone-danger:hover:not(:disabled, .is-disabled)
   .checkbox-group-card-label {
   color: color-mix(in srgb, #f87171 65%, #d1d5db);
 }

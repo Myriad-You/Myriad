@@ -193,7 +193,7 @@ export function resolveManifestUrl(
   }
 }
 
-type ManifestIcon = {
+interface ManifestIcon {
   src?: string
   sizes?: string
   type?: string

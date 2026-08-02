@@ -7,33 +7,33 @@ import { useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import {
+  AnalyticsEvents,
+  trackProductEvent,
+} from '../utils/analyticsEvents'
+import {
   setGoogleAnalyticsStaffExcluded,
   trackGooglePageview,
 } from '../utils/googleAnalytics'
 import {
-  trackPageview,
   getOrCreateVisitorId,
-  trackEvent,
-  setAnalyticsStaffSession,
   setAnalyticsAdminSession,
+  setAnalyticsStaffSession,
+  trackEvent,
+  trackPageview,
 } from '../utils/siteAnalytics'
 import {
   setUmamiStaffExcluded,
   trackUmamiPageview,
 } from '../utils/umamiAnalytics'
-import {
-  trackProductEvent,
-  AnalyticsEvents,
-} from '../utils/analyticsEvents'
 
 export {
+  AnalyticsEvents,
   getOrCreateVisitorId,
+  setAnalyticsAdminSession,
+  setAnalyticsStaffSession,
   trackEvent,
   trackPageview,
-  setAnalyticsStaffSession,
-  setAnalyticsAdminSession,
   trackProductEvent,
-  AnalyticsEvents,
 }
 
 export function usePageViewTracker() {

@@ -1,7 +1,6 @@
 /**
  *   pnpm exec tsx --test src/utils/csrf.test.ts
  */
-/* eslint-disable test/no-import-node-test -- node:test */
 
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'

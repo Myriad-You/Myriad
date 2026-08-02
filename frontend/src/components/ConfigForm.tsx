@@ -234,7 +234,6 @@ const ModernConfigForm: React.FC = () => {
     void drafts.loadOAuthSettings()
     void drafts.loadFederationPolicy()
     // 初始加载一次；各 load* 内部稳定
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Discord 一键授权回调（section 深链由 useConfigNavigation 统一处理）

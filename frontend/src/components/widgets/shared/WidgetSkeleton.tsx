@@ -135,14 +135,14 @@ export function resolveSkeletonAccent(accent?: WidgetSkeletonAccent): {
 }
 
 /** Single shimmer bone — compose free-form skeletons. */
-export const SkeletonBone = memo(function SkeletonBone({
+export const SkeletonBone = memo(({
   className,
   style,
   w,
   h,
   rounded = 'md',
   muted = false,
-}: SkeletonBoneProps) {
+}: SkeletonBoneProps) => {
   return (
     <span
       className={cx(
@@ -261,7 +261,7 @@ function ReportLayout() {
  * 3. Use `animated={false}` for off-viewport holds (no shimmer loop).
  * 4. Do not nest multiple animated skeletons for the same tile stage.
  */
-export const WidgetSkeleton = memo(function WidgetSkeleton({
+export const WidgetSkeleton = memo(({
   preset = 'lines',
   accent,
   className,
@@ -275,7 +275,7 @@ export const WidgetSkeleton = memo(function WidgetSkeleton({
   deferMs = 0,
   hold = false,
   stallMessage,
-}: WidgetSkeletonProps) {
+}: WidgetSkeletonProps) => {
   const [armed, setArmed] = useState(deferMs <= 0)
 
   useEffect(() => {
@@ -284,7 +284,7 @@ export const WidgetSkeleton = memo(function WidgetSkeleton({
       return
     }
     setArmed(false)
-    const id = window.setTimeout(() => setArmed(true), deferMs)
+    const id = window.setTimeout(setArmed, deferMs, true)
     return () => window.clearTimeout(id)
   }, [deferMs])
 
@@ -376,7 +376,7 @@ export const WidgetSkeleton = memo(function WidgetSkeleton({
  *
  * Prefer this over `{loading && <WidgetSkeleton />}` which unmounts instantly.
  */
-export const WidgetSkeletonCover = memo(function WidgetSkeletonCover({
+export const WidgetSkeletonCover = memo(({
   active,
   className,
   style,
@@ -389,7 +389,7 @@ export const WidgetSkeletonCover = memo(function WidgetSkeletonCover({
   /** absolute inset-0 cover (default). Set false for in-flow full height. */
   fill?: boolean
   exitMs?: number
-}) {
+}) => {
   const [present, setPresent] = useState(active)
   const [exiting, setExiting] = useState(false)
 

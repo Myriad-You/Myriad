@@ -49,7 +49,7 @@ export interface CheckboxCardProps {
   'aria-expanded'?: boolean
 }
 
-export const CheckboxCard = React.memo<CheckboxCardProps>(function CheckboxCard({
+export const CheckboxCard = React.memo<CheckboxCardProps>(({
   label,
   checked,
   onChange,
@@ -65,7 +65,7 @@ export const CheckboxCard = React.memo<CheckboxCardProps>(function CheckboxCard(
   showIndicator,
   'aria-label': ariaLabel,
   'aria-expanded': ariaExpanded,
-}) {
+}) => {
   const busy = disabled || loading
   const dense = size === 'sm' || size === 'stat'
   const isAction = variant === 'action'
@@ -176,4 +176,3 @@ export const CheckboxCard = React.memo<CheckboxCardProps>(function CheckboxCard(
 })
 
 export default CheckboxCard
-

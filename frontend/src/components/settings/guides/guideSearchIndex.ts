@@ -4,8 +4,8 @@
  */
 
 import type { Locale } from '../../../i18n'
-import { getSettingGuidesCatalog } from './catalog'
 import type { SettingGuideEntry, SettingGuidesCatalog } from './types'
+import { getSettingGuidesCatalog } from './catalog'
 
 /** 指南分区 → ConfigForm 一级 section id */
 export const GUIDE_CATALOG_TO_SECTION: Record<
@@ -29,7 +29,7 @@ export const GUIDE_CATALOG_TO_SECTION: Record<
   tapp: '',
 }
 
-export type GuideSearchEntry = {
+export interface GuideSearchEntry {
   type: 'guide'
   section: string
   /** 列表主标题：取自 what 首句 */
@@ -53,7 +53,7 @@ function entryFields(entry: SettingGuideEntry): string[] {
 /** 截断标题：去掉编号前缀，取首句或前 max 字 */
 export function guideEntryTitle(what: string, max = 42): string {
   const cleaned = what
-    .replace(/^[①②③④⑤⑥⑦⑧⑨⑩\d]+[).、.\s]*/u, '')
+    .replace(/^[①②③④⑤⑥⑦⑧⑨⑩\d]+[).、\s]*/u, '')
     .trim()
   const first = cleaned.split(/[。！？\n]/u)[0]?.trim() || cleaned
   if (first.length <= max) return first
@@ -74,7 +74,7 @@ export function tokenizeForSearch(text: string): string[] {
   // 中文整句里再抽 2–3 字「词块」仅从已切分的中文段，限制数量
   const extra: string[] = []
   for (const p of parts) {
-    if (!/^[\u4e00-\u9fff\u3040-\u30ff]+$/u.test(p)) continue
+    if (!/^[\u4E00-\u9FFF\u3040-\u30FF]+$/u.test(p)) continue
     if (p.length <= 4) continue
     // 段首 2–3 字常是主题词
     extra.push(p.slice(0, 2), p.slice(0, 3))

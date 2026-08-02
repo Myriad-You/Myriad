@@ -208,7 +208,7 @@ export const FederationConfigSection: React.FC<
 }) => {
   const { t } = useI18n()
   const c = t.config
-  const { catalog: g, renderGuide, bindGuide } = useSettingGuide()
+  const { catalog: g, bindGuide } = useSettingGuide()
   const [instances, setInstances] = useState<FederationInstance[]>([])
   const [filters, setFilters] = useState<ContentFilterItem[]>([])
   const [identity, setIdentity] = useState<FederationIdentity | null>(null)

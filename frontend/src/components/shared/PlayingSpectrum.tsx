@@ -27,14 +27,14 @@ export interface PlayingSpectrumProps {
   className?: string
 }
 
-const PlayingSpectrum = memo(function PlayingSpectrum({
+const PlayingSpectrum = memo(({
   themeColor = 'var(--music-base-primary, #ec4899)',
   scale = 1,
   isPlaying = false,
   useSpectrum = true,
   variant = 'bottom',
   className,
-}: PlayingSpectrumProps) {
+}: PlayingSpectrumProps) => {
   const bar1Ref = useRef<HTMLDivElement>(null)
   const bar2Ref = useRef<HTMLDivElement>(null)
   const bar3Ref = useRef<HTMLDivElement>(null)

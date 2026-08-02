@@ -6,7 +6,8 @@
  * - 首页：站级 title/description，规范 path 为 `/`
  */
 
-import { formatPageTitle, type PageSeoInput } from './siteMetadata'
+import type { PageSeoInput } from './siteMetadata'
+import { formatPageTitle } from './siteMetadata'
 
 /** 公开模块列表页（与 sitemap 中的模块 path 对齐） */
 export function buildModulePageSeo(opts: {

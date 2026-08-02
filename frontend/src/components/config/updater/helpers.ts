@@ -2,12 +2,12 @@
  * Updater pure helpers / channel model / mood derivation.
  */
 
+import type { useI18n } from '../../../contexts/I18nContext'
 import type {
   SnapshotMeta,
   UpdateMode,
   UpdaterStatus,
 } from '../../../services/updaterApi'
-import type { useI18n } from '../../../contexts/I18nContext'
 import { UpdaterError } from '../../../services/updaterApi'
 import { computeAgo } from '../updaterCheckFreshness'
 

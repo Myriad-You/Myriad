@@ -55,7 +55,7 @@ export function stripHtmlTags(input: string): string {
     return full
   })
   // 控制字符与多余空白
-  s = s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+  s = s.replace(/[\u0000-\u0008\v\f\u000E-\u001F\u007F]/g, '')
   s = s.replace(/\s+/g, ' ').trim()
   return s
 }

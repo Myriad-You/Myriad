@@ -4,6 +4,7 @@
  */
 
 import type { UpdaterStatus } from '../../../services/updaterApi'
+import type { U } from './helpers'
 import React, { useMemo } from 'react'
 import {
   clampSnapshotLimit,
@@ -16,7 +17,7 @@ import {
   ToggleSwitch,
   useSettingGuide,
 } from '../../settings'
-import { format, type U } from './helpers'
+import { format } from './helpers'
 
 export interface SnapshotLimitPrefsProps {
   status: UpdaterStatus | null

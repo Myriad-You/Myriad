@@ -1,3 +1,4 @@
+import type { PerformanceProfile } from './usePerformanceProfile'
 import { useContext, useEffect, useMemo, useState } from 'react'
 import { AnimationPreferenceContext } from '../contexts/AnimationPreferenceContext'
 import {
@@ -7,7 +8,7 @@ import {
 import { configureAnimationCoordinator } from './animation'
 import {
   getPerformanceProfileSync,
-  type PerformanceProfile,
+
   usePerformanceProfile,
 } from './usePerformanceProfile'
 

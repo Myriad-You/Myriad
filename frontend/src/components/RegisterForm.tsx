@@ -74,7 +74,7 @@ const RegisterForm: FC = () => {
 
       try {
         const { trackProductEvent, AnalyticsEvents } = await import(
-          '../utils/analyticsEvents'
+          '../utils/analyticsEvents',
         )
         // Sync enqueue + immediate flush before hard redirect (~100ms)
         trackProductEvent(AnalyticsEvents.REGISTER_SUCCESS, { flush: true })

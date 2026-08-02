@@ -48,8 +48,8 @@ describe('coverUrlForColorExtract', () => {
 
   it('rewrites size inside image proxy query', () => {
     const full =
-      '/api/proxy/image?url=' +
-      encodeURIComponent('https://p1.music.126.net/abc/cover.jpg')
+      `/api/proxy/image?url=${
+      encodeURIComponent('https://p1.music.126.net/abc/cover.jpg')}`
     const out = coverUrlForColorExtract(full)
     assert.match(out, /^\/api\/proxy\/image\?url=/)
     const decoded = decodeURIComponent(out.split('url=')[1] || '')

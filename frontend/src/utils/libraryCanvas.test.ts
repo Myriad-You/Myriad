@@ -5,9 +5,9 @@ import {
   buildCenterOutCanvasLayout,
   getLibraryCanvasFocusScale,
   getLibraryCanvasViewportBounds,
-  libraryCanvasLayoutIntersects,
   LIBRARY_CANVAS_FOCUS_MAX_SCALE,
   LIBRARY_CANVAS_FOCUS_MIN_SCALE,
+  libraryCanvasLayoutIntersects,
 } from './libraryCanvas'
 
 describe('library canvas geometry', () => {

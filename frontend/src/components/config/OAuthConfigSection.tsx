@@ -29,8 +29,8 @@ import OAuthIconImage from '../OAuthIconImage'
 import {
   CheckboxCard,
   InputItem,
-  SettingSection,
   SettingsButton,
+  SettingSection,
   SettingTitleGuideEntry,
   SetupFlow,
   ToggleSwitch,
@@ -75,7 +75,7 @@ export const OAuthConfigSection: React.FC<OAuthConfigSectionProps> = ({
   onProvidersChange,
 }) => {
   const { t } = useI18n()
-  const { catalog: g, renderGuide, bindGuide } = useSettingGuide()
+  const { catalog: g, bindGuide } = useSettingGuide()
 
   const getFieldValue = useCallback(
     (key: string) => {

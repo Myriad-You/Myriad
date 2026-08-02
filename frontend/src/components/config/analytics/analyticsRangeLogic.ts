@@ -65,4 +65,4 @@ export function analyticsRangeDayCount(state: AnalyticsRangeState): number {
   return Math.max(1, Math.abs(diff) + 1)
 }
 
-export { localIsoToday, addDaysIso }
+export { addDaysIso, localIsoToday }

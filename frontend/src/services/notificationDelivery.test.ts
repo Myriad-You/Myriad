@@ -1,12 +1,11 @@
 /**
  *   pnpm exec tsx --test src/services/notificationDelivery.test.ts
  */
-/* eslint-disable test/no-import-node-test -- node:test */
 
+import type { AppNotification } from './notificationApi.ts'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { notificationSourceFor } from './notificationDelivery.ts'
-import type { AppNotification } from './notificationApi.ts'
 
 function note(
   partial: Partial<AppNotification> &

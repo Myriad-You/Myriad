@@ -876,7 +876,8 @@ async function updateFromStoreViaClient(
   if (pkg.pageTemplate) body.pageTemplate = pkg.pageTemplate
   if (pkg.widgetTemplates) body.widgetTemplates = pkg.widgetTemplates
   if (pkg.widgetCss) body.widgetCss = pkg.widgetCss
-  if (pkg.pageCss != null && pkg.pageCss !== '') body.pageCss = pkg.pageCss
+  if (pkg.pageCss != null && pkg.pageCss !== '') { body.pageCss = pkg.pageCss
+}
   else if (pkg.manifest.pageStyles) {
     throw new Error(
       `Client update package is missing pageCss for manifest.pageStyles=${pkg.manifest.pageStyles}`,

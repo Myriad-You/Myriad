@@ -16,7 +16,6 @@ export const NumberItem = React.memo<NumberItemProps>(
   ({
     itemKey,
     label,
-    detail,
     guide,
     guidePath,
     description,

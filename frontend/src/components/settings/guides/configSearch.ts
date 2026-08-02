@@ -3,7 +3,7 @@
  * 供 ConfigForm 使用；与 guideSearchIndex 配合。
  */
 
-export type ConfigSearchableItem = {
+export interface ConfigSearchableItem {
   type: string
   section: string
   title: string
@@ -31,7 +31,7 @@ export function parseSearchQuery(raw: string): string[] {
   return raw
     .toLowerCase()
     .trim()
-    .split(/[\s\u3000]+/u)
+    .split(/\s+/u)
     .map((t) => t.trim())
     .filter((t) => t.length > 0)
 }
@@ -77,8 +77,10 @@ function scoreToken(
   keywords: string[],
 ): number {
   let s = 0
-  if (title === tok) s += 24
-  else if (title.startsWith(tok)) s += 14
+  if (title === tok) { s += 24
+}
+  else if (title.startsWith(tok)) { s += 14
+}
   else if (title.includes(tok)) {
     // 标题中靠前的命中更好
     const i = title.indexOf(tok)
@@ -136,7 +138,7 @@ export function extractMatchSnippet(
   }
 
   let start = Math.max(0, bestIdx - radius)
-  let end = Math.min(hay.length, bestIdx + bestTok.length + radius)
+  const end = Math.min(hay.length, bestIdx + bestTok.length + radius)
   // 尽量落在标点边界
   if (start > 0) {
     const cut = hay.slice(start, bestIdx).search(/[。！？；;,.、\s]/u)
@@ -196,7 +198,7 @@ export function scoreSearchItem(
   return { ...item, score, matchSnippet }
 }
 
-export type RankOptions = {
+export interface RankOptions {
   /** 总结果上限 */
   maxResults?: number
   /** 同一 section 下最多保留几条指南 */

@@ -26,7 +26,6 @@
   --cfg-subtle-bg-hover: rgb(255 255 255 / 58%);
   --cfg-subtle-border: rgb(229 231 235 / 55%);
   --cfg-subtle-border-hover: rgb(229 231 235 / 75%);
-
   --cfg-frost-bg: rgb(255 255 255 / 72%);
   --cfg-frost-border: rgb(255 255 255 / 50%);
   --cfg-frost-filter: blur(20px) saturate(180%);
@@ -37,7 +36,6 @@
     0 14px 48px -12px rgb(0 0 0 / 12%),
     0 6px 16px -6px rgb(0 0 0 / 8%);
   --cfg-frost-elevated-bg: rgb(255 255 255 / 96%);
-
   --cfg-input-bg: rgb(255 255 255 / 70%);
   --cfg-input-bg-focus: rgb(255 255 255 / 90%);
   --cfg-input-border: rgb(209 213 219 / 60%);
@@ -1469,10 +1467,12 @@ html.dark .config-nav-result-badge {
 
 /* 配置章节 - 增强glass风格
  * 间距令牌：子级用 gap 承接，避免再叠 margin 导致「空一截 / 贴死」 */
+
 /* 分区壳 → 低中透模糊 */
 .config-section {
   --settings-gap-item: 0.625rem; /* 组内设置项 / 控件 */
   --settings-gap-group: 1.25rem; /* 子分类与区块内容块之间 */
+
   /* 连续两个折叠组之间的固定间距（与开合无关，避免跳变） */
   --settings-gap-collapsible: 0.1rem;
   --settings-gap-header: 0.75rem; /* 区块标题 → 内容 */
@@ -1520,6 +1520,7 @@ html.dark .config-nav-result-badge {
   gap: 0.45rem;
   flex: 1 1 auto;
   min-width: 0;
+
   /* 桌面：标题左、操作右，TOC 占用右侧有限宽度 */
   max-width: min(36rem, 58%);
   margin-left: auto;
@@ -1896,6 +1897,7 @@ html.dark .about-card.is-link:hover {
     var(--sm-t-elevate),
     background-color var(--sm-dur-base) var(--sm-ease-standard);
   box-shadow: var(--cfg-card-shadow-sm);
+
   /* tooltip 可溢出；网格 stretch + 固定 min-height → 全卡同高 */
   overflow: visible;
   height: 100%;
@@ -1933,6 +1935,7 @@ html.dark .platform-card:focus-visible {
 @media (width >= 640px) {
   .platform-card {
     --platform-card-min-h: 5.65rem;
+
     padding: 1.25rem; /* sm:p-5 */
   }
 }
@@ -2154,7 +2157,7 @@ html.dark .platform-card.drag-over {
 
 /* 拖拽进行中：非目标卡略降噪，突出落点 */
 .platforms-grid:has(.platform-card.dragging)
-  .platform-card:not(.dragging):not(.drag-over) {
+  .platform-card:not(.dragging, .drag-over) {
   opacity: 0.78;
 }
 
@@ -2498,7 +2501,7 @@ html.dark .field-hint {
 button.field-input,
 button.field-select {
   appearance: none;
-  -webkit-appearance: none;
+  appearance: none;
   font: inherit;
   color: var(--cfg-text-1);
   background: var(--cfg-input-bg);
@@ -3070,6 +3073,7 @@ html.dark .copy-btn:hover {
   padding: 0.75rem 0.875rem;
   margin-bottom: 0.625rem;
   background: var(--cfg-subtle-bg);
+
   /* 允许标题 ⓘ tooltip 溢出 */
   overflow: visible;
   transition:

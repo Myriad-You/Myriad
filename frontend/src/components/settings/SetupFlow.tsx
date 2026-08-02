@@ -6,8 +6,8 @@
  */
 
 import type { ReactNode } from 'react'
-import React from 'react'
 import { FaExternalLinkAlt } from '@lib/icons'
+import React from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import { SettingsButton } from './items/SettingsButton'
 import './SetupFlow.css'

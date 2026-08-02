@@ -1,5 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SectionSwitchDirection } from '../../settings'
+import type { QuickAccessItem } from './types'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  scheduleScrollToSettingGuide,
+  scrollToSettingGuide,
+} from '../../settings/guides/guideAnchor'
 import MyriadConfigIcon from '../MyriadConfigIcon'
 import {
   loadConfigNavPersisted,
@@ -9,13 +14,8 @@ import {
   syncConfigSectionToUrl,
 } from './configNavPersistence'
 import { LEGACY_CONFIG_SECTION_MAP, loadConfigFavorites } from './defaults'
-import type { QuickAccessItem } from './types'
-import {
-  scheduleScrollToSettingGuide,
-  scrollToSettingGuide,
-} from '../../settings/guides/guideAnchor'
 
-type NavI18n = {
+interface NavI18n {
   config: {
     platforms: string
     platformsDesc: string

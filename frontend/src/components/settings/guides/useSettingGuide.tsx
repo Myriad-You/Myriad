@@ -11,7 +11,7 @@ import { useI18n } from '../../../contexts/I18nContext'
 import { getSettingGuidesCatalog } from './catalog'
 import { SettingGuideBody } from './SettingGuideBody'
 
-export type GuideBinding = {
+export interface GuideBinding {
   guide: ReactNode
   /** 目录路径，如 advanced.proxyEnable → DOM data-guide-path / id */
   guidePath: string

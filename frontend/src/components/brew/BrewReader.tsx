@@ -311,7 +311,6 @@ export default function BrewReader({
         el.scrollTo({ top: 0 })
       }
     })
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- restore once per article open
   }, [item.id])
 
   // 沉浸模式 - 进入阅读器时隐藏导航栏和控制面板

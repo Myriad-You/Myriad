@@ -90,8 +90,8 @@ html.dark .runtime-diagnostics-overview {
   max-width: 100%;
   padding: 0.08rem 0.4rem;
   border-radius: 999px;
-  border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
-  background: color-mix(in srgb, currentColor 8%, transparent);
+  border: 1px solid color-mix(in srgb, currentcolor 14%, transparent);
+  background: color-mix(in srgb, currentcolor 8%, transparent);
   color: var(--cfg-text-2);
   font-size: 0.65rem;
   font-weight: 500;
@@ -101,8 +101,8 @@ html.dark .runtime-diagnostics-overview {
 }
 
 html.dark .runtime-diagnostics-summary-meta > span {
-  border-color: color-mix(in srgb, currentColor 18%, transparent);
-  background: color-mix(in srgb, currentColor 11%, transparent);
+  border-color: color-mix(in srgb, currentcolor 18%, transparent);
+  background: color-mix(in srgb, currentcolor 11%, transparent);
 }
 
 .runtime-diagnostics-actions {

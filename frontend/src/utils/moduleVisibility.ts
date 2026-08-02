@@ -229,8 +229,10 @@ export async function fetchModuleVisibilityPreferences() {
 let sessionPreferences: ModuleVisibilityPreferences | null = null
 let sessionLoadedAt = 0
 let sessionInflight: Promise<ModuleVisibilityPreferences> | null = null
-/** Bumps on every new network load so a superseded in-flight response cannot
- *  clobber a newer force-refresh (or clear the wrong inflight slot). */
+/**
+ * Bumps on every new network load so a superseded in-flight response cannot
+ *  clobber a newer force-refresh (or clear the wrong inflight slot).
+ */
 let sessionLoadGeneration = 0
 
 /** Soft TTL: remounts reuse cache; background refresh after this age. */
@@ -360,7 +362,7 @@ export function useModuleVisibilityPreferences() {
       setPreferences(sessionPreferences)
       setIsLoading(false)
     } else {
-      void reload(sessionPreferences === null ? false : true)
+      void reload(sessionPreferences !== null)
     }
 
     const handleUpdated = (event: Event) => {

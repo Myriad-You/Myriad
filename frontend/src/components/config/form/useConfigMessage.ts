@@ -1,6 +1,6 @@
-import { useCallback, useState } from 'react'
 import type { ToastType } from '../../Toast'
 import type { ShowMessage } from './types'
+import { useCallback, useState } from 'react'
 
 export function useConfigMessage() {
   const [message, setMessage] = useState('')

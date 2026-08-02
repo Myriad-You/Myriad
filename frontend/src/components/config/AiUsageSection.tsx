@@ -5,7 +5,10 @@
  * 数据源：GET /api/analytics/ai-usage（tapp_ai_cost_ledger 按日/用户/模型聚合）。
  */
 
+import type { SettingOption } from '../settings/types'
 import type { ToastType } from '../Toast'
+import type { AnalyticsRangeState } from './analytics/AnalyticsRangePicker'
+import type { MetricDelta } from './analytics/compareDeltaLogic'
 import {
   LuActivity,
   LuBarChart3,
@@ -26,22 +29,20 @@ import {
   SettingTitleTag,
   useSettingGuide,
 } from '../settings'
-import type { SettingOption } from '../settings/types'
-import {
-  AnalyticsRangePicker,
-  analyticsRangeDayCount,
-  analyticsRangeQuery,
-  defaultAnalyticsRange,
-  type AnalyticsRangeState,
-} from './analytics/AnalyticsRangePicker'
 import {
   aiDailyToTrendPoints,
   aiModelsToRankRows,
   aiUserDisplayName,
   aiUsersToRankRows,
 } from './analytics/aiUsageMap'
+import {
+  analyticsRangeDayCount,
+  AnalyticsRangePicker,
+  analyticsRangeQuery,
+
+  defaultAnalyticsRange,
+} from './analytics/AnalyticsRangePicker'
 import { CompareDelta } from './analytics/CompareDelta'
-import type { MetricDelta } from './analytics/compareDeltaLogic'
 import { EmptyCard } from './analytics/EmptyCard'
 import { formatCount, shortDay } from './analytics/format'
 import { RankList } from './analytics/RankList'

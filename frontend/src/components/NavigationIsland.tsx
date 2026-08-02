@@ -8,7 +8,9 @@
  */
 
 import type { ModuleVisibilityKey } from '../utils/moduleVisibility'
+import type { NavLayout } from '../utils/navLayout'
 import { MyriadStoreIcon } from '@lib/icons'
+
 import {
   memo,
   useCallback,
@@ -19,7 +21,6 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react'
-
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
@@ -36,8 +37,8 @@ import {
   getServerNavLayoutSnapshot,
   isDesktopNavLayout,
   NAV_CHROME_SETTLED_EVENT,
+
   subscribeNavLayout,
-  type NavLayout,
 } from '../utils/navLayout'
 
 /** Bottom ↔ rail crossfade timings (ms). Position only swaps while opacity≈0. */

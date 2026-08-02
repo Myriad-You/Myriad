@@ -3,7 +3,7 @@
 /* 小组件库搜索：隐藏原生 clear，统一用自定义按钮 */
 .widget-library-search-input::-webkit-search-decoration,
 .widget-library-search-input::-webkit-search-cancel-button {
-  -webkit-appearance: none;
+  appearance: none;
   appearance: none;
 }
 

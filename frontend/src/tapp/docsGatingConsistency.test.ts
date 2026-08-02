@@ -6,23 +6,23 @@
  * docs under docs/development/tapp drifted from code authority.
  */
 import assert from 'node:assert/strict'
-import { readFileSync, readdirSync, existsSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { describe, it } from 'node:test'
+import { fileURLToPath } from 'node:url'
 
-import {
-  LARGE_TAPP_INSTALL_BYTES,
-  isLargeTappInstall,
-} from './utils/tappInstallProgress.ts'
 import {
   storeAssetStorePath,
   storePackageRoot,
 } from './utils/storePackagePaths.ts'
 import {
-  TAPP_CATEGORIES,
   normalizeTappCategory,
+  TAPP_CATEGORIES,
 } from './utils/tappCategories.ts'
+import {
+  isLargeTappInstall,
+  LARGE_TAPP_INSTALL_BYTES,
+} from './utils/tappInstallProgress.ts'
 import { resolveTappListInstallRequest } from './utils/tappListInstallRequest.ts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -63,8 +63,8 @@ function read(path: string): string {
   return readFileSync(path, 'utf8')
 }
 
-describe('Tapp docs gating consistency', () => {
-  it('TAPP_DEVELOPMENT lists every markdown file under docs/development/tapp', () => {
+describe('tapp docs gating consistency', () => {
+  it('tAPP_DEVELOPMENT lists every markdown file under docs/development/tapp', () => {
     const index = read(DOCS_INDEX)
     const mdFiles = readdirSync(DOCS_TAPP).filter((n) => n.endsWith('.md'))
     for (const name of mdFiles) {
@@ -93,6 +93,7 @@ describe('Tapp docs gating consistency', () => {
       const text = read(file)
       const re = /\]\(([^)]+)\)/g
       let m: RegExpExecArray | null
+      // eslint-disable-next-line no-cond-assign -- standard re.exec loop
       while ((m = re.exec(text))) {
         const href = m[1].split('#')[0].trim()
         if (!href || /^(https?:|mailto:)/i.test(href)) continue
@@ -140,13 +141,13 @@ describe('Tapp docs gating consistency', () => {
       storeDoc,
       /apps\/com\.myriad\.doudizhu\/assets\/felt\/table_felt\.png/,
     )
-    assert.match(storeDoc, /≥\s*1\s*MiB|>=\s*1\s*MiB|≥ 1 MiB/)
+    assert.match(storeDoc, /(?:≥|>=)\s*1\s*MiB/)
     assert.equal(LARGE_TAPP_INSTALL_BYTES, 1024 * 1024)
     assert.equal(isLargeTappInstall(1024 * 1024 - 1), false)
     assert.equal(isLargeTappInstall(1024 * 1024), true)
   })
 
-  it('REST_API documented /api/tapps method+path pairs exist in create_tapp_routes', () => {
+  it('rEST_API documented /api/tapps method+path pairs exist in create_tapp_routes', () => {
     const rest = read(join(DOCS_TAPP, 'REST_API.md'))
     const storeRs = read(TAPP_STORE_RS)
     const codePaths = new Set<string>()
@@ -177,7 +178,7 @@ describe('Tapp docs gating consistency', () => {
     )
   })
 
-  it('REST_API documented /api/tapp method+path pairs exist in backend router modules', () => {
+  it('rEST_API documented /api/tapp method+path pairs exist in backend router modules', () => {
     const rest = read(join(DOCS_TAPP, 'REST_API.md'))
     // Routes live under backend/src/router/* (not main.rs).
     const registeredPaths = collectRustRoutePathLiterals(ROUTER_DIR)

@@ -5,8 +5,6 @@
  *   pnpm exec tsx --test src/components/config/updaterMaintenanceNav.test.ts
  */
 
-/* eslint-disable test/no-import-node-test -- node:test; project has no vitest dep */
-
 import assert from 'node:assert/strict'
 import { afterEach, describe, it } from 'node:test'
 import {

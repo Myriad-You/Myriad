@@ -5,15 +5,16 @@
  * 友情链接、外部 RSS、RSSHub 聚合等一律 noindex，避免把别人的文章拿来做站内 SEO。
  */
 
+import type { BrewItem, BrewSource } from '../types/brew'
+import type { PageSeoInput } from './siteMetadata'
 import {
   brewOwnItemPath,
   isOwnBrewSource,
 } from '../components/brew/constants'
-import type { BrewItem, BrewSource } from '../types/brew'
-import { formatPageTitle, type PageSeoInput } from './siteMetadata'
 import { buildModulePageSeo } from './modulePageSeo'
+import { formatPageTitle } from './siteMetadata'
 
-export { isOwnBrewSource, brewOwnItemPath }
+export { brewOwnItemPath, isOwnBrewSource }
 
 function plainTextSnippet(
   htmlOrText: string | null | undefined,

@@ -8,10 +8,11 @@
  * 私有临时安装、仅管理员应用 → noindex
  */
 
+import type { PageSeoInput } from '../../utils/siteMetadata'
 import type { TappInstance } from '../types'
 import {
   formatPageTitle,
-  type PageSeoInput,
+
   tappIconAsOgImage,
 } from '../../utils/siteMetadata'
 import { resolveManifestText } from './manifestLocale'

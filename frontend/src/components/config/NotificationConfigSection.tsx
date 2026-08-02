@@ -54,7 +54,7 @@ export const NotificationConfigSection: React.FC<
   loading = false,
   onChange,
 }) => {
-  const { locale, t } = useI18n()
+  const { locale } = useI18n()
   const { catalog: g, renderGuide, bindGuide } = useSettingGuide()
   const { sources: sourceText, events: eventText, ui } =
     getNotificationCopy(locale)

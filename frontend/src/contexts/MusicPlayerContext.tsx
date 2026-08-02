@@ -315,14 +315,16 @@ function handleGlobalMusicStateChange(event: Event) {
     patch.verbatimLyrics = (detail.verbatimLyrics as WordLyricLine[]) || []
   if ('hasVerbatimLyrics' in detail)
     patch.hasVerbatimLyrics = Boolean(detail.hasVerbatimLyrics)
-  if ('verbatimLyricsSource' in detail)
+  if ('verbatimLyricsSource' in detail) {
     patch.verbatimLyricsSource = (detail.verbatimLyricsSource ||
       '') as VerbatimLyricsSource
-  if ('currentLyricIndex' in detail)
+}
+  if ('currentLyricIndex' in detail) {
     patch.currentLyricIndex =
       typeof detail.currentLyricIndex === 'number'
         ? detail.currentLyricIndex
         : -1
+}
   updateGlobalMusicState(patch)
 }
 
@@ -405,7 +407,7 @@ function useFallbackMusicPlayerControl() {
 // 避免 playlist / isPlaying 等无关字段触发重渲染
 // ============================================
 
-type MusicLyricsSlice = {
+interface MusicLyricsSlice {
   lyrics: LyricLine[]
   currentLyricIndex: number
 }

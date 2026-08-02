@@ -1,3 +1,4 @@
+import type { MouseEvent as ReactMouseEvent } from 'react'
 /**
  * YouTube report face — public channel stats + recent upload rotation.
  *
@@ -12,13 +13,13 @@ import {
 } from '@lib/motionShim'
 import {
   memo,
+
   useCallback,
   useEffect,
   useId,
   useMemo,
   useRef,
   useState,
-  type MouseEvent as ReactMouseEvent,
 } from 'react'
 import { useI18n } from '../../../../contexts/I18nContext'
 import {
@@ -68,13 +69,13 @@ function awardTierFromSubs(subscribers: number): YtAwardTier {
   return 'none'
 }
 
-type GradStop = { offset: string; color: string; opacity?: number }
+interface GradStop { offset: string; color: string; opacity?: number }
 
 /**
  * Minimal award look at small card size: 3-stop body + soft light glow.
  * Avoid multi-layer blend stacks — they muddy at ~100px wide.
  */
-type AwardStyle = {
+interface AwardStyle {
   wash: string
   /** Soft tinted light glow (no near-black) */
   shadow: string
@@ -157,7 +158,7 @@ const AWARD_STYLES: Record<YtAwardTier, AwardStyle> = {
   },
 }
 
-type YtVideoItem = {
+interface YtVideoItem {
   title: string
   type: string
   image?: string

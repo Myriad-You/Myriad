@@ -5,9 +5,13 @@
  * 范围条（scope）统管本子分类内同一份时间切片。
  */
 
+import type { ReactNode } from 'react'
+import type { SettingOption } from '../settings/types'
+import type { ToastType } from '../Toast'
+import type { AnalyticsRangeState } from './analytics/AnalyticsRangePicker'
+import type { MetricDelta } from './analytics/compareDeltaLogic'
 import type { RankRow } from './analytics/RankList'
 import type { TrendPoint } from './analytics/TrendChart'
-import type { ToastType } from '../Toast'
 import {
   LuActivity,
   LuBarChart3,
@@ -33,27 +37,24 @@ import { API_URL } from '../../config'
 import { useI18n } from '../../contexts/I18nContext'
 import { fetchJson } from '../../utils/apiHelper'
 import { getCSRFHeaderName, getCSRFToken } from '../../utils/csrf'
-import type { ReactNode } from 'react'
 import {
+  guideDomProps,
   SettingGroup,
   SettingTitleGuideEntry,
   SettingTitleHelp,
   SettingTitleSelect,
   SettingTitleTag,
-  guideDomProps,
   useSettingGuide,
   useSettingsHelp,
 } from '../settings'
-import type { SettingOption } from '../settings/types'
 import {
-  AnalyticsRangePicker,
   analyticsRangeDayCount,
+  AnalyticsRangePicker,
   analyticsRangeQuery,
+
   defaultAnalyticsRange,
-  type AnalyticsRangeState,
 } from './analytics/AnalyticsRangePicker'
 import { CompareDelta } from './analytics/CompareDelta'
-import type { MetricDelta } from './analytics/compareDeltaLogic'
 import { EmptyCard } from './analytics/EmptyCard'
 import {
   analyticsBackupFilenameDay,
@@ -202,7 +203,7 @@ interface AnalyticsSummary {
 function flagEmoji(code: string): string {
   const cc = code.trim().toUpperCase()
   if (!/^[A-Z]{2}$/.test(cc)) return '🏳️'
-  const cps = [...cc].map((c) => 0x1f1e6 - 65 + c.charCodeAt(0))
+  const cps = [...cc].map((c) => 0x1F1E6 - 65 + c.charCodeAt(0))
   return String.fromCodePoint(...cps)
 }
 

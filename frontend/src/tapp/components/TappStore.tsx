@@ -7,6 +7,7 @@
  * 子组件见 ./store/*（卡片、详情、预览、源配置）。
  */
 
+import type { CSSProperties } from 'react'
 import type {
   RemoteApp,
   RemoteStoreSource,
@@ -33,20 +34,20 @@ import {
   AnimatePresenceShim as AnimatePresence,
   motionShim as motion,
 } from '@lib/motionShim'
-import { ensureMotionReady, isMotionReady } from '../../lib/lazyMotion'
 import {
+
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
 } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Spinner } from '../../components/Spinner'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
 import { isExlight, useAnimationLevel } from '../../hooks/useAnimationLevel'
+import { ensureMotionReady, isMotionReady } from '../../lib/lazyMotion'
 import { hasSessionHint } from '../../utils/sessionDetection'
 import { showError, showInfo, showSuccess } from '../../utils/toastManager'
 import { EXAMPLE_TAPPS } from '../examples'

@@ -1,11 +1,11 @@
-/* eslint-disable test/no-import-node-test -- node:test is the repository test runner */
+import type { HardwareSignals } from './deviceHardwareTier'
 import assert from 'node:assert/strict'
 import { afterEach, describe, it } from 'node:test'
 import {
   detectAppleSilicon,
   detectAppleSiliconAsync,
   evaluateHighHardware,
-  type HardwareSignals,
+
   resetAppleSiliconCache,
 } from './deviceHardwareTier'
 

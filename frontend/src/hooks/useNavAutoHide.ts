@@ -9,12 +9,13 @@
  * 此期间不写 inline transform/opacity，避免与淡出/淡入抢控制权。
  */
 
+import type { NavLayout } from '../utils/navLayout'
 import { useEffect } from 'react'
 import {
   getNavLayoutSnapshot,
   NAV_CHROME_SETTLED_EVENT,
+
   subscribeNavLayout,
-  type NavLayout,
 } from '../utils/navLayout'
 
 const INACTIVITY_DELAY = 5000

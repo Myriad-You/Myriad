@@ -4,14 +4,15 @@
  * - 点 ×：仅关闭提示，不改值
  */
 
+import type { SettingDefaultChangeNotice } from './settingDefaultChanges'
 import { LuSparkles } from '@lib/icons'
 import React, { useCallback, useEffect, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import {
   dismissSettingDefaultChange,
   getSettingDefaultChangeNotice,
+
   subscribeSettingDefaultChanges,
-  type SettingDefaultChangeNotice,
 } from './settingDefaultChanges'
 import { SettingTitleTag } from './SettingTitleTag'
 

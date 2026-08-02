@@ -27,9 +27,9 @@ import {
 } from '../../utils/dynamicContent'
 import { WeatherAssetIcon } from '../weather/WeatherAssetIcon'
 import { FitText } from './shared/FitText'
-import { WidgetSkeleton } from './shared/WidgetSkeleton'
 import { GlowBackground } from './shared/GlowBackground'
 import { WidgetShell } from './shared/WidgetShell'
+import { WidgetSkeleton } from './shared/WidgetSkeleton'
 
 // 缓存配置
 const CACHE_KEY = 'weather_data_cache'

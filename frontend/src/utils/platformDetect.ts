@@ -104,9 +104,9 @@ export function detectOsKind(
 export function parseIosMajorVersion(ua?: string): number | null {
   const u = getUa(ua)
   const patterns = [
-    new RegExp('OS (\\d+)[._](\\d+)', 'i'),
-    new RegExp('iPhone OS (\\d+)', 'i'),
-    new RegExp('CPU OS (\\d+)', 'i'),
+    /OS (\d+)[._](\d+)/i,
+    /iPhone OS (\d+)/i,
+    /CPU OS (\d+)/i,
   ]
   for (const re of patterns) {
     const m = u.match(re)

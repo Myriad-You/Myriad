@@ -64,11 +64,11 @@ import {
   registerWidgetHandlers,
 } from './sandbox/handlers'
 import { registerPlaygroundPreviewHandlers } from './sandbox/handlers/playgroundPreviewHandlers'
+import { onSpaNavigation } from './spaNavigation'
 import { createTappBridge } from './TappBridge'
 import { TappRuntimeGrant } from './TappRuntimeGrant'
 import { useSandboxSubscriptions } from './useSandboxSubscriptions'
 import { onTappStorageChange } from './WidgetRuntimeSignals'
-import { onSpaNavigation } from './spaNavigation'
 
 // 核心模块
 

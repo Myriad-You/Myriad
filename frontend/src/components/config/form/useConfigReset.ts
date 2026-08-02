@@ -1,4 +1,14 @@
-import { useCallback, type Dispatch, type SetStateAction } from 'react'
+import type { Dispatch, SetStateAction } from 'react'
+import type { NotificationPreferences } from '../../../services/notificationPreferencesApi'
+import type { ModuleVisibilityPreferences } from '../../../utils/moduleVisibility'
+import type { OAuthSettings } from '../../../utils/oauthSettings'
+import type { HitokotoConfig } from '../../../utils/quote'
+import type { ReportSettings } from '../../../utils/reportSettings'
+import type { FederationPolicyDraft } from '../FederationConfigSection'
+import type { LibrarySourcePreferences } from '../ModuleConfigSection'
+import type { PermissionConfigValues } from '../PermissionsConfigSection'
+import type { Config, ConfigField, ShowMessage } from './types'
+import { useCallback } from 'react'
 import {
   fetchConfig,
   updateConfig,
@@ -8,45 +18,44 @@ import { federationApi } from '../../../services/federationApi'
 import notificationPreferencesApi, {
   cloneNotificationPreferences,
   DEFAULT_NOTIFICATION_PREFERENCES,
-  type NotificationPreferences,
+
 } from '../../../services/notificationPreferencesApi'
 import { getCSRFToken } from '../../../utils/csrf'
+import { dispatchLibraryPreferencesUpdated } from '../../../utils/libraryPreferences'
 import {
   DEFAULT_MODULE_VISIBILITY_PREFERENCES,
   dispatchModuleVisibilityPreferencesUpdated,
+
   normalizeModuleVisibilityPreferences,
   updateModuleVisibilityPreferences,
-  type ModuleVisibilityPreferences,
 } from '../../../utils/moduleVisibility'
 import {
   cloneOAuthSettings,
   DEFAULT_OAUTH_SETTINGS,
+
   updateOAuthSettings,
-  type OAuthSettings,
 } from '../../../utils/oauthSettings'
 import {
   DEFAULT_HITOKOTO_CONFIG,
+
   updateHitokotoConfig,
-  type HitokotoConfig,
 } from '../../../utils/quote'
 import {
   DEFAULT_REPORT_SETTINGS,
+
   updateReportSettings,
-  type ReportSettings,
 } from '../../../utils/reportSettings'
-import { dispatchLibraryPreferencesUpdated } from '../../../utils/libraryPreferences'
 import { clearLibraryDataCache } from '../../../utils/requestDedup'
 import {
   DEFAULT_FEDERATION_POLICY,
+
   federationPolicyToUpdateRequest,
-  type FederationPolicyDraft,
 } from '../FederationConfigSection'
 import {
   DEFAULT_LIBRARY_SOURCE_PREFERENCES,
+
   normalizeLibraryPreferences,
-  type LibrarySourcePreferences,
 } from '../ModuleConfigSection'
-import type { PermissionConfigValues } from '../PermissionsConfigSection'
 import {
   ADVANCED_RESET_KEYS,
   ALL_OWNED_UI_BAG_KEYS,
@@ -64,9 +73,8 @@ import {
   DEFAULT_AUTO_FETCH_CONFIG,
   DEFAULT_PERMISSION_CONFIG,
 } from './defaults'
-import type { Config, ConfigField, ShowMessage } from './types'
 
-type ResetI18n = {
+interface ResetI18n {
   resettingConfig: string
   savingDefault: string
   resetFailed: string

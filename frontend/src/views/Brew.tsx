@@ -31,14 +31,14 @@ import {
   useSearchParams,
 } from 'react-router-dom'
 import AnimatedView from '../components/AnimatedView'
+import BrewFeedList from '../components/brew/BrewFeedList'
+import BrewReader from '../components/brew/BrewReader'
+import BrewSourceGrid from '../components/brew/BrewSourceGrid'
 import {
   BREW_MINE_CATEGORY,
   brewOwnItemPath,
   isOwnBrewSource,
 } from '../components/brew/constants'
-import BrewFeedList from '../components/brew/BrewFeedList'
-import BrewReader from '../components/brew/BrewReader'
-import BrewSourceGrid from '../components/brew/BrewSourceGrid'
 import ControlIsland from '../components/brew/manager/ControlIsland'
 import { Spinner } from '../components/Spinner'
 import { useAuth } from '../contexts/AuthContext'
@@ -349,7 +349,6 @@ export default function Brew() {
       cancelled = true
     }
     // 仅在路由 itemId 变化时拉取；selectedItem 不进依赖以免循环
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- deep-link only
   }, [itemIdParam])
 
   // 计算 source_id -> theme_color 映射

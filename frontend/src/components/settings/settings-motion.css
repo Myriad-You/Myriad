@@ -381,6 +381,7 @@ html.dark .sm-pane[data-nav] .platform-card {
 .sm-collapse {
   display: grid;
   grid-template-rows: 0fr;
+
   /* 不吃 flex/grid 父级 free space（1fr 轨会跟着长高） */
   flex: 0 0 auto;
   align-self: start;

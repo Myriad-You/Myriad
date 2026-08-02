@@ -10,6 +10,7 @@
   --uninstall-tip-exit-ease: cubic-bezier(0.4, 0, 0.2, 1);
 
   position: fixed;
+
   /* top/left 由 JS 平滑写入，避免滚动时硬跳 */
   top: 0;
   left: 0;
@@ -35,7 +36,7 @@
     transparent
   );
   backdrop-filter: var(--cfg-frost-filter, blur(20px) saturate(180%));
-  -webkit-backdrop-filter: var(--cfg-frost-filter, blur(20px) saturate(180%));
+  backdrop-filter: var(--cfg-frost-filter, blur(20px) saturate(180%));
   box-shadow:
     0 4px 6px -1px rgb(0 0 0 / 8%),
     0 16px 36px -12px
@@ -142,6 +143,7 @@ html.dark .uninstall-tip.is-ready {
   font-weight: 700;
   line-height: 1.35;
   color: #dc2626;
+
   /* 应用名可能较长：最多两行，超出省略 */
   display: -webkit-box;
   -webkit-box-orient: vertical;

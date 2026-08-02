@@ -1,31 +1,36 @@
+import type { NotificationPreferences } from '../../../services/notificationPreferencesApi'
+import type { ModuleVisibilityPreferences } from '../../../utils/moduleVisibility'
+import type { OAuthSettings } from '../../../utils/oauthSettings'
+import type { HitokotoConfig } from '../../../utils/quote'
+import type { ReportSettings } from '../../../utils/reportSettings'
+import type { FederationPolicyDraft } from '../FederationConfigSection'
+import type { LibrarySourcePreferences } from '../ModuleConfigSection'
+import type { PermissionConfigValues } from '../PermissionsConfigSection'
+import type { Config } from './types'
 import { useEffect, useMemo } from 'react'
 import {
   areNotificationPreferencesEqual,
-  type NotificationPreferences,
+
 } from '../../../services/notificationPreferencesApi'
 import { deepEqual } from '../../../utils/deepEqual'
 import {
   areModuleVisibilityPreferencesEqual,
-  type ModuleVisibilityPreferences,
+
 } from '../../../utils/moduleVisibility'
 import {
   areOAuthSettingsEqual,
-  type OAuthSettings,
+
 } from '../../../utils/oauthSettings'
 import {
   areHitokotoConfigsEqual,
-  type HitokotoConfig,
+
 } from '../../../utils/quote'
 import {
   areReportSettingsEqual,
-  type ReportSettings,
+
 } from '../../../utils/reportSettings'
 import { areFederationPoliciesEqual } from '../FederationConfigSection'
-import type { FederationPolicyDraft } from '../FederationConfigSection'
 import { areLibrarySourcePreferencesEqual } from '../ModuleConfigSection'
-import type { LibrarySourcePreferences } from '../ModuleConfigSection'
-import type { PermissionConfigValues } from '../PermissionsConfigSection'
-import type { Config } from './types'
 
 export function useConfigDirty(args: {
   config: Config | null

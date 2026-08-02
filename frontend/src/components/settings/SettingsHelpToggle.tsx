@@ -2,8 +2,8 @@
  * 设置页右上角「显示说明」：与重置本页同款 CheckboxCard（标题 + 介绍 + 图标）
  */
 
-import React from 'react'
 import { LuInfo } from '@lib/icons'
+import React from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import { CheckboxCard } from './items/CheckboxCard'
 import './SettingsHelpToggle.css'

@@ -420,7 +420,7 @@ export function processEmbeds(content: string, isDark: boolean): string {
   // 3.1 处理 Bilibili 视频链接 -> 转为官方 iframe
   // www / m / b23.tv 短链（路径里带 BV/av 时）
   const bilibiliLinkRegex =
-    /<a[^>]*href=["'](https?:\/\/(?:(?:www|m)\.)?bilibili\.com\/video\/(?:BV[a-z0-9]+|av\d+)[^"']*|https?:\/\/b23\.tv\/[^"']+)["'][^>]*>[\s\S]*?<\/a>/gi
+    /<a[^>]*href=["'](https?:\/\/(?:(?:www|m)\.)?bilibili\.com\/video\/(?:BV[a-z0-9]|av\d)[^"']*|https?:\/\/b23\.tv\/[^"']+)["'][^>]*>[\s\S]*?<\/a>/gi
   result = result.replace(bilibiliLinkRegex, (match, url) => {
     const videoId = extractBilibiliVideoId(url)
     if (videoId) {
@@ -431,7 +431,7 @@ export function processEmbeds(content: string, isDark: boolean): string {
 
   // 3.1b 纯文本 URL（非 <a>）：m.bilibili / www / b23.tv
   const bilibiliBareUrlRegex =
-    /(?<!["'=])(https?:\/\/(?:(?:www|m)\.)?bilibili\.com\/video\/(?:BV[a-z0-9]+|av\d+)[^\s<]*|https?:\/\/b23\.tv\/[A-Za-z0-9]+)/gi
+    /(?<!["'=])(https?:\/\/(?:(?:www|m)\.)?bilibili\.com\/video\/(?:BV[a-z0-9]|av\d)[^\s<]*|https?:\/\/b23\.tv\/[A-Z0-9]+)/gi
   result = result.replace(bilibiliBareUrlRegex, (url) => {
     const videoId = extractBilibiliVideoId(url)
     if (videoId) {

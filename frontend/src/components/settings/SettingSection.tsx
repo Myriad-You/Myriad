@@ -16,16 +16,16 @@ import { useI18n } from '../../contexts/I18nContext'
 import { guideDomProps } from './guides/guideAnchor'
 import { prefersReducedMotion } from './motion'
 import { SettingGroup } from './SettingGroup'
-import { SettingTitleGuideEntry } from './SettingTitleGuideEntry'
-import { SettingTitleHelp } from './SettingTitleHelp'
 import { SettingsHelpProvider } from './SettingsHelpContext'
 import { SettingsHelpToggle } from './SettingsHelpToggle'
-import { SettingsPageResetButton } from './SettingsPageResetButton'
 import { useSettingsPageActions } from './SettingsPageActionsContext'
+import { SettingsPageResetButton } from './SettingsPageResetButton'
 import {
   SettingsTocProvider,
   useSettingsToc,
 } from './SettingsTocContext'
+import { SettingTitleGuideEntry } from './SettingTitleGuideEntry'
+import { SettingTitleHelp } from './SettingTitleHelp'
 import './settings-motion.css'
 import './SettingSection.css'
 

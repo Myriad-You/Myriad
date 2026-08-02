@@ -1,15 +1,17 @@
-import { useMemo, useState } from 'react'
 import type { Locale } from '../../../i18n'
+import type { ConfigSearchableItem } from '../../settings/guides/configSearch'
+import type { ConfigSearchI18n } from './buildSearchableContent'
+import type { Config } from './types'
+import { useMemo, useState } from 'react'
 import { useDebounce } from '../../../hooks/useDebounce'
 import {
+
   rankConfigSearch,
-  type ConfigSearchableItem,
 } from '../../settings/guides/configSearch'
 import {
   buildSearchableContent,
-  type ConfigSearchI18n,
+
 } from './buildSearchableContent'
-import type { Config } from './types'
 
 export function useConfigSearch(
   config: Config | null,

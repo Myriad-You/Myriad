@@ -11,14 +11,14 @@
  */
 
 import type { ReactNode } from 'react'
+import type { SettingsButtonVariant } from './items/SettingsButton'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import { Spinner } from '../Spinner'
+import { CheckboxCard } from './items/CheckboxCard'
 import { SegmentedControl } from './items/ChoiceControls'
 import { InputItem } from './items/InputItem'
-import type { SettingsButtonVariant } from './items/SettingsButton'
 import { SettingsButton } from './items/SettingsButton'
-import { CheckboxCard } from './items/CheckboxCard'
 import { SettingTitleGuideEntry } from './SettingTitleGuideEntry'
 import './ManagedList.css'
 
@@ -319,7 +319,7 @@ function toneClass(tone: ManagedListTone | undefined, prefix: string): string {
   return `${prefix} ${prefix}--${tone ?? 'default'}`
 }
 
-const ListActionButton = React.memo(function ListActionButton({
+const ListActionButton = React.memo(({
   action,
   size = 'md',
   /**
@@ -331,7 +331,7 @@ const ListActionButton = React.memo(function ListActionButton({
   action: ManagedListAction
   size?: 'sm' | 'md'
   chrome?: boolean
-}) {
+}) => {
   const handle = useCallback(() => {
     if (action.confirm && !window.confirm(action.confirm)) return
     action.onClick()
@@ -378,7 +378,7 @@ const ListActionButton = React.memo(function ListActionButton({
   )
 })
 
-export const ManagedList = React.memo(function ManagedList({
+export const ManagedList = React.memo(({
   stats,
   toolbar,
   search,
@@ -417,7 +417,7 @@ export const ManagedList = React.memo(function ManagedList({
   truncateFooter,
   className = '',
   footer,
-}: ManagedListProps) {
+}: ManagedListProps) => {
   const { t } = useI18n()
   const queryToggleLabel =
     queryToggleLabelProp ?? t.config.managedListSearchFilter

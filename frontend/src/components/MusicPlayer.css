@@ -15,6 +15,7 @@
   --music-base-accent: var(--music-accent, #fbbf24);
   --music-base-light: var(--music-light, #f9a8d4);
   --music-base-dark: var(--music-dark, #831843);
+
   /* 外容器与内部圆角矩形（封面等）共用，避免内外圆角不一致 */
   --music-radius: 0.875rem;
 
@@ -25,12 +26,14 @@
     color-mix(in srgb, var(--music-base-secondary) 3%, transparent)
   );
   backdrop-filter: blur(10px);
+
   /* 边框：跟随封面音乐色（浅/深均用 music token，不用站点 --color-primary） */
   border: 1px solid
     color-mix(in srgb, var(--music-base-primary) 22%, transparent);
   border-radius: var(--music-radius);
   width: 100%;
   height: 160px;
+
   /* visible：播放键 hover 光晕不被裁；滚动视图各自 overflow:hidden */
   overflow: visible;
   box-shadow: none;
@@ -104,6 +107,7 @@ html.dark .music-player-container:hover {
 }
 
 /* ========== 状态: 音乐信息视图 ========== */
+
 /* overflow:visible 让播放键 hover 光晕不被裁切 */
 .music-view-info {
   position: relative;
@@ -140,6 +144,7 @@ html.dark .music-player-container:hover {
 .music-info-spectrum .playing-spectrum__bar {
   border-radius: 999px;
   min-height: 2px;
+
   /* 高度变化时以上下中线为基准 */
   transform-origin: center center;
 }
@@ -160,6 +165,7 @@ html.dark .music-player-container:hover {
   flex-direction: column;
   justify-content: space-between;
   gap: 0.5rem;
+
   /* 歌名 / 作曲家 / 进度条共享同一左缘 */
   align-items: stretch;
 }
@@ -178,6 +184,7 @@ html.dark .music-player-container:hover {
     color-mix(in srgb, var(--music-base-primary) 8%, transparent),
     color-mix(in srgb, var(--music-base-secondary) 8%, transparent)
   );
+
   /* 仅 transition transform；背景/边框随 --music-* @property 插值，勿叠 background/border-color */
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -248,6 +255,7 @@ html.dark .music-album-cover-large:hover {
   min-width: 0;
   max-width: 100%;
   width: 100%;
+
   /*
    * 右上角频谱柱 + 呼吸余量：约 4 柱宽 ≈ 0.9rem，再留 1.6rem 空隙，
    * 标题更早进入限宽/滚动，避免贴到指示器。
@@ -266,6 +274,7 @@ html.dark .music-album-cover-large:hover {
   max-width: 100%;
   flex: 1 1 0%;
   overflow: hidden;
+
   /* 默认截断；FitText marquee 模式会覆盖为 clip + 滚动轨道 */
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -491,6 +500,7 @@ html.dark .music-no-song-text {
   align-items: center;
   gap: 0.5rem;
   min-width: 0;
+
   /* 抬升层叠，播放键 ::before 光晕不被 info 背景压住 */
   position: relative;
   z-index: 2;
@@ -522,6 +532,7 @@ html.dark .music-no-song-text {
   cursor: pointer;
   flex-shrink: 0;
   box-shadow: none;
+
   /* 勿 transition background：会把 linear-gradient 弄成单色块 */
   transition:
     transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
@@ -577,6 +588,7 @@ html.dark .music-control-btn:hover {
   height: 2.75rem;
   min-width: 2.75rem;
   min-height: 2.75rem;
+
   /* background-image 承载渐变；勿 transition background，避免抹成单色 */
   background-color: var(--music-base-primary);
   background-image: linear-gradient(
@@ -704,6 +716,7 @@ html.dark .music-view-switch-btn.is-active {
   align-items: center;
   gap: 0.5rem;
   padding: 0.5rem 0.75rem;
+
   /* 与 control-item / 外容器一致的边框/底色，无阴影 */
   background: rgb(255 255 255 / 95%);
   border: 1px solid rgb(0 0 0 / 6%);
@@ -847,6 +860,7 @@ html.dark .music-view-switch-btn:hover {
   min-width: 0;
   max-width: 100%;
   box-sizing: border-box;
+
   /* 与作曲家同一左缘：无额外缩进 */
   padding: 0;
   margin: 0;
@@ -959,6 +973,7 @@ html.dark .music-progress-track:focus-within {
   height: 100%;
   width: 0;
   border-radius: 999px;
+
   /* 进度填充：primary → secondary 明确色停，避免被 transition 抹成单色 */
   background-color: var(--music-base-primary, #ec4899);
   background-image: linear-gradient(
@@ -966,6 +981,7 @@ html.dark .music-progress-track:focus-within {
     var(--music-base-primary, #ec4899) 0%,
     var(--music-base-secondary, #a855f7) 100%
   );
+
   /* 不给 width / background 做 transition，避免跟播放进度抢帧、抹平渐变 */
 }
 
@@ -1027,6 +1043,7 @@ html.dark .music-progress-track:focus-within {
   background: #fff;
   cursor: grab;
   border: none;
+
   /* 仅描边环，无投影 */
   box-shadow: 0 0 0 1.5px
     color-mix(in srgb, var(--music-base-primary) 50%, transparent);
@@ -1108,8 +1125,10 @@ html.dark .music-progress-track:focus-within {
   --dot-size: 7px;
 
   position: absolute;
+
   /* 与轨道垂直中线对齐（不要嵌在 3px rail 里，避免亚像素偏） */
   top: 50%;
+
   /* 圆心落在 fill 右端：left=进度% + translateX(-50%)；不做 5px clamp，避免 0% 起偏 */
   left: var(--load-at);
   z-index: 2;
@@ -1305,6 +1324,7 @@ html.dark .music-volume-bar {
 }
 
 /* ========== 状态: 歌词滚动视图 ========== */
+
 /* 歌词 / 播放列表页：适度收紧相对母容器内边距（按当前 mode 类，避免 hidden 常驻误匹配） */
 .music-player-container.music-view-mode-lyrics,
 .music-player-container.music-view-mode-playlist {
@@ -1417,6 +1437,7 @@ html.dark .music-back-btn:hover {
   height: 1.5rem;
   min-width: 1.5rem;
   min-height: 1.5rem;
+
   /* 仅 24px 缩略图：用小圆角，勿跟外壳 --music-radius（会近乎圆形） */
   border-radius: 0.25rem;
   overflow: hidden;
@@ -1910,10 +1931,10 @@ html.dark .music-no-results-text {
   flex: 1 1 auto;
   min-height: 0;
   width: 100%;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: hidden auto;
   margin: 0;
   padding: 0.1rem 0 0.2rem;
+
   /* 一行两列卡片网格 */
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2564,6 +2585,7 @@ html.dark .music-playlist-artist mark {
 .music-info-right .music-song-name {
   flex: 1 1 0%;
   min-width: 0;
+
   /* 遮罩边缘，滚动时更自然 */
   mask-image: linear-gradient(
     90deg,

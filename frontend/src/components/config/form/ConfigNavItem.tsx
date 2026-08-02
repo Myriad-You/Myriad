@@ -1,6 +1,6 @@
+import type { QuickAccessItem } from './types'
 import { FaStar, LuChevronRight } from '@lib/icons'
 import React from 'react'
-import type { QuickAccessItem } from './types'
 
 interface ConfigNavItemProps {
   item: QuickAccessItem

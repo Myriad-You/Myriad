@@ -10,10 +10,7 @@
 /* 导航容器 — 默认底栏（mobile-first） */
 .nav-container {
   position: fixed;
-  bottom: 1rem;
-  left: 50%;
-  top: auto;
-  right: auto;
+  inset: auto auto 1rem 50%;
   transform: translateX(-50%);
   z-index: 50;
 }
@@ -31,19 +28,13 @@
 /* 权威：JS 写入的 layout token（覆盖 media，修平板/切换残留） */
 html[data-nav-layout='mobile'] .nav-container {
   inset: auto auto 1rem 50%;
-  left: 50%;
-  top: auto;
-  bottom: 1rem;
-  right: auto;
+  inset: auto auto 1rem 50%;
   transform: translateX(-50%);
 }
 
 html[data-nav-layout='desktop'] .nav-container {
   inset: auto auto auto 1.5rem;
-  left: 1.5rem;
-  top: 50%;
-  bottom: auto;
-  right: auto;
+  inset: 50% auto auto 1.5rem;
   transform: translateY(-50%);
 }
 
@@ -55,6 +46,7 @@ html[data-nav-layout='desktop'] .nav-container {
 .nav-container[data-nav-switch='out'],
 .nav-container[data-nav-switch='in'] {
   pointer-events: none !important;
+
   /* Override auto-hide inline transition during morph */
   transition:
     opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1),
@@ -469,6 +461,7 @@ html[data-nav-layout='desktop'] .dynamic-island {
   max-width: 95vw;
   display: block;
   flex-direction: unset;
+
   /* width 由 AppLayout.css 的 65px 控制；勿在此写 auto */
   overflow: hidden;
 }

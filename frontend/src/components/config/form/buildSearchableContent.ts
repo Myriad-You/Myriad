@@ -1,10 +1,10 @@
 import type { Locale } from '../../../i18n'
 import type { ConfigSearchableItem } from '../../settings/guides/configSearch'
-import { buildGuideSearchIndex } from '../../settings/guides/guideSearchIndex'
 import type { Config } from './types'
+import { buildGuideSearchIndex } from '../../settings/guides/guideSearchIndex'
 
 /** i18n 切片：只取 build 搜索索引需要的文案字段 */
-export type ConfigSearchI18n = {
+export interface ConfigSearchI18n {
   config: {
     platforms: string
     platformsDesc: string

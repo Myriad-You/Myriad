@@ -3,13 +3,14 @@
  */
 
 import type { TappInstance } from '../../../types'
+import type { TappListInstallRequestInput } from '../../../utils/tappListInstallRequest'
 import type { TappBridge } from '../../TappBridge'
 import { getDefaultLocale } from '../../../../i18n'
 import * as TappApiService from '../../../services/TappApiService'
 import { resolveManifestText } from '../../../utils/manifestLocale'
 import {
   resolveTappListInstallRequest,
-  type TappListInstallRequestInput,
+
 } from '../../../utils/tappListInstallRequest'
 
 // 统一错误返回

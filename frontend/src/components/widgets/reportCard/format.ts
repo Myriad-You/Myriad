@@ -26,5 +26,3 @@ export function formatYoutubeDuration(
   }
   return `${min}:${String(s).padStart(2, '0')}`
 }
-
-

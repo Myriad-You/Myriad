@@ -28,8 +28,8 @@ import {
   clearPlaylistCache,
 } from './musicPlayer'
 import { MemoryManager } from './performance'
-import { clearDedupCache } from './requestDedup'
 import { requestCache } from './requestCache'
+import { clearDedupCache } from './requestDedup'
 import { globalResourceLoader } from './resourceLoader'
 import {
   clearAllUserCache,

@@ -3,6 +3,7 @@
  * 从 GlobalControlPanel 分离出来的音乐播放器核心逻辑
  */
 
+import type { ColorPalette } from '../utils/colorExtractor'
 import type {
   LyricLine,
   MusicSource,
@@ -10,8 +11,8 @@ import type {
   VerbatimLyricsSource,
   WordLyricLine,
 } from '../utils/musicPlayer'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   extractColorsFromImage,
   extractColorsFromLoadedImage,
@@ -19,11 +20,7 @@ import {
   isDefaultPalette,
   setCachedPalette,
 } from '../utils/colorExtractor'
-import type { ColorPalette } from '../utils/colorExtractor'
-import {
-  buildMusicPlayerSnapshot,
-  readLiveAudioProgress,
-} from '../utils/musicPlayerState'
+import { notifyHttpRateLimit } from '../utils/httpRateLimitToast'
 import {
   audioManager,
   createPlaybackAudioElement,
@@ -38,7 +35,10 @@ import {
   shouldPreserveNativeAudioOutput,
   throttle,
 } from '../utils/musicPlayer'
-import { notifyHttpRateLimit } from '../utils/httpRateLimitToast'
+import {
+  buildMusicPlayerSnapshot,
+  readLiveAudioProgress,
+} from '../utils/musicPlayerState'
 import { proxyImageUrlOr } from '../utils/proxyImageUrl'
 import { getUIConfigDeduped } from '../utils/requestDedup'
 import { loadResource } from '../utils/resourceLoader'
@@ -917,7 +917,7 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
           if (isDefaultPalette(colors)) {
             // extractor 已内部重试仍失败 → 宿主侧再排一次 settle
             if (settleAttempt < 3) {
-              const delay = 200 * Math.pow(2, settleAttempt)
+              const delay = 200 * 2 ** settleAttempt
               window.setTimeout(() => {
                 if (!isCurrent()) return
                 extractCoverColorsForSong(
@@ -961,7 +961,7 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
             return
           }
           if (settleAttempt < 3) {
-            const delay = 200 * Math.pow(2, settleAttempt)
+            const delay = 200 * 2 ** settleAttempt
             window.setTimeout(() => {
               if (!isCurrent()) return
               extractCoverColorsForSong(

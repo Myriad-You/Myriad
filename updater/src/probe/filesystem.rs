@@ -106,6 +106,8 @@ pub async fn probe_pgdata(path: &Path, state_dir: &Path) -> PgdataProbe {
     // Free space on the fs containing pgdata, via statvfs.
     if let Ok(stat) = nix::sys::statvfs::statvfs(path) {
         let block_size = stat.fragment_size();
+        // fsblkcnt_t width differs by OS; keep an explicit u64 multiply for free space.
+        #[allow(clippy::unnecessary_cast)]
         let free_blocks = stat.blocks_available() as u64;
         out.free_bytes_on_fs = Some(block_size * free_blocks);
     }

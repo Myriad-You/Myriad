@@ -124,7 +124,7 @@ function bagKeysChanged(
   return false
 }
 
-type ConfigShape = {
+interface ConfigShape {
   platforms: unknown
   auto_fetch: unknown
   ai_config: unknown

@@ -85,7 +85,6 @@ export const SliderItem = React.memo<SliderItemProps>(
   ({
     itemKey,
     label,
-    detail,
     guide,
     guidePath,
     description,
@@ -339,10 +338,10 @@ export const SliderItem = React.memo<SliderItemProps>(
                   {showEnds && (startHint || endHint) && (
                     <div className="slider-range-hints">
                       <span className="slider-range-hint is-start">
-                        {startHint || '\u00a0'}
+                        {startHint || '\u00A0'}
                       </span>
                       <span className="slider-range-hint is-end">
-                        {endHint || '\u00a0'}
+                        {endHint || '\u00A0'}
                       </span>
                     </div>
                   )}

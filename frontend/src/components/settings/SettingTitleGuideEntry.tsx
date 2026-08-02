@@ -6,6 +6,7 @@
  */
 
 import type { ReactNode } from 'react'
+import { FaTimes } from '@lib/icons'
 import React, {
   useCallback,
   useEffect,
@@ -15,7 +16,6 @@ import React, {
   useState,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { FaTimes } from '@lib/icons'
 import { useI18n } from '../../contexts/I18nContext'
 import { useSettingsHelp } from './SettingsHelpContext'
 import './SettingTitleGuideEntry.css'
@@ -46,7 +46,7 @@ const EXIT_MS = 260
 
 type Placement = 'top' | 'left' | 'right' | 'bottom'
 
-type Coords = {
+interface Coords {
   top: number
   left: number
   placement: Placement

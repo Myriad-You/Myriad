@@ -1,7 +1,6 @@
 /**
  *   pnpm exec tsx --test src/tapp/runtime/sessionUserFallback.test.ts
  */
-/* eslint-disable test/no-import-node-test -- node:test */
 
 import type { SessionUserSnapshot } from './sessionUserFallback.ts'
 

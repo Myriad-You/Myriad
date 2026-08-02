@@ -4,17 +4,18 @@
  * 导航 / 拖拽状态自包含；父级只提供 platforms 草稿与写入回调。
  */
 
+import type { ReactNode } from 'react'
 import type { ToastType } from '../Toast'
-import type { PlatformAutoFetchConfig } from './PlatformAutoRefreshSettings'
 
+import type { PlatformAutoFetchConfig } from './PlatformAutoRefreshSettings'
 import { LuChevronLeft, LuDatabase, LuGripVertical } from '@lib/icons'
 import React, {
+
   useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
   useState,
-  type ReactNode,
 } from 'react'
 import { API_URL } from '../../config'
 import { useI18n } from '../../contexts/I18nContext'
@@ -25,18 +26,17 @@ import {
   AutoHeight,
   InputItem,
   SettingGroup,
+  SETTINGS_DURATION_MS,
   SettingSection,
   SettingTitleHelp,
   SetupFlow,
-  ToggleSwitch,
-  useSettingGuide,
+  ToggleSwitch, useSettingGuide,
 } from '../settings'
-import { SETTINGS_DURATION_MS } from '../settings'
+import AiUsageSection from './AiUsageSection'
 import PlatformAutoRefreshSettings from './PlatformAutoRefreshSettings'
 import PlatformDataManagement from './PlatformDataManagement'
-import AiUsageSection from './AiUsageSection'
-import SiteAnalyticsSection from './SiteAnalyticsSection'
 import { getPlatformSetupGuide } from './platformSetupGuides'
+import SiteAnalyticsSection from './SiteAnalyticsSection'
 import './PlatformCardSnapshot.css'
 
 /** @deprecated 从 uiBagOwnership 导入；此处 re-export 保持兼容 */

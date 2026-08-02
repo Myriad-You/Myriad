@@ -1,5 +1,5 @@
-import type { PlatformAutoFetchConfig } from '../PlatformAutoRefreshSettings'
 import type { PermissionConfigValues } from '../PermissionsConfigSection'
+import type { PlatformAutoFetchConfig } from '../PlatformAutoRefreshSettings'
 
 export const DEFAULT_PERMISSION_CONFIG: PermissionConfigValues = {
   user_perm_ai_generate: false,

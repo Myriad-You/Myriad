@@ -2,15 +2,16 @@
  * Compact 环比 inline after a KPI tile value (same row; overflow scrolls).
  */
 
+import type { CompareKind, CompareLabels, MetricDelta } from './compareDeltaLogic'
 import React from 'react'
 import {
   compareColorPalette,
+
   compareKindLabel,
+
   compareTone,
   formatCompareValue,
-  type CompareKind,
-  type CompareLabels,
-  type MetricDelta,
+
 } from './compareDeltaLogic'
 
 export interface CompareDeltaProps {

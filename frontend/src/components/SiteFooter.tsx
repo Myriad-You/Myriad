@@ -6,15 +6,16 @@
  * 折叠逻辑：非首页或移动端 → compact（仅图标 + tooltip）
  */
 
+import type { FooterCustomItem } from '../utils/footerCustomLogic'
+
 import { SiCloudflare } from '@lib/icons'
 
 import React, { memo, useCallback, useEffect, useState } from 'react'
-
 import { getBuildInfo } from '../utils/buildInfo'
 import {
+
   isFooterCustomHref,
   parseFooterCustom,
-  type FooterCustomItem,
 } from '../utils/footerCustomLogic'
 import { getUIConfigDeduped } from '../utils/requestDedup'
 import './SiteFooter.css'

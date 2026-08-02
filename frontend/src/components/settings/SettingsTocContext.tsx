@@ -12,14 +12,14 @@ import React, {
   useState,
 } from 'react'
 
-export type SettingsTocItem = {
+export interface SettingsTocItem {
   id: string
   label: string
   /** 稳定排序：注册序号 */
   order: number
 }
 
-type SettingsTocContextValue = {
+interface SettingsTocContextValue {
   items: SettingsTocItem[]
   register: (id: string, label: string) => void
   unregister: (id: string) => void

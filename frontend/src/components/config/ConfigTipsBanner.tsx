@@ -3,12 +3,13 @@
  * 按时段问候 + 上次登录；多 slide 时自动轮播（悬停/聚焦暂停）。
  */
 
+import type { GreetingIconName } from '../../utils/dynamicContent'
 import React, { useEffect, useId, useMemo, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
 import {
   getGreeting,
-  type GreetingIconName,
+
 } from '../../utils/dynamicContent'
 import { WEATHER_ICON_ASSETS } from '../../utils/weather'
 import './ConfigTipsBanner.css'

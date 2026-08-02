@@ -18,10 +18,14 @@
       }
     ],
     "declaration-block-no-duplicate-custom-properties": null,
+    "declaration-block-no-duplicate-properties": null,
+    "declaration-block-no-shorthand-property-overrides": null,
+    "declaration-property-value-keyword-no-deprecated": null,
     "import-notation": "string",
     "keyframes-name-pattern": null,
     "no-descending-specificity": null,
     "no-duplicate-selectors": null,
+    "property-no-deprecated": null,
     "selector-class-pattern": null
   }
 }

@@ -16,9 +16,10 @@
  * - macOS 上 `navigator.platform` 在 M 芯片仍常为 MacIntel，需 architecture / WebGL 辅助。
  */
 
+import type { OsKind } from './platformDetect'
 import {
   detectOsKind,
-  type OsKind,
+
   parseIosMajorVersion,
 } from './platformDetect'
 
@@ -151,7 +152,7 @@ export function detectAppleSilicon(
   if (cachedAppleSilicon !== undefined) return cachedAppleSilicon
 
   const ua = typeof nav.userAgent === 'string' ? nav.userAgent : ''
-  if (/\b(Mac OS X|Macintosh).*\b(ARM64|arm64)\b/i.test(ua)) {
+  if (/\b(?:Mac OS X|Macintosh).+\bARM64\b/i.test(ua)) {
     cachedAppleSilicon = true
     return true
   }

@@ -3,6 +3,7 @@
  */
 
 import type { Job, ReleaseManifest, UpdaterStatus } from '../../../services/updaterApi'
+import type { ChannelKey, Mood, Toast, Tone, U } from './helpers'
 import { LuRefreshCw } from '@lib/icons'
 import React from 'react'
 import {
@@ -14,16 +15,14 @@ import {
 } from '../../settings'
 import { Spinner } from '../../Spinner'
 import {
-  COMMIT_URL,
+
   channelLabel,
+  COMMIT_URL,
   format,
   formatAgo,
+
   moodText,
-  type ChannelKey,
-  type Mood,
-  type Toast,
-  type Tone,
-  type U,
+
 } from './helpers'
 
 export function StatusHero({
@@ -514,4 +513,3 @@ export function AutoUpdatePrefs({
     </div>
   )
 }
-

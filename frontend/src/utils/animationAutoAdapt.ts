@@ -18,7 +18,7 @@ const MIN_SEVERE_FRAMES = 4
 const AVG_FRAME_MS_THRESHOLD = 24
 const MAX_GAP_MS = 120
 
-export type AutoSampleResult = {
+export interface AutoSampleResult {
   demoted: boolean
   avgMs: number
   badRatio: number

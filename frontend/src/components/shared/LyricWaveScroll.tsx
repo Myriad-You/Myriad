@@ -5,7 +5,9 @@
  * - 粘性窗口化 DOM；顺序推进波浪；大跨度 seek 瞬移
  */
 
+import type { CSSProperties } from 'react'
 import {
+
   memo,
   useCallback,
   useEffect,
@@ -13,11 +15,10 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
 } from 'react'
 import './LyricWaveScroll.css'
 
-export type LyricWaveLine = { time: number; text: string }
+export interface LyricWaveLine { time: number; text: string }
 
 export type LyricWaveVariant = 'card' | 'panel'
 
@@ -98,7 +99,7 @@ function clampActivePos(
   return Math.max(minPos, Math.min(maxPos, pos))
 }
 
-type WaveItem = {
+interface WaveItem {
   idx: number
   text: string
   el: HTMLElement | null
@@ -153,14 +154,14 @@ function mapFocusIdx(
   return best
 }
 
-export const LyricWaveScroll = memo(function LyricWaveScroll({
+export const LyricWaveScroll = memo(({
   lyrics,
   currentLyricIndex,
   variant = 'card',
   musicColor = '#ef4444',
   className,
   paused = false,
-}: LyricWaveScrollProps) {
+}: LyricWaveScrollProps) => {
   const cleanLines = useMemo(() => cleanLyricLines(lyrics), [lyrics])
   const focusIdx = useMemo(
     () => mapFocusIdx(cleanLines, currentLyricIndex),
@@ -286,14 +287,13 @@ export const LyricWaveScroll = memo(function LyricWaveScroll({
       const n = lines.length
       const heights = heightsRef.current
       if (heights.length !== n) {
-        const next = new Array(n)
-        for (let i = 0; i < n; i++) {
-          next[i] = heights[i] > 0 ? heights[i] : EST_LINE_H
-        }
+        const next: number[] = Array.from({ length: n }, (_, i) =>
+          heights[i] > 0 ? heights[i]! : EST_LINE_H,
+        )
         heightsRef.current = next
       }
       const H = heightsRef.current
-      const ys = new Array(n)
+      const ys: number[] = Array.from({ length: n }, () => 0)
       let y = 0
       for (let i = 0; i < n; i++) {
         ys[i] = y
@@ -380,7 +380,7 @@ export const LyricWaveScroll = memo(function LyricWaveScroll({
     }
 
     let y = 0
-    const ys: number[] = new Array(heights.length)
+    const ys: number[] = Array.from({ length: heights.length })
     for (let i = 0; i < heights.length; i++) {
       ys[i] = y
       y += heights[i] || EST_LINE_H
@@ -513,7 +513,7 @@ export const LyricWaveScroll = memo(function LyricWaveScroll({
       }
       // 高度变了要重算绝对 y
       let yAcc = 0
-      const ys: number[] = new Array(heights.length)
+      const ys: number[] = Array.from({ length: heights.length })
       for (let i = 0; i < heights.length; i++) {
         ys[i] = yAcc
         yAcc += heights[i] || EST_LINE_H

@@ -15,6 +15,7 @@
   --dr-exit-ease: cubic-bezier(0.4, 0, 0.2, 1);
 
   position: fixed;
+
   /* top/left 由 JS 写入（含 lerp），与指南浮窗一致 */
   top: 0;
   left: 0;
@@ -36,13 +37,14 @@
     transparent
   );
   backdrop-filter: var(--cfg-frost-filter, blur(18px) saturate(170%));
-  -webkit-backdrop-filter: var(--cfg-frost-filter, blur(18px) saturate(170%));
+  backdrop-filter: var(--cfg-frost-filter, blur(18px) saturate(170%));
   box-shadow:
     0 4px 8px -2px rgb(0 0 0 / 8%),
     0 16px 40px -12px color-mix(in srgb, var(--dr-accent) 16%, transparent);
   color: var(--cfg-text-1);
   font-family: inherit;
   outline: none;
+
   /* 先挂载后量尺寸：未 ready 时隐藏，对齐 SettingTitleHelp is-ready */
   opacity: 0;
   pointer-events: none;
@@ -350,9 +352,7 @@ button.date-range-cell.is-day {
     border-radius 0.12s ease;
 }
 
-button.date-range-cell.is-day:hover:not(:disabled):not(.is-start):not(
-    .is-end
-  ):not(.is-single) {
+button.date-range-cell.is-day:hover:not(:disabled, .is-start, .is-end, .is-single) {
   background: color-mix(in srgb, var(--dr-accent) 11%, transparent);
 }
 
@@ -405,7 +405,7 @@ button.date-range-cell.is-day:focus-visible {
 }
 
 /* 今天：底部小点（未选中时可见） */
-.date-range-cell.is-today:not(.is-start):not(.is-end):not(.is-single)
+.date-range-cell.is-today:not(.is-start, .is-end, .is-single)
   .date-range-day-num::after {
   content: '';
   position: absolute;
@@ -599,6 +599,7 @@ button.date-range-cell.is-day:focus-visible {
 @media (width <= 560px) {
   .date-range-popover {
     --dr-cell: 2.15rem;
+
     max-width: calc(100vw - 0.75rem);
     padding: 0.7rem 0.65rem 0.65rem;
   }

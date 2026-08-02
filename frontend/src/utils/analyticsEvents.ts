@@ -71,7 +71,7 @@ export const ANALYTICS_EVENT_NAMES: readonly AnalyticsEventName[] =
 
 const lastFired = new Map<string, number>()
 
-export type TrackProductEventOpts = {
+export interface TrackProductEventOpts {
   path?: string
   /**
    * Entity dimension for drill-down: tapp id, platform slug, brew source id,

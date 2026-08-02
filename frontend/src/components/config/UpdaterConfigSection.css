@@ -31,6 +31,7 @@
 
 html.dark .updater-panel {
   color-scheme: dark;
+
   /* token 已在 html.dark 下切换，无需再覆写 */
 }
 
@@ -61,7 +62,7 @@ html.dark .updater-panel-heading {
   border-radius: 1.15rem;
   background: var(--updater-frost-bg);
   backdrop-filter: var(--updater-frost-filter);
-  -webkit-backdrop-filter: var(--updater-frost-filter);
+  backdrop-filter: var(--updater-frost-filter);
   transition:
     border-color var(--sm-dur-fast) var(--sm-ease-standard),
     background-color var(--sm-dur-fast) var(--sm-ease-standard),
@@ -118,7 +119,7 @@ html.dark .updater-hero {
   border-color: var(--updater-frost-border);
   background: var(--updater-frost-bg);
   backdrop-filter: var(--updater-frost-filter);
-  -webkit-backdrop-filter: var(--updater-frost-filter);
+  backdrop-filter: var(--updater-frost-filter);
 }
 
 html.dark .updater-hero:hover {
@@ -426,9 +427,9 @@ html.dark .updater-hero-feedback.error {
   border-radius: 0.6rem;
   background: var(--updater-subtle-bg);
   backdrop-filter: var(--updater-subtle-filter);
-  -webkit-backdrop-filter: var(--updater-subtle-filter);
+  backdrop-filter: var(--updater-subtle-filter);
   appearance: none;
-  -webkit-appearance: none;
+  appearance: none;
   text-align: left;
   cursor: pointer;
   transition:
@@ -612,7 +613,7 @@ html.dark .updater-channel-desc {
   border-radius: 0.6rem;
   background: var(--updater-subtle-bg);
   backdrop-filter: var(--updater-subtle-filter);
-  -webkit-backdrop-filter: var(--updater-subtle-filter);
+  backdrop-filter: var(--updater-subtle-filter);
   overflow: hidden auto;
   max-height: 16rem;
 }
@@ -736,7 +737,7 @@ html.dark .updater-compare-preview.neutral {
   border: 1px solid var(--updater-frost-border);
   background: var(--updater-frost-bg);
   backdrop-filter: var(--updater-frost-filter);
-  -webkit-backdrop-filter: var(--updater-frost-filter);
+  backdrop-filter: var(--updater-frost-filter);
 }
 
 html.dark .updater-progress {
@@ -920,6 +921,7 @@ html.dark .updater-drift {
   color: #991b1b;
   font-size: 0.78rem;
   border: 1px solid rgb(252 165 165 / 45%);
+
   /* Preflight reasons can be long technical messages. */
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -951,7 +953,7 @@ html.dark .updater-last-failed {
   border: 1px solid var(--updater-subtle-border);
   background: var(--updater-subtle-bg);
   backdrop-filter: var(--updater-subtle-filter);
-  -webkit-backdrop-filter: var(--updater-subtle-filter);
+  backdrop-filter: var(--updater-subtle-filter);
 }
 
 html.dark .updater-snapshot-item {
@@ -1120,9 +1122,9 @@ html.dark .updater-transport-label {
   border-radius: 0.55rem;
   background: var(--updater-subtle-bg);
   backdrop-filter: var(--updater-subtle-filter);
-  -webkit-backdrop-filter: var(--updater-subtle-filter);
+  backdrop-filter: var(--updater-subtle-filter);
   appearance: none;
-  -webkit-appearance: none;
+  appearance: none;
   color: var(--cfg-text-2);
   font-size: 0.8125rem;
   font-weight: 550;
@@ -1454,7 +1456,7 @@ html.dark .updater-progress-hint.muted {
   border-color: var(--updater-subtle-border);
   background: var(--updater-subtle-bg);
   backdrop-filter: var(--updater-subtle-filter);
-  -webkit-backdrop-filter: var(--updater-subtle-filter);
+  backdrop-filter: var(--updater-subtle-filter);
   box-shadow: 0 1px 2px rgb(0 0 0 / 3%);
 }
 
@@ -1463,7 +1465,7 @@ html.dark .updater-panel .setting-group.updater-infra-card {
   border-color: var(--updater-subtle-border);
   background: var(--updater-subtle-bg);
   backdrop-filter: var(--updater-subtle-filter);
-  -webkit-backdrop-filter: var(--updater-subtle-filter);
+  backdrop-filter: var(--updater-subtle-filter);
   box-shadow:
     0 1px 2px rgb(0 0 0 / 22%),
     inset 0 1px 0 rgb(255 255 255 / 5%);

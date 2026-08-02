@@ -3,6 +3,7 @@
  * 使用通用设置组件重构
  */
 
+import type { FooterCustomItem } from '../../utils/footerCustomLogic'
 import {
   FaChartLine,
   FaGlobe,
@@ -20,9 +21,9 @@ import { useI18n } from '../../contexts/I18nContext'
 import {
   emptyFooterCustomItem,
   FOOTER_CUSTOM_MAX,
+
   parseFooterCustomSlots,
   serializeFooterCustom,
-  type FooterCustomItem,
 } from '../../utils/footerCustomLogic'
 import {
   CheckboxGroupItem,
@@ -94,7 +95,7 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
   sectionId,
 }) => {
   const { t } = useI18n()
-  const { catalog: g, renderGuide, bindGuide } = useSettingGuide()
+  const { catalog: g, bindGuide } = useSettingGuide()
 
   // 标签归属本 Section，壳层不再维护死字段 label map
   const getFieldLabel = useCallback(

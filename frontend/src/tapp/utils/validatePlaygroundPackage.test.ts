@@ -4,8 +4,6 @@
  *   node --experimental-strip-types --test src/tapp/utils/validatePlaygroundPackage.test.ts
  */
 
-/* eslint-disable test/no-import-node-test -- node:test; project has no vitest dep */
-
 import type { TappCodeStructure, TappManifest } from '../types'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'

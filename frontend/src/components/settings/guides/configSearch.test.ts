@@ -3,8 +3,7 @@
  *   pnpm test:unit -- src/components/settings/guides/configSearch.test.ts
  */
 
-/* eslint-disable test/no-import-node-test -- node:test; project has no vitest dep */
-
+import type { ConfigSearchableItem } from './configSearch.ts'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
@@ -13,7 +12,6 @@ import {
   parseSearchQuery,
   rankConfigSearch,
   scoreSearchItem,
-  type ConfigSearchableItem,
 } from './configSearch.ts'
 
 const sample: ConfigSearchableItem[] = [

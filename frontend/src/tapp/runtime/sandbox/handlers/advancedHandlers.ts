@@ -540,7 +540,7 @@ export function registerMediaHandlers(
         cover: proxyImageUrlOr(rawCover, rawCover),
         url,
         duration:
-          typeof songIn.duration === 'number' && isFinite(songIn.duration)
+          typeof songIn.duration === 'number' && Number.isFinite(songIn.duration)
             ? songIn.duration
             : 0,
         source,
@@ -1286,7 +1286,7 @@ export function registerContextHandlers(
           let timezone = 'UTC'
           try {
             timezone =
-              Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+              new Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
           } catch {
             /* ignore */
           }

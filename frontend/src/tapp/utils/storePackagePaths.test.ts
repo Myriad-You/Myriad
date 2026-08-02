@@ -3,7 +3,6 @@
  *
  *   cd frontend && node --experimental-strip-types --test src/tapp/utils/storePackagePaths.test.ts
  */
-/* eslint-disable test/no-import-node-test */
 
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'

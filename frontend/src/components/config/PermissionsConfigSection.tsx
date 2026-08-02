@@ -3,11 +3,10 @@
  */
 
 import type { PermissionItem, QuotaItem } from '../settings'
-import { MyriadConfigIcon } from './MyriadConfigIcon'
 import { FaSlidersH, LuSparkles } from '@lib/icons'
 import React, { useCallback, useMemo } from 'react'
-
 import { useI18n } from '../../contexts/I18nContext'
+
 import {
   PermissionGroup,
   QuotaGroup,
@@ -17,6 +16,7 @@ import {
   SettingSection,
   useSettingGuide,
 } from '../settings'
+import { MyriadConfigIcon } from './MyriadConfigIcon'
 
 /** Agent 相关 elevated 键（预设只改这些，不碰媒体/主题等） */
 const AGENT_PRESET_PERM_KEYS = [
@@ -162,7 +162,7 @@ export const PermissionsConfigSection: React.FC<
   sectionId,
 }) => {
   const { t } = useI18n()
-  const { catalog: g, renderGuide, bindGuide } = useSettingGuide()
+  const { catalog: g, bindGuide } = useSettingGuide()
 
   // 定义权限项列表。要求持久登录主体的注册类能力不向游客展示。
   const permissionItems: PermissionItem[] = [

@@ -1,7 +1,6 @@
 /**
  *   pnpm exec tsx --test src/utils/ime.test.ts
  */
-/* eslint-disable test/no-import-node-test -- node:test */
 
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import assert from 'node:assert/strict'

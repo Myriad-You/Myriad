@@ -42,9 +42,9 @@ import {
   InfoActionCard,
   InputItem,
   ManagedList,
+  SettingsButton,
   SettingSection,
   SettingTitleGuideEntry,
-  SettingsButton,
   ToggleSwitch,
   useSettingGuide,
 } from '../settings'

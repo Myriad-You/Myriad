@@ -9,6 +9,7 @@
 
 import type { WidgetSize } from '../components/WidgetGrid'
 import type { ViewportBand } from '../utils/viewportBands'
+import type { WidgetSizeKey } from '../utils/widgetSizeScale'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { VIEWPORT_MQ } from '../utils/viewportBands'
 import {
@@ -18,7 +19,7 @@ import {
   STANDARD_CELL_SIZE as STANDARD_CELL_SIZE_CONST,
   WIDGET_COMPACT_SCALE,
   WIDGET_MINI_SCALE,
-  type WidgetSizeKey,
+
 } from '../utils/widgetSizeScale'
 import { getCachedSize } from './animation'
 import { useHomeResizeObserver } from './animation/pages/home'

@@ -42,8 +42,8 @@ export const LOCAL_CACHE_PREFIXES = [
   'geo_location_time_',
 ] as const
 
-const CACHE_KEY_HEURISTIC =
-  /cache|Cache|CACHE|_ttl|_TTL|sw-cached|color_palette|playlist/i
+// /i makes Cache/CACHE redundant with cache; _TTL with _ttl.
+const CACHE_KEY_HEURISTIC = /cache|_ttl|sw-cached|color_palette|playlist/i
 
 /** 是否应从 localStorage 删除该键（强制刷新时） */
 export function shouldRemoveLocalCacheKey(key: string): boolean {

@@ -960,8 +960,9 @@ export function useEvocativeWallpaper(
         !s.rippleCanvas ||
         !s.pageVisible ||
         !interactionReady
-      )
+      ) {
         return
+}
 
       const normalizedY = e.clientY / window.innerHeight
       if (normalizedY > unblurZone) return

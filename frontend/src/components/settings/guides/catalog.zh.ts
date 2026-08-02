@@ -779,7 +779,7 @@ export const zh: SettingGuidesCatalog = {
         '① 保存时写入运行时 data/agent/mcp_servers.json（容器内常见 /data/agent/mcp_servers.json），并热重载子进程（无需整站重启）。\n② 启用的服务器会拉起 command/args，工具以 mcp.{id}.{tool} 暴露给 Agent。\n③ 列表可看健康、工具数；禁用则不启动但仍保留配置。\n④ 环境变量可写密钥，只存在服务器配置中。',
       frontend: '设置 → 高级配置 →「MCP 工具服务器」（仅管理员）。深链 /config?section=mcp。',
       notes: '配置路径以部署 data 目录为准。命令需在容器/主机 PATH 中可用。密钥勿提交 git。保存失败会保留当前运行进程直到下次成功保存。',
-    }
+    },
   },
 
   federation: {

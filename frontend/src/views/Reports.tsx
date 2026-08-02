@@ -37,25 +37,25 @@ import Toast from '../components/Toast'
 import { preloadPlatformFaces } from '../components/widgets/reportCard/platformFaceLoaders'
 import { ReportCardWidget } from '../components/widgets/ReportCardWidget'
 import { API_URL } from '../config'
-import { notifyHttpRateLimit } from '../utils/httpRateLimitToast'
 import { useAuth } from '../contexts/AuthContext'
 import { useI18n } from '../contexts/I18nContext'
 import {
   usePageReady,
   useReportsScheduler,
 } from '../hooks/animation'
-import { usePageSeo } from '../hooks/usePageSeo'
-import { buildModulePageSeo } from '../utils/modulePageSeo'
-import {
-  canAccessModuleVisibility,
-  useModuleVisibilityPreferences,
-} from '../utils/moduleVisibility'
 import { useHorizontalStripScroll } from '../hooks/useHorizontalStripScroll'
+import { usePageSeo } from '../hooks/usePageSeo'
 import {
   useResolvedTitleColor,
   useTitleFont,
 } from '../hooks/useTitleFont'
 import { getCSRFToken } from '../utils/csrf'
+import { notifyHttpRateLimit } from '../utils/httpRateLimitToast'
+import { buildModulePageSeo } from '../utils/modulePageSeo'
+import {
+  canAccessModuleVisibility,
+  useModuleVisibilityPreferences,
+} from '../utils/moduleVisibility'
 import { resolvePlatformId } from '../utils/platformId'
 import { notifyRecentActivityUpdated } from '../utils/recentActivity'
 import { REPORT_PLATFORM_IDS } from '../utils/reportCardVisuals'

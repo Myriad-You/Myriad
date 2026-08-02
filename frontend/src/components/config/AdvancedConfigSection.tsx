@@ -219,7 +219,7 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
   onMessage,
 }) => {
   const { t } = useI18n()
-  const { catalog: g, renderGuide, bindGuide } = useSettingGuide()
+  const { catalog: g, bindGuide } = useSettingGuide()
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
   /** 按钮原地二次确认：第一次点亮，第二次执行 */
   const [cachePurgeArmed, setCachePurgeArmed] = useState(false)

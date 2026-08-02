@@ -143,7 +143,7 @@ img[loading='lazy'] {
 html[data-perf-mode='light'] [class*='backdrop-blur'],
 html[data-perf-mode='exlight'] [class*='backdrop-blur'] {
   backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
 }
 
 /* ---------- exlight only（弱硬件低档 / prefers-reduced-motion）---------- */
@@ -170,7 +170,7 @@ html[data-perf-mode='exlight'] *,
 html[data-perf-mode='exlight'] *::before,
 html[data-perf-mode='exlight'] *::after {
   backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
 }
 
 /*
@@ -337,12 +337,15 @@ html[data-perf-mode='exlight'] [class*='backdrop-blur'][class*='dark:bg-neutral-
 html[data-perf-mode='exlight'] [class*='backdrop-blur'][class*='bg-[#fff9f0]/80'] {
   background-color: #fff9f0 !important;
 }
+
 html[data-perf-mode='exlight'] [class*='backdrop-blur'][class*='bg-[#faf4e6]/80'] {
   background-color: #faf4e6 !important;
 }
+
 html[data-perf-mode='exlight'] [class*='backdrop-blur'][class*='bg-[#242424]/80'] {
   background-color: #242424 !important;
 }
+
 html[data-perf-mode='exlight'] [class*='backdrop-blur'][class*='bg-[#161b22]/80'] {
   background-color: #161b22 !important;
 }

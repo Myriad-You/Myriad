@@ -5,6 +5,8 @@
 export { default as AboutConfigSection } from './AboutConfigSection'
 export { AdvancedConfigSection } from './AdvancedConfigSection'
 export { default as AiConfigSection } from './AiConfigSection'
+export { ConfigTipsBanner } from './ConfigTipsBanner'
+export type { ConfigTipsBannerProps, GreetingPeriod } from './ConfigTipsBanner'
 export {
   areFederationPoliciesEqual,
   DEFAULT_FEDERATION_POLICY,
@@ -28,21 +30,18 @@ export type { PlatformAutoFetchConfig } from './PlatformAutoRefreshSettings'
 export { default as PlatformDataManagement } from './PlatformDataManagement'
 export type { PlatformDataManagementProps } from './PlatformDataManagement'
 export {
-  default as PlatformsConfigSection,
   hasBangumiCredential,
   isBangumiPlatform,
   isPlatformConfigured,
+  default as PlatformsConfigSection,
   sanitizeMaskedFieldValue,
 } from './PlatformsConfigSection'
-export { default as SiteAnalyticsSection } from './SiteAnalyticsSection'
 export type {
   PlatformConfig,
   PlatformConfigField,
   PlatformsConfigSectionProps,
 } from './PlatformsConfigSection'
-export { ConfigTipsBanner } from './ConfigTipsBanner'
-export type { ConfigTipsBannerProps, GreetingPeriod } from './ConfigTipsBanner'
-export { default as UiConfigSection } from './UiConfigSection'
+export { default as SiteAnalyticsSection } from './SiteAnalyticsSection'
 export { default as TripoConfigSection } from './TripoConfigSection'
 export {
   ADVANCED_RESET_KEYS,
@@ -57,5 +56,6 @@ export {
   UI_RESET_KEYS,
   WALLPAPER_SOFT_RELOAD_UI_BAG_KEYS,
 } from './uiBagOwnership'
+export { default as UiConfigSection } from './UiConfigSection'
 export { UpdaterInlinePanel } from './UpdaterConfigSection'
 export { default as UsersConfigSection } from './UsersConfigSection'

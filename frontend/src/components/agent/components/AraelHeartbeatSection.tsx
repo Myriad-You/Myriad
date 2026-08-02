@@ -17,7 +17,7 @@ export interface AraelHeartbeatSectionProps {
   onTasksChange: React.Dispatch<React.SetStateAction<HeartbeatTask[]>>
 }
 
-type HbDraft = {
+interface HbDraft {
   name: string
   schedule: string
   action: string
