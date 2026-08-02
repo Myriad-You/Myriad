@@ -992,7 +992,7 @@ export const zhCN: TranslationKeys = {
     updaterNoSnapshots: '还没有备份。第一次更新后会出现。',
     updaterSnapshotLimitEnabled: '备份上限',
     updaterSnapshotLimitEnabledDescOn:
-      '自动只保留最新 {n} 份；24 小时内与「保留」标记不会自动删',
+      '自动只保留最新 {n} 份（「保留」标记的除外）',
     updaterSnapshotLimitEnabledDescOff:
       '关闭后不再按数量自动清理，仍可手动删除',
     updaterSnapshotLimitCount: '保留数量',

@@ -477,11 +477,11 @@ MYRIAD_DB_MODE=external
 ### 9.3 保留策略
 
 - **备份上限**（`snapshot_limit_enabled`，默认开启；`snapshot_limit` 默认 3，范围 1–20）：
-  在更新成功或 `POST /prefs` 保存上限设置时，对「非 keep / 超过 24h / 非 in-use」的快照只保留最新 N 份，其余删除。
+  在更新成功或 `POST /prefs` 保存上限设置时，对「非 keep / 非 in-use」的快照（**不限年龄**）只保留最新 N 份，其余删除。
 - 关闭上限后不再按数量自动清理（仍可手动 `DELETE /snapshots/{id}`）。
 - `keep=true`（如 major 升级前永久标记）永不自动删
-- < 24h 内的快照永不自动删
 - 删除前确认不是 in-flight job / needs_manual rescue 引用
+- 年龄不再作为「永远保留」的例外；上限对自动管理备份是硬上限
 
 ## 10. Docker 适配
 

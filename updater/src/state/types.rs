@@ -39,12 +39,12 @@ pub struct UpdaterStateFile {
     pub auto_install: bool,
 
     /// When true, successful updates auto-prune pgdata snapshots so that, among
-    /// non-`keep` backups older than 24h (and not in use), only the most recent
+    /// non-`keep` / non-in-use backups (any age), only the most recent
     /// [`Self::snapshot_limit`] are retained. Default ON (historical `prune(3)`).
     #[serde(default = "default_true")]
     pub snapshot_limit_enabled: bool,
 
-    /// Max number of auto-retained older snapshots when
+    /// Max number of auto-retained non-keep / non-protected snapshots when
     /// [`Self::snapshot_limit_enabled`] is true. Default 3; valid range 1..=20.
     #[serde(default = "default_snapshot_limit")]
     pub snapshot_limit: u32,

@@ -939,7 +939,7 @@ export const en: SettingGuidesCatalog = {
     snapshotLimit: {
       what: 'Auto-prune older backups so only the newest few remain.',
       chain:
-        '1) When on, pick “Latest N” on the right; older backups beyond that are removed after a successful update or when you change this setting.\n2) Kept pins, backups under 24h, and backups in use by recovery are never auto-deleted.\n3) Off = no count-based auto-prune (manual delete still works).',
+        '1) When on, pick “Latest N” on the right; older backups beyond that are removed after a successful update or when you change this setting.\n2) Kept pins and backups in use by recovery are never auto-deleted; age does not exempt a backup from the limit.\n3) Off = no count-based auto-prune (manual delete still works).',
       frontend: 'Top of Backups & rollback: label left, keep-count + switch right.',
       notes: 'Default on, keep 3. Use 1–2 when disk is tight; raise for a longer rollback window.',
     },

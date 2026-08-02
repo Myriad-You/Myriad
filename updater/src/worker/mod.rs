@@ -152,9 +152,9 @@ pub struct Prefs {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub check_interval_secs_pref: Option<u64>,
     pub auto_install: bool,
-    /// Auto-prune older backups to a max count (see [`Prefs::snapshot_limit`]).
+    /// Auto-prune backups to a max count (see [`Prefs::snapshot_limit`]).
     pub snapshot_limit_enabled: bool,
-    /// Max older non-keep snapshots retained when limit is enabled.
+    /// Max non-keep / non-protected snapshots retained when limit is enabled.
     pub snapshot_limit: u32,
     /// Ids removed when prefs change triggered an immediate prune (empty otherwise).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

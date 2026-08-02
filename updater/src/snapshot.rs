@@ -277,17 +277,19 @@ impl<'a> SnapshotManager<'a> {
 
     /// Apply the keep-N retention policy described in spec §9.3.
     ///
-    /// Always retained:
+    /// Always retained (never auto-deleted):
     /// - `keep=true` (operator permanent pin)
-    /// - created within the last 24 hours
     /// - currently referenced by an in-flight job or rescue / needs_manual recovery
     ///
-    /// Among the remaining entries, keep the most recent `keep_n` and delete the rest.
-    /// `keep_n == 0` deletes all eligible older non-keep snapshots (used only when callers
-    /// intentionally pass zero; the prefs path clamps to ≥1).
+    /// Among all other snapshots (regardless of age), keep the most recent `keep_n`
+    /// by `created_at` and delete the rest. Age is not a free pass past the limit.
+    ///
+    /// `keep_n == 0` deletes all eligible non-keep / non-protected snapshots (used only
+    /// when callers intentionally pass zero; the prefs path clamps to ≥1). When
+    /// `keep_n >= 1`, at least `min(keep_n, eligible)` auto-managed backups remain, so
+    /// prune never wipes the last eligible backup solely because the set is small.
     pub fn prune(&self, keep_n: usize) -> Result<Vec<String>> {
         let mut sf = self.state.read_snapshots()?;
-        let cutoff = Utc::now() - chrono::Duration::hours(24);
 
         // Collect ids that must never be auto-deleted (in-use / rescue).
         let mut protected: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -297,16 +299,16 @@ impl<'a> SnapshotManager<'a> {
             }
         }
 
+        // Pins and in-use/rescue are always kept; among the rest, keep newest N.
         let mut keepers: Vec<&SnapshotMeta> = sf
             .items
             .iter()
-            .filter(|m| m.keep || m.created_at >= cutoff || protected.contains(&m.id))
+            .filter(|m| m.keep || protected.contains(&m.id))
             .collect();
-        // Among the rest, keep the most recent N.
         let mut others: Vec<&SnapshotMeta> = sf
             .items
             .iter()
-            .filter(|m| !m.keep && m.created_at < cutoff && !protected.contains(&m.id))
+            .filter(|m| !m.keep && !protected.contains(&m.id))
             .collect();
         others.sort_by_key(|m| std::cmp::Reverse(m.created_at));
         keepers.extend(others.iter().take(keep_n));
@@ -855,19 +857,19 @@ mod tests {
     }
 
     #[test]
-    fn prune_keeps_recent_n_among_old_and_protects_keep() {
+    fn prune_keeps_latest_n_among_mixed_ages_and_protects_keep() {
         let dir = tempdir().unwrap();
         let state = StateDir::open(&dir.path().join("state")).unwrap();
-        let old = Utc::now() - chrono::Duration::hours(48);
-        // 5 old non-keep snapshots; keep only the 2 newest among them.
+        let now = Utc::now();
+        let old = now - chrono::Duration::hours(48);
+        // 5 non-keep snapshots of mixed ages (including <24h). keep_n=2 → only 2 newest.
         plant_snapshot_meta_at(&state, "old-a", old - chrono::Duration::hours(4), false);
         plant_snapshot_meta_at(&state, "old-b", old - chrono::Duration::hours(3), false);
-        plant_snapshot_meta_at(&state, "old-c", old - chrono::Duration::hours(2), false);
-        plant_snapshot_meta_at(&state, "old-d", old - chrono::Duration::hours(1), false);
-        plant_snapshot_meta_at(&state, "old-e", old, false);
-        // Permanent keep + fresh (<24h) must survive regardless of keep_n.
+        plant_snapshot_meta_at(&state, "mid", now - chrono::Duration::hours(12), false);
+        plant_snapshot_meta_at(&state, "fresh-a", now - chrono::Duration::hours(2), false);
+        plant_snapshot_meta_at(&state, "fresh-b", now - chrono::Duration::minutes(30), false);
+        // Permanent pin survives even when older than all others.
         plant_snapshot_meta_at(&state, "kept-forever", old - chrono::Duration::hours(10), true);
-        plant_snapshot_meta_at(&state, "fresh", Utc::now() - chrono::Duration::hours(1), false);
 
         let mgr = SnapshotManager {
             state: &state,
@@ -882,12 +884,104 @@ mod tests {
             .into_iter()
             .map(|m| m.id)
             .collect();
-        assert!(ids.contains("old-d"));
-        assert!(ids.contains("old-e"));
+        // Newest two non-keep + the pin.
+        assert!(ids.contains("fresh-a"));
+        assert!(ids.contains("fresh-b"));
         assert!(ids.contains("kept-forever"));
-        assert!(ids.contains("fresh"));
         assert!(!ids.contains("old-a"));
         assert!(!ids.contains("old-b"));
-        assert!(!ids.contains("old-c"));
+        assert!(!ids.contains("mid"));
+        // Age no longer exempts: older-than-N non-keep are gone even if <24h.
+        assert_eq!(ids.len(), 3);
+    }
+
+    #[test]
+    fn prune_keep_n_one_among_several_fresh() {
+        let dir = tempdir().unwrap();
+        let state = StateDir::open(&dir.path().join("state")).unwrap();
+        let now = Utc::now();
+        plant_snapshot_meta_at(&state, "f1", now - chrono::Duration::hours(3), false);
+        plant_snapshot_meta_at(&state, "f2", now - chrono::Duration::hours(2), false);
+        plant_snapshot_meta_at(&state, "f3", now - chrono::Duration::hours(1), false);
+        plant_snapshot_meta_at(&state, "f4", now - chrono::Duration::minutes(10), false);
+
+        let mgr = SnapshotManager {
+            state: &state,
+            pgdata: dir.path().join("pgdata"),
+        };
+        let removed = mgr.prune(1).unwrap();
+        assert_eq!(removed.len(), 3);
+        let ids: std::collections::HashSet<_> = state
+            .read_snapshots()
+            .unwrap()
+            .items
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
+        assert_eq!(ids, std::collections::HashSet::from(["f4".to_string()]));
+    }
+
+    #[test]
+    fn prune_protects_in_use_even_when_oldest() {
+        use crate::state::{Job, JobKind, JobStatus};
+
+        let dir = tempdir().unwrap();
+        let state = StateDir::open(&dir.path().join("state")).unwrap();
+        let now = Utc::now();
+        let old = now - chrono::Duration::hours(72);
+        plant_snapshot_meta_at(&state, "busy-old", old, false);
+        plant_snapshot_meta_at(&state, "n1", now - chrono::Duration::hours(3), false);
+        plant_snapshot_meta_at(&state, "n2", now - chrono::Duration::hours(2), false);
+        plant_snapshot_meta_at(&state, "n3", now - chrono::Duration::hours(1), false);
+
+        let job = Job {
+            id: "job-prune".into(),
+            kind: JobKind::Update,
+            created_at: now,
+            finished_at: None,
+            from_version: None,
+            to_version: None,
+            snapshot_id: Some("busy-old".into()),
+            status: JobStatus::Running,
+            steps: vec![],
+            idempotency_key: None,
+        };
+        state.write_job(&job).unwrap();
+        state.set_current_job(Some("job-prune")).unwrap();
+
+        let mgr = SnapshotManager {
+            state: &state,
+            pgdata: dir.path().join("pgdata"),
+        };
+        let removed = mgr.prune(2).unwrap();
+        assert_eq!(removed.len(), 1);
+        let ids: std::collections::HashSet<_> = state
+            .read_snapshots()
+            .unwrap()
+            .items
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
+        assert!(ids.contains("busy-old"));
+        assert!(ids.contains("n2"));
+        assert!(ids.contains("n3"));
+        assert!(!ids.contains("n1"));
+        assert_eq!(ids.len(), 3);
+    }
+
+    #[test]
+    fn prune_keeps_sole_eligible_when_keep_n_at_least_one() {
+        let dir = tempdir().unwrap();
+        let state = StateDir::open(&dir.path().join("state")).unwrap();
+        plant_snapshot_meta_at(&state, "only", Utc::now(), false);
+
+        let mgr = SnapshotManager {
+            state: &state,
+            pgdata: dir.path().join("pgdata"),
+        };
+        let removed = mgr.prune(1).unwrap();
+        assert!(removed.is_empty());
+        assert_eq!(state.read_snapshots().unwrap().items.len(), 1);
+        assert_eq!(state.read_snapshots().unwrap().items[0].id, "only");
     }
 }

@@ -1053,7 +1053,7 @@ export const enUS: TranslationKeys = {
     updaterNoSnapshots: 'No backups yet. One appears after the first update.',
     updaterSnapshotLimitEnabled: 'Backup limit',
     updaterSnapshotLimitEnabledDescOn:
-      'Keep only the latest {n}; kept pins and backups under 24h are never auto-deleted',
+      'Keep only the latest {n} (kept pins are never auto-deleted)',
     updaterSnapshotLimitEnabledDescOff:
       'Off: no count-based auto-prune; manual delete still works',
     updaterSnapshotLimitCount: 'Keep count',

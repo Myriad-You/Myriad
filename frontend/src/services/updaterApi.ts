@@ -106,11 +106,12 @@ export interface UpdaterStatus {
   /** Auto-install clear upgrades on the current channel. Default false. */
   auto_install?: boolean
   /**
-   * Auto-prune older pgdata backups so only the latest N non-keep entries
-   * (older than 24h, not in use) are retained. Default true.
+   * Auto-prune pgdata backups so only the latest N non-keep / non-in-use
+   * entries (any age) are retained. Pins (`keep`) and in-use/rescue backups
+   * are never auto-deleted. Default true.
    */
   snapshot_limit_enabled?: boolean
-  /** Max older non-keep backups when limit is enabled (1–20). Default 3. */
+  /** Max non-keep / non-protected backups when limit is enabled (1–20). Default 3. */
   snapshot_limit?: number
   maintenance_active: boolean
   maintenance_phase: string

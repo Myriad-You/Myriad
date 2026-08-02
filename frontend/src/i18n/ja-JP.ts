@@ -1040,7 +1040,7 @@ export const jaJP: TranslationKeys = {
       'バックアップはまだありません。初回更新後に作成されます。',
     updaterSnapshotLimitEnabled: 'バックアップ上限',
     updaterSnapshotLimitEnabledDescOn:
-      '最新 {n} 件だけ自動保持。24 時間以内と「保持」指定は削除しません',
+      '最新 {n} 件だけ自動保持（「保持」指定は自動削除しません）',
     updaterSnapshotLimitEnabledDescOff:
       'オフ：件数での自動整理なし。手動削除は可能です',
     updaterSnapshotLimitCount: '保持数',
