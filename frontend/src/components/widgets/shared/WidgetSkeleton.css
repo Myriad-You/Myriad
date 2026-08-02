@@ -275,6 +275,7 @@ html[data-perf-mode='exlight'] .widget-skeleton-cover {
 .widget-skeleton--report {
   position: absolute;
   inset: 0;
+
   /* top: line bones · bottom: logo row (same corner as CardLogoPill) */
   padding: 0.75rem;
   justify-content: space-between;
@@ -299,6 +300,7 @@ html[data-perf-mode='exlight'] .widget-skeleton-cover {
   gap: 0.4rem;
   width: 100%;
   max-width: 78%;
+
   /* keep bones away from the bottom-left logo strip */
   padding-bottom: 0.15rem;
   margin-top: 0.1rem;
