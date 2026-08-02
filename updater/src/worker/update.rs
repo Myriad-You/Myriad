@@ -243,6 +243,8 @@ async fn dispatch_update_failure(
             // Prefer Succeeded so UI/status match the running stack.
             let _ = rec.finalize(JobStatus::Succeeded);
             let _ = crate::worker::machine::clear_maintenance(worker.state());
+            // Same retention as a clean success: free extras now that job.current is clear.
+            worker.best_effort_prune_snapshots("update_success_bookkeeping_err");
             let _ = worker.state().append_history(&format!(
                 "job {}: SUCCESS_WITH_BOOKKEEPING_ERR ({err})",
                 rec.job_id
@@ -481,9 +483,6 @@ async fn run_update_body(
 
     let _ = rec.enter(Phase::Finalize, "updater.phase.finalize");
     let _ = rec.finish_step_ok();
-    if let Err(e) = worker.maybe_prune_snapshots() {
-        warn!(err = %e, "snapshot prune after successful update failed");
-    }
     // After health OK we NEVER return Err: stack is live on the new tag.
     // Bookkeeping failures are logged; job is forced Succeeded and maintenance cleared.
     if let Err(e) = rec.finalize(JobStatus::Succeeded) {
@@ -492,6 +491,9 @@ async fn run_update_body(
     if let Err(e) = crate::worker::machine::clear_maintenance(worker.state()) {
         warn!(err = %e, "clear_maintenance failed after healthy deploy");
     }
+    // Prune *after* clearing job.current so the just-created snapshot counts
+    // toward keep_n (not as an extra in-use slot outside the limit).
+    worker.best_effort_prune_snapshots("update_success");
     let _ = worker
         .state()
         .append_history(&format!("job {job_id}: SUCCESS {target} ({mode})"));
@@ -754,6 +756,8 @@ async fn finish_pre_swap_failure(
             m.bump_heartbeat();
             let _ = worker.state().write_maintenance(&m);
         }
+        // Free old extras; rescue/in-use snap stays protected by needs_manual.
+        worker.best_effort_prune_snapshots("pre_swap_needs_manual");
         let _ = worker.state().append_history(&format!(
             "job {}: NEEDS_MANUAL — original={original_err}; pre_swap_restore={re}",
             rec.job_id
@@ -771,6 +775,9 @@ async fn finish_pre_swap_failure(
     if let Err(e) = crate::worker::machine::clear_maintenance(worker.state()) {
         warn!(err = %e, "pre-swap cleanup: clear_maintenance failed after stack restored");
     }
+    // Snapshot may already exist after mid-update failure; without prune here,
+    // failed updates pile up unbounded backups until a later success/prefs save.
+    worker.best_effort_prune_snapshots("pre_swap_fail");
     let _ = worker.state().append_history(&format!(
         "job {}: PRE_SWAP_CLEANUP_OK ({original_err})",
         rec.job_id
@@ -837,11 +844,9 @@ async fn finish_with_rollback(
                     let _ = rec.finish_step_ok();
                     let _ = rec.enter(Phase::Finalize, "updater.phase.finalize");
                     let _ = rec.finish_step_ok();
-                    if let Err(e) = worker.maybe_prune_snapshots() {
-                        warn!(err = %e, "snapshot prune after health recheck success failed");
-                    }
                     let _ = rec.finalize(JobStatus::Succeeded);
                     let _ = crate::worker::machine::clear_maintenance(worker.state());
+                    worker.best_effort_prune_snapshots("update_success_health_recheck");
                     let _ = worker.state().append_history(&format!(
                         "job {}: SUCCESS after health false-negative recheck ({target}); \
                          original_probe_err={original_err}",
@@ -909,6 +914,9 @@ async fn finish_with_rollback(
             if let Err(e) = crate::worker::machine::clear_maintenance(worker.state()) {
                 warn!(err = %e, "auto-rollback: clear_maintenance failed");
             }
+            // Rollback restored pgdata; prune extras so failed updates cannot
+            // leave unbounded snapshot piles (rescue snap no longer in-use).
+            worker.best_effort_prune_snapshots("post_swap_rollback_ok");
             let rb_ok = format!("job {}: ROLLBACK_OK ({original_err})", rec.job_id);
             let _ = worker.state().append_history(&rb_ok);
             let _ = worker.state().append_audit(&format!(
@@ -939,6 +947,9 @@ async fn finish_with_rollback(
                 });
                 let _ = worker.state().write_updater(&st);
             }
+            // Still free unrelated old backups; rescue snapshot stays protected
+            // via needs_manual / in_use_reason.
+            worker.best_effort_prune_snapshots("post_swap_needs_manual");
             let _ = worker.state().append_history(&format!(
                 "job {}: NEEDS_MANUAL — original={original_err}; rollback={rb_err}",
                 rec.job_id

@@ -101,9 +101,9 @@ pub enum Command {
         mode: Option<UpdateMode>,
         check_interval_secs: Option<Option<u64>>,
         auto_install: Option<bool>,
-        /// Toggle auto-prune of older pgdata snapshots.
+        /// Toggle auto-prune of pgdata snapshots.
         snapshot_limit_enabled: Option<bool>,
-        /// Max older non-keep snapshots to retain when limit is enabled (1..=20).
+        /// Max non-keep / non-protected snapshots to retain when limit is enabled (1..=20).
         snapshot_limit: Option<u32>,
         reply: tokio::sync::oneshot::Sender<Result<Prefs>>,
     },
@@ -1040,28 +1040,81 @@ impl Worker {
             .unwrap_or(false)
     }
 
-    /// Effective snapshot retention: `Some(keep_n)` when limit is enabled, else `None`
-    /// (auto-prune disabled). Falls back to historical default of 3 when enabled.
-    pub fn effective_snapshot_limit(&self) -> Option<usize> {
-        let st = self.state.read_updater().ok()?;
+    /// Effective snapshot retention: `Ok(Some(keep_n))` when limit is enabled,
+    /// `Ok(None)` when disabled, `Err` when updater state cannot be read.
+    /// Falls back to historical default of 3 when enabled but the stored value
+    /// is out of range.
+    pub fn effective_snapshot_limit(&self) -> Result<Option<usize>> {
+        let st = self.state.read_updater()?;
         if !st.snapshot_limit_enabled {
-            return None;
+            return Ok(None);
         }
         let n = validate_snapshot_limit(st.snapshot_limit)
             .unwrap_or(crate::state::SNAPSHOT_LIMIT_DEFAULT);
-        Some(n as usize)
+        Ok(Some(n as usize))
     }
 
-    /// Best-effort prune using current prefs. No-op when limit disabled.
+    /// Best-effort prune using current prefs.
+    ///
+    /// - Limit disabled → `Ok([])` and a debug log (not an error).
+    /// - State read failure → `Err` + warn (callers must not treat this as
+    ///   "disabled"; previously `ok()?` swallowed the error as a silent no-op).
+    /// - Limit enabled → run prune and log kept/removed counts.
     pub fn maybe_prune_snapshots(&self) -> Result<Vec<String>> {
-        let Some(keep_n) = self.effective_snapshot_limit() else {
-            return Ok(Vec::new());
+        let keep_n = match self.effective_snapshot_limit() {
+            Ok(Some(n)) => n,
+            Ok(None) => {
+                tracing::debug!("snapshot prune skipped: limit disabled");
+                return Ok(Vec::new());
+            }
+            Err(e) => {
+                warn!(
+                    err = %e,
+                    "snapshot prune skipped: failed to read updater state (not the same as limit off)"
+                );
+                return Err(e);
+            }
         };
         let snap = crate::snapshot::SnapshotManager {
             state: &self.state,
             pgdata: self.cli.pgdata.clone(),
         };
-        snap.prune(keep_n)
+        let removed = snap.prune(keep_n)?;
+        if removed.is_empty() {
+            info!(keep_n, "snapshot prune ran: nothing to remove");
+        } else {
+            info!(
+                keep_n,
+                removed = removed.len(),
+                ids = %removed.join(","),
+                "snapshot prune ran: removed backups"
+            );
+        }
+        Ok(removed)
+    }
+
+    /// Like [`Self::maybe_prune_snapshots`] but never fails the caller: logs and
+    /// optionally records history/audit when removals happen. Use on update
+    /// success/failure cleanup paths.
+    pub fn best_effort_prune_snapshots(&self, reason: &str) {
+        match self.maybe_prune_snapshots() {
+            Ok(ids) if !ids.is_empty() => {
+                let _ = self.state.append_history(&format!(
+                    "snapshot prune ({reason}): removed {} ({})",
+                    ids.len(),
+                    ids.join(",")
+                ));
+                let _ = self.state.append_audit(&format!(
+                    "audit: snapshot_prune reason={reason} count={} ids={}",
+                    ids.len(),
+                    ids.join(",")
+                ));
+            }
+            Ok(_) => {}
+            Err(e) => {
+                warn!(err = %e, %reason, "snapshot prune failed (best-effort)");
+            }
+        }
     }
 
     /// Shared safety gate for auto-install: only clear upgrades on the current
@@ -1418,8 +1471,8 @@ impl Worker {
         }
         self.state.write_updater(&st)?;
 
-        // When retention is enabled or tightened, prune immediately so disk frees
-        // without waiting for the next successful update.
+        // When retention fields are present or the limit is on/changed, prune
+        // immediately so multi-day-old extras free without waiting for an update.
         let pruned_snapshot_ids = if st.snapshot_limit_enabled
             && (retention_changed || snapshot_limit_enabled.is_some() || snapshot_limit.is_some())
         {
@@ -1432,10 +1485,15 @@ impl Worker {
                             ids.join(",")
                         ));
                         let _ = self.state.append_audit(&format!(
-                            "audit: snapshot_prune count={} ids={}",
+                            "audit: snapshot_prune reason=prefs count={} ids={}",
                             ids.len(),
                             ids.join(",")
                         ));
+                    } else {
+                        info!(
+                            snapshot_limit = st.snapshot_limit,
+                            "prefs: snapshot prune ran with nothing to remove"
+                        );
                     }
                     ids
                 }
@@ -1445,6 +1503,12 @@ impl Worker {
                 }
             }
         } else {
+            if snapshot_limit_enabled.is_some() || snapshot_limit.is_some() {
+                info!(
+                    enabled = st.snapshot_limit_enabled,
+                    "prefs: snapshot prune not run (limit disabled or fields not applied)"
+                );
+            }
             Vec::new()
         };
 

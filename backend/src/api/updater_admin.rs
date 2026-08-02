@@ -531,10 +531,10 @@ pub struct PrefsBody {
     pub check_interval_secs: Option<serde_json::Value>,
     #[serde(default)]
     pub auto_install: Option<bool>,
-    /// Toggle auto-prune of older pgdata backups (updater snapshot retention).
+    /// Toggle auto-prune of pgdata backups (updater snapshot retention).
     #[serde(default)]
     pub snapshot_limit_enabled: Option<bool>,
-    /// Max older non-keep backups when limit is enabled (1..=20).
+    /// Max non-keep / non-protected backups when limit is enabled (1..=20).
     #[serde(default)]
     pub snapshot_limit: Option<u32>,
 }

@@ -86,9 +86,9 @@ struct StatusResp {
     check_interval_secs_pref: Option<u64>,
     /// Auto-install clear upgrades on the current channel. Default false.
     auto_install: bool,
-    /// Auto-prune older pgdata backups to a max count. Default true.
+    /// Auto-prune pgdata backups to a max count. Default true.
     snapshot_limit_enabled: bool,
-    /// Max older non-keep backups retained when limit is enabled (1..=20). Default 3.
+    /// Max non-keep / non-protected backups retained when limit is enabled (1..=20). Default 3.
     snapshot_limit: u32,
     maintenance_active: bool,
     maintenance_phase: Phase,
@@ -717,10 +717,10 @@ struct PrefsBody {
     check_interval_secs: Option<Option<u64>>,
     #[serde(default)]
     auto_install: Option<bool>,
-    /// Toggle auto-prune of older pgdata backups.
+    /// Toggle auto-prune of pgdata backups.
     #[serde(default)]
     snapshot_limit_enabled: Option<bool>,
-    /// Max older non-keep backups when limit enabled (1..=20).
+    /// Max non-keep / non-protected backups when limit enabled (1..=20).
     #[serde(default)]
     snapshot_limit: Option<u32>,
 }

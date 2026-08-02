@@ -856,6 +856,46 @@ mod tests {
         state.write_snapshots(&sf).unwrap();
     }
 
+    /// Regression: multi-day-old extras must be deleted under keep_n.
+    /// Under the old 24h rule these were already "eligible"; if they still piled up,
+    /// the bug was missing prune invocation — this asserts the algorithm itself
+    /// removes 48h+ non-keep snapshots past N.
+    #[test]
+    fn prune_all_at_least_48h_old_keeps_only_latest_n() {
+        let dir = tempdir().unwrap();
+        let state = StateDir::open(&dir.path().join("state")).unwrap();
+        let base = Utc::now() - chrono::Duration::hours(48);
+        // Five non-keep snapshots, all ≥48h old (staggered further back).
+        plant_snapshot_meta_at(&state, "d5", base - chrono::Duration::hours(40), false);
+        plant_snapshot_meta_at(&state, "d4", base - chrono::Duration::hours(30), false);
+        plant_snapshot_meta_at(&state, "d3", base - chrono::Duration::hours(20), false);
+        plant_snapshot_meta_at(&state, "d2", base - chrono::Duration::hours(10), false);
+        plant_snapshot_meta_at(&state, "d1", base, false);
+
+        let mgr = SnapshotManager {
+            state: &state,
+            pgdata: dir.path().join("pgdata"),
+        };
+        let removed = mgr.prune(2).unwrap();
+        assert_eq!(removed.len(), 3, "must remove three oldest among five ≥48h backups");
+        let ids: std::collections::HashSet<_> = state
+            .read_snapshots()
+            .unwrap()
+            .items
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains("d1"), "newest of the old set must remain");
+        assert!(ids.contains("d2"));
+        assert!(!ids.contains("d3"));
+        assert!(!ids.contains("d4"));
+        assert!(!ids.contains("d5"));
+        // Disk dirs removed too.
+        assert!(!state.snapshots_dir().join("d5").exists());
+        assert!(state.snapshots_dir().join("d1").exists());
+    }
+
     #[test]
     fn prune_keeps_latest_n_among_mixed_ages_and_protects_keep() {
         let dir = tempdir().unwrap();
