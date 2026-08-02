@@ -223,7 +223,7 @@ pub(crate) async fn extract_netease_library_items(metadata: &SmartFilteredData) 
             for song in &analysis.recent_songs {
                 let is_vip = song
                     .is_vip
-                    .unwrap_or_else(|| song.fee.map(|f| netease_fee_is_vip(f)).unwrap_or(false));
+                    .unwrap_or_else(|| song.fee.map(netease_fee_is_vip).unwrap_or(false));
                 song_map.insert(
                     song.title.clone(),
                     (

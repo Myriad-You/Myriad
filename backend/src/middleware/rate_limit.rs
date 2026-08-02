@@ -456,6 +456,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::assertions_on_constants)] // document intended floors for const limits
     fn image_proxy_limits_are_gallery_friendly() {
         assert!(IMAGE_PROXY_MAX >= 300);
         assert!(IP_HARD_CAP_MAX >= IMAGE_PROXY_MAX + 200);
@@ -463,6 +464,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::assertions_on_constants)] // document intended floors for const limits
     fn default_and_compute_limits_are_usable() {
         assert!(DEFAULT_PATH_MAX >= 150);
         assert!(COMPUTE_MAX >= 30);

@@ -397,7 +397,7 @@ LIMIT 50
     let filter_model_rows = db
         .query_all(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            &format!(
+            format!(
                 "SELECT DISTINCT model FROM tapp_ai_cost_ledger {model_opt_where} ORDER BY model ASC LIMIT 100"
             ),
             model_opt_params,
@@ -422,7 +422,7 @@ LIMIT 50
     let filter_user_rows = db
         .query_all(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            &format!(
+            format!(
                 r#"
 SELECT DISTINCT l.subject_id, u.username, u.display_name
 FROM tapp_ai_cost_ledger l

@@ -40,36 +40,6 @@ pub(super) fn build_config_mode_router() -> Router {
         .route("/api/auth/logout", post(api::auth::logout))
 }
 
-#[cfg(test)]
-mod config_mode_route_tests {
-    /// Source contract: config-mode must keep setup/status + oauth providers registered
-    /// so missing DB yields 503 from handlers/extractors, not SPA 404.
-    #[test]
-    fn config_mode_router_registers_setup_status_and_oauth_providers() {
-        let src = include_str!("base.rs");
-        // Inside build_config_mode_router body (before build_base_api_router).
-        let start = src
-            .find("fn build_config_mode_router")
-            .expect("config mode fn");
-        let end = src
-            .find("fn build_base_api_router")
-            .expect("base api fn");
-        let body = &src[start..end];
-        assert!(
-            body.contains("\"/api/setup/status\""),
-            "config-mode must register /api/setup/status"
-        );
-        assert!(
-            body.contains("\"/api/auth/oauth/providers\""),
-            "config-mode must register oauth providers list"
-        );
-        assert!(
-            body.contains("\"/api/auth/oauth/{slug}/login\""),
-            "config-mode must register oauth login"
-        );
-    }
-}
-
 pub(super) fn build_base_api_router(
     app_state: crate::state::AppState,
 ) -> Router<crate::state::AppState> {
@@ -431,5 +401,35 @@ pub(super) fn build_base_api_router(
         // ==================== Federation API（需认证）====================
         // Tapp 宿主归因与认证在 api::federation::router() 内按 Router 级统一挂载。
         .merge(api::federation::router(app_state.clone()))
+}
+
+#[cfg(test)]
+mod config_mode_route_tests {
+    /// Source contract: config-mode must keep setup/status + oauth providers registered
+    /// so missing DB yields 503 from handlers/extractors, not SPA 404.
+    #[test]
+    fn config_mode_router_registers_setup_status_and_oauth_providers() {
+        let src = include_str!("base.rs");
+        // Inside build_config_mode_router body (before build_base_api_router).
+        let start = src
+            .find("fn build_config_mode_router")
+            .expect("config mode fn");
+        let end = src
+            .find("fn build_base_api_router")
+            .expect("base api fn");
+        let body = &src[start..end];
+        assert!(
+            body.contains("\"/api/setup/status\""),
+            "config-mode must register /api/setup/status"
+        );
+        assert!(
+            body.contains("\"/api/auth/oauth/providers\""),
+            "config-mode must register oauth providers list"
+        );
+        assert!(
+            body.contains("\"/api/auth/oauth/{slug}/login\""),
+            "config-mode must register oauth login"
+        );
+    }
 }
 

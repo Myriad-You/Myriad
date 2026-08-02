@@ -1007,7 +1007,7 @@ mod tests {
 
     fn minimal_glb(document: Value) -> Vec<u8> {
         let mut json = serde_json::to_vec(&document).unwrap();
-        while json.len() % 4 != 0 {
+        while !json.len().is_multiple_of(4) {
             json.push(b' ');
         }
         let total = 12 + 8 + json.len();
