@@ -211,16 +211,42 @@ async fn main() -> Result<()> {
     let listener = tokio::net::TcpListener::bind(&worker.cli().listen).await?;
     info!(addr = %worker.cli().listen, "HTTP API listening");
 
-    let shutdown = async {
-        let _ = tokio::signal::ctrl_c().await;
-        info!("shutdown signal received");
-    };
-
     axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown)
+        .with_graceful_shutdown(shutdown_signal())
         .await?;
 
     worker.shutdown().await;
     let _ = worker_handle.await;
     Ok(())
+}
+
+/// Wait for Ctrl+C or (on Unix) SIGTERM so Docker/K8s `stop` enters Axum graceful shutdown.
+async fn shutdown_signal() {
+    use tokio::signal;
+
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {
+            info!("Received Ctrl+C signal");
+        },
+        _ = terminate => {
+            info!("Received terminate signal");
+        },
+    }
 }
