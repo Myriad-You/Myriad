@@ -1276,9 +1276,7 @@ impl Worker {
         }
         // NeedsManual / sticky post-swap maintenance must not start another business update.
         // Rollback and rescue APIs remain available.
-        if let Err(e) = self.refuse_update_if_stuck() {
-            return Err(e);
-        }
+        self.refuse_update_if_stuck()?;
 
         let job_id = uuid::Uuid::new_v4().simple().to_string();
         let from_version = self.state.read_updater()?.current_version;

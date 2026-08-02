@@ -33,8 +33,10 @@ const MAX_FAILED_PER_MIN: u32 = 10;
 const BLOCK_DURATION: Duration = Duration::from_secs(600);
 const FAILURE_WINDOW: Duration = Duration::from_secs(60);
 
+/// Per-source failed secret attempts: timestamps in the window + optional block-until.
+type GatewayLimiterEntry = (Vec<Instant>, Option<Instant>);
 /// Failed gateway-secret attempts by source (XFF or "unknown"). Correct secrets never blocked.
-static GATEWAY_LIMITER: Lazy<Mutex<HashMap<String, (Vec<Instant>, Option<Instant>)>>> =
+static GATEWAY_LIMITER: Lazy<Mutex<HashMap<String, GatewayLimiterEntry>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Clone)]

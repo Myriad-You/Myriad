@@ -19,7 +19,9 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
+#[cfg(test)]
+use chrono::DateTime;
 use sha2::{Digest, Sha256};
 use tokio::process::Command;
 use tracing::{info, warn};

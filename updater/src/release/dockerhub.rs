@@ -704,13 +704,13 @@ pub fn select_dev_channel_tip_for<'a>(
             }
         }
         // Drop tips older than current by wall-clock (previous builds).
-        match (
-            b.pushed_at.as_deref().and_then(parse_push_time),
-            current_time,
-        ) {
-            (Some(tip_t), Some(cur_t)) if tip_t < cur_t => false,
-            _ => true,
-        }
+        !matches!(
+            (
+                b.pushed_at.as_deref().and_then(parse_push_time),
+                current_time,
+            ),
+            (Some(tip_t), Some(cur_t)) if tip_t < cur_t
+        )
     })
 }
 
@@ -1194,8 +1194,7 @@ mod tests {
             pushed_at_for_tag(
                 &builds,
                 "dev-f6e2c4d95a43d56ebc25722b785f44c73ef427a2"
-            )
-            .as_deref(),
+            ),
             Some("2026-07-31T14:13:00Z")
         );
     }
