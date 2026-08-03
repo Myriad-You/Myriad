@@ -274,9 +274,7 @@ pub(crate) fn sanitize_proxy_url(raw: &str) -> Option<String> {
         "http" | "https" | "socks5" | "socks5h" | "socks4" | "socks4a" => {}
         _ => return None,
     }
-    if parsed.host_str().is_none() {
-        return None;
-    }
+    parsed.host_str()?;
     Some(s.to_string())
 }
 
@@ -311,9 +309,7 @@ fn sanitize_http_url_allow_private(raw: &str) -> Option<String> {
         "http" | "https" => {}
         _ => return None,
     }
-    if parsed.host_str().is_none() {
-        return None;
-    }
+    parsed.host_str()?;
     Some(parsed.to_string())
 }
 
