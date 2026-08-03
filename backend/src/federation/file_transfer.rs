@@ -736,6 +736,11 @@ pub async fn upload_chunk(
     };
 
     if new_status == "completed" {
+        // sha256 / rename only on paths already confined by resolve_transfer_path + part check
+        debug_assert!(
+            is_strictly_under(&storage_root(), &part_path)
+                && is_strictly_under(&storage_root(), &final_path)
+        );
         let stored = fs::metadata(&part_path).await.map_err(storage_err)?.len() as i64;
         if stored != file_size {
             db.execute(Statement::from_sql_and_values(
@@ -1709,6 +1714,11 @@ async fn handle_file_chunk(
     };
 
     if new_status == "completed" {
+        // sha256 / rename only on paths already confined by resolve_transfer_path + part check
+        debug_assert!(
+            is_strictly_under(&storage_root(), &part_path)
+                && is_strictly_under(&storage_root(), &final_path)
+        );
         let stored = fs::metadata(&part_path)
             .await
             .map_err(|e| e.to_string())?
@@ -1777,8 +1787,9 @@ async fn handle_file_chunk(
             "[FileTransfer] CAS miss receiving chunk for {} (progress changed)",
             transfer_id
         );
-        // Best-effort cleanup of orphan .part if we did not complete (leave final file alone
-        // when another request may have completed the transfer).
+        // Never delete on a *completed* CAS miss — the other writer may already
+        // own the final file / still need the .part. Protocol is sequential, so
+        // non-complete CAS races are rare; only best-effort clean orphan .part.
         if new_status != "completed" {
             let _ = fs::remove_file(&part_path).await;
         }
