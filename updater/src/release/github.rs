@@ -57,10 +57,12 @@ impl GithubClient {
             || s.contains("API rate limit")
     }
 
-    /// True when `release.json` cannot be obtained and callers may fall back to Docker Hub.
+    /// True when `release.json` cannot be obtained (404/401/network/missing asset).
     ///
-    /// Cosign failures and invalid downloaded JSON must **not** fall back — fail closed.
-    /// Used by release preflight, proxy-update, and self-update.
+    /// Formal release preflight treats this as fail-closed unless
+    /// `UPDATER_ALLOW_DOCKERHUB_RELEASE_FALLBACK=1`. Cosign failures and invalid downloaded
+    /// JSON are never "unavailable" — always fail closed. Proxy/self-update may still use
+    /// this helper for their own component-level Hub policies.
     pub fn is_release_json_unavailable(err: &UpdaterError) -> bool {
         match err {
             UpdaterError::Github(_) | UpdaterError::Io(_) => true,

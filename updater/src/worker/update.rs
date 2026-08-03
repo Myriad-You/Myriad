@@ -1,7 +1,8 @@
 //! Normal update flow. State machine progression per spec §7.
-//! Supports release (GitHub `release.json` when present, else Docker Hub `vX.Y.Z` images)
-//! and commit (CI image tags) modes. Swap/health use `PreflightReport` digests and tags;
-//! a missing `pre.manifest` is fine for the Docker Hub release path.
+//! Supports release (verified GitHub `release.json`; optional Docker Hub `vX.Y.Z` only with
+//! `UPDATER_ALLOW_DOCKERHUB_RELEASE_FALLBACK=1`) and commit (CI image tags) modes.
+//! Swap/health use `PreflightReport` digests and tags; a missing `pre.manifest` is fine for
+//! the opt-in Docker Hub release path.
 //!
 //! # Failure invariants (do not regress)
 //!

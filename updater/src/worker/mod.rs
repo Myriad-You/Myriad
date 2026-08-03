@@ -463,7 +463,7 @@ impl Worker {
     }
 
     /// Image repositories are explicit deployment inputs. Shared by commit-mode preflight,
-    /// release-mode Docker Hub fallback (when `release.json` is unavailable), and Hub discovery.
+    /// opt-in release Docker Hub fallback (`UPDATER_ALLOW_DOCKERHUB_RELEASE_FALLBACK`), and Hub discovery.
     pub fn image_repos_required(&self) -> Result<(String, String)> {
         let env = crate::env_file::EnvFile::load(&self.cli.env_file)?;
         let backend = env.get("BACKEND_IMAGE").map(str::to_owned).ok_or_else(|| {

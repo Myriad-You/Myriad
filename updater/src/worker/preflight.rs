@@ -2,10 +2,11 @@
 //! never cause downtime.
 //!
 //! Two modes:
-//! - **Release**: prefer GitHub `release.json` (digests, cosign, min_from_version). When the
-//!   manifest is unavailable (404 / no token / network / missing asset), fall back to pulling
-//!   `BACKEND_IMAGE`/`FRONTEND_IMAGE` tagged with the release version from Docker Hub — same
-//!   image naming as commit mode. Cosign/schema failures still hard-fail (no silent skip).
+//! - **Release**: require verified GitHub `release.json` (digests, cosign, min_from_version).
+//!   Missing/unreachable manifests fail closed (MYR-004). Docker Hub tag pulls are **not**
+//!   an automatic fallback on formal `vX.Y.Z` installs — set
+//!   `UPDATER_ALLOW_DOCKERHUB_RELEASE_FALLBACK=1` only for deliberate self-host/dev recovery.
+//!   Cosign/schema failures always hard-fail (no silent skip).
 //! - **Commit**: resolve image tags to `dev-<sha>` (never persist branch tips), pull images.
 //!
 //! Direction gates (fail-closed):
@@ -14,7 +15,7 @@
 //! - diverged → requires `allow_diverged` / `allow_risk`
 //! - **commit/dev**: unknown ancestry does **not** require `allow_unknown` (build-time
 //!   newer / different tag is enough). Release + full manifest still treats unknown as risk;
-//!   release Docker Hub fallback (no git compare) matches commit without ancestry.
+//!   opt-in Docker Hub release path (no git compare) matches commit without ancestry.
 //! - irreversible migration + downgrade → requires both flags (manifest path only)
 //!
 //! Local gates (before image pull when possible):
@@ -126,26 +127,50 @@ async fn run_release(
             run_release_with_manifest(worker, target, risk, gh, manifest).await
         }
         Ok(None) => {
-            // Self-host / dev-channel often installs formal v* tags from Docker Hub when
-            // GitHub release.json is missing (private repo, no token, asset not published).
-            // Fall back without an extra allow gate — digests/cosign/min_from are skipped
-            // on this path (same as pre-hardening behavior). Cosign hard-failures still
-            // do not fall back (try_fetch_release_manifest returns Err).
-            warn!(
-                target = %release,
-                "preflight(release): GitHub release.json unavailable; verifying via Docker Hub images"
-            );
-            run_release_via_dockerhub(worker, target, risk).await
+            // MYR-004: formal vX.Y.Z path fails closed without a verified release.json.
+            // Opt-in Docker Hub tag mode is a separate policy (skips digests/cosign/min_from).
+            if allow_dockerhub_release_fallback() {
+                warn!(
+                    target = %release,
+                    "preflight(release): GitHub release.json unavailable; \
+                     UPDATER_ALLOW_DOCKERHUB_RELEASE_FALLBACK=1 — verifying via Docker Hub images \
+                     (digests/cosign/min_from skipped)"
+                );
+                run_release_via_dockerhub(worker, target, risk).await
+            } else {
+                Err(UpdaterError::Precondition(format!(
+                    "release {release}: verified release.json is required for formal installs \
+                     (GitHub release missing, private, timed out, or has no release.json asset). \
+                     Cosign/digest pinning cannot be skipped automatically. \
+                     For deliberate self-host/dev tag installs only, set \
+                     UPDATER_ALLOW_DOCKERHUB_RELEASE_FALLBACK=1, or use mode=commit with a \
+                     dev-<sha> target."
+                )))
+            }
         }
         Err(e) => Err(e),
     }
 }
 
+/// Explicit operator opt-in for mutable-style Docker Hub `vX.Y.Z` pulls when
+/// `release.json` cannot be fetched. Never enabled by default (MYR-004).
+fn allow_dockerhub_release_fallback() -> bool {
+    matches!(
+        std::env::var("UPDATER_ALLOW_DOCKERHUB_RELEASE_FALLBACK")
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
 /// Attempt to download + verify `release.json`.
 ///
 /// - `Ok(Some)` — verified manifest ready for the full release path
-/// - `Ok(None)` — GitHub release unavailable (404/401/network/no asset); caller may fall back
-/// - `Err` — hard failure (cosign, invalid manifest body); do **not** fall back
+/// - `Ok(None)` — GitHub release unavailable (404/401/network/no asset); formal path fails
+///   closed unless `UPDATER_ALLOW_DOCKERHUB_RELEASE_FALLBACK` is set
+/// - `Err` — hard failure (cosign, invalid manifest body); never fall back
 async fn try_fetch_release_manifest(
     worker: &Worker,
     tag: &str,
@@ -392,11 +417,12 @@ async fn run_release_with_manifest(
     })
 }
 
-/// Release install without `release.json`: pull formal `vX.Y.Z` images from Docker Hub
+/// Opt-in release install without `release.json`: pull formal `vX.Y.Z` images from Docker Hub
 /// using the same repo naming as commit mode (`BACKEND_IMAGE` / `FRONTEND_IMAGE` + tag).
 ///
-/// Digests come from the pull; cosign and manifest digest equality are skipped.
-/// Missing images hard-fail with a clear Docker Hub error (no silent install).
+/// Only reached when `UPDATER_ALLOW_DOCKERHUB_RELEASE_FALLBACK=1`. Digests come from the
+/// pull; cosign and manifest digest equality are skipped. Missing images hard-fail with a
+/// clear Docker Hub error (no silent install).
 async fn run_release_via_dockerhub(
     worker: Arc<Worker>,
     target: &DeployTag,
@@ -1052,6 +1078,25 @@ mod risk_flag_tests {
 #[cfg(test)]
 mod github_manifest_fallback_tests {
     use super::*;
+
+    #[test]
+    fn dockerhub_release_fallback_is_opt_in_only() {
+        // Safety: do not leave process env polluted for other tests in this binary.
+        let key = "UPDATER_ALLOW_DOCKERHUB_RELEASE_FALLBACK";
+        let prev = std::env::var(key).ok();
+        std::env::remove_var(key);
+        assert!(!allow_dockerhub_release_fallback());
+        std::env::set_var(key, "1");
+        assert!(allow_dockerhub_release_fallback());
+        std::env::set_var(key, "true");
+        assert!(allow_dockerhub_release_fallback());
+        std::env::set_var(key, "0");
+        assert!(!allow_dockerhub_release_fallback());
+        match prev {
+            Some(v) => std::env::set_var(key, v),
+            None => std::env::remove_var(key),
+        }
+    }
 
     #[test]
     fn github_404_is_unavailable_for_dockerhub_fallback() {

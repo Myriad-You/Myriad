@@ -97,10 +97,10 @@ pub struct Config {
 
     /// Optional bearer token for GitHub API.
     ///
-    /// - **Release mode** prefers GitHub for `release.json` (digests, cosign, min_from).
-    ///   When the release asset is missing/private (404/401) or the token is unset, preflight
-    ///   falls back to Docker Hub: pull `BACKEND_IMAGE`/`FRONTEND_IMAGE` tagged `vX.Y.Z`.
-    ///   Public image installs therefore work without a GitHub Release or token.
+    /// - **Release mode** requires GitHub `release.json` (digests, cosign, min_from).
+    ///   Missing/private/timeout releases fail closed unless the operator sets
+    ///   `UPDATER_ALLOW_DOCKERHUB_RELEASE_FALLBACK=1` for deliberate Docker Hub `vX.Y.Z`
+    ///   tag installs (self-host/dev recovery only).
     /// - **Commit mode** works without it: discovery uses Docker Hub common frontend/backend
     ///   tags when the token is absent (typical for private source repos that only publish
     ///   images publicly).

@@ -45,22 +45,23 @@ pub(super) fn build_authenticated_router(
                 post(api::seo_geo::generate_site_seo_copy)
                     .route_layer(from_fn_with_state(app_state.clone(), middleware::auth::admin_middleware)),
             )
-            // 后台任务管理 API -  REQUIRE AUTHENTICATION
+            // Global platform reprocess jobs — admin only (site-level work, not per-user).
+            // MYR-015: any authenticated user must not submit/list global reprocess tasks.
             .route(
                 "/api/tasks",
                 post(api::tasks::submit_task)
                     .get(api::tasks::list_tasks)
-                    .route_layer(from_fn_with_state(app_state.clone(), middleware::auth::auth_middleware)),
+                    .route_layer(from_fn_with_state(app_state.clone(), middleware::auth::admin_middleware)),
             )
             .route(
                 "/api/tasks/{task_id}",
                 get(api::tasks::get_task_status)
-                    .route_layer(from_fn_with_state(app_state.clone(), middleware::auth::auth_middleware)),
+                    .route_layer(from_fn_with_state(app_state.clone(), middleware::auth::admin_middleware)),
             )
             .route(
                 "/api/tasks/platform/{platform}",
                 get(api::tasks::get_platform_task)
-                    .route_layer(from_fn_with_state(app_state.clone(), middleware::auth::auth_middleware)),
+                    .route_layer(from_fn_with_state(app_state.clone(), middleware::auth::admin_middleware)),
             )
             // 缓存管理 API — admin only (site-owner platform cache; not per-login-user data)
             .route(
@@ -899,6 +900,22 @@ mod security_route_wiring_tests {
             "/api/profile/metadata",
             "/api/cache/previews",
             "/api/cache/preview/{platform}",
+        ] {
+            assert!(
+                route_has_middleware(src, path, "admin_middleware"),
+                "{path} must be behind admin_middleware"
+            );
+        }
+    }
+
+    #[test]
+    fn global_reprocess_task_routes_require_admin_middleware() {
+        // MYR-015: site-level reprocess must not be open to every authenticated user.
+        let src = router_src();
+        for path in [
+            "/api/tasks",
+            "/api/tasks/{task_id}",
+            "/api/tasks/platform/{platform}",
         ] {
             assert!(
                 route_has_middleware(src, path, "admin_middleware"),
