@@ -28,6 +28,9 @@ const t = {
     oauthErrorProfileFetch: 'profile fetch msg',
     oauthErrorProviderUnavailable: 'provider unavail msg',
     oauthErrorLoginFailed: 'login failed msg',
+    oauthErrorEmailAlreadyRegistered: 'email already registered msg',
+    oauthErrorBrowserTxMismatch: 'browser tx mismatch msg',
+    oauthErrorLinkFailed: 'link failed msg',
     invalidCredentials: 'bad credentials',
     localLoginDisabled: 'local disabled',
     rateLimitError: 'retry in {seconds}s',
@@ -82,6 +85,18 @@ describe('messageForOAuthError', () => {
     assert.equal(
       messageForOAuthError('token_exchange_failed', null, t, format),
       'token exchange msg',
+    )
+    assert.equal(
+      messageForOAuthError('email_already_registered', null, t, format),
+      'email already registered msg',
+    )
+    assert.equal(
+      messageForOAuthError('browser_tx_mismatch', null, t, format),
+      'browser tx mismatch msg',
+    )
+    assert.equal(
+      messageForOAuthError('link_failed', null, t, format),
+      'link failed msg',
     )
   })
 

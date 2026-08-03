@@ -188,6 +188,12 @@ export const enUS: TranslationKeys = {
       'This sign-in provider is not available right now. Try another method or contact the site admin.',
     oauthErrorLoginFailed:
       'Third-party sign-in failed. Try again or use username and password if available.',
+    oauthErrorEmailAlreadyRegistered:
+      'An account with this email already exists. Sign in with your original method, then link this provider from account settings.',
+    oauthErrorBrowserTxMismatch:
+      'This sign-in could not be verified in this browser (session mismatch). Start third-party login again from the login page.',
+    oauthErrorLinkFailed:
+      'Could not link this provider. Try again from account settings while signed in.',
     invalidCredentials: 'Username or password is incorrect.',
     localLoginDisabled:
       'Password login is disabled for this account. Use a linked third-party provider to sign in.',

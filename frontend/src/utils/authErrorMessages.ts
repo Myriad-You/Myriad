@@ -82,6 +82,15 @@ export function messageForOAuthError(
     case 'login_failed':
       base = t.auth.oauthErrorLoginFailed
       break
+    case 'email_already_registered':
+      base = t.auth.oauthErrorEmailAlreadyRegistered
+      break
+    case 'browser_tx_mismatch':
+      base = t.auth.oauthErrorBrowserTxMismatch
+      break
+    case 'link_failed':
+      base = t.auth.oauthErrorLinkFailed
+      break
     default:
       base = format(t.auth.oauthError, { code: code || 'unknown' })
   }

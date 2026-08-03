@@ -380,105 +380,59 @@ pub async fn issue_state(stored: StoredState) -> Result<IssuedState, String> {
     })
 }
 
-/// Verify and one-shot consume a signed state token.
+/// Verified OAuth state **without** burning the anti-replay nonce.
 ///
-/// 1. Verify HMAC (constant-time)
-/// 2. Check `exp` → [`ConsumeStateError::Expired`]
-/// 3. Parse payload → [`StoredState`]
-/// 4. If nonce already used in this process → [`ConsumeOutcome::Replay`]
-/// (payload still returned so handlers can soft-recover; CSRF stays intact)
-/// 5. Else mark nonce used → [`ConsumeOutcome::Fresh`]
-///
-/// After process restart the used-nonce map is empty; a still-valid signature is
-/// accepted as Fresh (provider authorization codes remain one-time).
-pub async fn consume_state(token: &str) -> Result<ConsumeOutcome, ConsumeStateError> {
-    let prefix = state_prefix(token);
+/// Handlers should: (1) [`verify_state`], (2) match `oauth_tx` cookie to
+/// [`browser_tx`](Self::browser_tx), (3) only then [`mark_used`](Self::mark_used).
+/// That order avoids consuming a one-shot nonce when the browser binding fails.
+#[derive(Debug, Clone)]
+pub struct VerifiedState {
+    stored: StoredState,
+    browser_tx: String,
+    /// Grace TTL for the used-nonce table entry once marked.
+    remaining_ttl: Duration,
+    /// Snapshot of "nonce already in used map" at verify time (hint only).
+    already_used: bool,
+}
 
-    let secret = match state_secret() {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::error!(error = %e, "OAuth state consume: secret unavailable");
-            return Err(ConsumeStateError::Missing);
-        }
-    };
-
-    let (payload_b64, sig_b64) = match token.split_once('.') {
-        Some((p, s)) if !p.is_empty() && !s.is_empty() && !s.contains('.') => (p, s),
-        _ => {
-            tracing::warn!(
-                reason = "malformed",
-                state_prefix = %prefix,
-                "OAuth state consume failed"
-            );
-            return Err(ConsumeStateError::Missing);
-        }
-    };
-
-    if !verify_signature(payload_b64, sig_b64, &secret) {
-        tracing::warn!(
-            reason = "bad_signature",
-            state_prefix = %prefix,
-            "OAuth state consume failed"
-        );
-        return Err(ConsumeStateError::Missing);
+impl VerifiedState {
+    pub fn stored(&self) -> &StoredState {
+        &self.stored
     }
 
-    let json = match URL_SAFE_NO_PAD.decode(payload_b64) {
-        Ok(b) => b,
-        Err(_) => {
-            tracing::warn!(
-                reason = "bad_payload_b64",
-                state_prefix = %prefix,
-                "OAuth state consume failed"
-            );
-            return Err(ConsumeStateError::Missing);
-        }
-    };
-
-    let payload: StatePayload = match serde_json::from_slice(&json) {
-        Ok(p) => p,
-        Err(_) => {
-            tracing::warn!(
-                reason = "bad_payload_json",
-                state_prefix = %prefix,
-                "OAuth state consume failed"
-            );
-            return Err(ConsumeStateError::Missing);
-        }
-    };
-
-    if payload.exp < unix_now() {
-        tracing::warn!(
-            reason = "expired",
-            state_prefix = %prefix,
-            exp = payload.exp,
-            "OAuth state consume failed"
-        );
-        return Err(ConsumeStateError::Expired);
+    pub fn browser_tx(&self) -> &str {
+        &self.browser_tx
     }
 
-    let browser_tx = payload.n.clone();
-    let remaining_ttl =
-        Duration::from_secs((payload.exp - unix_now()).max(0) as u64) + Duration::from_secs(60); // grace so cleanup does not race TTL edge
+    /// True if the nonce was already marked used when this state was verified.
+    pub fn already_used(&self) -> bool {
+        self.already_used
+    }
 
-    // Parse purpose before anti-replay so Replay still exposes StoredState.
-    let stored = payload_to_stored(payload)?;
+    /// Mark the nonce one-shot used and return [`ConsumeOutcome`].
+    ///
+    /// Call **only after** the browser `oauth_tx` cookie has matched.
+    /// Concurrent double-mark races still yield [`ConsumeOutcome::Replay`].
+    pub async fn mark_used(self) -> ConsumeOutcome {
+        let Self {
+            stored,
+            browser_tx,
+            remaining_ttl,
+            ..
+        } = self;
 
-    // Anti-replay: mark nonce used. If already present → Replay with payload.
-    {
         let mut nonces = USED_NONCES.write().await;
         if nonces.contains_key(&browser_tx) {
             tracing::warn!(
                 reason = "replay",
-                state_prefix = %prefix,
                 store_size = nonces.len(),
                 provider_slug = %stored.provider_slug,
-                "OAuth state consume: nonce already used (soft-recover possible)"
+                "OAuth state mark_used: nonce already used (soft-recover possible)"
             );
-            return Ok(ConsumeOutcome::Replay {
+            return ConsumeOutcome::Replay {
                 stored,
                 browser_tx,
-            });
+            };
         }
         if nonces.len() >= MAX_USED_NONCES {
             if let Some(oldest) = nonces
@@ -490,12 +444,114 @@ pub async fn consume_state(token: &str) -> Result<ConsumeOutcome, ConsumeStateEr
             }
         }
         nonces.insert(browser_tx.clone(), Instant::now() + remaining_ttl);
+
+        ConsumeOutcome::Fresh {
+            stored,
+            browser_tx,
+        }
+    }
+}
+
+/// Verify HMAC / expiry / payload **without** marking the nonce used.
+///
+/// Prefer this over [`consume_state`] when a browser cookie must bind first
+/// (MYR-003): cookie mismatch must not burn a fresh state token.
+pub async fn verify_state(token: &str) -> Result<VerifiedState, ConsumeStateError> {
+    let prefix = state_prefix(token);
+
+    let secret = match state_secret() {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!(error = %e, "OAuth state verify: secret unavailable");
+            return Err(ConsumeStateError::Missing);
+        }
+    };
+
+    let (payload_b64, sig_b64) = match token.split_once('.') {
+        Some((p, s)) if !p.is_empty() && !s.is_empty() && !s.contains('.') => (p, s),
+        _ => {
+            tracing::warn!(
+                reason = "malformed",
+                state_prefix = %prefix,
+                "OAuth state verify failed"
+            );
+            return Err(ConsumeStateError::Missing);
+        }
+    };
+
+    if !verify_signature(payload_b64, sig_b64, &secret) {
+        tracing::warn!(
+            reason = "bad_signature",
+            state_prefix = %prefix,
+            "OAuth state verify failed"
+        );
+        return Err(ConsumeStateError::Missing);
     }
 
-    Ok(ConsumeOutcome::Fresh {
+    let json = match URL_SAFE_NO_PAD.decode(payload_b64) {
+        Ok(b) => b,
+        Err(_) => {
+            tracing::warn!(
+                reason = "bad_payload_b64",
+                state_prefix = %prefix,
+                "OAuth state verify failed"
+            );
+            return Err(ConsumeStateError::Missing);
+        }
+    };
+
+    let payload: StatePayload = match serde_json::from_slice(&json) {
+        Ok(p) => p,
+        Err(_) => {
+            tracing::warn!(
+                reason = "bad_payload_json",
+                state_prefix = %prefix,
+                "OAuth state verify failed"
+            );
+            return Err(ConsumeStateError::Missing);
+        }
+    };
+
+    if payload.exp < unix_now() {
+        tracing::warn!(
+            reason = "expired",
+            state_prefix = %prefix,
+            exp = payload.exp,
+            "OAuth state verify failed"
+        );
+        return Err(ConsumeStateError::Expired);
+    }
+
+    let browser_tx = payload.n.clone();
+    let remaining_ttl =
+        Duration::from_secs((payload.exp - unix_now()).max(0) as u64) + Duration::from_secs(60); // grace so cleanup does not race TTL edge
+
+    let stored = payload_to_stored(payload)?;
+
+    let already_used = {
+        let nonces = USED_NONCES.read().await;
+        nonces.contains_key(&browser_tx)
+    };
+
+    Ok(VerifiedState {
         stored,
         browser_tx,
+        remaining_ttl,
+        already_used,
     })
+}
+
+/// Verify and one-shot consume a signed state token.
+///
+/// Convenience wrapper: [`verify_state`] then immediately [`VerifiedState::mark_used`].
+/// Prefer verify → browser cookie match → mark_used in HTTP callbacks so a
+/// mismatched `oauth_tx` does not burn the nonce.
+///
+/// After process restart the used-nonce map is empty; a still-valid signature is
+/// accepted as Fresh (provider authorization codes remain one-time).
+pub async fn consume_state(token: &str) -> Result<ConsumeOutcome, ConsumeStateError> {
+    let verified = verify_state(token).await?;
+    Ok(verified.mark_used().await)
 }
 
 #[cfg(test)]
@@ -553,6 +609,28 @@ mod tests {
         let stored = outcome.into_stored();
         assert_eq!(stored.provider_slug, "github");
         assert_eq!(stored.purpose, OAuthPurpose::Login);
+    }
+
+    #[tokio::test]
+    async fn verify_state_does_not_burn_nonce_until_mark_used() {
+        ensure_test_secret();
+        let issued = issue_state(sample_login()).await.expect("issue");
+
+        let peeked = verify_state(&issued.token).await.expect("verify");
+        assert_eq!(peeked.browser_tx(), issued.browser_tx);
+        assert!(!peeked.already_used());
+
+        // Second verify still Fresh-eligible (nonce not burned).
+        let peeked2 = verify_state(&issued.token).await.expect("verify again");
+        assert!(!peeked2.already_used());
+
+        let first = peeked.mark_used().await;
+        assert!(!first.is_replay());
+
+        // After mark_used, verify reports already_used and mark yields Replay.
+        let peeked3 = verify_state(&issued.token).await.expect("verify after mark");
+        assert!(peeked3.already_used());
+        assert!(peeked3.mark_used().await.is_replay());
     }
 
     #[tokio::test]

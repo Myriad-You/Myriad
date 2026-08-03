@@ -172,6 +172,11 @@ export interface TranslationKeys {
     oauthErrorProfileFetch: string
     oauthErrorProviderUnavailable: string
     oauthErrorLoginFailed: string
+    /** Email already on another account — no silent cross-issuer merge (MYR-012) */
+    oauthErrorEmailAlreadyRegistered: string
+    /** Missing/mismatched oauth_tx browser binding cookie (MYR-003) */
+    oauthErrorBrowserTxMismatch: string
+    oauthErrorLinkFailed: string
     invalidCredentials: string
     localLoginDisabled: string
     linkSuccess: string

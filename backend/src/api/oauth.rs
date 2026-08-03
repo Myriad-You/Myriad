@@ -32,9 +32,9 @@ use crate::oauth_url_builder::SiteConfig;
 use crate::services::oauth::{
     registry::REGISTRY,
     state::{
-        consume_state, issue_state, oauth_tx_clear_cookie_value, oauth_tx_cookie_matches,
-        oauth_tx_set_cookie_value, ConsumeOutcome, ConsumeStateError, OAuthPurpose, StoredState,
-        OAUTH_TX_COOKIE,
+        issue_state, oauth_tx_clear_cookie_value, oauth_tx_cookie_matches,
+        oauth_tx_set_cookie_value, verify_state, ConsumeOutcome, ConsumeStateError, OAuthPurpose,
+        StoredState, OAUTH_TX_COOKIE,
     },
     NormalizedProfile,
 };
@@ -329,10 +329,11 @@ pub async fn provider_callback(
         .await);
     };
 
-    // 1. 验证 state（区分 missing / expired / replay，已在 store 层 warn-log）
-    // Replay: valid sig + used nonce — do NOT re-exchange the one-time code.
-    let outcome = match consume_state(&state_param).await {
-        Ok(o) => o,
+    // 1. Verify signed state WITHOUT burning the nonce yet.
+    // Cookie binding (MYR-003) must succeed first so a session-swap attempt
+    // cannot one-shot invalidate a legitimate browser's pending state.
+    let verified = match verify_state(&state_param).await {
+        Ok(v) => v,
         Err(err) => {
             return Ok(with_oauth_tx_cleared(oauth_client_error_redirect(
                 &frontend_base,
@@ -342,18 +343,16 @@ pub async fn provider_callback(
         }
     };
 
-    // MYR-003: require oauth_tx cookie == payload nonce (fail closed).
-    let cookie_header = headers
-        .get(header::COOKIE)
-        .and_then(|v| v.to_str().ok());
-    if !oauth_tx_cookie_matches(cookie_header, outcome.browser_tx()) {
+    // MYR-003: require oauth_tx cookie == payload nonce (fail closed) BEFORE mark_used.
+    let cookie_header = headers.get(header::COOKIE).and_then(|v| v.to_str().ok());
+    if !oauth_tx_cookie_matches(cookie_header, verified.browser_tx()) {
         return Ok(reject_oauth_tx_mismatch(&frontend_base).await);
     }
 
-    if outcome.stored().provider_slug != slug {
+    if verified.stored().provider_slug != slug {
         tracing::warn!(
             "OAuth state/slug mismatch: state was for '{}', got '{}'",
-            outcome.stored().provider_slug,
+            verified.stored().provider_slug,
             slug
         );
         return Ok(with_oauth_tx_cleared(oauth_client_error_redirect(
@@ -363,7 +362,11 @@ pub async fn provider_callback(
         .await);
     }
 
+    // Cookie matched → burn nonce (Fresh or Replay).
+    let outcome = verified.mark_used().await;
+
     // Browser double-load / retry: soft-recover without token exchange.
+    // Replay is only reached after the same oauth_tx cookie check above.
     let stored = match outcome {
         ConsumeOutcome::Replay { stored, .. } => {
             let resp = handle_callback_replay(&db, &slug, &stored, &frontend_base).await?;
@@ -420,13 +423,26 @@ pub async fn provider_callback(
     // 4. 分流：LinkAccount vs Login vs 数据平台授权
     // 数据平台授权走独立 callback（如 /api/platforms/discord/oauth/callback），
     // 若误入登录 callback 则友好重定向提示。
-    // Clear oauth_tx after a successful cookie-bound consume (one-shot browser binding).
-    let result = match stored.purpose {
+    // Always clear oauth_tx — map all Err paths to browser redirects so cookie is cleared.
+    let response: Response = match stored.purpose {
         OAuthPurpose::LinkAccount(link_user_id) => {
-            handle_link(&db, &slug, link_user_id, &profile, &frontend_base).await
+            match handle_link(&db, &slug, link_user_id, &profile, &frontend_base).await {
+                Ok(resp) => resp,
+                Err(err) => {
+                    // handle_link usually returns Ok(redirect) for business errors;
+                    // map rare Err (DB/internal) to a browser redirect so oauth_tx clears.
+                    tracing::error!(
+                        "OAuth link failed for provider '{}' (status={}): {:?}",
+                        slug,
+                        err.0.status_u16(),
+                        err.0
+                    );
+                    oauth_client_error_redirect(&frontend_base, "link_failed")
+                }
+            }
         }
         OAuthPurpose::Login => match handle_login(&db, &slug, &profile).await {
-            Ok(resp) => Ok(resp),
+            Ok(resp) => resp,
             Err(err) => {
                 let status = err.0.status_u16();
                 let label = err.0.error_label().to_string();
@@ -444,7 +460,7 @@ pub async fn provider_callback(
                 } else {
                     "login_failed"
                 };
-                Ok(oauth_client_error_redirect(&frontend_base, code))
+                oauth_client_error_redirect(&frontend_base, code)
             }
         },
         OAuthPurpose::PlatformData { platform, .. } => {
@@ -461,25 +477,23 @@ pub async fn provider_callback(
                 urlencoding::encode(&platform),
                 urlencoding::encode("wrong_callback")
             );
-            Ok(no_store_redirect(&url))
+            no_store_redirect(&url)
         }
     };
 
-    match result {
-        Ok(resp) => Ok(with_oauth_tx_cleared(resp).await),
-        Err(e) => Err(e),
-    }
+    Ok(with_oauth_tx_cleared(response).await)
 }
 
 /// Soft-recover a second callback hit with the same (already-consumed) state.
 ///
-/// CSRF is still enforced: only reachable after a valid signature + exp check.
+/// **Must only run after** `oauth_tx` cookie matched the state nonce — never skip
+/// that check for soft-success (MYR-003 / session-swap defense).
 /// We never re-exchange the authorization code (provider codes are one-time).
 ///
 /// Tradeoff for Login: without `provider_user_id` on pure replay we cannot prove
 /// a session was issued. Prefer soft-success (`/?auth=success`) so a browser
 /// double-load after a real login does not toast an error; false positives are
-/// rare (first request would have to fail after nonce mark but before cookie).
+/// rare (first request would have to fail after mark_used but before session cookie).
 async fn handle_callback_replay(
     db: &DatabaseConnection,
     slug: &str,

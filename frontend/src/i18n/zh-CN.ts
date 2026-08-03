@@ -182,6 +182,11 @@ export const zhCN: TranslationKeys = {
       '该登录方式当前不可用。请换用其他方式，或联系站点管理员。',
     oauthErrorLoginFailed:
       '第三方登录失败。请重试，或在可用时使用用户名密码登录。',
+    oauthErrorEmailAlreadyRegistered:
+      '该邮箱已注册其他账号。请先用原登录方式进入，再在账号设置中绑定此提供商。',
+    oauthErrorBrowserTxMismatch:
+      '无法在当前浏览器确认此次登录（会话不匹配）。请返回登录页重新发起第三方登录。',
+    oauthErrorLinkFailed: '无法绑定此提供商。请在登录后从账号设置重试。',
     invalidCredentials: '用户名或密码不正确。',
     localLoginDisabled: '此账号已禁用密码登录。请使用已绑定的第三方账号登录。',
     linkSuccess: '账号绑定成功。',

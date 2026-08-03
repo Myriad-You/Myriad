@@ -25,8 +25,8 @@ use crate::oauth_url_builder::SiteConfig;
 use crate::services::config_service::ConfigService;
 use crate::services::fetcher::PlatformFetcher;
 use crate::services::oauth::state::{
-    consume_state, issue_state, oauth_tx_clear_cookie_value, oauth_tx_cookie_matches,
-    oauth_tx_set_cookie_value, ConsumeStateError, OAuthPurpose, StoredState,
+    issue_state, oauth_tx_clear_cookie_value, oauth_tx_cookie_matches, oauth_tx_set_cookie_value,
+    verify_state, ConsumeStateError, OAuthPurpose, StoredState,
 };
 
 const DISCORD_AUTHORIZE_URL: &str = "https://discord.com/api/oauth2/authorize";
@@ -442,8 +442,9 @@ pub async fn oauth_callback(
         }
     };
 
-    let outcome = match consume_state(&state_param).await {
-        Ok(o) => o,
+    // Verify state without burning nonce; cookie must match first (MYR-003).
+    let verified = match verify_state(&state_param).await {
+        Ok(v) => v,
         Err(err) => {
             return Ok(discord_oauth_tx_cleared(config_redirect(
                 &frontend_base,
@@ -454,9 +455,9 @@ pub async fn oauth_callback(
         }
     };
 
-    // MYR-003: require oauth_tx cookie match (fail closed).
+    // MYR-003: require oauth_tx cookie match (fail closed) BEFORE mark_used.
     let cookie_header = headers.get(header::COOKIE).and_then(|v| v.to_str().ok());
-    if !oauth_tx_cookie_matches(cookie_header, outcome.browser_tx()) {
+    if !oauth_tx_cookie_matches(cookie_header, verified.browser_tx()) {
         tracing::warn!("Discord platform OAuth: missing/mismatched oauth_tx cookie");
         return Ok(discord_oauth_tx_cleared(config_redirect(
             &frontend_base,
@@ -466,7 +467,7 @@ pub async fn oauth_callback(
         .await);
     }
 
-    if outcome.stored().provider_slug != PLATFORM_STATE_SLUG {
+    if verified.stored().provider_slug != PLATFORM_STATE_SLUG {
         return Ok(discord_oauth_tx_cleared(config_redirect(
             &frontend_base,
             false,
@@ -474,7 +475,7 @@ pub async fn oauth_callback(
         ))
         .await);
     }
-    let purpose = outcome.stored().purpose.clone();
+    let purpose = verified.stored().purpose.clone();
     let OAuthPurpose::PlatformData {
         user_id: _admin_id,
         platform,
@@ -490,8 +491,12 @@ pub async fn oauth_callback(
         );
     }
 
+    // Cookie matched → burn nonce (Fresh or Replay).
+    let outcome = verified.mark_used().await;
+
     // Browser double-load / retry: never re-exchange the one-time code.
     // Soft-success if platform tokens were already persisted by the first request.
+    // Replay only after oauth_tx cookie match above.
     if outcome.is_replay() {
         let config = dynamic_config.read().await;
         let has_token = config
