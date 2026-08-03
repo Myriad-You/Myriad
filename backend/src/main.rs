@@ -61,6 +61,19 @@ use std::sync::atomic::{AtomicBool, Ordering}; // P1: 用于数据库健康检�
 pub static CONFIG_MODE: AtomicBool = AtomicBool::new(false);
 
 
+/// Escape hatch for recovery when migration/schema heal fails (MYR-013).
+/// Default is fail closed — never serve full mode on a broken schema.
+fn allow_schema_drift_continue() -> bool {
+    matches!(
+        std::env::var("MYRIAD_ALLOW_SCHEMA_DRIFT")
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
 /// Fail-soft: production images run as uid 1000 (`myriad`); root is a hygiene warning only.
 fn warn_if_running_as_root() {
     #[cfg(unix)]
@@ -256,7 +269,9 @@ async fn run_server() -> anyhow::Result<()> {
                     tracing::warn!("Failed to reconcile retired migration history: {}", e);
                 }
 
-                // Run database migrations automatically on startup (idempotent - skips already applied migrations)
+                // Run database migrations automatically on startup (idempotent - skips already applied migrations).
+                // MYR-013: fail closed on migration/schema contract failure for full mode so we
+                // never serve traffic against a broken DB. Escape hatch: MYRIAD_ALLOW_SCHEMA_DRIFT=1.
                 use sea_orm_migration::MigratorTrait;
                 tracing::debug!("Checking for pending database migrations...");
                 match migration::Migrator::up(&db, None).await {
@@ -264,17 +279,37 @@ async fn run_server() -> anyhow::Result<()> {
                         tracing::info!("✅ Database migrations up to date");
                     }
                     Err(e) => {
-                        // Log the error but don't stop the service
-                        // Migrations might fail if tables already exist from manual setup
-                        tracing::warn!("⚠️  Database migration check failed: {}", e);
-                        tracing::info!("Continuing with existing database schema...");
+                        if allow_schema_drift_continue() {
+                            tracing::error!(
+                                error = %e,
+                                "🚨 Database migration failed; MYRIAD_ALLOW_SCHEMA_DRIFT is set — \
+                                 continuing with existing schema (recovery only; do not use in production)"
+                            );
+                        } else {
+                            anyhow::bail!(
+                                "Database migration failed: {e}. Refusing to start full mode \
+                                 against a broken schema (MYR-013). Fix the database, or set \
+                                 MYRIAD_ALLOW_SCHEMA_DRIFT=1 only for deliberate recovery."
+                            );
+                        }
                     }
                 }
 
                 // Auto-complete missing schema fields (safe, idempotent operation)
                 if let Err(e) = db::schema_check::ensure_schema(&db).await {
-                    tracing::warn!("⚠️  Schema check failed: {}", e);
-                    tracing::info!("Continuing with existing schema...");
+                    if allow_schema_drift_continue() {
+                        tracing::error!(
+                            error = %e,
+                            "🚨 Schema check failed; MYRIAD_ALLOW_SCHEMA_DRIFT is set — \
+                             continuing with existing schema (recovery only; do not use in production)"
+                        );
+                    } else {
+                        anyhow::bail!(
+                            "Schema contract check failed: {e}. Refusing to start full mode \
+                             against a broken schema (MYR-013). Fix the database, or set \
+                             MYRIAD_ALLOW_SCHEMA_DRIFT=1 only for deliberate recovery."
+                        );
+                    }
                 }
 
                 // 站长画像快照兜底：平台画像 SQL 阶梯够不到，存量库补完列后需要算一次，
