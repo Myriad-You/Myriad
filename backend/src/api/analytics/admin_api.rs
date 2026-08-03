@@ -157,17 +157,17 @@ ORDER BY day ASC
         .and_then(|v| v.get("unique_visitors").and_then(|x| x.as_i64()))
         .unwrap_or(0);
 
-    let range_uv = count_distinct_site(&db, from, today).await;
+    let range_uv = count_distinct_site(db, from, today).await;
 
     // 环比：今日 vs 前一日；当前区间 vs 等长上一区间。
     // kind: day / week / month / period — FE maps to 日/周/月/较上期.
     let prev_day = today - Duration::days(1);
     let prev_range_to = from - Duration::days(1);
     let prev_range_from = prev_range_to - Duration::days(days - 1);
-    let prev_day_views = sum_page_views(&db, prev_day, prev_day).await;
-    let prev_day_uv = count_distinct_site(&db, prev_day, prev_day).await;
-    let prev_range_views = sum_page_views(&db, prev_range_from, prev_range_to).await;
-    let prev_range_uv = count_distinct_site(&db, prev_range_from, prev_range_to).await;
+    let prev_day_views = sum_page_views(db, prev_day, prev_day).await;
+    let prev_day_uv = count_distinct_site(db, prev_day, prev_day).await;
+    let prev_range_views = sum_page_views(db, prev_range_from, prev_range_to).await;
+    let prev_range_uv = count_distinct_site(db, prev_range_from, prev_range_to).await;
     let compare = json!({
         "day": {
             "kind": "day",
@@ -509,7 +509,7 @@ FROM analytics_page_daily WHERE path <> $1
         .flatten()
         .and_then(|r| r.try_get::<i64>("", "views").ok())
         .unwrap_or(0);
-    let all_time_uv = count_distinct_site(&db, epoch, today).await;
+    let all_time_uv = count_distinct_site(db, epoch, today).await;
 
     let body = json!({
         "success": true,
