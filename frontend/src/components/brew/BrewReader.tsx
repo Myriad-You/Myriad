@@ -23,7 +23,6 @@ import {
 } from '@lib/motionShim'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { API_URL as CONFIG_API_URL } from '../../config'
-import { proxyImageUrl } from '../../utils/proxyImageUrl'
 import { useI18n } from '../../contexts/I18nContext'
 import { useNavigation } from '../../contexts/NavigationContext'
 import { usePageContentOptional } from '../../contexts/PageContentContext'
@@ -43,6 +42,7 @@ import {
   processEmbeds,
 } from '../../utils/embedProcessor'
 import { escapeHtml } from '../../utils/inputSanitizer'
+import { proxyImageUrl } from '../../utils/proxyImageUrl'
 import { processRssContent } from '../../utils/rssContentProcessor'
 import {
   AnnotationTooltip,
