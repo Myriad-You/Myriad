@@ -449,10 +449,15 @@ pub async fn proxy_image(Query(params): Query<ImageProxyQuery>) -> Response {
 /// `shared/image_proxy_hosts.json`), but **not** an open proxy: no fallback for
 /// arbitrary public `.jpg` / `/images/` paths.
 ///
+/// Some entries (e.g. `163.com`, `google.com`) are intentionally broad **DNS
+/// suffixes of trusted public CDNs / favicon helpers**, not a path-based open
+/// proxy: any host under those registrable domains may be fetched, but random
+/// third-party blogs still 403 unless listed.
+///
 /// Guest-facing avatars/covers stay unauthenticated (product decision); this
 /// list + SSRF guards + size limits are the primary mitigations.
 const ALLOWED_IMAGE_PROXY_DOMAINS: &[&str] = &[
-    // Platform CDNs (hotlink / avatar / cover)
+    // Platform CDNs (hotlink / avatar / cover) — suffix of each trusted brand CDN
     "hdslb.com",            // Bilibili CDN
     "bilibili.com",         // Bilibili
     "steamstatic.com",      // Steam CDN (includes cloudflare.steamstatic.com)
@@ -461,7 +466,8 @@ const ALLOWED_IMAGE_PROXY_DOMAINS: &[&str] = &[
     "bangumi.tv",           // Bangumi legacy
     "chii.in",              // Bangumi legacy CDN
     "126.net",              // 网易云音乐 CDN (music.126.net, …)
-    "163.com",              // 网易云
+    // Wide by design: NetEase hosts many image CDN labels under 163.com
+    "163.com",
     "discordapp.com",       // Discord CDN
     "discordapp.net",       // Discord media
     "myanimelist.net",      // MyAnimeList
@@ -473,12 +479,17 @@ const ALLOWED_IMAGE_PROXY_DOMAINS: &[&str] = &[
     "xboxlive.com",
     "playstation.net",
     "enka.network",
-    // Brew / SourceCard favicon helpers — explicit hosts only (not open path match)
-    "google.com", // www.google.com/s2/favicons
-    "gstatic.com", // t*.gstatic.com/faviconV2
+    // Brew / SourceCard favicon helpers — trusted public hosts only (not open path match).
+    // `google.com` / `gstatic.com` suffixes cover s2/favicons + faviconV2 CDNs.
+    "google.com",
+    "gstatic.com",
 ];
 
 /// True when Content-Type is SVG (active content if served same-origin).
+///
+/// Residual: only `Content-Type` is checked; a body that is SVG (or other active
+/// content) labeled `image/png` is not sniffed/re-encoded here. Full mitigation
+/// would need magic-byte sniff + raster re-encode — out of scope for MYR-007.
 fn is_disallowed_image_content_type(content_type: &str) -> bool {
     let base = content_type
         .split(';')
