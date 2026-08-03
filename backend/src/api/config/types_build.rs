@@ -3006,14 +3006,14 @@ mod settings_backup_tests {
             updates.get("proxy_bypass"),
             Some(&json!("localhost,127.0.0.1"))
         );
-        // url::Url normalizes empty path to `/` on serialize
+        // Bare origins: strip Url's forced trailing `/` (joiners use `{base}/v1/...`)
         assert_eq!(
             updates.get("gemini_base_url"),
-            Some(&json!("https://gemini.example.com/"))
+            Some(&json!("https://gemini.example.com"))
         );
         assert_eq!(
             updates.get("github_api_base_url"),
-            Some(&json!("https://gh.example.com/"))
+            Some(&json!("https://gh.example.com"))
         );
     }
 
