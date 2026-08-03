@@ -111,13 +111,19 @@ pub fn default_platform_seeds() -> &'static [DefaultPlatformSeed] {
 /// schema (001–006) and/or `schema_check` heals.
 ///
 /// SeaORM refuses to start when `seaql_migrations` still lists a version with no
-/// on-disk file. Startup deletes only these known history rows before
-/// `Migrator::up`. Missing file history is bookkeeping noise, not a broken live schema.
+/// on-disk file. Startup deletes only these **exact** version strings before
+/// `Migrator::up`. Matching is by full name — never by numeric prefix alone —
+/// so a future real migration such as `007_something_else` is **not** stripped
+/// and can apply normally once history is cleaned.
 ///
 /// Includes:
-/// - thin ALTER-only migrations retired in the 007–011 consolidation (≤0.3.9 path)
-/// - early digital_life experiment versions still present in some local DBs
+/// - thin ALTER-only migrations retired in the 007–011 consolidation (≤0.3.9 path;
+///   those names existed on upgrade paths that reached field installs)
+/// - digital_life experiment versions — **local/dev only, never rolled to production**
+///   (product: 「007是有的 但是还没上生产」). Safe to DELETE aggressively.
 /// - other deleted mid-series names (`008_tapp_runtime_registry`, `009_activity_events`)
+///
+/// Repo migrator today is only 001–006; no digital_life files remain on mainline.
 pub const RETIRED_MIGRATION_VERSIONS: &[&str] = &[
     // Early / mid-series files removed before the current 001–006 base set
     "008_tapp_runtime_registry",
@@ -128,7 +134,7 @@ pub const RETIRED_MIGRATION_VERSIONS: &[&str] = &[
     "009_user_presence",
     "010_user_owner",
     "011_owner_is_admin",
-    // digital_life experiment path (local / feature-branch DBs); files not on mainline
+    // digital_life experiment — local/dev DBs only (never production). Exact names:
     "007_digital_life",
     "008_digital_life_phase_two",
     "009_digital_life_phase_three",
@@ -137,12 +143,12 @@ pub const RETIRED_MIGRATION_VERSIONS: &[&str] = &[
 ];
 
 /// Temporary digital_life experiment tables (from retired `007_digital_life` and
-/// phase migrations). Safe to `DROP … CASCADE` on local/feature DBs — product
-/// confirmed these were throwaway experiments, not permanent schema.
+/// phase migrations). **Local/dev only — never on production.** Product confirmed
+/// the feature was temporary; safe to `DROP … CASCADE` aggressively.
 ///
-/// Names taken from `feature/digital-life` migration `007_digital_life.rs`
-/// (`CREATE TABLE IF NOT EXISTS digital_life_*`). Phase 008–011 files are not
-/// in git; any extra `digital_life_%` tables are also dropped by prefix scan.
+/// Names taken from local `007_digital_life` (`CREATE TABLE IF NOT EXISTS
+/// digital_life_*`). Phase 008–011 sources are not on mainline; any extra
+/// `digital_life_%` tables are also dropped by prefix scan.
 ///
 /// Deliberately **excludes** generically named tables that the experiment also
 /// created (`image_generation_jobs`, `image_assets`) — only the `digital_life_`

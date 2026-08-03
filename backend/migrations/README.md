@@ -36,13 +36,18 @@ Thin ALTER-only migrations that only added columns or healed data were retired:
 Also retired from `seaql_migrations` when present on older/local DBs (files not on mainline):
 
 - `008_tapp_runtime_registry`, `009_activity_events`
-- digital_life experiment: `007_digital_life` … `011_digital_life_asset_subjects`
+- digital_life experiment (local/dev only — **never rolled to production**):
+  `007_digital_life`, `008_digital_life_phase_two`, `009_digital_life_phase_three`,
+  `010_digital_life_phase_four`, `011_digital_life_asset_subjects`
 
 On reconcile, temporary **digital_life_*** experiment tables are also
-`DROP TABLE IF EXISTS … CASCADE` (product: throwaway feature). Known names live
-in `RETIRED_DIGITAL_LIFE_TABLES`; any remaining `public.digital_life_%` table /
-type is dropped by prefix scan. Generically named companions from that
-experiment (`image_generation_jobs`, `image_assets`) are **not** auto-dropped.
+`DROP TABLE IF EXISTS … CASCADE` (throwaway local feature). Known names live in
+`RETIRED_DIGITAL_LIFE_TABLES`; any remaining `public.digital_life_%` table / type
+is dropped by prefix scan. Generically named companions (`image_generation_jobs`,
+`image_assets`) are **not** auto-dropped.
+
+Matching is by **exact version string**, not numeric prefix: after DELETE, a
+future real migration named e.g. `007_something_else` can apply normally.
 
 Authoritative lists: `RETIRED_MIGRATION_VERSIONS` /
 `RETIRED_DIGITAL_LIFE_TABLES` in `backend/src/db/schema_check/seeds.rs`.

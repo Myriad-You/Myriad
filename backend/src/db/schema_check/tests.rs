@@ -144,7 +144,7 @@ fn test_default_platform_seeds_include_x_and_core() {
 }
 
 /// Retired seaql_migrations rows that must be stripped before Migrator::up.
-/// digital_life* versions appear on local/feature-branch DBs after files were dropped.
+/// digital_life* versions: local/dev only (never production); exact-name match only.
 #[test]
 fn test_retired_migration_versions_include_digital_life_and_thin_alters() {
     let versions = RETIRED_MIGRATION_VERSIONS;
@@ -157,7 +157,7 @@ fn test_retired_migration_versions_include_digital_life_and_thin_alters() {
         "011_owner_is_admin",
         "008_tapp_runtime_registry",
         "009_activity_events",
-        // digital_life experiment history (missing files on mainline)
+        // digital_life experiment — local-only history (never prod)
         "007_digital_life",
         "008_digital_life_phase_two",
         "009_digital_life_phase_three",
@@ -178,6 +178,13 @@ fn test_retired_migration_versions_include_digital_life_and_thin_alters() {
         sorted.len(),
         versions.len(),
         "RETIRED_MIGRATION_VERSIONS must be unique"
+    );
+    // Future real 007_* must not be blocked by a bare "007" retirement rule.
+    // We only retire exact digital_life / thin-ALTER strings.
+    assert!(!versions.iter().any(|v| *v == "007" || v.ends_with("_")));
+    assert!(
+        !versions.contains(&"007_something_else"),
+        "must not retire hypothetical future 007 names"
     );
 }
 
