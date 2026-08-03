@@ -8,8 +8,8 @@ import { useCallback, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { SettingsButton, ToggleSwitch } from '../../components/settings'
 import { useI18n } from '../../contexts/I18nContext'
-import '../../components/ConfigForm.css'
 import { useAnchoredFloatTip } from '../hooks/useAnchoredFloatTip'
+import '../../components/ConfigForm.css'
 import './UninstallConfirmDialog.css'
 
 export interface UninstallConfirmDialogProps {

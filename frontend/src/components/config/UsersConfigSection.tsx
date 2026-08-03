@@ -39,8 +39,8 @@ import { messageForAdminUserError } from '../../utils/authErrorMessages'
 import { getOAuthIconAsset } from '../../utils/oauthIcons'
 import { Avatar } from '../Avatar'
 import { AvatarSourcePicker } from '../AvatarSourcePicker'
-import { ProfileTextSourcePicker } from '../ProfileTextSourcePicker'
 import OAuthIconImage from '../OAuthIconImage'
+import { ProfileTextSourcePicker } from '../ProfileTextSourcePicker'
 import {
   guideDomProps,
   InfoActionCard,

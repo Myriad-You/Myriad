@@ -11,8 +11,8 @@ import type {
 import { FaExclamationTriangle, FaFilter } from '@lib/icons'
 import { Spinner } from '../../../components/Spinner'
 import { useI18n } from '../../../contexts/I18nContext'
-import { FeaturedTappPreview } from './StorePreviews'
 import { getAppIconStyle } from './storeAppMeta'
+import { FeaturedTappPreview } from './StorePreviews'
 import { DISCOVER_ALL_PREVIEW_LIMIT } from './types'
 
 export interface StoreCatalogViewProps {

@@ -10,14 +10,14 @@
  * 6. 打开同帧的 pointer 不会误关（ready 后才监听）
  */
 
+import type { RefObject, TransitionEvent } from 'react'
 import {
+
   useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
   useState,
-  type RefObject,
-  type TransitionEvent,
 } from 'react'
 
 export type AnchoredFloatPlacement = 'top' | 'left' | 'right' | 'bottom'

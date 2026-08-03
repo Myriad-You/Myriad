@@ -3,22 +3,22 @@
  * 生命周期见 useAnchoredFloatTip（点外/Esc 关闭、session 防竞态）
  */
 
+import type { ChangeEvent, DragEvent } from 'react'
 import { FaFileAlt, FaUpload } from '@lib/icons'
 import {
+
   useCallback,
   useId,
   useRef,
   useState,
-  type ChangeEvent,
-  type DragEvent,
 } from 'react'
 import { createPortal } from 'react-dom'
 import { SettingsButton } from '../../components/settings'
 import { Spinner } from '../../components/Spinner'
 import { useI18n } from '../../contexts/I18nContext'
-import '../../components/ConfigForm.css'
 import { useAnchoredFloatTip } from '../hooks/useAnchoredFloatTip'
 import * as TappApiService from '../services/TappApiService'
+import '../../components/ConfigForm.css'
 import './InstallTappDialog.css'
 
 export interface InstallTappDialogProps {

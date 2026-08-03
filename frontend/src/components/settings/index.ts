@@ -8,12 +8,6 @@ export { CollapseRegion } from './CollapseRegion'
 export type { CollapseRegionProps } from './CollapseRegion'
 export { CompactSettingGroup } from './CompactSettingGroup'
 export { DateRangePopover } from './DateRangePopover'
-export { SettingAnchoredPanel } from './SettingAnchoredPanel'
-export type {
-  SettingAnchoredPanelPlacement,
-  SettingAnchoredPanelProps,
-  SettingAnchoredPanelTriggerApi,
-} from './SettingAnchoredPanel'
 export type {
   DateRangePopoverLabels,
   DateRangePopoverProps,
@@ -66,9 +60,9 @@ export { InputItem } from './items/InputItem'
 export { NumberGroupItem } from './items/NumberGroupItem'
 export { NumberItem } from './items/NumberItem'
 export { ProviderItem } from './items/ProviderItem'
-
 export { SelectItem } from './items/SelectItem'
 export { SettingsButton } from './items/SettingsButton'
+
 export type {
   SettingsButtonProps,
   SettingsButtonSize,
@@ -88,9 +82,9 @@ export type {
   ManagedListProps,
   ManagedListSearch,
   ManagedListStat,
+  ManagedListStatChoice,
   ManagedListStatMetric,
   ManagedListStatSwitch,
-  ManagedListStatChoice,
   ManagedListTone,
 } from './ManagedList'
 // 动效系统（CSS 令牌在 settings-motion.css，JS 取值在 motion.ts）
@@ -109,6 +103,12 @@ export type {
   SectionSwitchDirection,
   SectionSwitchProps,
 } from './SectionSwitch'
+export { SettingAnchoredPanel } from './SettingAnchoredPanel'
+export type {
+  SettingAnchoredPanelPlacement,
+  SettingAnchoredPanelProps,
+  SettingAnchoredPanelTriggerApi,
+} from './SettingAnchoredPanel'
 export {
   dismissSettingDefaultChange,
   getSettingDefaultChangeNotice,

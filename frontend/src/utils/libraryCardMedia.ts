@@ -12,7 +12,12 @@ let activeDecodes = 0
 const waitQueue: Array<() => void> = []
 
 function pumpQueue() {
-  while (activeDecodes < MAX_CONCURRENT_COVER_DECODES && waitQueue.length > 0) {
+  // Drain waiters while slots remain. Slot count is updated inside grant();
+  // structure the loop on queue length so eslint sees a modified condition.
+  while (waitQueue.length > 0) {
+    if (activeDecodes >= MAX_CONCURRENT_COVER_DECODES) {
+      return
+    }
     const next = waitQueue.shift()
     if (next) next()
   }

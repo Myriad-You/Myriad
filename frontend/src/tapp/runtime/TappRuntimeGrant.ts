@@ -23,8 +23,8 @@ interface SharedWidgetEntry {
 export function sharedWidgetInstanceId(tappId: string): string {
   // Dual FNV-1a 32-bit streams → 16 hex chars of entropy (collision-resistant
   // enough for the share table, which is also keyed by tappId).
-  let h1 = 0x811c9dc5
-  let h2 = 0x811c9dc5 ^ 0x9e3779b9
+  let h1 = 0x811C9DC5
+  let h2 = 0x811C9DC5 ^ 0x9E3779B9
   for (let i = 0; i < tappId.length; i++) {
     const c = tappId.charCodeAt(i)
     h1 ^= c
@@ -37,7 +37,7 @@ export function sharedWidgetInstanceId(tappId: string): string {
     (h2 >>> 0).toString(16).padStart(8, '0')
   // Compact stable slug (not the full id) for debuggability, then hash.
   const slug = tappId
-    .replace(/[^A-Za-z0-9_.-]/g, '_')
+    .replace(/[^\w.-]/g, '_')
     .replace(/_+/g, '_')
     .slice(0, 48)
   const id = `ws.${slug}.${hex}`

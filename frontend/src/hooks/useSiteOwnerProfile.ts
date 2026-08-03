@@ -40,7 +40,7 @@ let inflight: Promise<SiteOwnerProfile | null> | null = null
 /** 并发 force 刷新合并为一次（avatar-changed 与 profile-display-changed 常双发） */
 let forceInflight: Promise<SiteOwnerProfile | null> | null = null
 
-/** @internal 单测用：清空共享 in-flight */
+/** @internal */
 export function __resetSiteOwnerProfileInflightForTests(): void {
   inflight = null
   forceInflight = null

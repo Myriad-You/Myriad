@@ -34,7 +34,6 @@ const WEBSITE_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 let activeWebsiteId: string | null = null
-let scriptLoading = false
 /** Bumped on each inject/disable so superseded script onload/onerror is ignored */
 let scriptGeneration = 0
 let excludeStaff = false
@@ -95,7 +94,6 @@ function removeInjectedScript(): void {
     .forEach((el) => el.remove())
   // Invalidate in-flight onload from a removed mid-load script
   scriptGeneration += 1
-  scriptLoading = false
   // Drop global so a re-enable reloads a clean tracker; mid-session
   // residual umami object without our script is treated as inactive.
   try {
@@ -128,15 +126,12 @@ function injectScript(scriptUrl: string, websiteId: string): void {
   }
 
   // Drop any prior tag (including mid-load) and always inject the latest pair.
-  // Previously `if (scriptLoading) return` left activeWebsiteId on the new id
-  // with no script after a mid-load reconfigure.
+  // Generation bumps invalidate superseded onload/onerror after reconfigure.
   if (existing) {
     existing.remove()
   }
-  scriptLoading = false
 
   const gen = ++scriptGeneration
-  scriptLoading = true
 
   const script = document.createElement('script')
   script.defer = true
@@ -147,14 +142,12 @@ function injectScript(scriptUrl: string, websiteId: string): void {
   script.setAttribute('data-auto-track', 'false')
   script.onload = () => {
     if (gen !== scriptGeneration) return
-    scriptLoading = false
     const flushPath = pendingPath
     pendingPath = null
     if (flushPath) trackUmamiPageview(flushPath)
   }
   script.onerror = () => {
     if (gen !== scriptGeneration) return
-    scriptLoading = false
     console.warn('[Umami] failed to load tracker script')
   }
   document.head.appendChild(script)

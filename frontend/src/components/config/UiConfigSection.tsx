@@ -17,8 +17,8 @@ import {
 } from '@lib/icons'
 import React, { useCallback, useMemo, useState } from 'react'
 import { API_URL } from '../../config'
-import { getCSRFToken } from '../../utils/csrf'
 import { useI18n } from '../../contexts/I18nContext'
+import { getCSRFToken } from '../../utils/csrf'
 import {
   emptyFooterCustomItem,
   FOOTER_CUSTOM_MAX,
@@ -30,11 +30,11 @@ import {
   CheckboxGroupItem,
   InputItem,
   SegmentedControl,
+  SettingAnchoredPanel,
   SettingGroup,
+  SettingsButton,
   SettingSection,
   SliderItem,
-  SettingAnchoredPanel,
-  SettingsButton,
   SwitchItem,
   useSettingGuide,
 } from '../settings'
@@ -112,8 +112,6 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
   /** Open anchored panel field + optional owner hint draft */
   const [aiGenTipField, setAiGenTipField] = useState<SeoAiField | null>(null)
   const [aiGenHint, setAiGenHint] = useState('')
-
-
 
   // 标签归属本 Section，壳层不再维护死字段 label map
   const getFieldLabel = useCallback(

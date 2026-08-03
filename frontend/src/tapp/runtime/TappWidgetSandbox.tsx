@@ -53,6 +53,7 @@ import {
 import {
   registerAgentInteractionHandlers,
   registerAIHandlers,
+  registerAnalyticsHandlers,
   registerAnimationHandlers,
   registerAssetHandlers,
   registerBackgroundHandlers,
@@ -62,7 +63,6 @@ import {
   registerFileHandlers,
   registerLifecycleHandlers,
   registerMediaHandlers,
-  registerAnalyticsHandlers,
   registerPlatformHandlers,
   registerReportHandlers,
   registerSchedulerHandlers,
