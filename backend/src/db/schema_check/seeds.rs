@@ -136,13 +136,54 @@ pub const RETIRED_MIGRATION_VERSIONS: &[&str] = &[
     "011_digital_life_asset_subjects",
 ];
 
-/// 清理已经并入基础结构、代码中不再保留的迁移历史项。
+/// Temporary digital_life experiment tables (from retired `007_digital_life` and
+/// phase migrations). Safe to `DROP … CASCADE` on local/feature DBs — product
+/// confirmed these were throwaway experiments, not permanent schema.
+///
+/// Names taken from `feature/digital-life` migration `007_digital_life.rs`
+/// (`CREATE TABLE IF NOT EXISTS digital_life_*`). Phase 008–011 files are not
+/// in git; any extra `digital_life_%` tables are also dropped by prefix scan.
+///
+/// Deliberately **excludes** generically named tables that the experiment also
+/// created (`image_generation_jobs`, `image_assets`) — only the `digital_life_`
+/// prefix is considered unambiguous junk.
+pub const RETIRED_DIGITAL_LIFE_TABLES: &[&str] = &[
+    "digital_life_characters",
+    "digital_life_dna_evidence",
+    "digital_life_events",
+    "digital_life_memories",
+    "digital_life_worlds",
+    "digital_life_world_objects",
+    "digital_life_visual_lineages",
+    "digital_life_relationships",
+    "digital_life_visits",
+    "digital_life_intents",
+    "digital_life_growth_log",
+    "digital_life_model_calls",
+    "digital_life_asset_recipes",
+    "digital_life_visit_receipts",
+    "digital_life_item_catalog",
+    "digital_life_inventory",
+    "digital_life_journal_entries",
+    "digital_life_discovery_cache",
+    "digital_life_relationship_milestones",
+    "digital_life_arcs",
+    "digital_life_goals",
+    "digital_life_timeline_entries",
+    "digital_life_world_evolution",
+    "digital_life_visual_reviews",
+    "digital_life_social_blocks",
+    "digital_life_social_proposals",
+];
+
+/// 清理已经并入基础结构、代码中不再保留的迁移历史项，并丢弃临时 digital_life
+/// 实验表（产品确认可 DROP，不单删 history）。
 ///
 /// 必须在 SeaORM 检查迁移状态前调用，否则旧数据库会把已执行但已删除的迁移
-/// 判断为历史损坏。这里只删除已由 001–006 + schema_check 接管的迁移名。
+/// 判断为历史损坏。
 ///
-/// 列表见 [`RETIRED_MIGRATION_VERSIONS`]。≥0.3.10 连续升级通常已无这些行，
-/// 保留删除以兼容跳版本与本地 digital_life 实验库。
+/// 列表见 [`RETIRED_MIGRATION_VERSIONS`] / [`RETIRED_DIGITAL_LIFE_TABLES`]。
+/// ≥0.3.10 连续升级通常已无这些行；保留删除以兼容跳版本与本地 digital_life 实验库。
 pub async fn reconcile_retired_migration_history(db: &DatabaseConnection) -> Result<(), DbErr> {
     // Build the IN (...) list from the single const so SQL and tests cannot drift.
     let versions_sql = RETIRED_MIGRATION_VERSIONS
@@ -150,7 +191,7 @@ pub async fn reconcile_retired_migration_history(db: &DatabaseConnection) -> Res
         .map(|v| format!("'{v}'"))
         .collect::<Vec<_>>()
         .join(",\n            ");
-    let sql = format!(
+    let history_sql = format!(
         r#"
 DO $$
 BEGIN
@@ -160,13 +201,109 @@ BEGIN
             {versions_sql}
          );
     END IF;
+    -- schema_check marks for the experiment (if any)
+    IF to_regclass('public._schema_versions') IS NOT NULL THEN
+        DELETE FROM _schema_versions
+         WHERE version LIKE 'digital_life%'
+            OR version LIKE '%digital_life%';
+    END IF;
+END $$;
+"#
+    );
+
+    db.execute_unprepared(&history_sql).await?;
+
+    drop_retired_digital_life_tables(db).await?;
+
+    Ok(())
+}
+
+/// Drop leftover temporary digital_life experiment tables and matching types.
+///
+/// 1. Explicit list from [`RETIRED_DIGITAL_LIFE_TABLES`] (`DROP IF EXISTS … CASCADE`)
+/// 2. Prefix scan: any remaining `public.digital_life_%` table
+/// 3. Prefix scan: `public` enum/domain/composite types named `digital_life_%`
+///
+/// Never touches tables outside the `digital_life_` prefix.
+async fn drop_retired_digital_life_tables(db: &DatabaseConnection) -> Result<(), DbErr> {
+    // Discover first so we can log what we remove (ops visibility on local DBs).
+    let existing = discover_digital_life_tables(db).await?;
+    if !existing.is_empty() {
+        tracing::info!(
+            tables = ?existing,
+            "Dropping temporary digital_life experiment tables (retired feature cleanup)"
+        );
+    }
+
+    let explicit_drops = RETIRED_DIGITAL_LIFE_TABLES
+        .iter()
+        .map(|t| format!("DROP TABLE IF EXISTS public.{t} CASCADE;"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    // Known names + any leftover digital_life_* from phase migrations not in the const.
+    // %I quotes identifiers; LIKE escape keeps `_` literal in the prefix filter.
+    let sql = format!(
+        r#"
+DO $$
+DECLARE
+    r RECORD;
+BEGIN
+    {explicit_drops}
+
+    FOR r IN
+        SELECT tablename
+          FROM pg_tables
+         WHERE schemaname = 'public'
+           AND tablename LIKE 'digital_life\_%' ESCAPE '\'
+    LOOP
+        EXECUTE format('DROP TABLE IF EXISTS public.%I CASCADE', r.tablename);
+    END LOOP;
+
+    -- Freestanding enums/domains/composites left after CASCADE table drops
+    FOR r IN
+        SELECT t.typname
+          FROM pg_type t
+          JOIN pg_namespace n ON n.oid = t.typnamespace
+         WHERE n.nspname = 'public'
+           AND t.typname LIKE 'digital_life\_%' ESCAPE '\'
+           AND t.typtype IN ('e', 'd', 'c')
+    LOOP
+        EXECUTE format('DROP TYPE IF EXISTS public.%I CASCADE', r.typname);
+    END LOOP;
 END $$;
 "#
     );
 
     db.execute_unprepared(&sql).await?;
-
     Ok(())
+}
+
+/// List `public` tables whose names start with `digital_life_`.
+async fn discover_digital_life_tables(db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
+    use sea_orm::{DatabaseBackend, Statement};
+
+    let rows = db
+        .query_all(Statement::from_string(
+            DatabaseBackend::Postgres,
+            r#"
+            SELECT tablename
+              FROM pg_tables
+             WHERE schemaname = 'public'
+               AND tablename LIKE 'digital_life\_%' ESCAPE '\'
+             ORDER BY tablename
+            "#
+            .to_string(),
+        ))
+        .await?;
+
+    let mut names = Vec::with_capacity(rows.len());
+    for row in rows {
+        if let Ok(name) = row.try_get::<String>("", "tablename") {
+            names.push(name);
+        }
+    }
+    Ok(names)
 }
 
 /// 将缺失的默认平台行补入 `platforms` 表（ON CONFLICT DO NOTHING，不覆盖用户已有配置）

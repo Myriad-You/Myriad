@@ -181,6 +181,42 @@ fn test_retired_migration_versions_include_digital_life_and_thin_alters() {
     );
 }
 
+/// Explicit DROP list for temporary digital_life tables (plus runtime prefix scan).
+#[test]
+fn test_retired_digital_life_tables_are_prefixed_and_cover_core() {
+    let tables = RETIRED_DIGITAL_LIFE_TABLES;
+    assert!(!tables.is_empty());
+    for required in [
+        "digital_life_characters",
+        "digital_life_worlds",
+        "digital_life_memories",
+        "digital_life_visual_lineages",
+        "digital_life_social_proposals",
+    ] {
+        assert!(
+            tables.contains(&required),
+            "RETIRED_DIGITAL_LIFE_TABLES missing core table {required}"
+        );
+    }
+    for name in tables {
+        assert!(
+            name.starts_with("digital_life_"),
+            "retired digital_life table must use feature prefix, got {name}"
+        );
+        // Never put generically named experiment companions on this list.
+        assert_ne!(*name, "image_generation_jobs");
+        assert_ne!(*name, "image_assets");
+    }
+    let mut sorted: Vec<&str> = tables.to_vec();
+    sorted.sort();
+    sorted.dedup();
+    assert_eq!(
+        sorted.len(),
+        tables.len(),
+        "RETIRED_DIGITAL_LIFE_TABLES must be unique"
+    );
+}
+
 #[test]
 fn test_tapps_schema_includes_approved_permissions() {
     let tables = get_expected_schema();

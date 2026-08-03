@@ -347,8 +347,9 @@ async fn run_server() -> anyhow::Result<()> {
                 tracing::info!(db_target = %db_target, "✅ Database connection established");
 
                 // Retired migration files have been folded into the base schema.
-                // Remove only their known history rows before SeaORM validates
-                // migration-file/history parity; schema_check owns the backfill.
+                // Strip known history rows (and drop temporary digital_life_*
+                // experiment tables) before SeaORM validates migration-file/
+                // history parity; schema_check owns live structure backfill.
                 if let Err(e) = db::schema_check::reconcile_retired_migration_history(&db).await {
                     tracing::warn!("Failed to reconcile retired migration history: {}", e);
                 }

@@ -38,7 +38,14 @@ Also retired from `seaql_migrations` when present on older/local DBs (files not 
 - `008_tapp_runtime_registry`, `009_activity_events`
 - digital_life experiment: `007_digital_life` … `011_digital_life_asset_subjects`
 
-Authoritative list: `RETIRED_MIGRATION_VERSIONS` in `backend/src/db/schema_check/seeds.rs`.
+On reconcile, temporary **digital_life_*** experiment tables are also
+`DROP TABLE IF EXISTS … CASCADE` (product: throwaway feature). Known names live
+in `RETIRED_DIGITAL_LIFE_TABLES`; any remaining `public.digital_life_%` table /
+type is dropped by prefix scan. Generically named companions from that
+experiment (`image_generation_jobs`, `image_assets`) are **not** auto-dropped.
+
+Authoritative lists: `RETIRED_MIGRATION_VERSIONS` /
+`RETIRED_DIGITAL_LIFE_TABLES` in `backend/src/db/schema_check/seeds.rs`.
 
 Whole tables are created by Migrator (001–006) — the numbered series is the
 **complete greenfield source of truth**. Runtime `schema_check` only heals
