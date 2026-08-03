@@ -52,6 +52,7 @@ html.dark .user-info-button:hover {
    * natural height and breaks content-based shrink animation.
    */
   --user-modal-min-height: 20rem;
+
   min-height: min(var(--user-modal-min-height), 85vh);
   max-height: 85vh;
   background: rgb(255 255 255 / 75%);
@@ -96,8 +97,7 @@ html.dark .user-info-button:hover {
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: hidden auto;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -903,8 +903,10 @@ html.dark .user-modal-recent-empty {
 @media (width <= 640px) {
   .user-modal {
     width: 95%;
+
     /* Slightly tighter floor on small screens; still ≤ max-height via min() */
     --user-modal-min-height: 18rem;
+
     min-height: min(var(--user-modal-min-height), 90vh);
     max-height: 90vh;
     border-radius: 1.5rem;

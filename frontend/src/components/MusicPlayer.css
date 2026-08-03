@@ -2707,17 +2707,14 @@ html.dark .music-vip-badge.trial {
    * 用 .music-view.music-view-info 压过基线 .music-view { display:flex } */
   .music-view.music-view-info {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    grid-template-rows: auto auto auto;
-    grid-template-areas:
-      'cover meta'
-      'progress progress'
-      'controls controls';
-    column-gap: 0.5rem;
-    row-gap: 0.35rem;
+    grid-template:
+      'cover meta' auto
+      'progress progress' auto
+      'controls controls' auto
+      / auto minmax(0, 1fr);
+    gap: 0.35rem 0.5rem;
     height: 100%;
-    align-content: space-between;
-    justify-content: stretch;
+    place-content: space-between stretch;
     overflow: visible;
   }
 
@@ -2772,8 +2769,7 @@ html.dark .music-vip-badge.trial {
   .music-view-info .music-no-song {
     grid-column: 1 / -1;
     grid-row: 1 / -1;
-    align-self: center;
-    justify-self: center;
+    place-self: center center;
   }
 
   .music-info-spectrum {
@@ -2946,8 +2942,7 @@ html.dark .music-vip-badge.trial {
   }
 
   .music-view-info {
-    column-gap: 0.4rem;
-    row-gap: 0.28rem;
+    gap: 0.28rem 0.4rem;
   }
 
   .music-view-info .music-album-cover-large {

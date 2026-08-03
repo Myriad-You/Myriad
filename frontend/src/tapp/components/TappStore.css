@@ -1121,6 +1121,7 @@ html.dark .as-store__search-shell:focus-within {
   background: transparent;
   border: 0;
   border-radius: inherit;
+
   /* Allow parent horizontal snap-scroll; pan-y alone steals the gesture. */
   touch-action: manipulation;
 }
@@ -2432,6 +2433,7 @@ html.dark .as-detail__perm-card--privileged.checkbox-group-card {
     padding: 1rem 1.05rem;
     scroll-snap-align: start;
     border-radius: 1rem;
+
     /* pan-x only would block vertical page scroll from the strip. */
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;

@@ -35,7 +35,7 @@
     transparent
   );
   backdrop-filter: var(--cfg-frost-filter, blur(20px) saturate(180%));
-  -webkit-backdrop-filter: var(--cfg-frost-filter, blur(20px) saturate(180%));
+  backdrop-filter: var(--cfg-frost-filter, blur(20px) saturate(180%));
   box-shadow:
     0 4px 6px -1px rgb(0 0 0 / 8%),
     0 16px 36px -12px
@@ -215,7 +215,7 @@ html.dark .install-tip-drop {
   background: var(--cfg-subtle-bg);
 }
 
-.install-tip-drop:hover:not(.is-disabled):not(.is-dragover) {
+.install-tip-drop:hover:not(.is-disabled, .is-dragover) {
   border-color: color-mix(in srgb, var(--install-tip-accent) 55%, transparent);
   background: color-mix(
     in srgb,

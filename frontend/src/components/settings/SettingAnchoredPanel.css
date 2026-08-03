@@ -20,6 +20,7 @@
   flex-direction: column;
   gap: 0.4rem;
   z-index: 10060;
+
   /* 覆盖只读 tooltip 的 pointer-events:none（未 ready 时仍 none，ready 由 is-ready 打开） */
 }
 
