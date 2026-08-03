@@ -30,7 +30,8 @@ fn image_proxy_hosts() -> &'static ImageProxyHostsFile {
 ///
 /// 注意与 `api/proxy::is_allowed_domain` 不同：
 /// - **needs_image_proxy**：自动改写 API 出口时用（窄；名单见 shared JSON）
-/// - **is_allowed_domain**：`/api/proxy/image` 允许拉什么（可更宽，给 RSS/手动代理）
+/// - **is_allowed_domain**：`/api/proxy/image` egress allowlist（更宽的显式 host
+///   exact/suffix 表；**禁止**任意公网 `.jpg` / 路径回退，见 MYR-007）
 pub fn needs_image_proxy(url: &str) -> bool {
     let u = url.to_ascii_lowercase();
     let hosts = image_proxy_hosts();
