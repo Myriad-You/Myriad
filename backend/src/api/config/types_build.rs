@@ -281,12 +281,22 @@ pub(crate) fn sanitize_proxy_url(raw: &str) -> Option<String> {
 }
 
 /// API base URL (Gemini / GitHub / etc.): empty or http(s); private OK for reverse proxies.
+///
+/// Host-only bases are stored **without** a trailing slash. `url::Url::to_string()`
+/// normalizes empty path to `/`, but joiners build `{base}/v1/...` and would otherwise
+/// produce a double slash / drift from the value the admin typed.
 pub(crate) fn sanitize_http_base_url(raw: &str) -> Option<String> {
     let s = raw.trim();
     if s.is_empty() {
         return Some(String::new());
     }
-    sanitize_http_url_allow_private(s)
+    let sanitized = sanitize_http_url_allow_private(s)?;
+    let parsed = url::Url::parse(&sanitized).ok()?;
+    if parsed.path() == "/" && parsed.query().is_none() && parsed.fragment().is_none() {
+        Some(sanitized.trim_end_matches('/').to_string())
+    } else {
+        Some(sanitized)
+    }
 }
 
 /// http(s) only; protocol-relative → https. **Does not** block private hosts.
@@ -3200,6 +3210,15 @@ mod settings_backup_tests {
         assert_eq!(
             sanitize_http_base_url("http://127.0.0.1:11434/v1"),
             Some("http://127.0.0.1:11434/v1".to_string())
+        );
+        // Host-only base: do not force Url's trailing "/"
+        assert_eq!(
+            sanitize_http_base_url("https://gemini.example.com"),
+            Some("https://gemini.example.com".to_string())
+        );
+        assert_eq!(
+            sanitize_http_base_url("https://gemini.example.com/"),
+            Some("https://gemini.example.com".to_string())
         );
 
         // Proxy: socks + localhost OK
