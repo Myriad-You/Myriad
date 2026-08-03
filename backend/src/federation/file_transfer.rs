@@ -92,9 +92,27 @@ use crate::federation::limits::TRANSFER_CHUNK_SIZE as DEFAULT_CHUNK_SIZE;
 use crate::federation::limits::MAX_FILE_SIZE;
 
 // 存储辅助
+//
+// MYR-001: transferId is a path component under the federation transfers root.
+// Never join unvalidated remote/DB strings into filesystem paths.
+
+/// Max length for transfer IDs used as storage directory names.
+const MAX_TRANSFER_ID_LEN: usize = 128;
 
 fn storage_root() -> PathBuf {
     paths().root.join("federation").join("transfers")
+}
+
+/// Strict transferId validation before any filesystem use (MYR-001).
+///
+/// Allowlist: ASCII alphanumeric, `_`, `-` only (covers local `ft_{uuid}`).
+/// Rejects empty, oversize, absolute paths, `..`, separators, null bytes, Unicode.
+fn is_valid_transfer_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= MAX_TRANSFER_ID_LEN
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 fn safe_filename(name: &str) -> String {
@@ -114,10 +132,75 @@ fn safe_filename(name: &str) -> String {
     }
 }
 
-fn final_file_path(transfer_id: &str, filename: &str) -> PathBuf {
-    storage_root()
-        .join(transfer_id)
-        .join(safe_filename(filename))
+/// Lexically normalize a path (resolve `.` / `..` without touching the filesystem).
+fn normalize_lexically(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Prefix(p) => out.push(p.as_os_str()),
+            Component::RootDir => out.push(component.as_os_str()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !out.pop() {
+                    // Preserve escaping `..` so subsequent confinement checks fail.
+                    out.push("..");
+                }
+            }
+            Component::Normal(s) => out.push(s),
+        }
+    }
+    out
+}
+
+/// True if `path` is strictly under `root` after lexical normalization (no escape).
+fn is_strictly_under(root: &Path, path: &Path) -> bool {
+    let root_n = normalize_lexically(root);
+    let path_n = normalize_lexically(path);
+    path_n.starts_with(&root_n) && path_n != root_n
+}
+
+/// Build final on-disk path for a transfer. Validates transferId and confines under storage root.
+///
+/// Protocol transferId is used as the directory name only after validation; original id stays
+/// the DB identity (same string for valid `ft_{uuid}` ids).
+fn final_file_path(transfer_id: &str, filename: &str) -> Result<PathBuf, String> {
+    if !is_valid_transfer_id(transfer_id) {
+        return Err(
+            "Invalid transferId: must be 1-128 chars of [A-Za-z0-9_-] only".into(),
+        );
+    }
+    let root = storage_root();
+    let path = root.join(transfer_id).join(safe_filename(filename));
+    if !is_strictly_under(&root, &path) {
+        return Err("Transfer path escapes storage root".into());
+    }
+    Ok(path)
+}
+
+/// Resolve a path for open/write: prefer DB `local_path` only if confined under storage root.
+///
+/// Never trust stored paths blindly — re-validate confinement before any FS use (MYR-001).
+fn resolve_transfer_path(
+    transfer_id: &str,
+    filename: &str,
+    local_path: Option<&str>,
+) -> Result<PathBuf, String> {
+    let root = storage_root();
+    if let Some(p) = local_path.filter(|s| !s.is_empty()) {
+        if p.contains('\0') {
+            return Err("Invalid local_path: null byte".into());
+        }
+        let candidate = PathBuf::from(p);
+        if is_strictly_under(&root, &candidate) {
+            return Ok(normalize_lexically(&candidate));
+        }
+        tracing::warn!(
+            "[FileTransfer] rejecting unconfined local_path for transfer {}",
+            transfer_id
+        );
+    }
+    final_file_path(transfer_id, filename)
 }
 
 fn part_file_path(final_path: &Path) -> PathBuf {
@@ -155,10 +238,17 @@ async fn stored_bytes(path: &str) -> i64 {
     }
 
     let final_path = PathBuf::from(path);
+    // Do not stat paths outside the transfers root (defense in depth for DB values).
+    if !is_strictly_under(&storage_root(), &final_path) {
+        return 0;
+    }
     if let Ok(meta) = fs::metadata(&final_path).await {
         return meta.len() as i64;
     }
     let part_path = part_file_path(&final_path);
+    if !is_strictly_under(&storage_root(), &part_path) {
+        return 0;
+    }
     fs::metadata(&part_path)
         .await
         .map(|m| m.len() as i64)
@@ -284,7 +374,7 @@ pub async fn initiate_transfer(
 
     // 创建传输记录
     let transfer_id = generate_transfer_id();
-    let final_path = final_file_path(&transfer_id, &req.filename);
+    let final_path = final_file_path(&transfer_id, &req.filename).map_err(bad_request)?;
     let local_path = path_to_db(&final_path);
 
     db.execute(Statement::from_sql_and_values(
@@ -422,7 +512,7 @@ pub async fn initiate_room_transfer(
     let chunks_total =
         ((req.file_size + DEFAULT_CHUNK_SIZE - 1) / DEFAULT_CHUNK_SIZE).max(1) as i32;
     let transfer_id = generate_transfer_id();
-    let final_path = final_file_path(&transfer_id, &req.filename);
+    let final_path = final_file_path(&transfer_id, &req.filename).map_err(bad_request)?;
     let local_path = path_to_db(&final_path);
 
     db.execute(Statement::from_sql_and_values(
@@ -503,6 +593,13 @@ pub async fn upload_chunk(
     db: &DatabaseConnection,
     req: &UploadChunkRequest,
 ) -> Result<serde_json::Value, (StatusCode, Json<serde_json::Value>)> {
+    // MYR-001: reject unsafe transferId before any path construction / DB-driven FS write
+    if !is_valid_transfer_id(transfer_id) {
+        return Err(bad_request(
+            "Invalid transferId: must be 1-128 chars of [A-Za-z0-9_-] only",
+        ));
+    }
+
     let row = db
         .query_one(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -619,12 +716,14 @@ pub async fn upload_chunk(
         )));
     }
 
-    let final_path = local_path
-        .filter(|p| !p.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| final_file_path(transfer_id, &filename));
+    let final_path = resolve_transfer_path(transfer_id, &filename, local_path.as_deref())
+        .map_err(bad_request)?;
     let final_path_db = path_to_db(&final_path);
     let part_path = part_file_path(&final_path);
+    // Confinement for the .part sibling (same parent under storage root)
+    if !is_strictly_under(&storage_root(), &part_path) {
+        return Err(bad_request("Transfer path escapes storage root"));
+    }
     let expected_offset = DEFAULT_CHUNK_SIZE * chunks_completed as i64;
 
     write_chunk_to_part(&part_path, &decoded, expected_offset).await?;
@@ -822,6 +921,13 @@ pub async fn open_transfer_file(
     username: &str,
     db: &DatabaseConnection,
 ) -> Result<TransferFileContent, (StatusCode, Json<serde_json::Value>)> {
+    // MYR-001: never open a path derived from an unvalidated transferId / DB local_path
+    if !is_valid_transfer_id(transfer_id) {
+        return Err(bad_request(
+            "Invalid transferId: must be 1-128 chars of [A-Za-z0-9_-] only",
+        ));
+    }
+
     let row = db
         .query_one(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -897,10 +1003,8 @@ pub async fn open_transfer_file(
         .try_get::<Option<String>>("", "local_path")
         .unwrap_or(None);
 
-    let path = match local_path.as_deref().filter(|p| !p.is_empty()) {
-        Some(p) => PathBuf::from(p),
-        None => final_file_path(transfer_id, &filename),
-    };
+    let path = resolve_transfer_path(transfer_id, &filename, local_path.as_deref())
+        .map_err(bad_request)?;
 
     let meta = fs::metadata(&path).await.map_err(|_| {
         (
@@ -1363,6 +1467,12 @@ pub async fn handle_file_transfer(
         .get("transferId")
         .and_then(|v| v.as_str())
         .ok_or("Missing transferId")?;
+    // MYR-001: remote transferId must pass strict validation before any path use
+    if !is_valid_transfer_id(transfer_id) {
+        return Err(
+            "Invalid transferId: must be 1-128 chars of [A-Za-z0-9_-] only".into(),
+        );
+    }
     let channel_id = object.get("channelId").and_then(|v| v.as_str());
     let room_id = object.get("roomId").and_then(|v| v.as_str());
     if channel_id.is_none() && room_id.is_none() {
@@ -1422,7 +1532,7 @@ pub async fn handle_file_transfer(
         }
     }
 
-    let local_path = path_to_db(&final_file_path(transfer_id, filename));
+    let local_path = path_to_db(&final_file_path(transfer_id, filename)?);
 
     db.execute(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
@@ -1467,6 +1577,12 @@ async fn handle_file_chunk(
         .get("transferId")
         .and_then(|v| v.as_str())
         .ok_or("Missing transferId")?;
+    // MYR-001: reject path-traversal transferIds before FS write
+    if !is_valid_transfer_id(transfer_id) {
+        return Err(
+            "Invalid transferId: must be 1-128 chars of [A-Za-z0-9_-] only".into(),
+        );
+    }
     let chunk_index = object
         .get("chunkIndex")
         .and_then(|v| v.as_i64())
@@ -1573,12 +1689,12 @@ async fn handle_file_chunk(
         ));
     }
 
-    let final_path = local_path
-        .filter(|p| !p.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| final_file_path(transfer_id, &filename));
+    let final_path = resolve_transfer_path(transfer_id, &filename, local_path.as_deref())?;
     let final_path_db = path_to_db(&final_path);
     let part_path = part_file_path(&final_path);
+    if !is_strictly_under(&storage_root(), &part_path) {
+        return Err("Transfer path escapes storage root".into());
+    }
     let expected_offset = DEFAULT_CHUNK_SIZE * chunks_completed as i64;
 
     write_chunk_to_part(&part_path, &decoded, expected_offset)
@@ -1635,24 +1751,39 @@ async fn handle_file_chunk(
             .map_err(|e| e.to_string())?;
     }
 
-    db.execute(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        r#"UPDATE federation_file_transfers
-           SET chunks_completed = $2,
-               status = $3,
-               local_path = $4,
-               completed_at = CASE WHEN $3 = 'completed' THEN NOW() ELSE NULL END
-           WHERE transfer_id = $1 AND chunks_completed = $5"#,
-        [
-            transfer_id.into(),
-            new_chunks.into(),
-            new_status.into(),
-            final_path_db.into(),
-            chunks_completed.into(),
-        ],
-    ))
-    .await
-    .map_err(|e| e.to_string())?;
+    let result = db
+        .execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"UPDATE federation_file_transfers
+               SET chunks_completed = $2,
+                   status = $3,
+                   local_path = $4,
+                   completed_at = CASE WHEN $3 = 'completed' THEN NOW() ELSE NULL END
+               WHERE transfer_id = $1 AND chunks_completed = $5"#,
+            [
+                transfer_id.into(),
+                new_chunks.into(),
+                new_status.into(),
+                final_path_db.into(),
+                chunks_completed.into(),
+            ],
+        ))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // CAS miss: do not broadcast success; another writer won the race.
+    if result.rows_affected() == 0 {
+        tracing::warn!(
+            "[FileTransfer] CAS miss receiving chunk for {} (progress changed)",
+            transfer_id
+        );
+        // Best-effort cleanup of orphan .part if we did not complete (leave final file alone
+        // when another request may have completed the transfer).
+        if new_status != "completed" {
+            let _ = fs::remove_file(&part_path).await;
+        }
+        return Err("Transfer progress changed while receiving chunk".into());
+    }
 
     tracing::info!(
         "[FileTransfer] Received chunk {}/{} for {} from {}",
@@ -1756,4 +1887,173 @@ async fn handle_file_cancel(
         actor_url_str
     );
     Ok(())
+}
+
+// ── MYR-001 path safety tests ───────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const VALID_FT_UUID: &str = "ft_550e8400-e29b-41d4-a716-446655440000";
+
+    #[test]
+    fn transfer_id_accepts_ft_uuid() {
+        assert!(is_valid_transfer_id(VALID_FT_UUID));
+        assert!(is_valid_transfer_id("ft_abc-DEF_0123456789"));
+        assert!(is_valid_transfer_id("a"));
+        assert!(is_valid_transfer_id(&"x".repeat(MAX_TRANSFER_ID_LEN)));
+    }
+
+    #[test]
+    fn transfer_id_rejects_path_traversal_and_unsafe() {
+        // Absolute / parent / separators
+        assert!(!is_valid_transfer_id(""));
+        assert!(!is_valid_transfer_id("/etc/passwd"));
+        assert!(!is_valid_transfer_id("C:\\Windows\\System32"));
+        assert!(!is_valid_transfer_id("../../agent/mcp_servers"));
+        assert!(!is_valid_transfer_id(".."));
+        assert!(!is_valid_transfer_id("."));
+        assert!(!is_valid_transfer_id("foo/bar"));
+        assert!(!is_valid_transfer_id("foo\\bar"));
+        assert!(!is_valid_transfer_id("ft_.."));
+        assert!(!is_valid_transfer_id("ft_/evil"));
+        // Mixed separators (would be invalid charset)
+        assert!(!is_valid_transfer_id("ft_..\\..\\agent"));
+        assert!(!is_valid_transfer_id("ft_..%2f..%2fagent"));
+        // Oversize
+        assert!(!is_valid_transfer_id(&"a".repeat(MAX_TRANSFER_ID_LEN + 1)));
+        // Spaces / Unicode / null / control
+        assert!(!is_valid_transfer_id("id with spaces"));
+        assert!(!is_valid_transfer_id("ft_\u{2024}evil")); // one-dot leader
+        assert!(!is_valid_transfer_id("ft_\u{2215}evil")); // division slash
+        assert!(!is_valid_transfer_id("ft_\u{ff0f}evil")); // fullwidth solidus
+        assert!(!is_valid_transfer_id("ft_\0null"));
+        assert!(!is_valid_transfer_id("ft_\nevil"));
+    }
+
+    #[test]
+    fn final_file_path_never_escapes_root_for_valid_id() {
+        let root = storage_root();
+        let p = final_file_path(VALID_FT_UUID, "doc.pdf").expect("valid id");
+        assert!(
+            is_strictly_under(&root, &p),
+            "path {:?} must be under {:?}",
+            p,
+            root
+        );
+        assert!(p.starts_with(root.join(VALID_FT_UUID)));
+        // Filename is sanitized (separators → `_`, leading dots trimmed) but path stays under root
+        let p2 = final_file_path(VALID_FT_UUID, "../../etc/passwd").expect("safe filename");
+        assert!(is_strictly_under(&root, &p2));
+        let fname = p2.file_name().and_then(|s| s.to_str()).unwrap_or("");
+        assert!(!fname.contains('/'));
+        assert!(!fname.contains('\\'));
+        assert_ne!(fname, "..");
+        assert_eq!(p2.parent(), Some(root.join(VALID_FT_UUID).as_path()));
+    }
+
+    #[test]
+    fn final_file_path_rejects_malicious_transfer_id() {
+        assert!(final_file_path("../../agent/mcp_servers", "x.json").is_err());
+        assert!(final_file_path("/etc/passwd", "x").is_err());
+        assert!(final_file_path("a/b", "x").is_err());
+        assert!(final_file_path("..\\..\\agent", "x").is_err());
+        assert!(final_file_path("", "x").is_err());
+        assert!(final_file_path(&"z".repeat(200), "x").is_err());
+        assert!(final_file_path("ft_\u{2024}x", "x").is_err());
+    }
+
+    #[test]
+    fn resolve_transfer_path_rejects_db_local_path_escape() {
+        let root = storage_root();
+
+        // Absolute path outside root → rebuild under root via transfer_id
+        let p = resolve_transfer_path(VALID_FT_UUID, "f.txt", Some("/etc/passwd"))
+            .expect("rebuild under root");
+        assert!(is_strictly_under(&root, &p));
+        assert!(!p.starts_with(Path::new("/etc")));
+
+        // Relative traversal outside root
+        let p = resolve_transfer_path(
+            VALID_FT_UUID,
+            "f.txt",
+            Some("../../agent/mcp_servers.json"),
+        )
+        .expect("rebuild");
+        assert!(is_strictly_under(&root, &p));
+
+        // Mixed-separator style path under root's parent
+        let escape = root
+            .join("..")
+            .join("agent")
+            .join("mcp_servers.json")
+            .to_string_lossy()
+            .into_owned();
+        let p = resolve_transfer_path(VALID_FT_UUID, "f.txt", Some(&escape)).expect("rebuild");
+        assert!(is_strictly_under(&root, &p));
+        // Escaped path must not be used as-is
+        assert_ne!(
+            normalize_lexically(&p),
+            normalize_lexically(Path::new(&escape))
+        );
+
+        // Valid confined local_path is accepted
+        let good = root.join(VALID_FT_UUID).join("file.bin");
+        let p = resolve_transfer_path(VALID_FT_UUID, "f.txt", Some(good.to_str().unwrap()))
+            .expect("accept confined");
+        assert_eq!(normalize_lexically(&p), normalize_lexically(&good));
+
+        // Null byte rejected
+        assert!(resolve_transfer_path(VALID_FT_UUID, "f.txt", Some("evil\0path")).is_err());
+
+        // Malicious transferId with no usable local_path
+        assert!(resolve_transfer_path("../../agent", "x", None).is_err());
+        assert!(resolve_transfer_path(
+            "../../agent/mcp_servers",
+            "x",
+            Some("/tmp/out")
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn is_strictly_under_blocks_parent_and_sibling_escapes() {
+        let root = PathBuf::from("data/federation/transfers");
+        assert!(is_strictly_under(
+            &root,
+            &root.join("ft_abc").join("file.txt")
+        ));
+        assert!(!is_strictly_under(&root, &root));
+        assert!(!is_strictly_under(
+            &root,
+            &root.join("..").join("agent").join("mcp_servers.json")
+        ));
+        assert!(!is_strictly_under(
+            &root,
+            Path::new("/tmp/evil")
+        ));
+        assert!(!is_strictly_under(
+            &root,
+            &root.join("..").join("..").join("etc").join("passwd")
+        ));
+        // Sibling via `..` then back should not count as under when normalized leaves root
+        assert!(!is_strictly_under(
+            &root,
+            Path::new("data/federation/transfers/../../agent/mcp_servers")
+        ));
+    }
+
+    #[test]
+    fn generate_transfer_id_is_always_valid() {
+        for _ in 0..20 {
+            let id = generate_transfer_id();
+            assert!(
+                is_valid_transfer_id(&id),
+                "generated id must pass validation: {}",
+                id
+            );
+            assert!(final_file_path(&id, "a.bin").is_ok());
+        }
+    }
 }
