@@ -2692,7 +2692,9 @@ html.dark .music-vip-badge.trial {
     --music-radius: 0.75rem;
 
     padding: 0.55rem 0.65rem 0.5rem;
-    height: 148px;
+
+    /* 略增高以容纳 ~44px 主播 / ~40px 辅控 */
+    height: 156px;
     min-width: 0;
     max-width: 100%;
     box-sizing: border-box;
@@ -2743,8 +2745,8 @@ html.dark .music-vip-badge.trial {
     max-width: 100%;
     overflow: hidden;
 
-    /* 频谱柱更小，标题右侧留白收紧 */
-    padding: 0 1.65rem 0 0;
+    /* 移动端隐藏右上角频谱，无需为柱图预留右侧 padding */
+    padding: 0;
   }
 
   .music-view-info .music-progress-container {
@@ -2772,15 +2774,10 @@ html.dark .music-vip-badge.trial {
     place-self: center center;
   }
 
-  .music-info-spectrum {
-    top: 0;
-    right: 0;
-    height: 0.85rem;
-    opacity: 0.4;
-  }
-
-  .music-info-spectrum.is-playing {
-    opacity: 0.95;
+  /* 移动端不显示右上角 / 列表 now-playing 频谱 */
+  .music-info-spectrum,
+  .music-playlist-playing {
+    display: none;
   }
 
   .music-album-cover {
@@ -2851,58 +2848,59 @@ html.dark .music-vip-badge.trial {
     --dot-size: 6px;
   }
 
+  /* 控制按钮：移动端加大到 ~44px 主播 / ~40px 辅控，便于点按 */
   .music-play-btn {
-    width: 2.1rem;
-    height: 2.1rem;
-    min-width: 2.1rem;
-    min-height: 2.1rem;
+    width: 2.75rem;
+    height: 2.75rem;
+    min-width: 2.75rem;
+    min-height: 2.75rem;
   }
 
   .music-control-btn {
-    width: 1.65rem;
-    height: 1.65rem;
-    min-width: 1.65rem;
-    min-height: 1.65rem;
+    width: 2.5rem;
+    height: 2.5rem;
+    min-width: 2.5rem;
+    min-height: 2.5rem;
   }
 
   .music-control-icon-btn {
-    width: 1.65rem;
-    height: 1.65rem;
-    min-width: 1.65rem;
-    min-height: 1.65rem;
+    width: 2.5rem;
+    height: 2.5rem;
+    min-width: 2.5rem;
+    min-height: 2.5rem;
   }
 
   .music-volume-btn {
-    width: 1.65rem;
-    height: 1.65rem;
-    min-width: 1.65rem;
-    min-height: 1.65rem;
+    width: 2.5rem;
+    height: 2.5rem;
+    min-width: 2.5rem;
+    min-height: 2.5rem;
   }
 
   .music-view-switch-btn {
-    width: 1.65rem;
-    height: 1.65rem;
-    min-width: 1.65rem;
-    min-height: 1.65rem;
+    width: 2.5rem;
+    height: 2.5rem;
+    min-width: 2.5rem;
+    min-height: 2.5rem;
   }
 
   .music-view-switch-btn svg {
-    width: 0.85rem;
-    height: 0.85rem;
+    width: 1.05rem;
+    height: 1.05rem;
   }
 
   .music-view-switch-btn .music-ctrl-icon,
   .music-ctrl-icon {
-    width: 0.8rem;
-    height: 0.8rem;
+    width: 1.05rem;
+    height: 1.05rem;
   }
 
   .music-view-switcher {
-    gap: 0.2rem;
+    gap: 0.25rem;
   }
 
   .music-control-buttons {
-    gap: 0.3rem;
+    gap: 0.4rem;
   }
 
   /* 无歌占位：跟随更矮的容器 */
@@ -2934,11 +2932,11 @@ html.dark .music-vip-badge.trial {
   }
 }
 
-/* 极窄屏（~320–360 逻辑宽）：时间再收一点，按钮间距更紧 */
+/* 极窄屏（~320–360 逻辑宽）：时间再收一点；控制钮仍保持可点尺寸 */
 @media (width <= 380px) {
   .music-player-container {
     padding: 0.5rem 0.55rem 0.45rem;
-    height: 142px;
+    height: 152px;
   }
 
   .music-view-info {
@@ -2951,7 +2949,7 @@ html.dark .music-vip-badge.trial {
   }
 
   .music-view-info .music-song-info {
-    padding-right: 1.4rem;
+    padding-right: 0;
   }
 
   .music-time {
@@ -2970,22 +2968,30 @@ html.dark .music-vip-badge.trial {
   }
 
   .music-control-buttons {
-    gap: 0.2rem;
+    gap: 0.3rem;
   }
 
   .music-play-btn {
-    width: 2rem;
-    height: 2rem;
-    min-width: 2rem;
-    min-height: 2rem;
+    width: 2.5rem;
+    height: 2.5rem;
+    min-width: 2.5rem;
+    min-height: 2.5rem;
   }
 
   .music-control-btn,
+  .music-control-icon-btn,
   .music-volume-btn,
   .music-view-switch-btn {
-    width: 1.55rem;
-    height: 1.55rem;
-    min-width: 1.55rem;
-    min-height: 1.55rem;
+    width: 2.25rem;
+    height: 2.25rem;
+    min-width: 2.25rem;
+    min-height: 2.25rem;
+  }
+
+  .music-view-switch-btn svg,
+  .music-view-switch-btn .music-ctrl-icon,
+  .music-ctrl-icon {
+    width: 0.95rem;
+    height: 0.95rem;
   }
 }

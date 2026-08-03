@@ -1321,11 +1321,13 @@ html.dark .tapp-app-empty__btn--ghost {
   user-select: none;
 }
 
-/* Phones: keep track min modest so cards don’t grow oversized */
+/* Phones: 2 columns (auto-fill with ~6.5rem min was fitting 3 on ~360–400px) */
 @media (width <= 639px) {
   .tapp-app-card-grid {
     --tapp-app-card-gap: 0.5rem;
     --tapp-app-card-min: 6.5rem;
+
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
