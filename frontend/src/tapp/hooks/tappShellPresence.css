@@ -14,6 +14,7 @@
 .tapp-shell-presence {
   --tapp-shell-enter-duration: 0.48s;
   --tapp-shell-exit-duration: 0.32s;
+
   /* Smooth ease-out — no spring / overshoot */
   --tapp-shell-enter-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --tapp-shell-exit-ease: cubic-bezier(0.4, 0, 0.2, 1);
@@ -56,6 +57,7 @@
   from {
     transform: translate3d(0, 1.25rem, 0) scale(0.97);
   }
+
   to {
     transform: translate3d(0, 0, 0) scale(1);
   }
@@ -65,6 +67,7 @@
   from {
     transform: translate3d(0, 0, 0) scale(1);
   }
+
   to {
     transform: translate3d(0, 0.85rem, 0) scale(0.97);
   }
@@ -76,6 +79,7 @@
     opacity: 0;
     transform: translate3d(0, 1.25rem, 0) scale(0.97);
   }
+
   to {
     opacity: 1;
     transform: translate3d(0, 0, 0) scale(1);
@@ -87,6 +91,7 @@
     opacity: 1;
     transform: translate3d(0, 0, 0) scale(1);
   }
+
   to {
     opacity: 0;
     transform: translate3d(0, 0.85rem, 0) scale(0.97);
@@ -105,11 +110,11 @@
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  background: rgb(15 23 42 / 0.07);
+  background: rgb(15 23 42 / 7%);
 }
 
 html.dark .tapp-shell-scrim {
-  background: rgb(0 0 0 / 0.2);
+  background: rgb(0 0 0 / 20%);
 }
 
 .tapp-shell-scrim--enter {
@@ -130,6 +135,7 @@ html.dark .tapp-shell-scrim {
   from {
     opacity: 0;
   }
+
   to {
     opacity: 1;
   }
@@ -139,6 +145,7 @@ html.dark .tapp-shell-scrim {
   from {
     opacity: 1;
   }
+
   to {
     opacity: 0;
   }

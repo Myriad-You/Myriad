@@ -12,6 +12,7 @@
 .tapp-app-card {
   /* height = trackWidth × ratio (shared by 1x1 + 2x1) */
   --tapp-app-card-h-ratio: 0.78;
+
   container-type: inline-size;
   container-name: tapp-app-card;
   position: relative;
@@ -22,6 +23,7 @@
   overflow: hidden;
   border-radius: 0.75rem; /* rounded-xl — WidgetShell / status bar */
   cursor: default;
+
   /* Kill .glass border + any theme border-color reclaim */
   border: none !important;
   border-color: transparent !important;
@@ -36,6 +38,7 @@
   aspect-ratio: 1 / var(--tapp-app-card-h-ratio);
   min-height: 0;
   max-height: 100%;
+
   /* Prefer aspect-ratio over content min-size so padding/wrap never “撑大” the card */
   overflow: hidden;
 }
@@ -60,6 +63,7 @@
   aspect-ratio: auto;
   height: auto;
   min-height: 0;
+
   /* clip faces denser than the lowered height */
   overflow: hidden;
 }
@@ -69,6 +73,7 @@
   display: block;
   width: calc((100% - var(--tapp-app-card-gap, 0.55rem)) / 2);
   max-width: 100%;
+
   /* same height ratio as 1x1: height = W × h-ratio */
   aspect-ratio: 1 / var(--tapp-app-card-h-ratio);
   pointer-events: none;
@@ -127,6 +132,7 @@
   color: var(--text-muted, #6b7280);
   cursor: grab;
   touch-action: none;
+
   /* Floating chip — soft glass so it reads over hover content */
   background: color-mix(in srgb, var(--text-primary, #111) 7%, #fff 72%);
   border: 0;
@@ -135,7 +141,7 @@
     0 1px 2px rgb(0 0 0 / 6%),
     0 4px 12px rgb(0 0 0 / 8%);
   backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
   opacity: 0.72;
   pointer-events: auto;
   transition:
@@ -262,6 +268,7 @@ html.dark .tapp-app-card__drag-handle {
   position: relative;
   z-index: 1;
   display: grid;
+
   /* One track that always fills the body — faces get a real height for pin-to-bottom */
   grid-template-rows: minmax(0, 1fr);
   grid-template-columns: minmax(0, 1fr);
@@ -279,8 +286,7 @@ html.dark .tapp-app-card__drag-handle {
   grid-area: 1 / 1;
   display: flex;
   flex-direction: column;
-  align-self: stretch;
-  justify-self: stretch;
+  place-self: stretch stretch;
   width: 100%;
   min-width: 0;
   min-height: 0;
@@ -315,6 +321,7 @@ html.dark .tapp-app-card__drag-handle {
 .tapp-app-card--2x1 .tapp-app-card__body {
   /* Slightly roomier inset so content breathes without growing the card */
   padding: 0.7rem 0.8rem;
+
   /* Must stretch — align-content:start collapsed the row to content height,
      so margin-top:auto on the dock could never pin to the card bottom. */
   align-content: stretch;
@@ -417,6 +424,7 @@ html.dark .tapp-app-card__drag-handle {
   100% {
     opacity: 0.35;
   }
+
   50% {
     opacity: 0.7;
   }
@@ -441,6 +449,7 @@ html.dark .tapp-app-card__drag-handle {
   min-height: 0;
   padding: 0;
   text-align: left;
+
   /* allow desc to clamp within remaining height */
   overflow: hidden;
 }
@@ -618,12 +627,14 @@ html.dark .tapp-app-card__sub {
    */
   --tapp-app-card-dock-h: 1.85rem;
   --tapp-app-card-detail-gap: 0.35rem;
+
   position: relative;
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
   gap: var(--tapp-app-card-detail-gap);
   padding: 0.05rem 0.05rem 0;
+
   /* reserve dock band + gap */
   padding-bottom: calc(
     var(--tapp-app-card-dock-h) + var(--tapp-app-card-detail-gap)
@@ -641,6 +652,7 @@ html.dark .tapp-app-card__sub {
 .tapp-app-card--2x1 .tapp-app-card__face--detail-perms {
   --tapp-app-card-dock-h: 1.85rem;
   --tapp-app-card-detail-gap: 0.3rem;
+
   padding: 0.1rem 0.05rem 0;
   padding-bottom: calc(
     var(--tapp-app-card-dock-h) + var(--tapp-app-card-detail-gap)
@@ -724,6 +736,7 @@ html.dark .tapp-app-card__version {
 
 .tapp-app-card__detail-mid {
   display: flex;
+
   /* Grow to fill face so dock can pin to bottom even with short content */
   flex: 1 1 0;
   flex-direction: column;
@@ -739,6 +752,7 @@ html.dark .tapp-app-card__version {
   color: var(--text-muted, #6b7280);
   font-size: 0.6875rem;
   line-height: 1.4;
+
   /* Multi-line clamp for the square middle */
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -784,8 +798,7 @@ html.dark .tapp-app-card__detail-desc {
   height: 100%;
   max-height: 100%;
   min-height: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: hidden auto;
   scrollbar-width: thin;
 }
 
@@ -972,6 +985,7 @@ html.dark .tapp-app-card__open-hint {
   color: var(--text-muted, #6b7280);
   cursor: pointer;
   appearance: none;
+
   /* Soft fill only — no border (matches status-bar chips) */
   background: color-mix(in srgb, var(--text-primary, #111) 5.5%, transparent);
   border: 0;
@@ -1160,7 +1174,7 @@ html.dark .tapp-app-card__dock-btn--stop:not(:disabled) {
   text-align: center;
 }
 
-@media (min-width: 768px) {
+@media (width >= 768px) {
   .tapp-app-empty__content {
     padding: 2.75rem 2rem;
   }
@@ -1278,13 +1292,14 @@ html.dark .tapp-app-empty__btn--ghost {
 .tapp-app-card-grid {
   --tapp-app-card-gap: 0.55rem;
   --tapp-app-card-min: 6.25rem;
+
   container-type: inline-size;
   container-name: tapp-app-card-grid;
   display: grid;
   gap: var(--tapp-app-card-gap);
+
   /* Keep row tops aligned; height comes from each card, not stretch */
-  align-items: start;
-  justify-items: stretch;
+  place-items: start stretch;
   grid-template-columns: repeat(
     auto-fill,
     minmax(
@@ -1295,6 +1310,7 @@ html.dark .tapp-app-empty__btn--ghost {
       1fr
     )
   );
+
   /* dense: fill holes left by 2x1 spans with later 1x1 cards */
   grid-auto-flow: dense;
   grid-auto-rows: auto;
@@ -1306,21 +1322,21 @@ html.dark .tapp-app-empty__btn--ghost {
 }
 
 /* Phones: keep track min modest so cards don’t grow oversized */
-@media (max-width: 639px) {
+@media (width <= 639px) {
   .tapp-app-card-grid {
     --tapp-app-card-gap: 0.5rem;
     --tapp-app-card-min: 6.5rem;
   }
 }
 
-@media (min-width: 640px) {
+@media (width >= 640px) {
   .tapp-app-card-grid {
     --tapp-app-card-gap: 0.6rem;
     --tapp-app-card-min: 6.5rem;
   }
 }
 
-@media (min-width: 1024px) {
+@media (width >= 1024px) {
   .tapp-app-card-grid {
     --tapp-app-card-gap: 0.65rem;
     --tapp-app-card-min: 6.75rem;

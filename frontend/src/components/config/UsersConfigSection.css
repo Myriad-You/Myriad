@@ -80,10 +80,10 @@
   .managed-list-choice-card.users-private-tapp-choice
   .checkbox-group-card-header {
   display: flex;
-  flex-direction: row;
-  flex-wrap: nowrap;
+  flex-flow: row nowrap;
   align-items: center;
   gap: 0.35rem;
+
   /* hug children — do not stretch to 20rem chip max */
   width: max-content !important;
   max-width: 100%;
