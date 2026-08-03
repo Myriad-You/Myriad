@@ -154,10 +154,10 @@ export const UserModal: FC<UserModalProps> = ({
     if (!modalEl) return 2 // 与 CSS border: 1px 上下合计兜底
     const style = getComputedStyle(modalEl)
     return (
-      (parseFloat(style.borderTopWidth) || 0) +
-      (parseFloat(style.borderBottomWidth) || 0) +
-      (parseFloat(style.paddingTop) || 0) +
-      (parseFloat(style.paddingBottom) || 0)
+      (Number.parseFloat(style.borderTopWidth) || 0) +
+      (Number.parseFloat(style.borderBottomWidth) || 0) +
+      (Number.parseFloat(style.paddingTop) || 0) +
+      (Number.parseFloat(style.paddingBottom) || 0)
     )
   }, [])
 
