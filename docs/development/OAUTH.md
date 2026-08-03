@@ -20,6 +20,17 @@
 | 配置 UI | `frontend/src/components/config/OAuthConfigSection.tsx` |
 | 迁移 | `backend/migrations/006_oauth_identities.rs` |
 
+## 账户匹配（登录）
+
+1. **已绑定 identity**（`provider` + `provider_user_id`）→ 登录该用户。
+2. **不再按 email 静默合并**（含 `email_verified`）：跨 issuer / 本地账号不会因邮箱相同自动接管。邮箱已被其他账号占用时，回调返回 `email_already_registered`，用户需用原方式登录后走 **link**。
+3. 邮箱未占用时可创建新用户（并写入该 email）。
+
+## CSRF / 浏览器绑定
+
+- OAuth `state` 为 HMAC 签名 + 单次使用 nonce。
+- 登录/绑定/平台授权启动时设置 HttpOnly `oauth_tx` cookie（与 state nonce 相同）；回调必须 cookie 匹配，否则 `browser_tx_mismatch`（防 login CSRF / session swapping）。
+
 ## 运维注意
 
 - 生产务必配置 `JWT_SECRET`、正确的 `CORS_ORIGINS` / `BASE_URL`（回调 URL 依赖站点地址）。

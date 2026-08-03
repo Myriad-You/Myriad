@@ -25,7 +25,8 @@ use crate::oauth_url_builder::SiteConfig;
 use crate::services::config_service::ConfigService;
 use crate::services::fetcher::PlatformFetcher;
 use crate::services::oauth::state::{
-    consume_state, issue_state, ConsumeStateError, OAuthPurpose, StoredState,
+    consume_state, issue_state, oauth_tx_clear_cookie_value, oauth_tx_cookie_matches,
+    oauth_tx_set_cookie_value, ConsumeStateError, OAuthPurpose, StoredState,
 };
 
 const DISCORD_AUTHORIZE_URL: &str = "https://discord.com/api/oauth2/authorize";
@@ -343,7 +344,7 @@ pub async fn oauth_start(
     drop(config);
 
     let redirect_uri = platform_redirect_uri().await;
-    let state = issue_state(StoredState {
+    let issued = issue_state(StoredState {
         provider_slug: PLATFORM_STATE_SLUG.to_string(),
         purpose: OAuthPurpose::PlatformData {
             user_id,
@@ -364,7 +365,7 @@ pub async fn oauth_start(
         .append_pair("client_id", &client_id)
         .append_pair("redirect_uri", &redirect_uri)
         .append_pair("scope", DISCORD_DATA_SCOPES)
-        .append_pair("state", &state)
+        .append_pair("state", &issued.token)
         // 确保用户能看到权限列表（含 connections / guilds）
         .append_pair("prompt", "consent");
 
@@ -374,7 +375,24 @@ pub async fn oauth_start(
         redirect_uri
     );
 
-    Ok(no_store_redirect(url.as_str()))
+    // MYR-003: bind state to this browser via oauth_tx cookie.
+    let is_production = SiteConfig::is_production().await;
+    let mut response = no_store_redirect(url.as_str());
+    if let Ok(value) =
+        HeaderValue::from_str(&oauth_tx_set_cookie_value(&issued.browser_tx, is_production))
+    {
+        response.headers_mut().append(header::SET_COOKIE, value);
+    }
+    Ok(response)
+}
+
+/// Clear oauth_tx on a Discord platform OAuth redirect response.
+async fn discord_oauth_tx_cleared(mut response: Response) -> Response {
+    let is_production = SiteConfig::is_production().await;
+    if let Ok(value) = HeaderValue::from_str(&oauth_tx_clear_cookie_value(is_production)) {
+        response.headers_mut().append(header::SET_COOKIE, value);
+    }
+    response
 }
 
 /// Discord 数据平台 OAuth 回调：交换 token → 写入配置 → 回配置页
@@ -383,6 +401,7 @@ pub async fn oauth_callback(
     axum::extract::State(dynamic_config): axum::extract::State<
         std::sync::Arc<tokio::sync::RwLock<crate::config::DynamicConfig>>,
     >,
+    headers: HeaderMap,
     Query(params): Query<OAuthCallbackQuery>,
 ) -> Result<Response, HttpError> {
     let frontend_base = SiteConfig::get_base_url().await;
@@ -391,7 +410,7 @@ pub async fn oauth_callback(
         let desc = params.error_description.unwrap_or_default();
         tracing::warn!("Discord platform OAuth error: {} ({})", err, desc);
         // Provider error codes are URL-encoded by config_redirect; still fixed path under base_url.
-        return Ok(config_redirect(&frontend_base, false, err));
+        return Ok(discord_oauth_tx_cleared(config_redirect(&frontend_base, false, err)).await);
     }
 
     let code = match params
@@ -402,7 +421,10 @@ pub async fn oauth_callback(
     {
         Some(c) => c.to_string(),
         None => {
-            return Ok(config_redirect(&frontend_base, false, "missing_code"));
+            return Ok(
+                discord_oauth_tx_cleared(config_redirect(&frontend_base, false, "missing_code"))
+                    .await,
+            );
         }
     };
     let state_param = match params
@@ -413,23 +435,44 @@ pub async fn oauth_callback(
     {
         Some(s) => s.to_string(),
         None => {
-            return Ok(config_redirect(&frontend_base, false, "missing_state"));
+            return Ok(
+                discord_oauth_tx_cleared(config_redirect(&frontend_base, false, "missing_state"))
+                    .await,
+            );
         }
     };
 
     let outcome = match consume_state(&state_param).await {
         Ok(o) => o,
         Err(err) => {
-            return Ok(config_redirect(
+            return Ok(discord_oauth_tx_cleared(config_redirect(
                 &frontend_base,
                 false,
                 &format!("state_{}", err.as_str()),
-            ));
+            ))
+            .await);
         }
     };
 
+    // MYR-003: require oauth_tx cookie match (fail closed).
+    let cookie_header = headers.get(header::COOKIE).and_then(|v| v.to_str().ok());
+    if !oauth_tx_cookie_matches(cookie_header, outcome.browser_tx()) {
+        tracing::warn!("Discord platform OAuth: missing/mismatched oauth_tx cookie");
+        return Ok(discord_oauth_tx_cleared(config_redirect(
+            &frontend_base,
+            false,
+            "browser_tx_mismatch",
+        ))
+        .await);
+    }
+
     if outcome.stored().provider_slug != PLATFORM_STATE_SLUG {
-        return Ok(config_redirect(&frontend_base, false, "state_mismatch"));
+        return Ok(discord_oauth_tx_cleared(config_redirect(
+            &frontend_base,
+            false,
+            "state_mismatch",
+        ))
+        .await);
     }
     let purpose = outcome.stored().purpose.clone();
     let OAuthPurpose::PlatformData {
@@ -437,10 +480,14 @@ pub async fn oauth_callback(
         platform,
     } = purpose
     else {
-        return Ok(config_redirect(&frontend_base, false, "wrong_purpose"));
+        return Ok(
+            discord_oauth_tx_cleared(config_redirect(&frontend_base, false, "wrong_purpose")).await,
+        );
     };
     if platform != "discord" {
-        return Ok(config_redirect(&frontend_base, false, "wrong_platform"));
+        return Ok(
+            discord_oauth_tx_cleared(config_redirect(&frontend_base, false, "wrong_platform")).await,
+        );
     }
 
     // Browser double-load / retry: never re-exchange the one-time code.
@@ -456,16 +503,17 @@ pub async fn oauth_callback(
             tracing::info!(
                 "Discord platform OAuth state replay — tokens already stored, soft-success"
             );
-            return Ok(config_redirect(&frontend_base, true, "ok"));
+            return Ok(discord_oauth_tx_cleared(config_redirect(&frontend_base, true, "ok")).await);
         }
         tracing::warn!(
             "Discord platform OAuth state replay — no tokens stored; first attempt may have failed"
         );
-        return Ok(config_redirect(
+        return Ok(discord_oauth_tx_cleared(config_redirect(
             &frontend_base,
             false,
             &format!("state_{}", ConsumeStateError::Replay.as_str()),
-        ));
+        ))
+        .await);
     }
 
     let config = dynamic_config.read().await;
@@ -473,7 +521,12 @@ pub async fn oauth_callback(
         Ok(v) => v,
         Err(msg) => {
             tracing::error!("Discord app missing on callback: {}", msg);
-            return Ok(config_redirect(&frontend_base, false, "app_not_configured"));
+            return Ok(discord_oauth_tx_cleared(config_redirect(
+                &frontend_base,
+                false,
+                "app_not_configured",
+            ))
+            .await);
         }
     };
     drop(config);
@@ -484,7 +537,12 @@ pub async fn oauth_callback(
             Ok(v) => v,
             Err(e) => {
                 tracing::error!("Discord token exchange failed: {}", e);
-                return Ok(config_redirect(&frontend_base, false, "token_exchange"));
+                return Ok(discord_oauth_tx_cleared(config_redirect(
+                    &frontend_base,
+                    false,
+                    "token_exchange",
+                ))
+                .await);
             }
         };
 
@@ -494,7 +552,10 @@ pub async fn oauth_callback(
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
     let Some(access_token) = access_token else {
-        return Ok(config_redirect(&frontend_base, false, "no_access_token"));
+        return Ok(
+            discord_oauth_tx_cleared(config_redirect(&frontend_base, false, "no_access_token"))
+                .await,
+        );
     };
 
     let refresh_token = token_json
@@ -545,14 +606,16 @@ pub async fn oauth_callback(
     let svc = ConfigService::new(db.clone());
     if let Err(e) = svc.update_configs(updates).await {
         tracing::error!("Failed to persist Discord platform tokens: {}", e);
-        return Ok(config_redirect(&frontend_base, false, "save_failed"));
+        return Ok(
+            discord_oauth_tx_cleared(config_redirect(&frontend_base, false, "save_failed")).await,
+        );
     }
 
     // Same Arc as AppState.dynamic_config (from_shared); write via State handle.
     reload_global_config(&db, &dynamic_config).await;
 
     tracing::info!("✓ Discord platform OAuth tokens saved and platform enabled");
-    Ok(config_redirect(&frontend_base, true, "ok"))
+    Ok(discord_oauth_tx_cleared(config_redirect(&frontend_base, true, "ok")).await)
 }
 
 async fn exchange_discord_code(

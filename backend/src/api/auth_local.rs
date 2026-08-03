@@ -10,16 +10,67 @@ use axum::{
 use chrono::{Duration, Utc};
 use jsonwebtoken::{encode, EncodingKey, Header};
 use myriad_error::AppError;
+use once_cell::sync::Lazy;
 use regex::Regex;
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, TransactionTrait};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::env;
+use std::sync::Arc;
+use std::time::Duration as StdDuration;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::error::HttpError;
 use crate::middleware::auth::ensure_current_admin_on;
 
 use super::auth::Claims;
+
+/// Modest global cap on concurrent Argon2 hash/verify work (MYR-006).
+///
+/// Argon2 is intentionally CPU- and memory-heavy. Unbounded `spawn_blocking`
+/// under concurrent login/register can exhaust the blocking pool. We allow a
+/// small fixed concurrency (not a harsh multi-axis rate limit) and fail open
+/// with 503 after a short wait rather than queue forever.
+const PASSWORD_HASH_PERMITS: usize = 4;
+/// How long a request may wait for a hash/verify permit before 503.
+const PASSWORD_HASH_ACQUIRE_TIMEOUT: StdDuration = StdDuration::from_secs(15);
+
+static PASSWORD_HASH_SEMAPHORE: Lazy<Arc<Semaphore>> =
+    Lazy::new(|| Arc::new(Semaphore::new(PASSWORD_HASH_PERMITS)));
+
+/// Acquire a global Argon2 permit, or return 503 if the wait times out.
+async fn acquire_password_hash_permit() -> Result<OwnedSemaphorePermit, HttpError> {
+    match tokio::time::timeout(
+        PASSWORD_HASH_ACQUIRE_TIMEOUT,
+        PASSWORD_HASH_SEMAPHORE.clone().acquire_owned(),
+    )
+    .await
+    {
+        Ok(Ok(permit)) => Ok(permit),
+        Ok(Err(e)) => {
+            // Semaphore closed — should not happen for a static; treat as internal.
+            tracing::error!("Password hash semaphore closed: {:?}", e);
+            Err(HttpError::from((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Failed to process password"})),
+            )))
+        }
+        Err(_) => {
+            tracing::warn!(
+                permits = PASSWORD_HASH_PERMITS,
+                timeout_secs = PASSWORD_HASH_ACQUIRE_TIMEOUT.as_secs(),
+                "Password hash concurrency limit reached; returning 503"
+            );
+            Err(HttpError::from((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({
+                    "error": "Server busy",
+                    "message": "Too many password operations in progress. Please try again shortly."
+                })),
+            )))
+        }
+    }
+}
 
 /// Postgres advisory-lock key for setup `create-admin`.
 ///
@@ -611,8 +662,9 @@ fn blocking_pool_error<T>(e: tokio::task::JoinError) -> Result<T, HttpError> {
     )))
 }
 
-/// Hash password using Argon2id (on the blocking pool)
+/// Hash password using Argon2id (on the blocking pool, concurrency-capped).
 async fn hash_password(password: &str) -> Result<String, HttpError> {
+    let _permit = acquire_password_hash_permit().await?;
     let password = password.to_owned();
     let joined = tokio::task::spawn_blocking(move || {
         let salt = SaltString::generate(&mut OsRng);
@@ -636,8 +688,9 @@ async fn hash_password(password: &str) -> Result<String, HttpError> {
     }
 }
 
-/// Verify password against hash (on the blocking pool)
+/// Verify password against hash (on the blocking pool, concurrency-capped).
 async fn verify_password(password: &str, hash: &str) -> Result<(), HttpError> {
+    let _permit = acquire_password_hash_permit().await?;
     let password = password.to_owned();
     let hash = hash.to_owned();
 

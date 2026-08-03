@@ -357,10 +357,16 @@ pub async fn rate_limit_middleware(req: Request, next: Next) -> Response {
     next.run(req).await
 }
 
-/// Check if endpoint is sensitive (login, password change, etc.)
+/// Check if endpoint is sensitive (login, password change, registration, etc.)
+///
+/// Uses the **existing** sensitive budget (5 req / 5 min per IP per path).
+/// Register and set-password are included so Argon2-heavy account creation is
+/// not on the default high path bucket (MYR-006 — modest only, no extra quotas).
 fn is_sensitive_endpoint(path: &str) -> bool {
     path.contains("/auth/login")
+        || path.contains("/auth/register")
         || path.contains("/auth/change-password")
+        || path.contains("/auth/me/set-password")
         || path.contains("/setup/create-admin")
         || path.contains("/setup/database-config")
         || path.contains("/setup/init-database")
@@ -430,6 +436,18 @@ mod tests {
         ));
         assert!(!is_admin_updater_mutate("/api/admin/updater/status"));
         assert!(!is_admin_updater_mutate("/api/admin/updater/jobs"));
+    }
+
+    #[test]
+    fn sensitive_auth_paths_include_register_and_password() {
+        assert!(is_sensitive_endpoint("/api/auth/login"));
+        assert!(is_sensitive_endpoint("/api/auth/register"));
+        assert!(is_sensitive_endpoint("/api/auth/change-password"));
+        assert!(is_sensitive_endpoint("/api/auth/me/set-password"));
+        assert!(is_sensitive_endpoint("/api/setup/create-admin"));
+        // Non-sensitive auth reads stay on default buckets.
+        assert!(!is_sensitive_endpoint("/api/auth/me"));
+        assert!(!is_sensitive_endpoint("/api/auth/oauth/providers"));
     }
 
     #[test]

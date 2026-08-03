@@ -32,7 +32,9 @@ use crate::oauth_url_builder::SiteConfig;
 use crate::services::oauth::{
     registry::REGISTRY,
     state::{
-        consume_state, issue_state, ConsumeOutcome, ConsumeStateError, OAuthPurpose, StoredState,
+        consume_state, issue_state, oauth_tx_clear_cookie_value, oauth_tx_cookie_matches,
+        oauth_tx_set_cookie_value, ConsumeOutcome, ConsumeStateError, OAuthPurpose, StoredState,
+        OAUTH_TX_COOKIE,
     },
     NormalizedProfile,
 };
@@ -84,6 +86,46 @@ fn oauth_client_error_redirect(frontend_base: &str, error_code: &str) -> Respons
         urlencoding::encode(error_code),
     );
     no_store_redirect(&url)
+}
+
+/// Append a `Set-Cookie` header (must use `append` when multiple cookies are set).
+fn append_set_cookie(response: &mut Response, cookie: &str) {
+    if let Ok(value) = HeaderValue::from_str(cookie) {
+        response.headers_mut().append(header::SET_COOKIE, value);
+    } else {
+        tracing::error!("OAuth: invalid Set-Cookie header value");
+    }
+}
+
+/// Login/link redirect with `oauth_tx` browser-binding cookie (MYR-003).
+async fn redirect_with_oauth_tx(auth_url: &str, browser_tx: &str) -> Response {
+    let is_production = SiteConfig::is_production().await;
+    let mut response = no_store_redirect(auth_url);
+    append_set_cookie(
+        &mut response,
+        &oauth_tx_set_cookie_value(browser_tx, is_production),
+    );
+    response
+}
+
+/// Clear `oauth_tx` on a response (success and fail-closed paths).
+async fn with_oauth_tx_cleared(mut response: Response) -> Response {
+    let is_production = SiteConfig::is_production().await;
+    append_set_cookie(&mut response, &oauth_tx_clear_cookie_value(is_production));
+    response
+}
+
+/// Fail closed when the callback browser lacks a matching `oauth_tx` cookie.
+async fn reject_oauth_tx_mismatch(frontend_base: &str) -> Response {
+    tracing::warn!(
+        cookie = OAUTH_TX_COOKIE,
+        "OAuth callback rejected: missing or mismatched browser transaction cookie"
+    );
+    with_oauth_tx_cleared(oauth_client_error_redirect(
+        frontend_base,
+        "browser_tx_mismatch",
+    ))
+    .await
 }
 
 /// 登录/绑定后把 provider 快照同步到 `users`，并重算画像源。
@@ -176,7 +218,7 @@ pub async fn provider_login(
         .await
         .ok_or_else(|| err_404(format!("OAuth provider '{slug}' not configured")))?;
 
-    let state = issue_state(StoredState {
+    let issued = issue_state(StoredState {
         provider_slug: slug.clone(),
         purpose: OAuthPurpose::Login,
     })
@@ -185,11 +227,12 @@ pub async fn provider_login(
 
     let redirect_uri = build_redirect_uri(&slug).await;
     let auth_url = provider
-        .build_auth_url(&state, &redirect_uri)
+        .build_auth_url(&issued.token, &redirect_uri)
         .await
         .map_err(err_500)?;
 
-    Ok(no_store_redirect(&auth_url))
+    // Bind signed state to this browser via oauth_tx (MYR-003).
+    Ok(redirect_with_oauth_tx(&auth_url, &issued.browser_tx).await)
 }
 
 // GET /api/auth/oauth/:slug/link  (任何已登录用户)
@@ -215,7 +258,7 @@ pub async fn provider_link(
         .await
         .ok_or_else(|| err_404(format!("OAuth provider '{slug}' not configured")))?;
 
-    let state = issue_state(StoredState {
+    let issued = issue_state(StoredState {
         provider_slug: slug.clone(),
         purpose: OAuthPurpose::LinkAccount(user_id),
     })
@@ -224,11 +267,11 @@ pub async fn provider_link(
 
     let redirect_uri = build_redirect_uri(&slug).await;
     let auth_url = provider
-        .build_auth_url(&state, &redirect_uri)
+        .build_auth_url(&issued.token, &redirect_uri)
         .await
         .map_err(err_500)?;
 
-    Ok(no_store_redirect(&auth_url))
+    Ok(redirect_with_oauth_tx(&auth_url, &issued.browser_tx).await)
 }
 
 // GET /api/auth/oauth/:slug/callback
@@ -247,6 +290,7 @@ pub struct CallbackQuery {
 pub async fn provider_callback(
     Path(slug): Path<String>,
     Query(params): Query<CallbackQuery>,
+    headers: HeaderMap,
     crate::extract::Db(db): crate::extract::Db,
 ) -> Result<Response, HttpError> {
     let frontend_base = SiteConfig::get_base_url().await;
@@ -266,14 +310,23 @@ pub async fn provider_callback(
             urlencoding::encode(err),
             urlencoding::encode(&desc),
         );
-        return Ok(no_store_redirect(&url));
+        // Drop any leftover oauth_tx from a partial flow.
+        return Ok(with_oauth_tx_cleared(no_store_redirect(&url)).await);
     }
 
     let Some(code) = params.code.filter(|c| !c.trim().is_empty()) else {
-        return Ok(oauth_client_error_redirect(&frontend_base, "missing_code"));
+        return Ok(with_oauth_tx_cleared(oauth_client_error_redirect(
+            &frontend_base,
+            "missing_code",
+        ))
+        .await);
     };
     let Some(state_param) = params.state.filter(|s| !s.trim().is_empty()) else {
-        return Ok(oauth_client_error_redirect(&frontend_base, "missing_state"));
+        return Ok(with_oauth_tx_cleared(oauth_client_error_redirect(
+            &frontend_base,
+            "missing_state",
+        ))
+        .await);
     };
 
     // 1. 验证 state（区分 missing / expired / replay，已在 store 层 warn-log）
@@ -281,12 +334,21 @@ pub async fn provider_callback(
     let outcome = match consume_state(&state_param).await {
         Ok(o) => o,
         Err(err) => {
-            return Ok(oauth_client_error_redirect(
+            return Ok(with_oauth_tx_cleared(oauth_client_error_redirect(
                 &frontend_base,
                 &format!("state_{}", err.as_str()),
-            ));
+            ))
+            .await);
         }
     };
+
+    // MYR-003: require oauth_tx cookie == payload nonce (fail closed).
+    let cookie_header = headers
+        .get(header::COOKIE)
+        .and_then(|v| v.to_str().ok());
+    if !oauth_tx_cookie_matches(cookie_header, outcome.browser_tx()) {
+        return Ok(reject_oauth_tx_mismatch(&frontend_base).await);
+    }
 
     if outcome.stored().provider_slug != slug {
         tracing::warn!(
@@ -294,18 +356,20 @@ pub async fn provider_callback(
             outcome.stored().provider_slug,
             slug
         );
-        return Ok(oauth_client_error_redirect(
+        return Ok(with_oauth_tx_cleared(oauth_client_error_redirect(
             &frontend_base,
             "state_slug_mismatch",
-        ));
+        ))
+        .await);
     }
 
     // Browser double-load / retry: soft-recover without token exchange.
     let stored = match outcome {
-        ConsumeOutcome::Replay(stored) => {
-            return handle_callback_replay(&db, &slug, &stored, &frontend_base).await;
+        ConsumeOutcome::Replay { stored, .. } => {
+            let resp = handle_callback_replay(&db, &slug, &stored, &frontend_base).await?;
+            return Ok(with_oauth_tx_cleared(resp).await);
         }
-        ConsumeOutcome::Fresh(stored) => stored,
+        ConsumeOutcome::Fresh { stored, .. } => stored,
     };
 
     // 2. 取 provider — browser-friendly redirect (not opaque JSON 500/404)
@@ -313,10 +377,11 @@ pub async fn provider_callback(
         Some(p) => p,
         None => {
             tracing::error!("OAuth provider '{}' missing at callback", slug);
-            return Ok(oauth_client_error_redirect(
+            return Ok(with_oauth_tx_cleared(oauth_client_error_redirect(
                 &frontend_base,
                 "provider_unavailable",
-            ));
+            ))
+            .await);
         }
     };
 
@@ -326,20 +391,22 @@ pub async fn provider_callback(
         Ok(t) => t,
         Err(e) => {
             tracing::error!("OAuth token exchange failed for '{}': {}", slug, e);
-            return Ok(oauth_client_error_redirect(
+            return Ok(with_oauth_tx_cleared(oauth_client_error_redirect(
                 &frontend_base,
                 "token_exchange_failed",
-            ));
+            ))
+            .await);
         }
     };
     let profile = match provider.fetch_profile(&tokens).await {
         Ok(p) => p,
         Err(e) => {
             tracing::error!("OAuth profile fetch failed for '{}': {}", slug, e);
-            return Ok(oauth_client_error_redirect(
+            return Ok(with_oauth_tx_cleared(oauth_client_error_redirect(
                 &frontend_base,
                 "profile_fetch_failed",
-            ));
+            ))
+            .await);
         }
     };
 
@@ -353,21 +420,31 @@ pub async fn provider_callback(
     // 4. 分流：LinkAccount vs Login vs 数据平台授权
     // 数据平台授权走独立 callback（如 /api/platforms/discord/oauth/callback），
     // 若误入登录 callback 则友好重定向提示。
-    match stored.purpose {
+    // Clear oauth_tx after a successful cookie-bound consume (one-shot browser binding).
+    let result = match stored.purpose {
         OAuthPurpose::LinkAccount(link_user_id) => {
             handle_link(&db, &slug, link_user_id, &profile, &frontend_base).await
         }
         OAuthPurpose::Login => match handle_login(&db, &slug, &profile).await {
             Ok(resp) => Ok(resp),
             Err(err) => {
+                let status = err.0.status_u16();
+                let label = err.0.error_label().to_string();
                 tracing::error!(
                     "OAuth login failed for provider '{}' (status={}): {:?}",
                     slug,
-                    err.0.status_u16(),
+                    status,
                     err.0
                 );
-                // Prefer a stable browser redirect over opaque JSON 5xx for callbacks
-                Ok(oauth_client_error_redirect(&frontend_base, "login_failed"))
+                // Prefer stable browser redirects over opaque JSON for callbacks.
+                let code = if status == StatusCode::CONFLICT.as_u16()
+                    || label == "email_already_registered"
+                {
+                    "email_already_registered"
+                } else {
+                    "login_failed"
+                };
+                Ok(oauth_client_error_redirect(&frontend_base, code))
             }
         },
         OAuthPurpose::PlatformData { platform, .. } => {
@@ -386,6 +463,11 @@ pub async fn provider_callback(
             );
             Ok(no_store_redirect(&url))
         }
+    };
+
+    match result {
+        Ok(resp) => Ok(with_oauth_tx_cleared(resp).await),
+        Err(e) => Err(e),
     }
 }
 
@@ -706,32 +788,47 @@ async fn find_or_create_user(
         return Ok(uid);
     }
 
-    // 2. email 自动合并（仅当 verified）
-    if profile.email_verified {
-        if let Some(email) = profile.email.as_ref() {
-            if let Some(row) = db
-                .query_one(Statement::from_sql_and_values(
-                    DatabaseBackend::Postgres,
-                    "SELECT id FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1",
-                    vec![SeaValue::String(Some(Box::new(email.clone())))],
-                ))
-                .await
-                .map_err(|e| { tracing::error!("OAuth DB error: {e}"); err_500("Database error") })?
-            {
-                let uid: i32 = row
-                    .try_get("", "id")
-                    .map_err(|e| {
-                        tracing::error!(error = %e, "OAuth: failed to read id");
-                        err_500("Database error")
-                    })?;
-                upsert_identity(db, slug, uid, profile).await?;
-                sync_user_oauth_profile_snapshot(db, uid, slug, profile).await;
-                return Ok(uid);
-            }
+    // 2. MYR-012 — no silent cross-issuer auto-link by email.
+    //
+    // Login only when (provider, provider_user_id) is already linked (step 1).
+    // If the provider email is already on another account, refuse account creation
+    // and require the user to sign in with their original method, then use the
+    // authenticated link flow. Do not merge solely because email_verified is true.
+    if let Some(email) = profile
+        .email
+        .as_ref()
+        .map(|e| e.trim())
+        .filter(|e| !e.is_empty())
+    {
+        if let Some(_row) = db
+            .query_one(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "SELECT id FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1",
+                vec![SeaValue::String(Some(Box::new(email.to_string())))],
+            ))
+            .await
+            .map_err(|e| {
+                tracing::error!("OAuth DB error: {e}");
+                err_500("Database error")
+            })?
+        {
+            tracing::warn!(
+                provider = %slug,
+                "OAuth login refused: email already registered on another account \
+                 (no silent cross-issuer merge; use explicit link while authenticated)"
+            );
+            return Err(HttpError::from((
+                StatusCode::CONFLICT,
+                Json(json!({
+                    "error": "email_already_registered",
+                    "message": "An account with this email already exists. \
+Sign in with your original method, then link this provider from account settings."
+                })),
+            )));
         }
     }
 
-    // 3. 创建新 user + identity
+    // 3. Create new user + identity (email free, or provider sent none).
     let unique_username = ensure_unique_username(db, &profile.username).await?;
     let provider_label = if slug == "github" { "github" } else { "oidc" };
 
@@ -781,6 +878,19 @@ async fn find_or_create_user(
         ))
         .await
         .map_err(|e| {
+            // Unique / constraint races on email or username → clear conflict, not 500.
+            let msg = e.to_string();
+            if msg.contains("unique") || msg.contains("duplicate") || msg.contains("Unique") {
+                tracing::warn!(error = %e, "OAuth: INSERT user conflict");
+                return HttpError::from((
+                    StatusCode::CONFLICT,
+                    Json(json!({
+                        "error": "email_already_registered",
+                        "message": "An account with this email already exists. \
+Sign in with your original method, then link this provider from account settings."
+                    })),
+                ));
+            }
             tracing::error!(error = %e, "OAuth: INSERT user failed");
             err_500("Database error")
         })?

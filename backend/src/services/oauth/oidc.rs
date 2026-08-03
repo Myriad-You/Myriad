@@ -243,6 +243,10 @@ impl OAuthProvider for OidcProvider {
             .append_pair("redirect_uri", redirect_uri)
             .append_pair("scope", &scope)
             .append_pair("state", state);
+        // TODO(MYR-011): add PKCE S256 (code_challenge / code_verifier) and OIDC
+        // `nonce` once the OAuthProvider trait can carry per-login secrets without
+        // breaking GitHub / multi-instance state. Browser CSRF is already bound via
+        // oauth_tx + signed state (MYR-003).
         Ok(url.into())
     }
 
