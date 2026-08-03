@@ -31,9 +31,9 @@ import { useBrewCardStagger } from '../../../hooks/animation'
 import { isExlight } from '../../../hooks/useAnimationLevel'
 import { extractColorsFromLoadedImage } from '../../../utils/colorExtractor'
 import {
-  API_URL,
   DEFAULT_THEME_COLOR,
   getIconUrl,
+  getImageUrl,
   getSourceColor,
   SIZE_TO_ROWS,
   stripHtml,
@@ -606,9 +606,8 @@ export const SourceCard = React.memo(
                       <div className="w-24 h-full shrink-0 mr-4 rounded-lg overflow-hidden bg-gray-100 dark:bg-neutral-800">
                         <img
                           src={
-                            recentItems[0].image.startsWith('http')
-                              ? `${API_URL}/api/proxy/image?url=${encodeURIComponent(recentItems[0].image)}`
-                              : recentItems[0].image
+                            getImageUrl(recentItems[0].image) ||
+                            recentItems[0].image
                           }
                           alt=""
                           className="w-full h-full object-cover"

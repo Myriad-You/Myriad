@@ -367,14 +367,14 @@ async fn execute_proxy_image(params: &HashMap<String, Value>) -> Result<Value, S
         .and_then(|v| v.as_str())
         .unwrap_or("unknown");
 
-    let encoded_url = urlencoding::encode(url);
-    let proxy_url = format!("/api/proxy/image?url={}", encoded_url);
+    // Dual-path: only hotlink hosts rewrite to proxy; others keep original URL.
+    let proxy_url = myriad_image_proxy::proxy_image_url(url);
 
     Ok(json!({
         "originalUrl": url,
         "proxyUrl": proxy_url,
         "platform": platform,
-        "message": "Use proxyUrl to fetch the image through our proxy"
+        "message": "Use proxyUrl for display (proxied only when host needs it)"
     }))
 }
 

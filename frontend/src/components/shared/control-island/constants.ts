@@ -4,6 +4,7 @@
  */
 
 import { API_URL as CONFIG_API_URL } from '../../../config'
+import { proxyImageUrl } from '../../../utils/proxyImageUrl'
 
 // 玻璃态容器样式
 
@@ -126,7 +127,8 @@ export const ISLAND_SELECT = [
 export const API_URL = CONFIG_API_URL
 
 /**
- * 处理图标 URL - 确保正确的完整路径；已代理 URL 不再二次 encode。
+ * Dual-path icon URL: hotlink CDNs via proxy; otherwise original https.
+ * Already-proxied and same-origin API paths are not re-wrapped.
  */
 export function getIconUrl(iconUrl: string | null | undefined): string | null {
   if (!iconUrl) return null
@@ -135,8 +137,5 @@ export function getIconUrl(iconUrl: string | null | undefined): string | null {
   if (iconUrl.startsWith('/api/')) {
     return `${API_URL}${iconUrl}`
   }
-  if (iconUrl.startsWith('http://') || iconUrl.startsWith('https://')) {
-    return `${API_URL}/api/proxy/image?url=${encodeURIComponent(iconUrl)}`
-  }
-  return iconUrl
+  return proxyImageUrl(iconUrl) ?? iconUrl
 }

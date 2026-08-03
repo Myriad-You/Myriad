@@ -1,5 +1,5 @@
 {
-  "$comment": "True hotlink CDNs that must go through /api/proxy/image. Backend profile::needs_image_proxy and frontend proxyImageUrl both load this file — edit once.",
+  "$comment": "True hotlink CDNs that must go through /api/proxy/image (dual-path). Backend needs_image_proxy + /api/proxy/image allowlist and frontend proxyImageUrl all load this file — edit once. Matching is parsed host exact/suffix only.",
   "markers": [
     "hdslb.com",
     "bilibili.com",

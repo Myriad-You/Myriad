@@ -23,6 +23,7 @@ import {
 } from '@lib/motionShim'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { API_URL as CONFIG_API_URL } from '../../config'
+import { proxyImageUrl } from '../../utils/proxyImageUrl'
 import { useI18n } from '../../contexts/I18nContext'
 import { useNavigation } from '../../contexts/NavigationContext'
 import { usePageContentOptional } from '../../contexts/PageContentContext'
@@ -228,18 +229,13 @@ function restoreEmbedElements(
   })
 }
 
-// 处理图片 URL - 封面图等外部图片通过代理访问
+// Dual-path: hotlink CDNs via proxy; otherwise original URL for display
 function getImageUrl(imageUrl: string | null): string | null {
   if (!imageUrl) return null
-  // 已经是本地路径或代理路径，直接使用
   if (imageUrl.startsWith('/api/') || imageUrl.startsWith(`${API_URL}/api/`)) {
     return imageUrl.startsWith('/api/') ? `${API_URL}${imageUrl}` : imageUrl
   }
-  // 外部 URL，使用图片代理
-  if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
-    return `${API_URL}/api/proxy/image?url=${encodeURIComponent(imageUrl)}`
-  }
-  return imageUrl
+  return proxyImageUrl(imageUrl) ?? imageUrl
 }
 
 interface BrewReaderProps {

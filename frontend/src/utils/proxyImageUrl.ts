@@ -1,11 +1,13 @@
 /**
- * 站内图片代理（前端防御层）。
+ * 站内图片代理（前端防御层）— dual-path。
  *
  * 热链域名名单唯一来源：仓库根 `shared/image_proxy_hosts.json`
- * （后端 profile::needs_image_proxy 同文件）。
+ * （后端 `needs_image_proxy` + `/api/proxy/image` allowlist 同文件）。
  *
- * 后端 API 出口应已 `normalize_json_media_urls`；此处兜底：
- * 旧缓存、前端拼 CDN、漏网直链。
+ * - 名单内 host → `/api/proxy/image?url=…`
+ * - 其它 https → 原 URL 直链（RSS / 个人博客 / 健康 CDN 不经代理）
+ *
+ * Host 匹配：parsed host 精确或 DNS suffix（禁止 url.includes 子串）。
  */
 
 import hosts from '../../../shared/image_proxy_hosts.json'
@@ -14,10 +16,44 @@ import { API_URL } from '../config'
 const HOTLINK_MARKERS: readonly string[] = hosts.markers
 const AKAMAI_AND = (hosts.akamai_and_contains || 'steam').toLowerCase()
 
+function normalizeHost(host: string): string {
+  return host.replace(/\.$/, '').toLowerCase()
+}
+
+/** Exact host or proper DNS suffix (i0.hdslb.com ↔ hdslb.com). */
+export function hostMatchesDomain(host: string, domain: string): boolean {
+  const h = normalizeHost(host)
+  const d = normalizeHost(domain)
+  if (!h || !d) return false
+  return h === d || h.endsWith(`.${d}`)
+}
+
+function parseUrlHost(url: string): string | null {
+  try {
+    let absolute = url
+    if (absolute.startsWith('//')) absolute = `https:${absolute}`
+    else if (absolute.startsWith('http://'))
+      absolute = `https://${absolute.slice(7)}`
+    const u = new URL(absolute)
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
+    const host = u.hostname?.trim()
+    if (!host) return null
+    return normalizeHost(host)
+  } catch {
+    return null
+  }
+}
+
 export function needsImageProxy(url: string): boolean {
-  const u = url.toLowerCase()
-  if (HOTLINK_MARKERS.some((m) => u.includes(m.toLowerCase()))) return true
-  if (u.includes('akamaihd.net') && u.includes(AKAMAI_AND)) return true
+  const host = parseUrlHost(url)
+  if (!host) return false
+  if (HOTLINK_MARKERS.some((m) => hostMatchesDomain(host, m))) return true
+  if (
+    hostMatchesDomain(host, 'akamaihd.net') &&
+    (host.includes(AKAMAI_AND) || url.toLowerCase().includes(AKAMAI_AND))
+  ) {
+    return true
+  }
   return false
 }
 

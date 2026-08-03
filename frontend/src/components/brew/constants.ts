@@ -4,6 +4,7 @@
 
 import type { CardSize } from '../../types/brew'
 import { API_URL as CONFIG_API_URL } from '../../config'
+import { proxyImageUrl } from '../../utils/proxyImageUrl'
 
 // 预设分类
 
@@ -73,40 +74,23 @@ export const API_URL = CONFIG_API_URL
 
 // 工具函数
 
-function isAlreadyProxiedImageUrl(url: string): boolean {
-  // Avoid /api/proxy/image?url=…/api/proxy/image?url=… double-encoding
-  if (url.includes('/api/proxy/image')) return true
-  try {
-    const u = new URL(url, typeof window !== 'undefined' ? window.location.origin : 'http://local')
-    return u.pathname.includes('/api/proxy/image')
-  } catch {
-    return false
-  }
-}
-
 /**
- * 处理图标 URL - 如果是外部 URL 则通过代理访问
+ * Dual-path: only must-proxy hosts go through `/api/proxy/image`.
+ * RSS / personal-blog favicons and covers use the original https URL.
  */
 export function getIconUrl(iconUrl: string | null): string | null {
   if (!iconUrl) return null
-  // Already absolute API path (including proxy) — don't re-wrap
   if (iconUrl.startsWith(`${API_URL}/api/`)) {
     return iconUrl
   }
   if (iconUrl.startsWith('/api/')) {
     return `${API_URL}${iconUrl}`
   }
-  if (isAlreadyProxiedImageUrl(iconUrl)) {
-    return iconUrl
-  }
-  if (iconUrl.startsWith('http://') || iconUrl.startsWith('https://')) {
-    return `${API_URL}/api/proxy/image?url=${encodeURIComponent(iconUrl)}`
-  }
-  return iconUrl
+  return proxyImageUrl(iconUrl) ?? iconUrl
 }
 
 /**
- * 处理图片 URL - 封面图等外部图片通过代理访问
+ * Dual-path cover/image helper (same rules as getIconUrl).
  */
 export function getImageUrl(imageUrl: string | null): string | null {
   if (!imageUrl) return null
@@ -116,13 +100,7 @@ export function getImageUrl(imageUrl: string | null): string | null {
   if (imageUrl.startsWith('/api/')) {
     return `${API_URL}${imageUrl}`
   }
-  if (isAlreadyProxiedImageUrl(imageUrl)) {
-    return imageUrl
-  }
-  if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
-    return `${API_URL}/api/proxy/image?url=${encodeURIComponent(imageUrl)}`
-  }
-  return imageUrl
+  return proxyImageUrl(imageUrl) ?? imageUrl
 }
 
 /**

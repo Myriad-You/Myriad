@@ -12,6 +12,7 @@
  */
 
 import { API_URL } from '../config'
+import { proxyImageUrl } from './proxyImageUrl'
 
 const SW_URL = '/sw.js'
 const MANIFEST_HREF = '/manifest.webmanifest'
@@ -290,7 +291,8 @@ export function computeContainedLogoRect(
 
 /**
  * Resolve site logo URL for canvas readback.
- * Same-origin / data: stay as-is; external hosts go through image proxy for CORS.
+ * Same-origin / data: stay as-is; hotlink CDNs use image proxy (CORS + Referer);
+ * other external hosts keep original URL (dual-path — not on proxy allowlist).
  */
 export function resolvePwaIconSourceUrl(
   iconUrl: string,
@@ -306,8 +308,17 @@ export function resolvePwaIconSourceUrl(
     if (abs.origin === origin || abs.origin === new URL(origin).origin) {
       return abs.href
     }
-    const base = apiBase.replace(/\/$/, '')
-    return `${base}/api/proxy/image?url=${encodeURIComponent(abs.href)}`
+    // Dual-path via shared proxyImageUrl (needs-proxy hosts only).
+    // Temporarily override API_URL base if caller passed a custom apiBase.
+    const proxied = proxyImageUrl(abs.href)
+    if (!proxied) return abs.href
+    if (apiBase && proxied.includes('/api/proxy/image')) {
+      const base = apiBase.replace(/\/$/, '')
+      // Re-base absolute API host if proxyImageUrl used CONFIG API_URL
+      const q = proxied.indexOf('/api/proxy/image')
+      if (q >= 0) return `${base}${proxied.slice(q)}`
+    }
+    return proxied
   } catch {
     return trimmed
   }

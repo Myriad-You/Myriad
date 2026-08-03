@@ -39,17 +39,29 @@ describe('proxyImageUrl', () => {
     }
   })
 
-  it('does not auto-proxy healthy CDNs', () => {
+  it('does not auto-proxy healthy CDNs or personal blogs', () => {
     for (const raw of [
       'https://avatars.githubusercontent.com/u/1?v=4',
       'https://i.ytimg.com/vi/abc/hqdefault.jpg',
       'https://cdn.discordapp.com/avatars/1/2.png',
       'https://enka.network/ui/UI_AvatarIcon_Ayaka.png',
       'https://ui-avatars.com/api/?name=A',
+      'https://221.ltd/favicon.ico',
+      'https://blog.example/wp-content/uploads/cover.jpg',
+      'https://www.google.com/s2/favicons?domain=example.com&sz=64',
     ]) {
       assert.equal(proxyImageUrl(raw), raw)
       assert.equal(needsImageProxy(raw), false)
     }
+  })
+
+  it('rejects lookalike hosts (no url.includes matching)', () => {
+    assert.equal(needsImageProxy('https://hdslb.com.evil.com/face.jpg'), false)
+    assert.equal(needsImageProxy('https://nothdslb.com/bfs/face/x.jpg'), false)
+    assert.equal(
+      needsImageProxy('https://evil.com/cdn?u=hdslb.com/x.jpg'),
+      false,
+    )
   })
 
   it('does not double-proxy', () => {

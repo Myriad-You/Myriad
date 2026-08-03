@@ -111,34 +111,31 @@ const MAX_AUDIO_BYTES: usize = 128 * 1024 * 1024;
 static PROXY_LIMITERS: Lazy<Arc<Mutex<HashMap<String, TokenBucket>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
-/// 获取域名的主标识 (例如 i0.hdslb.com -> hdslb.com)
+/// Host-based rate-limit key (parsed host exact/suffix; no full-URL substring).
 fn get_domain_key(url: &str) -> String {
-    if url.contains("hdslb.com") {
+    use myriad_image_proxy::{host_matches_domain, parse_proxy_url_host};
+    let Some(host) = parse_proxy_url_host(url) else {
+        return "other".to_string();
+    };
+    if host_matches_domain(&host, "hdslb.com") {
         return "hdslb.com".to_string();
-    } else if url.contains("bilibili.com") {
+    } else if host_matches_domain(&host, "bilibili.com") {
         return "bilibili.com".to_string();
-    } else if url.contains("steamstatic.com") || url.contains("akamaihd.net") {
+    } else if host_matches_domain(&host, "steamstatic.com")
+        || host_matches_domain(&host, "akamaihd.net")
+    {
         return "steamstatic.com".to_string();
-    } else if url.contains("bgm.tv") || url.contains("bangumi.tv") || url.contains("chii.in") {
+    } else if host_matches_domain(&host, "bgm.tv")
+        || host_matches_domain(&host, "bangumi.tv")
+        || host_matches_domain(&host, "chii.in")
+    {
         return "bangumi".to_string();
-    } else if url.contains("126.net") || url.contains("163.com") {
+    } else if host_matches_domain(&host, "126.net") || host_matches_domain(&host, "163.com") {
         return "netease".to_string();
-    } else if url.contains("discordapp.com") || url.contains("discordapp.net") {
-        return "discord".to_string();
-    } else if url.contains("myanimelist.net") {
+    } else if host_matches_domain(&host, "myanimelist.net") {
         return "mal".to_string();
-    } else if url.contains("twimg.com") {
+    } else if host_matches_domain(&host, "twimg.com") {
         return "x".to_string();
-    } else if url.contains("ytimg.com") || url.contains("ggpht.com") {
-        return "youtube".to_string();
-    } else if url.contains("xboxlive.com") {
-        return "xbox".to_string();
-    } else if url.contains("playstation.net") {
-        return "psn".to_string();
-    } else if url.contains("enka.network") {
-        return "enka".to_string();
-    } else if url.contains("githubusercontent.com") {
-        return "github".to_string();
     }
     "other".to_string()
 }
@@ -233,10 +230,12 @@ fn soft_fail_placeholder(reason: &str, url: &str) -> Response {
 ///
 /// # Auth policy (product decision)
 /// Guest-facing avatars/covers must stay **unauthenticated**: require JWT would break
-/// public profile cards. Mitigation = host allowlist + per-IP rolling quota
-/// (`PUBLIC_IMAGE_IP_HITS`) + SSRF guards. Revisit JWT-only if abuse exceeds ops tolerance.
+/// public profile cards. Mitigation = narrow hotlink allowlist (same as
+/// `needs_image_proxy` / `shared/image_proxy_hosts.json`) + per-IP rolling quota
+/// (`PUBLIC_IMAGE_IP_HITS`) + SSRF guards. Non-hotlink images use original URLs
+/// in the browser (dual-path) and never hit this endpoint.
 ///
-/// Security rejections (SSRF / domain / unsafe target / rate limit / oversize URL)
+/// Security rejections (SSRF / domain / unsafe target / rate limit / oversize URL / SVG)
 /// still return hard 4xx. Upstream fetch/content failures soft-fail with a
 /// transparent 1×1 PNG (HTTP 200) so ordinary `<img>` usage stays quiet.
 pub async fn proxy_image(Query(params): Query<ImageProxyQuery>) -> Response {
@@ -248,7 +247,7 @@ pub async fn proxy_image(Query(params): Query<ImageProxyQuery>) -> Response {
         return (StatusCode::BAD_REQUEST, "URL too long").into_response();
     }
 
-    // 检查URL是否来自支持的域名（白名单保护）
+    // Dual-path: only the narrow must-proxy host list (precise host match).
     if !is_allowed_domain(&url) {
         tracing::warn!(
             "🚨 Rejected proxy request: Domain not whitelisted - {}",
@@ -336,6 +335,16 @@ pub async fn proxy_image(Query(params): Query<ImageProxyQuery>) -> Response {
         .unwrap_or("image/jpeg")
         .to_string();
 
+    // SVG is active content when served same-origin — hard reject (not soft 200).
+    if is_disallowed_image_content_type(&content_type) {
+        tracing::warn!(%url, %content_type, "🚨 Image proxy rejected SVG content-type");
+        return (
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "SVG images are not allowed through the image proxy",
+        )
+            .into_response();
+    }
+
     // P2 安全增强：验证是否为图片类型（非图片 → soft-fail, not 400 red console）
     if !content_type.starts_with("image/") {
         tracing::debug!(%url, %content_type, "Image proxy rejected non-image content");
@@ -385,101 +394,49 @@ pub async fn proxy_image(Query(params): Query<ImageProxyQuery>) -> Response {
         .into_response()
 }
 
-/// 检查URL是否来自允许的域名
-fn is_allowed_domain(url: &str) -> bool {
-    // 核心平台白名单（需要特殊 Referer 处理的）
-    // 允许被代理拉取的域名（宽）：含 RSS / 手动代理场景。
-    // 自动改写出口见 profile::needs_image_proxy（窄，勿把两者当成同一张表）。
-    let core_domains = [
-        "hdslb.com",                  // Bilibili CDN
-        "bilibili.com",               // Bilibili
-        "steamstatic.com",            // Steam CDN
-        "cloudflare.steamstatic.com", // Steam Cloudflare CDN
-        "akamaihd.net",               // Steam legacy avatar CDN
-        "bgm.tv",                     // Bangumi
-        "bangumi.tv",                 // Bangumi legacy domain
-        "chii.in",                    // Bangumi legacy CDN/domain
-        "music.126.net",              // 网易云音乐 CDN
-        "music.163.com",              // 网易云
-        "cdn.discordapp.com",         // Discord CDN（允许代理，但不自动改写）
-        "media.discordapp.net",
-        "myanimelist.net",            // MyAnimeList
-        "pbs.twimg.com",              // X 头像/媒体
-        "twimg.com",
-        // Extensionless avatar CDNs (u/1?v=4, s88-c-k-c0x00ffffff-no-rj, …)
-        "avatars.githubusercontent.com",
-        "githubusercontent.com",
-        "yt3.ggpht.com",
-        "ggpht.com",
-        "ytimg.com",
-        "googleusercontent.com",
-    ];
-
-    // 如果是核心平台，直接允许
-    if core_domains.iter().any(|domain| url.contains(domain)) {
-        return true;
-    }
-
-    // 对于其他 URL，检查是否是有效的图片 URL（支持 RSS 阅读器等场景）
-    // 只允许 http:// 和 https:// 开头的 URL
-    if !url.starts_with("http://") && !url.starts_with("https://") {
-        return false;
-    }
-
-    // 检查 URL 是否看起来像图片（通过扩展名或常见图片路径模式）
-    let url_lower = url.to_lowercase();
-    let image_extensions = [
-        ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".ico", ".bmp", ".avif",
-    ];
-    let image_patterns = [
-        "/images/",
-        "/image/",
-        "/img/",
-        "/uploads/",
-        "/media/",
-        "/assets/",
-        "/static/",
-        "/files/",
-        "/wp-content/",
-        // Favicon endpoints often omit a file extension (Brew AddMode / SourceCard).
-        "/favicon",
-        "/s2/favicons", // Google favicon service: …/s2/favicons?domain=…
-        "gstatic.com/favicon",
-    ];
-
-    // 如果 URL 包含图片扩展名或图片路径模式，允许代理
-    image_extensions.iter().any(|ext| url_lower.contains(ext))
-        || image_patterns
-            .iter()
-            .any(|pattern| url_lower.contains(pattern))
+/// True when Content-Type is SVG (active content if served same-origin).
+///
+/// Residual: only `Content-Type` is checked; mislabeled SVG bodies are not sniffed.
+fn is_disallowed_image_content_type(content_type: &str) -> bool {
+    let base = content_type
+        .split(';')
+        .next()
+        .unwrap_or(content_type)
+        .trim()
+        .to_ascii_lowercase();
+    base == "image/svg+xml" || base == "image/svg" || base.starts_with("image/svg+")
 }
 
-/// 根据URL获取适当的Referer
+/// Dual-path egress allowlist: same narrow host list as `needs_image_proxy`
+/// (`shared/image_proxy_hosts.json`). Parsed host exact/suffix only — no open
+/// extension/path fallback (RSS / personal blogs display via original URL).
+fn is_allowed_domain(url: &str) -> bool {
+    myriad_image_proxy::is_allowed_proxy_url(url)
+}
+
+/// 根据URL获取适当的Referer（host-based, not URL substring）.
 fn get_referer_for_url(url: &str) -> &'static str {
-    if url.contains("hdslb.com") || url.contains("bilibili.com") {
+    use myriad_image_proxy::{host_matches_domain, parse_proxy_url_host};
+    let Some(host) = parse_proxy_url_host(url) else {
+        return "https://www.google.com/";
+    };
+    if host_matches_domain(&host, "hdslb.com") || host_matches_domain(&host, "bilibili.com") {
         "https://www.bilibili.com/"
-    } else if url.contains("steamstatic.com") || url.contains("akamaihd.net") {
+    } else if host_matches_domain(&host, "steamstatic.com")
+        || host_matches_domain(&host, "akamaihd.net")
+    {
         "https://store.steampowered.com/"
-    } else if url.contains("bgm.tv") || url.contains("bangumi.tv") || url.contains("chii.in") {
+    } else if host_matches_domain(&host, "bgm.tv")
+        || host_matches_domain(&host, "bangumi.tv")
+        || host_matches_domain(&host, "chii.in")
+    {
         "https://bgm.tv/"
-    } else if url.contains("music.126.net") || url.contains("music.163.com") {
+    } else if host_matches_domain(&host, "126.net") || host_matches_domain(&host, "163.com") {
         "https://music.163.com/"
-    } else if url.contains("myanimelist.net") {
+    } else if host_matches_domain(&host, "myanimelist.net") {
         "https://myanimelist.net/"
-    } else if url.contains("twimg.com") {
+    } else if host_matches_domain(&host, "twimg.com") {
         "https://x.com/"
-    } else if url.contains("discordapp.com") || url.contains("discordapp.net") {
-        "https://discord.com/"
-    } else if url.contains("ytimg.com") || url.contains("ggpht.com") {
-        "https://www.youtube.com/"
-    } else if url.contains("xboxlive.com") {
-        "https://www.xbox.com/"
-    } else if url.contains("playstation.net") {
-        "https://www.playstation.com/"
-    } else if url.contains("enka.network") {
-        "https://enka.network/"
-    } else if url.contains("githubusercontent.com") {
-        "https://github.com/"
     } else {
         "https://www.google.com/"
     }
@@ -530,28 +487,93 @@ mod image_proxy_tests {
     }
 
     #[test]
-    fn allows_favicon_ico_and_core_domains() {
-        assert!(is_allowed_domain("https://221.ltd/favicon.ico"));
-        assert!(is_allowed_domain("https://blog.hanawa.me/favicon.ico"));
+    fn allows_narrow_hotlink_hosts_only() {
         assert!(is_allowed_domain(
             "https://i0.hdslb.com/bfs/face/example.jpg"
         ));
-        // Brew default: Google favicon service (no image extension in path)
         assert!(is_allowed_domain(
-            "https://www.google.com/s2/favicons?domain=example.com&sz=64"
+            "https://avatars.steamstatic.com/xxx_full.jpg"
         ));
         assert!(is_allowed_domain(
-            "https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&url=https://example.com"
+            "https://cdn.cloudflare.steamstatic.com/steam/apps/1/header.jpg"
+        ));
+        assert!(is_allowed_domain(
+            "http://steamcdn-a.akamaihd.net/steamcommunity/public/images/avatars/a.jpg"
+        ));
+        assert!(is_allowed_domain("https://p1.music.126.net/cover.jpg"));
+        assert!(is_allowed_domain("https://lain.bgm.tv/pic/cover/l/1.jpg"));
+        assert!(is_allowed_domain(
+            "https://pbs.twimg.com/profile_images/1/normal.jpg"
+        ));
+        assert!(is_allowed_domain(
+            "https://cdn.myanimelist.net/images/anime/1.jpg"
+        ));
+        // Dual-path: non-hotlink display via original URL — proxy must refuse
+        assert!(!is_allowed_domain("https://221.ltd/favicon.ico"));
+        assert!(!is_allowed_domain("https://blog.hanawa.me/favicon.ico"));
+        assert!(!is_allowed_domain(
+            "https://www.google.com/s2/favicons?domain=example.com&sz=64"
+        ));
+        assert!(!is_allowed_domain(
+            "https://avatars.githubusercontent.com/u/1?v=4"
+        ));
+        assert!(!is_allowed_domain(
+            "https://cdn.discordapp.com/avatars/1/2.png"
         ));
         assert!(!is_allowed_domain("ftp://evil.example/x.png"));
         assert!(!is_allowed_domain("https://evil.example/page.html"));
-        // Extensionless avatar CDNs (core allowlist)
-        assert!(is_allowed_domain(
-            "https://avatars.githubusercontent.com/u/1?v=4"
+    }
+
+    #[test]
+    fn rejects_lookalike_hosts_and_open_path_fallback() {
+        assert!(!is_allowed_domain(
+            "https://hdslb.com.evil.com/face.jpg"
         ));
-        assert!(is_allowed_domain(
-            "https://yt3.ggpht.com/ytc/AIdro_test=s88-c-k-c0x00ffffff-no-rj"
+        assert!(!is_allowed_domain(
+            "https://nothdslb.com/bfs/face/x.jpg"
         ));
+        assert!(!is_allowed_domain(
+            "https://evil.com/cdn?u=hdslb.com/x.jpg"
+        ));
+        assert!(!is_allowed_domain(
+            "https://evil.example/uploads/photo.jpg"
+        ));
+        assert!(!is_allowed_domain("https://cdn.evil.com/images/a.png"));
+        assert!(!is_allowed_domain("https://example.com/static/logo.webp"));
+    }
+
+    #[test]
+    fn rejects_svg_content_types() {
+        assert!(is_disallowed_image_content_type("image/svg+xml"));
+        assert!(is_disallowed_image_content_type("image/svg"));
+        assert!(is_disallowed_image_content_type(
+            "image/svg+xml; charset=utf-8"
+        ));
+        assert!(is_disallowed_image_content_type("IMAGE/SVG+XML"));
+        assert!(!is_disallowed_image_content_type("image/png"));
+        assert!(!is_disallowed_image_content_type("image/jpeg"));
+        assert!(!is_disallowed_image_content_type("image/webp"));
+        assert!(!is_disallowed_image_content_type("text/html"));
+    }
+
+    #[test]
+    fn domain_key_and_referer_use_host_not_url_substring() {
+        assert_eq!(
+            get_domain_key("https://i0.hdslb.com/bfs/face/x.jpg"),
+            "hdslb.com"
+        );
+        assert_eq!(
+            get_domain_key("https://hdslb.com.evil.com/x.jpg"),
+            "other"
+        );
+        assert_eq!(
+            get_referer_for_url("https://i0.hdslb.com/x.jpg"),
+            "https://www.bilibili.com/"
+        );
+        assert_eq!(
+            get_referer_for_url("https://evil.com/?ref=hdslb.com"),
+            "https://www.google.com/"
+        );
     }
 
     #[test]
@@ -560,7 +582,9 @@ mod image_proxy_tests {
         // here via is_allowed_domain / length checks that proxy_image uses first.
         assert!(!is_allowed_domain("not-a-url"));
         assert!(!is_allowed_domain("https://example.com/api/data"));
-        let long = format!("https://example.com/{}.png", "a".repeat(3000));
+        // Arbitrary .jpg is no longer allowed (open-proxy regression guard)
+        assert!(!is_allowed_domain("https://example.com/photo.jpg"));
+        let long = format!("https://i0.hdslb.com/{}.png", "a".repeat(3000));
         assert!(long.len() > 2048);
     }
     #[tokio::test]

@@ -3,6 +3,12 @@
 //! Workspace crate: host allowlist is loaded from repo-root
 //! `shared/image_proxy_hosts.json` (same file the frontend uses). HTTP handlers
 //! must not reimplement this list.
+//!
+//! ## Dual-path product model
+//! - **Display**: only hosts on the must-proxy list are rewritten to
+//!   `/api/proxy/image?url=…`; all other https URLs stay original.
+//! - **Server proxy**: `/api/proxy/image` accepts **the same narrow list**
+//!   (parsed host exact or proper DNS suffix only). No open `.jpg` / path fallback.
 
 use serde_json::Value;
 
@@ -26,23 +32,80 @@ fn image_proxy_hosts() -> &'static ImageProxyHostsFile {
     &HOSTS
 }
 
+/// Normalize a DNS host for allowlist matching: lowercase, strip trailing dot.
+pub fn normalize_host(host: &str) -> String {
+    host.trim_end_matches('.').to_ascii_lowercase()
+}
+
+/// Exact host match or proper DNS suffix (`i0.hdslb.com` matches `hdslb.com`;
+/// lookalikes like `hdslb.com.evil.com` / `nothdslb.com` do not).
+pub fn host_matches_domain(host: &str, domain: &str) -> bool {
+    let host = normalize_host(host);
+    let domain = normalize_host(domain);
+    if domain.is_empty() || host.is_empty() {
+        return false;
+    }
+    host == domain || host.ends_with(&format!(".{domain}"))
+}
+
+/// Parse `http`/`https` URL and return normalized host, or `None` if unusable.
+pub fn parse_proxy_url_host(url: &str) -> Option<String> {
+    let absolute = if let Some(rest) = url.strip_prefix("//") {
+        format!("https://{rest}")
+    } else if let Some(rest) = url.strip_prefix("http://") {
+        format!("https://{rest}")
+    } else {
+        url.to_string()
+    };
+    let parsed = url::Url::parse(&absolute).ok()?;
+    match parsed.scheme() {
+        "http" | "https" => {}
+        _ => return None,
+    }
+    let host = parsed.host_str()?.trim();
+    if host.is_empty() {
+        return None;
+    }
+    Some(normalize_host(host))
+}
+
 /// 浏览器里**必须**走站内代理的 CDN（真·防盗链 / 无 Referer 就 403）。
 ///
-/// 注意与 `api/proxy::is_allowed_domain` 不同：
-/// - **needs_image_proxy**：自动改写 API 出口时用（窄；名单见 shared JSON）
-/// - **is_allowed_domain**：`/api/proxy/image` 允许拉什么（可更宽，给 RSS/手动代理）
+/// Same narrow list as `/api/proxy/image` egress allowlist (dual-path model).
+/// Matching is **parsed host** exact/suffix only — never `url.contains`.
 pub fn needs_image_proxy(url: &str) -> bool {
-    let u = url.to_ascii_lowercase();
+    let Some(host) = parse_proxy_url_host(url) else {
+        return false;
+    };
     let hosts = image_proxy_hosts();
-    if hosts.markers.iter().any(|m| u.contains(&m.to_ascii_lowercase())) {
+    if hosts
+        .markers
+        .iter()
+        .any(|m| host_matches_domain(&host, m))
+    {
         return true;
     }
+    // Steam legacy avatar CDN: host under akamaihd.net and label/path implies Steam.
     if let Some(extra) = hosts.akamai_and_contains.as_deref() {
-        if u.contains("akamaihd.net") && u.contains(&extra.to_ascii_lowercase()) {
+        let extra = extra.to_ascii_lowercase();
+        if host_matches_domain(&host, "akamaihd.net")
+            && (host.contains(&extra) || url.to_ascii_lowercase().contains(&extra))
+        {
+            // Prefer host-label check; still allow path containing "steam" on akamaihd.net
+            // only when host is a proper akamaihd.net suffix (already enforced).
             return true;
         }
     }
     false
+}
+
+/// Egress allowlist for `GET /api/proxy/image` — identical to [`needs_image_proxy`].
+///
+/// Kept as a named alias so call sites document the dual-path contract:
+/// server may only fetch what the FE would rewrite through the proxy.
+#[inline]
+pub fn is_allowed_proxy_url(url: &str) -> bool {
+    needs_image_proxy(url)
 }
 
 /// 已是代理路径（相对 `/api/proxy/image…` 或绝对 `https://host/api/proxy/image…`）
@@ -105,8 +168,23 @@ pub fn normalize_json_media_urls(value: &mut Value) {
 
 #[cfg(test)]
 mod proxy_image_url_tests {
-    use super::{needs_image_proxy, normalize_json_media_urls, proxy_image_url};
+    use super::{
+        host_matches_domain, is_allowed_proxy_url, needs_image_proxy, normalize_json_media_urls,
+        proxy_image_url,
+    };
     use serde_json::json;
+
+    #[test]
+    fn host_matches_domain_exact_and_suffix_only() {
+        assert!(host_matches_domain("hdslb.com", "hdslb.com"));
+        assert!(host_matches_domain("i0.hdslb.com", "hdslb.com"));
+        assert!(host_matches_domain("I0.HDSLB.COM.", "hdslb.com"));
+        assert!(host_matches_domain("p1.music.126.net", "music.126.net"));
+        assert!(!host_matches_domain("hdslb.com.evil.com", "hdslb.com"));
+        assert!(!host_matches_domain("nothdslb.com", "hdslb.com"));
+        assert!(!host_matches_domain("evil-hdslb.com", "hdslb.com"));
+        assert!(!host_matches_domain("com", "hdslb.com"));
+    }
 
     #[test]
     fn shared_hosts_file_is_loaded() {
@@ -115,6 +193,19 @@ mod proxy_image_url_tests {
             "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/avatars/a.jpg"
         ));
         assert!(!needs_image_proxy("https://avatars.githubusercontent.com/u/1"));
+    }
+
+    #[test]
+    fn rejects_lookalike_hosts() {
+        assert!(!needs_image_proxy("https://hdslb.com.evil.com/face.jpg"));
+        assert!(!needs_image_proxy("https://nothdslb.com/bfs/face/x.jpg"));
+        assert!(!needs_image_proxy(
+            "https://evil.com/cdn?u=hdslb.com/x.jpg"
+        ));
+        assert!(!is_allowed_proxy_url(
+            "https://evil.com/uploads/photo.jpg"
+        ));
+        assert!(!is_allowed_proxy_url("https://blog.example/favicon.ico"));
     }
 
     #[test]
@@ -136,6 +227,10 @@ mod proxy_image_url_tests {
                 "expected proxy for {raw}, got {out}"
             );
             assert!(needs_image_proxy(raw), "needs_image_proxy false for {raw}");
+            assert!(
+                is_allowed_proxy_url(raw),
+                "allowlist must match needs_image_proxy for {raw}"
+            );
         }
     }
 
@@ -148,9 +243,12 @@ mod proxy_image_url_tests {
             "https://enka.network/ui/UI_AvatarIcon_Ayaka.png",
             "https://images-eds-ssl.xboxlive.com/image?url=x",
             "https://ui-avatars.com/api/?name=A",
+            "https://221.ltd/favicon.ico",
+            "https://www.google.com/s2/favicons?domain=example.com&sz=64",
         ] {
             assert_eq!(proxy_image_url(raw), raw, "{raw}");
             assert!(!needs_image_proxy(raw), "{raw}");
+            assert!(!is_allowed_proxy_url(raw), "{raw}");
         }
         assert_eq!(proxy_image_url(""), "");
     }
@@ -189,4 +287,3 @@ mod proxy_image_url_tests {
         assert_eq!(v["name"], "keep");
     }
 }
-

@@ -22,6 +22,7 @@
  */
 
 import { API_URL } from '../config'
+import { proxyImageUrl } from './proxyImageUrl'
 
 export interface ProcessOptions {
   /** 是否暗色模式 */
@@ -46,23 +47,12 @@ const DEFAULT_OPTIONS: ProcessOptions = {
 }
 
 /**
- * 获取代理后的图片 URL
- * 外部图片通过代理访问，避免 CORS 问题
+ * Dual-path display URL: hotlink CDNs via proxy; otherwise original https.
  */
 function getProxiedImageUrl(src: string): string {
-  // 已经是 data URL，直接返回
   if (src.startsWith('data:')) return src
-
-  // 已经是本地 API 路径，直接返回
   if (src.startsWith('/api/') || src.startsWith(`${API_URL}/api/`)) return src
-
-  // 外部 URL，使用图片代理
-  if (src.startsWith('http://') || src.startsWith('https://')) {
-    return `${API_URL}/api/proxy/image?url=${encodeURIComponent(src)}`
-  }
-
-  // 其他情况（如相对路径），直接返回
-  return src
+  return proxyImageUrl(src) ?? src
 }
 
 /**

@@ -178,7 +178,7 @@ describe('PWA logo compositing geometry', () => {
     assert.ok(Math.abs(rect.width - 96) < 0.001)
   })
 
-  it('proxies external icon sources for canvas CORS; keeps same-origin raw', () => {
+  it('dual-path: same-origin raw; hotlink CDNs proxy; other hosts stay original', () => {
     const origin = 'https://kiseki.blog'
     assert.equal(
       resolvePwaIconSourceUrl('/favicon.webp', origin),
@@ -188,19 +188,20 @@ describe('PWA logo compositing geometry', () => {
       resolvePwaIconSourceUrl('data:image/png;base64,abc', origin),
       'data:image/png;base64,abc',
     )
+    // Non-hotlink external — original URL (not open proxy)
     assert.equal(
       resolvePwaIconSourceUrl('https://cdn.example/logo.png', origin, ''),
-      `/api/proxy/image?url=${
-        encodeURIComponent('https://cdn.example/logo.png')}`,
+      'https://cdn.example/logo.png',
+    )
+    // Must-proxy host — goes through image proxy (re-base api host when given)
+    const bilibili = 'https://i0.hdslb.com/bfs/face/x.jpg'
+    assert.equal(
+      resolvePwaIconSourceUrl(bilibili, origin, ''),
+      `/api/proxy/image?url=${encodeURIComponent(bilibili)}`,
     )
     assert.equal(
-      resolvePwaIconSourceUrl(
-        'https://cdn.example/logo.png',
-        origin,
-        'https://api.example',
-      ),
-      `https://api.example/api/proxy/image?url=${
-        encodeURIComponent('https://cdn.example/logo.png')}`,
+      resolvePwaIconSourceUrl(bilibili, origin, 'https://api.example'),
+      `https://api.example/api/proxy/image?url=${encodeURIComponent(bilibili)}`,
     )
   })
 })
