@@ -33,6 +33,13 @@ Thin ALTER-only migrations that only added columns or healed data were retired:
 - `009_user_presence` → `users.last_seen_at` / `online_seconds` in 001 + schema_check
 - `010_user_owner` / `011_owner_is_admin` → `users.is_owner` in 001 + `ensure_single_owner`
 
+Also retired from `seaql_migrations` when present on older/local DBs (files not on mainline):
+
+- `008_tapp_runtime_registry`, `009_activity_events`
+- digital_life experiment: `007_digital_life` … `011_digital_life_asset_subjects`
+
+Authoritative list: `RETIRED_MIGRATION_VERSIONS` in `backend/src/db/schema_check/seeds.rs`.
+
 Whole tables are created by Migrator (001–006) — the numbered series is the
 **complete greenfield source of truth**. Runtime `schema_check` only heals
 **recent (~1 month) features** plus ongoing data/object jobs (platform seeds,
@@ -41,6 +48,13 @@ single owner, storage-quota trigger).
 **Setup path:** `api/setup::init_database` runs `Migrator::up` then
 `schema_check::ensure_schema` so first-boot seeds/heals do not require a
 process restart (same order as `main` after DB connect).
+
+**Startup policy (full mode):** default is warn + continue on migration /
+`ensure_schema` failure so local DBs with retired history noise still boot.
+Missing applied migration *files* are always treated as non-fatal history hygiene.
+Set `MYRIAD_STRICT_SCHEMA=1` to refuse start on other migration/schema errors
+(eventual hard prod gate). `MYRIAD_ALLOW_SCHEMA_DRIFT=1` remains a deliberate
+recovery override under strict mode.
 
 Recent tables:
 

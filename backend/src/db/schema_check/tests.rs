@@ -143,6 +143,44 @@ fn test_default_platform_seeds_include_x_and_core() {
     assert_eq!(sorted.len(), names.len());
 }
 
+/// Retired seaql_migrations rows that must be stripped before Migrator::up.
+/// digital_life* versions appear on local/feature-branch DBs after files were dropped.
+#[test]
+fn test_retired_migration_versions_include_digital_life_and_thin_alters() {
+    let versions = RETIRED_MIGRATION_VERSIONS;
+    for required in [
+        // thin ALTER consolidation
+        "007_notification_preferences",
+        "008_tapp_approved_permissions",
+        "009_user_presence",
+        "010_user_owner",
+        "011_owner_is_admin",
+        "008_tapp_runtime_registry",
+        "009_activity_events",
+        // digital_life experiment history (missing files on mainline)
+        "007_digital_life",
+        "008_digital_life_phase_two",
+        "009_digital_life_phase_three",
+        "010_digital_life_phase_four",
+        "011_digital_life_asset_subjects",
+    ] {
+        assert!(
+            versions.contains(&required),
+            "RETIRED_MIGRATION_VERSIONS missing {required}"
+        );
+    }
+    // no accidental empties / duplicates
+    assert!(!versions.is_empty());
+    let mut sorted: Vec<&str> = versions.to_vec();
+    sorted.sort();
+    sorted.dedup();
+    assert_eq!(
+        sorted.len(),
+        versions.len(),
+        "RETIRED_MIGRATION_VERSIONS must be unique"
+    );
+}
+
 #[test]
 fn test_tapps_schema_includes_approved_permissions() {
     let tables = get_expected_schema();

@@ -107,35 +107,64 @@ pub fn default_platform_seeds() -> &'static [DefaultPlatformSeed] {
     ]
 }
 
+/// Migration versions whose `.rs` files were deleted after folding into base
+/// schema (001–006) and/or `schema_check` heals.
+///
+/// SeaORM refuses to start when `seaql_migrations` still lists a version with no
+/// on-disk file. Startup deletes only these known history rows before
+/// `Migrator::up`. Missing file history is bookkeeping noise, not a broken live schema.
+///
+/// Includes:
+/// - thin ALTER-only migrations retired in the 007–011 consolidation (≤0.3.9 path)
+/// - early digital_life experiment versions still present in some local DBs
+/// - other deleted mid-series names (`008_tapp_runtime_registry`, `009_activity_events`)
+pub const RETIRED_MIGRATION_VERSIONS: &[&str] = &[
+    // Early / mid-series files removed before the current 001–006 base set
+    "008_tapp_runtime_registry",
+    "009_activity_events",
+    // Retired thin ALTER-only migrations (folded into 001/002 + schema_check)
+    "007_notification_preferences",
+    "008_tapp_approved_permissions",
+    "009_user_presence",
+    "010_user_owner",
+    "011_owner_is_admin",
+    // digital_life experiment path (local / feature-branch DBs); files not on mainline
+    "007_digital_life",
+    "008_digital_life_phase_two",
+    "009_digital_life_phase_three",
+    "010_digital_life_phase_four",
+    "011_digital_life_asset_subjects",
+];
+
 /// 清理已经并入基础结构、代码中不再保留的迁移历史项。
 ///
 /// 必须在 SeaORM 检查迁移状态前调用，否则旧数据库会把已执行但已删除的迁移
 /// 判断为历史损坏。这里只删除已由 001–006 + schema_check 接管的迁移名。
 ///
-/// 列表来自数字系列 consolidation 前的 thin ALTER（≤0.3.9 路径）；≥0.3.10
-/// 连续升级通常已无这些行，保留删除以兼容跳版本。
+/// 列表见 [`RETIRED_MIGRATION_VERSIONS`]。≥0.3.10 连续升级通常已无这些行，
+/// 保留删除以兼容跳版本与本地 digital_life 实验库。
 pub async fn reconcile_retired_migration_history(db: &DatabaseConnection) -> Result<(), DbErr> {
-    db.execute_unprepared(
+    // Build the IN (...) list from the single const so SQL and tests cannot drift.
+    let versions_sql = RETIRED_MIGRATION_VERSIONS
+        .iter()
+        .map(|v| format!("'{v}'"))
+        .collect::<Vec<_>>()
+        .join(",\n            ");
+    let sql = format!(
         r#"
 DO $$
 BEGIN
     IF to_regclass('public.seaql_migrations') IS NOT NULL THEN
         DELETE FROM seaql_migrations
          WHERE version IN (
-            '008_tapp_runtime_registry',
-            '009_activity_events',
-            -- retired thin ALTER-only migrations (folded into 001/002)
-            '007_notification_preferences',
-            '008_tapp_approved_permissions',
-            '009_user_presence',
-            '010_user_owner',
-            '011_owner_is_admin'
+            {versions_sql}
          );
     END IF;
 END $$;
-"#,
-    )
-    .await?;
+"#
+    );
+
+    db.execute_unprepared(&sql).await?;
 
     Ok(())
 }

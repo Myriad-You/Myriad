@@ -61,17 +61,101 @@ use std::sync::atomic::{AtomicBool, Ordering}; // P1: 用于数据库健康检�
 pub static CONFIG_MODE: AtomicBool = AtomicBool::new(false);
 
 
-/// Escape hatch for recovery when migration/schema heal fails (MYR-013).
-/// Default is fail closed — never serve full mode on a broken schema.
-fn allow_schema_drift_continue() -> bool {
+/// Truthy env values shared by schema-policy flags.
+fn env_flag_enabled(name: &str) -> bool {
     matches!(
-        std::env::var("MYRIAD_ALLOW_SCHEMA_DRIFT")
+        std::env::var(name)
             .unwrap_or_default()
             .trim()
             .to_ascii_lowercase()
             .as_str(),
         "1" | "true" | "yes" | "on"
     )
+}
+
+/// Opt-in hard gate for migration / schema-contract failures (MYR-013).
+///
+/// Default is **warn + continue** so local/dev DBs with retired migration history
+/// (or other non-fatal schema noise) still boot. Set `MYRIAD_STRICT_SCHEMA=1` when
+/// you want production-style refuse-to-start. Even under strict mode,
+/// `MYRIAD_ALLOW_SCHEMA_DRIFT=1` remains a deliberate recovery escape hatch.
+fn strict_schema_mode() -> bool {
+    env_flag_enabled("MYRIAD_STRICT_SCHEMA")
+}
+
+/// Explicit recovery override: continue even when `MYRIAD_STRICT_SCHEMA=1`.
+fn allow_schema_drift_continue() -> bool {
+    env_flag_enabled("MYRIAD_ALLOW_SCHEMA_DRIFT")
+}
+
+/// SeaORM history hygiene: applied version listed in `seaql_migrations` but the
+/// corresponding migration file was deleted. Not a broken live schema —
+/// `reconcile_retired_migration_history` + `schema_check` cover structure.
+fn is_missing_migration_file_error(err: &impl std::fmt::Display) -> bool {
+    let msg = err.to_string().to_ascii_lowercase();
+    // sea-orm-migration: "Migration file of version '…' is missing"
+    (msg.contains("migration file") && msg.contains("is missing"))
+        || (msg.contains("missing") && msg.contains("migration") && msg.contains("version"))
+}
+
+/// Whether a migration/`ensure_schema` failure should abort full-mode startup.
+///
+/// - Missing migration *files* for applied versions: always non-fatal (history noise).
+/// - Other errors: fatal only when `MYRIAD_STRICT_SCHEMA=1` and drift allow is unset.
+fn should_refuse_start_on_schema_error(err: &impl std::fmt::Display) -> bool {
+    if is_missing_migration_file_error(err) {
+        return false;
+    }
+    strict_schema_mode() && !allow_schema_drift_continue()
+}
+
+fn handle_migration_startup_error(err: &impl std::fmt::Display) -> anyhow::Result<()> {
+    if should_refuse_start_on_schema_error(err) {
+        anyhow::bail!(
+            "Database migration failed: {err}. Refusing to start full mode against a \
+             broken schema (MYRIAD_STRICT_SCHEMA=1). Fix the database, or set \
+             MYRIAD_ALLOW_SCHEMA_DRIFT=1 only for deliberate recovery."
+        );
+    }
+    if is_missing_migration_file_error(err) {
+        tracing::error!(
+            error = %err,
+            "Database migration history references missing migration file(s); continuing. \
+             Known retired versions are stripped by reconcile_retired_migration_history; \
+             unknown names need a code update. Live structure is healed by schema_check."
+        );
+    } else if allow_schema_drift_continue() {
+        tracing::error!(
+            error = %err,
+            "🚨 Database migration failed; MYRIAD_ALLOW_SCHEMA_DRIFT is set — \
+             continuing with existing schema (recovery only; do not use in production)"
+        );
+    } else {
+        tracing::warn!("⚠️  Database migration check failed: {}", err);
+        tracing::info!("Continuing with existing database schema...");
+    }
+    Ok(())
+}
+
+fn handle_schema_check_startup_error(err: &impl std::fmt::Display) -> anyhow::Result<()> {
+    if should_refuse_start_on_schema_error(err) {
+        anyhow::bail!(
+            "Schema contract check failed: {err}. Refusing to start full mode against a \
+             broken schema (MYRIAD_STRICT_SCHEMA=1). Fix the database, or set \
+             MYRIAD_ALLOW_SCHEMA_DRIFT=1 only for deliberate recovery."
+        );
+    }
+    if allow_schema_drift_continue() {
+        tracing::error!(
+            error = %err,
+            "🚨 Schema check failed; MYRIAD_ALLOW_SCHEMA_DRIFT is set — \
+             continuing with existing schema (recovery only; do not use in production)"
+        );
+    } else {
+        tracing::warn!("⚠️  Schema check failed: {}", err);
+        tracing::info!("Continuing with existing schema...");
+    }
+    Ok(())
 }
 
 /// Fail-soft: production images run as uid 1000 (`myriad`); root is a hygiene warning only.
@@ -269,9 +353,11 @@ async fn run_server() -> anyhow::Result<()> {
                     tracing::warn!("Failed to reconcile retired migration history: {}", e);
                 }
 
-                // Run database migrations automatically on startup (idempotent - skips already applied migrations).
-                // MYR-013: fail closed on migration/schema contract failure for full mode so we
-                // never serve traffic against a broken DB. Escape hatch: MYRIAD_ALLOW_SCHEMA_DRIFT=1.
+                // Run database migrations automatically on startup (idempotent).
+                // Default: warn + continue (local/dev must not brick on history noise).
+                // MYRIAD_STRICT_SCHEMA=1 → refuse start on real migration/schema failures
+                // (missing applied migration *files* stay non-fatal — history hygiene).
+                // MYRIAD_ALLOW_SCHEMA_DRIFT=1 → continue even under strict mode (recovery).
                 use sea_orm_migration::MigratorTrait;
                 tracing::debug!("Checking for pending database migrations...");
                 match migration::Migrator::up(&db, None).await {
@@ -279,37 +365,35 @@ async fn run_server() -> anyhow::Result<()> {
                         tracing::info!("✅ Database migrations up to date");
                     }
                     Err(e) => {
-                        if allow_schema_drift_continue() {
-                            tracing::error!(
-                                error = %e,
-                                "🚨 Database migration failed; MYRIAD_ALLOW_SCHEMA_DRIFT is set — \
-                                 continuing with existing schema (recovery only; do not use in production)"
-                            );
+                        // Retry once after another reconcile pass (covers races / partial lists).
+                        if is_missing_migration_file_error(&e) {
+                            if let Err(re) =
+                                db::schema_check::reconcile_retired_migration_history(&db).await
+                            {
+                                tracing::warn!(
+                                    "Retry reconcile of retired migration history failed: {}",
+                                    re
+                                );
+                            }
+                            match migration::Migrator::up(&db, None).await {
+                                Ok(_) => {
+                                    tracing::info!(
+                                        "✅ Database migrations up to date after retired-history reconcile retry"
+                                    );
+                                }
+                                Err(e2) => {
+                                    handle_migration_startup_error(&e2)?;
+                                }
+                            }
                         } else {
-                            anyhow::bail!(
-                                "Database migration failed: {e}. Refusing to start full mode \
-                                 against a broken schema (MYR-013). Fix the database, or set \
-                                 MYRIAD_ALLOW_SCHEMA_DRIFT=1 only for deliberate recovery."
-                            );
+                            handle_migration_startup_error(&e)?;
                         }
                     }
                 }
 
                 // Auto-complete missing schema fields (safe, idempotent operation)
                 if let Err(e) = db::schema_check::ensure_schema(&db).await {
-                    if allow_schema_drift_continue() {
-                        tracing::error!(
-                            error = %e,
-                            "🚨 Schema check failed; MYRIAD_ALLOW_SCHEMA_DRIFT is set — \
-                             continuing with existing schema (recovery only; do not use in production)"
-                        );
-                    } else {
-                        anyhow::bail!(
-                            "Schema contract check failed: {e}. Refusing to start full mode \
-                             against a broken schema (MYR-013). Fix the database, or set \
-                             MYRIAD_ALLOW_SCHEMA_DRIFT=1 only for deliberate recovery."
-                        );
-                    }
+                    handle_schema_check_startup_error(&e)?;
                 }
 
                 // 站长画像快照兜底：平台画像 SQL 阶梯够不到，存量库补完列后需要算一次，
@@ -1029,6 +1113,28 @@ async fn shutdown_signal() {
         tracing::info!("[Shutdown] Skill evolution stats flushed");
     }
     services::agent::mcp::shutdown_mcp().await;
+}
+
+#[cfg(test)]
+mod schema_startup_policy_tests {
+    use super::is_missing_migration_file_error;
+
+    #[test]
+    fn detects_seaorm_missing_migration_file_message() {
+        let msg = "Migration file of version '009_digital_life_phase_three' is missing, \
+                   this usually means there is a broken migration history";
+        assert!(is_missing_migration_file_error(&msg));
+    }
+
+    #[test]
+    fn non_history_errors_are_not_missing_file() {
+        assert!(!is_missing_migration_file_error(
+            &"relation \"users\" does not exist"
+        ));
+        assert!(!is_missing_migration_file_error(
+            &"connection refused while connecting to database"
+        ));
+    }
 }
 
 #[cfg(test)]

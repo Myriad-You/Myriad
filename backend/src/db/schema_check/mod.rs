@@ -29,8 +29,8 @@ mod introspect;
 mod orchestrator;
 
 pub use seeds::{
-    default_platform_seeds, reconcile_retired_migration_history,
-    DefaultPlatformSeed,
+    default_platform_seeds, reconcile_retired_migration_history, DefaultPlatformSeed,
+    RETIRED_MIGRATION_VERSIONS,
 };
 pub use orchestrator::ensure_schema;
 
