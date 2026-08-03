@@ -89,11 +89,11 @@ function mixHex(
           .map((c) => c + c)
           .join('')
       : raw
-  if (!/^[0-9a-fA-F]{6}$/.test(full)) return hex
+  if (!/^[0-9a-f]{6}$/i.test(full)) return hex
   const n = Number.parseInt(full, 16)
-  const r = (n >> 16) & 0xff
-  const g = (n >> 8) & 0xff
-  const b = n & 0xff
+  const r = (n >> 16) & 0xFF
+  const g = (n >> 8) & 0xFF
+  const b = n & 0xFF
   const tr = toward === '#ffffff' ? 255 : 0
   const tg = toward === '#ffffff' ? 255 : 0
   const tb = toward === '#ffffff' ? 255 : 0

@@ -8,6 +8,10 @@ import {
   streamAITaskEvents,
 } from './TappAiApi'
 import {
+  getAnalyticsSummary,
+  getAnalyticsVisitorCard,
+} from './TappAnalyticsApi'
+import {
   dataTransform,
   executeTappApi,
   getContextApp,
@@ -53,10 +57,6 @@ import {
   getTappCode,
   getTappResources,
 } from './TappPackageResourceApi'
-import {
-  getAnalyticsSummary,
-  getAnalyticsVisitorCard,
-} from './TappAnalyticsApi'
 import {
   addPlatformItem,
   addPlatformItems,

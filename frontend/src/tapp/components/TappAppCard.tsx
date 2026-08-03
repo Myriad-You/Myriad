@@ -6,6 +6,7 @@
  * - 2x1: two tracks wide — dock: run / settings / uninstall / shrink
  */
 
+import type { CSSProperties, DragEvent, KeyboardEvent, MouseEvent } from 'react'
 import type { TappInstance, TappPermission } from '../types'
 import type { IconStyle } from '../utils/tappColors'
 import {
@@ -23,14 +24,12 @@ import {
   motionShim as motion,
 } from '@lib/motionShim'
 import {
+
   forwardRef,
+
   useEffect,
   useMemo,
   useState,
-  type CSSProperties,
-  type DragEvent,
-  type KeyboardEvent,
-  type MouseEvent,
 } from 'react'
 import { GlowBackground } from '../../components/widgets/shared/GlowBackground'
 import { useI18n } from '../../contexts/I18nContext'

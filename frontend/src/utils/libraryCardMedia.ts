@@ -12,9 +12,17 @@ let activeDecodes = 0
 const waitQueue: Array<() => void> = []
 
 function pumpQueue() {
-  while (activeDecodes < MAX_CONCURRENT_COVER_DECODES && waitQueue.length > 0) {
+  // Loop condition uses only waitQueue (mutated by shift). Slot limit checked
+  // inside — activeDecodes is updated by grant()/release, not in this body.
+  while (waitQueue.length > 0) {
+    if (activeDecodes >= MAX_CONCURRENT_COVER_DECODES) {
+      return
+    }
     const next = waitQueue.shift()
-    if (next) next()
+    if (!next) {
+      return
+    }
+    next()
   }
 }
 

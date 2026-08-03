@@ -20,8 +20,8 @@ import { getCSRFToken } from '../../utils/csrf'
 import { normalizeOAuthIconUrl } from '../../utils/oauthIcons'
 import { Avatar } from '../Avatar'
 import { AvatarSourcePicker } from '../AvatarSourcePicker'
-import { ProfileTextSourcePicker } from '../ProfileTextSourcePicker'
 import OAuthIconImage from '../OAuthIconImage'
+import { ProfileTextSourcePicker } from '../ProfileTextSourcePicker'
 import { Spinner } from '../Spinner'
 import '../UserModal.css'
 
@@ -117,14 +117,14 @@ export const UserModal: FC<UserModalProps> = ({
     const el = modalRef.current
     if (el) {
       // Computed min-height is already min(designedMin, maxvh) resolved to px
-      const minH = parseFloat(getComputedStyle(el).minHeight)
+      const minH = Number.parseFloat(getComputedStyle(el).minHeight)
       if (Number.isFinite(minH) && minH > 0) return minH
       const raw = getComputedStyle(el).getPropertyValue('--user-modal-min-height').trim()
-      const n = parseFloat(raw)
+      const n = Number.parseFloat(raw)
       if (Number.isFinite(n) && n > 0) {
         if (raw.endsWith('rem')) {
           const rootFs =
-            parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
+            Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
           return n * rootFs
         }
         return n
@@ -134,7 +134,7 @@ export const UserModal: FC<UserModalProps> = ({
     const mobile = window.matchMedia('(max-width: 640px)').matches
     const rem = mobile ? 18 : 20
     const rootFs =
-      parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
+      Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
     return rem * rootFs
   }, [])
 

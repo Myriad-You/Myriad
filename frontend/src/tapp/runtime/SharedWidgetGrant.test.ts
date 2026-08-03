@@ -16,7 +16,7 @@ describe('sharedWidgetInstanceId', () => {
     const longId = `com.${'a'.repeat(120)}.app`
     const instanceId = sharedWidgetInstanceId(longId)
     assert.ok(instanceId.length <= 100, instanceId)
-    assert.match(instanceId, /^[A-Za-z0-9._-]+$/)
+    assert.match(instanceId, /^[\w.-]+$/)
   })
 
   it('is longer than a short 8-hex hash while remaining BE-safe', () => {
@@ -24,7 +24,7 @@ describe('sharedWidgetInstanceId', () => {
     // ws.<slug>.<16 hex> — more entropy than the previous ws.<8 hex>
     assert.ok(id.length > 12, `expected longer id, got ${id}`)
     assert.match(id, /^ws\./)
-    assert.match(id, /^[A-Za-z0-9._-]+$/)
+    assert.match(id, /^[\w.-]+$/)
     assert.ok(id.length <= 100)
   })
 

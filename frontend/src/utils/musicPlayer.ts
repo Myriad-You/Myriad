@@ -765,7 +765,7 @@ export async function getNeteasePlaylist(playlistId: string): Promise<Song[]> {
     console.log(
       `[MusicPlayer] 歌单加载完成，用户在中国大陆: ${inChina}，${
         !inChina || useSameOriginProxy
-          ? '全量代理' + (useSameOriginProxy && inChina ? '（桌面频谱 CORS）' : '')
+          ? `全量代理${useSameOriginProxy && inChina ? '（桌面频谱 CORS）' : ''}`
           : 'play-url 直连 CDN'
       }`,
     )
@@ -858,7 +858,7 @@ export async function getQQPlaylist(playlistId: string): Promise<Song[]> {
     console.log(
       `[MusicPlayer] QQ 歌单加载完成，用户在中国大陆: ${inChina}，${
         !inChina || useSameOriginProxy
-          ? '全量代理' + (useSameOriginProxy && inChina ? '（桌面频谱 CORS）' : '')
+          ? `全量代理${useSameOriginProxy && inChina ? '（桌面频谱 CORS）' : ''}`
           : 'play-url 直连 CDN'
       }`,
     )

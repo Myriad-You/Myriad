@@ -114,7 +114,7 @@ const SERVER_AUTHORITATIVE_HOST_PERMISSIONS = new Set<TappPermission>([
  * Tapp Bridge 类
  * 处理主应用与沙箱之间的双向通信
  */
-export type TappBridgeInitOptions = {
+export interface TappBridgeInitOptions {
   /**
    * When set, destroy() releases a shared grant instead of destroying it.
    * Used by multi-widget same-Tapp sandboxes (refcount on TappRuntimeGrant).
@@ -148,6 +148,7 @@ export class TappBridge {
     60_000,
     BRIDGE_LIMITS.messagesPerMinute,
   )
+
   private inFlightRequests = 0
   private invalidCount = 0
   private mutedUntil = 0
@@ -191,6 +192,7 @@ export class TappBridge {
     grant: TappRuntimeGrant
     release: () => void
   }) | null = null
+
   private registeredSource: MessageEventSource | null = null
 
   /**
@@ -201,6 +203,7 @@ export class TappBridge {
     MessageEventSource,
     TappBridge
   >()
+
   /** Live bridges for srcdoc attach race: ready may fire before attachSource. */
   private static readonly activeBridges = new Set<TappBridge>()
   private static sharedListenerAttached = false

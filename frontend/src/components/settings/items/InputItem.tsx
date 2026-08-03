@@ -5,6 +5,7 @@
  * - imageUpload：URL 输入 + 本地上传（data URL）+ 左侧预览
  */
 
+import type { ReactNode } from 'react'
 import type { InputSettingConfig } from '../types'
 import {
   FaCheck,
@@ -15,7 +16,6 @@ import {
   FaUpload,
   LuCheck,
 } from '@lib/icons'
-import type { ReactNode } from 'react'
 import React, { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'
 import { guideDomProps } from '../guides/guideAnchor'

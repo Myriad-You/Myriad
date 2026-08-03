@@ -2,7 +2,9 @@
  * Tapp list page — installed apps + shortcuts to store / playground.
  */
 
+import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent } from 'react'
 import type { ToastType } from '../../components/Toast'
+import type { TappAppCardSize } from '../components/TappAppCard'
 import type { TappInstance, TappPermission } from '../types'
 import {
   FaFolder,
@@ -16,13 +18,12 @@ import {
   AnimatePresenceShim as AnimatePresence,
 } from '@lib/motionShim'
 import {
+
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
-  type DragEvent as ReactDragEvent,
-  type MouseEvent as ReactMouseEvent,
 } from 'react'
 import { useNavigate } from 'react-router-dom'
 import AnimatedView from '../../components/AnimatedView'
@@ -42,7 +43,6 @@ import {
 import { hasSessionHint } from '../../utils/sessionDetection'
 import { InstallTappDialog } from '../components/InstallTappDialog'
 import { TappPlaygroundIcon } from '../components/PlaygroundIcons'
-import type { TappAppCardSize } from '../components/TappAppCard'
 import {
   applyTappAppCardOrder,
   loadTappAppCardLayout,
@@ -51,16 +51,16 @@ import {
   TappAppCard,
   toggleTappAppCardSize,
 } from '../components/TappAppCard'
+import { TappIcon } from '../components/TappIcon'
+import { UninstallConfirmDialog } from '../components/UninstallConfirmDialog'
+import { TAPP_ICON_TOKENS } from '../constants/icons'
+import { getTappRuntime } from '../runtime'
+import { isWebKit } from '../runtime/TappPageSandbox'
+import { listTappDetails } from '../services/TappLifecycleApi'
 import {
   fetchTappListCardSizes,
   saveTappListCardSizes,
 } from '../services/TappListCardSizesApi'
-import { TappIcon } from '../components/TappIcon'
-import { UninstallConfirmDialog } from '../components/UninstallConfirmDialog'
-import { TAPP_ICON_TOKENS } from '../constants/icons'
-import { listTappDetails } from '../services/TappLifecycleApi'
-import { getTappRuntime } from '../runtime'
-import { isWebKit } from '../runtime/TappPageSandbox'
 import { resolveManifestText } from '../utils/manifestLocale'
 import { buildTappListPageSeo } from '../utils/tappPageSeo'
 import {

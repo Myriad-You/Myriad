@@ -1152,7 +1152,7 @@ export function registerAdvancedHandlers(
   // we broadcast register/unregister on a window CustomEvent.
   const HOST_SHORTCUTS_CHANGED = 'tapp:host-shortcuts-changed'
 
-  type HostShortcutsChangedDetail = {
+  interface HostShortcutsChangedDetail {
     tappId: string
     type: 'register' | 'unregister'
     shortcut?: {

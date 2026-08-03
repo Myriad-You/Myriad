@@ -29,7 +29,7 @@ function sanitizeHttpAllowPrivate(raw: string): string | null {
   }
 }
 
-/** Favicon: empty, path, http(s), data:image/* */
+/** Favicon: empty, path, http(s), data:image/ */
 export function sanitizeSiteFaviconUrl(
   raw: string | null | undefined,
 ): string | null {

@@ -10,7 +10,7 @@ import {
   fetchSiteOwnerProfile,
 } from './useSiteOwnerProfile.ts'
 
-type FetchCall = {
+interface FetchCall {
   url: string
   init?: RequestInit
 }

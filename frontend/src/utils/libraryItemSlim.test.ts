@@ -21,8 +21,8 @@ describe('preferCardCoverUrl', () => {
 
   it('rewrites proxied bangumi large paths', () => {
     const out = preferCardCoverUrl(
-      '/api/proxy/image?url=' +
-        encodeURIComponent('https://lain.bgm.tv/pic/cover/l/ab.jpg'),
+      `/api/proxy/image?url=${
+        encodeURIComponent('https://lain.bgm.tv/pic/cover/l/ab.jpg')}`,
     )
     assert.ok(out?.includes(encodeURIComponent('https://lain.bgm.tv/pic/cover/c/ab.jpg')))
   })

@@ -98,8 +98,8 @@ function isBlockedIpv6(ip: string): boolean {
   if (first) {
     const n = Number.parseInt(first, 16)
     if (Number.isFinite(n)) {
-      if ((n & 0xfe00) === 0xfc00) return true // fc00::/7
-      if ((n & 0xffc0) === 0xfe80) return true // fe80::/10
+      if ((n & 0xFE00) === 0xFC00) return true // fc00::/7
+      if ((n & 0xFFC0) === 0xFE80) return true // fe80::/10
     }
   }
 
