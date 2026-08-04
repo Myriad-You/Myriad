@@ -1,5 +1,15 @@
 allowBuilds:
   esbuild: true
+auditConfig:
+  ignoreGhsas:
+    - GHSA-qwww-vcr4-c8h2
+shellEmulator: true
+trustPolicy: no-downgrade
+overrides:
+  brace-expansion: '>=5.0.9'
+  fast-uri: '>=3.1.5'
+  postcss: '>=8.5.23'
+  svgo: '>=4.0.2'
 onlyBuiltDependencies:
   - esbuild
   - sharp
