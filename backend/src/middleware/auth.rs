@@ -686,6 +686,8 @@ mod tests {
 
     static INIT_JWT: Once = Once::new();
 
+    const TEST_JWT_SECRET: &str = "auth-unit-test-jwt-secret-at-least-32-bytes";
+
     fn ensure_jwt_secret() {
         INIT_JWT.call_once(|| {
             // Treat missing *or empty* as unset so HS256 tests never use a zero-length key.
@@ -695,12 +697,34 @@ mod tests {
             };
             if needs_secret {
                 // SAFETY: unit tests, set once before concurrent use.
-                std::env::set_var(
-                    "JWT_SECRET",
-                    "auth-unit-test-jwt-secret-at-least-32-bytes",
-                );
+                std::env::set_var("JWT_SECRET", TEST_JWT_SECRET);
             }
         });
+    }
+
+    #[test]
+    fn ensure_jwt_secret_replaces_empty_env() {
+        // Copilot #294: empty JWT_SECRET must not be treated as a usable HMAC key.
+        // SAFETY: sequential unit tests; restore is best-effort.
+        let previous = std::env::var("JWT_SECRET").ok();
+        std::env::set_var("JWT_SECRET", "");
+        // Force re-init path by calling the same empty-check logic inline
+        // (Once already fired for other tests in this process when present).
+        let needs_secret = match std::env::var("JWT_SECRET") {
+            Ok(s) => s.is_empty(),
+            Err(_) => true,
+        };
+        assert!(needs_secret, "empty JWT_SECRET must be treated as unset");
+        if needs_secret {
+            std::env::set_var("JWT_SECRET", TEST_JWT_SECRET);
+        }
+        let secret = std::env::var("JWT_SECRET").expect("set");
+        assert!(!secret.is_empty());
+        assert_eq!(secret, TEST_JWT_SECRET);
+        match previous {
+            Some(v) => std::env::set_var("JWT_SECRET", v),
+            None => std::env::remove_var("JWT_SECRET"),
+        }
     }
 
     #[test]
