@@ -747,16 +747,21 @@ pub async fn handle_room_pin(
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
 
-    // Best-effort: actor should be admin; tolerate roster lag
+    // Pin/unpin is owner/admin only. This used to warn and apply anyway, so any
+    // signed actor that knew a room_id could pin or unpin messages it had no
+    // rights to — including unpinning an admin's pinned message.
     let role = get_member_role(db, room_id, actor_url_str)
         .await
         .map_err(|e| e.to_string())?;
-    if role.as_deref() != Some("owner") && role.as_deref() != Some("admin") {
+    if !role.as_deref().map(is_admin_role).unwrap_or(false) {
         tracing::warn!(
-            "[Room] pin from non-admin {} in room {} (applying anyway if message exists)",
+            "[Room] rejected pin from non-admin {} in room {}",
             actor_url_str,
             room_id
         );
+        return Err(format!(
+            "not_member: {actor_url_str} cannot pin messages in room {room_id}"
+        ));
     }
 
     let updated = db

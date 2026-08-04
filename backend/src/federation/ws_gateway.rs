@@ -444,12 +444,19 @@ async fn handle_room_socket(
     let base_url = get_base_url().await;
     let local_actor = crate::federation::types::actor_url(&base_url, &username);
 
-    // 验证用户是该 Room 的成员
+    // 验证用户是该 Room 的**活跃**成员。
+    //
+    // 这里过去只看行是否存在，于是一个还没接受邀请（membership_status =
+    // 'pending'）的用户也能连上房间 socket，拿到此后所有消息、typing 与系统事件
+    // —— 而 REST 侧的 get_room_messages 走 require_active_member_role，明确不给
+    // pending 看历史。两条路必须同一个门槛。
     use sea_orm::{ConnectionTrait as _, DatabaseBackend, Statement};
     let is_member = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT 1 FROM federation_room_members WHERE room_id = $1 AND actor_url = $2",
+            r#"SELECT 1 FROM federation_room_members
+               WHERE room_id = $1 AND actor_url = $2
+                 AND COALESCE(membership_status, 'active') = 'active'"#,
             [room_id.clone().into(), local_actor.clone().into()],
         ))
         .await
@@ -458,7 +465,11 @@ async fn handle_room_socket(
         .is_some();
 
     if !is_member {
-        tracing::warn!("[WS] User {} is not a member of room {}", user_id, room_id);
+        tracing::warn!(
+            "[WS] User {} is not an active member of room {}",
+            user_id,
+            room_id
+        );
         return;
     }
 

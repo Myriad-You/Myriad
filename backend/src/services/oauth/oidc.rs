@@ -450,6 +450,8 @@ impl OAuthProvider for OidcProvider {
 }
 
 fn ensure_asymmetric_id_token_alg(alg: Algorithm) -> Result<(), String> {
+    // Algorithm is non_exhaustive in jsonwebtoken 11 — keep known asymmetric
+    // algs allowlisted and fail closed on HMAC / unknown future variants.
     match alg {
         Algorithm::RS256
         | Algorithm::RS384
@@ -463,6 +465,10 @@ fn ensure_asymmetric_id_token_alg(alg: Algorithm) -> Result<(), String> {
         Algorithm::HS256 | Algorithm::HS384 | Algorithm::HS512 => Err(format!(
             "OIDC id_token algorithm {:?} is not accepted; configure provider for asymmetric signing",
             alg
+        )),
+        other => Err(format!(
+            "OIDC id_token algorithm {:?} is not accepted; only known asymmetric algorithms are allowed",
+            other
         )),
     }
 }
@@ -548,6 +554,49 @@ fn validate_id_token_nonce(claims: &serde_json::Value, expected: &str) -> Result
 #[cfg(test)]
 mod oidc_security_tests {
     use super::*;
+
+    #[test]
+    fn id_token_alg_allowlists_asymmetric_rejects_hmac() {
+        // jsonwebtoken 11: Algorithm is non_exhaustive — keep HS* rejected and
+        // known RSA/EC/EdDSA accepted (fail-closed for unknown variants).
+        const ASYMMETRIC_OK: &[Algorithm] = &[
+            Algorithm::RS256,
+            Algorithm::ES256,
+            Algorithm::EdDSA,
+        ];
+        for &alg in ASYMMETRIC_OK {
+            assert!(
+                ensure_asymmetric_id_token_alg(alg).is_ok(),
+                "asymmetric {alg:?} must be accepted"
+            );
+        }
+
+        // Copilot #294: reject every HMAC alg, including HS384 (not only HS256/HS512).
+        const HMAC_REJECT: &[(Algorithm, &str)] = &[
+            (Algorithm::HS256, "HS256"),
+            (Algorithm::HS384, "HS384"),
+            (Algorithm::HS512, "HS512"),
+        ];
+        for &(alg, name) in HMAC_REJECT {
+            let err = ensure_asymmetric_id_token_alg(alg)
+                .expect_err(&format!("{name} must be rejected by ensure_asymmetric_id_token_alg"));
+            assert!(
+                err.contains("not accepted") || err.contains("asymmetric"),
+                "{name} error should mention rejection: {err}"
+            );
+        }
+    }
+
+    /// Dedicated regression lock for Copilot #294 — HS384 must not be omitted.
+    #[test]
+    fn ensure_asymmetric_id_token_alg_rejects_hs384_explicitly() {
+        let err = ensure_asymmetric_id_token_alg(Algorithm::HS384)
+            .expect_err("HS384 must be rejected");
+        assert!(
+            err.contains("HS384") || err.contains("not accepted"),
+            "unexpected error text: {err}"
+        );
+    }
 
     #[test]
     fn pkce_s256_challenge_is_deterministic_and_url_safe() {

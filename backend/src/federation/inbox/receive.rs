@@ -1118,24 +1118,45 @@ async fn handle_undo(
 
     match inner_type {
         "Follow" => {
-            // 远程用户取消关注
-            db.execute_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                r#"DELETE FROM federation_follows
-                   WHERE user_id = $1 AND direction = 'incoming'
-                   AND remote_actor_id = (
-                       SELECT id FROM federation_remote_actors WHERE actor_url = $2
-                   )"#,
-                [local_user_id.into(), actor_url_str.into()],
-            ))
-            .await
-            .map_err(db_err)?;
+            // 远程用户取消关注。
+            //
+            // 字节级相等和本文件其余地方的 same_actor_url 语义不一致：末尾斜杠或
+            // host 大小写一变，取关就静默成功（202）而粉丝关系还留着 —— 对面以为
+            // 已经取关，我们这边还在往它的 inbox 投递。快路径保留精确匹配
+            // （actor_url 有唯一约束，命中即唯一），未命中时再走规范化兜底。
+            let removed = db
+                .execute_raw(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    r#"DELETE FROM federation_follows
+                       WHERE user_id = $1 AND direction = 'incoming'
+                       AND remote_actor_id IN (
+                           SELECT id FROM federation_remote_actors WHERE actor_url = $2
+                       )"#,
+                    [local_user_id.into(), actor_url_str.into()],
+                ))
+                .await
+                .map_err(db_err)?;
 
-            tracing::info!(
-                "🔓 Follow removed: {} unfollowed user {}",
-                actor_url_str,
-                local_user_id
-            );
+            let mut removed = removed.rows_affected();
+            if removed == 0 {
+                removed = delete_incoming_follow_normalized(db, local_user_id, actor_url_str)
+                    .await
+                    .map_err(db_err)?;
+            }
+
+            if removed > 0 {
+                tracing::info!(
+                    "🔓 Follow removed: {} unfollowed user {}",
+                    actor_url_str,
+                    local_user_id
+                );
+            } else {
+                tracing::debug!(
+                    actor = %actor_url_str,
+                    local_user_id,
+                    "Undo Follow matched no incoming follow row"
+                );
+            }
         }
         "Like" | "Announce" => {
             // 被撤销的互动必须由本次签名 Actor 创建 —— 否则任意远端都能
@@ -1170,6 +1191,52 @@ async fn handle_undo(
     }
 
     Ok(StatusCode::ACCEPTED)
+}
+
+/// Delete this user's incoming follow from `actor_url_str`, comparing actor URLs
+/// with [`same_actor_url`] instead of byte equality.
+///
+/// Fallback for the exact-match DELETE: the stored `actor_url` can differ from
+/// the Undo's `actor` by trailing slash or host case, and an unfollow that
+/// silently keeps the follower is worse than a slightly wider scan (bounded to
+/// this user's incoming follows).
+async fn delete_incoming_follow_normalized(
+    db: &DatabaseConnection,
+    local_user_id: i32,
+    actor_url_str: &str,
+) -> Result<u64, sea_orm::DbErr> {
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"SELECT f.id, ra.actor_url
+               FROM federation_follows f
+               JOIN federation_remote_actors ra ON f.remote_actor_id = ra.id
+               WHERE f.user_id = $1 AND f.direction = 'incoming'"#,
+            [local_user_id.into()],
+        ))
+        .await?;
+
+    let mut removed = 0u64;
+    for row in rows {
+        let (Ok(id), Ok(stored)) = (
+            row.try_get::<i32>("", "id"),
+            row.try_get::<String>("", "actor_url"),
+        ) else {
+            continue;
+        };
+        if !same_actor_url(&stored, actor_url_str) {
+            continue;
+        }
+        removed += db
+            .execute_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "DELETE FROM federation_follows WHERE id = $1",
+                [id.into()],
+            ))
+            .await?
+            .rows_affected();
+    }
+    Ok(removed)
 }
 
 /// 处理内容类 Activity（Create/Update/Delete/Announce/Like）
@@ -1372,6 +1439,61 @@ async fn distribute_to_followers(
 
 // HTTP Signature 验证
 
+/// 读取一个**只允许出现一次**的请求头。
+///
+/// HTTP 允许同名 header 重复，而这里的两条读取路径对重复的处理正好相反：
+/// [`HeaderMap::get`] 取**第一个**值，`headers.iter().collect::<HashMap<_,_>>()`
+/// 留下**最后一个**。于是一个带两个 `Date`（或两个 `Digest`）的请求可以用第一个
+/// 值通过新鲜度 / 摘要闸门，再用第二个值去重建签名字符串 —— 攻击者只要重放一条
+/// 抓到的签名，配上自己构造的 body 和一对重复头，就能让任意内容被认成对方签发。
+///
+/// 这种歧义从来不是正常流量，一律 401。注意重复检查只作用于签名真正覆盖的
+/// header：`Via` / `X-Forwarded-For` 之类的重复是合法且无害的。
+fn unique_header<'a>(
+    headers: &'a HeaderMap,
+    name: &str,
+) -> Result<Option<&'a str>, (StatusCode, Json<serde_json::Value>)> {
+    let mut values = headers.get_all(name).iter();
+    let Some(first) = values.next() else {
+        return Ok(None);
+    };
+    if values.next().is_some() {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({
+                "error": format!("Ambiguous request: header `{name}` appears more than once"),
+            })),
+        ));
+    }
+    first.to_str().map(Some).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Invalid `{name}` header encoding")})),
+        )
+    })
+}
+
+/// 为重建签名字符串收集 header 值。
+///
+/// 只收集签名 `headers` 参数里列出的名字，且每个都走 [`unique_header`]。
+/// 缺失的 header 不放进 map —— 由 `verify_signature` 报
+/// "Missing header for signature"，保持原有错误语义。
+fn signing_header_map(
+    headers: &HeaderMap,
+    covered: &[String],
+) -> Result<std::collections::HashMap<String, String>, (StatusCode, Json<serde_json::Value>)> {
+    let mut map = std::collections::HashMap::with_capacity(covered.len());
+    for name in covered {
+        if name == "(request-target)" {
+            continue;
+        }
+        if let Some(value) = unique_header(headers, name.as_str())? {
+            map.insert(name.clone(), value.to_string());
+        }
+    }
+    Ok(map)
+}
+
 /// 解析请求体**之前**必须通过的检查。
 ///
 /// inbox 允许 INBOX_BODY_LIMIT 的请求体（房间/频道消息与文件分块确实需要），而过去的顺序是
@@ -1389,16 +1511,12 @@ fn verify_preparse_gate(
     headers: &HeaderMap,
     body: &[u8],
 ) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
-    let sig_header = headers
-        .get("Signature")
-        .or_else(|| headers.get("signature"))
-        .and_then(|v| v.to_str().ok())
-        .ok_or_else(|| {
-            (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Missing Signature header"})),
-            )
-        })?;
+    let sig_header = unique_header(headers, "signature")?.ok_or_else(|| {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Missing Signature header"})),
+        )
+    })?;
 
     let parsed = parse_signature_header(sig_header).map_err(|e| {
         (
@@ -1413,16 +1531,12 @@ fn verify_preparse_gate(
         )
     })?;
 
-    let date = headers
-        .get("Date")
-        .or_else(|| headers.get("date"))
-        .and_then(|value| value.to_str().ok())
-        .ok_or_else(|| {
-            (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Missing Date header"})),
-            )
-        })?;
+    let date = unique_header(headers, "date")?.ok_or_else(|| {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Missing Date header"})),
+        )
+    })?;
     verify_date_freshness(date, chrono::Utc::now(), HTTP_DATE_MAX_SKEW).map_err(|error| {
         (
             StatusCode::UNAUTHORIZED,
@@ -1431,19 +1545,10 @@ fn verify_preparse_gate(
     })?;
 
     if !body.is_empty() {
-        let digest = headers
-            .get("Digest")
-            .or_else(|| headers.get("digest"))
-            .ok_or_else(|| {
-                (
-                    StatusCode::UNAUTHORIZED,
-                    Json(json!({"error": "Missing Digest header for request with body"})),
-                )
-            })?;
-        let digest_str = digest.to_str().map_err(|_| {
+        let digest_str = unique_header(headers, "digest")?.ok_or_else(|| {
             (
-                StatusCode::BAD_REQUEST,
-                Json(json!({"error": "Invalid Digest header encoding"})),
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "Missing Digest header for request with body"})),
             )
         })?;
         if !verify_digest(body, digest_str) {
@@ -1474,16 +1579,12 @@ async fn verify_request_signature(
     request_path: &str,
 ) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
     // 获取 Signature header
-    let sig_header = headers
-        .get("Signature")
-        .or_else(|| headers.get("signature"))
-        .and_then(|v| v.to_str().ok())
-        .ok_or_else(|| {
-            (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Missing Signature header"})),
-            )
-        })?;
+    let sig_header = unique_header(headers, "signature")?.ok_or_else(|| {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Missing Signature header"})),
+        )
+    })?;
 
     let parsed = parse_signature_header(sig_header).map_err(|e| {
         (
@@ -1498,16 +1599,12 @@ async fn verify_request_signature(
         )
     })?;
 
-    let date = headers
-        .get("Date")
-        .or_else(|| headers.get("date"))
-        .and_then(|value| value.to_str().ok())
-        .ok_or_else(|| {
-            (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Missing Date header"})),
-            )
-        })?;
+    let date = unique_header(headers, "date")?.ok_or_else(|| {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Missing Date header"})),
+        )
+    })?;
     verify_date_freshness(date, chrono::Utc::now(), HTTP_DATE_MAX_SKEW).map_err(|error| {
         (
             StatusCode::UNAUTHORIZED,
@@ -1517,19 +1614,10 @@ async fn verify_request_signature(
 
     // Digest 验证（非空 body 必须携带 Digest header）
     if !body.is_empty() {
-        let digest = headers
-            .get("Digest")
-            .or_else(|| headers.get("digest"))
-            .ok_or_else(|| {
-                (
-                    StatusCode::UNAUTHORIZED,
-                    Json(json!({"error": "Missing Digest header for non-empty body"})),
-                )
-            })?;
-        let digest_str = digest.to_str().map_err(|_| {
+        let digest_str = unique_header(headers, "digest")?.ok_or_else(|| {
             (
-                StatusCode::BAD_REQUEST,
-                Json(json!({"error": "Invalid Digest header encoding"})),
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "Missing Digest header for non-empty body"})),
             )
         })?;
         if !verify_digest(body, digest_str) {
@@ -1611,15 +1699,8 @@ async fn verify_request_signature(
     let method = "POST"; // Inbox 总是 POST
     let path = request_path;
 
-    // 将 HeaderMap 转换为简单 HashMap
-    let header_map: std::collections::HashMap<String, String> = headers
-        .iter()
-        .filter_map(|(k, v)| {
-            v.to_str()
-                .ok()
-                .map(|val| (k.as_str().to_lowercase(), val.to_string()))
-        })
-        .collect();
+    // 只取签名覆盖的 header，且每个都必须唯一（见 unique_header）。
+    let header_map = signing_header_map(headers, &parsed.headers)?;
 
     let valid =
         verify_signature(public_key_pem, &parsed, method, path, &header_map).map_err(|e| {
@@ -2942,6 +3023,78 @@ mod tests {
             &candidates,
         );
         assert!(got_bad.is_none());
+    }
+
+    /// 重复 header 必须 401，而不是「闸门看第一个、验签看最后一个」。
+    ///
+    /// 回归的是一条完整的伪造链：抓一条合法签名 → 重发时把 `Date` / `Digest`
+    /// 各写两遍（第一个是新鲜时间 / 自造 body 的摘要，第二个是原签名覆盖的值）
+    /// → 新鲜度和摘要闸门用第一个值放行，签名用第二个值验过 → 任意内容被认成
+    /// 对方签发。`.get()` 是 first-wins、`.iter().collect()` 是 last-wins，
+    /// 这个差值就是漏洞本身。
+    #[test]
+    fn duplicate_signed_header_is_rejected() {
+        let mut headers = HeaderMap::new();
+        headers.append("date", "Mon, 04 Aug 2025 10:00:00 GMT".parse().unwrap());
+        headers.append("date", "Mon, 04 Aug 2025 09:00:00 GMT".parse().unwrap());
+
+        // 底层差值仍然存在（这正是必须显式拒绝的原因）
+        assert_ne!(
+            headers.get("date").unwrap().to_str().unwrap(),
+            headers.get_all("date").iter().last().unwrap().to_str().unwrap(),
+        );
+
+        let err = unique_header(&headers, "date").unwrap_err();
+        assert_eq!(err.0, StatusCode::UNAUTHORIZED);
+
+        let covered = vec!["(request-target)".to_string(), "date".to_string()];
+        assert!(signing_header_map(&headers, &covered).is_err());
+    }
+
+    #[test]
+    fn unique_header_reads_single_values_case_insensitively() {
+        let mut headers = HeaderMap::new();
+        headers.insert("Date", "Mon, 04 Aug 2025 10:00:00 GMT".parse().unwrap());
+        headers.insert("Digest", "SHA-256=abc".parse().unwrap());
+        assert_eq!(
+            unique_header(&headers, "date").unwrap(),
+            Some("Mon, 04 Aug 2025 10:00:00 GMT")
+        );
+        assert_eq!(unique_header(&headers, "digest").unwrap(), Some("SHA-256=abc"));
+        assert_eq!(unique_header(&headers, "signature").unwrap(), None);
+    }
+
+    /// 重复只在签名覆盖的 header 上是致命的。代理常常重复 `Via` /
+    /// `X-Forwarded-For`，把它们一起拒掉会误伤正常联邦流量。
+    #[test]
+    fn duplicate_uncovered_header_does_not_block_verification() {
+        let mut headers = HeaderMap::new();
+        headers.insert("host", "b.example".parse().unwrap());
+        headers.insert("date", "Mon, 04 Aug 2025 10:00:00 GMT".parse().unwrap());
+        headers.append("via", "1.1 alpha".parse().unwrap());
+        headers.append("via", "1.1 beta".parse().unwrap());
+
+        let covered = vec![
+            "(request-target)".to_string(),
+            "host".to_string(),
+            "date".to_string(),
+        ];
+        let map = signing_header_map(&headers, &covered).unwrap();
+        assert_eq!(map.get("host").map(String::as_str), Some("b.example"));
+        assert_eq!(map.len(), 2, "(request-target) is rebuilt, not read");
+    }
+
+    /// 签名字符串只由签名自己列出的 header 组成 —— 未覆盖的 header 不得混入。
+    #[test]
+    fn signing_header_map_only_includes_covered_headers() {
+        let mut headers = HeaderMap::new();
+        headers.insert("host", "b.example".parse().unwrap());
+        headers.insert("date", "Mon, 04 Aug 2025 10:00:00 GMT".parse().unwrap());
+        headers.insert("x-extra", "ignored".parse().unwrap());
+
+        let covered = vec!["host".to_string(), "date".to_string()];
+        let map = signing_header_map(&headers, &covered).unwrap();
+        assert!(!map.contains_key("x-extra"));
     }
 }
 

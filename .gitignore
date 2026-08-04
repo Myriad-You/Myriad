@@ -111,3 +111,6 @@ docker/volumes/
 
 # --- Misc local data trees ---
 /data
+/.pnpm-store
+/Upload/
+/tapp-store

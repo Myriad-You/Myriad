@@ -251,8 +251,13 @@ pub async fn unfollow_remote(
 
     let target_url = resolve_actor_reference(target).await?;
 
-    // 查找关注关系
-    let follow_row = db
+    // 查找关注关系。
+    //
+    // 精确匹配是快路径（actor_url 有唯一约束）。未命中时按 same_actor_url 再扫一遍
+    // 该用户的 outgoing 关注：follow 与 unfollow 都走 resolve_actor_reference，但
+    // 用户两次输入的写法可能差一个末尾斜杠或 host 大小写 —— 那样 UI 明明显示
+    // 「已关注」，取关却回 404。
+    let follow_row = match db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT f.id, f.activity_id, ra.inbox_url, ra.actor_url
@@ -263,15 +268,25 @@ pub async fn unfollow_remote(
         ))
         .await
         .map_err(db_err)?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "Follow relationship not found"})),
-            )
-        })?;
+    {
+        Some(row) => row,
+        None => find_outgoing_follow_normalized(db, user_id, &target_url)
+            .await
+            .map_err(db_err)?
+            .ok_or_else(|| {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({"error": "Follow relationship not found"})),
+                )
+            })?,
+    };
 
     let follow_activity_id: String = follow_row.try_get("", "activity_id").unwrap_or_default();
     let inbox: String = follow_row.try_get("", "inbox_url").unwrap_or_default();
+    // Delete by the URL form actually stored, not the one the caller typed.
+    let stored_actor_url: String = follow_row
+        .try_get("", "actor_url")
+        .unwrap_or_else(|_| target_url.clone());
 
     // 构造 Undo(Follow) Activity
     let local_actor = actor_url(&base_url, username);
@@ -295,8 +310,8 @@ pub async fn unfollow_remote(
         DatabaseBackend::Postgres,
         r#"DELETE FROM federation_follows
            WHERE user_id = $1 AND direction = 'outgoing'
-           AND remote_actor_id = (SELECT id FROM federation_remote_actors WHERE actor_url = $2)"#,
-        [user_id.into(), target_url.clone().into()],
+           AND remote_actor_id IN (SELECT id FROM federation_remote_actors WHERE actor_url = $2)"#,
+        [user_id.into(), stored_actor_url.into()],
     ))
     .await
     .map_err(db_err)?;
@@ -335,6 +350,33 @@ pub async fn unfollow_remote(
         .await;
 
     Ok(json!({"status": "unfollowed", "target": target_url}))
+}
+
+/// Find this user's outgoing follow for `target_url` comparing with
+/// [`same_actor_url`] rather than byte equality.
+///
+/// Fallback for the exact-match lookup: scoped to one user's outgoing follows,
+/// which is a handful of rows even for heavy accounts.
+async fn find_outgoing_follow_normalized(
+    db: &DatabaseConnection,
+    user_id: i32,
+    target_url: &str,
+) -> Result<Option<sea_orm::QueryResult>, sea_orm::DbErr> {
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"SELECT f.id, f.activity_id, ra.inbox_url, ra.actor_url
+               FROM federation_follows f
+               JOIN federation_remote_actors ra ON ra.id = f.remote_actor_id
+               WHERE f.user_id = $1 AND f.direction = 'outgoing'"#,
+            [user_id.into()],
+        ))
+        .await?;
+    Ok(rows.into_iter().find(|row| {
+        row.try_get::<String>("", "actor_url")
+            .map(|stored| same_actor_url(&stored, target_url))
+            .unwrap_or(false)
+    }))
 }
 
 /// 解析 Actor 引用：支持直接 Actor URL 或 acct:user@domain / @user@domain / user@domain。

@@ -33,26 +33,38 @@ pub async fn handle_room_invite(
         .and_then(|v| v.as_str())
         .unwrap_or(actor_url_str);
 
+    let base_url_val = {
+        let config = crate::GLOBAL_CONFIG.read().await;
+        config
+            .base_url
+            .clone()
+            .unwrap_or_else(|| format!("http://{}:{}", config.server_host, config.server_port))
+    };
+
     // 查找本地接收者（从 "to" 字段推断）
+    //
+    // 收件人必须是**本实例**的 Actor URL。过去这里取任意 URL 的最后一段当用户名，
+    // 于是 `to: ["https://evil.example/users/alice"]` 会解析成本地的 alice ——
+    // 邀请方因此可以点名把任意本地用户拖进房间。这与
+    // `inbox::receive::local_user_id_from_actorish_url` 修过的是同一个洞。
     let to = activity.get("to").and_then(|v| v.as_array());
     let local_user_id: Option<i32> = if let Some(targets) = to {
         let mut found_id = None;
         for target in targets {
-            if let Some(url) = target.as_str() {
-                // 尝试从 /users/xxx 提取用户名并查找
-                if let Some(uname) = url.rsplit('/').next() {
-                    if let Ok(Some(row)) = db
-                        .query_one_raw(Statement::from_sql_and_values(
-                            DatabaseBackend::Postgres,
-                            "SELECT id FROM users WHERE username = $1",
-                            [uname.into()],
-                        ))
-                        .await
-                    {
-                        found_id = row.try_get::<i32>("", "id").ok();
-                        break;
-                    }
-                }
+            let Some(url) = target.as_str() else { continue };
+            let Some(uname) = local_username_from_actor_url(&base_url_val, url) else {
+                continue;
+            };
+            if let Ok(Some(row)) = db
+                .query_one_raw(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    "SELECT id FROM users WHERE username = $1",
+                    [uname.into()],
+                ))
+                .await
+            {
+                found_id = row.try_get::<i32>("", "id").ok();
+                break;
             }
         }
         found_id
@@ -63,25 +75,24 @@ pub async fn handle_room_invite(
     let target_user_id: i32 = match local_user_id {
         Some(uid) => uid,
         None => {
-            // 个人实例回退：无法从 "to" 解析出收件人时路由到第一个本地用户
-            let fallback = db
-                .query_one_raw(Statement::from_sql_and_values(
+            // 单用户实例的便利回退。多用户实例上「按 id 取第一个」会把没寻址到
+            // 任何人的邀请塞给最老的账号 —— 与 resolve_shared_inbox_local_user
+            // 的处理保持一致：宁可拒收。
+            let rows = db
+                .query_all_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
-                    "SELECT id FROM users ORDER BY id LIMIT 1",
+                    "SELECT id FROM users ORDER BY id LIMIT 2",
                     [],
                 ))
                 .await
-                .map_err(|e| e.to_string())?
-                .ok_or_else(|| "No local users found".to_string())?;
-            fallback.try_get("", "id").map_err(|e| e.to_string())?
+                .map_err(|e| e.to_string())?;
+            if rows.len() != 1 {
+                return Err(format!(
+                    "not_member: RoomInvite for {room_id} has no resolvable local recipient"
+                ));
+            }
+            rows[0].try_get("", "id").map_err(|e| e.to_string())?
         }
-    };
-    let base_url_val = {
-        let config = crate::GLOBAL_CONFIG.read().await;
-        config
-            .base_url
-            .clone()
-            .unwrap_or_else(|| format!("http://{}:{}", config.server_host, config.server_port))
     };
 
     // 查找或创建本地用户对应的 actor_url
@@ -470,17 +481,35 @@ pub async fn handle_room_leave(
         && !same_actor_url(removed, actor_url_str);
 
     if is_kick {
-        // Kicker must be admin/owner on this instance's roster (best-effort)
+        // 踢人必须是 owner/admin。这里过去只 warn 然后照删：任何拿到 room_id 的
+        // 签名实例都能把任意成员从我们的名册上抹掉（包括本地用户），而被踢者
+        // 只会看到一条 member_removed 广播。名册滞后现在表现为一次可重试的
+        // 拒绝，而不是一次静默的越权删除。
         let kicker_role = get_member_role(db, room_id, actor_url_str)
             .await
             .map_err(|e| e.to_string())?;
-        if kicker_role.as_deref() != Some("owner") && kicker_role.as_deref() != Some("admin") {
-            // Still allow if kicker not known locally (roster lag) — log and proceed
+        let owner_actor: String = db
+            .query_one_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "SELECT owner_actor FROM federation_rooms WHERE room_id = $1",
+                [room_id.into()],
+            ))
+            .await
+            .map_err(|e| e.to_string())?
+            .and_then(|r| r.try_get::<String>("", "owner_actor").ok())
+            .unwrap_or_default();
+        let is_room_owner =
+            !owner_actor.is_empty() && same_actor_url(&owner_actor, actor_url_str);
+        if !is_room_owner && !kicker_role.as_deref().map(is_admin_role).unwrap_or(false) {
             tracing::warn!(
-                "[Room] kick from {} without local admin role in room {}",
+                "[Room] rejected kick of {} from {} without admin role in room {}",
+                removed,
                 actor_url_str,
                 room_id
             );
+            return Err(format!(
+                "not_member: {actor_url_str} cannot remove members from room {room_id}"
+            ));
         }
     }
 
@@ -519,6 +548,69 @@ pub async fn handle_room_leave(
     Ok(())
 }
 
+/// Inputs to the `myriad:RoomJoin` authorization decision.
+pub(crate) struct RoomJoinAuth<'a> {
+    /// `object.member` is absent or equals the signed actor.
+    pub is_self_join: bool,
+    /// Signed actor is the room's recorded `owner_actor`.
+    pub announcer_is_owner: bool,
+    /// Signed actor's role on our roster (`None` = not an active member).
+    pub announcer_role: Option<&'a str>,
+    pub invite_policy: &'a str,
+    pub room_is_public: bool,
+    /// `object.member` already has a row (e.g. a pending invite we recorded).
+    pub joining_already_on_roster: bool,
+}
+
+/// Who may act on an inbound `myriad:RoomJoin`.
+///
+/// The handler used to check only that the room existed, so any signed instance
+/// that learned a `room_id` could write itself (or a third party) onto the
+/// roster — with `role: "owner"`, which then satisfied the admin gate in
+/// [`handle_room_governance`]. The rule below mirrors the local invite policy
+/// enforced in `members.rs` so the three legitimate producers still pass:
+///
+/// - **accept invite** — self-join, invitee already on the roster as `pending`
+/// - **open/public join** — self-join, `invite_policy = open` or `is_public`
+/// - **roster announce** — owner/admin (or any active member under
+///   `member-invite` / `open`) telling peers about a new member
+pub(crate) fn room_join_authorized(auth: RoomJoinAuth<'_>) -> bool {
+    if auth.is_self_join {
+        return auth.joining_already_on_roster
+            || auth.invite_policy == "open"
+            || auth.room_is_public
+            || auth.announcer_is_owner;
+    }
+    if auth.announcer_is_owner {
+        return true;
+    }
+    match (auth.invite_policy, auth.announcer_role) {
+        // Not an active member of this room — never allowed to add anyone.
+        (_, None) => false,
+        ("member-invite" | "open", Some(_)) => true,
+        // `admin-only` and any unrecognized policy fall back to owner/admin,
+        // matching the `_ if !is_admin_role(..)` arm in `invite_to_room`.
+        (_, Some(role)) => is_admin_role(role),
+    }
+}
+
+/// Role a `myriad:RoomJoin` may write.
+///
+/// `owner` / `admin` are minted only by `RoomGovernance.set_member_role`
+/// (owner-only) and by the room's own invite. RoomJoin may seed a fresh row at a
+/// non-privileged role and must never overwrite a role already on the roster —
+/// otherwise a self-announced join is a free promotion.
+pub(crate) fn room_join_effective_role(prior_role: Option<&str>, requested: &str) -> String {
+    if let Some(existing) = prior_role {
+        return existing.to_string();
+    }
+    if matches!(requested, "member" | "observer") {
+        requested.to_string()
+    } else {
+        "member".to_string()
+    }
+}
+
 /// 处理远程 RoomJoin (myriad:RoomJoin)
 ///
 /// - 自报加入：`actor` = 新成员
@@ -543,17 +635,17 @@ pub async fn handle_room_join(
         .and_then(|v| v.as_str())
         .unwrap_or(actor_url_str);
 
-    // 验证 Room 存在
-    let room_exists = db
+    // 验证 Room 存在，同时取出授权要用的策略字段
+    let room_row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT 1 FROM federation_rooms WHERE room_id = $1",
+            "SELECT owner_actor, invite_policy, is_public FROM federation_rooms WHERE room_id = $1",
             [room_id.into()],
         ))
         .await
         .map_err(|e| e.to_string())?;
 
-    if room_exists.is_none() {
+    let Some(room_row) = room_row else {
         // Alignment: RoomJoin can race ahead of RoomInvite. Soft-ack used to drop the
         // join forever (202) so inviter never saw accept. Signal retry instead.
         tracing::info!(
@@ -565,6 +657,47 @@ pub async fn handle_room_join(
         return Err(format!(
             "Room {room_id} not yet present; retry after RoomInvite"
         ));
+    };
+    let owner_actor: String = room_row.try_get("", "owner_actor").unwrap_or_default();
+    let invite_policy: String = room_row.try_get("", "invite_policy").unwrap_or_default();
+    let room_is_public: bool = room_row.try_get("", "is_public").unwrap_or(false);
+
+    // 本地成员的加入/接受只能走本地 accept API。远端不得替我们的用户接受邀请：
+    // 否则一条 RoomJoin{member: <本地 actor>} 就能把一个 pending 邀请直接翻成
+    // active，用户本人根本没点过同意。
+    let base_url = get_base_url().await;
+    if local_username_from_actor_url(&base_url, joining).is_some() {
+        return Err(format!(
+            "not_member: RoomJoin cannot change local membership for {joining} in room {room_id}"
+        ));
+    }
+
+    let prior = get_membership(db, room_id, joining)
+        .await
+        .map_err(|e| e.to_string())?;
+    let is_self_join = same_actor_url(joining, actor_url_str);
+    let announcer_role = if is_self_join {
+        None
+    } else {
+        get_member_role(db, room_id, actor_url_str)
+            .await
+            .map_err(|e| e.to_string())?
+    };
+
+    if !room_join_authorized(RoomJoinAuth {
+        is_self_join,
+        announcer_is_owner: !owner_actor.is_empty()
+            && same_actor_url(&owner_actor, actor_url_str),
+        announcer_role: announcer_role.as_deref(),
+        invite_policy: &invite_policy,
+        room_is_public,
+        joining_already_on_roster: prior.is_some(),
+    }) {
+        return Err(if is_self_join {
+            format!("not_member: {actor_url_str} was not invited to room {room_id}")
+        } else {
+            format!("not_member: {actor_url_str} cannot add members to room {room_id}")
+        });
     }
 
     // Ensure remote_actors row so future fanout can resolve inbox
@@ -579,14 +712,13 @@ pub async fn handle_room_join(
     }
 
     // Was this a pending invite on our roster? (inviter-side accept signal)
-    let prior = get_membership(db, room_id, joining)
-        .await
-        .map_err(|e| e.to_string())?;
     let was_pending = prior
         .as_ref()
         .map(|(_, st)| st == "pending")
         .unwrap_or(false);
     let is_new = prior.is_none();
+
+    let effective_role = room_join_effective_role(prior.as_ref().map(|(r, _)| r.as_str()), role);
 
     // 加入/激活成员（pending → active on accept-side RoomJoin)
     db.execute_raw(Statement::from_sql_and_values(
@@ -595,13 +727,13 @@ pub async fn handle_room_join(
            (room_id, actor_url, is_local, role, joined_at, membership_status)
            VALUES ($1, $2, false, $3, NOW(), 'active')
            ON CONFLICT (room_id, actor_url) DO UPDATE SET
-               role = EXCLUDED.role,
                membership_status = 'active',
                joined_at = COALESCE(federation_room_members.joined_at, NOW())"#,
-        [room_id.into(), joining.into(), role.into()],
+        [room_id.into(), joining.into(), effective_role.clone().into()],
     ))
     .await
     .map_err(|e| e.to_string())?;
+    let role = effective_role.as_str();
 
     crate::federation::ws_gateway::broadcast_to_room(
         room_id,

@@ -67,7 +67,7 @@ urlencoding = "2.1"
 # Pin alpha exactly — caret would float across breaking 0.1.0-alpha.* releases.
 oauth2 = { version = "5", default-features = false }
 oauth2-reqwest = "=0.1.0-alpha.3"
-jsonwebtoken = { version = "10.4", features = ["rust_crypto"] }
+jsonwebtoken = { version = "11", features = ["rust_crypto"] }
 # Digest generation group (must move together for trait compatibility):
 # rsa 0.10 → digest 0.11 + sha2 0.11 + rand_core 0.10; hmac 0.13 → digest 0.11.
 # Do not bump sha2 alone. rsa 0.10 is still rc until a stable release lands.
@@ -82,9 +82,9 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 
 # Federation (MFP - Myriad Federation Protocol)
 rsa = { version = "0.10.0-rc.18", features = ["sha2"] }  # RSA keygen/signing (digest 0.11)
-aes-gcm = "0.10"     # AES-256-GCM for private key encryption + E2E message AEAD
+aes-gcm = "0.11"     # AES-256-GCM for private key encryption + E2E message AEAD
 rand_core = "0.10"   # RNG traits compatible with rsa 0.10 (OsRng lives in `rand` 0.10)
-x25519-dalek = { version = "2", features = ["static_secrets"] }  # Channel/Room E2E ECDH
+x25519-dalek = { version = "3", features = ["static_secrets", "getrandom"] }  # Channel/Room E2E ECDH
 subtle = "2.6"       # Constant-time comparison for digest/signature verification
 
 # Configuration

@@ -301,3 +301,109 @@ fn stickers_to_json_roundtrip_shape() {
 }
 
 
+
+// ---------- myriad:RoomJoin authorization ----------
+//
+// Before this gate the handler only checked that the room existed, so any
+// signed instance that learned a room_id could add itself as `owner` and then
+// pass the admin check in handle_room_governance.
+
+use super::inbox::{room_join_authorized, room_join_effective_role, RoomJoinAuth};
+
+/// Builder defaulting to the hostile case: a stranger self-joining a closed room.
+fn join_auth(f: impl FnOnce(&mut RoomJoinAuth<'_>)) -> bool {
+    let mut auth = RoomJoinAuth {
+        is_self_join: true,
+        announcer_is_owner: false,
+        announcer_role: None,
+        invite_policy: "admin-only",
+        room_is_public: false,
+        joining_already_on_roster: false,
+    };
+    f(&mut auth);
+    room_join_authorized(auth)
+}
+
+#[test]
+fn room_join_rejects_uninvited_stranger() {
+    assert!(!join_auth(|_| {}));
+}
+
+#[test]
+fn room_join_allows_invitee_accepting() {
+    // accept_room_invite fan-out: self-join, we already hold the pending row.
+    assert!(join_auth(|a| a.joining_already_on_roster = true));
+}
+
+#[test]
+fn room_join_allows_open_and_public_self_join() {
+    // join_public_room gate is `invite_policy == "open" || is_public`.
+    assert!(join_auth(|a| a.invite_policy = "open"));
+    assert!(join_auth(|a| a.room_is_public = true));
+}
+
+#[test]
+fn room_join_roster_announce_requires_invite_rights() {
+    // Stranger announcing someone else — the escalation path.
+    assert!(!join_auth(|a| a.is_self_join = false));
+    // Plain member cannot add under admin-only...
+    assert!(!join_auth(|a| {
+        a.is_self_join = false;
+        a.announcer_role = Some("member");
+    }));
+    // ...but can under member-invite / open, matching invite_to_room.
+    assert!(join_auth(|a| {
+        a.is_self_join = false;
+        a.announcer_role = Some("member");
+        a.invite_policy = "member-invite";
+    }));
+    assert!(join_auth(|a| {
+        a.is_self_join = false;
+        a.announcer_role = Some("member");
+        a.invite_policy = "open";
+    }));
+    // Admin and owner always may.
+    assert!(join_auth(|a| {
+        a.is_self_join = false;
+        a.announcer_role = Some("admin");
+    }));
+    assert!(join_auth(|a| {
+        a.is_self_join = false;
+        a.announcer_is_owner = true;
+    }));
+}
+
+#[test]
+fn room_join_unknown_policy_falls_back_to_admin_only() {
+    // Mirrors the `_ if !is_admin_role(..)` arm in invite_to_room.
+    assert!(!join_auth(|a| {
+        a.is_self_join = false;
+        a.announcer_role = Some("member");
+        a.invite_policy = "";
+    }));
+    assert!(join_auth(|a| {
+        a.is_self_join = false;
+        a.announcer_role = Some("owner");
+        a.invite_policy = "nonsense";
+    }));
+}
+
+#[test]
+fn room_join_never_mints_privileged_roles() {
+    // Self-announced promotion is the whole point of the clamp.
+    assert_eq!(room_join_effective_role(None, "owner"), "member");
+    assert_eq!(room_join_effective_role(None, "admin"), "member");
+    assert_eq!(room_join_effective_role(None, "bogus"), "member");
+    // Non-privileged seeds pass through.
+    assert_eq!(room_join_effective_role(None, "member"), "member");
+    assert_eq!(room_join_effective_role(None, "observer"), "observer");
+}
+
+#[test]
+fn room_join_never_overwrites_an_existing_role() {
+    // A pending invite carrying role=admin must survive the invitee's accept,
+    // and a member must not be able to re-announce itself upward.
+    assert_eq!(room_join_effective_role(Some("admin"), "member"), "admin");
+    assert_eq!(room_join_effective_role(Some("owner"), "member"), "owner");
+    assert_eq!(room_join_effective_role(Some("member"), "owner"), "member");
+}

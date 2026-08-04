@@ -276,10 +276,25 @@ fn check_and_record_memory_rate(domain: &str, max_requests: i64, window_seconds:
         Ok(g) => g,
         Err(poisoned) => poisoned.into_inner(),
     };
+    // Entries are keyed by peer-controlled domain and used to be kept forever:
+    // a host with wildcard DNS could grow this map without bound just by signing
+    // from a fresh subdomain each time. Windows that already rolled over carry no
+    // information, so drop them.
+    prune_expired_windows(&mut map, now, window_seconds);
     let prev = map.get(domain);
     let (next, exceeded) = record_window_hit(prev, now, window_seconds, max_requests);
     map.insert(domain.to_string(), next);
     !exceeded
+}
+
+/// Drop windows whose period has fully elapsed (they would reset on next hit anyway).
+fn prune_expired_windows(
+    map: &mut HashMap<String, DomainWindow>,
+    now: Instant,
+    window_seconds: i64,
+) {
+    let window = Duration::from_secs(window_seconds.max(1) as u64);
+    map.retain(|_, entry| now.duration_since(entry.window_start) < window);
 }
 
 /// Effective max requests for a trust level under a rate policy.
