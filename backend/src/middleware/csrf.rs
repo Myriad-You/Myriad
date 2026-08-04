@@ -453,6 +453,8 @@ mod tests {
             is_owner: false,
             exp: now + 3600,
             iat: now,
+            // MYR-005 session epoch; test tokens use tv=0 (pre-revoke baseline).
+            tv: 0,
         };
         encode(
             &Header::default(),
