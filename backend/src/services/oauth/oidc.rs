@@ -563,6 +563,7 @@ mod oidc_security_tests {
         assert!(ensure_asymmetric_id_token_alg(Algorithm::ES256).is_ok());
         assert!(ensure_asymmetric_id_token_alg(Algorithm::EdDSA).is_ok());
         assert!(ensure_asymmetric_id_token_alg(Algorithm::HS256).is_err());
+        assert!(ensure_asymmetric_id_token_alg(Algorithm::HS384).is_err());
         assert!(ensure_asymmetric_id_token_alg(Algorithm::HS512).is_err());
     }
 

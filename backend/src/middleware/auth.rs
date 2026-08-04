@@ -688,7 +688,12 @@ mod tests {
 
     fn ensure_jwt_secret() {
         INIT_JWT.call_once(|| {
-            if std::env::var("JWT_SECRET").is_err() {
+            // Treat missing *or empty* as unset so HS256 tests never use a zero-length key.
+            let needs_secret = match std::env::var("JWT_SECRET") {
+                Ok(s) => s.is_empty(),
+                Err(_) => true,
+            };
+            if needs_secret {
                 // SAFETY: unit tests, set once before concurrent use.
                 std::env::set_var(
                     "JWT_SECRET",
