@@ -17,7 +17,7 @@ tapp-contract-schema = ["dep:schemars"]
 axum = { version = "0.8", features = ["macros", "multipart", "ws"] }
 tokio = { version = "1", features = ["full"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = [
+tower-http = { version = "0.7", features = [
     "fs",
     "cors",
     "trace",
