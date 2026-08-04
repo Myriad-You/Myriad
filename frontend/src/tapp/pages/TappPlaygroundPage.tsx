@@ -42,7 +42,6 @@ import { TappWidgetSandbox } from '../runtime/TappWidgetSandbox'
 import { installFromCode } from '../services/TappApiService'
 import { generatePlaygroundProject } from '../services/TappPlaygroundService'
 import { exportPlaygroundProjectAsTapp } from '../utils/exportPlaygroundTapp'
-import { selectPreviewGrantedPermissions } from '../utils/previewGrants'
 import {
   computeLineDiff,
   countDiffChanges,
@@ -65,6 +64,7 @@ import {
   switchSession,
   updateActiveSessionWithMeta,
 } from '../utils/playgroundSession'
+import { selectPreviewGrantedPermissions } from '../utils/previewGrants'
 import { TAPP_LIST_PATH, tappDetailPath } from '../utils/tappPaths'
 import {
   formatPlaygroundPackageErrors,
