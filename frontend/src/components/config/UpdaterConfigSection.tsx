@@ -300,9 +300,9 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
       // Snapshots are a dependent updater resource. Do not emit another 503/502
       // after status has already established that the updater is unavailable.
       // GET /snapshots also self-heals over-limit piles on modern updaters.
-      const snaps = await api
-        .snapshots()
-        .catch(() => ({ schema_version: 1, items: [] as SnapshotMeta[] }))
+      const snaps: SnapshotsResponse = await api.snapshots().catch(
+        (): SnapshotsResponse => ({ schema_version: 1, items: [] }),
+      )
       setSnapshots(snaps.items ?? [])
       setSnapshotStats({
         eligible_count: snaps.eligible_count,
