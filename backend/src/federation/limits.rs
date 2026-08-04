@@ -186,9 +186,7 @@ pub fn try_acquire_inbox_inflight(bytes: usize) -> Option<InboxInflightPermit> {
     let bytes = bytes.clamp(1, INBOX_BODY_LIMIT);
     loop {
         let current = INBOX_INFLIGHT_RAW_BYTES.load(Ordering::Acquire);
-        let Some(new) = current.checked_add(bytes) else {
-            return None;
-        };
+        let new = current.checked_add(bytes)?;
         if new > INBOX_INFLIGHT_RAW_BUDGET {
             return None;
         }
