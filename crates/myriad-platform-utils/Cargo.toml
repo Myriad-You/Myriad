@@ -8,5 +8,5 @@ authors = ["Myriad Contributors"]
 
 [dependencies]
 rand = "0.10"
-reqwest = { version = "0.12", default-features = false, features = ["json"] }
+reqwest = { version = "0.13", default-features = false, features = ["json"] }
 serde_json = "1"

@@ -7,9 +7,9 @@ description = "SSRF-resistant outbound HTTP client helpers for Myriad (DNS pin, 
 authors = ["Myriad Contributors"]
 
 [dependencies]
-reqwest = { version = "0.12", default-features = false, features = [
+reqwest = { version = "0.13", default-features = false, features = [
     "json",
-    "rustls-tls",
+    "rustls",
 ] }
 tokio = { version = "1", features = ["net", "sync"] }
 url = "2"

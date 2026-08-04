@@ -7,6 +7,7 @@ use oauth2::{
     basic::BasicClient, AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken, RedirectUrl,
     Scope, TokenResponse, TokenUrl,
 };
+use oauth2_reqwest::ReqwestClient;
 use serde::Deserialize;
 
 use super::{AuthFlowSecrets, NormalizedProfile, OAuthProvider, ProviderKind, ProviderTokens};
@@ -109,6 +110,8 @@ impl OAuthProvider for GithubProvider {
         )
         .await
         .map_err(|e| format!("GitHub token endpoint rejected by outbound policy: {e}"))?;
+        // oauth2 5 bundles AsyncHttpClient only for reqwest 0.12; wrap 0.13 Client.
+        let http = ReqwestClient::from(http);
         let token = client
             .exchange_code(AuthorizationCode::new(code.to_string()))
             .request_async(&http)
