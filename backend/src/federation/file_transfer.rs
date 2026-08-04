@@ -158,7 +158,7 @@ async fn open_transfer_load_global(
     let row = db
         .query_one(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            &format!(
+            format!(
                 r#"SELECT COUNT(*)::bigint AS cnt,
                           COALESCE(SUM(file_size), 0)::bigint AS total_bytes
                    FROM federation_file_transfers
@@ -188,7 +188,7 @@ async fn open_transfer_load_for_user(
     let row = db
         .query_one(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            &format!(
+            format!(
                 r#"SELECT COUNT(*)::bigint AS cnt,
                           COALESCE(SUM(ft.file_size), 0)::bigint AS total_bytes
                    FROM federation_file_transfers ft
@@ -2187,8 +2187,11 @@ mod tests {
         assert_eq!(MAX_CONCURRENT_TRANSFERS_PER_USER, 16);
         assert_eq!(MAX_CONCURRENT_TRANSFER_BYTES, 64 * 1024 * 1024 * 1024);
         assert_eq!(MAX_IN_FLIGHT_CHUNK_BYTES, 128 * 1024 * 1024);
-        assert!(MAX_CONCURRENT_TRANSFER_BYTES >= MAX_FILE_SIZE * 3);
-        assert!(MAX_IN_FLIGHT_CHUNK_BYTES >= DEFAULT_CHUNK_SIZE as usize * 16);
+        // compile-time relations also asserted in limits.rs; keep runtime docs here.
+        const {
+            assert!(MAX_CONCURRENT_TRANSFER_BYTES >= MAX_FILE_SIZE * 3);
+            assert!(MAX_IN_FLIGHT_CHUNK_BYTES >= DEFAULT_CHUNK_SIZE as usize * 16);
+        }
     }
 
     #[test]
