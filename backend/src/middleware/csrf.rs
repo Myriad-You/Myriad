@@ -58,9 +58,9 @@ impl CsrfStore {
     /// Insert or replace a CSRF token for `session_id`.
     /// Cap eviction is O(1) amortized via insertion-order queue (not O(n) min scan).
     fn insert(&mut self, session_id: String, csrf_token: CsrfToken, max_tokens: usize) {
-        if self.map.contains_key(&session_id) {
+        if let Some(slot) = self.map.get_mut(&session_id) {
             // Refresh token for an existing verified session; keep order slot.
-            self.map.insert(session_id, csrf_token);
+            *slot = csrf_token;
             return;
         }
         while self.map.len() >= max_tokens {
