@@ -254,6 +254,14 @@ export interface SnapshotMeta {
 export interface SnapshotsResponse {
   schema_version: number
   items: SnapshotMeta[]
+  /** Present on updater with retention diagnostics (≥ prune self-heal). */
+  snapshot_limit_enabled?: boolean
+  snapshot_limit?: number
+  eligible_count?: number
+  protected_count?: number
+  total_count?: number
+  /** Ids removed by self-heal prune during this list call (if any). */
+  pruned_snapshot_ids?: string[]
 }
 
 export interface JobStep {
@@ -450,6 +458,9 @@ export function makeUpdaterApi(
         snapshot_limit_enabled?: boolean
         snapshot_limit?: number
         pruned_snapshot_ids?: string[]
+        eligible_count?: number
+        protected_count?: number
+        total_count?: number
       }>('POST', '/prefs', prefs),
     commits: (opts?: { branch?: string; limit?: number }) => {
       const q = new URLSearchParams()

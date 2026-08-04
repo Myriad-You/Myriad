@@ -900,6 +900,17 @@ export interface TranslationKeys {
     updaterSnapshotLimitOption: string
     updaterSnapshotLimitSaved: string
     updaterSnapshotLimitSavedPruned: string
+    /**
+     * Effective counts near the toggle: `{eligible}` auto-managed, keep `{n}`,
+     * `{protected}` pinned/in-use.
+     */
+    updaterSnapshotLimitCounts: string
+    /**
+     * Saved but still over limit (0 pruned): `{eligible}`, `{n}`, `{protected}`.
+     */
+    updaterSnapshotLimitStillOver: string
+    /** Status missing snapshot_limit fields — updater image likely pre-limit. */
+    updaterSnapshotLimitUpdaterOld: string
     updaterRollback: string
     updaterRollbackDispatched: string
     updaterDeleteSnapshot: string

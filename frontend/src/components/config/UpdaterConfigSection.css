@@ -1282,6 +1282,19 @@ html.dark .updater-hero-auto {
   line-height: 1.4;
 }
 
+.updater-snapshot-limit-counts {
+  color: var(--cfg-text-2);
+  font-size: 0.68rem;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+}
+
+.updater-snapshot-limit-warn {
+  color: var(--cfg-warn, #b45309);
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+
 .updater-snapshot-limit-controls {
   display: flex;
   flex-shrink: 0;

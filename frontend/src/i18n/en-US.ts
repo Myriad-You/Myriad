@@ -1071,6 +1071,12 @@ export const enUS: TranslationKeys = {
     updaterSnapshotLimitSaved: 'Backup limit saved',
     updaterSnapshotLimitSavedPruned:
       'Backup limit saved; removed {n} older backup(s)',
+    updaterSnapshotLimitCounts:
+      '{eligible} auto-managed / limit {n}; {protected} kept or in use',
+    updaterSnapshotLimitStillOver:
+      'Saved, but still {eligible} over the limit of {n} ({protected} kept/in use). If this persists, self-update the updater image (UPDATER_TAG) so retention is enforced.',
+    updaterSnapshotLimitUpdaterOld:
+      'This updater does not report backup-limit fields — the image may be too old. Self-update the updater or set UPDATER_TAG; auto-delete will not work until then.',
     updaterRollback: 'Roll back to this version',
     updaterRollbackDispatched: 'Rollback started',
     updaterDeleteSnapshot: 'Delete',

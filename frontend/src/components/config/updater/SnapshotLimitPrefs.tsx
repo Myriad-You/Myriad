@@ -3,7 +3,7 @@
  * Plain label + controls — no card chrome / hover effects.
  */
 
-import type { UpdaterStatus } from '../../../services/updaterApi'
+import type { SnapshotsResponse, UpdaterStatus } from '../../../services/updaterApi'
 import type { U } from './helpers'
 import React, { useMemo } from 'react'
 import {
@@ -21,6 +21,11 @@ import { format } from './helpers'
 
 export interface SnapshotLimitPrefsProps {
   status: UpdaterStatus | null
+  /** Latest list response (diagnostics / self-heal counts when present). */
+  snapshotStats?: Pick<
+    SnapshotsResponse,
+    'eligible_count' | 'protected_count' | 'total_count' | 'snapshot_limit'
+  > | null
   disabled: boolean
   saving?: boolean
   u: U
@@ -30,8 +35,20 @@ export interface SnapshotLimitPrefsProps {
   }) => void | Promise<void>
 }
 
+/** True when status carries explicit snapshot-limit fields (updater image is new enough). */
+export function statusHasSnapshotLimitFields(
+  status: UpdaterStatus | null | undefined,
+): boolean {
+  if (!status) return false
+  return (
+    typeof status.snapshot_limit_enabled === 'boolean' &&
+    typeof status.snapshot_limit === 'number'
+  )
+}
+
 export const SnapshotLimitPrefs: React.FC<SnapshotLimitPrefsProps> = ({
   status,
+  snapshotStats = null,
   disabled,
   saving = false,
   u,
@@ -43,7 +60,10 @@ export const SnapshotLimitPrefs: React.FC<SnapshotLimitPrefsProps> = ({
     g.updater.snapshotLimit,
   ).guide
 
-  // Default ON when field omitted (older updaters / historical prune(3)).
+  const limitFieldsKnown = statusHasSnapshotLimitFields(status)
+  // Default ON only when fields are present-and-true, or when fields are known
+  // defaults from a modern updater. When status omits the fields entirely,
+  // still show the control as "on" for UX continuity, but warn below.
   const limitEnabled = status?.snapshot_limit_enabled !== false
   const rawLimit = status?.snapshot_limit ?? SNAPSHOT_LIMIT_DEFAULT
   // Show any in-range value (1–20), not only presets — BE may store 4, 7, …
@@ -77,6 +97,23 @@ export const SnapshotLimitPrefs: React.FC<SnapshotLimitPrefsProps> = ({
       })
     : u.updaterSnapshotLimitEnabledDescOff
 
+  const eligible =
+    typeof snapshotStats?.eligible_count === 'number'
+      ? snapshotStats.eligible_count
+      : null
+  const protectedCount =
+    typeof snapshotStats?.protected_count === 'number'
+      ? snapshotStats.protected_count
+      : null
+  const countsLine =
+    limitEnabled && eligible != null && protectedCount != null
+      ? format(u.updaterSnapshotLimitCounts, {
+          eligible: String(eligible),
+          n: String(limitValue),
+          protected: String(protectedCount),
+        })
+      : null
+
   return (
     <div
       id="cfg-g-updater-snapshotLimit"
@@ -92,6 +129,14 @@ export const SnapshotLimitPrefs: React.FC<SnapshotLimitPrefsProps> = ({
           />
         </span>
         <span className="updater-snapshot-limit-desc">{desc}</span>
+        {countsLine && (
+          <span className="updater-snapshot-limit-counts">{countsLine}</span>
+        )}
+        {status && !limitFieldsKnown && (
+          <span className="updater-snapshot-limit-warn" role="status">
+            {u.updaterSnapshotLimitUpdaterOld}
+          </span>
+        )}
       </div>
       <div className="updater-snapshot-limit-controls">
         {limitEnabled && (

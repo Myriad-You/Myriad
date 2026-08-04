@@ -22,6 +22,7 @@ import type {
   Job,
   ReleaseManifest,
   SnapshotMeta,
+  SnapshotsResponse,
   TransportMode,
   UpdateMode,
   UpdaterStatus,
@@ -117,6 +118,15 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
   const [status, setStatus] = useState<UpdaterStatus | null>(null)
   const [available, setAvailable] = useState<ReleaseManifest | null>(null)
   const [snapshots, setSnapshots] = useState<SnapshotMeta[]>([])
+  /** Retention diagnostics from last GET /snapshots (self-heal + counts). */
+  const [snapshotStats, setSnapshotStats] = useState<Pick<
+    SnapshotsResponse,
+    | 'eligible_count'
+    | 'protected_count'
+    | 'total_count'
+    | 'snapshot_limit'
+    | 'snapshot_limit_enabled'
+  > | null>(null)
   const [activeJob, setActiveJob] = useState<Job | null>(null)
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
@@ -252,6 +262,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
           setAccessDenied(true)
           setStatus(null)
           setSnapshots([])
+          setSnapshotStats(null)
           setActiveJob(null)
           setLinkDown(false)
           return
@@ -280,6 +291,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
         if (!statusRef.current) {
           setStatus(null)
           setSnapshots([])
+          setSnapshotStats(null)
           setActiveJob(null)
         }
         return
@@ -287,10 +299,18 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
       setStatus(s)
       // Snapshots are a dependent updater resource. Do not emit another 503/502
       // after status has already established that the updater is unavailable.
+      // GET /snapshots also self-heals over-limit piles on modern updaters.
       const snaps = await api
         .snapshots()
         .catch(() => ({ schema_version: 1, items: [] as SnapshotMeta[] }))
       setSnapshots(snaps.items ?? [])
+      setSnapshotStats({
+        eligible_count: snaps.eligible_count,
+        protected_count: snaps.protected_count,
+        total_count: snaps.total_count,
+        snapshot_limit: snaps.snapshot_limit,
+        snapshot_limit_enabled: snaps.snapshot_limit_enabled,
+      })
       if (!selHydratedRef.current) {
         setSel(deriveSelection(s))
         selHydratedRef.current = true
@@ -927,15 +947,34 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
       try {
         const res = await api.setPrefs(prefs)
         const pruned = res.pruned_snapshot_ids?.length ?? 0
-        setToast({
-          kind: 'ok',
-          text:
-            pruned > 0
-              ? format(u.updaterSnapshotLimitSavedPruned, {
-                  n: String(pruned),
-                })
-              : u.updaterSnapshotLimitSaved,
-        })
+        const enabled = res.snapshot_limit_enabled !== false
+        const limit =
+          typeof res.snapshot_limit === 'number'
+            ? res.snapshot_limit
+            : (prefs.snapshot_limit ?? status?.snapshot_limit ?? 3)
+        const eligible =
+          typeof res.eligible_count === 'number' ? res.eligible_count : null
+        // 0 pruned while still over limit: protected pins/in_use, disk failure,
+        // or an old updater that ignores retention — do not claim silent success.
+        if (enabled && eligible != null && eligible > limit && pruned === 0) {
+          setToast({
+            kind: 'error',
+            text: format(u.updaterSnapshotLimitStillOver, {
+              eligible: String(eligible),
+              n: String(limit),
+              protected: String(res.protected_count ?? '—'),
+            }),
+          })
+        } else if (pruned > 0) {
+          setToast({
+            kind: 'ok',
+            text: format(u.updaterSnapshotLimitSavedPruned, {
+              n: String(pruned),
+            }),
+          })
+        } else {
+          setToast({ kind: 'ok', text: u.updaterSnapshotLimitSaved })
+        }
         await refresh()
       } catch (e) {
         setToast({ kind: 'error', text: explain(e) })
@@ -943,7 +982,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
         setBusy(null)
       }
     },
-    [api, refresh, tokenRequired, explain, u],
+    [api, refresh, tokenRequired, explain, u, status?.snapshot_limit],
   )
 
   const exitMaintenance = useCallback(async () => {
@@ -1404,6 +1443,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
         <div className="updater-snapshot-section">
           <SnapshotLimitPrefs
             status={status}
+            snapshotStats={snapshotStats}
             disabled={!!busy || tokenRequired}
             saving={busy === 'snapshot-limit'}
             u={u}
