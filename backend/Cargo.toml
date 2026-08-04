@@ -65,8 +65,9 @@ urlencoding = "2.1"
 
 # Authentication & Authorization
 # oauth2's bundled client is reqwest 0.12; use oauth2-reqwest for 0.13 AsyncHttpClient.
+# Pin alpha exactly — caret would float across breaking 0.1.0-alpha.* releases.
 oauth2 = { version = "5", default-features = false }
-oauth2-reqwest = "0.1.0-alpha.3"
+oauth2-reqwest = "=0.1.0-alpha.3"
 jsonwebtoken = { version = "10.4", features = ["rust_crypto"] }
 sha2 = "0.10"        # pinned: rsa 0.9 federation signing requires digest 0.10
 hex = "0.4"
