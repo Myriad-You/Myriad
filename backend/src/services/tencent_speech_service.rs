@@ -494,13 +494,14 @@ impl TencentSpeechService {
     ///
     /// # Example
     /// ```ignore
+    /// use base64::{engine::general_purpose::STANDARD, Engine as _};
     /// let service = TencentSpeechService::new().await?;
     /// let request = TtsRequest {
     /// text: "你好，世界".to_string(),
     /// ..Default::default()
     /// };
     /// let response = service.text_to_speech(request).await?;
-    /// let audio_bytes = base64::decode(&response.audio.unwrap())?;
+    /// let audio_bytes = STANDARD.decode(response.audio.as_ref().unwrap())?;
     /// ```
     pub async fn text_to_speech(
         &self,
@@ -531,10 +532,11 @@ impl TencentSpeechService {
     ///
     /// # Example
     /// ```ignore
+    /// use base64::{engine::general_purpose::STANDARD, Engine as _};
     /// let service = TencentSpeechService::new().await?;
     /// let audio_data = std::fs::read("audio.wav")?;
     /// let request = AsrRequest {
-    /// data: Some(base64::encode(&audio_data)),
+    /// data: Some(STANDARD.encode(&audio_data)),
     /// data_len: Some(audio_data.len() as i32),
     /// ..Default::default()
     /// };

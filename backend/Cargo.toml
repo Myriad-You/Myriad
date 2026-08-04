@@ -69,7 +69,7 @@ hex = "0.4"
 argon2 = "0.5"
 regex = "1.13"
 hmac = "0.12"        # For Tencent Cloud API signing; digest 0.10 to match sha2 0.10
-base64 = "0.22"      # For audio data encoding
+base64 = "0.23"      # For audio data encoding
 flate2 = "1"         # zlib inflate for KuGou KRC (逐字歌词) decode
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 
