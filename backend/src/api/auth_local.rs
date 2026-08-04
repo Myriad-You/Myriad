@@ -26,10 +26,13 @@ use crate::middleware::auth::{
 ///
 /// Argon2 is intentionally CPU- and memory-heavy. Unbounded `spawn_blocking`
 /// under concurrent login/register can exhaust the blocking pool. We allow a
-/// small fixed concurrency (not a harsh multi-axis rate limit) and fail open
-/// with 503 after a short wait rather than queue forever.
+/// small fixed concurrency (not a harsh multi-axis rate limit) and fail with
+/// 503 after a short wait rather than queue forever. Login, register,
+/// change-password, set-password, setup create-admin, and admin create-user
+/// all share this single permit path via [`hash_password`] / [`verify_password`].
 const PASSWORD_HASH_PERMITS: usize = 4;
 /// How long a request may wait for a hash/verify permit before 503.
+/// Acts as a short queue bound — waiters beyond this get 503, not harsher IP limits.
 const PASSWORD_HASH_ACQUIRE_TIMEOUT: StdDuration = StdDuration::from_secs(15);
 
 static PASSWORD_HASH_SEMAPHORE: Lazy<Arc<Semaphore>> =
@@ -37,12 +40,21 @@ static PASSWORD_HASH_SEMAPHORE: Lazy<Arc<Semaphore>> =
 
 /// Acquire a global Argon2 permit, or return 503 if the wait times out.
 async fn acquire_password_hash_permit() -> Result<OwnedSemaphorePermit, HttpError> {
-    match tokio::time::timeout(
+    acquire_password_hash_permit_from(
+        PASSWORD_HASH_SEMAPHORE.clone(),
         PASSWORD_HASH_ACQUIRE_TIMEOUT,
-        PASSWORD_HASH_SEMAPHORE.clone().acquire_owned(),
+        PASSWORD_HASH_PERMITS,
     )
     .await
-    {
+}
+
+/// Internal/testable permit acquire with an explicit wait budget and semaphore.
+async fn acquire_password_hash_permit_from(
+    semaphore: Arc<Semaphore>,
+    timeout: StdDuration,
+    permits_for_log: usize,
+) -> Result<OwnedSemaphorePermit, HttpError> {
+    match tokio::time::timeout(timeout, semaphore.acquire_owned()).await {
         Ok(Ok(permit)) => Ok(permit),
         Ok(Err(e)) => {
             // Semaphore closed — should not happen for a static; treat as internal.
@@ -54,8 +66,8 @@ async fn acquire_password_hash_permit() -> Result<OwnedSemaphorePermit, HttpErro
         }
         Err(_) => {
             tracing::warn!(
-                permits = PASSWORD_HASH_PERMITS,
-                timeout_secs = PASSWORD_HASH_ACQUIRE_TIMEOUT.as_secs(),
+                permits = permits_for_log,
+                timeout_secs = timeout.as_secs_f64(),
                 "Password hash concurrency limit reached; returning 503"
             );
             Err(HttpError::from((
@@ -1239,13 +1251,17 @@ pub async fn admin_create_user(
 #[cfg(test)]
 mod tests {
     use super::{
-        admin_already_exists_error, create_admin_gate, map_create_admin_insert_error,
-        AuthResponse, UserInfo, CREATE_ADMIN_ADVISORY_LOCK_KEY,
+        acquire_password_hash_permit_from, admin_already_exists_error, create_admin_gate,
+        hash_password, map_create_admin_insert_error, verify_password, AuthResponse, UserInfo,
+        CREATE_ADMIN_ADVISORY_LOCK_KEY, PASSWORD_HASH_ACQUIRE_TIMEOUT, PASSWORD_HASH_PERMITS,
     };
     use crate::error::{app_error_response, HttpError};
     use axum::body::to_bytes;
     use axum::http::StatusCode;
     use axum::response::IntoResponse;
+    use std::sync::Arc;
+    use std::time::Duration as StdDuration;
+    use tokio::sync::Semaphore;
 
     #[test]
     fn auth_response_never_serializes_the_jwt() {
@@ -1346,5 +1362,69 @@ mod tests {
         let b = HttpError(err).into_response();
         assert_eq!(a.status(), b.status());
         assert_eq!(a.status(), StatusCode::CONFLICT);
+    }
+
+    #[test]
+    fn password_hash_permit_budget_is_modest() {
+        // MYR-006: cap concurrency ~4; leave headroom — not a harsh multi-axis governor.
+        assert_eq!(PASSWORD_HASH_PERMITS, 4);
+        assert!(PASSWORD_HASH_ACQUIRE_TIMEOUT >= StdDuration::from_secs(5));
+        assert!(PASSWORD_HASH_ACQUIRE_TIMEOUT <= StdDuration::from_secs(30));
+    }
+
+    #[tokio::test]
+    async fn password_hash_permit_returns_503_when_saturated() {
+        // Local semaphore mirrors production so we do not starve parallel Argon2 tests
+        // that share the process-wide permit pool.
+        let sem = Arc::new(Semaphore::new(PASSWORD_HASH_PERMITS));
+        let mut held = Vec::with_capacity(PASSWORD_HASH_PERMITS);
+        for _ in 0..PASSWORD_HASH_PERMITS {
+            held.push(sem.clone().acquire_owned().await.expect("permit"));
+        }
+        assert_eq!(sem.available_permits(), 0);
+
+        let err = acquire_password_hash_permit_from(
+            Arc::clone(&sem),
+            StdDuration::from_millis(40),
+            PASSWORD_HASH_PERMITS,
+        )
+        .await
+        .expect_err("must 503 when all Argon2 permits are held");
+        assert_eq!(err.0.status_u16(), 503);
+        assert_eq!(err.0.error_label(), "Server busy");
+        let json = err.0.to_json();
+        assert!(
+            json["message"]
+                .as_str()
+                .unwrap_or("")
+                .contains("password operations"),
+            "{json}"
+        );
+
+        drop(held);
+        let permit = acquire_password_hash_permit_from(
+            Arc::clone(&sem),
+            StdDuration::from_millis(200),
+            PASSWORD_HASH_PERMITS,
+        )
+        .await
+        .expect("permit available after release");
+        drop(permit);
+    }
+
+    #[tokio::test]
+    async fn hash_and_verify_share_permit_path() {
+        // Round-trip proves both helpers take a permit and run Argon2 on the blocking pool.
+        let hash = hash_password("CorrectHorseBattery1")
+            .await
+            .expect("hash");
+        assert!(hash.starts_with("$argon2"), "expected argon2id PHC string, got {hash}");
+        verify_password("CorrectHorseBattery1", &hash)
+            .await
+            .expect("verify ok");
+        let bad = verify_password("wrong-password-99", &hash)
+            .await
+            .expect_err("wrong password");
+        assert_eq!(bad.0.status_u16(), 401);
     }
 }

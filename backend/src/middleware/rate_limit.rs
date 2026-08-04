@@ -7,10 +7,10 @@ use axum::{
 };
 use serde_json::json;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::net::IpAddr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tokio::sync::RwLock;
 
 /// Per-IP aggregate hard ceiling across **all** endpoints (path buckets still apply separately).
 /// Prevents a single IP from exhausting capacity by spreading traffic over many distinct paths.
@@ -43,6 +43,16 @@ const ANALYTICS_WRITE_MAX: usize = 90;
 /// Reserved path-bucket key for the per-IP aggregate counter (not a real endpoint).
 const IP_TOTAL_KEY: &str = "__ip_total__";
 
+/// Shard count for the in-process rate-limit map (MYR-017).
+///
+/// Every request used to take a **global exclusive write lock** on a single
+/// `HashMap`. Under concurrent SPA traffic that serializes the whole process
+/// on a hot path even when IPs are independent. Sharding by IP keeps window
+/// counts the same while allowing different clients to update in parallel.
+/// Power of two so index is a cheap mask.
+const SHARD_COUNT: usize = 64;
+const SHARD_MASK: usize = SHARD_COUNT - 1;
+
 /// Rate limit configuration for different endpoint types
 #[derive(Debug, Clone)]
 pub struct RateLimitConfig {
@@ -66,20 +76,78 @@ struct RequestRecord {
     window_start: Instant,
 }
 
-/// Global rate limiter state
-pub struct RateLimiter {
+/// One shard of IP → endpoint counters. Locked only for that IP slice.
+#[derive(Debug, Default)]
+struct Shard {
     // IP -> (endpoint_pattern -> request_record)
     // Aggregate per-IP traffic is tracked under the reserved key `IP_TOTAL_KEY`.
-    records: Arc<RwLock<HashMap<IpAddr, HashMap<String, RequestRecord>>>>,
+    records: HashMap<IpAddr, HashMap<String, RequestRecord>>,
+}
+
+/// Global rate limiter state (sharded; no process-wide exclusive map lock).
+pub struct RateLimiter {
+    shards: Arc<[Mutex<Shard>]>,
     config: RateLimitConfig,
 }
 
 impl RateLimiter {
     pub fn new(config: RateLimitConfig) -> Self {
+        let shards: Vec<Mutex<Shard>> = (0..SHARD_COUNT)
+            .map(|_| Mutex::new(Shard::default()))
+            .collect();
         Self {
-            records: Arc::new(RwLock::new(HashMap::new())),
+            shards: Arc::from(shards.into_boxed_slice()),
             config,
         }
+    }
+
+    #[inline]
+    fn shard_index(ip: IpAddr) -> usize {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        ip.hash(&mut hasher);
+        (hasher.finish() as usize) & SHARD_MASK
+    }
+
+    fn lock_shard(&self, ip: IpAddr) -> std::sync::MutexGuard<'_, Shard> {
+        // Short critical section only; poison recovery keeps the process serving.
+        self.shards[Self::shard_index(ip)]
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Touch a bucket: reset if window expired, else increment if under max.
+    ///
+    /// Returns `true` when the request is allowed (and counted).
+    fn check_bucket(
+        &self,
+        ip: IpAddr,
+        key: &str,
+        max_requests: usize,
+        window: Duration,
+    ) -> bool {
+        let mut shard = self.lock_shard(ip);
+        let now = Instant::now();
+
+        let ip_records = shard.records.entry(ip).or_default();
+        let record = ip_records
+            .entry(key.to_string())
+            .or_insert(RequestRecord {
+                count: 0,
+                window_start: now,
+            });
+
+        if now.duration_since(record.window_start) > window {
+            record.count = 1;
+            record.window_start = now;
+            return true;
+        }
+
+        if record.count >= max_requests {
+            return false;
+        }
+
+        record.count += 1;
+        true
     }
 
     /// Per-IP hard ceiling across all endpoints for `IP_HARD_CAP_WINDOW`.
@@ -89,78 +157,52 @@ impl RateLimiter {
     ///
     /// Enforced **before** path-specific buckets so a blocked IP does not grow
     /// path-key memory further.
-    pub async fn check_ip_hard_cap(&self, ip: IpAddr) -> bool {
-        let mut records = self.records.write().await;
-        let now = Instant::now();
-
-        let ip_records = records.entry(ip).or_insert_with(HashMap::new);
-        let record = ip_records
-            .entry(IP_TOTAL_KEY.to_string())
-            .or_insert(RequestRecord {
-                count: 0,
-                window_start: now,
-            });
-
-        if now.duration_since(record.window_start) > IP_HARD_CAP_WINDOW {
-            record.count = 1;
-            record.window_start = now;
-            return true;
-        }
-
-        if record.count >= IP_HARD_CAP_MAX {
-            return false;
-        }
-
-        record.count += 1;
-        true
+    pub fn check_ip_hard_cap(&self, ip: IpAddr) -> bool {
+        self.check_bucket(ip, IP_TOTAL_KEY, IP_HARD_CAP_MAX, IP_HARD_CAP_WINDOW)
     }
 
-    /// Check if request should be rate limited
-    async fn check_limit(&self, ip: IpAddr, endpoint: &str) -> bool {
-        let mut records = self.records.write().await;
-        let now = Instant::now();
-
-        // Get or create IP record
-        let ip_records = records.entry(ip).or_insert_with(HashMap::new);
-
-        // Get or create endpoint record
-        let record = ip_records
-            .entry(endpoint.to_string())
-            .or_insert(RequestRecord {
-                count: 0,
-                window_start: now,
-            });
-
-        // Check if window expired
-        if now.duration_since(record.window_start) > self.config.window {
-            // Reset window
-            record.count = 1;
-            record.window_start = now;
-            return true;
-        }
-
-        // Check if limit exceeded
-        if record.count >= self.config.max_requests {
-            return false;
-        }
-
-        // Increment counter
-        record.count += 1;
-        true
+    /// Check if request should be rate limited (default path budget).
+    fn check_limit(&self, ip: IpAddr, endpoint: &str) -> bool {
+        self.check_bucket(
+            ip,
+            endpoint,
+            self.config.max_requests,
+            self.config.window,
+        )
     }
 
-    /// Clean up old records (call periodically)
-    pub async fn cleanup(&self) {
-        let mut records = self.records.write().await;
+    /// Clean up old records (call periodically). Walks each shard independently.
+    pub fn cleanup(&self) {
         let now = Instant::now();
         // Keep at least 2× the longest window we track so hard-cap + default buckets
         // are not pruned mid-window.
         let retain_for = self.config.window.max(IP_HARD_CAP_WINDOW) * 2;
 
-        records.retain(|_, ip_records| {
-            ip_records.retain(|_, record| now.duration_since(record.window_start) <= retain_for);
-            !ip_records.is_empty()
-        });
+        for shard_mtx in self.shards.iter() {
+            let mut shard = shard_mtx
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            shard.records.retain(|_, ip_records| {
+                ip_records.retain(|_, record| now.duration_since(record.window_start) <= retain_for);
+                !ip_records.is_empty()
+            });
+        }
+    }
+
+    /// Test / diagnostics: read a single bucket count without mutating.
+    #[cfg(test)]
+    fn bucket_count(&self, ip: IpAddr, key: &str) -> Option<usize> {
+        let shard = self.lock_shard(ip);
+        shard
+            .records
+            .get(&ip)
+            .and_then(|m| m.get(key))
+            .map(|r| r.count)
+    }
+
+    #[cfg(test)]
+    fn shard_index_for_test(ip: IpAddr) -> usize {
+        Self::shard_index(ip)
     }
 }
 
@@ -169,7 +211,7 @@ static RATE_LIMITER: once_cell::sync::Lazy<RateLimiter> = once_cell::sync::Lazy:
     // Spawn cleanup task
     let limiter = RateLimiter::new(RateLimitConfig::default());
     let limiter_clone = RateLimiter {
-        records: limiter.records.clone(),
+        shards: Arc::clone(&limiter.shards),
         config: limiter.config.clone(),
     };
 
@@ -177,7 +219,7 @@ static RATE_LIMITER: once_cell::sync::Lazy<RateLimiter> = once_cell::sync::Lazy:
         let mut interval = tokio::time::interval(Duration::from_secs(120)); // 每2分钟清理一次（优化内存）
         loop {
             interval.tick().await;
-            limiter_clone.cleanup().await;
+            limiter_clone.cleanup();
             tracing::debug!("🧹 Rate limiter cleanup completed");
         }
     });
@@ -198,7 +240,7 @@ pub async fn rate_limit_middleware(req: Request, next: Next) -> Response {
 
     // 1) Per-IP aggregate hard ceiling across all endpoints (before path buckets).
     // If exceeded, reject immediately without counting path-specific keys.
-    if !RATE_LIMITER.check_ip_hard_cap(ip).await {
+    if !RATE_LIMITER.check_ip_hard_cap(ip) {
         let retry_after = IP_HARD_CAP_WINDOW.as_secs();
         tracing::warn!(
             "Rate limit (IP hard cap) exceeded for IP {} ({} req / {}s)",
@@ -222,119 +264,54 @@ pub async fn rate_limit_middleware(req: Request, next: Next) -> Response {
     }
 
     // 2) Path-specific buckets (sensitive / admin / image / compute / analytics / default)
-    // 使用全局单例，确保限流计数器跨请求持久化
-    // 不同类型的端点使用不同的路径前缀来区分限流规则
+    // Same window counts as before — only the lock granularity changed (MYR-017).
     let (allowed, retry_after) = if is_sensitive_endpoint(&path) {
-        // 敏感端点：5次请求/5分钟
-        // 直接读取并递增计数器（不使用 check_limit 避免双重计数）
-        let record_count = {
-            let mut records = RATE_LIMITER.records.write().await;
-            let now = std::time::Instant::now();
-            let ip_records = records.entry(ip).or_insert_with(HashMap::new);
-            let record = ip_records.entry(path.clone()).or_insert(RequestRecord {
-                count: 0,
-                window_start: now,
-            });
-            // 敏感端点使用 5 分钟窗口
-            if now.duration_since(record.window_start) > Duration::from_secs(300) {
-                record.count = 1;
-                record.window_start = now;
-            } else {
-                record.count += 1;
-            }
-            record.count
-        };
-        (record_count <= 5, 300)
+        // 敏感端点：5次请求/5分钟（unchanged; modest Argon2 path bucket only）
+        (
+            RATE_LIMITER.check_bucket(ip, &path, 5, Duration::from_secs(300)),
+            300,
+        )
     } else if is_admin_updater_mutate(&path) {
-        // Mutating updater admin routes: 10 / 5 min per IP (GET status/jobs stay default 100/min).
-        // Prevents runaway update/rollback/rescue spam without slowing status polling UX.
-        let record_count = {
-            let mut records = RATE_LIMITER.records.write().await;
-            let now = std::time::Instant::now();
-            let ip_records = records.entry(ip).or_insert_with(HashMap::new);
-            // Bucket all mutative updater actions together under one key.
-            let key = "admin_updater_mutate".to_string();
-            let record = ip_records.entry(key).or_insert(RequestRecord {
-                count: 0,
-                window_start: now,
-            });
-            if now.duration_since(record.window_start) > Duration::from_secs(300) {
-                record.count = 1;
-                record.window_start = now;
-            } else {
-                record.count += 1;
-            }
-            record.count
-        };
-        (record_count <= 10, 300)
+        // Mutating updater admin routes: 10 / 5 min per IP (GET status/jobs stay default).
+        (
+            RATE_LIMITER.check_bucket(
+                ip,
+                "admin_updater_mutate",
+                10,
+                Duration::from_secs(300),
+            ),
+            300,
+        )
     } else if is_image_proxy(&path) {
-        // Media grids: high dedicated bucket (not compute 10/min).
-        let record_count = {
-            let mut records = RATE_LIMITER.records.write().await;
-            let now = std::time::Instant::now();
-            let ip_records = records.entry(ip).or_insert_with(HashMap::new);
-            let record = ip_records
-                .entry(IMAGE_PROXY_BUCKET.to_string())
-                .or_insert(RequestRecord {
-                    count: 0,
-                    window_start: now,
-                });
-            if now.duration_since(record.window_start) > IMAGE_PROXY_WINDOW {
-                record.count = 1;
-                record.window_start = now;
-            } else {
-                record.count += 1;
-            }
-            record.count
-        };
-        (record_count <= IMAGE_PROXY_MAX, IMAGE_PROXY_WINDOW.as_secs())
+        (
+            RATE_LIMITER.check_bucket(
+                ip,
+                IMAGE_PROXY_BUCKET,
+                IMAGE_PROXY_MAX,
+                IMAGE_PROXY_WINDOW,
+            ),
+            IMAGE_PROXY_WINDOW.as_secs(),
+        )
     } else if is_compute_intensive(&path) {
-        // Expensive / open-egress: COMPUTE_MAX per path per minute.
-        let record_count = {
-            let mut records = RATE_LIMITER.records.write().await;
-            let now = std::time::Instant::now();
-            let ip_records = records.entry(ip).or_insert_with(HashMap::new);
-            let record = ip_records.entry(path.clone()).or_insert(RequestRecord {
-                count: 0,
-                window_start: now,
-            });
-            if now.duration_since(record.window_start) > Duration::from_secs(60) {
-                record.count = 1;
-                record.window_start = now;
-            } else {
-                record.count += 1;
-            }
-            record.count
-        };
-        (record_count <= COMPUTE_MAX, 60)
+        (
+            RATE_LIMITER.check_bucket(ip, &path, COMPUTE_MAX, Duration::from_secs(60)),
+            60,
+        )
     } else if path.starts_with("/api/analytics/collect")
         || path.starts_with("/api/analytics/pageview")
     {
-        // First-party beacons: allow healthy SPA batching, blunt spam floods.
-        // Shared key covers collect + pageview together.
-        let record_count = {
-            let mut records = RATE_LIMITER.records.write().await;
-            let now = std::time::Instant::now();
-            let ip_records = records.entry(ip).or_insert_with(HashMap::new);
-            let record = ip_records
-                .entry("analytics_write".to_string())
-                .or_insert(RequestRecord {
-                    count: 0,
-                    window_start: now,
-                });
-            if now.duration_since(record.window_start) > Duration::from_secs(60) {
-                record.count = 1;
-                record.window_start = now;
-            } else {
-                record.count += 1;
-            }
-            record.count
-        };
-        (record_count <= ANALYTICS_WRITE_MAX, 60)
+        (
+            RATE_LIMITER.check_bucket(
+                ip,
+                "analytics_write",
+                ANALYTICS_WRITE_MAX,
+                Duration::from_secs(60),
+            ),
+            60,
+        )
     } else {
         // 标准端点：DEFAULT_PATH_MAX / 分钟（按 path 分桶）
-        let allowed = RATE_LIMITER.check_limit(ip, &path).await;
-        (allowed, 60)
+        (RATE_LIMITER.check_limit(ip, &path), 60)
     };
 
     if !allowed {
@@ -418,6 +395,8 @@ fn is_compute_intensive(path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::thread;
 
     #[test]
     fn admin_updater_mutate_paths() {
@@ -491,8 +470,16 @@ mod tests {
         assert!(IP_HARD_CAP_MAX >= DEFAULT_PATH_MAX);
     }
 
-    #[tokio::test]
-    async fn test_rate_limit_basic() {
+    #[test]
+    #[allow(clippy::assertions_on_constants)]
+    fn shard_count_is_power_of_two() {
+        assert!(SHARD_COUNT.is_power_of_two());
+        assert_eq!(SHARD_MASK, SHARD_COUNT - 1);
+        assert!(SHARD_COUNT >= 16, "need enough shards to cut cross-IP contention");
+    }
+
+    #[test]
+    fn test_rate_limit_basic() {
         let limiter = RateLimiter::new(RateLimitConfig {
             max_requests: 3,
             window: Duration::from_secs(10),
@@ -502,104 +489,97 @@ mod tests {
         let endpoint = "/api/test";
 
         // First 3 requests should pass
-        assert!(limiter.check_limit(ip, endpoint).await);
-        assert!(limiter.check_limit(ip, endpoint).await);
-        assert!(limiter.check_limit(ip, endpoint).await);
+        assert!(limiter.check_limit(ip, endpoint));
+        assert!(limiter.check_limit(ip, endpoint));
+        assert!(limiter.check_limit(ip, endpoint));
 
         // 4th request should be blocked
-        assert!(!limiter.check_limit(ip, endpoint).await);
+        assert!(!limiter.check_limit(ip, endpoint));
     }
 
-    #[tokio::test]
-    async fn test_rate_limit_window_reset() {
+    #[test]
+    fn test_rate_limit_window_reset() {
         let limiter = RateLimiter::new(RateLimitConfig {
             max_requests: 2,
-            window: Duration::from_millis(100),
+            window: Duration::from_millis(80),
         });
 
         let ip = IpAddr::from([127, 0, 0, 1]);
         let endpoint = "/api/test";
 
         // First 2 requests pass
-        assert!(limiter.check_limit(ip, endpoint).await);
-        assert!(limiter.check_limit(ip, endpoint).await);
+        assert!(limiter.check_limit(ip, endpoint));
+        assert!(limiter.check_limit(ip, endpoint));
 
         // 3rd is blocked
-        assert!(!limiter.check_limit(ip, endpoint).await);
+        assert!(!limiter.check_limit(ip, endpoint));
 
         // Wait for window to expire
-        tokio::time::sleep(Duration::from_millis(150)).await;
+        thread::sleep(Duration::from_millis(100));
 
         // Should pass again
-        assert!(limiter.check_limit(ip, endpoint).await);
+        assert!(limiter.check_limit(ip, endpoint));
     }
 
-    #[tokio::test]
-    async fn test_ip_hard_cap_allows_up_to_max() {
+    #[test]
+    fn test_ip_hard_cap_allows_up_to_max() {
         let limiter = RateLimiter::new(RateLimitConfig::default());
         let ip = IpAddr::from([10, 0, 0, 1]);
 
         for i in 0..IP_HARD_CAP_MAX {
             assert!(
-                limiter.check_ip_hard_cap(ip).await,
+                limiter.check_ip_hard_cap(ip),
                 "request {} should be allowed under hard cap",
                 i + 1
             );
         }
 
         // One over the ceiling
-        assert!(!limiter.check_ip_hard_cap(ip).await);
+        assert!(!limiter.check_ip_hard_cap(ip));
         // Further attempts stay blocked within the window
-        assert!(!limiter.check_ip_hard_cap(ip).await);
+        assert!(!limiter.check_ip_hard_cap(ip));
     }
 
-    #[tokio::test]
-    async fn test_ip_hard_cap_is_per_ip() {
+    #[test]
+    fn test_ip_hard_cap_is_per_ip() {
         let limiter = RateLimiter::new(RateLimitConfig::default());
         let ip_a = IpAddr::from([10, 0, 0, 2]);
         let ip_b = IpAddr::from([10, 0, 0, 3]);
 
         for _ in 0..IP_HARD_CAP_MAX {
-            assert!(limiter.check_ip_hard_cap(ip_a).await);
+            assert!(limiter.check_ip_hard_cap(ip_a));
         }
-        assert!(!limiter.check_ip_hard_cap(ip_a).await);
+        assert!(!limiter.check_ip_hard_cap(ip_a));
 
         // Different IP still has full budget
-        assert!(limiter.check_ip_hard_cap(ip_b).await);
+        assert!(limiter.check_ip_hard_cap(ip_b));
     }
 
-    #[tokio::test]
-    async fn test_ip_hard_cap_stored_under_reserved_key() {
+    #[test]
+    fn test_ip_hard_cap_stored_under_reserved_key() {
         let limiter = RateLimiter::new(RateLimitConfig::default());
         let ip = IpAddr::from([10, 0, 0, 4]);
 
-        assert!(limiter.check_ip_hard_cap(ip).await);
-        assert!(limiter.check_limit(ip, "/api/other").await);
+        assert!(limiter.check_ip_hard_cap(ip));
+        assert!(limiter.check_limit(ip, "/api/other"));
 
-        let records = limiter.records.read().await;
-        let ip_records = records.get(&ip).expect("ip map");
-        assert!(
-            ip_records.contains_key(IP_TOTAL_KEY),
-            "hard cap must use reserved key {}",
-            IP_TOTAL_KEY
-        );
-        assert_eq!(ip_records.get(IP_TOTAL_KEY).unwrap().count, 1);
-        assert_eq!(ip_records.get("/api/other").unwrap().count, 1);
+        assert_eq!(limiter.bucket_count(ip, IP_TOTAL_KEY), Some(1));
+        assert_eq!(limiter.bucket_count(ip, "/api/other"), Some(1));
     }
 
-    #[tokio::test]
-    async fn test_ip_hard_cap_cleanup_prunes_stale() {
+    #[test]
+    fn test_ip_hard_cap_cleanup_prunes_stale() {
         let limiter = RateLimiter::new(RateLimitConfig::default());
         let ip_fresh = IpAddr::from([10, 0, 0, 5]);
         let ip_stale = IpAddr::from([10, 0, 0, 6]);
 
-        assert!(limiter.check_ip_hard_cap(ip_fresh).await);
+        assert!(limiter.check_ip_hard_cap(ip_fresh));
 
         // Inject a hard-cap record whose window_start is older than retain_for
         // (max(config.window, IP_HARD_CAP_WINDOW) * 2 = 120s).
         {
-            let mut records = limiter.records.write().await;
-            let ip_records = records.entry(ip_stale).or_insert_with(HashMap::new);
+            let mut shard = limiter.lock_shard(ip_stale);
+            let ip_records = shard.records.entry(ip_stale).or_default();
             ip_records.insert(
                 IP_TOTAL_KEY.to_string(),
                 RequestRecord {
@@ -609,19 +589,98 @@ mod tests {
             );
         }
 
-        limiter.cleanup().await;
+        limiter.cleanup();
 
-        let records = limiter.records.read().await;
-        assert!(
-            records
-                .get(&ip_fresh)
-                .and_then(|m| m.get(IP_TOTAL_KEY))
-                .is_some(),
+        assert_eq!(
+            limiter.bucket_count(ip_fresh, IP_TOTAL_KEY),
+            Some(1),
             "recent hard-cap record must survive cleanup"
         );
-        assert!(
-            !records.contains_key(&ip_stale),
+        assert_eq!(
+            limiter.bucket_count(ip_stale, IP_TOTAL_KEY),
+            None,
             "stale hard-cap record must be pruned"
         );
+    }
+
+    #[test]
+    fn different_ips_can_land_on_different_shards() {
+        // Not a strict guarantee for every pair, but across a spread of IPs
+        // we must observe more than one shard (otherwise sharding is broken).
+        let mut seen = std::collections::HashSet::new();
+        for i in 0u8..64 {
+            let ip = IpAddr::from([10, 1, 0, i]);
+            seen.insert(RateLimiter::shard_index_for_test(ip));
+        }
+        assert!(
+            seen.len() > 1,
+            "expected IPs to hash across multiple shards, got {seen:?}"
+        );
+    }
+
+    #[test]
+    fn concurrent_multi_ip_updates_do_not_lose_counts() {
+        // MYR-017: sharded locks must remain correct under concurrent writers.
+        let limiter = Arc::new(RateLimiter::new(RateLimitConfig {
+            max_requests: 10_000,
+            window: Duration::from_secs(60),
+        }));
+        let per_ip = 200usize;
+        let ip_count = 32usize;
+        let allowed = Arc::new(AtomicUsize::new(0));
+
+        let mut handles = Vec::new();
+        for i in 0..ip_count {
+            let limiter = Arc::clone(&limiter);
+            let allowed = Arc::clone(&allowed);
+            handles.push(thread::spawn(move || {
+                let ip = IpAddr::from([10, 2, (i / 256) as u8, (i % 256) as u8]);
+                for _ in 0..per_ip {
+                    if limiter.check_limit(ip, "/api/concurrent") {
+                        allowed.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            }));
+        }
+        for h in handles {
+            h.join().expect("worker");
+        }
+
+        assert_eq!(allowed.load(Ordering::Relaxed), ip_count * per_ip);
+        for i in 0..ip_count {
+            let ip = IpAddr::from([10, 2, (i / 256) as u8, (i % 256) as u8]);
+            assert_eq!(
+                limiter.bucket_count(ip, "/api/concurrent"),
+                Some(per_ip),
+                "ip index {i}"
+            );
+        }
+    }
+
+    #[test]
+    fn sensitive_and_image_buckets_keep_prior_caps() {
+        let limiter = RateLimiter::new(RateLimitConfig::default());
+        let ip = IpAddr::from([10, 9, 9, 9]);
+
+        for _ in 0..5 {
+            assert!(limiter.check_bucket(ip, "/api/auth/login", 5, Duration::from_secs(300)));
+        }
+        assert!(!limiter.check_bucket(ip, "/api/auth/login", 5, Duration::from_secs(300)));
+
+        // Image proxy still uses its dedicated high bucket (unchanged numbers).
+        for _ in 0..IMAGE_PROXY_MAX {
+            assert!(limiter.check_bucket(
+                ip,
+                IMAGE_PROXY_BUCKET,
+                IMAGE_PROXY_MAX,
+                IMAGE_PROXY_WINDOW
+            ));
+        }
+        assert!(!limiter.check_bucket(
+            ip,
+            IMAGE_PROXY_BUCKET,
+            IMAGE_PROXY_MAX,
+            IMAGE_PROXY_WINDOW
+        ));
     }
 }
