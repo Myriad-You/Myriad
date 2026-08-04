@@ -3,20 +3,25 @@
 use axum::{extract::State, Extension, Json};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
-    QueryOrder, Set,
+    QueryOrder, Set, TransactionTrait,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+/// Max concurrent platform/AI report tasks (MYR-021).
+/// Generous enough for multi-platform generate-all (~11 platforms) while
+/// preventing unbounded cost amplification from `join_all` fan-out.
+pub(crate) const MAX_CONCURRENT_PLATFORM_REPORTS: usize = 6;
+
 use crate::config::DynamicConfig;
 use crate::error::HttpError;
-use myriad_error::AppError;
 use crate::middleware::auth::Claims;
 use crate::models::entities::platform_reports;
 use crate::services::analyzer::{AiAnalyzer, AiProvider};
 use crate::services::smart_filter::{SmartFilter, SmartFilteredData};
+use myriad_error::AppError;
 
 use super::extract::*;
 
@@ -68,9 +73,9 @@ pub async fn generate_platform_reports(
     tracing::info!("   User: {} (ID: {})", claims.username, claims.sub);
 
     let actor_id = claims.sub.parse::<i32>().map_err(|e| {
-            tracing::error!("❌ Failed to parse user_id: {}", e);
-            HttpError(AppError::unauthorized("Unauthorized"))
-        })?;
+        tracing::error!("❌ Failed to parse user_id: {}", e);
+        HttpError(AppError::unauthorized("Unauthorized"))
+    })?;
     let user_id = report_storage_user_id(&db, actor_id).await;
 
     let (platform_reports, skipped) =
@@ -123,24 +128,112 @@ pub async fn generate_platform_reports(
     })))
 }
 
-/// 内部函数：生成平台报告逻辑（支持并行处理）
+/// Atomically replace the stored report for `(user_id, platform)`.
+///
+/// DELETE + INSERT run in one DB transaction so a failed insert never leaves
+/// the platform without its previous report (MYR-020). Serialization happens
+/// *before* the transaction begins, so a serialize failure also never deletes.
+async fn persist_platform_report_atomic(
+    db: &DatabaseConnection,
+    user_id: i32,
+    report: &PlatformReport,
+    report_settings: &crate::api::config::ReportSettings,
+) -> Result<(), String> {
+    tracing::debug!("💾 Serializing report for platform: {}", report.platform);
+
+    let report_json = serde_json::to_value(report).map_err(|e| {
+        tracing::error!(
+            "❌ Failed to serialize report for {}: {}",
+            report.platform,
+            e
+        );
+        format!("serialize report for {}: {e}", report.platform)
+    })?;
+
+    let metadata_json = serde_json::to_value(&report.metadata).map_err(|e| {
+        tracing::error!(
+            "❌ Failed to serialize metadata for {}: {}",
+            report.platform,
+            e
+        );
+        format!("serialize metadata for {}: {e}", report.platform)
+    })?;
+
+    let txn = db
+        .begin()
+        .await
+        .map_err(|e| format!("begin report persist transaction: {e}"))?;
+
+    let delete_result = platform_reports::Entity::delete_many()
+        .filter(platform_reports::Column::UserId.eq(user_id))
+        .filter(platform_reports::Column::Platform.eq(&report.platform))
+        .exec(&txn)
+        .await
+        .map_err(|e| format!("delete old reports for {}: {e}", report.platform))?;
+
+    if delete_result.rows_affected > 0 {
+        tracing::info!(
+            "🗑️ Deleted {} old report(s) for platform {} (txn)",
+            delete_result.rows_affected,
+            report.platform
+        );
+    }
+
+    let active_model = platform_reports::ActiveModel {
+        user_id: Set(user_id),
+        platform: Set(report.platform.clone()),
+        metadata: Set(metadata_json),
+        report: Set(report_json),
+        report_title: Set(None),
+        created_at: Set(chrono::Utc::now().naive_utc()),
+        expires_at: Set(
+            (chrono::Utc::now() + chrono::Duration::days(report_settings.expiry_days)).naive_utc(),
+        ),
+        ..Default::default()
+    };
+
+    active_model
+        .insert(&txn)
+        .await
+        .map_err(|e| format!("insert report for {}: {e}", report.platform))?;
+
+    txn.commit()
+        .await
+        .map_err(|e| format!("commit report persist for {}: {e}", report.platform))?;
+
+    tracing::info!("✅ Saved platform report for {}", report.platform);
+    Ok(())
+}
+
+/// 内部函数：生成平台报告逻辑（有界并行 + 逐平台原子落库）
 ///
 /// 返回 (成功生成的报告, 被跳过的平台及原因)。跳过原因用于回传给前端，
 /// 避免像以前那样只在日志里 warn、用户完全看不到失败在哪一步。
+///
+/// - MYR-020: each platform is persisted in a DELETE+INSERT transaction; insert
+///   failure rolls back and keeps the previous report.
+/// - MYR-021: platform/AI fan-out is bounded by [`MAX_CONCURRENT_PLATFORM_REPORTS`].
+/// - Partial cancel: reports are persisted as each platform finishes. If the
+///   overall future is dropped (client disconnect / task cancel), already-saved
+///   platforms remain and remaining work is abandoned.
 pub(crate) async fn generate_platform_reports_internal(
     db: &DatabaseConnection,
     user_id: i32,
     platforms: Vec<String>,
     dynamic_config: Arc<RwLock<DynamicConfig>>,
 ) -> (Vec<PlatformReport>, Vec<(String, String)>) {
-    use futures::future::join_all;
+    use futures::stream::{self, StreamExt};
 
-    // 并行处理所有平台
+    // 过期天数可配置（设置页 → 模块设置 → 报告页设置）
+    let report_settings = crate::api::config::load_report_settings(db).await;
+
     let db_clone = db.clone();
-    let futures = platforms.into_iter().map(move |platform| {
-        let db_for_task = db_clone.clone();
-        let dynamic_config = dynamic_config.clone();
-        async move {
+    let results = stream::iter(platforms.into_iter())
+        .map(move |platform| {
+            let db_for_task = db_clone.clone();
+            let dynamic_config = dynamic_config.clone();
+            let report_settings = report_settings.clone();
+            async move {
             tracing::info!("🔄 Processing platform: {}", platform);
 
             // 1. 获取平台数据 (自动处理缓存回退，支持数据库分片数据)
@@ -1190,13 +1283,28 @@ pub(crate) async fn generate_platform_reports_internal(
                 created_at: chrono::Utc::now().to_rfc3339(),
             };
 
-            Ok(report)
-        }
-    });
+            // Persist as soon as this platform finishes (MYR-020 atomic txn).
+            // Partial cancel: if the parent future is dropped later, this row stays.
+            if let Err(e) =
+                persist_platform_report_atomic(&db_for_task, user_id, &report, &report_settings)
+                    .await
+            {
+                tracing::error!(
+                    "❌ Failed to atomically save platform report for {}: {} (previous report retained)",
+                    report.platform,
+                    e
+                );
+                // Still return the in-memory report so the API can surface content;
+                // DB keeps the old row because the transaction rolled back.
+            }
 
-    let results = join_all(futures).await;
-    // 过期天数可配置（设置页 → 模块设置 → 报告页设置）
-    let report_settings = crate::api::config::load_report_settings(db).await;
+            Ok(report)
+            }
+        })
+        .buffer_unordered(MAX_CONCURRENT_PLATFORM_REPORTS)
+        .collect::<Vec<_>>()
+        .await;
+
     let mut platform_reports: Vec<PlatformReport> = Vec::new();
     let mut skipped: Vec<(String, String)> = Vec::new();
     for result in results {
@@ -1207,99 +1315,10 @@ pub(crate) async fn generate_platform_reports_internal(
     }
 
     tracing::info!(
-        "🎯 Generated {} platform reports, starting database save...",
-        platform_reports.len()
-    );
-
-    // 批量保存到数据库（先删除旧报告，再插入新报告）
-    // 为了性能，这里还是串行保存，但生成过程是并行的
-    for report in &platform_reports {
-        tracing::debug!("💾 Serializing report for platform: {}", report.platform);
-
-        let report_json = match serde_json::to_value(report) {
-            Ok(json) => json,
-            Err(e) => {
-                tracing::error!(
-                    "❌ Failed to serialize report for {}: {}",
-                    report.platform,
-                    e
-                );
-                tracing::error!(
-                    "   Report data: summary={}, insights={}, card_visuals={}",
-                    report.summary,
-                    report.insights.len(),
-                    report.card_visuals
-                );
-                continue; // 跳过这个报告，继续处理其他的
-            }
-        };
-
-        let metadata_json = match serde_json::to_value(&report.metadata) {
-            Ok(json) => json,
-            Err(e) => {
-                tracing::error!(
-                    "❌ Failed to serialize metadata for {}: {}",
-                    report.platform,
-                    e
-                );
-                continue;
-            }
-        };
-
-        // 先删除该用户该平台的所有旧报告
-        let delete_result = platform_reports::Entity::delete_many()
-            .filter(platform_reports::Column::UserId.eq(user_id))
-            .filter(platform_reports::Column::Platform.eq(&report.platform))
-            .exec(db)
-            .await;
-
-        if let Err(e) = delete_result {
-            tracing::warn!(
-                "⚠️ Failed to delete old reports for {} (continuing): {}",
-                report.platform,
-                e
-            );
-        } else if let Ok(result) = delete_result {
-            if result.rows_affected > 0 {
-                tracing::info!(
-                    "🗑️ Deleted {} old report(s) for platform {}",
-                    result.rows_affected,
-                    report.platform
-                );
-            }
-        }
-
-        // 插入新报告
-        let active_model = platform_reports::ActiveModel {
-            user_id: Set(user_id),
-            platform: Set(report.platform.clone()),
-            metadata: Set(metadata_json),
-            report: Set(report_json),
-            report_title: Set(None),
-            created_at: Set(chrono::Utc::now().naive_utc()),
-            expires_at: Set((chrono::Utc::now()
-                + chrono::Duration::days(report_settings.expiry_days))
-            .naive_utc()),
-            ..Default::default()
-        };
-
-        match active_model.insert(db).await {
-            Ok(_) => {
-                tracing::info!("✅ Saved platform report for {}", report.platform);
-            }
-            Err(e) => {
-                tracing::error!(
-                    "❌ Failed to save platform report for {}: {}",
-                    report.platform,
-                    e
-                );
-            }
-        }
-    }
-
-    tracing::info!(
-        "✅ Database save completed for {} reports",
-        platform_reports.len()
+        "🎯 Generated and saved {} platform reports (concurrency ≤ {}), skipped {}",
+        platform_reports.len(),
+        MAX_CONCURRENT_PLATFORM_REPORTS,
+        skipped.len()
     );
     (platform_reports, skipped)
 }
@@ -2193,7 +2212,11 @@ fn generate_mock_report(
             let total_playtime_minutes = if analysis.total_playtime_minutes > 0 {
                 analysis.total_playtime_minutes
             } else {
-                analysis.recent_games.iter().map(|g| g.playtime.max(0)).sum()
+                analysis
+                    .recent_games
+                    .iter()
+                    .map(|g| g.playtime.max(0))
+                    .sum()
             };
             let total_playtime_hours = (total_playtime_minutes.max(0) / 60) as u64;
 
@@ -2259,11 +2282,8 @@ fn generate_mock_report(
                 .unwrap_or(0)
                 .max(analysis.recent_repos.len());
 
-            let contribution_level = github_contribution_level(
-                total_contributions,
-                repos_count,
-                total_stars,
-            );
+            let contribution_level =
+                github_contribution_level(total_contributions, repos_count, total_stars);
 
             // 计算语言百分比（按仓库数排序，百分比 clamp）
             let total_lang_count: usize = analysis.language_distribution.values().sum();
@@ -2824,9 +2844,7 @@ fn generate_mock_report(
 }
 
 /// Bangumi/MAL `status_counts`: always emit five keys (0 when absent).
-pub(crate) fn anime_status_counts_five(
-    dist: &std::collections::HashMap<String, usize>,
-) -> Value {
+pub(crate) fn anime_status_counts_five(dist: &std::collections::HashMap<String, usize>) -> Value {
     let get = |k: &str| dist.get(k).copied().unwrap_or(0);
     json!({
         "done": get("done"),
@@ -2841,17 +2859,11 @@ pub(crate) fn anime_status_counts_five(
 pub(crate) fn normalize_steam_player_type(raw: &str) -> &'static str {
     let t = raw.trim();
     let lower = t.to_ascii_lowercase();
-    if lower == "hardcore"
-        || t.contains("硬核")
-        || lower.contains("hardcore")
-        || t.contains("肝帝")
+    if lower == "hardcore" || t.contains("硬核") || lower.contains("hardcore") || t.contains("肝帝")
     {
         return "hardcore";
     }
-    if lower == "casual"
-        || t.contains("休闲")
-        || lower.contains("casual")
-        || t.contains("佛系")
+    if lower == "casual" || t.contains("休闲") || lower.contains("casual") || t.contains("佛系")
     {
         return "casual";
     }
@@ -2891,9 +2903,17 @@ pub(crate) fn normalize_github_contribution_level(raw: &str) -> &'static str {
         "legendary" | "传奇开发者" | "Legendary" | "Legendary Dev" | "Legendary Developer" => {
             "legendary"
         }
-        "veteran" | "资深工程师" | "资深开发者" | "Veteran" | "Veteran Developer" => "veteran",
-        "active" | "活跃开发者" | "高级开发者" | "中级开发者" | "Senior" | "Senior Dev"
-        | "Senior Developer" | "Intermediate Developer" => "active",
+        "veteran" | "资深工程师" | "资深开发者" | "Veteran" | "Veteran Developer" => {
+            "veteran"
+        }
+        "active"
+        | "活跃开发者"
+        | "高级开发者"
+        | "中级开发者"
+        | "Senior"
+        | "Senior Dev"
+        | "Senior Developer"
+        | "Intermediate Developer" => "active",
         "emerging" | "新兴贡献者" | "初级开发者" | "Beginner" | "Beginner Dev"
         | "Beginner Developer" => "emerging",
         other => {
@@ -2915,6 +2935,118 @@ pub(crate) fn normalize_github_contribution_level(raw: &str) -> &'static str {
 }
 
 #[cfg(test)]
+mod report_persist_concurrency_tests {
+    use super::MAX_CONCURRENT_PLATFORM_REPORTS;
+    use futures::stream::{self, StreamExt};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    #[test]
+    fn max_concurrent_platform_reports_is_generous_but_bounded() {
+        // Enough for multi-platform generate-all (~11 platforms); never unbounded.
+        assert!(
+            MAX_CONCURRENT_PLATFORM_REPORTS >= 4,
+            "limit too low for multi-platform reports: {}",
+            MAX_CONCURRENT_PLATFORM_REPORTS
+        );
+        assert!(
+            MAX_CONCURRENT_PLATFORM_REPORTS <= 16,
+            "limit too high (cost amplification risk): {}",
+            MAX_CONCURRENT_PLATFORM_REPORTS
+        );
+    }
+
+    /// Mirrors MYR-021 fan-out: many platform tasks, at most N in flight.
+    /// Also models partial cancel — dropping the stream keeps completed work.
+    #[tokio::test]
+    async fn platform_report_fanout_respects_concurrency_bound() {
+        let current = Arc::new(AtomicUsize::new(0));
+        let max_seen = Arc::new(AtomicUsize::new(0));
+        let completed = Arc::new(AtomicUsize::new(0));
+        let n = 20usize;
+        let limit = MAX_CONCURRENT_PLATFORM_REPORTS;
+
+        stream::iter(0..n)
+            .map(|_| {
+                let current = current.clone();
+                let max_seen = max_seen.clone();
+                let completed = completed.clone();
+                async move {
+                    let c = current.fetch_add(1, Ordering::SeqCst) + 1;
+                    max_seen.fetch_max(c, Ordering::SeqCst);
+                    tokio::time::sleep(Duration::from_millis(15)).await;
+                    current.fetch_sub(1, Ordering::SeqCst);
+                    completed.fetch_add(1, Ordering::SeqCst);
+                }
+            })
+            .buffer_unordered(limit)
+            .collect::<Vec<_>>()
+            .await;
+
+        let peak = max_seen.load(Ordering::SeqCst);
+        assert!(
+            peak <= limit,
+            "peak concurrency {peak} exceeded bound {limit}"
+        );
+        assert!(peak > 1, "expected some parallelism, peak was {peak}");
+        assert_eq!(completed.load(Ordering::SeqCst), n);
+    }
+
+    /// Dropping the consumer mid-flight must not lose already-finished units
+    /// (MYR-021 partial cancel + MYR-020 persist-as-you-go model).
+    #[tokio::test]
+    async fn partial_cancel_keeps_completed_units() {
+        let completed = Arc::new(AtomicUsize::new(0));
+        let started = Arc::new(AtomicUsize::new(0));
+        let n = 12usize;
+        let limit = MAX_CONCURRENT_PLATFORM_REPORTS;
+
+        let completed_c = completed.clone();
+        let started_c = started.clone();
+        let mut stream = stream::iter(0..n)
+            .map(move |i| {
+                let completed = completed_c.clone();
+                let started = started_c.clone();
+                async move {
+                    started.fetch_add(1, Ordering::SeqCst);
+                    // First few finish quickly; later ones block.
+                    if i < 3 {
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                        completed.fetch_add(1, Ordering::SeqCst);
+                        return i;
+                    }
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+                    completed.fetch_add(1, Ordering::SeqCst);
+                    i
+                }
+            })
+            .buffer_unordered(limit);
+
+        // Collect only the first 3 completed items, then drop the stream (cancel).
+        let mut got = Vec::new();
+        while let Some(v) = stream.next().await {
+            got.push(v);
+            if got.len() >= 3 {
+                break;
+            }
+        }
+        drop(stream);
+
+        assert_eq!(got.len(), 3);
+        assert!(
+            completed.load(Ordering::SeqCst) >= 3,
+            "completed counter should reflect finished units kept after cancel"
+        );
+        // Not all N should have completed (slow ones abandoned).
+        assert!(
+            completed.load(Ordering::SeqCst) < n,
+            "cancel should abandon remaining work"
+        );
+    }
+}
+
+#[cfg(test)]
 mod finalize_public_report_media_tests {
     use super::*;
 
@@ -2932,10 +3064,16 @@ mod finalize_public_report_media_tests {
 
     #[test]
     fn normalize_github_contribution_level_maps_legacy_chinese() {
-        assert_eq!(normalize_github_contribution_level("传奇开发者"), "legendary");
+        assert_eq!(
+            normalize_github_contribution_level("传奇开发者"),
+            "legendary"
+        );
         assert_eq!(normalize_github_contribution_level("资深工程师"), "veteran");
         assert_eq!(normalize_github_contribution_level("活跃开发者"), "active");
-        assert_eq!(normalize_github_contribution_level("新兴贡献者"), "emerging");
+        assert_eq!(
+            normalize_github_contribution_level("新兴贡献者"),
+            "emerging"
+        );
         assert_eq!(normalize_github_contribution_level("veteran"), "veteran");
     }
 
@@ -3009,4 +3147,3 @@ mod finalize_public_report_media_tests {
         assert!(out["card_visuals"].get("card_visuals").is_none());
     }
 }
-
