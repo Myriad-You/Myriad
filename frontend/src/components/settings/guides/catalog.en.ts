@@ -214,12 +214,20 @@ export const en: SettingGuidesCatalog = {
       notes: 'To hide from guests but open for signed-in users, choose “signed-in users.”',
     },
     library: {
-      what: 'For each library category, which platforms’ items should show.',
+      what: 'How library cards are laid out, and which platforms’ items show in each category.',
       chain:
-        '1) Connect accounts under “Data platforms” and sync first — only then do sources and counts appear here.\n2) This is display filtering only: unchecked platforms don’t show in the library, but synced data usually still sits on the server.\n3) Report pages also use platform data, but how reports expire or regenerate is under the “Report” group below.\n4) Separate from nav “is the library visible”: visibility lets you enter; inside, sources are filtered here.',
+        '1) “Card layout” above chooses list or infinite canvas; low-end devices fall back to list automatically.\n2) Connect accounts under “Data platforms” and sync first — only then do sources and counts appear here.\n3) Source checks are display filtering only: unchecked platforms don’t show in the library, but synced data usually still sits on the server.\n4) Report pages also use platform data, but how reports expire or regenerate is under the “Report” group below.\n5) Separate from nav “is the library visible”: visibility lets you enter; inside, layout and sources are set here.\n6) Layout and sources save together with this page into library preferences.',
       frontend:
-        'Cards under each library category, and the shown / before-filter counts.\nAfter changing, open the matching library category and compare.',
-      notes: 'If there’s no data, sync platforms first. Selecting nothing for a category can leave the list empty.',
+        'Library list/canvas mode, cards under each category, and the shown / before-filter counts.\nAfter changing, open the library and compare.',
+      notes:
+        'If there’s no data, sync platforms first. Selecting nothing for a category can leave the list empty. Canvas is heavier — switch back to list if it feels laggy.',
+    },
+    libraryLayout: {
+      what: 'Whether library cards use a regular list or an infinite canvas extending from the page center.',
+      chain:
+        '1) List = classic scrollable cards; canvas = free drag/zoom from the center.\n2) Low-end devices fall back to list automatically even if canvas is saved.\n3) Independent of which platform sources are checked under each category below.\n4) Saves with library preferences; open the library to compare.',
+      frontend: 'Overall arrangement on the library page. Weaker devices may still show the list.',
+      notes: 'Canvas costs more GPU/CPU; if interaction feels sticky, switch back to list.',
     },
     libraryType: {
       what: 'Which sources are checked for one category (for example games or anime).',
@@ -596,6 +604,87 @@ export const en: SettingGuidesCatalog = {
         '1) Decides answer style, strength, and cost.\n2) Must be a name already enabled on your account.\n3) Works only together with provider and secret key.',
       frontend: 'Differences in assistant answer quality and speed.',
       notes: 'Wrong name causes the call to fail; use the name from the provider’s console.',
+    },
+  },
+
+  tripo: {
+    connection: {
+      what: 'Whether Tripo 3D is enabled, and which API endpoint and key to use.',
+      chain:
+        '1) Turn enable on, fill the API key (and optional base URL) → save config at the bottom.\n2) Fully independent from “AI configuration” image generation: reference images are only inputs to the 3D pipeline, not the same keys.\n3) Only when enabled and the key is valid may tasks that consume Tripo credits be created.\n4) The key is stored on the server only — never sent to browsers or embedded in model files.\n5) Outbound traffic uses the global proxy under Advanced settings; Tripo does not open a separate network path.',
+      frontend:
+        'Settings → 3D & Tripo → “Tripo connection” group.\nDigital Life / 3D task creation entry points (admin).',
+      notes: 'Get the key from platform.tripo3d.ai. Turning enable off greys out fields below but keeps what you already filled.',
+    },
+    enabled: {
+      what: 'Master switch: allow this site to start 3D tasks that spend Tripo credits.',
+      chain:
+        '1) Off = cannot create credit-consuming tasks; on = can create once key and budget settings are ready.\n2) Does not delete the key or budget values — only blocks task entry.\n3) Unrelated to the AI image switch.',
+      frontend: '“Enable Tripo 3D” switch; other inputs in the group become read-only when off.',
+      notes: 'On public sites, ensure only admins can change this.',
+    },
+    apiKey: {
+      what: 'Secret key for the Tripo open platform.',
+      chain:
+        '1) Fill → save at the bottom → stored only on the server.\n2) Visitors and the frontend never see the full key.\n3) Missing or wrong key → task create/poll fails.',
+      frontend: 'Password field “Tripo API Key.” On failure, check the task error message.',
+      notes: 'Don’t paste into chats or public repos; rotating invalidates the old key immediately.',
+    },
+    baseUrl: {
+      what: 'Root URL of the Tripo API (official default is fine for most people).',
+      chain:
+        '1) Default is https://openapi.tripo3d.ai/v3.\n2) Change only for a self-hosted relay or if the official host moves.\n3) Wrong value → every 3D task fails to connect.',
+      frontend: '“API Base URL” field. Page look is unchanged; failure shows up as failed tasks.',
+      notes: 'If you don’t need a relay, keep the default; a wrong fill is worse than the default.',
+    },
+    webBudget: {
+      what: 'Default generation budget for Web/WebGL scenes: which low-poly model, face cap, and max size to persist.',
+      chain:
+        '1) These are default request parameters; a single call can override them, and results are inspected again after generation.\n2) Aimed at one-character Web scenes: a balance of look and mobile performance.\n3) Too many faces or too large a download slow downloads and frame rate; too low blurs detail.\n4) Unrelated to AI text-to-image resolution/models.',
+      frontend: '“Web model budget” group; results become long-lived local assets, not temporary external links.',
+      notes: 'Face limit ~4,000–8,000 is recommended (default 5,000). Changing budget does not rebuild old models.',
+    },
+    model: {
+      what: 'Default Tripo low-poly generation model id (for example the P1 series).',
+      chain:
+        '1) Sets default topology/detail orientation; tasks without an explicit model use this.\n2) Name must match a currently available official model id.\n3) Works with face limit and max download as the default budget.',
+      frontend: '“Default low-poly model” text field.',
+      notes: 'Default P1-20260311 targets low-poly and cleaner topology; a wrong name fails the call.',
+    },
+    faceLimit: {
+      what: 'Default face-count cap: how dense the mesh may be.',
+      chain:
+        '1) Sent as the default when requesting generation (callers may override).\n2) Higher = more detail, more VRAM/bandwidth; lower = better for mobile WebGL.\n3) About 4,000–8,000 is recommended; default 5,000 balances look and performance.\n4) Allowed range roughly 50–20,000.',
+      frontend: '“Default face limit” number field.',
+      notes: 'One-character Web scenes rarely need the absolute maximum; high caps slow phones.',
+    },
+    maxDownload: {
+      what: 'Maximum size (MB) allowed when persisting one generated model.',
+      chain:
+        '1) After success, the server downloads the model from a temporary URL into local storage; over this cap the save is rejected or fails.\n2) Protects disk from unexpectedly huge files.\n3) Default about 64 MB; adjust for disk and scene needs.',
+      frontend: '“Maximum model size” number field.',
+      notes: 'Temporary result URLs expire — pair this with task timeout so download finishes in time.',
+    },
+    taskControl: {
+      what: 'How the backend waits on Tripo jobs: how often to poll and how long to wait.',
+      chain:
+        '1) After create, poll status on the interval until success, failure, or timeout.\n2) On success, download and persist promptly before temporary URLs expire.\n3) Too short an interval may hit provider rate limits; too long makes progress feel stuck.\n4) Independent of connection: with enable/key off, these also have no effect.',
+      frontend: '“Task control” group. Users mainly feel “how long until a model appears.”',
+      notes: 'Defaults ~2s poll and ~15 minutes timeout match common provider guidance.',
+    },
+    pollInterval: {
+      what: 'Seconds between status queries to Tripo while a job runs.',
+      chain:
+        '1) Only applies while a task is in progress.\n2) Usually no faster than 2 seconds, to avoid rate limits.\n3) Larger interval = fewer requests, slower progress updates.',
+      frontend: '“Polling interval” number field.',
+      notes: 'Don’t go aggressive without a clear reason.',
+    },
+    taskTimeout: {
+      what: 'Maximum wait for one job (seconds); after that it is treated as failed.',
+      chain:
+        '1) Counts from start until success/failure; stops waiting past this many seconds.\n2) Complex jobs may need longer; too short kills valid work, too long holds the queue.\n3) Default about 900 seconds (15 minutes).',
+      frontend: '“Task timeout” number field.',
+      notes: 'On timeout, check upstream status and logs before retrying.',
     },
   },
 

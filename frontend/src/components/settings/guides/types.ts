@@ -48,6 +48,8 @@ export interface SettingGuidesCatalog {
     visibility: SettingGuideEntry
     visibilityItem: SettingGuideEntry
     library: SettingGuideEntry
+    /** 资料库卡片排布：列表 | 无限画布 */
+    libraryLayout: SettingGuideEntry
     libraryType: SettingGuideEntry
     report: SettingGuideEntry
     reportExpiry: SettingGuideEntry
@@ -117,6 +119,26 @@ export interface SettingGuidesCatalog {
     apiKey: SettingGuideEntry
     baseUrl: SettingGuideEntry
     model: SettingGuideEntry
+  }
+  /**
+   * 3D / Tripo（独立于 AI 图片服务；密钥仅存后端）
+   * ConfigForm 一级 section id = tripo
+   */
+  tripo: {
+    /** 连接组：启用 / API Key / Base URL */
+    connection: SettingGuideEntry
+    enabled: SettingGuideEntry
+    apiKey: SettingGuideEntry
+    baseUrl: SettingGuideEntry
+    /** Web 模型预算：默认低模、面数、落盘上限 */
+    webBudget: SettingGuideEntry
+    model: SettingGuideEntry
+    faceLimit: SettingGuideEntry
+    maxDownload: SettingGuideEntry
+    /** 任务控制：轮询间隔 / 超时 */
+    taskControl: SettingGuideEntry
+    pollInterval: SettingGuideEntry
+    taskTimeout: SettingGuideEntry
   }
   oauth: {
     section: SettingGuideEntry

@@ -6,6 +6,7 @@ import {
   SettingGroup,
   SettingSection,
   SwitchItem,
+  useSettingGuide,
 } from '../settings'
 
 interface ConfigField {
@@ -35,6 +36,7 @@ export const TripoConfigSection: React.FC<TripoConfigSectionProps> = ({
   sectionId,
 }) => {
   const { t } = useI18n()
+  const { catalog: g, bindGuide } = useSettingGuide()
   const value = useCallback(
     (key: string, fallback = '') =>
       configFields.find((field) => field.key === key)?.value || fallback,
@@ -52,6 +54,7 @@ export const TripoConfigSection: React.FC<TripoConfigSectionProps> = ({
       <SettingGroup
         title={t.config.tripoConnection}
         description={t.config.tripoConnectionDesc}
+        {...bindGuide('tripo.connection', g.tripo.connection)}
       >
         <SwitchItem
           itemKey="tripo_enabled"
@@ -61,6 +64,7 @@ export const TripoConfigSection: React.FC<TripoConfigSectionProps> = ({
           onChange={(checked) =>
             updateValue('tripo_enabled', checked ? 'true' : 'false')
           }
+          {...bindGuide('tripo.enabled', g.tripo.enabled)}
         />
         <InputItem
           itemKey="tripo_api_key"
@@ -71,6 +75,7 @@ export const TripoConfigSection: React.FC<TripoConfigSectionProps> = ({
           inputType="password"
           placeholder="Get from platform.tripo3d.ai"
           disabled={!enabled}
+          {...bindGuide('tripo.apiKey', g.tripo.apiKey)}
         />
         <InputItem
           itemKey="tripo_base_url"
@@ -79,12 +84,14 @@ export const TripoConfigSection: React.FC<TripoConfigSectionProps> = ({
           onChange={(next) => updateValue('tripo_base_url', next)}
           placeholder="https://openapi.tripo3d.ai/v3"
           disabled={!enabled}
+          {...bindGuide('tripo.baseUrl', g.tripo.baseUrl)}
         />
       </SettingGroup>
 
       <SettingGroup
         title={t.config.tripoWebBudget}
         description={t.config.tripoWebBudgetDesc}
+        {...bindGuide('tripo.webBudget', g.tripo.webBudget)}
       >
         <InputItem
           itemKey="tripo_model"
@@ -93,6 +100,7 @@ export const TripoConfigSection: React.FC<TripoConfigSectionProps> = ({
           onChange={(next) => updateValue('tripo_model', next)}
           placeholder="P1-20260311"
           disabled={!enabled}
+          {...bindGuide('tripo.model', g.tripo.model)}
         />
         <NumberItem
           itemKey="tripo_face_limit"
@@ -104,6 +112,7 @@ export const TripoConfigSection: React.FC<TripoConfigSectionProps> = ({
           max={20000}
           step={250}
           disabled={!enabled}
+          {...bindGuide('tripo.faceLimit', g.tripo.faceLimit)}
         />
         <NumberItem
           itemKey="tripo_max_download_mb"
@@ -116,12 +125,14 @@ export const TripoConfigSection: React.FC<TripoConfigSectionProps> = ({
           max={150}
           unit="MB"
           disabled={!enabled}
+          {...bindGuide('tripo.maxDownload', g.tripo.maxDownload)}
         />
       </SettingGroup>
 
       <SettingGroup
         title={t.config.tripoTaskControl}
         description={t.config.tripoTaskControlDesc}
+        {...bindGuide('tripo.taskControl', g.tripo.taskControl)}
       >
         <NumberItem
           itemKey="tripo_poll_interval_seconds"
@@ -134,6 +145,7 @@ export const TripoConfigSection: React.FC<TripoConfigSectionProps> = ({
           max={60}
           unit="s"
           disabled={!enabled}
+          {...bindGuide('tripo.pollInterval', g.tripo.pollInterval)}
         />
         <NumberItem
           itemKey="tripo_task_timeout_seconds"
@@ -146,6 +158,7 @@ export const TripoConfigSection: React.FC<TripoConfigSectionProps> = ({
           max={3600}
           unit="s"
           disabled={!enabled}
+          {...bindGuide('tripo.taskTimeout', g.tripo.taskTimeout)}
         />
       </SettingGroup>
     </SettingSection>

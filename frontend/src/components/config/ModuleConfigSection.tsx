@@ -639,6 +639,7 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
         <SettingGroup
           title={t.config.libraryLayout}
           description={t.config.libraryLayoutDesc}
+          {...bindGuide('modules.libraryLayout', g.modules.libraryLayout)}
         >
           <SegmentedControl
             value={sourceDraft.layout}
