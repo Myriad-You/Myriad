@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: 25
+          node-version: 24
       - name: Install pnpm
         run: npm install --global pnpm@10.28.2
       - name: Install dependencies
@@ -140,25 +140,35 @@ jobs:
             updater
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
-      # Advisories move independently of our code, so a fresh advisory can turn
-      # a previously green commit red. That is the point — but it means this job
-      # reports rather than hard-blocks unrelated PRs.
-      - name: Audit backend workspace
-        # Workspace lockfile lives at repo root
+      # MYR-027: hard-fail on unignored *vulnerabilities*; soft-report warnings
+      # (unmaintained/unsound/yanked). Allowlist: .cargo/audit.toml.
+      # Soft steps keep continue-on-error; hard steps do not.
+      - name: Audit backend workspace (hard — vulnerabilities)
+        # Workspace lockfile lives at repo root; config: .cargo/audit.toml
+        run: cargo audit
+      - name: Audit updater crates (hard — vulnerabilities)
+        working-directory: updater
+        run: cargo audit
+      - name: Audit backend workspace (soft — warnings)
         run: cargo audit --deny warnings
         continue-on-error: true
-      - name: Audit updater crates
+      - name: Audit updater crates (soft — warnings)
         working-directory: updater
         run: cargo audit --deny warnings
         continue-on-error: true
       - uses: actions/setup-node@v5
         with:
-          node-version: 25
+          node-version: 24
       - name: Install pnpm
         run: npm install --global pnpm@10.28.2
-      - name: Audit frontend dependencies
+      # High/critical hard-fail. Overrides + ignoreGhsas in frontend/package.json
+      # (see .github/dependency-audit/README.md). Moderate/low reported softly.
+      - name: Audit frontend dependencies (hard — high/critical)
         working-directory: frontend
         run: pnpm audit --audit-level high
+      - name: Audit frontend dependencies (soft — full report)
+        working-directory: frontend
+        run: pnpm audit
         continue-on-error: true
 
   tapp-cli:

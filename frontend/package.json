@@ -4,7 +4,7 @@
   "version": "0.3.25",
   "description": "Frontend for Myriad — a myriad of lights, in one place.",
   "engines": {
-    "node": ">=25 <26"
+    "node": ">=24 <25"
   },
   "scripts": {
     "astro": "cross-env GIT_PAGER= astro",
@@ -74,6 +74,17 @@
     "onlyBuiltDependencies": [
       "esbuild",
       "sharp"
-    ]
+    ],
+    "overrides": {
+      "brace-expansion": ">=5.0.9",
+      "fast-uri": ">=3.1.5",
+      "postcss": ">=8.5.23",
+      "svgo": ">=4.0.2"
+    },
+    "auditConfig": {
+      "ignoreGhsas": [
+        "GHSA-qwww-vcr4-c8h2"
+      ]
+    }
   }
 }

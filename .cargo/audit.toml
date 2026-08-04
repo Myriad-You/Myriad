@@ -1,0 +1,19 @@
+# Shared cargo-audit config for workspace + updater lockfiles (MYR-027).
+# Auto-loaded by `cargo audit` from this path (.cargo/audit.toml).
+# Policy docs: .github/dependency-audit/README.md
+#
+# Policy:
+# - Hard gate: unignored *vulnerabilities* fail CI (see dependency-audit job).
+# - Soft gate: unmaintained / unsound / yanked (--deny warnings) reports only.
+# - Prefer fixing or upgrading; ignore only when accepted with a written reason.
+#
+# Severity note: cargo-audit does not filter by CVSS. Medium-or-lower advisories
+# with no practical fix are listed here so high/critical signal stays actionable.
+
+[advisories]
+ignore = [
+    # RUSTSEC-2023-0071 — rsa "Marvin Attack" timing sidechannel (CVSS ~5.9 medium).
+    # No fixed crate release; pulled transitively (e.g. jsonwebtoken). Track upstream
+    # rsa/jsonwebtoken for a fix; re-evaluate when a patched rsa ships.
+    "RUSTSEC-2023-0071",
+]

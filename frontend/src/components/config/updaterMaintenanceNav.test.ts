@@ -6,7 +6,8 @@
  */
 
 import assert from 'node:assert/strict'
-import { afterEach, describe, it } from 'node:test'
+import { afterEach, before, describe, it } from 'node:test'
+import { ensureSessionStoragePolyfill } from '../../test/sessionStoragePolyfill'
 import {
   hasNavigatedForJob,
   isLikelyMaintenanceHtml,
@@ -16,6 +17,11 @@ import {
   shouldNavigateToMaintenance,
   startMaintenancePoll,
 } from './updaterMaintenanceNav'
+
+// Node 24 LTS does not enable Web Storage by default (Node 25+ does).
+before(() => {
+  ensureSessionStoragePolyfill()
+})
 
 describe('parseProxyStatus', () => {
   it('parses active maintenance', () => {
