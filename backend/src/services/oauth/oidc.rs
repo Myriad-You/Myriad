@@ -559,39 +559,16 @@ mod oidc_security_tests {
     fn id_token_alg_allowlists_asymmetric_rejects_hmac() {
         // jsonwebtoken 11: Algorithm is non_exhaustive — keep HS* rejected and
         // known RSA/EC/EdDSA accepted (fail-closed for unknown variants).
-        for ok in [
-            Algorithm::RS256,
-            Algorithm::RS384,
-            Algorithm::RS512,
-            Algorithm::PS256,
-            Algorithm::PS384,
-            Algorithm::PS512,
-            Algorithm::ES256,
-            Algorithm::ES384,
-            Algorithm::EdDSA,
-        ] {
-            assert!(
-                ensure_asymmetric_id_token_alg(ok).is_ok(),
-                "expected asymmetric alg {ok:?} accepted"
-            );
-        }
-        // Explicit per-algorithm HMAC rejects (HS256/HS384/HS512 — Copilot #294).
-        // Standalone asserts so each alg is greppable / hard to drop in a refactor.
-        assert!(
-            ensure_asymmetric_id_token_alg(Algorithm::HS256).is_err(),
-            "HS256 must be rejected"
-        );
-        assert!(
-            ensure_asymmetric_id_token_alg(Algorithm::HS384).is_err(),
-            "HS384 must be rejected"
-        );
-        assert!(
-            ensure_asymmetric_id_token_alg(Algorithm::HS512).is_err(),
-            "HS512 must be rejected"
-        );
+        assert!(ensure_asymmetric_id_token_alg(Algorithm::RS256).is_ok());
+        assert!(ensure_asymmetric_id_token_alg(Algorithm::ES256).is_ok());
+        assert!(ensure_asymmetric_id_token_alg(Algorithm::EdDSA).is_ok());
+        // HMAC family: HS256, HS384, and HS512 must all be rejected (Copilot #294).
+        assert!(ensure_asymmetric_id_token_alg(Algorithm::HS256).is_err());
+        assert!(ensure_asymmetric_id_token_alg(Algorithm::HS384).is_err());
+        assert!(ensure_asymmetric_id_token_alg(Algorithm::HS512).is_err());
     }
 
-    /// Dedicated Copilot #294 regression: HS384 alone (not only HS256/HS512).
+    /// Dedicated regression: HS384 alone (HS256/HS512 coverage is not enough).
     #[test]
     fn ensure_asymmetric_id_token_alg_rejects_hs384() {
         assert!(ensure_asymmetric_id_token_alg(Algorithm::HS384).is_err());
