@@ -159,6 +159,24 @@ pub struct Prefs {
     /// Ids removed when prefs change triggered an immediate prune (empty otherwise).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pruned_snapshot_ids: Vec<String>,
+    /// Non-keep / non-in-use snapshot count after prune (diagnostics).
+    pub eligible_count: u32,
+    /// keep=true and/or in-use/rescue-protected snapshot count after prune.
+    pub protected_count: u32,
+    /// Total snapshots in metadata after prune.
+    pub total_count: u32,
+}
+
+/// Snapshot list response extras (retention diagnostics + self-heal prune result).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SnapshotListDiagnostics {
+    pub snapshot_limit_enabled: bool,
+    pub snapshot_limit: u32,
+    pub eligible_count: u32,
+    pub protected_count: u32,
+    pub total_count: u32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pruned_snapshot_ids: Vec<String>,
 }
 
 /// Allowed UI values for the check-interval preference (seconds).
@@ -876,6 +894,9 @@ impl Worker {
                     Err(_) => break, // worker shutdown
                 }
 
+                // Self-heal backup pile without waiting for UI open or another update.
+                ticker_worker.best_effort_prune_snapshots("periodic_check");
+
                 // Re-read interval after the check so a prefs change takes effect promptly.
                 let sleep_secs = ticker_worker.effective_check_interval_secs().max(1);
                 tokio::time::sleep(std::time::Duration::from_secs(sleep_secs)).await;
@@ -1056,15 +1077,21 @@ impl Worker {
 
     /// Best-effort prune using current prefs.
     ///
-    /// - Limit disabled → `Ok([])` and a debug log (not an error).
+    /// - Limit disabled → still sweep orphan dirs under `snapshots/`; return `Ok([])`.
     /// - State read failure → `Err` + warn (callers must not treat this as
     ///   "disabled"; previously `ok()?` swallowed the error as a silent no-op).
     /// - Limit enabled → run prune and log kept/removed counts.
     pub fn maybe_prune_snapshots(&self) -> Result<Vec<String>> {
+        let snap = crate::snapshot::SnapshotManager {
+            state: &self.state,
+            pgdata: self.cli.pgdata.clone(),
+        };
         let keep_n = match self.effective_snapshot_limit() {
             Ok(Some(n)) => n,
             Ok(None) => {
                 tracing::debug!("snapshot prune skipped: limit disabled");
+                // Orphans still waste disk even when count limit is off.
+                let _ = snap.sweep_orphan_snapshot_dirs();
                 return Ok(Vec::new());
             }
             Err(e) => {
@@ -1074,10 +1101,6 @@ impl Worker {
                 );
                 return Err(e);
             }
-        };
-        let snap = crate::snapshot::SnapshotManager {
-            state: &self.state,
-            pgdata: self.cli.pgdata.clone(),
         };
         let removed = snap.prune(keep_n)?;
         if removed.is_empty() {
@@ -1115,6 +1138,64 @@ impl Worker {
                 warn!(err = %e, %reason, "snapshot prune failed (best-effort)");
             }
         }
+    }
+
+    /// Self-heal retention when listing backups: prune if over limit, always
+    /// report diagnostics so the UI can show truth (including old-updater gap
+    /// when these fields are missing from status).
+    pub fn heal_and_list_snapshot_diagnostics(&self) -> Result<(crate::state::SnapshotsFile, SnapshotListDiagnostics)> {
+        let pruned = match self.maybe_prune_snapshots() {
+            Ok(ids) => {
+                if !ids.is_empty() {
+                    let _ = self.state.append_history(&format!(
+                        "snapshot prune (list_snapshots): removed {} ({})",
+                        ids.len(),
+                        ids.join(",")
+                    ));
+                    let _ = self.state.append_audit(&format!(
+                        "audit: snapshot_prune reason=list_snapshots count={} ids={}",
+                        ids.len(),
+                        ids.join(",")
+                    ));
+                }
+                ids
+            }
+            Err(e) => {
+                warn!(err = %e, "snapshot prune on list failed (returning current list)");
+                Vec::new()
+            }
+        };
+
+        let st = self.state.read_updater()?;
+        let snap = crate::snapshot::SnapshotManager {
+            state: &self.state,
+            pgdata: self.cli.pgdata.clone(),
+        };
+        let counts = snap.retention_counts().unwrap_or_default();
+        let file = self.state.read_snapshots()?;
+        Ok((
+            file,
+            SnapshotListDiagnostics {
+                snapshot_limit_enabled: st.snapshot_limit_enabled,
+                snapshot_limit: st.snapshot_limit,
+                eligible_count: counts.eligible_count,
+                protected_count: counts.protected_count,
+                total_count: counts.total_count,
+                pruned_snapshot_ids: pruned,
+            },
+        ))
+    }
+
+    fn snapshot_retention_diagnostics_after_prune(
+        &self,
+        pruned: Vec<String>,
+    ) -> (Vec<String>, crate::snapshot::RetentionCounts) {
+        let snap = crate::snapshot::SnapshotManager {
+            state: &self.state,
+            pgdata: self.cli.pgdata.clone(),
+        };
+        let counts = snap.retention_counts().unwrap_or_default();
+        (pruned, counts)
     }
 
     /// Shared safety gate for auto-install: only clear upgrades on the current
@@ -1507,8 +1588,19 @@ impl Worker {
                     "prefs: snapshot prune not run (limit disabled or fields not applied)"
                 );
             }
+            // Still sweep orphans when operator touches retention prefs.
+            if snapshot_limit_enabled.is_some() || snapshot_limit.is_some() {
+                let snap = crate::snapshot::SnapshotManager {
+                    state: &self.state,
+                    pgdata: self.cli.pgdata.clone(),
+                };
+                let _ = snap.sweep_orphan_snapshot_dirs();
+            }
             Vec::new()
         };
+
+        let (pruned_snapshot_ids, counts) =
+            self.snapshot_retention_diagnostics_after_prune(pruned_snapshot_ids);
 
         let prefs = Prefs {
             channel: st.channel.clone(),
@@ -1521,6 +1613,9 @@ impl Worker {
             snapshot_limit_enabled: st.snapshot_limit_enabled,
             snapshot_limit: st.snapshot_limit,
             pruned_snapshot_ids,
+            eligible_count: counts.eligible_count,
+            protected_count: counts.protected_count,
+            total_count: counts.total_count,
         };
         self.state.append_history(&format!(
             "prefs: channel={} mode={} check_interval_secs={:?} auto_install={} \

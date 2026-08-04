@@ -378,8 +378,27 @@ async fn get_job(
 }
 
 async fn list_snapshots(State(st): State<ApiState>) -> Result<Json<Value>, ApiError> {
-    let s = st.state.read_snapshots()?;
-    Ok(Json(serde_json::to_value(s)?))
+    // Self-heal: if limit is on and eligible > N, prune before returning the list
+    // so opening 关于/备份 UI heals without waiting for another update.
+    let (file, diag) = st.worker.heal_and_list_snapshot_diagnostics()?;
+    let mut value = serde_json::to_value(file)?;
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert(
+            "snapshot_limit_enabled".into(),
+            json!(diag.snapshot_limit_enabled),
+        );
+        obj.insert("snapshot_limit".into(), json!(diag.snapshot_limit));
+        obj.insert("eligible_count".into(), json!(diag.eligible_count));
+        obj.insert("protected_count".into(), json!(diag.protected_count));
+        obj.insert("total_count".into(), json!(diag.total_count));
+        if !diag.pruned_snapshot_ids.is_empty() {
+            obj.insert(
+                "pruned_snapshot_ids".into(),
+                json!(diag.pruned_snapshot_ids),
+            );
+        }
+    }
+    Ok(Json(value))
 }
 
 async fn delete_snapshot(
@@ -784,6 +803,9 @@ async fn set_prefs(
         "snapshot_limit_enabled": prefs.snapshot_limit_enabled,
         "snapshot_limit": prefs.snapshot_limit,
         "pruned_snapshot_ids": prefs.pruned_snapshot_ids,
+        "eligible_count": prefs.eligible_count,
+        "protected_count": prefs.protected_count,
+        "total_count": prefs.total_count,
     })))
 }
 

@@ -36,6 +36,36 @@ pub struct SnapshotManager<'a> {
     pub pgdata: PathBuf,
 }
 
+/// Counts used by API diagnostics (`GET /snapshots`, `POST /prefs`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RetentionCounts {
+    pub total_count: u32,
+    /// Non-keep, non-in-use snapshots (subject to keep-N).
+    pub eligible_count: u32,
+    /// `keep=true` and/or in-use/rescue-protected snapshots.
+    pub protected_count: u32,
+}
+
+/// Safe directory names under `state/snapshots/` that orphan sweep may remove.
+///
+/// Allows opaque ids, create leftovers (`{id}.tmp`), and in-place restore
+/// staging names (`broken-inplace-*`, `restore-stage-*`). Rejects anything
+/// that could escape the directory via `..` or separators.
+pub fn is_safe_snapshot_dir_name(name: &str) -> bool {
+    if name.is_empty() || name == "." || name == ".." {
+        return false;
+    }
+    // Create leftovers: `{id}.tmp` where id itself is a valid opaque token.
+    if let Some(base) = name.strip_suffix(".tmp") {
+        return !base.is_empty()
+            && base
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'));
+    }
+    name.chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+}
+
 /// Reject any snapshot id that could influence path resolution.
 ///
 /// Every snapshot id is an opaque, updater-generated token; it is only ever
@@ -277,6 +307,31 @@ impl<'a> SnapshotManager<'a> {
         Ok(())
     }
 
+    /// Classify snapshots for retention diagnostics (eligible vs protected).
+    ///
+    /// - **eligible**: non-`keep` and not in-use/rescue — subject to keep-N
+    /// - **protected**: `keep=true` and/or referenced by current job / rescue
+    ///
+    /// A pin that is also in-use counts once toward `protected_count`.
+    pub fn retention_counts(&self) -> Result<RetentionCounts> {
+        let sf = self.state.read_snapshots()?;
+        let mut eligible = 0u32;
+        let mut protected = 0u32;
+        for m in &sf.items {
+            let in_use = self.in_use_reason(&m.id)?.is_some();
+            if m.keep || in_use {
+                protected += 1;
+            } else {
+                eligible += 1;
+            }
+        }
+        Ok(RetentionCounts {
+            total_count: sf.items.len() as u32,
+            eligible_count: eligible,
+            protected_count: protected,
+        })
+    }
+
     /// Apply the keep-N retention policy described in spec §9.3.
     ///
     /// Always retained (never auto-deleted):
@@ -290,6 +345,10 @@ impl<'a> SnapshotManager<'a> {
     /// when callers intentionally pass zero; the prefs path clamps to ≥1). When
     /// `keep_n >= 1`, at least `min(keep_n, eligible)` auto-managed backups remain, so
     /// prune never wipes the last eligible backup solely because the set is small.
+    ///
+    /// Disk delete failures are **not** silent: the id stays in `snapshots.json` so the
+    /// list remains honest, and an error is logged. After meta prune, orphan dirs under
+    /// `state/snapshots/` (safe name patterns only) are swept.
     pub fn prune(&self, keep_n: usize) -> Result<Vec<String>> {
         let mut sf = self.state.read_snapshots()?;
 
@@ -318,23 +377,113 @@ impl<'a> SnapshotManager<'a> {
             keepers.iter().map(|m| m.id.clone()).collect();
 
         let mut removed = Vec::new();
-        sf.items.retain(|m| {
-            if keep_ids.contains(&m.id) {
-                true
-            } else {
-                let p = self.state.snapshots_dir().join(&m.id);
-                let _ = std::fs::remove_dir_all(&p);
-                removed.push(m.id.clone());
-                false
+        let mut disk_failures = Vec::new();
+        // Collect candidates first — we cannot call fallible I/O inside retain.
+        let drop_ids: Vec<String> = sf
+            .items
+            .iter()
+            .filter(|m| !keep_ids.contains(&m.id))
+            .map(|m| m.id.clone())
+            .collect();
+
+        for id in drop_ids {
+            let p = self.state.snapshots_dir().join(&id);
+            if p.exists() {
+                if let Err(e) = std::fs::remove_dir_all(&p) {
+                    warn!(
+                        snapshot = %id,
+                        path = %p.display(),
+                        err = %e,
+                        "snapshot prune: disk delete failed; keeping id in snapshots.json"
+                    );
+                    disk_failures.push(id);
+                    continue;
+                }
             }
-        });
+            removed.push(id);
+        }
+
         if !removed.is_empty() {
+            let drop_set: std::collections::HashSet<&str> =
+                removed.iter().map(String::as_str).collect();
+            sf.items.retain(|m| !drop_set.contains(m.id.as_str()));
             self.state.write_snapshots(&sf)?;
             info!(
                 keep_n,
                 removed = removed.len(),
+                disk_failures = disk_failures.len(),
                 "snapshot prune removed older backups"
             );
+        } else if !disk_failures.is_empty() {
+            warn!(
+                keep_n,
+                failed = disk_failures.len(),
+                "snapshot prune: all candidate deletes failed on disk; metadata unchanged"
+            );
+        }
+
+        // Always sweep untracked leftover dirs (tmp / restore stages / deleted-but-left).
+        let orphaned = self.sweep_orphan_snapshot_dirs()?;
+        if !orphaned.is_empty() {
+            info!(
+                count = orphaned.len(),
+                names = %orphaned.join(","),
+                "snapshot prune: removed orphan dirs under snapshots/"
+            );
+        }
+
+        Ok(removed)
+    }
+
+    /// Remove directories under `state/snapshots/` that are not listed in
+    /// `snapshots.json`, when the name matches a safe pattern only:
+    /// - opaque snapshot id (`[A-Za-z0-9_-]+`)
+    /// - create leftover `{id}.tmp`
+    /// - in-place restore leftovers `broken-inplace-*`, `restore-stage-*`
+    ///
+    /// Never touches names with path separators or other characters.
+    pub fn sweep_orphan_snapshot_dirs(&self) -> Result<Vec<String>> {
+        let sf = self.state.read_snapshots()?;
+        let known: std::collections::HashSet<&str> =
+            sf.items.iter().map(|m| m.id.as_str()).collect();
+        let dir = self.state.snapshots_dir();
+        if !dir.is_dir() {
+            return Ok(Vec::new());
+        }
+
+        let mut removed = Vec::new();
+        for entry in std::fs::read_dir(&dir)? {
+            let entry = entry?;
+            let ft = entry.file_type()?;
+            if !ft.is_dir() {
+                continue;
+            }
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else {
+                continue;
+            };
+            if !is_safe_snapshot_dir_name(name) {
+                continue;
+            }
+            // Keep meta-tracked snapshot dirs.
+            if known.contains(name) {
+                continue;
+            }
+            let path = entry.path();
+            match std::fs::remove_dir_all(&path) {
+                Ok(()) => {
+                    info!(name, "removed orphan snapshot dir");
+                    removed.push(name.to_string());
+                }
+                Err(e) => {
+                    warn!(
+                        name,
+                        path = %path.display(),
+                        err = %e,
+                        "failed to remove orphan snapshot dir"
+                    );
+                }
+            }
         }
         Ok(removed)
     }
@@ -1025,5 +1174,136 @@ mod tests {
         assert!(removed.is_empty());
         assert_eq!(state.read_snapshots().unwrap().items.len(), 1);
         assert_eq!(state.read_snapshots().unwrap().items[0].id, "only");
+    }
+
+    /// Disk delete failure must not drop the id from snapshots.json (list stays honest).
+    #[test]
+    fn prune_disk_delete_failure_keeps_meta() {
+        let dir = tempdir().unwrap();
+        let state = StateDir::open(&dir.path().join("state")).unwrap();
+        let now = Utc::now();
+        // Two normal dirs + one "broken" path that is a file, so remove_dir_all fails.
+        plant_snapshot_meta_at(&state, "ok-new", now, false);
+        plant_snapshot_meta_at(&state, "ok-mid", now - chrono::Duration::hours(1), false);
+        // Meta for bad-old, but plant a file instead of a directory.
+        let mut sf = state.read_snapshots().unwrap();
+        sf.items.push(SnapshotMeta {
+            id: "bad-old".into(),
+            created_at: now - chrono::Duration::hours(2),
+            source_version: None,
+            size_bytes: 1,
+            file_count: 1,
+            keep: false,
+            sample_sha256: None,
+        });
+        state.write_snapshots(&sf).unwrap();
+        std::fs::write(state.snapshots_dir().join("bad-old"), b"not-a-dir").unwrap();
+
+        let mgr = SnapshotManager {
+            state: &state,
+            pgdata: dir.path().join("pgdata"),
+        };
+        // keep_n=1 → should try to drop mid + bad-old; mid goes, bad-old stays in JSON.
+        let removed = mgr.prune(1).unwrap();
+        assert!(removed.contains(&"ok-mid".to_string()), "removed={removed:?}");
+        assert!(
+            !removed.contains(&"bad-old".to_string()),
+            "failed disk delete must not appear in removed: {removed:?}"
+        );
+        let ids: std::collections::HashSet<_> = state
+            .read_snapshots()
+            .unwrap()
+            .items
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
+        assert!(ids.contains("ok-new"));
+        assert!(ids.contains("bad-old"), "meta must stay when disk delete fails");
+        assert!(!ids.contains("ok-mid"));
+        assert!(state.snapshots_dir().join("bad-old").is_file());
+    }
+
+    #[test]
+    fn prune_sweeps_orphan_dirs_with_safe_names() {
+        let dir = tempdir().unwrap();
+        let state = StateDir::open(&dir.path().join("state")).unwrap();
+        plant_snapshot_meta_at(&state, "tracked", Utc::now(), false);
+
+        let snaps = state.snapshots_dir();
+        // Safe orphans.
+        std::fs::create_dir_all(snaps.join("orphan-id")).unwrap();
+        std::fs::create_dir_all(snaps.join("leftover.tmp")).unwrap();
+        std::fs::create_dir_all(snaps.join("broken-inplace-20260101T000000Z")).unwrap();
+        std::fs::create_dir_all(snaps.join("restore-stage-20260101T000000Z")).unwrap();
+        // Unsafe name must not be touched.
+        std::fs::create_dir_all(snaps.join("weird.name")).unwrap();
+
+        let mgr = SnapshotManager {
+            state: &state,
+            pgdata: dir.path().join("pgdata"),
+        };
+        // keep_n large enough that tracked is not deleted; still sweeps orphans.
+        let removed = mgr.prune(5).unwrap();
+        assert!(removed.is_empty());
+        assert!(snaps.join("tracked").exists());
+        assert!(!snaps.join("orphan-id").exists());
+        assert!(!snaps.join("leftover.tmp").exists());
+        assert!(!snaps.join("broken-inplace-20260101T000000Z").exists());
+        assert!(!snaps.join("restore-stage-20260101T000000Z").exists());
+        assert!(
+            snaps.join("weird.name").exists(),
+            "unsafe names must not be auto-deleted"
+        );
+    }
+
+    #[test]
+    fn is_safe_snapshot_dir_name_accepts_known_patterns() {
+        assert!(is_safe_snapshot_dir_name("abc123"));
+        assert!(is_safe_snapshot_dir_name("job-uuid_01"));
+        assert!(is_safe_snapshot_dir_name("snap.tmp"));
+        assert!(is_safe_snapshot_dir_name("broken-inplace-20260101T000000Z"));
+        assert!(is_safe_snapshot_dir_name("restore-stage-x"));
+        assert!(!is_safe_snapshot_dir_name(""));
+        assert!(!is_safe_snapshot_dir_name(".."));
+        assert!(!is_safe_snapshot_dir_name("a/b"));
+        assert!(!is_safe_snapshot_dir_name("weird.name"));
+        assert!(!is_safe_snapshot_dir_name(".tmp"));
+    }
+
+    #[test]
+    fn retention_counts_splits_eligible_and_protected() {
+        use crate::state::{Job, JobKind, JobStatus};
+
+        let dir = tempdir().unwrap();
+        let state = StateDir::open(&dir.path().join("state")).unwrap();
+        let now = Utc::now();
+        plant_snapshot_meta_at(&state, "e1", now, false);
+        plant_snapshot_meta_at(&state, "e2", now, false);
+        plant_snapshot_meta_at(&state, "pin", now, true);
+        plant_snapshot_meta_at(&state, "busy", now, false);
+
+        let job = Job {
+            id: "job-rc".into(),
+            kind: JobKind::Update,
+            created_at: now,
+            finished_at: None,
+            from_version: None,
+            to_version: None,
+            snapshot_id: Some("busy".into()),
+            status: JobStatus::Running,
+            steps: vec![],
+            idempotency_key: None,
+        };
+        state.write_job(&job).unwrap();
+        state.set_current_job(Some("job-rc")).unwrap();
+
+        let mgr = SnapshotManager {
+            state: &state,
+            pgdata: dir.path().join("pgdata"),
+        };
+        let c = mgr.retention_counts().unwrap();
+        assert_eq!(c.total_count, 4);
+        assert_eq!(c.eligible_count, 2);
+        assert_eq!(c.protected_count, 2);
     }
 }

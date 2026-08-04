@@ -478,11 +478,20 @@ MYRIAD_DB_MODE=external
 
 - **备份上限**（`snapshot_limit_enabled`，默认开启；`snapshot_limit` 默认 3，范围 1–20）：
   对「非 keep / 非 in-use」的快照（**不限年龄**）只保留最新 N 份，其余删除。
-- **何时执行 prune**（缺一不可，否则失败更新会无限堆积备份）：
+- **何时执行 prune**（缺一不可，否则失败更新会无限堆积备份；已有堆积须能自愈）：
   1. `POST /prefs` 保存/改动上限设置时立即 prune
   2. **更新成功** finalize 后（先清 `job.current`，再 prune，使刚创建的备份计入 N）
   3. **更新失败**且已创建过快照：pre-swap 清理后、post-swap 自动回滚后、以及 needs_manual 时（rescue 引用的那份仍受 `in_use` 保护）
-- 关闭上限后不再按数量自动清理（仍可手动 `DELETE /snapshots/{id}`）。
+  4. **`GET /snapshots`**（打开备份 UI 时）：若已超限则 best-effort prune，响应带诊断字段
+  5. **周期性 check tick**（`CHECK_INTERVAL` / prefs）：每次查询可用更新后 best-effort prune
+- **诊断字段**（`GET /snapshots` 与 `POST /prefs` 响应）：`snapshot_limit_enabled`、`snapshot_limit`、
+  `eligible_count`（可自动删的份数）、`protected_count`（keep / in-use）、`total_count`、
+  以及本次 prune 的 `pruned_snapshot_ids`（可能为空）。前端据此展示有效计数，并在 status
+  缺少 `snapshot_limit*` 时提示 updater 镜像可能过旧（需 self-update / `UPDATER_TAG`）。
+- **磁盘一致性**：meta 跟踪的 id 若 `remove_dir_all` 失败须打 error/warn 且**不得**从
+  `snapshots.json` 删除该 id；prune 后扫 `state/snapshots/` 下不在 JSON 中、且名称符合
+  安全模式（opaque id / `{id}.tmp` / `broken-inplace-*` / `restore-stage-*`）的孤儿目录并清理。
+- 关闭上限后不再按数量自动清理（仍可手动 `DELETE /snapshots/{id}`；孤儿目录扫除仍可运行）。
 - `keep=true`（如 major 升级前永久标记）永不自动删
 - 删除前确认不是 in-flight job / needs_manual rescue 引用
 - 年龄不再作为「永远保留」的例外；上限对自动管理备份是硬上限
