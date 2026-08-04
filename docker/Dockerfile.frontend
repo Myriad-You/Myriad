@@ -17,8 +17,8 @@ FROM --platform=$BUILDPLATFORM node:${NODE_VERSION}-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files
-COPY frontend/package.json frontend/pnpm-lock.yaml ./
+# Copy package files (workspace yaml carries pnpm overrides / settings)
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
 
 # Disable husky in Docker (no .git directory)
 ENV HUSKY=0
