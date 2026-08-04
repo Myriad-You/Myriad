@@ -123,7 +123,7 @@ pub async fn get_context_user(
             avatar = crate::services::avatar::avatar_snapshot_expr("u"),
         );
         if let Ok(Some(row)) = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 sql,
                 [user_id.into()],

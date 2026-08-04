@@ -54,7 +54,7 @@ pub async fn put<T: Serialize>(
     expires_at: i64,
 ) -> Result<(), DbErr> {
     let payload = serde_json::to_value(payload).map_err(|error| DbErr::Json(error.to_string()))?;
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"
 INSERT INTO tapp_runtime_registry
@@ -104,14 +104,14 @@ pub async fn put_with_subject_limit<T: Serialize>(
     let transaction = db.begin().await?;
     let lock_key = format!("tapp_registry:{namespace}:{subject_id}");
     transaction
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
             vec![lock_key.into()],
         ))
         .await?;
     transaction
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "DELETE FROM tapp_runtime_registry WHERE namespace = $1 AND subject_id = $2 AND expires_at <= EXTRACT(EPOCH FROM NOW())::BIGINT",
             vec![namespace.into(), subject_id.into()],
@@ -136,7 +136,7 @@ pub async fn put_with_subject_limit<T: Serialize>(
     }
 
     transaction
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 INSERT INTO tapp_runtime_registry
@@ -308,7 +308,7 @@ pub async fn delete(
     record_id: &str,
 ) -> Result<bool, DbErr> {
     let result = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "DELETE FROM tapp_runtime_registry WHERE namespace = $1 AND record_id = $2",
             vec![namespace.into(), record_id.into()],
@@ -395,7 +395,7 @@ pub async fn delete_matching(
     runtime_id: Option<&str>,
 ) -> Result<u64, DbErr> {
     let result = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 DELETE FROM tapp_runtime_registry
@@ -425,7 +425,7 @@ pub async fn delete_matching_payload_text(
     payload_value: &str,
 ) -> Result<u64, DbErr> {
     let result = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 DELETE FROM tapp_runtime_registry
@@ -456,7 +456,7 @@ pub async fn enqueue<T: Serialize>(
     expires_at: i64,
 ) -> Result<(), DbErr> {
     let payload = serde_json::to_value(payload).map_err(|error| DbErr::Json(error.to_string()))?;
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "INSERT INTO tapp_runtime_mailbox (channel, runtime_id, payload, expires_at) VALUES ($1, $2, $3, $4)",
         vec![channel.into(), runtime_id.into(), payload.into(), expires_at.into()],
@@ -466,7 +466,7 @@ pub async fn enqueue<T: Serialize>(
     // NOTIFY is a best-effort latency hint. The mailbox remains the source of
     // truth until a consumer claims a message, and consumers poll if hints are missed.
     if let Err(error) = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT pg_notify('tapp_runtime_mailbox', $1)",
             vec![runtime_id.into()],
@@ -518,13 +518,13 @@ RETURNING mailbox.payload
 }
 
 pub async fn cleanup(db: &impl ConnectionTrait) -> Result<(), DbErr> {
-    db.execute(Statement::from_string(
+    db.execute_raw(Statement::from_string(
         DatabaseBackend::Postgres,
         "DELETE FROM tapp_runtime_registry WHERE expires_at <= EXTRACT(EPOCH FROM NOW())::BIGINT"
             .to_string(),
     ))
     .await?;
-    db.execute(Statement::from_string(
+    db.execute_raw(Statement::from_string(
         DatabaseBackend::Postgres,
         "DELETE FROM tapp_runtime_mailbox WHERE expires_at <= EXTRACT(EPOCH FROM NOW())::BIGINT"
             .to_string(),

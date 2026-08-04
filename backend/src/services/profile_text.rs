@@ -111,7 +111,7 @@ async fn load_user_text_row(
     user_id: i32,
 ) -> Result<Option<UserTextRow>, String> {
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT profile_text_source_kind, profile_text_source_ref, \
                     display_name, username, bio, COALESCE(is_owner, false) AS is_owner \
@@ -207,7 +207,7 @@ async fn load_identities(
     user_id: i32,
 ) -> Result<Vec<IdentityText>, String> {
     let rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT id, provider, provider_username \
              FROM user_identities WHERE user_id = $1 ORDER BY linked_at ASC",
@@ -440,14 +440,14 @@ pub async fn set_profile_text_source(
         }
     };
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "UPDATE users SET profile_text_source_kind = $1, profile_text_source_ref = $2, \
          updated_at = NOW() WHERE id = $3",
         vec![
-            SeaValue::String(Some(Box::new(kind.as_str().to_string()))),
+            SeaValue::String(Some(kind.as_str().to_string())),
             match stored_ref {
-                Some(r) => SeaValue::String(Some(Box::new(r))),
+                Some(r) => SeaValue::String(Some(r)),
                 None => SeaValue::String(None),
             },
             SeaValue::Int(Some(user_id)),

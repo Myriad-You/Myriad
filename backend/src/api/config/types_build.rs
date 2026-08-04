@@ -2509,7 +2509,7 @@ pub async fn export_settings(
     let registry = settings_registry();
     let effective_config = build_config(&db, true).await;
     let rows = match db
-        .query_all(Statement::from_string(
+        .query_all_raw(Statement::from_string(
             DatabaseBackend::Postgres,
             "SELECT key, value, description, category, is_encrypted, is_public FROM configurations ORDER BY key"
                 .to_string(),
@@ -2656,7 +2656,7 @@ pub async fn restore_settings(
     let restore_result: Result<(), sea_orm::DbErr> = async {
         for entry in entries {
             transaction
-                .execute(Statement::from_sql_and_values(
+                .execute_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     r#"
                         INSERT INTO configurations
@@ -2687,7 +2687,7 @@ pub async fn restore_settings(
         let notification_value = serde_json::to_value(&notification_preferences)
             .map_err(|error| sea_orm::DbErr::Custom(error.to_string()))?;
         let update_result = transaction
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "UPDATE users SET notification_preferences = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
                 vec![notification_value.into(), user_id.into()],
@@ -5306,7 +5306,7 @@ async fn load_module_visibility_preferences(
 ) -> ModuleVisibilityPreferences {
     let sql = "SELECT value FROM configurations WHERE key = $1";
     let result = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             sql,
             vec![MODULE_VISIBILITY_PREFERENCES_KEY.into()],
@@ -5448,7 +5448,7 @@ impl HitokotoConfig {
 async fn load_hitokoto_config(db: &DatabaseConnection) -> HitokotoConfig {
     let sql = "SELECT value FROM configurations WHERE key = $1";
     let result = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             sql,
             vec![HITOKOTO_CONFIG_KEY.into()],
@@ -5564,7 +5564,7 @@ impl ReportSettings {
 pub async fn load_report_settings(db: &DatabaseConnection) -> ReportSettings {
     let sql = "SELECT value FROM configurations WHERE key = $1";
     let result = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             sql,
             vec![REPORT_SETTINGS_KEY.into()],

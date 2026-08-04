@@ -145,7 +145,7 @@ pub fn record_user_presence(claims: &Claims, db: DatabaseConnection) {
     }
     tokio::spawn(async move {
         let result = db
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "UPDATE users SET \
                      online_seconds = online_seconds + CASE \
@@ -226,7 +226,7 @@ pub async fn ensure_current_admin_on(
     })?;
 
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT is_admin FROM users WHERE id = $1 LIMIT 1",
             [user_id.into()],
@@ -285,7 +285,7 @@ pub async fn load_token_version(
         return Ok(None);
     }
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT token_version FROM users WHERE id = $1 LIMIT 1",
             [user_id.into()],
@@ -387,7 +387,7 @@ pub async fn bump_token_version(
         return Ok(None);
     }
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "UPDATE users SET token_version = token_version + 1, updated_at = NOW() \
              WHERE id = $1 RETURNING token_version",

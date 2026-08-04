@@ -25,7 +25,7 @@ mod list_smoke_tests {
             .expect("migrator up");
 
         let row = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "INSERT INTO users (username) VALUES ($1) RETURNING id",
                 [format!(

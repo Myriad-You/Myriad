@@ -471,7 +471,7 @@ impl BrewSchedulerEngine {
                     .to_owned();
             brew_items::Entity::insert_many(new_items)
                 .on_conflict(on_conflict)
-                .do_nothing()
+                .try_insert()
                 .exec(db)
                 .await
                 .map_err(|e| format!("Failed to batch insert items: {}", e))?;

@@ -101,7 +101,7 @@ async fn check_database_tables(db: &DatabaseConnection) -> bool {
     // Check multiple critical tables to ensure migrations completed
     // Using platforms table since it's the first migration (001)
     let result = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT EXISTS (
                 SELECT FROM information_schema.tables 
@@ -144,7 +144,7 @@ async fn check_database_tables(db: &DatabaseConnection) -> bool {
 /// Check if any current administrator exists, regardless of login provider.
 async fn check_admin_user_exists(db: &DatabaseConnection) -> bool {
     let result = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT EXISTS (SELECT 1 FROM users WHERE is_admin = true LIMIT 1) as admin_exists",
             vec![],
@@ -213,7 +213,7 @@ pub async fn init_database(
 
     // Check existing migrations in seaql_migrations table
     let existing_migrations = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT version FROM seaql_migrations ORDER BY version",
             vec![],
@@ -255,7 +255,7 @@ pub async fn init_database(
 
             // List all tables in the database
             let tables_result = db
-                .query_all(Statement::from_sql_and_values(
+                .query_all_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name",
                     vec![],
@@ -272,7 +272,7 @@ pub async fn init_database(
 
             // Verify tables were created
             let verify_result = db
-                .query_one(Statement::from_sql_and_values(
+                .query_one_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     "SELECT 
                         (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public') as total_tables,

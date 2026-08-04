@@ -188,7 +188,7 @@ pub async fn create_admin(
     })?;
 
     // Serialize concurrent setup; released automatically on commit/rollback.
-    txn.execute(Statement::from_sql_and_values(
+    txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "SELECT pg_advisory_xact_lock($1)",
         [CREATE_ADMIN_ADVISORY_LOCK_KEY.into()],
@@ -201,7 +201,7 @@ pub async fn create_admin(
 
     // Setup-only: reject if any admin already exists (any auth_provider).
     let admin_exists_result = txn
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT EXISTS (SELECT 1 FROM users WHERE is_admin = true) as exists",
             vec![],
@@ -255,14 +255,14 @@ pub async fn create_admin(
     // 结果是每个新装站点从第一天起就依赖一个外部图床，且用户显式选「账号头像」
     // 时会把这张占位图当成真头像用。现在交给前端 <Avatar> 本地生成。
     let insert_params = vec![
-        SeaValue::String(Some(Box::new(request.username.clone()))),
-        SeaValue::String(Some(Box::new("local".to_string()))),
-        SeaValue::String(Some(Box::new(password_hash))),
+        SeaValue::String(Some(request.username.clone())),
+        SeaValue::String(Some("local".to_string())),
+        SeaValue::String(Some(password_hash)),
         SeaValue::String(None),
     ];
 
     let user_result = match txn
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             insert_with_owner,
             insert_params.clone(),
@@ -283,7 +283,7 @@ pub async fn create_admin(
                 e
             );
             match txn
-                .query_one(Statement::from_sql_and_values(
+                .query_one_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     insert_legacy,
                     insert_params,
@@ -348,10 +348,10 @@ pub async fn local_login(
                  WHERE LOWER(username) = LOWER($1) AND password_hash IS NOT NULL";
 
     let user_result = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             query,
-            vec![SeaValue::String(Some(Box::new(request.username.clone())))],
+            vec![SeaValue::String(Some(request.username.clone()))],
         ))
         .await
         .map_err(|_e| HttpError::from((
@@ -421,7 +421,7 @@ pub async fn local_login(
 
     // Update last login timestamp
     let _ = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = $1",
             vec![SeaValue::Int(Some(user_id))],
@@ -506,7 +506,7 @@ pub async fn change_password(
                  WHERE id = $1";
 
     let user_result = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             query,
             vec![SeaValue::Int(Some(user_id))],
@@ -576,11 +576,11 @@ pub async fn change_password(
                        RETURNING token_version";
 
     let updated = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             update_query,
             vec![
-                SeaValue::String(Some(Box::new(new_password_hash))),
+                SeaValue::String(Some(new_password_hash)),
                 SeaValue::Int(Some(user_id)),
             ],
         ))
@@ -831,10 +831,10 @@ pub async fn register(
 
     // username 冲突检查（大小写不敏感）
     let dup = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT 1 FROM users WHERE LOWER(username) = LOWER($1) LIMIT 1",
-            vec![SeaValue::String(Some(Box::new(req.username.clone())))],
+            vec![SeaValue::String(Some(req.username.clone()))],
         ))
         .await
         .map_err(|_e| HttpError::from((
@@ -854,19 +854,19 @@ pub async fn register(
     let password_hash = hash_password(&req.password).await?;
 
     let insert = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "INSERT INTO users (username, email, password_hash, auth_provider, is_admin, \
                                  avatar_url, created_at, updated_at, last_login_at) \
              VALUES ($1, $2, $3, 'local', false, $4, NOW(), NOW(), NOW()) \
              RETURNING id",
             vec![
-                SeaValue::String(Some(Box::new(req.username.clone()))),
+                SeaValue::String(Some(req.username.clone())),
                 req.email
                     .clone()
-                    .map(|s| SeaValue::String(Some(Box::new(s))))
+                    .map(|s| SeaValue::String(Some(s)))
                     .unwrap_or(SeaValue::String(None)),
-                SeaValue::String(Some(Box::new(password_hash))),
+                SeaValue::String(Some(password_hash)),
                 // 占位头像退成显示兜底，不落库（见 create_owner 处说明）
                 SeaValue::String(None),
             ],
@@ -926,7 +926,7 @@ pub async fn set_password(
 
     // 必须当前 password_hash 为 NULL
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT password_hash IS NOT NULL AS has_password FROM users WHERE id = $1",
             vec![SeaValue::Int(Some(user_id))],
@@ -957,11 +957,11 @@ pub async fn set_password(
 
     let hash = hash_password(&req.new_password).await?;
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2",
         vec![
-            SeaValue::String(Some(Box::new(hash))),
+            SeaValue::String(Some(hash)),
             SeaValue::Int(Some(user_id)),
         ],
     ))
@@ -1009,7 +1009,7 @@ pub async fn toggle_local_login(
 
     // 取当前状态
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT password_hash IS NOT NULL AS has_password, \
                     (SELECT COUNT(*) FROM user_identities WHERE user_id = users.id) AS identity_count \
@@ -1055,7 +1055,7 @@ pub async fn toggle_local_login(
     }
 
     let disabled = !req.enabled;
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "UPDATE users SET local_login_disabled = $1, updated_at = NOW() WHERE id = $2",
         vec![SeaValue::Bool(Some(disabled)), SeaValue::Int(Some(user_id))],
@@ -1083,7 +1083,7 @@ async fn issue_session_cookie(
     use sea_orm::Value as SeaValue;
 
     let token_version = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT COALESCE(token_version, 0) AS token_version FROM users WHERE id = $1",
             vec![SeaValue::Int(Some(user_id))],
@@ -1170,10 +1170,10 @@ pub async fn admin_create_user(
     use sea_orm::Value as SeaValue;
 
     let dup = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT 1 FROM users WHERE LOWER(username) = LOWER($1) LIMIT 1",
-            vec![SeaValue::String(Some(Box::new(req.username.clone())))],
+            vec![SeaValue::String(Some(req.username.clone()))],
         ))
         .await
         .map_err(|_e| HttpError::from((
@@ -1195,19 +1195,19 @@ pub async fn admin_create_user(
     let create_as_admin = req.is_admin;
 
     let insert = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "INSERT INTO users (username, email, password_hash, auth_provider, is_admin, \
                                  avatar_url, created_at, updated_at) \
              VALUES ($1, $2, $3, 'local', $4, $5, NOW(), NOW()) \
              RETURNING id",
             vec![
-                SeaValue::String(Some(Box::new(req.username.clone()))),
+                SeaValue::String(Some(req.username.clone())),
                 req.email
                     .clone()
-                    .map(|s| SeaValue::String(Some(Box::new(s))))
+                    .map(|s| SeaValue::String(Some(s)))
                     .unwrap_or(SeaValue::String(None)),
-                SeaValue::String(Some(Box::new(password_hash))),
+                SeaValue::String(Some(password_hash)),
                 SeaValue::Bool(Some(create_as_admin)),
                 // 占位头像退成显示兜底，不落库（见 create_owner 处说明）
                 SeaValue::String(None),

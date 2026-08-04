@@ -317,14 +317,14 @@ pub async fn issue_runtime_grant(
 
     let now = Utc::now().timestamp();
     let txn = db.begin().await.map_err(map_db_err)?;
-    txn.execute(Statement::from_sql_and_values(
+    txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "SELECT pg_advisory_xact_lock($1::BIGINT)",
         vec![(subject_id as i64).into()],
     ))
     .await
     .map_err(map_db_err)?;
-    txn.execute(Statement::from_sql_and_values(
+    txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "DELETE FROM tapp_runtime_registry WHERE namespace = $1 AND (expires_at <= $2 OR (subject_id = $3 AND tapp_id = $4 AND payload->>'instance_id' = $5))",
         vec![
@@ -355,7 +355,7 @@ pub async fn issue_runtime_grant(
         return Err(RuntimeGrantError::LimitExceeded);
     }
     let payload = serde_json::to_value(&grant).map_err(map_db_err)?;
-    txn.execute(Statement::from_sql_and_values(
+    txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO tapp_runtime_registry
             (namespace, record_id, subject_id, owner_id, tapp_id, runtime_id, payload, expires_at, updated_at)

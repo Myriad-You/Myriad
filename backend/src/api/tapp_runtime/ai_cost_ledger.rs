@@ -71,7 +71,7 @@ pub async fn ai_cost_ledger(
             "#,
             vec![
                 SeaValue::Int(Some(subject_id)),
-                SeaValue::String(Some(Box::new(tapp_id.clone()))),
+                SeaValue::String(Some(tapp_id.clone())),
             ],
         ),
         None => (
@@ -102,7 +102,7 @@ pub async fn ai_cost_ledger(
     values.push(SeaValue::BigInt(Some(limit)));
 
     let entry_rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
             entry_sql,
             values,
@@ -113,7 +113,7 @@ pub async fn ai_cost_ledger(
             ledger_error()
         })?;
     let totals_rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
             totals_sql,
             totals_values,

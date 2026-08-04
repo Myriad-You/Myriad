@@ -87,7 +87,7 @@ pub async fn send_room_message(
 
     let message_id = generate_message_id();
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_room_messages
            (room_id, message_id, sender_actor, message_type, payload, thread_id, reply_to,
@@ -210,7 +210,7 @@ pub async fn get_room_messages(
     }
 
     let rows = if let Some(before_id) = before {
-        db.query_all(Statement::from_sql_and_values(
+        db.query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT message_id, sender_actor, message_type, payload, thread_id, reply_to,
                       reactions, is_pinned, is_encrypted, created_at
@@ -224,7 +224,7 @@ pub async fn get_room_messages(
         .await
         .map_err(db_err)?
     } else {
-        db.query_all(Statement::from_sql_and_values(
+        db.query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT message_id, sender_actor, message_type, payload, thread_id, reply_to,
                       reactions, is_pinned, is_encrypted, created_at
@@ -360,7 +360,7 @@ pub async fn list_room_files(
 
     // Local transfer status map for this room
     let transfer_rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT transfer_id, filename, file_size, mime_type, status, created_at
                FROM federation_file_transfers
@@ -403,7 +403,7 @@ pub async fn list_room_files(
 
     // payload column is json (not jsonb); cast for containment / ->> operators.
     let rows = if let Some(before_id) = before {
-        db.query_all(Statement::from_sql_and_values(
+        db.query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT message_id, sender_actor, message_type, payload, is_encrypted, created_at
                FROM federation_room_messages
@@ -428,7 +428,7 @@ pub async fn list_room_files(
         .await
         .map_err(db_err)?
     } else {
-        db.query_all(Statement::from_sql_and_values(
+        db.query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT message_id, sender_actor, message_type, payload, is_encrypted, created_at
                FROM federation_room_messages
@@ -656,7 +656,7 @@ pub async fn pin_room_message(
     }
 
     let updated = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"UPDATE federation_room_messages
                SET is_pinned = $3
@@ -760,7 +760,7 @@ pub async fn handle_room_pin(
     }
 
     let updated = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"UPDATE federation_room_messages
                SET is_pinned = $3

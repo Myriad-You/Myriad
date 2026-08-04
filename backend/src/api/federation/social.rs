@@ -1614,7 +1614,7 @@ pub(crate) async fn get_follow_list(
 ) -> Result<serde_json::Value, String> {
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
     let rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT ra.actor_url, ra.username, ra.domain, ra.display_name,
                       ra.avatar_url, f.status, f.created_at
@@ -1655,7 +1655,7 @@ pub(crate) async fn get_federation_timeline(
     let base = base_url.trim_end_matches('/');
     let local_domain = federation::types::extract_domain(&base_url).unwrap_or_default();
     let rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             format!(r#"SELECT t.activity_id, t.activity_type, t.object_type,
                       t.content_preview, t.content_json, t.is_read, t.received_at,

@@ -83,7 +83,7 @@ mod tests {
 
     async fn insert_user(db: &sea_orm::DatabaseConnection, suffix: &str) -> i32 {
         let row = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "INSERT INTO users (username) VALUES ($1) RETURNING id",
                 [format!(
@@ -129,7 +129,7 @@ mod tests {
         assert_eq!(first["catalog"]["sources"].as_array().unwrap().len(), 8);
         assert_eq!(first["catalog"]["events"].as_array().unwrap().len(), 28);
 
-        db.execute(Statement::from_sql_and_values(
+        db.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "DELETE FROM users WHERE id IN ($1, $2)",
             [first_user.into(), second_user.into()],

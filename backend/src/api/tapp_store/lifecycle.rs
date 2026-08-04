@@ -129,7 +129,7 @@ async fn record_user_activity(
 ) -> Result<(), HttpError> {
     // One atomic upsert avoids duplicate-key failures when the same Tapp is
     // started concurrently from multiple tabs or backend replicas.
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO tapp_user_activities
                (user_id, tapp_id, last_run_at, run_count)

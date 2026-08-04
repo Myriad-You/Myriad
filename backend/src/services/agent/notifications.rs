@@ -830,7 +830,7 @@ impl NotificationManager {
             db.get_database_backend(),
             "SELECT id FROM users WHERE is_admin = true ORDER BY id".to_string(),
         );
-        match db.query_all(statement).await {
+        match db.query_all_raw(statement).await {
             Ok(rows) => rows
                 .iter()
                 .filter_map(|row| row.try_get::<i32>("", "id").ok())

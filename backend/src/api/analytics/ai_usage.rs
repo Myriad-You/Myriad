@@ -81,7 +81,7 @@ fn base_params(
         values.push(SeaValue::Int(Some(sid)));
     }
     if let Some(m) = model {
-        values.push(SeaValue::String(Some(Box::new(m.to_string()))));
+        values.push(SeaValue::String(Some(m.to_string())));
     }
     values
 }
@@ -124,7 +124,7 @@ ORDER BY day ASC
     );
 
     let daily_rows = match db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             &daily_sql,
             params.clone(),
@@ -210,7 +210,7 @@ FROM tapp_ai_cost_ledger
     );
     let (prev_day_calls, prev_day_tokens) = {
         let p = base_params(prev_day, prev_day, subject_filter, model_filter.as_deref());
-        db.query_one(Statement::from_sql_and_values(
+        db.query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             &sum_sql,
             p,
@@ -228,7 +228,7 @@ FROM tapp_ai_cost_ledger
             subject_filter,
             model_filter.as_deref(),
         );
-        db.query_one(Statement::from_sql_and_values(
+        db.query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             &sum_sql,
             p,
@@ -304,7 +304,7 @@ LIMIT 50
     );
 
     let by_user_rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             &by_user_sql,
             params.clone(),
@@ -316,7 +316,7 @@ LIMIT 50
         });
 
     let by_model_rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             &by_model_sql,
             params.clone(),
@@ -328,7 +328,7 @@ LIMIT 50
         });
 
     let by_source_rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             &by_source_sql,
             params.clone(),
@@ -395,7 +395,7 @@ LIMIT 50
         model_opt_params.push(SeaValue::Int(Some(sid)));
     }
     let filter_model_rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             format!(
                 "SELECT DISTINCT model FROM tapp_ai_cost_ledger {model_opt_where} ORDER BY model ASC LIMIT 100"
@@ -417,10 +417,10 @@ LIMIT 50
         vec![SeaValue::from(from), SeaValue::from(to_day)];
     if let Some(ref model) = model_filter {
         user_opt_where.push_str(" AND l.model = $3");
-        user_opt_params.push(SeaValue::String(Some(Box::new(model.clone()))));
+        user_opt_params.push(SeaValue::String(Some(model.clone())));
     }
     let filter_user_rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             format!(
                 r#"

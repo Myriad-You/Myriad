@@ -219,7 +219,7 @@ pub(super) async fn reconcile_manifest_widgets(
 
     for widget in desired_widgets {
         let widget_id = format_tapp_widget_id(tapp_id, &widget.id);
-        db.execute(Statement::from_sql_and_values(
+        db.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"DELETE FROM tapp_widgets
                WHERE widget_id = $1

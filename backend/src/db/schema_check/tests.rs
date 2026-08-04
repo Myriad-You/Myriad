@@ -349,7 +349,7 @@ async fn migrations_leave_no_schema_drift() {
 
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
     let invalid = db
-        .execute(Statement::from_string(
+        .execute_raw(Statement::from_string(
             DatabaseBackend::Postgres,
             r#"
 INSERT INTO tapp_storage
@@ -402,7 +402,7 @@ ALTER TABLE tapp_storage ADD COLUMN binding_fingerprint VARCHAR(64);
         .expect("upgrade helper must add and validate the constraint");
 
     let invalid = db
-        .execute(Statement::from_string(
+        .execute_raw(Statement::from_string(
             DatabaseBackend::Postgres,
             "UPDATE tapp_storage SET encrypted_value = 'ciphertext' WHERE key = 'ordinary'"
                 .to_string(),

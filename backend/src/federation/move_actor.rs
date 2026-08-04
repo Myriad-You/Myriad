@@ -237,7 +237,7 @@ fn prefix_like_pattern(old_base: &str) -> String {
 /// Load all domain-move aliases from DB (empty if table missing / empty).
 pub async fn load_domain_aliases(db: &DatabaseConnection) -> Vec<DomainMoveAlias> {
     let rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT old_base_url, new_base_url
                FROM federation_domain_aliases
@@ -574,7 +574,7 @@ async fn local_actor_document_for_base(
     aliases: &[DomainMoveAlias],
 ) -> Result<serde_json::Value, String> {
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT u.username, u.display_name, u.bio,
                       fk.public_key_pem, fk.key_id
@@ -674,7 +674,7 @@ pub async fn migrate_follows_old_to_new(
 ) -> Result<u32, String> {
     // Ensure both are in remote_actors cache (new may need fetch)
     let old_remote = match db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT id FROM federation_remote_actors WHERE actor_url = $1 LIMIT 1",
             [old_actor_url.into()],
@@ -703,7 +703,7 @@ pub async fn migrate_follows_old_to_new(
 
     // All follows that pointed at old remote
     let follows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT id, user_id, direction, status, activity_id
                FROM federation_follows
@@ -724,7 +724,7 @@ pub async fn migrate_follows_old_to_new(
 
         // Is there already a follow for (user, new, direction)?
         let existing = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"SELECT id, status FROM federation_follows
                    WHERE user_id = $1 AND remote_actor_id = $2 AND direction = $3
@@ -754,7 +754,7 @@ pub async fn migrate_follows_old_to_new(
                     .unwrap_or(0);
                 if promote_new_to_accepted && ex_id != 0 {
                     let _ = db
-                        .execute(Statement::from_sql_and_values(
+                        .execute_raw(Statement::from_sql_and_values(
                             DatabaseBackend::Postgres,
                             r#"UPDATE federation_follows
                                SET status = 'accepted',
@@ -766,7 +766,7 @@ pub async fn migrate_follows_old_to_new(
                         .await;
                 }
                 let _ = db
-                    .execute(Statement::from_sql_and_values(
+                    .execute_raw(Statement::from_sql_and_values(
                         DatabaseBackend::Postgres,
                         "DELETE FROM federation_follows WHERE id = $1",
                         [follow_id.into()],
@@ -776,7 +776,7 @@ pub async fn migrate_follows_old_to_new(
             }
             FollowRepointAction::UpdateRemoteId => {
                 let res = db
-                    .execute(Statement::from_sql_and_values(
+                    .execute_raw(Statement::from_sql_and_values(
                         DatabaseBackend::Postgres,
                         r#"UPDATE federation_follows
                            SET remote_actor_id = $1
@@ -793,7 +793,7 @@ pub async fn migrate_follows_old_to_new(
                             e
                         );
                         let _ = db
-                            .execute(Statement::from_sql_and_values(
+                            .execute_raw(Statement::from_sql_and_values(
                                 DatabaseBackend::Postgres,
                                 "DELETE FROM federation_follows WHERE id = $1",
                                 [follow_id.into()],
@@ -825,7 +825,7 @@ pub async fn store_domain_alias(
     old_base: &str,
     new_base: &str,
 ) -> Result<(), String> {
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_domain_aliases (old_base_url, new_base_url, created_at)
            VALUES ($1, $2, NOW())
@@ -851,7 +851,7 @@ pub async fn retarget_shared_keys(
     dry_run: bool,
 ) -> Result<SharedKeysReport, String> {
     let rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT fk.user_id, u.username, fk.key_id, fk.public_key_pem
                FROM federation_keys fk
@@ -863,7 +863,7 @@ pub async fn retarget_shared_keys(
         .map_err(|e| format!("Failed to list federation_keys: {}", e))?;
 
     let all_users = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT COUNT(*)::int AS c FROM users",
             [],
@@ -915,7 +915,7 @@ pub async fn retarget_shared_keys(
             continue;
         }
 
-        db.execute(Statement::from_sql_and_values(
+        db.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             // PEM columns intentionally omitted from SET — shared material only.
             r#"UPDATE federation_keys
@@ -956,7 +956,7 @@ async fn count_prefix_rows(
         table, column, column
     );
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             &sql,
             [like.into()],
@@ -989,7 +989,7 @@ async fn rewrite_prefix_column(
            WHERE {} IS NOT NULL AND {} LIKE $3"#,
         table, column, column, column, column
     );
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         &sql,
         [new_base.into(), old_base.into(), like.into()],
@@ -1038,7 +1038,7 @@ pub async fn rewrite_local_federation_urls(
         let like_old = prefix_like_pattern(old_base);
         let like_new = prefix_like_pattern(new_base);
         let domain_rows = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 domain_count_sql,
                 [
@@ -1060,7 +1060,7 @@ pub async fn rewrite_local_federation_urls(
             });
             report.total_rows += dcount;
             if !dry_run {
-                db.execute(Statement::from_sql_and_values(
+                db.execute_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     r#"UPDATE federation_remote_actors
                        SET domain = $1
@@ -1084,7 +1084,7 @@ pub async fn rewrite_local_federation_urls(
         let like_new_inbox = prefix_like_pattern(new_base);
         let like_old_inbox = prefix_like_pattern(old_base);
         let dq = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"SELECT COUNT(*)::int AS c FROM federation_delivery_queue
                    WHERE target_domain = $1
@@ -1106,7 +1106,7 @@ pub async fn rewrite_local_federation_urls(
             });
             report.total_rows += c;
             if !dry_run {
-                db.execute(Statement::from_sql_and_values(
+                db.execute_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     r#"UPDATE federation_delivery_queue
                        SET target_domain = $1
@@ -1144,7 +1144,7 @@ pub async fn emit_move_for_user(
     let move_json = build_move_activity(&activity_id, &old_actor, &new_actor, &published);
 
     let act_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_activities
                    (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
@@ -1184,7 +1184,7 @@ pub async fn emit_move_for_user(
 /// Whether this user has a non-empty federation PEM (shared-key continuity).
 async fn user_has_shared_key(db: &DatabaseConnection, user_id: i32) -> Result<bool, String> {
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT public_key_pem FROM federation_keys
                WHERE user_id = $1 AND public_key_pem IS NOT NULL AND public_key_pem <> ''
@@ -1225,7 +1225,7 @@ pub async fn domain_move_all_users(
     }
 
     let users = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT u.id, u.username
                FROM users u

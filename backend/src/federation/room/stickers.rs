@@ -41,7 +41,7 @@ pub(crate) async fn load_room_shared_config(
     room_id: &str,
 ) -> Result<serde_json::Value, (StatusCode, Json<serde_json::Value>)> {
     let room_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT shared_data_config FROM federation_rooms WHERE room_id = $1",
             [room_id.into()],
@@ -66,7 +66,7 @@ pub(crate) async fn save_room_shared_config(
     room_id: &str,
     shared: serde_json::Value,
 ) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "UPDATE federation_rooms SET shared_data_config = $2, updated_at = NOW() WHERE room_id = $1",
         [room_id.into(), shared.into()],
@@ -157,7 +157,7 @@ pub async fn add_room_sticker(
     if !is_admin_role(&role) {
         // Also accept room owner when member.role is not labeled "owner".
         let owner_ok = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "SELECT owner_actor FROM federation_rooms WHERE room_id = $1",
                 [room_id.into()],
@@ -280,7 +280,7 @@ pub async fn remove_room_sticker(
 
     if !is_admin_role(&role) {
         let owner_ok = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "SELECT owner_actor FROM federation_rooms WHERE room_id = $1",
                 [room_id.into()],

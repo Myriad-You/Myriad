@@ -117,14 +117,14 @@ pub async fn register_ai_task_atomically(
     let transaction = db.begin().await?;
     let lock_key = format!("tapp_ai_task:{}", task.subject_id);
     transaction
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
             "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
             vec![lock_key.into()],
         ))
         .await?;
     transaction
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
             "DELETE FROM tapp_runtime_registry WHERE namespace = $1 AND subject_id = $2 AND expires_at <= EXTRACT(EPOCH FROM NOW())::BIGINT",
             vec![AI_TASK_NAMESPACE.into(), task.subject_id.into()],
@@ -168,7 +168,7 @@ pub async fn register_ai_task_atomically(
 
     let payload = serde_json::to_value(task).map_err(|error| DbErr::Json(error.to_string()))?;
     let inserted = transaction
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
             r#"
 INSERT INTO tapp_runtime_registry

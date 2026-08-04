@@ -23,7 +23,7 @@ pub(crate) async fn get_table_columns(
     );
 
     let rows = db
-        .query_all(sea_orm::Statement::from_string(
+        .query_all_raw(sea_orm::Statement::from_string(
             sea_orm::DatabaseBackend::Postgres,
             sql,
         ))
@@ -48,7 +48,7 @@ pub(crate) async fn get_existing_tables(db: &DatabaseConnection) -> Result<HashS
     "#;
 
     let rows = db
-        .query_all(sea_orm::Statement::from_string(
+        .query_all_raw(sea_orm::Statement::from_string(
             sea_orm::DatabaseBackend::Postgres,
             sql.to_string(),
         ))
@@ -73,7 +73,7 @@ pub(crate) async fn get_existing_indexes(db: &DatabaseConnection) -> Result<Hash
     "#;
 
     let rows = db
-        .query_all(sea_orm::Statement::from_string(
+        .query_all_raw(sea_orm::Statement::from_string(
             sea_orm::DatabaseBackend::Postgres,
             sql.to_string(),
         ))
@@ -138,7 +138,7 @@ pub(crate) async fn is_schema_version_applied(db: &DatabaseConnection, version: 
     .await?;
 
     let result = db
-        .query_one(sea_orm::Statement::from_string(
+        .query_one_raw(sea_orm::Statement::from_string(
             sea_orm::DatabaseBackend::Postgres,
             format!(
                 "SELECT 1 FROM _schema_versions WHERE version = '{}'",

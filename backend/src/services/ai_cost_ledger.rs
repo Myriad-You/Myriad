@@ -101,7 +101,7 @@ pub struct AiCostLedgerEntry<'a> {
 /// Best-effort insert: the ledger must never fail the AI task itself.
 pub async fn record_ai_cost(db: &DatabaseConnection, entry: AiCostLedgerEntry<'_>) {
     let result = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
             r#"
                 INSERT INTO tapp_ai_cost_ledger
@@ -113,16 +113,16 @@ pub async fn record_ai_cost(db: &DatabaseConnection, entry: AiCostLedgerEntry<'_
             vec![
                 SeaValue::Int(Some(entry.subject_id)),
                 SeaValue::Int(Some(entry.owner_id)),
-                SeaValue::String(Some(Box::new(entry.tapp_id.to_string()))),
-                SeaValue::String(Some(Box::new(entry.task_id.to_string()))),
-                SeaValue::String(Some(Box::new(entry.source.to_string()))),
-                SeaValue::String(Some(Box::new(entry.operation.to_string()))),
-                SeaValue::String(Some(Box::new(entry.provider.to_string()))),
-                SeaValue::String(Some(Box::new(entry.model.to_string()))),
+                SeaValue::String(Some(entry.tapp_id.to_string())),
+                SeaValue::String(Some(entry.task_id.to_string())),
+                SeaValue::String(Some(entry.source.to_string())),
+                SeaValue::String(Some(entry.operation.to_string())),
+                SeaValue::String(Some(entry.provider.to_string())),
+                SeaValue::String(Some(entry.model.to_string())),
                 SeaValue::Int(Some(entry.input_tokens.max(0))),
                 SeaValue::Int(Some(entry.output_tokens.max(0))),
-                SeaValue::String(Some(Box::new(entry.status.to_string()))),
-                SeaValue::String(entry.error_code.map(|code| Box::new(code.to_string()))),
+                SeaValue::String(Some(entry.status.to_string())),
+                SeaValue::String(entry.error_code.map(|code| code.to_string())),
             ],
         ))
         .await;

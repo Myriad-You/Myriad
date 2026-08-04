@@ -332,7 +332,7 @@ pub async fn load(db: Option<&DatabaseConnection>, user_id: i32) -> Notification
     }
     let preferences = if let Some(db) = db {
         let result = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "SELECT notification_preferences FROM users WHERE id = $1",
                 [user_id.into()],
@@ -376,7 +376,7 @@ pub async fn save(
     };
     let value = serde_json::to_value(&preferences).map_err(|error| error.to_string())?;
     let result = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "UPDATE users SET notification_preferences = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
             [value.into(), user_id.into()],
@@ -455,7 +455,7 @@ mod tests {
         migration::Migrator::up(&db, None).await.unwrap();
         let username = format!("notification-regression-{}", uuid::Uuid::new_v4().simple());
         let row = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "INSERT INTO users (username) VALUES ($1) RETURNING id",
                 [username.into()],
@@ -482,7 +482,7 @@ mod tests {
         assert!(!restored.locations["brew"].panel);
         assert!(!restored.allows("brew.source_error"));
 
-        db.execute(Statement::from_sql_and_values(
+        db.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "DELETE FROM users WHERE id = $1",
             [user_id.into()],

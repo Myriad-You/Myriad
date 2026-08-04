@@ -309,7 +309,7 @@ pub(crate) async fn update_source_unread_count(
         "UPDATE brew_sources SET unread_count = GREATEST(0, unread_count + $1) WHERE id = $2",
         [delta.into(), source_id.into()],
     );
-    db.execute(stmt).await?;
+    db.execute_raw(stmt).await?;
     Ok(())
 }
 

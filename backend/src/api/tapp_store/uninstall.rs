@@ -176,7 +176,7 @@ async fn do_uninstall_tapp(
 
     let cleanup_result: Result<(), HttpError> = async {
         if is_public_install {
-            txn.execute(Statement::from_sql_and_values(
+            txn.execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"DELETE FROM tapp_widgets AS widget
                    WHERE widget.tapp_id = $1
@@ -237,7 +237,7 @@ async fn do_uninstall_tapp(
                 vec![user_id.into(), tapp_id.clone().into()],
             )
         };
-        txn.execute(Statement::from_sql_and_values(
+        txn.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             format!(
                 "DELETE FROM tapp_task_executions WHERE scheduled_task_id IN (SELECT id FROM tapp_scheduled_tasks WHERE {task_scope})"
@@ -249,7 +249,7 @@ async fn do_uninstall_tapp(
             tracing::error!(tapp_id, user_id, %error, "Failed to delete task executions on uninstall");
             HttpError(AppError::internal("Database error"))
         })?;
-        txn.execute(Statement::from_sql_and_values(
+        txn.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             format!("DELETE FROM tapp_scheduled_tasks WHERE {task_scope}"),
             task_values,
@@ -266,7 +266,7 @@ async fn do_uninstall_tapp(
                 tracing::error!(tapp_id, user_id, tapp_row_id = tapp.id, %error, "Failed to delete tapp install row on uninstall");
                 HttpError(AppError::internal("Database error"))
             })?;
-        txn.execute(Statement::from_sql_and_values(
+        txn.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"DELETE FROM tapp_user_activities AS activity
                WHERE activity.tapp_id = $1
@@ -367,7 +367,7 @@ async fn do_uninstall_tapp(
 
     // Best-effort: drop any remaining runtime registry rows for this tapp.
     if let Err(error) = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "DELETE FROM tapp_runtime_registry WHERE tapp_id = $1",
             vec![tapp_id.clone().into()],
@@ -404,7 +404,7 @@ pub async fn prune_stale_private_tapps(
     let site_owner_id = find_admin_user_id(db).await.ok().flatten();
 
     let rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
             SELECT t.id

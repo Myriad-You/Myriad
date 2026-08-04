@@ -178,7 +178,7 @@ mod tests {
         if CREATE_EXECUTOR.get().is_some() {
             return;
         }
-        let db = DatabaseConnection::Disconnected;
+        let db = DatabaseConnection::default();
         let err = create_agent_interaction_internal(
             &db,
             1,
@@ -219,7 +219,7 @@ mod tests {
                 rejection_reason: None,
             })
         });
-        let db = DatabaseConnection::Disconnected;
+        let db = DatabaseConnection::default();
         let snap = create_agent_interaction_internal(
             &db,
             1,

@@ -220,7 +220,7 @@ pub(crate) async fn list_sources(
                     values.extend(source_ids.iter().map(|&id| sea_orm::Value::Int(Some(id))));
                     let stmt =
                         Statement::from_sql_and_values(DatabaseBackend::Postgres, &sql, values);
-                    if let Ok(rows) = db.query_all(stmt).await {
+                    if let Ok(rows) = db.query_all_raw(stmt).await {
                         for row in &rows {
                             let src: i32 = row.try_get("", "source_id").unwrap_or(0);
                             let cnt: i32 = row.try_get("", "unread_count").unwrap_or(0);
@@ -262,7 +262,7 @@ pub(crate) async fn list_sources(
                 let mut values: Vec<sea_orm::Value> = vec![uid_val.into()];
                 values.extend(source_ids.iter().map(|&id| sea_orm::Value::Int(Some(id))));
                 let stmt = Statement::from_sql_and_values(DatabaseBackend::Postgres, &sql, values);
-                if let Ok(rows) = db.query_all(stmt).await {
+                if let Ok(rows) = db.query_all_raw(stmt).await {
                     for row in &rows {
                         let id: i32 = row.try_get("", "id").unwrap_or(0);
                         let source_id: i32 = row.try_get("", "source_id").unwrap_or(0);

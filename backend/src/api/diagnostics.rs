@@ -30,7 +30,7 @@ async fn probe_database_established_at(
 ) -> Option<DateTime<Utc>> {
     // sea-orm: applied_at is typically a Unix epoch (bigint); some setups use timestamptz.
     if let Ok(Some(row)) = db
-        .query_one(Statement::from_string(
+        .query_one_raw(Statement::from_string(
             db.get_database_backend(),
             r#"
             SELECT applied_at
@@ -69,7 +69,7 @@ async fn probe_database_established_at(
     // or appropriate grants; ignore failures quietly).
     if matches!(db.get_database_backend(), DatabaseBackend::Postgres) {
         if let Ok(Some(row)) = db
-            .query_one(Statement::from_string(
+            .query_one_raw(Statement::from_string(
                 DatabaseBackend::Postgres,
                 r#"
                 SELECT (pg_catalog.pg_stat_file(
@@ -110,7 +110,7 @@ pub async fn runtime_diagnostics(
 
     let database_started = Instant::now();
     let database_result = db
-        .query_one(Statement::from_string(
+        .query_one_raw(Statement::from_string(
             db.get_database_backend(),
             "SELECT 1 AS diagnostic_probe".to_owned(),
         ))

@@ -103,7 +103,7 @@ pub async fn get_current_user(
     );
 
     let user_row = match db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             user_sql,
             vec![SeaValue::Int(Some(user_id))],
@@ -137,7 +137,7 @@ pub async fn get_current_user(
 
     // identities 列表（用 user_identities 表）
     let identity_rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT id, provider, provider_username, is_primary, linked_at \
              FROM user_identities WHERE user_id = $1 ORDER BY linked_at ASC",

@@ -37,7 +37,7 @@ pub async fn get_actor(
 
     // 查询用户 + 联邦密钥
     let user = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             format!(r#"SELECT u.id, u.username, u.display_name,
                       {avatar} AS avatar_url,
@@ -248,7 +248,7 @@ pub async fn get_followers(
 
     // 查询 follower 数量
     let count = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT COUNT(*) as count FROM federation_follows WHERE user_id = $1 AND direction = 'incoming' AND status = 'accepted'",
             [user_id.into()],
@@ -292,7 +292,7 @@ pub async fn get_following(
     let user_id: i32 = user.0;
 
     let count = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT COUNT(*) as count FROM federation_follows WHERE user_id = $1 AND direction = 'outgoing' AND status = 'accepted'",
             [user_id.into()],
@@ -487,7 +487,7 @@ async fn lookup_cached_remote_actor(
     actor_url_str: &str,
 ) -> Result<Option<RemoteActorInfo>, String> {
     let cached = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT id, actor_url, username, domain, display_name, avatar_url,
                       inbox_url, public_key_pem, public_key_id, mfp_version, last_fetched_at
@@ -642,7 +642,7 @@ async fn upsert_remote_actor_document(
     doc: &RemoteActorDocument,
 ) -> Result<RemoteActorInfo, String> {
     let actor_id = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_remote_actors
                    (actor_url, username, domain, display_name, avatar_url, summary,
@@ -708,7 +708,7 @@ async fn upsert_local_actor_as_remote(
     actor_url_str: &str,
 ) -> Result<RemoteActorInfo, String> {
     let user_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             format!(r#"SELECT id, username, display_name,
                       {avatar} AS avatar_url
@@ -755,7 +755,7 @@ async fn upsert_local_actor_as_remote(
     };
 
     let actor_id = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_remote_actors
                    (actor_url, username, domain, display_name, avatar_url,
@@ -895,7 +895,7 @@ pub async fn get_local_identity(
     let mut avatar_url: Option<String> = None;
 
     if let Ok(Some(row)) = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             format!(r#"SELECT id, display_name,
                       {avatar} AS avatar_url
@@ -951,7 +951,7 @@ async fn get_local_avatar_url(
     username: &str,
 ) -> Result<Option<String>, Response> {
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             format!(r#"SELECT {avatar} AS avatar_url
                FROM users
@@ -1094,7 +1094,7 @@ async fn force_store_new_keys(
 
     let kid = key_id(base_url, username);
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_keys (user_id, public_key_pem, private_key_encrypted, key_id, algorithm, created_at, rotated_at)
            VALUES ($1, $2, $3, $4, 'RSA-SHA256', NOW(), NOW())
@@ -1162,7 +1162,7 @@ async fn broadcast_person_key_update(
     });
 
     let act_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_activities
                (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
@@ -1198,7 +1198,7 @@ async fn load_stored_federation_keys(
     user_id: i32,
 ) -> Result<Option<(String, String)>, String> {
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT public_key_pem, key_id FROM federation_keys WHERE user_id = $1",
             [user_id.into()],
@@ -1237,7 +1237,7 @@ async fn generate_and_store_keys(
 
     // Same ON CONFLICT shape as before, but only apply the update when the
     // stored public key is missing/empty so concurrent ensures cannot rotate.
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_keys (user_id, public_key_pem, private_key_encrypted, key_id, algorithm, created_at)
            VALUES ($1, $2, $3, $4, 'RSA-SHA256', NOW())
@@ -1277,7 +1277,7 @@ async fn upsert_instance(
     domain: &str,
     mfp_version: Option<&str>,
 ) -> Result<(), String> {
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_instances (domain, mfp_version, trust_level, last_seen_at, created_at)
            VALUES ($1, $2, 1, NOW(), NOW())
@@ -1297,7 +1297,7 @@ async fn get_local_user(
     username: &str,
 ) -> Result<(i32, String), (StatusCode, Json<serde_json::Value>)> {
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT id, username FROM users WHERE username = $1 LIMIT 1",
             [username.into()],

@@ -410,7 +410,7 @@ pub async fn publish_event(
         let txn = db.begin().await.map_err(|_| EventError::Unavailable {
             detail: UnavailableDetail::Registry,
         })?;
-        txn.execute(Statement::from_sql_and_values(
+        txn.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
             vec![format!("tapp-event-dedupe:{dedupe_scope}").into()],

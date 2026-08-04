@@ -8,7 +8,9 @@ use crate::services::agent::executor::utils::{
 };
 use crate::services::netease_utils::{get_random_china_ip, get_random_user_agent};
 use once_cell::sync::Lazy;
-use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect};
+use sea_orm::{
+    ColumnTrait, EntityTrait, ExprTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{json, Value};
 use std::cmp::Reverse;
 use std::collections::HashMap;
@@ -3901,7 +3903,7 @@ fn score_playlist_relevance(playlist: &Value, keyword: &str) -> i32 {
 
     // 播放量加分（热门歌单优先）
     if let Some(play_count) = playlist.get("playCount").and_then(|p| p.as_i64()) {
-        score += (play_count / 1_000_000).min(20) as i32;
+        score += std::cmp::min(play_count / 1_000_000, 20) as i32;
     }
 
     score
@@ -4452,11 +4454,13 @@ async fn execute_task_status(
     // 无 taskId：返回当前用户最近任务列表（非空成功假装“已完成”）
     let mut tasks = get_user_tasks(ctx.user_id).await;
     tasks.sort_by_key(|t| std::cmp::Reverse(t.started_at));
-    let limit = params
-        .get("limit")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(20)
-        .min(100) as usize;
+    let limit = std::cmp::min(
+        params
+            .get("limit")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(20),
+        100,
+    ) as usize;
     tasks.truncate(limit);
 
     let items: Vec<Value> = tasks.iter().map(task_to_json).collect();

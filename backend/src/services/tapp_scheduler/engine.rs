@@ -667,7 +667,7 @@ impl TappSchedulerEngine {
             TaskScope::User | TaskScope::TappPerUser => Ok(task.user_id == user_id),
             TaskScope::Global => {
                 let row = db
-                    .query_one(Statement::from_sql_and_values(
+                    .query_one_raw(Statement::from_sql_and_values(
                         DatabaseBackend::Postgres,
                         "SELECT is_admin FROM users WHERE id = $1 LIMIT 1",
                         [user_id.into()],
@@ -682,7 +682,7 @@ impl TappSchedulerEngine {
             }
             TaskScope::Tapp => {
                 let row = db
-                    .query_one(Statement::from_sql_and_values(
+                    .query_one_raw(Statement::from_sql_and_values(
                         DatabaseBackend::Postgres,
                         r#"
 SELECT EXISTS (
@@ -887,7 +887,7 @@ SELECT EXISTS (
         task: &tapp_scheduled_tasks::Model,
     ) -> Result<ScheduledExecutionAuthority, String> {
         let row = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "SELECT is_admin FROM users WHERE id = $1 LIMIT 1",
                 [task.user_id.into()],

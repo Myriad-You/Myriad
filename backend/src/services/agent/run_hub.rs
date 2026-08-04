@@ -228,14 +228,14 @@ ORDER BY record_id ASC
         };
         let result = async {
             transaction
-                .execute(Statement::from_sql_and_values(
+                .execute_raw(Statement::from_sql_and_values(
                     DbBackend::Postgres,
                     "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
                     vec![format!("agent_run:{}", self.run_id).into()],
                 ))
                 .await?;
             transaction
-                .execute(Statement::from_sql_and_values(
+                .execute_raw(Statement::from_sql_and_values(
                     DbBackend::Postgres,
                     r#"
 INSERT INTO tapp_runtime_registry
@@ -254,7 +254,7 @@ ON CONFLICT (namespace, record_id) DO NOTHING
                 ))
                 .await?;
             transaction
-                .execute(Statement::from_sql_and_values(
+                .execute_raw(Statement::from_sql_and_values(
                     DbBackend::Postgres,
                     r#"
 INSERT INTO tapp_runtime_registry
@@ -279,7 +279,7 @@ WHERE COALESCE((tapp_runtime_registry.payload ->> 'next_sequence')::BIGINT, 0)
                 ))
                 .await?;
             transaction
-                .execute(Statement::from_sql_and_values(
+                .execute_raw(Statement::from_sql_and_values(
                     DbBackend::Postgres,
                     r#"
 DELETE FROM tapp_runtime_registry

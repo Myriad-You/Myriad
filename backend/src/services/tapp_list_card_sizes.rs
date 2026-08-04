@@ -59,7 +59,7 @@ impl TappListCardSizes {
 
 pub async fn load(db: &DatabaseConnection, user_id: i32) -> TappListCardSizes {
     let result = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT tapp_list_card_sizes FROM users WHERE id = $1",
             [user_id.into()],
@@ -165,7 +165,7 @@ pub async fn save(
     let preferences = preferences.normalized();
     let value = serde_json::to_value(&preferences).map_err(|e| e.to_string())?;
     let result = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "UPDATE users SET tapp_list_card_sizes = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
             [value.into(), user_id.into()],

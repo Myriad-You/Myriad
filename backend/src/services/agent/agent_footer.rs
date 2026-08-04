@@ -179,7 +179,7 @@ pub async fn user_is_current_admin(db: &sea_orm::DatabaseConnection, user_id: i3
     }
 
     match db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT is_admin FROM users WHERE id = $1 LIMIT 1",
             [user_id.into()],

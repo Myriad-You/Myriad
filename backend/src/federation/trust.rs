@@ -181,7 +181,7 @@ pub async fn check_instance_policy(
 /// 获取实例的信任层级
 pub async fn get_instance_trust_level(db: &DatabaseConnection, domain: &str) -> TrustLevel {
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT trust_level FROM federation_instances WHERE domain = $1",
             [domain.into()],
@@ -205,7 +205,7 @@ pub async fn set_instance_trust_level(
     domain: &str,
     level: TrustLevel,
 ) -> Result<(), sea_orm::DbErr> {
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"UPDATE federation_instances SET trust_level = $2 WHERE domain = $1"#,
         [domain.into(), (level as i16).into()],
@@ -219,7 +219,7 @@ async fn ensure_instance_discovered(
     db: &DatabaseConnection,
     domain: &str,
 ) -> Result<(), sea_orm::DbErr> {
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_instances (domain, trust_level, created_at)
            VALUES ($1, $2, NOW())
@@ -320,7 +320,7 @@ pub async fn check_rate_limit(
     // Fall back to published_at only when received_at is NULL (legacy rows).
     // Do not use published_at alone — remote senders control that timestamp.
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT COUNT(*) as cnt
                FROM federation_activities a
@@ -427,7 +427,7 @@ pub async fn get_policy(
 ) -> Result<serde_json::Value, (StatusCode, serde_json::Value)> {
     // 从 federation_instances 聚合统计 + 真实黑名单
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT
                  COUNT(*) as total_instances,
@@ -570,7 +570,7 @@ pub async fn update_policy(
     let domains_json = serde_json::to_value(&current.allowed_domains).unwrap_or_else(|_| json!([]));
     let level = current.min_trust_level as i16;
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_policy_settings
                (id, min_trust_level, allowed_domains, auto_discover,
@@ -617,7 +617,7 @@ pub async fn update_policy(
 /// Load persisted InstancePolicy (defaults if row missing).
 async fn load_instance_policy(db: &DatabaseConnection) -> InstancePolicy {
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT min_trust_level, allowed_domains, auto_discover,
                       rate_max_requests, rate_window_seconds, rate_trusted_multiplier
@@ -680,7 +680,7 @@ pub async fn update_instance_trust(
 
     // 验证实例存在
     let exists = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT domain FROM federation_instances WHERE domain = $1",
             [domain.into()],
@@ -726,7 +726,7 @@ pub async fn toggle_instance_block(
     // 先确保实例存在
     let _ = ensure_instance_discovered(db, domain).await;
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "UPDATE federation_instances SET is_blocked = $2 WHERE domain = $1",
         [domain.into(), block.into()],
@@ -754,7 +754,7 @@ pub async fn list_instances(
     db: &DatabaseConnection,
 ) -> Result<serde_json::Value, (StatusCode, serde_json::Value)> {
     let rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT domain, trust_level, software,
                       software_version AS version, is_blocked AS blocked,
@@ -799,7 +799,7 @@ pub async fn list_instances(
 /// 检查域名是否被封禁
 async fn is_domain_blocked(db: &DatabaseConnection, domain: &str) -> bool {
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT is_blocked FROM federation_instances WHERE domain = $1",
             [domain.into()],
@@ -869,7 +869,7 @@ pub async fn enforce_outbound(db: &DatabaseConnection, target_domain: &str) -> R
 /// 加载当前生效的内容过滤规则（`federation_content_filters`）
 async fn load_content_filter_rules(db: &DatabaseConnection) -> Vec<ContentFilterRule> {
     let rows = match db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT name, filter_type, value, enabled
                FROM federation_content_filters
@@ -900,7 +900,7 @@ pub async fn list_content_filters(
     db: &DatabaseConnection,
 ) -> Result<serde_json::Value, (StatusCode, serde_json::Value)> {
     let rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT id, name, filter_type, value, enabled, created_at
                FROM federation_content_filters
@@ -964,7 +964,7 @@ pub async fn create_content_filter(
         ));
     }
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_content_filters (name, filter_type, value, enabled, created_at)
                VALUES ($1, $2, $3, $4, NOW())
@@ -1023,7 +1023,7 @@ pub async fn update_content_filter(
         }
     }
     let existing = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT name, filter_type, value, enabled FROM federation_content_filters WHERE id = $1",
             [id.into()],
@@ -1049,7 +1049,7 @@ pub async fn update_content_filter(
     let new_enabled =
         enabled.unwrap_or_else(|| existing.try_get::<bool>("", "enabled").unwrap_or(true));
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"UPDATE federation_content_filters
            SET name = $2, filter_type = $3, value = $4, enabled = $5
@@ -1078,7 +1078,7 @@ pub async fn delete_content_filter(
     id: i32,
 ) -> Result<serde_json::Value, (StatusCode, serde_json::Value)> {
     let result = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "DELETE FROM federation_content_filters WHERE id = $1",
             [id.into()],

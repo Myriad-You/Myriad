@@ -66,7 +66,7 @@ pub async fn create_room(
     }
 
     // 创建 Room
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_rooms
            (room_id, name, description, avatar_url, owner_actor, home_server, governance_type, invite_policy,
@@ -89,7 +89,7 @@ pub async fn create_room(
     .map_err(db_err)?;
 
     // 将创建者添加为 owner 成员
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_room_members
            (room_id, actor_url, is_local, local_user_id, role, joined_at, membership_status)
@@ -207,7 +207,7 @@ pub async fn update_room(
 
     // Public is one-way: once public, cannot go private again.
     let currently_public: bool = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT is_public FROM federation_rooms WHERE room_id = $1",
             [room_id.into()],
@@ -273,7 +273,7 @@ pub async fn update_room(
     );
     values.push(room_id.into());
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         &sql,
         values,
@@ -365,7 +365,7 @@ pub async fn delete_room(
     let local_actor = actor_url(&base_url, username);
 
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT owner_actor FROM federation_rooms WHERE room_id = $1",
             [room_id.into()],
@@ -436,7 +436,7 @@ pub async fn delete_room(
     });
     crate::federation::ws_gateway::broadcast_to_room(room_id, &delete_notice).await;
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "DELETE FROM federation_room_messages WHERE room_id = $1",
         [room_id.into()],
@@ -444,7 +444,7 @@ pub async fn delete_room(
     .await
     .map_err(db_err)?;
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "DELETE FROM federation_room_members WHERE room_id = $1",
         [room_id.into()],
@@ -452,7 +452,7 @@ pub async fn delete_room(
     .await
     .map_err(db_err)?;
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "DELETE FROM federation_rooms WHERE room_id = $1",
         [room_id.into()],
@@ -484,7 +484,7 @@ pub async fn handle_room_dissolve(
 
     // Prefer owner check; tolerate missing local room row (already gone)
     let owner_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT owner_actor FROM federation_rooms WHERE room_id = $1",
             [room_id.into()],
@@ -519,21 +519,21 @@ pub async fn handle_room_dissolve(
     .await;
 
     let _ = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "DELETE FROM federation_room_messages WHERE room_id = $1",
             [room_id.into()],
         ))
         .await;
     let _ = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "DELETE FROM federation_room_members WHERE room_id = $1",
             [room_id.into()],
         ))
         .await;
     let _ = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "DELETE FROM federation_rooms WHERE room_id = $1",
             [room_id.into()],
@@ -565,7 +565,7 @@ pub async fn list_rooms(
     let local_actor = actor_url(&base_url, username);
 
     let rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT r.room_id, r.name, r.description, r.avatar_url, r.owner_actor,
                       r.governance_type, r.invite_policy, r.max_members, r.is_public,
@@ -643,7 +643,7 @@ pub async fn get_room(
     let local_actor = actor_url(&base_url, username);
 
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT r.room_id, r.name, r.description, r.avatar_url, r.owner_actor, r.home_server,
                       r.governance_type, r.governance_config, r.invite_policy,
@@ -723,7 +723,7 @@ pub async fn get_members(
     if membership.is_none() {
         // 检查是否是公开 Room
         let is_public = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "SELECT 1 FROM federation_rooms WHERE room_id = $1 AND is_public = true",
                 [room_id.into()],
@@ -739,7 +739,7 @@ pub async fn get_members(
     }
 
     let rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             format!(r#"SELECT rm.actor_url, rm.is_local, rm.role, rm.joined_at, rm.invited_by,
                       COALESCE(rm.membership_status, 'active') AS membership_status,

@@ -92,7 +92,7 @@ mod tests {
         if EXECUTOR.get().is_some() {
             return;
         }
-        let db = DatabaseConnection::Disconnected;
+        let db = DatabaseConnection::default();
         let err = execute_governed_text(
             &db,
             GovernedTextRequest {
@@ -121,7 +121,7 @@ mod tests {
         install_executor(|_db, request| async move {
             Ok(format!("echo:{}", request.prompt))
         });
-        let db = DatabaseConnection::Disconnected;
+        let db = DatabaseConnection::default();
         let text = execute_governed_text(
             &db,
             GovernedTextRequest {

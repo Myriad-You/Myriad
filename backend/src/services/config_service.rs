@@ -20,7 +20,7 @@ impl ConfigService {
         let sql = "SELECT key, value FROM configurations";
         let rows = self
             .db
-            .query_all(Statement::from_string(
+            .query_all_raw(Statement::from_string(
                 sea_orm::DatabaseBackend::Postgres,
                 sql.to_string(),
             ))
@@ -911,7 +911,7 @@ impl ConfigService {
         "#;
 
         self.db
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 sea_orm::DatabaseBackend::Postgres,
                 sql,
                 vec![key.into(), value.into()],

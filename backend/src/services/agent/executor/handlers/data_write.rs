@@ -470,7 +470,7 @@ async fn execute_brew_subscribe(
                                 .do_nothing()
                                 .to_owned(),
                         )
-                        .do_nothing()
+                        .try_insert()
                         .exec(ctx.db)
                         .await
                     {
@@ -630,7 +630,7 @@ async fn execute_brew_mark(
             let delta = if read { -1 } else { 1 };
             let _ = ctx
                 .db
-                .execute(sea_orm::Statement::from_sql_and_values(
+                .execute_raw(sea_orm::Statement::from_sql_and_values(
                     sea_orm::DatabaseBackend::Postgres,
                     "UPDATE brew_sources SET unread_count = GREATEST(unread_count + $1, 0) WHERE id = $2 AND user_id = $3",
                     [delta.into(), source.id.into(), user_id.into()],

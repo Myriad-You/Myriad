@@ -156,7 +156,7 @@ async fn open_transfer_load_global(
     db: &DatabaseConnection,
 ) -> Result<TransferLoad, (StatusCode, Json<serde_json::Value>)> {
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             format!(
                 r#"SELECT COUNT(*)::bigint AS cnt,
@@ -186,7 +186,7 @@ async fn open_transfer_load_for_user(
     user_id: i32,
 ) -> Result<TransferLoad, (StatusCode, Json<serde_json::Value>)> {
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             format!(
                 r#"SELECT COUNT(*)::bigint AS cnt,
@@ -553,7 +553,7 @@ pub async fn initiate_transfer(
 
     // 验证 Channel 存在且支持 file-transfer
     let ch_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT c.channel_type, c.status, ra.actor_url, ra.inbox_url
                FROM federation_channels c
@@ -605,7 +605,7 @@ pub async fn initiate_transfer(
     let final_path = final_file_path(&transfer_id, &req.filename).map_err(bad_request)?;
     let local_path = path_to_db(&final_path);
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_file_transfers
            (transfer_id, channel_id, filename, file_size, mime_type,
@@ -653,7 +653,7 @@ pub async fn initiate_transfer(
     if let Some(inbox) = remote_inbox {
         let domain = extract_domain(&inbox).unwrap_or_default();
         let act_row = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"INSERT INTO federation_activities
                    (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
@@ -670,7 +670,7 @@ pub async fn initiate_transfer(
 
         if let Some(act_id) = act_row.and_then(|r| r.try_get::<i32>("", "id").ok()) {
             let _ = db
-                .execute(Statement::from_sql_and_values(
+                .execute_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     r#"INSERT INTO federation_delivery_queue
                        (activity_id, target_inbox, target_domain, status, created_at)
@@ -746,7 +746,7 @@ pub async fn initiate_room_transfer(
     let final_path = final_file_path(&transfer_id, &req.filename).map_err(bad_request)?;
     let local_path = path_to_db(&final_path);
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_file_transfers
            (transfer_id, channel_id, room_id, owner_user_id, filename, file_size, mime_type,
@@ -832,7 +832,7 @@ pub async fn upload_chunk(
     }
 
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT ft.status, ft.chunks_total, ft.chunks_completed,
                       ft.file_size, ft.channel_id, ft.room_id, ft.owner_user_id,
@@ -978,7 +978,7 @@ pub async fn upload_chunk(
         );
         let stored = fs::metadata(&part_path).await.map_err(storage_err)?.len() as i64;
         if stored != file_size {
-            db.execute(Statement::from_sql_and_values(
+            db.execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "UPDATE federation_file_transfers SET status = 'failed' WHERE transfer_id = $1",
                 [transfer_id.into()],
@@ -994,7 +994,7 @@ pub async fn upload_chunk(
         if let Some(expected_checksum) = checksum.as_deref().filter(|s| !s.is_empty()) {
             let actual = sha256_file(&part_path).await.map_err(storage_err)?;
             if !actual.eq_ignore_ascii_case(expected_checksum) {
-                db.execute(Statement::from_sql_and_values(
+                db.execute_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     "UPDATE federation_file_transfers SET status = 'failed' WHERE transfer_id = $1",
                     [transfer_id.into()],
@@ -1014,7 +1014,7 @@ pub async fn upload_chunk(
     }
 
     let updated = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"UPDATE federation_file_transfers
                SET chunks_completed = $3,
@@ -1099,7 +1099,7 @@ pub async fn upload_chunk(
 
         let domain = extract_domain(&inbox).unwrap_or_default();
         if let Ok(Some(act_row)) = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"INSERT INTO federation_activities
                    (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
@@ -1111,7 +1111,7 @@ pub async fn upload_chunk(
         {
             if let Ok(act_id) = act_row.try_get::<i32>("", "id") {
                 let _ = db
-                    .execute(Statement::from_sql_and_values(
+                    .execute_raw(Statement::from_sql_and_values(
                         DatabaseBackend::Postgres,
                         r#"INSERT INTO federation_delivery_queue
                            (activity_id, target_inbox, target_domain, status, created_at)
@@ -1169,7 +1169,7 @@ pub async fn open_transfer_file(
     }
 
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT ft.transfer_id, ft.filename, ft.mime_type, ft.file_size,
                       ft.status, ft.local_path, ft.room_id, ft.owner_user_id,
@@ -1287,7 +1287,7 @@ pub async fn get_transfer(
     db: &DatabaseConnection,
 ) -> Result<TransferDetail, (StatusCode, Json<serde_json::Value>)> {
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT ft.transfer_id, ft.channel_id, ft.room_id, ft.filename, ft.file_size,
                       ft.mime_type, ft.checksum_sha256, ft.status, ft.direction,
@@ -1388,7 +1388,7 @@ pub async fn list_transfers(
 ) -> Result<Vec<TransferSummary>, (StatusCode, Json<serde_json::Value>)> {
     // 验证用户对该 Channel 的所有权
     let ch_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT user_id FROM federation_channels WHERE channel_id = $1",
             [channel_id.into()],
@@ -1415,7 +1415,7 @@ pub async fn list_transfers(
     }
 
     let rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT transfer_id, channel_id, filename, file_size, mime_type,
                       status, direction, chunks_total, chunks_completed, created_at
@@ -1480,7 +1480,7 @@ pub async fn list_room_transfers(
     let _ = user_id; // membership is the gate
 
     let rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT transfer_id, channel_id, room_id, filename, file_size, mime_type,
                       status, direction, chunks_total, chunks_completed, created_at
@@ -1532,7 +1532,7 @@ pub async fn cancel_transfer(
 ) -> Result<serde_json::Value, (StatusCode, Json<serde_json::Value>)> {
     // 验证所有权（channel owner 或 room transfer owner）
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT ft.status, ft.owner_user_id, ft.room_id, ft.channel_id,
                       c.user_id AS channel_user_id, ra.actor_url, ra.inbox_url
@@ -1581,7 +1581,7 @@ pub async fn cancel_transfer(
         ));
     }
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "UPDATE federation_file_transfers SET status = 'cancelled' WHERE transfer_id = $1",
         [transfer_id.into()],
@@ -1643,7 +1643,7 @@ pub async fn cancel_transfer(
             });
             let domain = extract_domain(&inbox).unwrap_or_default();
             if let Ok(Some(act_row)) = db
-                .query_one(Statement::from_sql_and_values(
+                .query_one_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     r#"INSERT INTO federation_activities
                        (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
@@ -1655,7 +1655,7 @@ pub async fn cancel_transfer(
             {
                 if let Ok(act_id) = act_row.try_get::<i32>("", "id") {
                     let _ = db
-                        .execute(Statement::from_sql_and_values(
+                        .execute_raw(Statement::from_sql_and_values(
                             DatabaseBackend::Postgres,
                             r#"INSERT INTO federation_delivery_queue
                                (activity_id, target_inbox, target_domain, status, created_at)
@@ -1744,7 +1744,7 @@ pub async fn handle_file_transfer(
 
     if let Some(cid) = channel_id {
         let channel_actor = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"SELECT ra.actor_url
                    FROM federation_channels c
@@ -1777,7 +1777,7 @@ pub async fn handle_file_transfer(
 
     let local_path = path_to_db(&final_file_path(transfer_id, filename)?);
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_file_transfers
            (transfer_id, channel_id, room_id, filename, file_size, mime_type,
@@ -1849,7 +1849,7 @@ async fn handle_file_chunk(
     let _chunk_budget = admit_chunk_bytes_str(chunk_size)?;
 
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT ft.status, ft.chunks_total, ft.chunks_completed,
                       ft.file_size, ft.filename, ft.checksum_sha256, ft.local_path,
@@ -1971,7 +1971,7 @@ async fn handle_file_chunk(
             .map_err(|e| e.to_string())?
             .len() as i64;
         if stored != file_size {
-            db.execute(Statement::from_sql_and_values(
+            db.execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "UPDATE federation_file_transfers SET status = 'failed' WHERE transfer_id = $1",
                 [transfer_id.into()],
@@ -1987,7 +1987,7 @@ async fn handle_file_chunk(
         if let Some(expected_checksum) = checksum.as_deref().filter(|s| !s.is_empty()) {
             let actual = sha256_file(&part_path).await.map_err(|e| e.to_string())?;
             if !actual.eq_ignore_ascii_case(expected_checksum) {
-                db.execute(Statement::from_sql_and_values(
+                db.execute_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     "UPDATE federation_file_transfers SET status = 'failed' WHERE transfer_id = $1",
                     [transfer_id.into()],
@@ -2009,7 +2009,7 @@ async fn handle_file_chunk(
     }
 
     let result = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"UPDATE federation_file_transfers
                SET chunks_completed = $2,
@@ -2105,7 +2105,7 @@ async fn handle_file_cancel(
     }
 
     let result = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"UPDATE federation_file_transfers
                SET status = 'cancelled'

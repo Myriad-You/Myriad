@@ -407,7 +407,7 @@ impl HeartbeatManager {
             "#
         );
         match db
-            .execute(Statement::from_string(DbBackend::Postgres, sql))
+            .execute_raw(Statement::from_string(DbBackend::Postgres, sql))
             .await
         {
             Ok(result) => {
@@ -505,7 +505,7 @@ impl HeartbeatManager {
             stale = CLAIM_STALE_SECS
         );
         match db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DbBackend::Postgres,
                 sql,
                 [task_id.into(), minute_bucket.into()],
@@ -544,7 +544,7 @@ impl HeartbeatManager {
     ) {
         let status = if status == "failed" { "failed" } else { "done" };
         let result = db
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 DbBackend::Postgres,
                 r#"
                 UPDATE heartbeat_claims

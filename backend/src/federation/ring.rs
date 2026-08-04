@@ -45,7 +45,7 @@ async fn resolve_user_id(
     username: &str,
 ) -> Result<i32, (StatusCode, Json<serde_json::Value>)> {
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT id FROM users WHERE username = $1",
             [username.into()],
@@ -58,7 +58,7 @@ async fn resolve_user_id(
         None => {
             // 回退：单用户实例可能用户名不匹配，取第一个用户
             let fallback = db
-                .query_one(Statement::from_sql_and_values(
+                .query_one_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     "SELECT id FROM users ORDER BY id LIMIT 1",
                     [],
@@ -229,7 +229,7 @@ pub async fn create_ring(
         }
     }
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_ring_memberships
            (ring_id, ring_name, ring_type, gossip_config, known_peers, joined_at)
@@ -262,7 +262,7 @@ pub async fn list_rings(
     db: &DatabaseConnection,
 ) -> Result<Vec<RingSummary>, (StatusCode, Json<serde_json::Value>)> {
     let rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT ring_id, ring_name, ring_type, known_peers, last_sync_at, joined_at
                FROM federation_ring_memberships
@@ -305,7 +305,7 @@ pub async fn get_ring(
     db: &DatabaseConnection,
 ) -> Result<RingDetail, (StatusCode, Json<serde_json::Value>)> {
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT ring_id, ring_name, ring_type, gossip_config, known_peers, last_sync_at, joined_at
                FROM federation_ring_memberships
@@ -363,7 +363,7 @@ pub async fn leave_ring(
 
     // 确认 Ring 存在
     let ring_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT known_peers FROM federation_ring_memberships WHERE ring_id = $1",
             [ring_id.into()],
@@ -411,7 +411,7 @@ pub async fn leave_ring(
             if !remote.inbox_url.is_empty() {
                 let domain = extract_domain(&remote.inbox_url).unwrap_or_default();
                 let act_row = db
-                    .query_one(Statement::from_sql_and_values(
+                    .query_one_raw(Statement::from_sql_and_values(
                         DatabaseBackend::Postgres,
                         r#"INSERT INTO federation_activities
                            (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
@@ -424,7 +424,7 @@ pub async fn leave_ring(
 
                 if let Some(act_id) = act_row.and_then(|r| r.try_get::<i32>("", "id").ok()) {
                     let _ = db
-                        .execute(Statement::from_sql_and_values(
+                        .execute_raw(Statement::from_sql_and_values(
                             DatabaseBackend::Postgres,
                             r#"INSERT INTO federation_delivery_queue
                                (activity_id, target_inbox, target_domain, status, created_at)
@@ -439,7 +439,7 @@ pub async fn leave_ring(
     }
 
     // 删除本地记录
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "DELETE FROM federation_ring_memberships WHERE ring_id = $1",
         [ring_id.into()],
@@ -460,7 +460,7 @@ pub async fn get_peers(
     db: &DatabaseConnection,
 ) -> Result<Vec<RingPeer>, (StatusCode, Json<serde_json::Value>)> {
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT known_peers FROM federation_ring_memberships WHERE ring_id = $1",
             [ring_id.into()],
@@ -503,7 +503,7 @@ pub async fn add_peer(
 
     // 确认 Ring 存在
     let ring_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT ring_type, known_peers, gossip_config FROM federation_ring_memberships WHERE ring_id = $1",
             [ring_id.into()],
@@ -550,7 +550,7 @@ pub async fn add_peer(
 
     // 原子追加到 known_peers，避免并发读-改-写竞争
     // known_peers is json (not jsonb); cast for @> / || containment ops
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"UPDATE federation_ring_memberships
            SET known_peers = CASE
@@ -585,7 +585,7 @@ pub async fn add_peer(
         // Matches production log: add_peer enqueues without GET /users/{username}.
         ensure_keys_before_ring_outbound(db, local_user_id, username, "ring_add_peer").await;
         let act_row = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"INSERT INTO federation_activities
                    (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
@@ -598,7 +598,7 @@ pub async fn add_peer(
 
         if let Some(act_id) = act_row.and_then(|r| r.try_get::<i32>("", "id").ok()) {
             let _ = db
-                .execute(Statement::from_sql_and_values(
+                .execute_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     r#"INSERT INTO federation_delivery_queue
                        (activity_id, target_inbox, target_domain, status, created_at)
@@ -625,7 +625,7 @@ pub async fn remove_peer(
     let base_url = get_base_url().await;
     // 使用子查询原子地从 JSON 数组中移除指定 peer（cast to jsonb for ops）
     let result = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"UPDATE federation_ring_memberships
                SET known_peers = (
@@ -666,7 +666,7 @@ pub async fn remove_peer(
             });
             let domain = extract_domain(&remote.inbox_url).unwrap_or_default();
             if let Ok(Some(act_row)) = db
-                .query_one(Statement::from_sql_and_values(
+                .query_one_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     r#"INSERT INTO federation_activities
                        (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
@@ -682,7 +682,7 @@ pub async fn remove_peer(
             {
                 if let Ok(act_id) = act_row.try_get::<i32>("", "id") {
                     let _ = db
-                        .execute(Statement::from_sql_and_values(
+                        .execute_raw(Statement::from_sql_and_values(
                             DatabaseBackend::Postgres,
                             r#"INSERT INTO federation_delivery_queue
                                (activity_id, target_inbox, target_domain, status, created_at)
@@ -712,7 +712,7 @@ pub async fn trigger_sync(
     let base_url = get_base_url().await;
 
     let ring_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT ring_type, gossip_config, known_peers FROM federation_ring_memberships WHERE ring_id = $1",
             [ring_id.into()],
@@ -777,7 +777,7 @@ pub async fn trigger_sync(
     if entries.is_empty() {
         // 更新 last_sync_at
         let _ = db
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "UPDATE federation_ring_memberships SET last_sync_at = NOW() WHERE ring_id = $1",
                 [ring_id.into()],
@@ -834,7 +834,7 @@ pub async fn trigger_sync(
             if !remote.inbox_url.is_empty() {
                 let domain = extract_domain(&remote.inbox_url).unwrap_or_default();
                 let act_row = db
-                    .query_one(Statement::from_sql_and_values(
+                    .query_one_raw(Statement::from_sql_and_values(
                         DatabaseBackend::Postgres,
                         r#"INSERT INTO federation_activities
                            (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
@@ -847,7 +847,7 @@ pub async fn trigger_sync(
 
                 if let Some(act_id) = act_row.and_then(|r| r.try_get::<i32>("", "id").ok()) {
                     let _ = db
-                        .execute(Statement::from_sql_and_values(
+                        .execute_raw(Statement::from_sql_and_values(
                             DatabaseBackend::Postgres,
                             r#"INSERT INTO federation_delivery_queue
                                (activity_id, target_inbox, target_domain, status, created_at)
@@ -864,7 +864,7 @@ pub async fn trigger_sync(
 
     // 更新 last_sync_at
     let _ = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "UPDATE federation_ring_memberships SET last_sync_at = NOW() WHERE ring_id = $1",
             [ring_id.into()],
@@ -890,7 +890,7 @@ async fn collect_legacy_brew_activities(db: &DatabaseConnection) -> Vec<serde_js
     // Prefer federation_published_content (stable content_type=brew-article) over
     // object_type on activities (which stores AP type "Article").
     let rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT fpc.activity_id, fa.object_json
                FROM federation_published_content fpc
@@ -922,7 +922,7 @@ async fn collect_legacy_brew_activities(db: &DatabaseConnection) -> Vec<serde_js
 
     // Fallback: older rows may only exist on federation_activities
     let rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT activity_id, object_json, object_type
                FROM federation_activities
@@ -992,7 +992,7 @@ async fn collect_brew_recommend_entries(
 ) -> Vec<serde_json::Value> {
     // 1) Load user's category names
     let cat_rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT name FROM brew_categories WHERE user_id = $1 ORDER BY sort_order ASC, id ASC",
             [user_id.into()],
@@ -1027,7 +1027,7 @@ async fn collect_brew_recommend_entries(
 
     // 2) Load this user's sources
     let source_rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT id, name, category
                FROM brew_sources
@@ -1071,7 +1071,7 @@ async fn collect_brew_recommend_entries(
 
     // 3) Recent items from matching sources
     let item_rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT bi.id, bi.title, bi.link, bi.summary, bi.content, bi.source_id, bi.published_at,
                       fpc.activity_id AS published_activity_id
@@ -1153,7 +1153,7 @@ async fn collect_brew_recommend_entries(
 pub async fn maybe_trigger_brew_recommend_sync_for_user(db: &DatabaseConnection, user_id: i32) {
     // Resolve username for trigger_sync
     let username = match db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT username FROM users WHERE id = $1",
             [user_id.into()],
@@ -1168,7 +1168,7 @@ pub async fn maybe_trigger_brew_recommend_sync_for_user(db: &DatabaseConnection,
 
     // Rings with at least one peer
     let rings = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT ring_id FROM federation_ring_memberships
                WHERE ring_type = 'brew-recommend'
@@ -1185,7 +1185,7 @@ pub async fn maybe_trigger_brew_recommend_sync_for_user(db: &DatabaseConnection,
 
     // Only sync if user has categories (otherwise legacy path is publish-driven)
     let has_cats = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT 1 FROM brew_categories WHERE user_id = $1 LIMIT 1",
             [user_id.into()],
@@ -1240,7 +1240,7 @@ async fn collect_sync_entries(
         "tapp-store" => {
             // 收集已发布的 Tapp 内容
             let rows = db
-                .query_all(Statement::from_sql_and_values(
+                .query_all_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     r#"SELECT activity_id, object_json
                        FROM federation_activities
@@ -1265,7 +1265,7 @@ async fn collect_sync_entries(
             // Prefer federated Create(library) publishes; fall back to local platform_metadata snapshots
             // so rings have something to gossip even before users explicitly publish.
             let rows = db
-                .query_all(Statement::from_sql_and_values(
+                .query_all_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     r#"SELECT activity_id, object_json
                        FROM federation_activities
@@ -1288,7 +1288,7 @@ async fn collect_sync_entries(
                 .collect();
             if entries.is_empty() {
                 let meta_rows = db
-                    .query_all(Statement::from_sql_and_values(
+                    .query_all_raw(Statement::from_sql_and_values(
                         DatabaseBackend::Postgres,
                         r#"SELECT id, platform_name, fetched_at
                            FROM platform_metadata
@@ -1325,7 +1325,7 @@ async fn collect_sync_entries(
         "instance-directory" => {
             // 收集已知实例信息
             let rows = db
-                .query_all(Statement::from_sql_and_values(
+                .query_all_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     r#"SELECT domain, software, software_version, instance_name, description, trust_level
                        FROM federation_instances
@@ -1372,7 +1372,7 @@ pub async fn handle_ring_join(
 
     // 检查本地是否已有这个 Ring
     let existing = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT known_peers FROM federation_ring_memberships WHERE ring_id = $1",
             [ring_id.into()],
@@ -1391,7 +1391,7 @@ pub async fn handle_ring_join(
             }
         }
         // known_peers is json (not jsonb); cast for @> / || containment ops
-        db.execute(Statement::from_sql_and_values(
+        db.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"UPDATE federation_ring_memberships
                SET known_peers = CASE
@@ -1477,7 +1477,7 @@ pub async fn handle_ring_sync(
 
     // 确保 Ring 存在
     let ring_exists = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT ring_id FROM federation_ring_memberships WHERE ring_id = $1",
             [ring_id.into()],
@@ -1495,7 +1495,7 @@ pub async fn handle_ring_sync(
 
     // 获取本地用户 ID（用于 timeline 和转发）
     let first_user: i32 = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT id FROM users ORDER BY id LIMIT 1",
             [],
@@ -1524,7 +1524,7 @@ pub async fn handle_ring_sync(
 
         // 去重：检查是否已有此 activity
         let exists = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "SELECT 1 FROM federation_timeline WHERE activity_id = $1",
                 [activity_id_val.into()],
@@ -1540,7 +1540,7 @@ pub async fn handle_ring_sync(
         let preview = ring_entry_content_preview(entry_type, &data, actor_url_str);
 
         let _ = db
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"INSERT INTO federation_timeline
                    (user_id, activity_id, activity_type, object_type, content_preview, content_json, received_at)
@@ -1561,7 +1561,7 @@ pub async fn handle_ring_sync(
     // 更新 last_sync_at 和确保 peer 在列表中
     // known_peers is json (not jsonb); cast for @> / || containment ops
     let _ = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"UPDATE federation_ring_memberships
                SET last_sync_at = NOW(),
@@ -1588,7 +1588,7 @@ pub async fn handle_ring_sync(
     if ttl > 0 && imported > 0 {
         // 获取本地已知 peer 列表，排除发送方
         let ring_row = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "SELECT known_peers, gossip_config FROM federation_ring_memberships WHERE ring_id = $1",
                 [ring_id.into()],
@@ -1643,7 +1643,7 @@ pub async fn handle_ring_sync(
                         if !remote.inbox_url.is_empty() {
                             let domain = extract_domain(&remote.inbox_url).unwrap_or_default();
                             let act_row = db
-                                .query_one(Statement::from_sql_and_values(
+                                .query_one_raw(Statement::from_sql_and_values(
                                     DatabaseBackend::Postgres,
                                     r#"INSERT INTO federation_activities
                                        (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
@@ -1656,7 +1656,7 @@ pub async fn handle_ring_sync(
                             if let Ok(Some(r)) = act_row {
                                 if let Ok(act_id) = r.try_get::<i32>("", "id") {
                                     let _ = db
-                                        .execute(Statement::from_sql_and_values(
+                                        .execute_raw(Statement::from_sql_and_values(
                                             DatabaseBackend::Postgres,
                                             r#"INSERT INTO federation_delivery_queue
                                                (activity_id, target_inbox, target_domain, status, created_at)
@@ -1696,7 +1696,7 @@ pub async fn handle_ring_leave(
         .ok_or("Missing ring id")?;
 
     // 原子地从 known_peers 中移除（与 remove_peer 一致；cast json → jsonb）
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"UPDATE federation_ring_memberships
            SET known_peers = (

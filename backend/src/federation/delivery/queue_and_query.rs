@@ -10,7 +10,7 @@ use crate::federation::types::*;
 
 pub(crate) async fn get_username_by_id(db: &DatabaseConnection, user_id: i32) -> Result<String, String> {
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT username FROM users WHERE id = $1 LIMIT 1",
             [user_id.into()],
@@ -101,7 +101,7 @@ pub async fn process_delivery_queue_detailed(
     // double-deliver the same row. Also reclaims stuck `delivering` rows from
     // crashed workers (#97 behaviour kept).
     let pending = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             // MATERIALIZED keeps FOR UPDATE SKIP LOCKED from being inlined away (PG12+).
             r#"WITH selected AS MATERIALIZED (
@@ -158,7 +158,7 @@ pub async fn process_delivery_queue_detailed(
         if reclaim && attempts >= max_attempts {
             let err = "Exceeded max attempts after reclaim";
             let mark = db
-                .execute(Statement::from_sql_and_values(
+                .execute_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     "UPDATE federation_delivery_queue SET status = 'dead', error_message = $1, last_attempt_at = NOW() WHERE id = $2 AND status = 'delivering'",
                     [err.into(), queue_id.into()],
@@ -175,7 +175,7 @@ pub async fn process_delivery_queue_detailed(
         // 投递前：目标实例信任策略检查（黑名单等）
         if let Err(reason) = crate::federation::trust::enforce_outbound(db, &target_domain).await {
             let mark = db
-                .execute(Statement::from_sql_and_values(
+                .execute_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     r#"UPDATE federation_delivery_queue
                        SET status = 'dead', error_message = $1, last_attempt_at = NOW()
@@ -231,7 +231,7 @@ pub async fn process_delivery_queue_detailed(
                         // 投递成功 — only if still `delivering` (user cancel may
                         // have marked dead mid-flight; do not resurrect).
                         let mark = db
-                            .execute(Statement::from_sql_and_values(
+                            .execute_raw(Statement::from_sql_and_values(
                                 DatabaseBackend::Postgres,
                                 "UPDATE federation_delivery_queue SET status = 'delivered', last_attempt_at = NOW() WHERE id = $1 AND status = 'delivering'",
                                 [queue_id.into()],
@@ -249,7 +249,7 @@ pub async fn process_delivery_queue_detailed(
 
                         // 更新实例的 last_success_at，重置 failure_count
                         let _ = db
-                            .execute(Statement::from_sql_and_values(
+                            .execute_raw(Statement::from_sql_and_values(
                                 DatabaseBackend::Postgres,
                                 "UPDATE federation_instances SET last_success_at = NOW(), failure_count = 0 WHERE domain = $1",
                                 [target_domain.clone().into()],
@@ -266,7 +266,7 @@ pub async fn process_delivery_queue_detailed(
                         if permanent || new_attempts >= max_attempts {
                             // 放弃 — only if still delivering (preserve user cancel).
                             let mark = db
-                                .execute(Statement::from_sql_and_values(
+                                .execute_raw(Statement::from_sql_and_values(
                                     DatabaseBackend::Postgres,
                                     "UPDATE federation_delivery_queue SET status = 'dead', attempts = $1, error_message = $2, last_attempt_at = NOW() WHERE id = $3 AND status = 'delivering'",
                                     [new_attempts.into(), e.clone().into(), queue_id.into()],
@@ -295,7 +295,7 @@ pub async fn process_delivery_queue_detailed(
                             // 指数退避：2^attempts 秒，最大 86400 秒 (24h)
                             let backoff_secs = retry_backoff_secs(new_attempts);
                             let mark = db
-                                .execute(Statement::from_sql_and_values(
+                                .execute_raw(Statement::from_sql_and_values(
                                     DatabaseBackend::Postgres,
                                     "UPDATE federation_delivery_queue SET status = 'pending', attempts = $1, error_message = $2, last_attempt_at = NOW(), next_retry_at = NOW() + make_interval(secs => $4::double precision) WHERE id = $3 AND status = 'delivering'",
                                     [new_attempts.into(), e.clone().into(), queue_id.into(), backoff_secs.into()],
@@ -307,7 +307,7 @@ pub async fn process_delivery_queue_detailed(
 
                             // 更新实例 failure_count
                             let _ = db
-                                .execute(Statement::from_sql_and_values(
+                                .execute_raw(Statement::from_sql_and_values(
                                     DatabaseBackend::Postgres,
                                     "UPDATE federation_instances SET failure_count = failure_count + 1 WHERE domain = $1",
                                     [target_domain.clone().into()],
@@ -335,7 +335,7 @@ pub async fn process_delivery_queue_detailed(
                 let permanent = is_unrecoverable_key_load_error(&e);
                 if permanent || new_attempts >= max_attempts {
                     let mark = db
-                        .execute(Statement::from_sql_and_values(
+                        .execute_raw(Statement::from_sql_and_values(
                             DatabaseBackend::Postgres,
                             "UPDATE federation_delivery_queue SET status = 'dead', attempts = $1, error_message = $2, last_attempt_at = NOW() WHERE id = $3 AND status = 'delivering'",
                             [
@@ -362,7 +362,7 @@ pub async fn process_delivery_queue_detailed(
                     // 密钥问题几乎不会自愈；按普通失败计数退避，避免 15s 热循环刷日志
                     let backoff_secs = retry_backoff_secs(new_attempts);
                     let mark = db
-                        .execute(Statement::from_sql_and_values(
+                        .execute_raw(Statement::from_sql_and_values(
                             DatabaseBackend::Postgres,
                             "UPDATE federation_delivery_queue SET status = 'pending', attempts = $1, error_message = $2, last_attempt_at = NOW(), next_retry_at = NOW() + make_interval(secs => $4::double precision) WHERE id = $3 AND status = 'delivering'",
                             [
@@ -437,7 +437,7 @@ pub async fn delivery_stats_for_user(
     user_id: i32,
 ) -> Result<serde_json::Value, String> {
     let rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT dq.status, COUNT(*)::int AS cnt
                FROM federation_delivery_queue dq
@@ -506,7 +506,7 @@ pub async fn list_delivery_for_user_filtered(
     let rows = if let Some(st) = status {
         // "dead" UI tab also includes soft-failed rows
         if st == "dead" {
-            db.query_all(Statement::from_sql_and_values(
+            db.query_all_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"SELECT dq.id, dq.status, dq.target_domain, dq.target_inbox,
                           dq.attempts, dq.max_attempts, dq.error_message,
@@ -523,7 +523,7 @@ pub async fn list_delivery_for_user_filtered(
             .await
             .map_err(|e| e.to_string())?
         } else {
-            db.query_all(Statement::from_sql_and_values(
+            db.query_all_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"SELECT dq.id, dq.status, dq.target_domain, dq.target_inbox,
                           dq.attempts, dq.max_attempts, dq.error_message,
@@ -540,7 +540,7 @@ pub async fn list_delivery_for_user_filtered(
             .map_err(|e| e.to_string())?
         }
     } else {
-        db.query_all(Statement::from_sql_and_values(
+        db.query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT dq.id, dq.status, dq.target_domain, dq.target_inbox,
                       dq.attempts, dq.max_attempts, dq.error_message,
@@ -660,7 +660,7 @@ pub async fn retry_delivery_item(
 
     // Ownership: only rows whose activity belongs to this user.
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT dq.id, dq.status, dq.error_message
                FROM federation_delivery_queue dq
@@ -707,7 +707,7 @@ pub async fn retry_delivery_item(
     // with the delivery worker completing can flip `delivered` back to pending
     // and re-send already-accepted activities.
     let result = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"UPDATE federation_delivery_queue dq
                SET status = 'pending',
@@ -765,7 +765,7 @@ pub async fn cancel_delivery_item(
     }
 
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT dq.id, dq.status
                FROM federation_delivery_queue dq
@@ -808,7 +808,7 @@ pub async fn cancel_delivery_item(
     // pending / delivering → dead (user cancelled). Re-assert ownership so a
     // concurrent ownership edge cannot cancel another user's row by id alone.
     let result = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"UPDATE federation_delivery_queue dq
                SET status = 'dead',
@@ -835,7 +835,7 @@ pub async fn cancel_delivery_item(
         // Re-read so we never leave the client with a bare 409 when cancel "won"
         // as a terminal dead row (including non-cancelled permanent fail).
         let again = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"SELECT dq.status, dq.error_message
                    FROM federation_delivery_queue dq
@@ -925,7 +925,7 @@ pub async fn retry_all_dead_for_user(
     // Over-fetch so skipping cancelled rows still fills the limit.
     let select_cap = (limit * 3).clamp(1, 300);
     let id_rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT dq.id, dq.error_message
                FROM federation_delivery_queue dq
@@ -965,7 +965,7 @@ pub async fn retry_all_dead_for_user(
         // Defense-in-depth: SQL re-asserts no `cancelled:` prefix so a race that
         // wrote user-cancel after SELECT still cannot be bulk-retried.
         match db
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"UPDATE federation_delivery_queue
                    SET status = 'pending',
@@ -1010,7 +1010,7 @@ pub async fn cancel_all_pending_for_user(
 
     let limit = limit.clamp(1, 200);
     let id_rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT dq.id
                FROM federation_delivery_queue dq
@@ -1034,7 +1034,7 @@ pub async fn cancel_all_pending_for_user(
             continue;
         };
         match db
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"UPDATE federation_delivery_queue
                    SET status = 'dead',
@@ -1272,7 +1272,7 @@ pub async fn cancel_pending_deliveries_for_resource(
     // Exclude teardown activity types so dissolve/close fan-out rows survive.
     // Normalize `myriad:` prefix the same way as is_resource_teardown_activity_type.
     let res = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"UPDATE federation_delivery_queue dq
                SET status = 'dead',
@@ -1338,7 +1338,7 @@ pub async fn dismiss_delivery_item(
     }
 
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT dq.id, dq.status, dq.error_message
                FROM federation_delivery_queue dq
@@ -1373,7 +1373,7 @@ pub async fn dismiss_delivery_item(
     }
 
     let result = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"DELETE FROM federation_delivery_queue dq
                USING federation_activities a
@@ -1458,7 +1458,7 @@ pub async fn purge_dead_for_user(
     };
 
     let result = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             sql,
             [user_id.into(), limit.into()],
@@ -1592,7 +1592,7 @@ async fn load_user_keypair(
     user_id: i32,
 ) -> Result<LoadedSigningKey, String> {
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT public_key_pem, private_key_encrypted, key_id FROM federation_keys WHERE user_id = $1",
             [user_id.into()],

@@ -295,7 +295,7 @@ pub(crate) async fn start_unified_server(config: AppConfig) -> anyhow::Result<()
             if let Ok(db) = services::tapp_registry::database().await {
                 // 执行简单查询测试连接
                 match db
-                    .execute(sea_orm::Statement::from_string(
+                    .execute_raw(sea_orm::Statement::from_string(
                         sea_orm::DatabaseBackend::Postgres,
                         "SELECT 1".to_owned(),
                     ))

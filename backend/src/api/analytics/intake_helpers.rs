@@ -782,7 +782,7 @@ async fn mark_visitor_seen(
     visitor: &str,
 ) -> Result<bool, sea_orm::DbErr> {
     let insert = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 INSERT INTO analytics_visitor_seen (day, path, visitor_hash)
@@ -812,7 +812,7 @@ async fn bump_pageview(
     if view_inc == 0 && unique_inc == 0 {
         return Ok(());
     }
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"
 INSERT INTO analytics_page_daily (day, path, views, unique_visitors, engagement_ms, engaged_views)
@@ -843,7 +843,7 @@ pub(crate) async fn read_visitor_ordinal(
     visitor: &str,
 ) -> Result<Option<i64>, sea_orm::DbErr> {
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 SELECT ordinal FROM analytics_visitor_seen
@@ -881,7 +881,7 @@ async fn record_site_unique(
         return read_visitor_ordinal(db, day, visitor).await;
     }
     let ordinal = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 INSERT INTO analytics_page_daily (day, path, views, unique_visitors, engagement_ms, engaged_views)
@@ -900,7 +900,7 @@ RETURNING unique_visitors
         .filter(|n| *n > 0);
 
     if let Some(n) = ordinal {
-        db.execute(Statement::from_sql_and_values(
+        db.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 UPDATE analytics_visitor_seen SET ordinal = $4
@@ -936,7 +936,7 @@ async fn bump_engagement(
     // First engagement report for (day, path, visitor) → +1 engaged_views.
     // Later soft-flushes only add ms (otherwise avg time and bounce break).
     let insert = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 INSERT INTO analytics_event_visitor (day, event_name, path, target, visitor_hash)
@@ -953,7 +953,7 @@ ON CONFLICT (day, event_name, path, target, visitor_hash) DO NOTHING
         .await?;
     let engaged_inc: i64 = if insert.rows_affected() > 0 { 1 } else { 0 };
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"
 INSERT INTO analytics_page_daily (day, path, views, unique_visitors, engagement_ms, engaged_views)
@@ -982,7 +982,7 @@ async fn bump_event(
     visitor: &str,
 ) -> Result<(), sea_orm::DbErr> {
     let insert = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 INSERT INTO analytics_event_visitor (day, event_name, path, target, visitor_hash)
@@ -999,7 +999,7 @@ ON CONFLICT (day, event_name, path, target, visitor_hash) DO NOTHING
         ))
         .await?;
     let unique_inc: i64 = if insert.rows_affected() > 0 { 1 } else { 0 };
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"
 INSERT INTO analytics_event_daily (day, event_name, path, target, count, unique_visitors)
@@ -1025,7 +1025,7 @@ async fn bump_referrer(
     day: NaiveDate,
     host: &str,
 ) -> Result<(), sea_orm::DbErr> {
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"
 INSERT INTO analytics_referrer_daily (day, host, count)
@@ -1050,7 +1050,7 @@ async fn bump_country(
 
     // First (day, country, visitor) → +1 unique_visitors
     let insert = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 INSERT INTO analytics_country_visitor (day, country_code, visitor_hash)
@@ -1069,7 +1069,7 @@ ON CONFLICT (day, country_code, visitor_hash) DO NOTHING
         return Ok(());
     }
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"
 INSERT INTO analytics_country_daily (day, country_code, country_name, views, unique_visitors)
@@ -1116,7 +1116,7 @@ async fn maybe_prune(db: &DatabaseConnection) {
             daily_cutoff
         };
         let _ = db
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 sql,
                 [SeaValue::from(cutoff)],
@@ -1435,7 +1435,7 @@ pub(crate) async fn count_distinct_site(
     from: NaiveDate,
     to: NaiveDate,
 ) -> i64 {
-    db.query_one(Statement::from_sql_and_values(
+    db.query_one_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"
 SELECT COUNT(DISTINCT visitor_hash)::bigint AS n
@@ -1461,7 +1461,7 @@ pub(crate) async fn sum_page_views(
     from: NaiveDate,
     to: NaiveDate,
 ) -> i64 {
-    db.query_one(Statement::from_sql_and_values(
+    db.query_one_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"
 SELECT COALESCE(SUM(views), 0)::bigint AS n

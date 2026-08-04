@@ -57,7 +57,7 @@ pub async fn webfinger(
     // db from AppState (no process-global fallback)
 
     let user_exists = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT id FROM users WHERE username = $1 LIMIT 1",
             [username.clone().into()],
@@ -207,7 +207,7 @@ async fn get_frontend_url() -> String {
 /// 查询用户统计
 async fn get_user_stats(db: &sea_orm::DatabaseConnection) -> Result<(u64, u64), sea_orm::DbErr> {
     let total = db
-        .query_one(Statement::from_string(
+        .query_one_raw(Statement::from_string(
             DatabaseBackend::Postgres,
             "SELECT COUNT(*) as count FROM users",
         ))
@@ -216,7 +216,7 @@ async fn get_user_stats(db: &sea_orm::DatabaseConnection) -> Result<(u64, u64), 
         .unwrap_or(0);
 
     let active = db
-        .query_one(Statement::from_string(
+        .query_one_raw(Statement::from_string(
             DatabaseBackend::Postgres,
             "SELECT COUNT(*) as count FROM users WHERE last_login_at > NOW() - INTERVAL '30 days'",
         ))
@@ -230,7 +230,7 @@ async fn get_user_stats(db: &sea_orm::DatabaseConnection) -> Result<(u64, u64), 
 /// 查询本地发布数
 async fn get_local_post_count(db: &sea_orm::DatabaseConnection) -> Result<u64, sea_orm::DbErr> {
     let count = db
-        .query_one(Statement::from_string(
+        .query_one_raw(Statement::from_string(
             DatabaseBackend::Postgres,
             "SELECT COUNT(*) as count FROM federation_activities WHERE is_local = true",
         ))

@@ -204,7 +204,7 @@ pub async fn publish_content(
 
     // 检查是否已发布
     let existing = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT id FROM federation_published_content WHERE content_type = $1 AND content_id = $2",
             [content_type.into(), content_id.clone().into()],
@@ -258,7 +258,7 @@ pub async fn publish_content(
 
     // 存入 federation_activities
     let act_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_activities
                    (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
@@ -279,7 +279,7 @@ pub async fn publish_content(
         .unwrap_or(0);
 
     // 存入 federation_published_content
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_published_content
                (user_id, content_type, content_id, activity_id, visibility, published_at)
@@ -432,7 +432,7 @@ pub async fn unpublish_content(
 
     // 查找已发布记录 — activity_id first, then content_type+content_id (URL-tolerant)
     let row = if let Some(aid) = activity_id {
-        db.query_one(Statement::from_sql_and_values(
+        db.query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT id, activity_id, content_type, content_id FROM federation_published_content WHERE user_id = $1 AND activity_id = $2",
             [user_id.into(), aid.into()],
@@ -450,7 +450,7 @@ pub async fn unpublish_content(
         if let Some(ct) = ct_opt.as_deref().filter(|s| !s.is_empty()) {
             // Exact type + id
             let found = db
-                .query_one(Statement::from_sql_and_values(
+                .query_one_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     "SELECT id, activity_id, content_type, content_id FROM federation_published_content WHERE user_id = $1 AND content_type = $2 AND content_id = $3",
                     [user_id.into(), ct.into(), bare_id.clone().into()],
@@ -461,7 +461,7 @@ pub async fn unpublish_content(
                 found
             } else {
                 // content_id may have been passed as full object URL while stored bare
-                db.query_one(Statement::from_sql_and_values(
+                db.query_one_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     "SELECT id, activity_id, content_type, content_id FROM federation_published_content WHERE user_id = $1 AND content_type = $2 AND (content_id = $3 OR content_id = $4)",
                     [
@@ -476,7 +476,7 @@ pub async fn unpublish_content(
             }
         } else {
             // content_id only — unique match for this user
-            db.query_one(Statement::from_sql_and_values(
+            db.query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "SELECT id, activity_id, content_type, content_id FROM federation_published_content WHERE user_id = $1 AND (content_id = $2 OR content_id = $3) LIMIT 2",
                 [user_id.into(), bare_id.into(), cid_raw.into()],
@@ -525,7 +525,7 @@ pub async fn unpublish_content(
 
     // 存 Delete Activity
     let del_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_activities
                    (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
@@ -546,7 +546,7 @@ pub async fn unpublish_content(
         .unwrap_or(0);
 
     // 删除 published_content 记录
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "DELETE FROM federation_published_content WHERE id = $1",
         [pub_id.into()],
@@ -556,7 +556,7 @@ pub async fn unpublish_content(
 
     // 从作者与本地时间线移除原 Create
     let _ = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "DELETE FROM federation_timeline WHERE activity_id = $1",
             [original_activity_id.clone().into()],
@@ -592,7 +592,7 @@ pub async fn list_published(
     db: &DatabaseConnection,
 ) -> Result<Vec<PublishedItem>, (StatusCode, Json<serde_json::Value>)> {
     let rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT p.id, p.content_type, p.content_id, p.activity_id, p.visibility, p.published_at,
                       a.object_json
@@ -934,7 +934,7 @@ async fn build_ap_object(
             // 单平台报告 → AP Article
             let report_id: i32 = content_id.parse().unwrap_or(0);
             let row = db
-                .query_one(Statement::from_sql_and_values(
+                .query_one_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     r#"SELECT id, platform, report, report_title, created_at
                        FROM platform_reports
@@ -1007,7 +1007,7 @@ async fn build_ap_object(
             // Brew 文章 → AP Article
             let item_id: i32 = content_id.parse().unwrap_or(0);
             let row = db
-                .query_one(Statement::from_sql_and_values(
+                .query_one_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     r#"SELECT bi.id, bi.title, bi.content, bi.link, bi.author,
                               bs.name AS source_name
@@ -1053,7 +1053,7 @@ async fn build_ap_object(
         "tapp" => {
             // Tapp 应用 → AP Application。仅发布清单元数据，不发布代码包。
             let row = db
-                .query_one(Statement::from_sql_and_values(
+                .query_one_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     r#"SELECT tapp_id, name, version, description, author, icon, manifest
                        FROM tapps
@@ -1101,7 +1101,7 @@ async fn build_ap_object(
                 content_id.parse::<i32>()
             {
                 let row = db
-                    .query_one(Statement::from_sql_and_values(
+                    .query_one_raw(Statement::from_sql_and_values(
                         DatabaseBackend::Postgres,
                         r#"SELECT id, platform_name, raw_data
                                FROM platform_metadata
@@ -1129,7 +1129,7 @@ async fn build_ap_object(
                     ));
                 }
                 let row = db
-                    .query_one(Statement::from_sql_and_values(
+                    .query_one_raw(Statement::from_sql_and_values(
                         DatabaseBackend::Postgres,
                         r#"SELECT id, platform_name, raw_data
                                FROM platform_metadata
@@ -1221,7 +1221,7 @@ pub(crate) async fn fan_out_to_followers(
 
     // 查询所有 incoming followers 的远程 inbox
     let followers = match db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT ra.inbox_url, ra.domain, ra.actor_url
                FROM federation_follows f
@@ -1327,7 +1327,7 @@ pub(crate) async fn fan_out_to_followers(
 
         // 加入投递队列（远程）
         match db
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"INSERT INTO federation_delivery_queue
                        (activity_id, target_inbox, target_domain, status, created_at)
@@ -1397,7 +1397,7 @@ async fn deliver_create_to_local_follower(
     activity_json: &serde_json::Value,
 ) -> Result<bool, String> {
     let user_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT id FROM users WHERE username = $1",
             [follower_username.into()],
@@ -1437,7 +1437,7 @@ async fn deliver_create_to_local_follower(
     // For Announce with a bare object id string, store as-is; Create stores the Note.
     let content_json = object.clone();
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_timeline
                (user_id, activity_id, remote_actor_id, activity_type, object_type, content_preview, content_json, received_at)
@@ -1488,7 +1488,7 @@ async fn ensure_remote_actor_stub(
     if is_local {
         if let Some(ref uname) = username {
             if let Ok(Some(row)) = db
-                .query_one(Statement::from_sql_and_values(
+                .query_one_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     format!(r#"SELECT display_name,
                               {avatar} AS avatar_url
@@ -1522,7 +1522,7 @@ async fn ensure_remote_actor_stub(
     }
 
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_remote_actors
                    (actor_url, username, domain, display_name, avatar_url, inbox_url, last_fetched_at, created_at)
@@ -1571,7 +1571,7 @@ async fn insert_author_timeline(
     let object = &activity_json["object"];
     let preview = preview_from_ap_object(object);
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_timeline
                (user_id, activity_id, remote_actor_id, activity_type, object_type, content_preview, content_json, received_at)

@@ -101,7 +101,7 @@ pub(crate) fn cannot_demote_owner_error(
 /// Load `is_owner` for a user id (defaults false if missing).
 async fn load_is_owner(db: &DatabaseConnection, user_id: i32) -> Result<bool, ApiError> {
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT is_owner FROM users WHERE id = $1",
             [user_id.into()],
@@ -207,7 +207,7 @@ pub async fn list_users(
     require_admin(&headers, &db).await?;
 
     let user_rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             format!(
                 "{} ORDER BY u.is_owner DESC, u.is_admin DESC, u.created_at ASC",
@@ -219,7 +219,7 @@ pub async fn list_users(
         .map_err(db_error)?;
 
     let identity_rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT id, user_id, provider, provider_username, email, avatar_url, \
                     is_primary, linked_at, last_login_at \
@@ -259,7 +259,7 @@ pub async fn get_user(
     require_admin(&headers, &db).await?;
 
     let user_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             format!("{} WHERE u.id = $1", user_select_sql()),
             [user_id.into()],
@@ -269,7 +269,7 @@ pub async fn get_user(
         .ok_or_else(not_found)?;
 
     let identity_rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT id, user_id, provider, provider_username, email, avatar_url, \
                     is_primary, linked_at, last_login_at \
@@ -282,7 +282,7 @@ pub async fn get_user(
     let identities: Vec<Value> = identity_rows.iter().map(identity_row_to_json).collect();
 
     let tapp_rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT tapp_id, name, version, status, icon, installed_at, last_run_at \
              FROM tapps WHERE user_id = $1 ORDER BY installed_at DESC",
@@ -336,7 +336,7 @@ pub async fn update_user(
     let actor_is_owner = load_is_owner(&db, self_id).await?;
 
     let target = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT id, username, is_admin, is_owner FROM users WHERE id = $1",
             [user_id.into()],
@@ -366,7 +366,7 @@ pub async fn update_user(
         // 不能降级最后一位管理员
         if req.is_admin == Some(false) && target_is_admin {
             let admin_count = db
-                .query_one(Statement::from_sql_and_values(
+                .query_one_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     "SELECT COUNT(*) AS n FROM users WHERE is_admin = true",
                     vec![],
@@ -387,7 +387,7 @@ pub async fn update_user(
     // 防锁死：没有任何 OAuth 绑定时，本地登录是唯一登录方式，不允许禁用
     if req.local_login_disabled == Some(true) {
         let identity_count = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "SELECT COUNT(*) AS n FROM user_identities WHERE user_id = $1",
                 [user_id.into()],
@@ -442,7 +442,7 @@ pub async fn update_user(
         sets.join(", "),
         params.len()
     );
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         &sql,
         params,
@@ -479,7 +479,7 @@ pub async fn unlink_identity(
     let claims = require_admin(&headers, &db).await?;
 
     let info = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT u.password_hash IS NOT NULL AS has_password, u.local_login_disabled, \
                     (SELECT COUNT(*) FROM user_identities i WHERE i.user_id = u.id) AS identity_count, \
@@ -513,7 +513,7 @@ pub async fn unlink_identity(
         ));
     }
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "DELETE FROM user_identities WHERE id = $1 AND user_id = $2",
         [identity_id.into(), user_id.into()],
@@ -588,7 +588,7 @@ async fn cleanup_user_related_data(
     ];
 
     for sql in CLEANUP_SQL {
-        txn.execute(Statement::from_sql_and_values(
+        txn.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             *sql,
             [user_id.into()],
@@ -624,7 +624,7 @@ pub async fn delete_user(
     }
 
     let target = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT id, username, is_admin, is_owner FROM users WHERE id = $1",
             [user_id.into()],
@@ -647,7 +647,7 @@ pub async fn delete_user(
 
     if target_is_admin {
         let admin_count = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "SELECT COUNT(*) AS n FROM users WHERE is_admin = true",
                 vec![],
@@ -668,7 +668,7 @@ pub async fn delete_user(
     cleanup_user_related_data(&txn, user_id).await?;
     // user_identities CASCADE；其余已在 cleanup 中处理
     let result = txn
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "DELETE FROM users WHERE id = $1",
             [user_id.into()],

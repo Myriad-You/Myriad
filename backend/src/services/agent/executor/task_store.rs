@@ -253,7 +253,7 @@ async fn load_pending_tasks_from_db(db: &DatabaseConnection) -> Result<(), Strin
     // pending/running 没有可安全恢复的执行 continuation。先在权威数据库中
     // 原子终结，避免每次重启都把同一任务再次识别为“被中断”。
     let interrupted = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 UPDATE agent_tasks
@@ -536,7 +536,7 @@ pub async fn claim_task_for_resume(task_id: &str, user_id: i32) -> Result<bool, 
         .clone()
         .ok_or("数据库连接未初始化")?;
     let result = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 UPDATE agent_tasks
@@ -559,7 +559,7 @@ pub async fn cancel_task_for_user(task_id: &str, user_id: i32) -> bool {
     };
     let cancellation_error = crate::services::agent::response_agent::task_cancelled_by_user();
     let cancelled = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 UPDATE agent_tasks
@@ -604,7 +604,7 @@ pub async fn request_cancel(task_id: &str, reason: &str) -> bool {
     };
 
     let cancelled = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 UPDATE agent_tasks

@@ -82,7 +82,7 @@ pub(crate) async fn list_comments(
 
             // 性能优化：由于所有评论都属于同一用户，只需查询一次用户信息
             let user_info = db
-                .query_one(Statement::from_sql_and_values(
+                .query_one_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     "SELECT username, display_name, avatar_url FROM users WHERE id = $1",
                     vec![SeaValue::Int(Some(uid))],
@@ -238,7 +238,7 @@ pub(crate) async fn create_comment(
 
             // 查询用户信息
             if let Ok(Some(user_row)) = db
-                .query_one(Statement::from_sql_and_values(
+                .query_one_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     "SELECT username, display_name, avatar_url FROM users WHERE id = $1",
                     vec![SeaValue::Int(Some(comment.user_id))],
@@ -313,7 +313,7 @@ pub(crate) async fn update_comment(
 
                     // 查询用户信息
                     if let Ok(Some(user_row)) = db
-                        .query_one(Statement::from_sql_and_values(
+                        .query_one_raw(Statement::from_sql_and_values(
                             DatabaseBackend::Postgres,
                             "SELECT username, display_name, avatar_url FROM users WHERE id = $1",
                             vec![SeaValue::Int(Some(updated.user_id))],
@@ -443,7 +443,7 @@ pub(crate) async fn list_comment_replies(
 
             // 性能优化：由于所有回复都属于同一用户，只需查询一次用户信息
             let user_info = db
-                .query_one(Statement::from_sql_and_values(
+                .query_one_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     "SELECT username, display_name, avatar_url FROM users WHERE id = $1",
                     vec![SeaValue::Int(Some(uid))],

@@ -290,7 +290,7 @@ async fn discover_digital_life_tables(db: &DatabaseConnection) -> Result<Vec<Str
     use sea_orm::{DatabaseBackend, Statement};
 
     let rows = db
-        .query_all(Statement::from_string(
+        .query_all_raw(Statement::from_string(
             DatabaseBackend::Postgres,
             r#"
             SELECT tablename
@@ -335,7 +335,7 @@ pub async fn ensure_default_platforms(db: &DatabaseConnection) -> Result<usize, 
         "#;
 
         let result = db
-            .execute(sea_orm::Statement::from_sql_and_values(
+            .execute_raw(sea_orm::Statement::from_sql_and_values(
                 sea_orm::DatabaseBackend::Postgres,
                 sql,
                 [

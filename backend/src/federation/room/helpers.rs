@@ -66,7 +66,7 @@ pub(crate) async fn mark_room_read(
     room_id: &str,
     actor_url: &str,
 ) -> Result<(), sea_orm::DbErr> {
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"UPDATE federation_room_members
            SET last_read_at = NOW()
@@ -86,7 +86,7 @@ pub(crate) async fn resolve_active_member_actor(
     actor_url: &str,
 ) -> Result<Option<(String, String)>, sea_orm::DbErr> {
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT actor_url, role, COALESCE(membership_status, 'active') AS membership_status
                FROM federation_room_members
@@ -109,7 +109,7 @@ pub(crate) async fn resolve_active_member_actor(
         }
     }
     let rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT actor_url, role, COALESCE(membership_status, 'active') AS membership_status
                FROM federation_room_members WHERE room_id = $1"#,
@@ -141,7 +141,7 @@ pub(crate) async fn get_member_role(
     // Only *active* members can act (pending invites cannot send/download).
     // Legacy rows without membership_status column heal to default 'active'.
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT role, COALESCE(membership_status, 'active') AS membership_status
                FROM federation_room_members
@@ -165,7 +165,7 @@ pub(crate) async fn get_member_role(
 
     // Fallback: host case / trailing-slash differences (exact SQL match fails).
     let rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT actor_url, role, COALESCE(membership_status, 'active') AS membership_status
                FROM federation_room_members WHERE room_id = $1"#,
@@ -196,7 +196,7 @@ pub(crate) async fn get_membership(
     actor_url: &str,
 ) -> Result<Option<(String, String)>, sea_orm::DbErr> {
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT role, COALESCE(membership_status, 'active') AS membership_status
                FROM federation_room_members
@@ -214,7 +214,7 @@ pub(crate) async fn get_membership(
     }
 
     let rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT actor_url, role, COALESCE(membership_status, 'active') AS membership_status
                FROM federation_room_members WHERE room_id = $1"#,
@@ -264,7 +264,7 @@ pub(crate) async fn upsert_remote_room_member_with_status(
     } else {
         "active"
     };
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_room_members
            (room_id, actor_url, is_local, role, invited_by, joined_at, membership_status)
@@ -313,7 +313,7 @@ pub(crate) async fn ensure_room_message_sender_member(
     }
 
     let room_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT owner_actor FROM federation_rooms WHERE room_id = $1",
             [room_id.into()],
@@ -337,7 +337,7 @@ pub(crate) async fn ensure_room_message_sender_member(
     } else {
         // Inviter of any local/remote member is clearly part of the room graph.
         let inviters = db
-            .query_all(Statement::from_sql_and_values(
+            .query_all_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "SELECT invited_by FROM federation_room_members WHERE room_id = $1 AND invited_by IS NOT NULL",
                 [room_id.into()],
@@ -452,7 +452,7 @@ pub(crate) async fn fanout_to_remote_members_excluding(
     // Ensure signing keys exist before enqueue so first outbound never races
     // the delivery worker without a keypair (join / message / leave fan-out).
     if let Ok(Some(uname_row)) = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT username FROM users WHERE id = $1 LIMIT 1",
             [user_id.into()],
@@ -478,7 +478,7 @@ pub(crate) async fn fanout_to_remote_members_excluding(
 
     // 记录 Activity
     let act_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_activities
                (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
@@ -508,7 +508,7 @@ pub(crate) async fn fanout_to_remote_members_excluding(
 
     // Count remote *active* members missing remote_actors (cannot resolve inbox)
     let unresolved_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT COUNT(*)::int AS cnt
                FROM federation_room_members rm
@@ -525,7 +525,7 @@ pub(crate) async fn fanout_to_remote_members_excluding(
 
     // 获取所有 *active* 远程成员的 inbox（pending 邀请不参与 fan-out）
     let remote_members = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT DISTINCT ra.inbox_url, ra.domain, ra.actor_url
                FROM federation_room_members rm
@@ -557,7 +557,7 @@ pub(crate) async fn fanout_to_remote_members_excluding(
         }
         result.remote_with_inbox += 1;
         match db
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"INSERT INTO federation_delivery_queue
                    (activity_id, target_inbox, target_domain, status, created_at)

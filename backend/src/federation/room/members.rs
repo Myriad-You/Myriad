@@ -26,7 +26,7 @@ pub async fn invite_member(
 
     // 检查 invite_policy
     let room_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT invite_policy, max_members, name, owner_actor, is_public, home_server
                FROM federation_rooms WHERE room_id = $1"#,
@@ -71,7 +71,7 @@ pub async fn invite_member(
 
     // 检查成员上限（仅 active 占用名额；pending 邀请不计入）
     let count_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT COUNT(*)::int AS cnt FROM federation_room_members
                WHERE room_id = $1 AND COALESCE(membership_status, 'active') = 'active'"#,
@@ -140,7 +140,7 @@ pub async fn invite_member(
 
         // Remote invitee stays *pending* until they accept (no RoomJoin fan-out yet).
         let insert_result = db
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"INSERT INTO federation_room_members
 	               (room_id, actor_url, is_local, role, invited_by, joined_at, membership_status)
@@ -166,7 +166,7 @@ pub async fn invite_member(
         // Snapshot *active* members so the invitee can seed federation_room_members
         // (especially the inviter/owner). Without this, remote rejects RoomMessage.
         let member_rows = db
-            .query_all(Statement::from_sql_and_values(
+            .query_all_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"SELECT actor_url, role FROM federation_room_members
                    WHERE room_id = $1 AND COALESCE(membership_status, 'active') = 'active'"#,
@@ -187,7 +187,7 @@ pub async fn invite_member(
         // Re-read room name immediately before building the Activity so invites
         // always carry a non-empty display name (never blank / null).
         let fresh_name_row = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "SELECT name FROM federation_rooms WHERE room_id = $1",
                 [room_id.into()],
@@ -235,7 +235,7 @@ pub async fn invite_member(
         if !inbox.is_empty() {
             let domain = extract_domain(inbox).unwrap_or_default();
             let act_row = db
-                .query_one(Statement::from_sql_and_values(
+                .query_one_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     r#"INSERT INTO federation_activities
                        (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
@@ -248,7 +248,7 @@ pub async fn invite_member(
 
             if let Some(act_id) = act_row.and_then(|r| r.try_get::<i32>("", "id").ok()) {
                 let _ = db
-                    .execute(Statement::from_sql_and_values(
+                    .execute_raw(Statement::from_sql_and_values(
                         DatabaseBackend::Postgres,
                         r#"INSERT INTO federation_delivery_queue
                            (activity_id, target_inbox, target_domain, status, created_at)
@@ -293,7 +293,7 @@ pub async fn invite_member(
 
         // 查找本地用户 ID
         let local_row = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "SELECT id FROM users WHERE username = $1",
                 [raw_target_actor.into()],
@@ -311,7 +311,7 @@ pub async fn invite_member(
 
         // Same-instance invite: auto-join as *active* (no accept hop).
         let insert_result = db
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"INSERT INTO federation_room_members
 	               (room_id, actor_url, is_local, local_user_id, role, invited_by, joined_at, membership_status)
@@ -452,7 +452,7 @@ pub async fn get_public_room(
         ));
     }
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT room_id, name, description, avatar_url, owner_actor, home_server,
                       invite_policy, max_members, is_public,
@@ -641,7 +641,7 @@ pub(crate) async fn materialize_remote_public_room(
     let name = non_empty_room_name(Some(&info.name))
         .unwrap_or_else(|| resolve_invite_room_name(None, &info.room_id));
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_rooms
            (room_id, name, description, avatar_url, owner_actor, home_server, governance_type,
@@ -775,7 +775,7 @@ pub async fn join_room(
     }
 
     let mut room_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT invite_policy, max_members, is_public, name, home_server, owner_actor
                FROM federation_rooms WHERE room_id = $1"#,
@@ -832,7 +832,7 @@ pub async fn join_room(
                 )
             })?;
         room_row = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"SELECT invite_policy, max_members, is_public, name, home_server, owner_actor
                    FROM federation_rooms WHERE room_id = $1"#,
@@ -882,7 +882,7 @@ pub async fn join_room(
                         );
                     } else {
                         room_row = db
-                            .query_one(Statement::from_sql_and_values(
+                            .query_one_raw(Statement::from_sql_and_values(
                                 DatabaseBackend::Postgres,
                                 r#"SELECT invite_policy, max_members, is_public, name, home_server, owner_actor
                                    FROM federation_rooms WHERE room_id = $1"#,
@@ -920,7 +920,7 @@ pub async fn join_room(
     }
 
     let count_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT COUNT(*)::int AS cnt FROM federation_room_members
                WHERE room_id = $1 AND COALESCE(membership_status, 'active') = 'active'"#,
@@ -939,7 +939,7 @@ pub async fn join_room(
     }
 
     let insert_result = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_room_members
                (room_id, actor_url, is_local, local_user_id, role, joined_at, membership_status)
@@ -1056,7 +1056,7 @@ pub async fn accept_room_invite(
     }
 
     // Activate local membership
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"UPDATE federation_room_members
            SET membership_status = 'active', joined_at = NOW()
@@ -1141,7 +1141,7 @@ pub async fn reject_room_invite(
     let local_actor = actor_url(&base_url, username);
 
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT role, invited_by, COALESCE(membership_status, 'active') AS membership_status
                FROM federation_room_members
@@ -1169,7 +1169,7 @@ pub async fn reject_room_invite(
     let invited_by: Option<String> = row.try_get("", "invited_by").ok().flatten();
     let role: String = row.try_get("", "role").unwrap_or_else(|_| "member".into());
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"DELETE FROM federation_room_members
            WHERE room_id = $1 AND actor_url = $2 AND COALESCE(membership_status, 'active') = 'pending'"#,
@@ -1200,7 +1200,7 @@ pub async fn reject_room_invite(
                     });
                     let domain = extract_domain(&inbox).unwrap_or_default();
                     if let Ok(Some(act_row)) = db
-                        .query_one(Statement::from_sql_and_values(
+                        .query_one_raw(Statement::from_sql_and_values(
                             DatabaseBackend::Postgres,
                             r#"INSERT INTO federation_activities
                                (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
@@ -1216,7 +1216,7 @@ pub async fn reject_room_invite(
                     {
                         if let Ok(act_id) = act_row.try_get::<i32>("", "id") {
                             let _ = db
-                                .execute(Statement::from_sql_and_values(
+                                .execute_raw(Statement::from_sql_and_values(
                                     DatabaseBackend::Postgres,
                                     r#"INSERT INTO federation_delivery_queue
                                        (activity_id, target_inbox, target_domain, status, created_at)
@@ -1314,7 +1314,7 @@ pub async fn set_member_role(
         }));
     }
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"UPDATE federation_room_members
            SET role = $3
@@ -1456,7 +1456,7 @@ pub async fn remove_member(
         tracing::warn!("[Room] kick fanout failed for {}: {}", room_id, e);
     }
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "DELETE FROM federation_room_members WHERE room_id = $1 AND actor_url = $2",
         [room_id.into(), target_actor.into()],
@@ -1498,7 +1498,7 @@ pub async fn transfer_room_ownership(
     }
 
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT owner_actor FROM federation_rooms WHERE room_id = $1",
             [room_id.into()],
@@ -1560,7 +1560,7 @@ pub async fn transfer_room_ownership(
         .map(|(url, _)| url)
         .unwrap_or_else(|| owner_actor.clone());
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "UPDATE federation_rooms SET owner_actor = $2, updated_at = NOW() WHERE room_id = $1",
         [room_id.into(), target_actor.clone().into()],
@@ -1569,7 +1569,7 @@ pub async fn transfer_room_ownership(
     .map_err(db_err)?;
 
     let demoted = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"UPDATE federation_room_members
                SET role = 'admin'
@@ -1581,7 +1581,7 @@ pub async fn transfer_room_ownership(
     if demoted.rows_affected() == 0 {
         // Fallback: demote any same_actor owner row
         let rows = db
-            .query_all(Statement::from_sql_and_values(
+            .query_all_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"SELECT actor_url FROM federation_room_members
                    WHERE room_id = $1 AND role = 'owner'"#,
@@ -1593,7 +1593,7 @@ pub async fn transfer_room_ownership(
             let url: String = r.try_get("", "actor_url").unwrap_or_default();
             if same_actor_url(&url, &owner_actor) {
                 let _ = db
-                    .execute(Statement::from_sql_and_values(
+                    .execute_raw(Statement::from_sql_and_values(
                         DatabaseBackend::Postgres,
                         r#"UPDATE federation_room_members SET role = 'admin'
                            WHERE room_id = $1 AND actor_url = $2"#,
@@ -1604,7 +1604,7 @@ pub async fn transfer_room_ownership(
         }
     }
     let promoted = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"UPDATE federation_room_members
                SET role = 'owner'
@@ -1736,7 +1736,7 @@ pub async fn leave_room(
         tracing::warn!("[Room] leave fanout failed for {}: {}", room_id, e);
     }
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "DELETE FROM federation_room_members WHERE room_id = $1 AND actor_url = $2",
         [room_id.into(), local_actor.clone().into()],

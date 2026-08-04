@@ -270,7 +270,7 @@ pub async fn put_credential(
             TappCredentialError::Database
         })?;
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"
 INSERT INTO tapp_storage
@@ -349,7 +349,7 @@ async fn stored_credential_statuses(
     // ciphertext out of this code path entirely instead of loading a full
     // tapp_storage model and relying only on response serialization filters.
     let stored = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 SELECT key,
@@ -561,8 +561,8 @@ mod tests {
                 vec![owner_id.into(), tapp_id.into()],
             )
         };
-        db.execute(cleanup()).await.expect("clean guard rows");
-        db.execute(Statement::from_sql_and_values(
+        db.execute_raw(cleanup()).await.expect("clean guard rows");
+        db.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 INSERT INTO tapp_storage
@@ -586,6 +586,6 @@ VALUES
             Some("f".repeat(64).as_str())
         );
 
-        db.execute(cleanup()).await.expect("remove guard rows");
+        db.execute_raw(cleanup()).await.expect("remove guard rows");
     }
 }

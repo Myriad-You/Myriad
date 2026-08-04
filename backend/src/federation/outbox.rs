@@ -106,7 +106,7 @@ pub async fn get_outbox(
     // 无任何分页参数 → 摘要文档。COUNT 只在这里跑一次。
     if query.page.is_none() && query.cursor.is_none() {
         let total: i64 = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 format!("SELECT COUNT(*) as count {}", PUBLIC_OUTBOX_FILTER),
                 [user_id.into()],
@@ -148,7 +148,7 @@ pub async fn get_outbox(
     let fetch = OUTBOX_PAGE_SIZE + 1;
     let rows = match position {
         PagePosition::Start => {
-            db.query_all(Statement::from_sql_and_values(
+            db.query_all_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 format!(
                     "SELECT a.object_json, a.id, a.published_at {} \
@@ -162,7 +162,7 @@ pub async fn get_outbox(
         PagePosition::After { published_us, id } => {
             let ts = chrono::DateTime::from_timestamp_micros(published_us)
                 .unwrap_or_else(chrono::Utc::now);
-            db.query_all(Statement::from_sql_and_values(
+            db.query_all_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 format!(
                     "SELECT a.object_json, a.id, a.published_at {} \
@@ -248,7 +248,7 @@ pub async fn get_activity(
     let activity_id = format!("{}/activities/{}", base_url.trim_end_matches('/'), id);
 
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT a.object_json
                FROM federation_activities a
@@ -291,7 +291,7 @@ async fn get_local_user(
     username: &str,
 ) -> Result<(i32, String), (StatusCode, Json<serde_json::Value>)> {
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT id, username FROM users WHERE username = $1 LIMIT 1",
             [username.into()],

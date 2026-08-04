@@ -289,7 +289,7 @@ pub async fn create_channel(
 
     // 检查是否已有同类型的 active/pending Channel
     let existing = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT channel_id, status, transport, tapp_id, properties, initiated_by,
                       last_activity_at, created_at
@@ -341,7 +341,7 @@ pub async fn create_channel(
         "supportedFormats": ["text/plain", "text/markdown", "application/json"]
     });
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_channels
            (channel_id, user_id, remote_actor_id, channel_type, tapp_id, status, transport, properties, initiated_by, created_at)
@@ -383,7 +383,7 @@ pub async fn create_channel(
     if !inbox.is_empty() {
         let domain = extract_domain(inbox).unwrap_or_default();
         let act_row = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"INSERT INTO federation_activities
                    (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
@@ -400,7 +400,7 @@ pub async fn create_channel(
 
         if let Some(act_id) = act_row.and_then(|r| r.try_get::<i32>("", "id").ok()) {
             let _ = db
-                .execute(Statement::from_sql_and_values(
+                .execute_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     r#"INSERT INTO federation_delivery_queue
                        (activity_id, target_inbox, target_domain, status, created_at)
@@ -447,7 +447,7 @@ pub async fn list_channels(
     let local_actor = actor_url(&base_url, username);
 
     let rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT c.channel_id, c.channel_type, c.status, c.transport, c.initiated_by,
                       c.last_activity_at, c.created_at,
@@ -505,7 +505,7 @@ pub async fn get_channel(
     db: &DatabaseConnection,
 ) -> Result<ChannelDetail, (StatusCode, Json<serde_json::Value>)> {
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT c.channel_id, c.channel_type, c.status, c.transport, c.tapp_id,
                       c.properties, c.initiated_by, c.last_activity_at, c.created_at,
@@ -566,7 +566,7 @@ pub async fn close_channel(
 
     // 验证通道归属 & 获取远程 actor 信息
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT c.status, ra.actor_url, ra.inbox_url
                FROM federation_channels c
@@ -597,7 +597,7 @@ pub async fn close_channel(
         .unwrap_or(None);
 
     // 更新状态
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "UPDATE federation_channels SET status = 'closed', closed_at = NOW() WHERE channel_id = $1",
         [channel_id.into()],
@@ -643,7 +643,7 @@ pub async fn close_channel(
     if let Some(inbox) = remote_inbox {
         let domain = extract_domain(&inbox).unwrap_or_default();
         let act_row = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"INSERT INTO federation_activities
                    (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
@@ -660,7 +660,7 @@ pub async fn close_channel(
 
         if let Some(act_id) = act_row.and_then(|r| r.try_get::<i32>("", "id").ok()) {
             let _ = db
-                .execute(Statement::from_sql_and_values(
+                .execute_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     r#"INSERT INTO federation_delivery_queue
                        (activity_id, target_inbox, target_domain, status, created_at)
@@ -692,7 +692,7 @@ pub async fn delete_channel(
     db: &DatabaseConnection,
 ) -> Result<serde_json::Value, (StatusCode, Json<serde_json::Value>)> {
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT status FROM federation_channels WHERE user_id = $1 AND channel_id = $2",
             [user_id.into(), channel_id.into()],
@@ -715,7 +715,7 @@ pub async fn delete_channel(
     }
 
     // Messages first
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "DELETE FROM federation_channel_messages WHERE channel_id = $1",
         [channel_id.into()],
@@ -724,7 +724,7 @@ pub async fn delete_channel(
     .map_err(db_err)?;
 
     // Related transfer rows (channel_id is not always FK-enforced)
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "DELETE FROM federation_file_transfers WHERE channel_id = $1",
         [channel_id.into()],
@@ -740,7 +740,7 @@ pub async fn delete_channel(
     )
     .await;
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "DELETE FROM federation_channels WHERE user_id = $1 AND channel_id = $2",
         [user_id.into(), channel_id.into()],
@@ -797,7 +797,7 @@ pub async fn send_message(
 
     // 验证通道存在且为 active 或 accepted
     let ch_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT c.status, c.properties, ra.actor_url, ra.inbox_url
                FROM federation_channels c
@@ -873,7 +873,7 @@ pub async fn send_message(
     let message_id = generate_message_id();
     let local_actor = actor_url(&base_url, username);
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_channel_messages
            (channel_id, message_id, sender_actor, message_type, payload, reply_to, is_encrypted, created_at)
@@ -897,7 +897,7 @@ pub async fn send_message(
     } else {
         &status
     };
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "UPDATE federation_channels SET last_activity_at = NOW(), status = $2 WHERE channel_id = $1",
         [channel_id.into(), new_status.into()],
@@ -933,7 +933,7 @@ pub async fn send_message(
     if let Some(inbox) = remote_inbox.filter(|s| !s.is_empty()) {
         let domain = extract_domain(&inbox).unwrap_or_default();
         let act_row = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"INSERT INTO federation_activities
                    (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
@@ -950,7 +950,7 @@ pub async fn send_message(
 
         if let Some(act_id) = act_row.and_then(|r| r.try_get::<i32>("", "id").ok()) {
             match db
-                .execute(Statement::from_sql_and_values(
+                .execute_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     r#"INSERT INTO federation_delivery_queue
                        (activity_id, target_inbox, target_domain, status, created_at)
@@ -1038,7 +1038,7 @@ pub async fn get_messages(
 ) -> Result<Vec<MessageItem>, (StatusCode, Json<serde_json::Value>)> {
     // 验证通道归属，并读取 E2E 状态以便本地解密
     let ch_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT properties FROM federation_channels WHERE user_id = $1 AND channel_id = $2",
             [user_id.into(), channel_id.into()],
@@ -1065,7 +1065,7 @@ pub async fn get_messages(
     let limit = limit.unwrap_or(50).min(200);
 
     let rows = if let Some(before_id) = before {
-        db.query_all(Statement::from_sql_and_values(
+        db.query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT message_id, sender_actor, message_type, payload, reply_to, is_encrypted, created_at
                FROM federation_channel_messages
@@ -1078,7 +1078,7 @@ pub async fn get_messages(
         .await
         .map_err(db_err)?
     } else {
-        db.query_all(Statement::from_sql_and_values(
+        db.query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT message_id, sender_actor, message_type, payload, reply_to, is_encrypted, created_at
                FROM federation_channel_messages
@@ -1158,7 +1158,7 @@ pub async fn handle_channel_open(
 
     // 查找本地对应的远程 actor 记录
     let actor_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT id FROM federation_remote_actors WHERE actor_url = $1",
             [actor_url_str.into()],
@@ -1188,7 +1188,7 @@ pub async fn handle_channel_open(
             continue;
         };
         let row = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "SELECT id FROM users WHERE username = $1 LIMIT 1",
                 [username.into()],
@@ -1204,7 +1204,7 @@ pub async fn handle_channel_open(
     if target_user_id.is_none() {
         // 关注关系回退：to 缺失/无法解析（如 BASE_URL 迁移后远端持有旧 URL）
         target_user_id = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"SELECT user_id FROM federation_follows
                    WHERE remote_actor_id = $1 AND status = 'accepted'
@@ -1229,7 +1229,7 @@ pub async fn handle_channel_open(
 
     // 创建本地 Channel 记录
     let inserted = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_channels
            (channel_id, user_id, remote_actor_id, channel_type, tapp_id, status, transport, initiated_by, created_at)
@@ -1284,7 +1284,7 @@ pub async fn handle_channel_message(
 
     // 验证通道存在且发送方是该通道的远程方
     let ch_check = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT c.status, c.user_id FROM federation_channels c
                JOIN federation_remote_actors ra ON c.remote_actor_id = ra.id
@@ -1298,7 +1298,7 @@ pub async fn handle_channel_message(
         // Distinguish "channel not yet created" (race with ChannelOpen) from
         // "wrong remote actor" (permanent). Buffer only the race case.
         let channel_exists = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "SELECT 1 FROM federation_channels WHERE channel_id = $1",
                 [channel_id.into()],
@@ -1369,7 +1369,7 @@ pub async fn handle_channel_message(
 
     // 存入消息
     let inserted = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_channel_messages
            (channel_id, message_id, sender_actor, message_type, payload, reply_to, is_encrypted, created_at)
@@ -1389,7 +1389,7 @@ pub async fn handle_channel_message(
         .map_err(|e| e.to_string())?;
 
     // 更新通道活动时间
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "UPDATE federation_channels SET last_activity_at = NOW(), status = 'active' WHERE channel_id = $1",
         [channel_id.into()],
@@ -1402,7 +1402,7 @@ pub async fn handle_channel_message(
     let mut ws_is_encrypted = is_encrypted;
     if is_encrypted {
         if let Ok(Some(prop_row)) = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "SELECT properties FROM federation_channels WHERE channel_id = $1",
                 [channel_id.into()],
@@ -1450,7 +1450,7 @@ pub async fn handle_channel_message(
         if let Some(user_id) = owner_user_id {
             let base_url = get_base_url().await;
             let is_self = db
-                .query_one(Statement::from_sql_and_values(
+                .query_one_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     "SELECT username FROM users WHERE id = $1 LIMIT 1",
                     [user_id.into()],
@@ -1502,7 +1502,7 @@ pub async fn handle_channel_close(
 
     // 验证发送方是该通道的远程方
     let ch_check = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT 1 FROM federation_channels c
                JOIN federation_remote_actors ra ON c.remote_actor_id = ra.id
@@ -1519,7 +1519,7 @@ pub async fn handle_channel_close(
         ));
     }
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "UPDATE federation_channels SET status = 'closed', closed_at = NOW() WHERE channel_id = $1",
         [channel_id.into()],
@@ -1602,7 +1602,7 @@ pub async fn handle_key_exchange(
 
     // 验证发送方是该 Channel 的远程方，并读取 properties
     let ch_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT c.properties, c.status FROM federation_channels c
                JOIN federation_remote_actors ra ON c.remote_actor_id = ra.id
@@ -1617,7 +1617,7 @@ pub async fn handle_key_exchange(
         None => {
             // Align with ChannelMessage: Open may still be in flight.
             let channel_exists = db
-                .query_one(Statement::from_sql_and_values(
+                .query_one_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     "SELECT 1 FROM federation_channels WHERE channel_id = $1",
                     [channel_id.into()],
@@ -1671,7 +1671,7 @@ pub async fn handle_key_exchange(
     e2e_obj["established"] = json!(has_local);
     properties["e2e"] = e2e_obj;
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "UPDATE federation_channels SET properties = $2, last_activity_at = NOW() WHERE channel_id = $1",
         [channel_id.into(), properties.into()],
@@ -1690,7 +1690,7 @@ pub async fn handle_key_exchange(
         "algorithm": algorithm,
     });
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_channel_messages
            (channel_id, message_id, sender_actor, message_type, payload, is_encrypted, created_at)
@@ -1740,7 +1740,7 @@ pub async fn accept_channel(
     let base_url = get_base_url().await;
 
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT c.status, c.initiated_by, ra.actor_url, ra.inbox_url
                FROM federation_channels c
@@ -1771,7 +1771,7 @@ pub async fn accept_channel(
         .unwrap_or(None);
 
     // 更新状态
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "UPDATE federation_channels SET status = 'accepted' WHERE channel_id = $1",
         [channel_id.into()],
@@ -1797,7 +1797,7 @@ pub async fn accept_channel(
     if let Some(inbox) = remote_inbox {
         let domain = extract_domain(&inbox).unwrap_or_default();
         let act_row = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"INSERT INTO federation_activities
                    (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
@@ -1814,7 +1814,7 @@ pub async fn accept_channel(
 
         if let Some(act_id) = act_row.and_then(|r| r.try_get::<i32>("", "id").ok()) {
             let _ = db
-                .execute(Statement::from_sql_and_values(
+                .execute_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     r#"INSERT INTO federation_delivery_queue
                        (activity_id, target_inbox, target_domain, status, created_at)
@@ -1855,7 +1855,7 @@ pub async fn handle_channel_accept(
 
     // 验证发送方确为该 Channel 的远程方
     let ch_check = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT c.status FROM federation_channels c
                JOIN federation_remote_actors ra ON c.remote_actor_id = ra.id
@@ -1873,7 +1873,7 @@ pub async fn handle_channel_accept(
     }
 
     let result = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"UPDATE federation_channels
                SET status = 'accepted', last_activity_at = NOW()
@@ -1918,7 +1918,7 @@ pub async fn initiate_e2e_key_exchange(
     let base_url = get_base_url().await;
 
     let ch_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT c.status, c.properties, ra.actor_url, ra.inbox_url
                FROM federation_channels c
@@ -2046,7 +2046,7 @@ pub async fn initiate_e2e_key_exchange(
     });
     properties["e2e"] = e2e_state;
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "UPDATE federation_channels SET properties = $2, last_activity_at = NOW() WHERE channel_id = $1 AND user_id = $3",
         [channel_id.into(), properties.into(), user_id.into()],
@@ -2075,7 +2075,7 @@ pub async fn initiate_e2e_key_exchange(
     if new_keypair {
         let message_id = generate_message_id();
         let _ = db
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"INSERT INTO federation_channel_messages
                (channel_id, message_id, sender_actor, message_type, payload, is_encrypted, created_at)
@@ -2098,7 +2098,7 @@ pub async fn initiate_e2e_key_exchange(
     if let Some(inbox) = remote_inbox {
         let domain = extract_domain(&inbox).unwrap_or_default();
         let act_row = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"INSERT INTO federation_activities
                    (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
@@ -2115,7 +2115,7 @@ pub async fn initiate_e2e_key_exchange(
 
         if let Some(act_id) = act_row.and_then(|r| r.try_get::<i32>("", "id").ok()) {
             let _ = db
-                .execute(Statement::from_sql_and_values(
+                .execute_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     r#"INSERT INTO federation_delivery_queue
                        (activity_id, target_inbox, target_domain, status, created_at)

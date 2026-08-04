@@ -325,7 +325,7 @@ pub(crate) fn allow_platform_disk_cache_for_user(is_owner: bool) -> bool {
 }
 
 async fn load_user_is_owner(db: &DatabaseConnection, user_id: i32) -> bool {
-    db.query_one(Statement::from_sql_and_values(
+    db.query_one_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "SELECT COALESCE(is_owner, false) AS is_owner FROM users WHERE id = $1",
         vec![SeaValue::Int(Some(user_id))],
@@ -412,7 +412,7 @@ async fn load_user_avatar_row<C: ConnectionTrait>(
         implicit = implicit_ladder_expr("u"),
     );
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             sql,
             vec![SeaValue::Int(Some(user_id))],
@@ -451,7 +451,7 @@ async fn identity_avatar<C: ConnectionTrait>(
     user_id: i32,
     identity_id: i32,
 ) -> Option<String> {
-    db.query_one(Statement::from_sql_and_values(
+    db.query_one_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "SELECT avatar_url FROM user_identities WHERE id = $1 AND user_id = $2",
         vec![
@@ -587,11 +587,11 @@ pub async fn refresh_avatar_snapshot_on<C: ConnectionTrait>(
     let resolved = resolve_detail(write_db, platform_db, user_id).await;
 
     let value = match resolved.url.clone().filter(|_| !resolved.from_sql_ladder) {
-        Some(url) => SeaValue::String(Some(Box::new(url))),
+        Some(url) => SeaValue::String(Some(url)),
         None => SeaValue::String(None),
     };
     write_db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "UPDATE users SET avatar_resolved_url = $1, avatar_updated_at = NOW() WHERE id = $2",
             vec![value, SeaValue::Int(Some(user_id))],
@@ -805,7 +805,7 @@ pub async fn list_avatar_sources(
     });
 
     let identity_rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT id, provider, provider_username, avatar_url \
              FROM user_identities WHERE user_id = $1 ORDER BY linked_at ASC",
@@ -946,7 +946,7 @@ async fn set_avatar_source_txn(
         .map_err(|e| format!("Failed to begin avatar source transaction: {e}"))?;
 
     if let Some(github_id) = linked_github_id {
-        txn.execute(Statement::from_sql_and_values(
+        txn.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "UPDATE users SET linked_github_id = COALESCE(linked_github_id, $1), \
              updated_at = NOW() WHERE id = $2",
@@ -959,14 +959,14 @@ async fn set_avatar_source_txn(
         .map_err(|e| format!("Failed to backfill linked_github_id: {e}"))?;
     }
 
-    txn.execute(Statement::from_sql_and_values(
+    txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "UPDATE users SET avatar_source_kind = $1, avatar_source_ref = $2, updated_at = NOW() \
          WHERE id = $3",
         vec![
-            SeaValue::String(Some(Box::new(kind.as_str().to_string()))),
+            SeaValue::String(Some(kind.as_str().to_string())),
             match stored_ref.clone() {
-                Some(r) => SeaValue::String(Some(Box::new(r))),
+                Some(r) => SeaValue::String(Some(r)),
                 None => SeaValue::String(None),
             },
             SeaValue::Int(Some(user_id)),
@@ -978,7 +978,7 @@ async fn set_avatar_source_txn(
     // identity 源同步 is_primary，保持与既有 /identities/{id}/primary 语义一致
     if kind == AvatarSourceKind::Identity {
         if let Some(identity_id) = stored_ref.as_deref().and_then(|r| r.parse::<i32>().ok()) {
-            txn.execute(Statement::from_sql_and_values(
+            txn.execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "UPDATE user_identities SET is_primary = (id = $1) WHERE user_id = $2",
                 vec![

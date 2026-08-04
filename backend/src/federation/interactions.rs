@@ -114,7 +114,7 @@ pub async fn resolve_local_object(
 ) -> Option<serde_json::Value> {
     // Prefer Create activity object
     if let Ok(Some(row)) = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT object_json FROM federation_activities
                WHERE activity_type = 'Create'
@@ -142,7 +142,7 @@ pub async fn resolve_local_object(
 
     // Fallback: any timeline row
     if let Ok(Some(row)) = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT content_json FROM federation_timeline
                WHERE content_json->>'id' = $1
@@ -213,7 +213,7 @@ pub async fn interaction_stats_for_objects(
 
     // Local interactions (counts + me flags)
     let rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT object_id, kind, user_id
                FROM federation_object_interactions
@@ -255,7 +255,7 @@ pub async fn interaction_stats_for_objects(
 
     // Remote likes (is_local = false) — avoid double-counting local interactions
     let remote_likes = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT
                  CASE
@@ -292,7 +292,7 @@ pub async fn interaction_stats_for_objects(
 
     // Remote announces
     let remote_ann = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT
                  CASE
@@ -329,7 +329,7 @@ pub async fn interaction_stats_for_objects(
 
     // Reply counts (Create with inReplyTo). Exclude quote-reposts (mfp:kind=repost).
     let replies = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT
                  COALESCE(
@@ -397,7 +397,7 @@ pub async fn like_object(
 
     // Idempotent insert
     let inserted = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_object_interactions
                    (user_id, object_id, kind, activity_id, created_at)
@@ -441,7 +441,7 @@ pub async fn like_object(
     });
 
     let act_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_activities
                    (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
@@ -493,7 +493,7 @@ pub async fn unlike_object(
     let local_actor = actor_url(&base_url, username);
 
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT activity_id FROM federation_object_interactions
                WHERE user_id = $1 AND object_id = $2 AND kind = 'like'"#,
@@ -508,7 +508,7 @@ pub async fn unlike_object(
             .flatten()
     });
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"DELETE FROM federation_object_interactions
            WHERE user_id = $1 AND object_id = $2 AND kind = 'like'"#,
@@ -534,7 +534,7 @@ pub async fn unlike_object(
         });
 
         if let Ok(Some(act_row)) = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"INSERT INTO federation_activities
                        (activity_id, user_id, activity_type, object_json, is_local, published_at)
@@ -582,7 +582,7 @@ pub async fn bookmark_object(
 ) -> Result<InteractionResponse, (StatusCode, Json<serde_json::Value>)> {
     let object_id = require_object_id(object_id_raw)?;
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_object_interactions
                (user_id, object_id, kind, created_at)
@@ -595,7 +595,7 @@ pub async fn bookmark_object(
 
     // Keep timeline flag in sync when a matching row exists
     let _ = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"UPDATE federation_timeline
                SET is_bookmarked = true
@@ -632,7 +632,7 @@ pub async fn unbookmark_object(
 ) -> Result<InteractionResponse, (StatusCode, Json<serde_json::Value>)> {
     let object_id = require_object_id(object_id_raw)?;
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"DELETE FROM federation_object_interactions
            WHERE user_id = $1 AND object_id = $2 AND kind = 'bookmark'"#,
@@ -642,7 +642,7 @@ pub async fn unbookmark_object(
     .map_err(db_err)?;
 
     let _ = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"UPDATE federation_timeline
                SET is_bookmarked = false
@@ -681,7 +681,7 @@ pub async fn list_bookmarks(
     let local_domain = extract_domain(&base_url).unwrap_or_default();
 
     let rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             // content_json columns are `json`; activity object_json extracts are `jsonb`.
             // COALESCE requires matching types — cast the timeline branch to jsonb.
@@ -1088,7 +1088,7 @@ pub async fn announce_object(
     );
 
     let inserted = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_object_interactions
                    (user_id, object_id, kind, activity_id, created_at)
@@ -1183,7 +1183,7 @@ pub async fn announce_object(
 
     // Persist as Create / repost activity + published_content (for 已发布 list).
     let act_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_activities
                    (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
@@ -1204,7 +1204,7 @@ pub async fn announce_object(
 
     // Surface under 已发布 (content_type=repost; list_published includes it).
     let _ = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_published_content
                    (user_id, content_type, content_id, activity_id, visibility, published_at)
@@ -1223,7 +1223,7 @@ pub async fn announce_object(
     let content_for_tl = create_json.get("object").cloned().unwrap_or(json!({}));
 
     let _ = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_timeline
                    (user_id, activity_id, remote_actor_id, activity_type, object_type, content_preview, content_json, received_at)
@@ -1272,7 +1272,7 @@ pub async fn unannounce_object(
     let local_actor = actor_url(&base_url, username);
 
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT activity_id FROM federation_object_interactions
                WHERE user_id = $1 AND object_id = $2 AND kind = 'announce'"#,
@@ -1287,7 +1287,7 @@ pub async fn unannounce_object(
             .flatten()
     });
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"DELETE FROM federation_object_interactions
            WHERE user_id = $1 AND object_id = $2 AND kind = 'announce'"#,
@@ -1299,7 +1299,7 @@ pub async fn unannounce_object(
     if let Some(ann_id) = original_id.filter(|s| !s.is_empty()) {
         // Remove from local timelines
         let _ = db
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "DELETE FROM federation_timeline WHERE activity_id = $1",
                 [ann_id.clone().into()],
@@ -1308,7 +1308,7 @@ pub async fn unannounce_object(
 
         // Load original activity to decide Undo(Announce) vs Delete(Create Note).
         let orig_act = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"SELECT activity_type, object_json FROM federation_activities
                    WHERE activity_id = $1 LIMIT 1"#,
@@ -1367,7 +1367,7 @@ pub async fn unannounce_object(
         };
 
         if let Ok(Some(act_row)) = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"INSERT INTO federation_activities
                        (activity_id, user_id, activity_type, object_json, is_local, published_at)
@@ -1450,7 +1450,7 @@ async fn deliver_to_object_author(
 
     // Remote author: look up inbox
     let inbox_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT inbox_url, domain FROM federation_remote_actors WHERE actor_url = $1",
             [author.clone().into()],
@@ -1476,7 +1476,7 @@ async fn deliver_to_object_author(
 
     // Avoid double-queue if author is already a follower (fan_out already queued)
     let _ = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             // 去重交给 (activity_id, target_inbox) 唯一索引。
             // 原先的 `WHERE NOT EXISTS` 是先查后插，两个并发请求可以同时通过
@@ -1535,7 +1535,7 @@ pub async fn handle_inbound_undo_interaction(
     match inner_type {
         "Like" => {
             let _ = db
-                .execute(Statement::from_sql_and_values(
+                .execute_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     OWNED_ACTIVITY,
                     [inner_id.into(), undo_actor_url.into()],
@@ -1544,7 +1544,7 @@ pub async fn handle_inbound_undo_interaction(
         }
         "Announce" => {
             let _ = db
-                .execute(Statement::from_sql_and_values(
+                .execute_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     "DELETE FROM federation_timeline \
                      WHERE user_id = $1 AND activity_id = $2 \
@@ -1557,7 +1557,7 @@ pub async fn handle_inbound_undo_interaction(
                 ))
                 .await;
             let _ = db
-                .execute(Statement::from_sql_and_values(
+                .execute_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     OWNED_ACTIVITY,
                     [inner_id.into(), undo_actor_url.into()],
@@ -1687,7 +1687,7 @@ async fn actor_summary_for_object(
         })
         .filter(|s| !s.is_empty())?;
     if let Ok(Some(row)) = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT actor_url, username, domain, display_name, avatar_url, false AS is_local
                FROM federation_remote_actors WHERE actor_url = $1

@@ -292,7 +292,7 @@ pub async fn clear_sandbox_storage(
         "DELETE FROM tapp_storage \
          WHERE user_id = $1 AND tapp_id = $2 AND ({SANDBOX_STORAGE_PREDICATE_SQL})"
     );
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         sql,
         vec![user_id.into(), tapp_id.into()],
@@ -352,7 +352,7 @@ pub async fn write_storage_value(
     value: Value,
 ) -> Result<(), TappStorageError> {
     let txn = db.begin().await.map_err(|_| TappStorageError::Database)?;
-    txn.execute(Statement::from_sql_and_values(
+    txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
         vec![format!("tapp-storage:{user_id}:{tapp_id}").into()],
@@ -395,7 +395,7 @@ WHERE user_id = $1 AND tapp_id = $2
         txn.rollback().await.ok();
         return Err(TappStorageError::TooLarge);
     }
-    txn.execute(Statement::from_sql_and_values(
+    txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"
 INSERT INTO tapp_storage (tapp_id, user_id, key, value, created_at, updated_at)
@@ -495,8 +495,8 @@ mod tests {
                 vec![user_id.into(), tapp_id.into()],
             )
         };
-        db.execute(delete_rows()).await.expect("clean guard rows");
-        db.execute(Statement::from_sql_and_values(
+        db.execute_raw(delete_rows()).await.expect("clean guard rows");
+        db.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 INSERT INTO tapp_storage
@@ -529,7 +529,7 @@ VALUES
             .await
             .expect("clear sandbox rows");
         let remaining = db
-            .query_all(Statement::from_sql_and_values(
+            .query_all_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "SELECT key FROM tapp_storage WHERE user_id = $1 AND tapp_id = $2 ORDER BY key",
                 vec![user_id.into(), tapp_id.into()],
@@ -542,7 +542,7 @@ VALUES
             .collect();
         assert_eq!(remaining, vec!["_credentials.api", "_settings.theme"]);
 
-        db.execute(delete_rows()).await.expect("remove guard rows");
+        db.execute_raw(delete_rows()).await.expect("remove guard rows");
     }
 
     #[test]

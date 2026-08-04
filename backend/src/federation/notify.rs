@@ -15,7 +15,7 @@ const ARO_TAPP_ID: &str = "com.myriad.aro";
 /// 从 Actor URL 生成可读标签（优先 display_name / username@domain）
 pub async fn actor_label(db: &DatabaseConnection, actor_url: &str) -> String {
     if let Ok(Some(row)) = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT display_name, username, domain
                FROM federation_remote_actors WHERE actor_url = $1"#,
@@ -487,7 +487,7 @@ pub async fn notify_delivery_failed(
 /// 查询 Room 本地成员 user_id 列表
 pub async fn room_local_user_ids(db: &DatabaseConnection, room_id: &str) -> Vec<i32> {
     let rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT DISTINCT local_user_id FROM federation_room_members
                WHERE room_id = $1 AND is_local = true AND local_user_id IS NOT NULL"#,
@@ -503,7 +503,7 @@ pub async fn room_local_user_ids(db: &DatabaseConnection, room_id: &str) -> Vec<
 /// 查询 Room 名称
 pub async fn room_name(db: &DatabaseConnection, room_id: &str) -> String {
     if let Ok(Some(row)) = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT name FROM federation_rooms WHERE room_id = $1",
             [room_id.into()],

@@ -124,7 +124,7 @@ pub async fn load_module_visibility_preferences(
 ) -> ModuleVisibilityPreferences {
     let sql = "SELECT value FROM configurations WHERE key = $1";
     let result = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             sql,
             vec![MODULE_VISIBILITY_PREFERENCES_KEY.into()],

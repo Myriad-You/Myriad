@@ -174,7 +174,7 @@ pub async fn rewrap_legacy_private_keys(
     }
 
     let rows = db
-        .query_all(Statement::from_string(
+        .query_all_raw(Statement::from_string(
             DatabaseBackend::Postgres,
             "SELECT user_id, private_key_encrypted FROM federation_keys".to_string(),
         ))
@@ -214,7 +214,7 @@ pub async fn rewrap_legacy_private_keys(
         };
 
         match db
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "UPDATE federation_keys SET private_key_encrypted = $2 WHERE user_id = $1",
                 vec![user_id.into(), sealed.into()],

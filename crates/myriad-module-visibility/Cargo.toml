@@ -7,7 +7,7 @@ description = "Module page visibility preferences (types, normalize, DB load) fo
 authors = ["Myriad Contributors"]
 
 [dependencies]
-sea-orm = { version = "1.1", default-features = false, features = [
+sea-orm = { version = "2.0", default-features = false, features = [
     "sqlx-postgres",
     "runtime-tokio-rustls",
     "macros",

@@ -512,7 +512,7 @@ ALTER TABLE federation_file_transfers
 
     for fk in FKS {
         let exists = db
-            .query_one(sea_orm::Statement::from_sql_and_values(
+            .query_one_raw(sea_orm::Statement::from_sql_and_values(
                 sea_orm::DatabaseBackend::Postgres,
                 r#"
 SELECT 1 AS ok
@@ -531,7 +531,7 @@ LIMIT 1
         }
 
         let orphan_row = db
-            .query_one(sea_orm::Statement::from_string(
+            .query_one_raw(sea_orm::Statement::from_string(
                 sea_orm::DatabaseBackend::Postgres,
                 fk.orphan_sql.to_string(),
             ))

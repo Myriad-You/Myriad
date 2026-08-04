@@ -25,7 +25,7 @@ pub async fn migrate_plaintext_config_values(
     }
 
     let rows = db
-        .query_all(Statement::from_string(
+        .query_all_raw(Statement::from_string(
             DatabaseBackend::Postgres,
             "SELECT key, value FROM configurations".to_string(),
         ))
@@ -57,7 +57,7 @@ pub async fn migrate_plaintext_config_values(
         }
 
         match db
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "UPDATE configurations SET value = $2, is_encrypted = true WHERE key = $1",
                 vec![key.clone().into(), sealed.into()],

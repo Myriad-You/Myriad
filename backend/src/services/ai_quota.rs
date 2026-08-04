@@ -256,13 +256,13 @@ async fn ensure_quota_row<C: ConnectionTrait>(
     quota_type: &str,
     limit: i32,
 ) -> Result<(), AiQuotaError> {
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DbBackend::Postgres,
         insert_quota_sql(),
         vec![
-            SeaValue::String(Some(Box::new(tapp_id.to_string()))),
+            SeaValue::String(Some(tapp_id.to_string())),
             SeaValue::Int(Some(subject_id)),
-            SeaValue::String(Some(Box::new(quota_type.to_string()))),
+            SeaValue::String(Some(quota_type.to_string())),
             SeaValue::Int(Some(limit)),
         ],
     ))
@@ -281,7 +281,7 @@ async fn read_row_for_update<C: ConnectionTrait>(
     quota_type: &str,
 ) -> Result<(i32, DateTime<Utc>), AiQuotaError> {
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
             r#"
                 SELECT used, updated_at
@@ -292,8 +292,8 @@ async fn read_row_for_update<C: ConnectionTrait>(
             "#,
             vec![
                 SeaValue::Int(Some(subject_id)),
-                SeaValue::String(Some(Box::new(tapp_id.to_string()))),
-                SeaValue::String(Some(Box::new(quota_type.to_string()))),
+                SeaValue::String(Some(tapp_id.to_string())),
+                SeaValue::String(Some(quota_type.to_string())),
             ],
         ))
         .await
@@ -321,7 +321,7 @@ async fn increment_row<C: ConnectionTrait>(
     amount: i32,
     touch: bool,
 ) -> Result<(), AiQuotaError> {
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DbBackend::Postgres,
         if touch {
             r#"
@@ -340,8 +340,8 @@ async fn increment_row<C: ConnectionTrait>(
         },
         vec![
             SeaValue::Int(Some(subject_id)),
-            SeaValue::String(Some(Box::new(tapp_id.to_string()))),
-            SeaValue::String(Some(Box::new(quota_type.to_string()))),
+            SeaValue::String(Some(tapp_id.to_string())),
+            SeaValue::String(Some(quota_type.to_string())),
             SeaValue::Int(Some(amount)),
         ],
     ))
@@ -580,7 +580,7 @@ async fn read_usage_value(
     quota_type: &str,
 ) -> Result<Option<(i32, DateTime<Utc>)>, AiQuotaError> {
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
             r#"
                 SELECT used, updated_at
@@ -590,8 +590,8 @@ async fn read_usage_value(
             "#,
             vec![
                 SeaValue::Int(Some(subject_id)),
-                SeaValue::String(Some(Box::new(tapp_id.to_string()))),
-                SeaValue::String(Some(Box::new(quota_type.to_string()))),
+                SeaValue::String(Some(tapp_id.to_string())),
+                SeaValue::String(Some(quota_type.to_string())),
             ],
         ))
         .await

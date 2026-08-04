@@ -212,7 +212,7 @@ async fn check_rate_limit_key(
     let record_id = rate_limit_record_id(&key);
     let transaction = db.begin().await.map_err(map_db_err)?;
     transaction
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
             "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
             vec![format!("tapp_rate_limit:{key}").into()],
@@ -234,7 +234,7 @@ async fn check_rate_limit_key(
 
     if allowed {
         transaction
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 DbBackend::Postgres,
                 r#"
 INSERT INTO tapp_runtime_registry

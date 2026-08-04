@@ -163,14 +163,14 @@ async fn sync_user_oauth_columns(
         }
 
         if let Err(e) = db
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "UPDATE users SET linked_github_id = COALESCE($1, linked_github_id), \
                  avatar_url = COALESCE($2, avatar_url), updated_at = NOW() WHERE id = $3",
                 vec![
                     SeaValue::BigInt(github_id),
                     avatar_url
-                        .map(|s| SeaValue::String(Some(Box::new(s))))
+                        .map(|s| SeaValue::String(Some(s)))
                         .unwrap_or(SeaValue::String(None)),
                     SeaValue::Int(Some(user_id)),
                 ],
@@ -187,11 +187,11 @@ async fn sync_user_oauth_columns(
     };
 
     if let Err(e) = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "UPDATE users SET avatar_url = $1, updated_at = NOW() WHERE id = $2",
             vec![
-                SeaValue::String(Some(Box::new(avatar_url))),
+                SeaValue::String(Some(avatar_url)),
                 SeaValue::Int(Some(user_id)),
             ],
         ))
@@ -561,14 +561,14 @@ async fn handle_link_replay(
     frontend_url: &str,
 ) -> Result<Response, HttpError> {
     let existing = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT provider_username FROM user_identities \
              WHERE user_id = $1 AND provider = $2 \
              ORDER BY linked_at DESC LIMIT 1",
             vec![
                 SeaValue::Int(Some(link_user_id)),
-                SeaValue::String(Some(Box::new(slug.to_string()))),
+                SeaValue::String(Some(slug.to_string())),
             ],
         ))
         .await
@@ -622,7 +622,7 @@ async fn handle_link(
 ) -> Result<Response, HttpError> {
     // 验证发起绑定的用户仍然存在
     let user = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT id FROM users WHERE id = $1",
             vec![SeaValue::Int(Some(link_user_id))],
@@ -640,13 +640,13 @@ async fn handle_link(
 
     // 检查 identity 是否已绑到别的 user
     let existing = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT user_id FROM user_identities \
              WHERE provider = $1 AND provider_user_id = $2",
             vec![
-                SeaValue::String(Some(Box::new(slug.to_string()))),
-                SeaValue::String(Some(Box::new(profile.provider_user_id.clone()))),
+                SeaValue::String(Some(slug.to_string())),
+                SeaValue::String(Some(profile.provider_user_id.clone())),
             ],
         ))
         .await
@@ -691,7 +691,7 @@ async fn handle_login(
 
     // 查 is_admin + session epoch for JWT mint
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT is_admin, username, COALESCE(is_owner, false) AS is_owner, \
                     COALESCE(token_version, 0) AS token_version \
@@ -749,13 +749,13 @@ async fn find_or_create_user(
 ) -> Result<i32, HttpError> {
     // 1. identity 命中 → 直接登录
     if let Some(row) = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT user_id FROM user_identities \
              WHERE provider = $1 AND provider_user_id = $2",
             vec![
-                SeaValue::String(Some(Box::new(slug.to_string()))),
-                SeaValue::String(Some(Box::new(profile.provider_user_id.clone()))),
+                SeaValue::String(Some(slug.to_string())),
+                SeaValue::String(Some(profile.provider_user_id.clone())),
             ],
         ))
         .await
@@ -769,39 +769,39 @@ async fn find_or_create_user(
             })?;
         // 更新 identity 的 last_login_at + 档案字段
         let _ = db
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "UPDATE user_identities SET \
                     provider_username = $1, email = $2, avatar_url = $3, profile_url = $4, \
                     raw_profile = $5, last_login_at = NOW() \
                  WHERE provider = $6 AND provider_user_id = $7",
                 vec![
-                    SeaValue::String(Some(Box::new(profile.username.clone()))),
+                    SeaValue::String(Some(profile.username.clone())),
                     profile
                         .email
                         .clone()
-                        .map(|s| SeaValue::String(Some(Box::new(s))))
+                        .map(|s| SeaValue::String(Some(s)))
                         .unwrap_or(SeaValue::String(None)),
                     profile
                         .avatar_url
                         .clone()
-                        .map(|s| SeaValue::String(Some(Box::new(s))))
+                        .map(|s| SeaValue::String(Some(s)))
                         .unwrap_or(SeaValue::String(None)),
                     profile
                         .profile_url
                         .clone()
-                        .map(|s| SeaValue::String(Some(Box::new(s))))
+                        .map(|s| SeaValue::String(Some(s)))
                         .unwrap_or(SeaValue::String(None)),
                     SeaValue::Json(Some(Box::new(profile.raw.clone()))),
-                    SeaValue::String(Some(Box::new(slug.to_string()))),
-                    SeaValue::String(Some(Box::new(profile.provider_user_id.clone()))),
+                    SeaValue::String(Some(slug.to_string())),
+                    SeaValue::String(Some(profile.provider_user_id.clone())),
                 ],
             ))
             .await;
         sync_user_oauth_profile_snapshot(db, uid, slug, profile).await;
         // 更新 users 的 last_login_at
         let _ = db
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "UPDATE users SET last_login_at = NOW() WHERE id = $1",
                 vec![SeaValue::Int(Some(uid))],
@@ -823,10 +823,10 @@ async fn find_or_create_user(
         .filter(|e| !e.is_empty())
     {
         if let Some(_row) = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "SELECT id FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1",
-                vec![SeaValue::String(Some(Box::new(email.to_string())))],
+                vec![SeaValue::String(Some(email.to_string()))],
             ))
             .await
             .map_err(|e| {
@@ -855,7 +855,7 @@ Sign in with your original method, then link this provider from account settings
     let provider_label = if slug == "github" { "github" } else { "oidc" };
 
     let insert = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "INSERT INTO users (username, display_name, email, avatar_url, \
                                  is_admin, auth_provider, github_id, github_profile_url, \
@@ -863,19 +863,19 @@ Sign in with your original method, then link this provider from account settings
              VALUES ($1, $2, $3, $4, false, $5, $6, $7, NOW(), NOW(), NOW()) \
              RETURNING id",
             vec![
-                SeaValue::String(Some(Box::new(unique_username.clone()))),
-                SeaValue::String(Some(Box::new(profile.username.clone()))),
+                SeaValue::String(Some(unique_username.clone())),
+                SeaValue::String(Some(profile.username.clone())),
                 profile
                     .email
                     .clone()
-                    .map(|s| SeaValue::String(Some(Box::new(s))))
+                    .map(|s| SeaValue::String(Some(s)))
                     .unwrap_or(SeaValue::String(None)),
                 profile
                     .avatar_url
                     .clone()
-                    .map(|s| SeaValue::String(Some(Box::new(s))))
+                    .map(|s| SeaValue::String(Some(s)))
                     .unwrap_or(SeaValue::String(None)),
-                SeaValue::String(Some(Box::new(provider_label.to_string()))),
+                SeaValue::String(Some(provider_label.to_string())),
                 // 兼容层：GitHub 时写 github_id 镜像
                 if slug == "github" {
                     profile
@@ -891,7 +891,7 @@ Sign in with your original method, then link this provider from account settings
                     profile
                         .profile_url
                         .clone()
-                        .map(|s| SeaValue::String(Some(Box::new(s))))
+                        .map(|s| SeaValue::String(Some(s)))
                         .unwrap_or(SeaValue::String(None))
                 } else {
                     SeaValue::String(None)
@@ -933,7 +933,7 @@ async fn upsert_identity(
     user_id: i32,
     profile: &NormalizedProfile,
 ) -> Result<(), HttpError> {
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "INSERT INTO user_identities ( \
             user_id, provider, provider_user_id, provider_username, email, email_verified, \
@@ -954,24 +954,24 @@ async fn upsert_identity(
          WHERE user_identities.user_id = EXCLUDED.user_id",
         vec![
             SeaValue::Int(Some(user_id)),
-            SeaValue::String(Some(Box::new(slug.to_string()))),
-            SeaValue::String(Some(Box::new(profile.provider_user_id.clone()))),
-            SeaValue::String(Some(Box::new(profile.username.clone()))),
+            SeaValue::String(Some(slug.to_string())),
+            SeaValue::String(Some(profile.provider_user_id.clone())),
+            SeaValue::String(Some(profile.username.clone())),
             profile
                 .email
                 .clone()
-                .map(|s| SeaValue::String(Some(Box::new(s))))
+                .map(|s| SeaValue::String(Some(s)))
                 .unwrap_or(SeaValue::String(None)),
             SeaValue::Bool(Some(profile.email_verified)),
             profile
                 .avatar_url
                 .clone()
-                .map(|s| SeaValue::String(Some(Box::new(s))))
+                .map(|s| SeaValue::String(Some(s)))
                 .unwrap_or(SeaValue::String(None)),
             profile
                 .profile_url
                 .clone()
-                .map(|s| SeaValue::String(Some(Box::new(s))))
+                .map(|s| SeaValue::String(Some(s)))
                 .unwrap_or(SeaValue::String(None)),
             SeaValue::Json(Some(Box::new(profile.raw.clone()))),
         ],
@@ -992,13 +992,13 @@ async fn ensure_unique_username(
     base: &str,
 ) -> Result<String, HttpError> {
     let rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT username FROM users \
              WHERE LOWER(username) = LOWER($1) \
                 OR LOWER(username) LIKE LOWER($1) || '\\_%' ESCAPE '\\' \
              LIMIT 200",
-            vec![SeaValue::String(Some(Box::new(base.to_string())))],
+            vec![SeaValue::String(Some(base.to_string()))],
         ))
         .await
         .map_err(|e| {
@@ -1047,13 +1047,13 @@ pub async fn provider_unlink(
 
     // 确认 identity 属于当前用户
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT id FROM user_identities WHERE id = $1 AND user_id = $2 AND provider = $3",
             vec![
                 SeaValue::Int(Some(identity_id)),
                 SeaValue::Int(Some(user_id)),
-                SeaValue::String(Some(Box::new(slug.clone()))),
+                SeaValue::String(Some(slug.clone())),
             ],
         ))
         .await
@@ -1065,7 +1065,7 @@ pub async fn provider_unlink(
 
     // 防失联：若此 identity 是唯一登录方式（没密码 + 只有这一条 identity），拒绝
     let summary = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT \
                 (SELECT password_hash IS NOT NULL FROM users WHERE id = $1) AS has_password, \
@@ -1089,7 +1089,7 @@ pub async fn provider_unlink(
         )));
     }
 
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "DELETE FROM user_identities WHERE id = $1",
         vec![SeaValue::Int(Some(identity_id))],
@@ -1103,7 +1103,7 @@ pub async fn provider_unlink(
     // 兼容层：解绑 GitHub 时清掉 users.linked_github_id（若仍持有该 id）
     if slug == "github" {
         let _ = db
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "UPDATE users SET linked_github_id = NULL WHERE id = $1",
                 vec![SeaValue::Int(Some(user_id))],
@@ -1131,7 +1131,7 @@ pub async fn list_my_identities(
     let user_id: i32 = claims.sub.parse().map_err(|_| err_400("Invalid user id"))?;
 
     let rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT id, provider, provider_username, email, avatar_url, profile_url, \
                     is_primary, linked_at, last_login_at \
@@ -1190,7 +1190,7 @@ pub async fn set_primary_identity(
     let user_id: i32 = claims.sub.parse().map_err(|_| err_400("Invalid user id"))?;
 
     let row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT provider, provider_username, provider_user_id \
              FROM user_identities WHERE id = $1 AND user_id = $2",

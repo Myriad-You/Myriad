@@ -114,7 +114,7 @@ pub async fn find_admin_user_id(
     // Prefer durable site owner; fall back to first admin (legacy / pre-is_owner).
     // Same resolution as `site_owner_user_id`, but optional for pre-setup surfaces.
     let mut result = db
-        .query_one(Statement::from_string(
+        .query_one_raw(Statement::from_string(
             DatabaseBackend::Postgres,
             "SELECT id FROM users WHERE is_owner = true ORDER BY id ASC LIMIT 1".to_string(),
         ))
@@ -126,7 +126,7 @@ pub async fn find_admin_user_id(
 
     if result.is_none() {
         result = db
-            .query_one(Statement::from_string(
+            .query_one_raw(Statement::from_string(
                 DatabaseBackend::Postgres,
                 "SELECT id FROM users WHERE is_admin = true ORDER BY id ASC LIMIT 1".to_string(),
             ))
@@ -176,7 +176,7 @@ pub async fn subject_is_admin(
         }
     }
     let result = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT is_admin FROM users WHERE id = $1 LIMIT 1",
             vec![user_id.into()],
@@ -483,7 +483,7 @@ pub async fn lock_tapp_lifecycle(
     db: &impl ConnectionTrait,
     tapp_id: &str,
 ) -> Result<(), DbErr> {
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
         vec![tapp_lifecycle_lock_key(tapp_id).into()],

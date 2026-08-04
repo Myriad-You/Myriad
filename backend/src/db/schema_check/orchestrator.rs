@@ -304,7 +304,7 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
 pub async fn ensure_single_owner(db: &DatabaseConnection) -> Result<(), DbErr> {
     // Column may still be missing if DDL failed; skip quietly.
     let col_check = db
-        .query_one(sea_orm::Statement::from_sql_and_values(
+        .query_one_raw(sea_orm::Statement::from_sql_and_values(
             sea_orm::DatabaseBackend::Postgres,
             "SELECT 1 AS ok FROM information_schema.columns \
              WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'is_owner' \

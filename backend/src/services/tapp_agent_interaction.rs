@@ -307,7 +307,7 @@ async fn expire_interaction_if_due(
     let payload = serde_json::to_value(&expired)
         .map_err(|_| AgentInteractionError::SerializationFailed)?;
     let result = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 UPDATE tapp_runtime_registry
@@ -413,7 +413,7 @@ async fn conditional_save_interaction(
     let payload = serde_json::to_value(interaction)
         .map_err(|_| AgentInteractionError::SerializationFailed)?;
     let result = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 UPDATE tapp_runtime_registry
@@ -455,7 +455,7 @@ async fn cancel_disconnected_interaction(
     let payload = serde_json::to_value(interaction)
         .map_err(|_| AgentInteractionError::SerializationFailed)?;
     let result = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 UPDATE tapp_runtime_registry

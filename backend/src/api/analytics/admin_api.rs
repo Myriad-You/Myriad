@@ -75,7 +75,7 @@ pub(crate) async fn build_analytics_summary(
     let tz_label = analytics_tz_label();
 
     let daily_rows = match db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 SELECT day::text AS day,
@@ -197,7 +197,7 @@ ORDER BY day ASC
     };
 
     let page_view_rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 SELECT path,
@@ -220,7 +220,7 @@ LIMIT 50
         .unwrap_or_default();
 
     let page_uv_rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 SELECT path, COUNT(DISTINCT visitor_hash)::bigint AS unique_visitors
@@ -263,7 +263,7 @@ GROUP BY path
 
     // Events (aggregate name across paths; optional target breakdown)
     let event_rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 SELECT event_name,
@@ -284,7 +284,7 @@ LIMIT 30
         .unwrap_or_default();
 
     let event_uv_rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 SELECT event_name, COUNT(DISTINCT visitor_hash)::bigint AS unique_visitors
@@ -309,7 +309,7 @@ GROUP BY event_name
 
     // Per (event_name, target) counts — only non-empty targets for UI drill-down.
     let event_target_rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 SELECT event_name,
@@ -331,7 +331,7 @@ ORDER BY event_name ASC, count DESC, target ASC
         .await
         .unwrap_or_default();
     let event_target_uv_rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 SELECT event_name,
@@ -396,7 +396,7 @@ GROUP BY event_name, target
         .collect();
 
     let referrer_rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 SELECT host, COALESCE(SUM(count), 0)::bigint AS count
@@ -422,7 +422,7 @@ LIMIT 20
 
     // Top countries by unique visitors in range (fallback views)
     let country_rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 SELECT country_code,
@@ -441,7 +441,7 @@ LIMIT 12
         .unwrap_or_default();
     // Prefer true distinct UV over sum-of-daily when multi-day window.
     let country_uv_rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 SELECT country_code, COUNT(DISTINCT visitor_hash)::bigint AS unique_visitors
@@ -496,7 +496,7 @@ GROUP BY country_code
     }
 
     let all_time_views = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 SELECT COALESCE(SUM(views), 0)::bigint AS views
@@ -600,7 +600,7 @@ pub(crate) async fn visitor_card_aggregate(db: &DatabaseConnection) -> Value {
     let epoch = NaiveDate::from_ymd_opt(1970, 1, 1).unwrap_or(from);
 
     let daily_rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 SELECT day::text AS day,
@@ -644,7 +644,7 @@ ORDER BY day ASC
         .unwrap_or((0, 0));
 
     let all_time_views = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
 SELECT COALESCE(SUM(views), 0)::bigint AS views
@@ -748,7 +748,7 @@ pub async fn export_analytics(
     crate::extract::Db(db): crate::extract::Db,
 ) -> (StatusCode, Json<Value>) {
     let page_daily = match db
-        .query_all(Statement::from_string(
+        .query_all_raw(Statement::from_string(
             DatabaseBackend::Postgres,
             r#"
 SELECT day::text AS day, path, views, unique_visitors, engagement_ms, engaged_views
@@ -782,7 +782,7 @@ ORDER BY day ASC, path ASC
     };
 
     let visitor_seen = match db
-        .query_all(Statement::from_string(
+        .query_all_raw(Statement::from_string(
             DatabaseBackend::Postgres,
             r#"
 SELECT day::text AS day, path, visitor_hash, ordinal
@@ -814,7 +814,7 @@ ORDER BY day ASC, path ASC, visitor_hash ASC
     };
 
     let event_daily = match db
-        .query_all(Statement::from_string(
+        .query_all_raw(Statement::from_string(
             DatabaseBackend::Postgres,
             r#"
 SELECT day::text AS day, event_name, path, target, count, unique_visitors
@@ -848,7 +848,7 @@ ORDER BY day ASC, event_name ASC, path ASC, target ASC
     };
 
     let event_visitor = match db
-        .query_all(Statement::from_string(
+        .query_all_raw(Statement::from_string(
             DatabaseBackend::Postgres,
             r#"
 SELECT day::text AS day, event_name, path, target, visitor_hash
@@ -881,7 +881,7 @@ ORDER BY day ASC, event_name ASC, path ASC, target ASC, visitor_hash ASC
     };
 
     let referrer_daily = match db
-        .query_all(Statement::from_string(
+        .query_all_raw(Statement::from_string(
             DatabaseBackend::Postgres,
             r#"
 SELECT day::text AS day, host, count
@@ -912,7 +912,7 @@ ORDER BY day ASC, host ASC
     };
 
     let country_daily = match db
-        .query_all(Statement::from_string(
+        .query_all_raw(Statement::from_string(
             DatabaseBackend::Postgres,
             r#"
 SELECT day::text AS day, country_code, country_name, views, unique_visitors
@@ -945,7 +945,7 @@ ORDER BY day ASC, country_code ASC
     };
 
     let country_visitor = match db
-        .query_all(Statement::from_string(
+        .query_all_raw(Statement::from_string(
             DatabaseBackend::Postgres,
             r#"
 SELECT day::text AS day, country_code, visitor_hash
@@ -1079,7 +1079,7 @@ pub struct AnalyticsImportBody {
 async fn recompute_unique_metrics(
     conn: &impl ConnectionTrait,
 ) -> Result<(), sea_orm::DbErr> {
-    conn.execute(Statement::from_string(
+    conn.execute_raw(Statement::from_string(
         DatabaseBackend::Postgres,
         r#"
 UPDATE analytics_page_daily p
@@ -1093,7 +1093,7 @@ SET unique_visitors = COALESCE((
     ))
     .await?;
 
-    conn.execute(Statement::from_string(
+    conn.execute_raw(Statement::from_string(
         DatabaseBackend::Postgres,
         r#"
 UPDATE analytics_page_daily p
@@ -1109,7 +1109,7 @@ SET engaged_views = COALESCE((
     ))
     .await?;
 
-    conn.execute(Statement::from_string(
+    conn.execute_raw(Statement::from_string(
         DatabaseBackend::Postgres,
         r#"
 UPDATE analytics_event_daily e
@@ -1126,7 +1126,7 @@ SET unique_visitors = COALESCE((
     ))
     .await?;
 
-    conn.execute(Statement::from_string(
+    conn.execute_raw(Statement::from_string(
         DatabaseBackend::Postgres,
         r#"
 UPDATE analytics_country_daily c
@@ -1455,7 +1455,7 @@ ON CONFLICT (day, path) DO UPDATE SET
 "#
         };
         match txn
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 sql,
                 [
@@ -1505,7 +1505,7 @@ ON CONFLICT (day, path) DO UPDATE SET
             .filter(|&n| metric_ok(n))
             .unwrap_or(0);
         match txn
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"
 INSERT INTO analytics_visitor_seen (day, path, visitor_hash, ordinal)
@@ -1582,7 +1582,7 @@ ON CONFLICT (day, event_name, path, target) DO UPDATE SET
 "#
         };
         match txn
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 sql,
                 [
@@ -1639,7 +1639,7 @@ ON CONFLICT (day, event_name, path, target) DO UPDATE SET
             continue;
         }
         match txn
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"
 INSERT INTO analytics_event_visitor (day, event_name, path, target, visitor_hash)
@@ -1701,7 +1701,7 @@ ON CONFLICT (day, host) DO UPDATE SET
 "#
         };
         match txn
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 sql,
                 [
@@ -1773,7 +1773,7 @@ ON CONFLICT (day, country_code) DO UPDATE SET
 "#
         };
         match txn
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 sql,
                 [
@@ -1821,7 +1821,7 @@ ON CONFLICT (day, country_code) DO UPDATE SET
             continue;
         }
         match txn
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"
 INSERT INTO analytics_country_visitor (day, country_code, visitor_hash)

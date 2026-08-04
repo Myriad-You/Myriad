@@ -56,7 +56,7 @@ pub async fn follow_remote(
 
     // 检查是否已关注
     let existing = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT id, status FROM federation_follows
                WHERE user_id = $1 AND remote_actor_id = $2 AND direction = 'outgoing'"#,
@@ -89,7 +89,7 @@ pub async fn follow_remote(
     });
 
     // 记录 outgoing follow
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_follows (user_id, remote_actor_id, direction, status, activity_id, created_at)
            VALUES ($1, $2, 'outgoing', 'pending', $3, NOW())
@@ -119,7 +119,7 @@ pub async fn follow_remote(
 
     // 存 Activity 记录（完整 Activity JSON，供 delivery 直接发送）
     let act_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_activities
                    (activity_id, user_id, activity_type, object_json, is_local, published_at)
@@ -160,7 +160,7 @@ pub async fn follow_remote(
                     target_username
                 );
                 let _ = db
-                    .execute(Statement::from_sql_and_values(
+                    .execute_raw(Statement::from_sql_and_values(
                         DatabaseBackend::Postgres,
                         r#"INSERT INTO federation_delivery_queue
                                (activity_id, target_inbox, target_domain, status, created_at, last_attempt_at)
@@ -175,7 +175,7 @@ pub async fn follow_remote(
                     .await;
                 // Local auto-Accept flips our outgoing row to accepted immediately.
                 if let Ok(Some(row)) = db
-                    .query_one(Statement::from_sql_and_values(
+                    .query_one_raw(Statement::from_sql_and_values(
                         DatabaseBackend::Postgres,
                         r#"SELECT status FROM federation_follows
                            WHERE user_id = $1 AND remote_actor_id = $2 AND direction = 'outgoing'"#,
@@ -196,7 +196,7 @@ pub async fn follow_remote(
                     target_username,
                     e
                 );
-                db.execute(Statement::from_sql_and_values(
+                db.execute_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     r#"INSERT INTO federation_delivery_queue
                            (activity_id, target_inbox, target_domain, status, created_at)
@@ -214,7 +214,7 @@ pub async fn follow_remote(
         }
     } else {
         // 远程：入队投递
-        db.execute(Statement::from_sql_and_values(
+        db.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_delivery_queue
                    (activity_id, target_inbox, target_domain, status, created_at)
@@ -253,7 +253,7 @@ pub async fn unfollow_remote(
 
     // 查找关注关系
     let follow_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT f.id, f.activity_id, ra.inbox_url, ra.actor_url
                FROM federation_follows f
@@ -291,7 +291,7 @@ pub async fn unfollow_remote(
     });
 
     // 删除本地关注记录
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"DELETE FROM federation_follows
            WHERE user_id = $1 AND direction = 'outgoing'
@@ -303,7 +303,7 @@ pub async fn unfollow_remote(
 
     // 存 Undo Activity 并入队投递（完整 Activity JSON，供 delivery 直接发送）
     let act_row = db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_activities
                    (activity_id, user_id, activity_type, object_json, is_local, published_at)
@@ -324,7 +324,7 @@ pub async fn unfollow_remote(
 
     let domain = extract_domain(&inbox).unwrap_or_default();
     let _ = db
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_delivery_queue
                    (activity_id, target_inbox, target_domain, status, created_at)
