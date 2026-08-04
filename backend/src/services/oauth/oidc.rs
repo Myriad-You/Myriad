@@ -575,13 +575,26 @@ mod oidc_security_tests {
                 "expected asymmetric alg {ok:?} accepted"
             );
         }
-        // All HMAC family members must be rejected (incl. HS384 — Copilot #294).
-        for bad in [Algorithm::HS256, Algorithm::HS384, Algorithm::HS512] {
-            assert!(
-                ensure_asymmetric_id_token_alg(bad).is_err(),
-                "expected HMAC alg {bad:?} rejected"
-            );
-        }
+        // Explicit per-algorithm HMAC rejects (HS256/HS384/HS512 — Copilot #294).
+        // Standalone asserts so each alg is greppable / hard to drop in a refactor.
+        assert!(
+            ensure_asymmetric_id_token_alg(Algorithm::HS256).is_err(),
+            "HS256 must be rejected"
+        );
+        assert!(
+            ensure_asymmetric_id_token_alg(Algorithm::HS384).is_err(),
+            "HS384 must be rejected"
+        );
+        assert!(
+            ensure_asymmetric_id_token_alg(Algorithm::HS512).is_err(),
+            "HS512 must be rejected"
+        );
+    }
+
+    /// Dedicated Copilot #294 regression: HS384 alone (not only HS256/HS512).
+    #[test]
+    fn ensure_asymmetric_id_token_alg_rejects_hs384() {
+        assert!(ensure_asymmetric_id_token_alg(Algorithm::HS384).is_err());
     }
 
     #[test]
