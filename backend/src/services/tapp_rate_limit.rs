@@ -5,7 +5,7 @@
 //! tables. The API layer maps [`RateLimitError`] to Axum `(StatusCode, Json)`
 //! responses. Route→permission maps live in [`crate::services::tapp_host_attribution`].
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sea_orm::{
     ConnectionTrait, DatabaseConnection, DbBackend, FromQueryResult, Statement, TransactionTrait,
 };
@@ -127,7 +127,7 @@ pub(crate) fn rate_limit_key(user_id: i32, tapp_id: &str, operation: &str) -> St
 }
 
 pub(crate) fn rate_limit_record_id(key: &str) -> String {
-    format!("{:x}", Sha256::digest(key.as_bytes()))
+    hex::encode(Sha256::digest(key.as_bytes()))
 }
 
 /// One-way client-address fingerprint for anonymous rate-limit keys.

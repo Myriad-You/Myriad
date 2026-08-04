@@ -7,7 +7,7 @@
 //! - ASR: https://cloud.tencent.com/document/product/1093/35646
 
 use chrono::{DateTime, Utc};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -798,5 +798,47 @@ mod tests {
         assert!(include_str!("analyzer.rs").contains("proxy_is_required"));
         assert!(include_str!("analyzer.rs").contains("fail-closed"));
         assert!(include_str!("http_client.rs").contains("resolve_client_or_fail_closed"));
+    }
+
+    /// HMAC-SHA256 roundtrip for digest-generation alignment (hmac 0.13 + sha2 0.11).
+    #[test]
+    fn hmac_sha256_roundtrip_matches_known_vector() {
+        // RFC 4231 test case 1 (truncated to HMAC-SHA256)
+        let key = b"\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b";
+        let data = "Hi There";
+        let tag = TencentSpeechService::hmac_sha256(key, data);
+        assert_eq!(
+            hex::encode(&tag),
+            "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"
+        );
+
+        // Same key+data yields same tag; different data does not.
+        let again = TencentSpeechService::hmac_sha256(key, data);
+        assert_eq!(tag, again);
+        let other = TencentSpeechService::hmac_sha256(key, "Hi There!");
+        assert_ne!(tag, other);
+    }
+
+    /// TC3-HMAC-SHA256 Authorization header is stable for fixed inputs.
+    #[test]
+    fn tc3_sign_request_is_deterministic_and_well_formed() {
+        let svc = TencentSpeechService {
+            client: Client::new(),
+            secret_id: "AKIDtestSecretId".into(),
+            secret_key: "testSecretKey".into(),
+            region: "ap-guangzhou".into(),
+        };
+        let ts = 1_700_000_000_i64;
+        let host = "tts.tencentcloudapi.com";
+        let payload = r#"{"Text":"hello"}"#;
+        let auth1 = svc.sign_request("tts", host, "TextToVoice", payload, ts);
+        let auth2 = svc.sign_request("tts", host, "TextToVoice", payload, ts);
+        assert_eq!(auth1, auth2);
+        assert!(auth1.starts_with("TC3-HMAC-SHA256 Credential=AKIDtestSecretId/"));
+        assert!(auth1.contains("SignedHeaders=content-type;host"));
+        assert!(auth1.contains("Signature="));
+        // Timestamp change must change the signature portion.
+        let auth3 = svc.sign_request("tts", host, "TextToVoice", payload, ts + 1);
+        assert_ne!(auth1, auth3);
     }
 }

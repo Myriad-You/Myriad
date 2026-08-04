@@ -22,7 +22,7 @@
 //! Secret: `OAUTH_STATE_SECRET` if set, else `JWT_SECRET`.
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;

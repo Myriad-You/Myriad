@@ -51,7 +51,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit, Nonce};
+use aes_gcm::{aead::Aead, Aes256Gcm, Key, KeyInit, Nonce};
 use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use sha2::{Digest, Sha256};
@@ -116,9 +116,20 @@ impl DataKey {
         hex::encode(&hasher.finalize()[..4])
     }
 
+    /// Build AES-256-GCM from the fixed 32-byte data key.
+    ///
+    /// Explicit `Key::<Aes256Gcm>::from_slice` keeps fixed-size keying clear and
+    /// avoids fallible `new_from_slice` plus `anyhow::Context` (needs
+    /// crypto-common 0.1 `std`, no longer pulled in via sha2 0.11).
+    /// `from_slice` is deprecated on generic-array 0.14; still the aes-gcm 0.10 path.
+    #[allow(deprecated)]
+    fn aes_cipher(&self) -> Aes256Gcm {
+        Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&self.key))
+    }
+
     /// 加密为 `myriad-enc:v1:<nonce>:<ct>`
     pub fn encrypt(&self, plaintext: &str) -> Result<String> {
-        let cipher = Aes256Gcm::new_from_slice(&self.key).context("Failed to create AES cipher")?;
+        let cipher = self.aes_cipher();
         let nonce_bytes = rand::random::<[u8; AES_NONCE_LEN]>();
         let ciphertext = cipher
             .encrypt(&Nonce::from(nonce_bytes), plaintext.as_bytes())
@@ -151,7 +162,7 @@ impl DataKey {
             .decode(ct_b64)
             .context("Failed to decode ciphertext")?;
 
-        let cipher = Aes256Gcm::new_from_slice(&self.key).context("Failed to create AES cipher")?;
+        let cipher = self.aes_cipher();
         let plaintext = cipher
             .decrypt(&Nonce::from(nonce_bytes), ciphertext.as_ref())
             .map_err(|e| anyhow!("AES-GCM decryption failed: {e}"))?;

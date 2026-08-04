@@ -105,12 +105,19 @@ pub struct EncryptionSession {
 
 /// 生成 X25519 密钥对
 ///
-/// 使用 CSPRNG + x25519-dalek 生成标准 Curve25519 密钥材料
+/// 使用 CSPRNG + x25519-dalek 生成标准 Curve25519 密钥材料。
+///
+/// Bytes are filled via `rand` (rand_core 0.10) then passed to
+/// `StaticSecret::from`, so we stay independent of x25519-dalek's
+/// older `rand_core` trait version (`random_from_rng`).
 pub fn generate_keypair() -> E2eKeyPair {
-    use rand_core::OsRng;
+    use rand::Rng;
     use x25519_dalek::{PublicKey, StaticSecret};
 
-    let secret = StaticSecret::random_from_rng(OsRng);
+    let mut rng = rand::rng();
+    let mut secret_bytes = [0u8; 32];
+    rng.fill_bytes(&mut secret_bytes);
+    let secret = StaticSecret::from(secret_bytes);
     let public = PublicKey::from(&secret);
 
     E2eKeyPair {
@@ -141,10 +148,13 @@ pub fn encrypt_message(
 ) -> Result<EncryptedEnvelope, String> {
     use aes_gcm::aead::{Aead, KeyInit, Payload};
 
+    use rand::Rng;
+
     let encryption_key = hkdf_derive(shared_secret, b"mfp-e2e-aes256gcm");
 
+    let mut rng = rand::rng();
     let mut nonce_bytes = [0u8; 12];
-    <rand_core::OsRng as rand_core::RngCore>::fill_bytes(&mut rand_core::OsRng, &mut nonce_bytes);
+    rng.fill_bytes(&mut nonce_bytes);
 
     let cipher = aes_gcm::Aes256Gcm::new_from_slice(&encryption_key)
         .map_err(|e| format!("Cipher init failed: {}", e))?;
@@ -209,7 +219,7 @@ pub fn decrypt_message(
 
 /// HKDF-SHA256 简化实现（Extract + Expand 单步）
 fn hkdf_derive(ikm: &[u8], info: &[u8]) -> [u8; 32] {
-    use hmac::{Hmac, Mac};
+    use hmac::{Hmac, KeyInit, Mac};
     use sha2::Sha256;
 
     type HmacSha256 = Hmac<Sha256>;
@@ -452,8 +462,10 @@ pub fn encrypt_for_recipients(
     }
 
     // 1) 随机 content key
+    use rand::Rng;
+    let mut rng = rand::rng();
     let mut content_key = [0u8; 32];
-    <rand_core::OsRng as rand_core::RngCore>::fill_bytes(&mut rand_core::OsRng, &mut content_key);
+    rng.fill_bytes(&mut content_key);
 
     // 2) 用 content key 加密正文（HKDF 派生 AEAD key）
     let content_aad = [aad, b"|content"].concat();
@@ -666,6 +678,18 @@ mod tests {
         assert_eq!(pk.len(), 32);
         assert_eq!(sk.len(), 32);
         assert_ne!(pk, sk);
+    }
+
+    /// HKDF (HMAC-SHA256) derives a 32-byte key and is deterministic for fixed IKM/info.
+    #[test]
+    fn hkdf_hmac_sha256_is_deterministic() {
+        let ikm = [7u8; 32];
+        let a = hkdf_derive(&ikm, b"mfp-e2e-aes256gcm");
+        let b = hkdf_derive(&ikm, b"mfp-e2e-aes256gcm");
+        let c = hkdf_derive(&ikm, b"other-info");
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+        assert_ne!(a, [0u8; 32]);
     }
 
     #[test]

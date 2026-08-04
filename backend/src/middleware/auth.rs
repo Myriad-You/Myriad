@@ -6,7 +6,7 @@ use axum::{
     Json,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use jsonwebtoken::{decode, DecodingKey, Validation};
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde::{Deserialize, Serialize};

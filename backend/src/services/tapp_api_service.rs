@@ -890,16 +890,16 @@ impl TappApiService {
     ) -> String {
         let params_hash = params
             .as_ref()
-            .map(|params| format!("{:x}", Sha256::digest(params.to_string().as_bytes())))
+            .map(|params| hex::encode(Sha256::digest(params.to_string().as_bytes())))
             .unwrap_or_else(|| "none".to_string());
         let ip_hash = context
             .client_ip
             .as_ref()
-            .map(|ip| format!("{:x}", Sha256::digest(ip.as_bytes())))
+            .map(|ip| hex::encode(Sha256::digest(ip.as_bytes())))
             .unwrap_or_else(|| "none".to_string());
-        let username_hash = format!("{:x}", Sha256::digest(context.username.as_bytes()));
+        let username_hash = hex::encode(Sha256::digest(context.username.as_bytes()));
         let definition = serde_json::to_vec(api_def).unwrap_or_default();
-        let definition_hash = format!("{:x}", Sha256::digest(definition));
+        let definition_hash = hex::encode(Sha256::digest(definition));
         let credential_revision = context
             .credential
             .as_ref()
@@ -1183,8 +1183,8 @@ mod tests {
         assert!(!encoded.bytes.ends_with(b"\n"));
         assert_eq!(encoded.default_content_type, None);
         assert_eq!(
-            format!("{:x}", Sha256::digest(&encoded.bytes)),
-            format!("{:x}", Sha256::digest(raw.as_bytes()))
+            hex::encode(Sha256::digest(&encoded.bytes)),
+            hex::encode(Sha256::digest(raw.as_bytes()))
         );
     }
 

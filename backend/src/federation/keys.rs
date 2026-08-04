@@ -10,7 +10,6 @@
 
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
-use rand_core::OsRng;
 use rsa::pkcs8::{
     DecodePrivateKey, DecodePublicKey, EncodePrivateKey, EncodePublicKey, LineEnding,
 };
@@ -33,7 +32,7 @@ pub struct KeyPair {
 impl KeyPair {
     /// 生成新的 RSA-2048 密钥对
     pub fn generate() -> Result<Self> {
-        let mut rng = OsRng;
+        let mut rng = rand::rng();
         let private_key =
             RsaPrivateKey::new(&mut rng, RSA_KEY_BITS).context("Failed to generate RSA key")?;
         let public_key = RsaPublicKey::from(&private_key);
@@ -336,6 +335,29 @@ mod tests {
 
         assert!(KeyPair::verify(&pem, data, &sig).unwrap());
         assert!(!KeyPair::verify(&pem, b"tampered", &sig).unwrap());
+    }
+
+    /// RSA-SHA256 (Pkcs1v15 + sha2 0.11 / rsa 0.10) roundtrip after digest generation bump.
+    #[test]
+    fn rsa_sha256_sign_verify_roundtrip_digest_gen() {
+        let kp = KeyPair::generate().unwrap();
+        let pem = kp.public_key_pem().unwrap();
+        for msg in [
+            b"" as &[u8],
+            b"short",
+            b"federation activity body with unicode \xE8\x81\x94\xE9\x82\xA6 \x00\xff",
+        ] {
+            let sig = kp.sign(msg).unwrap();
+            assert_eq!(sig.len(), 256, "RSA-2048 PKCS#1 v1.5 signature is 256 bytes");
+            assert!(
+                KeyPair::verify(&pem, msg, &sig).unwrap(),
+                "signature must verify for message"
+            );
+            // Flip one byte of the signature → must fail.
+            let mut bad = sig.clone();
+            bad[0] ^= 0x01;
+            assert!(!KeyPair::verify(&pem, msg, &bad).unwrap());
+        }
     }
 
     #[test]

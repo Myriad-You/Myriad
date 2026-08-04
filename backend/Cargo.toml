@@ -64,19 +64,22 @@ urlencoding = "2.1"
 # Authentication & Authorization
 oauth2 = "5.0"
 jsonwebtoken = { version = "10.4", features = ["rust_crypto"] }
-sha2 = "0.10"        # pinned: rsa 0.9 federation signing requires digest 0.10
+# Digest generation group (must move together for trait compatibility):
+# rsa 0.10 → digest 0.11 + sha2 0.11 + rand_core 0.10; hmac 0.13 → digest 0.11.
+# Do not bump sha2 alone. rsa 0.10 is still rc until a stable release lands.
+sha2 = "0.11"
 hex = "0.4"
 argon2 = "0.5"
 regex = "1.13"
-hmac = "0.12"        # For Tencent Cloud API signing; digest 0.10 to match sha2 0.10
+hmac = "0.13"        # Tencent Cloud API signing; digest 0.11 to match sha2 0.11
 base64 = "0.23"      # For audio data encoding
 flate2 = "1"         # zlib inflate for KuGou KRC (逐字歌词) decode
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 
 # Federation (MFP - Myriad Federation Protocol)
-rsa = { version = "0.9", features = ["pem", "sha2"] }  # RSA key generation & signing
+rsa = { version = "0.10.0-rc.18", features = ["sha2"] }  # RSA keygen/signing (digest 0.11)
 aes-gcm = "0.10"     # AES-256-GCM for private key encryption + E2E message AEAD
-rand_core = { version = "0.6", features = ["getrandom"] }  # RNG compatible with rsa 0.9
+rand_core = "0.10"   # RNG traits compatible with rsa 0.10 (OsRng lives in `rand` 0.10)
 x25519-dalek = { version = "2", features = ["static_secrets"] }  # Channel/Room E2E ECDH
 subtle = "2.6"       # Constant-time comparison for digest/signature verification
 

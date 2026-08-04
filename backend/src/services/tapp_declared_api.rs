@@ -94,7 +94,7 @@ impl std::error::Error for DeclaredApiError {}
 pub(crate) fn manifest_apis_fingerprint(manifest: &Value) -> String {
     let encoded = serde_json::to_vec(manifest.get("apis").unwrap_or(&Value::Null))
         .unwrap_or_else(|_| b"null".to_vec());
-    format!("{:x}", Sha256::digest(encoded))
+    hex::encode(Sha256::digest(encoded))
 }
 
 /// 从 manifest JSON 解析 API 定义，优先命中内存缓存

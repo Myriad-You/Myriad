@@ -304,7 +304,7 @@ fn request_hash(
         "purpose": purpose,
     }))
     .map_err(|_| DataExchangeError::InvalidParams)?;
-    Ok(format!("sha256:{:x}", Sha256::digest(encoded)))
+    Ok(format!("sha256:{}", hex::encode(Sha256::digest(encoded))))
 }
 
 /// Prepare a consent-gated exchange request (registry write).

@@ -406,7 +406,7 @@ async fn build_user_info(db: &DatabaseConnection) -> (StatusCode, Value) {
 fn weak_etag(value: &Value) -> String {
     use sha2::{Digest, Sha256};
     let digest = Sha256::digest(value.to_string().as_bytes());
-    format!("W/\"{:x}\"", digest)
+    format!("W/\"{}\"", hex::encode(digest))
 }
 
 /// GET /api/profile/user-info

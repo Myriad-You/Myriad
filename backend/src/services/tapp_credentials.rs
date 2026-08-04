@@ -98,7 +98,7 @@ impl ResolvedApiCredential {
     pub(crate) fn for_test(value: &str) -> Self {
         Self {
             value: value.to_string(),
-            revision: format!("{:x}", Sha256::digest(value.as_bytes())),
+            revision: hex::encode(Sha256::digest(value.as_bytes())),
         }
     }
 }
@@ -205,7 +205,7 @@ pub fn credential_binding_fingerprint(
     let encoded = serde_json::to_vec(&canonicalize_json(binding_contract)).map_err(|_| {
         TappCredentialError::InvalidDefinition("Credential binding is invalid".into())
     })?;
-    Ok(format!("{:x}", Sha256::digest(encoded)))
+    Ok(hex::encode(Sha256::digest(encoded)))
 }
 
 pub fn credential_binding_origins(
@@ -417,7 +417,7 @@ pub async fn resolve_api_credential(
             );
             TappCredentialError::Encryption
         })?;
-    let revision = format!("{:x}", Sha256::digest(encrypted_value.as_bytes()));
+    let revision = hex::encode(Sha256::digest(encrypted_value.as_bytes()));
     Ok(Some(ResolvedApiCredential { value, revision }))
 }
 

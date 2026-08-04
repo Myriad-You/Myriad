@@ -57,7 +57,7 @@ impl ImageCacheService {
         let mut hasher = Sha256::new();
         hasher.update(url.as_bytes());
         let hash = hasher.finalize();
-        format!("{:x}", hash)
+        hex::encode(hash)
     }
 
     /// 从 URL 推断文件扩展名

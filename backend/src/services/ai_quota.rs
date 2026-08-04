@@ -4,7 +4,7 @@
 //! own HTTP error tuples for reserve/settle/release/usage.
 
 use chrono::{DateTime, Utc};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sea_orm::{
     ConnectionTrait, DatabaseConnection, DbBackend, Statement, TransactionTrait, Value as SeaValue,
 };
