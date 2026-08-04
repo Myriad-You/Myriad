@@ -5,6 +5,7 @@
 //! presence rules live here so they are free of Axum/`StatusCode`.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use myriad_tapp_contract::manifest::TappManifest;
 
@@ -34,7 +35,9 @@ pub struct PreparedTappResources {
 #[derive(Debug, Clone)]
 enum PreparedTappPayload {
     Resources(Box<PreparedTappResources>),
-    Archive(Vec<u8>),
+    /// Shared archive bytes (MYR-025): `Arc` so package clones / spawn_blocking
+    /// never duplicate the full zip unboundedly.
+    Archive(Arc<Vec<u8>>),
 }
 
 /// Validated package ready for staging (resources map or raw .tapp archive).
@@ -206,13 +209,16 @@ impl PreparedTappPackage {
     }
 
     /// Build from already-read archive bytes + parsed manifest (caller validates zip layout).
+    ///
+    /// Bytes are stored behind an [`Arc`] so staging / concurrent install paths
+    /// can share one buffer instead of cloning the full zip (MYR-025).
     pub fn from_archive_parts(
         manifest: TappManifest,
         file_data: Vec<u8>,
     ) -> Result<Self, PackageValidateError> {
         let package = Self {
             manifest,
-            payload: PreparedTappPayload::Archive(file_data),
+            payload: PreparedTappPayload::Archive(Arc::new(file_data)),
         };
         package.validate(None)?;
         Ok(package)
@@ -240,7 +246,15 @@ impl PreparedTappPackage {
 
     pub fn archive_bytes(&self) -> Option<&[u8]> {
         match &self.payload {
-            PreparedTappPayload::Archive(bytes) => Some(bytes),
+            PreparedTappPayload::Archive(bytes) => Some(bytes.as_slice()),
+            PreparedTappPayload::Resources(_) => None,
+        }
+    }
+
+    /// Cheap share of archive bytes for spawn_blocking extract (no full clone).
+    pub fn archive_arc(&self) -> Option<Arc<Vec<u8>>> {
+        match &self.payload {
+            PreparedTappPayload::Archive(bytes) => Some(Arc::clone(bytes)),
             PreparedTappPayload::Resources(_) => None,
         }
     }
@@ -348,6 +362,23 @@ mod tests {
             PackageValidateError::IdMismatch
         );
         assert!(package.validate(Some("com.example.prepared")).is_ok());
+    }
+
+    #[test]
+    fn archive_payload_shares_bytes_via_arc_without_full_clone() {
+        // MYR-025: package clone / extract should share one zip buffer.
+        let bytes = vec![1u8, 2, 3, 4, 5];
+        let package =
+            PreparedTappPackage::from_archive_parts(base_manifest(), bytes.clone()).unwrap();
+        let a = package.archive_arc().expect("archive");
+        let b = package.archive_arc().expect("archive");
+        assert_eq!(a.as_slice(), bytes.as_slice());
+        assert!(Arc::ptr_eq(&a, &b));
+        let cloned = package.clone();
+        let c = cloned.archive_arc().expect("archive");
+        assert!(Arc::ptr_eq(&a, &c));
+        // package + cloned payloads + a + b + c
+        assert_eq!(Arc::strong_count(&a), 5);
     }
 
     #[test]

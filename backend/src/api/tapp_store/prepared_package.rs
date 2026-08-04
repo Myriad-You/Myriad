@@ -12,6 +12,7 @@ use super::{
 use axum::{http::StatusCode, Json};
 use chrono::{DateTime, FixedOffset};
 use std::path::Path;
+use std::sync::Arc;
 use tokio::fs;
 
 use crate::services::tapp_prepared_package::{
@@ -108,11 +109,11 @@ impl PreparedTappPackageHttp for PreparedTappPackage {
                     })?;
             }
             None => {
+                // MYR-025: share Arc into extract; do not clone the full zip.
                 let file_data = self
-                    .archive_bytes()
-                    .expect("archive package has bytes")
-                    .to_vec();
-                extract_archive(self, tapp_dir, &file_data, context).await?;
+                    .archive_arc()
+                    .expect("archive package has bytes");
+                extract_archive(self, tapp_dir, file_data, context).await?;
             }
         }
 
@@ -308,16 +309,16 @@ async fn write_text(
 async fn extract_archive(
     package: &PreparedTappPackage,
     tapp_dir: &Path,
-    file_data: &[u8],
+    file_data: Arc<Vec<u8>>,
     context: PackageStageContext,
 ) -> Result<(), PackageError> {
     let tapp_dir = tapp_dir.to_path_buf();
     let extraction_dir = tapp_dir.clone();
-    let file_data = file_data.to_vec();
+    // MYR-025: move Arc into blocking task — refcount share, not full zip clone.
     let result = tokio::task::spawn_blocking(move || -> Result<(), std::io::Error> {
         use std::io::Read;
 
-        let cursor = std::io::Cursor::new(file_data);
+        let cursor = std::io::Cursor::new(file_data.as_slice());
         let mut archive = zip::ZipArchive::new(cursor)?;
         for index in 0..archive.len() {
             let mut file = archive.by_index(index)?;

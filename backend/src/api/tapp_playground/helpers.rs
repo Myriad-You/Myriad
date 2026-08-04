@@ -304,8 +304,27 @@ pub(super) fn validate_sdk_namespaces(fields: &[(&str, &str)]) -> Result<(), Str
     Ok(())
 }
 
+/// Host capabilities available in temporary Playground preview only (MYR-024).
+///
+/// Manifest `permissions` are install-time declarations. Preview must never
+/// treat the full list as granted host capabilities — only this allowlist may
+/// be exercised, and only when also declared. Keep in sync with frontend
+/// `PREVIEW_PERMISSIONS` in `frontend/src/tapp/utils/previewGrants.ts`.
+pub(super) const PREVIEW_PERMISSIONS: &[&str] =
+    &["storage", "ui:theme", "ui:confirm", "ui:fullscreen"];
+
+/// Intersect manifest declarations with temporary preview grants.
+///
+/// Deny-by-default: undeclared allowlist entries are not auto-granted.
+pub(super) fn select_preview_granted_permissions(declared: &[String]) -> Vec<String> {
+    declared
+        .iter()
+        .filter(|permission| PREVIEW_PERMISSIONS.contains(&permission.as_str()))
+        .cloned()
+        .collect()
+}
+
 pub(super) fn preview_warnings(permissions: &[String]) -> Vec<String> {
-    const PREVIEW_PERMISSIONS: &[&str] = &["storage", "ui:theme", "ui:confirm", "ui:fullscreen"];
     let unavailable: Vec<&str> = permissions
         .iter()
         .map(String::as_str)
@@ -770,6 +789,29 @@ mod tests {
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("network:fetch"));
         assert!(!warnings[0].contains("storage,"));
+    }
+
+    #[test]
+    fn preview_grants_are_allowlist_intersection_not_full_manifest() {
+        // MYR-024: declared ≠ granted for real host capabilities in preview.
+        let declared = vec![
+            "storage".into(),
+            "network:fetch".into(),
+            "ai:generate".into(),
+            "ui:theme".into(),
+            "platform:read".into(),
+        ];
+        assert_eq!(
+            select_preview_granted_permissions(&declared),
+            vec!["storage".to_string(), "ui:theme".to_string()]
+        );
+        assert!(select_preview_granted_permissions(&[]).is_empty());
+        // Deny-by-default: allowlist entries not declared stay ungranted.
+        assert_eq!(
+            select_preview_granted_permissions(&["ui:confirm".into()]),
+            vec!["ui:confirm".to_string()]
+        );
+        assert!(select_preview_granted_permissions(&["media:read".into()]).is_empty());
     }
 
     #[test]

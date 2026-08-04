@@ -22,13 +22,15 @@ use axum::{
     Extension, Json,
 };
 use chrono::Utc;
+use once_cell::sync::Lazy;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, DatabaseConnection, EntityTrait,
     QueryFilter, Set, TransactionTrait,
 };
 use serde::Deserialize;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use std::time::Duration as StdDuration;
+use tokio::sync::{OwnedSemaphorePermit, RwLock, Semaphore};
 
 use crate::config::DynamicConfig;
 use crate::error::HttpError;
@@ -37,11 +39,47 @@ use crate::models::entities::tapps;
 use crate::services::permission_service::UserRole;
 use crate::services::tapp_install::{
     archive_upload_too_large_message, archive_upload_would_exceed, build_new_install_persist,
-    build_update_install_persist, classify_install_multipart_field,
-    is_public_installation_namespace, map_direct_css_channels, parse_install_source,
-    select_install_approved_permissions, select_update_approved_permissions, InstallMultipartField,
-    InstallSource,
+    build_update_install_persist, classify_install_multipart_field, install_overloaded_message,
+    install_overloaded_status, is_public_installation_namespace, map_direct_css_channels,
+    parse_install_source, select_install_approved_permissions, select_update_approved_permissions,
+    InstallMultipartField, InstallSource, INSTALL_ACQUIRE_TIMEOUT_SECS, MAX_CONCURRENT_INSTALLS,
 };
+
+/// Global install concurrency gate (MYR-025). Bounds simultaneous archive
+/// buffers + extract work so handlers do not hold full zip clones unboundedly.
+static INSTALL_SEMAPHORE: Lazy<Arc<Semaphore>> =
+    Lazy::new(|| Arc::new(Semaphore::new(MAX_CONCURRENT_INSTALLS)));
+
+/// Acquire an install slot, or fail 503 if the wait times out (overloaded).
+async fn acquire_install_permit() -> Result<OwnedSemaphorePermit, HttpError> {
+    match tokio::time::timeout(
+        StdDuration::from_secs(INSTALL_ACQUIRE_TIMEOUT_SECS),
+        INSTALL_SEMAPHORE.clone().acquire_owned(),
+    )
+    .await
+    {
+        Ok(Ok(permit)) => Ok(permit),
+        Ok(Err(e)) => {
+            tracing::error!("Tapp install semaphore closed: {:?}", e);
+            Err(api_http_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to schedule Tapp install",
+            ))
+        }
+        Err(_) => {
+            tracing::warn!(
+                permits = MAX_CONCURRENT_INSTALLS,
+                timeout_secs = INSTALL_ACQUIRE_TIMEOUT_SECS,
+                "Tapp install concurrency limit reached; returning 503"
+            );
+            Err(api_http_error(
+                StatusCode::from_u16(install_overloaded_status())
+                    .unwrap_or(StatusCode::SERVICE_UNAVAILABLE),
+                install_overloaded_message(),
+            ))
+        }
+    }
+}
 
 /// 统一安装 Tapp 的请求体
 ///
@@ -202,6 +240,8 @@ async fn install_prepared_package(
     package: PreparedTappPackage,
     permissions: Vec<String>,
 ) -> Result<Json<ApiResponse<TappListItem>>, HttpError> {
+    // Bound concurrent installs early so overload fails 503 without staging work.
+    let _install_permit = acquire_install_permit().await?;
     package.validate_for_http(None).map_err(api_response_err)?;
     let manifest = package.manifest.clone();
 

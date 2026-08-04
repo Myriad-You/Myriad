@@ -71,6 +71,7 @@ import {
   registerUIHandlers,
   registerUserHandlers,
 } from './sandbox/handlers'
+import { registerPlaygroundPreviewHandlers } from './sandbox/handlers/playgroundPreviewHandlers'
 import { TappBridge } from './TappBridge'
 import { TappRuntimeGrant } from './TappRuntimeGrant'
 import { useSandboxSubscriptions } from './useSandboxSubscriptions'
@@ -85,6 +86,12 @@ export interface TappWidgetSandboxProps {
   widgetId: string
   /** Widget 渲染属性 */
   widgetProps: WidgetRenderProps
+  /**
+   * Playground temporary preview (MYR-024).
+   * No Runtime Grant; only in-memory preview handlers — never treat manifest
+   * declarations as real installed host grants.
+   */
+  previewMode?: boolean
   /** 错误回调 */
   onError?: (error: Error) => void
   /** 就绪回调 */
@@ -289,6 +296,7 @@ export const TappWidgetSandbox = memo(
     code,
     widgetId,
     widgetProps,
+    previewMode = false,
     onReady,
     onInstanceSettingsChange,
     onInvalidate,
@@ -299,6 +307,8 @@ export const TappWidgetSandbox = memo(
     const { containerRef, dimensions } = useIframeResize<HTMLDivElement>()
     const iframeRef = useRef<HTMLIFrameElement>(null)
     const bridgeRef = useRef<TappBridge | null>(null)
+    const previewStorageRef = useRef(new Map<string, unknown>())
+    const previewSettingsRef = useRef(new Map<string, unknown>())
     const [isReady, setIsReady] = useState(false)
     /** iframe 长时间不 ready 时展示 stall 文案（优于无限骨架） */
     const [readyStalled, setReadyStalled] = useState(false)
@@ -545,21 +555,32 @@ export const TappWidgetSandbox = memo(
       iframeRef.current = iframe
 
       // 创建 Bridge（在 DOM 插入前设置消息监听）
-      // 同 Tapp 多 Widget：共享 host Runtime Grant（refcount），各 iframe 仍独立 session token
       const bridge = new TappBridge()
-      const shared = TappRuntimeGrant.acquireSharedWidget(currentTappInstance.id)
-      const runtimeGrant = shared.grant
-      bridge.initialize(
-        iframe,
-        currentTappInstance,
-        sessionToken,
-        runtimeGrant,
-        {
-          releaseSharedGrant: shared.release,
-          reacquireSharedGrant: () =>
-            TappRuntimeGrant.acquireSharedWidget(currentTappInstance.id),
-        },
-      )
+      // Playground preview: no Runtime Grant (uninstalled id + no real host grants).
+      // Installed widgets: share host Runtime Grant (refcount) across same-Tapp iframes.
+      if (previewMode) {
+        bridge.initialize(iframe, currentTappInstance, sessionToken, undefined)
+      } else {
+        const shared = TappRuntimeGrant.acquireSharedWidget(
+          currentTappInstance.id,
+        )
+        const runtimeGrant = shared.grant
+        bridge.initialize(
+          iframe,
+          currentTappInstance,
+          sessionToken,
+          runtimeGrant,
+          {
+            releaseSharedGrant: shared.release,
+            reacquireSharedGrant: () =>
+              TappRuntimeGrant.acquireSharedWidget(currentTappInstance.id),
+          },
+        )
+        // 与 iframe 解析并行预热 Runtime Grant（仍 host-only，不进 srcdoc）
+        void runtimeGrant.getToken().catch(() => {
+          /* 首次 API 调用时会重试；此处失败不阻塞沙箱启动 */
+        })
+      }
       bridgeRef.current = bridge
       widgetPerfMark(
         currentTappInstance.id,
@@ -567,35 +588,6 @@ export const TappWidgetSandbox = memo(
         'sandbox-mount',
         propsForHtml.size,
       )
-      // 与 iframe 解析并行预热 Runtime Grant（仍 host-only，不进 srcdoc）
-      // 使 render() 后的首次 storage/platform 调用免等签发 RTT
-      void runtimeGrant.getToken().catch(() => {
-        /* 首次 API 调用时会重试；此处失败不阻塞沙箱启动 */
-      })
-
-      // 注册处理器：始终挂载 Widget 热路径；按 grantedPermissions 惰性挂载重型能力。
-      // Bridge 仍会做权限校验；这里少注册可降低每个 iframe 的启动成本，并缩小攻击面。
-      const granted = new Set(
-        (currentTappInstance.grantedPermissions || []) as string[],
-      )
-      const hasExact = (perm: string) => granted.has(perm)
-      const hasAi =
-        hasExact('ai:generate') ||
-        hasExact('ai:analyze') ||
-        hasExact('ai:chat') ||
-        hasExact('ai:image')
-      const hasMedia =
-        hasExact('media:read') ||
-        hasExact('media:control') ||
-        hasExact('media:audio')
-      const hasSpeech = hasExact('speech:tts') || hasExact('speech:asr')
-      const hasEvents =
-        hasExact('event:publish') || hasExact('event:subscribe')
-      const hasAgent = hasExact('component:agent')
-      const hasScheduler = hasExact('scheduler:register')
-      const hasPlatform = hasExact('platform:read')
-      const hasAnalytics = hasExact('analytics:read')
-      const hasReport = hasExact('report:read')
 
       registerLifecycleHandlers(bridge, currentTappInstance, handleReady)
       registerUIHandlers(bridge, currentTappInstance, () => {
@@ -610,8 +602,6 @@ export const TappWidgetSandbox = memo(
           return 'en-US'
         }
       })
-      registerStorageHandlers(bridge, currentTappInstance.id)
-      registerUserHandlers(bridge, currentTappInstance)
       bridge.registerHandler(
         'widget.instanceSettings.update',
         async (message) => {
@@ -649,46 +639,100 @@ export const TappWidgetSandbox = memo(
         invalidateRef.current?.(reason)
         return { success: true, data: null }
       })
-      registerFileHandlers(bridge)
-      registerAssetHandlers(bridge, currentTappInstance)
-      // Context（含 api.execute）始终需要：声明式 HTTP/API 与公开上下文查询。
-      registerContextHandlers(bridge, currentTappInstance)
       registerAnimationHandlers(bridge)
-      // 共享 core 在 Widget 模式同样会执行，必须能声明后台保活需求。
-      registerBackgroundHandlers(bridge, currentTappInstance)
 
-      // 可选能力 — 仅在 manifest 已授权时挂载（后端仍强制 Runtime Grant + 权限）
-      const closeAITaskStreams = hasAi ? registerAIHandlers(bridge) : () => {}
-      if (hasPlatform) {
-        registerPlatformHandlers(bridge, currentTappInstance, {
-          readOnly: true,
-        })
+      let closeAITaskStreams: () => void = () => {}
+      let closeDataExchange: () => void = () => {}
+      let closeEventStream: () => void = () => {}
+      let closeAgentInteractions: () => void = () => {}
+      let closeScheduler: () => void = () => {}
+
+      if (previewMode) {
+        // MYR-024: ephemeral handlers only — no real storage/API/host surfaces.
+        const defaults = currentTappInstance.manifest.settings || []
+        for (const setting of defaults) {
+          if (
+            !previewSettingsRef.current.has(setting.key) &&
+            setting.defaultValue !== undefined
+          ) {
+            previewSettingsRef.current.set(setting.key, setting.defaultValue)
+          }
+        }
+        registerPlaygroundPreviewHandlers(
+          bridge,
+          currentTappInstance,
+          previewStorageRef.current,
+          previewSettingsRef.current,
+        )
+      } else {
+        // 注册处理器：始终挂载 Widget 热路径；按 grantedPermissions 惰性挂载重型能力。
+        // Bridge 仍会做权限校验；这里少注册可降低每个 iframe 的启动成本，并缩小攻击面。
+        const granted = new Set(
+          (currentTappInstance.grantedPermissions || []) as string[],
+        )
+        const hasExact = (perm: string) => granted.has(perm)
+        const hasAi =
+          hasExact('ai:generate') ||
+          hasExact('ai:analyze') ||
+          hasExact('ai:chat') ||
+          hasExact('ai:image')
+        const hasMedia =
+          hasExact('media:read') ||
+          hasExact('media:control') ||
+          hasExact('media:audio')
+        const hasSpeech = hasExact('speech:tts') || hasExact('speech:asr')
+        const hasEvents =
+          hasExact('event:publish') || hasExact('event:subscribe')
+        const hasAgent = hasExact('component:agent')
+        const hasScheduler = hasExact('scheduler:register')
+        const hasPlatform = hasExact('platform:read')
+        const hasAnalytics = hasExact('analytics:read')
+        const hasReport = hasExact('report:read')
+
+        registerStorageHandlers(bridge, currentTappInstance.id)
+        registerUserHandlers(bridge, currentTappInstance)
+        registerFileHandlers(bridge)
+        registerAssetHandlers(bridge, currentTappInstance)
+        // Context（含 api.execute）始终需要：声明式 HTTP/API 与公开上下文查询。
+        registerContextHandlers(bridge, currentTappInstance)
+        // 共享 core 在 Widget 模式同样会执行，必须能声明后台保活需求。
+        registerBackgroundHandlers(bridge, currentTappInstance)
+
+        // 可选能力 — 仅在已授权时挂载（后端仍强制 Runtime Grant + 权限）
+        closeAITaskStreams = hasAi ? registerAIHandlers(bridge) : () => {}
+        if (hasPlatform) {
+          registerPlatformHandlers(bridge, currentTappInstance, {
+            readOnly: true,
+          })
+        }
+        if (hasAnalytics) {
+          registerAnalyticsHandlers(bridge)
+        }
+        if (hasReport) {
+          registerReportHandlers(bridge, currentTappInstance, {
+            readOnly: true,
+          })
+        }
+        closeDataExchange = registerDataExchangeHandlers(
+          bridge,
+          currentTappInstance,
+        )
+        closeEventStream = hasEvents
+          ? registerEventHandlers(bridge, currentTappInstance)
+          : () => {}
+        closeAgentInteractions = hasAgent
+          ? registerAgentInteractionHandlers(bridge, currentTappInstance)
+          : () => {}
+        if (hasMedia) {
+          registerMediaHandlers(bridge, currentTappInstance)
+        }
+        if (hasSpeech) {
+          registerSpeechHandlers(bridge, currentTappInstance)
+        }
+        closeScheduler = hasScheduler
+          ? registerSchedulerHandlers(bridge, currentTappInstance)
+          : () => {}
       }
-      if (hasAnalytics) {
-        registerAnalyticsHandlers(bridge)
-      }
-      if (hasReport) {
-        registerReportHandlers(bridge, currentTappInstance, { readOnly: true })
-      }
-      const closeDataExchange = registerDataExchangeHandlers(
-        bridge,
-        currentTappInstance,
-      )
-      const closeEventStream = hasEvents
-        ? registerEventHandlers(bridge, currentTappInstance)
-        : () => {}
-      const closeAgentInteractions = hasAgent
-        ? registerAgentInteractionHandlers(bridge, currentTappInstance)
-        : () => {}
-      if (hasMedia) {
-        registerMediaHandlers(bridge, currentTappInstance)
-      }
-      if (hasSpeech) {
-        registerSpeechHandlers(bridge, currentTappInstance)
-      }
-      const closeScheduler = hasScheduler
-        ? registerSchedulerHandlers(bridge, currentTappInstance)
-        : () => {}
 
       // 监听 tapp.ready：必须先 allowSandboxEvent（显式 inbound 白名单）
       bridge.allowSandboxEvent('tapp.ready')
@@ -744,6 +788,7 @@ export const TappWidgetSandbox = memo(
       handleReady,
       stableWidgetProps,
       subjectEpoch,
+      previewMode,
     ])
 
     // 语言变化监听

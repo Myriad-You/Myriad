@@ -307,6 +307,27 @@ pub fn archive_upload_too_large_message(max_bytes: usize) -> String {
     format!(".tapp file exceeds {max_bytes} bytes")
 }
 
+// ── Concurrent install capacity (MYR-025) ───────────────────────────────────
+
+/// Max concurrent Tapp install handlers (archive extract / stage / DB).
+///
+/// Generous but finite: prevents unbounded zip buffers + blocking extract work
+/// from exhausting memory and the async runtime under parallel uploads.
+pub const MAX_CONCURRENT_INSTALLS: usize = 4;
+
+/// How long a request may wait for an install slot before 503.
+pub const INSTALL_ACQUIRE_TIMEOUT_SECS: u64 = 2;
+
+/// User-facing overload body when install concurrency is saturated.
+pub fn install_overloaded_message() -> &'static str {
+    "Too many Tapp installs in progress. Please try again shortly."
+}
+
+/// HTTP status when install concurrency is saturated (retryable overload).
+pub fn install_overloaded_status() -> u16 {
+    503
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -356,6 +377,17 @@ mod tests {
         assert!(mixed.generated_widget_css.is_none());
         assert!(mixed.page_styles.is_none());
         assert_eq!(mixed.generated_page_css.as_deref(), Some("p"));
+    }
+
+    #[test]
+    fn install_concurrency_limits_are_generous_but_finite() {
+        // MYR-025: a few concurrent installs, not unbounded; fail fast when full.
+        assert!(MAX_CONCURRENT_INSTALLS >= 2);
+        assert!(MAX_CONCURRENT_INSTALLS <= 8);
+        assert!(INSTALL_ACQUIRE_TIMEOUT_SECS >= 1);
+        assert!(INSTALL_ACQUIRE_TIMEOUT_SECS <= 15);
+        assert_eq!(install_overloaded_status(), 503);
+        assert!(!install_overloaded_message().is_empty());
     }
 
     #[test]
