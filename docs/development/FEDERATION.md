@@ -82,9 +82,28 @@ Script: `scripts/dev/federation-multi-instance-suite.sh`
 Lab dual backends: ports 18080/18081, DBs `myriad_fed_a` / `myriad_fed_b`.
 Override `PORT_*` / `DB_*` / `SCRATCH_DIR` when multiple agents share a host (see script header).
 
+## File transfer amplification budgets (MYR-008)
+
+Chunked federation transfers keep a large per-file product ceiling and use
+**admission control** instead of removing the feature:
+
+| Limit | Value | Where |
+|-------|-------|--------|
+| `MAX_FILE_SIZE` | **20 GiB** | product ceiling (unchanged) |
+| `MAX_CONCURRENT_TRANSFERS` | **64** open (`pending`/`in-progress`) | process-wide |
+| `MAX_CONCURRENT_TRANSFERS_PER_USER` | **16** | local initiator/owner |
+| `MAX_CONCURRENT_TRANSFER_BYTES` | **64 GiB** sum of open `file_size` | rejects absurd concurrent full-size pile-ups |
+| `MAX_IN_FLIGHT_CHUNK_BYTES` | **128 MiB** decoded | concurrent chunk handlers |
+| `TRANSFER_CHUNK_SIZE` | **4 MiB** raw | single chunk |
+
+Constants live in `backend/src/federation/limits.rs`; admission in
+`file_transfer.rs` (`admit_new_transfer`, `admit_chunk_bytes`). Over budget
+returns **503** (retry later), not a permanent ban.
+
 ## Related docs / fixtures
 
 - Permission lockstep: `docs/development/tapp/fixtures/action_permissions.json`,
   `host_route_permissions.json` (includes `keys/rotate`, `delivery/cancel-pending`)
 - Tapp host attribution: `federation_host_attribution` on federation router
 - PR lineage: `fix/federation-ensure-keys` (ensure, Accept harden, rotate API, cancel races)
+- MCP transport residual (no OS sandbox yet): `backend/src/services/agent/mcp/mod.rs`

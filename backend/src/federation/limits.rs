@@ -69,7 +69,32 @@ pub const TRANSFER_CHUNK_SIZE: i64 = 4 * 1024 * 1024;
 pub const TRANSFER_CHUNK_BODY_LIMIT: usize = 16 * 1024 * 1024;
 
 /// 单个文件传输的总大小上限。
+///
+/// Product decision: large media is in-scope for self-hosted chat. Concurrent
+/// amplification is bounded separately (MYR-008) rather than shrinking this.
 pub const MAX_FILE_SIZE: i64 = 20 * 1024 * 1024 * 1024;
+
+// ── MYR-008: transfer amplification admission (generous budgets) ───────────
+//
+// Prefer budgets + admission control over removing chunked transfer. Numbers
+// are intentionally loose for normal multi-file use; they only stop absurd
+// concurrent pile-ups (dozens of max-size files / unbounded in-flight chunks).
+
+/// Max concurrent open transfers (`pending` + `in-progress`) process-wide.
+pub const MAX_CONCURRENT_TRANSFERS: i64 = 64;
+
+/// Max concurrent open transfers attributed to one local user (initiator/owner).
+pub const MAX_CONCURRENT_TRANSFERS_PER_USER: i64 = 16;
+
+/// Sum of declared `file_size` across open transfers must stay under this.
+///
+/// ≈ 3 × [`MAX_FILE_SIZE`]: a few full-size uploads at once, or many smaller.
+pub const MAX_CONCURRENT_TRANSFER_BYTES: i64 = 64 * 1024 * 1024 * 1024; // 64 GiB
+
+/// Max decoded chunk payload bytes held concurrently across upload/inbound handlers.
+///
+/// At [`TRANSFER_CHUNK_SIZE`] (4 MiB), this allows ~32 simultaneous chunk ops.
+pub const MAX_IN_FLIGHT_CHUNK_BYTES: usize = 128 * 1024 * 1024; // 128 MiB
 
 /// Note 内联图片附件的字节上限。
 pub const NOTE_IMAGE_LIMIT: usize = 32 * 1024 * 1024;
@@ -118,6 +143,24 @@ const _: () = assert!(
 const _: () = assert!(
     SMALL_CONTROL_BODY_LIMIT < MESSAGE_PAYLOAD_LIMIT / 8,
     "SMALL_CONTROL_BODY_LIMIT is too close to the bulk message limit"
+);
+
+/// Concurrent transfer budget must be at least one full max-size file.
+const _: () = assert!(
+    MAX_CONCURRENT_TRANSFER_BYTES >= MAX_FILE_SIZE,
+    "MAX_CONCURRENT_TRANSFER_BYTES must admit at least one MAX_FILE_SIZE transfer"
+);
+
+/// Per-user concurrent transfer cap must not exceed the global cap.
+const _: () = assert!(
+    MAX_CONCURRENT_TRANSFERS_PER_USER <= MAX_CONCURRENT_TRANSFERS,
+    "per-user transfer cap cannot exceed the global concurrent transfer cap"
+);
+
+/// In-flight chunk budget must hold at least one full chunk.
+const _: () = assert!(
+    MAX_IN_FLIGHT_CHUNK_BYTES >= TRANSFER_CHUNK_SIZE as usize,
+    "MAX_IN_FLIGHT_CHUNK_BYTES must hold at least one TRANSFER_CHUNK_SIZE"
 );
 
 /// 容器内存预算哨兵。

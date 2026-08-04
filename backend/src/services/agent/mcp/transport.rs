@@ -2,9 +2,16 @@
 //!
 //! 通过 stdin/stdout 与 MCP 服务器子进程通信。
 //! 协议：每行一个 JSON-RPC 2.0 消息（line-delimited JSON）。
+//!
+//! # MYR-009 (first practical cut)
+//!
+//! - Cap each stdio line / JSON-RPC message at [`MAX_MCP_LINE_BYTES`].
+//! - Cap live child processes at [`MAX_MCP_CHILDREN`] (aligned with config max).
+//! - Residual: MCP children still share the host process UID/namespace. Full OS
+//!   sandbox / seccomp / landlock is intentionally future work (multi-week).
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
@@ -12,6 +19,114 @@ use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 
 use super::config::McpServerConfig;
 use super::protocol::{JsonRpcRequest, JsonRpcResponse};
+
+/// Max bytes for a single MCP stdio line (one JSON-RPC message).
+///
+/// Tool results can be large, but multi-megabyte-per-line floods are abuse.
+/// 4 MiB is generous for normal tool I/O and rejects unbounded read_line growth.
+pub const MAX_MCP_LINE_BYTES: usize = 4 * 1024 * 1024;
+
+/// Max concurrent live MCP child processes process-wide.
+///
+/// Matches `validate_config` server cap so a healthy config can start every
+/// enabled server, while still bounding spawn storms / reload races.
+pub const MAX_MCP_CHILDREN: usize = 32;
+
+/// Process-wide count of live MCP children (includes slots held during spawn).
+static MCP_LIVE_CHILDREN: AtomicUsize = AtomicUsize::new(0);
+
+/// RAII slot against [`MCP_LIVE_CHILDREN`].
+struct ChildSlot;
+
+impl ChildSlot {
+    fn try_acquire() -> Result<Self, String> {
+        loop {
+            let cur = MCP_LIVE_CHILDREN.load(Ordering::Relaxed);
+            if cur >= MAX_MCP_CHILDREN {
+                return Err(format!(
+                    "Too many concurrent MCP child processes (max {MAX_MCP_CHILDREN})"
+                ));
+            }
+            if MCP_LIVE_CHILDREN
+                .compare_exchange_weak(cur, cur + 1, Ordering::AcqRel, Ordering::Relaxed)
+                .is_ok()
+            {
+                return Ok(Self);
+            }
+        }
+    }
+}
+
+impl Drop for ChildSlot {
+    fn drop(&mut self) {
+        MCP_LIVE_CHILDREN.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+/// Read one line from `reader` without exceeding `max_bytes` (excluding newline).
+///
+/// Returns the line **including** the trailing `\n` when present. Rejects when
+/// the line body alone would exceed `max_bytes` (protects against OOM).
+/// On overflow, **does not consume** the buffered bytes past the cap so callers
+/// can drain with [`drain_until_newline`] if they want to continue reading.
+async fn read_line_limited<R: AsyncBufReadExt + Unpin>(
+    reader: &mut R,
+    max_bytes: usize,
+) -> Result<String, String> {
+    let mut out: Vec<u8> = Vec::new();
+    loop {
+        let available = reader
+            .fill_buf()
+            .await
+            .map_err(|e| format!("Failed to read from MCP server: {e}"))?;
+        if available.is_empty() {
+            if out.is_empty() {
+                return Err("MCP server closed stdout (process exited)".into());
+            }
+            break;
+        }
+        if let Some(pos) = available.iter().position(|&b| b == b'\n') {
+            let take = pos + 1;
+            // Body length excludes the trailing newline.
+            if out.len().saturating_add(pos) > max_bytes {
+                return Err(format!(
+                    "MCP message exceeds max line length ({max_bytes} bytes)"
+                ));
+            }
+            out.extend_from_slice(&available[..take]);
+            reader.consume(take);
+            break;
+        }
+        if out.len().saturating_add(available.len()) > max_bytes {
+            return Err(format!(
+                "MCP message exceeds max line length ({max_bytes} bytes)"
+            ));
+        }
+        let n = available.len();
+        out.extend_from_slice(available);
+        reader.consume(n);
+    }
+    String::from_utf8(out).map_err(|e| format!("MCP line is not valid UTF-8: {e}"))
+}
+
+/// Discard bytes until a newline (or EOF). Used after an oversized-line reject.
+async fn drain_until_newline<R: AsyncBufReadExt + Unpin>(reader: &mut R) -> Result<(), String> {
+    loop {
+        let available = reader
+            .fill_buf()
+            .await
+            .map_err(|e| format!("Failed to drain MCP stream: {e}"))?;
+        if available.is_empty() {
+            return Ok(());
+        }
+        if let Some(pos) = available.iter().position(|&b| b == b'\n') {
+            reader.consume(pos + 1);
+            return Ok(());
+        }
+        let n = available.len();
+        reader.consume(n);
+    }
+}
 
 /// 允许透传给 MCP 子进程的环境变量。
 ///
@@ -65,11 +180,16 @@ pub struct StdioTransport {
     stdin: BufWriter<ChildStdin>,
     stdout: BufReader<ChildStdout>,
     next_id: AtomicU64,
+    /// Held for the lifetime of this transport so child counts stay accurate.
+    _child_slot: ChildSlot,
 }
 
 impl StdioTransport {
     /// 启动 MCP 服务器子进程
     pub async fn spawn(config: &McpServerConfig) -> Result<Self, String> {
+        // MYR-009: admit child slot before spawn so reload races cannot pile up.
+        let child_slot = ChildSlot::try_acquire()?;
+
         let mut cmd = Command::new(&config.command);
         cmd.args(&config.args)
             .stdin(std::process::Stdio::piped())
@@ -99,31 +219,57 @@ impl StdioTransport {
             cmd.env(k, v);
         }
 
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| format!("Failed to spawn MCP server '{}': {}", config.id, e))?;
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) => {
+                drop(child_slot);
+                return Err(format!("Failed to spawn MCP server '{}': {}", config.id, e));
+            }
+        };
 
-        let stdin = child
-            .stdin
-            .take()
-            .ok_or("Failed to capture MCP server stdin")?;
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or("Failed to capture MCP server stdout")?;
+        let stdin = match child.stdin.take() {
+            Some(s) => s,
+            None => {
+                drop(child_slot);
+                let _ = child.kill().await;
+                return Err("Failed to capture MCP server stdin".into());
+            }
+        };
+        let stdout = match child.stdout.take() {
+            Some(s) => s,
+            None => {
+                drop(child_slot);
+                let _ = child.kill().await;
+                return Err("Failed to capture MCP server stdout".into());
+            }
+        };
 
-        // 后台转发 stderr 到 tracing
+        // 后台转发 stderr 到 tracing（bounded lines — MYR-009）
         if let Some(stderr) = child.stderr.take() {
             let server_id = config.id.clone();
             tokio::spawn(async move {
                 let mut reader = BufReader::new(stderr);
-                let mut line = String::new();
-                while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
-                    let trimmed = line.trim();
-                    if !trimmed.is_empty() {
-                        tracing::debug!(server = %server_id, "[MCP stderr] {}", trimmed);
+                loop {
+                    match read_line_limited(&mut reader, MAX_MCP_LINE_BYTES).await {
+                        Ok(line) => {
+                            let trimmed = line.trim();
+                            if !trimmed.is_empty() {
+                                let preview = &trimmed[..trimmed.len().min(500)];
+                                tracing::debug!(server = %server_id, "[MCP stderr] {}", preview);
+                            }
+                        }
+                        Err(e) if e.contains("exceeds max line length") => {
+                            tracing::warn!(
+                                server = %server_id,
+                                "[MCP stderr] dropped oversized line; draining to newline"
+                            );
+                            // Drain remaining bytes of this line so subsequent lines can be logged.
+                            if drain_until_newline(&mut reader).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(_) => break,
                     }
-                    line.clear();
                 }
             });
         }
@@ -133,6 +279,7 @@ impl StdioTransport {
             stdin: BufWriter::new(stdin),
             stdout: BufReader::new(stdout),
             next_id: AtomicU64::new(1),
+            _child_slot: child_slot,
         })
     }
 
@@ -151,6 +298,13 @@ impl StdioTransport {
         // 序列化 + 换行
         let mut payload =
             serde_json::to_string(&request).map_err(|e| format!("JSON serialize error: {}", e))?;
+        // MYR-009: reject oversized outbound messages before write
+        if payload.len() > MAX_MCP_LINE_BYTES {
+            return Err(format!(
+                "MCP request exceeds max message length ({} bytes)",
+                MAX_MCP_LINE_BYTES
+            ));
+        }
         payload.push('\n');
 
         // 写入 stdin
@@ -256,6 +410,12 @@ impl StdioTransport {
 
         let mut payload =
             serde_json::to_string(&map).map_err(|e| format!("JSON serialize error: {}", e))?;
+        if payload.len() > MAX_MCP_LINE_BYTES {
+            return Err(format!(
+                "MCP notification exceeds max message length ({} bytes)",
+                MAX_MCP_LINE_BYTES
+            ));
+        }
         payload.push('\n');
 
         self.stdin
@@ -271,26 +431,19 @@ impl StdioTransport {
     }
 
     /// 从 stdout 读取一行 JSON 对象（跳过空行与非 JSON 前缀）
+    ///
+    /// MYR-009: lines longer than [`MAX_MCP_LINE_BYTES`] are rejected (no unbounded growth).
     async fn read_response_line(&mut self, buf: &mut String) -> Result<(), String> {
         loop {
-            buf.clear();
-            let bytes_read = self
-                .stdout
-                .read_line(buf)
-                .await
-                .map_err(|e| format!("Failed to read from MCP server: {}", e))?;
-
-            if bytes_read == 0 {
-                return Err("MCP server closed stdout (process exited)".to_string());
-            }
-
-            let trimmed = buf.trim();
+            let line = read_line_limited(&mut self.stdout, MAX_MCP_LINE_BYTES).await?;
+            let trimmed = line.trim();
             if trimmed.is_empty() {
                 continue;
             }
 
             // 确保是 JSON 对象
             if trimmed.starts_with('{') {
+                *buf = line;
                 return Ok(());
             }
 
@@ -330,6 +483,8 @@ impl Drop for StdioTransport {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Cursor;
+    use tokio::io::BufReader;
 
     #[test]
     fn response_id_matches_number_and_string() {
@@ -411,5 +566,59 @@ mod tests {
                 "{name} looks like a credential; it must not be allowlisted"
             );
         }
+    }
+
+    #[test]
+    fn myr009_limits_are_documented_product_values() {
+        assert_eq!(MAX_MCP_LINE_BYTES, 4 * 1024 * 1024);
+        assert_eq!(MAX_MCP_CHILDREN, 32);
+    }
+
+    #[test]
+    fn child_slot_caps_concurrent_processes() {
+        let mut slots = Vec::new();
+        for _ in 0..MAX_MCP_CHILDREN {
+            slots.push(ChildSlot::try_acquire().expect("slot within cap"));
+        }
+        assert!(
+            ChildSlot::try_acquire().is_err(),
+            "must reject when child cap is full"
+        );
+        drop(slots);
+        let again = ChildSlot::try_acquire().expect("slot after release");
+        drop(again);
+        assert_eq!(MCP_LIVE_CHILDREN.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn read_line_limited_accepts_normal_line() {
+        let mut reader = BufReader::new(Cursor::new(b"{\"ok\":true}\n".as_slice()));
+        let line = read_line_limited(&mut reader, 1024).await.unwrap();
+        assert!(line.starts_with('{'));
+        assert!(line.ends_with('\n'));
+    }
+
+    #[tokio::test]
+    async fn read_line_limited_rejects_oversized_line() {
+        let mut body = vec![b'x'; 64];
+        body.push(b'\n');
+        let mut reader = BufReader::new(Cursor::new(body));
+        let err = read_line_limited(&mut reader, 16).await.unwrap_err();
+        assert!(
+            err.contains("exceeds max line length"),
+            "unexpected err: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn read_line_limited_rejects_oversized_without_newline_yet() {
+        // No newline: fill buffer past max while still streaming.
+        let body = vec![b'y'; 100];
+        let mut reader = BufReader::new(Cursor::new(body));
+        let err = read_line_limited(&mut reader, 32).await.unwrap_err();
+        assert!(
+            err.contains("exceeds max line length"),
+            "unexpected err: {err}"
+        );
     }
 }

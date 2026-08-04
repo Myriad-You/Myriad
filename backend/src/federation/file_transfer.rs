@@ -21,6 +21,7 @@ use tokio::{
 
 use crate::federation::types::*;
 use crate::services::data_paths::paths;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 // 请求/响应类型
 
@@ -85,11 +86,235 @@ pub struct TransferDetail {
     pub completed_at: Option<String>,
 }
 
-/// 默认块大小: 1 MiB raw（base64 后约 1.37 MiB，远低于联邦 INBOX_BODY_LIMIT 上限）
+/// 默认块大小: 4 MiB raw（base64 后约 5.3 MiB；路由层见 TRANSFER_CHUNK_BODY_LIMIT）
 use crate::federation::limits::TRANSFER_CHUNK_SIZE as DEFAULT_CHUNK_SIZE;
 
-/// 最大文件大小: 5GB
+/// 单个文件传输总大小上限（产品决策，见 limits 注释）
 use crate::federation::limits::MAX_FILE_SIZE;
+use crate::federation::limits::{
+    MAX_CONCURRENT_TRANSFERS, MAX_CONCURRENT_TRANSFERS_PER_USER, MAX_CONCURRENT_TRANSFER_BYTES,
+    MAX_IN_FLIGHT_CHUNK_BYTES,
+};
+
+// ── MYR-008: in-flight chunk byte budget ────────────────────────────────────
+//
+// Caps concurrent decoded chunk payloads across upload + inbound handlers so a
+// burst of clients cannot pin unbounded memory while each transfer still obeys
+// MAX_FILE_SIZE.
+
+/// Process-wide sum of reserved decoded chunk bytes currently held.
+static IN_FLIGHT_CHUNK_BYTES: AtomicUsize = AtomicUsize::new(0);
+
+/// RAII reservation against [`IN_FLIGHT_CHUNK_BYTES`].
+struct InFlightChunkGuard {
+    bytes: usize,
+}
+
+impl InFlightChunkGuard {
+    /// Try to reserve `bytes` of in-flight budget. Returns `None` if full.
+    fn try_acquire(bytes: usize) -> Option<Self> {
+        if bytes == 0 {
+            return Some(Self { bytes: 0 });
+        }
+        loop {
+            let cur = IN_FLIGHT_CHUNK_BYTES.load(Ordering::Relaxed);
+            if cur.saturating_add(bytes) > MAX_IN_FLIGHT_CHUNK_BYTES {
+                return None;
+            }
+            match IN_FLIGHT_CHUNK_BYTES.compare_exchange_weak(
+                cur,
+                cur + bytes,
+                Ordering::AcqRel,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return Some(Self { bytes }),
+                Err(_) => continue,
+            }
+        }
+    }
+}
+
+impl Drop for InFlightChunkGuard {
+    fn drop(&mut self) {
+        if self.bytes > 0 {
+            IN_FLIGHT_CHUNK_BYTES.fetch_sub(self.bytes, Ordering::AcqRel);
+        }
+    }
+}
+
+/// Open-transfer statuses that consume concurrent amplification budget.
+const OPEN_TRANSFER_STATUSES: &str = "('pending', 'in-progress')";
+
+/// Snapshot of open transfer load for admission decisions.
+#[derive(Debug, Clone, Copy)]
+struct TransferLoad {
+    count: i64,
+    total_bytes: i64,
+}
+
+async fn open_transfer_load_global(
+    db: &DatabaseConnection,
+) -> Result<TransferLoad, (StatusCode, Json<serde_json::Value>)> {
+    let row = db
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            &format!(
+                r#"SELECT COUNT(*)::bigint AS cnt,
+                          COALESCE(SUM(file_size), 0)::bigint AS total_bytes
+                   FROM federation_file_transfers
+                   WHERE status IN {OPEN_TRANSFER_STATUSES}"#
+            ),
+            [],
+        ))
+        .await
+        .map_err(db_err)?;
+    Ok(TransferLoad {
+        count: row
+            .as_ref()
+            .and_then(|r| r.try_get::<i64>("", "cnt").ok())
+            .unwrap_or(0),
+        total_bytes: row
+            .as_ref()
+            .and_then(|r| r.try_get::<i64>("", "total_bytes").ok())
+            .unwrap_or(0),
+    })
+}
+
+/// Open transfers attributed to a local user (channel owner or room owner_user_id).
+async fn open_transfer_load_for_user(
+    db: &DatabaseConnection,
+    user_id: i32,
+) -> Result<TransferLoad, (StatusCode, Json<serde_json::Value>)> {
+    let row = db
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            &format!(
+                r#"SELECT COUNT(*)::bigint AS cnt,
+                          COALESCE(SUM(ft.file_size), 0)::bigint AS total_bytes
+                   FROM federation_file_transfers ft
+                   LEFT JOIN federation_channels c
+                     ON c.channel_id = ft.channel_id AND ft.channel_id <> ''
+                   WHERE ft.status IN {OPEN_TRANSFER_STATUSES}
+                     AND (
+                       ft.owner_user_id = $1
+                       OR c.user_id = $1
+                     )"#
+            ),
+            [user_id.into()],
+        ))
+        .await
+        .map_err(db_err)?;
+    Ok(TransferLoad {
+        count: row
+            .as_ref()
+            .and_then(|r| r.try_get::<i64>("", "cnt").ok())
+            .unwrap_or(0),
+        total_bytes: row
+            .as_ref()
+            .and_then(|r| r.try_get::<i64>("", "total_bytes").ok())
+            .unwrap_or(0),
+    })
+}
+
+/// MYR-008: admit a new transfer if concurrent count/bytes stay within budgets.
+///
+/// `user_id`: when `Some`, also enforce the per-user concurrent count.
+/// Inbound remote FileMeta passes `None` (only global budgets apply).
+async fn admit_new_transfer(
+    db: &DatabaseConnection,
+    file_size: i64,
+    user_id: Option<i32>,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    let global = open_transfer_load_global(db).await?;
+    if global.count >= MAX_CONCURRENT_TRANSFERS {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "error": "Too many concurrent file transfers",
+                "message": format!(
+                    "At most {} open transfers are allowed; try again when one completes",
+                    MAX_CONCURRENT_TRANSFERS
+                ),
+                "limit": MAX_CONCURRENT_TRANSFERS,
+                "current": global.count,
+            })),
+        ));
+    }
+    if global
+        .total_bytes
+        .saturating_add(file_size)
+        > MAX_CONCURRENT_TRANSFER_BYTES
+    {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "error": "Concurrent transfer byte budget exceeded",
+                "message": format!(
+                    "Open transfers already reserve {} bytes; adding {} would exceed the {} byte budget",
+                    global.total_bytes, file_size, MAX_CONCURRENT_TRANSFER_BYTES
+                ),
+                "limit_bytes": MAX_CONCURRENT_TRANSFER_BYTES,
+                "current_bytes": global.total_bytes,
+            })),
+        ));
+    }
+
+    if let Some(uid) = user_id {
+        let per_user = open_transfer_load_for_user(db, uid).await?;
+        if per_user.count >= MAX_CONCURRENT_TRANSFERS_PER_USER {
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({
+                    "error": "Too many concurrent file transfers for this user",
+                    "message": format!(
+                        "At most {} open transfers per user; finish or cancel one first",
+                        MAX_CONCURRENT_TRANSFERS_PER_USER
+                    ),
+                    "limit": MAX_CONCURRENT_TRANSFERS_PER_USER,
+                    "current": per_user.count,
+                })),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn admit_chunk_bytes(
+    chunk_size: i64,
+) -> Result<InFlightChunkGuard, (StatusCode, Json<serde_json::Value>)> {
+    if chunk_size <= 0 {
+        return Err(bad_request("chunk_size must be positive"));
+    }
+    let bytes = chunk_size as usize;
+    InFlightChunkGuard::try_acquire(bytes).ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "error": "Too many in-flight transfer chunks",
+                "message": format!(
+                    "Decoded chunk budget is {} bytes; retry shortly",
+                    MAX_IN_FLIGHT_CHUNK_BYTES
+                ),
+                "limit_bytes": MAX_IN_FLIGHT_CHUNK_BYTES,
+            })),
+        )
+    })
+}
+
+/// String-error variant for inbox handlers.
+async fn admit_new_transfer_str(
+    db: &DatabaseConnection,
+    file_size: i64,
+) -> Result<(), String> {
+    admit_new_transfer(db, file_size, None)
+        .await
+        .map_err(http_err_to_string)
+}
+
+fn admit_chunk_bytes_str(chunk_size: i64) -> Result<InFlightChunkGuard, String> {
+    admit_chunk_bytes(chunk_size).map_err(http_err_to_string)
+}
 
 // 存储辅助
 //
@@ -363,6 +588,9 @@ pub async fn initiate_transfer(
         ));
     }
 
+    // MYR-008: concurrent transfer admission (count + reserved bytes)
+    admit_new_transfer(db, req.file_size, Some(user_id)).await?;
+
     let remote_actor_url: String = ch_row.try_get("", "actor_url").unwrap_or_default();
     let remote_inbox: Option<String> = ch_row
         .try_get::<Option<String>>("", "inbox_url")
@@ -508,6 +736,9 @@ pub async fn initiate_room_transfer(
             ),
         ));
     }
+
+    // MYR-008: concurrent transfer admission (count + reserved bytes)
+    admit_new_transfer(db, req.file_size, Some(user_id)).await?;
 
     let chunks_total =
         ((req.file_size + DEFAULT_CHUNK_SIZE - 1) / DEFAULT_CHUNK_SIZE).max(1) as i32;
@@ -690,17 +921,21 @@ pub async fn upload_chunk(
         ));
     }
 
-    let decoded = BASE64
-        .decode(req.chunk_data.as_bytes())
-        .map_err(|_| bad_request("Invalid base64 chunk_data"))?;
-    if decoded.len() as i64 != req.chunk_size {
-        return Err(bad_request("chunk_size does not match decoded data length"));
-    }
     if req.chunk_size <= 0 || req.chunk_size > DEFAULT_CHUNK_SIZE {
         return Err(bad_request(format!(
             "chunk_size must be between 1 and {} bytes",
             DEFAULT_CHUNK_SIZE
         )));
+    }
+
+    // MYR-008: reserve decoded chunk budget before base64 decode / disk write
+    let _chunk_budget = admit_chunk_bytes(req.chunk_size)?;
+
+    let decoded = BASE64
+        .decode(req.chunk_data.as_bytes())
+        .map_err(|_| bad_request("Invalid base64 chunk_data"))?;
+    if decoded.len() as i64 != req.chunk_size {
+        return Err(bad_request("chunk_size does not match decoded data length"));
     }
 
     let is_last_chunk = req.chunk_index == chunks_total - 1;
@@ -1504,6 +1739,9 @@ pub async fn handle_file_transfer(
         return Err("Invalid chunksTotal".to_string());
     }
 
+    // MYR-008: global concurrent transfer admission for inbound FileMeta
+    admit_new_transfer_str(db, file_size).await?;
+
     if let Some(cid) = channel_id {
         let channel_actor = db
             .query_one(Statement::from_sql_and_values(
@@ -1600,6 +1838,15 @@ async fn handle_file_chunk(
         .get("chunkData")
         .and_then(|v| v.as_str())
         .ok_or("Missing chunkData")?;
+
+    if chunk_size <= 0 || chunk_size > DEFAULT_CHUNK_SIZE {
+        return Err(format!(
+            "chunk_size must be between 1 and {} bytes",
+            DEFAULT_CHUNK_SIZE
+        ));
+    }
+    // MYR-008: reserve decoded chunk budget for inbound FileChunk
+    let _chunk_budget = admit_chunk_bytes_str(chunk_size)?;
 
     let row = db
         .query_one(Statement::from_sql_and_values(
@@ -1900,13 +2147,49 @@ async fn handle_file_cancel(
     Ok(())
 }
 
-// ── MYR-001 path safety tests ───────────────────────────────────────────────
+// ── MYR-001 path safety + MYR-008 admission tests ───────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     const VALID_FT_UUID: &str = "ft_550e8400-e29b-41d4-a716-446655440000";
+
+    #[test]
+    fn in_flight_chunk_budget_admits_then_rejects_when_full() {
+        // Drain any leftover from parallel tests in this binary (best-effort).
+        let _ = InFlightChunkGuard::try_acquire(0);
+        let half = MAX_IN_FLIGHT_CHUNK_BYTES / 2;
+        let g1 = InFlightChunkGuard::try_acquire(half).expect("first half");
+        let g2 = InFlightChunkGuard::try_acquire(half).expect("second half");
+        assert!(
+            InFlightChunkGuard::try_acquire(1).is_none(),
+            "must reject when budget is exhausted"
+        );
+        drop(g1);
+        let g3 = InFlightChunkGuard::try_acquire(half).expect("after release");
+        drop(g2);
+        drop(g3);
+        assert_eq!(IN_FLIGHT_CHUNK_BYTES.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn admit_chunk_bytes_rejects_non_positive() {
+        assert!(admit_chunk_bytes(0).is_err());
+        assert!(admit_chunk_bytes(-1).is_err());
+    }
+
+    #[test]
+    fn amplification_limits_are_generous_product_values() {
+        // Document the shipped numbers so a silent shrink is a test failure.
+        assert_eq!(MAX_FILE_SIZE, 20 * 1024 * 1024 * 1024);
+        assert_eq!(MAX_CONCURRENT_TRANSFERS, 64);
+        assert_eq!(MAX_CONCURRENT_TRANSFERS_PER_USER, 16);
+        assert_eq!(MAX_CONCURRENT_TRANSFER_BYTES, 64 * 1024 * 1024 * 1024);
+        assert_eq!(MAX_IN_FLIGHT_CHUNK_BYTES, 128 * 1024 * 1024);
+        assert!(MAX_CONCURRENT_TRANSFER_BYTES >= MAX_FILE_SIZE * 3);
+        assert!(MAX_IN_FLIGHT_CHUNK_BYTES >= DEFAULT_CHUNK_SIZE as usize * 16);
+    }
 
     #[test]
     fn transfer_id_accepts_ft_uuid() {

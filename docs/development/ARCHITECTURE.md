@@ -44,8 +44,9 @@ host HTTP_PORT
 - **Platforms / profiles**：GitHub、Bilibili、Steam、网易云、YouTube、Bangumi、Discord、X、MAL、Xbox、PSN 等同步与资料库
 - **Brew**：RSS / Notion / RSSHub 等阅读源
 - **Arael Agent**：计划 / 执行 / 记忆 / MCP
+  - MCP first-cut hardening (MYR-009): max stdio line **4 MiB**, max **32** concurrent children, env allowlist. **Residual:** full OS sandbox / seccomp for MCP children is still future work.
 - **Tapp**：安装校验、商店、Playground、沙箱 Bridge（见 [Tapp](TAPP_DEVELOPMENT.md)）
-- **Federation**：ActivityPub + MFP（见 [FEDERATION.md](FEDERATION.md)）
+- **Federation**：ActivityPub + MFP（见 [FEDERATION.md](FEDERATION.md)）；file-transfer concurrent budgets (MYR-008) documented there
 - **Auth**：本地用户 + GitHub / OIDC（见 [OAUTH.md](OAUTH.md)）
 - **Updater admin**：`/api/admin/updater/*` → gateway
 

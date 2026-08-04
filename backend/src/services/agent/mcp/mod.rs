@@ -2,6 +2,19 @@
 //!
 //! 通过 stdio 管理多个 MCP 服务器子进程，
 //! 提供统一的工具发现和调用接口。
+//!
+//! # Security (MYR-009 first cut + residual)
+//!
+//! **Shipped now**
+//! - Env inheritance allowlist (no host secrets in children)
+//! - Config validation (id charset, arg/env caps, max 32 servers)
+//! - Stdio line / JSON-RPC message cap ([`transport::MAX_MCP_LINE_BYTES`])
+//! - Concurrent live child process cap ([`transport::MAX_MCP_CHILDREN`])
+//!
+//! **Residual / future (not this cut)**
+//! - Full OS sandbox for MCP children (namespaces, seccomp, landlock, cgroups)
+//! - Per-tool network/FS policy beyond what each server binary already does
+//! - These are multi-week efforts; budgets + admission are the pragmatic first cut.
 
 pub mod config;
 pub mod manager;
