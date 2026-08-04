@@ -228,7 +228,7 @@ pub(crate) async fn generate_platform_reports_internal(
     let report_settings = crate::api::config::load_report_settings(db).await;
 
     let db_clone = db.clone();
-    let results = stream::iter(platforms.into_iter())
+    let results = stream::iter(platforms)
         .map(move |platform| {
             let db_for_task = db_clone.clone();
             let dynamic_config = dynamic_config.clone();
@@ -2945,15 +2945,11 @@ mod report_persist_concurrency_tests {
     #[test]
     fn max_concurrent_platform_reports_is_generous_but_bounded() {
         // Enough for multi-platform generate-all (~11 platforms); never unbounded.
+        // Compare via binding so clippy does not treat this as a constant assertion.
+        let limit = MAX_CONCURRENT_PLATFORM_REPORTS;
         assert!(
-            MAX_CONCURRENT_PLATFORM_REPORTS >= 4,
-            "limit too low for multi-platform reports: {}",
-            MAX_CONCURRENT_PLATFORM_REPORTS
-        );
-        assert!(
-            MAX_CONCURRENT_PLATFORM_REPORTS <= 16,
-            "limit too high (cost amplification risk): {}",
-            MAX_CONCURRENT_PLATFORM_REPORTS
+            (4..=16).contains(&limit),
+            "unexpected concurrency limit: {limit}"
         );
     }
 
