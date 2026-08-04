@@ -3041,7 +3041,7 @@ mod tests {
         // 底层差值仍然存在（这正是必须显式拒绝的原因）
         assert_ne!(
             headers.get("date").unwrap().to_str().unwrap(),
-            headers.get_all("date").iter().last().unwrap().to_str().unwrap(),
+            headers.get_all("date").iter().next_back().unwrap().to_str().unwrap(),
         );
 
         let err = unique_header(&headers, "date").unwrap_err();
