@@ -19,7 +19,8 @@ use crate::services::tapp_storage::{
 };
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter,
+    sea_query::OnConflict, ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait,
+    EntityTrait, QueryFilter,
 };
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -377,6 +378,8 @@ async fn execute_brew_subscribe(
                     .or(feed_name)
                     .unwrap_or(feed.title.clone());
 
+                // item_count / unread_count filled after insert from rows_affected
+                // (take(50) + ON CONFLICT skips must not over-count).
                 let new_source = brew_sources::ActiveModel {
                     user_id: Set(user_id),
                     name: Set(name.clone()),
@@ -388,8 +391,8 @@ async fn execute_brew_subscribe(
                     category: Set(category.map(|s| s.to_string())),
                     enabled: Set(true),
                     error_count: Set(0),
-                    item_count: Set(feed.items.len() as i32),
-                    unread_count: Set(feed.items.len() as i32),
+                    item_count: Set(0),
+                    unread_count: Set(0),
                     update_interval: Set(update_interval),
                     created_at: Set(now.into()),
                     updated_at: Set(now.into()),
@@ -459,28 +462,37 @@ async fn execute_brew_subscribe(
                     })
                     .collect();
 
+                // Align with brew_scheduler: unique is (source_id, guid); use rows_affected.
                 let inserted_count = if item_models.is_empty() {
                     0usize
                 } else {
-                    let total = item_models.len();
-                    // 使用批量插入；guid 冲突（已存在）时跳过，避免 N+1 单条 insert
+                    let on_conflict = OnConflict::columns([
+                        brew_items::Column::SourceId,
+                        brew_items::Column::Guid,
+                    ])
+                    .do_nothing()
+                    .to_owned();
                     match brew_items::Entity::insert_many(item_models)
-                        .on_conflict(
-                            sea_orm::sea_query::OnConflict::column(brew_items::Column::Guid)
-                                .do_nothing()
-                                .to_owned(),
-                        )
-                        .try_insert()
-                        .exec(ctx.db)
+                        .on_conflict(on_conflict)
+                        .exec_without_returning(ctx.db)
                         .await
                     {
-                        Ok(_) => total, // InsertResult 不暴露 rows_affected，保守使用 total
+                        Ok(rows) => rows as usize,
                         Err(e) => {
                             tracing::warn!("[Brew] 批量插入文章失败: {}", e);
                             0
                         }
                     }
                 };
+
+                if inserted_count > 0 {
+                    let mut source_active: brew_sources::ActiveModel = source.clone().into();
+                    source_active.item_count = Set(inserted_count as i32);
+                    source_active.unread_count = Set(inserted_count as i32);
+                    if let Err(e) = source_active.update(ctx.db).await {
+                        tracing::warn!("[Brew] 更新订阅源计数失败: {}", e);
+                    }
+                }
 
                 tracing::info!(
                     url = %url,
