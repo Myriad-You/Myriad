@@ -473,7 +473,7 @@ WebSocket 升级不能携带 Grant 头，因此 Tapp Bridge 先调用
 不带票据的 Claims-only WebSocket 语义保持不变。独立 AI 费用账本见 `/api/tapp/ai/v2/ledger`。
 
 Room 消息 POST body 上限与 `MESSAGE_PAYLOAD_LIMIT` / `MAX_ROOM_MESSAGE_PAYLOAD`
-（**64 MiB**）及联邦 inbox DefaultBodyLimit（**96 MiB**）对齐；`join` 可接受 path 中的
+（**36 MiB**）及联邦 inbox DefaultBodyLimit（**64 MiB**）对齐；`join` 可接受 path 中的
 `rm_…@home[:port]`（URL 编码）或 body `{ "home_server": "…" }`。
 
 ### 上下文与媒体
