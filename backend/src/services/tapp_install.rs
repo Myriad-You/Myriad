@@ -382,10 +382,12 @@ mod tests {
     #[test]
     fn install_concurrency_limits_are_generous_but_finite() {
         // MYR-025: a few concurrent installs, not unbounded; fail fast when full.
-        assert!(MAX_CONCURRENT_INSTALLS >= 2);
-        assert!(MAX_CONCURRENT_INSTALLS <= 8);
-        assert!(INSTALL_ACQUIRE_TIMEOUT_SECS >= 1);
-        assert!(INSTALL_ACQUIRE_TIMEOUT_SECS <= 15);
+        const {
+            assert!(MAX_CONCURRENT_INSTALLS >= 2);
+            assert!(MAX_CONCURRENT_INSTALLS <= 8);
+            assert!(INSTALL_ACQUIRE_TIMEOUT_SECS >= 1);
+            assert!(INSTALL_ACQUIRE_TIMEOUT_SECS <= 15);
+        }
         assert_eq!(install_overloaded_status(), 503);
         assert!(!install_overloaded_message().is_empty());
     }
