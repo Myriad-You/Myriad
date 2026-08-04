@@ -106,6 +106,9 @@ pub async fn auth_middleware(
 
 /// 每用户至少间隔 60s 才落一次库，避免高频请求放大写入。
 const PRESENCE_WRITE_INTERVAL: Duration = Duration::from_secs(60);
+/// Drop map entries older than this so long-lived processes do not retain every
+/// user_id forever (MYR-037). Must be ≥ [`PRESENCE_WRITE_INTERVAL`].
+const PRESENCE_MAP_TTL: Duration = Duration::from_secs(15 * 60);
 /// 两次活跃间隔 ≤300s 视为持续在线，计入 online_seconds；更长间隔视为离线后重新上线。
 const PRESENCE_SESSION_GAP_SECS: i64 = 300;
 
@@ -118,6 +121,10 @@ fn presence_write_due(user_id: i32) -> bool {
         Err(poisoned) => poisoned.into_inner(),
     };
     let now = Instant::now();
+    // Opportunistic TTL prune (cheap when map is small; caps growth on multi-user sites).
+    if guard.len() > 64 {
+        guard.retain(|_, last| now.duration_since(*last) < PRESENCE_MAP_TTL);
+    }
     match guard.get(&user_id) {
         Some(last) if now.duration_since(*last) < PRESENCE_WRITE_INTERVAL => false,
         _ => {

@@ -472,8 +472,8 @@ WebSocket 升级不能携带 Grant 头，因此 Tapp Bridge 先调用
 `tapp_ws_ticket` 放入对应升级 URL。票据过期、复用、subject 或目标不匹配都会失败关闭，宿主 UI
 不带票据的 Claims-only WebSocket 语义保持不变。独立 AI 费用账本见 `/api/tapp/ai/v2/ledger`。
 
-Room 消息 POST body 上限与 `MAX_ROOM_MESSAGE_PAYLOAD`（**32 MiB**）及联邦路由
-DefaultBodyLimit（约 **40 MiB**）对齐；`join` 可接受 path 中的
+Room 消息 POST body 上限与 `MESSAGE_PAYLOAD_LIMIT` / `MAX_ROOM_MESSAGE_PAYLOAD`
+（**64 MiB**）及联邦 inbox DefaultBodyLimit（**96 MiB**）对齐；`join` 可接受 path 中的
 `rm_…@home[:port]`（URL 编码）或 body `{ "home_server": "…" }`。
 
 ### 上下文与媒体

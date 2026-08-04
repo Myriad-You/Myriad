@@ -487,7 +487,8 @@ async fn run_server() -> anyhow::Result<()> {
                 tracing::info!("✅ Brew scheduler engine initialized");
 
                 // Initialize Agent identity system (SOUL.md / USER.md)
-                let agent_data_dir = std::path::PathBuf::from("data/agent");
+                // MYR-044: single path authority via DataPaths (DATA_DIR-aware).
+                let agent_data_dir = services::data_paths::paths().agent.clone();
                 services::agent::identity::init_identity(agent_data_dir.clone()).await;
                 tracing::info!("✅ Agent identity system initialized");
 

@@ -65,17 +65,20 @@ COPY --from=builder /out/myriad-tcb-self-update /usr/local/bin/myriad-tcb-self-u
 COPY --from=builder /out/myriad-updater-gateway /usr/local/bin/myriad-updater-gateway
 
 # cosign CLI for release.json signature verification (M2). Single static binary, ~50 MB.
+# MYR-047: pin release + per-arch sha256 (from cosign_checksums.txt on the same tag).
 ARG COSIGN_VERSION=v2.4.1
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; \
     case "$arch" in \
-        amd64) cs_arch=amd64 ;; \
-        arm64) cs_arch=arm64 ;; \
+        amd64) cs_arch=amd64; cs_sha=8b24b946dd5809c6bd93de08033bcf6bc0ed7d336b7785787c080f574b89249b ;; \
+        arm64) cs_arch=arm64; cs_sha=3b2e2e3854d0356c45fe6607047526ccd04742d20bd44afb5be91fa2a6e7cb4a ;; \
         *) echo "unsupported arch: $arch" >&2; exit 1 ;; \
     esac; \
-    curl -fsSL -o /usr/local/bin/cosign \
+    curl -fsSL -o /tmp/cosign \
         "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-${cs_arch}"; \
-    chmod +x /usr/local/bin/cosign; \
+    echo "${cs_sha}  /tmp/cosign" | sha256sum -c -; \
+    install -m 0755 /tmp/cosign /usr/local/bin/cosign; \
+    rm -f /tmp/cosign; \
     cosign version
 
 # Updater receives one deployment-root bind at /host/compose. The separate docker-guard

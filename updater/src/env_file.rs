@@ -251,6 +251,35 @@ mod tests {
         assert!(s.contains("NEW_VAR='hello world'"));
     }
 
+    /// MYR-040: `save` must go through atomic write (tmp + rename), not truncate-in-place.
+    #[test]
+    fn save_is_atomic_and_preserves_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join(".env");
+        std::fs::write(&p, "MYRIAD_TAG=v0.1.0\n# keep me\n").unwrap();
+        let mut e = EnvFile::load(&p).unwrap();
+        e.set("MYRIAD_TAG", "v0.3.0").unwrap();
+        e.save().unwrap();
+        let s = std::fs::read_to_string(&p).unwrap();
+        assert!(s.contains("MYRIAD_TAG=v0.3.0"));
+        assert!(s.contains("# keep me"));
+        // Backup rotation leaves a .bak.* snapshot of the pre-save file.
+        let backups: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.starts_with(".env.bak."))
+            })
+            .collect();
+        assert!(
+            !backups.is_empty(),
+            "atomic save should rotate a .env.bak.* before replace"
+        );
+    }
+
     #[test]
     fn rejects_duplicates() {
         let dir = tempfile::tempdir().unwrap();

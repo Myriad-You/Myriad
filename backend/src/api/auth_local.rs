@@ -637,6 +637,10 @@ pub async fn change_password(
 
 // Helper functions
 
+/// Username charset: letters, digits, underscore (compiled once — MYR-036).
+static USERNAME_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^[a-zA-Z0-9_]+$").expect("username regex"));
+
 /// Validate username format
 fn validate_username(username: &str) -> Result<(), HttpError> {
     if username.len() < 3 || username.len() > 20 {
@@ -649,8 +653,7 @@ fn validate_username(username: &str) -> Result<(), HttpError> {
         )));
     }
 
-    let regex = Regex::new(r"^[a-zA-Z0-9_]+$").unwrap();
-    if !regex.is_match(username) {
+    if !USERNAME_RE.is_match(username) {
         return Err(HttpError::from((
             StatusCode::BAD_REQUEST,
             Json(json!({

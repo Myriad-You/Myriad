@@ -20,6 +20,8 @@ pub struct DataPaths {
     pub brew_icons: PathBuf,
     /// Tapp 应用数据目录（默认: "data/tapps"）
     pub tapps: PathBuf,
+    /// Agent identity / skills / MCP / memory root（默认: "data/agent"）
+    pub agent: PathBuf,
     /// 缓存目录（默认: "cache"）
     pub cache: PathBuf,
     /// 平台数据缓存目录（默认: "cache/platforms"）
@@ -43,6 +45,7 @@ impl DataPaths {
             brew: root.join("brew"),
             brew_icons: root.join("brew/icons"),
             tapps: root.join("tapps"),
+            agent: root.join("agent"),
             cache_platforms: cache_root.join("platforms"),
             cache_raw: cache_root.join("raw"),
             cache_images: cache_root.join("images"),
@@ -159,6 +162,7 @@ mod tests {
         assert_eq!(paths.root, PathBuf::from("data"));
         assert_eq!(paths.brew, PathBuf::from("data/brew"));
         assert_eq!(paths.tapps, PathBuf::from("data/tapps"));
+        assert_eq!(paths.agent, PathBuf::from("data/agent"));
         // Canonical cache layout (some call sites still use string literals)
         assert_eq!(paths.cache_platforms, PathBuf::from("cache/platforms"));
         assert_eq!(paths.cache_raw, PathBuf::from("cache/raw"));
@@ -192,6 +196,7 @@ mod tests {
             brew: base.join("data/brew"),
             brew_icons: base.join("data/brew/icons"),
             tapps: base.join("data/tapps"),
+            agent: base.join("data/agent"),
             cache: base.join("cache"),
             cache_platforms: base.join("cache/platforms"),
             cache_raw: base.join("cache/raw"),
@@ -231,6 +236,7 @@ mod tests {
             brew: data_file.join("brew"),
             brew_icons: data_file.join("brew/icons"),
             tapps: data_file.join("tapps"),
+            agent: data_file.join("agent"),
             cache: base.join("cache"),
             cache_platforms: base.join("cache/platforms"),
             cache_raw: base.join("cache/raw"),
@@ -258,6 +264,7 @@ mod tests {
             brew: base.join("data/brew"),
             brew_icons: base.join("data/brew/icons"),
             tapps: base.join("data/tapps"),
+            agent: base.join("data/agent"),
             cache: base.join("cache"),
             cache_platforms: base.join("cache/platforms"),
             cache_raw: base.join("cache/raw"),

@@ -985,24 +985,43 @@ async fn upsert_identity(
 }
 
 /// 防止 username 冲突：若已存在，追加 `_<n>` 后缀
+///
+/// MYR-036: one range scan for `base` / `base_*` instead of up to 100 point probes.
 async fn ensure_unique_username(
     db: &DatabaseConnection,
     base: &str,
 ) -> Result<String, HttpError> {
-    let mut candidate = base.to_string();
-    for n in 0..100u32 {
-        let hit = db
-            .query_one(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "SELECT 1 FROM users WHERE LOWER(username) = LOWER($1) LIMIT 1",
-                vec![SeaValue::String(Some(Box::new(candidate.clone())))],
-            ))
-            .await
-            .map_err(|e| { tracing::error!("OAuth DB error: {e}"); err_500("Database error") })?;
-        if hit.is_none() {
+    let rows = db
+        .query_all(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT username FROM users \
+             WHERE LOWER(username) = LOWER($1) \
+                OR LOWER(username) LIKE LOWER($1) || '\\_%' ESCAPE '\\' \
+             LIMIT 200",
+            vec![SeaValue::String(Some(Box::new(base.to_string())))],
+        ))
+        .await
+        .map_err(|e| {
+            tracing::error!("OAuth DB error: {e}");
+            err_500("Database error")
+        })?;
+
+    let mut taken = std::collections::HashSet::with_capacity(rows.len());
+    for row in rows {
+        if let Ok(name) = row.try_get::<String>("", "username") {
+            taken.insert(name.to_ascii_lowercase());
+        }
+    }
+
+    let base_lower = base.to_ascii_lowercase();
+    if !taken.contains(&base_lower) {
+        return Ok(base.to_string());
+    }
+    for n in 2..=100u32 {
+        let candidate = format!("{base}_{n}");
+        if !taken.contains(&candidate.to_ascii_lowercase()) {
             return Ok(candidate);
         }
-        candidate = format!("{}_{}", base, n + 2);
     }
     Err(err_500(
         "Failed to generate unique username after 100 tries",

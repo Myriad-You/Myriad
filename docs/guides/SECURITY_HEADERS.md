@@ -27,6 +27,12 @@ geolocation=(self), microphone=(), camera=()
 
 - `Content-Security-Policy`：生产环境默认启用，`connect-src` 可用
   `CSP_CONNECT_SRC` 覆盖。
+- **CSP `img-src` dual-path (MYR-039)**：生产/开发均使用
+  `img-src 'self' data: blob: https: http:`（**不是**裸 `*`）。
+  前端 dual-path 图片策略对非热链主机使用**原始 https URL** 作为 `<img src>`，
+  因此 CSP 必须允许远程 `https:`/`http:` 图片；不能收紧为仅 `'self'` 或仅
+  代理路径，否则 RSS/博客封面与外链头像会空白。若未来强制全部走
+  `/api/proxy/image`，才可再收窄 `img-src`。
 - `X-Content-Type-Options: nosniff`
 - `X-Frame-Options: DENY`
 - `X-XSS-Protection: 1; mode=block`

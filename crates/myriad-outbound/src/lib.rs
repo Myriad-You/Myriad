@@ -11,9 +11,90 @@
 //! Lab-only: `MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND` may allow private/loopback.
 
 use reqwest::{redirect::Policy, Client, ClientBuilder};
+use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::time::Duration;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 use url::Url;
+
+/// Short-lived host-keyed Client cache (MYR-046).
+///
+/// Each client still has DNS pin + timeout baked in at build time; we only reuse
+/// when host, resolved addrs, timeout, and user-agent match. Caps growth so a
+/// long process that fans out to many federated hosts does not retain clients forever.
+const CLIENT_CACHE_TTL: Duration = Duration::from_secs(60);
+const CLIENT_CACHE_MAX: usize = 64;
+
+struct CachedClient {
+    addresses: Vec<SocketAddr>,
+    timeout: Duration,
+    user_agent: Option<String>,
+    client: Client,
+    built_at: Instant,
+}
+
+fn client_cache() -> &'static Mutex<HashMap<String, CachedClient>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, CachedClient>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn take_cached_client(
+    host: &str,
+    addresses: &[SocketAddr],
+    timeout: Duration,
+    user_agent: Option<&str>,
+) -> Option<Client> {
+    let mut guard = client_cache().lock().ok()?;
+    let now = Instant::now();
+    // Drop expired entries when we grow large.
+    if guard.len() > CLIENT_CACHE_MAX / 2 {
+        guard.retain(|_, e| now.duration_since(e.built_at) < CLIENT_CACHE_TTL);
+    }
+    let entry = guard.get(host)?;
+    if now.duration_since(entry.built_at) >= CLIENT_CACHE_TTL {
+        return None;
+    }
+    if entry.timeout != timeout {
+        return None;
+    }
+    if entry.user_agent.as_deref() != user_agent {
+        return None;
+    }
+    if entry.addresses.as_slice() != addresses {
+        return None;
+    }
+    Some(entry.client.clone())
+}
+
+fn store_cached_client(
+    host: &str,
+    addresses: Vec<SocketAddr>,
+    timeout: Duration,
+    user_agent: Option<&str>,
+    client: Client,
+) {
+    let Ok(mut guard) = client_cache().lock() else {
+        return;
+    };
+    if guard.len() >= CLIENT_CACHE_MAX {
+        // Evict oldest-ish: drop all expired first, then clear if still full.
+        let now = Instant::now();
+        guard.retain(|_, e| now.duration_since(e.built_at) < CLIENT_CACHE_TTL);
+        if guard.len() >= CLIENT_CACHE_MAX {
+            guard.clear();
+        }
+    }
+    guard.insert(
+        host.to_string(),
+        CachedClient {
+            addresses,
+            timeout,
+            user_agent: user_agent.map(str::to_string),
+            client,
+            built_at: Instant::now(),
+        },
+    );
+}
 
 fn is_public_ipv4(ip: Ipv4Addr) -> bool {
     let [a, b, c, _] = ip.octets();
@@ -154,6 +235,14 @@ pub async fn build_public_http_client(
         }
     }
 
+    // Stable order for cache key equality.
+    let mut addresses = addresses;
+    addresses.sort_unstable();
+
+    if let Some(client) = take_cached_client(host, &addresses, timeout, user_agent) {
+        return Ok((parsed, client));
+    }
+
     let mut builder: ClientBuilder = Client::builder()
         .timeout(timeout)
         .redirect(Policy::none())
@@ -164,6 +253,7 @@ pub async fn build_public_http_client(
     let client = builder
         .build()
         .map_err(|error| format!("HTTP client error: {error}"))?;
+    store_cached_client(host, addresses, timeout, user_agent, client.clone());
     Ok((parsed, client))
 }
 

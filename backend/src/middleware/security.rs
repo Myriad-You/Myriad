@@ -10,6 +10,13 @@ pub async fn security_headers_middleware(req: Request, next: Next) -> Response {
     let is_production =
         env::var("ENVIRONMENT").unwrap_or_else(|_| "development".to_string()) == "production";
 
+    // img-src: dual-path image loading (MYR-039 / image proxy).
+    // Non-hotlink https hosts are used as original URLs in <img src>, so CSP must
+    // allow http(s) remote images. We avoid the bare `*` scheme wildcard (which
+    // would also permit data-adjacent exotic schemes) while keeping dual-path working.
+    // See docs/guides/SECURITY_HEADERS.md §CSP img-src dual-path.
+    const IMG_SRC: &str = "img-src 'self' data: blob: https: http:";
+
     let csp = if is_production {
         // PRODUCTION: Get allowed API origins from env (fallback to default)
         let allowed_api_origins =
@@ -20,7 +27,7 @@ pub async fn security_headers_middleware(req: Request, next: Next) -> Response {
             "default-src 'self'; \
             script-src 'self'; \
             style-src 'self' 'unsafe-inline' https:; \
-            img-src * data: blob:; \
+            {IMG_SRC}; \
             font-src 'self' data: https: blob:; \
             media-src 'self' https: blob:; \
             connect-src {}; \
@@ -36,17 +43,18 @@ pub async fn security_headers_middleware(req: Request, next: Next) -> Response {
         )
     } else {
         // DEVELOPMENT: Relaxed CSP for hot reload and dev tools
-        "default-src 'self'; \
+        format!(
+            "default-src 'self'; \
             script-src 'self' 'unsafe-inline' 'unsafe-eval'; \
             style-src 'self' 'unsafe-inline' https:; \
-            img-src * data: blob:; \
+            {IMG_SRC}; \
             font-src 'self' data: https: blob:; \
             media-src 'self' https: blob:; \
             connect-src 'self' ws: wss: https: http:; \
             object-src 'none'; \
             base-uri 'self'; \
             worker-src 'self' blob:; "
-            .to_string()
+        )
     };
 
     if is_production || env::var("ENABLE_CSP_DEV").unwrap_or_default() == "true" {
