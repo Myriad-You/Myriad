@@ -34,6 +34,29 @@ pub(crate) fn form_secret_if_plaintext(value: Option<&str>) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+/// Persist a platform credential field into DB updates.
+///
+/// Semantics (data platforms only — not AI/OAuth omit-empty-keep):
+/// - masked (`••••` / `****…`) → skip (keep existing DB value)
+/// - empty string → insert `""` so clear persists
+/// - non-empty plaintext → set new value
+fn insert_platform_field(
+    updates: &mut std::collections::HashMap<String, Value>,
+    db_key: &str,
+    value: &str,
+) {
+    if is_masked_secret_value(value) {
+        return;
+    }
+    updates.insert(db_key.to_string(), Value::String(value.to_string()));
+}
+
+/// Whether a platform field should be written to `.env`.
+/// Mask keeps the existing env value; empty clears it.
+fn should_write_platform_env_field(value: &str) -> bool {
+    !is_masked_secret_value(value)
+}
+
 /// Extract a numeric playlist id from a bare id or a NetEase / QQ Music URL.
 ///
 /// Config UI hints show full links (`?id=2884035`, `/playlist/8039305244`); the
@@ -447,12 +470,10 @@ pub(crate) async fn build_config(db: &DatabaseConnection, reveal_sensitive: bool
     let config_service = crate::services::config_service::ConfigService::new(db.clone());
     let db_config = config_service.load_config().await.ok();
 
-    // 辅助函数：优先使用数据库值，否则使用环境变量
-    // Helper to get string value from database or environment
+    // Prefer DB when present (including intentional empty clear); else process env.
+    // Same clearable semantics as SEO/analytics (`db_or_env_clearable`).
     let get_value = |db_val: Option<String>, env_key: &str| -> String {
-        db_val
-            .filter(|v| !v.trim().is_empty())
-            .unwrap_or_else(|| std::env::var(env_key).unwrap_or_default())
+        db_or_env_clearable(db_val, env_key, "")
     };
 
     // Helper to mask sensitive values (passwords, API keys, tokens).
@@ -3293,10 +3314,157 @@ mod settings_backup_tests {
     fn secret_env_fields_skip_masks() {
         assert!(!should_write_env_field("token", "••••••••"));
         assert!(!should_write_env_field("api_key", "********"));
+        // AI/OAuth secrets still treat empty as "keep" (omit write).
         assert!(!should_write_env_field("gemini_api_key", ""));
         assert!(should_write_env_field("token", "ghp_real_token"));
         assert!(should_write_env_field("username", "octocat"));
         assert!(should_write_env_field("username", ""));
+    }
+
+    #[test]
+    fn platform_env_fields_write_empty_but_skip_masks() {
+        assert!(!should_write_platform_env_field("••••••••"));
+        assert!(!should_write_platform_env_field("********"));
+        // Empty platform secrets/usernames must clear .env (not keep).
+        assert!(should_write_platform_env_field(""));
+        assert!(should_write_platform_env_field("ghp_real_token"));
+        assert!(should_write_platform_env_field("octocat"));
+    }
+
+    #[test]
+    fn platform_credentials_clear_empty_username_and_token() {
+        let mut config = empty_config();
+        config.platforms.push(PlatformConfig {
+            name: "GitHub".to_string(),
+            enabled: true,
+            has_token: true,
+            config_fields: vec![
+                ui_field("username", "octocat"),
+                ConfigField {
+                    key: "token".to_string(),
+                    label: String::new(),
+                    field_type: "password".to_string(),
+                    value: "ghp_set".to_string(),
+                    placeholder: String::new(),
+                    required: false,
+                },
+            ],
+            description: String::new(),
+            icon: String::new(),
+        });
+        let set = collect_database_updates(&config);
+        assert_eq!(set.get("github_username"), Some(&json!("octocat")));
+        assert_eq!(set.get("github_token"), Some(&json!("ghp_set")));
+
+        // Clear both with empty strings (not masks).
+        config.platforms[0].config_fields = vec![
+            ui_field("username", ""),
+            ConfigField {
+                key: "token".to_string(),
+                label: String::new(),
+                field_type: "password".to_string(),
+                value: String::new(),
+                placeholder: String::new(),
+                required: false,
+            },
+        ];
+        let cleared = collect_database_updates(&config);
+        assert_eq!(cleared.get("github_username"), Some(&json!("")));
+        assert_eq!(cleared.get("github_token"), Some(&json!("")));
+    }
+
+    #[test]
+    fn platform_credentials_mask_keeps_secret() {
+        let mut config = empty_config();
+        config.platforms.push(PlatformConfig {
+            name: "GitHub".to_string(),
+            enabled: true,
+            has_token: true,
+            config_fields: vec![
+                ui_field("username", "octocat"),
+                ConfigField {
+                    key: "token".to_string(),
+                    label: String::new(),
+                    field_type: "password".to_string(),
+                    value: "••••••••".to_string(),
+                    placeholder: String::new(),
+                    required: false,
+                },
+            ],
+            description: String::new(),
+            icon: String::new(),
+        });
+        let updates = collect_database_updates(&config);
+        assert_eq!(updates.get("github_username"), Some(&json!("octocat")));
+        assert!(!updates.contains_key("github_token"));
+    }
+
+    #[test]
+    fn platform_clear_covers_bangumi_x_steam_and_psn() {
+        let mut config = empty_config();
+        for (name, fields) in [
+            (
+                "Bangumi",
+                vec![
+                    ("username", ""),
+                    ("access_token", ""),
+                    ("user_agent", ""),
+                ],
+            ),
+            ("X", vec![("username", ""), ("bearer_token", "")]),
+            ("Steam", vec![("api_key", ""), ("steam_id", "")]),
+            ("PlayStation", vec![("online_id", ""), ("npsso", "")]),
+        ] {
+            config.platforms.push(PlatformConfig {
+                name: name.to_string(),
+                enabled: false,
+                has_token: false,
+                config_fields: fields
+                    .into_iter()
+                    .map(|(k, v)| ui_field(k, v))
+                    .collect(),
+                description: String::new(),
+                icon: String::new(),
+            });
+        }
+        let updates = collect_database_updates(&config);
+        assert_eq!(updates.get("bangumi_username"), Some(&json!("")));
+        assert_eq!(updates.get("bangumi_access_token"), Some(&json!("")));
+        assert_eq!(updates.get("x_username"), Some(&json!("")));
+        assert_eq!(updates.get("x_bearer_token"), Some(&json!("")));
+        assert_eq!(updates.get("steam_api_key"), Some(&json!("")));
+        assert_eq!(updates.get("steam_id"), Some(&json!("")));
+        assert_eq!(updates.get("psn_online_id"), Some(&json!("")));
+        assert_eq!(updates.get("psn_npsso"), Some(&json!("")));
+    }
+
+    #[test]
+    fn platform_resolve_prefers_explicit_empty_db_over_env() {
+        let env_key = "MYRIAD_TEST_PLATFORM_RESOLVE_EMPTY";
+        std::env::set_var(env_key, "stale-from-env");
+        assert_eq!(db_or_env_clearable(Some(String::new()), env_key, ""), "");
+        assert_eq!(
+            db_or_env_clearable(None, env_key, ""),
+            "stale-from-env"
+        );
+        assert_eq!(
+            db_or_env_clearable(Some("from-db".to_string()), env_key, ""),
+            "from-db"
+        );
+        std::env::remove_var(env_key);
+    }
+
+    #[test]
+    fn update_env_var_clears_platform_secret_line() {
+        let content = "GITHUB_TOKEN=ghp_old\nGITHUB_USERNAME=octocat\n";
+        let next = update_env_var(content, "GITHUB_TOKEN", "");
+        assert!(
+            next.lines().any(|l| l == "# GITHUB_TOKEN="),
+            "empty secret should comment out env key, got:\n{next}"
+        );
+        assert!(next.contains("GITHUB_USERNAME=octocat"));
+        let next = update_env_var(&next, "GITHUB_USERNAME", "");
+        assert!(next.lines().any(|l| l == "# GITHUB_USERNAME="));
     }
 
     #[test]
@@ -3441,7 +3609,7 @@ fn collect_database_updates(config: &ConfigResponse) -> std::collections::HashMa
     // Shared with types_build / platform_test — see `is_masked_secret_value`.
     let is_masked = is_masked_secret_value;
 
-    // 保存平台配置
+    // 保存平台配置（空串 = 清除；掩码 = 保留；明文 = 写入）
     for platform in &config.platforms {
         match platform.name.as_str() {
             "GitHub" => {
@@ -3455,10 +3623,7 @@ fn collect_database_updates(config: &ConfigResponse) -> std::collections::HashMa
                         "token" => "github_token",
                         _ => continue,
                     };
-                    // 忽略屏蔽值（前端返回的掩码）
-                    if !field.value.is_empty() && !is_masked(&field.value) {
-                        updates.insert(key.to_string(), JsonValue::String(field.value.clone()));
-                    }
+                    insert_platform_field(&mut updates, key, &field.value);
                 }
             }
             "Bilibili" => {
@@ -3467,11 +3632,8 @@ fn collect_database_updates(config: &ConfigResponse) -> std::collections::HashMa
                     JsonValue::Bool(platform.enabled),
                 );
                 for field in &platform.config_fields {
-                    if field.key == "uid" && !field.value.is_empty() {
-                        updates.insert(
-                            "bilibili_uid".to_string(),
-                            JsonValue::String(field.value.clone()),
-                        );
+                    if field.key == "uid" {
+                        insert_platform_field(&mut updates, "bilibili_uid", &field.value);
                     }
                 }
             }
@@ -3486,10 +3648,7 @@ fn collect_database_updates(config: &ConfigResponse) -> std::collections::HashMa
                         "steam_id" => "steam_id",
                         _ => continue,
                     };
-                    // 忽略屏蔽值（前端返回的掩码）
-                    if !field.value.is_empty() && !is_masked(&field.value) {
-                        updates.insert(key.to_string(), JsonValue::String(field.value.clone()));
-                    }
+                    insert_platform_field(&mut updates, key, &field.value);
                 }
             }
             "YouTube" => {
@@ -3503,9 +3662,7 @@ fn collect_database_updates(config: &ConfigResponse) -> std::collections::HashMa
                         "channel_id" => "youtube_channel_id",
                         _ => continue,
                     };
-                    if !field.value.is_empty() && !is_masked(&field.value) {
-                        updates.insert(key.to_string(), JsonValue::String(field.value.clone()));
-                    }
+                    insert_platform_field(&mut updates, key, &field.value);
                 }
             }
             "Netease Music" => {
@@ -3514,11 +3671,8 @@ fn collect_database_updates(config: &ConfigResponse) -> std::collections::HashMa
                     JsonValue::Bool(platform.enabled),
                 );
                 for field in &platform.config_fields {
-                    if field.key == "user_id" && !field.value.is_empty() {
-                        updates.insert(
-                            "netease_user_id".to_string(),
-                            JsonValue::String(field.value.clone()),
-                        );
+                    if field.key == "user_id" {
+                        insert_platform_field(&mut updates, "netease_user_id", &field.value);
                     }
                 }
             }
@@ -3534,9 +3688,7 @@ fn collect_database_updates(config: &ConfigResponse) -> std::collections::HashMa
                         "user_agent" => "bangumi_user_agent",
                         _ => continue,
                     };
-                    if !field.value.is_empty() && !is_masked(&field.value) {
-                        updates.insert(key.to_string(), JsonValue::String(field.value.clone()));
-                    }
+                    insert_platform_field(&mut updates, key, &field.value);
                 }
             }
             "X" => {
@@ -3547,9 +3699,7 @@ fn collect_database_updates(config: &ConfigResponse) -> std::collections::HashMa
                         "bearer_token" => "x_bearer_token",
                         _ => continue,
                     };
-                    if !field.value.is_empty() && !is_masked(&field.value) {
-                        updates.insert(key.to_string(), JsonValue::String(field.value.clone()));
-                    }
+                    insert_platform_field(&mut updates, key, &field.value);
                 }
             }
             "Discord" => {
@@ -3564,9 +3714,7 @@ fn collect_database_updates(config: &ConfigResponse) -> std::collections::HashMa
                         "user_id" => "discord_user_id",
                         _ => continue,
                     };
-                    if !field.value.is_empty() && !is_masked(&field.value) {
-                        updates.insert(key.to_string(), JsonValue::String(field.value.clone()));
-                    }
+                    insert_platform_field(&mut updates, key, &field.value);
                 }
             }
             "MyAnimeList" => {
@@ -3577,9 +3725,7 @@ fn collect_database_updates(config: &ConfigResponse) -> std::collections::HashMa
                         "client_id" => "mal_client_id",
                         _ => continue,
                     };
-                    if !field.value.is_empty() && !is_masked(&field.value) {
-                        updates.insert(key.to_string(), JsonValue::String(field.value.clone()));
-                    }
+                    insert_platform_field(&mut updates, key, &field.value);
                 }
             }
             "Xbox" => {
@@ -3593,9 +3739,7 @@ fn collect_database_updates(config: &ConfigResponse) -> std::collections::HashMa
                         "openxbl_api_key" => "openxbl_api_key",
                         _ => continue,
                     };
-                    if !field.value.is_empty() && !is_masked(&field.value) {
-                        updates.insert(key.to_string(), JsonValue::String(field.value.clone()));
-                    }
+                    insert_platform_field(&mut updates, key, &field.value);
                 }
             }
             "PlayStation" => {
@@ -3606,9 +3750,7 @@ fn collect_database_updates(config: &ConfigResponse) -> std::collections::HashMa
                         "npsso" => "psn_npsso",
                         _ => continue,
                     };
-                    if !field.value.is_empty() && !is_masked(&field.value) {
-                        updates.insert(key.to_string(), JsonValue::String(field.value.clone()));
-                    }
+                    insert_platform_field(&mut updates, key, &field.value);
                 }
             }
             _ => {}
@@ -4022,7 +4164,20 @@ async fn save_all_configs(config: &ConfigResponse) -> Result<(), Box<dyn std::er
         String::new()
     };
 
-    // 保存平台配置（密钥字段跳过掩码 / 空串）
+    // Platform credentials: mask keeps .env; empty clears (unlike AI/OAuth secrets).
+    // Track emptied keys so process env is removed after dotenv reload (commented
+    // lines alone do not unset already-loaded variables).
+    let mut platform_env_keys_to_clear: Vec<&'static str> = Vec::new();
+    let mut write_platform_env = |env_content: &mut String, key: &'static str, value: &str| {
+        if !should_write_platform_env_field(value) {
+            return;
+        }
+        *env_content = update_env_var(env_content, key, value);
+        if value.trim().is_empty() {
+            platform_env_keys_to_clear.push(key);
+        }
+    };
+
     for platform in &config.platforms {
         match platform.name.as_str() {
             "GitHub" => {
@@ -4032,16 +4187,13 @@ async fn save_all_configs(config: &ConfigResponse) -> Result<(), Box<dyn std::er
                         "token" => "GITHUB_TOKEN",
                         _ => continue,
                     };
-                    if !should_write_env_field(&field.key, &field.value) {
-                        continue;
-                    }
-                    env_content = update_env_var(&env_content, key, &field.value);
+                    write_platform_env(&mut env_content, key, &field.value);
                 }
             }
             "Bilibili" => {
                 for field in &platform.config_fields {
                     if field.key == "uid" {
-                        env_content = update_env_var(&env_content, "BILIBILI_UID", &field.value);
+                        write_platform_env(&mut env_content, "BILIBILI_UID", &field.value);
                     }
                 }
             }
@@ -4052,10 +4204,7 @@ async fn save_all_configs(config: &ConfigResponse) -> Result<(), Box<dyn std::er
                         "steam_id" => "STEAM_ID",
                         _ => continue,
                     };
-                    if !should_write_env_field(&field.key, &field.value) {
-                        continue;
-                    }
-                    env_content = update_env_var(&env_content, key, &field.value);
+                    write_platform_env(&mut env_content, key, &field.value);
                 }
             }
             "YouTube" => {
@@ -4065,16 +4214,13 @@ async fn save_all_configs(config: &ConfigResponse) -> Result<(), Box<dyn std::er
                         "channel_id" => "YOUTUBE_CHANNEL_ID",
                         _ => continue,
                     };
-                    if !should_write_env_field(&field.key, &field.value) {
-                        continue;
-                    }
-                    env_content = update_env_var(&env_content, key, &field.value);
+                    write_platform_env(&mut env_content, key, &field.value);
                 }
             }
             "Netease Music" => {
                 for field in &platform.config_fields {
                     if field.key == "user_id" {
-                        env_content = update_env_var(&env_content, "NETEASE_USER_ID", &field.value);
+                        write_platform_env(&mut env_content, "NETEASE_USER_ID", &field.value);
                     }
                 }
             }
@@ -4086,10 +4232,7 @@ async fn save_all_configs(config: &ConfigResponse) -> Result<(), Box<dyn std::er
                         "user_agent" => "BANGUMI_USER_AGENT",
                         _ => continue,
                     };
-                    if !should_write_env_field(&field.key, &field.value) {
-                        continue;
-                    }
-                    env_content = update_env_var(&env_content, key, &field.value);
+                    write_platform_env(&mut env_content, key, &field.value);
                 }
             }
             "X" => {
@@ -4099,10 +4242,7 @@ async fn save_all_configs(config: &ConfigResponse) -> Result<(), Box<dyn std::er
                         "bearer_token" => "X_BEARER_TOKEN",
                         _ => continue,
                     };
-                    if !should_write_env_field(&field.key, &field.value) {
-                        continue;
-                    }
-                    env_content = update_env_var(&env_content, key, &field.value);
+                    write_platform_env(&mut env_content, key, &field.value);
                 }
             }
             "MyAnimeList" => {
@@ -4112,10 +4252,7 @@ async fn save_all_configs(config: &ConfigResponse) -> Result<(), Box<dyn std::er
                         "client_id" => "MAL_CLIENT_ID",
                         _ => continue,
                     };
-                    if !should_write_env_field(&field.key, &field.value) {
-                        continue;
-                    }
-                    env_content = update_env_var(&env_content, key, &field.value);
+                    write_platform_env(&mut env_content, key, &field.value);
                 }
             }
             "Xbox" => {
@@ -4125,10 +4262,7 @@ async fn save_all_configs(config: &ConfigResponse) -> Result<(), Box<dyn std::er
                         "openxbl_api_key" => "OPENXBL_API_KEY",
                         _ => continue,
                     };
-                    if !should_write_env_field(&field.key, &field.value) {
-                        continue;
-                    }
-                    env_content = update_env_var(&env_content, key, &field.value);
+                    write_platform_env(&mut env_content, key, &field.value);
                 }
             }
             "PlayStation" => {
@@ -4138,10 +4272,7 @@ async fn save_all_configs(config: &ConfigResponse) -> Result<(), Box<dyn std::er
                         "npsso" => "PSN_NPSSO",
                         _ => continue,
                     };
-                    if !should_write_env_field(&field.key, &field.value) {
-                        continue;
-                    }
-                    env_content = update_env_var(&env_content, key, &field.value);
+                    write_platform_env(&mut env_content, key, &field.value);
                 }
             }
             _ => {}
@@ -4375,6 +4506,13 @@ async fn save_all_configs(config: &ConfigResponse) -> Result<(), Box<dyn std::er
         tracing::info!("♻️ Environment variables reloaded after config save");
     }
 
+    // Empty platform credentials are written as commented `# KEY=` lines; dotenv
+    // does not remove already-loaded process env. Drop them so form rebuild and
+    // has_token checks cannot resurrect cleared secrets from the process env.
+    for key in platform_env_keys_to_clear {
+        std::env::remove_var(key);
+    }
+
     // 触发配置重载标志(虽然数据库连接可能不变,但确保其他服务知道配置已更新)
     crate::api::system::CONFIG_RELOAD_REQUESTED.store(true, std::sync::atomic::Ordering::Relaxed);
 
@@ -4536,11 +4674,9 @@ pub async fn get_public_config(
     let config_service = crate::services::config_service::ConfigService::new(db.clone());
     let db_config = config_service.load_config().await.ok();
 
-    // 辅助函数：优先使用数据库值，否则使用环境变量
+    // Prefer DB when present (including intentional empty clear); else process env.
     let get_value = |db_val: Option<String>, env_key: &str| -> String {
-        db_val
-            .filter(|v| !v.is_empty())
-            .unwrap_or_else(|| std::env::var(env_key).unwrap_or_default())
+        db_or_env_clearable(db_val, env_key, "")
     };
 
     // Match build_config: empty compose `${VAR:-}` still sets the key — gate on nonempty.
