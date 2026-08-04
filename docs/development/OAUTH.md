@@ -30,6 +30,16 @@
 
 - OAuth `state` 为 HMAC 签名 + 单次使用 nonce。
 - 登录/绑定/平台授权启动时设置 HttpOnly `oauth_tx` cookie（与 state nonce 相同）；回调必须 cookie 匹配，否则 `browser_tx_mismatch`（防 login CSRF / session swapping）。
+- 浏览器 API CSRF（`X-CSRF-Token`）store 仅接受**已校验**的 session JWT 签名作为 key（MYR-016）；伪造 JWT 形状不会写入 store。
+
+## OIDC：nonce 与 PKCE（MYR-011）
+
+- 通用 OIDC provider 在授权 URL 上附加：
+  - `nonce`（与 `oauth_tx` / state `n` 相同的高熵值）
+  - `code_challenge` + `code_challenge_method=S256`（PKCE）
+- `code_verifier` 写入签名 state 的 `cv` 字段，任意实例可在 callback 完成 token 交换。
+- `id_token` 校验要求 `nonce` claim 与签发时一致；JWKS / token 错误响应体走 limited body 读取。
+- GitHub 与 Discord 数据平台 OAuth **不**走 OIDC PKCE/nonce 路径；Discord 仍使用 `oauth_tx` cookie 绑定（#262 / MYR-003）。
 
 ## 运维注意
 

@@ -4,24 +4,29 @@
 //! - **Discovery**: 启动时从 `discovery_url` 拉 `.well-known/openid-configuration`，
 //! 缓存 24h（lazy 刷新）。
 //! - **Token 交换**: 标准 OAuth2 `authorization_code` flow，POST 到 `token_endpoint`。
+//! - **PKCE S256 + nonce** (MYR-011): `code_challenge` / `code_verifier` and OIDC
+//!   `nonce` are carried in signed OAuth state (multi-instance safe).
 //! - **Profile**: 优先解析 `id_token` 的 claims；缺失字段再去 `userinfo_endpoint` 拉。
 //! - **id_token 验证**: 通过 discovery 的 `jwks_uri` 拉取 JWKS，校验签名、
-//! `iss`、`aud`、`exp`、`sub` 和 `azp`。
+//! `iss`、`aud`、`exp`、`sub`、`azp` 和 `nonce`。
 //!
 //! 详见 docs/development/OAUTH.md
 
 use async_trait::async_trait;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use jsonwebtoken::{
     decode, decode_header,
     jwk::{AlgorithmParameters, Jwk, JwkSet, PublicKeyUse},
     Algorithm, DecodingKey, Validation,
 };
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use subtle::ConstantTimeEq;
 use tokio::sync::RwLock;
 
-use super::{NormalizedProfile, OAuthProvider, ProviderKind, ProviderTokens};
+use super::{AuthFlowSecrets, NormalizedProfile, OAuthProvider, ProviderKind, ProviderTokens};
 
 const DISCOVERY_TTL: Duration = Duration::from_secs(24 * 3600);
 
@@ -173,16 +178,19 @@ impl OidcProvider {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
+            // Cap error body the same way as success (MYR-011 / outbound limited body).
+            let body = read_error_body_limited(resp).await;
             return Err(format!("OIDC JWKS endpoint returned {status}: {body}"));
         }
 
-        resp.json::<JwkSet>()
-            .await
-            .map_err(|e| format!("OIDC JWKS JSON parse failed: {e:?}"))
+        oidc_json(resp, "jwks").await
     }
 
-    async fn verify_id_token(&self, id_token: &str) -> Result<serde_json::Value, String> {
+    async fn verify_id_token(
+        &self,
+        id_token: &str,
+        expected_nonce: Option<&str>,
+    ) -> Result<serde_json::Value, String> {
         let doc = self.discovery().await?;
         let issuer = doc
             .issuer
@@ -208,8 +216,35 @@ impl OidcProvider {
         let data = decode::<serde_json::Value>(id_token, &key, &validation)
             .map_err(|e| format!("OIDC id_token verification failed: {e}"))?;
         validate_authorized_party(&data.claims, &self.client_id)?;
+        if let Some(expected) = expected_nonce.filter(|n| !n.is_empty()) {
+            validate_id_token_nonce(&data.claims, expected)?;
+        }
         Ok(data.claims)
     }
+}
+
+/// Read an error response body with the same size cap as success paths.
+async fn read_error_body_limited(resp: reqwest::Response) -> String {
+    match crate::services::outbound_security::read_limited_body(resp, OIDC_MAX_BODY).await {
+        Ok(bytes) => {
+            let s = String::from_utf8_lossy(&bytes);
+            // Keep log/error strings bounded even after body cap.
+            const ERR_SNIP: usize = 512;
+            if s.chars().count() > ERR_SNIP {
+                let snip: String = s.chars().take(ERR_SNIP).collect();
+                format!("{snip}…")
+            } else {
+                s.into_owned()
+            }
+        }
+        Err(e) => format!("<body unread: {e}>"),
+    }
+}
+
+/// RFC 7636 S256 code_challenge = BASE64URL-ENCODE(SHA256(ASCII(code_verifier))).
+pub(crate) fn pkce_s256_challenge(code_verifier: &str) -> String {
+    let digest = Sha256::digest(code_verifier.as_bytes());
+    URL_SAFE_NO_PAD.encode(digest)
 }
 
 #[async_trait]
@@ -230,23 +265,37 @@ impl OAuthProvider for OidcProvider {
         self.icon.as_deref()
     }
 
-    async fn build_auth_url(&self, state: &str, redirect_uri: &str) -> Result<String, String> {
+    async fn build_auth_url(
+        &self,
+        state: &str,
+        redirect_uri: &str,
+        secrets: &AuthFlowSecrets,
+    ) -> Result<String, String> {
         let doc = self.discovery().await?;
         let scope = self.scope_string();
         // 用 url crate 解析 + append query，避免 authorization_endpoint 本身带 ?param 时
         // 拼出 https://x?a=b?response_type=code 这种非法 URL
         let mut url = url::Url::parse(&doc.authorization_endpoint)
             .map_err(|e| format!("invalid authorization_endpoint: {e}"))?;
-        url.query_pairs_mut()
-            .append_pair("response_type", "code")
-            .append_pair("client_id", &self.client_id)
-            .append_pair("redirect_uri", redirect_uri)
-            .append_pair("scope", &scope)
-            .append_pair("state", state);
-        // TODO(MYR-011): add PKCE S256 (code_challenge / code_verifier) and OIDC
-        // `nonce` once the OAuthProvider trait can carry per-login secrets without
-        // breaking GitHub / multi-instance state. Browser CSRF is already bound via
-        // oauth_tx + signed state (MYR-003).
+        {
+            let mut pairs = url.query_pairs_mut();
+            pairs
+                .append_pair("response_type", "code")
+                .append_pair("client_id", &self.client_id)
+                .append_pair("redirect_uri", redirect_uri)
+                .append_pair("scope", &scope)
+                .append_pair("state", state);
+            // MYR-011: OIDC nonce + PKCE S256 (secrets live in signed state).
+            if !secrets.oidc_nonce.is_empty() {
+                pairs.append_pair("nonce", &secrets.oidc_nonce);
+            }
+            if !secrets.code_verifier.is_empty() {
+                let challenge = pkce_s256_challenge(&secrets.code_verifier);
+                pairs
+                    .append_pair("code_challenge", &challenge)
+                    .append_pair("code_challenge_method", "S256");
+            }
+        }
         Ok(url.into())
     }
 
@@ -254,18 +303,23 @@ impl OAuthProvider for OidcProvider {
         &self,
         code: &str,
         redirect_uri: &str,
+        secrets: &AuthFlowSecrets,
     ) -> Result<ProviderTokens, String> {
         let doc = self.discovery().await?;
         // token_endpoint 同样来自 discovery 响应
         let (endpoint, http) = oidc_client(&doc.token_endpoint).await?;
 
-        let params = [
+        // Build form params; include code_verifier when present (PKCE).
+        let mut params: Vec<(&str, &str)> = vec![
             ("grant_type", "authorization_code"),
             ("code", code),
             ("redirect_uri", redirect_uri),
             ("client_id", self.client_id.as_str()),
             ("client_secret", self.client_secret.as_str()),
         ];
+        if !secrets.code_verifier.is_empty() {
+            params.push(("code_verifier", secrets.code_verifier.as_str()));
+        }
 
         #[derive(Debug, Deserialize)]
         struct TokenResp {
@@ -284,7 +338,7 @@ impl OAuthProvider for OidcProvider {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
+            let body = read_error_body_limited(resp).await;
             return Err(format!("OIDC token endpoint returned {status}: {body}"));
         }
 
@@ -293,6 +347,11 @@ impl OAuthProvider for OidcProvider {
         Ok(ProviderTokens {
             access_token: token.access_token,
             id_token: token.id_token,
+            expected_nonce: if secrets.oidc_nonce.is_empty() {
+                None
+            } else {
+                Some(secrets.oidc_nonce.clone())
+            },
         })
     }
 
@@ -301,7 +360,9 @@ impl OAuthProvider for OidcProvider {
             .id_token
             .as_deref()
             .ok_or_else(|| "OIDC token response missing 'id_token'".to_string())?;
-        let id_claims = self.verify_id_token(id_token).await?;
+        let id_claims = self
+            .verify_id_token(id_token, tokens.expected_nonce.as_deref())
+            .await?;
 
         // 如果 id_token 没给齐档案，再去 userinfo
         let userinfo: serde_json::Value = match id_claims.get("email") {
@@ -468,6 +529,113 @@ fn validate_authorized_party(claims: &serde_json::Value, client_id: &str) -> Res
     }
 
     Ok(())
+}
+
+/// Require `nonce` claim to match the value we sent at authorization (MYR-011).
+fn validate_id_token_nonce(claims: &serde_json::Value, expected: &str) -> Result<(), String> {
+    let got = claims
+        .get("nonce")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "OIDC id_token missing 'nonce'".to_string())?;
+    let a = got.as_bytes();
+    let b = expected.as_bytes();
+    if a.len() != b.len() || !bool::from(a.ct_eq(b)) {
+        return Err("OIDC id_token 'nonce' mismatch".to_string());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod oidc_security_tests {
+    use super::*;
+
+    #[test]
+    fn pkce_s256_challenge_is_deterministic_and_url_safe() {
+        // RFC 7636 Appendix B example
+        let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+        let challenge = pkce_s256_challenge(verifier);
+        assert_eq!(challenge, "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM");
+        assert!(!challenge.contains('+'));
+        assert!(!challenge.contains('/'));
+        assert!(!challenge.contains('='));
+    }
+
+    #[test]
+    fn pkce_different_verifiers_differ() {
+        let a = pkce_s256_challenge("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        let b = pkce_s256_challenge("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn validate_id_token_nonce_accepts_match() {
+        let claims = serde_json::json!({"nonce": "abc123deadbeef"});
+        assert!(validate_id_token_nonce(&claims, "abc123deadbeef").is_ok());
+    }
+
+    #[test]
+    fn validate_id_token_nonce_rejects_missing_or_mismatch() {
+        let missing = serde_json::json!({"sub": "u1"});
+        assert!(validate_id_token_nonce(&missing, "expected").is_err());
+        let wrong = serde_json::json!({"nonce": "other"});
+        assert!(validate_id_token_nonce(&wrong, "expected").is_err());
+    }
+
+    #[test]
+    fn auth_url_query_includes_pkce_and_nonce() {
+        // Pure query-building unit: no discovery network — exercise via URL assembly
+        // helpers equivalent to build_auth_url's append path.
+        let secrets = AuthFlowSecrets {
+            code_verifier: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk".into(),
+            oidc_nonce: "nonce-value-32chars-hex-goes-here".into(),
+        };
+        let mut url = url::Url::parse("https://idp.example/authorize").unwrap();
+        {
+            let mut pairs = url.query_pairs_mut();
+            pairs
+                .append_pair("response_type", "code")
+                .append_pair("client_id", "cid")
+                .append_pair("redirect_uri", "https://app/callback")
+                .append_pair("scope", "openid")
+                .append_pair("state", "signed.state")
+                .append_pair("nonce", &secrets.oidc_nonce)
+                .append_pair(
+                    "code_challenge",
+                    &pkce_s256_challenge(&secrets.code_verifier),
+                )
+                .append_pair("code_challenge_method", "S256");
+        }
+        let s = url.as_str();
+        assert!(s.contains("nonce=nonce-value-32chars-hex-goes-here"));
+        assert!(s.contains("code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"));
+        assert!(s.contains("code_challenge_method=S256"));
+    }
+
+    /// Error/success JWKS and token paths must never call unbounded `resp.text()`.
+    #[test]
+    fn oidc_error_and_jwks_bodies_use_limited_reads() {
+        let src = include_str!("oidc.rs");
+        let code: String = src
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap_or(src)
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            !code.contains(".text().await"),
+            "OIDC must not read unbounded error bodies via Response::text"
+        );
+        assert!(
+            code.contains("read_limited_body") || code.contains("read_error_body_limited"),
+            "OIDC must use limited body helpers for JWKS/token errors"
+        );
+        assert!(
+            code.contains("oidc_json(resp, \"jwks\")"),
+            "JWKS success path must parse via oidc_json (limited body)"
+        );
+    }
 }
 
 #[cfg(test)]

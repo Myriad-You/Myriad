@@ -36,7 +36,7 @@ use crate::services::oauth::{
         oauth_tx_set_cookie_value, verify_state, ConsumeOutcome, ConsumeStateError, OAuthPurpose,
         StoredState, OAUTH_TX_COOKIE,
     },
-    NormalizedProfile,
+    AuthFlowSecrets, NormalizedProfile,
 };
 
 // 工具函数
@@ -225,9 +225,13 @@ pub async fn provider_login(
     .await
     .map_err(err_500)?;
 
+    let secrets = AuthFlowSecrets {
+        code_verifier: issued.code_verifier.clone(),
+        oidc_nonce: issued.browser_tx.clone(),
+    };
     let redirect_uri = build_redirect_uri(&slug).await;
     let auth_url = provider
-        .build_auth_url(&issued.token, &redirect_uri)
+        .build_auth_url(&issued.token, &redirect_uri, &secrets)
         .await
         .map_err(err_500)?;
 
@@ -268,9 +272,13 @@ pub async fn provider_link(
     .await
     .map_err(err_500)?;
 
+    let secrets = AuthFlowSecrets {
+        code_verifier: issued.code_verifier.clone(),
+        oidc_nonce: issued.browser_tx.clone(),
+    };
     let redirect_uri = build_redirect_uri(&slug).await;
     let auth_url = provider
-        .build_auth_url(&issued.token, &redirect_uri)
+        .build_auth_url(&issued.token, &redirect_uri, &secrets)
         .await
         .map_err(err_500)?;
 
@@ -365,6 +373,12 @@ pub async fn provider_callback(
         .await);
     }
 
+    // Capture PKCE / OIDC secrets before mark_used consumes VerifiedState.
+    let secrets = AuthFlowSecrets {
+        code_verifier: verified.code_verifier().to_string(),
+        oidc_nonce: verified.oidc_nonce().to_string(),
+    };
+
     // Cookie matched → burn nonce (Fresh or Replay).
     let outcome = verified.mark_used().await;
 
@@ -392,8 +406,9 @@ pub async fn provider_callback(
     };
 
     // 3. exchange + fetch profile — redirect with stable codes instead of raw 500
+    //    Pass AuthFlowSecrets so OIDC can send code_verifier and verify nonce.
     let redirect_uri = build_redirect_uri(&slug).await;
-    let tokens = match provider.exchange_code(&code, &redirect_uri).await {
+    let tokens = match provider.exchange_code(&code, &redirect_uri, &secrets).await {
         Ok(t) => t,
         Err(e) => {
             tracing::error!("OAuth token exchange failed for '{}': {}", slug, e);

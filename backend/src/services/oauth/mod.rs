@@ -21,6 +21,19 @@ pub enum ProviderKind {
     Oidc,
 }
 
+/// Per-login secrets for OIDC PKCE + `nonce` (MYR-011).
+///
+/// Generated at state issuance and embedded in the signed OAuth `state` so any
+/// instance can complete the callback. GitHub and other non-OIDC providers
+/// ignore these fields; Discord platform OAuth keeps its own flow + `oauth_tx`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuthFlowSecrets {
+    /// RFC 7636 code_verifier (high entropy). Used for S256 `code_challenge`.
+    pub code_verifier: String,
+    /// OIDC `nonce` parameter / expected `id_token` claim (same value as browser_tx).
+    pub oidc_nonce: String,
+}
+
 /// 交换 code 后得到的 token 集合
 ///
 /// 当前只用到 `access_token`（GitHub /user, OIDC userinfo）和 `id_token`（OIDC claims）。
@@ -29,6 +42,8 @@ pub enum ProviderKind {
 pub struct ProviderTokens {
     pub access_token: String,
     pub id_token: Option<String>,
+    /// OIDC: expected `nonce` claim (set by exchange; verified in fetch_profile).
+    pub expected_nonce: Option<String>,
 }
 
 /// 标准化的用户档案（跨 provider 统一格式）
@@ -62,12 +77,24 @@ pub trait OAuthProvider: Send + Sync {
     /// 给前端展示用的图标（URL 或内置标识，如 "github"）
     fn icon(&self) -> Option<&str>;
 
-    /// 构造 OAuth 授权页 URL
-    async fn build_auth_url(&self, state: &str, redirect_uri: &str) -> Result<String, String>;
+    /// 构造 OAuth 授权页 URL。
+    ///
+    /// `secrets` carries PKCE + OIDC nonce for providers that support them;
+    /// non-OIDC implementations may ignore the values.
+    async fn build_auth_url(
+        &self,
+        state: &str,
+        redirect_uri: &str,
+        secrets: &AuthFlowSecrets,
+    ) -> Result<String, String>;
 
-    /// 交换 code 换 token
-    async fn exchange_code(&self, code: &str, redirect_uri: &str)
-        -> Result<ProviderTokens, String>;
+    /// 交换 code 换 token（OIDC may send `code_verifier` from `secrets`).
+    async fn exchange_code(
+        &self,
+        code: &str,
+        redirect_uri: &str,
+        secrets: &AuthFlowSecrets,
+    ) -> Result<ProviderTokens, String>;
 
     /// 拉取用户档案
     async fn fetch_profile(&self, tokens: &ProviderTokens) -> Result<NormalizedProfile, String>;

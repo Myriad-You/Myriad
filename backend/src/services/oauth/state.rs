@@ -15,8 +15,9 @@
 //! `base64url(payload_json) + '.' + base64url(hmac_sha256)`
 //!
 //! Payload fields:
-//! `v` (version), `n` (nonce hex / browser_tx), `s` (slug), `p` (login|link|platform),
-//! `uid?`, `plat?`, `exp` (unix seconds)
+//! `v` (version), `n` (nonce hex / browser_tx / OIDC nonce), `s` (slug),
+//! `p` (login|link|platform), `uid?`, `plat?`, `exp` (unix seconds),
+//! `cv?` (PKCE code_verifier, MYR-011)
 //!
 //! Secret: `OAUTH_STATE_SECRET` if set, else `JWT_SECRET`.
 
@@ -25,7 +26,7 @@ use hmac::{Hmac, Mac};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -57,15 +58,20 @@ pub struct StoredState {
     pub purpose: OAuthPurpose,
 }
 
-/// Result of [`issue_state`]: signed token plus the browser-binding nonce.
+/// Result of [`issue_state`]: signed token plus browser-binding / OIDC secrets.
 ///
 /// Callers must set [`OAUTH_TX_COOKIE`] to `browser_tx` on the login/link
 /// redirect response so the callback can prove same-browser continuity.
+/// OIDC providers also use `browser_tx` as the OpenID `nonce` and
+/// `code_verifier` for PKCE S256 (MYR-011).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IssuedState {
     pub token: String,
     /// High-entropy transaction id (payload `n`); mirror into `oauth_tx` cookie.
+    /// Also the OIDC `nonce` value for id_token binding.
     pub browser_tx: String,
+    /// RFC 7636 PKCE code_verifier (payload `cv`); OIDC only.
+    pub code_verifier: String,
 }
 
 /// Successful verify of a signed state token.
@@ -214,12 +220,66 @@ struct StatePayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     plat: Option<String>,
     exp: i64,
+    /// PKCE code_verifier (MYR-011). Optional for backward-compat with in-flight
+    /// states issued before this field existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cv: Option<String>,
+}
+
+/// Process-local used-nonce table with O(1) oldest eviction (MYR-016 pattern).
+struct UsedNonceStore {
+    /// nonce → drop-after Instant
+    map: HashMap<String, Instant>,
+    /// Insertion order for cap eviction (oldest first).
+    order: VecDeque<String>,
+}
+
+impl UsedNonceStore {
+    fn new() -> Self {
+        Self {
+            map: HashMap::new(),
+            order: VecDeque::new(),
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    fn contains(&self, nonce: &str) -> bool {
+        self.map.contains_key(nonce)
+    }
+
+    fn retain_live(&mut self, now: Instant) -> usize {
+        let before = self.map.len();
+        self.map.retain(|_, until| *until > now);
+        // Drop order entries that no longer exist in the map.
+        self.order.retain(|k| self.map.contains_key(k));
+        before.saturating_sub(self.map.len())
+    }
+
+    /// Insert nonce with TTL. Returns `true` if newly inserted, `false` if already present.
+    fn insert_if_absent(&mut self, nonce: String, until: Instant) -> bool {
+        if self.map.contains_key(&nonce) {
+            return false;
+        }
+        while self.map.len() >= MAX_USED_NONCES {
+            if let Some(oldest) = self.order.pop_front() {
+                self.map.remove(&oldest);
+            } else {
+                break;
+            }
+        }
+        self.order.push_back(nonce.clone());
+        self.map.insert(nonce, until);
+        true
+    }
 }
 
 /// Used nonces for optional anti-replay within this process.
 /// Value = Instant when the entry may be dropped (exp + small grace).
-static USED_NONCES: Lazy<Arc<RwLock<HashMap<String, Instant>>>> = Lazy::new(|| {
-    let store: Arc<RwLock<HashMap<String, Instant>>> = Arc::new(RwLock::new(HashMap::new()));
+static USED_NONCES: Lazy<Arc<RwLock<UsedNonceStore>>> = Lazy::new(|| {
+    let store: Arc<RwLock<UsedNonceStore>> = Arc::new(RwLock::new(UsedNonceStore::new()));
     let store_clone = store.clone();
 
     tokio::spawn(async move {
@@ -227,10 +287,7 @@ static USED_NONCES: Lazy<Arc<RwLock<HashMap<String, Instant>>>> = Lazy::new(|| {
         loop {
             interval.tick().await;
             let mut nonces = store_clone.write().await;
-            let now = Instant::now();
-            let before = nonces.len();
-            nonces.retain(|_, until| *until > now);
-            let removed = before - nonces.len();
+            let removed = nonces.retain_live(Instant::now());
             if removed > 0 {
                 tracing::debug!(
                     "🧹 OAuth used-nonce cleanup: removed {}, {} remain",
@@ -265,6 +322,14 @@ fn random_nonce_hex() -> String {
     let mut buf = [0u8; 16];
     rand::rng().fill_bytes(&mut buf);
     hex::encode(buf)
+}
+
+/// RFC 7636 code_verifier: 43 chars of URL-safe base64 (32 random bytes).
+fn random_code_verifier() -> String {
+    use rand::Rng;
+    let mut buf = [0u8; 32];
+    rand::rng().fill_bytes(&mut buf);
+    URL_SAFE_NO_PAD.encode(buf)
 }
 
 /// First 8 chars of state for safe logging (full token is a CSRF secret).
@@ -326,7 +391,12 @@ fn verify_signature(payload_b64: &str, sig_b64: &str, secret: &[u8]) -> bool {
     }
 }
 
-fn stored_to_payload(stored: &StoredState, nonce: String, exp: i64) -> StatePayload {
+fn stored_to_payload(
+    stored: &StoredState,
+    nonce: String,
+    code_verifier: String,
+    exp: i64,
+) -> StatePayload {
     let (p, uid, plat) = purpose_to_payload_parts(&stored.purpose);
     StatePayload {
         v: 1,
@@ -336,6 +406,7 @@ fn stored_to_payload(stored: &StoredState, nonce: String, exp: i64) -> StatePayl
         uid,
         plat,
         exp,
+        cv: Some(code_verifier),
     }
 }
 
@@ -353,14 +424,16 @@ fn payload_to_stored(payload: StatePayload) -> Result<StoredState, ConsumeStateE
 
 /// Issue a signed OAuth state token for any provider / purpose.
 ///
-/// Returns the token (for the IdP `state` query) and `browser_tx` (for the
-/// `oauth_tx` cookie). Anti-replay marks the nonce used on consume; empty
-/// memory after restart still accepts a valid signature.
+/// Returns the token (for the IdP `state` query), `browser_tx` (for the
+/// `oauth_tx` cookie / OIDC nonce), and `code_verifier` (PKCE). Anti-replay
+/// marks the nonce used on consume; empty memory after restart still accepts a
+/// valid signature.
 pub async fn issue_state(stored: StoredState) -> Result<IssuedState, String> {
     let secret = state_secret()?;
     let nonce = random_nonce_hex();
+    let code_verifier = random_code_verifier();
     let exp = unix_now() + STATE_TTL.as_secs() as i64;
-    let payload = stored_to_payload(&stored, nonce.clone(), exp);
+    let payload = stored_to_payload(&stored, nonce.clone(), code_verifier.clone(), exp);
     let json = serde_json::to_vec(&payload).map_err(|e| format!("state serialize: {e}"))?;
     let payload_b64 = URL_SAFE_NO_PAD.encode(&json);
     let sig_b64 = sign_payload_b64(&payload_b64, &secret)?;
@@ -377,6 +450,7 @@ pub async fn issue_state(stored: StoredState) -> Result<IssuedState, String> {
     Ok(IssuedState {
         token,
         browser_tx: nonce,
+        code_verifier,
     })
 }
 
@@ -389,6 +463,7 @@ pub async fn issue_state(stored: StoredState) -> Result<IssuedState, String> {
 pub struct VerifiedState {
     stored: StoredState,
     browser_tx: String,
+    code_verifier: String,
     /// Grace TTL for the used-nonce table entry once marked.
     remaining_ttl: Duration,
     /// Snapshot of "nonce already in used map" at verify time (hint only).
@@ -401,6 +476,16 @@ impl VerifiedState {
     }
 
     pub fn browser_tx(&self) -> &str {
+        &self.browser_tx
+    }
+
+    /// PKCE code_verifier from signed state (empty if pre-MYR-011 state).
+    pub fn code_verifier(&self) -> &str {
+        &self.code_verifier
+    }
+
+    /// OIDC `nonce` expected in id_token — same high-entropy value as browser_tx.
+    pub fn oidc_nonce(&self) -> &str {
         &self.browser_tx
     }
 
@@ -422,7 +507,7 @@ impl VerifiedState {
         } = self;
 
         let mut nonces = USED_NONCES.write().await;
-        if nonces.contains_key(&browser_tx) {
+        if nonces.contains(&browser_tx) {
             tracing::warn!(
                 reason = "replay",
                 store_size = nonces.len(),
@@ -434,16 +519,9 @@ impl VerifiedState {
                 browser_tx,
             };
         }
-        if nonces.len() >= MAX_USED_NONCES {
-            if let Some(oldest) = nonces
-                .iter()
-                .min_by_key(|(_, until)| *until)
-                .map(|(k, _)| k.clone())
-            {
-                nonces.remove(&oldest);
-            }
-        }
-        nonces.insert(browser_tx.clone(), Instant::now() + remaining_ttl);
+        // O(1) oldest eviction when at cap (process-local anti-replay table).
+        let _inserted =
+            nonces.insert_if_absent(browser_tx.clone(), Instant::now() + remaining_ttl);
 
         ConsumeOutcome::Fresh {
             stored,
@@ -523,6 +601,7 @@ pub async fn verify_state(token: &str) -> Result<VerifiedState, ConsumeStateErro
     }
 
     let browser_tx = payload.n.clone();
+    let code_verifier = payload.cv.clone().unwrap_or_default();
     let remaining_ttl =
         Duration::from_secs((payload.exp - unix_now()).max(0) as u64) + Duration::from_secs(60); // grace so cleanup does not race TTL edge
 
@@ -530,12 +609,13 @@ pub async fn verify_state(token: &str) -> Result<VerifiedState, ConsumeStateErro
 
     let already_used = {
         let nonces = USED_NONCES.read().await;
-        nonces.contains_key(&browser_tx)
+        nonces.contains(&browser_tx)
     };
 
     Ok(VerifiedState {
         stored,
         browser_tx,
+        code_verifier,
         remaining_ttl,
         already_used,
     })
@@ -603,12 +683,26 @@ mod tests {
         let issued = issue_state(sample_login()).await.expect("issue");
         assert!(issued.token.contains('.'));
         assert_eq!(issued.browser_tx.len(), 32); // 16 bytes hex
+        assert!(
+            issued.code_verifier.len() >= 43,
+            "PKCE verifier should be >= 43 chars"
+        );
         let outcome = consume_state(&issued.token).await.expect("consume");
         assert!(!outcome.is_replay());
         assert_eq!(outcome.browser_tx(), issued.browser_tx);
         let stored = outcome.into_stored();
         assert_eq!(stored.provider_slug, "github");
         assert_eq!(stored.purpose, OAuthPurpose::Login);
+    }
+
+    #[tokio::test]
+    async fn issue_embeds_pkce_verifier_roundtrip() {
+        ensure_test_secret();
+        let issued = issue_state(sample_login()).await.expect("issue");
+        let verified = verify_state(&issued.token).await.expect("verify");
+        assert_eq!(verified.code_verifier(), issued.code_verifier);
+        assert_eq!(verified.oidc_nonce(), issued.browser_tx);
+        assert!(!verified.code_verifier().is_empty());
     }
 
     #[tokio::test]
@@ -661,6 +755,7 @@ mod tests {
             uid: None,
             plat: None,
             exp: unix_now() + 600,
+            cv: None,
         };
         let fake_b64 = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&fake).unwrap());
         let bad = format!("{fake_b64}.{sig_b64}");
@@ -680,6 +775,7 @@ mod tests {
             uid: None,
             plat: None,
             exp: unix_now() - 10,
+            cv: None,
         };
         let json = serde_json::to_vec(&payload).unwrap();
         let payload_b64 = URL_SAFE_NO_PAD.encode(&json);

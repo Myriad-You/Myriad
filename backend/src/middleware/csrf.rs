@@ -5,12 +5,16 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use jsonwebtoken::{decode, DecodingKey, Validation};
 use rand::{distr::Alphanumeric, RngExt};
 use serde_json::json;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
+use std::env;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
+
+use crate::middleware::auth::Claims;
 
 /// CSRF Token 结构
 #[derive(Debug, Clone)]
@@ -19,26 +23,71 @@ struct CsrfToken {
     created_at: Instant,
 }
 
+/// Process-local CSRF store with O(1) oldest eviction (MYR-016).
+struct CsrfStore {
+    map: HashMap<String, CsrfToken>,
+    /// Insertion order of session keys (oldest first) for cap eviction.
+    order: VecDeque<String>,
+}
+
+impl CsrfStore {
+    fn new() -> Self {
+        Self {
+            map: HashMap::new(),
+            order: VecDeque::new(),
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    fn get(&self, session_id: &str) -> Option<&CsrfToken> {
+        self.map.get(session_id)
+    }
+
+    fn retain_live(&mut self, max_age: Duration) -> usize {
+        let now = Instant::now();
+        let before = self.map.len();
+        self.map
+            .retain(|_, t| now.duration_since(t.created_at) < max_age);
+        self.order.retain(|k| self.map.contains_key(k));
+        before.saturating_sub(self.map.len())
+    }
+
+    /// Insert or replace a CSRF token for `session_id`.
+    /// Cap eviction is O(1) amortized via insertion-order queue (not O(n) min scan).
+    fn insert(&mut self, session_id: String, csrf_token: CsrfToken, max_tokens: usize) {
+        if self.map.contains_key(&session_id) {
+            // Refresh token for an existing verified session; keep order slot.
+            self.map.insert(session_id, csrf_token);
+            return;
+        }
+        while self.map.len() >= max_tokens {
+            if let Some(oldest) = self.order.pop_front() {
+                self.map.remove(&oldest);
+            } else {
+                break;
+            }
+        }
+        self.order.push_back(session_id.clone());
+        self.map.insert(session_id, csrf_token);
+    }
+}
+
 /// 全局 CSRF Token 存储
-/// Key: Session ID (从 Cookie 或 JWT 中提取)
-static CSRF_TOKENS: once_cell::sync::Lazy<Arc<RwLock<HashMap<String, CsrfToken>>>> =
+/// Key: verified JWT signature segment (must pass signature + claims check).
+static CSRF_TOKENS: once_cell::sync::Lazy<Arc<RwLock<CsrfStore>>> =
     once_cell::sync::Lazy::new(|| {
-        // 启动清理任务
-        let store: Arc<RwLock<HashMap<String, CsrfToken>>> = Arc::new(RwLock::new(HashMap::new()));
+        let store: Arc<RwLock<CsrfStore>> = Arc::new(RwLock::new(CsrfStore::new()));
         let store_clone = store.clone();
 
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(180)); // 每3分钟清理一次（优化内存）
+            let mut interval = tokio::time::interval(Duration::from_secs(180)); // 每3分钟清理一次
             loop {
                 interval.tick().await;
                 let mut tokens = store_clone.write().await;
-                let now = Instant::now();
-                let before_count = tokens.len();
-                tokens.retain(|_, csrf_token| {
-                    now.duration_since(csrf_token.created_at) < Duration::from_secs(3600)
-                    // Token 有效期 1 小时
-                });
-                let removed = before_count - tokens.len();
+                let removed = tokens.retain_live(Duration::from_secs(3600));
                 if removed > 0 {
                     tracing::info!(
                         "🧹 CSRF cleanup: removed {} expired tokens, {} remaining",
@@ -61,8 +110,8 @@ fn generate_csrf_token() -> String {
         .collect()
 }
 
-/// 从请求中提取会话标识符（用于关联 CSRF Token）
-fn extract_session_id(headers: &HeaderMap) -> Option<String> {
+/// Extract raw JWT string preferring `auth_token` cookie over Bearer.
+fn extract_raw_jwt(headers: &HeaderMap) -> Option<String> {
     // Prefer cookie when present so store key matches browser session even if
     // a stale Authorization header is also sent.
     if let Some(cookie_header) = headers.get(header::COOKIE) {
@@ -70,8 +119,9 @@ fn extract_session_id(headers: &HeaderMap) -> Option<String> {
             for cookie in cookies.split(';') {
                 if let Some((name, value)) = cookie.trim().split_once('=') {
                     if name == AUTH_TOKEN_COOKIE {
-                        if let Some(sig) = jwt_signature_segment(value) {
-                            return Some(sig);
+                        let value = value.trim();
+                        if !value.is_empty() && value != "deleted" {
+                            return Some(value.to_string());
                         }
                     }
                 }
@@ -79,16 +129,41 @@ fn extract_session_id(headers: &HeaderMap) -> Option<String> {
         }
     }
 
-    // 回退到 Authorization Bearer（纯 API 客户端）
     if let Some(auth_header) = headers.get("Authorization") {
         if let Ok(auth_str) = auth_header.to_str() {
             if let Some(token) = auth_str.strip_prefix("Bearer ") {
-                return jwt_signature_segment(token);
+                let token = token.trim();
+                if !token.is_empty() {
+                    return Some(token.to_string());
+                }
             }
         }
     }
 
     None
+}
+
+/// Session key for the CSRF store (MYR-016).
+///
+/// **Must not** key solely on unverified JWT shape. We require a successful
+/// signature + claims decode with `JWT_SECRET`, then key on the signature
+/// segment of that verified token (unique per issued session JWT).
+fn extract_session_id(headers: &HeaderMap) -> Option<String> {
+    let token = extract_raw_jwt(headers)?;
+    session_id_from_verified_jwt(&token)
+}
+
+/// Verify JWT then return a stable store key derived from the signature segment.
+fn session_id_from_verified_jwt(token: &str) -> Option<String> {
+    let sig = jwt_signature_segment(token)?;
+    let jwt_secret = env::var("JWT_SECRET").ok()?;
+    decode::<Claims>(
+        token,
+        &DecodingKey::from_secret(jwt_secret.as_bytes()),
+        &Validation::default(),
+    )
+    .ok()?;
+    Some(sig)
 }
 
 /// True for methods that can mutate server state (CSRF surface).
@@ -328,24 +403,14 @@ pub async fn get_csrf_token(headers: HeaderMap) -> impl IntoResponse {
         created_at: Instant::now(),
     };
 
-    // 存储 Token（带大小限制防止内存泄漏）
-    let mut tokens = CSRF_TOKENS.write().await;
-
-    // 如果超过限制（10000个token），清理最旧的token
+    // 存储 Token（O(1) cap eviction — process-local, MYR-016）
     const MAX_CSRF_TOKENS: usize = 10000;
-    if tokens.len() >= MAX_CSRF_TOKENS {
-        // 找出最旧的token并删除
-        if let Some(oldest_key) = tokens
-            .iter()
-            .min_by_key(|(_, v)| v.created_at)
-            .map(|(k, _)| k.clone())
-        {
-            tokens.remove(&oldest_key);
-            tracing::warn!("🧹 CSRF token limit reached, removed oldest token");
-        }
+    let mut tokens = CSRF_TOKENS.write().await;
+    let at_cap = tokens.len() >= MAX_CSRF_TOKENS && !tokens.map.contains_key(&session_id);
+    tokens.insert(session_id, csrf_token, MAX_CSRF_TOKENS);
+    if at_cap {
+        tracing::warn!("🧹 CSRF token limit reached, evicted oldest entry (O(1))");
     }
-
-    tokens.insert(session_id, csrf_token);
 
     tracing::debug!("✅ CSRF token generated (total: {})", tokens.len());
 
@@ -363,6 +428,39 @@ pub async fn get_csrf_token(headers: HeaderMap) -> impl IntoResponse {
 mod tests {
     use super::*;
     use axum::body::to_bytes;
+    use jsonwebtoken::{encode, EncodingKey, Header};
+    use std::sync::Once;
+
+    static INIT_JWT: Once = Once::new();
+
+    fn ensure_jwt_secret() {
+        INIT_JWT.call_once(|| {
+            if env::var("JWT_SECRET").is_err() {
+                // SAFETY: tests single-process; set once before concurrent use.
+                env::set_var("JWT_SECRET", "csrf-unit-test-jwt-secret-key-32b");
+            }
+        });
+    }
+
+    fn mint_test_jwt(sub: &str, username: &str) -> String {
+        ensure_jwt_secret();
+        let secret = env::var("JWT_SECRET").expect("JWT_SECRET");
+        let now = chrono::Utc::now().timestamp();
+        let claims = Claims {
+            sub: sub.to_string(),
+            username: username.to_string(),
+            is_admin: false,
+            is_owner: false,
+            exp: now + 3600,
+            iat: now,
+        };
+        encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(secret.as_bytes()),
+        )
+        .expect("encode jwt")
+    }
 
     #[test]
     fn test_generate_csrf_token() {
@@ -388,24 +486,108 @@ mod tests {
     }
 
     #[test]
-    fn session_id_is_bound_to_the_jwt_signature() {
+    fn session_id_requires_verified_jwt_not_shape_alone() {
+        ensure_jwt_secret();
+        // Unverified three-part garbage must not become a store key (MYR-016).
+        let mut forged = HeaderMap::new();
+        forged.insert(
+            "Authorization",
+            "Bearer same.header.signature-one".parse().unwrap(),
+        );
+        assert!(extract_session_id(&forged).is_none());
+
+        let jwt_a = mint_test_jwt("1", "alice");
+        // Distinct iat is not guaranteed if called same second; mint with delay via different sub.
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let jwt_b = mint_test_jwt("2", "bob");
+
         let mut first = HeaderMap::new();
         first.insert(
             "Authorization",
-            "Bearer same.header.signature-one".parse().unwrap(),
+            format!("Bearer {jwt_a}").parse().unwrap(),
         );
         let mut second = HeaderMap::new();
         second.insert(
             "Authorization",
-            "Bearer same.header.signature-two".parse().unwrap(),
+            format!("Bearer {jwt_b}").parse().unwrap(),
         );
 
-        assert_eq!(extract_session_id(&first).as_deref(), Some("signature-one"));
-        assert_eq!(
-            extract_session_id(&second).as_deref(),
-            Some("signature-two")
+        let id_a = extract_session_id(&first).expect("verified jwt a");
+        let id_b = extract_session_id(&second).expect("verified jwt b");
+        assert_ne!(id_a, id_b);
+        // Key is the signature segment of the verified token.
+        assert_eq!(id_a, jwt_signature_segment(&jwt_a).unwrap());
+        assert_eq!(id_b, jwt_signature_segment(&jwt_b).unwrap());
+    }
+
+    #[test]
+    fn csrf_store_evicts_oldest_in_constant_time_path() {
+        let mut store = CsrfStore::new();
+        const CAP: usize = 3;
+        for i in 0..5 {
+            store.insert(
+                format!("sess-{i}"),
+                CsrfToken {
+                    token: format!("tok-{i}"),
+                    created_at: Instant::now(),
+                },
+                CAP,
+            );
+        }
+        assert_eq!(store.len(), CAP);
+        // Oldest keys (0,1) should be gone; 2,3,4 remain.
+        assert!(store.get("sess-0").is_none());
+        assert!(store.get("sess-1").is_none());
+        assert!(store.get("sess-2").is_some());
+        assert!(store.get("sess-4").is_some());
+        // Replace existing does not grow past cap.
+        store.insert(
+            "sess-4".into(),
+            CsrfToken {
+                token: "refreshed".into(),
+                created_at: Instant::now(),
+            },
+            CAP,
         );
-        assert_ne!(extract_session_id(&first), extract_session_id(&second));
+        assert_eq!(store.len(), CAP);
+        assert_eq!(store.get("sess-4").map(|t| t.token.as_str()), Some("refreshed"));
+    }
+
+    #[tokio::test]
+    async fn get_csrf_token_issues_for_verified_jwt_cookie() {
+        let jwt = mint_test_jwt("42", "csrf-user");
+        let headers = cookie_headers(&jwt);
+        let response = get_csrf_token(headers).await.into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 2048).await.expect("body");
+        let value: serde_json::Value = serde_json::from_slice(&body).expect("json");
+        let token = value["csrf_token"].as_str().expect("csrf_token string");
+        assert_eq!(token.len(), 32);
+        assert!(value["expires_in"].as_u64().unwrap_or(0) > 0);
+
+        // Reuse path
+        let headers2 = cookie_headers(&jwt);
+        let response2 = get_csrf_token(headers2).await.into_response();
+        let body2 = to_bytes(response2.into_body(), 2048).await.expect("body");
+        let value2: serde_json::Value = serde_json::from_slice(&body2).expect("json");
+        assert_eq!(value2["csrf_token"].as_str(), Some(token));
+    }
+
+    #[tokio::test]
+    async fn get_csrf_token_rejects_forged_jwt_shape() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::COOKIE,
+            format!("{AUTH_TOKEN_COOKIE}=aaa.bbb.forged-sig")
+                .parse()
+                .unwrap(),
+        );
+        let response = get_csrf_token(headers).await.into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 1024).await.expect("body");
+        let value: serde_json::Value = serde_json::from_slice(&body).expect("json");
+        // Forged cookie is not a session — guest probe contract.
+        assert!(value["csrf_token"].is_null());
     }
 
     #[test]
@@ -526,17 +708,25 @@ mod tests {
 
     #[test]
     fn extract_session_id_prefers_cookie_over_bearer() {
+        let cookie_jwt = mint_test_jwt("10", "cookie-user");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let bearer_jwt = mint_test_jwt("11", "bearer-user");
         let mut h = HeaderMap::new();
         h.insert(
             header::COOKIE,
-            format!("{AUTH_TOKEN_COOKIE}=aaa.bbb.cookie-sig")
-                .parse()
-                .unwrap(),
+            format!("{AUTH_TOKEN_COOKIE}={cookie_jwt}").parse().unwrap(),
         );
         h.insert(
             "Authorization",
-            "Bearer aaa.bbb.bearer-sig".parse().unwrap(),
+            format!("Bearer {bearer_jwt}").parse().unwrap(),
         );
-        assert_eq!(extract_session_id(&h).as_deref(), Some("cookie-sig"));
+        assert_eq!(
+            extract_session_id(&h).as_deref(),
+            jwt_signature_segment(&cookie_jwt).as_deref()
+        );
+        assert_ne!(
+            extract_session_id(&h).as_deref(),
+            jwt_signature_segment(&bearer_jwt).as_deref()
+        );
     }
 }

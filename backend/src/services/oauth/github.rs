@@ -9,7 +9,7 @@ use oauth2::{
 };
 use serde::Deserialize;
 
-use super::{NormalizedProfile, OAuthProvider, ProviderKind, ProviderTokens};
+use super::{AuthFlowSecrets, NormalizedProfile, OAuthProvider, ProviderKind, ProviderTokens};
 
 const GITHUB_AUTH_URL: &str = "https://github.com/login/oauth/authorize";
 const GITHUB_TOKEN_URL: &str = "https://github.com/login/oauth/access_token";
@@ -75,7 +75,14 @@ impl OAuthProvider for GithubProvider {
         Some("github")
     }
 
-    async fn build_auth_url(&self, state: &str, redirect_uri: &str) -> Result<String, String> {
+    async fn build_auth_url(
+        &self,
+        state: &str,
+        redirect_uri: &str,
+        _secrets: &AuthFlowSecrets,
+    ) -> Result<String, String> {
+        // GitHub is plain OAuth2 (no OIDC nonce / no PKCE required). Secrets are
+        // ignored so the shared login/link handlers stay provider-agnostic.
         let client = build_github_client!(self, redirect_uri);
         let (url, _csrf) = client
             .authorize_url(|| CsrfToken::new(state.to_string()))
@@ -89,6 +96,7 @@ impl OAuthProvider for GithubProvider {
         &self,
         code: &str,
         redirect_uri: &str,
+        _secrets: &AuthFlowSecrets,
     ) -> Result<ProviderTokens, String> {
         let client = build_github_client!(self, redirect_uri);
         // GITHUB_TOKEN_URL 是硬编码常量，这里没有 SSRF 面；用安全客户端是为了
@@ -110,6 +118,7 @@ impl OAuthProvider for GithubProvider {
         Ok(ProviderTokens {
             access_token: token.access_token().secret().clone(),
             id_token: None,
+            expected_nonce: None,
         })
     }
 
