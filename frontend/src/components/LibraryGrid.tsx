@@ -26,8 +26,8 @@ import {
 import { useI18n } from '../contexts/I18nContext'
 import { useMusicLyricsSlice } from '../contexts/MusicPlayerContext'
 import { useLibraryIntersectionObserver } from '../hooks/animation'
-import { useLibraryCanvasControls } from '../hooks/useLibraryCanvasControls'
 import { softLockWallpaperForLibraryCanvas } from '../hooks/useEvocativeWallpaper'
+import { useLibraryCanvasControls } from '../hooks/useLibraryCanvasControls'
 import { usePerformanceProfile } from '../hooks/usePerformanceProfile'
 import { useSharedResize } from '../hooks/useSharedEventListener'
 import {
@@ -2285,7 +2285,7 @@ const LibraryCardShell = memo(({
       setCanvasEntering(false)
       return
     }
-    const t = window.setTimeout(() => setCanvasEntering(false), delayMs)
+    const t = window.setTimeout(setCanvasEntering, delayMs, false)
     return () => window.clearTimeout(t)
   }, [canvasEntering, enterDelay])
 
