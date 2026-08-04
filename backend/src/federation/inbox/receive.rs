@@ -1,8 +1,7 @@
 
 use axum::{
-    body::Bytes,
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, Request, StatusCode},
     Json,
 };
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
@@ -13,6 +12,7 @@ use crate::federation::actor::{
     ResolvedRemoteActor,
 };
 use crate::federation::errors::{is_permanent_federation_error, map_inbox_handler_error};
+use crate::federation::limits::buffer_inbox_body;
 use crate::federation::replay::{is_replay_or_record, replay_dedup_keys};
 use crate::federation::signature::{
     parse_signature_header, require_covered_headers, verify_date_freshness, verify_digest,
@@ -38,12 +38,15 @@ fn inbox_err(context: &str, e: String) -> (StatusCode, Json<serde_json::Value>) 
 pub async fn post_inbox(
     State(db): State<DatabaseConnection>,
     Path(username): Path<String>,
-    headers: HeaderMap,
-    body: Bytes,
+    request: Request<axum::body::Body>,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
-
-    // 验证用户存在
+    // Cheap existence check before reserving concurrent memory budget.
     let (user_id, _) = get_local_user(&db, &username).await?;
+
+    let headers = request.headers().clone();
+    // MYR-002: reserve concurrent raw-body budget *before* buffering; release on drop.
+    // Exhausted budget → 429 (does not lower INBOX_BODY_LIMIT).
+    let (body, _inflight) = buffer_inbox_body(request).await?;
 
     // 先做只依赖 header/原始字节的检查，再解析 body（inbox 上限见 federation::limits::INBOX_BODY_LIMIT）
     verify_preparse_gate(&headers, &body)?;
@@ -167,9 +170,12 @@ pub async fn post_inbox(
 /// 共享收件箱 — 面向所有本地用户的 Activity
 pub async fn post_shared_inbox(
     State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
-    body: Bytes,
+    request: Request<axum::body::Body>,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
+    let headers = request.headers().clone();
+    // MYR-002: reserve concurrent raw-body budget *before* buffering; release on drop.
+    // Exhausted budget → 429 (does not lower INBOX_BODY_LIMIT).
+    let (body, _inflight) = buffer_inbox_body(request).await?;
 
     // 先做只依赖 header/原始字节的检查，再解析 body（inbox 上限见 federation::limits::INBOX_BODY_LIMIT）
     verify_preparse_gate(&headers, &body)?;

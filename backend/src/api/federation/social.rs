@@ -701,7 +701,7 @@ pub(crate) async fn federation_send_message(
         Err(e) => {
             return json_rejection_response(
                 e,
-                Some("Inline images max ~64 MiB payload (MESSAGE_PAYLOAD_LIMIT); larger files use chunked transfer"),
+                Some("Inline images max ~36 MiB payload (MESSAGE_PAYLOAD_LIMIT); larger files use chunked transfer"),
             )
         }
     };
@@ -1037,7 +1037,7 @@ pub(crate) async fn federation_send_room_message(
             );
             return json_rejection_response(
                 e,
-                Some("Inline images max ~64 MiB payload (MESSAGE_PAYLOAD_LIMIT); larger files use chunked transfer"),
+                Some("Inline images max ~36 MiB payload (MESSAGE_PAYLOAD_LIMIT); larger files use chunked transfer"),
             );
         }
     };

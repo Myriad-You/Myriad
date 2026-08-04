@@ -32,25 +32,37 @@
 //! 仍在预算内；继续调高必须同步抬高容器内存限制，否则表现为 OOM 被杀而不是
 //! 干净的 413。
 //!
-//! 缓解措施：`inbox::verify_preparse_gate` 在解析 JSON **之前**先校验签名头、
-//! Date 新鲜度与 Digest（对原始字节逐字节比对），攻击者要让我们开始解析就得先
-//! 算出正确的 SHA-256，不能靠一坨随机字节撑爆内存。
+//! 缓解措施：
+//! 1. `inbox::verify_preparse_gate` 在解析 JSON **之前**先校验签名头、
+//!    Date 新鲜度与 Digest（对原始字节逐字节比对），攻击者要让我们开始解析就得先
+//!    算出正确的 SHA-256，不能靠一坨随机字节撑爆内存。
+//! 2. [`INBOX_INFLIGHT_RAW_BUDGET`] 限制**并发**缓冲的原始 body 总量；预算耗尽
+//!    返回 429，**不**压低单请求上限（MYR-002）。
+
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// 单条消息载荷上限（channel 与 room 共用）。
 ///
 /// 按 `payload.to_string().len()` 度量，覆盖小文件内联 base64 与 Tapp 安装包
 /// 分享；更大的附件走 [`file_transfer`](crate::federation::file_transfer) 分块。
-pub const MESSAGE_PAYLOAD_LIMIT: usize = 64 * 1024 * 1024;
+///
+/// MYR-002（产品）：从 64 MiB 降到 **36 MiB**，缩小内存 DoS 面，仍为正常活动
+/// 留业务余量（不是审计报告式的 multi-KiB 苛刻裁剪）。
+pub const MESSAGE_PAYLOAD_LIMIT: usize = 36 * 1024 * 1024;
 
 /// inbox 请求体上限（`/inbox` 与 `/users/{u}/inbox`）。
 ///
 /// 必须容纳 [`MESSAGE_PAYLOAD_LIMIT`] 加上活动信封、JSON 转义膨胀与
-/// base64 分块的 4/3 放大。留 1.5 倍余量。
-pub const INBOX_BODY_LIMIT: usize = MESSAGE_PAYLOAD_LIMIT * 3 / 2;
+/// base64 分块的 4/3 放大。
+///
+/// MYR-002（产品）：**显式 64 MiB**，不要写成 `MESSAGE_PAYLOAD_LIMIT * 3 / 2`
+/// （那会得到 54 MiB）。信封余量由编译期 assert 约束（≥ 25% of payload）。
+pub const INBOX_BODY_LIMIT: usize = 64 * 1024 * 1024;
 
 /// 已认证用户提交内容的路由上限（发布、房间/频道消息、媒体上传）。
 ///
 /// 比 inbox 略宽：这些请求来自已登录的本地用户，不是任意远端。
+/// MYR-002：`INBOX + 16 MiB` → **80 MiB**。
 pub const AUTHENTICATED_BODY_LIMIT: usize = INBOX_BODY_LIMIT + 16 * 1024 * 1024;
 
 /// 小型联邦控制端点的请求体上限（信任策略、房间创建、邀请等）。
@@ -107,6 +119,139 @@ pub const NOTE_ATTACHMENT_COUNT_LIMIT: usize = 32;
 
 /// 单条 Note 的正文字符数上限。
 pub const NOTE_TEXT_CHAR_LIMIT: usize = 100_000;
+
+// ---------------------------------------------------------------------------
+// In-flight inbox raw-body budget (MYR-002)
+// ---------------------------------------------------------------------------
+//
+// Per-request body limit still allows a full-size delivery. This budget only
+// caps *concurrent* buffering so ~10 full-size peaks cannot pile up inside a
+// 2 GiB container.
+//
+// Chosen numbers (document + keep in sync with asserts below):
+//
+// | quantity                         | value        | rationale                          |
+// |----------------------------------|--------------|------------------------------------|
+// | INBOX_BODY_LIMIT (single)        | 64 MiB       | product; envelope over 36 MiB msg  |
+// | single-request parse peak (≈3×)  | ~192 MiB     | raw + serde_json::Value            |
+// | INBOX_INFLIGHT_RAW_BUDGET        | 512 MiB      | up to 8× full concurrent raw body  |
+// | worst concurrent parse peak      | ~1.5 GiB     | 3 × 512 MiB; leaves ~0.5 GiB slack |
+// | max concurrent full-size         | 8            | not ~10; still "several" medium OK |
+//
+// Exhausted budget → HTTP **429** (not a lower body limit / 413).
+
+/// Concurrent raw-body reservation budget for inbox handlers.
+///
+/// See module comment block above for the full sizing rationale (MYR-002).
+pub const INBOX_INFLIGHT_RAW_BUDGET: usize = 512 * 1024 * 1024;
+
+/// Currently reserved raw body bytes across in-flight inbox handlers.
+static INBOX_INFLIGHT_RAW_BYTES: AtomicUsize = AtomicUsize::new(0);
+
+/// RAII permit for concurrent inbox body buffering. Releases on drop.
+#[derive(Debug)]
+pub struct InboxInflightPermit {
+    bytes: usize,
+}
+
+impl InboxInflightPermit {
+    /// Bytes this permit holds against [`INBOX_INFLIGHT_RAW_BUDGET`].
+    pub fn bytes(&self) -> usize {
+        self.bytes
+    }
+}
+
+impl Drop for InboxInflightPermit {
+    fn drop(&mut self) {
+        if self.bytes > 0 {
+            INBOX_INFLIGHT_RAW_BYTES.fetch_sub(self.bytes, Ordering::AcqRel);
+            self.bytes = 0;
+        }
+    }
+}
+
+/// Snapshot of currently reserved in-flight raw body bytes (tests / metrics).
+pub fn inbox_inflight_raw_bytes() -> usize {
+    INBOX_INFLIGHT_RAW_BYTES.load(Ordering::Acquire)
+}
+
+/// Try to reserve `bytes` against the concurrent inbox raw-body budget.
+///
+/// `bytes` is clamped to `1..=INBOX_BODY_LIMIT` so a single full-size request
+/// is always representable, and zero-length reservations still take a slot of 1.
+///
+/// Returns `None` when the budget cannot admit `bytes` without exceeding
+/// [`INBOX_INFLIGHT_RAW_BUDGET`] (caller should respond **429**).
+pub fn try_acquire_inbox_inflight(bytes: usize) -> Option<InboxInflightPermit> {
+    let bytes = bytes.clamp(1, INBOX_BODY_LIMIT);
+    loop {
+        let current = INBOX_INFLIGHT_RAW_BYTES.load(Ordering::Acquire);
+        let Some(new) = current.checked_add(bytes) else {
+            return None;
+        };
+        if new > INBOX_INFLIGHT_RAW_BUDGET {
+            return None;
+        }
+        match INBOX_INFLIGHT_RAW_BYTES.compare_exchange_weak(
+            current,
+            new,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        ) {
+            Ok(_) => return Some(InboxInflightPermit { bytes }),
+            Err(_) => continue,
+        }
+    }
+}
+
+/// Reserve concurrent budget from `Content-Length` (or full inbox limit if
+/// absent / unparseable), then buffer the request body up to [`INBOX_BODY_LIMIT`].
+///
+/// Acquire happens **before** buffering so concurrent peaks are accounted for
+/// prior to allocating the body. The permit must be held until processing
+/// finishes (drop releases the reservation).
+pub async fn buffer_inbox_body(
+    request: axum::http::Request<axum::body::Body>,
+) -> Result<(axum::body::Bytes, InboxInflightPermit), (axum::http::StatusCode, axum::Json<serde_json::Value>)>
+{
+    use axum::http::{header, StatusCode};
+    use axum::Json;
+    use serde_json::json;
+
+    let reserve = request
+        .headers()
+        .get(header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(INBOX_BODY_LIMIT)
+        .clamp(1, INBOX_BODY_LIMIT);
+
+    let permit = try_acquire_inbox_inflight(reserve).ok_or_else(|| {
+        tracing::warn!(
+            reserve_bytes = reserve,
+            inflight = inbox_inflight_raw_bytes(),
+            budget = INBOX_INFLIGHT_RAW_BUDGET,
+            "inbox concurrent memory budget exhausted"
+        );
+        (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(json!({
+                "error": "Inbox concurrent memory budget exhausted; retry later"
+            })),
+        )
+    })?;
+
+    let body = axum::body::to_bytes(request.into_body(), INBOX_BODY_LIMIT)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("Failed to read body: {e}")})),
+            )
+        })?;
+
+    Ok((body, permit))
+}
 
 // 编译期不变量
 //
@@ -176,6 +321,25 @@ const _: () = assert!(
      raise `memory:` in docker-compose.yml before raising INBOX_BODY_LIMIT"
 );
 
+/// 并发 raw 预算必须能放下至少一次满额投递，否则单请求也会 429。
+const _: () = assert!(
+    INBOX_INFLIGHT_RAW_BUDGET >= INBOX_BODY_LIMIT,
+    "INBOX_INFLIGHT_RAW_BUDGET must admit at least one full-size inbox body"
+);
+
+/// 并发 raw 预算不得接近「10 个满额」—— 那是 2 GiB 容器的危险区。
+/// 8 × full 仍属「若干」；10 × full 会被这条挡住。
+const _: () = assert!(
+    INBOX_INFLIGHT_RAW_BUDGET < INBOX_BODY_LIMIT * 10,
+    "INBOX_INFLIGHT_RAW_BUDGET allows ~10 concurrent full-size bodies; too high for 2 GiB"
+);
+
+/// 并发 raw 预算对应的解析峰值（按 3× 粗算）应落在 2 GiB 容器内。
+const _: () = assert!(
+    INBOX_INFLIGHT_RAW_BUDGET * 3 <= 2 * 1024 * 1024 * 1024_usize,
+    "INBOX_INFLIGHT_RAW_BUDGET × 3 would exceed the 2 GiB container memory limit"
+);
+
 #[cfg(test)]
 mod tests {
 
@@ -233,6 +397,102 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(narrow.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    }
+}
+
+#[cfg(test)]
+mod constant_tests {
+    use super::*;
+
+    #[test]
+    fn myr002_product_limits() {
+        assert_eq!(MESSAGE_PAYLOAD_LIMIT, 36 * 1024 * 1024);
+        assert_eq!(INBOX_BODY_LIMIT, 64 * 1024 * 1024);
+        // Must be explicit 64 MiB, not MESSAGE * 3/2 (= 54 MiB).
+        assert_ne!(INBOX_BODY_LIMIT, MESSAGE_PAYLOAD_LIMIT * 3 / 2);
+        assert_eq!(
+            AUTHENTICATED_BODY_LIMIT,
+            INBOX_BODY_LIMIT + 16 * 1024 * 1024
+        );
+        assert_eq!(AUTHENTICATED_BODY_LIMIT, 80 * 1024 * 1024);
+        assert_eq!(INBOX_INFLIGHT_RAW_BUDGET, 512 * 1024 * 1024);
+        // Several concurrent full-size, not ~10.
+        let max_full = INBOX_INFLIGHT_RAW_BUDGET / INBOX_BODY_LIMIT;
+        assert!(max_full >= 4, "budget should allow several full deliveries");
+        assert!(max_full < 10, "budget must not allow ~10 concurrent full-size");
+    }
+}
+
+#[cfg(test)]
+mod inflight_budget_tests {
+    use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    /// Global counter is process-wide; serialize these tests so they do not race.
+    fn budget_test_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+    }
+
+    #[test]
+    fn single_full_size_always_fits_when_idle() {
+        let _guard = budget_test_lock();
+        assert_eq!(
+            inbox_inflight_raw_bytes(),
+            0,
+            "test isolation: inflight counter must start at 0"
+        );
+        let p = try_acquire_inbox_inflight(INBOX_BODY_LIMIT).expect("full-size when idle");
+        assert_eq!(p.bytes(), INBOX_BODY_LIMIT);
+        assert_eq!(inbox_inflight_raw_bytes(), INBOX_BODY_LIMIT);
+        drop(p);
+        assert_eq!(inbox_inflight_raw_bytes(), 0);
+    }
+
+    #[test]
+    fn exhausted_budget_returns_none_then_recovers_on_drop() {
+        let _guard = budget_test_lock();
+        assert_eq!(inbox_inflight_raw_bytes(), 0);
+
+        // Fill the budget with full-size permits.
+        let n = INBOX_INFLIGHT_RAW_BUDGET / INBOX_BODY_LIMIT;
+        let mut permits = Vec::with_capacity(n);
+        for _ in 0..n {
+            permits.push(try_acquire_inbox_inflight(INBOX_BODY_LIMIT).expect("slot"));
+        }
+        assert_eq!(inbox_inflight_raw_bytes(), n * INBOX_BODY_LIMIT);
+
+        // Next full-size must fail (429 path).
+        assert!(
+            try_acquire_inbox_inflight(INBOX_BODY_LIMIT).is_none(),
+            "budget exhausted must reject another full-size reservation"
+        );
+
+        // A tiny request may still fit if remainder allows — only assert when
+        // remainder is strictly less than 1 (always after exact fill).
+        let remainder = INBOX_INFLIGHT_RAW_BUDGET - n * INBOX_BODY_LIMIT;
+        if remainder == 0 {
+            assert!(try_acquire_inbox_inflight(1).is_none());
+        }
+
+        drop(permits);
+        assert_eq!(inbox_inflight_raw_bytes(), 0);
+        let recovered = try_acquire_inbox_inflight(INBOX_BODY_LIMIT);
+        assert!(recovered.is_some());
+        drop(recovered);
+        assert_eq!(inbox_inflight_raw_bytes(), 0);
+    }
+
+    #[test]
+    fn clamps_reservation_to_inbox_body_limit() {
+        let _guard = budget_test_lock();
+        assert_eq!(inbox_inflight_raw_bytes(), 0);
+        let p = try_acquire_inbox_inflight(INBOX_BODY_LIMIT * 2).expect("clamped");
+        assert_eq!(p.bytes(), INBOX_BODY_LIMIT);
+        drop(p);
+        assert_eq!(inbox_inflight_raw_bytes(), 0);
     }
 }
 

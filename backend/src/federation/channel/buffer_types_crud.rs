@@ -336,7 +336,7 @@ pub async fn create_channel(
     // 创建新 Channel
     let channel_id = generate_channel_id();
     let properties = json!({
-        // Align with MESSAGE_PAYLOAD_LIMIT (64 MiB — Tapp package share)
+        // Align with MESSAGE_PAYLOAD_LIMIT (36 MiB — Tapp package share; MYR-002)
         "maxMessageSize": MAX_MESSAGE_PAYLOAD,
         "supportedFormats": ["text/plain", "text/markdown", "application/json"]
     });

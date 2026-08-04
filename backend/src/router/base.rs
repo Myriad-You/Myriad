@@ -425,9 +425,10 @@ pub(super) fn build_base_api_router(
             get(federation::actor::get_following),
         )
         // Layer 2: Inbox（远程实例投递，通过 HTTP Signature 验证）
-        // Limit = `federation::limits::INBOX_BODY_LIMIT` (96 MiB: 64 MiB payload
-        // × 1.5 envelope headroom). Nested limit may exceed the global 50 MiB
-        // DefaultBodyLimit on the outer router — intentional for federation.
+        // Limit = `federation::limits::INBOX_BODY_LIMIT` (64 MiB explicit; 36 MiB
+        // MESSAGE_PAYLOAD + envelope headroom — MYR-002). Nested limit may exceed
+        // the global 50 MiB DefaultBodyLimit on the outer router — intentional.
+        // Concurrent buffering is also gated by INBOX_INFLIGHT_RAW_BUDGET (429).
         .merge(
             Router::<crate::state::AppState>::new()
                 .route(
