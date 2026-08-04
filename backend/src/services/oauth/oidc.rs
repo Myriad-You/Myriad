@@ -559,12 +559,29 @@ mod oidc_security_tests {
     fn id_token_alg_allowlists_asymmetric_rejects_hmac() {
         // jsonwebtoken 11: Algorithm is non_exhaustive — keep HS* rejected and
         // known RSA/EC/EdDSA accepted (fail-closed for unknown variants).
-        assert!(ensure_asymmetric_id_token_alg(Algorithm::RS256).is_ok());
-        assert!(ensure_asymmetric_id_token_alg(Algorithm::ES256).is_ok());
-        assert!(ensure_asymmetric_id_token_alg(Algorithm::EdDSA).is_ok());
-        assert!(ensure_asymmetric_id_token_alg(Algorithm::HS256).is_err());
-        assert!(ensure_asymmetric_id_token_alg(Algorithm::HS384).is_err());
-        assert!(ensure_asymmetric_id_token_alg(Algorithm::HS512).is_err());
+        for ok in [
+            Algorithm::RS256,
+            Algorithm::RS384,
+            Algorithm::RS512,
+            Algorithm::PS256,
+            Algorithm::PS384,
+            Algorithm::PS512,
+            Algorithm::ES256,
+            Algorithm::ES384,
+            Algorithm::EdDSA,
+        ] {
+            assert!(
+                ensure_asymmetric_id_token_alg(ok).is_ok(),
+                "expected asymmetric alg {ok:?} accepted"
+            );
+        }
+        // All HMAC family members must be rejected (incl. HS384 — Copilot #294).
+        for bad in [Algorithm::HS256, Algorithm::HS384, Algorithm::HS512] {
+            assert!(
+                ensure_asymmetric_id_token_alg(bad).is_err(),
+                "expected HMAC alg {bad:?} rejected"
+            );
+        }
     }
 
     #[test]
