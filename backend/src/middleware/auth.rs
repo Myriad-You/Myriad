@@ -677,9 +677,83 @@ pub fn extract_optional_claims(headers: &HeaderMap) -> Option<Claims> {
 #[cfg(test)]
 mod tests {
     use super::{
-        guest_id, mint_session_claims, session_epoch_matches, sign_guest_session,
-        verify_guest_session, AUTH_COOKIE_MAX_AGE_SECS, JWT_TTL_DAYS,
+        encode_session_token, extract_optional_claims, guest_id, mint_session_claims,
+        session_epoch_matches, sign_guest_session, verify_guest_session, verify_jwt_token,
+        AUTH_COOKIE_MAX_AGE_SECS, JWT_TTL_DAYS,
     };
+    use axum::http::{header, HeaderMap, HeaderValue};
+    use std::sync::Once;
+
+    static INIT_JWT: Once = Once::new();
+
+    fn ensure_jwt_secret() {
+        INIT_JWT.call_once(|| {
+            if std::env::var("JWT_SECRET").is_err() {
+                // SAFETY: unit tests, set once before concurrent use.
+                std::env::set_var(
+                    "JWT_SECRET",
+                    "auth-unit-test-jwt-secret-at-least-32-bytes",
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn jwt_issue_and_verify_roundtrip() {
+        // jsonwebtoken 11: HS256 encode/decode via rust_crypto backend must stay
+        // wire-compatible for login cookies and Authorization Bearer tokens.
+        ensure_jwt_secret();
+        let claims = mint_session_claims(42, "roundtrip-user", true, false, 7);
+        let token = encode_session_token(&claims).expect("encode_session_token");
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {token}")).expect("header"),
+        );
+        let verified = verify_jwt_token(&headers).expect("verify_jwt_token");
+        assert_eq!(verified.sub, "42");
+        assert_eq!(verified.username, "roundtrip-user");
+        assert!(verified.is_admin);
+        assert!(!verified.is_owner);
+        assert_eq!(verified.tv, 7);
+        assert_eq!(verified.exp, claims.exp);
+        assert_eq!(verified.iat, claims.iat);
+
+        // Cookie path used by browser sessions
+        let mut cookie_headers = HeaderMap::new();
+        cookie_headers.insert(
+            header::COOKIE,
+            HeaderValue::from_str(&format!("auth_token={token}")).expect("cookie"),
+        );
+        let from_cookie = verify_jwt_token(&cookie_headers).expect("cookie verify");
+        assert_eq!(from_cookie.sub, verified.sub);
+        assert_eq!(from_cookie.tv, verified.tv);
+
+        assert_eq!(
+            extract_optional_claims(&headers).map(|c| c.sub),
+            Some("42".into())
+        );
+    }
+
+    #[test]
+    fn jwt_tampered_token_is_rejected() {
+        ensure_jwt_secret();
+        let claims = mint_session_claims(1, "u", false, false, 0);
+        let token = encode_session_token(&claims).expect("encode");
+        // Flip last character so signature fails.
+        let mut bad = token;
+        let last = bad.pop().expect("non-empty");
+        bad.push(if last == 'A' { 'B' } else { 'A' });
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {bad}")).expect("header"),
+        );
+        assert!(verify_jwt_token(&headers).is_err());
+        assert!(extract_optional_claims(&headers).is_none());
+    }
 
     #[test]
     fn signed_guest_session_is_stable_and_tamper_evident() {

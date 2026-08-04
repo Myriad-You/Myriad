@@ -408,11 +408,19 @@ mod tests {
 
     #[test]
     fn encrypt_decrypt_roundtrip() {
+        // aes-gcm 0.11: Aes256Gcm::new_from_slice + Nonce::from([u8;12]) AEAD path
+        // used for config secrets and federation private-key envelopes.
         let k = test_key(7);
         for value in ["", "sk-abc123", "带中文的值", "with:colons:and=equals"] {
             let ct = k.encrypt(value).unwrap();
             assert!(is_ciphertext(&ct), "{ct}");
             assert_eq!(k.decrypt(&ct).unwrap(), value);
+            assert!(ct.starts_with(CIPHERTEXT_PREFIX));
+            // Wire format: myriad-enc:v1:<b64-nonce>:<b64-ct>
+            let rest = ct.strip_prefix(CIPHERTEXT_PREFIX).unwrap();
+            let (nonce_b64, _) = rest.split_once(':').unwrap();
+            let nonce = BASE64.decode(nonce_b64).unwrap();
+            assert_eq!(nonce.len(), AES_NONCE_LEN);
         }
     }
 

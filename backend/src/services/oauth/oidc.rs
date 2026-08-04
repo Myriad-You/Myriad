@@ -450,6 +450,8 @@ impl OAuthProvider for OidcProvider {
 }
 
 fn ensure_asymmetric_id_token_alg(alg: Algorithm) -> Result<(), String> {
+    // Algorithm is non_exhaustive in jsonwebtoken 11 — keep known asymmetric
+    // algs allowlisted and fail closed on HMAC / unknown future variants.
     match alg {
         Algorithm::RS256
         | Algorithm::RS384
@@ -463,6 +465,10 @@ fn ensure_asymmetric_id_token_alg(alg: Algorithm) -> Result<(), String> {
         Algorithm::HS256 | Algorithm::HS384 | Algorithm::HS512 => Err(format!(
             "OIDC id_token algorithm {:?} is not accepted; configure provider for asymmetric signing",
             alg
+        )),
+        other => Err(format!(
+            "OIDC id_token algorithm {:?} is not accepted; only known asymmetric algorithms are allowed",
+            other
         )),
     }
 }
@@ -548,6 +554,17 @@ fn validate_id_token_nonce(claims: &serde_json::Value, expected: &str) -> Result
 #[cfg(test)]
 mod oidc_security_tests {
     use super::*;
+
+    #[test]
+    fn id_token_alg_allowlists_asymmetric_rejects_hmac() {
+        // jsonwebtoken 11: Algorithm is non_exhaustive — keep HS* rejected and
+        // known RSA/EC/EdDSA accepted (fail-closed for unknown variants).
+        assert!(ensure_asymmetric_id_token_alg(Algorithm::RS256).is_ok());
+        assert!(ensure_asymmetric_id_token_alg(Algorithm::ES256).is_ok());
+        assert!(ensure_asymmetric_id_token_alg(Algorithm::EdDSA).is_ok());
+        assert!(ensure_asymmetric_id_token_alg(Algorithm::HS256).is_err());
+        assert!(ensure_asymmetric_id_token_alg(Algorithm::HS512).is_err());
+    }
 
     #[test]
     fn pkce_s256_challenge_is_deterministic_and_url_safe() {

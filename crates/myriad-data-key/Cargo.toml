@@ -7,7 +7,7 @@ description = "AES-GCM data encryption key for Myriad config secrets and federat
 authors = ["Myriad Contributors"]
 
 [dependencies]
-aes-gcm = "0.10"
+aes-gcm = "0.11"
 anyhow = "1"
 base64 = "0.23"
 hex = "0.4"

@@ -106,18 +106,12 @@ pub struct EncryptionSession {
 /// 生成 X25519 密钥对
 ///
 /// 使用 CSPRNG + x25519-dalek 生成标准 Curve25519 密钥材料。
-///
-/// Bytes are filled via `rand` (rand_core 0.10) then passed to
-/// `StaticSecret::from`, so we stay independent of x25519-dalek's
-/// older `rand_core` trait version (`random_from_rng`).
+/// x25519-dalek 3: prefer `StaticSecret::random()` via the crate's `getrandom`
+/// feature (avoids call-site coupling to a specific `rand_core` trait major).
 pub fn generate_keypair() -> E2eKeyPair {
-    use rand::Rng;
     use x25519_dalek::{PublicKey, StaticSecret};
 
-    let mut rng = rand::rng();
-    let mut secret_bytes = [0u8; 32];
-    rng.fill_bytes(&mut secret_bytes);
-    let secret = StaticSecret::from(secret_bytes);
+    let secret = StaticSecret::random();
     let public = PublicKey::from(&secret);
 
     E2eKeyPair {
@@ -148,13 +142,10 @@ pub fn encrypt_message(
 ) -> Result<EncryptedEnvelope, String> {
     use aes_gcm::aead::{Aead, KeyInit, Payload};
 
-    use rand::Rng;
-
     let encryption_key = hkdf_derive(shared_secret, b"mfp-e2e-aes256gcm");
 
-    let mut rng = rand::rng();
-    let mut nonce_bytes = [0u8; 12];
-    rng.fill_bytes(&mut nonce_bytes);
+    // rand 0.10 already in tree; avoid older rand_core OsRng trait paths for nonces.
+    let nonce_bytes: [u8; 12] = rand::random();
 
     let cipher = aes_gcm::Aes256Gcm::new_from_slice(&encryption_key)
         .map_err(|e| format!("Cipher init failed: {}", e))?;
@@ -707,6 +698,8 @@ mod tests {
 
     #[test]
     fn ecdh_is_symmetric_between_peers() {
+        // x25519-dalek 3: StaticSecret::random + From<[u8;32]> + diffie_hellman
+        // must remain symmetric for channel/room E2E key exchange.
         let alice = generate_keypair();
         let bob = generate_keypair();
 
@@ -723,6 +716,28 @@ mod tests {
         let ba = compute_shared_secret(&b_sk, &a_pk);
         assert_eq!(ab, ba, "ECDH shared secrets must match both directions");
         assert_ne!(ab, [0u8; 32]);
+    }
+
+    #[test]
+    fn aes_gcm_aad_roundtrip_and_binding() {
+        // aes-gcm 0.11: Nonce::from([u8;12]), new_from_slice, Payload { msg, aad }
+        let alice = generate_keypair();
+        let bob = generate_keypair();
+        let mut a_sk = [0u8; 32];
+        let mut a_pk = [0u8; 32];
+        let mut b_pk = [0u8; 32];
+        a_sk.copy_from_slice(&base64_decode(&alice.private_key).unwrap());
+        a_pk.copy_from_slice(&base64_decode(&alice.public_key).unwrap());
+        b_pk.copy_from_slice(&base64_decode(&bob.public_key).unwrap());
+
+        let shared = compute_shared_secret(&a_sk, &b_pk);
+        let aad = b"channel:ch-aad-test";
+        let plaintext = b"federation body";
+        let envelope = encrypt_message(plaintext, &shared, &a_pk, aad).expect("encrypt");
+        assert_eq!(envelope.algorithm, E2E_ALGORITHM);
+        assert_eq!(decrypt_message(&envelope, &shared, aad).expect("decrypt"), plaintext);
+        // Wrong AAD must fail authentication (channel/room binding).
+        assert!(decrypt_message(&envelope, &shared, b"channel:other").is_err());
     }
 
     #[test]
