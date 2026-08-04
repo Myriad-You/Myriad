@@ -210,6 +210,31 @@ function buildCanvasTransform(
   return match ? `scale(${PARALLAX_SCALE}) ${match[0]}` : IDLE_TF
 }
 
+/**
+ * Ripple bitmap must match the visible #bg-container crop (lvh / fixed layer),
+ * not window.inner* — those can disagree after the full-viewport wallpaper work.
+ * Falls back to the window when the container is missing (tests / early mount).
+ */
+function getRippleViewportSize(): { width: number; height: number } {
+  const container = document.getElementById('bg-container')
+  if (container) {
+    const width = container.clientWidth
+    const height = container.clientHeight
+    if (width > 0 && height > 0) return { width, height }
+  }
+  return { width: window.innerWidth, height: window.innerHeight }
+}
+
+/** Container client rect for mapping pointer → canvas-local coords. */
+function getRippleViewportRect(): DOMRect {
+  const container = document.getElementById('bg-container')
+  if (container) {
+    const rect = container.getBoundingClientRect()
+    if (rect.width > 0 && rect.height > 0) return rect
+  }
+  return new DOMRect(0, 0, window.innerWidth, window.innerHeight)
+}
+
 function createRippleCanvas(
   wallpaperEl: HTMLElement,
   parallaxEnabled: boolean,
@@ -217,8 +242,10 @@ function createRippleCanvas(
 ): HTMLCanvasElement {
   const canvas = document.createElement('canvas')
   canvas.id = 'wallpaper-ripple-canvas'
-  canvas.width = (window.innerWidth * rippleScale) | 0
-  canvas.height = (window.innerHeight * rippleScale) | 0
+  // Bitmap = visible container crop (canvas DOM stays inset:0; #wallpaper is oversized)
+  const { width: vw, height: vh } = getRippleViewportSize()
+  canvas.width = (vw * rippleScale) | 0
+  canvas.height = (vh * rippleScale) | 0
 
   const computedStyle = window.getComputedStyle(wallpaperEl)
   const transformOrigin = parallaxEnabled
@@ -227,8 +254,10 @@ function createRippleCanvas(
   const canvasTransform = buildCanvasTransform(wallpaperEl, parallaxEnabled)
 
   // z-index:1 — 夹在 #wallpaper 与 #bg-gradient(z-2) 之间，保证涟漪可见且不挡底部遮罩
+  // DOM 贴满 #bg-container（inset:0 / 100%），不外扩；视差 transform 与壁纸镜像
   canvas.style.cssText = `
     position: absolute;
+    inset: 0;
     top: 0;
     left: 0;
     width: 100%;
@@ -260,6 +289,14 @@ function createRippleCanvas(
   return canvas
 }
 
+/**
+ * Capture the wallpaper as the viewport-visible crop for the ripple bitmap.
+ *
+ * #wallpaper is oversized (inset:-4%) for CSS blur edges; background-size:cover
+ * is relative to that larger box. Cover-fit to the real wallpaper size, then
+ * draw with wallpaper offset relative to #bg-container so the canvas matches
+ * what the user sees (not a cover-fit of the container alone).
+ */
 async function captureWallpaperToCanvas(
   wallpaperEl: HTMLElement,
   canvas: HTMLCanvasElement,
@@ -282,22 +319,57 @@ async function captureWallpaperToCanvas(
     img.onload = () => {
       const canvasW = canvas.width
       const canvasH = canvas.height
+
+      // Layout box of #wallpaper (includes inset:-4% oversize). Prefer offset*
+      // over getBoundingClientRect so parallax scale(1.02) does not inflate
+      // cover-fit — background-size:cover is relative to the layout box, and
+      // the ripple canvas mirrors the same transform in CSS.
+      const container = document.getElementById('bg-container')
+      let wpCssW = wallpaperEl.offsetWidth
+      let wpCssH = wallpaperEl.offsetHeight
+      let offsetCssX: number
+      let offsetCssY: number
+
+      if (container && wallpaperEl.offsetParent === container) {
+        offsetCssX = wallpaperEl.offsetLeft
+        offsetCssY = wallpaperEl.offsetTop
+      } else {
+        const wallpaperRect = wallpaperEl.getBoundingClientRect()
+        const containerRect = getRippleViewportRect()
+        if (wpCssW <= 0) wpCssW = wallpaperRect.width
+        if (wpCssH <= 0) wpCssH = wallpaperRect.height
+        offsetCssX = wallpaperRect.left - containerRect.left
+        offsetCssY = wallpaperRect.top - containerRect.top
+      }
+
+      const wpW = Math.max(1, wpCssW * rippleScale)
+      const wpH = Math.max(1, wpCssH * rippleScale)
+
+      // background-size: cover relative to the real #wallpaper element
       const imgRatio = img.width / img.height
-      const canvasRatio = canvasW / canvasH
+      const wpRatio = wpW / wpH
 
       let drawW: number, drawH: number
-
-      if (imgRatio > canvasRatio) {
-        drawH = canvasH
+      if (imgRatio > wpRatio) {
+        drawH = wpH
         drawW = drawH * imgRatio
       } else {
-        drawW = canvasW
+        drawW = wpW
         drawH = drawW / imgRatio
       }
 
-      const drawX = (canvasW - drawW) / 2
-      const drawY = (canvasH - drawH) / 2
+      // Center image on the wallpaper box (matches background-position: center)
+      const imgOnWpX = (wpW - drawW) / 2
+      const imgOnWpY = (wpH - drawH) / 2
 
+      // Wallpaper top-left relative to container, in bitmap space
+      const offsetX = offsetCssX * rippleScale
+      const offsetY = offsetCssY * rippleScale
+
+      const drawX = offsetX + imgOnWpX
+      const drawY = offsetY + imgOnWpY
+
+      ctx.clearRect(0, 0, canvasW, canvasH)
       const scaledBlur = currentBlur * rippleScale
       ctx.filter = scaledBlur > 0 ? `blur(${scaledBlur}px)` : 'none'
       ctx.drawImage(img, drawX, drawY, drawW, drawH)
@@ -725,9 +797,10 @@ export function useEvocativeWallpaper(
     const startRipple = async (x: number, y: number) => {
       if (!s.rippleCanvas || !s.rippleCtx || !s.el) return
 
-      // 检查并更新 canvas 尺寸（窗口可能已调整大小）
-      const expectedWidth = (window.innerWidth * rippleScale) | 0
-      const expectedHeight = (window.innerHeight * rippleScale) | 0
+      // Bitmap size tracks #bg-container (lvh crop), not window.inner*
+      const { width: vw, height: vh } = getRippleViewportSize()
+      const expectedWidth = (vw * rippleScale) | 0
+      const expectedHeight = (vh * rippleScale) | 0
       if (
         s.rippleCanvas.width !== expectedWidth ||
         s.rippleCanvas.height !== expectedHeight
@@ -962,9 +1035,14 @@ export function useEvocativeWallpaper(
         !interactionReady
       ) {
         return
-}
+      }
 
-      const normalizedY = e.clientY / window.innerHeight
+      // Container-local coords so click origin matches the visible crop bitmap
+      const viewportRect = getRippleViewportRect()
+      const localX = e.clientX - viewportRect.left
+      const localY = e.clientY - viewportRect.top
+      const normalizedY =
+        viewportRect.height > 0 ? localY / viewportRect.height : 0
       if (normalizedY > unblurZone) return
 
       const target = e.target as HTMLElement | null
@@ -994,7 +1072,7 @@ export function useEvocativeWallpaper(
         return
       }
 
-      startRipple(e.clientX, e.clientY)
+      startRipple(localX, localY)
     }
 
     // 陀螺仪
