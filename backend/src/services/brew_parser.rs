@@ -1476,8 +1476,9 @@ mod tests {
     #[test]
     fn max_feed_body_is_generous_but_bounded() {
         // Several MiB–tens of MiB: large enough for full-content feeds, not unbounded.
-        assert!(MAX_FEED_BODY_BYTES >= 4 * 1024 * 1024);
-        assert!(MAX_FEED_BODY_BYTES <= 64 * 1024 * 1024);
+        // Compile-time checks avoid clippy::assertions_on_constants.
+        const _: () = assert!(MAX_FEED_BODY_BYTES >= 4 * 1024 * 1024);
+        const _: () = assert!(MAX_FEED_BODY_BYTES <= 64 * 1024 * 1024);
         assert_eq!(MAX_FEED_BODY_BYTES, 16 * 1024 * 1024);
     }
 
@@ -1489,7 +1490,7 @@ mod tests {
             MAX_FEED_BODY_BYTES
         ));
         let msg = err.to_string();
-        assert!(msg.contains("Fetch error"));
+        assert!(msg.starts_with("Fetch error:"));
         assert!(msg.contains("exceeds"));
         assert!(msg.contains(&MAX_FEED_BODY_BYTES.to_string()));
     }
