@@ -116,6 +116,22 @@ fn test_users_schema_includes_is_owner() {
 }
 
 #[test]
+fn test_users_schema_includes_token_version() {
+    let tables = get_expected_schema();
+    let users = tables
+        .iter()
+        .find(|t| t.name == "users")
+        .expect("users table");
+    let col = users
+        .columns
+        .iter()
+        .find(|c| c.name == "token_version")
+        .expect("users must define token_version (MYR-005 session epoch)");
+    assert!(!col.is_nullable);
+    assert_eq!(col.default_value.as_deref(), Some("0"));
+}
+
+#[test]
 fn test_default_platform_seeds_include_x_and_core() {
     let seeds = default_platform_seeds();
     let names: Vec<&str> = seeds.iter().map(|s| s.name).collect();

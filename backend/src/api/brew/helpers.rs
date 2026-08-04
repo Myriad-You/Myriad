@@ -9,7 +9,7 @@ use serde_json::json;
 
 use crate::error::HttpError;
 use crate::middleware::auth::{
-    ensure_current_admin_on, verify_current_admin_from_headers, verify_jwt_token,
+    authenticate_request, ensure_current_admin_on, verify_current_admin_from_headers,
 };
 use crate::models::entities::brew_sources;
 
@@ -20,12 +20,12 @@ pub(crate) fn brew_http_err(status: StatusCode, error: impl Into<String>) -> Htt
     ))
 }
 
-/// 从请求头获取用户 ID
+/// 从请求头获取用户 ID（含 session epoch 校验）
 pub(crate) async fn get_user_id_from_headers(
     headers: &axum::http::HeaderMap,
-    _db: &DatabaseConnection,
+    db: &DatabaseConnection,
 ) -> Result<i32, HttpError> {
-    match verify_jwt_token(headers) {
+    match authenticate_request(headers, db).await {
         Ok(claims) => claims
             .sub
             .parse::<i32>()
@@ -36,8 +36,11 @@ pub(crate) async fn get_user_id_from_headers(
 
 /// 从请求头获取可选用户 ID（用于游客访问）
 /// 游客返回 None，登录用户返回 Some(user_id)
+///
+/// Crypto-only: soft optional paths; revoked tokens may still appear signed.
+/// Prefer `authenticate_request` when a DB handle is available.
 pub(crate) fn get_optional_user_id_from_headers(headers: &axum::http::HeaderMap) -> Option<i32> {
-    verify_jwt_token(headers)
+    crate::middleware::auth::verify_jwt_token(headers)
         .ok()
         .and_then(|claims| claims.sub.parse::<i32>().ok())
 }
@@ -48,7 +51,7 @@ pub(crate) async fn get_user_and_admin_status(
     headers: &axum::http::HeaderMap,
     db: &DatabaseConnection,
 ) -> (Option<i32>, bool) {
-    match verify_jwt_token(headers) {
+    match authenticate_request(headers, db).await {
         Ok(claims) => {
             let user_id = claims.sub.parse::<i32>().ok();
             let is_admin = ensure_current_admin_on(&claims, db).await.is_ok();

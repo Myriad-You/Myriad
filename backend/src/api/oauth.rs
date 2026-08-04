@@ -18,8 +18,6 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     Json,
 };
-use chrono::{Duration, Utc};
-use jsonwebtoken::{encode, EncodingKey, Header};
 use sea_orm::{
     ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, Value as SeaValue,
 };
@@ -27,7 +25,9 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::env;
 
-use crate::middleware::auth::Claims;
+use crate::middleware::auth::{
+    auth_cookie_value, encode_session_token, mint_session_claims,
+};
 use crate::oauth_url_builder::SiteConfig;
 use crate::services::oauth::{
     registry::REGISTRY,
@@ -239,14 +239,17 @@ pub async fn provider_login(
 
 pub async fn provider_link(
     Path(slug): Path<String>,
+    crate::extract::Db(db): crate::extract::Db,
     headers: HeaderMap,
 ) -> Result<Response, HttpError> {
-    use crate::middleware::auth::verify_jwt_token;
-
-    let claims = verify_jwt_token(&headers).map_err(|_| HttpError::from((
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Unauthorized"})),
-        )))?;
+    let claims = crate::middleware::auth::authenticate_request(&headers, &db)
+        .await
+        .map_err(|_| {
+            HttpError::from((
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "Unauthorized"})),
+            ))
+        })?;
 
     let user_id: i32 = claims.sub.parse().map_err(|_| err_400("Invalid user id"))?;
     if user_id <= 0 {
@@ -671,11 +674,13 @@ async fn handle_login(
 ) -> Result<Response, HttpError> {
     let user_id = find_or_create_user(db, slug, profile).await?;
 
-    // 查 is_admin
+    // 查 is_admin + session epoch for JWT mint
     let row = db
         .query_one(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT is_admin, username, COALESCE(is_owner, false) AS is_owner FROM users WHERE id = $1",
+            "SELECT is_admin, username, COALESCE(is_owner, false) AS is_owner, \
+                    COALESCE(token_version, 0) AS token_version \
+             FROM users WHERE id = $1",
             vec![SeaValue::Int(Some(user_id))],
         ))
         .await
@@ -685,23 +690,15 @@ async fn handle_login(
     let is_admin: bool = row.try_get("", "is_admin").unwrap_or(false);
     let is_owner: bool = row.try_get("", "is_owner").unwrap_or(false);
     let username: String = row.try_get("", "username").unwrap_or_default();
+    let token_version: i64 = row
+        .try_get::<i32>("", "token_version")
+        .ok()
+        .map(i64::from)
+        .or_else(|| row.try_get::<i64>("", "token_version").ok())
+        .unwrap_or(0);
 
-    // 生成 JWT
-    let jwt_secret = env::var("JWT_SECRET").map_err(|_| err_500("JWT_SECRET not set"))?;
-    let claims = Claims {
-        sub: user_id.to_string(),
-        username: username.clone(),
-        is_admin,
-        is_owner,
-        exp: (Utc::now() + Duration::days(30)).timestamp(),
-        iat: Utc::now().timestamp(),
-    };
-    let token = encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(jwt_secret.as_bytes()),
-    )
-    .map_err(|e| {
+    let claims = mint_session_claims(user_id, &username, is_admin, is_owner, token_version);
+    let token = encode_session_token(&claims).map_err(|e| {
         tracing::error!(error = %e, "OAuth: JWT encode failed");
         err_500("Internal error")
     })?;
@@ -709,11 +706,7 @@ async fn handle_login(
     // Set-Cookie + HTML 重定向
     // 注意：使用相对路径，避免把管理员可控的 base_url 注入到 <meta refresh> / <script>
     let is_production = SiteConfig::is_production().await;
-    let cookie_value = format!(
-        "auth_token={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000{}",
-        token,
-        if is_production { "; Secure" } else { "" }
-    );
+    let cookie_value = auth_cookie_value(&token, is_production);
     let html = "<!DOCTYPE html><html><head><meta charset=\"utf-8\">\
         <meta http-equiv=\"refresh\" content=\"0;url=/?auth=success\"><title>Login</title></head>\
         <body><p>Login successful, redirecting...</p>\
@@ -1008,11 +1001,14 @@ pub async fn provider_unlink(
     crate::extract::Db(db): crate::extract::Db,
     headers: HeaderMap,
 ) -> Result<Json<Value>, HttpError> {
-    use crate::middleware::auth::verify_jwt_token;
-    let claims = verify_jwt_token(&headers).map_err(|_| HttpError::from((
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Unauthorized"})),
-        )))?;
+    let claims = crate::middleware::auth::authenticate_request(&headers, &db)
+        .await
+        .map_err(|_| {
+            HttpError::from((
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "Unauthorized"})),
+            ))
+        })?;
     let user_id: i32 = claims.sub.parse().map_err(|_| err_400("Invalid user id"))?;
 
     // 确认 identity 属于当前用户
@@ -1090,11 +1086,14 @@ pub async fn list_my_identities(
     crate::extract::Db(db): crate::extract::Db,
     headers: HeaderMap,
 ) -> Result<Json<Value>, HttpError> {
-    use crate::middleware::auth::verify_jwt_token;
-    let claims = verify_jwt_token(&headers).map_err(|_| HttpError::from((
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Unauthorized"})),
-        )))?;
+    let claims = crate::middleware::auth::authenticate_request(&headers, &db)
+        .await
+        .map_err(|_| {
+            HttpError::from((
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "Unauthorized"})),
+            ))
+        })?;
     let user_id: i32 = claims.sub.parse().map_err(|_| err_400("Invalid user id"))?;
 
     let rows = db
@@ -1146,11 +1145,14 @@ pub async fn set_primary_identity(
     crate::extract::Db(db): crate::extract::Db,
     headers: HeaderMap,
 ) -> Result<Json<Value>, HttpError> {
-    use crate::middleware::auth::verify_jwt_token;
-    let claims = verify_jwt_token(&headers).map_err(|_| HttpError::from((
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Unauthorized"})),
-        )))?;
+    let claims = crate::middleware::auth::authenticate_request(&headers, &db)
+        .await
+        .map_err(|_| {
+            HttpError::from((
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "Unauthorized"})),
+            ))
+        })?;
     let user_id: i32 = claims.sub.parse().map_err(|_| err_400("Invalid user id"))?;
 
     let row = db

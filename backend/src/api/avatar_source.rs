@@ -16,7 +16,7 @@ use sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::middleware::auth::{verify_jwt_token, Claims};
+use crate::middleware::auth::{authenticate_request, Claims};
 use crate::services::avatar::{
     current_avatar_source, list_avatar_sources, set_avatar_source, AvatarSourceKind,
 };
@@ -54,8 +54,13 @@ fn server_error(context: &str, error: impl std::fmt::Display) -> ApiError {
     )
 }
 
-fn current_user_id(headers: &axum::http::HeaderMap) -> Result<i32, ApiError> {
-    let claims: Claims = verify_jwt_token(headers).map_err(|_| unauthorized())?;
+async fn current_user_id(
+    headers: &axum::http::HeaderMap,
+    db: &DatabaseConnection,
+) -> Result<i32, ApiError> {
+    let claims = authenticate_request(headers, db)
+        .await
+        .map_err(|_| unauthorized())?;
     claims.sub.parse::<i32>().map_err(|_| unauthorized())
 }
 
@@ -121,7 +126,7 @@ pub async fn list_my_avatar_sources(
     crate::extract::Db(db): crate::extract::Db,
     headers: axum::http::HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
-    let user_id = current_user_id(&headers)?;
+    let user_id = current_user_id(&headers, &db).await?;
     sources_payload(&db, user_id).await
 }
 
@@ -131,7 +136,7 @@ pub async fn set_my_avatar_source(
     headers: axum::http::HeaderMap,
     Json(payload): Json<SetAvatarSourceRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let user_id = current_user_id(&headers)?;
+    let user_id = current_user_id(&headers, &db).await?;
     apply_source(&db, user_id, payload).await
 }
 
@@ -172,7 +177,9 @@ async fn require_admin(
     headers: &axum::http::HeaderMap,
     db: &DatabaseConnection,
 ) -> Result<Claims, ApiError> {
-    let claims: Claims = verify_jwt_token(headers).map_err(|_| unauthorized())?;
+    let claims = authenticate_request(headers, db)
+        .await
+        .map_err(|_| unauthorized())?;
     crate::middleware::auth::ensure_current_admin_on(&claims, db).await?;
     Ok(claims)
 }

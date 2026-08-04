@@ -7,23 +7,20 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use chrono::{Duration, Utc};
-use jsonwebtoken::{encode, EncodingKey, Header};
 use myriad_error::AppError;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, TransactionTrait};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::env;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::error::HttpError;
-use crate::middleware::auth::ensure_current_admin_on;
-
-use super::auth::Claims;
+use crate::middleware::auth::{
+    auth_cookie_value, encode_session_token, ensure_current_admin_on, mint_session_claims,
+};
 
 /// Modest global cap on concurrent Argon2 hash/verify work (MYR-006).
 ///
@@ -333,6 +330,7 @@ pub async fn local_login(
 
     let query = "SELECT id, username, password_hash, is_admin,
                         COALESCE(is_owner, false) AS is_owner,
+                        COALESCE(token_version, 0) AS token_version,
                         auth_provider, local_login_disabled
                  FROM users
                  WHERE LOWER(username) = LOWER($1) AND password_hash IS NOT NULL";
@@ -384,6 +382,12 @@ pub async fn local_login(
 
     let is_admin: bool = user_row.try_get("", "is_admin").unwrap_or(false);
     let is_owner: bool = user_row.try_get("", "is_owner").unwrap_or(false);
+    let token_version: i64 = user_row
+        .try_get::<i32>("", "token_version")
+        .ok()
+        .map(i64::from)
+        .or_else(|| user_row.try_get::<i64>("", "token_version").ok())
+        .unwrap_or(0);
 
     let local_login_disabled: bool = user_row
         .try_get("", "local_login_disabled")
@@ -412,30 +416,13 @@ pub async fn local_login(
         ))
         .await;
 
-    // Generate JWT token
-    let jwt_secret = env::var("JWT_SECRET").map_err(|_| HttpError::from((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Server configuration error"})),
-        )))?;
-
-    let claims = Claims {
-        sub: user_id.to_string(),
-        username: username.clone(),
-        is_admin, // 从数据库读取 is_admin
-        is_owner,
-        exp: (Utc::now() + Duration::days(30)).timestamp(),
-        iat: Utc::now().timestamp(),
-    };
-
-    let token = encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(jwt_secret.as_bytes()),
-    )
-    .map_err(|_e| HttpError::from((
+    let claims = mint_session_claims(user_id, &username, is_admin, is_owner, token_version);
+    let token = encode_session_token(&claims).map_err(|_e| {
+        HttpError::from((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": "Failed to create session token"})),
-        )))?;
+        ))
+    })?;
 
     tracing::info!("✅ Local login successful: {}", username);
 
@@ -444,11 +431,7 @@ pub async fn local_login(
     // 使用 SiteConfig 判断是否为生产环境（基于 base_url 是否为 HTTPS）
     use crate::oauth_url_builder::SiteConfig;
     let is_production = SiteConfig::is_production().await;
-    let cookie_value = format!(
-        "auth_token={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000{}",
-        token,
-        if is_production { "; Secure" } else { "" }
-    );
+    let cookie_value = auth_cookie_value(&token, is_production);
 
     let response = Json(AuthResponse {
         user: UserInfo {
@@ -470,23 +453,31 @@ pub async fn local_login(
 }
 
 /// POST /api/auth/change-password
-/// Change password for local account
+/// Change password for local account.
+///
+/// Bumps `token_version` so other devices' JWTs fail closed, then re-issues a
+/// fresh cookie for this browser so the current session is not harsh-kicked.
 pub async fn change_password(
     crate::extract::Db(db): crate::extract::Db,
     headers: axum::http::HeaderMap,
     Json(request): Json<ChangePasswordRequest>,
-) -> Result<Json<Value>, HttpError> {
-    // 提取并校验 JWT：支持 Authorization 头与 HttpOnly Cookie（与 set_password 一致）
-    // 浏览器端仅携带 HttpOnly Cookie，无法附加 Bearer 头
-    let claims = crate::middleware::auth::verify_jwt_token(&headers).map_err(|_| HttpError::from((
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Unauthorized", "message": "Invalid or missing token"})),
-        )))?;
+) -> Result<impl IntoResponse, HttpError> {
+    // Full auth (crypto + session epoch). Supports Authorization and HttpOnly cookie.
+    let claims = crate::middleware::auth::authenticate_request(&headers, &db)
+        .await
+        .map_err(|_| {
+            HttpError::from((
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "Unauthorized", "message": "Invalid or missing token"})),
+            ))
+        })?;
 
-    let user_id = claims.sub.parse::<i32>().map_err(|_| HttpError::from((
+    let user_id = claims.sub.parse::<i32>().map_err(|_| {
+        HttpError::from((
             StatusCode::BAD_REQUEST,
             Json(json!({"error": "Invalid user ID"})),
-        )))?;
+        ))
+    })?;
 
     tracing::info!("Password change request for user ID: {}", user_id);
 
@@ -496,8 +487,10 @@ pub async fn change_password(
     // Query user data
     use sea_orm::Value as SeaValue;
 
-    let query = "SELECT username, password_hash, auth_provider, local_login_disabled 
-                 FROM users 
+    let query = "SELECT username, password_hash, auth_provider, local_login_disabled,
+                        COALESCE(is_admin, false) AS is_admin,
+                        COALESCE(is_owner, false) AS is_owner
+                 FROM users
                  WHERE id = $1";
 
     let user_result = db
@@ -507,32 +500,41 @@ pub async fn change_password(
             vec![SeaValue::Int(Some(user_id))],
         ))
         .await
-        .map_err(|_e| HttpError::from((
+        .map_err(|_e| {
+            HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({"error": "Database error"})),
-            )))?;
+            ))
+        })?;
 
     let user_row = user_result.ok_or_else(|| {
-            tracing::warn!("User not found: {}", user_id);
-            HttpError::from((
+        tracing::warn!("User not found: {}", user_id);
+        HttpError::from((
             StatusCode::NOT_FOUND,
             Json(json!({"error": "User not found"})),
         ))
-        })?;
+    })?;
 
-    let username: String = user_row.try_get("", "username").map_err(|_| HttpError::from((
+    let username: String = user_row.try_get("", "username").map_err(|_| {
+        HttpError::from((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": "Failed to read user data"})),
-        )))?;
+        ))
+    })?;
 
-    let auth_provider: String = user_row.try_get("", "auth_provider").map_err(|_| HttpError::from((
+    let auth_provider: String = user_row.try_get("", "auth_provider").map_err(|_| {
+        HttpError::from((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": "Failed to read user data"})),
-        )))?;
+        ))
+    })?;
 
     // PR #4: 任何拥有 password_hash 的账户都能改密码（不再要求 auth_provider='local'）
     // 没有密码的账户（纯 OAuth）应走 /api/auth/me/set-password 后补密码。
     let _ = auth_provider; // 信息性字段，保留读取以兼容旧 SELECT
+
+    let is_admin: bool = user_row.try_get("", "is_admin").unwrap_or(false);
+    let is_owner: bool = user_row.try_get("", "is_owner").unwrap_or(false);
 
     let current_password_hash: Option<String> = user_row.try_get("", "password_hash").ok();
     let current_password_hash = match current_password_hash {
@@ -554,30 +556,71 @@ pub async fn change_password(
     // Hash new password
     let new_password_hash = hash_password(&request.new_password).await?;
 
-    // Update password
-    let update_query =
-        "UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2";
+    // Update password + bump session epoch so other sessions die immediately.
+    let update_query = "UPDATE users SET password_hash = $1, \
+                              token_version = token_version + 1, \
+                              updated_at = CURRENT_TIMESTAMP \
+                       WHERE id = $2 \
+                       RETURNING token_version";
 
-    db.execute(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        update_query,
-        vec![
-            SeaValue::String(Some(Box::new(new_password_hash))),
-            SeaValue::Int(Some(user_id)),
-        ],
-    ))
-    .await
-    .map_err(|_e| HttpError::from((
+    let updated = db
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            update_query,
+            vec![
+                SeaValue::String(Some(Box::new(new_password_hash))),
+                SeaValue::Int(Some(user_id)),
+            ],
+        ))
+        .await
+        .map_err(|_e| {
+            HttpError::from((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Failed to update password"})),
+            ))
+        })?
+        .ok_or_else(|| {
+            HttpError::from((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Failed to update password"})),
+            ))
+        })?;
+
+    let new_tv: i64 = updated
+        .try_get::<i32>("", "token_version")
+        .ok()
+        .map(i64::from)
+        .or_else(|| updated.try_get::<i64>("", "token_version").ok())
+        .unwrap_or(claims.tv + 1);
+
+    // Re-issue cookie for this browser (other devices keep the old tv → 401).
+    let new_claims = mint_session_claims(user_id, &username, is_admin, is_owner, new_tv);
+    let token = encode_session_token(&new_claims).map_err(|_e| {
+        HttpError::from((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Failed to update password"})),
-        )))?;
+            Json(json!({"error": "Failed to refresh session token"})),
+        ))
+    })?;
 
-    tracing::info!("✅ Password changed successfully for user: {}", username);
+    use crate::oauth_url_builder::SiteConfig;
+    let is_production = SiteConfig::is_production().await;
+    let cookie_value = auth_cookie_value(&token, is_production);
 
-    Ok(Json(json!({
+    tracing::info!(
+        "✅ Password changed successfully for user: {} (token_version → {})",
+        username,
+        new_tv
+    );
+
+    let mut response = Json(json!({
         "success": true,
         "message": "Password changed successfully"
-    })))
+    }))
+    .into_response();
+    if let Ok(value) = cookie_value.parse() {
+        response.headers_mut().insert(header::SET_COOKIE, value);
+    }
+    Ok(response)
 }
 
 // Helper functions
@@ -831,7 +874,7 @@ pub async fn register(
     tracing::info!("✅ Public registration: {} (id={})", req.username, user_id);
 
     // 注册即登录：颁发 JWT + cookie
-    issue_session_cookie(user_id, &req.username, false, false).await
+    issue_session_cookie(&db, user_id, &req.username, false, false).await
 }
 
 /// POST /api/auth/me/set-password —— GitHub-only 用户后补密码
@@ -847,17 +890,22 @@ pub async fn set_password(
     headers: axum::http::HeaderMap,
     Json(req): Json<SetPasswordRequest>,
 ) -> Result<Json<Value>, HttpError> {
-    use crate::middleware::auth::verify_jwt_token;
     use sea_orm::Value as SeaValue;
 
-    let claims = verify_jwt_token(&headers).map_err(|_| HttpError::from((
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Unauthorized"})),
-        )))?;
-    let user_id: i32 = claims.sub.parse().map_err(|_| HttpError::from((
+    let claims = crate::middleware::auth::authenticate_request(&headers, &db)
+        .await
+        .map_err(|_| {
+            HttpError::from((
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "Unauthorized"})),
+            ))
+        })?;
+    let user_id: i32 = claims.sub.parse().map_err(|_| {
+        HttpError::from((
             StatusCode::BAD_REQUEST,
             Json(json!({"error": "Invalid user id"})),
-        )))?;
+        ))
+    })?;
 
     validate_password(&req.new_password)?;
 
@@ -869,14 +917,18 @@ pub async fn set_password(
             vec![SeaValue::Int(Some(user_id))],
         ))
         .await
-        .map_err(|_e| HttpError::from((
+        .map_err(|_e| {
+            HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({"error": "Database error"})),
-            )))?
-        .ok_or_else(|| HttpError::from((
+            ))
+        })?
+        .ok_or_else(|| {
+            HttpError::from((
                 StatusCode::NOT_FOUND,
                 Json(json!({"error": "User not found"})),
-            )))?;
+            ))
+        })?;
     let has_password: bool = row.try_get("", "has_password").unwrap_or(false);
     if has_password {
         return Err(HttpError::from((
@@ -899,10 +951,12 @@ pub async fn set_password(
         ],
     ))
     .await
-    .map_err(|_e| HttpError::from((
+    .map_err(|_e| {
+        HttpError::from((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": "Failed to set password"})),
-        )))?;
+        ))
+    })?;
 
     Ok(Json(json!({"success": true})))
 }
@@ -921,17 +975,22 @@ pub async fn toggle_local_login(
     headers: axum::http::HeaderMap,
     Json(req): Json<LocalLoginToggleRequest>,
 ) -> Result<Json<Value>, HttpError> {
-    use crate::middleware::auth::verify_jwt_token;
     use sea_orm::Value as SeaValue;
 
-    let claims = verify_jwt_token(&headers).map_err(|_| HttpError::from((
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Unauthorized"})),
-        )))?;
-    let user_id: i32 = claims.sub.parse().map_err(|_| HttpError::from((
+    let claims = crate::middleware::auth::authenticate_request(&headers, &db)
+        .await
+        .map_err(|_| {
+            HttpError::from((
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "Unauthorized"})),
+            ))
+        })?;
+    let user_id: i32 = claims.sub.parse().map_err(|_| {
+        HttpError::from((
             StatusCode::BAD_REQUEST,
             Json(json!({"error": "Invalid user id"})),
-        )))?;
+        ))
+    })?;
 
     // 取当前状态
     let row = db
@@ -943,14 +1002,18 @@ pub async fn toggle_local_login(
             vec![SeaValue::Int(Some(user_id))],
         ))
         .await
-        .map_err(|_e| HttpError::from((
+        .map_err(|_e| {
+            HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({"error": "Database error"})),
-            )))?
-        .ok_or_else(|| HttpError::from((
+            ))
+        })?
+        .ok_or_else(|| {
+            HttpError::from((
                 StatusCode::NOT_FOUND,
                 Json(json!({"error": "User not found"})),
-            )))?;
+            ))
+        })?;
 
     let has_password: bool = row.try_get("", "has_password").unwrap_or(false);
     let identity_count: i64 = row.try_get("", "identity_count").unwrap_or(0);
@@ -992,41 +1055,46 @@ pub async fn toggle_local_login(
 }
 
 /// 内部：给指定 user 颁发 JWT + 设置 cookie，返回 AuthResponse + Set-Cookie
+///
+/// `token_version` is read from the user row (defaults 0) so the mint matches
+/// the session epoch checked by auth middleware.
 async fn issue_session_cookie(
+    db: &sea_orm::DatabaseConnection,
     user_id: i32,
     username: &str,
     is_admin: bool,
     is_owner: bool,
 ) -> Result<axum::response::Response, HttpError> {
-    let jwt_secret = env::var("JWT_SECRET").map_err(|_| HttpError::from((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "JWT_SECRET not configured"})),
-        )))?;
-    let claims = Claims {
-        sub: user_id.to_string(),
-        username: username.to_string(),
-        is_admin,
-        is_owner,
-        exp: (Utc::now() + Duration::days(30)).timestamp(),
-        iat: Utc::now().timestamp(),
-    };
-    let token = encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(jwt_secret.as_bytes()),
-    )
-    .map_err(|_e| HttpError::from((
+    use sea_orm::Value as SeaValue;
+
+    let token_version = db
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT COALESCE(token_version, 0) AS token_version FROM users WHERE id = $1",
+            vec![SeaValue::Int(Some(user_id))],
+        ))
+        .await
+        .ok()
+        .flatten()
+        .and_then(|r| {
+            r.try_get::<i32>("", "token_version")
+                .ok()
+                .map(i64::from)
+                .or_else(|| r.try_get::<i64>("", "token_version").ok())
+        })
+        .unwrap_or(0);
+
+    let claims = mint_session_claims(user_id, username, is_admin, is_owner, token_version);
+    let token = encode_session_token(&claims).map_err(|_e| {
+        HttpError::from((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": "Failed to create session token"})),
-        )))?;
+        ))
+    })?;
 
     use crate::oauth_url_builder::SiteConfig;
     let is_production = SiteConfig::is_production().await;
-    let cookie_value = format!(
-        "auth_token={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000{}",
-        token,
-        if is_production { "; Secure" } else { "" }
-    );
+    let cookie_value = auth_cookie_value(&token, is_production);
 
     let body = Json(AuthResponse {
         user: UserInfo {
@@ -1062,12 +1130,14 @@ pub async fn admin_create_user(
     headers: axum::http::HeaderMap,
     Json(req): Json<AdminCreateUserRequest>,
 ) -> Result<Json<Value>, HttpError> {
-    use crate::middleware::auth::verify_jwt_token;
-
-    let claims = verify_jwt_token(&headers).map_err(|_| HttpError::from((
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Unauthorized"})),
-        )))?;
+    let claims = crate::middleware::auth::authenticate_request(&headers, &db)
+        .await
+        .map_err(|_| {
+            HttpError::from((
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "Unauthorized"})),
+            ))
+        })?;
     ensure_current_admin_on(&claims, &db).await?;
 
     let actor_id: i32 = claims.sub.parse().unwrap_or(0);

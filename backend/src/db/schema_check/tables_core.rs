@@ -244,6 +244,14 @@ pub(crate) fn tables() -> Vec<TableDef> {
                     is_nullable: true,
                     default_value: None,
                 },
+                // JWT session epoch (MYR-005): compare with claim `tv` on every auth check.
+                // DEFAULT 0 so existing users keep working until first revoke bump.
+                ColumnDef {
+                    name: "token_version".into(),
+                    data_type: "integer".into(),
+                    is_nullable: false,
+                    default_value: Some("0".into()),
+                },
             ],
         },
         TableDef {

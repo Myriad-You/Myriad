@@ -87,9 +87,12 @@ pub async fn get_current_user(
     use sea_orm::Value as SeaValue;
 
     // 头像阶梯是 services::avatar 的共享片段（与 /api/tapp/context/user 同一份）
+    // Include token_version so revoked sessions (logout / password change) probe
+    // as unauthenticated without painting Network red (still HTTP 200).
     let user_sql = format!(
         r#"SELECT u.id, u.username, u.auth_provider, u.is_admin,
                   COALESCE(u.is_owner, false) AS is_owner,
+                  COALESCE(u.token_version, 0) AS token_version,
                   {avatar} AS avatar_url,
                   u.github_id, u.linked_github_id, u.bio, u.display_name,
                   u.password_hash IS NOT NULL AS has_password,
@@ -120,6 +123,17 @@ pub async fn get_current_user(
         // Token valid but user gone — still a session-probe miss, not auth gate.
         return Ok(Json(unauthenticated_me_body()));
     };
+
+    let db_tv: i64 = user_row
+        .try_get::<i32>("", "token_version")
+        .ok()
+        .map(i64::from)
+        .or_else(|| user_row.try_get::<i64>("", "token_version").ok())
+        .unwrap_or(0);
+    if !crate::middleware::auth::session_epoch_matches(token_data.claims.tv, Some(db_tv)) {
+        // Revoked session — soft probe miss (not 401).
+        return Ok(Json(unauthenticated_me_body()));
+    }
 
     // identities 列表（用 user_identities 表）
     let identity_rows = db
@@ -202,8 +216,47 @@ pub fn logout_clear_cookie_value(is_production: bool) -> String {
 }
 
 /// `POST /api/auth/logout`
-pub async fn logout() -> impl IntoResponse {
-    tracing::info!("🚪 User logout - clearing auth cookie");
+///
+/// Clears the browser cookie and, when a still-valid (signature) token is
+/// present, bumps `users.token_version` so stolen copies of the same JWT fail
+/// closed on protected routes until the next login.
+pub async fn logout(
+    crate::extract::Db(db): crate::extract::Db,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    // Crypto-only decode: even a soon-to-expire token should revoke the epoch.
+    // Do **not** require session epoch match here — logout must succeed after
+    // a prior password change already bumped tv.
+    if let Ok(claims) = crate::middleware::auth::verify_jwt_token(&headers) {
+        if let Ok(user_id) = claims.sub.parse::<i32>() {
+            if user_id > 0 {
+                match crate::middleware::auth::bump_token_version(&db, user_id).await {
+                    Ok(Some(new_tv)) => {
+                        tracing::info!(
+                            user_id,
+                            token_version = new_tv,
+                            "🚪 User logout — session epoch bumped"
+                        );
+                    }
+                    Ok(None) => {
+                        tracing::debug!(user_id, "🚪 Logout for missing user — cookie clear only");
+                    }
+                    Err(e) => {
+                        // Cookie still cleared; epoch bump is best-effort so
+                        // logout never 500s on a transient DB blip.
+                        tracing::warn!(
+                            user_id,
+                            error = %e,
+                            "🚪 Logout: failed to bump token_version (cookie still cleared)"
+                        );
+                    }
+                }
+            }
+        }
+    } else {
+        tracing::info!("🚪 User logout - clearing auth cookie (no/invalid token)");
+    }
+
     let is_production = crate::oauth_url_builder::SiteConfig::is_production().await;
     let cookie_value = logout_clear_cookie_value(is_production);
     let mut response =

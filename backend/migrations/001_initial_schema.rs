@@ -240,6 +240,15 @@ impl MigrationTrait for Migration {
                     // kind = auto | account | identity | platform；ref = identity id 或平台键。
                     .col(ColumnDef::new(Users::ProfileTextSourceKind).string_len(20))
                     .col(ColumnDef::new(Users::ProfileTextSourceRef).string_len(64))
+                    // JWT session epoch (MYR-005): bump on logout / password change / admin
+                    // force-revoke so long-lived tokens fail closed without shortening TTL.
+                    // Old DBs get the column via schema_check ADD COLUMN DEFAULT 0.
+                    .col(
+                        ColumnDef::new(Users::TokenVersion)
+                            .integer()
+                            .not_null()
+                            .default(0),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -771,6 +780,7 @@ enum Users {
     AvatarUpdatedAt,
     ProfileTextSourceKind,
     ProfileTextSourceRef,
+    TokenVersion,
 }
 
 #[derive(DeriveIden)]

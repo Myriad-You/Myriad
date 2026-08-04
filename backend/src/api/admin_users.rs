@@ -21,7 +21,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
-use crate::middleware::auth::{verify_jwt_token, Claims};
+use crate::middleware::auth::{authenticate_request, Claims};
 
 /// 距最近活跃 ≤300s 视为在线（与 presence 跟踪的会话间隔一致）。
 const ONLINE_WINDOW_SECS: i64 = 300;
@@ -122,7 +122,7 @@ async fn require_admin(
     headers: &axum::http::HeaderMap,
     db: &DatabaseConnection,
 ) -> Result<Claims, ApiError> {
-    let claims = verify_jwt_token(headers).map_err(|_| {
+    let claims = authenticate_request(headers, db).await.map_err(|_| {
         (
             StatusCode::UNAUTHORIZED,
             Json(json!({"error": "Unauthorized"})),

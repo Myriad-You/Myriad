@@ -19,7 +19,12 @@ use std::time::{Duration, Instant};
 use subtle::ConstantTimeEq;
 use uuid::Uuid;
 
-/// JWT Claims structure (must match auth.rs)
+/// Browser / API session lifetime (days). Keep long-lived; revoke via `token_version`.
+pub const JWT_TTL_DAYS: i64 = 30;
+/// `auth_token` cookie Max-Age in seconds (matches JWT TTL).
+pub const AUTH_COOKIE_MAX_AGE_SECS: i64 = JWT_TTL_DAYS * 24 * 60 * 60;
+
+/// JWT Claims structure (must match auth issuance sites).
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
     pub sub: String,      // User ID
@@ -30,10 +35,54 @@ pub struct Claims {
     pub is_owner: bool,
     pub exp: i64,         // Expiration time
     pub iat: i64,         // Issued at
+    /// Session epoch (`users.token_version`). Defaults `0` for pre-MYR-005 tokens
+    /// so existing sessions keep working until the first revoke bump.
+    #[serde(default)]
+    pub tv: i64,
 }
 
-/// Authentication middleware - verifies JWT token
-/// Returns 401 if token is missing or invalid
+/// Build claims for a durable user session (login / register / password reissue).
+pub fn mint_session_claims(
+    user_id: i32,
+    username: impl Into<String>,
+    is_admin: bool,
+    is_owner: bool,
+    token_version: i64,
+) -> Claims {
+    let now = chrono::Utc::now().timestamp();
+    Claims {
+        sub: user_id.to_string(),
+        username: username.into(),
+        is_admin,
+        is_owner,
+        exp: now + JWT_TTL_DAYS * 24 * 60 * 60,
+        iat: now,
+        tv: token_version,
+    }
+}
+
+/// Encode claims with `JWT_SECRET`. Caller must set cookie / Authorization.
+pub fn encode_session_token(claims: &Claims) -> Result<String, String> {
+    let jwt_secret =
+        env::var("JWT_SECRET").map_err(|_| "JWT_SECRET not configured".to_string())?;
+    jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        claims,
+        &jsonwebtoken::EncodingKey::from_secret(jwt_secret.as_bytes()),
+    )
+    .map_err(|e| format!("JWT encode failed: {e}"))
+}
+
+/// `auth_token=…` Set-Cookie value for a newly issued session.
+pub fn auth_cookie_value(token: &str, is_production: bool) -> String {
+    format!(
+        "auth_token={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={AUTH_COOKIE_MAX_AGE_SECS}{}",
+        if is_production { "; Secure" } else { "" }
+    )
+}
+
+/// Authentication middleware - verifies JWT token + session epoch
+/// Returns 401 if token is missing, invalid, or revoked
 ///
 /// Requires `Router<AppState>` so `State<DatabaseConnection>` resolves via FromRef.
 pub async fn auth_middleware(
@@ -43,7 +92,7 @@ pub async fn auth_middleware(
 ) -> Response {
     let headers = req.headers();
 
-    match verify_jwt_token(headers) {
+    match authenticate_request(headers, &db).await {
         Ok(claims) => {
             record_user_presence(&claims, db);
             // Token is valid, inject claims into request extensions
@@ -119,7 +168,7 @@ pub async fn admin_middleware(
 ) -> Response {
     let headers = req.headers();
 
-    match verify_jwt_token(headers) {
+    match authenticate_request(headers, &db).await {
         Ok(claims) => {
             record_user_presence(&claims, db.clone());
             if let Err((status, body)) = ensure_current_admin_on(&claims, &db).await {
@@ -198,12 +247,12 @@ pub async fn ensure_current_admin_on(
     }
 }
 
-/// Verify JWT headers and re-check the admin flag against the request DB.
+/// Verify JWT headers (incl. session epoch) and re-check the admin flag against the request DB.
 pub async fn verify_current_admin_from_headers(
     headers: &HeaderMap,
     db: &DatabaseConnection,
 ) -> Result<Claims, (StatusCode, Json<serde_json::Value>)> {
-    let claims = verify_jwt_token(headers).map_err(|_| {
+    let claims = authenticate_request(headers, db).await.map_err(|_| {
         (
             StatusCode::UNAUTHORIZED,
             Json(json!({
@@ -215,6 +264,135 @@ pub async fn verify_current_admin_from_headers(
 
     ensure_current_admin_on(&claims, db).await?;
     Ok(claims)
+}
+
+/// Load `users.token_version` for a durable user id.
+///
+/// Returns `None` when the user row is missing (deleted) or `user_id` is not a
+/// positive durable id (guests use negative subjects and have no row).
+pub async fn load_token_version(
+    db: &DatabaseConnection,
+    user_id: i32,
+) -> Result<Option<i64>, sea_orm::DbErr> {
+    if user_id <= 0 {
+        return Ok(None);
+    }
+    let row = db
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT token_version FROM users WHERE id = $1 LIMIT 1",
+            [user_id.into()],
+        ))
+        .await?;
+    Ok(row.and_then(|r| {
+        r.try_get::<i32>("", "token_version")
+            .ok()
+            .map(i64::from)
+            .or_else(|| r.try_get::<i64>("", "token_version").ok())
+    }))
+}
+
+/// Pure session-epoch check used by auth middleware and unit tests.
+///
+/// - Missing user (`None`) → revoked (deleted account)
+/// - Claim `tv` must equal stored version
+pub fn session_epoch_matches(claim_tv: i64, db_version: Option<i64>) -> bool {
+    match db_version {
+        Some(v) => claim_tv == v,
+        None => false,
+    }
+}
+
+/// Fail closed when JWT session epoch does not match the user row.
+///
+/// Guests (`sub` ≤ 0) skip the DB check — they are not durable sessions.
+pub async fn ensure_session_epoch(
+    claims: &Claims,
+    db: &DatabaseConnection,
+) -> Result<(), Box<Response>> {
+    let user_id: i32 = claims.sub.parse().map_err(|_| unauthorized_session_response())?;
+    if user_id <= 0 {
+        return Ok(());
+    }
+
+    let db_version = load_token_version(db, user_id).await.map_err(|e| {
+        tracing::error!("Failed to load token_version for user {}: {}", user_id, e);
+        Box::new(
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "error": "Database error",
+                    "message": "Session cannot be verified."
+                })),
+            )
+                .into_response(),
+        )
+    })?;
+
+    if session_epoch_matches(claims.tv, db_version) {
+        Ok(())
+    } else {
+        tracing::debug!(
+            user_id,
+            claim_tv = claims.tv,
+            db_version = ?db_version,
+            "JWT session epoch mismatch — treating token as revoked"
+        );
+        Err(unauthorized_session_response())
+    }
+}
+
+fn unauthorized_session_response() -> Box<Response> {
+    Box::new(
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({
+                "error": "Invalid token",
+                "message": "Session has been revoked. Please login again."
+            })),
+        )
+            .into_response(),
+    )
+}
+
+/// Cryptographic JWT verify **plus** server-side session epoch check.
+///
+/// Prefer this over [`verify_jwt_token`] for any path that must fail closed
+/// after logout / password change / account deletion.
+pub async fn authenticate_request(
+    headers: &HeaderMap,
+    db: &DatabaseConnection,
+) -> Result<Claims, Box<Response>> {
+    let claims = verify_jwt_token(headers)?;
+    ensure_session_epoch(&claims, db).await?;
+    Ok(claims)
+}
+
+/// Atomically bump `users.token_version` and return the new value.
+///
+/// Used on logout and password change so all previously issued JWTs fail
+/// [`ensure_session_epoch`]. Returns `None` if the user row is gone.
+pub async fn bump_token_version(
+    db: &DatabaseConnection,
+    user_id: i32,
+) -> Result<Option<i64>, sea_orm::DbErr> {
+    if user_id <= 0 {
+        return Ok(None);
+    }
+    let row = db
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "UPDATE users SET token_version = token_version + 1, updated_at = NOW() \
+             WHERE id = $1 RETURNING token_version",
+            [user_id.into()],
+        ))
+        .await?;
+    Ok(row.and_then(|r| {
+        r.try_get::<i32>("", "token_version")
+            .ok()
+            .map(i64::from)
+            .or_else(|| r.try_get::<i64>("", "token_version").ok())
+    }))
 }
 
 fn admin_forbidden() -> (StatusCode, Json<serde_json::Value>) {
@@ -324,7 +502,8 @@ pub async fn optional_auth_middleware(
 ) -> Response {
     let headers = req.headers();
     let mut set_guest_cookie = None;
-    let claims = match verify_jwt_token(headers) {
+    // Full auth (crypto + epoch). Revoked / missing sessions fall through to guest.
+    let claims = match authenticate_request(headers, &db).await {
         Ok(claims) => {
             record_user_presence(&claims, db);
             claims
@@ -357,6 +536,7 @@ pub async fn optional_auth_middleware(
                 is_owner: false,
                 exp: chrono::Utc::now().timestamp() + GUEST_SESSION_MAX_AGE,
                 iat: chrono::Utc::now().timestamp(),
+                tv: 0,
             }
         }
     };
@@ -489,7 +669,10 @@ pub fn extract_optional_claims(headers: &HeaderMap) -> Option<Claims> {
 
 #[cfg(test)]
 mod tests {
-    use super::{guest_id, sign_guest_session, verify_guest_session};
+    use super::{
+        guest_id, mint_session_claims, session_epoch_matches, sign_guest_session,
+        verify_guest_session, AUTH_COOKIE_MAX_AGE_SECS, JWT_TTL_DAYS,
+    };
 
     #[test]
     fn signed_guest_session_is_stable_and_tamper_evident() {
@@ -517,5 +700,38 @@ mod tests {
             .map(|i| guest_id(&format!("{i:032x}")))
             .collect();
         assert_eq!(many.len(), 256, "unexpected guest_id collision in 256 samples");
+    }
+
+    #[test]
+    fn session_epoch_matches_requires_equal_version() {
+        assert!(session_epoch_matches(0, Some(0)));
+        assert!(session_epoch_matches(3, Some(3)));
+        assert!(!session_epoch_matches(0, Some(1)));
+        assert!(!session_epoch_matches(2, Some(1)));
+        // Deleted / missing user → fail closed
+        assert!(!session_epoch_matches(0, None));
+        assert!(!session_epoch_matches(5, None));
+    }
+
+    #[test]
+    fn mint_session_claims_embeds_token_version_and_30d_ttl() {
+        let claims = mint_session_claims(7, "alice", false, true, 4);
+        assert_eq!(claims.sub, "7");
+        assert_eq!(claims.username, "alice");
+        assert!(!claims.is_admin);
+        assert!(claims.is_owner);
+        assert_eq!(claims.tv, 4);
+        let span = claims.exp - claims.iat;
+        assert_eq!(span, JWT_TTL_DAYS * 24 * 60 * 60);
+        assert_eq!(AUTH_COOKIE_MAX_AGE_SECS, span);
+    }
+
+    #[test]
+    fn claims_tv_defaults_when_absent_in_json() {
+        // Pre-MYR-005 tokens omit `tv`; serde default keeps them at epoch 0.
+        let json = r#"{"sub":"1","username":"u","is_admin":false,"exp":1,"iat":0}"#;
+        let claims: super::Claims = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(claims.tv, 0);
+        assert!(!claims.is_owner);
     }
 }

@@ -191,6 +191,7 @@ mod tests {
             is_owner: false,
             exp: 0,
             iat: 0,
+            tv: 0,
         }
     }
 
