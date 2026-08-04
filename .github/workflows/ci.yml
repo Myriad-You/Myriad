@@ -27,7 +27,7 @@ jobs:
         with:
           node-version: 24
       - name: Install pnpm
-        run: npm install --global pnpm@10.28.2
+        run: npm install --global pnpm@10.34.5
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
         env:
@@ -160,7 +160,7 @@ jobs:
         with:
           node-version: 24
       - name: Install pnpm
-        run: npm install --global pnpm@10.28.2
+        run: npm install --global pnpm@10.34.5
       # High/critical hard-fail. Overrides + ignoreGhsas in frontend/package.json
       # (see .github/dependency-audit/README.md). Moderate/low reported softly.
       - name: Audit frontend dependencies (hard — high/critical)
