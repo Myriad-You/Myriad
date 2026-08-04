@@ -341,17 +341,36 @@ impl AiAnalyzer {
             .connect_timeout(Duration::from_secs(30))
             .user_agent("Myriad/1.0");
 
-        let client = crate::services::http_client::apply_proxy(builder, &proxy_config)
+        // MYR-019: if proxy is required and build fails, do not silently direct-connect.
+        let client = match crate::services::http_client::apply_proxy(builder, &proxy_config)
             .and_then(|b| b.build())
-            .unwrap_or_else(|e| {
-                tracing::error!(%e, "AiAnalyzer proxy client build failed; using direct client");
+        {
+            Ok(client) => client,
+            Err(e) if crate::services::http_client::proxy_is_required(&proxy_config) => {
+                tracing::error!(
+                    %e,
+                    proxy_url = ?proxy_config.proxy_url.as_deref(),
+                    "AiAnalyzer: configured outbound proxy failed to build; refusing \
+                     silent direct-connect (MYR-019 fail-closed)"
+                );
+                panic!(
+                    "AiAnalyzer: configured outbound proxy failed to build \
+                     (fail-closed, no direct bypass): {e}"
+                );
+            }
+            Err(e) => {
+                tracing::error!(
+                    %e,
+                    "AiAnalyzer client build failed with proxy disabled; using direct client"
+                );
                 Client::builder()
                     .timeout(request_timeout)
                     .connect_timeout(Duration::from_secs(30))
                     .user_agent("Myriad/1.0")
                     .build()
                     .unwrap_or_else(|_| Client::new())
-            });
+            }
+        };
         Self {
             client,
             provider,

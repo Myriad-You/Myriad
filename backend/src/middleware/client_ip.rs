@@ -54,28 +54,50 @@ pub fn parse_proxy_peer_allowlist(raw: &str) -> Vec<ipnet::IpNet> {
         .collect()
 }
 
+/// Built-in default when `TRUST_PROXY_PEERS` is unset or empty (MYR-026).
+///
+/// **Not** entire RFC1918. Prefer:
+/// - loopback (`127.0.0.0/8`, `::1`) for host Nginx / local tooling
+/// - Docker default bridge (`172.17.0.0/16`) for classic docker0 peers
+///
+/// Compose stock sets an explicit list that also includes the fixed
+/// `myriad-net` subnet (`172.28.0.0/16`). Operators should set
+/// `TRUST_PROXY_PEERS` to the reverse-proxy network only in production.
+pub const DEFAULT_TRUST_PROXY_PEERS: &str = "127.0.0.0/8,::1,172.17.0.0/16";
+
+/// Default peer allowlist nets (parsed from [`DEFAULT_TRUST_PROXY_PEERS`]).
+pub fn default_trust_proxy_peer_nets() -> Vec<ipnet::IpNet> {
+    parse_proxy_peer_allowlist(DEFAULT_TRUST_PROXY_PEERS)
+}
+
 /// Env: `TRUST_PROXY_PEERS` — CIDR/IP allowlist of reverse-proxy TCP peers.
 ///
-/// Empty/missing with `TRUST_PROXY_HEADERS=1` ⇒ mirror the proxy's empty
-/// `PROXY_TRUSTED_UPSTREAMS` rule: only private / loopback / link-local peers
-/// may supply XFF / X-Real-IP (Docker bridge + host Nginx). Public peers never
-/// get to forge headers. Set an explicit CIDR list to tighten further.
+/// - **Unset/empty** ⇒ narrow built-in default (loopback + docker0), **not**
+///   entire RFC1918 (MYR-026).
+/// - **Non-empty** ⇒ only listed peers may supply XFF / X-Real-IP.
+///
+/// Rate-limit middleware uses the same [`extract_client_ip`] path, so peer
+/// trust and client-IP extraction stay aligned.
 pub fn trusted_proxy_peer_allowlist() -> &'static [ipnet::IpNet] {
     static ALLOWLIST: OnceLock<Vec<ipnet::IpNet>> = OnceLock::new();
     ALLOWLIST
         .get_or_init(|| {
-            std::env::var("TRUST_PROXY_PEERS")
-                .ok()
-                .map(|s| parse_proxy_peer_allowlist(&s))
-                .unwrap_or_default()
+            let raw = std::env::var("TRUST_PROXY_PEERS").unwrap_or_default();
+            let parsed = parse_proxy_peer_allowlist(&raw);
+            if parsed.is_empty() {
+                default_trust_proxy_peer_nets()
+            } else {
+                parsed
+            }
         })
         .as_slice()
 }
 
 /// RFC1918 / loopback / link-local (and IPv6 ULA / link-local).
 ///
-/// Used when `TRUST_PROXY_PEERS` is empty so stock Docker (proxy → backend on
-/// the compose network) still honors `X-Real-IP` rewritten by the Myriad proxy.
+/// Used for weather/geo private-IP heuristics and the pure-function path when
+/// callers pass an empty allowlist explicitly. Production env wiring uses
+/// [`trusted_proxy_peer_allowlist`] (narrow default, not full RFC1918).
 pub fn is_private_or_local(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => v4.is_private() || v4.is_loopback() || v4.is_link_local(),
@@ -105,10 +127,10 @@ pub fn peer_in_proxy_allowlist(peer: IpAddr, allowlist: &[ipnet::IpNet]) -> bool
 }
 
 /// Pure trust decision: honor forwarded headers only when trust is enabled and
-/// either:
-/// - `allowlist` is non-empty and the TCP peer is on it, or
-/// - `allowlist` is empty and the TCP peer is private/loopback/link-local
-/// (aligned with proxy empty `PROXY_TRUSTED_UPSTREAMS`).
+/// the TCP peer is on `allowlist`.
+///
+/// When `allowlist` is empty (test / explicit), fall back to the narrow built-in
+/// default (loopback + docker0) — **not** entire RFC1918 (MYR-026).
 pub fn should_trust_proxy_headers(
     peer_ip: Option<IpAddr>,
     trust_proxy_headers: bool,
@@ -121,7 +143,8 @@ pub fn should_trust_proxy_headers(
         return false;
     };
     if allowlist.is_empty() {
-        return is_private_or_local(peer);
+        let default = default_trust_proxy_peer_nets();
+        return peer_in_proxy_allowlist(peer, &default);
     }
     peer_in_proxy_allowlist(peer, allowlist)
 }
@@ -135,7 +158,7 @@ pub fn client_ip_from_parts(
         headers,
         peer_ip,
         trust_proxy_headers,
-        // Production path: env-backed allowlist. Empty ⇒ private peers only.
+        // Production path: env-backed allowlist (narrow default when unset).
         trusted_proxy_peer_allowlist(),
     )
 }
@@ -185,21 +208,23 @@ pub fn is_broad_private_supernet(net: &ipnet::IpNet) -> bool {
 }
 
 /// Log once at startup when proxy trust is enabled with an over-broad peer allowlist.
-/// Compose defaults to all RFC1918 for convenience; production should pin to the
-/// reverse-proxy network only.
+///
+/// Default is loopback + docker0 (not full RFC1918). Compose stock pins
+/// `myriad-net` (`172.28.0.0/16`) explicitly; production should keep peers tight.
 pub fn log_proxy_trust_hygiene() {
     if !trusted_proxy_headers_enabled() {
         return;
     }
     let allowlist = trusted_proxy_peer_allowlist();
-    if allowlist.is_empty() {
+    let env_raw = std::env::var("TRUST_PROXY_PEERS").unwrap_or_default();
+    if env_raw.trim().is_empty() {
         tracing::info!(
-            "TRUST_PROXY_HEADERS is enabled and TRUST_PROXY_PEERS is empty — \
-             honoring X-Forwarded-For / X-Real-IP only from private/loopback peers \
-             (Docker proxy path). Set TRUST_PROXY_PEERS to the reverse-proxy CIDR \
-             to tighten (e.g. docker network inspect <project>_default)."
+            default = DEFAULT_TRUST_PROXY_PEERS,
+            "TRUST_PROXY_HEADERS is enabled and TRUST_PROXY_PEERS is unset/empty — \
+             using narrow default (loopback + docker0), not full RFC1918. \
+             Compose stock should set TRUST_PROXY_PEERS to include myriad-net \
+             (172.28.0.0/16). Pin further with docker network inspect."
         );
-        return;
     }
     let broad: Vec<String> = allowlist
         .iter()
@@ -211,8 +236,8 @@ pub fn log_proxy_trust_hygiene() {
             peers = %broad.join(", "),
             "TRUST_PROXY_PEERS includes broad private supernet(s). Any host on those \
              ranges that can reach the backend may forge X-Forwarded-For / X-Real-IP. \
-             Prefer the reverse-proxy container network only (see docker-compose \
-             comments and docs/deployment/DOCKER_DEPLOYMENT.md)."
+             Prefer loopback / docker bridge / the reverse-proxy network only (see \
+             docker-compose comments and docs/deployment/DOCKER_DEPLOYMENT.md)."
         );
     }
 }
@@ -243,17 +268,42 @@ mod tests {
     }
 
     #[test]
-    fn empty_allowlist_trusts_private_peer_headers() {
+    fn empty_allowlist_uses_narrow_default_not_full_rfc1918() {
+        // MYR-026: empty allowlist ⇒ loopback + docker0 only, not 10/8 etc.
         let mut headers = HeaderMap::new();
         headers.insert("x-real-ip", HeaderValue::from_static("203.0.113.50"));
-        let peer = "10.0.0.2".parse().unwrap();
 
-        // Align with proxy empty PROXY_TRUSTED_UPSTREAMS: private peer → honor X-Real-IP
+        // docker0 peer is trusted by default
+        let docker0_peer = "172.17.0.2".parse().unwrap();
+        assert!(should_trust_proxy_headers(Some(docker0_peer), true, &[]));
         assert_eq!(
-            client_ip_from_parts_with_allowlist(&headers, Some(peer), true, &[]),
+            client_ip_from_parts_with_allowlist(&headers, Some(docker0_peer), true, &[]),
             Some("203.0.113.50".parse().unwrap())
         );
-        assert!(should_trust_proxy_headers(Some(peer), true, &[]));
+
+        // loopback peer is trusted by default
+        let loopback = "127.0.0.1".parse().unwrap();
+        assert!(should_trust_proxy_headers(Some(loopback), true, &[]));
+
+        // Arbitrary RFC1918 (e.g. 10/8) is NOT trusted by empty allowlist
+        let rfc1918_peer = "10.0.0.2".parse().unwrap();
+        assert!(!should_trust_proxy_headers(Some(rfc1918_peer), true, &[]));
+        assert_eq!(
+            client_ip_from_parts_with_allowlist(&headers, Some(rfc1918_peer), true, &[]),
+            Some(rfc1918_peer)
+        );
+
+        // Compose myriad-net (172.28/16) needs explicit TRUST_PROXY_PEERS
+        let myriad_net_peer = "172.28.0.2".parse().unwrap();
+        assert!(!should_trust_proxy_headers(Some(myriad_net_peer), true, &[]));
+        let compose_allow = default_trust_proxy_peer_nets();
+        let mut with_compose = compose_allow;
+        with_compose.push(net("172.28.0.0/16"));
+        assert!(should_trust_proxy_headers(
+            Some(myriad_net_peer),
+            true,
+            &with_compose
+        ));
     }
 
     #[test]
@@ -270,14 +320,38 @@ mod tests {
     }
 
     #[test]
+    fn default_trust_proxy_peers_is_not_full_rfc1918() {
+        let defaults = default_trust_proxy_peer_nets();
+        assert!(!defaults.is_empty());
+        assert!(defaults.iter().all(|n| !is_broad_private_supernet(n)));
+        // Known members
+        assert!(peer_in_proxy_allowlist("127.0.0.1".parse().unwrap(), &defaults));
+        assert!(peer_in_proxy_allowlist("172.17.0.1".parse().unwrap(), &defaults));
+        assert!(!peer_in_proxy_allowlist("10.0.0.1".parse().unwrap(), &defaults));
+        assert!(!peer_in_proxy_allowlist("192.168.1.1".parse().unwrap(), &defaults));
+        assert!(!peer_in_proxy_allowlist("172.28.0.1".parse().unwrap(), &defaults));
+    }
+
+    #[test]
     fn detects_broad_rfc1918_supernets() {
         assert!(is_broad_private_supernet(&net("10.0.0.0/8")));
         assert!(is_broad_private_supernet(&net("172.16.0.0/12")));
         assert!(is_broad_private_supernet(&net("192.168.0.0/16")));
         // Tighter docker-bridge style ranges are OK
+        assert!(!is_broad_private_supernet(&net("172.17.0.0/16")));
         assert!(!is_broad_private_supernet(&net("172.18.0.0/16")));
+        assert!(!is_broad_private_supernet(&net("172.28.0.0/16")));
         assert!(!is_broad_private_supernet(&net("10.0.1.0/24")));
         assert!(!is_broad_private_supernet(&net("192.168.1.0/24")));
+    }
+
+    #[test]
+    fn rate_limit_and_geo_share_extract_client_ip() {
+        // Rate-limit middleware keys on extract_client_ip; keep a source-level
+        // guard so IP extraction cannot diverge from client_ip helpers.
+        let rate_src = include_str!("rate_limit.rs");
+        assert!(rate_src.contains("extract_client_ip"));
+        assert!(rate_src.contains("client_ip::extract_client_ip"));
     }
 
     #[test]

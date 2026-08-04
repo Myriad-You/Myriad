@@ -136,16 +136,19 @@ services:
       # Backend must trust those headers from the proxy peer or weather/geo falls
       # back to the *server* public IP (classic "weather shows datacenter city" bug).
       TRUST_PROXY_HEADERS: "true"
-      # TCP peers allowed to supply X-Forwarded-For / X-Real-IP.
-      # Empty = same as proxy empty PROXY_TRUSTED_UPSTREAMS: only private/loopback
-      # peers (Docker network) may supply headers; public peers cannot forge.
+      # TCP peers allowed to supply X-Forwarded-For / X-Real-IP (MYR-026).
+      # Backend default when unset/empty is narrow: loopback + docker0 only
+      # (127.0.0.0/8, ::1, 172.17.0.0/16) — NOT entire RFC1918.
       #
-      # Default is full RFC1918 so stock Docker works. That is convenient but wide:
-      # any host on those ranges that can reach backend could forge client IP.
-      # Production: set TRUST_PROXY_PEERS to the *proxy service network only*
-      # (inspect with: docker network inspect <project>_default — use that subnet,
-      # e.g. 172.18.0.0/16). Backend logs a warning when peers look overly broad.
-      TRUST_PROXY_PEERS: ${TRUST_PROXY_PEERS:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
+      # Stock compose pins:
+      #   - loopback (host tooling / local reverse-proxy)
+      #   - docker0 default bridge (172.17.0.0/16)
+      #   - fixed myriad-net subnet below (172.28.0.0/16) where proxy → backend runs
+      # Override with an explicit list for custom networks, e.g. only the proxy
+      # service network from `docker network inspect`. Never use full 10/8 +
+      # 172.16/12 + 192.168/16 unless you accept any RFC1918 peer forging XFF.
+      # Backend warns at startup when peers look overly broad.
+      TRUST_PROXY_PEERS: ${TRUST_PROXY_PEERS:-127.0.0.0/8,::1,172.17.0.0/16,172.28.0.0/16}
       # Public frontend origin(s), comma-separated. Production requires this
       # (backend panics if empty when ENVIRONMENT=production). Never use *.
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}

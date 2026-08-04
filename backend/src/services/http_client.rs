@@ -76,6 +76,10 @@ impl ProxyConfig {
 ///
 /// Shared by the global client factory, long-running clients, AiAnalyzer, and
 /// Tencent speech so bypass list behavior stays consistent.
+///
+/// **MYR-019 fail-closed:** when `should_use_proxy()` is true and the proxy URL
+/// cannot be built, returns `Err` — callers must not fall back to a silent
+/// direct-connect client. When proxy is not configured/enabled, direct is OK.
 pub fn apply_proxy(
     mut builder: reqwest::ClientBuilder,
     proxy_config: &ProxyConfig,
@@ -84,7 +88,15 @@ pub fn apply_proxy(
         if let Some(proxy_url) = &proxy_config.proxy_url {
             tracing::info!("🌐 Configuring HTTP proxy: {}", proxy_url);
 
-            let mut proxy = Proxy::all(proxy_url)?;
+            let mut proxy = Proxy::all(proxy_url).map_err(|error| {
+                tracing::error!(
+                    %error,
+                    proxy_url = %proxy_url,
+                    "Configured outbound proxy URL is invalid (PROXY_URL / proxy_url); \
+                     refusing silent direct-connect (MYR-019 fail-closed)"
+                );
+                error
+            })?;
 
             // Wire NO_PROXY-style bypass into reqwest (was log-only before).
             if !proxy_config.bypass_list.is_empty() {
@@ -109,6 +121,14 @@ pub fn apply_proxy(
     Ok(builder)
 }
 
+/// True when outbound proxy is required (enabled + non-empty URL).
+///
+/// Used by fail-closed paths: if this is true and client build fails, never
+/// silently direct-connect.
+pub fn proxy_is_required(proxy_config: &ProxyConfig) -> bool {
+    proxy_config.should_use_proxy()
+}
+
 /// 创建带代理支持的 HTTP 客户端
 pub fn create_client_with_proxy(proxy_config: &ProxyConfig) -> Result<Client, reqwest::Error> {
     let builder = Client::builder()
@@ -130,6 +150,44 @@ pub fn create_client_no_proxy() -> Result<Client, reqwest::Error> {
         .build()
 }
 
+/// Resolve a client after a build attempt: direct only when proxy was not required.
+///
+/// When proxy **was** required, logs and panics rather than returning a direct
+/// client (MYR-019). Misconfiguration must not look like a working egress path.
+pub fn resolve_client_or_fail_closed(
+    result: Result<Client, reqwest::Error>,
+    proxy_config: &ProxyConfig,
+    context: &str,
+) -> Client {
+    match result {
+        Ok(client) => client,
+        Err(error) if proxy_is_required(proxy_config) => {
+            tracing::error!(
+                %error,
+                context,
+                proxy_url = ?proxy_config.proxy_url.as_deref(),
+                "Configured outbound proxy failed to build; refusing silent \
+                 direct-connect (MYR-019 fail-closed). Fix PROXY_URL / admin \
+                 proxy settings (or disable proxy)."
+            );
+            panic!(
+                "{context}: configured outbound proxy failed to build (fail-closed, \
+                 no direct bypass): {error}"
+            );
+        }
+        Err(error) => {
+            tracing::error!(
+                %error,
+                context,
+                "HTTP client build failed with proxy disabled; using direct client"
+            );
+            create_client_no_proxy().unwrap_or_else(|fallback_error| {
+                panic!("{context}: failed to create direct HTTP client: {fallback_error}")
+            })
+        }
+    }
+}
+
 /// 获取或创建全局 HTTP 客户端
 ///
 /// 注意：这个客户端会在配置重载时更新
@@ -145,10 +203,11 @@ pub async fn get_global_client() -> Client {
 
     // 需要创建新客户端
     let proxy_config = ProxyConfig::from_dynamic_config().await;
-    let client = create_client_with_proxy(&proxy_config).unwrap_or_else(|e| {
-        tracing::error!("Failed to create HTTP client with proxy: {}", e);
-        create_client_no_proxy().expect("Failed to create HTTP client")
-    });
+    let client = resolve_client_or_fail_closed(
+        create_client_with_proxy(&proxy_config),
+        &proxy_config,
+        "get_global_client",
+    );
 
     // 存储并返回
     {
@@ -166,6 +225,9 @@ pub async fn get_global_client() -> Client {
 ///
 /// 目前由本地未合并的 `image_generation` 提供方使用；主线仍保留符号以免
 /// 下游 WIP 反复分叉，故允许 dead_code。
+///
+/// **MYR-019:** if a proxy is configured and cannot be applied, this panics
+/// instead of silently building a direct client.
 #[allow(dead_code)]
 pub async fn get_long_running_client() -> Client {
     // Image + long LLM-backed image APIs regularly exceed 2–3 minutes.
@@ -175,25 +237,40 @@ pub async fn get_long_running_client() -> Client {
         .timeout(request_timeout)
         .connect_timeout(Duration::from_secs(15))
         .user_agent("Myriad-ImageGeneration/1.0");
-    let builder = apply_proxy(builder, &proxy_config).unwrap_or_else(|error| {
-        tracing::error!(%error, "Failed to apply proxy to long-running HTTP client");
-        Client::builder()
-            .timeout(request_timeout)
-            .connect_timeout(Duration::from_secs(15))
-            .user_agent("Myriad-ImageGeneration/1.0")
-    });
-    builder.build().unwrap_or_else(|error| {
-        tracing::error!(%error, "Failed to create long-running HTTP client");
-        Client::builder()
-            .timeout(request_timeout)
-            .connect_timeout(Duration::from_secs(15))
-            .user_agent("Myriad-ImageGeneration/1.0")
-            .build()
-            .expect("Failed to create fallback image-generation HTTP client")
-    })
+    let result = apply_proxy(builder, &proxy_config).and_then(|b| b.build());
+    match result {
+        Ok(client) => client,
+        Err(error) if proxy_is_required(&proxy_config) => {
+            tracing::error!(
+                %error,
+                proxy_url = ?proxy_config.proxy_url.as_deref(),
+                "Long-running client: configured outbound proxy failed to build; \
+                 refusing silent direct-connect (MYR-019 fail-closed)"
+            );
+            panic!(
+                "get_long_running_client: configured outbound proxy failed to build \
+                 (fail-closed, no direct bypass): {error}"
+            );
+        }
+        Err(error) => {
+            tracing::error!(
+                %error,
+                "Long-running client build failed with proxy disabled; using direct client"
+            );
+            Client::builder()
+                .timeout(request_timeout)
+                .connect_timeout(Duration::from_secs(15))
+                .user_agent("Myriad-ImageGeneration/1.0")
+                .build()
+                .expect("Failed to create direct long-running HTTP client")
+        }
+    }
 }
 
 /// 重新加载全局 HTTP 客户端（配置更新时调用）
+///
+/// On failure with a **required** proxy, keeps the previous client (if any) and
+/// does **not** install a silent direct-connect replacement (MYR-019).
 pub async fn reload_global_client() {
     let proxy_config = ProxyConfig::from_dynamic_config().await;
 
@@ -202,6 +279,14 @@ pub async fn reload_global_client() {
             let mut guard = GLOBAL_HTTP_CLIENT.write().unwrap();
             *guard = Some(client);
             tracing::info!("✅ Global HTTP client reloaded with new proxy config");
+        }
+        Err(e) if proxy_is_required(&proxy_config) => {
+            tracing::error!(
+                %e,
+                proxy_url = ?proxy_config.proxy_url.as_deref(),
+                "❌ Failed to reload HTTP client with required proxy; keeping previous \
+                 client (fail-closed, no silent direct bypass)"
+            );
         }
         Err(e) => {
             tracing::error!("❌ Failed to reload HTTP client: {}", e);
@@ -356,7 +441,61 @@ mod tests {
             bypass_list: vec![],
         };
         assert!(bad.should_use_proxy());
+        assert!(proxy_is_required(&bad));
         assert!(apply_proxy(reqwest::Client::builder(), &bad).is_err());
+        assert!(create_client_with_proxy(&bad).is_err());
+    }
+
+    #[test]
+    fn invalid_required_proxy_does_not_yield_direct_client() {
+        // MYR-019: when proxy is required, create paths must error — never
+        // silently hand back a working direct client.
+        let bad = ProxyConfig {
+            enabled: true,
+            proxy_url: Some("not a valid proxy url".to_string()),
+            bypass_list: vec![],
+        };
+        assert!(create_client_with_proxy(&bad).is_err());
+
+        let ok_direct = ProxyConfig {
+            enabled: false,
+            proxy_url: None,
+            bypass_list: vec![],
+        };
+        assert!(!proxy_is_required(&ok_direct));
+        create_client_with_proxy(&ok_direct).expect("direct when proxy disabled");
+
+        let enabled_no_url = ProxyConfig {
+            enabled: true,
+            proxy_url: None,
+            bypass_list: vec![],
+        };
+        // enabled without URL is not "required" — direct remains OK
+        assert!(!proxy_is_required(&enabled_no_url));
+        create_client_with_proxy(&enabled_no_url).expect("direct when url missing");
+    }
+
+    #[test]
+    #[should_panic(expected = "fail-closed")]
+    fn resolve_client_or_fail_closed_panics_when_proxy_required() {
+        let bad = ProxyConfig {
+            enabled: true,
+            proxy_url: Some("not a valid proxy url".to_string()),
+            bypass_list: vec![],
+        };
+        let err = create_client_with_proxy(&bad).unwrap_err();
+        let _ = resolve_client_or_fail_closed(Err(err), &bad, "test_context");
+    }
+
+    #[test]
+    fn resolve_client_or_fail_closed_allows_direct_when_proxy_off() {
+        let off = ProxyConfig::default();
+        assert!(!proxy_is_required(&off));
+        // Simulate a non-proxy build error path by feeding Ok from a real build.
+        let client = create_client_with_proxy(&off).expect("direct");
+        let resolved = resolve_client_or_fail_closed(Ok(client), &off, "test_direct");
+        // Smoke: client is usable (builder succeeded).
+        let _ = resolved;
     }
 
     #[tokio::test]

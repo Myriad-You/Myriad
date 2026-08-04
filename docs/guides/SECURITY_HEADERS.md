@@ -116,7 +116,7 @@ backend。backend 侧：
 | 变量 | 作用 |
 | --- | --- |
 | `TRUST_PROXY_HEADERS=true` | 允许从可信 peer 读取转发头（compose 默认开启） |
-| `TRUST_PROXY_PEERS` | 可信任的 TCP peer CIDR。**空 = 仅私网/loopback peer**（与 proxy 空 allowlist 对齐）。compose 默认 RFC1918 全段 |
+| `TRUST_PROXY_PEERS` | 可信任的 TCP peer CIDR。**空 = 窄默认**（loopback + docker0，非 RFC1918 全段）。compose 默认含 `172.28.0.0/16`（myriad-net） |
 
 若 `TRUST_PROXY_HEADERS` 关闭，或 peer 不在信任范围，backend 会把 Docker 内网
 地址当成「客户端 IP」，`/api/proxy/client-geo` 再回退到**服务器出口公网 IP**，

@@ -792,5 +792,9 @@ mod tests {
     fn analyzer_and_tencent_source_wire_apply_proxy() {
         assert!(include_str!("analyzer.rs").contains("apply_proxy"));
         assert!(include_str!("tencent_speech_service.rs").contains("apply_proxy"));
+        // MYR-019: analyzer must fail closed, not silently direct-connect.
+        assert!(include_str!("analyzer.rs").contains("proxy_is_required"));
+        assert!(include_str!("analyzer.rs").contains("fail-closed"));
+        assert!(include_str!("http_client.rs").contains("resolve_client_or_fail_closed"));
     }
 }
