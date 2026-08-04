@@ -462,20 +462,22 @@ impl BrewSchedulerEngine {
             new_items.push(new_item);
         }
 
-        // 批量插入，ON CONFLICT DO NOTHING 防止并发竞态下的重复键错误
-        let new_count = new_items.len() as i32;
-        if !new_items.is_empty() {
+        // 批量插入，ON CONFLICT DO NOTHING 防止并发竞态下的重复键错误。
+        // 用 rows_affected 作为 new_count：冲突跳过的行不计入 item/unread 与通知。
+        let new_count = if new_items.is_empty() {
+            0
+        } else {
             let on_conflict =
                 OnConflict::columns([brew_items::Column::SourceId, brew_items::Column::Guid])
                     .do_nothing()
                     .to_owned();
             brew_items::Entity::insert_many(new_items)
                 .on_conflict(on_conflict)
-                .try_insert()
-                .exec(db)
+                .exec_without_returning(db)
                 .await
-                .map_err(|e| format!("Failed to batch insert items: {}", e))?;
-        }
+                .map_err(|e| format!("Failed to batch insert items: {}", e))?
+                as i32
+        };
 
         if new_count > 0 {
             let mut source_active: brew_sources::ActiveModel = source.clone().into();
