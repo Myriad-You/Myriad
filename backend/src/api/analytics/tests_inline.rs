@@ -145,8 +145,8 @@ fn bots_detected() {
     ));
 }
 
-/// Empty allowlist + private peer honors CDN country (aligned with client IP /
-/// proxy empty PROXY_TRUSTED_UPSTREAMS). Public peers still cannot forge.
+/// Empty allowlist uses MYR-026 narrow default (loopback + docker0), not full
+/// RFC1918. Public peers and arbitrary private nets still cannot forge.
 #[test]
 fn country_headers_empty_allowlist_private_vs_public_peer() {
     use axum::http::{HeaderMap, HeaderValue};
@@ -154,19 +154,29 @@ fn country_headers_empty_allowlist_private_vs_public_peer() {
     let mut headers = HeaderMap::new();
     headers.insert("cf-ipcountry", HeaderValue::from_static("JP"));
     headers.insert("x-country-code", HeaderValue::from_static("US"));
-    let private_peer: std::net::IpAddr = "10.0.0.2".parse().unwrap();
+    let docker0_peer: std::net::IpAddr = "172.17.0.2".parse().unwrap();
+    let loopback_peer: std::net::IpAddr = "127.0.0.1".parse().unwrap();
+    let rfc1918_peer: std::net::IpAddr = "10.0.0.2".parse().unwrap();
     let public_peer: std::net::IpAddr = "192.0.2.7".parse().unwrap();
 
     assert!(
-        country_from_headers_with_trust(&headers, Some(private_peer), true, &[]).is_some(),
-        "empty allowlist + private peer should honor CDN country"
+        country_from_headers_with_trust(&headers, Some(docker0_peer), true, &[]).is_some(),
+        "empty allowlist + docker0 peer should honor CDN country"
+    );
+    assert!(
+        country_from_headers_with_trust(&headers, Some(loopback_peer), true, &[]).is_some(),
+        "empty allowlist + loopback peer should honor CDN country"
+    );
+    assert!(
+        country_from_headers_with_trust(&headers, Some(rfc1918_peer), true, &[]).is_none(),
+        "empty allowlist + arbitrary RFC1918 peer must not honor CDN country"
     );
     assert!(
         country_from_headers_with_trust(&headers, Some(public_peer), true, &[]).is_none(),
         "empty allowlist + public peer must ignore forged CDN country"
     );
     assert!(
-        country_from_headers_with_trust(&headers, Some(private_peer), false, &[]).is_none(),
+        country_from_headers_with_trust(&headers, Some(docker0_peer), false, &[]).is_none(),
         "trust disabled must ignore country headers"
     );
 }
