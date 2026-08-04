@@ -13,6 +13,12 @@ use std::time::Duration;
 
 use crate::models::entities::brew_sources::FeedType;
 
+/// Maximum accepted feed response body size (generous for full-content feeds).
+///
+/// Prevents unbounded memory use on malicious or misconfigured sources.
+/// Fail cleanly via [`ParseError::FetchError`] — never buffer past this limit.
+pub const MAX_FEED_BODY_BYTES: usize = 16 * 1024 * 1024; // 16 MiB
+
 /// 解析后的订阅源信息
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ParsedFeed {
@@ -183,10 +189,21 @@ impl FeedParser {
 
         tracing::debug!("Feed content-type: {}", content_type);
 
-        let body = response
-            .text()
-            .await
-            .map_err(|e| ParseError::FetchError(format!("Failed to read body: {}", e)))?;
+        // Cap body size before buffering: never read unbounded feed payloads (MYR-018).
+        let body_bytes = crate::services::outbound_security::read_limited_body(
+            response,
+            MAX_FEED_BODY_BYTES,
+        )
+        .await
+        .map_err(|e| {
+            // Oversize and I/O failures both surface as FetchError (fail cleanly).
+            ParseError::FetchError(format!("Failed to read body: {e}"))
+        })?;
+
+        let body = match String::from_utf8(body_bytes) {
+            Ok(s) => s,
+            Err(err) => String::from_utf8_lossy(err.as_bytes()).into_owned(),
+        };
 
         // 安全截取前 200 个字符（避免 UTF-8 边界问题）
         let preview: String = body.chars().take(200).collect();
@@ -1454,6 +1471,27 @@ mod tests {
         let (words, time) = calculate_reading_stats("Hello world, this is a test.");
         assert!(words > 0);
         assert!(time >= 1);
+    }
+
+    #[test]
+    fn max_feed_body_is_generous_but_bounded() {
+        // Several MiB–tens of MiB: large enough for full-content feeds, not unbounded.
+        assert!(MAX_FEED_BODY_BYTES >= 4 * 1024 * 1024);
+        assert!(MAX_FEED_BODY_BYTES <= 64 * 1024 * 1024);
+        assert_eq!(MAX_FEED_BODY_BYTES, 16 * 1024 * 1024);
+    }
+
+    #[test]
+    fn oversize_body_surfaces_as_fetch_error() {
+        // fetch_and_parse maps read_limited_body failures to FetchError (no silent truncate).
+        let err = ParseError::FetchError(format!(
+            "Failed to read body: Response exceeds {} bytes",
+            MAX_FEED_BODY_BYTES
+        ));
+        let msg = err.to_string();
+        assert!(msg.contains("Fetch error"));
+        assert!(msg.contains("exceeds"));
+        assert!(msg.contains(&MAX_FEED_BODY_BYTES.to_string()));
     }
 
     #[tokio::test]

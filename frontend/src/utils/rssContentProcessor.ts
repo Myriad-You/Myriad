@@ -21,6 +21,7 @@
  * - 来自各类源的特殊标签和样式
  */
 
+import DOMPurify from 'isomorphic-dompurify'
 import { API_URL } from '../config'
 import { proxyImageUrl } from './proxyImageUrl'
 
@@ -105,85 +106,119 @@ const TRACKING_PARAMS = [
 ]
 
 /**
- * 危险标签 - 需要完全移除
- * 注意：iframe 不在此列表（见 stripUntrustedIframes），以免误删可信嵌入前的源标签
+ * Allowlist of tags for feed HTML (images, links, basic formatting, media, trusted embeds).
+ * Everything else is dropped by DOMPurify — do not rely on regex denylists for XSS.
  */
-const DANGEROUS_TAGS = [
-  'script',
-  'noscript',
-  'style',
-  'link',
-  'meta',
-  'base',
-  'object',
-  'embed',
-  'applet',
-  'form',
-  'input',
-  'button',
-  'select',
-  'textarea',
-  'option',
-  'optgroup',
-  'datalist',
-  'svg',
-  'math',
-  'template',
-  'frame',
-  'frameset',
-  'portal',
+const RSS_ALLOWED_TAGS: readonly string[] = [
+  'a',
+  'abbr',
+  'article',
+  'aside',
+  'audio',
+  'b',
+  'blockquote',
+  'br',
+  'caption',
+  'code',
+  'col',
+  'colgroup',
+  'dd',
+  'del',
+  'details',
+  'dfn',
+  'div',
+  'dl',
+  'dt',
+  'em',
+  'figcaption',
+  'figure',
+  'footer',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'header',
+  'hr',
+  'i',
+  'iframe',
+  'img',
+  'ins',
+  'kbd',
+  'li',
+  'main',
+  'mark',
+  'nav',
+  'ol',
+  'p',
+  'picture',
+  'pre',
+  'q',
+  's',
+  'samp',
+  'section',
+  'small',
+  'source',
+  'span',
+  'strong',
+  'sub',
+  'summary',
+  'sup',
+  'table',
+  'tbody',
+  'td',
+  'tfoot',
+  'th',
+  'thead',
+  'time',
+  'tr',
+  'u',
+  'ul',
+  'var',
+  'video',
+  'wbr',
 ]
 
 /**
- * 需要移除的危险属性（显式列表 + 通用 on* 处理见 removeDangerousAttrs）
+ * Allowlist of attributes. Event handlers (on*), style, srcdoc, formaction are never listed.
  */
-const DANGEROUS_ATTRS = [
-  'onload',
-  'onerror',
-  'onclick',
-  'onmouseover',
-  'onmouseout',
-  'onmousedown',
-  'onmouseup',
-  'onfocus',
-  'onblur',
-  'onchange',
-  'onsubmit',
-  'onreset',
-  'onkeydown',
-  'onkeyup',
-  'onkeypress',
-  'ondblclick',
-  'oncontextmenu',
-  'ondrag',
-  'ondragstart',
-  'ondragend',
-  'ondrop',
-  'onscroll',
-  'onwheel',
-  'ontouchstart',
-  'ontouchmove',
-  'ontouchend',
-  'onpointerdown',
-  'onpointerup',
-  'onpointerenter',
-  'onpointerleave',
-  'onanimationend',
-  'onanimationstart',
-  'ontransitionend',
-  'onfocusin',
-  'onfocusout',
-  'onformdata',
-  'oninput',
-  'oninvalid',
-  'onsearch',
-  'onpaste',
-  'oncopy',
-  'oncut',
-  'formaction',
-  'xlink:href',
-  'xmlns',
-  'srcdoc',
+const RSS_ALLOWED_ATTR: readonly string[] = [
+  'href',
+  'src',
+  'srcset',
+  'alt',
+  'title',
+  'class',
+  'id',
+  'target',
+  'rel',
+  'width',
+  'height',
+  'loading',
+  'decoding',
+  'controls',
+  'poster',
+  'type',
+  'media',
+  'sizes',
+  'colspan',
+  'rowspan',
+  'scope',
+  'headers',
+  'open',
+  'datetime',
+  'cite',
+  'start',
+  'reversed',
+  'value',
+  'span',
+  'allow',
+  'allowfullscreen',
+  'referrerpolicy',
+  'sandbox',
+  'frameborder',
+  'data-rss-image',
 ]
 
 /**
@@ -264,73 +299,66 @@ function cleanUrl(url: string): string {
   }
 }
 
-/**
- * 移除危险标签
- */
-function removeDangerousTags(html: string): string {
-  const tagPattern = DANGEROUS_TAGS.join('|')
-  const regex = new RegExp(
-    `<(${tagPattern})[^>]*>([\\s\\S]*?)<\\/\\1>|<(${tagPattern})[^>]*>`,
-    'gi',
-  )
-  return html.replace(regex, '')
-}
+let purifyHooksRegistered = false
 
 /**
- * 移除危险属性
+ * Register DOMPurify hooks once: drop untrusted iframe hosts / srcdoc / non-http(s) src.
+ * Host policy matches {@link isTrustedIframeHost} / {@link stripUntrustedIframes}.
  */
-function removeDangerousAttrs(html: string): string {
-  const attrPattern = DANGEROUS_ATTRS.join('|')
-  // 匹配事件属性：支持空白符或 / 作为属性分隔符（防止 <tag/onload=... 绕过）
-  const listed = new RegExp(
-    `[\\s/](${attrPattern})\\s*=\\s*["'][^"']*["']|[\\s/](${attrPattern})\\s*=\\s*[^\\s>]+`,
-    'gi',
-  )
-  // 兜底：剥离所有 on* 事件处理器（含未列入表的）
-  const anyHandler = /[\s/]on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi
-  return html.replace(listed, '').replace(anyHandler, '')
-}
+function ensurePurifyHooks(): void {
+  if (purifyHooksRegistered) return
+  purifyHooksRegistered = true
 
-/**
- * 移除 javascript: / data:text/html 等危险协议链接
- */
-function removeJavascriptLinks(html: string): string {
-  // 含实体编码变体的 javascript:（如 javascrip&#116;:）
-  const dangerousProtocol =
-    /javascript|vbscript|data\s*:\s*text\s*\/\s*html/i
-
-  const scrubAttr = (attr: string, value: string, quote: string) => {
-    const decoded = value
-      .replace(/&#x([0-9a-f]+);?/gi, (_, h) =>
-        String.fromCharCode(Number.parseInt(h, 16)),
-      )
-      .replace(/&#(\d+);?/g, (_, d) =>
-        String.fromCharCode(Number.parseInt(d, 10)),
-      )
-      .replace(/&colon;/gi, ':')
-      .replace(/\s+/g, '')
-    if (dangerousProtocol.test(decoded)) {
-      if (attr.toLowerCase() === 'href' || attr.toLowerCase() === 'action') {
-        return `${attr}=${quote}#${quote}`
-      }
-      return `${attr}=${quote}${quote}`
+  DOMPurify.addHook('uponSanitizeElement', (node, data) => {
+    if (data.tagName !== 'iframe') return
+    const el = node as Element
+    if (typeof el.getAttribute !== 'function') {
+      el.parentNode?.removeChild(el)
+      return
     }
-    return `${attr}=${quote}${value}${quote}`
-  }
+    // Inline documents are never safe in the reader
+    if (el.hasAttribute?.('srcdoc')) {
+      el.parentNode?.removeChild(el)
+      return
+    }
+    const rawSrc = (el.getAttribute('src') || '').trim()
+    if (!rawSrc || /^(javascript|data|vbscript|blob):/i.test(rawSrc)) {
+      el.parentNode?.removeChild(el)
+      return
+    }
+    try {
+      const href = rawSrc.startsWith('//') ? `https:${rawSrc}` : rawSrc
+      const parsed = new URL(href, 'https://example.invalid')
+      if (
+        !['http:', 'https:'].includes(parsed.protocol)
+        || !isTrustedIframeHost(parsed.hostname)
+      ) {
+        el.parentNode?.removeChild(el)
+      }
+    } catch {
+      el.parentNode?.removeChild(el)
+    }
+  })
+}
 
-  return html
-    .replace(
-      /\b(href|src|action|xlink:href)\s*=\s*(["'])([\s\S]*?)\2/gi,
-      (_m, attr, quote, value) => scrubAttr(attr, value, quote),
-    )
-    .replace(
-      /\b(href|src|action)\s*=\s*([^\s"'=<>`]+)/gi,
-      (_m, attr, value) => scrubAttr(attr, value, '"'),
-    )
+/**
+ * Real HTML sanitizer (DOMPurify allowlist). This is the XSS boundary for feed HTML
+ * before it is assigned to innerHTML — regex rewrite alone is not sufficient (MYR-010).
+ */
+export function sanitizeRssHtml(html: string): string {
+  if (!html) return ''
+  ensurePurifyHooks()
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: [...RSS_ALLOWED_TAGS],
+    ALLOWED_ATTR: [...RSS_ALLOWED_ATTR],
+    ALLOW_DATA_ATTR: true,
+    ALLOW_UNKNOWN_PROTOCOLS: false,
+  })
 }
 
 /**
  * 仅保留可信域名的 iframe，其余剥离（防 feed 注入任意嵌套页）
+ * Defense-in-depth after string rewrites; primary filter is {@link sanitizeRssHtml}.
  */
 export function stripUntrustedIframes(html: string): string {
   if (!html) return html
@@ -1071,10 +1099,8 @@ export function processRssContent(
   // 0. 预处理 - 修复损坏的 HTML 格式
   result = fixMalformedHtml(result)
 
-  // 1. 安全性处理 - 最优先
-  result = removeDangerousTags(result)
-  result = removeDangerousAttrs(result)
-  result = removeJavascriptLinks(result)
+  // 1. Security first: DOMPurify allowlist (primary XSS boundary for innerHTML)
+  result = sanitizeRssHtml(result)
 
   // 2. 来源特定处理
   result = processSourceSpecific(result, opts)
@@ -1091,7 +1117,7 @@ export function processRssContent(
   result = processImages(result, opts)
   result = processVideos(result)
   result = processAudio(result)
-  // iframe 白名单：仅保留 B 站/网易云等可信源（embedProcessor 会再注入官方播放器）
+  // iframe host allowlist (also enforced inside sanitizeRssHtml hooks)
   result = stripUntrustedIframes(result)
 
   // 5. 文本格式处理
@@ -1113,9 +1139,8 @@ export function processRssContent(
   // 注意：不再调用 normalizeWhitespace，避免破坏 HTML 结构
   result = result.trim()
 
-  // 收尾再跑一轮属性/协议清洗，防止中间步骤重新引入
-  result = removeDangerousAttrs(result)
-  result = removeJavascriptLinks(result)
+  // Final allowlist pass: presentation rewrites must not reintroduce XSS
+  result = sanitizeRssHtml(result)
 
   return result
 }
@@ -1385,6 +1410,7 @@ export function analyzeContent(html: string): ContentAnalysis {
 
 export default {
   processRssContent,
+  sanitizeRssHtml,
   stripUntrustedIframes,
   isTrustedIframeHost,
   TRUSTED_IFRAME_HOSTS,
@@ -1414,6 +1440,14 @@ export function selfCheckSanitize(): string[] {
   if (/onerror/i.test(xss)) failures.push('onerror survived')
   if (/evil\.example/i.test(xss)) failures.push('untrusted iframe survived')
 
+  // Mutation / nested payload that pure regex denylists often miss
+  const nested = sanitizeRssHtml(
+    '<div><scr<script>ipt>alert(1)</script></div><img src=x onerror="alert(1)">',
+  )
+  if (/<script/i.test(nested) || /onerror/i.test(nested)) {
+    failures.push('nested/mutated XSS survived sanitizeRssHtml')
+  }
+
   const trusted = processRssContent(
     '<iframe src="//player.bilibili.com/player.html?bvid=BV1xx411c7XW"></iframe>',
   )
@@ -1437,6 +1471,16 @@ export function selfCheckSanitize(): string[] {
 
   const jsLink = processRssContent('<a href="javascript:alert(1)">x</a>')
   if (/javascript:/i.test(jsLink)) failures.push('javascript: href survived')
+
+  // Preserve normal feed rendering
+  const normal = processRssContent(
+    '<p>Hello <strong>world</strong></p><a href="https://example.com">link</a><img src="https://cdn.example.com/a.jpg" alt="cover">',
+  )
+  if (!/<strong/i.test(normal)) failures.push('strong formatting stripped')
+  if (!normal.includes('href=') || !normal.includes('example.com')) {
+    failures.push('link stripped')
+  }
+  if (!/<img\b/i.test(normal)) failures.push('image stripped')
 
   return failures
 }
