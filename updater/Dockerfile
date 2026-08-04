@@ -1,10 +1,8 @@
 # syntax=docker/dockerfile:1.6
 
 # ---------- builder ----------
-# rust:1.88+ required: some transitive deps (axum 0.8 ecosystem, `time` crate) need
-# edition2024 and minor stdlib features only available in 1.88+. Pin to a known-good
-# version rather than `latest` for reproducibility.
-FROM rust:1.90-bookworm AS builder
+# Pin with backend/proxy (sea-orm 2 / sqlx 0.9 need rustc >= 1.94).
+FROM rust:1.94-bookworm AS builder
 WORKDIR /work
 
 COPY updater/Cargo.toml updater/Cargo.toml

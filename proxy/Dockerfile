@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.6
-# rust:1.88+ required (axum 0.8 ecosystem + `time` crate); pin for reproducibility.
-FROM rust:1.90-bookworm AS builder
+# Pin with backend/updater (sea-orm 2 / sqlx 0.9 need rustc >= 1.94).
+FROM rust:1.94-bookworm AS builder
 WORKDIR /work
 
 COPY proxy/Cargo.toml proxy/Cargo.toml

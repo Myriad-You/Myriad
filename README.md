@@ -105,7 +105,7 @@ host HTTP_PORT → proxy → frontend:1102
 # 只起开发用 PostgreSQL
 docker compose -f docker-compose.dev.yml up -d postgres
 
-# 后端（Rust 1.88+，推荐 1.90）→ :1103
+# 后端（Rust 1.94+）→ :1103
 cd backend && cp .env.example .env && cargo run
 
 # 前端（Node 24 LTS、pnpm）→ :1102；/api 与联邦公开路径代理到后端

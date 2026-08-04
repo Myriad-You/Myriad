@@ -5,7 +5,7 @@ This document provides detailed build and compilation instructions for the Myria
 ## Prerequisites
 
 ### Required Tools
-- **Rust**: 1.88 or later; 1.90 recommended ([install](https://rustup.rs/))
+- **Rust**: 1.94 or later ([install](https://rustup.rs/))
 - **Node.js**: 24.x LTS ([install](https://nodejs.org/))
 - **PostgreSQL**: 18 recommended (Compose default); see release `min_pg_version` for the compatibility floor ([install](https://www.postgresql.org/download/))
 - **Git**: Latest version

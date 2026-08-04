@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1.6
 # Backend Dockerfile - Multi-stage build for optimal size
-# Pin stable (same family as proxy/updater). Floating `rustlang/rust:nightly-*`
-# hit a rustc ICE compiling tokio under release LTO (nightly 2026-07-25).
-# sea-orm 2 / sqlx 0.9 require rustc >= 1.94.
+# Pin with proxy/updater. Floating `rustlang/rust:nightly-*` hit a rustc ICE
+# compiling tokio under release LTO (nightly 2026-07-25). sea-orm 2 / sqlx 0.9
+# require rustc >= 1.94.
 FROM rust:1.94-bookworm AS builder
 
 # Install build dependencies
