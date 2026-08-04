@@ -1360,7 +1360,7 @@ mod tests {
             shared_inbox_url: Some("https://peer.example/inbox".into()),
             public_key_pem: Some("-----BEGIN PUBLIC KEY-----\nMIIB\n-----END PUBLIC KEY-----\n".into()),
             public_key_id: Some("https://peer.example/users/alice#main-key".into()),
-            mfp_version: Some("0.3.25".into()),
+            mfp_version: Some("0.3.26".into()),
         };
         let ephemeral = doc.to_info(0);
         assert_eq!(ephemeral.id, 0);

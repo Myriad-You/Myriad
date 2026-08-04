@@ -1,6 +1,6 @@
 [package]
 name = "myriad-backend"
-version = "0.3.25"
+version = "0.3.26"
 edition = "2021"
 authors = ["Myriad Contributors"]
 description = "Backend service for Myriad — a myriad of lights, in one place."
