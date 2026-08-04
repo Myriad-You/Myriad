@@ -151,27 +151,11 @@ export function saveTappAppCardSizes(
   saveTappAppCardLayout({ sizes: map, order: prev.order })
 }
 
-/** Apply preferred order to a list of ids (unknown ids keep relative catalog order). */
-export function applyTappAppCardOrder<T extends { id: string }>(
-  items: T[],
-  order: string[],
-): T[] {
-  if (items.length <= 1 || order.length === 0) return items
-  const byId = new Map(items.map((item) => [item.id, item]))
-  const out: T[] = []
-  const used = new Set<string>()
-  for (const id of order) {
-    const item = byId.get(id)
-    if (!item || used.has(id)) continue
-    out.push(item)
-    used.add(id)
-  }
-  for (const item of items) {
-    if (used.has(item.id)) continue
-    out.push(item)
-  }
-  return out
-}
+// Re-export pure order helpers (implementation lives in utils for unit tests).
+export {
+  applyTappAppCardOrder,
+  isSiteOwnerLayoutPending,
+} from '../utils/tappAppCardOrder'
 
 /** Default size when user has not chosen (compact 1x1). */
 export function resolveTappAppCardSize(

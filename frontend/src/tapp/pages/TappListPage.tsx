@@ -45,6 +45,7 @@ import { InstallTappDialog } from '../components/InstallTappDialog'
 import { TappPlaygroundIcon } from '../components/PlaygroundIcons'
 import {
   applyTappAppCardOrder,
+  isSiteOwnerLayoutPending,
   loadTappAppCardLayout,
   loadTappAppCardSizes,
   saveTappAppCardLayout,
@@ -101,19 +102,26 @@ export function TappListPage() {
   /**
    * Personal list card size (1x1 / 2x1) + order.
    * Logged-in: bound to user row in DB; localStorage is cache.
+   * Guests: never seed from personal localStorage (stale owner/user order
+   * would flash before remote site layout arrives).
    * Never store site-owner fills here — site scope uses `siteCard*` below.
    */
   const [cardSizes, setCardSizes] = useState<Record<string, TappAppCardSize>>(
-    () => loadTappAppCardSizes(),
+    () => (hasSessionHint() ? loadTappAppCardSizes() : {}),
   )
   const [cardOrder, setCardOrder] = useState<string[]>(
-    () => loadTappAppCardLayout().order,
+    () => (hasSessionHint() ? loadTappAppCardLayout().order : []),
   )
   /** Site-owner public layout (read-only for regular users). */
   const [siteCardSizes, setSiteCardSizes] = useState<
     Record<string, TappAppCardSize>
   >({})
   const [siteCardOrder, setSiteCardOrder] = useState<string[]>([])
+  /**
+   * Remote list-card-sizes hydrate settled (success or failure).
+   * Public list paths wait on this so the first card paint uses final order.
+   */
+  const [layoutReady, setLayoutReady] = useState(false)
   /**
    * Regular users (non-admin): filter list between personal installs and
    * site-owner public apps. Admins/guests do not use this toggle.
@@ -288,18 +296,32 @@ export function TappListPage() {
   const activeCardSizes = useSiteLayout ? siteCardSizes : cardSizes
   const activeCardOrder = useSiteLayout ? siteCardOrder : cardOrder
 
+  /**
+   * Guest primary + regular-user site scope: hold cards until site layout
+   * hydrates so we never paint catalog order then jump to owner order.
+   */
+  const siteLayoutPending = isSiteOwnerLayoutPending({
+    layoutReady,
+    isAuthenticated,
+    isSiteScope: useSiteLayout,
+  })
+
   const orderedTapps = useMemo(
     () => applyTappAppCardOrder(scopedTapps, activeCardOrder),
     [scopedTapps, activeCardOrder],
   )
 
+  /** Cards ready to paint (apps + public layout when required). */
+  const listDisplayPending =
+    loading || siteCatalogPending || siteLayoutPending
+
   /** Layout editing only on personal list (site-owner layout is read-only). */
   const canEditLayout =
     isAuthenticated && (!canToggleListScope || listScope === 'mine')
 
-  // 延迟显示空状态 — 等 loading + site catalog 都就绪后再判断
+  // 延迟显示空状态 — 等 loading + site catalog + public layout 都就绪后再判断
   useEffect(() => {
-    if (!loading && !siteCatalogPending && orderedTapps.length === 0) {
+    if (!listDisplayPending && orderedTapps.length === 0) {
       const timer = setTimeout(() => {
         setShowEmpty(true)
       }, 150)
@@ -307,7 +329,7 @@ export function TappListPage() {
     } else {
       setShowEmpty(false)
     }
-  }, [loading, siteCatalogPending, orderedTapps.length])
+  }, [listDisplayPending, orderedTapps.length])
 
   useEffect(() => {
     let mounted = true
@@ -436,9 +458,23 @@ export function TappListPage() {
 
   // Hydrate layout: personal prefs stay pure; site-owner layout is separate.
   // Never full-save a display merge (that would sticky-freeze owner sizes).
+  // Public paths gate card paint on `layoutReady` (see siteLayoutPending).
   useEffect(() => {
     if (!hasChecked) return
     let cancelled = false
+    setLayoutReady(false)
+
+    // Authenticated: seed personal local cache immediately for mine scope.
+    // Guests: stay empty until remote site layout (never personal localStorage).
+    if (isAuthenticated) {
+      const local = loadTappAppCardLayout()
+      setCardSizes(local.sizes)
+      setCardOrder(local.order)
+    } else {
+      setCardSizes({})
+      setCardOrder([])
+    }
+
     void (async () => {
       try {
         const remote = await fetchTappListCardSizes()
@@ -479,18 +515,22 @@ export function TappListPage() {
             })
           }
         } else {
-          // Guest: primary payload is site-owner layout
+          // Guest: primary payload is site-owner layout (read-only)
           setCardSizes(remote.sizes)
           setCardOrder(remote.order)
         }
       } catch {
-        // Offline: guests keep empty/default; authed keep local cache
+        // Offline / fetch failure: fall back to catalog order once (no flip).
+        // Guests: empty order → applyTappAppCardOrder no-ops (catalog).
+        // Authed: keep local personal cache already seeded above.
         if (!isAuthenticated) {
           setCardSizes({})
           setCardOrder([])
           setSiteCardSizes({})
           setSiteCardOrder([])
         }
+      } finally {
+        if (!cancelled) setLayoutReady(true)
       }
     })()
     return () => {
@@ -851,8 +891,8 @@ export function TappListPage() {
             </div>
           </div>
 
-          {/* Content */}
-          {orderedTapps.length === 0 && showEmpty ? (
+          {/* Content — hold cards while public site layout hydrates (no order flash) */}
+          {!listDisplayPending && orderedTapps.length === 0 && showEmpty ? (
             <div className="tapp-app-empty glass glass-chrome-free">
               <GlowBackground
                 color="var(--color-primary, #6366f1)"
@@ -921,36 +961,37 @@ export function TappListPage() {
               className={`tapp-app-card-grid${dragId ? ' is-reordering' : ''}`}
             >
               <AnimatePresence mode="popLayout">
-                {orderedTapps.map((tapp, index) => (
-                  <TappAppCard
-                    key={tapp.id}
-                    tapp={tapp}
-                    size={activeCardSizes[tapp.id] ?? '1x1'}
-                    // Mobile: no reorder handle or 1x1↔2x1 size toggle
-                    canResize={canEditLayout && !isMobile}
-                    canReorder={canEditLayout && !isMobile}
-                    dragLabel={t.tapp.cardDragReorder}
-                    isDragging={dragId === tapp.id}
-                    isDragOver={dragOverId === tapp.id && dragId !== tapp.id}
-                    onDragHandleStart={handleDragHandleStart}
-                    onDragOverCard={handleDragOverCard}
-                    onDragLeaveCard={handleDragLeaveCard}
-                    onDropOnCard={handleDropOnCard}
-                    onDragEndCard={handleDragEndCard}
-                    onToggleSize={
-                      canEditLayout && !isMobile
-                        ? () => handleToggleCardSize(tapp.id)
-                        : undefined
-                    }
-                    isRunning={runningTapps.has(tapp.id)}
-                    onStart={() => handleStart(tapp.id)}
-                    onStop={() => handleStop(tapp.id)}
-                    onUninstall={(anchor) => handleUninstall(tapp.id, anchor)}
-                    onConfigure={() => handleConfigure(tapp.id)}
-                    onOpen={() => handleOpen(tapp.id)}
-                    index={index}
-                  />
-                ))}
+                {!listDisplayPending &&
+                  orderedTapps.map((tapp, index) => (
+                    <TappAppCard
+                      key={tapp.id}
+                      tapp={tapp}
+                      size={activeCardSizes[tapp.id] ?? '1x1'}
+                      // Mobile: no reorder handle or 1x1↔2x1 size toggle
+                      canResize={canEditLayout && !isMobile}
+                      canReorder={canEditLayout && !isMobile}
+                      dragLabel={t.tapp.cardDragReorder}
+                      isDragging={dragId === tapp.id}
+                      isDragOver={dragOverId === tapp.id && dragId !== tapp.id}
+                      onDragHandleStart={handleDragHandleStart}
+                      onDragOverCard={handleDragOverCard}
+                      onDragLeaveCard={handleDragLeaveCard}
+                      onDropOnCard={handleDropOnCard}
+                      onDragEndCard={handleDragEndCard}
+                      onToggleSize={
+                        canEditLayout && !isMobile
+                          ? () => handleToggleCardSize(tapp.id)
+                          : undefined
+                      }
+                      isRunning={runningTapps.has(tapp.id)}
+                      onStart={() => handleStart(tapp.id)}
+                      onStop={() => handleStop(tapp.id)}
+                      onUninstall={(anchor) => handleUninstall(tapp.id, anchor)}
+                      onConfigure={() => handleConfigure(tapp.id)}
+                      onOpen={() => handleOpen(tapp.id)}
+                      index={index}
+                    />
+                  ))}
               </AnimatePresence>
             </div>
           )}
