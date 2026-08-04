@@ -409,7 +409,6 @@ impl BrewSchedulerEngine {
             .collect();
 
         let mut new_items: Vec<brew_items::ActiveModel> = Vec::new();
-        let mut new_titles: Vec<String> = Vec::new();
 
         let image_cache = crate::services::image_cache::ImageCacheService::new();
 
@@ -456,27 +455,26 @@ impl BrewSchedulerEngine {
                 ..Default::default()
             };
 
-            if new_titles.len() < 5 {
-                new_titles.push(item.title.clone());
-            }
             new_items.push(new_item);
         }
 
-        // 批量插入，ON CONFLICT DO NOTHING 防止并发竞态下的重复键错误。
-        // 用 rows_affected 作为 new_count：冲突跳过的行不计入 item/unread 与通知。
-        let new_count = if new_items.is_empty() {
-            0
+        // ON CONFLICT DO NOTHING + RETURNING: only rows actually inserted (not raced).
+        // new_count / titles come from returned models so counters and notifications
+        // cannot over-count concurrent conflict skips (Copilot #293).
+        let (new_count, new_titles) = if new_items.is_empty() {
+            (0_i32, Vec::new())
         } else {
             let on_conflict =
                 OnConflict::columns([brew_items::Column::SourceId, brew_items::Column::Guid])
                     .do_nothing()
                     .to_owned();
-            brew_items::Entity::insert_many(new_items)
+            let inserted = brew_items::Entity::insert_many(new_items)
                 .on_conflict(on_conflict)
-                .exec_without_returning(db)
+                .exec_with_returning(db)
                 .await
-                .map_err(|e| format!("Failed to batch insert items: {}", e))?
-                as i32
+                .map_err(|e| format!("Failed to batch insert items: {}", e))?;
+            let titles: Vec<String> = inserted.iter().map(|m| m.title.clone()).take(5).collect();
+            (inserted.len() as i32, titles)
         };
 
         if new_count > 0 {
