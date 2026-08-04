@@ -4,6 +4,15 @@ Operational notes for Myriad’s ActivityPub + MFP stack. Product inventory live
 in the federation-universe scratch; this file is **how the code behaves** for
 developers working on ensure-keys, Accept, delivery, and the dual-instance suite.
 
+## Inbox auth hardening (MYR-022 / MYR-023)
+
+| Concern | Behaviour |
+|---------|-----------|
+| **MYR-022 actor cache poison** | Signature verification resolves the remote Actor via trusted DB cache **or** an **ephemeral** HTTP fetch. Unauthenticated remote documents are **not** written to `federation_remote_actors` until the HTTP Signature verifies. Failed signatures drop the ephemeral material. |
+| **MYR-023 replay** | HTTP `Date` skew alone (`HTTP_DATE_MAX_SKEW` = 5m) is weak. After successful verify, a process-local short-lived dedup cache records body SHA-256 digests and normalized activity ids for ~10m (`replay_dedup_ttl`). Replays answer `202 Accepted` without re-running handlers. Legitimate peer retries within the window stay idempotent. |
+
+Entry points: `fetch_remote_actor_for_verify` / `persist_verified_remote_actor` in `actor.rs`; `is_replay_or_record` in `replay.rs`; wired in `inbox/receive.rs`.
+
 ## Keys: ensure vs rotate
 
 | Path | When | Effect |

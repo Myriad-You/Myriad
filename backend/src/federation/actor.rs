@@ -324,79 +324,219 @@ pub async fn get_following(
 
 /// 获取远程 Actor 信息（带缓存）
 ///
-/// 如果缓存过期（>24h），重新从远程获取
+/// 如果缓存过期（>24h），重新从远程获取并写入 DB。
+///
+/// **Only call after authentication** (signed inbox handlers, outbound follow,
+/// room/channel setup). Pre-signature verification must use
+/// [`fetch_remote_actor_for_verify`] so a failed/forged request cannot poison
+/// `federation_remote_actors` (MYR-022).
 pub async fn fetch_remote_actor(
     db: &DatabaseConnection,
     actor_url_str: &str,
 ) -> Result<RemoteActorInfo, String> {
-    fetch_remote_actor_inner(db, actor_url_str, false).await
+    fetch_remote_actor_inner(db, actor_url_str, false, true)
+        .await
+        .map(|r| r.info)
 }
 
-/// Force re-fetch remote Actor (ignore 24h cache). Use on Signature keyId mismatch
-/// so key rotation / stale `public_key_id` does not permanently 401 peers.
+/// Force re-fetch remote Actor (ignore 24h cache) and **persist**.
+///
+/// Prefer [`fetch_remote_actor_for_verify`] + [`persist_verified_remote_actor`]
+/// on the inbox auth path so untrusted documents never hit the DB first.
 pub async fn fetch_remote_actor_fresh(
     db: &DatabaseConnection,
     actor_url_str: &str,
 ) -> Result<RemoteActorInfo, String> {
-    fetch_remote_actor_inner(db, actor_url_str, true).await
+    fetch_remote_actor_inner(db, actor_url_str, true, true)
+        .await
+        .map(|r| r.info)
+}
+
+/// Resolve a remote actor for **HTTP Signature verification only** (MYR-022).
+///
+/// - May read a fresh row from `federation_remote_actors` (already trusted).
+/// - May HTTP-fetch the actor document, but **does not** write to the DB.
+/// - Call [`persist_verified_remote_actor`] only after the signature verifies.
+///
+/// Local same-instance actors still upsert (local DB material is not an
+/// unauthenticated remote fetch).
+pub async fn fetch_remote_actor_for_verify(
+    db: &DatabaseConnection,
+    actor_url_str: &str,
+    force_refresh: bool,
+) -> Result<ResolvedRemoteActor, String> {
+    fetch_remote_actor_inner(db, actor_url_str, force_refresh, false).await
+}
+
+/// Persist an actor document that was used to successfully verify a signature.
+///
+/// No-op when `resolved` came from a trusted cache hit (`needs_persist == false`).
+pub async fn persist_verified_remote_actor(
+    db: &DatabaseConnection,
+    resolved: &ResolvedRemoteActor,
+) -> Result<RemoteActorInfo, String> {
+    if !resolved.needs_persist {
+        return Ok(resolved.info.clone());
+    }
+    let Some(ref doc) = resolved.document else {
+        // Local-path resolve already persisted; nothing more to do.
+        return Ok(resolved.info.clone());
+    };
+    upsert_remote_actor_document(db, doc).await
+}
+
+/// Outcome of actor resolution for signature verification (MYR-022).
+#[derive(Debug, Clone)]
+pub struct ResolvedRemoteActor {
+    pub info: RemoteActorInfo,
+    /// True when `info` (or `document`) came from an unauthenticated remote
+    /// HTTP fetch and must not remain the sole authority until signature OK
+    /// and [`persist_verified_remote_actor`] runs.
+    pub needs_persist: bool,
+    /// Full document for upsert after trust. Present only for ephemeral remote
+    /// fetches (not cache hits / local actors).
+    pub document: Option<RemoteActorDocument>,
+}
+
+/// Parsed remote Actor fields ready for DB upsert (ephemeral until verified).
+#[derive(Debug, Clone)]
+pub struct RemoteActorDocument {
+    pub actor_url: String,
+    pub username: Option<String>,
+    pub domain: String,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
+    pub summary: Option<String>,
+    pub inbox_url: String,
+    pub outbox_url: Option<String>,
+    pub shared_inbox_url: Option<String>,
+    pub public_key_pem: Option<String>,
+    pub public_key_id: Option<String>,
+    pub mfp_version: Option<String>,
+}
+
+impl RemoteActorDocument {
+    fn to_info(&self, id: i32) -> RemoteActorInfo {
+        RemoteActorInfo {
+            id,
+            actor_url: self.actor_url.clone(),
+            username: self.username.clone(),
+            domain: self.domain.clone(),
+            display_name: self.display_name.clone(),
+            avatar_url: self.avatar_url.clone(),
+            inbox_url: self.inbox_url.clone(),
+            public_key_pem: self.public_key_pem.clone(),
+            public_key_id: self.public_key_id.clone(),
+            mfp_version: self.mfp_version.clone(),
+        }
+    }
 }
 
 async fn fetch_remote_actor_inner(
     db: &DatabaseConnection,
     actor_url_str: &str,
     force_refresh: bool,
-) -> Result<RemoteActorInfo, String> {
+    persist: bool,
+) -> Result<ResolvedRemoteActor, String> {
     // 先查本地缓存（除非强制刷新）
     if !force_refresh {
-        let cached = db
-            .query_one(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                r#"SELECT id, actor_url, username, domain, display_name, avatar_url,
-                          inbox_url, public_key_pem, public_key_id, mfp_version, last_fetched_at
-                   FROM federation_remote_actors
-                   WHERE actor_url = $1
-                   LIMIT 1"#,
-                [actor_url_str.into()],
-            ))
-            .await
-            .map_err(|e| { tracing::error!("DB error: {}", e); "Database error".to_string() })?;
-
-        if let Some(row) = cached {
-            let last_fetched: Option<chrono::DateTime<chrono::FixedOffset>> =
-                row.try_get("", "last_fetched_at").ok();
-            let is_fresh = last_fetched
-                .map(|t| chrono::Utc::now().signed_duration_since(t).num_hours() < 24)
-                .unwrap_or(false);
-
-            if is_fresh {
-                return Ok(RemoteActorInfo {
-                    id: row.try_get("", "id").unwrap_or(0),
-                    actor_url: row.try_get("", "actor_url").unwrap_or_default(),
-                    username: row.try_get("", "username").ok(),
-                    domain: row.try_get("", "domain").unwrap_or_default(),
-                    display_name: row.try_get("", "display_name").ok(),
-                    avatar_url: row
-                        .try_get::<Option<String>>("", "avatar_url")
-                        .ok()
-                        .flatten(),
-                    inbox_url: row.try_get("", "inbox_url").unwrap_or_default(),
-                    public_key_pem: row.try_get("", "public_key_pem").ok(),
-                    public_key_id: row.try_get("", "public_key_id").ok(),
-                    mfp_version: row.try_get("", "mfp_version").ok(),
-                });
-            }
+        if let Some(info) = lookup_cached_remote_actor(db, actor_url_str).await? {
+            return Ok(ResolvedRemoteActor {
+                info,
+                needs_persist: false,
+                document: None,
+            });
         }
     }
 
     // Same-instance actors: build from local DB (no HTTP). Required for
     // multi-user Follow/Accept on localhost / private base_url — outbound
-    // SSRF guards refuse those hosts.
+    // SSRF guards refuse those hosts. Local material is trusted.
     let base_url = get_base_url().await;
     if let Some(local_username) = local_username_from_actor_url(&base_url, actor_url_str) {
-        return upsert_local_actor_as_remote(db, &base_url, &local_username, actor_url_str).await;
+        let info =
+            upsert_local_actor_as_remote(db, &base_url, &local_username, actor_url_str).await?;
+        return Ok(ResolvedRemoteActor {
+            info,
+            needs_persist: false,
+            document: None,
+        });
     }
 
-    // 从远程获取 Actor JSON
+    let doc = fetch_remote_actor_document_http(actor_url_str).await?;
+
+    if persist {
+        let info = upsert_remote_actor_document(db, &doc).await?;
+        return Ok(ResolvedRemoteActor {
+            info,
+            needs_persist: false,
+            document: None,
+        });
+    }
+
+    // Ephemeral: PEM available for verify; nothing written to DB yet (MYR-022).
+    Ok(ResolvedRemoteActor {
+        info: doc.to_info(0),
+        needs_persist: true,
+        document: Some(doc),
+    })
+}
+
+async fn lookup_cached_remote_actor(
+    db: &DatabaseConnection,
+    actor_url_str: &str,
+) -> Result<Option<RemoteActorInfo>, String> {
+    let cached = db
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"SELECT id, actor_url, username, domain, display_name, avatar_url,
+                      inbox_url, public_key_pem, public_key_id, mfp_version, last_fetched_at
+               FROM federation_remote_actors
+               WHERE actor_url = $1
+               LIMIT 1"#,
+            [actor_url_str.into()],
+        ))
+        .await
+        .map_err(|e| {
+            tracing::error!("DB error: {}", e);
+            "Database error".to_string()
+        })?;
+
+    let Some(row) = cached else {
+        return Ok(None);
+    };
+
+    let last_fetched: Option<chrono::DateTime<chrono::FixedOffset>> =
+        row.try_get("", "last_fetched_at").ok();
+    let is_fresh = last_fetched
+        .map(|t| chrono::Utc::now().signed_duration_since(t).num_hours() < 24)
+        .unwrap_or(false);
+
+    if !is_fresh {
+        return Ok(None);
+    }
+
+    Ok(Some(RemoteActorInfo {
+        id: row.try_get("", "id").unwrap_or(0),
+        actor_url: row.try_get("", "actor_url").unwrap_or_default(),
+        username: row.try_get("", "username").ok(),
+        domain: row.try_get("", "domain").unwrap_or_default(),
+        display_name: row.try_get("", "display_name").ok(),
+        avatar_url: row
+            .try_get::<Option<String>>("", "avatar_url")
+            .ok()
+            .flatten(),
+        inbox_url: row.try_get("", "inbox_url").unwrap_or_default(),
+        public_key_pem: row.try_get("", "public_key_pem").ok(),
+        public_key_id: row.try_get("", "public_key_id").ok(),
+        mfp_version: row.try_get("", "mfp_version").ok(),
+    }))
+}
+
+/// HTTP-only remote Actor fetch. Never writes to the database.
+async fn fetch_remote_actor_document_http(
+    actor_url_str: &str,
+) -> Result<RemoteActorDocument, String> {
     // SSRF 防护：阻止请求内网地址
     if is_internal_url(actor_url_str) {
         return Err(format!("Refused to fetch internal URL: {}", actor_url_str));
@@ -444,13 +584,11 @@ async fn fetch_remote_actor_inner(
         }
     }
 
-    // 提取关键字段
     let domain = extract_domain(actor_url_str).unwrap_or_default();
     let username_val = actor_json["preferredUsername"]
         .as_str()
         .map(|s| s.to_string());
     let display_name = actor_json["name"].as_str().map(|s| s.to_string());
-    // ActivityPub icon may be an object, an array of objects, or a bare URL string
     let avatar_url = extract_actor_icon_url(&actor_json, actor_url_str);
     let summary = actor_json["summary"].as_str().map(|s| s.to_string());
     let remote_inbox = actor_json["inbox"].as_str().unwrap_or("").to_string();
@@ -459,7 +597,6 @@ async fn fetch_remote_actor_inner(
         .as_str()
         .map(|s| s.to_string());
 
-    // 验证 inbox URL 不指向内网（防止 SSRF 通过伪造 inbox）
     if !remote_inbox.is_empty() && is_internal_url(&remote_inbox) {
         return Err(format!(
             "Remote actor inbox points to internal URL: {}",
@@ -484,7 +621,26 @@ async fn fetch_remote_actor_inner(
         .as_str()
         .map(|s| s.to_string());
 
-    // Upsert 到缓存
+    Ok(RemoteActorDocument {
+        actor_url: actor_url_str.to_string(),
+        username: username_val,
+        domain,
+        display_name,
+        avatar_url,
+        summary,
+        inbox_url: remote_inbox,
+        outbox_url: outbox,
+        shared_inbox_url: shared_inbox,
+        public_key_pem: pk_pem,
+        public_key_id: pk_id,
+        mfp_version: mfp_ver,
+    })
+}
+
+async fn upsert_remote_actor_document(
+    db: &DatabaseConnection,
+    doc: &RemoteActorDocument,
+) -> Result<RemoteActorInfo, String> {
     let actor_id = db
         .query_one(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -501,18 +657,18 @@ async fn fetch_remote_actor_inner(
                    last_fetched_at = NOW(), updated_at = NOW()
                RETURNING id"#,
             [
-                actor_url_str.into(),
-                username_val.clone().into(),
-                domain.clone().into(),
-                display_name.clone().into(),
-                avatar_url.clone().into(),
-                summary.into(),
-                remote_inbox.clone().into(),
-                outbox.into(),
-                shared_inbox.into(),
-                pk_pem.clone().into(),
-                pk_id.clone().into(),
-                mfp_ver.clone().into(),
+                doc.actor_url.clone().into(),
+                doc.username.clone().into(),
+                doc.domain.clone().into(),
+                doc.display_name.clone().into(),
+                doc.avatar_url.clone().into(),
+                doc.summary.clone().into(),
+                doc.inbox_url.clone().into(),
+                doc.outbox_url.clone().into(),
+                doc.shared_inbox_url.clone().into(),
+                doc.public_key_pem.clone().into(),
+                doc.public_key_id.clone().into(),
+                doc.mfp_version.clone().into(),
             ],
         ))
         .await
@@ -520,21 +676,9 @@ async fn fetch_remote_actor_inner(
         .map(|r| r.try_get::<i32>("", "id").unwrap_or(0))
         .unwrap_or(0);
 
-    // 同时更新/创建实例记录
-    let _ = upsert_instance(db, &domain, mfp_ver.as_deref()).await;
+    let _ = upsert_instance(db, &doc.domain, doc.mfp_version.as_deref()).await;
 
-    Ok(RemoteActorInfo {
-        id: actor_id,
-        actor_url: actor_url_str.to_string(),
-        username: username_val,
-        domain,
-        display_name,
-        avatar_url,
-        inbox_url: remote_inbox,
-        public_key_pem: pk_pem,
-        public_key_id: pk_id,
-        mfp_version: mfp_ver,
-    })
+    Ok(doc.to_info(actor_id))
 }
 
 /// 远程 Actor 简要信息
@@ -1199,6 +1343,80 @@ pub fn rotation_confirm_accepted(body: &serde_json::Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remote_actor_document_to_info_is_ephemeral_until_id_assigned() {
+        // MYR-022: HTTP-fetched documents start with id=0 and must not be treated
+        // as a trusted cache row until persist_verified_remote_actor assigns an id.
+        let doc = RemoteActorDocument {
+            actor_url: "https://peer.example/users/alice".into(),
+            username: Some("alice".into()),
+            domain: "peer.example".into(),
+            display_name: Some("Alice".into()),
+            avatar_url: None,
+            summary: Some("hi".into()),
+            inbox_url: "https://peer.example/users/alice/inbox".into(),
+            outbox_url: Some("https://peer.example/users/alice/outbox".into()),
+            shared_inbox_url: Some("https://peer.example/inbox".into()),
+            public_key_pem: Some("-----BEGIN PUBLIC KEY-----\nMIIB\n-----END PUBLIC KEY-----\n".into()),
+            public_key_id: Some("https://peer.example/users/alice#main-key".into()),
+            mfp_version: Some("0.3.25".into()),
+        };
+        let ephemeral = doc.to_info(0);
+        assert_eq!(ephemeral.id, 0);
+        assert_eq!(ephemeral.actor_url, doc.actor_url);
+        assert!(ephemeral.public_key_pem.is_some());
+        let trusted = doc.to_info(42);
+        assert_eq!(trusted.id, 42);
+        assert_eq!(trusted.public_key_id, doc.public_key_id);
+    }
+
+    #[test]
+    fn resolved_remote_actor_needs_persist_flag_semantics() {
+        // Cache hits / local upserts: needs_persist=false, no document.
+        // Ephemeral HTTP: needs_persist=true + document for later upsert.
+        let cached = ResolvedRemoteActor {
+            info: RemoteActorInfo {
+                id: 7,
+                actor_url: "https://peer.example/users/bob".into(),
+                username: Some("bob".into()),
+                domain: "peer.example".into(),
+                display_name: None,
+                avatar_url: None,
+                inbox_url: "https://peer.example/users/bob/inbox".into(),
+                public_key_pem: Some("PEM".into()),
+                public_key_id: Some("https://peer.example/users/bob#main-key".into()),
+                mfp_version: None,
+            },
+            needs_persist: false,
+            document: None,
+        };
+        assert!(!cached.needs_persist);
+        assert!(cached.document.is_none());
+
+        let doc = RemoteActorDocument {
+            actor_url: "https://evil.example/users/mallory".into(),
+            username: Some("mallory".into()),
+            domain: "evil.example".into(),
+            display_name: None,
+            avatar_url: None,
+            summary: None,
+            inbox_url: "https://evil.example/users/mallory/inbox".into(),
+            outbox_url: None,
+            shared_inbox_url: None,
+            public_key_pem: Some("ATTACKER-PEM".into()),
+            public_key_id: Some("https://evil.example/users/mallory#main-key".into()),
+            mfp_version: None,
+        };
+        let ephemeral = ResolvedRemoteActor {
+            info: doc.to_info(0),
+            needs_persist: true,
+            document: Some(doc),
+        };
+        assert!(ephemeral.needs_persist);
+        assert!(ephemeral.document.is_some());
+        assert_eq!(ephemeral.info.id, 0);
+    }
 
     #[test]
     fn needs_generation_when_missing() {

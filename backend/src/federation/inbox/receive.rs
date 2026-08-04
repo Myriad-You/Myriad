@@ -8,11 +8,15 @@ use axum::{
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde_json::json;
 
-use crate::federation::actor::{fetch_remote_actor, fetch_remote_actor_fresh};
+use crate::federation::actor::{
+    fetch_remote_actor, fetch_remote_actor_for_verify, persist_verified_remote_actor,
+    ResolvedRemoteActor,
+};
 use crate::federation::errors::{is_permanent_federation_error, map_inbox_handler_error};
+use crate::federation::replay::{is_replay_or_record, replay_dedup_keys};
 use crate::federation::signature::{
     parse_signature_header, require_covered_headers, verify_date_freshness, verify_digest,
-    verify_signature,
+    verify_signature, HTTP_DATE_MAX_SKEW,
 };
 use crate::federation::types::*;
 
@@ -63,9 +67,22 @@ pub async fn post_inbox(
         ));
     }
 
-    // 验证 HTTP Signature
+    // 验证 HTTP Signature（MYR-022: actor fetch is ephemeral until verified）
     let request_path = format!("/users/{}/inbox", username);
     verify_request_signature(&db, &headers, &body, &actor_url_str, &request_path).await?;
+
+    // MYR-023: short-lived activity id / digest dedup after successful auth.
+    // Legitimate peer retries get 202 without re-running side-effect handlers.
+    let activity_id = activity["id"].as_str().unwrap_or("");
+    if is_replay_or_record(&replay_dedup_keys(activity_id, &body)) {
+        tracing::info!(
+            activity_id = %activity_id,
+            activity_type = %activity_type,
+            actor = %actor_url_str,
+            "📬 Inbox replay suppressed (activity id / body digest seen recently)"
+        );
+        return Ok(StatusCode::ACCEPTED);
+    }
 
     // 信任策略：黑名单 / 速率 / 内容过滤
     let actor_domain = extract_domain(&actor_url_str).unwrap_or_default();
@@ -174,8 +191,20 @@ pub async fn post_shared_inbox(
         ));
     }
 
-    // 验证签名
+    // 验证签名（MYR-022: actor fetch is ephemeral until verified）
     verify_request_signature(&db, &headers, &body, &actor_url_str, "/inbox").await?;
+
+    // MYR-023: short-lived activity id / digest dedup after successful auth.
+    let activity_id = activity["id"].as_str().unwrap_or("");
+    if is_replay_or_record(&replay_dedup_keys(activity_id, &body)) {
+        tracing::info!(
+            activity_id = %activity_id,
+            activity_type = %activity_type,
+            actor = %actor_url_str,
+            "📬 Shared inbox replay suppressed (activity id / body digest seen recently)"
+        );
+        return Ok(StatusCode::ACCEPTED);
+    }
 
     // 信任策略
     let actor_domain = extract_domain(&actor_url_str).unwrap_or_default();
@@ -1388,14 +1417,12 @@ fn verify_preparse_gate(
                 Json(json!({"error": "Missing Date header"})),
             )
         })?;
-    verify_date_freshness(date, chrono::Utc::now(), chrono::Duration::minutes(5)).map_err(
-        |error| {
-            (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": format!("Invalid request date: {}", error)})),
-            )
-        },
-    )?;
+    verify_date_freshness(date, chrono::Utc::now(), HTTP_DATE_MAX_SKEW).map_err(|error| {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": format!("Invalid request date: {}", error)})),
+        )
+    })?;
 
     if !body.is_empty() {
         let digest = headers
@@ -1427,6 +1454,12 @@ fn verify_preparse_gate(
 // merged from handlers.rs
 
 /// 验证请求的 HTTP Signature
+///
+/// MYR-022: remote Actor material used for the public key is resolved via
+/// [`fetch_remote_actor_for_verify`] (DB cache hit or **ephemeral** HTTP fetch).
+/// Failed signatures never write an unauthenticated remote document into
+/// `federation_remote_actors`. Successful verification may persist via
+/// [`persist_verified_remote_actor`].
 async fn verify_request_signature(
     db: &DatabaseConnection,
     headers: &HeaderMap,
@@ -1469,14 +1502,12 @@ async fn verify_request_signature(
                 Json(json!({"error": "Missing Date header"})),
             )
         })?;
-    verify_date_freshness(date, chrono::Utc::now(), chrono::Duration::minutes(5)).map_err(
-        |error| {
-            (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": format!("Invalid request date: {}", error)})),
-            )
-        },
-    )?;
+    verify_date_freshness(date, chrono::Utc::now(), HTTP_DATE_MAX_SKEW).map_err(|error| {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": format!("Invalid request date: {}", error)})),
+        )
+    })?;
 
     // Digest 验证（非空 body 必须携带 Digest header）
     if !body.is_empty() {
@@ -1503,32 +1534,35 @@ async fn verify_request_signature(
         }
     }
 
-    // 获取远程 Actor 的公钥（先走缓存）
-    let mut remote = fetch_remote_actor(db, actor_url_str).await.map_err(|e| {
-        (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": format!("Cannot verify actor: {}", e)})),
-        )
-    })?;
+    // MYR-022: trusted cache or ephemeral remote fetch — never poison DB on 401.
+    let mut resolved: ResolvedRemoteActor =
+        fetch_remote_actor_for_verify(db, actor_url_str, false)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::UNAUTHORIZED,
+                    Json(json!({"error": format!("Cannot verify actor: {}", e)})),
+                )
+            })?;
 
     // If we stored a public_key_id for this actor, Signature keyId must match
-    // (normalized). On mismatch, force re-fetch once — stale cache after key
-    // rotation / domain path change was a common permanent 401 source.
+    // (normalized). On mismatch, force ephemeral re-fetch once — stale cache
+    // after key rotation / domain path change was a common permanent 401 source.
     // If no stored key id, PEM-only verify.
-    if let Some(ref stored_kid) = remote.public_key_id {
+    if let Some(ref stored_kid) = resolved.info.public_key_id {
         if !stored_kid.is_empty() && !same_key_id(stored_kid, &parsed.key_id) {
             tracing::warn!(
-                "Signature keyId mismatch (will refresh actor): stored={}, request={}",
+                "Signature keyId mismatch (will refresh actor ephemerally): stored={}, request={}",
                 stored_kid,
                 parsed.key_id
             );
-            match fetch_remote_actor_fresh(db, actor_url_str).await {
-                Ok(fresh) => remote = fresh,
+            match fetch_remote_actor_for_verify(db, actor_url_str, true).await {
+                Ok(fresh) => resolved = fresh,
                 Err(e) => {
                     tracing::warn!("Actor refresh after keyId mismatch failed: {}", e);
                 }
             }
-            if let Some(ref fresh_kid) = remote.public_key_id {
+            if let Some(ref fresh_kid) = resolved.info.public_key_id {
                 if !fresh_kid.is_empty() && !same_key_id(fresh_kid, &parsed.key_id) {
                     // Last chance: request keyId may still be a valid id for the
                     // same actor path even if publicKey.id differs slightly —
@@ -1560,7 +1594,7 @@ async fn verify_request_signature(
         }
     }
 
-    let public_key_pem = remote.public_key_pem.ok_or_else(|| {
+    let public_key_pem = resolved.info.public_key_pem.as_deref().ok_or_else(|| {
         (
             StatusCode::UNAUTHORIZED,
             Json(json!({"error": "Remote actor has no public key"})),
@@ -1582,7 +1616,7 @@ async fn verify_request_signature(
         .collect();
 
     let valid =
-        verify_signature(&public_key_pem, &parsed, method, path, &header_map).map_err(|e| {
+        verify_signature(public_key_pem, &parsed, method, path, &header_map).map_err(|e| {
             (
                 StatusCode::UNAUTHORIZED,
                 Json(json!({"error": format!("Signature verification failed: {}", e)})),
@@ -1590,10 +1624,23 @@ async fn verify_request_signature(
         })?;
 
     if !valid {
+        // Ephemeral document is dropped here — never written to DB (MYR-022).
         return Err((
             StatusCode::UNAUTHORIZED,
             Json(json!({"error": "Invalid signature"})),
         ));
+    }
+
+    // Signature OK: promote ephemeral actor material into the trusted cache.
+    if resolved.needs_persist {
+        if let Err(e) = persist_verified_remote_actor(db, &resolved).await {
+            // Handlers re-fetch via fetch_remote_actor; log and continue.
+            tracing::warn!(
+                actor = %actor_url_str,
+                error = %e,
+                "Failed to persist verified remote actor; handlers may re-fetch"
+            );
+        }
     }
 
     Ok(())

@@ -206,6 +206,12 @@ pub fn require_covered_headers(parsed: &ParsedSignature, body_present: bool) -> 
     Ok(())
 }
 
+/// Allowed clock skew for the HTTP `Date` header on signed federation requests.
+///
+/// Also the baseline for the short-lived activity id / digest replay cache
+/// (MYR-023): see [`crate::federation::replay::replay_dedup_ttl`].
+pub const HTTP_DATE_MAX_SKEW: Duration = Duration::minutes(5);
+
 /// Reject stale or far-future HTTP Date values to bound replay attacks.
 pub fn verify_date_freshness(
     date_header: &str,
@@ -362,8 +368,8 @@ mod tests {
             .format("%a, %d %b %Y %H:%M:%S GMT")
             .to_string();
 
-        assert!(verify_date_freshness(&fresh, now, Duration::minutes(5)).is_ok());
-        assert!(verify_date_freshness(&stale, now, Duration::minutes(5)).is_err());
+        assert!(verify_date_freshness(&fresh, now, HTTP_DATE_MAX_SKEW).is_ok());
+        assert!(verify_date_freshness(&stale, now, HTTP_DATE_MAX_SKEW).is_err());
     }
 
     #[test]
@@ -404,7 +410,7 @@ mod tests {
         let future = (now + Duration::minutes(10))
             .format("%a, %d %b %Y %H:%M:%S GMT")
             .to_string();
-        assert!(verify_date_freshness(&future, now, Duration::minutes(5)).is_err());
+        assert!(verify_date_freshness(&future, now, HTTP_DATE_MAX_SKEW).is_err());
     }
 
     #[test]
@@ -431,6 +437,11 @@ mod tests {
         let future = (now + Duration::minutes(10))
             .format("%a, %d %b %Y %H:%M:%S GMT")
             .to_string();
-        assert!(verify_date_freshness(&future, now, Duration::minutes(5)).is_err());
+        assert!(verify_date_freshness(&future, now, HTTP_DATE_MAX_SKEW).is_err());
+    }
+
+    #[test]
+    fn http_date_max_skew_is_five_minutes() {
+        assert_eq!(HTTP_DATE_MAX_SKEW, Duration::minutes(5));
     }
 }
