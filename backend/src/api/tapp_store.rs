@@ -22,6 +22,7 @@ mod prepared_package;
 mod storage;
 mod store_package;
 mod store_sources;
+mod store_stats;
 mod types;
 mod uninstall;
 mod validation;
@@ -42,6 +43,7 @@ use credentials::{
     delete_tapp_credential, list_tapp_credential_statuses, put_tapp_credential,
 };
 use installation::{install_tapp, install_tapp_file, update_tapp};
+use store_stats::report_store_stats;
 use lifecycle::{get_recent_tapps, start_tapp, stop_tapp};
 use list_card_sizes::{get_list_card_sizes, put_list_card_sizes};
 pub use myriad_tapp_contract::manifest::*;
@@ -114,6 +116,8 @@ pub fn create_tapp_routes(
         .route("/store/sources", post(add_store_source))
         .route("/store/sources/{source_id}", post(update_store_source))
         .route("/store/sources/{source_id}", delete(delete_store_source))
+        // Browser store-install fallback reports here; backend signs edge HMAC.
+        .route("/store/stats-report", post(report_store_stats))
         .route_layer(from_fn_with_state(
             app_state.clone(),
             auth_middleware,

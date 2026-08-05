@@ -3116,6 +3116,8 @@ export interface TranslationKeys {
     viewDetails: string
     appDescription: string
     sizeLabel: string
+    downloadsLabel: string
+    downloadsCount: string
     licenseLabel: string
     updatedAtLabel: string
     sourceLabel: string

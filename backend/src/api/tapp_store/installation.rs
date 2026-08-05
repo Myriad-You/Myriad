@@ -159,7 +159,7 @@ pub(super) async fn install_tapp(
         permissions,
     } = req;
 
-    let package = match parse_install_source(&source)
+    let (package, from_store) = match parse_install_source(&source)
         .map_err(|err| api_http_error(StatusCode::BAD_REQUEST, err.message()))?
     {
         InstallSource::Direct => {
@@ -182,21 +182,24 @@ pub(super) async fn install_tapp(
                 widget_css,
                 page_css,
             );
-            PreparedTappPackage::from_resources(
-                manifest,
-                PreparedTappResources {
-                    code,
-                    styles,
-                    page_template,
-                    widget_templates,
-                    widget_styles: css.widget_styles,
-                    page_styles: css.page_styles,
-                    generated_widget_css: css.generated_widget_css,
-                    generated_page_css: css.generated_page_css,
-                    i18n,
-                    page_modules,
-                    assets,
-                },
+            (
+                PreparedTappPackage::from_resources(
+                    manifest,
+                    PreparedTappResources {
+                        code,
+                        styles,
+                        page_template,
+                        widget_templates,
+                        widget_styles: css.widget_styles,
+                        page_styles: css.page_styles,
+                        generated_widget_css: css.generated_widget_css,
+                        generated_page_css: css.generated_page_css,
+                        i18n,
+                        page_modules,
+                        assets,
+                    },
+                ),
+                false,
             )
         }
         InstallSource::Store => {
@@ -216,10 +219,12 @@ pub(super) async fn install_tapp(
                 .map_err(|error| api_http_error(StatusCode::BAD_REQUEST, error))?;
             let mut package = fetch_from_store(&db, &store_source, &tapp_id).await?;
             package.apply_resource_overrides(i18n, page_modules, assets);
-            package
+            (package, true)
         }
     };
-    install_prepared_package(
+    let stats_app_id = package.manifest.id.clone();
+    let stats_version = package.manifest.version.clone();
+    let result = install_prepared_package(
         &db,
         &dynamic_config,
         user_id,
@@ -228,7 +233,16 @@ pub(super) async fn install_tapp(
         package,
         permissions.unwrap_or_default(),
     )
-    .await
+    .await?;
+    if from_store {
+        // Instance-day cap (1 install count / instance / app / day) — no shared secret.
+        crate::services::store_stats_beacon::spawn_store_stats_hit(
+            &stats_app_id,
+            &stats_version,
+            "install",
+        );
+    }
+    Ok(result)
 }
 
 async fn install_prepared_package(
@@ -658,7 +672,7 @@ pub(super) async fn update_tapp(
         .map_err(|_| api_http_error(StatusCode::INTERNAL_SERVER_ERROR, "Database error"))?
         .ok_or_else(|| api_http_error(StatusCode::NOT_FOUND, "Tapp not installed"))?;
 
-    let package = match parse_install_source(&source)
+    let (package, from_store) = match parse_install_source(&source)
         .map_err(|err| api_http_error(StatusCode::BAD_REQUEST, err.message()))?
     {
         InstallSource::Direct => {
@@ -680,21 +694,24 @@ pub(super) async fn update_tapp(
                 req_widget_css,
                 req_page_css,
             );
-            PreparedTappPackage::from_resources(
-                manifest,
-                PreparedTappResources {
-                    code,
-                    styles: req_styles,
-                    page_template: req_page_template,
-                    widget_templates: req_widget_templates,
-                    widget_styles: css.widget_styles,
-                    page_styles: css.page_styles,
-                    generated_widget_css: css.generated_widget_css,
-                    generated_page_css: css.generated_page_css,
-                    i18n: req_i18n,
-                    page_modules: req_page_modules,
-                    assets: req_assets,
-                },
+            (
+                PreparedTappPackage::from_resources(
+                    manifest,
+                    PreparedTappResources {
+                        code,
+                        styles: req_styles,
+                        page_template: req_page_template,
+                        widget_templates: req_widget_templates,
+                        widget_styles: css.widget_styles,
+                        page_styles: css.page_styles,
+                        generated_widget_css: css.generated_widget_css,
+                        generated_page_css: css.generated_page_css,
+                        i18n: req_i18n,
+                        page_modules: req_page_modules,
+                        assets: req_assets,
+                    },
+                ),
+                false,
             )
         }
         InstallSource::Store => {
@@ -706,13 +723,14 @@ pub(super) async fn update_tapp(
             })?;
             let mut package = fetch_from_store(&db, &store_source, &tapp_id).await?;
             package.apply_resource_overrides(None, None, req_assets);
-            package
+            (package, true)
         }
     };
     package
         .validate_for_http(Some(&tapp_id))
         .map_err(api_response_err)?;
     let manifest = package.manifest.clone();
+    let stats_version = manifest.version.clone();
 
     let final_tapp_dir = tapp_dir_for(target_owner_id, &tapp_id)
         .map_err(|error| api_http_error(StatusCode::BAD_REQUEST, error))?;
@@ -867,6 +885,13 @@ pub(super) async fn update_tapp(
 
     // Only the deterministic site-owner namespace is public and persistent.
     // List projection: services::tapp_catalog (preserves live status/last_run_at).
+    if from_store {
+        crate::services::store_stats_beacon::spawn_store_stats_hit(
+            &tapp_id,
+            &stats_version,
+            "update",
+        );
+    }
     Ok(Json(ApiResponse::success(
         crate::services::tapp_catalog::update_response_list_item(result, is_site_owner),
     )))

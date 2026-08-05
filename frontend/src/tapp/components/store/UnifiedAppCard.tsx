@@ -2,13 +2,14 @@
 
 import type { CSSProperties } from 'react'
 import type { UnifiedAppItem } from './types'
-import { forwardRef, useMemo } from 'react'
+import { forwardRef, useEffect, useMemo, useState } from 'react'
 import { Spinner } from '../../../components/Spinner'
 import { useI18n } from '../../../contexts/I18nContext'
 import {
   compareVersions,
   packageProgressLabel,
 } from '../../utils/tappStoreHelpers'
+import { formatDownloadCount } from '../../utils/formatDownloadCount'
 import { TappIconBadge } from '../TappIconBadge'
 import {
   getAppIconStyle,
@@ -16,6 +17,49 @@ import {
   OfficialVerifiedDot,
 } from './storeAppMeta'
 import { ProgressPercent, StoreGetButton } from './StoreChrome'
+
+/** Shared clock so many rows don't each open their own interval. */
+const SUBTITLE_ROTATE_MS = 3600
+let subtitleTick = 0
+const subtitleListeners = new Set<() => void>()
+let subtitleIntervalId: ReturnType<typeof setInterval> | null = null
+
+function subscribeSubtitleTick(listener: () => void): () => void {
+  subtitleListeners.add(listener)
+  if (subtitleIntervalId == null) {
+    subtitleIntervalId = setInterval(() => {
+      subtitleTick += 1
+      for (const fn of subtitleListeners) fn()
+    }, SUBTITLE_ROTATE_MS)
+  }
+  return () => {
+    subtitleListeners.delete(listener)
+    if (subtitleListeners.size === 0 && subtitleIntervalId != null) {
+      clearInterval(subtitleIntervalId)
+      subtitleIntervalId = null
+    }
+  }
+}
+
+function prefersReducedMotion(): boolean {
+  if (typeof window === 'undefined' || !window.matchMedia) return false
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+/** One-line rotating subtitle: description → installs → updated-at. */
+function useRotatingSubtitle(slides: string[], staggerIndex: number): string {
+  const [, bump] = useState(0)
+  const canRotate = slides.length > 1 && !prefersReducedMotion()
+
+  useEffect(() => {
+    if (!canRotate) return
+    return subscribeSubtitleTick(() => bump((n) => n + 1))
+  }, [canRotate])
+
+  if (slides.length === 0) return ''
+  if (!canRotate) return slides[0]!
+  return slides[(subtitleTick + staggerIndex) % slides.length]!
+}
 
 export const UnifiedAppCard = forwardRef<
   HTMLDivElement,
@@ -58,7 +102,7 @@ export const UnifiedAppCard = forwardRef<
     },
     ref,
   ) => {
-    const { t, format } = useI18n()
+    const { t, format, locale } = useI18n()
     const busy = installing || updating
     const busyProgress = installPercent != null && busy
     const hasUpdate =
@@ -67,23 +111,49 @@ export const UnifiedAppCard = forwardRef<
       compareVersions(app.version, installedVersion) > 0
 
     const iconStyle = getAppIconStyle(app)
-    const subtitle = app.description || app.author.name
-    const dateLabel = useMemo(() => {
-      if (!date) return null
-      const dateValue = new Date(date)
-      if (Number.isNaN(dateValue.getTime())) return null
+    const subtitleSlides = useMemo(() => {
+      const slides: string[] = []
+      const primary = (app.description || app.author.name || '').trim()
+      if (primary) slides.push(primary)
 
-      const now = new Date()
-      const startOfDay = (d: Date) =>
-        new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
-      const dayDiff = Math.floor(
-        (startOfDay(now) - startOfDay(dateValue)) / 86_400_000,
-      )
+      if (typeof app.downloads === 'number' && app.downloads > 0) {
+        slides.push(
+          format(t.tapp.downloadsCount, {
+            n: formatDownloadCount(app.downloads, locale),
+          }),
+        )
+      }
 
-      // 今日 →「今日更新」；否则「更新于 n 天前」（不写具体日期）
-      if (dayDiff <= 0) return t.tapp.storeUpdatedToday
-      return format(t.tapp.storeUpdatedDaysAgo, { n: dayDiff })
-    }, [date, t.tapp.storeUpdatedToday, t.tapp.storeUpdatedDaysAgo, format])
+      if (date) {
+        const dateValue = new Date(date)
+        if (!Number.isNaN(dateValue.getTime())) {
+          const startOfDay = (d: Date) =>
+            new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+          const dayDiff = Math.floor(
+            (startOfDay(new Date()) - startOfDay(dateValue)) / 86_400_000,
+          )
+          slides.push(
+            dayDiff <= 0
+              ? t.tapp.storeUpdatedToday
+              : format(t.tapp.storeUpdatedDaysAgo, { n: dayDiff }),
+          )
+        }
+      }
+
+      return slides
+    }, [
+      app.description,
+      app.author.name,
+      app.downloads,
+      date,
+      format,
+      locale,
+      t.tapp.downloadsCount,
+      t.tapp.storeUpdatedToday,
+      t.tapp.storeUpdatedDaysAgo,
+    ])
+
+    const subtitle = useRotatingSubtitle(subtitleSlides, index)
 
     // CSS enter stagger (see TappStore.css). Cap keeps long lists cheap.
     const enterStyle = {
@@ -128,8 +198,13 @@ export const UnifiedAppCard = forwardRef<
               <OfficialVerifiedDot label={t.tapp.official} />
             ) : null}
           </div>
-          <div className="as-store-row__sub">{subtitle}</div>
-          {dateLabel && <div className="as-store-row__sub2">{dateLabel}</div>}
+          {subtitle ? (
+            <div className="as-store-row__sub">
+              <span key={subtitle} className="as-store-row__sub-text">
+                {subtitle}
+              </span>
+            </div>
+          ) : null}
         </div>
 
         <div className="as-store-row__side">

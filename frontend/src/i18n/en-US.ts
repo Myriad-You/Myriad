@@ -3467,6 +3467,8 @@ export const enUS: TranslationKeys = {
     viewDetails: 'View details',
     appDescription: 'About this app',
     sizeLabel: 'Size',
+    downloadsLabel: 'Installs',
+    downloadsCount: '{n} installs',
     licenseLabel: 'License',
     updatedAtLabel: 'Updated',
     sourceLabel: 'Source',

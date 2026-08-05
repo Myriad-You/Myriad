@@ -132,6 +132,9 @@ services:
       # (openssl rand -hex 32). When empty, backend derives from JWT_SECRET so
       # collect does not 503 on stock compose (ENVIRONMENT=production).
       ANALYTICS_SALT: ${ANALYTICS_SALT:-}
+      # Official store install stats (no secrets; 1 count/instance/app/day).
+      TAPP_STORE_STATS_URL: ${TAPP_STORE_STATS_URL:-https://stats.store.myriad.you}
+      TAPP_STORE_STATS_ENABLED: ${TAPP_STORE_STATS_ENABLED:-true}
       # The bundled proxy rewrites X-Real-IP / X-Forwarded-For to the real client.
       # Backend must trust those headers from the proxy peer or weather/geo falls
       # back to the *server* public IP (classic "weather shows datacenter city" bug).

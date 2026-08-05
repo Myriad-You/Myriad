@@ -3448,6 +3448,8 @@ export const jaJP: TranslationKeys = {
     viewDetails: '詳細を見る',
     appDescription: 'アプリについて',
     sizeLabel: 'サイズ',
+    downloadsLabel: 'インストール数',
+    downloadsCount: '{n} 回インストール',
     licenseLabel: 'ライセンス',
     updatedAtLabel: '更新日',
     sourceLabel: '提供元',

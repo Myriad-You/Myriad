@@ -64,6 +64,8 @@ export interface UnifiedAppItem {
   repository?: string
   /** 文件大小（字节） */
   size?: number
+  /** 全网安装次数（edge stats overlay；>0 才展示） */
+  downloads?: number
   /** 是否推荐 */
   featured?: boolean
   /** 是否验证 */

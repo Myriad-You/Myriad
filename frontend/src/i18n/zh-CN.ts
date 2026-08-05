@@ -3287,6 +3287,8 @@ export const zhCN: TranslationKeys = {
     viewDetails: '查看详情',
     appDescription: '应用介绍',
     sizeLabel: '大小',
+    downloadsLabel: '安装次数',
+    downloadsCount: '{n} 次安装',
     licenseLabel: '许可证',
     updatedAtLabel: '更新时间',
     sourceLabel: '来源',

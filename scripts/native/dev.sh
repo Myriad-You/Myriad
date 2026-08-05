@@ -210,6 +210,13 @@ FRONTEND_DIST_PATH=../frontend/dist
 JWT_SECRET=$secret
 
 CORS_ORIGINS=http://localhost:$FRONTEND_PORT,http://localhost:$BACKEND_PORT
+
+# Local site URLs (API + SPA). Store install stats are OFF in local dev by default
+# so we do not pollute production counters (set TAPP_STORE_STATS_ENABLED=true only
+# when deliberately testing the stats edge).
+BASE_URL=http://127.0.0.1:$BACKEND_PORT
+FRONTEND_URL=http://localhost:$FRONTEND_PORT
+TAPP_STORE_STATS_ENABLED=false
 ENV
     ) || { err "  ✗ failed to write $env_file"; return 1; }
     ok "  ✓ wrote $env_file (chmod 600, JWT_SECRET generated)"

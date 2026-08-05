@@ -396,6 +396,12 @@ export async function installFromStore(
       message: 'done',
       percent: 100,
     })
+    try {
+      const { clearStoreStatsCache } = await import('./storeStats')
+      clearStoreStatsCache()
+    } catch {
+      /* ignore */
+    }
     return result
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -648,6 +654,21 @@ async function installFromStoreViaClient(
     body: JSON.stringify(requestBody),
   })
 
+  // Client-fallback path only — backend store installs beacon server-side.
+  try {
+    const { reportStoreInstallHit, clearStoreStatsCache } = await import(
+      './storeStats'
+    )
+    reportStoreInstallHit({
+      appId: pkg.manifest.id,
+      version: pkg.manifest.version,
+      event: 'install',
+    })
+    clearStoreStatsCache()
+  } catch {
+    // never block install
+  }
+
   report?.({
     phase: 'done',
     message: 'done',
@@ -827,6 +848,20 @@ async function updateFromStoreViaClient(
     `/api/tapps/${encodeURIComponent(tappId)}/update`,
     { method: 'POST', body: JSON.stringify(body) },
   )
+
+  try {
+    const { reportStoreInstallHit, clearStoreStatsCache } = await import(
+      './storeStats'
+    )
+    reportStoreInstallHit({
+      appId: pkg.manifest.id,
+      version: pkg.manifest.version,
+      event: 'update',
+    })
+    clearStoreStatsCache()
+  } catch {
+    // never block update
+  }
   report?.({ phase: 'done', message: 'done', percent: 100 })
   return result
 }

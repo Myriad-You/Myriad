@@ -20,6 +20,7 @@ import {
   formatSize,
   packageProgressLabel,
 } from '../../utils/tappStoreHelpers'
+import { formatDownloadCount } from '../../utils/formatDownloadCount'
 import { getPreviewCanvas } from '../../utils/tappStorePreview'
 import { TappIconBadge } from '../TappIconBadge'
 import {
@@ -237,6 +238,14 @@ export function AppDetailView({
     ...(app.size
       ? [{ label: t.tapp.sizeLabel, value: formatSize(app.size) }]
       : []),
+    ...(typeof app.downloads === 'number' && app.downloads > 0
+      ? [
+          {
+            label: t.tapp.downloadsLabel,
+            value: formatDownloadCount(app.downloads, locale),
+          },
+        ]
+      : []),
     ...(app.updatedAt
       ? [
           {
@@ -259,6 +268,14 @@ export function AppDetailView({
     { label: t.tapp.author, value: app.author.name },
     ...(app.size
       ? [{ label: t.tapp.sizeLabel, value: formatSize(app.size) }]
+      : []),
+    ...(typeof app.downloads === 'number' && app.downloads > 0
+      ? [
+          {
+            label: t.tapp.downloadsLabel,
+            value: formatDownloadCount(app.downloads, locale),
+          },
+        ]
       : []),
     ...(app.license
       ? [{ label: t.tapp.licenseLabel, value: app.license }]

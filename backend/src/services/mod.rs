@@ -43,6 +43,7 @@ pub mod tapp_install; // Install/update source mode + CSS channels + approved pe
 pub mod tapp_install_resources; // Post-stage declared resource + archive entry checks
 pub mod tapp_store_package; // Remote store path/index pure mapping
 pub mod tapp_store_sources; // Store source admin policy + projection
+pub mod store_stats_beacon; // Official store install/update edge stats beacon
 pub mod tapp_federation_feed; // Federation feed merge + item projection
 pub mod tapp_notification;
 pub mod tapp_reports; // Platform report catalog + payload projection

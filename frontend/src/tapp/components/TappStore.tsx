@@ -316,6 +316,10 @@ export function TappStore({
           homepage: app.homepage,
           repository: app.repository,
           size: app.size,
+          downloads:
+            typeof app.downloads === 'number' && app.downloads > 0
+              ? app.downloads
+              : undefined,
           featured: app.featured,
           verified: app.verified,
           fromOfficialSource: Boolean(app.sourceOfficial),

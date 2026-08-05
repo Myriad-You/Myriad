@@ -534,15 +534,40 @@ REST 商店安装仍是 body `source: "store"` + `storeSource: catalogRef`（源
 | 项 | 说明 |
 | -- | ---- |
 | 代码 | 商店仓库 [`edge/`](https://github.com/Myriad-You/tapp-store/tree/main/edge) |
+| 正式 URL | **`https://stats.store.myriad.you`** |
 | 计什么 | **安装成功**（`event=install`）；`update` 单独计数；不计 preview / 浏览 |
-| 真值 | `GET /v1/stats`；**不**由 Catalog Sync 写回 `index.json` |
-| `index.json` `downloads` | 仅占位/降级；UI 优先 edge overlay |
-| 部署 | `wrangler deploy` → `*.workers.dev` 即可；自定义域名可选 |
-| 万级应用 | stats 必须 `apps=` / `app=` / `top=`；禁止无参全量 dump |
+| 真值 | Edge DO 原子计数 + KV 镜像；**不**写回 `index.json` |
+| 写入口 | 仅 Myriad 后端（**无密钥**；`instance_hash` 标识实例） |
+| 计数上限 | **每实例 / 每 app / 每 event / 每 UTC 日最多 +1** |
+| 本地 | **默认不上报** |
+| 万级应用 | stats 必须 `apps=` / `app=` / `top=`；读路径不写 KV |
 
-Myriad 接入：后端/前端在安装成功路径 fire-and-forget `POST /v1/hit`；商店 UI 批量拉 stats 展示。失败不影响安装。
+### Myriad 双路径打点
 
-详细部署与 API 见商店仓库 `edge/README.md`。
+| 路径 | 谁上报 | 如何到 edge |
+| ---- | ------ | ----------- |
+| `source=store` 安装/更新成功 | 后端 `store_stats_beacon` | 直连 hit + `instance_hash` |
+| 浏览器 fallback 成功 | FE → `POST /api/tapps/store/stats-report`（须已安装） | 后端 hit + `instance_hash` |
+| direct / 文件安装 | **不上报** | — |
+
+实例身份（优先顺序）：
+
+1. `TAPP_STORE_INSTANCE_ID`（本地多实例联调）
+2. `BASE_URL`
+3. `FRONTEND_URL`
+4. `http://{SERVER_HOST}:{SERVER_PORT}`（native dev 默认）
+
+环境变量：
+
+| 变量 | 默认 | 说明 |
+| ---- | ---- | ---- |
+| `TAPP_STORE_STATS_ENABLED` | **本地关 / 生产开** | 显式 `true`/`false` 优先；未设时：仅 `ENVIRONMENT=production` 且非 localhost 才上报 |
+| `TAPP_STORE_STATS_URL` | `https://stats.store.myriad.you` | 上报目标 |
+| `TAPP_STORE_INSTANCE_ID` | 无 | 覆盖实例桶 |
+| `BASE_URL` / `FRONTEND_URL` | — | 生产必设公网 URL；dev.sh 写本地 URL |
+
+**本地默认不统计**（不污染线上数字）。要测统计再设 `TAPP_STORE_STATS_ENABLED=true`。  
+默认 **零密钥**。详见 `tapp-store/edge/README.md`。
 
 ---
 

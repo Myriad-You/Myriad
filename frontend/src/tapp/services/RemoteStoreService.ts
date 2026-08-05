@@ -136,6 +136,8 @@ export interface RemoteApp {
   featured?: boolean
   /** 是否官方验证 */
   verified?: boolean
+  /** 安装次数（index 占位或 edge overlay） */
+  downloads?: number
   created_at?: string
   updated_at?: string
 }
@@ -605,6 +607,23 @@ class RemoteStoreServiceImpl {
           })
         }
       }
+    }
+
+    // Overlay live install counts from edge stats (non-blocking on failure).
+    try {
+      const { fetchStoreDownloadCounts } = await import('./storeStats')
+      const officialIds = apps
+        .filter((a) => a.sourceOfficial)
+        .map((a) => a.id)
+      const counts = await fetchStoreDownloadCounts(officialIds)
+      for (const app of apps) {
+        const n = counts[app.id]
+        if (typeof n === 'number' && n > 0) {
+          app.downloads = n
+        }
+      }
+    } catch {
+      // stats optional
     }
 
     return {
