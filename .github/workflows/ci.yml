@@ -168,13 +168,13 @@ jobs:
       # cargo-audit has no --locked flag of its own. Resolve metadata with
       # Cargo's lock enforcement, then point audit at the exact committed lock.
       - name: Verify backend workspace lockfile
-        run: cargo metadata --workspace --locked --no-deps
+        run: cargo metadata --locked --no-deps --format-version 1
       - name: Verify proxy lockfile
         working-directory: proxy
-        run: cargo metadata --locked --no-deps
+        run: cargo metadata --locked --no-deps --format-version 1
       - name: Verify updater lockfile
         working-directory: updater
-        run: cargo metadata --locked --no-deps
+        run: cargo metadata --locked --no-deps --format-version 1
       # MYR-027: hard-fail on unignored *vulnerabilities*; soft-report warnings
       # (unmaintained/unsound/yanked). Allowlist: .cargo/audit.toml.
       # Soft steps keep continue-on-error; hard steps do not.
