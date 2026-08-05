@@ -1679,7 +1679,7 @@ mod health_match_tests {
         // Mirrors the SoftOk gate: maintenance page must not count as soft success.
         let looks_like_maintenance = true;
         let fe_html_ok = false; // fe_html_ok requires !looks_like_maintenance
-        assert!(!(fe_html_ok && !looks_like_maintenance));
+        assert!(!fe_html_ok || looks_like_maintenance);
         let looks_like_maintenance = false;
         let fe_html_ok = true;
         assert!(fe_html_ok && !looks_like_maintenance);
