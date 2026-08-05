@@ -99,12 +99,10 @@ let sharedSubtitleIntervalId: ReturnType<typeof setInterval> | null = null
 
 function subscribeSharedSubtitleTick(listener: () => void): () => void {
   sharedSubtitleListeners.add(listener)
-  if (sharedSubtitleIntervalId == null) {
-    sharedSubtitleIntervalId = setInterval(() => {
-      sharedSubtitleTick += 1
-      for (const fn of sharedSubtitleListeners) fn()
-    }, SUBTITLE_ROTATE_MS)
-  }
+  sharedSubtitleIntervalId ??= setInterval(() => {
+    sharedSubtitleTick += 1
+    for (const fn of sharedSubtitleListeners) fn()
+  }, SUBTITLE_ROTATE_MS)
   return () => {
     sharedSubtitleListeners.delete(listener)
     if (sharedSubtitleListeners.size === 0 && sharedSubtitleIntervalId != null) {
@@ -126,7 +124,7 @@ function uniqueSubtitleLines(lines: string[]): string[] {
   return out
 }
 
-export type RotatingSubtitleProps = {
+export interface RotatingSubtitleProps {
   lines: string[]
   /** Stagger phase when using sharedClock (list rows). */
   phaseOffset?: number
