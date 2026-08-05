@@ -1,4 +1,3 @@
-
 use axum::{http::StatusCode, Json};
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
 use serde::{Deserialize, Serialize};
@@ -105,10 +104,13 @@ fn take_early_channel_activities(channel_id: &str) -> Vec<BufferedChannelActivit
     map.remove(channel_id).unwrap_or_default()
 }
 
-async fn flush_early_channel_messages(db: &DatabaseConnection, channel_id: &str) {
+async fn flush_early_channel_messages(
+    db: &impl ConnectionTrait,
+    channel_id: &str,
+) -> Result<(), String> {
     let items = take_early_channel_activities(channel_id);
     if items.is_empty() {
-        return;
+        return Ok(());
     }
     tracing::info!(
         "[Channel] Flushing {} buffered activit(y/ies) for {}",
@@ -126,15 +128,17 @@ async fn flush_early_channel_messages(db: &DatabaseConnection, channel_id: &str)
         } else {
             handle_channel_message(db, &m.actor_url, &m.activity).await
         };
-        if let Err(e) = result {
+        result.map_err(|e| {
             tracing::warn!(
                 "[Channel] Failed to apply buffered {} for {}: {}",
                 ty,
                 channel_id,
                 e
             );
-        }
+            e
+        })?;
     }
+    Ok(())
 }
 
 // 请求/响应类型
@@ -1128,7 +1132,7 @@ pub async fn get_messages(
 
 /// 处理收到的 ChannelOpen Activity
 pub async fn handle_channel_open(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     actor_url_str: &str,
     activity: &serde_json::Value,
 ) -> Result<(), String> {
@@ -1258,14 +1262,14 @@ pub async fn handle_channel_open(
     );
 
     // ChannelMessage may have raced ahead of ChannelOpen — apply buffered ones now.
-    flush_early_channel_messages(db, channel_id).await;
+    flush_early_channel_messages(db, channel_id).await?;
 
     Ok(())
 }
 
 /// 处理收到的 ChannelMessage Activity
 pub async fn handle_channel_message(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     actor_url_str: &str,
     activity: &serde_json::Value,
 ) -> Result<(), String> {
@@ -1281,7 +1285,8 @@ pub async fn handle_channel_message(
             DatabaseBackend::Postgres,
             r#"SELECT c.status, c.user_id FROM federation_channels c
                JOIN federation_remote_actors ra ON c.remote_actor_id = ra.id
-               WHERE c.channel_id = $1 AND ra.actor_url = $2"#,
+               WHERE c.channel_id = $1 AND ra.actor_url = $2
+               FOR UPDATE OF c"#,
             [channel_id.into(), actor_url_str.into()],
         ))
         .await
@@ -1417,8 +1422,7 @@ pub async fn handle_channel_message(
                 .ok()
                 .flatten();
             if let Ok(session) = load_e2e_session(channel_id, properties.as_ref()).await {
-                if let Ok(plain) =
-                    crate::federation::e2e::decrypt_json_payload(&session, &payload)
+                if let Ok(plain) = crate::federation::e2e::decrypt_json_payload(&session, &payload)
                 {
                     ws_payload = plain;
                     ws_is_encrypted = false;
@@ -1491,7 +1495,7 @@ pub async fn handle_channel_message(
 
 /// 处理收到的 ChannelClose Activity
 pub async fn handle_channel_close(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     actor_url_str: &str,
     activity: &serde_json::Value,
 ) -> Result<(), String> {
@@ -1580,7 +1584,7 @@ pub async fn load_e2e_session(
 /// 2. 写入 channel.properties.e2e.remote_public_key，标记会话 established
 /// 3. 作为特殊 message 存入历史，并 WebSocket 广播
 pub async fn handle_key_exchange(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     actor_url_str: &str,
     activity: &serde_json::Value,
 ) -> Result<(), String> {
@@ -1662,8 +1666,7 @@ pub async fn handle_key_exchange(
     // 还没有密钥、重新生成一对并再发一条 KeyExchange —— 对端的 remote key 随之
     // 作废，双方陷入密钥轮换循环，而循环前加密的历史永远解不开
     // （截图里那串 "Encrypted · decrypting…" 就是这么来的）。
-    let txn = db.begin().await.map_err(|e| e.to_string())?;
-    let locked = txn
+    let locked = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT properties FROM federation_channels WHERE channel_id = $1 FOR UPDATE",
@@ -1696,14 +1699,13 @@ pub async fn handle_key_exchange(
     e2e_obj["established"] = json!(has_local);
     properties["e2e"] = e2e_obj;
 
-    txn.execute_raw(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "UPDATE federation_channels SET properties = $2, last_activity_at = NOW() WHERE channel_id = $1",
         [channel_id.into(), properties.into()],
     ))
     .await
     .map_err(|e| e.to_string())?;
-    txn.commit().await.map_err(|e| e.to_string())?;
 
     let message_id = activity
         .get("id")
@@ -1868,7 +1870,7 @@ pub async fn accept_channel(
 /// 与外部 `Accept`（object=myriad:ChannelOpen）等价的快捷形式，
 /// 来自仅实现 MFP 扩展的对端实例。
 pub async fn handle_channel_accept(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     actor_url_str: &str,
     activity: &serde_json::Value,
 ) -> Result<(), String> {
@@ -1927,12 +1929,6 @@ pub async fn handle_channel_accept(
 
     Ok(())
 }
-
-
-
-
-
-
 
 /// 发起 Channel E2E 密钥交换：生成 X25519 密钥对、写入 properties、投递 myriad:KeyExchange
 pub async fn initiate_e2e_key_exchange(
@@ -2196,7 +2192,6 @@ pub async fn initiate_e2e_key_exchange(
     })
 }
 
-
 #[cfg(test)]
 mod channel_early_buffer_tests {
     use super::*;
@@ -2207,9 +2202,17 @@ mod channel_early_buffer_tests {
         let id = "ch_test_buffer_unit";
         // clear any prior via purge by using unique id
         let act = json!({"id": "https://example.com/act/1", "type": "Create"});
-        assert!(buffer_early_channel_activity(id, "https://a.example/actor", &act));
+        assert!(buffer_early_channel_activity(
+            id,
+            "https://a.example/actor",
+            &act
+        ));
         // second with same id is treated as success (dedupe)
-        assert!(buffer_early_channel_activity(id, "https://a.example/actor", &act));
+        assert!(buffer_early_channel_activity(
+            id,
+            "https://a.example/actor",
+            &act
+        ));
     }
 
     #[test]
@@ -2217,9 +2220,16 @@ mod channel_early_buffer_tests {
         let id = "ch_test_buffer_cap";
         for i in 0..EARLY_MSG_MAX_PER_CHANNEL {
             let act = json!({"id": format!("https://example.com/act/{i}"), "type": "Create"});
-            assert!(buffer_early_channel_activity(id, "https://a.example/actor", &act), "i={i}");
+            assert!(
+                buffer_early_channel_activity(id, "https://a.example/actor", &act),
+                "i={i}"
+            );
         }
         let overflow = json!({"id": "https://example.com/act/overflow", "type": "Create"});
-        assert!(!buffer_early_channel_activity(id, "https://a.example/actor", &overflow));
+        assert!(!buffer_early_channel_activity(
+            id,
+            "https://a.example/actor",
+            &overflow
+        ));
     }
 }

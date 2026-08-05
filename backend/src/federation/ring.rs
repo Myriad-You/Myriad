@@ -18,7 +18,7 @@ use crate::federation::types::*;
 /// this avoids cold-key races on ring create/add_peer/leave/sync (same trap as
 /// room join in production logs).
 async fn ensure_keys_before_ring_outbound(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     user_id: i32,
     username: &str,
     context: &str,
@@ -41,7 +41,7 @@ async fn ensure_keys_before_ring_outbound(
 
 /// 根据用户名查询实际的 user_id，避免硬编码 user_id = 1
 async fn resolve_user_id(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     username: &str,
 ) -> Result<i32, (StatusCode, Json<serde_json::Value>)> {
     let row = db
@@ -886,7 +886,7 @@ pub async fn trigger_sync(
 }
 
 /// Legacy path: last N federated brew-article Creates (manual publish).
-async fn collect_legacy_brew_activities(db: &DatabaseConnection) -> Vec<serde_json::Value> {
+async fn collect_legacy_brew_activities(db: &impl ConnectionTrait) -> Vec<serde_json::Value> {
     // Prefer federation_published_content (stable content_type=brew-article) over
     // object_type on activities (which stores AP type "Article").
     let rows = db
@@ -985,7 +985,7 @@ fn brew_ring_summary(summary: Option<&str>, content: Option<&str>) -> String {
 /// Collect brew-recommend ring entries from user brew categories + sources.
 /// When the user has no categories, falls back to legacy federated brew-article Creates.
 async fn collect_brew_recommend_entries(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     user_id: i32,
     _username: &str,
     category_filter: Option<&str>,
@@ -1228,7 +1228,7 @@ pub async fn maybe_trigger_brew_recommend_sync_for_user(db: &DatabaseConnection,
 /// 收集本地要同步的数据条目
 async fn collect_sync_entries(
     ring_type: &str,
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     user_id: i32,
     username: &str,
     category_filter: Option<&str>,
@@ -1356,7 +1356,7 @@ async fn collect_sync_entries(
 
 /// 处理收到的 RingJoin Activity（远程实例请求加入我们的 Ring 或通知我们加入他们的）
 pub async fn handle_ring_join(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     actor_url_str: &str,
     activity: &serde_json::Value,
 ) -> Result<(), String> {
@@ -1455,7 +1455,7 @@ fn ring_entry_content_preview(
 
 /// 处理收到的 RingSync Activity（Gossip 数据推送）
 pub async fn handle_ring_sync(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     actor_url_str: &str,
     activity: &serde_json::Value,
 ) -> Result<(), String> {
@@ -1539,41 +1539,41 @@ pub async fn handle_ring_sync(
         // Prefer human-readable title/name for brew (and similar) entries
         let preview = ring_entry_content_preview(entry_type, &data, actor_url_str);
 
-        let _ = db
-            .execute_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                r#"INSERT INTO federation_timeline
-                   (user_id, activity_id, activity_type, object_type, content_preview, content_json, received_at)
-                   VALUES ($1, $2, 'Create', $3, $4, $5, NOW())
-                   ON CONFLICT (user_id, activity_id) DO NOTHING"#,
-                [
-                    first_user.into(),
-                    activity_id_val.into(),
-                    entry_type.into(),
-                    preview.into(),
-                    data.into(),
-                ],
-            ))
-            .await;
+        db.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"INSERT INTO federation_timeline
+               (user_id, activity_id, activity_type, object_type, content_preview, content_json, received_at)
+               VALUES ($1, $2, 'Create', $3, $4, $5, NOW())
+               ON CONFLICT (user_id, activity_id) DO NOTHING"#,
+            [
+                first_user.into(),
+                activity_id_val.into(),
+                entry_type.into(),
+                preview.into(),
+                data.into(),
+            ],
+        ))
+        .await
+        .map_err(|e| e.to_string())?;
         imported += 1;
     }
 
     // 更新 last_sync_at 和确保 peer 在列表中
     // known_peers is json (not jsonb); cast for @> / || containment ops
-    let _ = db
-        .execute_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            r#"UPDATE federation_ring_memberships
-               SET last_sync_at = NOW(),
-                   known_peers = CASE
-                     WHEN NOT (COALESCE(known_peers, '[]'::json)::jsonb @> $2::jsonb)
-                     THEN (COALESCE(known_peers, '[]'::json)::jsonb || $2::jsonb)
-                     ELSE COALESCE(known_peers, '[]'::json)::jsonb
-                   END
-               WHERE ring_id = $1"#,
-            [ring_id.into(), json!([actor_url_str]).into()],
-        ))
-        .await;
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        r#"UPDATE federation_ring_memberships
+           SET last_sync_at = NOW(),
+               known_peers = CASE
+                 WHEN NOT (COALESCE(known_peers, '[]'::json)::jsonb @> $2::jsonb)
+                 THEN (COALESCE(known_peers, '[]'::json)::jsonb || $2::jsonb)
+                 ELSE COALESCE(known_peers, '[]'::json)::jsonb
+               END
+           WHERE ring_id = $1"#,
+        [ring_id.into(), json!([actor_url_str]).into()],
+    ))
+    .await
+    .map_err(|e| e.to_string())?;
 
     tracing::info!(
         "[Ring] Sync from {} to ring {}: {} entries ({} imported), ttl={}",
@@ -1637,11 +1637,23 @@ pub async fn handle_ring_sync(
                         }
                     });
 
-                    if let Ok(remote) =
-                        crate::federation::actor::fetch_remote_actor(db, target).await
+                    // Do not perform remote HTTP actor fetches while the
+                    // inbound receipt transaction is open.  A previously
+                    // verified actor cache entry is enough to enqueue the
+                    // durable delivery outbox; an uncached peer can be
+                    // discovered by the normal outbound worker later.
+                    if let Ok(Some(remote_row)) = db
+                        .query_one_raw(Statement::from_sql_and_values(
+                            DatabaseBackend::Postgres,
+                            "SELECT inbox_url FROM federation_remote_actors WHERE actor_url = $1",
+                            [target.as_str().into()],
+                        ))
+                        .await
                     {
-                        if !remote.inbox_url.is_empty() {
-                            let domain = extract_domain(&remote.inbox_url).unwrap_or_default();
+                        let inbox_url: String =
+                            remote_row.try_get("", "inbox_url").unwrap_or_default();
+                        if !inbox_url.is_empty() {
+                            let domain = extract_domain(&inbox_url).unwrap_or_default();
                             let act_row = db
                                 .query_one_raw(Statement::from_sql_and_values(
                                     DatabaseBackend::Postgres,
@@ -1651,21 +1663,22 @@ pub async fn handle_ring_sync(
                                        RETURNING id"#,
                                     [fwd_activity_id.into(), first_user.into(), fwd_activity.into()],
                                 ))
-                                .await;
+                                .await
+                                .map_err(|e| e.to_string())?;
 
-                            if let Ok(Some(r)) = act_row {
-                                if let Ok(act_id) = r.try_get::<i32>("", "id") {
-                                    let _ = db
-                                        .execute_raw(Statement::from_sql_and_values(
-                                            DatabaseBackend::Postgres,
-                                            r#"INSERT INTO federation_delivery_queue
-                                               (activity_id, target_inbox, target_domain, status, created_at)
-                                               VALUES ($1, $2, $3, 'pending', NOW())
+                            if let Some(r) = act_row {
+                                let act_id =
+                                    r.try_get::<i32>("", "id").map_err(|e| e.to_string())?;
+                                db.execute_raw(Statement::from_sql_and_values(
+                                    DatabaseBackend::Postgres,
+                                    r#"INSERT INTO federation_delivery_queue
+                                       (activity_id, target_inbox, target_domain, status, created_at)
+                                       VALUES ($1, $2, $3, 'pending', NOW())
                    ON CONFLICT (activity_id, target_inbox) DO NOTHING"#,
-                                            [act_id.into(), remote.inbox_url.into(), domain.into()],
-                                        ))
-                                        .await;
-                                }
+                                    [act_id.into(), inbox_url.into(), domain.into()],
+                                ))
+                                .await
+                                .map_err(|e| e.to_string())?;
                             }
                         }
                     }
@@ -1685,7 +1698,7 @@ pub async fn handle_ring_sync(
 
 /// 处理收到的 RingLeave Activity
 pub async fn handle_ring_leave(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     actor_url_str: &str,
     activity: &serde_json::Value,
 ) -> Result<(), String> {

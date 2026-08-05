@@ -344,9 +344,8 @@ mod tests {
             build_public_http_client("http://127.0.0.1:18080/inbox", Duration::from_secs(1), None)
                 .await;
         std::env::remove_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND");
-        match prev_env {
-            Some(v) => std::env::set_var("ENVIRONMENT", v),
-            None => {}
+        if let Some(v) = prev_env {
+            std::env::set_var("ENVIRONMENT", v);
         }
         assert!(
             result.is_ok(),
@@ -374,9 +373,8 @@ mod tests {
         assert!(!federation_lab_private_outbound_enabled());
         std::env::remove_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND");
         std::env::remove_var("ENVIRONMENT");
-        match prev_env {
-            Some(v) => std::env::set_var("ENVIRONMENT", v),
-            None => {}
+        if let Some(v) = prev_env {
+            std::env::set_var("ENVIRONMENT", v);
         }
     }
 

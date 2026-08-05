@@ -221,7 +221,10 @@ pub async fn interaction_stats_for_objects(
             [object_ids.to_vec().into()],
         ))
         .await
-        .map_err(|e| { tracing::error!("DB error: {}", e); "Database error".to_string() })?;
+        .map_err(|e| {
+            tracing::error!("DB error: {}", e);
+            "Database error".to_string()
+        })?;
 
     for r in rows {
         let oid: String = r.try_get("", "object_id").unwrap_or_default();
@@ -280,7 +283,10 @@ pub async fn interaction_stats_for_objects(
             [object_ids.to_vec().into()],
         ))
         .await
-        .map_err(|e| { tracing::error!("DB error: {}", e); "Database error".to_string() })?;
+        .map_err(|e| {
+            tracing::error!("DB error: {}", e);
+            "Database error".to_string()
+        })?;
 
     for r in remote_likes {
         let oid: String = r.try_get("", "object_id").unwrap_or_default();
@@ -317,7 +323,10 @@ pub async fn interaction_stats_for_objects(
             [object_ids.to_vec().into()],
         ))
         .await
-        .map_err(|e| { tracing::error!("DB error: {}", e); "Database error".to_string() })?;
+        .map_err(|e| {
+            tracing::error!("DB error: {}", e);
+            "Database error".to_string()
+        })?;
 
     for r in remote_ann {
         let oid: String = r.try_get("", "object_id").unwrap_or_default();
@@ -349,7 +358,10 @@ pub async fn interaction_stats_for_objects(
             [object_ids.to_vec().into()],
         ))
         .await
-        .map_err(|e| { tracing::error!("DB error: {}", e); "Database error".to_string() })?;
+        .map_err(|e| {
+            tracing::error!("DB error: {}", e);
+            "Database error".to_string()
+        })?;
 
     for r in replies {
         let oid: String = r.try_get("", "parent_id").unwrap_or_default();
@@ -1497,7 +1509,7 @@ async fn deliver_to_object_author(
 /// Record inbound Like without polluting the home timeline.
 /// Call after federation_activities insert.
 pub async fn handle_inbound_like(
-    _db: &DatabaseConnection,
+    _db: &impl ConnectionTrait,
     _local_user_id: i32,
     actor_url_str: &str,
     activity: &serde_json::Value,
@@ -1513,17 +1525,17 @@ pub async fn handle_inbound_like(
 /// 通过 `remote_actor_id` 绑定到它 —— 否则任何远端都能凭一个 activity id
 /// 撤销别人的互动（记录被删掉，计数随之改变）。
 pub async fn handle_inbound_undo_interaction(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     local_user_id: i32,
     undo_actor_url: &str,
     activity: &serde_json::Value,
-) {
+) -> Result<(), String> {
     let inner = &activity["object"];
     let inner_type = inner["type"].as_str().unwrap_or("");
     let inner_id = inner["id"].as_str().unwrap_or("");
 
     if inner_id.is_empty() || undo_actor_url.is_empty() {
-        return;
+        return Ok(());
     }
 
     // 子查询取 Actor 内部 id；Actor 未知时子查询为 NULL，等值比较不成立 →
@@ -1534,38 +1546,39 @@ pub async fn handle_inbound_undo_interaction(
 
     match inner_type {
         "Like" => {
-            let _ = db
-                .execute_raw(Statement::from_sql_and_values(
-                    DatabaseBackend::Postgres,
-                    OWNED_ACTIVITY,
-                    [inner_id.into(), undo_actor_url.into()],
-                ))
-                .await;
+            db.execute_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                OWNED_ACTIVITY,
+                [inner_id.into(), undo_actor_url.into()],
+            ))
+            .await
+            .map_err(|e| e.to_string())?;
         }
         "Announce" => {
-            let _ = db
-                .execute_raw(Statement::from_sql_and_values(
-                    DatabaseBackend::Postgres,
-                    "DELETE FROM federation_timeline \
-                     WHERE user_id = $1 AND activity_id = $2 \
-                       AND remote_actor_id = (SELECT id FROM federation_remote_actors WHERE actor_url = $3)",
-                    [
-                        local_user_id.into(),
-                        inner_id.into(),
-                        undo_actor_url.into(),
-                    ],
-                ))
-                .await;
-            let _ = db
-                .execute_raw(Statement::from_sql_and_values(
-                    DatabaseBackend::Postgres,
-                    OWNED_ACTIVITY,
-                    [inner_id.into(), undo_actor_url.into()],
-                ))
-                .await;
+            db.execute_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "DELETE FROM federation_timeline \
+                 WHERE user_id = $1 AND activity_id = $2 \
+                   AND remote_actor_id = (SELECT id FROM federation_remote_actors WHERE actor_url = $3)",
+                [
+                    local_user_id.into(),
+                    inner_id.into(),
+                    undo_actor_url.into(),
+                ],
+            ))
+            .await
+            .map_err(|e| e.to_string())?;
+            db.execute_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                OWNED_ACTIVITY,
+                [inner_id.into(), undo_actor_url.into()],
+            ))
+            .await
+            .map_err(|e| e.to_string())?;
         }
         _ => {}
     }
+    Ok(())
 }
 
 // Object detail (quote click-through)

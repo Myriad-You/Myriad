@@ -17,7 +17,7 @@ pub(crate) async fn jwt_secret_for_e2e_seal() -> String {
 
 /// 用任一本地成员密钥解密多方信封，供 WebSocket 广播展示（明文各收件人相同）。
 pub(crate) async fn decrypt_room_payload_for_local_ws(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     room_id: &str,
     encrypted_payload: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
@@ -58,7 +58,7 @@ pub(crate) async fn decrypt_room_payload_for_local_ws(
 
 /// 从成员 custom_permissions 读取本地 E2E 密钥对
 pub(crate) async fn load_member_e2e_keys(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     room_id: &str,
     actor_url: &str,
 ) -> Result<(String, String), String> {
@@ -94,7 +94,7 @@ pub(crate) async fn load_member_e2e_keys(
 
 /// 收集房间已发布的对端公钥（不含 exclude_actor）
 pub(crate) async fn collect_room_e2e_recipients(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     room_id: &str,
     exclude_actor: &str,
 ) -> Result<Vec<(String, String)>, String> {
@@ -376,7 +376,7 @@ pub async fn initiate_e2e_key_exchange(
 
 /// 处理 Room 的 myriad:KeyExchange：登记对方公钥到 shared_data_config
 pub async fn handle_key_exchange(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     actor_url_str: &str,
     activity: &serde_json::Value,
 ) -> Result<(), String> {
@@ -403,7 +403,7 @@ pub async fn handle_key_exchange(
     let room_exists = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT 1 FROM federation_rooms WHERE room_id = $1",
+            "SELECT 1 FROM federation_rooms WHERE room_id = $1 FOR UPDATE",
             [room_id.into()],
         ))
         .await
@@ -421,8 +421,7 @@ pub async fn handle_key_exchange(
     // 行锁下读改写：本地 initiate_e2e_key_exchange 会并发改同一份
     // shared_data_config。没有锁时两边用各自的快照整体覆盖，谁后写谁获胜，
     // published_keys 会丢掉一方的公钥 —— 丢失方从此收不到能解开的消息。
-    let txn = db.begin().await.map_err(|e| e.to_string())?;
-    let room_row = txn
+    let room_row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT shared_data_config FROM federation_rooms WHERE room_id = $1 FOR UPDATE",
@@ -453,14 +452,13 @@ pub async fn handle_key_exchange(
         .map(|o| o.len())
         .unwrap_or(0);
 
-    txn.execute_raw(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "UPDATE federation_rooms SET shared_data_config = $2, updated_at = NOW() WHERE room_id = $1",
         [room_id.into(), shared.into()],
     ))
     .await
     .map_err(|e| e.to_string())?;
-    txn.commit().await.map_err(|e| e.to_string())?;
 
     crate::federation::ws_gateway::broadcast_to_room(
         room_id,
@@ -483,5 +481,3 @@ pub async fn handle_key_exchange(
     );
     Ok(())
 }
-
-

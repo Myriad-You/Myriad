@@ -600,18 +600,22 @@ mod constant_tests {
     fn memory_audit_1g_host_budget_tension() {
         const ONE_GIB: usize = 1024 * 1024 * 1024;
         // Single-request product floor (do not silently shrink in drive-by refactors).
-        assert!(MESSAGE_PAYLOAD_LIMIT >= 32 * 1024 * 1024);
-        assert!(INBOX_BODY_LIMIT >= MESSAGE_PAYLOAD_LIMIT);
+        const {
+            assert!(MESSAGE_PAYLOAD_LIMIT >= 32 * 1024 * 1024);
+            assert!(INBOX_BODY_LIMIT >= MESSAGE_PAYLOAD_LIMIT);
+        }
         // Concurrent budget is half a 1 GiB host — intentional audit finding.
         assert_eq!(INBOX_INFLIGHT_RAW_BUDGET, 512 * 1024 * 1024);
-        assert!(
-            INBOX_INFLIGHT_RAW_BUDGET * 2 <= ONE_GIB,
-            "inflight raw budget is sized as half of 1 GiB (audit R2)"
-        );
-        assert!(
-            MAX_IN_FLIGHT_CHUNK_BYTES <= 128 * 1024 * 1024,
-            "chunk inflight must stay documented upper bound"
-        );
+        const {
+            assert!(
+                INBOX_INFLIGHT_RAW_BUDGET * 2 <= ONE_GIB,
+                "inflight raw budget is sized as half of 1 GiB (audit R2)"
+            );
+            assert!(
+                MAX_IN_FLIGHT_CHUNK_BYTES <= 128 * 1024 * 1024,
+                "chunk inflight must stay documented upper bound"
+            );
+        }
         assert_eq!(MAX_IN_FLIGHT_CHUNK_BYTES, 128 * 1024 * 1024);
     }
 

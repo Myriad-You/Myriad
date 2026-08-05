@@ -221,7 +221,7 @@ fn is_blocked_wallpaper_ip(ip: std::net::IpAddr) -> bool {
 
 /// Same-origin path `/...` (not `//host`), rejecting `/javascript:...` smuggling.
 fn sanitize_site_relative_path(s: &str) -> Option<String> {
-    if !(s.starts_with('/') && !s.starts_with("//")) {
+    if !s.starts_with('/') || s.starts_with("//") {
         return None;
     }
     if s.len() > 1 {

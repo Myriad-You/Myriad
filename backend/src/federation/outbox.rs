@@ -18,7 +18,7 @@ use crate::federation::types::*;
 
 const OUTBOX_PAGE_SIZE: i64 = 20;
 
-/// Outbox 的可见性投影。
+/// 公开 Activity/Object 的共同可见性投影。
 ///
 /// `federation_activities` 是**通用**联邦活动表：Follow/Accept、房间邀请、
 /// 频道消息、密钥交换、Ring 同步、文件分块都写在这里，且 `is_local = true`。
@@ -29,12 +29,13 @@ const OUTBOX_PAGE_SIZE: i64 = 20;
 /// 1. activity 类型在下面的白名单里；
 /// 2. 在 `federation_published_content` 里有一条 `visibility = 'public'` 记录。
 ///
-/// 任何新增的活动类型默认不可见，必须显式登记成公开内容。
-const PUBLIC_OUTBOX_FILTER: &str = r#"
+/// 任何新增的活动类型默认不可见，必须显式登记成公开内容。Outbox 摘要、分页、
+/// `/activities/{id}` 以及下方的内容对象解引用都必须复用这段投影，避免某个
+/// 路径绕过另一个路径的隐私边界。
+const PUBLIC_CONTENT_PROJECTION: &str = r#"
     FROM federation_activities a
     JOIN federation_published_content p ON p.activity_id = a.activity_id
-    WHERE a.user_id = $1
-      AND a.is_local = true
+    WHERE a.is_local = true
       AND a.activity_type IN ('Create', 'Announce')
       AND p.visibility = 'public'
 "#;
@@ -108,7 +109,10 @@ pub async fn get_outbox(
         let total: i64 = db
             .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
-                format!("SELECT COUNT(*) as count {}", PUBLIC_OUTBOX_FILTER),
+                format!(
+                    "SELECT COUNT(*) as count {} AND a.user_id = $1",
+                    PUBLIC_CONTENT_PROJECTION
+                ),
                 [user_id.into()],
             ))
             .await
@@ -152,8 +156,9 @@ pub async fn get_outbox(
                 DatabaseBackend::Postgres,
                 format!(
                     "SELECT a.object_json, a.id, a.published_at {} \
+                     AND a.user_id = $1 \
                      ORDER BY a.published_at DESC, a.id DESC LIMIT $2 OFFSET $3",
-                    PUBLIC_OUTBOX_FILTER
+                    PUBLIC_CONTENT_PROJECTION
                 ),
                 [user_id.into(), fetch.into(), legacy_offset.into()],
             ))
@@ -166,9 +171,10 @@ pub async fn get_outbox(
                 DatabaseBackend::Postgres,
                 format!(
                     "SELECT a.object_json, a.id, a.published_at {} \
+                       AND a.user_id = $1 \
                        AND (a.published_at, a.id) < ($2, $3) \
                      ORDER BY a.published_at DESC, a.id DESC LIMIT $4",
-                    PUBLIC_OUTBOX_FILTER
+                    PUBLIC_CONTENT_PROJECTION
                 ),
                 [user_id.into(), ts.into(), id.into(), fetch.into()],
             ))
@@ -250,13 +256,10 @@ pub async fn get_activity(
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            r#"SELECT a.object_json
-               FROM federation_activities a
-               JOIN federation_published_content p ON p.activity_id = a.activity_id
-               WHERE a.activity_id = $1
-                 AND a.is_local = true
-                 AND a.activity_type IN ('Create', 'Announce')
-                 AND p.visibility = 'public'"#,
+            format!(
+                "SELECT a.object_json {} AND a.activity_id = $1",
+                PUBLIC_CONTENT_PROJECTION
+            ),
             [activity_id.clone().into()],
         ))
         .await
@@ -278,6 +281,186 @@ pub async fn get_activity(
         AP_CONTENT_TYPE,
         object_json,
     ))
+}
+
+/// The object URLs embedded in public Create activities are dereferenceable
+/// documents in their own right.  Keep their projection deliberately narrow:
+/// the only source is the same local Create/Announce + public
+/// `federation_published_content` join used by the Outbox and Activity
+/// handlers.  Do not rebuild an object from its backing MFP table here; doing
+/// so would make an unpublished/private row reachable by guessing its id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PublicObjectKind {
+    Note,
+    Report,
+    BrewArticle,
+    Tapp,
+    Library,
+}
+
+impl PublicObjectKind {
+    const fn content_type(self) -> &'static str {
+        match self {
+            Self::Note => "note",
+            Self::Report => "report",
+            Self::BrewArticle => "brew-article",
+            Self::Tapp => "tapp",
+            Self::Library => "library",
+        }
+    }
+
+    const fn activity_object_type(self) -> &'static str {
+        match self {
+            Self::Note => "Note",
+            Self::Report | Self::BrewArticle => "Article",
+            Self::Tapp => "Application",
+            Self::Library => "Collection",
+        }
+    }
+
+    fn object_id(self, base_url: &str, id: &str) -> String {
+        let base_url = base_url.trim_end_matches('/');
+        match self {
+            Self::Note => format!("{base_url}/notes/{id}"),
+            Self::Report => format!("{base_url}/reports/{id}"),
+            Self::BrewArticle => format!("{base_url}/brew/articles/{id}"),
+            // `build_ap_object` URL-encodes tapp ids before embedding them in
+            // the object URL.  Path extraction gives us the decoded segment,
+            // so encode it once more for the canonical comparison.
+            Self::Tapp => format!("{base_url}/tapps/{}", urlencoding::encode(id)),
+            Self::Library => format!("{base_url}/library/{id}"),
+        }
+    }
+}
+
+/// GET /notes/{id}
+pub async fn get_note(
+    State(db): State<DatabaseConnection>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
+    get_public_object(&db, PublicObjectKind::Note, id, headers).await
+}
+
+/// GET /reports/{id}
+pub async fn get_report(
+    State(db): State<DatabaseConnection>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
+    get_public_object(&db, PublicObjectKind::Report, id, headers).await
+}
+
+/// GET /brew/articles/{id}
+pub async fn get_brew_article(
+    State(db): State<DatabaseConnection>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
+    get_public_object(&db, PublicObjectKind::BrewArticle, id, headers).await
+}
+
+/// GET /tapps/{id}
+pub async fn get_tapp(
+    State(db): State<DatabaseConnection>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
+    get_public_object(&db, PublicObjectKind::Tapp, id, headers).await
+}
+
+/// GET /library/{id}
+pub async fn get_library(
+    State(db): State<DatabaseConnection>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
+    get_public_object(&db, PublicObjectKind::Library, id, headers).await
+}
+
+async fn get_public_object(
+    db: &DatabaseConnection,
+    kind: PublicObjectKind,
+    raw_id: String,
+    headers: HeaderMap,
+) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
+    let id = raw_id.trim();
+    // Non-tapp object ids are emitted as literal path segments.  Reject
+    // decoded separators instead of allowing a caller to make one kind's
+    // handler reinterpret a path intended for another route.  Tapp ids are
+    // percent-encoded by the publisher, so a decoded separator is re-encoded
+    // by `object_id` below.
+    if id.is_empty()
+        || (kind != PublicObjectKind::Tapp && id.chars().any(|c| matches!(c, '/' | '?' | '#')))
+    {
+        return Err(object_not_found());
+    }
+
+    let base_url = get_base_url().await;
+    let object_id = kind.object_id(&base_url, id);
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            format!(
+                "SELECT a.object_json {} \\
+                 AND p.content_type = $1 \\
+                 AND (a.object_json -> 'object' ->> 'id') = $2 \\
+                 LIMIT 1",
+                PUBLIC_CONTENT_PROJECTION
+            ),
+            [kind.content_type().into(), object_id.clone().into()],
+        ))
+        .await
+        .map_err(db_err)?;
+
+    let Some(row) = row else {
+        return Err(object_not_found());
+    };
+
+    // Content objects are embedded under a Create envelope.  Returning only
+    // that object (never the envelope) keeps the `/notes/...` family aligned
+    // with the ids advertised to remote instances and prevents unrelated MFP
+    // activity fields from leaking through an object URL.
+    let root: serde_json::Value = row
+        .try_get::<serde_json::Value>("", "object_json")
+        .unwrap_or_else(|_| json!({}));
+    let Some(object) = root.get("object").filter(|value| value.is_object()) else {
+        return Err(object_not_found());
+    };
+    if !public_object_matches(kind, object, object_id.as_str()) {
+        return Err(object_not_found());
+    }
+
+    Ok(crate::federation::http_cache::public_ap_document(
+        &headers,
+        AP_CONTENT_TYPE,
+        object.clone(),
+    ))
+}
+
+fn object_not_found() -> (StatusCode, Json<serde_json::Value>) {
+    (
+        StatusCode::NOT_FOUND,
+        Json(json!({"error": "Object not found"})),
+    )
+}
+
+fn public_object_matches(
+    kind: PublicObjectKind,
+    object: &serde_json::Value,
+    object_id: &str,
+) -> bool {
+    object.get("id").and_then(|value| value.as_str()) == Some(object_id)
+        && object.get("type").and_then(|value| value.as_str())
+            == Some(kind.activity_object_type())
+        // Older public rows may not carry the MFP hint, but when it is
+        // present it must agree with the published-content type.  This keeps
+        // a stale/cross-type row from being served from a different URL.
+        && object
+            .get("mfp:contentType")
+            .and_then(|value| value.as_str())
+            .map(|value| value == kind.content_type())
+            .unwrap_or(true)
 }
 
 // 辅助函数
@@ -314,6 +497,7 @@ async fn get_local_user(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn cursor_roundtrips() {
@@ -374,5 +558,82 @@ mod tests {
             "pages must not carry totalItems; that would force a COUNT(*) per page"
         );
         assert_eq!(v["type"], "OrderedCollectionPage");
+    }
+
+    #[test]
+    fn public_object_links_use_emitted_paths_and_content_types() {
+        let base = "https://example.test/";
+        assert_eq!(
+            PublicObjectKind::Note.object_id(base, "n-1"),
+            "https://example.test/notes/n-1"
+        );
+        assert_eq!(
+            PublicObjectKind::Report.object_id(base, "7"),
+            "https://example.test/reports/7"
+        );
+        assert_eq!(
+            PublicObjectKind::BrewArticle.object_id(base, "8"),
+            "https://example.test/brew/articles/8"
+        );
+        assert_eq!(
+            PublicObjectKind::Tapp.object_id(base, "demo tapp"),
+            "https://example.test/tapps/demo%20tapp"
+        );
+        assert_eq!(
+            PublicObjectKind::Tapp.object_id(base, "demo/tapp"),
+            "https://example.test/tapps/demo%2Ftapp"
+        );
+        assert_eq!(
+            PublicObjectKind::Library.object_id(base, "9"),
+            "https://example.test/library/9"
+        );
+
+        assert_eq!(PublicObjectKind::Note.activity_object_type(), "Note");
+        assert_eq!(PublicObjectKind::Report.activity_object_type(), "Article");
+        assert_eq!(
+            PublicObjectKind::BrewArticle.activity_object_type(),
+            "Article"
+        );
+        assert_eq!(PublicObjectKind::Tapp.activity_object_type(), "Application");
+        assert_eq!(
+            PublicObjectKind::Library.activity_object_type(),
+            "Collection"
+        );
+    }
+
+    #[test]
+    fn private_or_unpublished_rows_are_excluded_by_public_projection() {
+        assert!(PUBLIC_CONTENT_PROJECTION.contains("JOIN federation_published_content"));
+        assert!(PUBLIC_CONTENT_PROJECTION.contains("a.is_local = true"));
+        assert!(PUBLIC_CONTENT_PROJECTION.contains("a.activity_type IN ('Create', 'Announce')"));
+        assert!(PUBLIC_CONTENT_PROJECTION.contains("p.visibility = 'public'"));
+    }
+
+    #[test]
+    fn public_object_projection_rejects_cross_type_and_not_found_objects() {
+        let id = "https://example.test/notes/n-1";
+        let note = json!({
+            "type": "Note",
+            "id": id,
+            "mfp:contentType": "note"
+        });
+        assert!(public_object_matches(PublicObjectKind::Note, &note, id));
+        assert!(!public_object_matches(PublicObjectKind::Report, &note, id));
+        assert!(!public_object_matches(
+            PublicObjectKind::Note,
+            &note,
+            "https://example.test/notes/missing"
+        ));
+
+        let stale_cross_type = json!({
+            "type": "Note",
+            "id": id,
+            "mfp:contentType": "report"
+        });
+        assert!(!public_object_matches(
+            PublicObjectKind::Note,
+            &stale_cross_type,
+            id
+        ));
     }
 }

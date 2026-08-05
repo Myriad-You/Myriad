@@ -123,7 +123,6 @@ fn generate_token() -> String {
 fn persist_token(path: &Path, token: &str) {
     if let Err(e) = std::fs::write(path, format!("{token}\n")) {
         tracing::warn!(path = %path.display(), "Failed to write bootstrap token file: {e}");
-        return;
     }
     #[cfg(unix)]
     {

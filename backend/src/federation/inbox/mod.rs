@@ -2,6 +2,7 @@
 //!
 //! Implementation lives in [`receive`] (formerly multi-file include! split).
 
+mod receipt;
 mod receive;
 
 pub use receive::*;

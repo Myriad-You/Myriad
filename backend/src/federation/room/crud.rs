@@ -471,7 +471,7 @@ pub async fn delete_room(
 
 /// Remote owner dissolved the room — wipe local copy and notify open clients.
 pub async fn handle_room_dissolve(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     actor_url_str: &str,
     activity: &serde_json::Value,
 ) -> Result<(), String> {
@@ -508,6 +508,38 @@ pub async fn handle_room_dissolve(
         }
     }
 
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "DELETE FROM federation_room_messages WHERE room_id = $1",
+        [room_id.into()],
+    ))
+    .await
+    .map_err(|e| e.to_string())?;
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "DELETE FROM federation_room_members WHERE room_id = $1",
+        [room_id.into()],
+    ))
+    .await
+    .map_err(|e| e.to_string())?;
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "DELETE FROM federation_rooms WHERE room_id = $1",
+        [room_id.into()],
+    ))
+    .await
+    .map_err(|e| e.to_string())?;
+
+    crate::federation::delivery::cancel_pending_deliveries_for_resource(
+        db,
+        room_id,
+        "cancelled: remote room dissolved",
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+
+    // Best-effort live hint after every durable database operation succeeded.
+    // The transaction remains authoritative; clients can recover by reloading.
     crate::federation::ws_gateway::broadcast_to_room(
         room_id,
         &json!({
@@ -515,35 +547,6 @@ pub async fn handle_room_dissolve(
             "room_id": room_id,
             "deleted_by": actor_url_str
         }),
-    )
-    .await;
-
-    let _ = db
-        .execute_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "DELETE FROM federation_room_messages WHERE room_id = $1",
-            [room_id.into()],
-        ))
-        .await;
-    let _ = db
-        .execute_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "DELETE FROM federation_room_members WHERE room_id = $1",
-            [room_id.into()],
-        ))
-        .await;
-    let _ = db
-        .execute_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "DELETE FROM federation_rooms WHERE room_id = $1",
-            [room_id.into()],
-        ))
-        .await;
-
-    let _ = crate::federation::delivery::cancel_pending_deliveries_for_resource(
-        db,
-        room_id,
-        "cancelled: remote room dissolved",
     )
     .await;
 
@@ -794,5 +797,3 @@ pub async fn get_members(
 
     Ok(members)
 }
-
-

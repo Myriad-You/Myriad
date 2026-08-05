@@ -19,23 +19,58 @@ mod federation;
 #[path = "006_oauth_identities.rs"]
 mod oauth_identities;
 
+mod retired_history;
+
+#[path = "012_federation_inbox_receipts.rs"]
+mod federation_inbox_receipts;
+
 pub struct Migrator;
 
 #[async_trait::async_trait]
 impl MigratorTrait for Migrator {
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
-        vec![
+        let mut migrations: Vec<Box<dyn MigrationTrait>> = vec![
             Box::new(initial_schema::Migration),
             Box::new(tapp_system::Migration),
             Box::new(brew_system::Migration),
             Box::new(agent_system::Migration),
             Box::new(federation::Migration),
             Box::new(oauth_identities::Migration),
-            // 原 007–011 薄 ALTER 迁移已并入 001/002 CREATE + runtime schema_check：
-            // notification_preferences / presence / is_owner → 001 + ensure_single_owner
-            // approved_permissions → 002 CREATE；缺列靠 get_expected_schema 通用补列
-            // 默认平台种子：001 + ensure_default_platforms（持续机制，非过期升级路径）
-            // 访客统计：001 SITE ANALYTICS（page / event / referrer / country）
-        ]
+        ];
+        // Applied migration names are an immutable compatibility contract.
+        // These historical implementations were folded into the complete
+        // greenfield schema, but their names must remain so startup never has
+        // to rewrite `seaql_migrations` to make history appear valid.
+        migrations.extend(retired_history::migrations());
+        migrations.push(Box::new(federation_inbox_receipts::Migration));
+        migrations
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn migration_names_are_unique_and_retain_published_history() {
+        let migrations = Migrator::migrations();
+        let names: Vec<&str> = migrations
+            .iter()
+            .map(|migration| migration.name())
+            .collect();
+        let unique: HashSet<&str> = names.iter().copied().collect();
+        assert_eq!(unique.len(), names.len(), "migration names must be unique");
+
+        for retired in retired_history::RETIRED_MIGRATION_NAMES {
+            assert!(
+                unique.contains(retired),
+                "published migration history entry {retired} must never be removed"
+            );
+        }
+        assert!(
+            unique.contains("012_federation_inbox_receipts"),
+            "durable federation receipt migration must remain registered"
+        );
     }
 }

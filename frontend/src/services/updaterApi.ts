@@ -376,8 +376,8 @@ async function call<T>(
 
   let result = await callOnce<T>(method, path, body, opts, false)
 
-  // Backend restart wipes in-memory CSRF store while the browser keeps a stale
-  // token in sessionStorage. One forced refresh + retry recovers automatically.
+  // A token can expire or become invalid after session/key rotation while the
+  // browser still caches it. One forced refresh + retry recovers automatically.
   if (
     !result.ok &&
     mode === 'backend' &&

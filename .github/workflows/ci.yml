@@ -52,19 +52,43 @@ jobs:
         with:
           # Virtual workspace at repo root (backend + migrations + tapp-contract)
           workspaces: .
-      - name: Check all targets
-        # cwd=backend still resolves the root workspace; package defaults to myriad-backend
-        run: cargo check --all-targets
+      - name: Check all workspace targets
+        # cwd=backend still resolves the root workspace; --workspace prevents
+        # default-members from hiding a package from this gate.
+        run: cargo check --workspace --all-targets --locked
       # Runs the whole suite, not just `cargo test tapp`. None of these tests
       # need a database — they were simply never wired into CI, so ~900 of them
       # had never run here.
       #
       # The one `#[ignore]`d test is a manual asset-reprocessing utility driven
       # by env vars; leaving it ignored is correct.
-      - name: Backend tests
-        run: cargo test
+      - name: Workspace tests
+        run: cargo test --workspace --all-targets --locked
       - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  proxy:
+    name: Proxy tests and lints
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: proxy
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.94
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: proxy
+      - name: Format proxy
+        run: cargo fmt --all -- --check
+      - name: Check all targets
+        run: cargo check --all-targets --locked
+      - name: Proxy tests
+        run: cargo test --all-targets --locked
+      - name: Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
 
   updater:
     name: Updater tests and lints
@@ -81,13 +105,13 @@ jobs:
         with:
           workspaces: updater
       - name: Check all targets
-        run: cargo check --all-targets
+        run: cargo check --all-targets --locked
       # The updater holds the highest-privilege paths in the system (Docker
       # socket, pgdata snapshots, image tags) and had no CI coverage at all.
       - name: Updater tests
-        run: cargo test
+        run: cargo test --all-targets --locked
       - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --all-targets --locked -- -D warnings
 
   schema-drift:
     name: Migrations vs schema_check drift gate
@@ -125,7 +149,7 @@ jobs:
       - name: Assert migrations leave no schema drift
         env:
           MYRIAD_SCHEMA_DRIFT_DB: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_drift
-        run: cargo test migrations_leave_no_schema_drift -- --nocapture
+        run: cargo test --workspace --locked migrations_leave_no_schema_drift -- --nocapture
 
   dependency-audit:
     name: Dependency vulnerability scan
@@ -137,24 +161,42 @@ jobs:
         with:
           workspaces: |
             .
+            proxy
             updater
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
+      # cargo-audit has no --locked flag of its own. Resolve metadata with
+      # Cargo's lock enforcement, then point audit at the exact committed lock.
+      - name: Verify backend workspace lockfile
+        run: cargo metadata --workspace --locked --no-deps
+      - name: Verify proxy lockfile
+        working-directory: proxy
+        run: cargo metadata --locked --no-deps
+      - name: Verify updater lockfile
+        working-directory: updater
+        run: cargo metadata --locked --no-deps
       # MYR-027: hard-fail on unignored *vulnerabilities*; soft-report warnings
       # (unmaintained/unsound/yanked). Allowlist: .cargo/audit.toml.
       # Soft steps keep continue-on-error; hard steps do not.
       - name: Audit backend workspace (hard — vulnerabilities)
         # Workspace lockfile lives at repo root; config: .cargo/audit.toml
-        run: cargo audit
+        run: cargo audit --file Cargo.lock
+      - name: Audit proxy crates (hard — vulnerabilities)
+        working-directory: proxy
+        run: cargo audit --file Cargo.lock
       - name: Audit updater crates (hard — vulnerabilities)
         working-directory: updater
-        run: cargo audit
+        run: cargo audit --file Cargo.lock
       - name: Audit backend workspace (soft — warnings)
-        run: cargo audit --deny warnings
+        run: cargo audit --file Cargo.lock --deny warnings
+        continue-on-error: true
+      - name: Audit proxy crates (soft — warnings)
+        working-directory: proxy
+        run: cargo audit --file Cargo.lock --deny warnings
         continue-on-error: true
       - name: Audit updater crates (soft — warnings)
         working-directory: updater
-        run: cargo audit --deny warnings
+        run: cargo audit --file Cargo.lock --deny warnings
         continue-on-error: true
       - uses: actions/setup-node@v5
         with:

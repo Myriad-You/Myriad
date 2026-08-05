@@ -15,6 +15,11 @@ const CSRF_TOKEN_STORED_AT_KEY = 'csrf_token_stored_at'
 /** Absolute epoch-ms when client should treat the token as stale (BE-anchored). */
 const CSRF_TOKEN_EXPIRES_AT_KEY = 'csrf_token_expires_at'
 const CSRF_TOKEN_HEADER = 'X-CSRF-Token'
+/** Versioned stateless backend token prefix. */
+export const CSRF_TOKEN_VERSION = 'v1'
+/** Keep client parsing bounded before a token reaches sessionStorage/headers. */
+export const CSRF_TOKEN_MAX_LENGTH = 1024
+const CSRF_TOKEN_SIGNATURE_LENGTH = 43 // 32-byte HMAC-SHA256, base64url
 
 /**
  * Client cache TTL: BE tokens live ~3600s; refresh slightly earlier so we
@@ -64,7 +69,7 @@ export function parseCsrfTokenResponse(data: unknown): {
   let token: string | null = null
   if (typeof raw === 'string') {
     const trimmed = raw.trim()
-    if (trimmed && trimmed.length === 32 && /^[a-z0-9]{32}$/i.test(trimmed)) {
+    if (trimmed && isValidCSRFToken(trimmed)) {
       token = trimmed
     }
   }
@@ -165,8 +170,7 @@ export async function getCSRFToken(
     // 验证现有 Token 格式 + TTL
     if (
       token &&
-      token.length === 32 &&
-      /^[a-z0-9]{32}$/i.test(token) &&
+      isValidCSRFToken(token) &&
       isCsrfCacheFresh(storedAt, Date.now(), CSRF_CLIENT_TTL_MS, expiresAt)
     ) {
       return token
@@ -215,14 +219,30 @@ export async function getCSRFToken(
 }
 
 /**
- * 验证 CSRF Token 格式（服务器生成的格式：32字符字母数字）
+ * Validate the bounded wire shape of a server-issued stateless token.
+ * Cryptographic verification remains server-side; this only rejects malformed
+ * or oversized values before caching/sending them.
  */
 export function isValidCSRFToken(token: string): boolean {
-  return (
-    typeof token === 'string' &&
-    token.length === 32 &&
-    /^[a-z0-9]{32}$/i.test(token)
-  )
+  if (
+    typeof token !== 'string' ||
+    token.length === 0 ||
+    token.length > CSRF_TOKEN_MAX_LENGTH
+  ) {
+    return false
+  }
+  const parts = token.split('.')
+  if (parts.length !== 3 || parts[0] !== CSRF_TOKEN_VERSION) return false
+  if (!/^[\w-]+$/.test(parts[1])) return false
+  if (
+    parts[1].length < 16 ||
+    parts[1].length > CSRF_TOKEN_MAX_LENGTH ||
+    parts[2].length !== CSRF_TOKEN_SIGNATURE_LENGTH ||
+    !/^[\w-]+$/.test(parts[2])
+  ) {
+    return false
+  }
+  return true
 }
 
 /**

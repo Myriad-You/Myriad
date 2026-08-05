@@ -21,7 +21,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
-use crate::middleware::auth::{authenticate_request, Claims};
+use crate::middleware::auth::{authenticate_request, notify_auth_cache_invalidation, Claims};
 
 /// 距最近活跃 ≤300s 视为在线（与 presence 跟踪的会话间隔一致）。
 const ONLINE_WINDOW_SECS: i64 = 300;
@@ -450,6 +450,19 @@ pub async fn update_user(
     .await
     .map_err(db_error)?;
 
+    // Role changes are authorization facts, not merely profile fields.  Drop
+    // this process's snapshot and fan out a PostgreSQL invalidation so a
+    // demoted session cannot wait for the normal five-second cache expiry.
+    if req.is_admin.is_some() {
+        if let Err(error) = notify_auth_cache_invalidation(&db, user_id).await {
+            tracing::warn!(
+                user_id,
+                error = %error,
+                "auth cache invalidation NOTIFY failed after admin role update"
+            );
+        }
+    }
+
     tracing::info!(
         "✅ Admin {} updated user {} (id={}): {:?}",
         claims.username,
@@ -679,7 +692,19 @@ pub async fn delete_user(
         txn.rollback().await.map_err(db_error)?;
         return Err(not_found());
     }
+
     txn.commit().await.map_err(db_error)?;
+
+    // Invalidate locally after the destructive commit, then fan out a best-
+    // effort PostgreSQL notification.  If the notification is missed, the
+    // bounded cache TTL remains the correctness limit for peer instances.
+    if let Err(error) = notify_auth_cache_invalidation(&db, user_id).await {
+        tracing::warn!(
+            user_id,
+            error = %error,
+            "auth cache invalidation NOTIFY failed after user deletion"
+        );
+    }
 
     tracing::info!(
         "✅ Admin {} deleted user {} (id={})",

@@ -1,5 +1,4 @@
-
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
+use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, Statement};
 use serde::Serialize;
 use serde_json::json;
 use std::time::Duration;
@@ -8,7 +7,10 @@ use crate::federation::keys::KeyPair;
 use crate::federation::signature::{sign_request, SignatureParams};
 use crate::federation::types::*;
 
-pub(crate) async fn get_username_by_id(db: &DatabaseConnection, user_id: i32) -> Result<String, String> {
+pub(crate) async fn get_username_by_id(
+    db: &DatabaseConnection,
+    user_id: i32,
+) -> Result<String, String> {
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -16,7 +18,10 @@ pub(crate) async fn get_username_by_id(db: &DatabaseConnection, user_id: i32) ->
             [user_id.into()],
         ))
         .await
-        .map_err(|e| { tracing::error!("DB error: {}", e); "Database error".to_string() })?
+        .map_err(|e| {
+            tracing::error!("DB error: {}", e);
+            "Database error".to_string()
+        })?
         .ok_or_else(|| "User not found".to_string())?;
 
     Ok(row.try_get("", "username").unwrap_or_default())
@@ -494,14 +499,12 @@ pub async fn list_delivery_for_user_filtered(
     status_filter: Option<&str>,
 ) -> Result<serde_json::Value, String> {
     let limit = limit.clamp(1, 100);
-    let status = status_filter
-        .map(str::trim)
-        .filter(|s| {
-            matches!(
-                *s,
-                "pending" | "delivering" | "delivered" | "dead" | "failed"
-            )
-        });
+    let status = status_filter.map(str::trim).filter(|s| {
+        matches!(
+            *s,
+            "pending" | "delivering" | "delivered" | "dead" | "failed"
+        )
+    });
 
     let rows = if let Some(st) = status {
         // "dead" UI tab also includes soft-failed rows
@@ -670,10 +673,10 @@ pub async fn retry_delivery_item(
         ))
         .await
         .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                { tracing::error!("DB error: {e}"); json!({"error": "Database error"}) },
-            )
+            (StatusCode::INTERNAL_SERVER_ERROR, {
+                tracing::error!("DB error: {e}");
+                json!({"error": "Database error"})
+            })
         })?
         .ok_or_else(|| {
             (
@@ -724,10 +727,10 @@ pub async fn retry_delivery_item(
         ))
         .await
         .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                { tracing::error!("DB error: {e}"); json!({"error": "Database error"}) },
-            )
+            (StatusCode::INTERNAL_SERVER_ERROR, {
+                tracing::error!("DB error: {e}");
+                json!({"error": "Database error"})
+            })
         })?;
 
     if result.rows_affected() == 0 {
@@ -775,10 +778,10 @@ pub async fn cancel_delivery_item(
         ))
         .await
         .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                { tracing::error!("DB error: {e}"); json!({"error": "Database error"}) },
-            )
+            (StatusCode::INTERNAL_SERVER_ERROR, {
+                tracing::error!("DB error: {e}");
+                json!({"error": "Database error"})
+            })
         })?
         .ok_or_else(|| {
             (
@@ -824,10 +827,10 @@ pub async fn cancel_delivery_item(
         ))
         .await
         .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                { tracing::error!("DB error: {e}"); json!({"error": "Database error"}) },
-            )
+            (StatusCode::INTERNAL_SERVER_ERROR, {
+                tracing::error!("DB error: {e}");
+                json!({"error": "Database error"})
+            })
         })?;
 
     if result.rows_affected() == 0 {
@@ -845,10 +848,10 @@ pub async fn cancel_delivery_item(
             ))
             .await
             .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    { tracing::error!("DB error: {e}"); json!({"error": "Database error"}) },
-                )
+                (StatusCode::INTERNAL_SERVER_ERROR, {
+                    tracing::error!("DB error: {e}");
+                    json!({"error": "Database error"})
+                })
             })?;
         let Some(again) = again else {
             return Err((
@@ -937,10 +940,10 @@ pub async fn retry_all_dead_for_user(
         ))
         .await
         .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                { tracing::error!("DB error: {e}"); json!({"error": "Database error"}) },
-            )
+            (StatusCode::INTERNAL_SERVER_ERROR, {
+                tracing::error!("DB error: {e}");
+                json!({"error": "Database error"})
+            })
         })?;
 
     let mut retried = 0u64;
@@ -1022,10 +1025,10 @@ pub async fn cancel_all_pending_for_user(
         ))
         .await
         .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                { tracing::error!("DB error: {e}"); json!({"error": "Database error"}) },
-            )
+            (StatusCode::INTERNAL_SERVER_ERROR, {
+                tracing::error!("DB error: {e}");
+                json!({"error": "Database error"})
+            })
         })?;
 
     let mut cancelled = 0u64;
@@ -1261,17 +1264,17 @@ pub(crate) fn should_offer_retry_for_dead_error(error_message: Option<&str>) -> 
 /// `RoomDissolve` / `ChannelClose` (and `myriad:` variants). Callers should prefer
 /// cancel-stale-**then** enqueue teardown so order is safe even without this filter.
 pub async fn cancel_pending_deliveries_for_resource(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     resource_id: &str,
     reason: &str,
-) -> u64 {
+) -> Result<u64, DbErr> {
     if resource_id.is_empty() {
-        return 0;
+        return Ok(0);
     }
     let needle = format!("%{}%", resource_id);
     // Exclude teardown activity types so dissolve/close fan-out rows survive.
     // Normalize `myriad:` prefix the same way as is_resource_teardown_activity_type.
-    let res = db
+    let result = db
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"UPDATE federation_delivery_queue dq
@@ -1295,28 +1298,16 @@ pub async fn cancel_pending_deliveries_for_resource(
                  ) NOT IN ('roomdissolve', 'channelclose')"#,
             [needle.into(), reason.into()],
         ))
-        .await;
-    match res {
-        Ok(r) => {
-            let n = r.rows_affected();
-            if n > 0 {
-                tracing::info!(
-                    resource_id = %resource_id,
-                    cancelled = n,
-                    "Cancelled pending federation deliveries for removed resource"
-                );
-            }
-            n
-        }
-        Err(e) => {
-            tracing::warn!(
-                resource_id = %resource_id,
-                error = %e,
-                "Failed to cancel pending deliveries"
-            );
-            0
-        }
+        .await?;
+    let cancelled = result.rows_affected();
+    if cancelled > 0 {
+        tracing::info!(
+            resource_id = %resource_id,
+            cancelled,
+            "Cancelled pending federation deliveries for removed resource"
+        );
     }
+    Ok(cancelled)
 }
 
 /// Delete a single **dead** delivery queue row owned by the user.
@@ -1348,10 +1339,10 @@ pub async fn dismiss_delivery_item(
         ))
         .await
         .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                { tracing::error!("DB error: {e}"); json!({"error": "Database error"}) },
-            )
+            (StatusCode::INTERNAL_SERVER_ERROR, {
+                tracing::error!("DB error: {e}");
+                json!({"error": "Database error"})
+            })
         })?
         .ok_or_else(|| {
             (
@@ -1385,10 +1376,10 @@ pub async fn dismiss_delivery_item(
         ))
         .await
         .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                { tracing::error!("DB error: {e}"); json!({"error": "Database error"}) },
-            )
+            (StatusCode::INTERNAL_SERVER_ERROR, {
+                tracing::error!("DB error: {e}");
+                json!({"error": "Database error"})
+            })
         })?;
 
     if result.rows_affected() == 0 {
@@ -1465,10 +1456,10 @@ pub async fn purge_dead_for_user(
         ))
         .await
         .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                { tracing::error!("DB error: {e}"); json!({"error": "Database error"}) },
-            )
+            (StatusCode::INTERNAL_SERVER_ERROR, {
+                tracing::error!("DB error: {e}");
+                json!({"error": "Database error"})
+            })
         })?;
 
     Ok(json!({
@@ -1625,4 +1616,3 @@ async fn load_user_keypair(
         },
     })
 }
-

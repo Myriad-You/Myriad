@@ -2,6 +2,7 @@
 name = "myriad-proxy"
 version = "0.3.28"
 edition = "2021"
+rust-version = "1.94"
 authors = ["Myriad Contributors"]
 description = "Minimal maintenance-aware reverse proxy for Myriad."
 license = "AGPL-3.0-only"

@@ -154,7 +154,7 @@ struct TransferLoad {
 }
 
 async fn open_transfer_load_global(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
 ) -> Result<TransferLoad, (StatusCode, Json<serde_json::Value>)> {
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
@@ -183,7 +183,7 @@ async fn open_transfer_load_global(
 
 /// Open transfers attributed to a local user (channel owner or room owner_user_id).
 async fn open_transfer_load_for_user(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     user_id: i32,
 ) -> Result<TransferLoad, (StatusCode, Json<serde_json::Value>)> {
     let row = db
@@ -222,7 +222,7 @@ async fn open_transfer_load_for_user(
 /// `user_id`: when `Some`, also enforce the per-user concurrent count.
 /// Inbound remote FileMeta passes `None` (only global budgets apply).
 async fn admit_new_transfer(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     file_size: i64,
     user_id: Option<i32>,
 ) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
@@ -241,11 +241,7 @@ async fn admit_new_transfer(
             })),
         ));
     }
-    if global
-        .total_bytes
-        .saturating_add(file_size)
-        > MAX_CONCURRENT_TRANSFER_BYTES
-    {
+    if global.total_bytes.saturating_add(file_size) > MAX_CONCURRENT_TRANSFER_BYTES {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({
@@ -304,10 +300,7 @@ fn admit_chunk_bytes(
 }
 
 /// String-error variant for inbox handlers.
-async fn admit_new_transfer_str(
-    db: &DatabaseConnection,
-    file_size: i64,
-) -> Result<(), String> {
+async fn admit_new_transfer_str(db: &impl ConnectionTrait, file_size: i64) -> Result<(), String> {
     admit_new_transfer(db, file_size, None)
         .await
         .map_err(http_err_to_string)
@@ -392,9 +385,7 @@ fn is_strictly_under(root: &Path, path: &Path) -> bool {
 /// the DB identity (same string for valid `ft_{uuid}` ids).
 fn final_file_path(transfer_id: &str, filename: &str) -> Result<PathBuf, String> {
     if !is_valid_transfer_id(transfer_id) {
-        return Err(
-            "Invalid transferId: must be 1-128 chars of [A-Za-z0-9_-] only".into(),
-        );
+        return Err("Invalid transferId: must be 1-128 chars of [A-Za-z0-9_-] only".into());
     }
     let root = storage_root();
     let path = root.join(transfer_id).join(safe_filename(filename));
@@ -1690,7 +1681,7 @@ pub async fn cancel_transfer(
 
 /// 处理收到的文件传输 Activity（从远程实例）
 pub async fn handle_file_transfer(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     actor_url_str: &str,
     activity: &serde_json::Value,
 ) -> Result<(), String> {
@@ -1710,9 +1701,7 @@ pub async fn handle_file_transfer(
         .ok_or("Missing transferId")?;
     // MYR-001: remote transferId must pass strict validation before any path use
     if !is_valid_transfer_id(transfer_id) {
-        return Err(
-            "Invalid transferId: must be 1-128 chars of [A-Za-z0-9_-] only".into(),
-        );
+        return Err("Invalid transferId: must be 1-128 chars of [A-Za-z0-9_-] only".into());
     }
     let channel_id = object.get("channelId").and_then(|v| v.as_str());
     let room_id = object.get("roomId").and_then(|v| v.as_str());
@@ -1813,7 +1802,7 @@ pub async fn handle_file_transfer(
 }
 
 async fn handle_file_chunk(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     actor_url_str: &str,
     object: &serde_json::Value,
 ) -> Result<(), String> {
@@ -1823,9 +1812,7 @@ async fn handle_file_chunk(
         .ok_or("Missing transferId")?;
     // MYR-001: reject path-traversal transferIds before FS write
     if !is_valid_transfer_id(transfer_id) {
-        return Err(
-            "Invalid transferId: must be 1-128 chars of [A-Za-z0-9_-] only".into(),
-        );
+        return Err("Invalid transferId: must be 1-128 chars of [A-Za-z0-9_-] only".into());
     }
     let chunk_index = object
         .get("chunkIndex")
@@ -2082,7 +2069,7 @@ async fn handle_file_chunk(
 
 /// Inbound cancel: mark transfer cancelled and notify local clients.
 async fn handle_file_cancel(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     actor_url_str: &str,
     object: &serde_json::Value,
 ) -> Result<(), String> {
@@ -2273,12 +2260,8 @@ mod tests {
         assert!(!p.starts_with(Path::new("/etc")));
 
         // Relative traversal outside root
-        let p = resolve_transfer_path(
-            VALID_FT_UUID,
-            "f.txt",
-            Some("../../agent/mcp_servers.json"),
-        )
-        .expect("rebuild");
+        let p = resolve_transfer_path(VALID_FT_UUID, "f.txt", Some("../../agent/mcp_servers.json"))
+            .expect("rebuild");
         assert!(is_strictly_under(&root, &p));
 
         // Mixed-separator style path under root's parent
@@ -2307,12 +2290,7 @@ mod tests {
 
         // Malicious transferId with no usable local_path
         assert!(resolve_transfer_path("../../agent", "x", None).is_err());
-        assert!(resolve_transfer_path(
-            "../../agent/mcp_servers",
-            "x",
-            Some("/tmp/out")
-        )
-        .is_err());
+        assert!(resolve_transfer_path("../../agent/mcp_servers", "x", Some("/tmp/out")).is_err());
     }
 
     #[test]
@@ -2327,10 +2305,7 @@ mod tests {
             &root,
             &root.join("..").join("agent").join("mcp_servers.json")
         ));
-        assert!(!is_strictly_under(
-            &root,
-            Path::new("/tmp/evil")
-        ));
+        assert!(!is_strictly_under(&root, Path::new("/tmp/evil")));
         assert!(!is_strictly_under(
             &root,
             &root.join("..").join("..").join("etc").join("passwd")

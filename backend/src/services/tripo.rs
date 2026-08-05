@@ -319,9 +319,9 @@ impl TripoOperation {
                 }
                 if animations.is_some_and(|values| {
                     values.iter().any(|value| {
-                        !value
+                        value
                             .as_str()
-                            .is_some_and(|animation| !animation.trim().is_empty())
+                            .is_none_or(|animation| animation.trim().is_empty())
                     })
                 }) {
                     return Err(TripoError::InvalidRequest(

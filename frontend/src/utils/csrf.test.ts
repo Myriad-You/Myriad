@@ -6,9 +6,14 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   CSRF_CLIENT_TTL_MS,
+  CSRF_TOKEN_MAX_LENGTH,
+  CSRF_TOKEN_VERSION,
   isCsrfCacheFresh,
+  isValidCSRFToken,
   parseCsrfTokenResponse,
 } from './csrf.ts'
+
+const validToken = `${CSRF_TOKEN_VERSION}.${'a'.repeat(100)}.${'b'.repeat(43)}`
 
 describe('parseCsrfTokenResponse', () => {
   it('returns null for guest null token', () => {
@@ -20,13 +25,13 @@ describe('parseCsrfTokenResponse', () => {
     assert.equal(parseCsrfTokenResponse({}).token, null)
   })
 
-  it('accepts valid 32-char token', () => {
-    const token = 'a'.repeat(32)
+  it('accepts a bounded versioned stateless token', () => {
+    const token = validToken
     assert.equal(parseCsrfTokenResponse({ csrf_token: token }).token, token)
   })
 
   it('parses expires_in seconds for BE-anchored TTL', () => {
-    const token = 'b'.repeat(32)
+    const token = validToken
     const parsed = parseCsrfTokenResponse({
       csrf_token: token,
       expires_in: 1800,
@@ -38,10 +43,35 @@ describe('parseCsrfTokenResponse', () => {
   it('rejects malformed tokens', () => {
     assert.equal(parseCsrfTokenResponse({ csrf_token: 'short' }).token, null)
     assert.equal(
-      parseCsrfTokenResponse({ csrf_token: 'x'.repeat(31) }).token,
+      parseCsrfTokenResponse({
+        csrf_token: `${CSRF_TOKEN_VERSION}.payload.${'a'.repeat(42)}`,
+      }).token,
+      null,
+    )
+    assert.equal(
+      parseCsrfTokenResponse({
+        csrf_token: `v2.${'a'.repeat(100)}.${'b'.repeat(43)}`,
+      }).token,
+      null,
+    )
+    assert.equal(
+      parseCsrfTokenResponse({
+        csrf_token: `${CSRF_TOKEN_VERSION}.${'a'.repeat(CSRF_TOKEN_MAX_LENGTH)}.${'b'.repeat(43)}`,
+      }).token,
       null,
     )
     assert.equal(parseCsrfTokenResponse({ csrf_token: 123 }).token, null)
+  })
+})
+
+describe('isValidCSRFToken', () => {
+  it('rejects malformed segment alphabets and extra segments', () => {
+    assert.equal(isValidCSRFToken(validToken), true)
+    assert.equal(
+      isValidCSRFToken(`${CSRF_TOKEN_VERSION}.bad=.${'b'.repeat(43)}`),
+      false,
+    )
+    assert.equal(isValidCSRFToken(`${validToken}.extra`), false)
   })
 })
 

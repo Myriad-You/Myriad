@@ -91,11 +91,10 @@ client → 宿主 Nginx/Caddy → Docker 发布的 proxy 端口 → backend
 此时 proxy 容器看到的 TCP 对端往往是 Docker 网桥地址（例如 `172.17.0.1`），
 而不是真实客户端。若外层已正确设置 `X-Real-IP` / `X-Forwarded-For`：
 
-- **`PROXY_TRUSTED_UPSTREAMS` 为空（默认）**：proxy 会**仅对**私网 / loopback /
-  link-local 对端信任转发头（含上述 Docker 网桥场景），从 `X-Forwarded-For`
-  右侧剥离可信跳，得到真实客户端 IP。公网对端仍不能伪造头。
-- **显式填写 CIDR**：仅允许列表中的上游传递转发头（显式 allowlist，不再自动
-  信任私网对端）。例如外层代理源地址是 `192.0.2.10`：
+- **`PROXY_TRUSTED_UPSTREAMS` 为空（默认）**：proxy 不信任任何转发头，全部根据
+  TCP 对端、请求协议和 `Host` 重建。这样即使直接暴露 proxy，客户端也不能伪造来源。
+- **显式填写 CIDR**：仅允许列表中的上游传递转发头。Docker 宿主反向代理也必须
+  显式列出它在容器视角下的源地址；例如外层代理源地址是 `192.0.2.10`：
 
 ```env
 PROXY_TRUSTED_UPSTREAMS=192.0.2.10/32
@@ -185,9 +184,9 @@ server {
 ```
 
 如果 `.env` 中设置了 `HTTP_PORT=8080`，把 `proxy_pass` 改为
-`http://127.0.0.1:8080`。在 Docker 宿主 Nginx 场景下，默认空的
-`PROXY_TRUSTED_UPSTREAMS` 即可；仅在上游是公网 IP 或需要收紧信任范围时
-再填写显式 CIDR。
+`http://127.0.0.1:8080`。在 Docker 宿主 Nginx 场景下，应把宿主代理在容器
+视角下的固定源地址或最窄 CIDR 写入 `PROXY_TRUSTED_UPSTREAMS`；保持为空时
+转发头会被忽略，定位和审计会使用 Docker 网桥对端地址。
 
 **不要**写成分路径只放行 `/api`（除非你完整复制 [PORTS.md](../deployment/PORTS.md) 的 backend 白名单，且包含 `/media/federation/`）。
 

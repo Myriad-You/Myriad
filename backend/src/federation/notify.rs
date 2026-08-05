@@ -13,7 +13,7 @@ use crate::services::agent::notifications::{
 const ARO_TAPP_ID: &str = "com.myriad.aro";
 
 /// 从 Actor URL 生成可读标签（优先 display_name / username@domain）
-pub async fn actor_label(db: &DatabaseConnection, actor_url: &str) -> String {
+pub async fn actor_label(db: &impl ConnectionTrait, actor_url: &str) -> String {
     if let Ok(Some(row)) = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -485,7 +485,7 @@ pub async fn notify_delivery_failed(
 }
 
 /// 查询 Room 本地成员 user_id 列表
-pub async fn room_local_user_ids(db: &DatabaseConnection, room_id: &str) -> Vec<i32> {
+pub async fn room_local_user_ids(db: &impl ConnectionTrait, room_id: &str) -> Vec<i32> {
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -501,7 +501,7 @@ pub async fn room_local_user_ids(db: &DatabaseConnection, room_id: &str) -> Vec<
 }
 
 /// 查询 Room 名称
-pub async fn room_name(db: &DatabaseConnection, room_id: &str) -> String {
+pub async fn room_name(db: &impl ConnectionTrait, room_id: &str) -> String {
     if let Ok(Some(row)) = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,

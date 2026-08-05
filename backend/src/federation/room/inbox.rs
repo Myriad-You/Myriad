@@ -13,7 +13,7 @@ use super::stickers::{parse_room_stickers, stickers_to_json};
 
 /// 处理远程 RoomInvite
 pub async fn handle_room_invite(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     actor_url_str: &str,
     activity: &serde_json::Value,
 ) -> Result<(), String> {
@@ -55,13 +55,14 @@ pub async fn handle_room_invite(
             let Some(uname) = local_username_from_actor_url(&base_url_val, url) else {
                 continue;
             };
-            if let Ok(Some(row)) = db
+            if let Some(row) = db
                 .query_one_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     "SELECT id FROM users WHERE username = $1",
                     [uname.into()],
                 ))
                 .await
+                .map_err(|e| e.to_string())?
             {
                 found_id = row.try_get::<i32>("", "id").ok();
                 break;
@@ -96,13 +97,14 @@ pub async fn handle_room_invite(
     };
 
     // 查找或创建本地用户对应的 actor_url
-    let local_actor = if let Ok(Some(row)) = db
+    let local_actor = if let Some(row) = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT username FROM users WHERE id = $1",
             [target_user_id.into()],
         ))
         .await
+        .map_err(|e| e.to_string())?
     {
         let uname: String = row.try_get("", "username").unwrap_or_default();
         actor_url(&base_url_val, &uname)
@@ -293,7 +295,7 @@ pub async fn handle_room_invite(
 
 /// 处理远程 RoomMessage
 pub async fn handle_room_message(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     actor_url_str: &str,
     activity: &serde_json::Value,
 ) -> Result<(), String> {
@@ -462,7 +464,7 @@ pub async fn handle_room_message(
 /// - 自愿离开：`actor` 即离开者
 /// - 踢人：`object.member` = 被踢者，`actor` = 操作者（admin）
 pub async fn handle_room_leave(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     actor_url_str: &str,
     activity: &serde_json::Value,
 ) -> Result<(), String> {
@@ -498,8 +500,7 @@ pub async fn handle_room_leave(
             .map_err(|e| e.to_string())?
             .and_then(|r| r.try_get::<String>("", "owner_actor").ok())
             .unwrap_or_default();
-        let is_room_owner =
-            !owner_actor.is_empty() && same_actor_url(&owner_actor, actor_url_str);
+        let is_room_owner = !owner_actor.is_empty() && same_actor_url(&owner_actor, actor_url_str);
         if !is_room_owner && !kicker_role.as_deref().map(is_admin_role).unwrap_or(false) {
             tracing::warn!(
                 "[Room] rejected kick of {} from {} without admin role in room {}",
@@ -616,7 +617,7 @@ pub(crate) fn room_join_effective_role(prior_role: Option<&str>, requested: &str
 /// - 自报加入：`actor` = 新成员
 /// - 名册同步：`object.member` = 新成员，`actor` = 邀请者（3+ 方 roster）
 pub async fn handle_room_join(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     actor_url_str: &str,
     activity: &serde_json::Value,
 ) -> Result<(), String> {
@@ -686,8 +687,7 @@ pub async fn handle_room_join(
 
     if !room_join_authorized(RoomJoinAuth {
         is_self_join,
-        announcer_is_owner: !owner_actor.is_empty()
-            && same_actor_url(&owner_actor, actor_url_str),
+        announcer_is_owner: !owner_actor.is_empty() && same_actor_url(&owner_actor, actor_url_str),
         announcer_role: announcer_role.as_deref(),
         invite_policy: &invite_policy,
         room_is_public,
@@ -698,17 +698,6 @@ pub async fn handle_room_join(
         } else {
             format!("not_member: {actor_url_str} cannot add members to room {room_id}")
         });
-    }
-
-    // Ensure remote_actors row so future fanout can resolve inbox
-    if !joining.is_empty() {
-        if let Err(e) = crate::federation::actor::fetch_remote_actor(db, joining).await {
-            tracing::warn!(
-                "[Room] fetch_remote_actor for join {} failed: {} (membership still recorded)",
-                joining,
-                e
-            );
-        }
     }
 
     // Was this a pending invite on our roster? (inviter-side accept signal)
@@ -729,7 +718,11 @@ pub async fn handle_room_join(
            ON CONFLICT (room_id, actor_url) DO UPDATE SET
                membership_status = 'active',
                joined_at = COALESCE(federation_room_members.joined_at, NOW())"#,
-        [room_id.into(), joining.into(), effective_role.clone().into()],
+        [
+            room_id.into(),
+            joining.into(),
+            effective_role.clone().into(),
+        ],
     ))
     .await
     .map_err(|e| e.to_string())?;
@@ -776,7 +769,7 @@ pub async fn handle_room_join(
 /// After a remote member becomes active, deliver KeyExchange for every *local*
 /// published room E2E key (skipped earlier while they were pending).
 pub(crate) async fn refanout_local_e2e_keys_to_member(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     room_id: &str,
     target_actor: &str,
 ) -> Result<(), String> {
@@ -822,8 +815,9 @@ pub(crate) async fn refanout_local_e2e_keys_to_member(
         .await
         .map_err(|e| e.to_string())?;
     let Some(target) = target else {
-        // Try fetch once
-        let _ = crate::federation::actor::fetch_remote_actor(db, target_actor).await;
+        // Do not perform remote HTTP actor fetches while an inbound receipt
+        // transaction is open.  The normal actor/discovery path can populate
+        // the cache before a later delivery retry.
         return Ok(());
     };
     let inbox: String = target.try_get("", "inbox_url").unwrap_or_default();
@@ -899,17 +893,18 @@ pub(crate) async fn refanout_local_e2e_keys_to_member(
             ))
             .await
             .map_err(|e| e.to_string())?;
-        if let Some(act_id) = act_row.and_then(|r| r.try_get::<i32>("", "id").ok()) {
-            let _ = db
-                .execute_raw(Statement::from_sql_and_values(
-                    DatabaseBackend::Postgres,
-                    r#"INSERT INTO federation_delivery_queue
-                       (activity_id, target_inbox, target_domain, status, created_at)
-                       VALUES ($1, $2, $3, 'pending', NOW())
+        if let Some(row) = act_row {
+            let act_id = row.try_get::<i32>("", "id").map_err(|e| e.to_string())?;
+            db.execute_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                r#"INSERT INTO federation_delivery_queue
+                   (activity_id, target_inbox, target_domain, status, created_at)
+                   VALUES ($1, $2, $3, 'pending', NOW())
                    ON CONFLICT (activity_id, target_inbox) DO NOTHING"#,
-                    [act_id.into(), inbox.clone().into(), domain.clone().into()],
-                ))
-                .await;
+                [act_id.into(), inbox.clone().into(), domain.clone().into()],
+            ))
+            .await
+            .map_err(|e| e.to_string())?;
             sent += 1;
         }
     }
@@ -926,7 +921,11 @@ pub(crate) async fn refanout_local_e2e_keys_to_member(
 }
 
 /// Notify local users (inviter preferred, else owner) that someone joined/accepted.
-pub(crate) async fn notify_local_members_of_join(db: &DatabaseConnection, room_id: &str, joining_actor: &str) {
+pub(crate) async fn notify_local_members_of_join(
+    db: &impl ConnectionTrait,
+    room_id: &str,
+    joining_actor: &str,
+) {
     // Prefer invited_by local user; fall back to local owner/admin members
     let inviter_row = db
         .query_one_raw(Statement::from_sql_and_values(
@@ -1004,7 +1003,7 @@ pub(crate) async fn notify_local_members_of_join(db: &DatabaseConnection, room_i
 
 /// Inbound Reject for a room invite: remove pending remote member on inviter's side.
 pub async fn handle_room_invite_reject(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     actor_url_str: &str,
     activity: &serde_json::Value,
 ) -> Result<(), String> {
@@ -1041,13 +1040,13 @@ pub async fn handle_room_invite_reject(
         for r in rows {
             let url: String = r.try_get("", "actor_url").unwrap_or_default();
             if same_actor_url(&url, actor_url_str) {
-                let _ = db
-                    .execute_raw(Statement::from_sql_and_values(
-                        DatabaseBackend::Postgres,
-                        "DELETE FROM federation_room_members WHERE room_id = $1 AND actor_url = $2",
-                        [room_id.into(), url.into()],
-                    ))
-                    .await;
+                db.execute_raw(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    "DELETE FROM federation_room_members WHERE room_id = $1 AND actor_url = $2",
+                    [room_id.into(), url.into()],
+                ))
+                .await
+                .map_err(|e| e.to_string())?;
                 break;
             }
         }
@@ -1078,7 +1077,7 @@ pub async fn handle_room_invite_reject(
 /// 治理变更：name / description / avatar_url / invite_policy / max_members / is_public /
 /// transfer_owner。仅 owner 或 admin 角色可执行；transfer_owner 仅 owner 可执行。
 pub async fn handle_room_governance(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     actor_url_str: &str,
     activity: &serde_json::Value,
 ) -> Result<(), String> {
@@ -1101,7 +1100,8 @@ pub async fn handle_room_governance(
                       COALESCE(m.membership_status, 'active') AS membership_status
                FROM federation_room_members m
                JOIN federation_rooms r ON r.room_id = m.room_id
-               WHERE m.room_id = $1 AND m.actor_url = $2"#,
+               WHERE m.room_id = $1 AND m.actor_url = $2
+               FOR UPDATE OF r"#,
             [room_id.into(), actor_url_str.into()],
         ))
         .await
@@ -1139,8 +1139,7 @@ pub async fn handle_room_governance(
         if let Some(stickers_val) = changes.get("stickers") {
             // 行锁：shared_data_config 同时住着 e2e.published_keys。不加锁的
             // 读改写会用贴纸同步时的旧快照覆盖并发写入的公钥，房间 E2E 随之失效。
-            let txn = db.begin().await.map_err(|e| e.to_string())?;
-            let room_row = txn
+            let room_row = db
                 .query_one_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     "SELECT shared_data_config FROM federation_rooms WHERE room_id = $1 FOR UPDATE",
@@ -1159,14 +1158,13 @@ pub async fn handle_room_governance(
             }
             let parsed = parse_room_stickers(&json!({ "stickers": stickers_val }));
             shared["stickers"] = stickers_to_json(&parsed);
-            txn.execute_raw(Statement::from_sql_and_values(
+            db.execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "UPDATE federation_rooms SET shared_data_config = $2, updated_at = NOW() WHERE room_id = $1",
                 [room_id.into(), shared.into()],
             ))
             .await
             .map_err(|e| e.to_string())?;
-            txn.commit().await.map_err(|e| e.to_string())?;
 
             crate::federation::ws_gateway::broadcast_to_room(
                 room_id,
@@ -1228,11 +1226,7 @@ pub async fn handle_room_governance(
                SET role = $3
                WHERE room_id = $1 AND actor_url = $2
                  AND COALESCE(membership_status, 'active') = 'active'"#,
-            [
-                room_id.into(),
-                target_stored.clone().into(),
-                role.into(),
-            ],
+            [room_id.into(), target_stored.clone().into(), role.into()],
         ))
         .await
         .map_err(|e| e.to_string())?;
@@ -1265,25 +1259,25 @@ pub async fn handle_room_governance(
         .map_err(|e| e.to_string())?;
         // Demote previous owner role if still a member
         if !old_owner.is_empty() && !same_actor_url(&old_owner, new_owner) {
-            let _ = db
-                .execute_raw(Statement::from_sql_and_values(
-                    DatabaseBackend::Postgres,
-                    r#"UPDATE federation_room_members
-                       SET role = 'admin'
-                       WHERE room_id = $1 AND actor_url = $2 AND role = 'owner'"#,
-                    [room_id.into(), old_owner.into()],
-                ))
-                .await;
-        }
-        let _ = db
-            .execute_raw(Statement::from_sql_and_values(
+            db.execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"UPDATE federation_room_members
-                   SET role = 'owner'
-                   WHERE room_id = $1 AND actor_url = $2"#,
-                [room_id.into(), new_owner.into()],
+                   SET role = 'admin'
+                   WHERE room_id = $1 AND actor_url = $2 AND role = 'owner'"#,
+                [room_id.into(), old_owner.into()],
             ))
-            .await;
+            .await
+            .map_err(|e| e.to_string())?;
+        }
+        db.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"UPDATE federation_room_members
+               SET role = 'owner'
+               WHERE room_id = $1 AND actor_url = $2"#,
+            [room_id.into(), new_owner.into()],
+        ))
+        .await
+        .map_err(|e| e.to_string())?;
     }
 
     // 字段更新（白名单）
@@ -1314,8 +1308,7 @@ pub async fn handle_room_governance(
                     [room_id.into()],
                 ))
                 .await
-                .ok()
-                .flatten()
+                .map_err(|e| e.to_string())?
                 .and_then(|r| r.try_get::<bool>("", "is_public").ok())
                 .unwrap_or(false);
             if currently_public {
@@ -1365,5 +1358,3 @@ pub async fn handle_room_governance(
     );
     Ok(())
 }
-
-

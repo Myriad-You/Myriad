@@ -11,9 +11,7 @@ const TASKS_CRITICAL: usize = 100; // 任务数超过100时严重告警
 ///
 /// Mounted only under full-mode `AppState` routes. Presence of this handler
 /// implies the process has a wired DB (request State / process registry).
-pub async fn get_metrics(
-    _db: crate::extract::Db,
-) -> impl IntoResponse {
+pub async fn get_metrics(_db: crate::extract::Db) -> impl IntoResponse {
     // 1. 内存使用情况
     let memory_info = process_memory_info();
 
@@ -128,9 +126,8 @@ async fn get_task_stats() -> serde_json::Value {
 
 /// 获取 CSRF Token 统计
 async fn get_csrf_stats() -> serde_json::Value {
-    // 注意：这需要在 csrf.rs 中暴露 CSRF_TOKENS
-    // 暂时返回占位符
     json!({
-        "note": "CSRF token count requires exposing internal state"
+        "mode": "stateless",
+        "stored_tokens": 0
     })
 }

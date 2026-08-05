@@ -36,7 +36,7 @@ pub const SAVER_MAX_IN_FLIGHT_CHUNK_BYTES: usize = 48 * 1024 * 1024;
 pub const SAVER_MAX_API_CACHE_ENTRIES: usize = 512;
 pub const SAVER_MAX_GEO_CACHE_ENTRIES: usize = 512;
 pub const SAVER_MAX_API_CACHE_BYTES: usize = 32 * 1024 * 1024;
-pub const SAVER_MAX_GEO_CACHE_BYTES: usize = 1 * 1024 * 1024;
+pub const SAVER_MAX_GEO_CACHE_BYTES: usize = 1024 * 1024;
 pub const SAVER_ARGON2_PERMITS: usize = 2;
 pub const SAVER_MAX_AUDIO_BYTES: usize = 64 * 1024 * 1024;
 /// Federation single-request caps (slightly below product default; still large enough for normal media).

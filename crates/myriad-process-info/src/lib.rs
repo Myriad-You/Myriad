@@ -32,10 +32,7 @@ pub fn mark_startup() {
 
 /// Process uptime in seconds since [`mark_startup`] (0 if not marked).
 pub fn process_uptime_seconds() -> u64 {
-    STARTED_AT
-        .get()
-        .map(|t| t.elapsed().as_secs())
-        .unwrap_or(0)
+    STARTED_AT.get().map(|t| t.elapsed().as_secs()).unwrap_or(0)
 }
 
 /// Build version string for `/health` and agent metrics.
@@ -227,9 +224,6 @@ mod tests {
     fn memory_alert_thresholds_fit_1g_host_budget() {
         assert_eq!(MEMORY_WARNING_MB, 600);
         assert_eq!(MEMORY_CRITICAL_MB, 750);
-        assert!(MEMORY_WARNING_MB > 500);
-        assert!(MEMORY_CRITICAL_MB < 1024);
-        assert!(MEMORY_WARNING_MB < MEMORY_CRITICAL_MB);
     }
 
     #[test]
@@ -254,14 +248,8 @@ mod tests {
             .unwrap_or("");
         assert!(!os.is_empty(), "os empty");
         assert!(!arch.is_empty(), "arch empty");
-        assert!(
-            matches!(family, "unix" | "windows"),
-            "family={family}"
-        );
-        assert!(
-            matches!(width, "32" | "64"),
-            "pointer_width={width}"
-        );
+        assert!(matches!(family, "unix" | "windows"), "family={family}");
+        assert!(matches!(width, "32" | "64"), "pointer_width={width}");
         assert_eq!(os, std::env::consts::OS);
         assert_eq!(arch, std::env::consts::ARCH);
     }

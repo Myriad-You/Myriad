@@ -11,6 +11,7 @@
 //! Fail-open: if the state file disappears, requests are forwarded normally. The proxy
 //! is the user's only rescue path, so it MUST NOT trap traffic by accident.
 
+use std::collections::HashSet;
 use std::convert::Infallible;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
@@ -271,14 +272,7 @@ async fn handle(
 
 /// RFC 6455 handshake detection: `Connection: upgrade` + `Upgrade: websocket`.
 fn is_websocket_upgrade(headers: &HeaderMap) -> bool {
-    let connection_has_upgrade = headers
-        .get(header::CONNECTION)
-        .and_then(|v| v.to_str().ok())
-        .map(|v| {
-            v.split(',')
-                .any(|token| token.trim().eq_ignore_ascii_case("upgrade"))
-        })
-        .unwrap_or(false);
+    let connection_has_upgrade = parse_connection_tokens(headers).contains("upgrade");
     let upgrade_is_websocket = headers
         .get(header::UPGRADE)
         .and_then(|v| v.to_str().ok())
@@ -307,37 +301,14 @@ async fn forward_websocket(
     let mut builder = hyper::Request::builder()
         .method(parts.method.clone())
         .uri(&url);
-    for (k, v) in parts.headers.iter() {
-        if is_proxy_managed_forwarded_header(k.as_str()) {
-            continue;
-        }
-        // Host is set explicitly below (HTTP Signature / virtual-host safety).
-        if k == header::HOST {
-            continue;
-        }
-        // Upgrade requests must keep Connection/Upgrade so the upstream sees the handshake.
-        if is_hop_by_hop(k.as_str()) && k != header::CONNECTION && k != header::UPGRADE {
-            continue;
-        }
+    let request_headers = build_forward_request_headers(
+        &parts.headers,
+        client_addr.ip(),
+        &state.trusted_upstreams,
+        HeaderTransfer::WebSocket,
+    );
+    for (k, v) in request_headers.iter() {
         builder = builder.header(k, v);
-    }
-    let client_ip =
-        resolve_client_ip(&parts.headers, client_addr.ip(), &state.trusted_upstreams).to_string();
-    builder = builder
-        .header("x-forwarded-for", &client_ip)
-        .header("x-real-ip", &client_ip)
-        .header(
-            "x-forwarded-proto",
-            forwarded_proto(&parts.headers).unwrap_or_else(|| HeaderValue::from_static("http")),
-        );
-    if let Some(host) = forwarded_host(&parts.headers) {
-        builder = builder.header("x-forwarded-host", host);
-    }
-    // Preserve the public Host the client (or outer proxy) presented. hyper-util
-    // only fills Host when missing (`or_insert_with` from the absolute URI), so a
-    // missing Host would become `backend:1103` and break ActivityPub signature checks.
-    if let Some(host) = upstream_request_host(&parts.headers) {
-        builder = builder.header(header::HOST, host);
     }
     let upstream_req = builder.body(Body::empty())?;
     let upstream_resp = state.client.request(upstream_req).await?;
@@ -346,19 +317,21 @@ async fn forward_websocket(
         // Upstream refused the upgrade (auth failure, bad ticket, …) — relay its answer.
         let (resp_parts, body) = upstream_resp.into_parts();
         let mut out = Response::builder().status(resp_parts.status);
-        for (k, v) in resp_parts.headers.iter() {
-            if is_hop_by_hop(k.as_str()) {
-                continue;
-            }
+        let response_headers =
+            filter_forward_response_headers(&resp_parts.headers, HeaderTransfer::Http);
+        for (k, v) in response_headers.iter() {
             out = out.header(k, v);
         }
         return Ok(out.body(Body::new(body))?);
     }
 
-    // Relay the 101 verbatim (Connection/Upgrade/Sec-WebSocket-Accept included);
-    // the client upgrade only resolves after this response is written out.
+    // Relay the 101 after the shared response policy preserves only the
+    // upgrade fields plus end-to-end WebSocket metadata. The client upgrade
+    // only resolves after this response is written out.
     let mut out = Response::builder().status(StatusCode::SWITCHING_PROTOCOLS);
-    for (k, v) in upstream_resp.headers().iter() {
+    let response_headers =
+        filter_forward_response_headers(upstream_resp.headers(), HeaderTransfer::WebSocket);
+    for (k, v) in response_headers.iter() {
         out = out.header(k, v);
     }
     let response = out.body(Body::empty())?;
@@ -510,43 +483,22 @@ async fn forward(
     let (parts, body) = req.into_parts();
     let url = format!("{}{}", upstream_base, path_q);
     let mut builder = hyper::Request::builder().method(parts.method).uri(&url);
-    for (k, v) in parts.headers.iter() {
-        // Skip hop-by-hop headers. Host is applied explicitly below.
-        if is_hop_by_hop(k.as_str())
-            || is_proxy_managed_forwarded_header(k.as_str())
-            || k == header::HOST
-        {
-            continue;
-        }
+    let request_headers = build_forward_request_headers(
+        &parts.headers,
+        client_addr.ip(),
+        &state.trusted_upstreams,
+        HeaderTransfer::Http,
+    );
+    for (k, v) in request_headers.iter() {
         builder = builder.header(k, v);
-    }
-    let client_ip =
-        resolve_client_ip(&parts.headers, client_addr.ip(), &state.trusted_upstreams).to_string();
-    builder = builder
-        .header("x-forwarded-for", &client_ip)
-        .header("x-real-ip", &client_ip)
-        .header(
-            "x-forwarded-proto",
-            forwarded_proto(&parts.headers).unwrap_or_else(|| HeaderValue::from_static("http")),
-        );
-    if let Some(host) = forwarded_host(&parts.headers) {
-        builder = builder.header("x-forwarded-host", host);
-    }
-    // Explicit Host so inbox HTTP Signature verification still sees the public
-    // hostname remotes signed (not the internal `backend:1103` authority).
-    // hyper-util only auto-fills Host when the header is absent.
-    if let Some(host) = upstream_request_host(&parts.headers) {
-        builder = builder.header(header::HOST, host);
     }
     let upstream_req = builder.body(body)?;
     let resp = state.client.request(upstream_req).await?;
     let (parts, body) = resp.into_parts();
     // Stream the upstream body through — do not buffer into memory.
     let mut out = Response::builder().status(parts.status);
-    for (k, v) in parts.headers.iter() {
-        if is_hop_by_hop(k.as_str()) {
-            continue;
-        }
+    let response_headers = filter_forward_response_headers(&parts.headers, HeaderTransfer::Http);
+    for (k, v) in response_headers.iter() {
         out = out.header(k, v);
     }
     let mut response = out.body(Body::new(body))?;
@@ -567,6 +519,120 @@ fn ensure_permissions_policy(headers: &mut HeaderMap) {
     );
 }
 
+/// Headers nominated by `Connection` are hop-by-hop even when they are not
+/// part of the fixed HTTP/1.1 list.  The policy is shared by HTTP and WS in
+/// both directions so a dynamic token cannot leak through one path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HeaderTransfer {
+    Http,
+    WebSocket,
+}
+
+#[derive(Debug, Clone, Default)]
+struct HeaderPolicy {
+    connection_tokens: HashSet<String>,
+    trusted_peer: bool,
+}
+
+impl HeaderPolicy {
+    fn for_request(headers: &HeaderMap, peer_ip: IpAddr, trusted_upstreams: &[IpNet]) -> Self {
+        Self {
+            connection_tokens: parse_connection_tokens(headers),
+            trusted_peer: is_trusted_hop(peer_ip, trusted_upstreams),
+        }
+    }
+
+    fn for_response(headers: &HeaderMap) -> Self {
+        Self {
+            connection_tokens: parse_connection_tokens(headers),
+            trusted_peer: false,
+        }
+    }
+
+    fn should_strip(&self, name: &str, transfer: HeaderTransfer) -> bool {
+        let normalized = name.to_ascii_lowercase();
+        if self.connection_tokens.contains(&normalized) {
+            return true;
+        }
+        if transfer == HeaderTransfer::WebSocket
+            && matches!(normalized.as_str(), "connection" | "upgrade")
+        {
+            // The caller adds the canonical Connection/Upgrade fields below.
+            return false;
+        }
+        is_hop_by_hop(&normalized)
+    }
+
+    /// Copy end-to-end request headers and add only proxy-owned forwarding
+    /// headers. For WS handshakes, Connection/Upgrade are canonicalized so an
+    /// inbound `Connection: Foo, Upgrade` cannot nominate `Foo` upstream.
+    fn request_headers(
+        &self,
+        headers: &HeaderMap,
+        transfer: HeaderTransfer,
+        client_ip: IpAddr,
+    ) -> HeaderMap {
+        let mut out = HeaderMap::new();
+        for (name, value) in headers.iter() {
+            let normalized = name.as_str().to_ascii_lowercase();
+            if normalized == "host"
+                || is_proxy_managed_forwarded_header(&normalized)
+                || self.should_strip(&normalized, transfer)
+            {
+                continue;
+            }
+            out.append(name.clone(), value.clone());
+        }
+
+        if transfer == HeaderTransfer::WebSocket {
+            out.insert(header::CONNECTION, HeaderValue::from_static("Upgrade"));
+            out.insert(header::UPGRADE, HeaderValue::from_static("websocket"));
+        }
+
+        let client_ip = HeaderValue::from_str(&client_ip.to_string())
+            .expect("an IpAddr always serializes to a valid header value");
+        out.insert(
+            HeaderName::from_static("x-forwarded-for"),
+            client_ip.clone(),
+        );
+        out.insert(HeaderName::from_static("x-real-ip"), client_ip);
+        out
+    }
+
+    /// Strip fixed and Connection-nominated response headers. A successful WS
+    /// handshake keeps only the two fields needed by the client upgrade; all
+    /// other hop-by-hop fields remain removed.
+    fn response_headers(&self, headers: &HeaderMap, transfer: HeaderTransfer) -> HeaderMap {
+        let mut out = HeaderMap::new();
+        for (name, value) in headers.iter() {
+            let normalized = name.as_str().to_ascii_lowercase();
+            if transfer == HeaderTransfer::WebSocket
+                && matches!(normalized.as_str(), "connection" | "upgrade")
+            {
+                continue;
+            }
+            if self.should_strip(&normalized, transfer) {
+                continue;
+            }
+            out.append(name.clone(), value.clone());
+        }
+
+        if transfer == HeaderTransfer::WebSocket {
+            if self.connection_tokens.contains("upgrade") {
+                out.insert(header::CONNECTION, HeaderValue::from_static("Upgrade"));
+            }
+            if headers
+                .get(header::UPGRADE)
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|value| value.trim().eq_ignore_ascii_case("websocket"))
+            {
+                out.insert(header::UPGRADE, HeaderValue::from_static("websocket"));
+            }
+        }
+        out
+    }
+}
+
 fn is_hop_by_hop(name: &str) -> bool {
     matches!(
         name.to_ascii_lowercase().as_str(),
@@ -574,7 +640,9 @@ fn is_hop_by_hop(name: &str) -> bool {
             | "keep-alive"
             | "proxy-authenticate"
             | "proxy-authorization"
+            | "proxy-connection"
             | "te"
+            | "trailer"
             | "trailers"
             | "transfer-encoding"
             | "upgrade"
@@ -593,6 +661,28 @@ fn is_proxy_managed_forwarded_header(name: &str) -> bool {
     )
 }
 
+/// Parse every Connection field (including repeated fields) into normalized
+/// header names. Invalid tokens are ignored; all actual HeaderName values are
+/// already validated by hyper/axum.
+fn parse_connection_tokens(headers: &HeaderMap) -> HashSet<String> {
+    let mut tokens = HashSet::new();
+    for value in headers.get_all(header::CONNECTION).iter() {
+        let Ok(value) = value.to_str() else {
+            continue;
+        };
+        for token in value.split(',') {
+            let token = token.trim();
+            if token.is_empty() {
+                continue;
+            }
+            if HeaderName::from_bytes(token.as_bytes()).is_ok() {
+                tokens.insert(token.to_ascii_lowercase());
+            }
+        }
+    }
+    tokens
+}
+
 fn parse_trusted_upstreams(value: Option<&str>) -> anyhow::Result<Vec<IpNet>> {
     value
         .unwrap_or_default()
@@ -608,54 +698,40 @@ fn parse_trusted_upstreams(value: Option<&str>) -> anyhow::Result<Vec<IpNet>> {
         .collect()
 }
 
-/// RFC1918 / loopback / link-local (and IPv6 ULA / link-local). Used when
-/// `PROXY_TRUSTED_UPSTREAMS` is empty so Docker bridge / host-network peers
-/// (e.g. 172.17.0.1 from host Nginx/Caddy) can pass XFF without an explicit list.
-fn is_private_or_local(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(v4) => v4.is_private() || v4.is_loopback() || v4.is_link_local(),
-        IpAddr::V6(v6) => {
-            v6.is_loopback() || v6.is_unique_local() || v6.is_unicast_link_local()
-        }
-    }
-}
-
 fn is_in_allowlist(ip: IpAddr, trusted_upstreams: &[IpNet]) -> bool {
     trusted_upstreams
         .iter()
         .any(|network| network.contains(&ip))
 }
 
-/// Whether a hop is trusted for consuming / stripping forwarded headers.
-/// - Empty allowlist: only private/loopback/link-local (Docker host reverse-proxy case).
-/// - Non-empty allowlist: explicit CIDRs only (public peers still cannot spoof).
+/// A forwarding header is trusted only when the direct TCP peer is explicitly
+/// present in `PROXY_TRUSTED_UPSTREAMS`. An empty allowlist therefore trusts no
+/// peer; local development can opt in by listing its loopback/Docker peer
+/// explicitly rather than inheriting a production-wide private-network trust.
 fn is_trusted_hop(ip: IpAddr, trusted_upstreams: &[IpNet]) -> bool {
-    if trusted_upstreams.is_empty() {
-        is_private_or_local(ip)
-    } else {
-        is_in_allowlist(ip, trusted_upstreams)
-    }
+    is_in_allowlist(ip, trusted_upstreams)
 }
 
 /// Parse X-Forwarded-For, skipping unparseable tokens instead of dropping the whole chain.
 fn parse_forwarded_for_ips(headers: &HeaderMap) -> Vec<IpAddr> {
     headers
-        .get("x-forwarded-for")
-        .and_then(|value| value.to_str().ok())
-        .map(|value| {
+        .get_all("x-forwarded-for")
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| {
             value
                 .split(',')
                 .filter_map(|entry| entry.trim().parse::<IpAddr>().ok())
-                .collect()
         })
-        .unwrap_or_default()
+        .collect()
 }
 
 fn parse_single_ip_header(headers: &HeaderMap, name: &str) -> Option<IpAddr> {
     headers
-        .get(name)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.trim().parse::<IpAddr>().ok())
+        .get_all(name)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .find_map(|value| value.trim().parse::<IpAddr>().ok())
 }
 
 fn resolve_client_ip(headers: &HeaderMap, peer_ip: IpAddr, trusted_upstreams: &[IpNet]) -> IpAddr {
@@ -693,6 +769,47 @@ fn resolve_client_ip(headers: &HeaderMap, peer_ip: IpAddr, trusted_upstreams: &[
     forwarded_ips.first().copied().unwrap_or(peer_ip)
 }
 
+/// Build the sanitized request map used by both ordinary HTTP and WS upgrade
+/// forwarding. The direct peer trust decision is made once and controls every
+/// forwarding field, not just client IP extraction.
+fn build_forward_request_headers(
+    headers: &HeaderMap,
+    peer_ip: IpAddr,
+    trusted_upstreams: &[IpNet],
+    transfer: HeaderTransfer,
+) -> HeaderMap {
+    let policy = HeaderPolicy::for_request(headers, peer_ip, trusted_upstreams);
+    let client_ip = resolve_client_ip(headers, peer_ip, trusted_upstreams);
+    let mut out = policy.request_headers(headers, transfer, client_ip);
+
+    let proto = if policy.trusted_peer {
+        forwarded_proto(headers).unwrap_or_else(|| HeaderValue::from_static("http"))
+    } else {
+        // The proxy listener is plain HTTP. Never let an untrusted XFP claim
+        // that this connection was HTTPS (or another scheme).
+        HeaderValue::from_static("http")
+    };
+    out.insert(HeaderName::from_static("x-forwarded-proto"), proto);
+
+    // XFH is consumed only from a trusted direct peer. Otherwise Host is the
+    // request authority observed on this connection and is copied as the
+    // canonical public host for backend ActivityPub signature verification.
+    if let Some(host) = forwarded_host_for_peer(headers, policy.trusted_peer) {
+        out.insert(HeaderName::from_static("x-forwarded-host"), host);
+    }
+    if let Some(host) = upstream_request_host_for_peer(headers, policy.trusted_peer) {
+        out.insert(header::HOST, host);
+    }
+    out
+}
+
+fn filter_forward_response_headers(headers: &HeaderMap, transfer: HeaderTransfer) -> HeaderMap {
+    HeaderPolicy::for_response(headers).response_headers(headers, transfer)
+}
+
+// Raw accessors are intentionally only used after HeaderPolicy has
+// established a trusted direct peer. Untrusted requests use the peer and Host
+// fallbacks in `build_forward_request_headers` instead.
 fn forwarded_proto(headers: &HeaderMap) -> Option<HeaderValue> {
     headers.get("x-forwarded-proto").cloned()
 }
@@ -702,6 +819,14 @@ fn forwarded_host(headers: &HeaderMap) -> Option<HeaderValue> {
         .get("x-forwarded-host")
         .or_else(|| headers.get(header::HOST))
         .cloned()
+}
+
+fn forwarded_host_for_peer(headers: &HeaderMap, trusted_peer: bool) -> Option<HeaderValue> {
+    if trusted_peer {
+        forwarded_host(headers)
+    } else {
+        headers.get(header::HOST).cloned()
+    }
 }
 
 /// Public `Host` to send on the upstream request.
@@ -715,6 +840,14 @@ fn upstream_request_host(headers: &HeaderMap) -> Option<HeaderValue> {
         .get(header::HOST)
         .cloned()
         .or_else(|| headers.get("x-forwarded-host").cloned())
+}
+
+fn upstream_request_host_for_peer(headers: &HeaderMap, trusted_peer: bool) -> Option<HeaderValue> {
+    if trusted_peer {
+        upstream_request_host(headers)
+    } else {
+        headers.get(header::HOST).cloned()
+    }
 }
 
 async fn read_maintenance_cached(state: &AppState) -> MaintenanceFile {
@@ -869,8 +1002,7 @@ mod tests {
     #[test]
     fn backend_paths_include_federation_endpoints() {
         let browser = "Mozilla/5.0 (Macintosh) Chrome/120.0.0.0";
-        let googlebot =
-            "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
+        let googlebot = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
 
         // REST / health
         assert!(is_backend_path("/api/federation/channels", browser));
@@ -909,10 +1041,7 @@ mod tests {
         ));
         assert!(!is_backend_path("/tapp/run/com.example.app", browser));
         assert!(is_backend_path("/brew/item/42", googlebot));
-        assert!(is_backend_path(
-            "/brew/item/42",
-            "Twitterbot/1.0"
-        ));
+        assert!(is_backend_path("/brew/item/42", "Twitterbot/1.0"));
         assert!(!is_backend_path("/brew/item/42", browser));
         // Discovery
         assert!(is_backend_path("/.well-known/webfinger", browser));
@@ -958,7 +1087,9 @@ mod tests {
         let mut headers = HeaderMap::new();
         ensure_permissions_policy(&mut headers);
         assert_eq!(
-            headers.get("permissions-policy").and_then(|v| v.to_str().ok()),
+            headers
+                .get("permissions-policy")
+                .and_then(|v| v.to_str().ok()),
             Some(PERMISSIONS_POLICY)
         );
     }
@@ -972,7 +1103,9 @@ mod tests {
         );
         ensure_permissions_policy(&mut headers);
         assert_eq!(
-            headers.get("permissions-policy").and_then(|v| v.to_str().ok()),
+            headers
+                .get("permissions-policy")
+                .and_then(|v| v.to_str().ok()),
             Some("geolocation=()")
         );
     }
@@ -1007,6 +1140,219 @@ mod tests {
         let (unknown_idx, _, unknown_pct) = phase_progress("not_a_phase");
         assert_eq!(unknown_idx, 0);
         assert_eq!(unknown_pct, 0);
+    }
+
+    #[test]
+    fn connection_token_strips_nominated_request_header() {
+        let mut headers = HeaderMap::new();
+        headers.insert("Connection", HeaderValue::from_static("Foo"));
+        headers.insert("Foo", HeaderValue::from_static("secret"));
+        headers.insert("x-end-to-end", HeaderValue::from_static("kept"));
+
+        let forwarded = build_forward_request_headers(
+            &headers,
+            "192.0.2.10".parse().unwrap(),
+            &[],
+            HeaderTransfer::Http,
+        );
+
+        assert!(forwarded.get("connection").is_none());
+        assert!(forwarded.get("foo").is_none());
+        assert_eq!(
+            forwarded.get("x-end-to-end").and_then(|v| v.to_str().ok()),
+            Some("kept")
+        );
+    }
+
+    #[test]
+    fn repeated_mixed_case_connection_tokens_are_stripped_for_http_and_ws() {
+        let mut headers = HeaderMap::new();
+        headers.append("cOnNeCtIoN", HeaderValue::from_static("fOo, Upgrade"));
+        headers.append("Connection", HeaderValue::from_static("BAR"));
+        headers.insert("Foo", HeaderValue::from_static("foo-secret"));
+        headers.insert("bar", HeaderValue::from_static("bar-secret"));
+        headers.insert("Upgrade", HeaderValue::from_static("websocket"));
+
+        let tokens = parse_connection_tokens(&headers);
+        assert!(tokens.contains("foo"));
+        assert!(tokens.contains("upgrade"));
+        assert!(tokens.contains("bar"));
+
+        let http = build_forward_request_headers(
+            &headers,
+            "192.0.2.10".parse().unwrap(),
+            &[],
+            HeaderTransfer::Http,
+        );
+        assert!(http.get("connection").is_none());
+        assert!(http.get("foo").is_none());
+        assert!(http.get("bar").is_none());
+        assert!(http.get("upgrade").is_none());
+
+        let ws = build_forward_request_headers(
+            &headers,
+            "192.0.2.10".parse().unwrap(),
+            &[],
+            HeaderTransfer::WebSocket,
+        );
+        assert_eq!(
+            ws.get(header::CONNECTION).and_then(|v| v.to_str().ok()),
+            Some("Upgrade")
+        );
+        assert_eq!(
+            ws.get(header::UPGRADE).and_then(|v| v.to_str().ok()),
+            Some("websocket")
+        );
+        assert!(ws.get("foo").is_none());
+        assert!(ws.get("bar").is_none());
+    }
+
+    #[test]
+    fn websocket_detection_reads_repeated_connection_fields() {
+        let mut headers = HeaderMap::new();
+        headers.append("Connection", HeaderValue::from_static("keep-alive"));
+        headers.append("connection", HeaderValue::from_static("UpGrAdE"));
+        headers.insert("Upgrade", HeaderValue::from_static("WebSocket"));
+
+        assert!(is_websocket_upgrade(&headers));
+    }
+
+    #[test]
+    fn connection_tokens_strip_nominated_response_headers() {
+        let mut headers = HeaderMap::new();
+        headers.insert("Connection", HeaderValue::from_static("Foo, keep-alive"));
+        headers.insert("Foo", HeaderValue::from_static("secret"));
+        headers.insert("Keep-Alive", HeaderValue::from_static("timeout=5"));
+        headers.insert("x-end-to-end", HeaderValue::from_static("kept"));
+
+        let filtered = filter_forward_response_headers(&headers, HeaderTransfer::Http);
+        assert!(filtered.get("connection").is_none());
+        assert!(filtered.get("foo").is_none());
+        assert!(filtered.get("keep-alive").is_none());
+        assert_eq!(
+            filtered.get("x-end-to-end").and_then(|v| v.to_str().ok()),
+            Some("kept")
+        );
+    }
+
+    #[test]
+    fn websocket_response_keeps_only_upgrade_fields_from_hop_by_hop_set() {
+        let mut headers = HeaderMap::new();
+        headers.insert("Connection", HeaderValue::from_static("Foo, Upgrade"));
+        headers.insert("Foo", HeaderValue::from_static("secret"));
+        headers.insert("Upgrade", HeaderValue::from_static("websocket"));
+        headers.insert("Keep-Alive", HeaderValue::from_static("timeout=5"));
+        headers.insert(
+            "Sec-WebSocket-Accept",
+            HeaderValue::from_static("accept-token"),
+        );
+
+        let filtered = filter_forward_response_headers(&headers, HeaderTransfer::WebSocket);
+        assert_eq!(
+            filtered
+                .get(header::CONNECTION)
+                .and_then(|v| v.to_str().ok()),
+            Some("Upgrade")
+        );
+        assert_eq!(
+            filtered.get(header::UPGRADE).and_then(|v| v.to_str().ok()),
+            Some("websocket")
+        );
+        assert!(filtered.get("foo").is_none());
+        assert!(filtered.get("keep-alive").is_none());
+        assert_eq!(
+            filtered
+                .get("sec-websocket-accept")
+                .and_then(|v| v.to_str().ok()),
+            Some("accept-token")
+        );
+    }
+
+    #[test]
+    fn untrusted_peer_rebuilds_all_forwarding_headers_from_connection() {
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Forwarded-For", HeaderValue::from_static("198.51.100.99"));
+        headers.insert("X-Real-IP", HeaderValue::from_static("198.51.100.98"));
+        headers.insert("X-Forwarded-Proto", HeaderValue::from_static("https"));
+        headers.insert(
+            "X-Forwarded-Host",
+            HeaderValue::from_static("attacker.example"),
+        );
+        headers.insert(header::HOST, HeaderValue::from_static("public.example"));
+
+        let forwarded = build_forward_request_headers(
+            &headers,
+            "192.0.2.10".parse().unwrap(),
+            &[],
+            HeaderTransfer::Http,
+        );
+        assert_eq!(
+            forwarded
+                .get("x-forwarded-for")
+                .and_then(|v| v.to_str().ok()),
+            Some("192.0.2.10")
+        );
+        assert_eq!(
+            forwarded.get("x-real-ip").and_then(|v| v.to_str().ok()),
+            Some("192.0.2.10")
+        );
+        assert_eq!(
+            forwarded
+                .get("x-forwarded-proto")
+                .and_then(|v| v.to_str().ok()),
+            Some("http")
+        );
+        assert_eq!(
+            forwarded
+                .get("x-forwarded-host")
+                .and_then(|v| v.to_str().ok()),
+            Some("public.example")
+        );
+        assert_eq!(
+            forwarded.get(header::HOST).and_then(|v| v.to_str().ok()),
+            Some("public.example")
+        );
+    }
+
+    #[test]
+    fn trusted_proxy_can_supply_forwarded_values_without_changing_activitypub_host() {
+        let trusted = parse_trusted_upstreams(Some("10.0.0.5")).unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Forwarded-For", HeaderValue::from_static("198.51.100.9"));
+        headers.insert("X-Forwarded-Proto", HeaderValue::from_static("https"));
+        headers.insert("X-Forwarded-Host", HeaderValue::from_static("edge.example"));
+        headers.insert(header::HOST, HeaderValue::from_static("public.example"));
+
+        let forwarded = build_forward_request_headers(
+            &headers,
+            "10.0.0.5".parse().unwrap(),
+            &trusted,
+            HeaderTransfer::Http,
+        );
+        assert_eq!(
+            forwarded
+                .get("x-forwarded-for")
+                .and_then(|v| v.to_str().ok()),
+            Some("198.51.100.9")
+        );
+        assert_eq!(
+            forwarded
+                .get("x-forwarded-proto")
+                .and_then(|v| v.to_str().ok()),
+            Some("https")
+        );
+        assert_eq!(
+            forwarded
+                .get("x-forwarded-host")
+                .and_then(|v| v.to_str().ok()),
+            Some("edge.example")
+        );
+        // ActivityPub HTTP Signatures cover the inbound public Host. Keep it
+        // ahead of X-Forwarded-Host when both are present.
+        assert_eq!(
+            forwarded.get(header::HOST).and_then(|v| v.to_str().ok()),
+            Some("public.example")
+        );
     }
 
     #[test]
@@ -1060,6 +1406,19 @@ mod tests {
     }
 
     #[test]
+    fn trusted_proxy_combines_repeated_xff_fields_in_wire_order() {
+        let trusted = parse_trusted_upstreams(Some("10.0.0.5")).unwrap();
+        let mut headers = HeaderMap::new();
+        headers.append("x-forwarded-for", HeaderValue::from_static("198.51.100.8"));
+        headers.append("X-Forwarded-For", HeaderValue::from_static("10.0.0.5"));
+
+        assert_eq!(
+            resolve_client_ip(&headers, "10.0.0.5".parse().unwrap(), &trusted),
+            "198.51.100.8".parse::<IpAddr>().unwrap()
+        );
+    }
+
+    #[test]
     fn trusted_upstream_can_use_x_real_ip() {
         let trusted = parse_trusted_upstreams(Some("10.0.0.5")).unwrap();
         let mut headers = HeaderMap::new();
@@ -1089,10 +1448,22 @@ mod tests {
     }
 
     #[test]
-    fn empty_allowlist_trusts_private_peer_xff() {
-        // Docker bridge peer (host Nginx/Caddy → published proxy port).
+    fn empty_allowlist_does_not_trust_private_peer_xff() {
+        // A Docker bridge peer is not trusted unless explicitly listed.
         let trusted = parse_trusted_upstreams(None).unwrap();
         assert!(trusted.is_empty());
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", HeaderValue::from_static("203.0.113.50"));
+
+        assert_eq!(
+            resolve_client_ip(&headers, "172.17.0.1".parse().unwrap(), &trusted),
+            "172.17.0.1".parse::<IpAddr>().unwrap()
+        );
+    }
+
+    #[test]
+    fn private_peer_can_be_explicitly_allowlisted_for_development() {
+        let trusted = parse_trusted_upstreams(Some("172.17.0.1/32")).unwrap();
         let mut headers = HeaderMap::new();
         headers.insert("x-forwarded-for", HeaderValue::from_static("203.0.113.50"));
 
@@ -1115,7 +1486,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_allowlist_strips_private_hops_from_right() {
+    fn empty_allowlist_does_not_strip_private_hops_from_right() {
         let trusted = Vec::new();
         let mut headers = HeaderMap::new();
         headers.insert(
@@ -1125,7 +1496,7 @@ mod tests {
 
         assert_eq!(
             resolve_client_ip(&headers, "172.17.0.1".parse().unwrap(), &trusted),
-            "203.0.113.9".parse::<IpAddr>().unwrap()
+            "172.17.0.1".parse::<IpAddr>().unwrap()
         );
     }
 
@@ -1159,7 +1530,7 @@ mod tests {
 
     #[test]
     fn trusted_peer_accepts_true_client_ip() {
-        let trusted = Vec::new();
+        let trusted = parse_trusted_upstreams(Some("127.0.0.1")).unwrap();
         let mut headers = HeaderMap::new();
         headers.insert("true-client-ip", HeaderValue::from_static("198.51.100.77"));
 

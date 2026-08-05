@@ -11,8 +11,6 @@ mod tests {
     fn shipped_memory_alerts_are_600_warn_750_critical() {
         assert_eq!(MEMORY_WARNING_MB, 600);
         assert_eq!(MEMORY_CRITICAL_MB, 750);
-        assert!(MEMORY_WARNING_MB > 500);
-        assert!(MEMORY_CRITICAL_MB < 1024);
         let metrics = include_str!("api/metrics.rs");
         let diagnostics = include_str!("api/diagnostics.rs");
         assert!(metrics.contains("MEMORY_WARNING_MB") || metrics.contains("memory_profile"));
@@ -57,10 +55,12 @@ mod tests {
         assert!(src.contains("max_api_cache_entries"));
         assert!(src.contains("max_api_cache_bytes"));
         assert!(src.contains("size_bytes"));
-        assert!(
-            crate::services::memory_profile::DEFAULT_MAX_API_CACHE_BYTES
-                > crate::services::memory_profile::SAVER_MAX_API_CACHE_BYTES
-        );
+        const {
+            assert!(
+                crate::services::memory_profile::DEFAULT_MAX_API_CACHE_BYTES
+                    > crate::services::memory_profile::SAVER_MAX_API_CACHE_BYTES
+            );
+        }
     }
 
     #[test]
@@ -92,7 +92,9 @@ mod tests {
             assert!(inbox_inflight_raw_bytes() >= before.saturating_add(1024) || before > 0);
             drop(p);
         } else {
-            assert!(INBOX_INFLIGHT_RAW_BUDGET >= INBOX_BODY_LIMIT);
+            const {
+                assert!(INBOX_INFLIGHT_RAW_BUDGET >= INBOX_BODY_LIMIT);
+            }
         }
     }
 

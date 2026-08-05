@@ -1220,6 +1220,83 @@ pub(crate) fn tables() -> Vec<TableDef> {
             ],
         },
         TableDef {
+            name: "federation_inbox_receipts".to_string(),
+            columns: vec![
+                ColumnDef {
+                    name: "id".into(),
+                    data_type: "bigserial".into(),
+                    is_nullable: false,
+                    default_value: None,
+                },
+                ColumnDef {
+                    name: "signer".into(),
+                    data_type: "text".into(),
+                    is_nullable: false,
+                    default_value: None,
+                },
+                ColumnDef {
+                    name: "activity_id".into(),
+                    data_type: "text".into(),
+                    is_nullable: false,
+                    default_value: None,
+                },
+                ColumnDef {
+                    name: "body_digest".into(),
+                    data_type: "character(64)".into(),
+                    is_nullable: false,
+                    default_value: None,
+                },
+                ColumnDef {
+                    name: "status".into(),
+                    data_type: "character varying(16)".into(),
+                    is_nullable: false,
+                    default_value: Some("'processing'".into()),
+                },
+                ColumnDef {
+                    name: "attempts".into(),
+                    data_type: "integer".into(),
+                    is_nullable: false,
+                    default_value: Some("1".into()),
+                },
+                ColumnDef {
+                    name: "lease_until".into(),
+                    data_type: "timestamp with time zone".into(),
+                    is_nullable: true,
+                    default_value: None,
+                },
+                ColumnDef {
+                    name: "outcome_status".into(),
+                    data_type: "smallint".into(),
+                    is_nullable: true,
+                    default_value: None,
+                },
+                ColumnDef {
+                    name: "error_message".into(),
+                    data_type: "text".into(),
+                    is_nullable: true,
+                    default_value: None,
+                },
+                ColumnDef {
+                    name: "created_at".into(),
+                    data_type: "timestamp with time zone".into(),
+                    is_nullable: false,
+                    default_value: Some("now()".into()),
+                },
+                ColumnDef {
+                    name: "updated_at".into(),
+                    data_type: "timestamp with time zone".into(),
+                    is_nullable: false,
+                    default_value: Some("now()".into()),
+                },
+                ColumnDef {
+                    name: "accepted_at".into(),
+                    data_type: "timestamp with time zone".into(),
+                    is_nullable: true,
+                    default_value: None,
+                },
+            ],
+        },
+        TableDef {
             name: "federation_file_transfers".to_string(),
             columns: vec![
                 ColumnDef {
@@ -1320,6 +1397,6 @@ pub(crate) fn tables() -> Vec<TableDef> {
                     default_value: None,
                 },
             ],
-        }
+        },
     ]
 }

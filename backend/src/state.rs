@@ -1,6 +1,6 @@
 //! Application state injected into Axum as the primary router `State`.
 //!
-//! Process-wide Lazy caches (CSRF, rate limits, regex, circuit breakers) stay
+//! Process-wide Lazy caches (rate limits, regex, circuit breakers) stay
 //! global by design. Core request dependencies (DB, config) live here so handlers
 //! and extractors can use `State<AppState>` / `FromRef`.
 //!
@@ -37,11 +37,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(
-        db: DatabaseConnection,
-        config: AppConfig,
-        dynamic_config: DynamicConfig,
-    ) -> Self {
+    pub fn new(db: DatabaseConnection, config: AppConfig, dynamic_config: DynamicConfig) -> Self {
         // Isolated slot for unit tests that build AppState without process wiring.
         Self {
             db_slot: Arc::new(RwLock::new(Some(db))),

@@ -298,7 +298,10 @@ pub async fn get_room_messages(
 }
 
 /// Classify attachment kind from message_type + payload (mirrors Aro client).
-pub(crate) fn room_file_kind(message_type: &str, payload: &serde_json::Value) -> Option<&'static str> {
+pub(crate) fn room_file_kind(
+    message_type: &str,
+    payload: &serde_json::Value,
+) -> Option<&'static str> {
     let mut mt = message_type;
     if mt.is_empty() || mt == "text" {
         if payload
@@ -746,7 +749,7 @@ pub async fn pin_room_message(
 
 /// Inbound pin/unpin for federated rooms.
 pub async fn handle_room_pin(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     actor_url_str: &str,
     activity: &serde_json::Value,
 ) -> Result<(), String> {
@@ -822,5 +825,3 @@ pub async fn handle_room_pin(
     );
     Ok(())
 }
-
-

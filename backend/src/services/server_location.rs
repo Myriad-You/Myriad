@@ -76,12 +76,12 @@ fn is_public_ipv4(ip: Ipv4Addr) -> bool {
 
 fn is_public_ipv6(ip: Ipv6Addr) -> bool {
     let segments = ip.segments();
-    !ip.is_loopback()
-        && !ip.is_unspecified()
-        && !ip.is_unique_local()
-        && !ip.is_unicast_link_local()
-        && !ip.is_multicast()
-        && !(segments[0] == 0x2001 && segments[1] == 0x0db8)
+    !(ip.is_loopback()
+        || ip.is_unspecified()
+        || ip.is_unique_local()
+        || ip.is_unicast_link_local()
+        || ip.is_multicast()
+        || (segments[0] == 0x2001 && segments[1] == 0x0db8))
 }
 
 fn valid_coordinates(latitude: f64, longitude: f64) -> bool {

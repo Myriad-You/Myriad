@@ -5,109 +5,237 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use hmac::{Hmac, KeyInit, Mac};
 use jsonwebtoken::{decode, DecodingKey, Validation};
-use rand::{distr::Alphanumeric, RngExt};
+use rand::Rng;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::collections::{HashMap, VecDeque};
+use sha2::{Digest, Sha256};
 use std::env;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::sync::RwLock;
+use subtle::ConstantTimeEq;
 
 use crate::middleware::auth::Claims;
 
-/// CSRF Token 结构
-#[derive(Debug, Clone)]
-struct CsrfToken {
-    token: String,
-    created_at: Instant,
+type HmacSha256 = Hmac<Sha256>;
+
+/// Wire format version for stateless browser CSRF tokens.
+///
+/// The version is present both as the token prefix and in the signed payload.
+/// Keeping both copies makes version transitions explicit and prevents a token
+/// from one format being interpreted as another format after a rolling deploy.
+const CSRF_TOKEN_VERSION: u8 = 1;
+const CSRF_TOKEN_VERSION_PREFIX: &str = "v1";
+/// Keep the existing one-hour browser/server lifetime. The frontend refreshes
+/// a little before this deadline, while the signed expiry remains authoritative.
+pub(crate) const CSRF_TOKEN_TTL_SECS: i64 = 60 * 60;
+const CSRF_CLOCK_SKEW_SECS: i64 = 60;
+const CSRF_NONCE_BYTES: usize = 32;
+/// Reject oversized values before decoding or running HMAC to keep this public
+/// header endpoint bounded even when a client sends an arbitrary string.
+const CSRF_TOKEN_MAX_LEN: usize = 1024;
+const CSRF_KEY_CONTEXT: &[u8] = b"myriad-csrf-token-signing-key-v1\0";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct VerifiedSession {
+    /// SHA-256 digest of the verified JWT signature segment. Keeping only a
+    /// fixed-size digest in the CSRF payload avoids copying JWT material into
+    /// another browser-visible token while retaining per-session binding.
+    session_id: [u8; 32],
+    /// Durable `users.token_version` epoch carried by the JWT (`tv`).
+    epoch: i64,
 }
 
-/// Process-local CSRF store with O(1) oldest eviction (MYR-016).
-struct CsrfStore {
-    map: HashMap<String, CsrfToken>,
-    /// Insertion order of session keys (oldest first) for cap eviction.
-    order: VecDeque<String>,
+#[derive(Debug, Serialize, Deserialize)]
+struct CsrfTokenPayload {
+    /// Signed payload version; must match [`CSRF_TOKEN_VERSION`].
+    v: u8,
+    /// Base64url SHA-256 digest of the verified JWT signature segment this
+    /// token belongs to.
+    sid: String,
+    /// JWT session epoch (`Claims::tv`) at issuance.
+    tv: i64,
+    /// Unix seconds when the token was issued.
+    iat: i64,
+    /// Unix seconds when the token expires.
+    exp: i64,
+    /// Randomness prevents response caching from yielding one stable value;
+    /// it is authenticated but otherwise has no server-side state.
+    n: String,
 }
 
-impl CsrfStore {
-    fn new() -> Self {
-        Self {
-            map: HashMap::new(),
-            order: VecDeque::new(),
-        }
-    }
-
-    fn len(&self) -> usize {
-        self.map.len()
-    }
-
-    fn get(&self, session_id: &str) -> Option<&CsrfToken> {
-        self.map.get(session_id)
-    }
-
-    fn retain_live(&mut self, max_age: Duration) -> usize {
-        let now = Instant::now();
-        let before = self.map.len();
-        self.map
-            .retain(|_, t| now.duration_since(t.created_at) < max_age);
-        self.order.retain(|k| self.map.contains_key(k));
-        before.saturating_sub(self.map.len())
-    }
-
-    /// Insert or replace a CSRF token for `session_id`.
-    /// Cap eviction is O(1) amortized via insertion-order queue (not O(n) min scan).
-    fn insert(&mut self, session_id: String, csrf_token: CsrfToken, max_tokens: usize) {
-        if let Some(slot) = self.map.get_mut(&session_id) {
-            // Refresh token for an existing verified session; keep order slot.
-            *slot = csrf_token;
-            return;
-        }
-        while self.map.len() >= max_tokens {
-            if let Some(oldest) = self.order.pop_front() {
-                self.map.remove(&oldest);
-            } else {
-                break;
-            }
-        }
-        self.order.push_back(session_id.clone());
-        self.map.insert(session_id, csrf_token);
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CsrfTokenError {
+    Malformed,
+    Invalid,
+    Expired,
 }
 
-/// 全局 CSRF Token 存储
-/// Key: verified JWT signature segment (must pass signature + claims check).
-static CSRF_TOKENS: once_cell::sync::Lazy<Arc<RwLock<CsrfStore>>> =
-    once_cell::sync::Lazy::new(|| {
-        let store: Arc<RwLock<CsrfStore>> = Arc::new(RwLock::new(CsrfStore::new()));
-        let store_clone = store.clone();
+/// Derive the CSRF MAC key from the existing JWT/session secret.
+///
+/// HMAC key derivation is domain-separated so a CSRF token cannot be used as a
+/// JWT or another application HMAC even though all instances share `JWT_SECRET`.
+fn csrf_signing_key(secret: &str) -> Option<[u8; 32]> {
+    if secret.is_empty() {
+        return None;
+    }
+    let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).ok()?;
+    mac.update(CSRF_KEY_CONTEXT);
+    let digest = mac.finalize().into_bytes();
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&digest);
+    Some(key)
+}
 
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(180)); // 每3分钟清理一次
-            loop {
-                interval.tick().await;
-                let mut tokens = store_clone.write().await;
-                let removed = tokens.retain_live(Duration::from_secs(3600));
-                if removed > 0 {
-                    tracing::info!(
-                        "🧹 CSRF cleanup: removed {} expired tokens, {} remaining",
-                        removed,
-                        tokens.len()
-                    );
-                }
-            }
-        });
+fn configured_csrf_key() -> Option<[u8; 32]> {
+    let secret = env::var("JWT_SECRET").ok()?;
+    csrf_signing_key(&secret)
+}
 
-        store
-    });
+fn unix_now() -> i64 {
+    chrono::Utc::now().timestamp()
+}
 
-/// 生成随机 CSRF Token
-fn generate_csrf_token() -> String {
-    rand::rng()
-        .sample_iter(&Alphanumeric)
-        .take(32)
-        .map(char::from)
-        .collect()
+fn sign_csrf_body(key: &[u8; 32], signed_body: &str) -> Option<[u8; 32]> {
+    let mut mac = HmacSha256::new_from_slice(key).ok()?;
+    mac.update(signed_body.as_bytes());
+    let digest = mac.finalize().into_bytes();
+    let mut signature = [0u8; 32];
+    signature.copy_from_slice(&digest);
+    Some(signature)
+}
+
+fn random_csrf_nonce() -> String {
+    let mut nonce = [0u8; CSRF_NONCE_BYTES];
+    rand::rng().fill_bytes(&mut nonce);
+    URL_SAFE_NO_PAD.encode(nonce)
+}
+
+fn issue_csrf_token_with_key(
+    key: &[u8; 32],
+    session: &VerifiedSession,
+    issued_at: i64,
+) -> Option<String> {
+    let payload = CsrfTokenPayload {
+        v: CSRF_TOKEN_VERSION,
+        sid: URL_SAFE_NO_PAD.encode(session.session_id),
+        tv: session.epoch,
+        iat: issued_at,
+        exp: issued_at.checked_add(CSRF_TOKEN_TTL_SECS)?,
+        n: random_csrf_nonce(),
+    };
+    let encoded_payload = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).ok()?);
+    let signed_body = format!("{CSRF_TOKEN_VERSION_PREFIX}.{encoded_payload}");
+    let signature = sign_csrf_body(key, &signed_body)?;
+    Some(format!(
+        "{signed_body}.{}",
+        URL_SAFE_NO_PAD.encode(signature)
+    ))
+}
+
+fn issue_csrf_token(session: &VerifiedSession, issued_at: i64) -> Option<String> {
+    let key = configured_csrf_key()?;
+    issue_csrf_token_with_key(&key, session, issued_at)
+}
+
+fn parse_csrf_token(token: &str) -> Result<(&str, &str, &str), CsrfTokenError> {
+    if token.is_empty() || token.len() > CSRF_TOKEN_MAX_LEN {
+        return Err(CsrfTokenError::Malformed);
+    }
+    let mut parts = token.split('.');
+    let version = parts.next().ok_or(CsrfTokenError::Malformed)?;
+    let payload = parts.next().ok_or(CsrfTokenError::Malformed)?;
+    let signature = parts.next().ok_or(CsrfTokenError::Malformed)?;
+    if parts.next().is_some()
+        || version != CSRF_TOKEN_VERSION_PREFIX
+        || payload.is_empty()
+        || signature.is_empty()
+    {
+        return Err(CsrfTokenError::Malformed);
+    }
+    Ok((version, payload, signature))
+}
+
+/// Verify a signed token against the currently verified JWT session/epoch.
+///
+/// No process-local state participates in this check: any instance with the
+/// shared `JWT_SECRET` can verify a token issued by another instance.
+fn verify_csrf_token(
+    token: &str,
+    session: &VerifiedSession,
+    now: i64,
+) -> Result<(), CsrfTokenError> {
+    let key = configured_csrf_key().ok_or(CsrfTokenError::Invalid)?;
+    verify_csrf_token_with_key(&key, token, session, now)
+}
+
+fn verify_csrf_token_with_key(
+    key: &[u8; 32],
+    token: &str,
+    session: &VerifiedSession,
+    now: i64,
+) -> Result<(), CsrfTokenError> {
+    let (version, encoded_payload, encoded_signature) = parse_csrf_token(token)?;
+    let payload_bytes = URL_SAFE_NO_PAD
+        .decode(encoded_payload)
+        .map_err(|_| CsrfTokenError::Malformed)?;
+    let supplied_signature = URL_SAFE_NO_PAD
+        .decode(encoded_signature)
+        .map_err(|_| CsrfTokenError::Malformed)?;
+    if supplied_signature.len() != 32 {
+        return Err(CsrfTokenError::Malformed);
+    }
+
+    let signed_body = format!("{version}.{encoded_payload}");
+    let mut mac = HmacSha256::new_from_slice(key).map_err(|_| CsrfTokenError::Invalid)?;
+    mac.update(signed_body.as_bytes());
+    // `verify_slice` performs a constant-time MAC comparison. Do not replace
+    // this with `==`; the CSRF token is a bearer secret in the browser.
+    mac.verify_slice(&supplied_signature)
+        .map_err(|_| CsrfTokenError::Invalid)?;
+
+    let payload: CsrfTokenPayload =
+        serde_json::from_slice(&payload_bytes).map_err(|_| CsrfTokenError::Malformed)?;
+    if payload.v != CSRF_TOKEN_VERSION {
+        return Err(CsrfTokenError::Malformed);
+    }
+    let nonce = URL_SAFE_NO_PAD
+        .decode(&payload.n)
+        .map_err(|_| CsrfTokenError::Malformed)?;
+    if nonce.len() != CSRF_NONCE_BYTES {
+        return Err(CsrfTokenError::Malformed);
+    }
+
+    let supplied_session = URL_SAFE_NO_PAD
+        .decode(&payload.sid)
+        .map_err(|_| CsrfTokenError::Malformed)?;
+    if supplied_session.len() != 32 {
+        return Err(CsrfTokenError::Malformed);
+    }
+
+    // The session binding is authenticated above. Use constant-time equality
+    // for both the JWT signature digest and epoch before accepting it.
+    let same_session = bool::from(supplied_session.as_slice().ct_eq(&session.session_id));
+    let same_epoch = bool::from(payload.tv.to_be_bytes().ct_eq(&session.epoch.to_be_bytes()));
+    if !same_session || !same_epoch {
+        return Err(CsrfTokenError::Invalid);
+    }
+
+    if payload.exp <= payload.iat
+        || payload
+            .exp
+            .checked_sub(payload.iat)
+            .map(|lifetime| lifetime > CSRF_TOKEN_TTL_SECS)
+            .unwrap_or(true)
+        || payload.iat > now.saturating_add(CSRF_CLOCK_SKEW_SECS)
+    {
+        return Err(CsrfTokenError::Malformed);
+    }
+    if payload.exp <= now {
+        return Err(CsrfTokenError::Expired);
+    }
+
+    Ok(())
 }
 
 /// Extract raw JWT string preferring `auth_token` cookie over Bearer.
@@ -143,27 +271,44 @@ fn extract_raw_jwt(headers: &HeaderMap) -> Option<String> {
     None
 }
 
-/// Session key for the CSRF store (MYR-016).
-///
-/// **Must not** key solely on unverified JWT shape. We require a successful
-/// signature + claims decode with `JWT_SECRET`, then key on the signature
-/// segment of that verified token (unique per issued session JWT).
+/// Extract the stable session identifier retained for compatibility with the
+/// old unit-level helper. The stateless token itself stores only a SHA-256
+/// digest of this verified signature segment.
 fn extract_session_id(headers: &HeaderMap) -> Option<String> {
     let token = extract_raw_jwt(headers)?;
     session_id_from_verified_jwt(&token)
 }
 
-/// Verify JWT then return a stable store key derived from the signature segment.
+/// Verify JWT and return the session binding plus durable epoch carried by its
+/// signed claims. Unverified JWT shape is never accepted as CSRF authority.
+fn extract_session_context(headers: &HeaderMap) -> Option<VerifiedSession> {
+    let token = extract_raw_jwt(headers)?;
+    verified_session_from_jwt(&token)
+}
+
 fn session_id_from_verified_jwt(token: &str) -> Option<String> {
     let sig = jwt_signature_segment(token)?;
-    let jwt_secret = env::var("JWT_SECRET").ok()?;
-    decode::<Claims>(
+    verified_session_from_jwt(token).map(|_| sig)
+}
+
+fn verified_session_from_jwt(token: &str) -> Option<VerifiedSession> {
+    let sig = jwt_signature_segment(token)?;
+    let jwt_secret = env::var("JWT_SECRET")
+        .ok()
+        .filter(|secret| !secret.is_empty())?;
+    let claims = decode::<Claims>(
         token,
         &DecodingKey::from_secret(jwt_secret.as_bytes()),
         &Validation::default(),
     )
     .ok()?;
-    Some(sig)
+    let digest = Sha256::digest(sig.as_bytes());
+    let mut session_id = [0u8; 32];
+    session_id.copy_from_slice(&digest);
+    Some(VerifiedSession {
+        session_id,
+        epoch: claims.claims.tv,
+    })
 }
 
 /// True for methods that can mutate server state (CSRF surface).
@@ -246,9 +391,10 @@ pub async fn csrf_middleware(req: Request, next: Next) -> Response {
         return next.run(req).await;
     }
 
-    // Cookie session present — bind CSRF store key to the same JWT signature
-    // used elsewhere (cookie preferred when present for session continuity).
-    let Some(session_id) = extract_session_id(headers) else {
+    // Cookie session present — bind to the same verified JWT signature and
+    // epoch used by the browser session (cookie preferred when present for
+    // session continuity).
+    let Some(session) = extract_session_context(headers) else {
         // Cookie parse edge case: has_auth_token_cookie true but signature
         // extract failed — fail closed.
         tracing::warn!("🚨 CSRF check failed: auth cookie present but session id missing");
@@ -283,50 +429,32 @@ pub async fn csrf_middleware(req: Request, next: Next) -> Response {
             .into_response();
     }
 
-    // 验证 CSRF Token
-    let tokens = CSRF_TOKENS.read().await;
-    match tokens.get(&session_id) {
-        Some(stored_token) => {
-            // 检查 Token 是否过期
-            if Instant::now().duration_since(stored_token.created_at) > Duration::from_secs(3600) {
-                drop(tokens); // 释放读锁
-                tracing::warn!("🚨 CSRF check failed: Token expired");
-                return (
-                    StatusCode::FORBIDDEN,
-                    Json(json!({
-                        "error": "CSRF token expired",
-                        "message": "Please refresh the page and try again"
-                    })),
-                )
-                    .into_response();
-            }
-
-            // 验证 Token 是否匹配
-            if stored_token.token != client_token {
-                drop(tokens); // 释放读锁
-                tracing::warn!("🚨 CSRF check failed: Token mismatch");
-                return (
-                    StatusCode::FORBIDDEN,
-                    Json(json!({
-                        "error": "CSRF token invalid",
-                        "message": "Invalid CSRF token. Please refresh the page and try again."
-                    })),
-                )
-                    .into_response();
-            }
-
-            drop(tokens); // 释放读锁
+    // Verify the signed, expiring token without consulting process-local or
+    // database state. Every instance can validate the same token with the
+    // shared JWT secret.
+    match verify_csrf_token(client_token, &session, unix_now()) {
+        Ok(()) => {
             tracing::debug!("✅ CSRF check passed for {}", path);
             next.run(req).await
         }
-        None => {
-            drop(tokens); // 释放读锁
-            tracing::warn!("🚨 CSRF check failed: No token found for session");
+        Err(CsrfTokenError::Expired) => {
+            tracing::warn!("🚨 CSRF check failed: Token expired");
             (
                 StatusCode::FORBIDDEN,
                 Json(json!({
-                    "error": "CSRF token not found",
-                    "message": "No CSRF token found for this session. Please refresh the page."
+                    "error": "CSRF token expired",
+                    "message": "Please refresh the page and try again"
+                })),
+            )
+                .into_response()
+        }
+        Err(_) => {
+            tracing::warn!("🚨 CSRF check failed: Token invalid");
+            (
+                StatusCode::FORBIDDEN,
+                Json(json!({
+                    "error": "CSRF token invalid",
+                    "message": "Invalid CSRF token. Please refresh the page and try again."
                 })),
             )
                 .into_response()
@@ -360,8 +488,8 @@ pub(crate) fn is_csrf_exempt(path: &str) -> bool {
 /// `{ "csrf_token": null }` (not 401). Guests do not need CSRF tokens;
 /// middleware already skips CSRF checks when there is no session.
 pub async fn get_csrf_token(headers: HeaderMap) -> impl IntoResponse {
-    let session_id = match extract_session_id(&headers) {
-        Some(id) => id,
+    let session = match extract_session_context(&headers) {
+        Some(session) => session,
         None => {
             tracing::debug!("[csrf] no session — returning null token (guest probe)");
             return (
@@ -374,51 +502,26 @@ pub async fn get_csrf_token(headers: HeaderMap) -> impl IntoResponse {
         }
     };
 
-    // 先检查是否已存在有效的 Token
-    {
-        let tokens = CSRF_TOKENS.read().await;
-        if let Some(existing) = tokens.get(&session_id) {
-            // 如果 Token 未过期（还有超过 5 分钟有效期），复用现有 Token
-            let age = Instant::now().duration_since(existing.created_at);
-            if age < Duration::from_secs(3300) {
-                let remaining = 3600u64.saturating_sub(age.as_secs());
-                tracing::debug!("✅ Reusing existing CSRF token for session");
-                return (
-                    StatusCode::OK,
-                    Json(json!({
-                        "csrf_token": existing.token.clone(),
-                        // Remaining BE lifetime so FE does not reset client TTL past hard expiry
-                        "expires_in": remaining
-                    })),
-                )
-                    .into_response();
-            }
-        }
-    }
-
-    // 生成新的 CSRF Token
-    let token = generate_csrf_token();
-    let csrf_token = CsrfToken {
-        token: token.clone(),
-        created_at: Instant::now(),
+    // A fresh signed token is safe to issue on every probe: validation is
+    // entirely stateless, so no process-local authority or eviction task is
+    // required. The response keeps the existing `expires_in` contract.
+    let Some(token) = issue_csrf_token(&session, unix_now()) else {
+        tracing::error!("CSRF token signing unavailable");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({
+                "error": "CSRF token unavailable",
+                "message": "CSRF token signing is not configured"
+            })),
+        )
+            .into_response();
     };
-
-    // 存储 Token（O(1) cap eviction — process-local, MYR-016）
-    const MAX_CSRF_TOKENS: usize = 10000;
-    let mut tokens = CSRF_TOKENS.write().await;
-    let at_cap = tokens.len() >= MAX_CSRF_TOKENS && !tokens.map.contains_key(&session_id);
-    tokens.insert(session_id, csrf_token, MAX_CSRF_TOKENS);
-    if at_cap {
-        tracing::warn!("🧹 CSRF token limit reached, evicted oldest entry (O(1))");
-    }
-
-    tracing::debug!("✅ CSRF token generated (total: {})", tokens.len());
 
     (
         StatusCode::OK,
         Json(json!({
             "csrf_token": token,
-            "expires_in": 3600
+            "expires_in": CSRF_TOKEN_TTL_SECS
         })),
     )
         .into_response()
@@ -435,7 +538,10 @@ mod tests {
 
     fn ensure_jwt_secret() {
         INIT_JWT.call_once(|| {
-            if env::var("JWT_SECRET").is_err() {
+            if env::var("JWT_SECRET")
+                .map(|secret| secret.is_empty())
+                .unwrap_or(true)
+            {
                 // SAFETY: tests single-process; set once before concurrent use.
                 env::set_var("JWT_SECRET", "csrf-unit-test-jwt-secret-key-32b");
             }
@@ -443,6 +549,10 @@ mod tests {
     }
 
     fn mint_test_jwt(sub: &str, username: &str) -> String {
+        mint_test_jwt_with_epoch(sub, username, 0)
+    }
+
+    fn mint_test_jwt_with_epoch(sub: &str, username: &str, epoch: i64) -> String {
         ensure_jwt_secret();
         let secret = env::var("JWT_SECRET").expect("JWT_SECRET");
         let now = chrono::Utc::now().timestamp();
@@ -453,8 +563,7 @@ mod tests {
             is_owner: false,
             exp: now + 3600,
             iat: now,
-            // MYR-005 session epoch; test tokens use tv=0 (pre-revoke baseline).
-            tv: 0,
+            tv: epoch,
         };
         encode(
             &Header::default(),
@@ -465,13 +574,129 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_csrf_token() {
-        let token1 = generate_csrf_token();
-        let token2 = generate_csrf_token();
+    fn csrf_token_is_versioned_and_randomized_without_process_state() {
+        ensure_jwt_secret();
+        let session = verified_session_from_jwt(&mint_test_jwt("1", "alice")).expect("session");
+        let now = unix_now();
+        let token1 = issue_csrf_token(&session, now).expect("token 1");
+        let token2 = issue_csrf_token(&session, now).expect("token 2");
 
-        assert_eq!(token1.len(), 32);
-        assert_eq!(token2.len(), 32);
+        assert!(token1.starts_with("v1."));
+        assert!(token1.len() < CSRF_TOKEN_MAX_LEN);
         assert_ne!(token1, token2);
+        assert!(verify_csrf_token(&token1, &session, now).is_ok());
+        assert!(verify_csrf_token(&token2, &session, now).is_ok());
+    }
+
+    #[test]
+    fn csrf_token_tamper_is_rejected() {
+        ensure_jwt_secret();
+        let session = verified_session_from_jwt(&mint_test_jwt("2", "bob")).expect("session");
+        let token = issue_csrf_token(&session, unix_now()).expect("token");
+        let mut tampered = token.clone();
+        let signature_start = tampered.rfind('.').expect("signature separator") + 1;
+        let replacement = if tampered.as_bytes()[signature_start] == b'A' {
+            'B'
+        } else {
+            'A'
+        };
+        tampered.replace_range(
+            signature_start..signature_start + 1,
+            &replacement.to_string(),
+        );
+
+        assert_eq!(
+            verify_csrf_token(&tampered, &session, unix_now()),
+            Err(CsrfTokenError::Invalid)
+        );
+    }
+
+    #[test]
+    fn csrf_token_is_bound_to_session_and_epoch() {
+        ensure_jwt_secret();
+        let session_a = verified_session_from_jwt(&mint_test_jwt("3", "carol")).expect("session");
+        let session_b = verified_session_from_jwt(&mint_test_jwt("4", "dave")).expect("session");
+        let now = unix_now();
+        let token = issue_csrf_token(&session_a, now).expect("token");
+
+        assert_eq!(
+            verify_csrf_token(&token, &session_b, now),
+            Err(CsrfTokenError::Invalid)
+        );
+        let epoch_mismatch = VerifiedSession {
+            session_id: session_a.session_id,
+            epoch: session_a.epoch + 1,
+        };
+        assert_eq!(
+            verify_csrf_token(&token, &epoch_mismatch, now),
+            Err(CsrfTokenError::Invalid)
+        );
+    }
+
+    #[test]
+    fn csrf_token_expiry_is_checked_from_signed_unix_time() {
+        ensure_jwt_secret();
+        let session = verified_session_from_jwt(&mint_test_jwt("5", "erin")).expect("session");
+        let now = unix_now();
+        let token = issue_csrf_token(&session, now - CSRF_TOKEN_TTL_SECS - 1).expect("token");
+
+        assert_eq!(
+            verify_csrf_token(&token, &session, now),
+            Err(CsrfTokenError::Expired)
+        );
+    }
+
+    #[test]
+    fn csrf_token_rejects_malformed_and_version_mismatch() {
+        ensure_jwt_secret();
+        let session = verified_session_from_jwt(&mint_test_jwt("6", "frank")).expect("session");
+        let now = unix_now();
+
+        for malformed in [
+            "",
+            "v1",
+            "v1..sig",
+            "v2.payload.signature",
+            "v1.payload.sig.extra",
+        ] {
+            assert_eq!(
+                verify_csrf_token(malformed, &session, now),
+                Err(CsrfTokenError::Malformed),
+                "malformed token should fail closed: {malformed:?}"
+            );
+        }
+
+        let key = configured_csrf_key().expect("key");
+        let payload = CsrfTokenPayload {
+            v: CSRF_TOKEN_VERSION + 1,
+            sid: URL_SAFE_NO_PAD.encode(session.session_id),
+            tv: session.epoch,
+            iat: now,
+            exp: now + CSRF_TOKEN_TTL_SECS,
+            n: random_csrf_nonce(),
+        };
+        let encoded = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).expect("payload"));
+        let body = format!("{CSRF_TOKEN_VERSION_PREFIX}.{encoded}");
+        let signature = sign_csrf_body(&key, &body).expect("signature");
+        let mismatched = format!("{body}.{}", URL_SAFE_NO_PAD.encode(signature));
+        assert_eq!(
+            verify_csrf_token(&mismatched, &session, now),
+            Err(CsrfTokenError::Malformed)
+        );
+    }
+
+    #[test]
+    fn csrf_token_verifies_after_fresh_verifier_state() {
+        ensure_jwt_secret();
+        let session = verified_session_from_jwt(&mint_test_jwt("7", "grace")).expect("session");
+        let token = issue_csrf_token(&session, unix_now()).expect("token");
+
+        // There is deliberately no store to carry over. Re-derive the key as
+        // a fresh instance/restart would, then verify the prior token.
+        let secret = env::var("JWT_SECRET").expect("JWT_SECRET");
+        let fresh_key = csrf_signing_key(&secret).expect("fresh key");
+        assert_eq!(fresh_key, configured_csrf_key().expect("configured key"));
+        assert!(verify_csrf_token_with_key(&fresh_key, &token, &session, unix_now()).is_ok());
     }
 
     #[tokio::test]
@@ -490,7 +715,7 @@ mod tests {
     #[test]
     fn session_id_requires_verified_jwt_not_shape_alone() {
         ensure_jwt_secret();
-        // Unverified three-part garbage must not become a store key (MYR-016).
+        // Unverified three-part garbage must not become a session context.
         let mut forged = HeaderMap::new();
         forged.insert(
             "Authorization",
@@ -504,55 +729,17 @@ mod tests {
         let jwt_b = mint_test_jwt("2", "bob");
 
         let mut first = HeaderMap::new();
-        first.insert(
-            "Authorization",
-            format!("Bearer {jwt_a}").parse().unwrap(),
-        );
+        first.insert("Authorization", format!("Bearer {jwt_a}").parse().unwrap());
         let mut second = HeaderMap::new();
-        second.insert(
-            "Authorization",
-            format!("Bearer {jwt_b}").parse().unwrap(),
-        );
+        second.insert("Authorization", format!("Bearer {jwt_b}").parse().unwrap());
 
         let id_a = extract_session_id(&first).expect("verified jwt a");
         let id_b = extract_session_id(&second).expect("verified jwt b");
         assert_ne!(id_a, id_b);
-        // Key is the signature segment of the verified token.
+        // Compatibility helper returns the exact signature segment; signed
+        // CSRF payloads retain only its fixed-size digest.
         assert_eq!(id_a, jwt_signature_segment(&jwt_a).unwrap());
         assert_eq!(id_b, jwt_signature_segment(&jwt_b).unwrap());
-    }
-
-    #[test]
-    fn csrf_store_evicts_oldest_in_constant_time_path() {
-        let mut store = CsrfStore::new();
-        const CAP: usize = 3;
-        for i in 0..5 {
-            store.insert(
-                format!("sess-{i}"),
-                CsrfToken {
-                    token: format!("tok-{i}"),
-                    created_at: Instant::now(),
-                },
-                CAP,
-            );
-        }
-        assert_eq!(store.len(), CAP);
-        // Oldest keys (0,1) should be gone; 2,3,4 remain.
-        assert!(store.get("sess-0").is_none());
-        assert!(store.get("sess-1").is_none());
-        assert!(store.get("sess-2").is_some());
-        assert!(store.get("sess-4").is_some());
-        // Replace existing does not grow past cap.
-        store.insert(
-            "sess-4".into(),
-            CsrfToken {
-                token: "refreshed".into(),
-                created_at: Instant::now(),
-            },
-            CAP,
-        );
-        assert_eq!(store.len(), CAP);
-        assert_eq!(store.get("sess-4").map(|t| t.token.as_str()), Some("refreshed"));
     }
 
     #[tokio::test]
@@ -564,15 +751,19 @@ mod tests {
         let body = to_bytes(response.into_body(), 2048).await.expect("body");
         let value: serde_json::Value = serde_json::from_slice(&body).expect("json");
         let token = value["csrf_token"].as_str().expect("csrf_token string");
-        assert_eq!(token.len(), 32);
-        assert!(value["expires_in"].as_u64().unwrap_or(0) > 0);
+        assert!(token.starts_with("v1."));
+        assert_eq!(value["expires_in"].as_i64(), Some(CSRF_TOKEN_TTL_SECS));
 
-        // Reuse path
+        let session = verified_session_from_jwt(&jwt).expect("session");
+        assert!(verify_csrf_token(token, &session, unix_now()).is_ok());
+
+        // Stateless issuance does not depend on the first instance's memory.
         let headers2 = cookie_headers(&jwt);
         let response2 = get_csrf_token(headers2).await.into_response();
         let body2 = to_bytes(response2.into_body(), 2048).await.expect("body");
         let value2: serde_json::Value = serde_json::from_slice(&body2).expect("json");
-        assert_eq!(value2["csrf_token"].as_str(), Some(token));
+        let token2 = value2["csrf_token"].as_str().expect("csrf_token string");
+        assert!(verify_csrf_token(token2, &session, unix_now()).is_ok());
     }
 
     #[tokio::test]

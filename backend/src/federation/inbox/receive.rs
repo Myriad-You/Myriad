@@ -1,24 +1,29 @@
-
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, Request, StatusCode},
     Json,
 };
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
+use sea_orm::{
+    ConnectionTrait, DatabaseBackend, DatabaseConnection, DatabaseTransaction, Statement,
+    TransactionTrait,
+};
 use serde_json::json;
 
 use crate::federation::actor::{
     fetch_remote_actor, fetch_remote_actor_for_verify, persist_verified_remote_actor,
-    ResolvedRemoteActor,
+    RemoteActorInfo, ResolvedRemoteActor,
 };
 use crate::federation::errors::{is_permanent_federation_error, map_inbox_handler_error};
 use crate::federation::limits::buffer_inbox_body;
-use crate::federation::replay::{is_replay_or_record, replay_dedup_keys};
 use crate::federation::signature::{
     parse_signature_header, require_covered_headers, verify_date_freshness, verify_digest,
     verify_signature, HTTP_DATE_MAX_SKEW,
 };
 use crate::federation::types::*;
+
+use super::receipt::{
+    claim_receipt, finish_receipt, receipt_key, ReceiptClaim, ReceiptKey, ReceiptOutcome,
+};
 
 /// Map handler errors to HTTP status; permanent peer-state mismatches → 4xx.
 fn inbox_err(context: &str, e: String) -> (StatusCode, Json<serde_json::Value>) {
@@ -29,6 +34,91 @@ fn inbox_err(context: &str, e: String) -> (StatusCode, Json<serde_json::Value>) 
     }
     let (status, body) = map_inbox_handler_error(e);
     (status, body)
+}
+
+/// A receipt conflict is a protocol error, not a replay success.  Returning
+/// 409 makes a peer/operator aware that one activity id was reused for
+/// different signed bytes and, importantly, never runs either handler.
+fn receipt_conflict(
+    key: &ReceiptKey,
+    stored_digest: &str,
+) -> (StatusCode, Json<serde_json::Value>) {
+    tracing::warn!(
+        signer = %key.signer,
+        activity_id = %key.activity_id,
+        expected_digest = %stored_digest,
+        received_digest = %key.body_digest,
+        "Federation activity id reused with a different body digest"
+    );
+    (
+        StatusCode::CONFLICT,
+        Json(json!({
+            "error": "Activity id was already received with different bytes",
+            "activity_id": key.activity_id,
+        })),
+    )
+}
+
+fn receipt_rejected(status: u16, message: Option<&str>) -> (StatusCode, Json<serde_json::Value>) {
+    let status = StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_REQUEST);
+    (
+        status,
+        Json(json!({
+            "error": message.unwrap_or("Activity was permanently rejected"),
+        })),
+    )
+}
+
+/// 4xx handler results are deterministic peer/state failures and can be
+/// durably rejected.  429 and all 5xx results stay retryable.
+fn receipt_result_is_permanent(status: StatusCode) -> bool {
+    status != StatusCode::TOO_MANY_REQUESTS && status.is_client_error()
+}
+
+async fn rollback_receipt_transaction(txn: DatabaseTransaction) {
+    if let Err(e) = txn.rollback().await {
+        tracing::error!(error = %e, "Failed to rollback federation inbox receipt transaction");
+    }
+}
+
+/// Claim a receipt and map non-execution states to the HTTP result expected by
+/// ActivityPub peers.  The transaction remains open only for `Execute`.
+async fn claim_or_respond(
+    txn: &DatabaseTransaction,
+    key: &ReceiptKey,
+) -> Result<Option<StatusCode>, (StatusCode, Json<serde_json::Value>)> {
+    match claim_receipt(txn, key)
+        .await
+        .map_err(|e| inbox_err("inbox receipt claim failed", e))?
+    {
+        ReceiptClaim::Execute(_) => Ok(None),
+        ReceiptClaim::AlreadyAccepted | ReceiptClaim::InFlight => Ok(Some(StatusCode::ACCEPTED)),
+        ReceiptClaim::Conflict { stored_digest } => Err(receipt_conflict(key, &stored_digest)),
+        ReceiptClaim::Rejected { status, message } => {
+            Err(receipt_rejected(status, message.as_deref()))
+        }
+    }
+}
+
+/// Complete the receipt and commit the same transaction that contains the
+/// handler's DB effects.  Callers that need a durable `failed` state may use
+/// `ReceiptOutcome::Retryable` after rolling back handler work to a savepoint;
+/// the HTTP paths instead roll back the whole transaction so a fresh request
+/// can claim the activity without retaining partial effects.
+async fn finish_and_commit(
+    txn: DatabaseTransaction,
+    key: &ReceiptKey,
+    outcome: ReceiptOutcome,
+    status: StatusCode,
+    message: Option<&str>,
+) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
+    finish_receipt(&txn, key, outcome, status.as_u16(), message)
+        .await
+        .map_err(|e| inbox_err("inbox receipt completion failed", e))?;
+    txn.commit()
+        .await
+        .map_err(|e| inbox_err("inbox receipt commit failed", e.to_string()))?;
+    Ok(status)
 }
 
 /// POST /users/{username}/inbox
@@ -74,18 +164,7 @@ pub async fn post_inbox(
     let request_path = format!("/users/{}/inbox", username);
     verify_request_signature(&db, &headers, &body, &actor_url_str, &request_path).await?;
 
-    // MYR-023: short-lived activity id / digest dedup after successful auth.
-    // Legitimate peer retries get 202 without re-running side-effect handlers.
     let activity_id = activity["id"].as_str().unwrap_or("");
-    if is_replay_or_record(&replay_dedup_keys(activity_id, &body)) {
-        tracing::info!(
-            activity_id = %activity_id,
-            activity_type = %activity_type,
-            actor = %actor_url_str,
-            "📬 Inbox replay suppressed (activity id / body digest seen recently)"
-        );
-        return Ok(StatusCode::ACCEPTED);
-    }
 
     // 信任策略：黑名单 / 速率 / 内容过滤
     let actor_domain = extract_domain(&actor_url_str).unwrap_or_default();
@@ -103,6 +182,35 @@ pub async fn post_inbox(
         ));
     }
 
+    // Remote actor resolution is a preflight step.  It must complete before
+    // opening the receipt transaction so a failed/unknown actor cannot leave
+    // a claimed receipt or partial handler effects behind.
+    let follow_remote = if activity_type == "Follow" {
+        Some(fetch_remote_actor(&db, &actor_url_str).await.map_err(|e| {
+            tracing::warn!(actor = %actor_url_str, error = %e, "Failed to resolve Follow actor");
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Cannot resolve remote actor"})),
+            )
+        })?)
+    } else {
+        None
+    };
+    let content_remote = if matches!(
+        activity_type.as_str(),
+        "Create" | "Update" | "Delete" | "Announce" | "Like"
+    ) {
+        Some(fetch_remote_actor(&db, &actor_url_str).await.map_err(|e| {
+            tracing::warn!(actor = %actor_url_str, error = %e, "Failed to resolve content actor");
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Cannot resolve remote actor"})),
+            )
+        })?)
+    } else {
+        None
+    };
+
     tracing::info!(
         "📬 Inbox received: type={}, actor={}, target_user={}",
         activity_type,
@@ -110,17 +218,108 @@ pub async fn post_inbox(
         username
     );
 
-    // 分发处理
-    match activity_type.as_str() {
-        "Follow" => handle_follow(&db, user_id, &actor_url_str, &activity).await,
-        "Accept" => handle_accept(&db, user_id, &activity).await,
-        "Reject" => handle_reject(&db, user_id, &actor_url_str, &activity).await,
-        "Undo" => handle_undo(&db, user_id, &actor_url_str, &activity).await,
-        "Move" => handle_move(&db, &actor_url_str, &activity).await,
-        "Create" | "Update" | "Delete" | "Announce" | "Like" => {
-            handle_content_activity(&db, user_id, &actor_url_str, &activity_type, &activity).await
+    let key = receipt_key(&actor_url_str, activity_id, &body);
+    let txn = db
+        .begin()
+        .await
+        .map_err(|e| inbox_err("begin inbox receipt transaction", e.to_string()))?;
+    match claim_or_respond(&txn, &key).await {
+        Ok(Some(status)) => {
+            rollback_receipt_transaction(txn).await;
+            return Ok(status);
         }
-        // MFP 扩展类型（白名单验证）
+        Ok(None) => {}
+        Err(error) => {
+            rollback_receipt_transaction(txn).await;
+            return Err(error);
+        }
+    }
+
+    let result = dispatch_personal_activity(
+        &txn,
+        user_id,
+        &actor_url_str,
+        &activity_type,
+        &activity,
+        follow_remote.as_ref(),
+        content_remote.as_ref(),
+        DeliveryMode::QueueOnly,
+    )
+    .await;
+    match result {
+        Ok(status) => finish_and_commit(txn, &key, ReceiptOutcome::Accepted, status, None).await,
+        Err((status, body)) if receipt_result_is_permanent(status) => {
+            let message = body
+                .0
+                .get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("permanent federation inbox rejection")
+                .to_string();
+            finish_and_commit(txn, &key, ReceiptOutcome::Rejected, status, Some(&message))
+                .await
+                .and(Err((status, Json(body.0))))
+        }
+        Err((status, body)) => {
+            rollback_receipt_transaction(txn).await;
+            Err((status, body))
+        }
+    }
+}
+
+/// Delivery side effects that must be emitted as part of the receipt
+/// transaction.  Same-instance recursive delivery is intentionally excluded:
+/// it would open a second receipt transaction while the first is still open.
+#[derive(Clone, Copy)]
+enum DeliveryMode<'a> {
+    QueueOnly,
+    InProcess(&'a DatabaseConnection),
+}
+
+async fn dispatch_personal_activity<C: ConnectionTrait>(
+    db: &C,
+    local_user_id: i32,
+    actor_url_str: &str,
+    activity_type: &str,
+    activity: &serde_json::Value,
+    follow_remote: Option<&RemoteActorInfo>,
+    content_remote: Option<&RemoteActorInfo>,
+    delivery_mode: DeliveryMode<'_>,
+) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
+    match activity_type {
+        "Follow" => {
+            handle_follow(
+                db,
+                local_user_id,
+                actor_url_str,
+                activity,
+                follow_remote,
+                delivery_mode,
+            )
+            .await
+        }
+        "Accept" => handle_accept(db, local_user_id, activity).await,
+        "Reject" => handle_reject(db, local_user_id, actor_url_str, activity).await,
+        "Undo" => handle_undo(db, local_user_id, actor_url_str, activity).await,
+        // Move verification performs remote HTTP fetches.  It must be split
+        // into preflight + transactional migration before being accepted here;
+        // never claim a receipt and then execute crash-partial DB effects.
+        "Move" => Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "error": "Move handling temporarily unavailable while transactional verification is pending"
+            })),
+        )),
+        "Create" | "Update" | "Delete" | "Announce" | "Like" => {
+            handle_content_activity(
+                db,
+                local_user_id,
+                actor_url_str,
+                activity_type,
+                activity,
+                content_remote,
+            )
+            .await
+        }
         ty if ty.starts_with("myriad:") => {
             const ALLOWED_MFP_TYPES: &[&str] = &[
                 "myriad:ChannelOpen",
@@ -139,29 +338,16 @@ pub async fn post_inbox(
                 "myriad:RingLeave",
                 "myriad:FileTransfer",
                 "myriad:KeyExchange",
-                // Digital Life 角色互访（myriad:CharacterVisit*）随该功能一并移出。
-                //
-                // 白名单和分派必须同进同退：只加白名单会让这些活动通过验签、
-                // 拿到 202 Accepted，然后因为没有处理器被静默丢弃 —— 远端据此
-                // 认为投递成功、不再重试。现在不在白名单里，inbox 返回 400
-                // "Unknown MFP activity type"，行为是诚实的。
-                //
-                // 功能回归时，这 6 个类型与 handle_mfp_activity 里的分派分支
-                // 必须在同一次改动里一起加回来。
             ];
             if !ALLOWED_MFP_TYPES.contains(&ty) {
-                tracing::warn!("Rejected unknown MFP activity type: {}", ty);
                 return Err((
                     StatusCode::BAD_REQUEST,
-                    Json(json!({"error": format!("Unknown MFP activity type: {}", ty)})),
+                    Json(json!({"error": format!("Unknown MFP activity type: {ty}")})),
                 ));
             }
-            handle_mfp_activity(&db, Some(user_id), &actor_url_str, ty, &activity).await
+            handle_mfp_activity(db, Some(local_user_id), actor_url_str, ty, activity).await
         }
-        _ => {
-            tracing::warn!("Unsupported activity type: {}", activity_type);
-            Ok(StatusCode::ACCEPTED) // AP 规范建议静默接受未知类型
-        }
+        _ => Ok(StatusCode::ACCEPTED),
     }
 }
 
@@ -200,17 +386,7 @@ pub async fn post_shared_inbox(
     // 验证签名（MYR-022: actor fetch is ephemeral until verified）
     verify_request_signature(&db, &headers, &body, &actor_url_str, "/inbox").await?;
 
-    // MYR-023: short-lived activity id / digest dedup after successful auth.
     let activity_id = activity["id"].as_str().unwrap_or("");
-    if is_replay_or_record(&replay_dedup_keys(activity_id, &body)) {
-        tracing::info!(
-            activity_id = %activity_id,
-            activity_type = %activity_type,
-            actor = %actor_url_str,
-            "📬 Shared inbox replay suppressed (activity id / body digest seen recently)"
-        );
-        return Ok(StatusCode::ACCEPTED);
-    }
 
     // 信任策略
     let actor_domain = extract_domain(&actor_url_str).unwrap_or_default();
@@ -234,21 +410,12 @@ pub async fn post_shared_inbox(
         actor_url_str
     );
 
-    // 公开内容 → 粉丝时间线
-    if matches!(activity_type.as_str(), "Create" | "Announce") {
-        // 只有寻址到 Public 或该 Actor 自己 followers collection 的活动才能进入
-        // 粉丝首页。定向给具体个人（甚至完全未寻址）的活动过去也会被广播给
-        // 该 Actor 的全部本地粉丝。
-        if !crate::federation::audience::may_distribute_to_followers(&activity, &actor_url_str) {
-            tracing::warn!(
-                actor = %actor_url_str,
-                activity_type = %activity_type,
-                "Shared inbox activity is not addressed to Public or the actor's followers; not distributing"
-            );
-            // 静默接受：投递方无需知道我们的分发决策，重投也无意义。
-            return Ok(StatusCode::ACCEPTED);
-        }
-
+    // Remote actor resolution and object ownership are preflight checks.  No
+    // receipt is created until they pass, so policy/identity rejection cannot
+    // be mistaken for an accepted delivery.
+    let public_remote_id = if matches!(activity_type.as_str(), "Create" | "Announce")
+        && crate::federation::audience::may_distribute_to_followers(&activity, &actor_url_str)
+    {
         let remote = fetch_remote_actor(&db, &actor_url_str).await.map_err(|e| {
             tracing::warn!("Failed to fetch remote actor {}: {}", actor_url_str, e);
             (
@@ -256,66 +423,161 @@ pub async fn post_shared_inbox(
                 Json(json!({"error": "Unknown actor"})),
             )
         })?;
-
-        // Create 还需要证明内嵌对象确实属于签名 Actor（Announce 的对象本来
-        // 就是别人的，不能套用同一条规则）。
         if activity_type == "Create" {
-            if let Err(e) = crate::federation::audience::verify_object_ownership(
+            crate::federation::audience::verify_object_ownership(
                 &actor_url_str,
                 &activity["object"],
-            ) {
-                tracing::warn!(actor = %actor_url_str, "Shared inbox Create rejected: {}", e);
-                return Err((
+            )
+            .map_err(|e| {
+                (
                     StatusCode::FORBIDDEN,
                     Json(
                         json!({"error": "Object ownership check failed", "reason": e.to_string()}),
                     ),
-                ));
-            }
+                )
+            })?;
         }
+        Some(remote.id)
+    } else {
+        None
+    };
+    let follow_remote = if activity_type == "Follow" {
+        Some(fetch_remote_actor(&db, &actor_url_str).await.map_err(|e| {
+            tracing::warn!(actor = %actor_url_str, error = %e, "Failed to resolve Follow actor");
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Cannot resolve remote actor"})),
+            )
+        })?)
+    } else {
+        None
+    };
+    let content_remote = if matches!(activity_type.as_str(), "Delete" | "Update" | "Like") {
+        Some(fetch_remote_actor(&db, &actor_url_str).await.map_err(|e| {
+            tracing::warn!(actor = %actor_url_str, error = %e, "Failed to resolve content actor");
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Cannot resolve remote actor"})),
+            )
+        })?)
+    } else {
+        None
+    };
 
-        distribute_to_followers(&db, remote.id, &activity_type, &activity).await?;
+    let key = receipt_key(&actor_url_str, activity_id, &body);
+    let txn = db
+        .begin()
+        .await
+        .map_err(|e| inbox_err("begin shared inbox receipt transaction", e.to_string()))?;
+    match claim_or_respond(&txn, &key).await {
+        Ok(Some(status)) => {
+            rollback_receipt_transaction(txn).await;
+            return Ok(status);
+        }
+        Ok(None) => {}
+        Err(error) => {
+            rollback_receipt_transaction(txn).await;
+            return Err(error);
+        }
+    }
+
+    let result = dispatch_shared_activity(
+        &txn,
+        &activity_type,
+        &actor_url_str,
+        &activity,
+        public_remote_id,
+        follow_remote.as_ref(),
+        content_remote.as_ref(),
+    )
+    .await;
+    match result {
+        Ok(status) => finish_and_commit(txn, &key, ReceiptOutcome::Accepted, status, None).await,
+        Err((status, body)) if receipt_result_is_permanent(status) => {
+            let message = body
+                .0
+                .get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("permanent federation inbox rejection")
+                .to_string();
+            finish_and_commit(txn, &key, ReceiptOutcome::Rejected, status, Some(&message))
+                .await
+                .and(Err((status, Json(body.0))))
+        }
+        Err((status, body)) => {
+            rollback_receipt_transaction(txn).await;
+            Err((status, body))
+        }
+    }
+}
+
+async fn dispatch_shared_activity<C: ConnectionTrait>(
+    db: &C,
+    activity_type: &str,
+    actor_url_str: &str,
+    activity: &serde_json::Value,
+    public_remote_id: Option<i32>,
+    follow_remote: Option<&RemoteActorInfo>,
+    content_remote: Option<&RemoteActorInfo>,
+) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
+    if matches!(activity_type, "Create" | "Announce") {
+        if let Some(remote_id) = public_remote_id {
+            distribute_to_followers(db, remote_id, activity_type, activity).await?;
+        }
         return Ok(StatusCode::ACCEPTED);
     }
 
-    // Move is not user-targeted: re-point local follow graph for the migrating remote.
+    // Move verification currently requires remote HTTP actor documents.  Do
+    // not execute its DB migration outside the receipt transaction.
     if activity_type == "Move" {
-        return handle_move(&db, &actor_url_str, &activity).await;
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "error": "Move handling temporarily unavailable while transactional verification is pending"
+            })),
+        ));
     }
 
-    // MFP / social: route through same handlers as personal inbox when addressed
-    // to a local user (to/cc) or when object has room/channel ids.
     if activity_type.starts_with("myriad:")
         || matches!(
-            activity_type.as_str(),
+            activity_type,
             "Follow" | "Accept" | "Undo" | "Delete" | "Update" | "Like"
         )
     {
-        let target_user_id = resolve_shared_inbox_local_user(&db, &activity_type, &activity).await;
-        if let Some(uid) = target_user_id {
+        if let Some(uid) = resolve_shared_inbox_local_user(db, activity_type, activity).await {
             if activity_type.starts_with("myriad:") {
-                return handle_mfp_activity(
-                    &db,
-                    Some(uid),
-                    &actor_url_str,
-                    &activity_type,
-                    &activity,
-                )
-                .await;
+                return handle_mfp_activity(db, Some(uid), actor_url_str, activity_type, activity)
+                    .await;
             }
-            return match activity_type.as_str() {
-                "Follow" => handle_follow(&db, uid, &actor_url_str, &activity).await,
-                "Accept" => handle_accept(&db, uid, &activity).await,
-                "Undo" => handle_undo(&db, uid, &actor_url_str, &activity).await,
+            return match activity_type {
+                "Follow" => {
+                    handle_follow(
+                        db,
+                        uid,
+                        actor_url_str,
+                        activity,
+                        follow_remote,
+                        DeliveryMode::QueueOnly,
+                    )
+                    .await
+                }
+                "Accept" => handle_accept(db, uid, activity).await,
+                "Undo" => handle_undo(db, uid, actor_url_str, activity).await,
                 "Create" | "Update" | "Delete" | "Announce" | "Like" => {
-                    handle_content_activity(&db, uid, &actor_url_str, &activity_type, &activity)
-                        .await
+                    handle_content_activity(
+                        db,
+                        uid,
+                        actor_url_str,
+                        activity_type,
+                        activity,
+                        content_remote,
+                    )
+                    .await
                 }
                 _ => Ok(StatusCode::ACCEPTED),
             };
         }
     }
-
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -327,7 +589,7 @@ pub async fn post_shared_inbox(
 /// 3. Single local user instance fallback only when not Accept (avoids wrong-user
 /// Accept on multi-user hosts)
 async fn resolve_shared_inbox_local_user(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     activity_type: &str,
     activity: &serde_json::Value,
 ) -> Option<i32> {
@@ -413,7 +675,7 @@ async fn resolve_shared_inbox_local_user(
 /// Exact `{base_url}/users/{username}` form only. The previous implementation
 /// fell back to "last path segment" for any URL, so a remote
 /// `https://evil.example/users/alice` resolved to the **local** `alice`.
-async fn local_user_id_from_actorish_url(db: &DatabaseConnection, url: &str) -> Option<i32> {
+async fn local_user_id_from_actorish_url(db: &impl ConnectionTrait, url: &str) -> Option<i32> {
     let base = get_base_url().await;
     let local = local_username_from_actor_url(&base, url)?;
     if let Ok(Some(row)) = db
@@ -512,10 +774,12 @@ async fn handle_move(
 
 /// 处理 Follow 请求
 async fn handle_follow(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     local_user_id: i32,
     actor_url_str: &str,
     activity: &serde_json::Value,
+    follow_remote: Option<&RemoteActorInfo>,
+    delivery_mode: DeliveryMode<'_>,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
     // Follow.object 必须就是本次要记录的本地 Actor。
     //
@@ -555,12 +819,12 @@ async fn handle_follow(
         }
     }
 
-    // 获取或缓存远程 Actor
-    let remote = fetch_remote_actor(db, actor_url_str).await.map_err(|e| {
-        tracing::warn!("Failed to fetch actor for Follow: {}", e);
+    let remote = follow_remote.ok_or_else(|| {
         (
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Cannot resolve remote actor"})),
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "error": "Follow actor preflight was not completed"
+            })),
         )
     })?;
 
@@ -623,8 +887,17 @@ async fn handle_follow(
         target: None,
     };
 
-    // 入队投递
-    enqueue_delivery(db, local_user_id, &accept, &remote.inbox_url).await?;
+    // In a receipt transaction, queue the outbound Accept in the same DB
+    // transaction.  Trusted in-process delivery is retained for the local
+    // helper path, where no inbound receipt transaction is open.
+    match delivery_mode {
+        DeliveryMode::QueueOnly => {
+            enqueue_delivery_queue(db, local_user_id, &accept, &remote.inbox_url).await?;
+        }
+        DeliveryMode::InProcess(local_db) => {
+            enqueue_delivery(local_db, local_user_id, &accept, &remote.inbox_url).await?;
+        }
+    }
 
     // 新粉丝通知
     let follower_label = crate::federation::notify::actor_label(db, actor_url_str).await;
@@ -638,7 +911,7 @@ async fn handle_follow(
 
 /// 处理 Reject（Room 邀请被拒绝等）
 async fn handle_reject(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     _local_user_id: i32,
     actor_url_str: &str,
     activity: &serde_json::Value,
@@ -743,7 +1016,7 @@ fn extract_accept_object_type(activity: &serde_json::Value) -> String {
 /// 远程对端时生效，防止第三方实例伪造他人的 Accept。
 /// Actor 比对走 `same_actor_url`（host 大小写 / trailing slash），不依赖 SQL 字节级相等。
 async fn handle_accept(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     local_user_id: i32,
     activity: &serde_json::Value,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
@@ -991,7 +1264,7 @@ pub fn resolve_follow_accept_target(
 }
 
 async fn handle_follow_accept(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     local_user_id: i32,
     accept_actor: &str,
     follow_id: &str,
@@ -1109,7 +1382,7 @@ async fn handle_follow_accept(
 
 /// 处理 Undo（包括 Undo Follow / Like / Announce）
 async fn handle_undo(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     local_user_id: i32,
     actor_url_str: &str,
     activity: &serde_json::Value,
@@ -1183,7 +1456,8 @@ async fn handle_undo(
                 actor_url_str,
                 activity,
             )
-            .await;
+            .await
+            .map_err(|e| inbox_err("Inbound interaction Undo handling failed", e))?;
         }
         _ => {
             tracing::debug!("Undo for unsupported type: {}", inner_type);
@@ -1201,7 +1475,7 @@ async fn handle_undo(
 /// silently keeps the follower is worse than a slightly wider scan (bounded to
 /// this user's incoming follows).
 async fn delete_incoming_follow_normalized(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     local_user_id: i32,
     actor_url_str: &str,
 ) -> Result<u64, sea_orm::DbErr> {
@@ -1241,11 +1515,12 @@ async fn delete_incoming_follow_normalized(
 
 /// 处理内容类 Activity（Create/Update/Delete/Announce/Like）
 async fn handle_content_activity(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     local_user_id: i32,
     actor_url_str: &str,
     activity_type: &str,
     activity: &serde_json::Value,
+    remote: Option<&RemoteActorInfo>,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
     // 签名只证明"请求由 activity.actor 的公钥签出"。要动对象，还得证明这个
     // Actor 有权动它 —— 否则任意联邦实例都能伪造他人内容或删除他人条目。
@@ -1278,9 +1553,11 @@ async fn handle_content_activity(
         ));
     }
 
-    let remote = fetch_remote_actor(db, actor_url_str).await.map_err(|e| {
-        tracing::warn!("Failed to fetch actor: {}", e);
-        (StatusCode::BAD_REQUEST, Json(json!({"error": e})))
+    let remote = remote.ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Content actor preflight was not completed"})),
+        )
     })?;
 
     let activity_id = activity["id"].as_str().unwrap_or("").to_string();
@@ -1313,20 +1590,20 @@ async fn handle_content_activity(
         if !object_id.is_empty() {
             // `remote_actor_id` 约束是关键：没有它，任何持有效签名的远端都能
             // 用任意 object id 删掉目标用户时间线里**别人**的条目。
-            let _ = db
-                .execute_raw(Statement::from_sql_and_values(
-                    DatabaseBackend::Postgres,
-                    r#"DELETE FROM federation_timeline
-                       WHERE user_id = $1
-                         AND remote_actor_id = $3
-                         AND (
-                           content_json->>'id' = $2
-                           OR activity_id = $2
-                           OR content_json #>> '{object,id}' = $2
-                         )"#,
-                    [local_user_id.into(), object_id.into(), remote.id.into()],
-                ))
-                .await;
+            db.execute_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                r#"DELETE FROM federation_timeline
+                   WHERE user_id = $1
+                     AND remote_actor_id = $3
+                     AND (
+                       content_json->>'id' = $2
+                       OR activity_id = $2
+                       OR content_json #>> '{object,id}' = $2
+                     )"#,
+                [local_user_id.into(), object_id.into(), remote.id.into()],
+            ))
+            .await
+            .map_err(db_err)?;
         }
         return Ok(StatusCode::ACCEPTED);
     }
@@ -1397,7 +1674,7 @@ fn timeline_preview_from_object(object: &serde_json::Value) -> Option<String> {
 
 /// 将共享收件箱的活动分发给所有关注该 Actor 的本地用户
 async fn distribute_to_followers(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     remote_actor_id: i32,
     activity_type: &str,
     activity: &serde_json::Value,
@@ -1412,27 +1689,27 @@ async fn distribute_to_followers(
     let preview = timeline_preview_from_object(&activity["object"]);
 
     // 批量 INSERT — 一次 SQL 分发到所有关注者的时间线，避免 N+1
-    let _ = db
-        .execute_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            r#"INSERT INTO federation_timeline
-                   (user_id, activity_id, remote_actor_id, activity_type, object_type, content_preview, content_json, received_at)
-               SELECT f.user_id, $1, $2, $3, $4, $5, $6, NOW()
-               FROM federation_follows f
-               WHERE f.remote_actor_id = $2 AND f.direction = 'outgoing' AND f.status = 'accepted'
-               -- 去重由 (user_id, activity_id) 唯一索引保证。原先的 NOT EXISTS
-               -- 是先查后插：同一条活动并发送达时，两次扇出可以同时通过检查。
-               ON CONFLICT (user_id, activity_id) DO NOTHING"#,
-            [
-                activity_id_str.into(),
-                remote_actor_id.into(),
-                activity_type.into(),
-                object_type.into(),
-                preview.into(),
-                activity["object"].clone().into(),
-            ],
-        ))
-        .await;
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        r#"INSERT INTO federation_timeline
+               (user_id, activity_id, remote_actor_id, activity_type, object_type, content_preview, content_json, received_at)
+           SELECT f.user_id, $1, $2, $3, $4, $5, $6, NOW()
+           FROM federation_follows f
+           WHERE f.remote_actor_id = $2 AND f.direction = 'outgoing' AND f.status = 'accepted'
+           -- 去重由 (user_id, activity_id) 唯一索引保证。原先的 NOT EXISTS
+           -- 是先查后插：同一条活动并发送达时，两次扇出可以同时通过检查。
+           ON CONFLICT (user_id, activity_id) DO NOTHING"#,
+        [
+            activity_id_str.into(),
+            remote_actor_id.into(),
+            activity_type.into(),
+            object_type.into(),
+            preview.into(),
+            activity["object"].clone().into(),
+        ],
+    ))
+    .await
+    .map_err(db_err)?;
 
     Ok(())
 }
@@ -1629,15 +1906,14 @@ async fn verify_request_signature(
     }
 
     // MYR-022: trusted cache or ephemeral remote fetch — never poison DB on 401.
-    let mut resolved: ResolvedRemoteActor =
-        fetch_remote_actor_for_verify(db, actor_url_str, false)
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::UNAUTHORIZED,
-                    Json(json!({"error": format!("Cannot verify actor: {}", e)})),
-                )
-            })?;
+    let mut resolved: ResolvedRemoteActor = fetch_remote_actor_for_verify(db, actor_url_str, false)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": format!("Cannot verify actor: {}", e)})),
+            )
+        })?;
 
     // If we stored a public_key_id for this actor, Signature keyId must match
     // (normalized). On mismatch, force ephemeral re-fetch once — stale cache
@@ -1834,6 +2110,49 @@ async fn enqueue_delivery(
     Ok(())
 }
 
+/// Queue-only variant used by receipt transactions.  It never performs local
+/// recursive delivery or external I/O; the delivery queue is the durable
+/// outbox for the resulting Accept.
+async fn enqueue_delivery_queue(
+    db: &impl ConnectionTrait,
+    user_id: i32,
+    activity: &Activity,
+    target_inbox: &str,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    let activity_json = serde_json::to_value(activity).unwrap_or_default();
+    let domain = extract_domain(target_inbox).unwrap_or_default();
+    let act_row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"INSERT INTO federation_activities
+                   (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
+               VALUES ($1, $2, $3, NULL, $4, true, NOW())
+               RETURNING id"#,
+            [
+                activity.id.clone().into(),
+                user_id.into(),
+                activity.activity_type.clone().into(),
+                activity_json.into(),
+            ],
+        ))
+        .await
+        .map_err(db_err)?;
+    let act_id: i32 = act_row
+        .map(|r| r.try_get("", "id").unwrap_or(0))
+        .unwrap_or(0);
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        r#"INSERT INTO federation_delivery_queue
+               (activity_id, target_inbox, target_domain, status, created_at)
+           VALUES ($1, $2, $3, 'pending', NOW())
+           ON CONFLICT (activity_id, target_inbox) DO NOTHING"#,
+        [act_id.into(), target_inbox.into(), domain.into()],
+    ))
+    .await
+    .map_err(db_err)?;
+    Ok(())
+}
+
 /// If inbox is `{base}/users/{username}/inbox`, return username.
 fn local_username_from_inbox_url(base_url: &str, inbox_url: &str) -> Option<String> {
     let trimmed = inbox_url.trim().trim_end_matches('/');
@@ -1864,15 +2183,46 @@ pub async fn deliver_activity_locally(
         return Err("Missing actor or type in activity".into());
     }
     let actor_url_str = actor_url_owned.as_str();
+    let follow_remote = if activity_type == "Follow" {
+        Some(fetch_remote_actor(db, actor_url_str).await?)
+    } else {
+        None
+    };
+    let content_remote = if matches!(
+        activity_type,
+        "Create" | "Update" | "Delete" | "Announce" | "Like"
+    ) {
+        Some(fetch_remote_actor(db, actor_url_str).await?)
+    } else {
+        None
+    };
 
     let result = match activity_type {
-        "Follow" => handle_follow(db, user_id, actor_url_str, activity).await,
+        "Follow" => {
+            handle_follow(
+                db,
+                user_id,
+                actor_url_str,
+                activity,
+                follow_remote.as_ref(),
+                DeliveryMode::InProcess(db),
+            )
+            .await
+        }
         "Accept" => handle_accept(db, user_id, activity).await,
         "Reject" => handle_reject(db, user_id, actor_url_str, activity).await,
         "Undo" => handle_undo(db, user_id, actor_url_str, activity).await,
         "Move" => handle_move(db, actor_url_str, activity).await,
         "Create" | "Update" | "Delete" | "Announce" | "Like" => {
-            handle_content_activity(db, user_id, actor_url_str, activity_type, activity).await
+            handle_content_activity(
+                db,
+                user_id,
+                actor_url_str,
+                activity_type,
+                activity,
+                content_remote.as_ref(),
+            )
+            .await
         }
         other if other.starts_with("myriad:") => {
             handle_mfp_activity(db, Some(user_id), actor_url_str, other, activity).await
@@ -1903,7 +2253,7 @@ async fn get_base_url() -> String {
 }
 
 async fn get_local_user(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     username: &str,
 ) -> Result<(i32, String), (StatusCode, Json<serde_json::Value>)> {
     let row = db
@@ -1928,7 +2278,7 @@ async fn get_local_user(
 }
 
 async fn get_username_by_id(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     user_id: i32,
 ) -> Result<String, (StatusCode, Json<serde_json::Value>)> {
     let row = db
@@ -1953,7 +2303,7 @@ async fn get_username_by_id(
 
 /// 处理 MFP 扩展 Activity（myriad:ChannelOpen, myriad:ChannelMessage, myriad:ChannelClose 等）
 async fn handle_mfp_activity(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     _local_user_id: Option<i32>,
     actor_url_str: &str,
     activity_type: &str,
@@ -2029,6 +2379,19 @@ async fn handle_mfp_activity(
             Ok(StatusCode::ACCEPTED)
         }
         "myriad:FileTransfer" => {
+            if activity
+                .get("object")
+                .and_then(|o| o.get("type"))
+                .and_then(|v| v.as_str())
+                == Some("myriad:FileChunk")
+            {
+                return Err((
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Json(json!({
+                        "error": "FileChunk requires a transactional filesystem outbox"
+                    })),
+                ));
+            }
             crate::federation::file_transfer::handle_file_transfer(db, actor_url_str, activity)
                 .await
                 .map_err(|e| inbox_err("FileTransfer handling failed", e))?;
@@ -3041,7 +3404,13 @@ mod tests {
         // 底层差值仍然存在（这正是必须显式拒绝的原因）
         assert_ne!(
             headers.get("date").unwrap().to_str().unwrap(),
-            headers.get_all("date").iter().next_back().unwrap().to_str().unwrap(),
+            headers
+                .get_all("date")
+                .iter()
+                .next_back()
+                .unwrap()
+                .to_str()
+                .unwrap(),
         );
 
         let err = unique_header(&headers, "date").unwrap_err();
@@ -3060,7 +3429,10 @@ mod tests {
             unique_header(&headers, "date").unwrap(),
             Some("Mon, 04 Aug 2025 10:00:00 GMT")
         );
-        assert_eq!(unique_header(&headers, "digest").unwrap(), Some("SHA-256=abc"));
+        assert_eq!(
+            unique_header(&headers, "digest").unwrap(),
+            Some("SHA-256=abc")
+        );
         assert_eq!(unique_header(&headers, "signature").unwrap(), None);
     }
 
@@ -3097,4 +3469,3 @@ mod tests {
         assert!(!map.contains_key("x-extra"));
     }
 }
-

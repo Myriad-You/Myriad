@@ -1,5 +1,8 @@
 //! Schema ensure orchestration, drift reporting, advisory lock.
+use std::time::Duration;
+
 use sea_orm::{ConnectionTrait, DatabaseConnection, DbErr};
+use tokio::time::{sleep, Instant};
 
 use super::ensure_heals::*;
 use super::expected_indexes::get_expected_indexes;
@@ -36,15 +39,15 @@ use super::seeds::ensure_default_platforms;
 /// Marker for ops/logs + `_schema_versions`. Bump only with real schema/heal work.
 pub const SCHEMA_VERSION: &str = "2026.08.03.2";
 
+const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
+const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);
+
 pub async fn ensure_schema(db: &DatabaseConnection) -> Result<(), DbErr> {
-    // 1. 尝试获取 Advisory Lock（非阻塞）
+    // 1. 获取 Advisory Lock。其他实例正在检查时等待，绝不能跳过检查后继续提供流量。
     // Advisory lock 是会话级的，必须在同一条连接上加锁和解锁。
     // 之前直接在连接池上执行，加锁和解锁常常落在不同连接：解锁永远失败，
     // 锁被池中连接持有直到进程退出——其他实例从此永久跳过 schema 自愈。
-    let Some(guard) = AdvisoryLockGuard::acquire(db).await? else {
-        tracing::info!("🔒 Another instance is running schema check, skipping...");
-        return Ok(());
-    };
+    let guard = AdvisoryLockGuard::acquire(db).await?;
 
     let result = do_schema_check(db).await;
 
@@ -62,21 +65,33 @@ struct AdvisoryLockGuard {
 impl AdvisoryLockGuard {
     const LOCK_ID: i64 = 0x4D59524941445343;
 
-    /// 在专用连接上尝试加锁。返回 Ok(Some(guard)) = 已持锁；Ok(None) = 被他人持有
-    async fn acquire(db: &DatabaseConnection) -> Result<Option<Self>, DbErr> {
+    /// 在专用连接上等待加锁。超时是启动失败，不能当成 schema 已就绪。
+    async fn acquire(db: &DatabaseConnection) -> Result<Self, DbErr> {
         let pool = db.get_postgres_connection_pool();
         let mut conn = pool
             .acquire()
             .await
             .map_err(|e| DbErr::Custom(format!("acquire lock connection: {}", e)))?;
 
-        let acquired: bool = sea_orm::sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
-            .bind(Self::LOCK_ID)
-            .fetch_one(&mut *conn)
-            .await
-            .map_err(|e| DbErr::Custom(format!("advisory lock query: {}", e)))?;
+        let deadline = Instant::now() + SCHEMA_LOCK_WAIT_TIMEOUT;
+        loop {
+            let acquired: bool = sea_orm::sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
+                .bind(Self::LOCK_ID)
+                .fetch_one(&mut *conn)
+                .await
+                .map_err(|e| DbErr::Custom(format!("advisory lock query: {}", e)))?;
 
-        Ok(if acquired { Some(Self { conn }) } else { None })
+            if acquired {
+                return Ok(Self { conn });
+            }
+            if Instant::now() >= deadline {
+                return Err(DbErr::Custom(format!(
+                    "timed out after {}s waiting for schema advisory lock",
+                    SCHEMA_LOCK_WAIT_TIMEOUT.as_secs()
+                )));
+            }
+            sleep(SCHEMA_LOCK_RETRY_INTERVAL).await;
+        }
     }
 
     /// 在加锁的同一连接上释放
@@ -113,17 +128,20 @@ pub struct DriftItem {
 /// 不为空就说明两份定义已经不一致 —— 不需要先做去重，就能立刻止住继续漂移。
 #[derive(Debug, Default)]
 pub struct SchemaDrift {
+    pub missing_tables: Vec<String>,
     pub missing_columns: Vec<DriftItem>,
     pub missing_indexes: Vec<DriftItem>,
 }
 
 impl SchemaDrift {
     pub fn is_empty(&self) -> bool {
-        self.missing_columns.is_empty() && self.missing_indexes.is_empty()
+        self.missing_tables.is_empty()
+            && self.missing_columns.is_empty()
+            && self.missing_indexes.is_empty()
     }
 
     pub fn len(&self) -> usize {
-        self.missing_columns.len() + self.missing_indexes.len()
+        self.missing_tables.len() + self.missing_columns.len() + self.missing_indexes.len()
     }
 
     /// 补齐全部差异所需的 DDL，顺序为先列后索引（索引可能依赖新列）。
@@ -138,6 +156,9 @@ impl SchemaDrift {
     /// 供 CI 失败信息使用的多行摘要。
     pub fn summary(&self) -> String {
         let mut out = String::new();
+        for table in &self.missing_tables {
+            out.push_str(&format!("  missing table:  {table}\n"));
+        }
         for i in &self.missing_columns {
             out.push_str(&format!("  missing column: {}\n", i.label));
         }
@@ -150,8 +171,8 @@ impl SchemaDrift {
 
 /// 只读比对期望结构与实际结构；不执行任何 DDL。
 ///
-/// 表本身不存在时跳过该表的列检查 —— 建表是 Migrator 的职责，
-/// schema_check 不再兜底整表创建。
+/// 表本身不存在时记录为不可自动修复的漂移 —— 建表是 Migrator 的职责，
+/// schema_check 不兜底整表创建，也不会把缺表实例标记为 ready。
 pub async fn report_schema_drift(db: &DatabaseConnection) -> Result<SchemaDrift, DbErr> {
     let mut drift = SchemaDrift::default();
 
@@ -159,10 +180,7 @@ pub async fn report_schema_drift(db: &DatabaseConnection) -> Result<SchemaDrift,
 
     for table_def in &get_expected_schema() {
         if !existing_tables.contains(&table_def.name) {
-            tracing::debug!(
-                "Table '{}' does not exist, skipping column check (rely on Migrator)",
-                table_def.name
-            );
+            drift.missing_tables.push(table_def.name.clone());
             continue;
         }
         let existing_columns = get_table_columns(db, &table_def.name).await?;
@@ -210,10 +228,9 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     let mut changes_made = 0;
 
     // 1. 同步默认平台种子行（表由 Migrator 创建；此处只补业务目录数据）
-    match ensure_default_platforms(db).await {
-        Ok(n) if n > 0 => changes_made += n,
-        Ok(_) => {}
-        Err(e) => tracing::warn!("Default platforms seed warning: {}", e),
+    let seeded_platforms = ensure_default_platforms(db).await?;
+    if seeded_platforms > 0 {
+        changes_made += seeded_platforms;
     }
 
     // 2/3. 比对期望列与索引（整表创建已不再由 schema_check 兜底）
@@ -237,9 +254,9 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
 
         for ddl in &ddl_statements {
             tracing::debug!("Executing: {}", ddl);
-            if let Err(e) = db.execute_unprepared(ddl).await {
-                tracing::warn!("DDL execution warning: {} - {}", ddl, e);
-            }
+            db.execute_unprepared(ddl)
+                .await
+                .map_err(|e| DbErr::Custom(format!("schema repair DDL failed: {ddl}: {e}")))?;
         }
 
         tracing::info!("✅ Applied {} schema changes", changes_made);
@@ -250,39 +267,27 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     // Ongoing object/data heals (not historical one-shot upgrade paths).
     ensure_tapp_storage_credential_constraint(db).await?;
     ensure_tapp_storage_quota(db).await?;
-    if let Err(e) = ensure_federation_content_filters_table(db).await {
-        tracing::warn!("federation_content_filters table ensure warning: {}", e);
-    }
-    if let Err(e) = ensure_federation_policy_settings_table(db).await {
-        tracing::warn!("federation_policy_settings table ensure warning: {}", e);
-    }
-    if let Err(e) = ensure_timeline_unique(db).await {
-        tracing::warn!("timeline unique index ensure warning: {}", e);
-    }
-    if let Err(e) = ensure_delivery_queue_unique(db).await {
-        tracing::warn!("delivery queue unique index ensure warning: {}", e);
-    }
-    if let Err(e) = ensure_heartbeat_claims_table(db).await {
-        tracing::warn!("heartbeat_claims table ensure warning: {}", e);
-    }
-    if let Err(e) = ensure_analytics_tables(db).await {
-        tracing::warn!("analytics tables ensure warning: {}", e);
-    }
-    if let Err(e) = ensure_federation_domain_aliases_table(db).await {
-        tracing::warn!("federation_domain_aliases table ensure warning: {}", e);
-    }
-    if let Err(e) = ensure_federation_object_interactions_table(db).await {
-        tracing::warn!("federation_object_interactions table ensure warning: {}", e);
-    }
+    ensure_federation_content_filters_table(db).await?;
+    ensure_federation_policy_settings_table(db).await?;
+    ensure_timeline_unique(db).await?;
+    ensure_delivery_queue_unique(db).await?;
+    ensure_heartbeat_claims_table(db).await?;
+    ensure_analytics_tables(db).await?;
+    ensure_federation_domain_aliases_table(db).await?;
+    ensure_federation_object_interactions_table(db).await?;
     // last_read_at / rate_* / engagement 等字段：TableDef + 通用 drift ADD（无专用 heal）
-    if let Err(e) = ensure_federation_foreign_keys(db).await {
-        tracing::warn!("federation foreign keys ensure warning: {}", e);
-    }
-    if let Err(e) = cleanup_retired_comprehensive_reports(db).await {
-        tracing::warn!("retired comprehensive reports cleanup warning: {}", e);
-    }
-    if let Err(e) = ensure_single_owner(db).await {
-        tracing::warn!("Site owner seed warning: {}", e);
+    ensure_federation_foreign_keys(db).await?;
+    cleanup_retired_comprehensive_reports(db).await?;
+    ensure_single_owner(db).await?;
+
+    // 只有所有 repair 都成功且最终只读复核无漂移，才能记录版本并开放服务。
+    let remaining_drift = report_schema_drift(db).await?;
+    if !remaining_drift.is_empty() {
+        return Err(DbErr::Custom(format!(
+            "schema still has {} drift item(s) after repair:\n{}",
+            remaining_drift.len(),
+            remaining_drift.summary().trim_end()
+        )));
     }
 
     // 5. 记录版本已应用
@@ -302,7 +307,7 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
 /// `get_expected_indexes` — expression/partial DDL is awkward for the generic
 /// index path). Invariant: owner implies admin. Zero users → no-op.
 pub async fn ensure_single_owner(db: &DatabaseConnection) -> Result<(), DbErr> {
-    // Column may still be missing if DDL failed; skip quietly.
+    // Column may still be missing if DDL failed; that means schema is not ready.
     let col_check = db
         .query_one_raw(sea_orm::Statement::from_sql_and_values(
             sea_orm::DatabaseBackend::Postgres,
@@ -313,20 +318,17 @@ pub async fn ensure_single_owner(db: &DatabaseConnection) -> Result<(), DbErr> {
         ))
         .await?;
     if col_check.is_none() {
-        tracing::debug!("users.is_owner missing, skip owner seed");
-        return Ok(());
+        return Err(DbErr::Custom(
+            "users.is_owner is missing after schema repair".to_string(),
+        ));
     }
 
     // Partial unique index: at most one owner.
-    if let Err(e) = db
-        .execute_unprepared(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_single_owner \
-             ON users ((true)) WHERE is_owner = true",
-        )
-        .await
-    {
-        tracing::warn!("idx_users_single_owner create warning: {}", e);
-    }
+    db.execute_unprepared(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_single_owner \
+         ON users ((true)) WHERE is_owner = true",
+    )
+    .await?;
 
     // Collapse multiples → keep lowest id.
     db.execute_unprepared(
@@ -375,96 +377,23 @@ pub async fn ensure_single_owner(db: &DatabaseConnection) -> Result<(), DbErr> {
 #[allow(dead_code)]
 pub async fn force_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     tracing::warn!("⚠️ Force schema check");
-
-    // 尝试拿锁（重试一次）；强制模式下即使拿不到也继续执行
-    let guard = match AdvisoryLockGuard::acquire(db).await? {
-        Some(g) => Some(g),
-        None => {
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            AdvisoryLockGuard::acquire(db).await?
-        }
-    };
-
-    let result = do_force_schema_check(db).await;
-
-    if let Some(g) = guard {
-        g.release().await;
-    }
-
-    result
+    ensure_schema(db).await
 }
 
-/// 强制 schema 检查的内部实现
-async fn do_force_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
-    if let Err(e) = ensure_default_platforms(db).await {
-        tracing::warn!("Force check: default platforms seed warning: {}", e);
-    }
+#[cfg(test)]
+mod drift_tests {
+    use super::SchemaDrift;
 
-    let existing_tables = get_existing_tables(db).await?;
-    let expected_tables = get_expected_schema();
+    #[test]
+    fn missing_table_is_fatal_and_has_no_runtime_create_ddl() {
+        let drift = SchemaDrift {
+            missing_tables: vec!["users".to_string()],
+            ..SchemaDrift::default()
+        };
 
-    for table_def in &expected_tables {
-        if !existing_tables.contains(&table_def.name) {
-            continue;
-        }
-
-        let existing_columns = get_table_columns(db, &table_def.name).await?;
-
-        for col in &table_def.columns {
-            if !existing_columns.contains(&col.name) {
-                let ddl = generate_add_column_ddl(&table_def.name, col);
-                let _ = db.execute_unprepared(&ddl).await;
-            }
-        }
+        assert!(!drift.is_empty());
+        assert_eq!(drift.len(), 1);
+        assert!(drift.ddl_statements().is_empty());
+        assert!(drift.summary().contains("missing table:  users"));
     }
-
-    ensure_tapp_storage_credential_constraint(db).await?;
-    ensure_tapp_storage_quota(db).await?;
-    if let Err(e) = ensure_federation_content_filters_table(db).await {
-        tracing::warn!(
-            "Force check: federation_content_filters table ensure warning: {}",
-            e
-        );
-    }
-    if let Err(e) = ensure_federation_policy_settings_table(db).await {
-        tracing::warn!(
-            "Force check: federation_policy_settings table ensure warning: {}",
-            e
-        );
-    }
-    if let Err(e) = ensure_timeline_unique(db).await {
-        tracing::warn!("timeline unique index ensure warning: {}", e);
-    }
-    if let Err(e) = ensure_delivery_queue_unique(db).await {
-        tracing::warn!("delivery queue unique index ensure warning: {}", e);
-    }
-    if let Err(e) = ensure_heartbeat_claims_table(db).await {
-        tracing::warn!("Force check: heartbeat_claims table ensure warning: {}", e);
-    }
-    if let Err(e) = ensure_analytics_tables(db).await {
-        tracing::warn!("Force check: analytics tables ensure warning: {}", e);
-    }
-    if let Err(e) = ensure_federation_domain_aliases_table(db).await {
-        tracing::warn!(
-            "Force check: federation_domain_aliases table ensure warning: {}",
-            e
-        );
-    }
-    if let Err(e) = ensure_federation_object_interactions_table(db).await {
-        tracing::warn!(
-            "Force check: federation_object_interactions table ensure warning: {}",
-            e
-        );
-    }
-    if let Err(e) = cleanup_retired_comprehensive_reports(db).await {
-        tracing::warn!(
-            "Force check: retired comprehensive reports cleanup warning: {}",
-            e
-        );
-    }
-    if let Err(e) = ensure_single_owner(db).await {
-        tracing::warn!("Force check: site owner seed warning: {}", e);
-    }
-
-    Ok(())
 }

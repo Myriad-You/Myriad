@@ -37,7 +37,7 @@ pub(crate) fn stickers_to_json(list: &[RoomStickerItem]) -> serde_json::Value {
 }
 
 pub(crate) async fn load_room_shared_config(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     room_id: &str,
 ) -> Result<serde_json::Value, (StatusCode, Json<serde_json::Value>)> {
     let room_row = db
@@ -62,7 +62,7 @@ pub(crate) async fn load_room_shared_config(
 }
 
 pub(crate) async fn save_room_shared_config(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     room_id: &str,
     shared: serde_json::Value,
 ) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
@@ -77,7 +77,7 @@ pub(crate) async fn save_room_shared_config(
 }
 
 pub(crate) async fn broadcast_and_fanout_stickers(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     user_id: i32,
     room_id: &str,
     local_actor: &str,
@@ -140,7 +140,7 @@ pub async fn add_room_sticker(
     username: &str,
     room_id: &str,
     req: AddRoomStickerRequest,
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
 ) -> Result<RoomStickersResponse, (StatusCode, Json<serde_json::Value>)> {
     let base_url = get_base_url().await;
     let local_actor = actor_url(&base_url, username);
@@ -255,7 +255,7 @@ pub async fn remove_room_sticker(
     username: &str,
     room_id: &str,
     sticker_id: &str,
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
 ) -> Result<RoomStickersResponse, (StatusCode, Json<serde_json::Value>)> {
     let base_url = get_base_url().await;
     let local_actor = actor_url(&base_url, username);
@@ -332,4 +332,3 @@ pub async fn remove_room_sticker(
         stickers,
     })
 }
-

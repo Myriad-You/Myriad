@@ -20,6 +20,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use crate::error::HttpError;
 use crate::middleware::auth::{
     auth_cookie_value, encode_session_token, ensure_current_admin_on, mint_session_claims,
+    notify_auth_cache_invalidation,
 };
 
 /// Modest global cap on concurrent Argon2 hash/verify work (MYR-006).
@@ -223,8 +224,8 @@ pub async fn create_admin(
         return Err(HttpError(err));
     }
 
-    // First setup admin is also the durable site owner (`is_owner`).
-    // Column may be missing on very old DBs mid-migration; fall back without it.
+    // First setup admin is also the durable site owner (`is_owner`). Schema readiness
+    // is a startup/setup invariant, so a missing column is fatal instead of a fallback.
     let insert_with_owner = "INSERT INTO users (
         username,
         auth_provider,
@@ -237,18 +238,6 @@ pub async fn create_admin(
         updated_at
     ) VALUES ($1, $2, $3, true, true, NULL, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     RETURNING id";
-    let insert_legacy = "INSERT INTO users (
-        username,
-        auth_provider,
-        password_hash,
-        is_admin,
-        github_id,
-        avatar_url,
-        created_at,
-        updated_at
-    ) VALUES ($1, $2, $3, true, NULL, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    RETURNING id";
-
     // avatar_url 留空：占位头像是「显示时的兜底」，不是账号数据。
     // 曾在这里播种 ui-avatars.com 外链（渲染出的 "Ad" 就是 name=Admin 的缩写），
     // 结果是每个新装站点从第一天起就依赖一个外部图床，且用户显式选「账号头像」
@@ -270,32 +259,9 @@ pub async fn create_admin(
     {
         Ok(row) => row,
         Err(e) => {
-            // Unique / owner races → 409; missing is_owner column → legacy insert.
-            let mapped = map_create_admin_insert_error(&e);
-            if mapped.status_u16() == 409 {
-                tracing::error!("create-admin insert conflict: {:?}", e);
-                let _ = txn.rollback().await;
-                return Err(HttpError(mapped));
-            }
-            tracing::warn!(
-                "create-admin with is_owner failed ({:?}); retrying without is_owner",
-                e
-            );
-            match txn
-                .query_one_raw(Statement::from_sql_and_values(
-                    DatabaseBackend::Postgres,
-                    insert_legacy,
-                    insert_params,
-                ))
-                .await
-            {
-                Ok(row) => row,
-                Err(e2) => {
-                    tracing::error!("Failed to create admin user: {:?}", e2);
-                    let _ = txn.rollback().await;
-                    return Err(HttpError(map_create_admin_insert_error(&e2)));
-                }
-            }
+            tracing::error!("Failed to create admin user: {:?}", e);
+            let _ = txn.rollback().await;
+            return Err(HttpError(map_create_admin_insert_error(&e)));
         }
     };
 
@@ -304,7 +270,9 @@ pub async fn create_admin(
         None => {
             tracing::error!("Failed to get user ID after create-admin insert");
             let _ = txn.rollback().await;
-            return Err(HttpError(AppError::internal("Failed to create admin account")));
+            return Err(HttpError(AppError::internal(
+                "Failed to create admin account",
+            )));
         }
     };
 
@@ -353,10 +321,12 @@ pub async fn local_login(
             vec![SeaValue::String(Some(request.username.clone()))],
         ))
         .await
-        .map_err(|_e| HttpError::from((
+        .map_err(|_e| {
+            HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({"error": "Database error"})),
-            )))?;
+            ))
+        })?;
 
     let user_row = match user_result {
         Some(row) => row,
@@ -376,20 +346,26 @@ pub async fn local_login(
     };
 
     // Extract user data
-    let user_id: i32 = user_row.try_get("", "id").map_err(|_| HttpError::from((
+    let user_id: i32 = user_row.try_get("", "id").map_err(|_| {
+        HttpError::from((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": "Failed to read user data"})),
-        )))?;
+        ))
+    })?;
 
-    let username: String = user_row.try_get("", "username").map_err(|_| HttpError::from((
+    let username: String = user_row.try_get("", "username").map_err(|_| {
+        HttpError::from((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": "Failed to read user data"})),
-        )))?;
+        ))
+    })?;
 
-    let password_hash: String = user_row.try_get("", "password_hash").map_err(|_| HttpError::from((
+    let password_hash: String = user_row.try_get("", "password_hash").map_err(|_| {
+        HttpError::from((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": "Failed to read user data"})),
-        )))?;
+        ))
+    })?;
 
     let is_admin: bool = user_row.try_get("", "is_admin").unwrap_or(false);
     let is_owner: bool = user_row.try_get("", "is_owner").unwrap_or(false);
@@ -569,7 +545,7 @@ pub async fn change_password(
 
     // Update password + bump session epoch so other sessions die immediately.
     let update_query = "UPDATE users SET password_hash = $1, \
-                              token_version = token_version + 1, \
+                              token_version = COALESCE(token_version, 0) + 1, \
                               updated_at = CURRENT_TIMESTAMP \
                        WHERE id = $2 \
                        RETURNING token_version";
@@ -603,6 +579,14 @@ pub async fn change_password(
         .map(i64::from)
         .or_else(|| updated.try_get::<i64>("", "token_version").ok())
         .unwrap_or(claims.tv + 1);
+
+    if let Err(error) = notify_auth_cache_invalidation(&db, user_id).await {
+        tracing::warn!(
+            user_id,
+            error = %error,
+            "auth cache invalidation NOTIFY failed after password change"
+        );
+    }
 
     // Re-issue cookie for this browser (other devices keep the old tv → 401).
     let new_claims = mint_session_claims(user_id, &username, is_admin, is_owner, new_tv);
@@ -836,10 +820,12 @@ pub async fn register(
             vec![SeaValue::String(Some(req.username.clone()))],
         ))
         .await
-        .map_err(|_e| HttpError::from((
+        .map_err(|_e| {
+            HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({"error": "Database error"})),
-            )))?;
+            ))
+        })?;
     if dup.is_some() {
         return Err(HttpError::from((
             StatusCode::CONFLICT,
@@ -871,19 +857,25 @@ pub async fn register(
             ],
         ))
         .await
-        .map_err(|_e| HttpError::from((
+        .map_err(|_e| {
+            HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({"error": "Failed to create account"})),
-            )))?
-        .ok_or_else(|| HttpError::from((
+            ))
+        })?
+        .ok_or_else(|| {
+            HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({"error": "Insert returned no row"})),
-            )))?;
+            ))
+        })?;
 
-    let user_id: i32 = insert.try_get("", "id").map_err(|_| HttpError::from((
+    let user_id: i32 = insert.try_get("", "id").map_err(|_| {
+        HttpError::from((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": "Failed to read new user id"})),
-        )))?;
+        ))
+    })?;
 
     tracing::info!("✅ Public registration: {} (id={})", req.username, user_id);
 
@@ -903,7 +895,7 @@ pub async fn set_password(
     crate::extract::Db(db): crate::extract::Db,
     headers: axum::http::HeaderMap,
     Json(req): Json<SetPasswordRequest>,
-) -> Result<Json<Value>, HttpError> {
+) -> Result<impl IntoResponse, HttpError> {
     use sea_orm::Value as SeaValue;
 
     let claims = crate::middleware::auth::authenticate_request(&headers, &db)
@@ -956,23 +948,67 @@ pub async fn set_password(
 
     let hash = hash_password(&req.new_password).await?;
 
-    db.execute_raw(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        "UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2",
-        vec![
-            SeaValue::String(Some(hash)),
-            SeaValue::Int(Some(user_id)),
-        ],
-    ))
-    .await
-    .map_err(|_e| {
+    let updated = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "UPDATE users SET password_hash = $1, \
+                               token_version = COALESCE(token_version, 0) + 1, \
+                               updated_at = NOW() \
+                        WHERE id = $2 \
+                        RETURNING token_version",
+            vec![SeaValue::String(Some(hash)), SeaValue::Int(Some(user_id))],
+        ))
+        .await
+        .map_err(|_e| {
+            HttpError::from((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Failed to set password"})),
+            ))
+        })?;
+    let new_tv = updated
+        .as_ref()
+        .and_then(|row| {
+            row.try_get::<i32>("", "token_version")
+                .ok()
+                .map(i64::from)
+                .or_else(|| row.try_get::<i64>("", "token_version").ok())
+        })
+        .ok_or_else(|| {
+            HttpError::from((
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "User not found"})),
+            ))
+        })?;
+    if let Err(error) = notify_auth_cache_invalidation(&db, user_id).await {
+        tracing::warn!(
+            user_id,
+            error = %error,
+            "auth cache invalidation NOTIFY failed after password set"
+        );
+    }
+
+    // Re-issue this browser's cookie at the new epoch so setting the first
+    // password does not immediately eject the active OAuth session. Other
+    // devices retain the old epoch and fail closed on their next request.
+    let new_claims = mint_session_claims(
+        user_id,
+        claims.username.clone(),
+        claims.is_admin,
+        claims.is_owner,
+        new_tv,
+    );
+    let token = encode_session_token(&new_claims).map_err(|_| {
         HttpError::from((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Failed to set password"})),
+            Json(json!({"error": "Failed to refresh session token"})),
         ))
     })?;
-
-    Ok(Json(json!({"success": true})))
+    let is_production = crate::oauth_url_builder::SiteConfig::is_production().await;
+    let mut response = Json(json!({"success": true})).into_response();
+    if let Ok(value) = auth_cookie_value(&token, is_production).parse() {
+        response.headers_mut().insert(header::SET_COOKIE, value);
+    }
+    Ok(response)
 }
 
 /// PATCH /api/auth/me/local-login —— 开关本地登录
@@ -1060,10 +1096,12 @@ pub async fn toggle_local_login(
         vec![SeaValue::Bool(Some(disabled)), SeaValue::Int(Some(user_id))],
     ))
     .await
-    .map_err(|_e| HttpError::from((
+    .map_err(|_e| {
+        HttpError::from((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": "Failed to update"})),
-        )))?;
+        ))
+    })?;
 
     Ok(Json(json!({"success": true, "enabled": req.enabled})))
 }
@@ -1160,7 +1198,10 @@ pub async fn admin_create_user(
     if let Some(msg) =
         crate::api::admin_users::non_owner_grant_admin_on_create_error(actor_is_owner, req.is_admin)
     {
-        return Err(HttpError::from((StatusCode::FORBIDDEN, Json(json!({"error": msg})))));
+        return Err(HttpError::from((
+            StatusCode::FORBIDDEN,
+            Json(json!({"error": msg})),
+        )));
     }
 
     validate_username(&req.username)?;
@@ -1175,10 +1216,12 @@ pub async fn admin_create_user(
             vec![SeaValue::String(Some(req.username.clone()))],
         ))
         .await
-        .map_err(|_e| HttpError::from((
+        .map_err(|_e| {
+            HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({"error": "Database error"})),
-            )))?;
+            ))
+        })?;
     if dup.is_some() {
         return Err(HttpError::from((
             StatusCode::CONFLICT,
@@ -1213,19 +1256,25 @@ pub async fn admin_create_user(
             ],
         ))
         .await
-        .map_err(|_e| HttpError::from((
+        .map_err(|_e| {
+            HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({"error": "Failed to create account"})),
-            )))?
-        .ok_or_else(|| HttpError::from((
+            ))
+        })?
+        .ok_or_else(|| {
+            HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({"error": "Insert returned no row"})),
-            )))?;
+            ))
+        })?;
 
-    let user_id: i32 = insert.try_get("", "id").map_err(|_| HttpError::from((
+    let user_id: i32 = insert.try_get("", "id").map_err(|_| {
+        HttpError::from((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": "Failed to read new id"})),
-        )))?;
+        ))
+    })?;
 
     tracing::info!(
         "✅ Admin {} created account: {} (id={}, is_admin={})",
@@ -1310,10 +1359,7 @@ mod tests {
         assert_eq!(e.status_u16(), 409);
         assert_eq!(e.error_label(), "Admin account already exists");
         // Two constructions must yield identical public JSON (client contract).
-        assert_eq!(
-            e.to_json(),
-            admin_already_exists_error().to_json()
-        );
+        assert_eq!(e.to_json(), admin_already_exists_error().to_json());
     }
 
     #[test]
@@ -1349,9 +1395,7 @@ mod tests {
     async fn create_admin_conflict_http_response_is_409_json() {
         let resp = HttpError(admin_already_exists_error()).into_response();
         assert_eq!(resp.status(), StatusCode::CONFLICT);
-        let bytes = to_bytes(resp.into_body(), 64 * 1024)
-            .await
-            .expect("body");
+        let bytes = to_bytes(resp.into_body(), 64 * 1024).await.expect("body");
         let v: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
         assert_eq!(v["error"], "Admin account already exists");
         assert!(v["message"].as_str().unwrap().contains("Setup has already"));
@@ -1417,10 +1461,11 @@ mod tests {
     #[tokio::test]
     async fn hash_and_verify_share_permit_path() {
         // Round-trip proves both helpers take a permit and run Argon2 on the blocking pool.
-        let hash = hash_password("CorrectHorseBattery1")
-            .await
-            .expect("hash");
-        assert!(hash.starts_with("$argon2"), "expected argon2id PHC string, got {hash}");
+        let hash = hash_password("CorrectHorseBattery1").await.expect("hash");
+        assert!(
+            hash.starts_with("$argon2"),
+            "expected argon2id PHC string, got {hash}"
+        );
         verify_password("CorrectHorseBattery1", &hash)
             .await
             .expect("verify ok");

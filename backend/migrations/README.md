@@ -24,33 +24,29 @@ sea-orm-cli migrate generate create_new_table
 4. `004_agent_system` - Agent tasks, memory and notification state
 5. `005_federation` - Federation identities and messages
 6. `006_oauth_identities` - OAuth/OIDC identity bindings
+7. Published `007`–`011` names - immutable no-op history entries retained for upgrade compatibility
+8. `012_federation_inbox_receipts` - Durable inbound federation idempotency receipts
 
 Base CREATE tables (001–006) include the current column set for greenfield installs.
-Thin ALTER-only migrations that only added columns or healed data were retired:
+Thin ALTER-only migrations that only added columns or healed data remain registered
+as no-ops after their structure was folded into the base schema:
 
 - `007_notification_preferences` → `users.notification_preferences` in 001
 - `008_tapp_approved_permissions` → `tapps.approved_permissions` in 002; missing column via generic `get_expected_schema` ADD only (no dedicated backfill)
 - `009_user_presence` → `users.last_seen_at` / `online_seconds` in 001 + schema_check
 - `010_user_owner` / `011_owner_is_admin` → `users.is_owner` in 001 + `ensure_single_owner`
 
-Also retired from `seaql_migrations` when present on older/local DBs (files not on mainline):
+The same immutable history includes older/local names:
 
 - `008_tapp_runtime_registry`, `009_activity_events`
 - digital_life experiment (local/dev only — **never rolled to production**):
   `007_digital_life`, `008_digital_life_phase_two`, `009_digital_life_phase_three`,
   `010_digital_life_phase_four`, `011_digital_life_asset_subjects`
 
-On reconcile, temporary **digital_life_*** experiment tables are also
-`DROP TABLE IF EXISTS … CASCADE` (throwaway local feature). Known names live in
-`RETIRED_DIGITAL_LIFE_TABLES`; any remaining `public.digital_life_%` table / type
-is dropped by prefix scan. Generically named companions (`image_generation_jobs`,
-`image_assets`) are **not** auto-dropped.
-
-Matching is by **exact version string**, not numeric prefix: after DELETE, a
-future real migration named e.g. `007_something_else` can apply normally.
-
-Authoritative lists: `RETIRED_MIGRATION_VERSIONS` /
-`RETIRED_DIGITAL_LIFE_TABLES` in `backend/src/db/schema_check/seeds.rs`.
+Startup never deletes rows from `seaql_migrations` and never drops retired feature
+tables. Any data cleanup is an explicit, reviewed operator migration with its own
+backup and rollback plan. A future migration must use a new unique version name;
+published names are permanent protocol history.
 
 Whole tables are created by Migrator (001–006) — the numbered series is the
 **complete greenfield source of truth**. Runtime `schema_check` only heals
@@ -61,12 +57,11 @@ single owner, storage-quota trigger).
 `schema_check::ensure_schema` so first-boot seeds/heals do not require a
 process restart (same order as `main` after DB connect).
 
-**Startup policy (full mode):** default is warn + continue on migration /
-`ensure_schema` failure so local DBs with retired history noise still boot.
-Missing applied migration *files* are always treated as non-fatal history hygiene.
-Set `MYRIAD_STRICT_SCHEMA=1` to refuse start on other migration/schema errors
-(eventual hard prod gate). `MYRIAD_ALLOW_SCHEMA_DRIFT=1` remains a deliberate
-recovery override under strict mode.
+**Startup policy (full mode):** migration or `ensure_schema` failure is fatal.
+An instance waits for the session-scoped schema advisory lock up to a bounded
+timeout, runs all repairs, then performs a final read-only drift check. It is not
+marked ready and cannot serve normal traffic until all stages succeed. Environment
+overrides cannot convert schema failure into readiness.
 
 Recent tables:
 
@@ -78,8 +73,7 @@ Recent tables:
 
 Older DBs that already applied a pre-feature migration version get tables via
 `ensure_*` (`CREATE IF NOT EXISTS`). The `_schema_versions` mark does **not**
-skip the safety check. Retired migration history rows are removed by
-`reconcile_retired_migration_history` before `Migrator::up`.
+skip the safety check, and is written only after the final drift check succeeds.
 
 ## Applying migrations
 

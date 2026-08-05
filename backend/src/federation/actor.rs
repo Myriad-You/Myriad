@@ -28,7 +28,6 @@ pub async fn get_actor(
     Path(username): Path<String>,
     headers: HeaderMap,
 ) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
-
     let configured_base = get_base_url().await;
     let aliases = crate::federation::move_actor::load_domain_aliases(&db).await;
     let host = headers.get(header::HOST).and_then(|v| v.to_str().ok());
@@ -39,14 +38,17 @@ pub async fn get_actor(
     let user = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            format!(r#"SELECT u.id, u.username, u.display_name,
+            format!(
+                r#"SELECT u.id, u.username, u.display_name,
                       {avatar} AS avatar_url,
                       u.bio,
                       fk.public_key_pem, fk.key_id
                FROM users u
                LEFT JOIN federation_keys fk ON fk.user_id = u.id
                WHERE u.username = $1
-               LIMIT 1"#, avatar = crate::services::avatar::avatar_snapshot_expr("u")),
+               LIMIT 1"#,
+                avatar = crate::services::avatar::avatar_snapshot_expr("u")
+            ),
             [username.clone().into()],
         ))
         .await
@@ -258,18 +260,7 @@ pub async fn get_followers(
         .map(|r| r.try_get::<i64>("", "count").unwrap_or(0) as u64)
         .unwrap_or(0);
 
-    let collection = OrderedCollection {
-        context: build_ap_context(),
-        collection_type: "OrderedCollection".to_string(),
-        id: followers_url(&base_url, &username),
-        total_items: count,
-        first: if count > 0 {
-            Some(format!("{}/users/{}/followers?page=1", base_url, username))
-        } else {
-            None
-        },
-        last: None,
-    };
+    let collection = relationship_collection(followers_url(&base_url, &username), count);
 
     Ok(crate::federation::http_cache::public_ap_document(
         &headers,
@@ -302,24 +293,27 @@ pub async fn get_following(
         .map(|r| r.try_get::<i64>("", "count").unwrap_or(0) as u64)
         .unwrap_or(0);
 
-    let collection = OrderedCollection {
-        context: build_ap_context(),
-        collection_type: "OrderedCollection".to_string(),
-        id: following_url(&base_url, &username),
-        total_items: count,
-        first: if count > 0 {
-            Some(format!("{}/users/{}/following?page=1", base_url, username))
-        } else {
-            None
-        },
-        last: None,
-    };
+    let collection = relationship_collection(following_url(&base_url, &username), count);
 
     Ok(crate::federation::http_cache::public_ap_document(
         &headers,
         AP_CONTENT_TYPE,
         serde_json::to_value(collection).unwrap(),
     ))
+}
+
+/// Relationship collections intentionally expose only a count for now.  A
+/// `first` page is omitted until there is an explicit, privacy-reviewed member
+/// enumeration policy and a matching page handler.
+fn relationship_collection(id: String, total_items: u64) -> OrderedCollection {
+    OrderedCollection {
+        context: build_ap_context(),
+        collection_type: "OrderedCollection".to_string(),
+        id,
+        total_items,
+        first: None,
+        last: None,
+    }
 }
 
 /// 获取远程 Actor 信息（带缓存）
@@ -710,15 +704,21 @@ async fn upsert_local_actor_as_remote(
     let user_row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            format!(r#"SELECT id, username, display_name,
+            format!(
+                r#"SELECT id, username, display_name,
                       {avatar} AS avatar_url
                FROM users
                WHERE username = $1
-               LIMIT 1"#, avatar = crate::services::avatar::avatar_snapshot_expr("users")),
+               LIMIT 1"#,
+                avatar = crate::services::avatar::avatar_snapshot_expr("users")
+            ),
             [username.into()],
         ))
         .await
-        .map_err(|e| { tracing::error!("DB error: {}", e); "Database error".to_string() })?
+        .map_err(|e| {
+            tracing::error!("DB error: {}", e);
+            "Database error".to_string()
+        })?
         .ok_or_else(|| format!("Local user not found: {}", username))?;
 
     let display_name: Option<String> = user_row
@@ -897,11 +897,14 @@ pub async fn get_local_identity(
     if let Ok(Some(row)) = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            format!(r#"SELECT id, display_name,
+            format!(
+                r#"SELECT id, display_name,
                       {avatar} AS avatar_url
                FROM users
                WHERE username = $1
-               LIMIT 1"#, avatar = crate::services::avatar::avatar_snapshot_expr("users")),
+               LIMIT 1"#,
+                avatar = crate::services::avatar::avatar_snapshot_expr("users")
+            ),
             [username.to_string().into()],
         ))
         .await
@@ -953,10 +956,13 @@ async fn get_local_avatar_url(
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            format!(r#"SELECT {avatar} AS avatar_url
+            format!(
+                r#"SELECT {avatar} AS avatar_url
                FROM users
                WHERE username = $1
-               LIMIT 1"#, avatar = crate::services::avatar::avatar_snapshot_expr("users")),
+               LIMIT 1"#,
+                avatar = crate::services::avatar::avatar_snapshot_expr("users")
+            ),
             [username.to_string().into()],
         ))
         .await
@@ -1000,7 +1006,7 @@ pub(crate) fn needs_federation_key_generation(public_key_pem: Option<&str>) -> b
 ///
 /// Returns `(public_key_pem, key_id)`.
 pub async fn ensure_user_federation_keys(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     user_id: i32,
     username: &str,
 ) -> Result<(String, String), String> {
@@ -1194,7 +1200,7 @@ async fn broadcast_person_key_update(
 }
 
 async fn load_stored_federation_keys(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     user_id: i32,
 ) -> Result<Option<(String, String)>, String> {
     let row = db
@@ -1204,7 +1210,10 @@ async fn load_stored_federation_keys(
             [user_id.into()],
         ))
         .await
-        .map_err(|e| { tracing::error!("DB error loading federation keys: {}", e); "Database error".to_string() })?;
+        .map_err(|e| {
+            tracing::error!("DB error loading federation keys: {}", e);
+            "Database error".to_string()
+        })?;
 
     Ok(row.map(|r| {
         let pub_pem: String = r.try_get("", "public_key_pem").unwrap_or_default();
@@ -1216,7 +1225,7 @@ async fn load_stored_federation_keys(
 /// Generate a new keypair and store it. Only overwrites on conflict when the
 /// existing row has an empty public key (no rotation of live keys).
 async fn generate_and_store_keys(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     user_id: i32,
     base_url: &str,
     username: &str,
@@ -1332,7 +1341,6 @@ async fn get_frontend_url() -> String {
     frontend_url.trim_end_matches('/').to_string()
 }
 
-
 /// Shared confirm gate for POST /api/federation/keys/rotate (and unit tests).
 ///
 /// Must live above `mod tests` (clippy `items_after_test_module`).
@@ -1358,7 +1366,9 @@ mod tests {
             inbox_url: "https://peer.example/users/alice/inbox".into(),
             outbox_url: Some("https://peer.example/users/alice/outbox".into()),
             shared_inbox_url: Some("https://peer.example/inbox".into()),
-            public_key_pem: Some("-----BEGIN PUBLIC KEY-----\nMIIB\n-----END PUBLIC KEY-----\n".into()),
+            public_key_pem: Some(
+                "-----BEGIN PUBLIC KEY-----\nMIIB\n-----END PUBLIC KEY-----\n".into(),
+            ),
             public_key_id: Some("https://peer.example/users/alice#main-key".into()),
             mfp_version: Some("0.3.28".into()),
         };
@@ -1569,5 +1579,22 @@ mod tests {
     fn r36_needs_federation_key_generation_whitespace_only() {
         assert!(needs_federation_key_generation(Some("\t\t")));
         assert!(!needs_federation_key_generation(Some("pem-bytes")));
+    }
+
+    #[test]
+    fn relationship_collection_does_not_advertise_a_fake_first_page() {
+        let followers =
+            relationship_collection("https://example.test/users/alice/followers".into(), 3);
+        let following =
+            relationship_collection("https://example.test/users/alice/following".into(), 2);
+
+        assert_eq!(followers.total_items, 3);
+        assert_eq!(following.total_items, 2);
+        assert!(followers.first.is_none());
+        assert!(following.first.is_none());
+        assert!(serde_json::to_value(followers)
+            .unwrap()
+            .get("first")
+            .is_none());
     }
 }

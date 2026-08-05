@@ -47,7 +47,7 @@ pub(crate) fn not_active_member_err(
 
 /// Require *active* membership; returns role or a structured 403 for pending/absent.
 pub(crate) async fn require_active_member_role(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     room_id: &str,
     actor_url: &str,
 ) -> Result<String, (StatusCode, Json<serde_json::Value>)> {
@@ -62,7 +62,7 @@ pub(crate) async fn require_active_member_role(
 
 /// Advance this member's room read cursor (used by list_rooms unread_count).
 pub(crate) async fn mark_room_read(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     room_id: &str,
     actor_url: &str,
 ) -> Result<(), sea_orm::DbErr> {
@@ -81,7 +81,7 @@ pub(crate) async fn mark_room_read(
 
 /// Resolve active membership to the *stored* actor_url + role (host/case tolerant).
 pub(crate) async fn resolve_active_member_actor(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     room_id: &str,
     actor_url: &str,
 ) -> Result<Option<(String, String)>, sea_orm::DbErr> {
@@ -134,7 +134,7 @@ pub(crate) async fn resolve_active_member_actor(
 
 /// 检查用户在 Room 中的角色
 pub(crate) async fn get_member_role(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     room_id: &str,
     actor_url: &str,
 ) -> Result<Option<String>, sea_orm::DbErr> {
@@ -191,7 +191,7 @@ pub(crate) async fn get_member_role(
 /// Lookup membership role + status (any status, including pending).
 /// Returns `None` if no row; status defaults to `active` for legacy rows.
 pub(crate) async fn get_membership(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     room_id: &str,
     actor_url: &str,
 ) -> Result<Option<(String, String)>, sea_orm::DbErr> {
@@ -236,7 +236,7 @@ pub(crate) async fn get_membership(
 
 /// Upsert a remote (non-local) room member row (defaults to *active*).
 pub(crate) async fn upsert_remote_room_member(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     room_id: &str,
     actor_url: &str,
     role: &str,
@@ -247,7 +247,7 @@ pub(crate) async fn upsert_remote_room_member(
 
 /// Upsert a remote room member with explicit membership_status.
 pub(crate) async fn upsert_remote_room_member_with_status(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     room_id: &str,
     actor_url: &str,
     role: &str,
@@ -300,7 +300,7 @@ pub(crate) async fn upsert_remote_room_member_with_status(
 /// are not lost. Returns `not_member:` / `not_found:` prefixed errors for inbox
 /// status mapping (4xx, no endless 500 retry storm).
 pub(crate) async fn ensure_room_message_sender_member(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     room_id: &str,
     sender_actor: &str,
 ) -> Result<(), String> {
@@ -414,7 +414,7 @@ pub(crate) fn is_missing_or_fallback_room_name(name: &str, room_id: &str) -> boo
 
 /// 向 Room 的所有远程成员 fan-out 一个 Activity
 pub(crate) async fn fanout_to_remote_members(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     user_id: i32,
     room_id: &str,
     activity_id: &str,
@@ -438,7 +438,7 @@ pub(crate) async fn fanout_to_remote_members(
 /// Fan-out with optional actor URL exclusions (e.g. skip invitee on RoomJoin roster announce).
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn fanout_to_remote_members_excluding(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     user_id: i32,
     room_id: &str,
     activity_id: &str,
@@ -603,5 +603,3 @@ pub(crate) async fn fanout_to_remote_members_excluding(
 
     Ok(result)
 }
-
-

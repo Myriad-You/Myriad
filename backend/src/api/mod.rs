@@ -9,7 +9,6 @@ pub mod analytics;
 pub mod auth;
 pub mod auth_local;
 pub mod avatar_source; // 画像源选择（本人 + 管理员代改）
-pub mod profile_text_source; // 名称/简介文案来源（与画像源独立）
 pub mod bangumi;
 pub mod bilibili;
 pub mod brew;
@@ -27,12 +26,13 @@ pub mod notification_preferences;
 pub mod oauth; // generic OAuth (replaces hardcoded GitHub flow in auth.rs)
 pub mod platforms;
 pub mod profile;
+pub mod profile_text_source; // 名称/简介文案来源（与画像源独立）
 pub mod prompt;
 pub mod proxy;
 pub mod reports;
 pub mod seo;
-pub mod seo_policy;
 pub mod seo_geo;
+pub mod seo_policy;
 pub mod setup;
 pub mod setup_bootstrap;
 pub mod site_domain; // BASE_URL / FRONTEND_URL / CORS — not federation Move
@@ -79,12 +79,13 @@ pub async fn health() -> (StatusCode, Json<Value>) {
     use std::sync::atomic::Ordering;
 
     let config_mode = crate::CONFIG_MODE.load(Ordering::Relaxed);
+    let schema_ready = crate::SCHEMA_READY.load(Ordering::Acquire);
     // Process DB handle (may exist while still on setup-only route table until restart).
     let db_connected = crate::services::tapp_registry::database().await.is_ok();
     // Route table is fixed at process start: config-mode router vs full router.
     // Do not equate CONFIG_MODE=false with "full APIs" without a cold start.
-    let routes_full = !config_mode && db_connected;
-    let migrations_applied = routes_full;
+    let routes_full = !config_mode && db_connected && schema_ready;
+    let migrations_applied = schema_ready;
 
     // Build-time version injected via `MYRIAD_VERSION` env var (set by Dockerfile build-arg).
     // Falls back to crate version so local `cargo run` still works.

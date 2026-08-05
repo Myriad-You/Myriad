@@ -30,7 +30,7 @@
 
 - OAuth `state` 为 HMAC 签名 + 单次使用 nonce。
 - 登录/绑定/平台授权启动时设置 HttpOnly `oauth_tx` cookie（与 state nonce 相同）；回调必须 cookie 匹配，否则 `browser_tx_mismatch`（防 login CSRF / session swapping）。
-- 浏览器 API CSRF（`X-CSRF-Token`）store 仅接受**已校验**的 session JWT 签名作为 key（MYR-016）；伪造 JWT 形状不会写入 store。
+- 浏览器 API CSRF（`X-CSRF-Token`）是有时效的无状态 HMAC token，仅绑定到**已校验**的 session JWT 签名摘要与 token epoch（MYR-016）；伪造 JWT、跨会话复用、篡改或过期 token 都会失败。
 
 ## OIDC：nonce 与 PKCE（MYR-011）
 

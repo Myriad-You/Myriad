@@ -42,7 +42,10 @@ class MemoryStorage implements Storage {
 }
 
 function seedCsrfToken(): void {
-  sessionStorage.setItem('csrf_token', 'a'.repeat(32))
+  sessionStorage.setItem(
+    'csrf_token',
+    `v1.${'a'.repeat(100)}.${'b'.repeat(43)}`,
+  )
   sessionStorage.setItem('csrf_token_stored_at', String(Date.now()))
   sessionStorage.setItem('csrf_token_expires_at', String(Date.now() + 60_000))
 }

@@ -119,7 +119,7 @@ Open `http://localhost` or the port configured by `HTTP_PORT`.
 | `MYRIAD_DOCKER_NETWORK` | no | Business network override, default `myriad-net` |
 | `MYRIAD_ADMIN_NETWORK` | no | Admin plane network override, default `myriad-admin-net` |
 | `MYRIAD_DOCKER_GUARD_NETWORK` | no | Internal updater/guard network override, default `myriad-docker-guard-net` |
-| `PROXY_TRUSTED_UPSTREAMS` | no | Comma-separated IP/CIDR allowlist for outer proxies; empty = auto-trust private/loopback peers only (Docker host reverse-proxy). Never `0.0.0.0/0` |
+| `PROXY_TRUSTED_UPSTREAMS` | no | Comma-separated IP/CIDR allowlist for outer proxies; empty = trust no forwarded headers. Docker host reverse-proxies must be listed explicitly. Never `0.0.0.0/0` |
 | `TRUST_PROXY_HEADERS` | no | Backend: honor `X-Forwarded-For` / `X-Real-IP` from trusted reverse-proxy peers (compose default `true` behind bundled proxy). Required for weather / client-geo to use the visitor IP instead of the server egress. |
 | `TRUST_PROXY_PEERS` | no | Backend: CIDR/IP allowlist of reverse-proxy TCP peers. **Unset/empty = narrow built-in default** (loopback + docker0: `127.0.0.0/8,::1,172.17.0.0/16`) — **not** entire RFC1918. Non-empty = only listed peers. Compose stock defaults to loopback + docker0 + fixed `myriad-net` (`172.28.0.0/16`). Prefer an explicit reverse-proxy network only (from `docker network inspect`). Backend warns at startup when peers look overly broad. Rate-limit client IP uses the same extraction path. |
 | `PROXY_ALLOW_DIRECT_UPDATER` | no | Enables `/_updater/*` rescue path, default `false` |

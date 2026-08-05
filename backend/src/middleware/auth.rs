@@ -14,9 +14,10 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::env;
-use std::sync::{Mutex as StdMutex, OnceLock};
+use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::time::{Duration, Instant};
 use subtle::ConstantTimeEq;
+use tokio::sync::{watch, Mutex as AsyncMutex};
 use uuid::Uuid;
 
 /// Browser / API session lifetime (days). Keep long-lived; revoke via `token_version`.
@@ -29,12 +30,12 @@ pub const AUTH_COOKIE_MAX_AGE_SECS: i64 = JWT_TTL_DAYS * 24 * 60 * 60;
 pub struct Claims {
     pub sub: String,      // User ID
     pub username: String, // Username
-    pub is_admin: bool, // Admin status
+    pub is_admin: bool,   // Admin status
     /// Durable site owner (`users.is_owner`). Defaults false for older tokens.
     #[serde(default)]
     pub is_owner: bool,
-    pub exp: i64,         // Expiration time
-    pub iat: i64,         // Issued at
+    pub exp: i64, // Expiration time
+    pub iat: i64, // Issued at
     /// Session epoch (`users.token_version`). Defaults `0` for pre-MYR-005 tokens
     /// so existing sessions keep working until the first revoke bump.
     #[serde(default)]
@@ -63,8 +64,7 @@ pub fn mint_session_claims(
 
 /// Encode claims with `JWT_SECRET`. Caller must set cookie / Authorization.
 pub fn encode_session_token(claims: &Claims) -> Result<String, String> {
-    let jwt_secret =
-        env::var("JWT_SECRET").map_err(|_| "JWT_SECRET not configured".to_string())?;
+    let jwt_secret = env::var("JWT_SECRET").map_err(|_| "JWT_SECRET not configured".to_string())?;
     jsonwebtoken::encode(
         &jsonwebtoken::Header::default(),
         claims,
@@ -79,6 +79,186 @@ pub fn auth_cookie_value(token: &str, is_production: bool) -> String {
         "auth_token={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={AUTH_COOKIE_MAX_AGE_SECS}{}",
         if is_production { "; Secure" } else { "" }
     )
+}
+
+/// PostgreSQL channel used to fan out auth-state invalidations between service
+/// instances.  NOTIFY is only a latency optimisation: the cache TTL below is
+/// the correctness bound when a notification is missed.
+const AUTH_CACHE_INVALIDATION_CHANNEL: &str = "myriad_auth_cache_invalidate";
+/// Ordinary authenticated requests may use a cached auth snapshot for at most
+/// five seconds.  Admin gates still perform an explicit live role check.
+pub const AUTH_CACHE_TTL: Duration = Duration::from_secs(5);
+/// Bound process memory even when a site sees an unbounded stream of user ids.
+pub const AUTH_CACHE_CAPACITY: usize = 4096;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct AuthSnapshot {
+    token_version: i64,
+    is_admin: bool,
+    is_owner: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct AuthCacheEntry {
+    snapshot: Option<AuthSnapshot>,
+    inserted_at: Instant,
+    last_access: Instant,
+}
+
+#[derive(Debug, Default)]
+struct AuthCache {
+    entries: HashMap<i32, AuthCacheEntry>,
+}
+
+static AUTH_CACHE: OnceLock<StdMutex<AuthCache>> = OnceLock::new();
+static AUTH_CACHE_INFLIGHT: OnceLock<AsyncMutex<HashMap<i32, Arc<watch::Sender<()>>>>> =
+    OnceLock::new();
+static AUTH_CACHE_LISTENER_STARTED: OnceLock<AsyncMutex<bool>> = OnceLock::new();
+
+fn auth_cache() -> &'static StdMutex<AuthCache> {
+    AUTH_CACHE.get_or_init(|| StdMutex::new(AuthCache::default()))
+}
+
+fn auth_cache_inflight() -> &'static AsyncMutex<HashMap<i32, Arc<watch::Sender<()>>>> {
+    AUTH_CACHE_INFLIGHT.get_or_init(|| AsyncMutex::new(HashMap::new()))
+}
+
+fn auth_cache_listener_started() -> &'static AsyncMutex<bool> {
+    AUTH_CACHE_LISTENER_STARTED.get_or_init(|| AsyncMutex::new(false))
+}
+
+/// Read a cache entry, returning `Some(None)` for a cached missing account and
+/// `None` for a miss/expired entry.  Keeping negative entries avoids repeatedly
+/// probing deleted ids while still respecting the same short TTL.
+fn auth_cache_get(user_id: i32) -> Option<Option<AuthSnapshot>> {
+    let mut guard = match auth_cache().lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    let now = Instant::now();
+    let expired = guard
+        .entries
+        .get(&user_id)
+        .map(|entry| now.duration_since(entry.inserted_at) >= AUTH_CACHE_TTL)?;
+    if expired {
+        guard.entries.remove(&user_id);
+        return None;
+    }
+    let entry = guard.entries.get_mut(&user_id)?;
+    entry.last_access = now;
+    Some(entry.snapshot)
+}
+
+fn auth_cache_put(user_id: i32, snapshot: Option<AuthSnapshot>) {
+    let mut guard = match auth_cache().lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    let now = Instant::now();
+    if !guard.entries.contains_key(&user_id) && guard.entries.len() >= AUTH_CACHE_CAPACITY {
+        if let Some((&oldest_id, _)) = guard
+            .entries
+            .iter()
+            .min_by_key(|(_, entry)| entry.last_access)
+        {
+            guard.entries.remove(&oldest_id);
+        }
+    }
+    guard.entries.insert(
+        user_id,
+        AuthCacheEntry {
+            snapshot,
+            inserted_at: now,
+            last_access: now,
+        },
+    );
+}
+
+/// Drop one user's snapshot in this process.  This is intentionally separate
+/// from [`notify_auth_cache_invalidation`] so failed NOTIFY does not leave a
+/// stale local authorization decision behind.
+pub fn invalidate_auth_cache_local(user_id: i32) {
+    if user_id <= 0 {
+        return;
+    }
+    let mut guard = match auth_cache().lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    guard.entries.remove(&user_id);
+}
+
+/// Invalidate this process and publish the same invalidation to peer instances.
+/// Call after a committed role/session/account write.  A missed notification is
+/// safe because ordinary auth entries are short-lived.
+pub async fn notify_auth_cache_invalidation(
+    db: &impl ConnectionTrait,
+    user_id: i32,
+) -> Result<(), sea_orm::DbErr> {
+    invalidate_auth_cache_local(user_id);
+    if user_id <= 0 {
+        return Ok(());
+    }
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT pg_notify($1, $2)",
+        [
+            AUTH_CACHE_INVALIDATION_CHANNEL.into(),
+            user_id.to_string().into(),
+        ],
+    ))
+    .await
+    .map(|_| ())
+}
+
+/// Start one process-wide LISTEN task lazily, using the app's existing pool.
+/// A missed notification is safe because every entry expires after
+/// [`AUTH_CACHE_TTL`].
+async fn ensure_auth_cache_listener(db: &DatabaseConnection) {
+    if !matches!(db.get_database_backend(), DatabaseBackend::Postgres) {
+        return;
+    }
+
+    let mut started = auth_cache_listener_started().lock().await;
+    if *started {
+        return;
+    }
+    *started = true;
+
+    let pool = db.get_postgres_connection_pool().clone();
+    tokio::spawn(async move {
+        loop {
+            match sea_orm::sqlx::postgres::PgListener::connect_with(&pool).await {
+                Ok(mut listener) => {
+                    if let Err(error) = listener.listen(AUTH_CACHE_INVALIDATION_CHANNEL).await {
+                        tracing::warn!(error = %error, "auth cache LISTEN setup failed");
+                    } else {
+                        tracing::debug!(
+                            channel = AUTH_CACHE_INVALIDATION_CHANNEL,
+                            "auth cache invalidation listener started"
+                        );
+                        loop {
+                            match listener.recv().await {
+                                Ok(notification) => {
+                                    if let Ok(user_id) = notification.payload().parse::<i32>() {
+                                        invalidate_auth_cache_local(user_id);
+                                    }
+                                }
+                                Err(error) => {
+                                    tracing::warn!(error = %error, "auth cache LISTEN connection lost");
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(error) => {
+                    tracing::debug!(error = %error, "auth cache listener connection unavailable");
+                }
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    });
 }
 
 /// Authentication middleware - verifies JWT token + session epoch
@@ -273,30 +453,96 @@ pub async fn verify_current_admin_from_headers(
     Ok(claims)
 }
 
+/// Load the current durable authorization snapshot.
+///
+/// A cache miss deliberately fetches all auth facts needed by ordinary request
+/// authorization in one query.  `None` is retained as a negative cache entry,
+/// representing a deleted/missing account and therefore a revoked session.
+async fn load_auth_snapshot(
+    db: &DatabaseConnection,
+    user_id: i32,
+) -> Result<Option<AuthSnapshot>, sea_orm::DbErr> {
+    if user_id <= 0 {
+        return Ok(None);
+    }
+
+    ensure_auth_cache_listener(db).await;
+
+    loop {
+        if let Some(snapshot) = auth_cache_get(user_id) {
+            return Ok(snapshot);
+        }
+
+        // Only one request per user performs the miss query. Other concurrent
+        // requests wait for that result, then take the now-populated cache hit.
+        let (mut waiter, owner) = {
+            let mut in_flight = auth_cache_inflight().lock().await;
+            match in_flight.get(&user_id) {
+                Some(sender) => (Some(sender.subscribe()), false),
+                None => {
+                    let (sender, _receiver) = watch::channel(());
+                    in_flight.insert(user_id, Arc::new(sender));
+                    (None, true)
+                }
+            }
+        };
+
+        if !owner {
+            // The watch version is retained even if the owner completes
+            // between releasing the map lock and awaiting here; this avoids a
+            // lost-wakeup race under a burst of identical first requests.
+            if let Some(ref mut receiver) = waiter {
+                let _ = receiver.changed().await;
+            }
+            continue;
+        }
+
+        let result = db
+            .query_one_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "SELECT COALESCE(token_version, 0) AS token_version, \
+                        COALESCE(is_admin, false) AS is_admin, \
+                        COALESCE(is_owner, false) AS is_owner \
+                 FROM users WHERE id = $1 LIMIT 1",
+                [user_id.into()],
+            ))
+            .await
+            .map(|row| {
+                row.map(|row| AuthSnapshot {
+                    token_version: row
+                        .try_get::<i32>("", "token_version")
+                        .ok()
+                        .map(i64::from)
+                        .or_else(|| row.try_get::<i64>("", "token_version").ok())
+                        .unwrap_or(0),
+                    is_admin: row.try_get::<bool>("", "is_admin").unwrap_or(false),
+                    is_owner: row.try_get::<bool>("", "is_owner").unwrap_or(false),
+                })
+            });
+
+        if let Ok(snapshot) = &result {
+            auth_cache_put(user_id, *snapshot);
+        }
+
+        let sender = auth_cache_inflight().lock().await.remove(&user_id);
+        if let Some(sender) = sender {
+            let _ = sender.send(());
+        }
+        return result;
+    }
+}
+
 /// Load `users.token_version` for a durable user id.
 ///
-/// Returns `None` when the user row is missing (deleted) or `user_id` is not a
-/// positive durable id (guests use negative subjects and have no row).
+/// Kept as a narrow compatibility helper for callers that only need the epoch;
+/// internally it still uses the combined auth snapshot query/cache.
 pub async fn load_token_version(
     db: &DatabaseConnection,
     user_id: i32,
 ) -> Result<Option<i64>, sea_orm::DbErr> {
-    if user_id <= 0 {
-        return Ok(None);
-    }
-    let row = db
-        .query_one_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "SELECT token_version FROM users WHERE id = $1 LIMIT 1",
-            [user_id.into()],
-        ))
-        .await?;
-    Ok(row.and_then(|r| {
-        r.try_get::<i32>("", "token_version")
-            .ok()
-            .map(i64::from)
-            .or_else(|| r.try_get::<i64>("", "token_version").ok())
-    }))
+    Ok(load_auth_snapshot(db, user_id)
+        .await?
+        .map(|snapshot| snapshot.token_version))
 }
 
 /// Pure session-epoch check used by auth middleware and unit tests.
@@ -310,19 +556,23 @@ pub fn session_epoch_matches(claim_tv: i64, db_version: Option<i64>) -> bool {
     }
 }
 
-/// Fail closed when JWT session epoch does not match the user row.
+/// Load and validate the current snapshot for a JWT.
 ///
 /// Guests (`sub` ≤ 0) skip the DB check — they are not durable sessions.
-pub async fn ensure_session_epoch(
+/// Missing durable users fail closed as revoked sessions.
+async fn validated_auth_snapshot(
     claims: &Claims,
     db: &DatabaseConnection,
-) -> Result<(), Box<Response>> {
-    let user_id: i32 = claims.sub.parse().map_err(|_| unauthorized_session_response())?;
+) -> Result<Option<AuthSnapshot>, Box<Response>> {
+    let user_id: i32 = claims
+        .sub
+        .parse()
+        .map_err(|_| unauthorized_session_response())?;
     if user_id <= 0 {
-        return Ok(());
+        return Ok(None);
     }
 
-    let db_version = load_token_version(db, user_id).await.map_err(|e| {
+    let snapshot = load_auth_snapshot(db, user_id).await.map_err(|e| {
         tracing::error!("Failed to load token_version for user {}: {}", user_id, e);
         Box::new(
             (
@@ -336,17 +586,48 @@ pub async fn ensure_session_epoch(
         )
     })?;
 
-    if session_epoch_matches(claims.tv, db_version) {
-        Ok(())
-    } else {
+    let Some(snapshot) = snapshot else {
+        tracing::debug!(
+            user_id,
+            "JWT session refers to a missing user — treating token as revoked"
+        );
+        return Err(unauthorized_session_response());
+    };
+
+    if !session_epoch_matches(claims.tv, Some(snapshot.token_version)) {
         tracing::debug!(
             user_id,
             claim_tv = claims.tv,
-            db_version = ?db_version,
+            db_version = snapshot.token_version,
             "JWT session epoch mismatch — treating token as revoked"
         );
-        Err(unauthorized_session_response())
+        return Err(unauthorized_session_response());
     }
+
+    Ok(Some(snapshot))
+}
+
+fn apply_current_roles(mut claims: Claims, snapshot: AuthSnapshot) -> Claims {
+    // Never grant a role to a token that was minted without it, but do
+    // immediately remove demoted roles from stale claims.
+    if !snapshot.is_admin {
+        claims.is_admin = false;
+    }
+    if !snapshot.is_owner {
+        claims.is_owner = false;
+    }
+    claims
+}
+
+/// Fail closed when JWT session epoch does not match the user row.
+///
+/// The underlying miss query also loads current roles so the main auth path
+/// can avoid a second database round-trip.
+pub async fn ensure_session_epoch(
+    claims: &Claims,
+    db: &DatabaseConnection,
+) -> Result<(), Box<Response>> {
+    validated_auth_snapshot(claims, db).await.map(|_| ())
 }
 
 fn unauthorized_session_response() -> Box<Response> {
@@ -370,8 +651,12 @@ pub async fn authenticate_request(
     headers: &HeaderMap,
     db: &DatabaseConnection,
 ) -> Result<Claims, Box<Response>> {
-    let claims = verify_jwt_token(headers)?;
-    ensure_session_epoch(&claims, db).await?;
+    let mut claims = verify_jwt_token(headers)?;
+    if let Some(snapshot) = validated_auth_snapshot(&claims, db).await? {
+        // This keeps ordinary authorization decisions bounded by the cache TTL
+        // even when a role-change NOTIFY is missed.
+        claims = apply_current_roles(claims, snapshot);
+    }
     Ok(claims)
 }
 
@@ -389,17 +674,24 @@ pub async fn bump_token_version(
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "UPDATE users SET token_version = token_version + 1, updated_at = NOW() \
+            "UPDATE users SET token_version = COALESCE(token_version, 0) + 1, updated_at = NOW() \
              WHERE id = $1 RETURNING token_version",
             [user_id.into()],
         ))
         .await?;
-    Ok(row.and_then(|r| {
+    let new_version = row.and_then(|r| {
         r.try_get::<i32>("", "token_version")
             .ok()
             .map(i64::from)
             .or_else(|| r.try_get::<i64>("", "token_version").ok())
-    }))
+    });
+    // Remove the local entry even if NOTIFY cannot be delivered.  Publishing
+    // after the committed UPDATE keeps peer caches bounded by the five-second
+    // TTL in the event of a transient notification failure.
+    if let Err(error) = notify_auth_cache_invalidation(db, user_id).await {
+        tracing::warn!(user_id, error = %error, "auth cache invalidation NOTIFY failed after token bump");
+    }
+    Ok(new_version)
 }
 
 fn admin_forbidden() -> (StatusCode, Json<serde_json::Value>) {
@@ -677,14 +969,17 @@ pub fn extract_optional_claims(headers: &HeaderMap) -> Option<Claims> {
 #[cfg(test)]
 mod tests {
     use super::{
-        encode_session_token, extract_optional_claims, guest_id, mint_session_claims,
+        apply_current_roles, auth_cache_get, auth_cache_put, encode_session_token,
+        extract_optional_claims, guest_id, invalidate_auth_cache_local, mint_session_claims,
         session_epoch_matches, sign_guest_session, verify_guest_session, verify_jwt_token,
-        AUTH_COOKIE_MAX_AGE_SECS, JWT_TTL_DAYS,
+        AuthSnapshot, AUTH_CACHE_CAPACITY, AUTH_CACHE_TTL, AUTH_COOKIE_MAX_AGE_SECS, JWT_TTL_DAYS,
     };
     use axum::http::{header, HeaderMap, HeaderValue};
-    use std::sync::Once;
+    use std::sync::{Mutex, Once, OnceLock};
+    use std::time::{Duration, Instant};
 
     static INIT_JWT: Once = Once::new();
+    static AUTH_CACHE_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
     const TEST_JWT_SECRET: &str = "auth-unit-test-jwt-secret-at-least-32-bytes";
 
@@ -810,7 +1105,11 @@ mod tests {
         let many: std::collections::HashSet<i32> = (0u32..256)
             .map(|i| guest_id(&format!("{i:032x}")))
             .collect();
-        assert_eq!(many.len(), 256, "unexpected guest_id collision in 256 samples");
+        assert_eq!(
+            many.len(),
+            256,
+            "unexpected guest_id collision in 256 samples"
+        );
     }
 
     #[test]
@@ -822,6 +1121,100 @@ mod tests {
         // Deleted / missing user → fail closed
         assert!(!session_epoch_matches(0, None));
         assert!(!session_epoch_matches(5, None));
+    }
+
+    fn clear_auth_cache_for_test() {
+        let cache = super::auth_cache();
+        let mut guard = cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        guard.entries.clear();
+    }
+
+    fn auth_cache_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        AUTH_CACHE_TEST_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    #[test]
+    fn auth_cache_positive_role_and_session_snapshot_is_reusable() {
+        let _test_guard = auth_cache_test_guard();
+        clear_auth_cache_for_test();
+        let snapshot = AuthSnapshot {
+            token_version: 4,
+            is_admin: true,
+            is_owner: true,
+        };
+        auth_cache_put(101, Some(snapshot));
+        // A second ordinary request can consume the same snapshot without a
+        // database query; the combined miss fact includes both role flags.
+        assert_eq!(auth_cache_get(101), Some(Some(snapshot)));
+        assert!(session_epoch_matches(4, Some(snapshot.token_version)));
+        let claims = mint_session_claims(101, "admin", true, true, 4);
+        let claims = apply_current_roles(claims, snapshot);
+        assert!(claims.is_admin && claims.is_owner);
+    }
+
+    #[test]
+    fn auth_cache_invalidation_covers_demotion_deletion_and_token_epoch() {
+        let _test_guard = auth_cache_test_guard();
+        clear_auth_cache_for_test();
+        auth_cache_put(
+            102,
+            Some(AuthSnapshot {
+                token_version: 0,
+                is_admin: true,
+                is_owner: false,
+            }),
+        );
+        // Role demotion/deletion must not leave a positive authorization fact
+        // in this process after the mutator publishes its invalidation.
+        invalidate_auth_cache_local(102);
+        assert_eq!(auth_cache_get(102), None);
+        assert!(!session_epoch_matches(0, None));
+        assert!(!session_epoch_matches(0, Some(1)));
+    }
+
+    #[test]
+    fn stale_demoted_claim_cannot_keep_current_admin_role() {
+        let stale_claims = mint_session_claims(103, "demoted", true, true, 0);
+        let current = AuthSnapshot {
+            token_version: 0,
+            is_admin: false,
+            is_owner: false,
+        };
+        let claims = apply_current_roles(stale_claims, current);
+        assert!(!claims.is_admin);
+        assert!(!claims.is_owner);
+    }
+
+    #[test]
+    fn auth_cache_missed_notification_is_bounded_by_short_ttl() {
+        assert!(AUTH_CACHE_TTL <= Duration::from_secs(5));
+        let expired = Instant::now() - AUTH_CACHE_TTL;
+        assert!(Instant::now().duration_since(expired) >= AUTH_CACHE_TTL);
+    }
+
+    #[test]
+    fn auth_cache_is_bounded_by_capacity() {
+        let _test_guard = auth_cache_test_guard();
+        clear_auth_cache_for_test();
+        for user_id in 1..=(AUTH_CACHE_CAPACITY as i32 + 1) {
+            auth_cache_put(
+                user_id,
+                Some(AuthSnapshot {
+                    token_version: user_id as i64,
+                    is_admin: false,
+                    is_owner: false,
+                }),
+            );
+        }
+        let guard = super::auth_cache()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        assert!(guard.entries.len() <= AUTH_CACHE_CAPACITY);
     }
 
     #[test]

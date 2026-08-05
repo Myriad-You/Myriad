@@ -1,3 +1,4 @@
+use crate::error::{status_json_to_http, HttpError};
 use axum::{
     http::{HeaderMap, StatusCode},
     Json,
@@ -10,7 +11,6 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 use url::Url;
-use crate::error::{status_json_to_http, HttpError};
 
 /// Setup status response
 #[derive(Debug, Serialize, Deserialize)]
@@ -251,6 +251,7 @@ pub async fn init_database(
                     })),
                 )));
             }
+            crate::SCHEMA_READY.store(true, std::sync::atomic::Ordering::Release);
             tracing::info!("✅ Schema check/heals completed after setup migrations");
 
             // List all tables in the database
@@ -336,11 +337,8 @@ pub async fn init_database(
 /// Initialize .env file from .env.example
 ///
 /// 保护：CONFIG_MODE + 引导令牌（实例此前已配置过时）。
-pub async fn initialize_env_file(
-    headers: HeaderMap,
-) -> Result<Json<Value>, HttpError> {
-    crate::api::setup_bootstrap::require_bootstrap(&headers)
-        .map_err(HttpError)?;
+pub async fn initialize_env_file(headers: HeaderMap) -> Result<Json<Value>, HttpError> {
+    crate::api::setup_bootstrap::require_bootstrap(&headers).map_err(HttpError)?;
 
     // Only allow in CONFIG_MODE
     let config_mode = crate::CONFIG_MODE.load(std::sync::atomic::Ordering::Relaxed);
@@ -447,8 +445,7 @@ pub async fn update_env_file(
     headers: HeaderMap,
     Json(config): Json<EnvUpdateRequest>,
 ) -> Result<Json<Value>, HttpError> {
-    crate::api::setup_bootstrap::require_bootstrap(&headers)
-        .map_err(HttpError)?;
+    crate::api::setup_bootstrap::require_bootstrap(&headers).map_err(HttpError)?;
 
     // Only allow in CONFIG_MODE
     let config_mode = crate::CONFIG_MODE.load(std::sync::atomic::Ordering::Relaxed);
@@ -711,8 +708,7 @@ pub async fn save_database_config(
     // 这是最危险的端点：它能把实例重新指向任意 PostgreSQL。
     // CONFIG_MODE 本身会因为数据库故障自动开启，所以它不足以作为唯一门槛 ——
     // 已配置过的实例还必须提供 .bootstrap-token / MYRIAD_BOOTSTRAP_TOKEN。
-    crate::api::setup_bootstrap::require_bootstrap(&headers)
-        .map_err(HttpError)?;
+    crate::api::setup_bootstrap::require_bootstrap(&headers).map_err(HttpError)?;
 
     // P0 安全修复：强制要求 CONFIG_MODE
     let config_mode = crate::CONFIG_MODE.load(std::sync::atomic::Ordering::Relaxed);
@@ -847,9 +843,7 @@ pub async fn save_database_config(
 /// Used after setup DB save and when CONFIG_MODE reload obtains a DB while
 /// still serving the setup-only router.
 pub(crate) fn schedule_setup_restart() {
-    tracing::info!(
-        "🔁 Exiting shortly so the supervisor can restart with the full route table"
-    );
+    tracing::info!("🔁 Exiting shortly so the supervisor can restart with the full route table");
 
     tokio::spawn(async {
         tokio::time::sleep(std::time::Duration::from_millis(750)).await;
