@@ -266,6 +266,17 @@ export function StoreCatalogView({
                 >
                   {t.tapp.storeSortByDate}
                 </button>
+                <button
+                  type="button"
+                  className="as-store__sort-option"
+                  data-active={
+                    categorySortOrder === 'downloads' ? 'true' : 'false'
+                  }
+                  aria-pressed={categorySortOrder === 'downloads'}
+                  onClick={() => setCategorySortOrder('downloads')}
+                >
+                  {t.tapp.storeSortByDownloads}
+                </button>
               </div>
             ) : (
               <h3 className="as-store__section-title">

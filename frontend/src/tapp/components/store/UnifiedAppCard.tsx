@@ -2,7 +2,7 @@
 
 import type { CSSProperties } from 'react'
 import type { UnifiedAppItem } from './types'
-import { forwardRef, useEffect, useMemo, useState } from 'react'
+import { forwardRef, useMemo } from 'react'
 import { Spinner } from '../../../components/Spinner'
 import { useI18n } from '../../../contexts/I18nContext'
 import { formatDownloadCount } from '../../utils/formatDownloadCount'
@@ -16,48 +16,11 @@ import {
   isOfficialStoreApp,
   OfficialVerifiedDot,
 } from './storeAppMeta'
-import { ProgressPercent, StoreGetButton } from './StoreChrome'
-
-/** Shared clock so many rows don't each open their own interval. */
-const SUBTITLE_ROTATE_MS = 3600
-let subtitleTick = 0
-const subtitleListeners = new Set<() => void>()
-let subtitleIntervalId: ReturnType<typeof setInterval> | null = null
-
-function subscribeSubtitleTick(listener: () => void): () => void {
-  subtitleListeners.add(listener)
-  subtitleIntervalId ??= setInterval(() => {
-      subtitleTick += 1
-      for (const fn of subtitleListeners) fn()
-    }, SUBTITLE_ROTATE_MS)
-  return () => {
-    subtitleListeners.delete(listener)
-    if (subtitleListeners.size === 0 && subtitleIntervalId != null) {
-      clearInterval(subtitleIntervalId)
-      subtitleIntervalId = null
-    }
-  }
-}
-
-function prefersReducedMotion(): boolean {
-  if (typeof window === 'undefined' || !window.matchMedia) return false
-  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
-}
-
-/** One-line rotating subtitle: description → installs → updated-at. */
-function useRotatingSubtitle(slides: string[], staggerIndex: number): string {
-  const [, bump] = useState(0)
-  const canRotate = slides.length > 1 && !prefersReducedMotion()
-
-  useEffect(() => {
-    if (!canRotate) return
-    return subscribeSubtitleTick(() => bump((n) => n + 1))
-  }, [canRotate])
-
-  if (slides.length === 0) return ''
-  if (!canRotate) return slides[0]!
-  return slides[(subtitleTick + staggerIndex) % slides.length]!
-}
+import {
+  ProgressPercent,
+  RotatingSubtitle,
+  StoreGetButton,
+} from './StoreChrome'
 
 export const UnifiedAppCard = forwardRef<
   HTMLDivElement,
@@ -151,8 +114,6 @@ export const UnifiedAppCard = forwardRef<
       t.tapp.storeUpdatedDaysAgo,
     ])
 
-    const subtitle = useRotatingSubtitle(subtitleSlides, index)
-
     // CSS enter stagger (see TappStore.css). Cap keeps long lists cheap.
     const enterStyle = {
       ['--as-enter-i' as string]: Math.min(index, 14),
@@ -196,13 +157,16 @@ export const UnifiedAppCard = forwardRef<
               <OfficialVerifiedDot label={t.tapp.official} />
             ) : null}
           </div>
-          {subtitle ? (
-            <div className="as-store-row__sub">
-              <span key={subtitle} className="as-store-row__sub-text">
-                {subtitle}
-              </span>
-            </div>
-          ) : null}
+          {/* Same cross-fade as detail hero (RotatingSubtitle). */}
+          <RotatingSubtitle
+            lines={subtitleSlides}
+            phaseOffset={index}
+            sharedClock
+            as="div"
+            className="as-store-row__sub"
+            viewportClassName="as-store-row__sub-viewport"
+            lineClassName="as-store-row__sub-line"
+          />
         </div>
 
         <div className="as-store-row__side">

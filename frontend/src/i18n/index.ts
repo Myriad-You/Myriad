@@ -3135,6 +3135,7 @@ export interface TranslationKeys {
     storeSortByCategory: string
     storeSortByName: string
     storeSortByDate: string
+    storeSortByDownloads: string
     loadingRemoteApps: string
     loadRemoteFailed: string
     noMatchingApps: string

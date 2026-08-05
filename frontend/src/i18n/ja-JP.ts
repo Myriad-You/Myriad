@@ -3466,6 +3466,7 @@ export const jaJP: TranslationKeys = {
     storeSortByCategory: 'カテゴリー順',
     storeSortByName: '名前順',
     storeSortByDate: '日付順',
+    storeSortByDownloads: 'ダウンロード順',
     loadingRemoteApps: 'リモートアプリを読み込み中...',
     loadRemoteFailed: 'リモートストアの読み込みに失敗しました',
     noMatchingApps: '一致するアプリが見つかりません',

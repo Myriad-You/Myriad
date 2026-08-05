@@ -86,49 +86,117 @@ export function ProgressPercent({
   )
 }
 
-/** Hero subtitle: cross-fade between category and author. */
-export function RotatingDetailSubtitle({ lines }: { lines: string[] }) {
+/** Match detail hero + list rows (ms). */
+const SUBTITLE_ROTATE_MS = 3200
+
+/**
+ * Shared tick for list rows so N cards don't each open an interval.
+ * Detail page keeps a local timer (single instance).
+ */
+let sharedSubtitleTick = 0
+const sharedSubtitleListeners = new Set<() => void>()
+let sharedSubtitleIntervalId: ReturnType<typeof setInterval> | null = null
+
+function subscribeSharedSubtitleTick(listener: () => void): () => void {
+  sharedSubtitleListeners.add(listener)
+  if (sharedSubtitleIntervalId == null) {
+    sharedSubtitleIntervalId = setInterval(() => {
+      sharedSubtitleTick += 1
+      for (const fn of sharedSubtitleListeners) fn()
+    }, SUBTITLE_ROTATE_MS)
+  }
+  return () => {
+    sharedSubtitleListeners.delete(listener)
+    if (sharedSubtitleListeners.size === 0 && sharedSubtitleIntervalId != null) {
+      clearInterval(sharedSubtitleIntervalId)
+      sharedSubtitleIntervalId = null
+    }
+  }
+}
+
+function uniqueSubtitleLines(lines: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const line of lines) {
+    const text = line.trim()
+    if (!text || seen.has(text)) continue
+    seen.add(text)
+    out.push(text)
+  }
+  return out
+}
+
+export type RotatingSubtitleProps = {
+  lines: string[]
+  /** Stagger phase when using sharedClock (list rows). */
+  phaseOffset?: number
+  /**
+   * One module-level interval for many instances (store list).
+   * Default false = own interval (detail hero).
+   */
+  sharedClock?: boolean
+  className?: string
+  viewportClassName?: string
+  lineClassName?: string
+  as?: 'p' | 'div'
+}
+
+/**
+ * Cross-fade rotating subtitle (motion AnimatePresence).
+ * Used by detail hero and store list rows.
+ */
+export function RotatingSubtitle({
+  lines,
+  phaseOffset = 0,
+  sharedClock = false,
+  className = 'as-detail__category',
+  viewportClassName = 'as-detail__subtitle-viewport',
+  lineClassName = 'as-detail__subtitle-line',
+  as: Tag = 'p',
+}: RotatingSubtitleProps) {
   const animConfig = useAnimationLevel()
   const reduced = isExlight(animConfig)
-  const [index, setIndex] = useState(0)
-  const unique = useMemo(() => {
-    const seen = new Set<string>()
-    const out: string[] = []
-    for (const line of lines) {
-      const text = line.trim()
-      if (!text || seen.has(text)) continue
-      seen.add(text)
-      out.push(text)
-    }
-    return out
-  }, [lines])
+  const unique = useMemo(() => uniqueSubtitleLines(lines), [lines])
+  const uniqueKey = unique.join('\0')
+
+  const [index, setIndex] = useState(() =>
+    unique.length > 0 ? phaseOffset % unique.length : 0,
+  )
+  const [, bumpShared] = useState(0)
 
   useEffect(() => {
-    setIndex(0)
-  }, [unique.join('\0')])
+    setIndex(unique.length > 0 ? phaseOffset % unique.length : 0)
+  }, [uniqueKey, phaseOffset, unique.length])
 
   useEffect(() => {
     if (unique.length <= 1 || reduced) return
+    if (sharedClock) {
+      return subscribeSharedSubtitleTick(() => bumpShared((n) => n + 1))
+    }
     const id = window.setInterval(() => {
       setIndex((prev) => (prev + 1) % unique.length)
-    }, 3200)
+    }, SUBTITLE_ROTATE_MS)
     return () => window.clearInterval(id)
-  }, [unique, reduced])
+  }, [unique.length, uniqueKey, reduced, sharedClock])
 
   if (unique.length === 0) return null
 
-  const active = reduced ? unique.join(' · ') : unique[index % unique.length]
+  const active = reduced
+    ? unique.join(' · ')
+    : sharedClock
+      ? unique[(sharedSubtitleTick + phaseOffset) % unique.length]!
+      : unique[index % unique.length]!
 
   return (
-    <p className="as-detail__category" aria-live="polite">
+    <Tag className={className} aria-live="polite">
       {reduced ? (
-        <span className="as-detail__subtitle-line">{active}</span>
+        <span className={lineClassName}>{active}</span>
       ) : (
-        <span className="as-detail__subtitle-viewport">
+        <span className={viewportClassName}>
           <AnimatePresence mode="wait" initial={false}>
             <motion.span
               key={active}
-              className="as-detail__subtitle-line"
+              className={lineClassName}
               initial={{ opacity: 0, y: 3 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -3 }}
@@ -142,6 +210,11 @@ export function RotatingDetailSubtitle({ lines }: { lines: string[] }) {
           </AnimatePresence>
         </span>
       )}
-    </p>
+    </Tag>
   )
+}
+
+/** Detail hero: category ↔ author. */
+export function RotatingDetailSubtitle({ lines }: { lines: string[] }) {
+  return <RotatingSubtitle lines={lines} />
 }

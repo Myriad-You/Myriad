@@ -88,7 +88,7 @@ export interface UnifiedAppItem {
 
 export type StoreSelection = TappCategory | '__installed__' | null
 export type InstalledSortOrder = 'category' | 'date'
-export type CategorySortOrder = 'name' | 'date'
+export type CategorySortOrder = 'name' | 'date' | 'downloads'
 
 /** Discover home “全部” preview rows before “查看全部”. */
 export const DISCOVER_ALL_PREVIEW_LIMIT = 10

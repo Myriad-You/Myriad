@@ -433,6 +433,18 @@ export function TappStore({
     return true
   })
 
+  const compareCatalogSort = (a: UnifiedAppItem, b: UnifiedAppItem) => {
+    if (categorySortOrder === 'date') {
+      const dateOrder = parseDate(b.updatedAt) - parseDate(a.updatedAt)
+      if (dateOrder !== 0) return dateOrder
+    } else if (categorySortOrder === 'downloads') {
+      // Edge stats overlay; missing counts sort last.
+      const downloadOrder = (b.downloads ?? 0) - (a.downloads ?? 0)
+      if (downloadOrder !== 0) return downloadOrder
+    }
+    return a.name.localeCompare(b.name, locale)
+  }
+
   if (selectedCategory === '__installed__') {
     filteredApps.sort((a, b) => {
       const categoryOrder =
@@ -452,22 +464,19 @@ export function TappStore({
       return a.name.localeCompare(b.name, locale)
     })
   } else if (selectedCategory) {
-    filteredApps.sort((a, b) => {
-      if (categorySortOrder === 'date') {
-        const dateOrder = parseDate(b.updatedAt) - parseDate(a.updatedAt)
-        if (dateOrder !== 0) return dateOrder
-      }
-      return a.name.localeCompare(b.name, locale)
-    })
+    filteredApps.sort(compareCatalogSort)
   }
 
-  // Full “全部” secondary page: name / date sort (discover home keeps catalog order).
+  // Full “全部” secondary page: name / date / downloads (discover home keeps catalog order).
   const allAppsCatalogSorted = useMemo(() => {
     const list = [...allApps]
     list.sort((a, b) => {
       if (categorySortOrder === 'date') {
         const dateOrder = parseDate(b.updatedAt) - parseDate(a.updatedAt)
         if (dateOrder !== 0) return dateOrder
+      } else if (categorySortOrder === 'downloads') {
+        const downloadOrder = (b.downloads ?? 0) - (a.downloads ?? 0)
+        if (downloadOrder !== 0) return downloadOrder
       }
       return a.name.localeCompare(b.name, locale)
     })
@@ -1447,6 +1456,19 @@ export function TappStore({
                               onClick={() => setCategorySortOrder('date')}
                             >
                               {t.tapp.storeSortByDate}
+                            </button>
+                            <button
+                              type="button"
+                              className="as-store__sort-option"
+                              data-active={
+                                categorySortOrder === 'downloads'
+                                  ? 'true'
+                                  : 'false'
+                              }
+                              aria-pressed={categorySortOrder === 'downloads'}
+                              onClick={() => setCategorySortOrder('downloads')}
+                            >
+                              {t.tapp.storeSortByDownloads}
                             </button>
                           </div>
                         </div>

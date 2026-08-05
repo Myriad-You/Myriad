@@ -3305,6 +3305,7 @@ export const zhCN: TranslationKeys = {
     storeSortByCategory: '按分类',
     storeSortByName: '按名称',
     storeSortByDate: '按日期',
+    storeSortByDownloads: '按下载量',
     loadingRemoteApps: '正在加载远程应用...',
     loadRemoteFailed: '无法加载远程商店',
     noMatchingApps: '没有找到匹配的应用',

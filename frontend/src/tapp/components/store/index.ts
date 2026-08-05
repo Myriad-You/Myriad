@@ -22,8 +22,10 @@ export {
   CategoryPill,
   ProgressPercent,
   RotatingDetailSubtitle,
+  RotatingSubtitle,
   StoreGetButton,
 } from './StoreChrome'
+export type { RotatingSubtitleProps } from './StoreChrome'
 export { StoreConfigurationView } from './StoreConfigurationView'
 
 export {

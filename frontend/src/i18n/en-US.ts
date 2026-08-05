@@ -3485,6 +3485,7 @@ export const enUS: TranslationKeys = {
     storeSortByCategory: 'Category',
     storeSortByName: 'Name',
     storeSortByDate: 'Date',
+    storeSortByDownloads: 'Downloads',
     loadingRemoteApps: 'Loading remote apps...',
     loadRemoteFailed: 'Failed to load remote store',
     noMatchingApps: 'No matching apps found',
