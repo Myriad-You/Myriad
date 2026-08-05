@@ -62,8 +62,8 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       # Required for weather/client-geo: honor proxy-rewritten X-Real-IP.
       TRUST_PROXY_HEADERS: "true"
-      # Empty = private peers only; default RFC1918 for stock Docker. Tighten in prod.
-      # Narrow default: loopback + docker0 + compose myriad-net (not full RFC1918).
+      # Explicit second-hop trust: loopback + docker0 + fixed compose myriad-net,
+      # not the full RFC1918 space. Narrow further when the proxy subnet is known.
       TRUST_PROXY_PEERS: ${TRUST_PROXY_PEERS:-127.0.0.0/8,::1,172.17.0.0/16,172.28.0.0/16}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
       CSP_CONNECT_SRC: ${CSP_CONNECT_SRC:-'self' https:}

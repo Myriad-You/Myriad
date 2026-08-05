@@ -123,6 +123,20 @@ backend。backend 侧：
 | `TRUST_PROXY_HEADERS=true` | 允许从可信 peer 读取转发头（compose 默认开启） |
 | `TRUST_PROXY_PEERS` | 可信任的 TCP peer CIDR。**空 = 窄默认**（loopback + docker0，非 RFC1918 全段）。compose 默认含 `172.28.0.0/16`（myriad-net） |
 
+库存 compose 的完整两段示例（实际地址必须以部署网络为准）：
+
+```env
+# 宿主 Nginx/Caddy → myriad-proxy
+PROXY_TRUSTED_UPSTREAMS=172.17.0.1/32
+# myriad-proxy → backend
+TRUST_PROXY_HEADERS=true
+TRUST_PROXY_PEERS=172.28.0.0/16
+```
+
+compose 不为第一段写死默认 CIDR：宿主网关地址会随 Docker 网络、rootless
+模式和发布端口实现变化，而且 proxy 也可能被直接暴露。错误的“常见默认”要么
+不起作用，要么扩大伪造转发头的范围，因此必须显式配置。
+
 若 `TRUST_PROXY_HEADERS` 关闭，或 peer 不在信任范围，backend 会把 Docker 内网
 地址当成「客户端 IP」，`/api/proxy/client-geo` 再回退到**服务器出口公网 IP**，
 天气/欢迎语就会显示机房城市而不是访客位置。响应里会带
@@ -220,7 +234,7 @@ curl -I http://localhost:1103/health
 - `CSP_CONNECT_SRC`：覆盖生产 CSP 的 `connect-src`，默认为 `'self' https:`。
 - `ENABLE_CSP_DEV=true`：开发环境也启用 CSP。
 - `PROXY_TRUSTED_UPSTREAMS`：允许传递真实客户端 IP 的外层代理 IP/CIDR 列表。
-  留空时仅自动信任私网/loopback/link-local 对端；切勿设为 `0.0.0.0/0`。
+  留空时不信任任何转发头；切勿设为 `0.0.0.0/0`。
 
 更多部署细节见 [Docker 部署](../deployment/DOCKER_DEPLOYMENT.md) 和
 [端口清单](../deployment/PORTS.md)。
