@@ -63,6 +63,13 @@ timeout, runs all repairs, then performs a final read-only drift check. It is no
 marked ready and cannot serve normal traffic until all stages succeed. Environment
 overrides cannot convert schema failure into readiness.
 
+This is not a claim that every feature must always share one availability
+domain. A future degraded mode is safe only after routes declare their schema
+capabilities, affected routes fail with an explicit `503`, and health reports
+those capabilities. Until that isolation exists, classifying drift as
+"non-critical" or adding an operator bypass merely moves a deterministic
+startup failure into partial writes and request-time SQL errors.
+
 Recent tables:
 
 | Feature | Migration | schema_check |
