@@ -4,13 +4,19 @@ This document describes how Myriad migrates a federated instance from one domain
 (base URL) to another using the **ActivityPub `Move`** activity — not env-only
 rewrites and not soft-skip verification.
 
+> **Current inbound status:** emitting local Move activities remains supported,
+> but receiving a remote `Move` returns retryable `503` while its remote-document
+> preflight is being separated from the durable inbox receipt transaction. The
+> recovery contract is documented in
+> [Federation development notes](../development/FEDERATION.md#temporarily-unavailable-handlers).
+
 ## What this implements
 
 | Letter | Scope | What happens |
 |--------|--------|----------------|
 | **B** | Actor document fields | Local actors expose `alsoKnownAs` (new base) and/or `movedTo` (old base) from `federation_domain_aliases` so peers can verify Move. |
 | **C** | Send Move | Admin job emits one `Move` per local user: `actor` = `object` = old actor URL, `target` = new. Signed, fan-out to **followers** via the delivery queue. |
-| **D** | Receive Move | Inbox / shared-inbox accept `Move` only after **fail-closed** checks (HTTP Signature + old `movedTo` + new `alsoKnownAs`). Local follows of the old remote URL re-point to the new actor. |
+| **D** | Receive Move | Target contract: inbox / shared-inbox accept `Move` only after **fail-closed** checks (HTTP Signature + old `movedTo` + new `alsoKnownAs`) and atomically re-point local follows. Temporarily `503` until the preflight/receipt split above is implemented. |
 | **E** | Local data rewrite | After Move enqueue, rewrite **this instance’s** stored absolute URLs `old_base` → `new_base` on a **whitelist** of federation columns. **Never** third-party domains. |
 | **G** | Shared keys | Same local user keeps the **same RSA keypair** (same `public_key_pem`). `keyId` host moves to the new domain `#main-key`. **No** fresh keypair per domain. |
 
@@ -131,6 +137,7 @@ Content-Type: application/json
 | Room/channel/ring **semantic** re-home on remotes | Not a full remote protocol migrate; **E** only rewrites **local** self-URLs in those tables |
 | Updater / `.env` domain rewrite | Separate / out of scope |
 | Soft-skip verification on D | Forbidden |
+| Inbound Move while receipt-safe preflight is pending | Retryable `503`; do not acknowledge before the follow rewrite and receipt can commit atomically |
 
 ## Storage
 
@@ -140,7 +147,7 @@ Content-Type: application/json
 ## Related code
 
 - `backend/src/federation/move_actor.rs` — B/C/E/G job, verify helpers, follow re-point, rewrite whitelist
-- `backend/src/federation/inbox.rs` — `handle_move` (D)
+- `backend/src/federation/inbox/receive.rs` — `handle_move` and the temporary inbound gate (D)
 - `backend/src/federation/actor.rs` — actor documents + shared PEM
 - `backend/src/federation/types.rs` — `Actor.also_known_as` / `Actor.moved_to`
 - `backend/src/federation/delivery.rs` — Move signing identity (old actor base)

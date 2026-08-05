@@ -13,7 +13,6 @@ pub mod errors;
 pub mod http_cache;
 pub mod keys;
 pub mod limits;
-pub mod replay;
 pub mod signature;
 pub mod types;
 

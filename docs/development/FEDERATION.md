@@ -9,9 +9,50 @@ developers working on ensure-keys, Accept, delivery, and the dual-instance suite
 | Concern | Behaviour |
 |---------|-----------|
 | **MYR-022 actor cache poison** | Signature verification resolves the remote Actor via trusted DB cache **or** an **ephemeral** HTTP fetch. Unauthenticated remote documents are **not** written to `federation_remote_actors` until the HTTP Signature verifies. Failed signatures drop the ephemeral material. |
-| **MYR-023 replay** | HTTP `Date` skew alone (`HTTP_DATE_MAX_SKEW` = 5m) is weak. After successful verify, a process-local short-lived dedup cache records body SHA-256 digests and normalized activity ids for ~10m (`replay_dedup_ttl`). Replays answer `202 Accepted` without re-running handlers. Legitimate peer retries within the window stay idempotent. |
+| **MYR-023 replay** | HTTP `Date` skew alone (`HTTP_DATE_MAX_SKEW` = 5m) is weak. After signature and trust checks, the inbox claims a durable receipt keyed by signer, normalized activity id, and local inbox scope. The exact signed body digest is bound to that identity. A committed success answers `202 Accepted` without re-running handlers; reuse of the same identity with different bytes is `409 Conflict`. |
 
-Entry points: `fetch_remote_actor_for_verify` / `persist_verified_remote_actor` in `actor.rs`; `is_replay_or_record` in `replay.rs`; wired in `inbox/receive.rs`.
+Entry points: `fetch_remote_actor_for_verify` / `persist_verified_remote_actor` in
+`actor.rs`; `claim_receipt` / `finish_receipt` in `inbox/receipt.rs`; wired in
+`inbox/receive.rs`.
+
+## Durable inbox transaction boundary
+
+`federation_inbox_receipts` is coordination state, not an ActivityPub content
+projection. It intentionally remains separate from `federation_activities`:
+
+- not every accepted inbox activity creates a `federation_activities` row;
+- rejected activities and same-id/different-body conflicts must never be
+  represented as accepted activity content;
+- the receipt must be claimed before handler writes, while the activity table
+  is an output of only some handlers;
+- adding receipt lifecycle columns and indexes to the populated activity table
+  would be a heavier migration and would couple unrelated retention policies.
+
+Migration `012_federation_inbox_receipts` therefore creates one isolated table
+with a composite primary key and no secondary indexes or data rewrite. The
+in-transaction `processing` row is never committed: accepted/rejected outcome,
+handler DB effects, and transactional delivery-queue writes commit together.
+A retryable error rolls the entire transaction back. PostgreSQL's unique-key
+conflict serialization prevents concurrent execution; no lease/reclaim state is
+needed.
+
+The inbox scope is part of the key. A peer may deliver the same public activity
+to several actor inboxes when it does not use `sharedInbox`; processing Alice's
+copy must not suppress Bob's. Shared-inbox delivery uses its own scope and the
+existing per-user/activity uniqueness constraints keep fan-out idempotent.
+
+### Temporarily unavailable handlers
+
+The durable receipt boundary currently returns retryable `503` for two handlers
+whose effects cannot yet be committed atomically:
+
+| Handler | Why it is disabled | Required recovery design |
+| --- | --- | --- |
+| inbound `Move` | Verification fetches old and new actor documents over remote HTTP. Running those fetches inside the receipt transaction would hold locks across unbounded I/O; running the follow rewrite outside it can leave a crash-partial migration. | Perform the HTTP fetch and `movedTo` / `alsoKnownAs` validation as a bounded preflight, bind the verified old/new actor ids to the signed request, then claim the receipt and perform only the follow rewrite, activity log, and receipt completion in one DB transaction. |
+| `myriad:FileChunk` | Chunk handling writes the filesystem, which cannot roll back with PostgreSQL. Returning success before both sides are durable can lose a chunk permanently. | Stage content-addressed bytes durably and verify their digest before the DB transaction; atomically commit chunk metadata plus a finalize outbox and the receipt; an idempotent worker then promotes the staged file and recovers after crashes. A DB-backed chunk store is also valid if it commits with the receipt. |
+
+Do not replace either `503` with best-effort success. Re-enable a handler only
+when its preflight/transaction/outbox contract has crash-recovery tests.
 
 ## Keys: ensure vs rotate
 

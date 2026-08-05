@@ -207,9 +207,8 @@ pub fn require_covered_headers(parsed: &ParsedSignature, body_present: bool) -> 
 }
 
 /// Allowed clock skew for the HTTP `Date` header on signed federation requests.
-///
-/// Also the baseline for the short-lived activity id / digest replay cache
-/// (MYR-023): see [`crate::federation::replay::replay_dedup_ttl`].
+/// Durable activity-id/body replay protection is enforced separately by the
+/// inbox receipt transaction after signature verification.
 pub const HTTP_DATE_MAX_SKEW: Duration = Duration::minutes(5);
 
 /// Reject stale or far-future HTTP Date values to bound replay attacks.

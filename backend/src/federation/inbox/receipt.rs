@@ -1,33 +1,27 @@
 //! Durable inbound Activity receipts.
 //!
-//! The in-process replay cache is deliberately only a fast path.  A receipt
-//! row is the cross-process/restart authority: its `(signer, activity_id)`
-//! key is unique, the raw request digest is bound to that key, and the row is
-//! changed to `accepted` in the same transaction as the inbound DB effects.
+//! A database receipt is the sole cross-process/restart authority: its
+//! `(signer, activity_id, inbox_scope)` key is unique, the raw request digest
+//! is bound to that key, and the row is completed in the same transaction as
+//! the inbound DB effects.
 //!
 //! Callers must perform signature and trust checks before opening the
 //! transaction.  A policy rejection therefore never creates an accepted
-//! receipt.  A transient handler error rolls back the claim with the handler
-//! writes, so a fresh request can claim it again; a committed `failed` row is
-//! also reclaimable for recovery paths.  A permanent handler error is recorded
-//! as `rejected` (never as accepted).
-
-use std::time::Duration;
+//! receipt. A transient handler error rolls back the claim with the handler
+//! writes, so a fresh request can claim it again. A permanent handler error is
+//! recorded as `rejected` (never as accepted).
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseTransaction, Statement};
 use sha2::{Digest, Sha256};
 
 use crate::federation::types::{normalize_activity_id, normalize_actor_url};
 
-/// Keep a crashed transaction's `processing` row reclaimable without allowing
-/// two live handlers to execute the same activity concurrently.
-pub const RECEIPT_LEASE: Duration = Duration::from_secs(5 * 60);
-
 /// A stable key used by the receipt table and by completion updates.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReceiptKey {
     pub signer: String,
     pub activity_id: String,
+    pub inbox_scope: String,
     pub body_digest: String,
 }
 
@@ -39,9 +33,6 @@ pub enum ReceiptClaim {
     /// A committed success already exists.  The caller should answer 202 and
     /// must not run any handler.
     AlreadyAccepted,
-    /// Another live request owns the row.  The caller should answer 202 and
-    /// must not run any handler; the peer can retry if that request fails.
-    InFlight,
     /// The same signer/activity id was seen with different bytes.
     Conflict { stored_digest: String },
     /// A permanent handler rejection was committed for this exact digest.
@@ -55,8 +46,6 @@ pub enum ReceiptClaim {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReceiptOutcome {
     Accepted,
-    /// Handler/persistence failure that the sender should retry.
-    Retryable,
     /// Deterministic malformed/unauthorized state after trust checks.
     Rejected,
 }
@@ -66,7 +55,7 @@ pub enum ReceiptOutcome {
 /// ActivityPub ids are normalized with the existing URL policy.  Activities
 /// without an id still get durable digest-based deduplication, but they cannot
 /// conflict with a separately identified activity.
-pub fn receipt_key(signer: &str, activity_id: &str, body: &[u8]) -> ReceiptKey {
+pub fn receipt_key(signer: &str, activity_id: &str, inbox_scope: &str, body: &[u8]) -> ReceiptKey {
     let digest = body_digest(body);
     let activity_id = normalize_activity_id(activity_id);
     let activity_id = if activity_id.is_empty() {
@@ -82,6 +71,7 @@ pub fn receipt_key(signer: &str, activity_id: &str, body: &[u8]) -> ReceiptKey {
             signer
         },
         activity_id,
+        inbox_scope: inbox_scope.trim().to_ascii_lowercase(),
         body_digest: digest,
     }
 }
@@ -106,15 +96,14 @@ pub async fn claim_receipt<C: ConnectionTrait + ?Sized>(
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_inbox_receipts
-                   (signer, activity_id, body_digest, status, attempts,
-                    lease_until, created_at, updated_at)
-               VALUES ($1, $2, $3, 'processing', 1,
-                       NOW() + INTERVAL '5 minutes', NOW(), NOW())
-               ON CONFLICT (signer, activity_id) DO NOTHING
+                   (signer, activity_id, inbox_scope, body_digest, status, created_at)
+               VALUES ($1, $2, $3, $4, 'processing', NOW())
+               ON CONFLICT (signer, activity_id, inbox_scope) DO NOTHING
                RETURNING signer"#,
             [
                 key.signer.clone().into(),
                 key.activity_id.clone().into(),
+                key.inbox_scope.clone().into(),
                 key.body_digest.clone().into(),
             ],
         ))
@@ -127,12 +116,15 @@ pub async fn claim_receipt<C: ConnectionTrait + ?Sized>(
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            r#"SELECT body_digest, status, outcome_status, error_message,
-                      (lease_until IS NOT NULL AND lease_until > NOW()) AS lease_active
+            r#"SELECT body_digest, status, outcome_status, error_message
                FROM federation_inbox_receipts
-               WHERE signer = $1 AND activity_id = $2
+               WHERE signer = $1 AND activity_id = $2 AND inbox_scope = $3
                FOR UPDATE"#,
-            [key.signer.clone().into(), key.activity_id.clone().into()],
+            [
+                key.signer.clone().into(),
+                key.activity_id.clone().into(),
+                key.inbox_scope.clone().into(),
+            ],
         ))
         .await
         .map_err(|e| format!("claim inbound receipt lookup: {e}"))?
@@ -158,44 +150,12 @@ pub async fn claim_receipt<C: ConnectionTrait + ?Sized>(
                 .ok()
                 .flatten(),
         }),
-        "processing" => {
-            let lease_active = row.try_get::<bool>("", "lease_active").unwrap_or(true);
-            if lease_active {
-                Ok(ReceiptClaim::InFlight)
-            } else {
-                reclaim_receipt(db, key).await?;
-                Ok(ReceiptClaim::Execute(key.clone()))
-            }
-        }
-        // `failed` is intentionally retryable.  Unknown states fail closed
-        // for this request and remain retryable after operator inspection.
-        _ => {
-            reclaim_receipt(db, key).await?;
-            Ok(ReceiptClaim::Execute(key.clone()))
-        }
+        // `processing` is never committed: claim, handler writes, and outcome
+        // share one transaction. Seeing it here means an invariant was broken
+        // by manual data changes or incompatible code, so do not execute.
+        "processing" => Err("committed processing inbox receipt violates atomicity".into()),
+        other => Err(format!("unknown inbox receipt status: {other}")),
     }
-}
-
-async fn reclaim_receipt<C: ConnectionTrait + ?Sized>(
-    db: &C,
-    key: &ReceiptKey,
-) -> Result<(), String> {
-    db.execute_raw(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        r#"UPDATE federation_inbox_receipts
-           SET status = 'processing', attempts = attempts + 1,
-               lease_until = NOW() + INTERVAL '5 minutes',
-               updated_at = NOW(), error_message = NULL, outcome_status = NULL
-           WHERE signer = $1 AND activity_id = $2 AND body_digest = $3"#,
-        [
-            key.signer.clone().into(),
-            key.activity_id.clone().into(),
-            key.body_digest.clone().into(),
-        ],
-    ))
-    .await
-    .map_err(|e| format!("reclaim inbound receipt: {e}"))?;
-    Ok(())
 }
 
 /// Mark a receipt outcome in the same transaction as the handler's writes.
@@ -208,49 +168,57 @@ pub async fn finish_receipt<C: ConnectionTrait + ?Sized>(
 ) -> Result<(), String> {
     let state = match outcome {
         ReceiptOutcome::Accepted => "accepted",
-        ReceiptOutcome::Retryable => "failed",
         ReceiptOutcome::Rejected => "rejected",
     };
-    db.execute_raw(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        r#"UPDATE federation_inbox_receipts
-           SET status = $4, outcome_status = $5, error_message = $6,
-               lease_until = NULL, updated_at = NOW(),
-               accepted_at = CASE WHEN $4 = 'accepted' THEN NOW() ELSE accepted_at END
-           WHERE signer = $1 AND activity_id = $2 AND body_digest = $3
+    let result = db
+        .execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"UPDATE federation_inbox_receipts
+           SET status = $5, outcome_status = $6, error_message = $7,
+               completed_at = NOW()
+           WHERE signer = $1 AND activity_id = $2 AND inbox_scope = $3
+             AND body_digest = $4
              AND status = 'processing'"#,
-        [
-            key.signer.clone().into(),
-            key.activity_id.clone().into(),
-            key.body_digest.clone().into(),
-            state.into(),
-            (status as i16).into(),
-            message.map(str::to_owned).into(),
-        ],
-    ))
-    .await
-    .map_err(|e| format!("finish inbound receipt: {e}"))?;
+            [
+                key.signer.clone().into(),
+                key.activity_id.clone().into(),
+                key.inbox_scope.clone().into(),
+                key.body_digest.clone().into(),
+                state.into(),
+                (status as i16).into(),
+                message.map(str::to_owned).into(),
+            ],
+        ))
+        .await
+        .map_err(|e| format!("finish inbound receipt: {e}"))?;
+    if result.rows_affected() != 1 {
+        return Err(format!(
+            "finish inbound receipt affected {} rows, expected exactly one",
+            result.rows_affected()
+        ));
+    }
     Ok(())
 }
 
-/// A tiny model used by focused unit tests.  It mirrors the SQL state machine
-/// and makes the conflict/rejection/retry invariants executable without a DB.
+/// A tiny model used by focused unit tests. It stores only committed rows,
+/// matching PostgreSQL visibility: an in-transaction `processing` insert is
+/// never visible to a later claim unless the atomicity invariant is broken.
 #[cfg(test)]
 #[derive(Default)]
 struct ReceiptModel {
-    rows: std::collections::HashMap<(String, String), (String, &'static str)>,
+    rows: std::collections::HashMap<(String, String, String), (String, &'static str)>,
 }
 
 #[cfg(test)]
 impl ReceiptModel {
     fn claim(&mut self, key: &ReceiptKey) -> ReceiptClaim {
-        let identity = (key.signer.clone(), key.activity_id.clone());
+        let identity = (
+            key.signer.clone(),
+            key.activity_id.clone(),
+            key.inbox_scope.clone(),
+        );
         match self.rows.get(&identity).cloned() {
-            None => {
-                self.rows
-                    .insert(identity, (key.body_digest.clone(), "processing"));
-                ReceiptClaim::Execute(key.clone())
-            }
+            None => ReceiptClaim::Execute(key.clone()),
             Some((digest, "accepted")) if digest == key.body_digest => {
                 ReceiptClaim::AlreadyAccepted
             }
@@ -261,22 +229,21 @@ impl ReceiptModel {
             Some((digest, _)) if digest != key.body_digest => ReceiptClaim::Conflict {
                 stored_digest: digest,
             },
-            Some((digest, "failed")) => {
-                self.rows.insert(identity, (digest, "processing"));
-                ReceiptClaim::Execute(key.clone())
-            }
-            Some(_) => ReceiptClaim::InFlight,
+            Some((_, state)) => panic!("invalid committed receipt state in model: {state}"),
         }
     }
 
     fn finish(&mut self, key: &ReceiptKey, outcome: ReceiptOutcome) {
         let state = match outcome {
             ReceiptOutcome::Accepted => "accepted",
-            ReceiptOutcome::Retryable => "failed",
             ReceiptOutcome::Rejected => "rejected",
         };
         self.rows.insert(
-            (key.signer.clone(), key.activity_id.clone()),
+            (
+                key.signer.clone(),
+                key.activity_id.clone(),
+                key.inbox_scope.clone(),
+            ),
             (key.body_digest.clone(), state),
         );
     }
@@ -286,8 +253,12 @@ impl ReceiptModel {
 mod tests {
     use super::*;
 
+    fn key_for_scope(id: &str, scope: &str, body: &[u8]) -> ReceiptKey {
+        receipt_key("https://A.example/users/alice/", id, scope, body)
+    }
+
     fn key(id: &str, body: &[u8]) -> ReceiptKey {
-        receipt_key("https://A.example/users/alice/", id, body)
+        key_for_scope(id, "user:1", body)
     }
 
     #[test]
@@ -305,6 +276,7 @@ mod tests {
         let mut model = ReceiptModel::default();
         let first = key("https://peer.example/a/2", b"one");
         assert!(matches!(model.claim(&first), ReceiptClaim::Execute(_)));
+        model.finish(&first, ReceiptOutcome::Accepted);
         let conflict = key("https://peer.example/a/2", b"two");
         assert!(matches!(
             model.claim(&conflict),
@@ -313,7 +285,7 @@ mod tests {
     }
 
     #[test]
-    fn rejection_is_not_accepted_and_retryable_failure_can_retry() {
+    fn rejection_is_not_accepted() {
         let mut model = ReceiptModel::default();
         let rejected = key("https://peer.example/a/3", b"bad");
         assert!(matches!(model.claim(&rejected), ReceiptClaim::Execute(_)));
@@ -322,11 +294,20 @@ mod tests {
             model.claim(&rejected),
             ReceiptClaim::Rejected { .. }
         ));
+    }
 
-        let retryable = key("https://peer.example/a/4", b"temporary");
-        assert!(matches!(model.claim(&retryable), ReceiptClaim::Execute(_)));
-        model.finish(&retryable, ReceiptOutcome::Retryable);
-        assert!(matches!(model.claim(&retryable), ReceiptClaim::Execute(_)));
+    #[test]
+    fn same_activity_delivered_to_different_local_inboxes_executes_per_scope() {
+        let mut model = ReceiptModel::default();
+        let alice = key_for_scope("https://peer.example/a/4", "user:1", b"public activity");
+        let bob = key_for_scope("https://peer.example/a/4", "user:2", b"public activity");
+
+        assert!(matches!(model.claim(&alice), ReceiptClaim::Execute(_)));
+        model.finish(&alice, ReceiptOutcome::Accepted);
+        assert!(matches!(model.claim(&bob), ReceiptClaim::Execute(_)));
+        model.finish(&bob, ReceiptOutcome::Accepted);
+        assert_eq!(model.claim(&alice), ReceiptClaim::AlreadyAccepted);
+        assert_eq!(model.claim(&bob), ReceiptClaim::AlreadyAccepted);
     }
 
     #[test]
@@ -338,8 +319,8 @@ mod tests {
             ReceiptClaim::Execute(_)
         ));
         before_restart.finish(&activity, ReceiptOutcome::Accepted);
-        // Reusing the durable model represents a fresh process with an empty
-        // in-memory replay cache.
+        // Reusing the durable model represents a fresh process reading the
+        // previously committed database row.
         assert_eq!(
             before_restart.claim(&activity),
             ReceiptClaim::AlreadyAccepted

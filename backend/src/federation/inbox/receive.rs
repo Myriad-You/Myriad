@@ -92,7 +92,7 @@ async fn claim_or_respond(
         .map_err(|e| inbox_err("inbox receipt claim failed", e))?
     {
         ReceiptClaim::Execute(_) => Ok(None),
-        ReceiptClaim::AlreadyAccepted | ReceiptClaim::InFlight => Ok(Some(StatusCode::ACCEPTED)),
+        ReceiptClaim::AlreadyAccepted => Ok(Some(StatusCode::ACCEPTED)),
         ReceiptClaim::Conflict { stored_digest } => Err(receipt_conflict(key, &stored_digest)),
         ReceiptClaim::Rejected { status, message } => {
             Err(receipt_rejected(status, message.as_deref()))
@@ -101,10 +101,9 @@ async fn claim_or_respond(
 }
 
 /// Complete the receipt and commit the same transaction that contains the
-/// handler's DB effects.  Callers that need a durable `failed` state may use
-/// `ReceiptOutcome::Retryable` after rolling back handler work to a savepoint;
-/// the HTTP paths instead roll back the whole transaction so a fresh request
-/// can claim the activity without retaining partial effects.
+/// handler's DB effects. Retryable failures roll back the whole transaction,
+/// including the uncommitted claim, so a fresh request can execute without
+/// retaining partial effects or a lease-recovery state machine.
 async fn finish_and_commit(
     txn: DatabaseTransaction,
     key: &ReceiptKey,
@@ -218,7 +217,8 @@ pub async fn post_inbox(
         username
     );
 
-    let key = receipt_key(&actor_url_str, activity_id, &body);
+    let inbox_scope = format!("user:{user_id}");
+    let key = receipt_key(&actor_url_str, activity_id, &inbox_scope, &body);
     let txn = db
         .begin()
         .await
@@ -464,7 +464,7 @@ pub async fn post_shared_inbox(
         None
     };
 
-    let key = receipt_key(&actor_url_str, activity_id, &body);
+    let key = receipt_key(&actor_url_str, activity_id, "shared", &body);
     let txn = db
         .begin()
         .await

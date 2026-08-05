@@ -1223,12 +1223,6 @@ pub(crate) fn tables() -> Vec<TableDef> {
             name: "federation_inbox_receipts".to_string(),
             columns: vec![
                 ColumnDef {
-                    name: "id".into(),
-                    data_type: "bigserial".into(),
-                    is_nullable: false,
-                    default_value: None,
-                },
-                ColumnDef {
                     name: "signer".into(),
                     data_type: "text".into(),
                     is_nullable: false,
@@ -1236,6 +1230,12 @@ pub(crate) fn tables() -> Vec<TableDef> {
                 },
                 ColumnDef {
                     name: "activity_id".into(),
+                    data_type: "text".into(),
+                    is_nullable: false,
+                    default_value: None,
+                },
+                ColumnDef {
+                    name: "inbox_scope".into(),
                     data_type: "text".into(),
                     is_nullable: false,
                     default_value: None,
@@ -1251,18 +1251,6 @@ pub(crate) fn tables() -> Vec<TableDef> {
                     data_type: "character varying(16)".into(),
                     is_nullable: false,
                     default_value: Some("'processing'".into()),
-                },
-                ColumnDef {
-                    name: "attempts".into(),
-                    data_type: "integer".into(),
-                    is_nullable: false,
-                    default_value: Some("1".into()),
-                },
-                ColumnDef {
-                    name: "lease_until".into(),
-                    data_type: "timestamp with time zone".into(),
-                    is_nullable: true,
-                    default_value: None,
                 },
                 ColumnDef {
                     name: "outcome_status".into(),
@@ -1283,13 +1271,7 @@ pub(crate) fn tables() -> Vec<TableDef> {
                     default_value: Some("now()".into()),
                 },
                 ColumnDef {
-                    name: "updated_at".into(),
-                    data_type: "timestamp with time zone".into(),
-                    is_nullable: false,
-                    default_value: Some("now()".into()),
-                },
-                ColumnDef {
-                    name: "accepted_at".into(),
+                    name: "completed_at".into(),
                     data_type: "timestamp with time zone".into(),
                     is_nullable: true,
                     default_value: None,

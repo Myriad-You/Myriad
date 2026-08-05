@@ -39,7 +39,8 @@
 - [x] **T07 — Federation Inbox 缺少跨进程幂等收据与原子提交边界：真实存在。**
   - 新增持久化 receipt claim/finish 状态机；业务 DB 写入、Accept/outbox 与 receipt 结果同一事务提交。
   - 摘要冲突、重复投递、失败重试均有明确语义；仍依赖远程 HTTP/文件系统副作用的 Move/FileChunk 暂时返回 503，避免伪装成功。
-  - 负向测试覆盖 identity 冲突、digest 冲突、lease/failed retry 和永久拒绝。
+  - 恢复条件：Move 将远程文档校验拆为有界 preflight、事务内只保留 DB 效果；FileChunk 使用内容寻址暂存 + 事务化 finalize outbox（或 DB 内同事务存储），并覆盖崩溃恢复。
+  - 负向测试覆盖 identity/digest 冲突、多本地 inbox 作用域、重试回滚和永久拒绝。
 
 - [x] **T08 — ActivityPub collection/object 链接广告了不可解引用资源：真实存在。**
   - followers/following 不再发布虚假的 `first`；outbox、activity 与对象解引用共享公开投影。

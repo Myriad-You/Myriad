@@ -42,6 +42,8 @@ fn test_recent_month_features_in_expected_schema() {
         "federation_policy_settings",
         "federation_domain_aliases",
         "federation_object_interactions",
+        // 012
+        "federation_inbox_receipts",
     ] {
         assert!(
             names.contains(&required),
@@ -94,6 +96,7 @@ fn test_recent_month_features_in_expected_schema() {
         "idx_federation_domain_aliases_new",
         "idx_fed_interactions_object_kind",
         "idx_fed_interactions_user_kind_created",
+        "federation_inbox_receipts_pkey",
     ] {
         assert!(
             idx_names.contains(&required),
