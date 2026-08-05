@@ -30,12 +30,15 @@ tower-http = { version = "0.7", features = [
 http-body-util = "0.1"
 
 # Database
-sea-orm = { version = "2.0", features = [
+sea-orm = { version = "2.0", default-features = false, features = [
     "sqlx-postgres",
     "runtime-tokio-rustls",
     "macros",
 ] }
-sea-orm-migration = "2.0"
+sea-orm-migration = { version = "2.0", default-features = false, features = [
+    "sqlx-postgres",
+    "runtime-tokio-rustls",
+] }
 
 # Local migrations module
 migration = { path = "migrations" }

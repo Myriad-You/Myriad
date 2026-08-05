@@ -16,4 +16,12 @@ ignore = [
     # No fixed crate release; pulled transitively (e.g. jsonwebtoken). Track upstream
     # rsa/jsonwebtoken for a fix; re-evaluate when a patched rsa ships.
     "RUSTSEC-2023-0071",
+    # RUSTSEC-2026-0235 — rkyv 0.7 archive validation. rkyv is only an
+    # inactive optional dependency recorded through
+    # sea-orm-migration -> sea-orm -> rust_decimal; `cargo tree -i rkyv`
+    # is empty and CI fails if that changes. SeaORM 2.0.1 unconditionally
+    # enables sea-orm defaults, so there is no upstream-compatible lockfile
+    # upgrade to rkyv >=0.8.17. Revisit when SeaORM/rust_decimal removes or
+    # upgrades the optional rkyv 0.7 dependency.
+    "RUSTSEC-2026-0235",
 ]

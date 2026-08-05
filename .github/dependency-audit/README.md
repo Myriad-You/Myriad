@@ -30,6 +30,13 @@ Add `RUSTSEC-…` IDs under `[advisories].ignore` **with a comment** explaining:
 `cargo-audit` auto-loads `.cargo/audit.toml` from the workspace (and parent
 trees when auditing nested packages like `updater/`).
 
+#### Current Cargo exceptions
+
+| RUSTSEC | Package | Reason |
+| --- | --- | --- |
+| `RUSTSEC-2023-0071` | `rsa` | Medium timing side channel with no fixed release; track `rsa` / `jsonwebtoken`. |
+| `RUSTSEC-2026-0235` | `rkyv` | Inactive optional dependency recorded through SeaORM's `rust_decimal` defaults. CI proves `rkyv` is absent from the resolved feature graph; revisit when SeaORM / `rust_decimal` can use `rkyv` >= 0.8.17 or remove it. |
+
 ### Frontend (`frontend/package.json`)
 
 1. Prefer **`pnpm.overrides`** to pull patched transitive versions when safe.
@@ -48,6 +55,10 @@ trees when auditing nested packages like `updater/`).
 # Rust (uses .cargo/audit.toml automatically)
 cargo audit
 (cd updater && cargo audit)
+
+# This must print no reverse-dependency tree. CI enforces the same boundary
+# before accepting the RUSTSEC-2026-0235 exception.
+cargo tree -i rkyv --target all --locked
 
 # Frontend
 (cd frontend && pnpm audit --audit-level high)

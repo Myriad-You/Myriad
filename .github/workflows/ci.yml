@@ -175,6 +175,14 @@ jobs:
       - name: Verify updater lockfile
         working-directory: updater
         run: cargo metadata --locked --no-deps --format-version 1
+      - name: Prove allowlisted rkyv advisory is unreachable
+        run: |
+          rkyv_tree="$(cargo tree -i rkyv --target all --locked 2>/dev/null)"
+          if [ -n "$rkyv_tree" ]; then
+            printf '%s\n' "$rkyv_tree" >&2
+            echo 'rkyv became active; remove the RUSTSEC-2026-0235 exception and upgrade it' >&2
+            exit 1
+          fi
       # MYR-027: hard-fail on unignored *vulnerabilities*; soft-report warnings
       # (unmaintained/unsound/yanked). Allowlist: .cargo/audit.toml.
       # Soft steps keep continue-on-error; hard steps do not.

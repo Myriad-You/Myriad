@@ -9,10 +9,14 @@ name = "migration"
 path = "lib.rs"
 
 [dependencies]
-sea-orm-migration = "2.0"
+sea-orm-migration = { version = "2.0", default-features = false, features = [
+  "sqlx-postgres",
+  "runtime-tokio-rustls",
+] }
 
 [dependencies.sea-orm]
 version = "2.0"
+default-features = false
 features = [
   "sqlx-postgres",
   "runtime-tokio-rustls",
