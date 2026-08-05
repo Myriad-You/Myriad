@@ -1,9 +1,9 @@
 import type { SettingGuidesCatalog } from './types'
-import { AI_PROVIDER_GUIDE_ORDER } from './catalog.aiProviders.order'
 import {
-  aiProvidersQuickAccessEn,
   aiProvidersEn,
+  aiProvidersQuickAccessEn,
 } from './catalog.aiProviders.en'
+import { AI_PROVIDER_GUIDE_ORDER } from './catalog.aiProviders.order'
 
 /**
  * English setting guides (plain language + what connects to what)

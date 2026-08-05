@@ -6,14 +6,15 @@
 
 import type { PermissionLevel, TappInstance } from '../../../types'
 
+import type { OpenUrlRequest } from '../../../utils/openUrlAllowlist'
 import type { TappBridge } from '../../TappBridge'
 import type { TappNotificationOptions } from '../types'
 import * as TappApiService from '../../../services/TappApiService'
 import {
   listOpenUrlDeclarations,
   OpenUrlRateLimiter,
+
   resolveOpenUrl,
-  type OpenUrlRequest,
 } from '../../../utils/openUrlAllowlist'
 import { emitTappStorageChange } from '../../WidgetRuntimeSignals'
 import { sanitizeStorageValue, validateStorageKey } from '../security'

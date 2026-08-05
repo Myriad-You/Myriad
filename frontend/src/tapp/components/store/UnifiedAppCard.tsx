@@ -5,11 +5,11 @@ import type { UnifiedAppItem } from './types'
 import { forwardRef, useEffect, useMemo, useState } from 'react'
 import { Spinner } from '../../../components/Spinner'
 import { useI18n } from '../../../contexts/I18nContext'
+import { formatDownloadCount } from '../../utils/formatDownloadCount'
 import {
   compareVersions,
   packageProgressLabel,
 } from '../../utils/tappStoreHelpers'
-import { formatDownloadCount } from '../../utils/formatDownloadCount'
 import { TappIconBadge } from '../TappIconBadge'
 import {
   getAppIconStyle,
@@ -26,12 +26,10 @@ let subtitleIntervalId: ReturnType<typeof setInterval> | null = null
 
 function subscribeSubtitleTick(listener: () => void): () => void {
   subtitleListeners.add(listener)
-  if (subtitleIntervalId == null) {
-    subtitleIntervalId = setInterval(() => {
+  subtitleIntervalId ??= setInterval(() => {
       subtitleTick += 1
       for (const fn of subtitleListeners) fn()
     }, SUBTITLE_ROTATE_MS)
-  }
   return () => {
     subtitleListeners.delete(listener)
     if (subtitleListeners.size === 0 && subtitleIntervalId != null) {

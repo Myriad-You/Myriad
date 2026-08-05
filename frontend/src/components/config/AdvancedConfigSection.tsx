@@ -416,7 +416,7 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
       {/* MCP 工具服务器（admin；配置在服务器 mcp_servers.json） */}
       <McpConfigPanel onMessage={onMessage} />
 
-      {/* 内存节约：收紧并发预算 / 缓存 / 连接池（~1 GiB 主机） */}
+      {/* 内存节约：收紧并发预算 / 缓存 / 连接池（~1 GiB 主机） */}
       <SettingGroup
         title={t.config.memorySaverGroup}
         description={t.config.memorySaverGroupDesc}

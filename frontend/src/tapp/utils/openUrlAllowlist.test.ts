@@ -1,11 +1,12 @@
+import type { OpenUrlDeclaration } from './openUrlAllowlist.ts'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   isAllowedOpenUrlTarget,
   listOpenUrlDeclarations,
+
   OpenUrlRateLimiter,
   resolveOpenUrl,
-  type OpenUrlDeclaration,
 } from './openUrlAllowlist.ts'
 
 const docs: OpenUrlDeclaration = {

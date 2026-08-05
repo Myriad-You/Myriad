@@ -13,6 +13,7 @@ import { useI18n } from '../../../contexts/I18nContext'
 import { sanitizeUrl } from '../../../utils/inputSanitizer'
 import { PERMISSION_CONFIG } from '../../constants/permissions'
 import { RemoteStoreService } from '../../services/RemoteStoreService'
+import { formatDownloadCount } from '../../utils/formatDownloadCount'
 import { buildSanitizedTappPreview } from '../../utils/sanitizeTappPreview'
 import { TAPP_CATEGORY_I18N_KEYS } from '../../utils/tappCategories'
 import {
@@ -20,7 +21,6 @@ import {
   formatSize,
   packageProgressLabel,
 } from '../../utils/tappStoreHelpers'
-import { formatDownloadCount } from '../../utils/formatDownloadCount'
 import { getPreviewCanvas } from '../../utils/tappStorePreview'
 import { TappIconBadge } from '../TappIconBadge'
 import {

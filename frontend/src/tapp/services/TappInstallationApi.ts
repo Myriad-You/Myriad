@@ -657,7 +657,7 @@ async function installFromStoreViaClient(
   // Client-fallback path only — backend store installs beacon server-side.
   try {
     const { reportStoreInstallHit, clearStoreStatsCache } = await import(
-      './storeStats'
+      './storeStats',
     )
     reportStoreInstallHit({
       appId: pkg.manifest.id,
@@ -851,7 +851,7 @@ async function updateFromStoreViaClient(
 
   try {
     const { reportStoreInstallHit, clearStoreStatsCache } = await import(
-      './storeStats'
+      './storeStats',
     )
     reportStoreInstallHit({
       appId: pkg.manifest.id,

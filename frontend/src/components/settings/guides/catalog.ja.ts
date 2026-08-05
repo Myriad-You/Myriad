@@ -1,9 +1,9 @@
 import type { SettingGuidesCatalog } from './types'
-import { AI_PROVIDER_GUIDE_ORDER } from './catalog.aiProviders.order'
 import {
-  aiProvidersQuickAccessJa,
   aiProvidersJa,
+  aiProvidersQuickAccessJa,
 } from './catalog.aiProviders.ja'
+import { AI_PROVIDER_GUIDE_ORDER } from './catalog.aiProviders.order'
 
 /**
  * 日本語オプションガイド（平易な言い回し + つながり）

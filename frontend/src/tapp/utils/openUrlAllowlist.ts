@@ -40,7 +40,7 @@ function isLoopbackHost(hostname: string): boolean {
 /** Strict target URL rules for declaration and resolved open. */
 export function isAllowedOpenUrlTarget(raw: string): boolean {
   if (!raw || raw.length > MAX_URL_LEN) return false
-  if (/[\s\u0000-\u001f\u007f]/.test(raw)) return false
+  if (/[\s\u0000-\u001F\u007F]/.test(raw)) return false
   let u: URL
   try {
     u = new URL(raw)
@@ -81,7 +81,7 @@ function pathHasTraversal(pathname: string): boolean {
 function looksLikeAbsoluteUrl(path: string): boolean {
   // scheme: or //host
   if (path.startsWith('//')) return true
-  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(path)) return true
+  if (/^[a-z][a-z0-9+.-]*:/i.test(path)) return true
   return false
 }
 
@@ -91,11 +91,11 @@ function applyQuery(url: URL, query: Record<string, string> | undefined): string
   if (keys.length > MAX_QUERY_KEYS) return 'Too many query parameters'
   for (const key of keys) {
     if (!key || key.length > 128) return 'Invalid query key'
-    if (!/^[A-Za-z0-9._~-]+$/.test(key)) return 'Invalid query key characters'
+    if (!/^[\w.~-]+$/.test(key)) return 'Invalid query key characters'
     const value = query[key]
     if (typeof value !== 'string') return 'Query values must be strings'
     if (value.length > MAX_QUERY_VALUE_LEN) return 'Query value too long'
-    if (/[\u0000-\u001f\u007f]/.test(value)) return 'Query value has control characters'
+    if (/[\u0000-\u001F\u007F]/.test(value)) return 'Query value has control characters'
     url.searchParams.set(key, value)
   }
   return null
@@ -172,7 +172,7 @@ export function resolveOpenUrl(
     if (path.length > 1024) {
       return { ok: false, error: 'openUrl path is too long' }
     }
-    if (path.includes('\\') || /[\u0000-\u001f\u007f]/.test(path)) {
+    if (path.includes('\\') || /[\u0000-\u001F\u007F]/.test(path)) {
       return { ok: false, error: 'openUrl path has invalid characters' }
     }
     if (looksLikeAbsoluteUrl(path)) {

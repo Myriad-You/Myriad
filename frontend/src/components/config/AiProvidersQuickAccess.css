@@ -40,8 +40,7 @@
 }
 
 .setting-title-guide-float.ai-providers-quick-access-float .setting-title-guide-body {
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: hidden auto;
   padding: 0.85rem 1rem 1rem;
   padding-right: 2.25rem; /* 给关闭钮留空 */
 }
