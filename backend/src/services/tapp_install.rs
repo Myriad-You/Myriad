@@ -457,14 +457,15 @@ mod tests {
 
     #[test]
     fn install_path_pair_joins_manifest_and_main() {
-        let paths = install_path_pair(Path::new("/data/tapps/1/com.example.app"), "src/main.js");
+        let root = Path::new("/data/tapps/1/com.example.app");
+        let paths = install_path_pair(root, "src/main.js");
         assert_eq!(
             paths.file_path,
-            "/data/tapps/1/com.example.app/manifest.json"
+            root.join(MANIFEST_JSON).to_string_lossy()
         );
         assert_eq!(
             paths.code_path,
-            "/data/tapps/1/com.example.app/src/main.js"
+            root.join("src/main.js").to_string_lossy()
         );
     }
 
@@ -484,11 +485,9 @@ mod tests {
         assert_eq!(snap.user_id, 7);
         assert_eq!(snap.version, "1.2.3");
         assert!(snap.start_running);
-        assert_eq!(
-            snap.file_path,
-            "/data/tapps/7/com.example.app/manifest.json"
-        );
-        assert_eq!(snap.code_path, "/data/tapps/7/com.example.app/src/main.js");
+        let root = Path::new("/data/tapps/7/com.example.app");
+        assert_eq!(snap.file_path, root.join(MANIFEST_JSON).to_string_lossy());
+        assert_eq!(snap.code_path, root.join("src/main.js").to_string_lossy());
         assert_eq!(snap.installed_at, now);
         assert_eq!(snap.last_run_at, now);
         assert_eq!(snap.granted_permissions, json!(["storage"]));
@@ -509,7 +508,9 @@ mod tests {
         assert_eq!(snap.version, "1.2.3");
         assert_eq!(
             snap.code_path,
-            "/data/tapps/1/com.example.app/src/main.js"
+            Path::new("/data/tapps/1/com.example.app")
+                .join("src/main.js")
+                .to_string_lossy()
         );
         assert_eq!(snap.updated_at, now);
         assert_eq!(snap.approved_permissions, json!(["storage"]));
