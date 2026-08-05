@@ -108,19 +108,50 @@ struct AuthCacheEntry {
 #[derive(Debug, Default)]
 struct AuthCache {
     entries: HashMap<i32, AuthCacheEntry>,
+    /// Monotonic process-local invalidation fence. A global fence keeps the
+    /// metadata bounded; unrelated invalidations may conservatively skip one
+    /// cache fill but can never resurrect a stale authorization snapshot.
+    generation: u64,
 }
 
 static AUTH_CACHE: OnceLock<StdMutex<AuthCache>> = OnceLock::new();
-static AUTH_CACHE_INFLIGHT: OnceLock<AsyncMutex<HashMap<i32, Arc<watch::Sender<()>>>>> =
+static AUTH_CACHE_INFLIGHT: OnceLock<StdMutex<HashMap<i32, Arc<watch::Sender<()>>>>> =
     OnceLock::new();
 static AUTH_CACHE_LISTENER_STARTED: OnceLock<AsyncMutex<bool>> = OnceLock::new();
+
+struct AuthLoadOwner {
+    user_id: i32,
+    sender: Arc<watch::Sender<()>>,
+}
+
+impl Drop for AuthLoadOwner {
+    fn drop(&mut self) {
+        let sender = {
+            let mut in_flight = auth_cache_inflight()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let owns_slot = in_flight
+                .get(&self.user_id)
+                .is_some_and(|current| Arc::ptr_eq(current, &self.sender));
+            owns_slot.then(|| in_flight.remove(&self.user_id)).flatten()
+        };
+        if let Some(sender) = sender {
+            let _ = sender.send(());
+        }
+    }
+}
+
+enum AuthLoadSlot {
+    Owner(AuthLoadOwner),
+    Waiter(watch::Receiver<()>),
+}
 
 fn auth_cache() -> &'static StdMutex<AuthCache> {
     AUTH_CACHE.get_or_init(|| StdMutex::new(AuthCache::default()))
 }
 
-fn auth_cache_inflight() -> &'static AsyncMutex<HashMap<i32, Arc<watch::Sender<()>>>> {
-    AUTH_CACHE_INFLIGHT.get_or_init(|| AsyncMutex::new(HashMap::new()))
+fn auth_cache_inflight() -> &'static StdMutex<HashMap<i32, Arc<watch::Sender<()>>>> {
+    AUTH_CACHE_INFLIGHT.get_or_init(|| StdMutex::new(HashMap::new()))
 }
 
 fn auth_cache_listener_started() -> &'static AsyncMutex<bool> {
@@ -154,6 +185,10 @@ fn auth_cache_put(user_id: i32, snapshot: Option<AuthSnapshot>) {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     };
+    insert_auth_cache_entry(&mut guard, user_id, snapshot);
+}
+
+fn insert_auth_cache_entry(guard: &mut AuthCache, user_id: i32, snapshot: Option<AuthSnapshot>) {
     let now = Instant::now();
     if !guard.entries.contains_key(&user_id) && guard.entries.len() >= AUTH_CACHE_CAPACITY {
         if let Some((&oldest_id, _)) = guard
@@ -174,6 +209,45 @@ fn auth_cache_put(user_id: i32, snapshot: Option<AuthSnapshot>) {
     );
 }
 
+fn auth_cache_generation() -> u64 {
+    let guard = auth_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard.generation
+}
+
+/// Fill a miss only if no local or cross-instance invalidation happened since
+/// the database load began. The generation comparison and insert share the
+/// same lock as invalidation, closing the check-then-put race.
+fn auth_cache_put_if_generation(
+    user_id: i32,
+    snapshot: Option<AuthSnapshot>,
+    expected_generation: u64,
+) -> bool {
+    let mut guard = auth_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if guard.generation != expected_generation {
+        return false;
+    }
+    insert_auth_cache_entry(&mut guard, user_id, snapshot);
+    true
+}
+
+fn claim_auth_load_slot(user_id: i32) -> AuthLoadSlot {
+    let mut in_flight = auth_cache_inflight()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(sender) = in_flight.get(&user_id) {
+        return AuthLoadSlot::Waiter(sender.subscribe());
+    }
+
+    let (sender, _receiver) = watch::channel(());
+    let sender = Arc::new(sender);
+    in_flight.insert(user_id, Arc::clone(&sender));
+    AuthLoadSlot::Owner(AuthLoadOwner { user_id, sender })
+}
+
 /// Drop one user's snapshot in this process.  This is intentionally separate
 /// from [`notify_auth_cache_invalidation`] so failed NOTIFY does not leave a
 /// stale local authorization decision behind.
@@ -185,6 +259,7 @@ pub fn invalidate_auth_cache_local(user_id: i32) {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     };
+    guard.generation = guard.generation.wrapping_add(1);
     guard.entries.remove(&user_id);
 }
 
@@ -475,27 +550,16 @@ async fn load_auth_snapshot(
 
         // Only one request per user performs the miss query. Other concurrent
         // requests wait for that result, then take the now-populated cache hit.
-        let (mut waiter, owner) = {
-            let mut in_flight = auth_cache_inflight().lock().await;
-            match in_flight.get(&user_id) {
-                Some(sender) => (Some(sender.subscribe()), false),
-                None => {
-                    let (sender, _receiver) = watch::channel(());
-                    in_flight.insert(user_id, Arc::new(sender));
-                    (None, true)
-                }
-            }
-        };
-
-        if !owner {
-            // The watch version is retained even if the owner completes
-            // between releasing the map lock and awaiting here; this avoids a
-            // lost-wakeup race under a burst of identical first requests.
-            if let Some(ref mut receiver) = waiter {
+        let owner = match claim_auth_load_slot(user_id) {
+            AuthLoadSlot::Waiter(mut receiver) => {
+                // The watch version is retained even if the owner completes
+                // before this await, avoiding a lost wakeup under a burst.
                 let _ = receiver.changed().await;
+                continue;
             }
-            continue;
-        }
+            AuthLoadSlot::Owner(owner) => owner,
+        };
+        let load_generation = auth_cache_generation();
 
         let result = db
             .query_one_raw(Statement::from_sql_and_values(
@@ -521,13 +585,12 @@ async fn load_auth_snapshot(
             });
 
         if let Ok(snapshot) = &result {
-            auth_cache_put(user_id, *snapshot);
+            let _ = auth_cache_put_if_generation(user_id, *snapshot, load_generation);
         }
 
-        let sender = auth_cache_inflight().lock().await.remove(&user_id);
-        if let Some(sender) = sender {
-            let _ = sender.send(());
-        }
+        // The owner guard is held across the database await. Its Drop always
+        // clears the slot and wakes waiters, including on task abort or panic.
+        drop(owner);
         return result;
     }
 }
@@ -969,10 +1032,12 @@ pub fn extract_optional_claims(headers: &HeaderMap) -> Option<Claims> {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_current_roles, auth_cache_get, auth_cache_put, encode_session_token,
+        apply_current_roles, auth_cache_generation, auth_cache_get, auth_cache_put,
+        auth_cache_put_if_generation, claim_auth_load_slot, encode_session_token,
         extract_optional_claims, guest_id, invalidate_auth_cache_local, mint_session_claims,
         session_epoch_matches, sign_guest_session, verify_guest_session, verify_jwt_token,
-        AuthSnapshot, AUTH_CACHE_CAPACITY, AUTH_CACHE_TTL, AUTH_COOKIE_MAX_AGE_SECS, JWT_TTL_DAYS,
+        AuthLoadSlot, AuthSnapshot, AUTH_CACHE_CAPACITY, AUTH_CACHE_TTL, AUTH_COOKIE_MAX_AGE_SECS,
+        JWT_TTL_DAYS,
     };
     use axum::http::{header, HeaderMap, HeaderValue};
     use std::sync::{Mutex, Once, OnceLock};
@@ -1129,6 +1194,11 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         guard.entries.clear();
+        guard.generation = 0;
+        super::auth_cache_inflight()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clear();
     }
 
     fn auth_cache_test_guard() -> std::sync::MutexGuard<'static, ()> {
@@ -1175,6 +1245,58 @@ mod tests {
         assert_eq!(auth_cache_get(102), None);
         assert!(!session_epoch_matches(0, None));
         assert!(!session_epoch_matches(0, Some(1)));
+    }
+
+    #[test]
+    fn auth_cache_invalidation_fences_an_older_miss_result() {
+        let _test_guard = auth_cache_test_guard();
+        clear_auth_cache_for_test();
+        let generation = auth_cache_generation();
+
+        invalidate_auth_cache_local(104);
+        assert!(!auth_cache_put_if_generation(
+            104,
+            Some(AuthSnapshot {
+                token_version: 0,
+                is_admin: true,
+                is_owner: true,
+            }),
+            generation,
+        ));
+        assert_eq!(auth_cache_get(104), None);
+    }
+
+    #[test]
+    fn auth_single_flight_owner_drop_wakes_waiter_and_releases_slot() {
+        let _test_guard = auth_cache_test_guard();
+        clear_auth_cache_for_test();
+
+        let owner = match claim_auth_load_slot(105) {
+            AuthLoadSlot::Owner(owner) => owner,
+            AuthLoadSlot::Waiter(_) => panic!("first claimant must own the load slot"),
+        };
+        let mut waiter = match claim_auth_load_slot(105) {
+            AuthLoadSlot::Waiter(waiter) => waiter,
+            AuthLoadSlot::Owner(_) => panic!("second claimant must wait"),
+        };
+
+        // Models cancellation: dropping the owner future drops this guard.
+        drop(owner);
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .expect("build cancellation test runtime");
+        let _ = runtime
+            .block_on(async {
+                tokio::time::timeout(Duration::from_millis(100), waiter.changed()).await
+            })
+            .expect("owner cancellation must not strand waiters");
+
+        let replacement = match claim_auth_load_slot(105) {
+            AuthLoadSlot::Owner(owner) => owner,
+            AuthLoadSlot::Waiter(_) => panic!("cancelled owner slot must be reusable"),
+        };
+        drop(replacement);
     }
 
     #[test]
