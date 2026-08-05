@@ -269,7 +269,7 @@ async fn migrations_leave_no_schema_drift() {
         drift.summary()
     );
 
-    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, TransactionTrait};
     let invalid = db
         .execute_raw(Statement::from_string(
             DatabaseBackend::Postgres,
@@ -286,6 +286,103 @@ VALUES
         invalid.is_err(),
         "tapp_storage must reject encrypted payloads outside _credentials.*"
     );
+
+    // A review deployment may already have recorded the short-lived first
+    // 012 migration while retaining its scope-less table. Rewriting 012 would
+    // never run for that database, so 013 must repair the persisted shape.
+    db.execute_unprepared(
+        r#"
+DROP TABLE federation_inbox_receipts;
+CREATE TABLE federation_inbox_receipts (
+    id BIGSERIAL PRIMARY KEY,
+    signer TEXT NOT NULL,
+    activity_id TEXT NOT NULL,
+    body_digest CHAR(64) NOT NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'processing',
+    attempts INTEGER NOT NULL DEFAULT 1,
+    lease_until TIMESTAMPTZ,
+    outcome_status SMALLINT,
+    error_message TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    accepted_at TIMESTAMPTZ,
+    CONSTRAINT federation_inbox_receipts_identity_unique UNIQUE (signer, activity_id)
+);
+DELETE FROM seaql_migrations
+WHERE version = '013_federation_inbox_receipts_v2';
+"#,
+    )
+    .await
+    .expect("create the legacy receipt shape and rewind only migration 013");
+
+    crate::db::Migrator::up(&db, None)
+        .await
+        .expect("013 must upgrade a database that already recorded old 012");
+    let upgraded_drift = report_schema_drift(&db)
+        .await
+        .expect("upgraded receipt schema drift report must succeed");
+    assert!(
+        upgraded_drift.is_empty(),
+        "legacy receipt upgrade must restore the authoritative schema:\n{}",
+        upgraded_drift.summary()
+    );
+
+    let legacy_column_count = db
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            r#"SELECT COUNT(*)::BIGINT AS count
+               FROM information_schema.columns
+               WHERE table_schema = current_schema()
+                 AND table_name = 'federation_inbox_receipts'
+                 AND column_name IN ('id', 'attempts', 'lease_until', 'updated_at', 'accepted_at')"#
+                .to_string(),
+        ))
+        .await
+        .expect("inspect upgraded receipt columns")
+        .expect("column count row");
+    assert_eq!(
+        legacy_column_count
+            .try_get::<i64>("", "count")
+            .expect("read legacy receipt column count"),
+        0,
+        "013 must remove every column unique to the scope-less receipt shape"
+    );
+
+    // Permanent handler rejection must preserve the claimed receipt while
+    // removing every DB effect performed after the handler savepoint.
+    let txn = db.begin().await.expect("begin receipt savepoint probe");
+    txn.execute_unprepared(
+        "CREATE TEMP TABLE receipt_savepoint_probe (value INTEGER) ON COMMIT DROP",
+    )
+    .await
+    .expect("create receipt savepoint probe table");
+    crate::federation::inbox::begin_receipt_handler_effects(&txn)
+        .await
+        .expect("create handler savepoint");
+    txn.execute_unprepared("INSERT INTO receipt_savepoint_probe (value) VALUES (1)")
+        .await
+        .expect("write simulated handler side effect");
+    crate::federation::inbox::rollback_receipt_handler_effects(&txn)
+        .await
+        .expect("rollback simulated rejected-handler effects");
+    let remaining = txn
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT COUNT(*)::BIGINT AS count FROM receipt_savepoint_probe".to_string(),
+        ))
+        .await
+        .expect("query receipt savepoint probe")
+        .expect("receipt savepoint count row");
+    assert_eq!(
+        remaining
+            .try_get::<i64>("", "count")
+            .expect("read receipt savepoint count"),
+        0,
+        "permanent rejection must not commit handler writes"
+    );
+    txn.rollback()
+        .await
+        .expect("rollback receipt savepoint probe");
 }
 
 #[tokio::test]

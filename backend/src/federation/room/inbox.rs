@@ -728,6 +728,13 @@ pub async fn handle_room_join(
     .map_err(|e| e.to_string())?;
     let role = effective_role.as_str();
 
+    // Queue required KeyExchange deliveries before emitting any best-effort
+    // realtime notification. A missing remote inbox is retryable and must
+    // roll back the membership write under the caller's receipt transaction.
+    if was_pending || is_new {
+        refanout_local_e2e_keys_to_member(db, room_id, joining).await?;
+    }
+
     crate::federation::ws_gateway::broadcast_to_room(
         room_id,
         &json!({
@@ -744,16 +751,6 @@ pub async fn handle_room_join(
     // Notify local inviter / owner when a pending invite is accepted
     if was_pending || is_new {
         notify_local_members_of_join(db, room_id, joining).await;
-        // Alignment: pending invitees were skipped by KeyExchange fan-out (active-only).
-        // When they become active, push any locally published E2E keys so they can decrypt.
-        if let Err(e) = refanout_local_e2e_keys_to_member(db, room_id, joining).await {
-            tracing::warn!(
-                "[Room] E2E key re-fanout to new member {} in {} failed: {}",
-                joining,
-                room_id,
-                e
-            );
-        }
     }
 
     tracing::info!(
@@ -774,7 +771,7 @@ pub(crate) async fn refanout_local_e2e_keys_to_member(
     target_actor: &str,
 ) -> Result<(), String> {
     if target_actor.is_empty() {
-        return Ok(());
+        return Err("RoomJoin KeyExchange target actor is empty".to_string());
     }
 
     let room_row = db
@@ -786,7 +783,9 @@ pub(crate) async fn refanout_local_e2e_keys_to_member(
         .await
         .map_err(|e| e.to_string())?;
     let Some(room_row) = room_row else {
-        return Ok(());
+        return Err(format!(
+            "Room {room_id} disappeared before KeyExchange fanout"
+        ));
     };
     let shared = room_row
         .try_get::<Option<serde_json::Value>>("", "shared_data_config")
@@ -814,17 +813,16 @@ pub(crate) async fn refanout_local_e2e_keys_to_member(
         ))
         .await
         .map_err(|e| e.to_string())?;
-    let Some(target) = target else {
-        // Do not perform remote HTTP actor fetches while an inbound receipt
-        // transaction is open.  The normal actor/discovery path can populate
-        // the cache before a later delivery retry.
-        return Ok(());
-    };
-    let inbox: String = target.try_get("", "inbox_url").unwrap_or_default();
-    let domain: String = target.try_get("", "domain").unwrap_or_default();
-    if inbox.is_empty() {
-        return Ok(());
-    }
+    let target = target.ok_or_else(|| {
+        format!("remote actor inbox unavailable for {target_actor}; retry actor discovery")
+    })?;
+    let inbox: String = target
+        .try_get("", "inbox_url")
+        .map_err(|e| format!("read remote actor inbox for {target_actor}: {e}"))?;
+    let domain: String = target
+        .try_get("", "domain")
+        .map_err(|e| format!("read remote actor domain for {target_actor}: {e}"))?;
+    let (inbox, domain) = require_remote_inbox(Some((inbox, domain)))?;
 
     // Local active members that own a published key
     let local_members = db
@@ -893,20 +891,26 @@ pub(crate) async fn refanout_local_e2e_keys_to_member(
             ))
             .await
             .map_err(|e| e.to_string())?;
-        if let Some(row) = act_row {
-            let act_id = row.try_get::<i32>("", "id").map_err(|e| e.to_string())?;
-            db.execute_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                r#"INSERT INTO federation_delivery_queue
+        let row = act_row.ok_or_else(|| {
+            format!("KeyExchange activity INSERT returned no id for {target_actor}")
+        })?;
+        let act_id = row.try_get::<i32>("", "id").map_err(|e| e.to_string())?;
+        if act_id <= 0 {
+            return Err(format!(
+                "KeyExchange activity INSERT returned non-positive id {act_id}"
+            ));
+        }
+        db.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"INSERT INTO federation_delivery_queue
                    (activity_id, target_inbox, target_domain, status, created_at)
                    VALUES ($1, $2, $3, 'pending', NOW())
                    ON CONFLICT (activity_id, target_inbox) DO NOTHING"#,
-                [act_id.into(), inbox.clone().into(), domain.clone().into()],
-            ))
-            .await
-            .map_err(|e| e.to_string())?;
-            sent += 1;
-        }
+            [act_id.into(), inbox.clone().into(), domain.clone().into()],
+        ))
+        .await
+        .map_err(|e| e.to_string())?;
+        sent += 1;
     }
 
     if sent > 0 {
@@ -918,6 +922,16 @@ pub(crate) async fn refanout_local_e2e_keys_to_member(
         );
     }
     Ok(())
+}
+
+pub(crate) fn require_remote_inbox(
+    target: Option<(String, String)>,
+) -> Result<(String, String), String> {
+    match target {
+        Some((inbox, domain)) if !inbox.trim().is_empty() => Ok((inbox, domain)),
+        Some(_) => Err("remote actor inbox is empty; retry actor discovery".to_string()),
+        None => Err("remote actor inbox is unavailable; retry actor discovery".to_string()),
+    }
 }
 
 /// Notify local users (inviter preferred, else owner) that someone joined/accepted.

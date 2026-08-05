@@ -24,6 +24,9 @@ mod retired_history;
 #[path = "012_federation_inbox_receipts.rs"]
 mod federation_inbox_receipts;
 
+#[path = "013_federation_inbox_receipts_v2.rs"]
+mod federation_inbox_receipts_v2;
+
 pub struct Migrator;
 
 #[async_trait::async_trait]
@@ -43,6 +46,7 @@ impl MigratorTrait for Migrator {
         // to rewrite `seaql_migrations` to make history appear valid.
         migrations.extend(retired_history::migrations());
         migrations.push(Box::new(federation_inbox_receipts::Migration));
+        migrations.push(Box::new(federation_inbox_receipts_v2::Migration));
         migrations
     }
 }
@@ -71,6 +75,10 @@ mod tests {
         assert!(
             unique.contains("012_federation_inbox_receipts"),
             "durable federation receipt migration must remain registered"
+        );
+        assert!(
+            unique.contains("013_federation_inbox_receipts_v2"),
+            "legacy receipt-shape repair must remain registered"
         );
     }
 }

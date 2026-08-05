@@ -63,12 +63,12 @@ pub fn receipt_key(signer: &str, activity_id: &str, inbox_scope: &str, body: &[u
     } else {
         activity_id
     };
-    let signer = normalize_actor_url(signer);
+    let normalized_signer = normalize_actor_url(signer);
     ReceiptKey {
-        signer: if signer.is_empty() {
+        signer: if normalized_signer.is_empty() {
             signer_from_opaque(signer)
         } else {
-            signer
+            normalized_signer
         },
         activity_id,
         inbox_scope: inbox_scope.trim().to_ascii_lowercase(),
@@ -76,7 +76,7 @@ pub fn receipt_key(signer: &str, activity_id: &str, inbox_scope: &str, body: &[u
     }
 }
 
-fn signer_from_opaque(raw: String) -> String {
+fn signer_from_opaque(raw: &str) -> String {
     raw.trim().to_ascii_lowercase()
 }
 
@@ -282,6 +282,12 @@ mod tests {
             model.claim(&conflict),
             ReceiptClaim::Conflict { .. }
         ));
+    }
+
+    #[test]
+    fn opaque_signer_fallback_uses_the_original_input() {
+        let key = receipt_key("  /  ", "opaque-activity", "user:1", b"body");
+        assert_eq!(key.signer, "/");
     }
 
     #[test]

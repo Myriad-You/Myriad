@@ -69,10 +69,83 @@ fn receipt_rejected(status: u16, message: Option<&str>) -> (StatusCode, Json<ser
     )
 }
 
+fn room_join_member_actor(
+    activity_type: &str,
+    actor_url: &str,
+    activity: &serde_json::Value,
+) -> Option<String> {
+    if activity_type != "myriad:RoomJoin" || activity.get("object").is_none() {
+        return None;
+    }
+    Some(
+        activity
+            .get("object")
+            .and_then(|object| object.get("member"))
+            .and_then(|member| member.as_str())
+            .filter(|member| !member.trim().is_empty())
+            .unwrap_or(actor_url)
+            .to_string(),
+    )
+}
+
+/// Resolve a remote RoomJoin member before opening the receipt transaction.
+/// KeyExchange fanout then uses only DB state and can roll back atomically with
+/// the membership write. Local-member spoof attempts are left to the handler's
+/// permanent authorization rejection and must not trigger an HTTP self-fetch.
+async fn preflight_room_join_member(
+    db: &DatabaseConnection,
+    activity_type: &str,
+    actor_url: &str,
+    activity: &serde_json::Value,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    let Some(joining) = room_join_member_actor(activity_type, actor_url, activity) else {
+        return Ok(());
+    };
+    let base_url = get_base_url().await;
+    if local_username_from_actor_url(&base_url, &joining).is_some() {
+        return Ok(());
+    }
+    fetch_remote_actor(db, &joining).await.map_err(|e| {
+        tracing::warn!(actor = %joining, error = %e, "Failed to preflight RoomJoin member");
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "error": "Cannot resolve RoomJoin member actor",
+                "retry": true
+            })),
+        )
+    })?;
+    Ok(())
+}
+
 /// 4xx handler results are deterministic peer/state failures and can be
 /// durably rejected.  429 and all 5xx results stay retryable.
 fn receipt_result_is_permanent(status: StatusCode) -> bool {
     status != StatusCode::TOO_MANY_REQUESTS && status.is_client_error()
+}
+
+const RECEIPT_HANDLER_SAVEPOINT: &str = "myriad_inbox_handler";
+
+/// Isolate handler effects from the already-claimed receipt. A permanent
+/// rejection rolls back to this point, then records only the rejected receipt.
+pub(crate) async fn begin_receipt_handler_effects(
+    txn: &DatabaseTransaction,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    txn.execute_unprepared(&format!("SAVEPOINT {RECEIPT_HANDLER_SAVEPOINT}"))
+        .await
+        .map_err(|e| inbox_err("create inbox handler savepoint", e.to_string()))?;
+    Ok(())
+}
+
+pub(crate) async fn rollback_receipt_handler_effects(
+    txn: &DatabaseTransaction,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    txn.execute_unprepared(&format!(
+        "ROLLBACK TO SAVEPOINT {RECEIPT_HANDLER_SAVEPOINT}"
+    ))
+    .await
+    .map_err(|e| inbox_err("rollback rejected inbox handler effects", e.to_string()))?;
+    Ok(())
 }
 
 async fn rollback_receipt_transaction(txn: DatabaseTransaction) {
@@ -209,6 +282,7 @@ pub async fn post_inbox(
     } else {
         None
     };
+    preflight_room_join_member(&db, &activity_type, &actor_url_str, &activity).await?;
 
     tracing::info!(
         "📬 Inbox received: type={}, actor={}, target_user={}",
@@ -234,6 +308,10 @@ pub async fn post_inbox(
             return Err(error);
         }
     }
+    if let Err(error) = begin_receipt_handler_effects(&txn).await {
+        rollback_receipt_transaction(txn).await;
+        return Err(error);
+    }
 
     let result = dispatch_personal_activity(
         &txn,
@@ -255,6 +333,10 @@ pub async fn post_inbox(
                 .and_then(|v| v.as_str())
                 .unwrap_or("permanent federation inbox rejection")
                 .to_string();
+            if let Err(error) = rollback_receipt_handler_effects(&txn).await {
+                rollback_receipt_transaction(txn).await;
+                return Err(error);
+            }
             finish_and_commit(txn, &key, ReceiptOutcome::Rejected, status, Some(&message))
                 .await
                 .and(Err((status, Json(body.0))))
@@ -463,6 +545,7 @@ pub async fn post_shared_inbox(
     } else {
         None
     };
+    preflight_room_join_member(&db, &activity_type, &actor_url_str, &activity).await?;
 
     let key = receipt_key(&actor_url_str, activity_id, "shared", &body);
     let txn = db
@@ -479,6 +562,10 @@ pub async fn post_shared_inbox(
             rollback_receipt_transaction(txn).await;
             return Err(error);
         }
+    }
+    if let Err(error) = begin_receipt_handler_effects(&txn).await {
+        rollback_receipt_transaction(txn).await;
+        return Err(error);
     }
 
     let result = dispatch_shared_activity(
@@ -500,6 +587,10 @@ pub async fn post_shared_inbox(
                 .and_then(|v| v.as_str())
                 .unwrap_or("permanent federation inbox rejection")
                 .to_string();
+            if let Err(error) = rollback_receipt_handler_effects(&txn).await {
+                rollback_receipt_transaction(txn).await;
+                return Err(error);
+            }
             finish_and_commit(txn, &key, ReceiptOutcome::Rejected, status, Some(&message))
                 .await
                 .and(Err((status, Json(body.0))))
@@ -2137,9 +2228,17 @@ async fn enqueue_delivery_queue(
         ))
         .await
         .map_err(db_err)?;
-    let act_id: i32 = act_row
-        .map(|r| r.try_get("", "id").unwrap_or(0))
-        .unwrap_or(0);
+    let act_row = act_row.ok_or_else(|| {
+        inbox_err(
+            "queue Accept activity failed",
+            "INSERT RETURNING id produced no row".to_string(),
+        )
+    })?;
+    let act_id = act_row
+        .try_get::<i32>("", "id")
+        .map_err(|e| inbox_err("read queued Accept activity id", e.to_string()))?;
+    let act_id = validate_delivery_activity_id(act_id)
+        .map_err(|e| inbox_err("validate queued Accept activity id", e))?;
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_delivery_queue
@@ -2151,6 +2250,16 @@ async fn enqueue_delivery_queue(
     .await
     .map_err(db_err)?;
     Ok(())
+}
+
+fn validate_delivery_activity_id(activity_id: i32) -> Result<i32, String> {
+    if activity_id > 0 {
+        Ok(activity_id)
+    } else {
+        Err(format!(
+            "federation activity INSERT returned non-positive id {activity_id}"
+        ))
+    }
 }
 
 /// If inbox is `{base}/users/{username}/inbox`, return username.
@@ -2448,6 +2557,35 @@ async fn handle_mfp_activity(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn delivery_queue_rejects_non_positive_activity_ids() {
+        assert!(super::validate_delivery_activity_id(0).is_err());
+        assert!(super::validate_delivery_activity_id(-1).is_err());
+        assert_eq!(super::validate_delivery_activity_id(1), Ok(1));
+    }
+
+    #[test]
+    fn room_join_preflight_targets_the_joining_member() {
+        let activity = serde_json::json!({
+            "type": "myriad:RoomJoin",
+            "actor": "https://owner.example/users/alice",
+            "object": {"member": "https://member.example/users/bob"}
+        });
+        assert_eq!(
+            super::room_join_member_actor(
+                "myriad:RoomJoin",
+                "https://owner.example/users/alice",
+                &activity,
+            )
+            .as_deref(),
+            Some("https://member.example/users/bob")
+        );
+        assert_eq!(
+            super::room_join_member_actor("Create", "https://owner.example/users/alice", &activity),
+            None
+        );
+    }
 
     /// 白名单与分派必须一一对应。
     ///

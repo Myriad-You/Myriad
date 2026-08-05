@@ -26,6 +26,7 @@ sea-orm-cli migrate generate create_new_table
 6. `006_oauth_identities` - OAuth/OIDC identity bindings
 7. Published `007`–`011` names - immutable no-op history entries retained for upgrade compatibility
 8. `012_federation_inbox_receipts` - Durable inbound federation idempotency receipts
+9. `013_federation_inbox_receipts_v2` - Upgrade the short-lived scope-less receipt table shape
 
 Base CREATE tables (001–006) include the current column set for greenfield installs.
 Thin ALTER-only migrations that only added columns or healed data remain registered

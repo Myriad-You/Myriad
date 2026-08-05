@@ -308,7 +308,9 @@ fn stickers_to_json_roundtrip_shape() {
 // signed instance that learned a room_id could add itself as `owner` and then
 // pass the admin check in handle_room_governance.
 
-use super::inbox::{room_join_authorized, room_join_effective_role, RoomJoinAuth};
+use super::inbox::{
+    require_remote_inbox, room_join_authorized, room_join_effective_role, RoomJoinAuth,
+};
 
 /// Builder defaulting to the hostile case: a stranger self-joining a closed room.
 fn join_auth(f: impl FnOnce(&mut RoomJoinAuth<'_>)) -> bool {
@@ -327,6 +329,19 @@ fn join_auth(f: impl FnOnce(&mut RoomJoinAuth<'_>)) -> bool {
 #[test]
 fn room_join_rejects_uninvited_stranger() {
     assert!(!join_auth(|_| {}));
+}
+
+#[test]
+fn room_join_key_fanout_requires_a_remote_inbox() {
+    assert!(require_remote_inbox(None).is_err());
+    assert!(require_remote_inbox(Some((String::new(), "peer.example".into()))).is_err());
+    assert_eq!(
+        require_remote_inbox(Some((
+            "https://peer.example/inbox".into(),
+            "peer.example".into(),
+        ))),
+        Ok(("https://peer.example/inbox".into(), "peer.example".into(),))
+    );
 }
 
 #[test]
