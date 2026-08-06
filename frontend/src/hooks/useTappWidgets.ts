@@ -16,6 +16,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react'
 import {
@@ -170,31 +171,69 @@ export function useTappWidgets(): {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // 挂载跟踪：卸载后停止后台重试，避免对已卸载组件 setState
+  // 用函数读取 current：TS 控制流窄化会把字面量比较后的属性类型收窄
+  // 成 true/false，导致后续比较报 TS2367（函数调用不会窄化）。
+  const mountedRef = useRef<boolean>(true)
+  const isMounted = (): boolean => mountedRef.current
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
   // 异步加载：等待 runtime 模块加载 + 同步完成后再读取
+  // 失败按指数退避重试（2s/5s/10s，共 4 次）：首次同步可能因后端 API
+  // 瞬时不可用/超时而失败；若失败后不重试，Tapp widget 类型会永久缺失，
+  // 已添加的小组件被 WidgetGrid 静默跳过（未知类型 return null），页面
+  // 表现为 widget "消失"，只能靠切 Tab 重挂载恢复（issue #72）。
   const loadWidgetsAsync = useCallback(async () => {
-    try {
-      setIsLoading(true)
-      const { getTappRuntime } = await loadTappRuntimeModule()
-      const runtime = getTappRuntime()
+    const MAX_ATTEMPTS = 4
+    const RETRY_DELAYS = [2000, 5000, 10000]
 
-      // 等待 runtime 同步完成
-      await runtime.waitForSync()
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      if (!isMounted()) return
+      try {
+        setIsLoading(true)
+        const { getTappRuntime } = await loadTappRuntimeModule()
+        const runtime = getTappRuntime()
 
-      const registeredWidgets = runtime.getRegisteredWidgets()
-      const widgetTypes = registeredWidgets.map((w) =>
-        createTappWidgetType(w, runtime),
-      )
-      // 有注册的 Tapp 小组件时提前预热组件模块，避免渲染时才拉 chunk
-      if (widgetTypes.length > 0) {
-        void import('../components/widgets/TappWidget').catch(() => {})
+        // 等待 runtime 同步完成
+        await runtime.waitForSync()
+
+        const registeredWidgets = runtime.getRegisteredWidgets()
+        const widgetTypes = registeredWidgets.map((w) =>
+          createTappWidgetType(w, runtime),
+        )
+        // 有注册的 Tapp 小组件时提前预热组件模块，避免渲染时才拉 chunk
+        if (widgetTypes.length > 0) {
+          void import('../components/widgets/TappWidget').catch(() => {})
+        }
+        if (!isMounted()) return
+        setTappWidgets(widgetTypes)
+        setError(null)
+        return
+      } catch (err) {
+        console.error(
+          `[useTappWidgets] Failed to load widgets (attempt ${attempt + 1}/${MAX_ATTEMPTS}):`,
+          err,
+        )
+        if (attempt === MAX_ATTEMPTS - 1) {
+          if (isMounted()) {
+            setError(
+              err instanceof Error ? err.message : 'Failed to load widgets',
+            )
+          }
+          return
+        }
+        // 指数退避后重试；卸载后由循环开头检查终止
+        await new Promise((resolve) =>
+          setTimeout(resolve, RETRY_DELAYS[attempt]),
+        )
+      } finally {
+        if (isMounted()) setIsLoading(false)
       }
-      setTappWidgets(widgetTypes)
-      setError(null)
-    } catch (err) {
-      console.error('[useTappWidgets] Failed to load widgets:', err)
-      setError(err instanceof Error ? err.message : 'Failed to load widgets')
-    } finally {
-      setIsLoading(false)
     }
   }, [])
 
