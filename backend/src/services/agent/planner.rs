@@ -139,45 +139,46 @@ impl Planner {
     }
 
     /// 构建系统 prompt
+    ///
+    /// **段落顺序按「跨请求是否稳定」排，不按叙事顺序排。** OpenAI 的自动 prompt
+    /// caching 和 Gemini 的 context caching 都是前缀匹配：前缀一旦出现差异，后面
+    /// 全部无法命中。此前当前时间戳排在第一段，意味着每分钟都会让整个 prompt 前缀
+    /// 失配，而最大的两块（能力索引 ~113 条 + 190 行规则）恰好排在最后，永远进不了
+    /// 缓存。
+    ///
+    /// 现在拆成两段拼接：
+    /// - `stable`：身份 / 用户偏好 / 协作团队 / 能力索引 / 规则——只在部署配置、
+    ///   Skill 注册表或 MCP 工具列表变化时才变
+    /// - `volatile`：环境（时间+语言）/ 记忆 / 教训 / 推荐 Skill / 执行记录 /
+    ///   升级上下文——每次请求都可能不同
+    ///
+    /// 副作用是语言指令移到了末尾，离模型的输出更近，指令跟随反而更稳。
     async fn build_system_prompt(
         &self,
         request: &UserRequest,
         language: super::intent::keywords::Language,
         escalation_hint: Option<&str>,
     ) -> String {
-        let mut sections: Vec<String> = Vec::new();
-
-        // 0. 环境上下文（时间、语言）
-        let now = chrono::Local::now();
-        let lang_instruction = match language {
-            super::intent::keywords::Language::Chinese => "请用中文回复。",
-            super::intent::keywords::Language::English => "Please respond in English.",
-            super::intent::keywords::Language::Japanese => "日本語で返信してください。",
-        };
-        sections.push(format!(
-            "## 环境\n当前时间：{}\n{}",
-            now.format("%Y-%m-%d %H:%M (%A)"),
-            lang_instruction
-        ));
+        let mut stable: Vec<String> = Vec::new();
+        let mut volatile: Vec<String> = Vec::new();
 
         // 1. 身份（全局 SOUL.md）
         let global_identity = identity::get_identity().await;
-        if let Some(ref id) = global_identity {
-            if let Some(role) = id.role_prompt() {
-                sections.push(format!("## 身份\n{}", role));
-            }
-        }
-        if sections.is_empty() {
-            sections.push(
+        let role_prompt = global_identity.as_ref().and_then(|id| id.role_prompt());
+        // 兜底身份此前是死代码：它的条件是 `sections.is_empty()`，而环境段总是先被
+        // 压入，所以没有 SOUL.md 时 prompt 里根本不含身份段。
+        stable.push(match role_prompt {
+            Some(role) => format!("## 身份\n{}", role),
+            None => {
                 "## 身份\n你是 Arael，一个智能 AI 助手。你能理解用户的自然语言请求并规划执行步骤。"
-                    .to_string(),
-            );
-        }
+                    .to_string()
+            }
+        });
 
         // 1.2. 用户偏好（USER.md）
         if let Some(ref id) = global_identity {
             if let Some(user_ctx) = id.user_context() {
-                sections.push(format!("## 用户偏好\n{}", user_ctx));
+                stable.push(format!("## 用户偏好\n{}", user_ctx));
             }
         }
 
@@ -185,7 +186,7 @@ impl Planner {
         if let Some(mgr) = identity::get_identity_manager() {
             let summaries = mgr.get_role_summaries().await;
             if !summaries.is_empty() {
-                sections.push(format!(
+                stable.push(format!(
                     "## 协作团队\n你可以调度以下专业 Agent 的能力：\n{}",
                     summaries
                 ));
@@ -269,14 +270,14 @@ impl Planner {
             }
 
             if !mem_lines.is_empty() {
-                sections.push(format!(
+                volatile.push(format!(
                     "## 参考记忆\n以下是历史记忆，仅供参考。当用户请求包含「最近」「最新」「目前」「现在」等时效性词汇时，\
                     必须通过搜索获取实时信息，不要用历史记忆中的旧结论替代。\n<memory_context>\n{}\n</memory_context>",
                     mem_lines.join("\n")
                 ));
             }
             if !lesson_lines.is_empty() {
-                sections.push(format!(
+                volatile.push(format!(
                     "## 注意事项（历史教训）\n<lessons>\n{}\n</lessons>",
                     lesson_lines.join("\n")
                 ));
@@ -285,7 +286,7 @@ impl Planner {
 
         // 3. 能力索引（含相关 Skill）
         let compact_index = get_compact_index().await;
-        sections.push(format!(
+        stable.push(format!(
             "## 可用能力（紧凑索引）\n\
              条目字段：`id` 能力 ID、`h` 用途、`p` 必需参数、`o` 该能力的输出字段。\n\
              引用前序步骤输出时，优先按 `o` 写出精确字段——\
@@ -295,17 +296,12 @@ impl Planner {
             serde_json::to_string_pretty(&compact_index).unwrap_or_default()
         ));
 
-        // 3.2 近期执行摘要（从对话历史中提取能力使用记录，帮助 Planner 了解上下文）
-        if let Some(ref context) = request.context {
-            if let Some(ref history) = context.conversation_history {
-                let exec_summary = Self::extract_execution_summary(history);
-                if !exec_summary.is_empty() {
-                    sections.push(format!("## 本轮对话执行记录\n{}", exec_summary));
-                }
-            }
-        }
+        // 4. 输出格式与规则（纯常量，稳定段的最后一块）
+        stable.push(PLANNER_RULES.to_string());
 
-        // 3.5 相关 Skill 预过滤（语义匹配 top-5）
+        // —— 以下按请求变化，排在缓存前缀之后 ——
+
+        // 5. 相关 Skill 预过滤（语义匹配 top-5，随用户输入变化）
         if let Some(registry) = super::skill::get_skill_registry() {
             let relevant = registry.get_relevant_skills(&request.raw_input, 5).await;
             if !relevant.is_empty() {
@@ -326,22 +322,47 @@ impl Planner {
                         )
                     })
                     .collect();
-                sections.push(format!(
+                volatile.push(format!(
                     "## 推荐 Skill\n以下 Skill 与用户请求高度相关，可优先考虑使用：\n{}",
                     skill_lines.join("\n")
                 ));
             }
         }
 
-        // 4. 升级提示
-        if let Some(hint) = escalation_hint {
-            sections.push(format!("## 升级上下文\n前次执行结果不满意。{}", hint));
+        // 6. 近期执行摘要（从对话历史中提取能力使用记录）
+        if let Some(ref context) = request.context {
+            if let Some(ref history) = context.conversation_history {
+                let exec_summary = Self::extract_execution_summary(history);
+                if !exec_summary.is_empty() {
+                    volatile.push(format!("## 本轮对话执行记录\n{}", exec_summary));
+                }
+            }
         }
 
-        // 5. 输出格式与规则
-        sections.push(PLANNER_RULES.to_string());
+        // 7. 升级提示
+        if let Some(hint) = escalation_hint {
+            volatile.push(format!("## 升级上下文\n前次执行结果不满意。{}", hint));
+        }
 
-        sections.join("\n\n")
+        // 8. 环境上下文（时间、语言）——放在最后：时间戳每分钟都变，
+        // 排在前面会让后续所有内容都失去缓存前缀；放末尾还能让语言指令离输出更近
+        let now = chrono::Local::now();
+        let lang_instruction = match language {
+            super::intent::keywords::Language::Chinese => "请用中文回复。",
+            super::intent::keywords::Language::English => "Please respond in English.",
+            super::intent::keywords::Language::Japanese => "日本語で返信してください。",
+        };
+        volatile.push(format!(
+            "## 环境\n当前时间：{}\n{}",
+            now.format("%Y-%m-%d %H:%M (%A)"),
+            lang_instruction
+        ));
+
+        stable
+            .into_iter()
+            .chain(volatile)
+            .collect::<Vec<_>>()
+            .join("\n\n")
     }
 
     /// 构建用户 prompt（使用结构化边界防止提示词注入）
@@ -1006,6 +1027,108 @@ mod tests {
             planner_output_schema()["properties"]["steps"]["maxItems"],
             8
         );
+    }
+
+    fn test_planner() -> Planner {
+        Planner {
+            ai_analyzer: None,
+            language_detector: crate::services::agent::intent::keywords::LanguageDetector::new(),
+        }
+    }
+
+    fn request(raw_input: &str) -> UserRequest {
+        UserRequest {
+            raw_input: raw_input.to_string(),
+            timestamp: chrono::Utc::now(),
+            user_id: 1,
+            context: None,
+        }
+    }
+
+    /// Longest shared prefix, which is exactly what a provider's prefix cache
+    /// can reuse between two requests.
+    fn shared_prefix<'a>(a: &'a str, b: &str) -> &'a str {
+        let shared = a
+            .char_indices()
+            .zip(b.chars())
+            .take_while(|((_, x), y)| x == y)
+            .last()
+            .map(|((index, ch), _)| index + ch.len_utf8())
+            .unwrap_or(0);
+        &a[..shared]
+    }
+
+    #[tokio::test]
+    async fn stable_sections_come_before_anything_request_specific() {
+        let planner = test_planner();
+        let chinese = planner
+            .build_system_prompt(
+                &request("帮我看看最新的订阅文章"),
+                crate::services::agent::intent::keywords::Language::Chinese,
+                None,
+            )
+            .await;
+        let english = planner
+            .build_system_prompt(
+                &request("summarize my newest feed items"),
+                crate::services::agent::intent::keywords::Language::English,
+                None,
+            )
+            .await;
+
+        // Two unrelated requests must still share the whole stable block, or the
+        // capability index and the rules never reach a provider prefix cache.
+        let prefix = shared_prefix(&chinese, &english);
+        assert!(prefix.contains("## 身份"), "identity must be cacheable");
+        assert!(
+            prefix.contains("## 可用能力（紧凑索引）"),
+            "the capability index is the largest block and must be cacheable"
+        );
+        assert!(
+            prefix.contains("## 规则"),
+            "PLANNER_RULES must be cacheable"
+        );
+        // The language instruction is what diverges, and it belongs after them.
+        assert!(!prefix.contains("请用中文回复。"));
+    }
+
+    #[tokio::test]
+    async fn volatile_sections_come_after_the_stable_block() {
+        let planner = test_planner();
+        let prompt = planner
+            .build_system_prompt(
+                &request("换一个说法"),
+                crate::services::agent::intent::keywords::Language::Chinese,
+                Some("上次没有找到数据"),
+            )
+            .await;
+
+        let rules = prompt.find("## 规则").expect("rules section");
+        let escalation = prompt.find("## 升级上下文").expect("escalation section");
+        let environment = prompt.find("## 环境").expect("environment section");
+        let capabilities = prompt
+            .find("## 可用能力（紧凑索引）")
+            .expect("capability index");
+
+        assert!(capabilities < rules, "index precedes rules");
+        assert!(rules < escalation, "escalation is request-specific");
+        assert!(escalation < environment, "the timestamp goes last");
+    }
+
+    #[tokio::test]
+    async fn identity_falls_back_when_no_soul_file_is_loaded() {
+        // The previous fallback was unreachable: it was guarded on
+        // `sections.is_empty()` while the environment section had already been
+        // pushed, so a deployment without SOUL.md got no identity at all.
+        let prompt = test_planner()
+            .build_system_prompt(
+                &request("你好"),
+                crate::services::agent::intent::keywords::Language::Chinese,
+                None,
+            )
+            .await;
+        assert!(prompt.contains("## 身份"));
+        assert!(prompt.contains("你是 Arael"));
     }
 
     #[test]
