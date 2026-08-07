@@ -44,9 +44,16 @@ impl TaskComplexity {
 pub struct TierRouter;
 
 impl TierRouter {
-    /// 根据能力 ID 推断任务复杂度
-    pub fn assess_complexity(capability_id: &str) -> TaskComplexity {
-        match capability_id {
+    /// 显式登记的复杂度规则；`None` 表示这个能力没有被登记。
+    ///
+    /// **顺序敏感**：精确分支必须排在同前缀的通配分支之前。`brew.generateReadingList`
+    /// 原先排在 `brew.` 前缀规则之后，永远被判成 Simple——这条确实要跑 AI 的能力
+    /// 因此从未计入 LLM 用量。
+    ///
+    /// 动态命名空间（`skill:` / `mcp.`）也在此登记：它们不在能力注册表里，但同样
+    /// 会走 `suggest_tier`，落到兜底分支就会被无声地当成消耗 LLM。
+    fn complexity_rule(capability_id: &str) -> Option<TaskComplexity> {
+        let complexity = match capability_id {
             // Critical：强制 Pro
             // 复杂分析和对比类
             "ai.analyze" | "compare.content" | "ai.recommend" => TaskComplexity::Critical,
@@ -67,18 +74,17 @@ impl TierRouter {
             // 图标推荐
             "icon.recommend" => TaskComplexity::Medium,
 
-            // Simple：Standard
-            // 所有 platform 数据读取
-            id if id.starts_with("platform.") => TaskComplexity::Simple,
-            // 所有 brew 数据读取（brew.discover 除外）
-            "brew.discover" => TaskComplexity::Medium,
+            // brew：要跑 AI 的两条必须排在 `brew.` 前缀规则之前
+            "brew.discover" | "brew.generateReadingList" => TaskComplexity::Medium,
             id if id.starts_with("brew.") => TaskComplexity::Simple,
-            // 所有 tapp 查询类
-            "tapp.list" | "tapp.page" | "tapp.widget" | "tapp.windows" | "tapp.pageContent" => {
-                TaskComplexity::Simple
-            }
-            // tapp 交互和理解需要 AI
+            // 所有 platform 数据读取与写入
+            id if id.starts_with("platform.") => TaskComplexity::Simple,
+            // tapp 交互和理解需要 AI（排在其余 tapp 规则之前）
             "tapp.ui" | "tapp.understand" | "tapp.interact" => TaskComplexity::Medium,
+            // tapp 查询 / 安装 / 存储 / 窗口操作都不消耗 LLM
+            "tapp.list" | "tapp.page" | "tapp.widget" | "tapp.windows" | "tapp.pageContent"
+            | "tapp.install" | "tapp.storage" => TaskComplexity::Simple,
+            id if id.starts_with("tapp.window.") => TaskComplexity::Simple,
             // 音乐控制和状态
             id if id.starts_with("music.") => TaskComplexity::Simple,
             // 网易云音乐查询
@@ -88,18 +94,18 @@ impl TierRouter {
             "page.content" => TaskComplexity::Simple,
             "page.interact" | "page.understand" => TaskComplexity::Medium,
             // 搜索
-            "search.global" | "search.fuzzy" | "fuzzy.search" => TaskComplexity::Simple,
+            "search.global" | "search.fuzzy" => TaskComplexity::Simple,
             // 系统和数据操作
             "data.transform" | "export.data" | "cache.status" | "cache.clear"
             | "system.metrics" | "stats.overview" | "profile.summary" | "task.status"
-            | "scheduler.list" | "scheduler.create" | "scheduler.trigger" | "heartbeat.list"
-            | "heartbeat.create" | "heartbeat.update" | "heartbeat.delete" | "heartbeat.toggle"
-            | "setup.status" | "auth.status" | "time.info" | "config.get" | "metadata.history"
-            | "rsshub.instances" | "rsshub.healthcheck" | "context.reference" => {
-                TaskComplexity::Simple
-            }
+            | "task.submit" | "image.cache" | "scheduler.list" | "scheduler.create"
+            | "scheduler.trigger" | "heartbeat.list" | "heartbeat.create" | "heartbeat.update"
+            | "heartbeat.delete" | "heartbeat.toggle" | "setup.status" | "auth.status"
+            | "time.info" | "config.get" | "metadata.history" | "rsshub.instances"
+            | "rsshub.healthcheck" | "context.reference" => TaskComplexity::Simple,
             // 外部集成（纯数据获取）
             "http.fetch"
+            | "web.scrape"
             | "hitokoto.get"
             | "weather.get"
             | "proxy.image"
@@ -111,40 +117,51 @@ impl TierRouter {
             | "steam.user"
             | "steam.game"
             | "steam.wishlist"
-            | "github.repos"
-            | "netease.song"
-            | "netease.playlist.detail" => TaskComplexity::Simple,
+            | "github.repos" => TaskComplexity::Simple,
             // Notion 查询
             "notion.query" => TaskComplexity::Simple,
             // 数据写入
-            "platform.write" | "platform.refresh" | "storage.set" | "tapp.storage"
-            | "brew.subscribe" | "brew.mark" | "brew.schedule" | "content.write" => {
-                TaskComplexity::Simple
-            }
+            "storage.set" | "content.write" => TaskComplexity::Simple,
             // 资源创建（需要一定 AI 能力）
             "report.create" | "note.create" | "bookmark.save" | "reminder.create" => {
                 TaskComplexity::Medium
             }
-            // 生成阅读列表需要 AI
-            "brew.generateReadingList" => TaskComplexity::Medium,
             // TTS（调用外部 TTS API，不使用 LLM）
             "speech.tts" => TaskComplexity::Simple,
             // AI 图像生成（调用外部图像 API，不使用 LLM）
             "ai.image" => TaskComplexity::Simple,
             // 数据库查询
             id if id.starts_with("database.") => TaskComplexity::Simple,
-            // 其他未知能力
+            // 其余只读查询
             "random.content" | "permission.check" | "report.list" => TaskComplexity::Simple,
 
-            // 默认：Medium（安全选择，可升级）
-            _ => {
-                tracing::debug!(
-                    capability_id = capability_id,
-                    "[TierRouter] Unknown capability, defaulting to Medium"
-                );
-                TaskComplexity::Medium
-            }
-        }
+            // Skill 执行会先跑一次 AI 把 instructions 翻译成调用序列
+            id if id.starts_with("skill:") => TaskComplexity::Medium,
+            // MCP 工具是外部进程调用，不消耗本地模型预算
+            id if id.starts_with("mcp.") => TaskComplexity::Simple,
+
+            _ => return None,
+        };
+        Some(complexity)
+    }
+
+    /// 该能力是否有显式登记的复杂度规则。
+    ///
+    /// 供测试断言「注册表里的每个能力都被登记过」——这张表和能力定义是两份互不
+    /// 校验的真相，漏登记不会报错，只会静默按兜底值计费。
+    pub fn has_explicit_rule(capability_id: &str) -> bool {
+        Self::complexity_rule(capability_id).is_some()
+    }
+
+    /// 根据能力 ID 推断任务复杂度
+    pub fn assess_complexity(capability_id: &str) -> TaskComplexity {
+        Self::complexity_rule(capability_id).unwrap_or_else(|| {
+            tracing::debug!(
+                capability_id = capability_id,
+                "[TierRouter] Unknown capability, defaulting to Medium"
+            );
+            TaskComplexity::Medium
+        })
     }
 
     /// 根据能力 ID 推断 ModelTier
@@ -363,6 +380,75 @@ mod tests {
         assert_eq!(TierRouter::resolve_tier("ai.analyze"), ModelTier::Pro);
         assert_eq!(TierRouter::resolve_tier("ai.recommend"), ModelTier::Pro);
         assert_eq!(TierRouter::resolve_tier("compare.content"), ModelTier::Pro);
+    }
+
+    #[tokio::test]
+    async fn every_registered_capability_has_an_explicit_rule() {
+        // This table and the capability registry are two independent sources of
+        // truth with nothing keeping them in sync. A missing row does not fail
+        // anything — it silently bills a plain data read as an LLM step.
+        let registry = crate::services::agent::capability::get_registry().await;
+        let unregistered: Vec<&str> = registry
+            .get_all()
+            .iter()
+            .map(|cap| cap.id.as_str())
+            .filter(|id| !TierRouter::has_explicit_rule(id))
+            .collect();
+        assert!(
+            unregistered.is_empty(),
+            "capabilities with no tier rule fall through to the Medium default \
+             and are counted as LLM usage: {unregistered:?}"
+        );
+    }
+
+    #[test]
+    fn ai_dependent_brew_rules_win_over_the_brew_prefix() {
+        // Regression: `brew.generateReadingList` sat after `starts_with("brew.")`,
+        // so it resolved to Simple and never counted as LLM usage.
+        assert!(TierRouter::requires_llm("brew.generateReadingList"));
+        assert!(TierRouter::requires_llm("brew.discover"));
+        assert!(!TierRouter::requires_llm("brew.items"));
+        assert!(!TierRouter::requires_llm("brew.subscribe"));
+    }
+
+    #[test]
+    fn ai_dependent_tapp_rules_win_over_the_tapp_rules_below_them() {
+        assert!(TierRouter::requires_llm("tapp.understand"));
+        assert!(TierRouter::requires_llm("tapp.interact"));
+        assert!(!TierRouter::requires_llm("tapp.list"));
+        assert!(!TierRouter::requires_llm("tapp.install"));
+    }
+
+    #[test]
+    fn non_llm_capabilities_are_not_billed_as_llm_steps() {
+        for id in [
+            "image.cache",
+            "task.submit",
+            "web.scrape",
+            "tapp.window.open",
+            "tapp.window.close",
+            "tapp.window.focus",
+        ] {
+            assert!(
+                TierRouter::has_explicit_rule(id),
+                "{id} must not rely on the default"
+            );
+            assert!(!TierRouter::requires_llm(id), "{id} does not call a model");
+        }
+    }
+
+    #[test]
+    fn dynamic_namespaces_are_classified_explicitly() {
+        // Skills run an AI pass to turn their instructions into a call sequence.
+        assert!(TierRouter::requires_llm("skill:_auto_daily_digest"));
+        // MCP tools execute in an external process; they cost no local tokens.
+        assert!(!TierRouter::requires_llm("mcp.docs.lookup"));
+    }
+
+    #[test]
+    fn tapp_windows_query_is_not_matched_by_the_window_action_prefix() {
+        assert!(TierRouter::has_explicit_rule("tapp.windows"));
+        assert!(!TierRouter::requires_llm("tapp.windows"));
     }
 
     #[test]
