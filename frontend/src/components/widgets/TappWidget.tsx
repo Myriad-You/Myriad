@@ -437,6 +437,9 @@ function TappWidgetRuntime({
     null,
   )
   const viewportRecheckCountRef = useRef(0)
+  // 复查等待中：期间到达的非交叉回调直接忽略，只有超时后 re-observe
+  // 投递的结果才能决定离屏，避免等待期内动画/滚动抖动把 debounce 击穿。
+  const viewportRecheckPendingRef = useRef(false)
   const sandboxHostRef = useCallback((node: HTMLDivElement | null) => {
     viewportObserverRef.current?.disconnect()
     viewportObserverRef.current = null
@@ -445,6 +448,7 @@ function TappWidgetRuntime({
       viewportRecheckRef.current = null
     }
     viewportRecheckCountRef.current = 0
+    viewportRecheckPendingRef.current = false
     viewportNodeRef.current = node
     if (!node || typeof IntersectionObserver === 'undefined') return
     const observer = new IntersectionObserver(
@@ -453,20 +457,24 @@ function TappWidgetRuntime({
         if (!entry) return
         if (entry.isIntersecting) {
           viewportRecheckCountRef.current = 0
+          viewportRecheckPendingRef.current = false
           setInViewport(true)
           return
         }
-        // 非交叉：先复查一次（unobserve 后重新 observe 会基于当前几何
-        // 立即投递新结果），避免入场动画/滚动恢复窗口期的瞬时误判
-        // 导致永久 hold。复查后仍离屏才采纳，保持屏外省电设计。
+        // 复查等待中：忽略后续非交叉回调，等待 re-observe 的稳定结果。
+        if (viewportRecheckPendingRef.current) return
+        // 已复查过一次（re-observe 后仍非交叉）才采纳离屏，
+        // 保持屏外省电设计。
         if (viewportRecheckCountRef.current >= 1) {
           setInViewport(false)
           return
         }
         viewportRecheckCountRef.current += 1
+        viewportRecheckPendingRef.current = true
         if (viewportRecheckRef.current) clearTimeout(viewportRecheckRef.current)
         viewportRecheckRef.current = setTimeout(() => {
           viewportRecheckRef.current = null
+          viewportRecheckPendingRef.current = false
           const host = viewportNodeRef.current
           const obs = viewportObserverRef.current
           if (!host || !obs || !host.isConnected) return
