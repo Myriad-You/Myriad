@@ -80,15 +80,32 @@ impl Planner {
             .build_system_prompt(request, language, escalation_hint)
             .await;
         let user_prompt = self.build_user_prompt(request, escalation_hint);
-        let full_prompt = format!("{}\n\n---\n\n{}", system_prompt, user_prompt);
 
-        // 调用 Pro AI（失败时有限重试，仍失败则规则 fallback，避免整次对话硬失败）
-        let response = match ai_analyzer.analyze(&full_prompt).await {
+        // 走提供商原生的结构化输出：由 API 层保证返回是合法 JSON，
+        // 而不是靠 prompt 里的「请只输出 JSON」再从自由文本里抠花括号。
+        let schema = planner_output_schema();
+        let response = match ai_analyzer
+            .analyze_json(
+                &system_prompt,
+                &user_prompt,
+                PLANNER_SCHEMA_NAME,
+                Some(&schema),
+            )
+            .await
+        {
             Ok(r) => r,
             Err(e) => {
                 tracing::warn!(error = %e, "[Planner] AI call failed, retrying once");
                 tokio::time::sleep(std::time::Duration::from_millis(400)).await;
-                match ai_analyzer.analyze(&full_prompt).await {
+                match ai_analyzer
+                    .analyze_json(
+                        &system_prompt,
+                        &user_prompt,
+                        PLANNER_SCHEMA_NAME,
+                        Some(&schema),
+                    )
+                    .await
+                {
                     Ok(r) => r,
                     Err(e2) => {
                         tracing::warn!(
@@ -565,6 +582,98 @@ impl Planner {
     }
 }
 
+/// 结构化输出的 schema 名（OpenAI `response_format.json_schema.name`）
+const PLANNER_SCHEMA_NAME: &str = "planner_output";
+
+/// [`PlannerOutput`] 的 JSON Schema，交给提供商做结构化输出约束。
+///
+/// 字段名与 `PlannerOutput` / `AiRecipeStep` 的 serde 表示一一对应（两者都用
+/// Rust 字段名，未做 rename）。
+///
+/// 注意 `steps[].params` 是自由 map——能力各自的参数由 `validate_and_convert_steps`
+/// 按 capability 的 `input_schema` 校验，不在这里穷举。它同时意味着这份 schema
+/// 无法翻译成 Gemini 的 `responseSchema` 方言（Gemini 不接受没有 `properties` 的
+/// OBJECT），Gemini 上只生效 `responseMimeType: application/json`；OpenAI 侧走
+/// 非 strict 的 `json_schema`，两边都能保证返回是合法 JSON。
+fn planner_output_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "status": {
+                "type": "string",
+                "enum": ["plan", "clarify", "unsupported", "chat"],
+                "description": "本次判断的请求类型"
+            },
+            "confidence": {
+                "type": "number",
+                "minimum": 0.0,
+                "maximum": 1.0
+            },
+            "reasoning": {
+                "type": "string",
+                "description": "简要说明判断思路"
+            },
+            "steps": {
+                "type": "array",
+                "description": "status=plan 时的执行步骤，最多 8 个",
+                "maxItems": 8,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "string" },
+                        "capability_id": {
+                            "type": "string",
+                            "description": "必须来自可用能力索引的 id"
+                        },
+                        "action": {
+                            "type": "string",
+                            "description": "对这个步骤的具体指令"
+                        },
+                        "params": {
+                            "type": "object",
+                            "description": "能力入参；引用前序步骤用 xxxFrom: \"step_id.字段\""
+                        },
+                        "depends_on": {
+                            "type": "array",
+                            "items": { "type": "string" }
+                        },
+                        "on_failure": {
+                            "type": "string",
+                            "enum": ["abort", "skip"]
+                        },
+                        "retry": {
+                            "type": "object",
+                            "properties": {
+                                "max_attempts": { "type": "integer" },
+                                "delay_ms": { "type": "integer" },
+                                "exponential_backoff": { "type": "boolean" }
+                            },
+                            "required": ["max_attempts", "delay_ms", "exponential_backoff"]
+                        },
+                        "timeout_ms": { "type": "integer" }
+                    },
+                    "required": ["id", "capability_id", "action", "params", "depends_on"]
+                }
+            },
+            "clarification": {
+                "type": "object",
+                "description": "status=clarify 时的提问",
+                "properties": {
+                    "message": { "type": "string" },
+                    "options": {
+                        "type": "array",
+                        "items": { "type": "string" }
+                    }
+                },
+                "required": ["message"]
+            },
+            "unsupported_reason": { "type": "string" },
+            "chat_reply": { "type": "string" }
+        },
+        "required": ["status", "confidence"]
+    })
+}
+
 /// 路由描述
 fn describe_route(route: &str) -> &'static str {
     match route.trim_matches('/') {
@@ -773,3 +882,158 @@ search(ai.webSearch) → analyze(ai.analyze, dataFrom:"search") → gen_prompt(p
   "chat_reply": "直接回复内容"
 }
 ```"#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A full planner answer, as the model is asked to produce it.
+    fn plan_response() -> serde_json::Value {
+        serde_json::json!({
+            "status": "plan",
+            "confidence": 0.9,
+            "reasoning": "搜索后分析",
+            "steps": [{
+                "id": "search",
+                "capability_id": "ai.webSearch",
+                "action": "搜索角色信息",
+                "params": { "query": "x" },
+                "depends_on": [],
+                "on_failure": "abort",
+                "timeout_ms": 15000
+            }, {
+                "id": "analyze",
+                "capability_id": "ai.analyze",
+                "action": "分析结果",
+                "params": { "dataFrom": "search.results" },
+                "depends_on": ["search"],
+                "on_failure": "skip",
+                "retry": {
+                    "max_attempts": 2,
+                    "delay_ms": 1000,
+                    "exponential_backoff": true
+                }
+            }]
+        })
+    }
+
+    #[test]
+    fn schema_matches_what_planner_output_deserializes() {
+        // The schema is handed to the provider as the response contract, so a
+        // document that satisfies it must also deserialize into PlannerOutput.
+        let parsed: PlannerOutput =
+            serde_json::from_value(plan_response()).expect("schema-shaped response must parse");
+        assert_eq!(parsed.status, PlannerStatus::Plan);
+        assert_eq!(parsed.steps.len(), 2);
+        assert_eq!(parsed.steps[1].depends_on, vec!["search".to_string()]);
+        assert_eq!(
+            parsed.steps[1]
+                .params
+                .get("dataFrom")
+                .and_then(|v| v.as_str()),
+            Some("search.results")
+        );
+        assert!(parsed.steps[1].retry.is_some());
+    }
+
+    #[test]
+    fn schema_declares_every_field_planner_output_reads() {
+        let schema = planner_output_schema();
+        let properties = schema["properties"]
+            .as_object()
+            .expect("object schema with properties");
+        for field in [
+            "status",
+            "confidence",
+            "reasoning",
+            "steps",
+            "clarification",
+            "unsupported_reason",
+            "chat_reply",
+        ] {
+            assert!(
+                properties.contains_key(field),
+                "missing `{field}` in schema"
+            );
+        }
+
+        let step = &schema["properties"]["steps"]["items"]["properties"];
+        for field in [
+            "id",
+            "capability_id",
+            "action",
+            "params",
+            "depends_on",
+            "on_failure",
+            "retry",
+            "timeout_ms",
+        ] {
+            assert!(
+                step.get(field).is_some(),
+                "missing step field `{field}` in schema"
+            );
+        }
+    }
+
+    #[test]
+    fn schema_status_enum_covers_every_planner_status() {
+        let declared = planner_output_schema()["properties"]["status"]["enum"].clone();
+        let declared = declared.as_array().expect("status enum");
+        for status in [
+            PlannerStatus::Plan,
+            PlannerStatus::Clarify,
+            PlannerStatus::Unsupported,
+            PlannerStatus::Chat,
+        ] {
+            let serialized = serde_json::to_value(&status).expect("serialize status");
+            assert!(
+                declared.contains(&serialized),
+                "status {serialized} missing from the schema enum"
+            );
+        }
+        assert_eq!(
+            declared.len(),
+            4,
+            "schema enum has drifted from PlannerStatus"
+        );
+    }
+
+    #[test]
+    fn schema_step_cap_matches_the_planner_rules() {
+        // PLANNER_RULES tells the model 8 steps is the hard ceiling and
+        // validate_and_convert_steps truncates there; the schema must agree.
+        assert_eq!(
+            planner_output_schema()["properties"]["steps"]["maxItems"],
+            8
+        );
+    }
+
+    #[test]
+    fn structured_response_needs_no_brace_scraping() {
+        // With provider-enforced JSON the response is the document itself.
+        let planner = Planner {
+            ai_analyzer: None,
+            language_detector: crate::services::agent::intent::keywords::LanguageDetector::new(),
+        };
+        let raw = serde_json::to_string(&plan_response()).expect("serialize");
+        let parsed = planner.parse_response(&raw).expect("parse");
+        assert_eq!(parsed.status, PlannerStatus::Plan);
+        assert_eq!(parsed.steps.len(), 2);
+    }
+
+    #[test]
+    fn prose_wrapped_json_still_parses_on_the_fallback_path() {
+        // Endpoints that reject response_format fall back to prompt-only mode,
+        // where the model may still wrap the document in a fence.
+        let planner = Planner {
+            ai_analyzer: None,
+            language_detector: crate::services::agent::intent::keywords::LanguageDetector::new(),
+        };
+        let raw = format!(
+            "好的，这是计划：\n```json\n{}\n```",
+            serde_json::to_string(&plan_response()).expect("serialize")
+        );
+        let parsed = planner.parse_response(&raw).expect("parse");
+        assert_eq!(parsed.status, PlannerStatus::Plan);
+    }
+}
