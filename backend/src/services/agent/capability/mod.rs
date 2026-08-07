@@ -298,15 +298,59 @@ pub async fn get_capability_by_id(id: &str) -> Option<Capability> {
     }
 
     let manager = super::mcp::get_mcp_manager()?;
-    manager
+    let (server_id, tool) = manager
         .list_tools()
         .await
         .into_iter()
-        .find(|(server_id, tool)| id == format!("mcp.{}.{}", server_id, tool.name))
-        .map(|(server_id, tool)| mcp_capability(&server_id, &tool))
+        .find(|(server_id, tool)| id == format!("mcp.{}.{}", server_id, tool.name))?;
+    let trusted = manager.server_trusts_annotations(&server_id).await;
+    Some(mcp_capability(&server_id, &tool, trusted))
 }
 
-fn mcp_capability(server_id: &str, tool: &super::mcp::protocol::McpToolDef) -> Capability {
+/// Risk classification for an MCP tool.
+///
+/// Every tool used to be `High` + always-confirm. That is safe in isolation but
+/// corrosive in aggregate: a read-only lookup and a destructive write raise the
+/// same dialog, so users learn to dismiss it and the confirmation stops carrying
+/// information by the time a genuinely dangerous call arrives.
+///
+/// A tool's own `annotations` can tell the two apart, but only for a server the
+/// operator has marked `trust_annotations` — the MCP spec is explicit that these
+/// are hints and that clients must not base security decisions on annotations
+/// from untrusted servers. Without that opt-in, nothing changes.
+///
+/// Spec defaults are load-bearing here: `destructiveHint` defaults to *true*, so
+/// silence means "assume destructive", never "assume safe".
+fn mcp_tool_risk(
+    annotations: Option<&super::mcp::protocol::McpToolAnnotations>,
+    trusted: bool,
+) -> (RiskLevel, bool) {
+    if !trusted {
+        return (RiskLevel::High, true);
+    }
+    let Some(annotations) = annotations else {
+        // Trusted server, but the tool declares nothing: no basis to downgrade.
+        return (RiskLevel::High, true);
+    };
+
+    if annotations.read_only_hint == Some(true) {
+        return (RiskLevel::None, false);
+    }
+    // Writes. Only an explicit `destructiveHint: false` earns the lower tier;
+    // an unset hint keeps the spec default of "may be destructive".
+    if annotations.destructive_hint == Some(false) {
+        return (RiskLevel::Medium, true);
+    }
+    (RiskLevel::High, true)
+}
+
+fn mcp_capability(
+    server_id: &str,
+    tool: &super::mcp::protocol::McpToolDef,
+    trust_annotations: bool,
+) -> Capability {
+    let (risk_level, requires_confirmation) =
+        mcp_tool_risk(tool.annotations.as_ref(), trust_annotations);
     Capability {
         id: format!("mcp.{}.{}", server_id, tool.name),
         name: format!("MCP: {}", tool.name),
@@ -318,14 +362,10 @@ fn mcp_capability(server_id: &str, tool: &super::mcp::protocol::McpToolDef) -> C
         required_permissions: vec!["mcp:execute".to_string()],
         requires_ai: false,
         estimated_duration_ms: Some(30_000),
-        // MCP tools are arbitrary external integrations. Require an explicit
-        // confirmation unless the system-user policy blocks them earlier.
-        requires_confirmation: true,
-        confirmation_message: Some(format!(
-            "将调用外部 MCP 服务 '{}' 的工具 '{}'",
-            server_id, tool.name
-        )),
-        risk_level: RiskLevel::High,
+        requires_confirmation,
+        confirmation_message: requires_confirmation
+            .then(|| format!("将调用外部 MCP 服务 '{}' 的工具 '{}'", server_id, tool.name)),
+        risk_level,
     }
 }
 
@@ -344,6 +384,7 @@ fn get_capability_category_name(category: &CapabilityCategory) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::super::mcp::protocol::{McpToolAnnotations, McpToolDef};
     use super::*;
 
     #[test]
@@ -450,17 +491,120 @@ mod tests {
         }
     }
 
-    #[test]
-    fn mcp_capability_is_qualified_and_sensitive() {
-        let tool = super::super::mcp::protocol::McpToolDef {
+    fn mcp_tool(annotations: Option<McpToolAnnotations>) -> McpToolDef {
+        McpToolDef {
             name: "lookup".to_string(),
             description: "Look up external data".to_string(),
             input_schema: json!({"type": "object"}),
-        };
-        let capability = mcp_capability("docs", &tool);
+            annotations,
+        }
+    }
+
+    fn read_only() -> McpToolAnnotations {
+        McpToolAnnotations {
+            read_only_hint: Some(true),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn mcp_capability_is_qualified_and_sensitive() {
+        let capability = mcp_capability("docs", &mcp_tool(None), false);
         assert_eq!(capability.id, "mcp.docs.lookup");
         assert_eq!(capability.required_permissions, vec!["mcp:execute"]);
         assert!(capability.requires_confirmation);
         assert_eq!(capability.risk_level, RiskLevel::High);
+    }
+
+    #[test]
+    fn annotations_from_an_untrusted_server_never_lower_risk() {
+        // The whole point of the opt-in: a server must not be able to switch its
+        // own confirmation off by declaring itself harmless.
+        let capability = mcp_capability("docs", &mcp_tool(Some(read_only())), false);
+        assert!(capability.requires_confirmation);
+        assert_eq!(capability.risk_level, RiskLevel::High);
+    }
+
+    #[test]
+    fn read_only_tools_on_a_trusted_server_skip_confirmation() {
+        let capability = mcp_capability("docs", &mcp_tool(Some(read_only())), true);
+        assert!(!capability.requires_confirmation);
+        assert_eq!(capability.risk_level, RiskLevel::None);
+        assert!(capability.confirmation_message.is_none());
+    }
+
+    #[test]
+    fn a_trusted_server_that_declares_nothing_stays_high_risk() {
+        let capability = mcp_capability("docs", &mcp_tool(None), true);
+        assert!(capability.requires_confirmation);
+        assert_eq!(capability.risk_level, RiskLevel::High);
+    }
+
+    #[test]
+    fn unset_destructive_hint_keeps_the_spec_default_of_destructive() {
+        // Spec default for destructiveHint is true, so a write tool that says
+        // nothing must not be downgraded.
+        let writes_silently = McpToolAnnotations {
+            read_only_hint: Some(false),
+            ..Default::default()
+        };
+        let capability = mcp_capability("docs", &mcp_tool(Some(writes_silently)), true);
+        assert_eq!(capability.risk_level, RiskLevel::High);
+
+        let writes_safely = McpToolAnnotations {
+            read_only_hint: Some(false),
+            destructive_hint: Some(false),
+            ..Default::default()
+        };
+        let capability = mcp_capability("docs", &mcp_tool(Some(writes_safely)), true);
+        assert_eq!(capability.risk_level, RiskLevel::Medium);
+        assert!(
+            capability.requires_confirmation,
+            "non-destructive writes still confirm"
+        );
+    }
+
+    #[test]
+    fn destructive_tools_stay_high_even_on_a_trusted_server() {
+        let destructive = McpToolAnnotations {
+            read_only_hint: Some(false),
+            destructive_hint: Some(true),
+            ..Default::default()
+        };
+        let capability = mcp_capability("docs", &mcp_tool(Some(destructive)), true);
+        assert_eq!(capability.risk_level, RiskLevel::High);
+        assert!(capability.requires_confirmation);
+    }
+
+    #[test]
+    fn tools_list_without_annotations_still_deserializes() {
+        // Servers predating the annotations field must keep working.
+        let tool: McpToolDef = serde_json::from_value(json!({
+            "name": "lookup",
+            "description": "d",
+            "inputSchema": { "type": "object" }
+        }))
+        .expect("legacy tool definition");
+        assert!(tool.annotations.is_none());
+    }
+
+    #[test]
+    fn annotations_deserialize_from_the_wire_shape() {
+        let tool: McpToolDef = serde_json::from_value(json!({
+            "name": "lookup",
+            "inputSchema": { "type": "object" },
+            "annotations": {
+                "title": "Look up",
+                "readOnlyHint": true,
+                "openWorldHint": false
+            }
+        }))
+        .expect("annotated tool definition");
+        let annotations = tool.annotations.expect("annotations parsed");
+        assert_eq!(annotations.title.as_deref(), Some("Look up"));
+        assert_eq!(annotations.read_only_hint, Some(true));
+        assert_eq!(annotations.open_world_hint, Some(false));
+        // Absent hints stay `None` so the spec defaults can be applied.
+        assert_eq!(annotations.destructive_hint, None);
     }
 }

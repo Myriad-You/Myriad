@@ -1145,6 +1145,8 @@ export interface TranslationKeys {
     mcpFieldTools: string
     mcpFieldAutoRestart: string
     mcpFieldAutoRestartHint: string
+    mcpFieldTrustAnnotations: string
+    mcpFieldTrustAnnotationsHint: string
     mcpFieldMaxRestart: string
     mcpFieldMaxRestartHint: string
     mcpRefreshDesc: string

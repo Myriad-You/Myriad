@@ -37,6 +37,11 @@ export interface McpServerConfig {
   enabled: boolean
   auto_restart: boolean
   max_restart_attempts: number
+  /**
+   * Honour the server's own tool annotations when classifying risk.
+   * Optional: the backend defaults it to false, so an older instance omits it.
+   */
+  trust_annotations?: boolean
 }
 
 export interface McpRuntimeServer {

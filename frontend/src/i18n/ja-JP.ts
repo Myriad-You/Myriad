@@ -1336,6 +1336,9 @@ export const jaJP: TranslationKeys = {
     mcpFieldTools: 'ツール数',
     mcpFieldAutoRestart: 'クラッシュ時の自動再起動',
     mcpFieldAutoRestartHint: '子が異常終了したとき再起動を試みる',
+    mcpFieldTrustAnnotations: 'このサーバーのツール自己申告を信頼する',
+    mcpFieldTrustAnnotationsHint:
+      '読み取り専用ツールの確認ダイアログを省略します。annotations はサーバー自身の申告なので、自分が管理するサーバーにのみ有効化してください。破壊的なツールは常に確認します。',
     mcpFieldMaxRestart: '最大再起動回数',
     mcpFieldMaxRestartHint: '0–50。上限後は自動再起動しない',
     mcpRefreshDesc: '一覧を再読み込み',
