@@ -1,0 +1,188 @@
+diff --git a/backend/src/router/base.rs b/backend/src/router/base.rs
+index a3e7e07..a723b50 100644
+--- a/backend/src/router/base.rs
++++ b/backend/src/router/base.rs
+@@ -1,6 +1,36 @@
+ //! Base API routes (setup, system, public config, federation surface).
+ use super::*;
+ 
++/// Gate setup control-plane mutations before their handlers run.
++///
++/// Keeping this at the route boundary guarantees the installation capability is
++/// checked before `create_admin` reaches Argon2 or any database mutation.
++async fn require_setup_bootstrap(req: Request, next: Next) -> Response {
++    if let Err(error) = crate::api::setup_bootstrap::require_bootstrap(req.headers()) {
++        return crate::error::HttpError(error).into_response();
++    }
++    next.run(req).await
++}
++
++/// First-owner creation consumes the capability only after the handler has
++/// committed successfully. Failed validation/DB work leaves the capability usable
++/// so the legitimate operator can correct the request without restarting.
++async fn require_and_consume_setup_bootstrap(req: Request, next: Next) -> Response {
++    if let Err(error) = crate::api::setup_bootstrap::require_bootstrap(req.headers()) {
++        return crate::error::HttpError(error).into_response();
++    }
++
++    let response = next.run(req).await;
++    if response.status().is_success() {
++        crate::api::setup_bootstrap::consume_bootstrap();
++    }
++    response
++}
++
+ /// Config-mode only: no DB / no `AppState`. Setup + public auth bootstrap surface.
+ ///
+ /// Handlers that need a live DB use `extract::Db` and get **503** (not 404) when
+@@ -14,9 +44,14 @@ pub(super) fn build_config_mode_router() -> Router {
+             post(api::setup::save_database_config),
+         )
+         .route(
+             "/api/setup/init-database",
+-            post(api::setup::init_database),
++            post(api::setup::init_database).route_layer(from_fn(require_setup_bootstrap)),
++        )
++        .route(
++            "/api/setup/create-admin",
++            post(api::auth_local::create_admin)
++                .route_layer(from_fn(require_and_consume_setup_bootstrap)),
+         )
+-        .route("/api/setup/create-admin", post(api::auth_local::create_admin))
+         // system status stays public for operators during setup
+         .route("/api/system/status", get(api::system::system_status))
+         // OAuth discovery + login redirect (no AppState); avoids 404→login broken in setup.
+@@ -49,9 +84,14 @@ pub(super) fn build_base_api_router(
+             post(api::setup::save_database_config),
+         )
+         .route(
+             "/api/setup/init-database",
+-            post(api::setup::init_database),
++            post(api::setup::init_database).route_layer(from_fn(require_setup_bootstrap)),
++        )
++        .route(
++            "/api/setup/create-admin",
++            post(api::auth_local::create_admin)
++                .route_layer(from_fn(require_and_consume_setup_bootstrap)),
+         )
+-        .route("/api/setup/create-admin", post(api::auth_local::create_admin))
+         // System management routes
+         // P2: system/status 暴露了一些系统信息，但为了监控保持公开（考虑移除敏感字段）
+         .route("/api/system/status", get(api::system::system_status))
+diff --git a/frontend/src/components/SetupWizard.tsx b/frontend/src/components/SetupWizard.tsx
+index 43fef71..634df07 100644
+--- a/frontend/src/components/SetupWizard.tsx
++++ b/frontend/src/components/SetupWizard.tsx
+@@ -148,6 +148,12 @@ const SetupWizard: React.FC = () => {
+ 
+   const handleMigrateDatabase = async () => {
+     setNotice(null)
++    const token = bootstrapToken.trim()
++    if (!token) {
++      setNotice({ tone: 'error', message: t.setup.bootstrapTokenRequired })
++      return
++    }
+     setMigratingDb(true)
+ 
+     try {
+@@ -155,6 +161,7 @@ const SetupWizard: React.FC = () => {
+         `${API_URL}/api/setup/init-database`,
+         {
+           method: 'POST',
++          headers: { 'X-Bootstrap-Token': token },
+         },
+       )
+ 
+@@ -216,6 +223,12 @@ const SetupWizard: React.FC = () => {
+       return
+     }
+ 
++    const token = bootstrapToken.trim()
++    if (!token) {
++      setNotice({ tone: 'error', message: t.setup.bootstrapTokenRequired })
++      return
++    }
++
+     setCreatingAdmin(true)
+     setNotice(null)
+ 
+@@ -224,7 +237,10 @@ const SetupWizard: React.FC = () => {
+       const response = await fetch(`${API_URL}/api/setup/create-admin`, {
+         method: 'POST',
+-        headers: { 'Content-Type': 'application/json' },
++        headers: {
++          'Content-Type': 'application/json',
++          'X-Bootstrap-Token': token,
++        },
+         body: JSON.stringify({
+           username: adminForm.username,
+           password: adminForm.password,
+@@ -663,22 +679,18 @@ const SetupWizard: React.FC = () => {
+                 )}
+ 
+                 <SettingItemWrapper>
+-                  <InputItem
++                  <Field
+                     label={t.setup.bootstrapToken}
+-                    value={bootstrapToken}
+-                    onChange={(value) => setBootstrapToken(value)}
+-                    placeholder={t.setup.bootstrapTokenPlaceholder}
++                    description={t.setup.bootstrapTokenRequired}
+                   />
+-                </SettingItemWrapper>
+-                <Note tone="info">
+-                  <div className="flex items-start gap-2">
+-                    <LuShieldCheck className="mt-0.5 size-4 shrink-0" />
+-                    <p>{t.setup.bootstrapTokenNote}</p>
+-                  </div>
+-                </Note>
++                    <TextInput
++                      value={bootstrapToken}
++                      onChange={(e) => setBootstrapToken(e.target.value)}
++                      placeholder={t.setup.bootstrapTokenPlaceholder}
++                    />
++                  </Field>
++                </SettingItemWrapper>
+               </div>
+             )}
+ 
+@@ -704,6 +716,18 @@ const SetupWizard: React.FC = () => {
+                 </p>
+               </div>
+ 
++              <SettingItemWrapper>
++                <Field
++                  label={t.setup.bootstrapToken}
++                  description={t.setup.bootstrapTokenRequired}
++                >
++                  <TextInput
++                    value={bootstrapToken}
++                    onChange={(e) => setBootstrapToken(e.target.value)}
++                    placeholder={t.setup.bootstrapTokenPlaceholder}
++                  />
++                </Field>
++              </SettingItemWrapper>
++
+               {notice && <Note tone={notice.tone}>{notice.message}</Note>}
+ 
+               <ActionBar>
+@@ -781,6 +805,18 @@ const SetupWizard: React.FC = () => {
+               >
+                 {t.setup.passwordRequirements}
+               </Note>
++
++              <SettingItemWrapper>
++                <Field
++                  label={t.setup.bootstrapToken}
++                  description={t.setup.bootstrapTokenRequired}
++                >
++                  <TextInput
++                    value={bootstrapToken}
++                    onChange={(e) => setBootstrapToken(e.target.value)}
++                    placeholder={t.setup.bootstrapTokenPlaceholder}
++                  />
++                </Field>
++              </SettingItemWrapper>
+             </div>
+ 
+             {notice && <Note tone={notice.tone}>{notice.message}</Note>}
