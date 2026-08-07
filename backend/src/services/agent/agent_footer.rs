@@ -159,6 +159,110 @@ pub(crate) async fn record_execution_memory(params: MemoryRecordParams<'_>) {
     mem.cleanup_short_term().await;
 }
 
+/// 一次 Agent 回合的 AI 预算：先按估算预留，结束后按实际消耗结算。
+///
+/// 此前 Agent 路径只有 `with_ai_ledger_attribution` 的**事后记账**，没有任何
+/// 上限。一次回合会打出规划、每个数据步骤的动态分析、各 AI 步骤、结果汇总、
+/// 记忆提取，失败还要 replan 重跑——跑飞时没有任何东西会拦，只会在账单里被看到。
+/// Tapp AI 任务早就走 `reserve_ai_quota` 全套，Agent 只是没接上。
+///
+/// Admin（含 `SYSTEM_USER_ID` 的定时任务）在 `limits_for_role` 里是 unlimited，
+/// 预留是空操作，所以这条门只对普通用户和访客生效。
+pub(crate) struct AgentTurnBudget {
+    reservation: crate::services::ai_quota::AiQuotaReservation,
+    meter: crate::services::ai_cost_ledger::AiUsageMeter,
+    attribution: crate::services::ai_cost_ledger::AiLedgerAttribution,
+}
+
+/// 一次回合的预留额度。
+///
+/// 回合的真实开销要到跑完才知道（步骤数、是否 replan 都不确定），所以这里只预留
+/// 一个够判断「预算是不是已经见底」的基数：Planner 的 system prompt 本身就约
+/// 30k 字符 ≈ 7.6k tokens，再留一点余量给用户 prompt 和至少一个下游 AI 步骤。
+/// 低估不会漏账——`settle_ai_quota` 会按实际用量补差，超出的部分记在这一回合，
+/// 由下一回合的预留检查拦下。
+const AGENT_TURN_TOKEN_ESTIMATE: usize = 10_000;
+
+impl AgentTurnBudget {
+    /// 预留本回合额度；额度不足直接返回错误，不进入执行。
+    pub(crate) async fn reserve(
+        db: &sea_orm::DatabaseConnection,
+        user_id: i32,
+        operation: &str,
+        task_id: String,
+    ) -> Result<Self, String> {
+        let role = crate::services::tapp_context::role_for_subject(
+            user_id,
+            user_is_current_admin(db, user_id).await,
+        );
+        let reservation = crate::services::ai_quota::reserve_ai_quota(
+            db,
+            role,
+            user_id,
+            user_id,
+            AGENT_LEDGER_TAPP_ID,
+            AGENT_TURN_TOKEN_ESTIMATE,
+            None,
+        )
+        .await
+        .map_err(|error| {
+            tracing::info!(
+                user_id,
+                code = error.code(),
+                "[Agent] Turn rejected by AI quota"
+            );
+            error.to_string()
+        })?;
+
+        Ok(Self {
+            reservation,
+            meter: crate::services::ai_cost_ledger::AiUsageMeter::new(),
+            attribution: crate::services::ai_cost_ledger::AiLedgerAttribution {
+                subject_id: user_id,
+                owner_id: user_id,
+                source: "agent".into(),
+                operation: operation.into(),
+                tapp_id: AGENT_LEDGER_TAPP_ID.into(),
+                task_id,
+            },
+        })
+    }
+
+    /// 在预算作用域内运行整个回合。
+    ///
+    /// 同时装上归属和计量：归属让 Planner 的调用第一次被记进成本账（此前它在
+    /// 任何 attribution 作用域之外，executor 里那层只覆盖执行阶段），计量则跨越
+    /// executor 内层重新设置的归属，保证统计的是整个回合。
+    pub(crate) async fn scope<F, T>(&self, fut: F) -> T
+    where
+        F: std::future::Future<Output = T>,
+    {
+        crate::services::ai_cost_ledger::with_ai_ledger_attribution(
+            self.attribution.clone(),
+            crate::services::ai_cost_ledger::with_ai_usage_meter(self.meter.clone(), fut),
+        )
+        .await
+    }
+
+    /// 按实际消耗结算预留。
+    pub(crate) async fn settle(self, db: &sea_orm::DatabaseConnection) {
+        let spent = self.meter.total_tokens();
+        if let Err(error) =
+            crate::services::ai_quota::settle_ai_quota(db, &self.reservation, spent as usize).await
+        {
+            // 结算失败只影响计量精度，不该让已经完成的回合失败。
+            tracing::warn!(
+                %error,
+                spent_tokens = spent,
+                "[Agent] Failed to settle AI quota for this turn"
+            );
+        }
+    }
+}
+
+/// Agent 在配额与成本账里的 bucket key（与 `AiLedgerAttribution.tapp_id` 一致）
+pub(crate) const AGENT_LEDGER_TAPP_ID: &str = "__agent__";
+
 /// 获取系统能力摘要
 pub async fn get_capabilities_summary() -> serde_json::Value {
     capability::get_capability_summary().await

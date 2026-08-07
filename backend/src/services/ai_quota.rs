@@ -119,6 +119,26 @@ impl AiQuotaError {
     }
 }
 
+/// Recognise a stringified [`AiQuotaError`] that is a client budget rejection.
+///
+/// Paths that surface quota failures as plain `String` (the agent returns
+/// `Result<_, String>` throughout) would otherwise report "out of budget" as a
+/// 500. [`Display`](std::fmt::Display) writes `CODE: message`, so the leading
+/// code is a stable discriminator. Ledger faults are deliberately excluded —
+/// those really are server errors.
+pub fn is_client_limit_message(message: &str) -> bool {
+    const CLIENT_LIMIT_CODES: &[&str] = &[
+        "AI_COOLDOWN_ACTIVE",
+        "AI_DAILY_CALL_LIMIT",
+        "AI_ANONYMOUS_DAILY_CALL_LIMIT",
+        "AI_DAILY_TOKEN_LIMIT",
+        "AI_ANONYMOUS_DAILY_TOKEN_LIMIT",
+    ];
+    CLIENT_LIMIT_CODES
+        .iter()
+        .any(|code| message.starts_with(code))
+}
+
 impl std::fmt::Display for AiQuotaError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}: {}", self.code(), self.message())
@@ -692,7 +712,9 @@ pub async fn get_ai_usage(
 
 #[cfg(test)]
 mod tests {
-    use super::{guest_quota_buckets, quota_type, AiQuotaError, AiQuotaLimits};
+    use super::{
+        guest_quota_buckets, is_client_limit_message, quota_type, AiQuotaError, AiQuotaLimits,
+    };
 
     #[test]
     fn quota_key_isolated_by_install_owner() {
@@ -750,5 +772,36 @@ mod tests {
             message: "x".into()
         }
         .is_client_limit());
+    }
+
+    #[test]
+    fn client_limit_messages_are_recognised_from_their_display_form() {
+        // Callers that only have `Result<_, String>` classify on this.
+        for error in [
+            AiQuotaError::Cooldown {
+                remaining_seconds: 5,
+            },
+            AiQuotaError::DailyCallLimit { anonymous: false },
+            AiQuotaError::DailyCallLimit { anonymous: true },
+            AiQuotaError::DailyTokenLimit { anonymous: false },
+            AiQuotaError::DailyTokenLimit { anonymous: true },
+        ] {
+            assert!(
+                is_client_limit_message(&error.to_string()),
+                "{} must be a client limit",
+                error.code()
+            );
+            assert!(error.is_client_limit());
+        }
+    }
+
+    #[test]
+    fn ledger_faults_and_unrelated_errors_stay_server_errors() {
+        let ledger = AiQuotaError::Ledger {
+            message: "db down".into(),
+        };
+        assert!(!is_client_limit_message(&ledger.to_string()));
+        assert!(!is_client_limit_message("Unknown capability_id: foo"));
+        assert!(!is_client_limit_message(""));
     }
 }

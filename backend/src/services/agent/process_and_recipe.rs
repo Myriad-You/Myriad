@@ -35,7 +35,19 @@ impl Agent {
     /// 2. 根据 PlannerOutput.status 分流
     /// 3. 执行 Recipe
     /// 4. 升级重试（如需要）
+    ///
+    /// 整个回合跑在一次 AI 配额预留里，见 [`AgentTurnBudget`]。
     pub async fn process(&self, request: UserRequest) -> Result<AgentResponse, String> {
+        let user_id = request.user_id;
+        let budget =
+            AgentTurnBudget::reserve(&self.db, user_id, "agent.process", turn_task_id(&request))
+                .await?;
+        let result = budget.scope(self.process_inner(request)).await;
+        budget.settle(&self.db).await;
+        result
+    }
+
+    async fn process_inner(&self, request: UserRequest) -> Result<AgentResponse, String> {
         let user_id = request.user_id;
 
         // 请求驱动的过期任务清理
@@ -262,6 +274,26 @@ impl Agent {
     ///
     /// 与 process 相同的两层逻辑，但会通过 channel 发送进度更新
     pub async fn process_with_progress(
+        &self,
+        request: UserRequest,
+        progress_tx: tokio::sync::mpsc::Sender<AgentProgressEvent>,
+    ) -> Result<AgentResponse, String> {
+        let user_id = request.user_id;
+        let budget = AgentTurnBudget::reserve(
+            &self.db,
+            user_id,
+            "agent.process_with_progress",
+            turn_task_id(&request),
+        )
+        .await?;
+        let result = budget
+            .scope(self.process_with_progress_inner(request, progress_tx))
+            .await;
+        budget.settle(&self.db).await;
+        result
+    }
+
+    async fn process_with_progress_inner(
         &self,
         request: UserRequest,
         progress_tx: tokio::sync::mpsc::Sender<AgentProgressEvent>,
@@ -1395,4 +1427,16 @@ impl Agent {
                 run_id: pending.run_id.clone(),
             }))
     }
+}
+
+/// 本回合在配额 / 成本账里的 task id。
+///
+/// 优先用客户端的 run 或 session id，让账目能 join 回具体对话；两者都缺时退回
+/// 请求时间戳。
+fn turn_task_id(request: &UserRequest) -> String {
+    request
+        .context
+        .as_ref()
+        .and_then(|c| c.run_id.clone().or_else(|| c.session_id.clone()))
+        .unwrap_or_else(|| format!("turn_{}", request.timestamp.timestamp_millis()))
 }

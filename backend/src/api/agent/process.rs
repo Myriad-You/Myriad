@@ -2,6 +2,33 @@
 use super::*;
 use crate::error::HttpError;
 
+/// Map an agent turn failure to an HTTP error.
+///
+/// A turn now reserves AI quota before it runs, so "you are out of budget" and
+/// "the agent broke" arrive on the same `Err(String)` channel. Reporting a
+/// budget rejection as a 500 would both mislead the user and hide a retryable
+/// condition from the client, so client limits become 429 and carry the quota
+/// code through for the UI to act on.
+fn agent_turn_error(error: String) -> HttpError {
+    if crate::services::ai_quota::is_client_limit_message(&error) {
+        let code = error
+            .split(':')
+            .next()
+            .unwrap_or("AI_QUOTA_EXCEEDED")
+            .to_string();
+        tracing::info!(error = %error, "[Agent API] Turn rejected by AI quota");
+        return HttpError::from((
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(json!({ "error": error, "code": code })),
+        ));
+    }
+    tracing::error!(error = %error, "[Agent API] Processing failed");
+    HttpError::from((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(json!({ "error": error })),
+    ))
+}
+
 // API 端点
 
 /// 处理自然语言请求
@@ -85,13 +112,7 @@ pub async fn process(
 
     // 创建 Agent 并处理请求
     let agent = Agent::new(db.clone()).await;
-    let response = agent.process(user_request).await.map_err(|e| {
-            tracing::error!(error = %e, "[Agent API] Processing failed");
-            HttpError::from((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e })),
-        ))
-        })?;
+    let response = agent.process(user_request).await.map_err(agent_turn_error)?;
 
     let mut api_response: ApiResponse = response.into();
     let metadata = json!({
@@ -684,16 +705,31 @@ pub async fn process_stream(
                 }
             }
             Err(e) => {
-                tracing::error!(error = %e, "[Agent API] Processing failed, sending error event");
+                // A turn reserves AI quota before it runs, so an exhausted
+                // budget arrives here alongside real faults. It is neither an
+                // error to log at ERROR nor a "处理失败" for the transcript.
+                let quota_rejected = crate::services::ai_quota::is_client_limit_message(&e);
+                let code = if quota_rejected {
+                    tracing::info!(error = %e, "[Agent API] Turn rejected by AI quota");
+                    e.split(':').next().unwrap_or("AI_QUOTA_EXCEEDED").to_string()
+                } else {
+                    tracing::error!(error = %e, "[Agent API] Processing failed, sending error event");
+                    "PROCESSING_ERROR".to_string()
+                };
 
                 // 持久化错误消息
                 if !session_id_clone.is_empty() {
+                    let text = if quota_rejected {
+                        e.clone()
+                    } else {
+                        format!("处理失败: {}", e)
+                    };
                     let _ = persist_assistant_message(
                         &db_clone,
                         &session_id_clone,
                         None,
-                        &format!("处理失败: {}", e),
-                        Some(json!({"error": true})),
+                        &text,
+                        Some(json!({"error": true, "code": code})),
                     )
                     .await;
                 }
@@ -702,7 +738,7 @@ pub async fn process_stream(
                     .send(AgentProgressEvent::Error {
                         task_id: None,
                         message: e.clone(),
-                        code: "PROCESSING_ERROR".to_string(),
+                        code,
                     })
                     .await;
             }
