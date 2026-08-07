@@ -42,7 +42,8 @@ impl Agent {
         let budget =
             AgentTurnBudget::reserve(&self.db, user_id, "agent.process", turn_task_id(&request))
                 .await?;
-        let result = budget.scope(self.process_inner(request)).await;
+        // Boxed: see `AgentTurnBudget::scope`.
+        let result = budget.scope(Box::pin(self.process_inner(request))).await;
         budget.settle(&self.db).await;
         result
     }
@@ -286,8 +287,11 @@ impl Agent {
             turn_task_id(&request),
         )
         .await?;
+        // Boxed: see `AgentTurnBudget::scope`.
         let result = budget
-            .scope(self.process_with_progress_inner(request, progress_tx))
+            .scope(Box::pin(
+                self.process_with_progress_inner(request, progress_tx),
+            ))
             .await;
         budget.settle(&self.db).await;
         result

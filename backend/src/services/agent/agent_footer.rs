@@ -265,6 +265,14 @@ impl AgentTurnBudget {
     /// 同时装上归属和计量：归属让 Planner 的调用第一次被记进成本账（此前它在
     /// 任何 attribution 作用域之外，executor 里那层只覆盖执行阶段），计量则跨越
     /// executor 内层重新设置的归属，保证统计的是整个回合。
+    ///
+    /// **调用方必须传入 `Box::pin(...)` 的回合体。** `process` /
+    /// `process_with_progress` 的状态机本来就极大，再套两层 task-local 作用域后，
+    /// 等着它们的 API handler 在计算类型布局时会超过 rustc 的递归上限
+    /// （`queries overflow the depth limit`，深度 +130）。装箱让布局查询在指针处
+    /// 终止；一次回合多一次堆分配，相对一次模型调用可以忽略。
+    ///
+    /// 注意这个错误只在**全新编译**时出现——增量缓存会让本地 `cargo check` 假通过。
     pub(crate) async fn scope<F, T>(&self, fut: F) -> T
     where
         F: std::future::Future<Output = T>,
