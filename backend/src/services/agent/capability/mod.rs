@@ -3,8 +3,10 @@
 //! 管理系统所有可用能力的注册、查询和匹配
 
 pub mod definitions;
+mod output_contract;
 mod utils;
 
+pub use output_contract::{check_output_contract, declared_output_fields, ContractViolation};
 pub use utils::*;
 
 use super::types::*;
@@ -188,6 +190,10 @@ pub async fn get_capability_summary_filtered(include_admin: bool) -> Value {
 /// 返回仅包含 ID + 一句话 hint 的轻量列表，大幅减少 prompt token 用量。
 /// AI 根据此索引选出 `suggested_capabilities`，后续再按需加载完整 schema。
 ///
+/// 每个条目的字段：`id` / `h` 用途 / `p` 必需入参 / `o` 声明的输出字段。
+/// `o` 让 Planner 能写出 `"dataFrom": "search.results"` 这类精确引用，
+/// 而不是只引用整个步骤输出再由执行层猜哪个字段有用。
+///
 /// Note: AI 能力（含 ai.webSearch）始终保持注册与可规划；缺失 API Key 时由执行层
 /// 返回非重试错误，而不是在索引中降级/隐藏能力。
 pub async fn get_compact_index() -> Value {
@@ -210,6 +216,14 @@ pub async fn get_compact_index() -> Value {
                     .unwrap()
                     .insert("p".to_string(), json!(param_names));
             }
+        }
+        // 声明的输出字段：供 Planner 做 `"xxxFrom": "step_id.字段"` 的精确引用
+        let output_fields = declared_output_fields(&cap.output_schema);
+        if !output_fields.is_empty() {
+            entry
+                .as_object_mut()
+                .unwrap()
+                .insert("o".to_string(), json!(output_fields));
         }
 
         by_category.entry(category).or_default().push(entry);
@@ -338,6 +352,55 @@ mod tests {
         assert!(!registry.capabilities.is_empty());
         assert!(registry.get("platform.read").is_some());
         assert!(registry.get("ai.summarize").is_some());
+    }
+
+    #[tokio::test]
+    async fn compact_index_exposes_declared_output_fields() {
+        let index = get_compact_index().await;
+        let caps = index
+            .get("caps")
+            .and_then(Value::as_object)
+            .expect("compact index must carry caps");
+        let entry = caps
+            .values()
+            .filter_map(Value::as_array)
+            .flatten()
+            .find(|entry| entry.get("id").and_then(Value::as_str) == Some("ai.summarize"))
+            .expect("ai.summarize must be indexed");
+
+        let outputs: Vec<&str> = entry
+            .get("o")
+            .and_then(Value::as_array)
+            .expect("declared output fields must reach the planner index")
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        assert!(outputs.contains(&"summary"), "got {outputs:?}");
+        assert!(outputs.contains(&"keyPoints"), "got {outputs:?}");
+    }
+
+    #[tokio::test]
+    async fn compact_index_omits_o_when_nothing_is_declared() {
+        // `Capability::default()` leaves output_schema empty; such entries must
+        // not emit an empty `o` list that the planner would read as "no output".
+        let index = get_compact_index().await;
+        let entries: Vec<&Value> = index
+            .get("caps")
+            .and_then(Value::as_object)
+            .expect("caps")
+            .values()
+            .filter_map(Value::as_array)
+            .flatten()
+            .collect();
+        assert!(!entries.is_empty());
+        for entry in entries {
+            if let Some(outputs) = entry.get("o") {
+                assert!(
+                    outputs.as_array().is_some_and(|list| !list.is_empty()),
+                    "entry {entry} carries an empty output field list"
+                );
+            }
+        }
     }
 
     #[test]

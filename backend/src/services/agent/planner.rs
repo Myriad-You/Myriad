@@ -269,7 +269,12 @@ impl Planner {
         // 3. 能力索引（含相关 Skill）
         let compact_index = get_compact_index().await;
         sections.push(format!(
-            "## 可用能力（紧凑索引）\n```json\n{}\n```",
+            "## 可用能力（紧凑索引）\n\
+             条目字段：`id` 能力 ID、`h` 用途、`p` 必需参数、`o` 该能力的输出字段。\n\
+             引用前序步骤输出时，优先按 `o` 写出精确字段——\
+             `\"dataFrom\": \"search.results\"` 而不是 `\"dataFrom\": \"search\"`；\
+             只有确实需要整个输出对象时才引用步骤 ID 本身。\n\
+             ```json\n{}\n```",
             serde_json::to_string_pretty(&compact_index).unwrap_or_default()
         ));
 
@@ -603,6 +608,7 @@ const PLANNER_RULES: &str = r#"## 规则
 3. **Skill 单次调用原则**：同一个 `skill:xxx` 在整个计划中最多出现一次。如果用户要求多张图/多个变体/一些/一批，通过 Skill 的参数传达数量和变体需求（如 `"count": 3`、`"variations": ["场景A", "场景B"]`），由 Skill 内部自行编排多轮生成。**绝不允许**把同一个 Skill 在步骤列表里重复调用多次
 4. `params` 根据能力描述和 `"p"` 参数列表推断合理值
 5. **❗ xxxFrom 必须配合 depends_on**：使用 `"xxxFrom": "step_id"` 引用其他步骤输出时，**必须同时在 `depends_on` 中声明该步骤**。例如 `"dataFrom": "search"` → `"depends_on": ["search"]`。缺少 depends_on 会导致步骤并行执行、引用为 null
+5.1 **优先引用具体字段**：`"xxxFrom"` 支持 `"step_id.字段名"`，字段名取自能力索引的 `o` 列表。例如 `ai.webSearch` 的 `o` 含 `results`，就写 `"dataFrom": "search.results"`。引用整个步骤（`"search"`）只在需要完整输出对象时使用
 6. 如果页面上下文可用，可用 `"inputFrom": "__page_context__"` 引用当前页面内容
 7. `on_failure` 策略：
    - 数据获取步骤用 `"abort"`（后续步骤依赖数据，获取失败则无法继续）

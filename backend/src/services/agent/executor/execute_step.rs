@@ -177,7 +177,7 @@ impl Executor {
         );
 
         // 分发到具体 handler（超时 + 执行中取消轮询，避免长步骤只能等步间检查）
-        execute_capability_with_timeout_and_cancel(
+        let output = execute_capability_with_timeout_and_cancel(
             &step.capability_id,
             &step.action,
             &capability_category,
@@ -186,7 +186,60 @@ impl Executor {
             timeout_secs,
             handler_ctx.task_id.as_deref(),
         )
-        .await
+        .await?;
+
+        Self::enforce_output_contract(step, &capability, &output)?;
+
+        Ok(output)
+    }
+
+    /// 校验步骤输出是否符合能力声明的 `output_schema`。
+    ///
+    /// Breach（声明字段类型错误 / 缺 required / 越界）直接判步骤失败——下游
+    /// `xxxFrom` 引用会拿到错误形状的数据，越早失败越好。Drift（输出一个声明
+    /// 字段都不含）只告警：注册表里仍有若干能力的声明与 handler 实际返回不一致，
+    /// 硬拦会打断当前可用的流程，先让漂移可见。
+    ///
+    /// MCP 工具的 output_schema 是本地合成的占位（`{"type": "string"}`），不是
+    /// 外部服务的真实契约，不参与校验。
+    fn enforce_output_contract(
+        step: &RecipeStep,
+        capability: &Capability,
+        output: &Value,
+    ) -> Result<(), String> {
+        if step.capability_id.starts_with("mcp.") {
+            return Ok(());
+        }
+
+        let Some(violation) = crate::services::agent::capability::check_output_contract(
+            &capability.output_schema,
+            output,
+        ) else {
+            return Ok(());
+        };
+
+        if violation.is_fatal() {
+            tracing::warn!(
+                step_id = %step.id,
+                capability = %step.capability_id,
+                violation = violation.message(),
+                "[Executor] Step output breaches its declared contract"
+            );
+            return Err(format!(
+                "步骤 '{}' 的输出不符合能力 '{}' 的契约：{}",
+                step.id,
+                step.capability_id,
+                violation.message()
+            ));
+        }
+
+        tracing::warn!(
+            step_id = %step.id,
+            capability = %step.capability_id,
+            violation = violation.message(),
+            "[Executor] Capability output_schema has drifted from its handler"
+        );
+        Ok(())
     }
 
     /// 执行 Skill 步骤
@@ -1025,4 +1078,100 @@ impl Executor {
     }
 
     // 动态步骤生成系统
+}
+
+#[cfg(test)]
+mod output_contract_tests {
+    use super::*;
+
+    fn step(capability_id: &str) -> RecipeStep {
+        RecipeStep {
+            id: "s1".to_string(),
+            order: 0,
+            capability_id: capability_id.to_string(),
+            action: String::new(),
+            params: HashMap::new(),
+            depends_on: vec![],
+            on_failure: FailureStrategy::Abort,
+            retry: None,
+            timeout_ms: None,
+            model_tier: None,
+            generator: None,
+        }
+    }
+
+    fn capability(capability_id: &str, output_schema: Value) -> Capability {
+        Capability {
+            id: capability_id.to_string(),
+            output_schema,
+            ..Default::default()
+        }
+    }
+
+    fn summarize_schema() -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "summary": { "type": "string" },
+                "keyPoints": { "type": "array" }
+            }
+        })
+    }
+
+    #[test]
+    fn conforming_output_is_accepted() {
+        let result = Executor::enforce_output_contract(
+            &step("ai.summarize"),
+            &capability("ai.summarize", summarize_schema()),
+            &json!({ "summary": "ok" }),
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn breach_fails_the_step_with_an_actionable_message() {
+        let error = Executor::enforce_output_contract(
+            &step("ai.summarize"),
+            &capability("ai.summarize", summarize_schema()),
+            &json!({ "summary": 42 }),
+        )
+        .expect_err("a type breach must fail the step");
+        assert!(error.contains("s1"), "{error}");
+        assert!(error.contains("ai.summarize"), "{error}");
+    }
+
+    #[test]
+    fn drift_is_reported_without_failing_the_step() {
+        // Several registered capabilities still return a shape their schema
+        // never declared; those must stay executable until the declarations
+        // are corrected.
+        let result = Executor::enforce_output_contract(
+            &step("steam.user"),
+            &capability("steam.user", summarize_schema()),
+            &json!({ "message": "未连接", "hint": "先绑定账号" }),
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn mcp_tools_are_exempt_from_the_contract() {
+        // `mcp_capability` synthesizes `{"type": "string"}` locally; it is not a
+        // contract the external server ever agreed to.
+        let result = Executor::enforce_output_contract(
+            &step("mcp.docs.lookup"),
+            &capability("mcp.docs.lookup", json!({ "type": "string" })),
+            &json!({ "content": [{ "type": "text" }] }),
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn capabilities_without_a_declared_schema_are_unconstrained() {
+        let result = Executor::enforce_output_contract(
+            &step("router.navigate"),
+            &capability("router.navigate", json!({})),
+            &json!({ "whatever": true }),
+        );
+        assert!(result.is_ok());
+    }
 }
