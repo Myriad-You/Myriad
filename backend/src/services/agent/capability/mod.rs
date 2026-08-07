@@ -124,7 +124,7 @@ pub async fn get_capability_summary_filtered(include_admin: bool) -> Value {
         {
             continue;
         }
-        let usage_hint = get_capability_usage_hint(&cap.id);
+        let usage_hint = resolve_capability_hint(cap);
         let category = get_capability_category_name(&cap.category);
 
         let cap_info = json!({
@@ -203,7 +203,7 @@ pub async fn get_compact_index() -> Value {
         std::collections::HashMap::new();
 
     for cap in registry.get_all() {
-        let hint = get_capability_usage_hint(&cap.id);
+        let hint = resolve_capability_hint(cap);
         let category = get_capability_category_name(&cap.category);
 
         // 提取必需参数名（帮助 AI 正确构建 params）
@@ -377,6 +377,53 @@ mod tests {
             .collect();
         assert!(outputs.contains(&"summary"), "got {outputs:?}");
         assert!(outputs.contains(&"keyPoints"), "got {outputs:?}");
+    }
+
+    #[tokio::test]
+    async fn no_capability_is_indexed_without_a_description() {
+        // An entry with an empty `h` reaches the planner as a bare ID, which
+        // makes the capability effectively unselectable. 20 capabilities were in
+        // that state before `resolve_capability_hint` fell back to description.
+        let index = get_compact_index().await;
+        let blank: Vec<String> = index
+            .get("caps")
+            .and_then(Value::as_object)
+            .expect("caps")
+            .values()
+            .filter_map(Value::as_array)
+            .flatten()
+            .filter(|entry| {
+                entry
+                    .get("h")
+                    .and_then(Value::as_str)
+                    .is_none_or(|hint| hint.trim().is_empty())
+            })
+            .filter_map(|entry| entry.get("id").and_then(Value::as_str).map(String::from))
+            .collect();
+        assert!(
+            blank.is_empty(),
+            "capabilities indexed with no description at all: {blank:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn hint_falls_back_to_the_capability_description() {
+        // `translate.text` has no curated hint; it must still describe itself.
+        let registry = get_registry().await;
+        let cap = registry.get("translate.text").expect("translate.text");
+        assert!(get_capability_usage_hint(&cap.id).is_empty());
+        assert_eq!(resolve_capability_hint(cap), cap.description);
+        assert!(!cap.description.is_empty());
+    }
+
+    #[tokio::test]
+    async fn curated_hint_wins_over_the_description() {
+        let registry = get_registry().await;
+        let cap = registry.get("ai.summarize").expect("ai.summarize");
+        assert_eq!(
+            resolve_capability_hint(cap),
+            get_capability_usage_hint("ai.summarize")
+        );
     }
 
     #[tokio::test]

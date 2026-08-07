@@ -2,7 +2,7 @@
 //!
 //! 包含能力名称映射、步骤描述、风险评估等辅助函数
 
-use super::super::types::{RecipeStep, RiskLevel};
+use super::super::types::{Capability, RecipeStep, RiskLevel};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
@@ -386,8 +386,28 @@ pub fn get_sensitive_capabilities() -> HashMap<&'static str, (&'static str, Risk
     map
 }
 
+/// 能力在 Planner 索引中的说明文字。
+///
+/// 优先用 [`get_capability_usage_hint`] 里人工编写的提示（它带「什么时候该选这个」
+/// 的触发语），缺失时回退到能力自己的 `description`。
+///
+/// 回退是必需的：hint 表的兜底分支返回空串，而 `description` 从不进入 Planner 的
+/// prompt，两者叠加会让漏登记的能力以 `"h": ""` 进入索引——模型只看得到一个能力 ID，
+/// 于是永远不会选它。此前有 20 个能力处于这个状态（`translate.text`、`code.explain`、
+/// `web.scrape`、`steam.game` 等），表现为「功能做了却调不起来」。
+pub fn resolve_capability_hint(capability: &Capability) -> &str {
+    let hint = get_capability_usage_hint(&capability.id);
+    if hint.is_empty() {
+        &capability.description
+    } else {
+        hint
+    }
+}
+
 /// 获取能力的使用提示（帮助 AI 更好地选择能力）
-/// 这是 AI 选择正确能力的关键参考，必须全面覆盖所有能力
+///
+/// 返回空串表示该能力没有人工编写的提示；调用方应走
+/// [`resolve_capability_hint`] 以便回退到 `description`。
 pub fn get_capability_usage_hint(capability_id: &str) -> &'static str {
     match capability_id {
         // Brew 订阅系统
