@@ -91,15 +91,47 @@ pub(crate) async fn record_execution_memory(params: MemoryRecordParams<'_>) {
                 .filter_map(|m| serde_json::to_value(m).ok())
                 .collect()
         });
-    mem.extract_memories_from_execution(
-        params.user_input,
-        conversation_values.as_deref(),
-        &exec_results,
-        ok,
-        &step_caps,
-        params.user_id,
-    )
-    .await;
+    // AI 提取整轮记忆是一次完整的 Standard 往返，此前同步 await 在响应路径上——
+    // 用户每次请求都要为一件自己看不见的后台整理白等一个来回。旁边的 Skill 自动
+    // 创建早就是 spawn 的。
+    //
+    // 归属需要显式带进去：detached task 的 task-local 是空的，不带就会从成本账里
+    // 消失。用量计量器**不**带——它属于本回合的配额预留，而这份工作在预留结算之后
+    // 才跑完；后台整理也不该记在用户的额度上。
+    {
+        let mem = mem.clone();
+        let attribution = crate::services::ai_cost_ledger::current_ai_attribution();
+        let user_input = params.user_input.to_string();
+        let exec_results = exec_results.clone();
+        let step_caps_for_extraction = step_caps.clone();
+        let user_id = params.user_id;
+        tokio::spawn(async move {
+            let extract = async {
+                mem.extract_memories_from_execution(
+                    &user_input,
+                    conversation_values.as_deref(),
+                    &exec_results,
+                    ok,
+                    &step_caps_for_extraction,
+                    user_id,
+                )
+                .await;
+            };
+            match attribution {
+                Some(attribution) => {
+                    crate::services::ai_cost_ledger::with_ai_ledger_attribution(
+                        crate::services::ai_cost_ledger::AiLedgerAttribution {
+                            operation: "agent.memory".to_string(),
+                            ..attribution
+                        },
+                        extract,
+                    )
+                    .await
+                }
+                None => extract.await,
+            }
+        });
+    }
 
     // 2. 失败教训
     if !ok {

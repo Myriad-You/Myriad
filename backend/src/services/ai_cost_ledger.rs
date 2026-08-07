@@ -92,6 +92,17 @@ fn current_attribution() -> Option<AiLedgerAttribution> {
     AI_LEDGER_ATTRIBUTION.try_with(|c| c.clone()).ok()
 }
 
+/// Attribution active on this task, for work that is about to be spawned.
+///
+/// A detached task starts with empty task-locals, so background work would
+/// otherwise vanish from the cost ledger. Callers re-install the snapshot with
+/// [`with_ai_ledger_attribution`] inside the spawned future. The usage meter is
+/// deliberately not part of the snapshot: spawned work outlives the turn that
+/// would settle it.
+pub fn current_ai_attribution() -> Option<AiLedgerAttribution> {
+    current_attribution()
+}
+
 /// Best-effort ledger write when a task-local attribution is active (AiAnalyzer hooks).
 pub async fn record_ai_call_from_attribution(
     provider: &str,

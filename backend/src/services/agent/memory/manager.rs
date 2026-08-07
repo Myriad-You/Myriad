@@ -16,35 +16,73 @@ impl AgentMemory {
         let _ = tokio::fs::create_dir_all(&memory_dir).await;
 
         let entries = Self::load_entries(&memory_dir).await;
-        let mut idx = TfIdfIndex::new();
+        let mut indexes: HashMap<Option<i32>, TfIdfIndex> = HashMap::new();
         for (id, entry) in &entries {
-            let mut index_text = entry.content.clone();
-            if !entry.entities.is_empty() {
-                index_text.push(' ');
-                index_text.push_str(&entry.entities.join(" "));
-            }
-            if !entry.related_capabilities.is_empty() {
-                index_text.push(' ');
-                index_text.push_str(&entry.related_capabilities.join(" "));
-            }
-            idx.add_document(id, &index_text);
+            indexes
+                .entry(entry.user_id)
+                .or_insert_with(TfIdfIndex::new)
+                .add_document(id, &Self::index_text_for(entry));
         }
-        idx.rebuild_idf();
+        for index in indexes.values_mut() {
+            index.rebuild_idf();
+        }
 
         let count = entries.len();
+        let shards = indexes.len();
         let manager = Self {
             memory_dir,
             entries: RwLock::new(entries),
-            index: RwLock::new(idx),
+            indexes: RwLock::new(indexes),
             dirty: std::sync::atomic::AtomicBool::new(false),
             persist_lock: Mutex::new(()),
         };
 
         if count > 0 {
-            tracing::info!("[AgentMemory] Loaded {} memories (TF-IDF indexed)", count);
+            tracing::info!(
+                entries = count,
+                shards,
+                "[AgentMemory] Loaded {} memories across {} user shards",
+                count,
+                shards
+            );
         }
 
         manager
+    }
+
+    /// 进索引的文本：内容 + 实体 + 关联能力，提升语义召回率。
+    ///
+    /// 此前四个写入路径各自手写一遍同样的拼接，改一处就得改四处。
+    fn index_text_for(entry: &MemoryEntry) -> String {
+        Self::index_text(&entry.content, &entry.entities, &entry.related_capabilities)
+    }
+
+    fn index_text(content: &str, entities: &[String], capabilities: &[String]) -> String {
+        let mut text = content.to_string();
+        if !entities.is_empty() {
+            text.push(' ');
+            text.push_str(&entities.join(" "));
+        }
+        if !capabilities.is_empty() {
+            text.push(' ');
+            text.push_str(&capabilities.join(" "));
+        }
+        text
+    }
+
+    /// 该用户召回时要查的分片 key。
+    ///
+    /// 系统用户（`user_id == 0`）在 [`entry_visible_to`] 里能看到全部条目，
+    /// 所以它查所有分片；普通用户只查自己那片。
+    fn visible_shards(
+        user_id: i32,
+        indexes: &HashMap<Option<i32>, TfIdfIndex>,
+    ) -> Vec<Option<i32>> {
+        if user_id == 0 {
+            indexes.keys().copied().collect()
+        } else {
+            vec![Some(user_id)]
+        }
     }
 
     // 写入
@@ -90,6 +128,34 @@ impl AgentMemory {
         related_capabilities: Vec<String>,
         user_id: i32,
     ) {
+        self.remember_full_deferred(
+            content,
+            memory_type,
+            tier,
+            importance,
+            entities,
+            related_capabilities,
+            user_id,
+        )
+        .await;
+        self.save_all().await;
+    }
+
+    /// 同 [`Self::remember_full`]，但不落盘。
+    ///
+    /// 批量写入（AI 一次提取常返回多条）用它，最后统一 `save_all` 一次。
+    /// `save_all` 会把全部条目重新序列化并重写两个文件，每条一次的话是 N 倍放大。
+    #[allow(clippy::too_many_arguments)]
+    async fn remember_full_deferred(
+        &self,
+        content: &str,
+        memory_type: MemoryType,
+        tier: MemoryTier,
+        importance: f32,
+        entities: Vec<String>,
+        related_capabilities: Vec<String>,
+        user_id: i32,
+    ) {
         // 去重检查：如果已有高度相似的记忆，跳过或合并（仅同用户）
         if self
             .should_dedup_or_merge(
@@ -106,17 +172,7 @@ impl AgentMemory {
         }
 
         let id = Self::make_id(&format!("{user_id}:{content}"));
-
-        // 构建索引文本（需要在 move 之前）
-        let mut index_text = content.to_string();
-        if !entities.is_empty() {
-            index_text.push(' ');
-            index_text.push_str(&entities.join(" "));
-        }
-        if !related_capabilities.is_empty() {
-            index_text.push(' ');
-            index_text.push_str(&related_capabilities.join(" "));
-        }
+        let index_text = Self::index_text(content, &entities, &related_capabilities);
 
         let entry = MemoryEntry {
             id: id.clone(),
@@ -135,9 +191,11 @@ impl AgentMemory {
 
         // 更新索引（包含实体和能力关键词以提升语义召回率）
         {
-            let mut idx = self.index.write().await;
-            idx.add_document(&id, &index_text);
-            // IDF 将在下次搜索时惰性重建
+            let mut indexes = self.indexes.write().await;
+            let shard = indexes.entry(Some(user_id)).or_insert_with(TfIdfIndex::new);
+            shard.add_document(&id, &index_text);
+            // 在写锁内重建，让召回侧可以只拿读锁
+            shard.ensure_idf_fresh();
         }
 
         // 更新条目
@@ -146,11 +204,10 @@ impl AgentMemory {
             entries.insert(id, entry);
         }
 
-        // 容量控制
-        self.enforce_capacity_limit().await;
+        // 容量控制（仅淘汰该用户自己的低价值记忆）
+        self.enforce_capacity_limit(user_id).await;
 
-        // 持久化
-        self.save_all().await;
+        self.dirty.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
     // AI 驱动的智能记忆提取
@@ -279,6 +336,8 @@ impl AgentMemory {
             Ok(response) => {
                 if let Some(result) = parse_extraction_result(&response) {
                     let count = result.memories.len();
+                    // 逐条 deferred 写入、末尾统一落盘一次：`save_all` 会重新序列化
+                    // 全部条目并重写两个文件，一次提取常返回多条，按条落盘就是 N 倍放大
                     for mem in result.memories {
                         let memory_type = match mem.memory_type.as_str() {
                             "preference" => MemoryType::Preference,
@@ -287,7 +346,7 @@ impl AgentMemory {
                             "effective_pattern" => MemoryType::EffectivePattern,
                             _ => continue,
                         };
-                        self.remember_full(
+                        self.remember_full_deferred(
                             &mem.content,
                             memory_type,
                             MemoryTier::LongTerm,
@@ -299,6 +358,7 @@ impl AgentMemory {
                         .await;
                     }
                     if count > 0 {
+                        self.save_all().await;
                         tracing::info!(
                             count = count,
                             "[Memory] AI extracted {} valuable memories",
@@ -466,6 +526,9 @@ impl AgentMemory {
     ///
     /// 合并策略：同类型且相似度 > 0.70 时，**用新内容覆盖旧内容**并提升重要性，
     /// 同时并入新记忆的实体/能力关联，保证纠错/更新信息能正确替换过时记忆。
+    ///
+    /// 候选只在写入者自己的分片里取。此前是在全局索引上取 top-3 再按用户过滤，
+    /// 跨用户条目占满这 3 个槽位时去重就整个落空，同一用户的重复记忆会无限累积。
     async fn should_dedup_or_merge(
         &self,
         new_content: &str,
@@ -475,9 +538,13 @@ impl AgentMemory {
         new_importance: f32,
         user_id: i32,
     ) -> bool {
-        let mut idx = self.index.write().await;
-        let similar = idx.search(new_content, 3);
-        drop(idx);
+        let similar = {
+            let indexes = self.indexes.read().await;
+            match indexes.get(&Some(user_id)) {
+                Some(shard) => shard.search(new_content, 3),
+                None => Vec::new(),
+            }
+        };
 
         if similar.is_empty() {
             return false;
@@ -556,22 +623,18 @@ impl AgentMemory {
 
                     // 更新搜索索引（entries 锁已释放，不会死锁）
                     {
-                        let mut idx = self.index.write().await;
-                        idx.remove_document(&id_clone);
-                        let mut index_text = new_content.to_string();
-                        if !entry_entities.is_empty() {
-                            index_text.push(' ');
-                            index_text.push_str(&entry_entities.join(" "));
-                        }
-                        if !entry_capabilities.is_empty() {
-                            index_text.push(' ');
-                            index_text.push_str(&entry_capabilities.join(" "));
-                        }
-                        idx.add_document(&new_id, &index_text);
+                        let mut indexes = self.indexes.write().await;
+                        let shard = indexes.entry(Some(user_id)).or_insert_with(TfIdfIndex::new);
+                        shard.remove_document(&id_clone);
+                        shard.add_document(
+                            &new_id,
+                            &Self::index_text(new_content, &entry_entities, &entry_capabilities),
+                        );
+                        shard.ensure_idf_fresh();
                     }
 
-                    // 合并后持久化（remember_full 会提前返回，不会调用 save_all）
-                    self.save_all().await;
+                    // 合并同样只标脏；调用方（remember_full / 批量提取）负责落盘
+                    self.dirty.store(true, std::sync::atomic::Ordering::Relaxed);
                     return true;
                 }
             }
@@ -582,19 +645,26 @@ impl AgentMemory {
 
     // 容量管理
 
-    /// 强制容量上限，淘汰低价值记忆
+    /// 强制该用户的容量上限，淘汰其低价值记忆
     ///
-    /// 锁顺序：先 index.write()，再 entries.write()（与其他所有路径一致，避免死锁）
-    async fn enforce_capacity_limit(&self) {
-        // Step 1: 快照当前条目并评分（用 read 锁，不持锁做后续操作）
+    /// 只在 `user_id` 自己的桶里结算。此前是在全体条目上打分排序，配额跨用户共享，
+    /// 活跃用户的写入会把别人的记忆挤掉。
+    ///
+    /// 锁顺序：先 indexes.write()，再 entries.write()（与其他所有路径一致，避免死锁）
+    async fn enforce_capacity_limit(&self, user_id: i32) {
+        let owner = Some(user_id);
+
+        // Step 1: 快照该用户的条目并评分（用 read 锁，不持锁做后续操作）
         let scored: Vec<(String, f32)> = {
             let entries = self.entries.read().await;
-            if entries.len() <= MAX_MEMORY_ENTRIES {
+            let owned = entries.values().filter(|e| e.user_id == owner).count();
+            if owned <= MAX_MEMORY_ENTRIES_PER_USER {
                 return;
             }
 
             let mut v: Vec<(String, f32)> = entries
                 .iter()
+                .filter(|(_, e)| e.user_id == owner)
                 .map(|(id, e)| {
                     let recency = recency_score(&e.created_at);
                     let access_boost = 1.0 + (e.access_count as f32 * 0.1).min(1.0);
@@ -615,34 +685,38 @@ impl AgentMemory {
         };
         // entries read lock dropped here
 
-        // Step 2: 计算要删除多少
-        let current_len = {
+        // Step 2: 重新读取当前数量（快照期间可能有并发写入）
+        let owned_len = {
             let entries = self.entries.read().await;
-            entries.len()
+            entries.values().filter(|e| e.user_id == owner).count()
         };
-        if current_len <= MAX_MEMORY_ENTRIES {
+        if owned_len <= MAX_MEMORY_ENTRIES_PER_USER {
             return;
         }
-        let to_remove = current_len - MAX_MEMORY_ENTRIES;
+        let to_remove = owned_len - MAX_MEMORY_ENTRIES_PER_USER;
         let ids_to_remove: Vec<String> = scored
             .into_iter()
             .take(to_remove)
             .map(|(id, _)| id)
             .collect();
 
-        // Step 3: 按一致的顺序获取锁（index 先，entries 后）
+        // Step 3: 按一致的顺序获取锁（indexes 先，entries 后）
         {
-            let mut idx = self.index.write().await;
+            let mut indexes = self.indexes.write().await;
             let mut entries = self.entries.write().await;
-            for id in &ids_to_remove {
-                entries.remove(id);
-                idx.remove_document(id);
+            if let Some(shard) = indexes.get_mut(&owner) {
+                for id in &ids_to_remove {
+                    entries.remove(id);
+                    shard.remove_document(id);
+                }
+                shard.ensure_idf_fresh();
             }
         }
 
         tracing::info!(
+            user_id,
             removed = ids_to_remove.len(),
-            "[Memory] Capacity enforcement: removed {} low-value memories",
+            "[Memory] Capacity enforcement: removed {} low-value memories for this user",
             ids_to_remove.len()
         );
     }
@@ -981,16 +1055,20 @@ impl AgentMemory {
         }
         // 按正确顺序获取写锁
         {
-            let mut idx = self.index.write().await;
+            let mut indexes = self.indexes.write().await;
             let mut entries = self.entries.write().await;
             // 再验一次归属
-            if !entries
+            let Some(owner) = entries
                 .get(memory_id)
-                .is_some_and(|e| entry_visible_to(e, user_id))
-            {
+                .filter(|e| entry_visible_to(e, user_id))
+                .map(|e| e.user_id)
+            else {
                 return false;
+            };
+            if let Some(shard) = indexes.get_mut(&owner) {
+                shard.remove_document(memory_id);
+                shard.ensure_idf_fresh();
             }
-            idx.remove_document(memory_id);
             entries.remove(memory_id);
         }
         self.save_all().await;
@@ -1013,31 +1091,29 @@ impl AgentMemory {
         }
         let new_id = Self::make_id(&format!("{user_id}:{new_content}"));
         {
-            let mut idx = self.index.write().await;
+            let mut indexes = self.indexes.write().await;
             let mut entries = self.entries.write().await;
-            if !entries
+            let Some(previous_owner) = entries
                 .get(memory_id)
-                .is_some_and(|e| entry_visible_to(e, user_id))
-            {
+                .filter(|e| entry_visible_to(e, user_id))
+                .map(|e| e.user_id)
+            else {
                 return false;
+            };
+            // 编辑会把条目归到编辑者名下，所以旧分片和新分片可能不是同一个
+            if let Some(shard) = indexes.get_mut(&previous_owner) {
+                shard.remove_document(memory_id);
+                shard.ensure_idf_fresh();
             }
-            idx.remove_document(memory_id);
             if let Some(mut entry) = entries.remove(memory_id) {
                 entry.content = new_content.to_string();
                 entry.id = new_id.clone();
                 entry.user_id = Some(user_id);
                 entry.last_accessed_at = Some(Utc::now().to_rfc3339());
-                // 索引文本包含实体和能力关键词，与其他写入路径保持一致
-                let mut index_text = new_content.to_string();
-                if !entry.entities.is_empty() {
-                    index_text.push(' ');
-                    index_text.push_str(&entry.entities.join(" "));
-                }
-                if !entry.related_capabilities.is_empty() {
-                    index_text.push(' ');
-                    index_text.push_str(&entry.related_capabilities.join(" "));
-                }
-                idx.add_document(&new_id, &index_text);
+                let index_text = Self::index_text_for(&entry);
+                let shard = indexes.entry(Some(user_id)).or_insert_with(TfIdfIndex::new);
+                shard.add_document(&new_id, &index_text);
+                shard.ensure_idf_fresh();
                 entries.insert(new_id.clone(), entry);
             }
         }
@@ -1054,15 +1130,32 @@ impl AgentMemory {
             return Vec::new();
         }
 
-        // TF-IDF 搜索 — 拿多一些候选做后续过滤
+        // TF-IDF 搜索 — 只在调用者可见的分片里取候选，拿多一些做后续过滤。
+        //
+        // 分片之前是全局取 top-N 再按用户过滤，别人的高分文档会把本用户的候选挤出
+        // 候选池；现在候选池本身就只含可见条目，`limit * 3` 的余量全部留给层级和
+        // 类型过滤。读锁：IDF 已由写入方在写锁内重建。
         let tfidf_results = {
-            let mut idx = self.index.write().await;
-            idx.search(&params.query, params.limit * 3)
+            let indexes = self.indexes.read().await;
+            let shards = match params.user_id {
+                Some(uid) => Self::visible_shards(uid, &indexes),
+                // 未指定用户（内部调用）时退回全量，语义与过滤阶段一致
+                None => indexes.keys().copied().collect(),
+            };
+            let mut merged: Vec<(String, f32)> = shards
+                .iter()
+                .filter_map(|shard| indexes.get(shard))
+                .flat_map(|shard| shard.search(&params.query, params.limit * 3))
+                .collect();
+            merged.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            merged.truncate(params.limit * 3);
+            merged
         };
 
         if tfidf_results.is_empty() {
             tracing::debug!(
                 query = %params.query,
+                user_id = ?params.user_id,
                 "[Memory] TF-IDF recall returned 0 candidates for non-empty query"
             );
         }
@@ -1225,7 +1318,7 @@ impl AgentMemory {
                 if entry.tier == MemoryTier::ShortTerm {
                     if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&entry.created_at) {
                         if dt.with_timezone(&Utc) < cutoff {
-                            removed.push(id.clone());
+                            removed.push((id.clone(), entry.user_id));
                         }
                     }
                 }
@@ -1235,12 +1328,22 @@ impl AgentMemory {
         let count = removed.len();
         if !removed.is_empty() {
             {
-                // 锁顺序：index 先，entries 后（与其他所有路径一致，避免死锁）
-                let mut idx = self.index.write().await;
+                // 锁顺序：indexes 先，entries 后（与其他所有路径一致，避免死锁）
+                let mut indexes = self.indexes.write().await;
                 let mut entries = self.entries.write().await;
-                for id in &removed {
+                let mut touched: std::collections::HashSet<Option<i32>> =
+                    std::collections::HashSet::new();
+                for (id, owner) in &removed {
                     entries.remove(id);
-                    idx.remove_document(id);
+                    if let Some(shard) = indexes.get_mut(owner) {
+                        shard.remove_document(id);
+                        touched.insert(*owner);
+                    }
+                }
+                for owner in touched {
+                    if let Some(shard) = indexes.get_mut(&owner) {
+                        shard.ensure_idf_fresh();
+                    }
                 }
             }
             // 标记脏位，让后台维护任务把删除结果落盘（否则重启后过期条目复活）
@@ -1659,5 +1762,232 @@ mod tests {
         assert!(entry_visible_to(&a, 0)); // system sees all
         assert!(!entry_visible_to(&legacy, 1)); // orphan legacy not visible to users
         assert!(entry_visible_to(&legacy, 0));
+    }
+
+    // 用户分片
+
+    /// Removes the scratch directory when the test ends.
+    struct ScratchDir(PathBuf);
+
+    impl Drop for ScratchDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    async fn scratch_memory() -> (AgentMemory, ScratchDir) {
+        let path =
+            std::env::temp_dir().join(format!("myriad-agent-memory-{}", uuid::Uuid::new_v4()));
+        let memory = AgentMemory::new(path.clone()).await;
+        (memory, ScratchDir(path))
+    }
+
+    /// Bulk insert without persisting each write — the tests below care about
+    /// in-memory sharding, and `save_all` rewrites every entry each time.
+    ///
+    /// Each entry keeps `shared_term` (so it competes for the same queries) but
+    /// carries enough unique tokens to stay under the dedup threshold. The
+    /// closing assertion is the point: a numeric suffix alone is *not* enough
+    /// distinction, and silently collapsing seed data would leave these tests
+    /// asserting nothing.
+    async fn seed(memory: &AgentMemory, user_id: i32, count: usize, shared_term: &str) {
+        for i in 0..count {
+            memory
+                .remember_full_deferred(
+                    &format!("{shared_term} alpha{i} beta{i} gamma{i} delta{i} epsilon{i} zeta{i}"),
+                    MemoryType::Fact,
+                    MemoryTier::LongTerm,
+                    0.5,
+                    Vec::new(),
+                    Vec::new(),
+                    user_id,
+                )
+                .await;
+        }
+        let stored = memory
+            .entries
+            .read()
+            .await
+            .values()
+            .filter(|e| e.user_id == Some(user_id))
+            .count();
+        assert_eq!(
+            stored,
+            count.min(MAX_MEMORY_ENTRIES_PER_USER),
+            "seed data was deduplicated into {stored} entries; make it less similar"
+        );
+    }
+
+    fn recall(query: &str, user_id: i32, limit: usize) -> RecallQuery {
+        RecallQuery {
+            query: query.to_string(),
+            limit,
+            user_id: Some(user_id),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn recall_candidate_pool_is_per_user_not_global() {
+        // Recall takes `limit * 3` candidates before applying tier/type filters.
+        // That pool used to be global and filtered by owner afterwards, so its
+        // useful size shrank as other users wrote more: a user could end up with
+        // fewer results than they had matching memories. The pool is now drawn
+        // from the caller's shard, so a neighbour's volume cannot affect it.
+        let (memory, _dir) = scratch_memory().await;
+        seed(&memory, 1, 5, "订阅源").await;
+        seed(&memory, 2, 400, "订阅源").await;
+
+        let hits = memory.recall_with_params(recall("订阅源", 1, 3)).await;
+        assert_eq!(
+            hits.len(),
+            3,
+            "user 1 has 5 matching memories and asked for 3; the neighbour's 400              must not consume the candidate pool"
+        );
+        assert!(hits.iter().all(|m| m.user_id == Some(1)));
+
+        // And the pool itself contains nothing but this user's entries.
+        let indexes = memory.indexes.read().await;
+        let entries = memory.entries.read().await;
+        let pool = indexes
+            .get(&Some(1))
+            .expect("user 1 shard")
+            .search("订阅源", 9);
+        assert_eq!(pool.len(), 5, "the whole shard is 5 entries");
+        assert!(pool
+            .iter()
+            .all(|(id, _)| entries.get(id).is_some_and(|e| e.user_id == Some(1))));
+    }
+
+    #[tokio::test]
+    async fn recall_never_leaks_across_users() {
+        let (memory, _dir) = scratch_memory().await;
+        memory
+            .remember("用户一的秘密偏好", MemoryType::Preference, 1)
+            .await;
+        memory
+            .remember("用户二的秘密偏好", MemoryType::Preference, 2)
+            .await;
+
+        let hits = memory.recall_with_params(recall("秘密偏好", 1, 10)).await;
+        assert!(hits.iter().all(|m| m.user_id == Some(1)));
+        assert_eq!(hits.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn the_system_user_still_recalls_across_every_shard() {
+        let (memory, _dir) = scratch_memory().await;
+        memory
+            .remember("用户一的订阅偏好", MemoryType::Preference, 1)
+            .await;
+        memory
+            .remember("用户二的订阅偏好", MemoryType::Preference, 2)
+            .await;
+
+        let hits = memory.recall_with_params(recall("订阅偏好", 0, 10)).await;
+        assert_eq!(
+            hits.len(),
+            2,
+            "system sees every entry, per entry_visible_to"
+        );
+    }
+
+    #[tokio::test]
+    async fn capacity_eviction_cannot_touch_another_user() {
+        let (memory, _dir) = scratch_memory().await;
+        memory
+            .remember("用户一必须留存的偏好", MemoryType::Preference, 1)
+            .await;
+        // Push user 2 well past the per-user cap.
+        seed(&memory, 2, MAX_MEMORY_ENTRIES_PER_USER + 20, "用户二的记录").await;
+
+        let entries = memory.entries.read().await;
+        let user_one: Vec<_> = entries.values().filter(|e| e.user_id == Some(1)).collect();
+        let user_two = entries.values().filter(|e| e.user_id == Some(2)).count();
+        assert_eq!(user_one.len(), 1, "user 1 must not be evicted by user 2");
+        assert_eq!(user_one[0].content, "用户一必须留存的偏好");
+        assert_eq!(user_two, MAX_MEMORY_ENTRIES_PER_USER);
+    }
+
+    #[tokio::test]
+    async fn dedup_sees_the_writers_own_shard_regardless_of_neighbours() {
+        // Dedup used to read the global top-3; neighbours filling those slots
+        // meant a user's duplicates accumulated unchecked.
+        let (memory, _dir) = scratch_memory().await;
+        seed(&memory, 2, 30, "订阅记录").await;
+        memory
+            .remember("用户一喜欢 ACG 风格的图片", MemoryType::Preference, 1)
+            .await;
+        memory
+            .remember("用户一喜欢 ACG 风格的图片", MemoryType::Preference, 1)
+            .await;
+
+        let entries = memory.entries.read().await;
+        let user_one = entries.values().filter(|e| e.user_id == Some(1)).count();
+        assert_eq!(user_one, 1, "the identical write must be deduplicated");
+    }
+
+    #[tokio::test]
+    async fn legacy_entries_keep_their_own_shard() {
+        // `user_id: None` rows imported from memory.md are invisible to regular
+        // users; they must not pollute anyone's IDF or candidate pool either.
+        let (memory, _dir) = scratch_memory().await;
+        {
+            let legacy = MemoryEntry {
+                id: "mem_legacy".to_string(),
+                user_id: None,
+                memory_type: MemoryType::Fact,
+                tier: MemoryTier::LongTerm,
+                content: "遗留的订阅记录".to_string(),
+                source: Some("file".to_string()),
+                importance: 0.9,
+                access_count: 0,
+                created_at: Utc::now().to_rfc3339(),
+                last_accessed_at: None,
+                entities: vec![],
+                related_capabilities: vec![],
+            };
+            let text = AgentMemory::index_text_for(&legacy);
+            let mut indexes = memory.indexes.write().await;
+            let shard = indexes.entry(None).or_insert_with(TfIdfIndex::new);
+            shard.add_document(&legacy.id, &text);
+            shard.ensure_idf_fresh();
+            memory
+                .entries
+                .write()
+                .await
+                .insert(legacy.id.clone(), legacy);
+        }
+
+        assert!(memory
+            .recall_with_params(recall("订阅记录", 1, 10))
+            .await
+            .is_empty());
+        assert_eq!(
+            memory
+                .recall_with_params(recall("订阅记录", 0, 10))
+                .await
+                .len(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn writes_leave_the_shard_searchable_under_a_read_lock() {
+        // Recall now takes only a read lock, which is sound only if every write
+        // path refreshes IDF before releasing its write lock.
+        let (memory, _dir) = scratch_memory().await;
+        memory
+            .remember("用户一的天气查询习惯", MemoryType::Preference, 1)
+            .await;
+        {
+            let indexes = memory.indexes.read().await;
+            let shard = indexes.get(&Some(1)).expect("shard exists");
+            assert!(
+                !shard.idf_dirty,
+                "IDF must be rebuilt inside the write lock"
+            );
+            assert!(!shard.search("天气查询", 5).is_empty());
+        }
     }
 }
