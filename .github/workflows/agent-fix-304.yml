@@ -1,0 +1,29 @@
+name: agent-fix-304-apply
+
+on:
+  push:
+    branches:
+      - agent/fix-304-bootstrap-owner
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: agent/fix-304-bootstrap-owner
+          fetch-depth: 0
+      - name: Apply reviewed source patch
+        run: |
+          set -euo pipefail
+          git apply --check .github/agent/fix-304.patch
+          git apply .github/agent/fix-304.patch
+          rm -f .github/agent/fix-304.patch .github/workflows/agent-fix-304.yml .agent-probe-do-not-merge
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(security): protect first-owner bootstrap capability (#304)'
+          git push origin HEAD:agent/fix-304-bootstrap-owner
