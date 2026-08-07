@@ -188,6 +188,10 @@ export function useTappWidgets(): {
   // 瞬时不可用/超时而失败；若失败后不重试，Tapp widget 类型会永久缺失，
   // 已添加的小组件被 WidgetGrid 静默跳过（未知类型 return null），页面
   // 表现为 widget "消失"，只能靠切 Tab 重挂载恢复（issue #72）。
+  // 注意：首次失败后 runtime 会把 synced=true 并缓存 syncError，
+  // waitForSync() 只会重抛缓存错误而不重新请求后端，因此重试必须
+  // 调用 syncFromBackend(true) 强制重新同步（去重器失败后已清空，
+  // 能真正发出新请求；成功后 runtime 内部会清空 syncError）。
   const loadWidgetsAsync = useCallback(async () => {
     const MAX_ATTEMPTS = 4
     const RETRY_DELAYS = [2000, 5000, 10000]
@@ -199,8 +203,13 @@ export function useTappWidgets(): {
         const { getTappRuntime } = await loadTappRuntimeModule()
         const runtime = getTappRuntime()
 
-        // 等待 runtime 同步完成
-        await runtime.waitForSync()
+        if (attempt === 0) {
+          // 首次：等待构造时启动的初始同步（含 10s 超时保护）
+          await runtime.waitForSync()
+        } else {
+          // 重试：强制重新从后端拉取（force 绕过 30s 缓存检查）
+          await runtime.syncFromBackend(true)
+        }
 
         const registeredWidgets = runtime.getRegisteredWidgets()
         const widgetTypes = registeredWidgets.map((w) =>
