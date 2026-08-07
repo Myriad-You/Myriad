@@ -2048,7 +2048,37 @@ export default function WidgetGrid({
           <div className="absolute inset-0 z-10">
             {currentWidgets.map((widget, index) => {
               const widgetType = widgetTypeById.get(widget.type)
-              if (!widgetType) return null
+              if (!widgetType) {
+                // 未知/未注册组件：渲染轻量占位而非静默跳过（issue #72）。
+                // 此前 return null 导致 Tapp widget 在注册表尚未同步/同步
+                // 失败时整卡空白且无任何提示，用户无法区分"加载中/失败/被
+                // 过滤"；占位至少暴露该格子的 widget 类型，便于诊断。
+                const dim =
+                  SIZE_TO_DIMENSIONS[widget.size] || SIZE_TO_DIMENSIONS['2x2']
+                const gw = currentGridWidth
+                const gh = currentGridHeight
+                return (
+                  <div
+                    key={widget.id}
+                    className="widget-grid-item absolute flex items-center justify-center"
+                    style={{
+                      left: `${(widget.position.x / gw) * 100}%`,
+                      top: `${(widget.position.y / gh) * 100}%`,
+                      width: `${(dim.w / gw) * 100}%`,
+                      height: `${(dim.h / gh) * 100}%`,
+                      zIndex: 10,
+                    }}
+                  >
+                    <div className="relative h-full w-full p-1">
+                      <div className="h-full w-full rounded-xl border border-dashed border-gray-300/60 dark:border-white/15 bg-white/40 dark:bg-white/5 flex items-center justify-center px-4">
+                        <span className="text-xs text-gray-400 dark:text-white/35 text-center break-all">
+                          {widget.type}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )
+              }
 
               // 只闭包 widget.id（对某个格子恒定），实际读写走
               // handleWidgetConfigChange 的 latestRef，因此即便这个箭头

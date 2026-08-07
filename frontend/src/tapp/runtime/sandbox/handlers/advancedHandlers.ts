@@ -307,12 +307,20 @@ export function registerMediaHandlers(
   let spectrumCache: { data: unknown; timestamp: number } | null = null
   const SPECTRUM_CACHE_TTL = 16 // ~60fps, 缓存16ms
 
-  bridge.registerHandler('media.getSpectrum', async () => {
-    const now = Date.now()
+  const EMPTY_SPECTRUM = {
+    spectrum: [] as number[],
+    bands: [] as number[],
+    energy: 0,
+    bass: 0,
+    mid: 0,
+    high: 0,
+  }
 
-    // 检查缓存是否有效
+  /** 读一帧频谱。getSpectrum 与推流共用，16ms 缓存挡住同一帧的重复采样。 */
+  const readSpectrum = (): unknown => {
+    const now = Date.now()
     if (spectrumCache && now - spectrumCache.timestamp < SPECTRUM_CACHE_TTL) {
-      return { success: true, data: spectrumCache.data }
+      return spectrumCache.data
     }
 
     // 从Myriad的audioManager获取频谱数据
@@ -324,36 +332,86 @@ export function registerMediaHandlers(
         }
       }
     ).audioManager
-    if (audioManager && typeof audioManager.getSpectrumData === 'function') {
-      const spectrum = audioManager.getSpectrumData()
-      // 原始 8 频段（bass→high 自然顺序）——供可视化使用；
-      // spectrum 是为 4 根柱重排过的（低-高-高-低），不适合按频率取值
-      const bands =
-        typeof audioManager.getSpectrumBands === 'function'
-          ? audioManager.getSpectrumBands()
-          : []
-      // 计算能量值（低频平均）
-      const energy =
-        spectrum.length >= 4
-          ? (spectrum[0] + spectrum[1] + spectrum[2] + spectrum[3]) * 0.25 // 乘法比除法快
-          : 0
-      const result = {
-        spectrum, // 4 柱视觉重排数据 (0-1 范围，兼容旧消费方)
-        bands, // 原始 8 频段 (0-1 范围，bass→high)
-        energy, // 能量值 (0-1 范围)
-        bass:
-          bands.length >= 8 ? (bands[0] + bands[1]) * 0.5 : spectrum[0] || 0,
-        mid: bands.length >= 8 ? (bands[3] + bands[4]) * 0.5 : spectrum[2] || 0,
-        high: bands.length >= 8 ? (bands[6] + bands[7]) * 0.5 : 0,
-      }
-      // 更新缓存
-      spectrumCache = { data: result, timestamp: now }
-      return { success: true, data: result }
+    if (!audioManager || typeof audioManager.getSpectrumData !== 'function') {
+      return EMPTY_SPECTRUM
     }
-    return {
-      success: true,
-      data: { spectrum: [], bands: [], energy: 0, bass: 0, mid: 0, high: 0 },
+
+    const spectrum = audioManager.getSpectrumData()
+    // 原始 8 频段（bass→high 自然顺序）——供可视化使用；
+    // spectrum 是为 4 根柱重排过的（低-高-高-低），不适合按频率取值
+    const bands =
+      typeof audioManager.getSpectrumBands === 'function'
+        ? audioManager.getSpectrumBands()
+        : []
+    // 计算能量值（低频平均）
+    const energy =
+      spectrum.length >= 4
+        ? (spectrum[0] + spectrum[1] + spectrum[2] + spectrum[3]) * 0.25 // 乘法比除法快
+        : 0
+    const result = {
+      spectrum, // 4 柱视觉重排数据 (0-1 范围，兼容旧消费方)
+      bands, // 原始 8 频段 (0-1 范围，bass→high)
+      energy, // 能量值 (0-1 范围)
+      bass: bands.length >= 8 ? (bands[0] + bands[1]) * 0.5 : spectrum[0] || 0,
+      mid: bands.length >= 8 ? (bands[3] + bands[4]) * 0.5 : spectrum[2] || 0,
+      high: bands.length >= 8 ? (bands[6] + bands[7]) * 0.5 : 0,
     }
+    spectrumCache = { data: result, timestamp: now }
+    return result
+  }
+
+  bridge.registerHandler('media.getSpectrum', async () => {
+    return { success: true, data: readSpectrum() }
+  })
+
+  /**
+   * 频谱推流：宿主每帧主动 emit，替代 tapp 每帧 request 一次 getSpectrum。
+   *
+   * 逐帧 request 会瞬间打满 TappBridge 的入站限速（240 条/分钟 ≈ 4 条/秒，见
+   * BRIDGE_LIMITS）——可视化 tapp 播放几秒就把配额烧光，之后连 media.control
+   * 都被静默丢弃，表现为「点下一首没反应」。host→tapp 的 emit 不计入入站配额，
+   * 顺带省掉每帧一次 postMessage 往返。
+   *
+   * 只在 tapp 显式订阅（onSpectrum）后才开；页面隐藏时 rAF 自然停摆。
+   */
+  let spectrumRaf: number | null = null
+  let spectrumStreaming = false
+
+  const stopSpectrumStream = () => {
+    spectrumStreaming = false
+    if (spectrumRaf !== null) {
+      cancelAnimationFrame(spectrumRaf)
+      spectrumRaf = null
+    }
+  }
+
+  const spectrumTick = () => {
+    spectrumRaf = null
+    if (!spectrumStreaming) return
+    // 桥已销毁（tapp 卸载/换页）：循环必须自己收尾，否则泄漏到下一个实例
+    if (bridge.isDestroyed()) {
+      stopSpectrumStream()
+      return
+    }
+    bridge.emit('mediaSpectrum', readSpectrum())
+    spectrumRaf = requestAnimationFrame(spectrumTick)
+  }
+
+  bridge.registerHandler('media.spectrumStream', async (message) => {
+    const [params] = (message.payload as { args: unknown[] }).args || []
+    const { enabled } = (params || {}) as { enabled?: boolean }
+    if (!tappInstance.grantedPermissions?.includes('media:read')) {
+      return { success: false, error: 'Missing permission: media:read' }
+    }
+    if (enabled === false) {
+      stopSpectrumStream()
+      return { success: true, data: { streaming: false } }
+    }
+    if (!spectrumStreaming) {
+      spectrumStreaming = true
+      spectrumRaf = requestAnimationFrame(spectrumTick)
+    }
+    return { success: true, data: { streaming: true } }
   })
 
   // 获取歌词（逐字 + 逐行兜底）通用能力

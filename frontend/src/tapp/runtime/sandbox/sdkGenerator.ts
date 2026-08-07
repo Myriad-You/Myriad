@@ -629,6 +629,16 @@ export function generateFullSDK(
       setSkipVip: (value) => sendRequest('media', 'setSkipVip', [{ value: value }]),
       onStateChange: (cb) => addEventListener('mediaStateChange', cb),
       onProgress: (cb) => addEventListener('mediaProgress', cb),
+      // 频谱走宿主推送，别再每帧 getSpectrum：那样几秒就打满桥的入站限速，
+      // 之后连 next/prev 都会被静默丢弃
+      onSpectrum: (cb) => {
+        const off = addEventListener('mediaSpectrum', cb);
+        sendRequest('media', 'spectrumStream', [{ enabled: true }]).catch(() => {});
+        return () => {
+          off();
+          sendRequest('media', 'spectrumStream', [{ enabled: false }]).catch(() => {});
+        };
+      },
     },
 
     component: {
@@ -1193,7 +1203,17 @@ function buildWidgetSdkBody(
       getSkipVip: function() { return sendRequest('media', 'getSkipVip', []); },
       setSkipVip: function(value) { return sendRequest('media', 'setSkipVip', [{ value: value }]); },
       onStateChange: function(cb) { return addEventListener('mediaStateChange', cb); },
-      onProgress: function(cb) { return addEventListener('mediaProgress', cb); }
+      onProgress: function(cb) { return addEventListener('mediaProgress', cb); },
+      onSpectrum: function(cb) {
+        var off = addEventListener('mediaSpectrum', cb);
+        var on = sendRequest('media', 'spectrumStream', [{ enabled: true }]);
+        if (on && on.catch) on.catch(function() {});
+        return function() {
+          off();
+          var offReq = sendRequest('media', 'spectrumStream', [{ enabled: false }]);
+          if (offReq && offReq.catch) offReq.catch(function() {});
+        };
+      }
     },`
     : `
     media: {
@@ -1205,7 +1225,8 @@ function buildWidgetSdkBody(
       jumpToIndex: _denied('media:control'), loadNeteasePlaylist: _denied('media:control'),
       getSkipVip: _denied('media:read'), setSkipVip: _denied('media:control'),
       onStateChange: function() { return function() {}; },
-      onProgress: function() { return function() {}; }
+      onProgress: function() { return function() {}; },
+      onSpectrum: function() { return function() {}; }
     },`
 
   const platformNs = caps.platform
