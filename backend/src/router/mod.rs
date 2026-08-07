@@ -63,8 +63,56 @@ pub(crate) async fn start_unified_server(config: AppConfig) -> anyhow::Result<()
         .allow_headers(cors_allowed_headers)
         .allow_credentials(true);
 
-    // Get database connection (might be None in config mode)
-    let db_opt = services::tapp_registry::database().await.ok();
+    // Resolve the process DB without allowing a FULL_MODE failure to silently become
+    // a state-less setup router. CONFIG_MODE is the only mode where no DB is expected.
+    let db_opt = match services::tapp_registry::database().await {
+        Ok(db) => Some(db),
+        Err(_) if CONFIG_MODE.load(Ordering::Relaxed) => None,
+        Err(error) => {
+            return Err(anyhow::anyhow!(
+                "full-mode router cannot access the process database: {error}"
+            ));
+        }
+    };
+
+    // Setup authorization is initialized at the same boundary that decides which
+    // setup routes are exposed. A reachable DB is not proof that the installation
+    // is claimed; first-owner creation remains setup until an admin exists.
+    if let Some(db) = db_opt.as_ref() {
+        use sea_orm::ConnectionTrait;
+
+        let row = db
+            .query_one(sea_orm::Statement::from_string(
+                sea_orm::DatabaseBackend::Postgres,
+                "SELECT EXISTS (SELECT 1 FROM users WHERE is_admin = true LIMIT 1) AS admin_exists",
+            ))
+            .await
+            .map_err(|error| anyhow::anyhow!(
+                "cannot determine whether installation is claimed: {error}"
+            ))?
+            .ok_or_else(|| anyhow::anyhow!(
+                "cannot determine whether installation is claimed: query returned no row"
+            ))?;
+        let admin_exists: bool = row
+            .try_get("", "admin_exists")
+            .map_err(|error| anyhow::anyhow!(
+                "cannot decode installation claim state: {error}"
+            ))?;
+
+        if admin_exists {
+            api::setup_bootstrap::remove_stale_token_file(&services::data_paths::paths().root);
+        } else {
+            api::setup_bootstrap::init_for_setup(&services::data_paths::paths().root)
+                .map_err(|error| anyhow::anyhow!(
+                    "setup bootstrap guard initialization failed: {error}"
+                ))?;
+        }
+    } else {
+        api::setup_bootstrap::init_for_setup(&services::data_paths::paths().root)
+            .map_err(|error| anyhow::anyhow!(
+                "setup bootstrap guard initialization failed: {error}"
+            ))?;
+    }
 
     // Build the unified API router. When a DB is available, wire `AppState` once
     // so `extract::Db` resolves from state. Config-mode (no DB) keeps a
@@ -331,4 +379,3 @@ pub(crate) async fn start_unified_server(config: AppConfig) -> anyhow::Result<()
     // Start server with the app (convert to service within start_server)
     start_server(config, app).await
 }
-
