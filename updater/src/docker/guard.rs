@@ -7,9 +7,7 @@
 use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use axum::body::{to_bytes, Body};
@@ -23,12 +21,11 @@ use hyper::client::conn::http1;
 use hyper_util::rt::TokioIo;
 use serde_json::{json, Value};
 use tokio::net::UnixStream;
-use tokio::process::Command;
 use tracing::{error, info, warn};
 
 const MAX_REQUEST_BODY: usize = 1024 * 1024;
 const MAX_INSPECT_BODY: usize = 2 * 1024 * 1024;
-const SELF_UPDATE_DELAY: Duration = Duration::from_secs(5);
+const TRUSTED_GUARD_REPOSITORY: &str = "docker.io/somekawahitomi/myriad-updater";
 
 #[derive(Debug, Clone)]
 pub struct GuardConfig {
@@ -40,8 +37,9 @@ pub struct GuardConfig {
     pub admin_network: String,
     pub guard_network: String,
     pub compose_dir: PathBuf,
-    pub env_file: PathBuf,
-    pub update_token: String,
+    pub expected_guard_image: String,
+    pub host_policy_path: String,
+    pub allow_unpinned_dev: bool,
     pub allowed_images: HashSet<String>,
 }
 
@@ -68,34 +66,31 @@ impl GuardConfig {
         let compose_dir = std::env::var("DOCKER_GUARD_COMPOSE_DIR")
             .unwrap_or_else(|_| "/host/compose".into())
             .into();
-        let env_file = std::env::var("DOCKER_GUARD_ENV_FILE")
-            .unwrap_or_else(|_| "/host/compose/.env".into())
-            .into();
-        let update_token =
-            std::env::var("UPDATE_TOKEN").context("UPDATE_TOKEN is required by docker guard")?;
-        if update_token.trim().len() < 32 {
-            return Err(anyhow!("UPDATE_TOKEN must be at least 32 characters"));
+        let expected_guard_image = std::env::var("DOCKER_GUARD_EXPECTED_IMAGE")
+            .context("DOCKER_GUARD_EXPECTED_IMAGE is required")?;
+        let host_policy_path = std::env::var("DOCKER_GUARD_HOST_POLICY_PATH")
+            .context("DOCKER_GUARD_HOST_POLICY_PATH is required")?;
+        validate_host_policy_path(&host_policy_path)?;
+        let allow_unpinned_dev = std::env::var("DOCKER_GUARD_ALLOW_UNPINNED_DEV")
+            .is_ok_and(|value| value.eq_ignore_ascii_case("true"));
+        if allow_unpinned_dev && !cfg!(debug_assertions) {
+            return Err(anyhow!(
+                "DOCKER_GUARD_ALLOW_UNPINNED_DEV is forbidden in release builds"
+            ));
         }
-
-        let configured = std::env::var("DOCKER_GUARD_ALLOWED_IMAGES").unwrap_or_else(|_| {
-            [
-                "docker.io/somekawahitomi/myriad-backend",
-                "docker.io/somekawahitomi/myriad-frontend",
-                "docker.io/somekawahitomi/myriad-proxy",
-                "docker.io/somekawahitomi/myriad-updater",
-                "postgres",
-            ]
-            .join(",")
-        });
-        let allowed_images = configured
-            .split(',')
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(normalize_repository)
-            .collect::<HashSet<_>>();
-        if allowed_images.is_empty() {
-            return Err(anyhow!("DOCKER_GUARD_ALLOWED_IMAGES cannot be empty"));
-        }
+        validate_guard_image_ref(&expected_guard_image, allow_unpinned_dev)?;
+        // This policy is compiled into the Guard TCB. It must never come from
+        // updater-writable `.env` or runtime configuration.
+        let allowed_images = [
+            "docker.io/somekawahitomi/myriad-backend",
+            "docker.io/somekawahitomi/myriad-frontend",
+            "docker.io/somekawahitomi/myriad-proxy",
+            "docker.io/somekawahitomi/myriad-updater",
+            "postgres",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect::<HashSet<_>>();
 
         Ok(Self {
             listen,
@@ -105,33 +100,57 @@ impl GuardConfig {
             admin_network,
             guard_network,
             compose_dir,
-            env_file,
-            update_token,
+            expected_guard_image,
+            host_policy_path,
+            allow_unpinned_dev,
             allowed_images,
         })
     }
+}
+
+fn validate_host_policy_path(path: &str) -> Result<()> {
+    let looks_absolute = path.starts_with('/')
+        || path
+            .as_bytes()
+            .get(1)
+            .is_some_and(|separator| *separator == b':');
+    if !looks_absolute
+        || path.contains('\n')
+        || path.contains('\r')
+        || Path::new(path)
+            .components()
+            .any(|component| component == std::path::Component::ParentDir)
+    {
+        return Err(anyhow!(
+            "DOCKER_GUARD_HOST_POLICY_PATH must be an absolute path without traversal"
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Clone)]
 struct GuardState {
     config: Arc<GuardConfig>,
     host_compose_root: Arc<PathBuf>,
-    self_update_running: Arc<AtomicBool>,
 }
 
 pub async fn run(config: GuardConfig) -> Result<()> {
+    let hostname = current_container_id()?;
+    verify_running_guard_image(
+        &config.socket_path,
+        &hostname,
+        &config.expected_guard_image,
+        config.allow_unpinned_dev,
+    )
+    .await?;
     let host_compose_root = match std::env::var("DOCKER_GUARD_HOST_COMPOSE_ROOT") {
         Ok(root) if !root.trim().is_empty() => PathBuf::from(root),
-        _ => {
-            let hostname = current_container_id()?;
-            discover_host_compose_root(&config.socket_path, &hostname).await?
-        }
+        _ => discover_host_compose_root(&config.socket_path, &hostname).await?,
     };
     let listen = config.listen;
     let state = GuardState {
         config: Arc::new(config),
         host_compose_root: Arc::new(host_compose_root.clone()),
-        self_update_running: Arc::new(AtomicBool::new(false)),
     };
 
     info!(
@@ -150,13 +169,99 @@ pub async fn run(config: GuardConfig) -> Result<()> {
     Ok(())
 }
 
+fn validate_guard_image_ref(image: &str, allow_unpinned_dev: bool) -> Result<()> {
+    if allow_unpinned_dev && image.starts_with("myriad-updater-dev:") {
+        return Ok(());
+    }
+    let prefix = format!("{TRUSTED_GUARD_REPOSITORY}@sha256:");
+    let Some(digest) = image.strip_prefix(&prefix) else {
+        return Err(anyhow!(
+            "DOCKER_GUARD_EXPECTED_IMAGE must be {TRUSTED_GUARD_REPOSITORY}@sha256:<64 hex>"
+        ));
+    };
+    if digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(anyhow!(
+            "docker-guard image digest must contain exactly 64 hex characters"
+        ));
+    }
+    Ok(())
+}
+
+async fn verify_running_guard_image(
+    socket: &Path,
+    container_id: &str,
+    expected: &str,
+    allow_unpinned_dev: bool,
+) -> Result<()> {
+    validate_guard_image_ref(expected, allow_unpinned_dev)?;
+    validate_identifier(container_id).map_err(anyhow::Error::msg)?;
+    let inspect = daemon_json(socket, &format!("/containers/{container_id}/json")).await?;
+    let configured = inspect
+        .pointer("/Config/Image")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("docker guard container inspect has no Config.Image"))?;
+    if configured != expected {
+        return Err(anyhow!(
+            "running docker-guard image identity mismatch: configured {configured}, expected {expected}"
+        ));
+    }
+    if allow_unpinned_dev && expected.starts_with("myriad-updater-dev:") {
+        return Ok(());
+    }
+
+    let image_id = inspect
+        .get("Image")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("docker guard container inspect has no immutable image id"))?;
+    let Some(image_digest) = image_id.strip_prefix("sha256:") else {
+        return Err(anyhow!(
+            "docker guard container image id is not sha256-pinned"
+        ));
+    };
+    if image_digest.len() != 64 || !image_digest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(anyhow!("docker guard container image id is malformed"));
+    }
+    let image_inspect = daemon_json(socket, &format!("/images/{image_id}/json")).await?;
+    let repo_digests = image_inspect
+        .get("RepoDigests")
+        .and_then(Value::as_array)
+        .ok_or_else(|| anyhow!("docker guard image inspect has no RepoDigests"))?;
+    if !repo_digests
+        .iter()
+        .filter_map(Value::as_str)
+        .any(|actual| digest_reference_matches(actual, expected))
+    {
+        return Err(anyhow!(
+            "running docker-guard content digest does not match the host-pinned identity"
+        ));
+    }
+    Ok(())
+}
+
+fn digest_reference_matches(actual: &str, expected: &str) -> bool {
+    let Some((actual_repo, actual_digest)) = actual.rsplit_once("@sha256:") else {
+        return false;
+    };
+    let Some((expected_repo, expected_digest)) = expected.rsplit_once("@sha256:") else {
+        return false;
+    };
+    actual_repo.trim_start_matches("docker.io/") == expected_repo.trim_start_matches("docker.io/")
+        && actual_digest.eq_ignore_ascii_case(expected_digest)
+}
+
 async fn handle(
     State(state): State<GuardState>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     req: Request<Body>,
 ) -> Response {
     if req.uri().path() == "/_myriad/self-update" {
-        return handle_self_update(state, req).await;
+        // A component that holds updater credentials is not allowed to select
+        // or execute the Guard TCB. Guard upgrades are a host-operator action
+        // using a digest-pinned image from independently signed release data.
+        return denial(
+            StatusCode::FORBIDDEN,
+            "docker-guard is a separate TCB; host-verified upgrade required",
+        );
     }
 
     let method = req.method().clone();
@@ -191,8 +296,14 @@ async fn handle(
                 }
             }
         }
-        Decision::ProjectNetworkMutation { network, container } => {
-            if let Err(reason) = authorize_network_mutation(&state, &network, &container).await {
+        Decision::ProjectNetworkMutation {
+            network,
+            container,
+            endpoint,
+        } => {
+            if let Err(reason) =
+                authorize_network_mutation(&state, &network, &container, endpoint.as_ref()).await
+            {
                 warn!(
                     %peer,
                     %method,
@@ -221,7 +332,11 @@ async fn handle(
 enum Decision {
     Allow,
     ProjectContainer(String),
-    ProjectNetworkMutation { network: String, container: String },
+    ProjectNetworkMutation {
+        network: String,
+        container: String,
+        endpoint: Option<Value>,
+    },
 }
 
 fn classify_request(
@@ -301,6 +416,7 @@ fn classify_request(
             Ok(Decision::ProjectNetworkMutation {
                 network: (*network).to_string(),
                 container: container.to_string(),
+                endpoint: value.get("EndpointConfig").cloned(),
             })
         }
         ["volumes", ..] if *method == Method::GET => Ok(Decision::Allow),
@@ -390,6 +506,7 @@ fn validate_container_create(state: &GuardState, body: &Bytes) -> std::result::R
         return Err("explicit root user is allowed only for the backend volume initializer".into());
     }
     reject_true(&host, "Privileged")?;
+    reject_true(&host, "PublishAllPorts")?;
     // PortBindings are forbidden for internal services. Proxy is the edge entry and must
     // publish host ports (80/443); validate those bindings separately below.
     let mut host_forbidden = vec![
@@ -398,11 +515,34 @@ fn validate_container_create(state: &GuardState, body: &Bytes) -> std::result::R
         "DeviceRequests",
         "VolumesFrom",
         "Sysctls",
+        "ContainerIDFile",
+        "Runtime",
+        "VolumeDriver",
+        "CgroupParent",
+        "Isolation",
+        "Annotations",
+        "Cgroup",
+        "StorageOpt",
+        "Links",
     ];
     if service != "proxy" {
         host_forbidden.push("PortBindings");
     }
     reject_nonempty_fields(&host, &host_forbidden)?;
+    if let Some(log_config) = host.get("LogConfig").filter(|value| nonempty(Some(value))) {
+        let log_type = log_config.get("Type").and_then(Value::as_str);
+        let config_is_safe = log_config
+            .get("Config")
+            .and_then(Value::as_object)
+            .is_none_or(|config| {
+                config
+                    .keys()
+                    .all(|key| matches!(key.as_str(), "max-size" | "max-file"))
+            });
+        if log_type != Some("json-file") || !config_is_safe {
+            return Err("HostConfig.LogConfig is outside the json-file allowlist".into());
+        }
+    }
     if service == "proxy" {
         authorize_proxy_port_bindings(host.get("PortBindings"))?;
     }
@@ -418,15 +558,15 @@ fn validate_container_create(state: &GuardState, body: &Bytes) -> std::result::R
         }
     }
     if let Some(mode) = host.get("NetworkMode").and_then(Value::as_str) {
-        if !mode.is_empty()
-            && !matches!(mode, "default" | "bridge" | "none")
-            && mode != state.config.compose_network
-            && mode != state.config.admin_network
-            && mode != state.config.guard_network
-        {
-            return Err("host or foreign network mode is not allowed".into());
+        if !mode.is_empty() && !matches!(mode, "default" | "bridge" | "none") {
+            if mode != state.config.compose_network
+                && mode != state.config.admin_network
+                && mode != state.config.guard_network
+            {
+                return Err("host or foreign network mode is not allowed".into());
+            }
+            authorize_guard_network_attachment(service, mode, &state.config)?;
         }
-        authorize_guard_network_attachment(service, mode, &state.config)?;
     }
     if let Some(options) = host.get("SecurityOpt").and_then(Value::as_array) {
         if options.iter().any(|v| {
@@ -469,11 +609,46 @@ fn validate_container_create(state: &GuardState, body: &Bytes) -> std::result::R
         .pointer("/NetworkingConfig/EndpointsConfig")
         .and_then(Value::as_object)
     {
-        for network in endpoints.keys() {
+        for (network, endpoint) in endpoints {
             if !is_allowlisted_network_name(network, &state.config) {
                 return Err(format!("network {network} is outside the Myriad allowlist"));
             }
             authorize_guard_network_attachment(service, network, &state.config)?;
+            validate_endpoint_settings(service, endpoint, &state.config)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_endpoint_settings(
+    service: &str,
+    endpoint: &Value,
+    config: &GuardConfig,
+) -> std::result::Result<(), String> {
+    let Some(object) = endpoint.as_object() else {
+        return Err("network endpoint settings must be an object".into());
+    };
+    for (key, value) in object {
+        if key != "Aliases" && nonempty(Some(value)) {
+            return Err(format!("network endpoint field {key} is not allowed"));
+        }
+    }
+    if let Some(aliases) = object.get("Aliases").and_then(Value::as_array) {
+        let service_alias = service;
+        let fixed_name = format!("{}-{service}", config.project);
+        let generated_name = format!("{}-{service}-1", config.project);
+        let legacy_generated_name = format!("{}_{service}_1", config.project);
+        if aliases.iter().any(|alias| {
+            !alias.as_str().is_some_and(|alias| {
+                alias == service_alias
+                    || alias == fixed_name
+                    || alias == generated_name
+                    || alias == legacy_generated_name
+            })
+        }) {
+            return Err(
+                "network aliases are outside the Compose service identity allowlist".into(),
+            );
         }
     }
     Ok(())
@@ -571,16 +746,29 @@ fn is_allowlisted_network_name(name: &str, config: &GuardConfig) -> bool {
     name == config.compose_network || name == config.admin_network || name == config.guard_network
 }
 
-/// Only the Compose `updater` service may join the docker-guard network. Business services
-/// may attach to the project Compose network (`myriad-net`) and the admin plane
-/// (`myriad-admin-net`); only `updater` may dual-home onto guard-net.
+/// Exact service-to-network topology. In particular, a compromised updater may
+/// not attach itself to the business network to reach Postgres/frontend peers.
 fn authorize_guard_network_attachment(
     service: &str,
     network_name: &str,
     config: &GuardConfig,
 ) -> std::result::Result<(), String> {
-    if network_name == config.guard_network && service != "updater" {
-        return Err("only the updater service may attach to the docker-guard network".into());
+    let allowed = match service {
+        "postgres" | "frontend" => network_name == config.compose_network,
+        "backend" | "proxy" => {
+            network_name == config.compose_network || network_name == config.admin_network
+        }
+        "updater" => network_name == config.admin_network || network_name == config.guard_network,
+        "backend-volume-init" => false,
+        _ => false,
+    };
+    if !allowed {
+        if network_name == config.guard_network && service != "updater" {
+            return Err("only the updater service may attach to the docker-guard network".into());
+        }
+        return Err(format!(
+            "service {service} may not attach to network {network_name}"
+        ));
     }
     Ok(())
 }
@@ -590,7 +778,8 @@ fn validate_bind(state: &GuardState, service: &str, bind: &str) -> std::result::
     if !(2..=3).contains(&parts.len()) {
         return Err("invalid bind syntax".into());
     }
-    if let Some(options) = parts.get(2) {
+    let options = parts.get(2).copied().unwrap_or("");
+    if !options.is_empty() {
         validate_mount_options(options)?;
     }
     validate_mount_pair(
@@ -599,6 +788,7 @@ fn validate_bind(state: &GuardState, service: &str, bind: &str) -> std::result::
         parts[0],
         parts[1],
         Path::new(parts[0]).is_absolute(),
+        options.split(',').any(|option| option == "ro"),
     )
 }
 
@@ -639,7 +829,11 @@ fn validate_mount(
         .or_else(|| mount.get("Destination"))
         .and_then(Value::as_str)
         .unwrap_or_default();
-    validate_mount_pair(state, service, source, target, kind == "bind")
+    let read_only = mount
+        .get("ReadOnly")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    validate_mount_pair(state, service, source, target, kind == "bind", read_only)
 }
 
 fn validate_mount_pair(
@@ -648,6 +842,7 @@ fn validate_mount_pair(
     source: &str,
     target: &str,
     host_bind: bool,
+    read_only: bool,
 ) -> std::result::Result<(), String> {
     let root = state.host_compose_root.as_path();
     let source_path = Path::new(source);
@@ -674,10 +869,40 @@ fn validate_mount_pair(
             validate_visible_host_directory(state, "pgdata")
         }
         "updater" => {
-            if !host_bind || !exact_host_pair("", "/host/compose") {
-                return Err("updater may only bind the deployment root at /host/compose".into());
+            if !host_bind {
+                return Err("updater mounts must be fixed host bind paths".into());
             }
-            validate_visible_host_directory(state, "")
+            if exact_host_pair("", "/host/compose") {
+                if !read_only {
+                    return Err("updater deployment root must be mounted read-only".into());
+                }
+                return validate_visible_host_directory(state, "");
+            }
+            if exact_host_pair(".env", "/host/compose/.env") {
+                return validate_visible_host_path(state, ".env", false);
+            }
+            if exact_host_pair("state", "/host/compose/state") {
+                return validate_visible_host_directory(state, "state");
+            }
+            if exact_host_pair("pgdata", "/host/compose/pgdata") {
+                return validate_visible_host_directory(state, "pgdata");
+            }
+            if source == state.config.host_policy_path && target == "/run/secrets/docker-guard.env"
+            {
+                if !read_only {
+                    return Err("host Guard policy must be mounted read-only".into());
+                }
+                return Ok(());
+            }
+            if cfg!(debug_assertions)
+                && exact_host_pair("docker-guard.env", "/run/secrets/docker-guard.env")
+            {
+                if !read_only {
+                    return Err("development Guard policy must be mounted read-only".into());
+                }
+                return validate_visible_host_path(state, "docker-guard.env", false);
+            }
+            Err("updater host bind is outside the fixed deployment allowlist".into())
         }
         "proxy" => {
             // Proxy only needs the maintenance state file (read-only).
@@ -756,6 +981,27 @@ fn validate_visible_host_directory(
     Ok(())
 }
 
+fn validate_visible_host_path(
+    state: &GuardState,
+    relative: &str,
+    directory: bool,
+) -> std::result::Result<(), String> {
+    let path = state.config.compose_dir.join(relative);
+    let metadata = std::fs::symlink_metadata(&path)
+        .map_err(|_| "host bind source does not exist".to_string())?;
+    if metadata.file_type().is_symlink() {
+        return Err("host bind source may not contain symbolic links".into());
+    }
+    if metadata.is_dir() != directory {
+        return Err(if directory {
+            "host bind source must be a directory".into()
+        } else {
+            "host bind source must be a regular file".into()
+        });
+    }
+    Ok(())
+}
+
 fn validate_image_pull(state: &GuardState, uri: &Uri) -> std::result::Result<(), String> {
     let image = query_param(uri, "fromImage")
         .ok_or_else(|| "images/create requires fromImage".to_string())?;
@@ -828,12 +1074,13 @@ fn allowlisted_network_name(inspect: &Value, config: &GuardConfig) -> Option<Str
     }
 }
 
-/// Authorize `networks/{id}/connect|disconnect`: network must be allowlisted, container must
-/// be a managed project service, and only `updater` may join/leave the docker-guard network.
+/// Authorize `networks/{id}/connect|disconnect` against the exact production
+/// service-to-network topology.
 async fn authorize_network_mutation(
     state: &GuardState,
     network: &str,
     container: &str,
+    endpoint: Option<&Value>,
 ) -> std::result::Result<(), String> {
     let container_inspect = daemon_json(
         &state.config.socket_path,
@@ -856,245 +1103,11 @@ async fn authorize_network_mutation(
     let network_name = allowlisted_network_name(&network_inspect, &state.config)
         .ok_or_else(|| "network is outside the Myriad allowlist".to_string())?;
 
-    authorize_guard_network_attachment(&service, &network_name, &state.config)
-}
-
-const MAX_SELF_UPDATE_BODY: usize = 4 * 1024;
-
-#[derive(Debug, Clone, serde::Deserialize)]
-struct SelfUpdateRequestBody {
-    previous_tag: String,
-    target_tag: String,
-}
-
-async fn handle_self_update(state: GuardState, req: Request<Body>) -> Response {
-    if req.method() != Method::POST {
-        return denial(StatusCode::METHOD_NOT_ALLOWED, "POST required");
-    }
-    let provided = req
-        .headers()
-        .get("X-Update-Token")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or_default();
-    if !constant_time_eq(provided.as_bytes(), state.config.update_token.as_bytes()) {
-        return denial(StatusCode::UNAUTHORIZED, "invalid update token");
-    }
-
-    let body = match to_bytes(req.into_body(), MAX_SELF_UPDATE_BODY).await {
-        Ok(body) => body,
-        Err(_) => {
-            return denial(
-                StatusCode::PAYLOAD_TOO_LARGE,
-                "self-update body exceeds 4 KiB",
-            )
-        }
-    };
-    let request: SelfUpdateRequestBody = match serde_json::from_slice(&body) {
-        Ok(v) => v,
-        Err(_) => {
-            return denial(
-                StatusCode::BAD_REQUEST,
-                "JSON body required: {\"previous_tag\":\"...\",\"target_tag\":\"...\"}",
-            )
-        }
-    };
-    if let Err(reason) = validate_self_update_tags(&request.previous_tag, &request.target_tag) {
-        return denial(StatusCode::BAD_REQUEST, &reason);
-    }
-
-    if state
-        .self_update_running
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
-        return denial(StatusCode::CONFLICT, "self-update already scheduled");
-    }
-
-    let previous_tag = request.previous_tag;
-    let target_tag = request.target_tag;
-    let task_state = state.clone();
-    let task_previous = previous_tag.clone();
-    let task_target = target_tag.clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(SELF_UPDATE_DELAY).await;
-        let result = run_guarded_self_update(&task_state, &task_previous, &task_target).await;
-        task_state
-            .self_update_running
-            .store(false, Ordering::SeqCst);
-        match result {
-            Ok(()) => info!(
-                previous_tag = %task_previous,
-                target_tag = %task_target,
-                "guarded updater self-update completed"
-            ),
-            Err(e) => error!(
-                err = %e,
-                previous_tag = %task_previous,
-                target_tag = %task_target,
-                "guarded updater self-update failed (helper restores UPDATER_TAG on compose failure)"
-            ),
-        }
-    });
-    (
-        StatusCode::ACCEPTED,
-        axum::Json(json!({
-            "scheduled": true,
-            "executor": "docker-guard",
-            "previous_tag": previous_tag,
-            "target_tag": target_tag,
-        })),
-    )
-        .into_response()
-}
-
-fn validate_self_update_tags(previous: &str, target: &str) -> std::result::Result<(), String> {
-    use super::self_update_helper::is_safe_self_update_tag;
-    if !is_safe_self_update_tag(previous) {
-        return Err(format!("invalid previous_tag: {previous}"));
-    }
-    if !is_safe_self_update_tag(target) {
-        return Err(format!("invalid target_tag: {target}"));
+    authorize_guard_network_attachment(&service, &network_name, &state.config)?;
+    if let Some(endpoint) = endpoint {
+        validate_endpoint_settings(&service, endpoint, &state.config)?;
     }
     Ok(())
-}
-
-/// Recreate both TCB services so `docker-guard` tracks `UPDATER_TAG` alongside
-/// `updater` and `updater-gateway` (same `UPDATER_TAG` image).
-///
-/// **Why the raw unix socket?** Container-create policy only allows Compose
-/// services `backend|frontend|postgres|updater`. Recreating `docker-guard` or
-/// `updater-gateway` through the policy proxy on `:2375` would be denied.
-/// Self-update is a fixed argv TCB self-replace (not arbitrary Docker API), so
-/// compose talks to `unix:///var/run/docker.sock` directly. All other updater
-/// traffic still uses the policy proxy via `DOCKER_HOST=tcp://docker-guard:2375`.
-///
-/// **Why a one-shot helper?** Running `compose up docker-guard` from inside the
-/// live guard container races with killing that container mid-compose. A short
-/// helper (`myriad-tcb-self-update` on the target updater image) performs the
-/// recreate, restores `UPDATER_TAG` on failure, writes durable status, and
-/// exits. Compose dir is mounted **rw** only for this helper so it can rewrite
-/// `.env` and `state/self-update-last.json` after the old guard may be gone.
-async fn run_guarded_self_update(
-    state: &GuardState,
-    previous_tag: &str,
-    target_tag: &str,
-) -> Result<()> {
-    // Tags already validated in the HTTP handler; re-check before docker run env.
-    validate_self_update_tags(previous_tag, target_tag).map_err(anyhow::Error::msg)?;
-    validate_simple_name("COMPOSE_PROJECT_NAME", &state.config.project)?;
-
-    let helper_image = self_update_helper_image(&state.config.env_file)?;
-    let host_root = state.host_compose_root.to_string_lossy().into_owned();
-    let sock = state.config.socket_path.to_string_lossy().into_owned();
-    let docker_host = format!("unix://{sock}");
-
-    // Paths *inside* the helper container (host_root is bind-mounted at /host/compose).
-    let helper_compose_dir = "/host/compose";
-    let helper_env_file = "/host/compose/.env";
-    let helper_status_file = "/host/compose/state/self-update-last.json";
-
-    let mut command = Command::new("docker");
-    command.env("DOCKER_HOST", &docker_host).args([
-        "run",
-        "--rm",
-        "--name",
-        &format!("myriad-tcb-self-update-{}", std::process::id()),
-        "-v",
-        &format!("{sock}:/var/run/docker.sock"),
-        // rw: helper may restore UPDATER_TAG and write self-update-last.json
-        "-v",
-        &format!("{host_root}:/host/compose:rw"),
-        "-e",
-        &format!(
-            "{}={previous_tag}",
-            super::self_update_helper::ENV_PREVIOUS_TAG
-        ),
-        "-e",
-        &format!("{}={target_tag}", super::self_update_helper::ENV_TARGET_TAG),
-        "-e",
-        &format!(
-            "{}={}",
-            super::self_update_helper::ENV_PROJECT,
-            state.config.project
-        ),
-        "-e",
-        &format!(
-            "{}={host_root}",
-            super::self_update_helper::ENV_PROJECT_DIRECTORY
-        ),
-        "-e",
-        &format!(
-            "{}={helper_compose_dir}",
-            super::self_update_helper::ENV_COMPOSE_DIR
-        ),
-        "-e",
-        &format!(
-            "{}={helper_env_file}",
-            super::self_update_helper::ENV_ENV_FILE
-        ),
-        "-e",
-        &format!(
-            "{}={helper_status_file}",
-            super::self_update_helper::ENV_STATUS_FILE
-        ),
-        "--network",
-        "none",
-        "--security-opt",
-        "no-new-privileges:true",
-        "--entrypoint",
-        "/usr/local/bin/myriad-tcb-self-update",
-        &helper_image,
-    ]);
-
-    let output = command
-        .output()
-        .await
-        .context("spawn TCB self-update helper (direct docker.sock)")?;
-    if !output.status.success() {
-        return Err(anyhow!(
-            "TCB self-update helper failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-    info!(
-        image = %helper_image,
-        previous_tag,
-        target_tag,
-        "TCB self-update recreated docker-guard, updater, and updater-gateway via direct unix socket"
-    );
-    Ok(())
-}
-
-/// Image used by the self-update helper. Prefers the post-rewrite `UPDATER_TAG`
-/// from the deployment `.env` so the helper binary matches the target release.
-fn self_update_helper_image(env_file: &Path) -> Result<String> {
-    let text = std::fs::read_to_string(env_file).with_context(|| {
-        format!(
-            "read env file for self-update image: {}",
-            env_file.display()
-        )
-    })?;
-    let mut image = "docker.io/somekawahitomi/myriad-updater".to_string();
-    let mut tag = None::<String>;
-    for line in text.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        if let Some(rest) = line.strip_prefix("UPDATER_IMAGE=") {
-            let v = rest.trim().trim_matches('"').trim_matches('\'');
-            if !v.is_empty() {
-                image = v.to_string();
-            }
-        } else if let Some(rest) = line.strip_prefix("UPDATER_TAG=") {
-            let v = rest.trim().trim_matches('"').trim_matches('\'');
-            if !v.is_empty() {
-                tag = Some(v.to_string());
-            }
-        }
-    }
-    let tag = tag.ok_or_else(|| anyhow!("UPDATER_TAG missing from {}", env_file.display()))?;
-    Ok(format!("{image}:{tag}"))
 }
 
 async fn discover_host_compose_root(socket: &Path, container_id: &str) -> Result<PathBuf> {
@@ -1241,17 +1254,6 @@ fn nonempty(value: Option<&Value>) -> bool {
     }
 }
 
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for (left, right) in a.iter().zip(b.iter()) {
-        diff |= left ^ right;
-    }
-    diff == 0
-}
-
 fn current_container_id() -> Result<String> {
     let hostname = match std::env::var("HOSTNAME") {
         Ok(value) => value,
@@ -1286,8 +1288,12 @@ mod tests {
                 admin_network: "myriad-admin-net".into(),
                 guard_network: "myriad-docker-guard-net".into(),
                 compose_dir: visible_root,
-                env_file: "/host/compose/.env".into(),
-                update_token: "9xQ3vN8mP2rT5wY7zA1bC4dF6hJ8kL0n".into(),
+                expected_guard_image: format!(
+                    "{TRUSTED_GUARD_REPOSITORY}@sha256:{}",
+                    "a".repeat(64)
+                ),
+                host_policy_path: "/etc/myriad/docker-guard.env".into(),
+                allow_unpinned_dev: false,
                 allowed_images: [
                     "docker.io/example/backend".into(),
                     "docker.io/example/frontend".into(),
@@ -1298,8 +1304,46 @@ mod tests {
                 .collect(),
             }),
             host_compose_root: Arc::new(PathBuf::from("/srv/myriad")),
-            self_update_running: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    #[tokio::test]
+    async fn compromised_updater_cannot_schedule_privileged_self_update() {
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/_myriad/self-update")
+            .header("X-Update-Token", "attacker-knows-the-former-shared-token")
+            .body(Body::from(
+                r#"{"previous_tag":"v0.3.28","target_tag":"v9.9.9"}"#,
+            ))
+            .unwrap();
+        let response = handle(
+            State(state()),
+            ConnectInfo("172.30.0.9:50000".parse().unwrap()),
+            request,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn guard_identity_requires_trusted_repository_and_exact_digest() {
+        let valid = format!(
+            "{TRUSTED_GUARD_REPOSITORY}@sha256:{}",
+            "0123456789abcdef".repeat(4)
+        );
+        assert!(validate_guard_image_ref(&valid, false).is_ok());
+        assert!(validate_guard_image_ref("evil.example/guard@sha256:aaaaaaaa", false).is_err());
+        assert!(
+            validate_guard_image_ref("docker.io/somekawahitomi/myriad-updater:latest", false)
+                .is_err()
+        );
+        assert!(validate_guard_image_ref(
+            &format!("{TRUSTED_GUARD_REPOSITORY}@sha256:{}", "g".repeat(64)),
+            false
+        )
+        .is_err());
+        assert!(validate_guard_image_ref("myriad-updater-dev:v0.0.0-dev", true).is_ok());
     }
 
     fn create(service: &str, image: &str, host: Value) -> Bytes {
@@ -1510,22 +1554,58 @@ mod tests {
     }
 
     #[test]
-    fn updater_accepts_only_the_deployment_root_bind() {
+    fn host_runtime_and_daemon_file_write_overrides_are_denied() {
+        for host in [
+            json!({"Runtime": "custom-root-runtime"}),
+            json!({"ContainerIDFile": "/etc/cron.d/escape"}),
+            json!({"CgroupParent": "/system.slice"}),
+            json!({"Annotations": {"run.oci.handler": "host-runtime"}}),
+            json!({"LogConfig": {"Type": "syslog", "Config": {}}}),
+        ] {
+            let body = create("frontend", "docker.io/example/frontend:v1", host);
+            assert!(validate_container_create(&state(), &body).is_err());
+        }
+    }
+
+    #[test]
+    fn updater_accepts_only_read_only_root_and_fixed_writable_overlays() {
         let visible = tempfile::tempdir().unwrap();
+        std::fs::write(visible.path().join(".env"), "MYRIAD_TAG=v1\n").unwrap();
+        std::fs::create_dir(visible.path().join("state")).unwrap();
+        std::fs::create_dir(visible.path().join("pgdata")).unwrap();
         let state = state_with_visible_root(visible.path().to_path_buf());
         let good = create(
             "updater",
             "docker.io/example/updater:v1",
-            json!({"Binds": ["/srv/myriad:/host/compose:rw"]}),
+            json!({"Binds": [
+                "/srv/myriad:/host/compose:ro",
+                "/srv/myriad/.env:/host/compose/.env:rw",
+                "/srv/myriad/state:/host/compose/state:rw",
+                "/srv/myriad/pgdata:/host/compose/pgdata:rw",
+                "/etc/myriad/docker-guard.env:/run/secrets/docker-guard.env:ro"
+            ]}),
         );
         assert!(validate_container_create(&state, &good).is_ok());
 
-        let legacy_state = create(
+        let writable_root = create(
             "updater",
             "docker.io/example/updater:v1",
-            json!({"Binds": ["/srv/myriad/state:/state:rw"]}),
+            json!({"Binds": ["/srv/myriad:/host/compose:rw"]}),
         );
-        assert!(validate_container_create(&state, &legacy_state).is_err());
+        assert!(validate_container_create(&state, &writable_root)
+            .unwrap_err()
+            .contains("read-only"));
+
+        let writable_policy = create(
+            "updater",
+            "docker.io/example/updater:v1",
+            json!({"Binds": [
+                "/etc/myriad/docker-guard.env:/run/secrets/docker-guard.env:rw"
+            ]}),
+        );
+        assert!(validate_container_create(&state, &writable_policy)
+            .unwrap_err()
+            .contains("read-only"));
 
         let socket = create(
             "updater",
@@ -1533,6 +1613,24 @@ mod tests {
             json!({"Binds": ["/var/run/docker.sock:/var/run/docker.sock"]}),
         );
         assert!(validate_container_create(&state, &socket).is_err());
+    }
+
+    #[test]
+    fn repo_digest_match_accepts_docker_hub_canonicalization_only() {
+        let expected = format!(
+            "docker.io/somekawahitomi/myriad-updater@sha256:{}",
+            "a".repeat(64)
+        );
+        let canonical = format!("somekawahitomi/myriad-updater@sha256:{}", "a".repeat(64));
+        assert!(digest_reference_matches(&canonical, &expected));
+        assert!(!digest_reference_matches(
+            &format!("attacker/myriad-updater@sha256:{}", "a".repeat(64)),
+            &expected
+        ));
+        assert!(!digest_reference_matches(
+            &format!("somekawahitomi/myriad-updater@sha256:{}", "b".repeat(64)),
+            &expected
+        ));
     }
 
     #[test]
@@ -1665,14 +1763,6 @@ mod tests {
             "/containers/json"
         );
         assert_eq!(strip_api_version("/containers/json"), "/containers/json");
-    }
-
-    #[test]
-    fn self_update_tags_reject_shell_metacharacters() {
-        assert!(validate_self_update_tags("v0.1.0", "v0.2.0").is_ok());
-        assert!(validate_self_update_tags("v0.1.0", "v1;rm -rf /").is_err());
-        assert!(validate_self_update_tags("$(reboot)", "v0.2.0").is_err());
-        assert!(validate_self_update_tags("v0.1.0", "").is_err());
     }
 
     fn create_with_networking(service: &str, image: &str, host: Value, endpoints: Value) -> Bytes {
@@ -1809,7 +1899,6 @@ mod tests {
         for service_image in [
             ("backend", "docker.io/example/backend:v1"),
             ("frontend", "docker.io/example/frontend:v1"),
-            ("updater", "docker.io/example/updater:v1"),
         ] {
             let body = create_with_networking(
                 service_image.0,
@@ -1837,6 +1926,35 @@ mod tests {
 
         assert!(authorize_guard_network_attachment("backend", "myriad-net", &s.config).is_ok());
         assert!(authorize_guard_network_attachment("postgres", "myriad-net", &s.config).is_ok());
+
+        let updater = create_with_networking(
+            "updater",
+            "docker.io/example/updater:v1",
+            json!({}),
+            json!({"myriad-net": {}}),
+        );
+        assert!(validate_container_create(&s, &updater).is_err());
+        assert!(authorize_guard_network_attachment("updater", "myriad-net", &s.config).is_err());
+    }
+
+    #[test]
+    fn endpoint_identity_overrides_are_denied() {
+        let s = state();
+        assert!(validate_endpoint_settings(
+            "backend",
+            &json!({"Aliases": ["backend", "myriad-backend"]}),
+            &s.config,
+        )
+        .is_ok());
+        for endpoint in [
+            json!({"Aliases": ["postgres"]}),
+            json!({"IPAMConfig": {"IPv4Address": "172.28.0.2"}}),
+            json!({"MacAddress": "02:42:ac:1c:00:02"}),
+            json!({"DriverOpts": {"com.example.host": "true"}}),
+            json!({"DNSNames": ["postgres"]}),
+        ] {
+            assert!(validate_endpoint_settings("backend", &endpoint, &s.config).is_err());
+        }
     }
 
     #[test]
@@ -1882,6 +2000,7 @@ mod tests {
             Decision::ProjectNetworkMutation {
                 network: "myriad-docker-guard-net".into(),
                 container: "myriad-backend-1".into(),
+                endpoint: None,
             }
         );
     }

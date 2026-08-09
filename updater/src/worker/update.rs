@@ -140,14 +140,8 @@ pub async fn run(
         Ok(c) => c,
         Err(e) => {
             let _ = rec.finish_step_err(format!("compose runner: {e}"));
-            return finish_pre_swap_failure(
-                &worker,
-                &rec,
-                None,
-                PreSwapRestoreScope::None,
-                e,
-            )
-            .await;
+            return finish_pre_swap_failure(&worker, &rec, None, PreSwapRestoreScope::None, e)
+                .await;
         }
     };
 
@@ -312,9 +306,9 @@ async fn run_update_body(
     rec.enter(Phase::Snapshotting, "updater.phase.snapshotting")?;
     if worker.cli().db_mode.is_external() {
         info!("db_mode=external; skipping pgdata snapshot");
-        let _ = worker
-            .state()
-            .append_history(&format!("job {job_id}: db_mode=external; skipping pgdata snapshot"));
+        let _ = worker.state().append_history(&format!(
+            "job {job_id}: db_mode=external; skipping pgdata snapshot"
+        ));
         flow.snapshot_id.clear();
     } else {
         crate::probe::filesystem::require_pgdata(&worker.cli().pgdata)?;
@@ -422,14 +416,11 @@ async fn run_update_body(
 
     // ----- Start new -----
     rec.enter(Phase::StartingNew, "updater.phase.starting_new")?;
-    let volume_init = compose
-        .init_backend_volumes()
-        .await
-        .map_err(|e| {
-            UpdaterError::Internal(anyhow::anyhow!(
-                "backend volume ownership initialization failed: {e}"
-            ))
-        })?;
+    let volume_init = compose.init_backend_volumes().await.map_err(|e| {
+        UpdaterError::Internal(anyhow::anyhow!(
+            "backend volume ownership initialization failed: {e}"
+        ))
+    })?;
     if !volume_init.ok() {
         return Err(UpdaterError::Internal(anyhow::anyhow!(
             "backend volume ownership initialization failed: {}",
@@ -444,9 +435,7 @@ async fn run_update_body(
     let up = compose
         .up_detached_recreate(&["backend", "frontend"])
         .await
-        .map_err(|e| {
-            UpdaterError::Internal(anyhow::anyhow!("compose up new failed: {e}"))
-        })?;
+        .map_err(|e| UpdaterError::Internal(anyhow::anyhow!("compose up new failed: {e}")))?;
     if !up.ok() {
         return Err(UpdaterError::Internal(anyhow::anyhow!(
             "compose up new failed: {}",
@@ -1021,10 +1010,9 @@ async fn build_compose_runner(worker: &Arc<Worker>) -> Result<ComposeRunner> {
     // Binary preference still falls back to startup env-probe when live detect fails.
     let live = crate::probe::compose::probe(&worker.cli().compose_dir).await;
     let probe_path = worker.state().root().join("env-probe.json");
-    let boot: Option<crate::probe::EnvProbe> =
-        std::fs::read(&probe_path)
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok());
+    let boot: Option<crate::probe::EnvProbe> = std::fs::read(&probe_path)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok());
 
     let binary: ComposeBinary = live
         .binary
@@ -1051,11 +1039,22 @@ async fn build_compose_runner(worker: &Arc<Worker>) -> Result<ComposeRunner> {
         .docker()
         .resolve_host_bind_source(compose_base)
         .await?;
+    // Release builds resolve this to the fixed read-only secret mount. Only
+    // debug builds accept the dev-compose override.
+    let guard_env_file = crate::docker::compose::guard_env_file_path();
+    if !guard_env_file.is_absolute() || !guard_env_file.is_file() {
+        return Err(UpdaterError::Precondition(format!(
+            "invalid host-owned Guard policy file: {}",
+            guard_env_file.display()
+        )));
+    }
+    crate::docker::compose::validate_guard_policy_file(&guard_env_file)?;
     Ok(ComposeRunner::new(
         binary,
         project,
         compose_files,
         worker.cli().env_file.clone(),
+        guard_env_file,
         worker.cli().compose_dir.clone(),
         host_project_directory,
     ))
@@ -1254,9 +1253,17 @@ enum FrontendProbe {
 }
 
 enum ProbeTick {
-    HardOk { detail: String, pass_kind: &'static str },
-    SoftOk { detail: String, pass_kind: &'static str },
-    NotReady { detail: String },
+    HardOk {
+        detail: String,
+        pass_kind: &'static str,
+    },
+    SoftOk {
+        detail: String,
+        pass_kind: &'static str,
+    },
+    NotReady {
+        detail: String,
+    },
 }
 
 fn backend_storage_writable(health: &serde_json::Value) -> bool {

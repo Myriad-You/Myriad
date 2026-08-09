@@ -20,10 +20,6 @@ name = "myriad-docker-guard"
 path = "src/bin/myriad-docker-guard.rs"
 
 [[bin]]
-name = "myriad-tcb-self-update"
-path = "src/bin/myriad-tcb-self-update.rs"
-
-[[bin]]
 name = "myriad-updater-gateway"
 path = "src/bin/myriad-updater-gateway.rs"
 

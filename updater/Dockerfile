@@ -22,12 +22,13 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/work/updater/target,sharing=locked \
     cargo build --profile="${CARGO_PROFILE}" --bins \
+    && artifact_dir="${CARGO_PROFILE}" \
+    && if [ "${artifact_dir}" = "dev" ]; then artifact_dir=debug; fi \
     && mkdir -p /out \
-    && cp "target/${CARGO_PROFILE}/myriad-updater" \
-          "target/${CARGO_PROFILE}/myriad-rescue" \
-          "target/${CARGO_PROFILE}/myriad-docker-guard" \
-          "target/${CARGO_PROFILE}/myriad-tcb-self-update" \
-          "target/${CARGO_PROFILE}/myriad-updater-gateway" \
+    && cp "target/${artifact_dir}/myriad-updater" \
+          "target/${artifact_dir}/myriad-rescue" \
+          "target/${artifact_dir}/myriad-docker-guard" \
+          "target/${artifact_dir}/myriad-updater-gateway" \
           /out/ \
     && strip /out/*
 
@@ -59,7 +60,6 @@ RUN set -eux; \
 COPY --from=builder /out/myriad-updater /usr/local/bin/myriad-updater
 COPY --from=builder /out/myriad-rescue  /usr/local/bin/myriad-rescue
 COPY --from=builder /out/myriad-docker-guard /usr/local/bin/myriad-docker-guard
-COPY --from=builder /out/myriad-tcb-self-update /usr/local/bin/myriad-tcb-self-update
 COPY --from=builder /out/myriad-updater-gateway /usr/local/bin/myriad-updater-gateway
 
 # cosign CLI for release.json signature verification (M2). Single static binary, ~50 MB.

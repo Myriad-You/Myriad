@@ -31,7 +31,7 @@
 # CORS_ORIGINS           生产环境必填
 #
 # UPDATE_TOKEN           updater 鉴权 token（≥32 字符）
-#                        注入 updater + updater-gateway + docker-guard（自更新），
+#                        注入 updater + updater-gateway；docker-guard 不持有该 token，
 #                        **不**注入 backend 进程环境
 # UPDATER_GATEWAY_SECRET backend ↔ updater-gateway 共享密钥（≥32 字符）
 #                        注入 backend + updater-gateway；**不**注入 frontend
@@ -127,6 +127,12 @@ services:
       # one-shot initializer. Do not redirect these to the container layer.
       DATA_DIR: /app/data
       CACHE_DIR: /app/cache
+      # Installation mutations are loopback-only unless the operator explicitly
+      # opts into setup through the public proxy. Set true only for the setup
+      # window, then return it to false and recreate backend.
+      MYRIAD_ALLOW_REMOTE_BOOTSTRAP: ${MYRIAD_ALLOW_REMOTE_BOOTSTRAP:-false}
+      MYRIAD_BOOTSTRAP_TTL_SECS: ${MYRIAD_BOOTSTRAP_TTL_SECS:-1800}
+      MYRIAD_BOOTSTRAP_TOKEN: ${MYRIAD_BOOTSTRAP_TOKEN:-}
       JWT_SECRET: ${JWT_SECRET}
       # Visitor-hash salt for first-party analytics. Prefer a dedicated random value
       # (openssl rand -hex 32). When empty, backend derives from JWT_SECRET so
@@ -260,20 +266,20 @@ services:
       options: { max-size: "10m", max-file: "3" }
 
   docker-guard:
-    # The only service that receives the raw host Docker socket. It validates Docker API
-    # methods, Compose labels and containers/create bodies before forwarding to the daemon.
-    image: ${UPDATER_IMAGE:-docker.io/somekawahitomi/myriad-updater}:${UPDATER_TAG}
+    # Separate host-root-equivalent TCB. DOCKER_GUARD_IMAGE and GUARD_* come
+    # from the host-owned guard policy env passed after the updater-writable
+    # deployment .env. The image MUST be an exact trusted repo@sha256 digest.
+    image: ${DOCKER_GUARD_IMAGE:?Pass the host-owned docker-guard.env with an exact repo@sha256 digest}
     container_name: myriad-docker-guard
     entrypoint: ["/usr/bin/tini", "--", "/usr/local/bin/myriad-docker-guard"]
     environment:
-      UPDATE_TOKEN: ${UPDATE_TOKEN}
-      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-myriad}
-      MYRIAD_DOCKER_NETWORK: ${MYRIAD_DOCKER_NETWORK:-myriad-net}
-      MYRIAD_ADMIN_NETWORK: ${MYRIAD_ADMIN_NETWORK:-myriad-admin-net}
-      MYRIAD_DOCKER_GUARD_NETWORK: ${MYRIAD_DOCKER_GUARD_NETWORK:-myriad-docker-guard-net}
+      COMPOSE_PROJECT_NAME: ${GUARD_COMPOSE_PROJECT_NAME:-myriad}
+      MYRIAD_DOCKER_NETWORK: ${GUARD_MYRIAD_DOCKER_NETWORK:-myriad-net}
+      MYRIAD_ADMIN_NETWORK: ${GUARD_MYRIAD_ADMIN_NETWORK:-myriad-admin-net}
+      MYRIAD_DOCKER_GUARD_NETWORK: ${GUARD_MYRIAD_DOCKER_GUARD_NETWORK:-myriad-docker-guard-net}
       DOCKER_GUARD_COMPOSE_DIR: /host/compose
-      DOCKER_GUARD_ENV_FILE: /host/compose/.env
-      DOCKER_GUARD_ALLOWED_IMAGES: ${BACKEND_IMAGE:-docker.io/somekawahitomi/myriad-backend},${FRONTEND_IMAGE:-docker.io/somekawahitomi/myriad-frontend},${PROXY_IMAGE:-docker.io/somekawahitomi/myriad-proxy},${UPDATER_IMAGE:-docker.io/somekawahitomi/myriad-updater},postgres
+      DOCKER_GUARD_EXPECTED_IMAGE: ${DOCKER_GUARD_IMAGE}
+      DOCKER_GUARD_HOST_POLICY_PATH: ${MYRIAD_GUARD_ENV_FILE:?Host Guard policy path is required}
       RUST_LOG: ${DOCKER_GUARD_LOG:-info}
       TZ: Asia/Shanghai
     volumes:
@@ -311,7 +317,10 @@ services:
       UPDATER_PGDATA: /host/compose/pgdata
       UPDATER_COMPOSE_DIR: /host/compose
       DOCKER_HOST: tcp://docker-guard:2375
-      DOCKER_GUARD_SELF_UPDATE_URL: http://docker-guard:2375/_myriad/self-update
+      # Second compose env file is mounted read-only from the host TCB policy.
+      # It supplies DOCKER_GUARD_IMAGE/GUARD_* so parsing the full Compose model
+      # never falls back to updater-controlled values.
+      UPDATER_GUARD_ENV_FILE: /run/secrets/docker-guard.env
       # cosign signature policy: strict (default) | soft | off
       # Strict requires release.json.sig + release.json.pem assets to be present and
       # the OIDC subject to match the configured repo's workflows.
@@ -325,9 +334,13 @@ services:
       MYRIAD_VERSION: ${UPDATER_TAG}
       TZ: Asia/Shanghai
     volumes:
-      # Single deployment-root bind. State, snapshots, pgdata and .env are all accessed below
-      # /host/compose so docker-guard never needs to authorize replaceable subdirectory binds.
-      - ./:/host/compose
+      # Deployment definitions are immutable to a compromised updater. Overlay
+      # only the state it genuinely owns as writable submounts.
+      - ./:/host/compose:ro
+      - ./.env:/host/compose/.env:rw
+      - ./state:/host/compose/state:rw
+      - ./pgdata:/host/compose/pgdata:rw
+      - ${MYRIAD_GUARD_ENV_FILE:?Host Guard policy path is required}:/run/secrets/docker-guard.env:ro
     # Admin plane for gateway/backend/proxy; guard-net for docker-guard only.
     # Not on myriad-net: frontend/postgres must not share L2 with updater HTTP.
     networks: [myriad-admin-net, myriad-docker-guard-net]
@@ -343,7 +356,7 @@ services:
   updater-gateway:
     # Same image/tag as updater; thin binary injects UPDATE_TOKEN for backend.
     # Requires UPDATER_GATEWAY_SECRET from backend hop. Not created via docker-guard
-    # create API — host compose + TCB self-update only.
+    # create API — managed business services only; Guard TCB upgrades are host-operated.
     image: ${UPDATER_IMAGE:-docker.io/somekawahitomi/myriad-updater}:${UPDATER_TAG}
     container_name: myriad-updater-gateway
     entrypoint: ["/usr/bin/tini", "--", "/usr/local/bin/myriad-updater-gateway"]

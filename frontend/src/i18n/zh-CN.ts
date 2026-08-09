@@ -271,12 +271,14 @@ export const zhCN: TranslationKeys = {
     atLeast8Chars: '至少 8 个字符，包含字母和数字',
     enterPasswordAgain: '再次输入密码',
     bootstrapToken: '引导令牌',
-    bootstrapTokenOptional: '恢复已配置实例时必填',
+    bootstrapTokenOptional: '安装操作必填',
     bootstrapTokenPlaceholder: '粘贴 .bootstrap-token 内容',
     bootstrapTokenHint:
-      '若实例曾完成配置，请从数据目录的 .bootstrap-token 文件（或环境变量 MYRIAD_BOOTSTRAP_TOKEN）读取并填写，否则保存会返回 401。',
+      '从服务器数据目录的 .bootstrap-token 文件（或环境变量 MYRIAD_BOOTSTRAP_TOKEN）读取短期令牌。首次安装、数据库初始化和创建所有者都必须填写。',
     bootstrapTokenRequired:
       '需要引导令牌：请读取服务器上的 .bootstrap-token 文件，填入后重试。',
+    bootstrapTokenRotated:
+      '数据库初始化令牌已失效。创建所有者前，请重新读取服务器数据目录中的 .bootstrap-token。',
   },
 
   // 配置
@@ -923,10 +925,10 @@ export const zhCN: TranslationKeys = {
     updaterMaintenanceExited: '已退出维护模式',
     updaterSelfUpdateNeeded:
       '版本 {version} 需要先将更新器升到 {minVersion}+。',
-    updaterSelfUpdateButton: '升级更新器',
+    updaterSelfUpdateButton: '需要宿主机升级',
     updaterSelfUpdateConfirm: '升级更新器到 {version}？几秒完成，不影响站点。',
     updaterSelfUpdateConfirmAuto:
-      '升级更新器到镜像仓库当前 tip？几秒完成，不影响站点。',
+      'Guard/更新器属于宿主可信边界，不能在应用内升级。请由宿主运维独立验证签名和镜像摘要，然后使用部署脚本重建 Guard、更新器和网关。',
     updaterSelfUpdateDispatched:
       '更新器已开始升级到 {version}（原 {previous}）；完成后可继续业务更新。',
     updaterInfraGroupTitle: '边缘与更新器组件',
@@ -1217,7 +1219,8 @@ export const zhCN: TranslationKeys = {
     fieldMusicPlaylistId: '歌单 ID',
     // 网络代理配置
     advanced: '高级配置',
-    advancedDesc: '运行诊断、内存节约、出站代理、API 镜像、设置备份/恢复与危险操作',
+    advancedDesc:
+      '运行诊断、内存节约、出站代理、API 镜像、设置备份/恢复与危险操作',
     memorySaverGroup: '内存',
     memorySaverGroupDesc:
       '在约 1 GB 内存的主机上降低并发内存占用。默认关闭 = 均衡（历史）预算，现有部署无感。',

@@ -7,7 +7,10 @@ use std::process::Stdio;
 use anyhow::{Context as _, Result};
 use tracing::info;
 
-use crate::docker::ROLLBACK_IMAGE_TAG;
+use crate::docker::{
+    compose::{harden_docker_command, GUARD_ENV_KEYS},
+    ROLLBACK_IMAGE_TAG,
+};
 use crate::snapshot::SnapshotManager;
 use crate::state::StateDir;
 
@@ -181,7 +184,9 @@ async fn materialize_pinned_rollback_images(ctx: &Context, version: &str) -> Res
         }
 
         let rollback_ref = format!("{repo}:{ROLLBACK_IMAGE_TAG}");
-        let status = tokio::process::Command::new("docker")
+        let mut command = tokio::process::Command::new("docker");
+        harden_docker_command(&mut command);
+        let status = command
             .args(["image", "tag", &rollback_ref, &version_ref])
             .status()
             .await
@@ -203,7 +208,9 @@ async fn materialize_pinned_rollback_images(ctx: &Context, version: &str) -> Res
 }
 
 async fn docker_image_exists(image_ref: &str) -> bool {
-    tokio::process::Command::new("docker")
+    let mut command = tokio::process::Command::new("docker");
+    harden_docker_command(&mut command);
+    command
         .args(["image", "inspect", image_ref])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -285,11 +292,20 @@ pub async fn clean_snapshots(ctx: &Context, keep: usize) -> Result<()> {
 
 async fn compose_v2_or_v1(ctx: &Context, args: &[&str]) -> Result<()> {
     let project = std::env::var("COMPOSE_PROJECT_NAME").unwrap_or_else(|_| "myriad".into());
+    let guard_env_file = crate::docker::compose::guard_env_file_path();
+    crate::docker::compose::validate_guard_policy_file(&guard_env_file)?;
 
-    let v2 = tokio::process::Command::new("docker")
+    let mut v2_command = tokio::process::Command::new("docker");
+    for key in GUARD_ENV_KEYS {
+        v2_command.env_remove(key);
+    }
+    harden_docker_command(&mut v2_command);
+    let v2 = v2_command
         .arg("compose")
         .arg("--env-file")
         .arg(&ctx.env_file)
+        .arg("--env-file")
+        .arg(&guard_env_file)
         .arg("-p")
         .arg(&project)
         .args(args)
@@ -301,9 +317,16 @@ async fn compose_v2_or_v1(ctx: &Context, args: &[&str]) -> Result<()> {
             return Ok(());
         }
     }
-    let v1 = tokio::process::Command::new("docker-compose")
+    let mut v1_command = tokio::process::Command::new("docker-compose");
+    for key in GUARD_ENV_KEYS {
+        v1_command.env_remove(key);
+    }
+    harden_docker_command(&mut v1_command);
+    let v1 = v1_command
         .arg("--env-file")
         .arg(&ctx.env_file)
+        .arg("--env-file")
+        .arg(&guard_env_file)
         .arg("-p")
         .arg(&project)
         .args(args)
@@ -318,7 +341,11 @@ async fn compose_v2_or_v1(ctx: &Context, args: &[&str]) -> Result<()> {
 }
 
 async fn run_capture(prog: &str, args: &[&str]) -> Result<Vec<u8>> {
-    let out = tokio::process::Command::new(prog)
+    let mut command = tokio::process::Command::new(prog);
+    if prog == "docker" || prog == "docker-compose" {
+        harden_docker_command(&mut command);
+    }
+    let out = command
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

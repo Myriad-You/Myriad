@@ -25,6 +25,9 @@ err()  { echo -e "${RED}$1${NC}"; }
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
+# This file is deliberately outside the updater-writable deployment root.
+GUARD_ENV_FILE="${MYRIAD_GUARD_ENV_FILE:-/etc/myriad/docker-guard.env}"
+
 COMMAND="${1:-up}"
 
 show_usage() {
@@ -69,6 +72,63 @@ detect_compose() {
     else
         err "✗ neither \`docker compose\` v2 nor \`docker-compose\` v1 is available"
         exit 2
+    fi
+}
+
+ensure_guard_policy() {
+    if [ ! -f "$GUARD_ENV_FILE" ]; then
+        err "✗ Missing host-owned Guard policy: $GUARD_ENV_FILE"
+        err "  Copy docker-guard.env.example outside this deployment root, then set"
+        err "  DOCKER_GUARD_IMAGE to the exact trusted repo@sha256 digest from a"
+        err "  cosign-verified release.json. Automatic Guard image selection is forbidden."
+        exit 2
+    fi
+    if [ -L "$GUARD_ENV_FILE" ]; then
+        err "✗ Guard policy must not be a symbolic link: $GUARD_ENV_FILE"
+        exit 2
+    fi
+    local policy_real root_real count image key configured_path
+    policy_real="$(cd "$(dirname "$GUARD_ENV_FILE")" && pwd -P)/$(basename "$GUARD_ENV_FILE")"
+    root_real="$(pwd -P)"
+    case "$policy_real" in
+        "$root_real"|"$root_real"/*) err "✗ Guard policy must be outside the deployment root: $policy_real"; exit 2 ;;
+    esac
+    for key in DOCKER_GUARD_IMAGE GUARD_COMPOSE_PROJECT_NAME GUARD_MYRIAD_DOCKER_NETWORK GUARD_MYRIAD_ADMIN_NETWORK GUARD_MYRIAD_DOCKER_GUARD_NETWORK MYRIAD_GUARD_ENV_FILE; do
+        count="$(grep -c "^${key}=[^[:space:]].*" "$GUARD_ENV_FILE" || true)"
+        if [ "$count" != "1" ]; then
+            err "✗ $GUARD_ENV_FILE must contain exactly one non-empty $key"
+            exit 2
+        fi
+    done
+    count="$(grep -c '^DOCKER_GUARD_IMAGE=' "$GUARD_ENV_FILE" || true)"
+    image="$(grep '^DOCKER_GUARD_IMAGE=' "$GUARD_ENV_FILE" | cut -d= -f2- || true)"
+    if [ "$count" != "1" ] || ! printf '%s' "$image" | grep -Eq '^docker\.io/somekawahitomi/myriad-updater@sha256:[0-9a-fA-F]{64}$'; then
+        err "✗ $GUARD_ENV_FILE must contain exactly one digest-pinned DOCKER_GUARD_IMAGE"
+        exit 2
+    fi
+    if [ "$(uname -s)" != "Darwin" ]; then
+        local mode
+        mode="$(stat -c '%a' "$GUARD_ENV_FILE" 2>/dev/null || true)"
+        case "$mode" in
+            600|640) ;;
+            *) err "✗ Guard policy must be owner-controlled mode 0600 or 0640: $GUARD_ENV_FILE"; exit 2 ;;
+        esac
+    fi
+    configured_path="$(grep '^MYRIAD_GUARD_ENV_FILE=' "$GUARD_ENV_FILE" | cut -d= -f2-)"
+    if [ "$configured_path" != "$policy_real" ]; then
+        err "✗ MYRIAD_GUARD_ENV_FILE must equal the resolved policy path: $policy_real"
+        exit 2
+    fi
+}
+
+run_compose() {
+    ensure_guard_policy
+    local policy_real
+    policy_real="$(cd "$(dirname "$GUARD_ENV_FILE")" && pwd -P)/$(basename "$GUARD_ENV_FILE")"
+    if [ "$COMPOSE_KIND" = "docker compose" ]; then
+        MYRIAD_GUARD_ENV_FILE="$policy_real" docker compose --env-file .env --env-file "$GUARD_ENV_FILE" "$@"
+    else
+        MYRIAD_GUARD_ENV_FILE="$policy_real" docker-compose --env-file .env --env-file "$GUARD_ENV_FILE" "$@"
     fi
 }
 
@@ -253,7 +313,7 @@ cmd_up() {
     ensure_current_layout
     ensure_backend_volume_perms
     info "==> docker compose up -d"
-    $COMPOSE up -d
+    run_compose up -d
     echo ""
     ok "Stack started. Access via http://localhost:${HTTP_PORT:-80}/"
     ok "Admin UI: http://localhost:${HTTP_PORT:-80}/  → 设置 → 关于 → 更新管理"
@@ -262,28 +322,28 @@ cmd_up() {
 
 cmd_down() {
     info "==> docker compose down (volumes preserved)"
-    $COMPOSE down
+    run_compose down
 }
 
 cmd_restart() {
     info "==> docker compose restart"
-    $COMPOSE restart
+    run_compose restart
 }
 
 cmd_pull() {
     info "==> docker compose pull"
-    $COMPOSE pull
+    run_compose pull
 }
 
 cmd_logs() {
-    $COMPOSE logs -f --tail=200
+    run_compose logs -f --tail=200
 }
 
 cmd_status() {
-    $COMPOSE ps
+    run_compose ps
     echo ""
     info "Image versions in use:"
-    $COMPOSE images 2>/dev/null || $COMPOSE ps --format "table {{.Service}}\t{{.Image}}"
+    run_compose images 2>/dev/null || run_compose ps --format "table {{.Service}}\t{{.Image}}"
 }
 
 # Read-only topology checks. Does not migrate or restart services.
@@ -398,17 +458,22 @@ cmd_doctor() {
         else
             ok "PASS  docker-guard is not on business net $business_net"
         fi
-        # Proxy pulls go through docker-guard; missing repo in DOCKER_GUARD_ALLOWED_IMAGES
-        # yields 403 and blocks /admin/proxy-update (often misread as a missing Hub tag).
-        if container_exists myriad-proxy; then
-            local allowed_images
-            allowed_images="$(container_env_value myriad-docker-guard DOCKER_GUARD_ALLOWED_IMAGES)"
-            if printf '%s' "$allowed_images" | tr ',' '\n' | grep -qiE 'proxy'; then
-                ok "PASS  docker-guard DOCKER_GUARD_ALLOWED_IMAGES includes a proxy repository"
-            else
-                err "FAIL  docker-guard DOCKER_GUARD_ALLOWED_IMAGES omits proxy (proxy-update pulls will 403). Add \${PROXY_IMAGE:-docker.io/somekawahitomi/myriad-proxy} then: docker compose up -d --force-recreate docker-guard"
-                fail=$((fail + 1))
-            fi
+        local expected_guard_image running_guard_image
+        expected_guard_image="$(container_env_value myriad-docker-guard DOCKER_GUARD_EXPECTED_IMAGE)"
+        running_guard_image="$(docker inspect -f '{{.Config.Image}}' myriad-docker-guard 2>/dev/null || true)"
+        if printf '%s' "$expected_guard_image" | grep -Eq '^docker\.io/somekawahitomi/myriad-updater@sha256:[0-9a-fA-F]{64}$' \
+            && [ "$running_guard_image" = "$expected_guard_image" ]; then
+            ok "PASS  docker-guard runs the host-pinned trusted image digest"
+        else
+            err "FAIL  docker-guard identity mismatch (running=$running_guard_image expected=$expected_guard_image)"
+            fail=$((fail + 1))
+        fi
+        if [ -n "$(container_env_value myriad-docker-guard DOCKER_GUARD_ALLOWED_IMAGES)" ] \
+            || [ -n "$(container_env_value myriad-docker-guard UPDATE_TOKEN)" ]; then
+            err "FAIL  docker-guard still trusts updater-controlled runtime policy/token (legacy topology)"
+            fail=$((fail + 1))
+        else
+            ok "PASS  docker-guard has no mutable image allowlist or updater credential"
         fi
     else
         err "FAIL  myriad-docker-guard not found (stack down or legacy pre-guard topology)"
@@ -683,14 +748,14 @@ cmd_upgrade() {
     ensure_env
     ensure_backend_volume_perms
     info "==> docker compose pull"
-    $COMPOSE pull
+    run_compose pull
     info "==> docker compose up -d (recreate with new tags)"
-    $COMPOSE up -d
+    run_compose up -d
     ok "Upgrade complete. Verify with: $0 status"
     cmd_soft_doctor
 }
 
-COMPOSE=$(detect_compose)
+COMPOSE_KIND=$(detect_compose)
 
 case "$COMMAND" in
     up)       cmd_up ;;

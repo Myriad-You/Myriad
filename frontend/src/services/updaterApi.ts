@@ -129,7 +129,7 @@ export interface UpdaterStatus {
   /** Version pinned locally for rollback as `*:myriad-rollback`. */
   rollback_version?: string | null
   available_channels?: string[]
-  /** Last TCB self-update helper outcome (`state/self-update-last.json`), when present. */
+  /** Legacy TCB self-update outcome, when state from an older release is present. */
   self_update_last?: SelfUpdateLastStatus | null
   /** Last manual proxy upgrade outcome (`state/proxy-update-last.json`), when present. */
   proxy_update_last?: InfraUpdateLastStatus | null
@@ -150,9 +150,7 @@ export interface LastFailedUpdate {
 }
 
 /** UI presets for periodic update checks (seconds). */
-export const CHECK_INTERVAL_PRESETS = [
-  0, 3600, 21600, 43200, 86400,
-] as const
+export const CHECK_INTERVAL_PRESETS = [0, 3600, 21600, 43200, 86400] as const
 export type CheckIntervalSecs = (typeof CHECK_INTERVAL_PRESETS)[number]
 
 /**

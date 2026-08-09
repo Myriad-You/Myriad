@@ -269,6 +269,16 @@ CHECK_INTERVAL_SECS=0
 "@
     Set-Content -Path (Join-Path $devUpdaterDir ".env") -Value $envText -Encoding UTF8
 
+    $guardEnvText = @"
+DOCKER_GUARD_IMAGE=myriad-updater-dev:v0.0.0-dev
+GUARD_COMPOSE_PROJECT_NAME=myriad-dev-updater
+GUARD_MYRIAD_DOCKER_NETWORK=myriad-dev-updater_default
+GUARD_MYRIAD_ADMIN_NETWORK=myriad-dev-admin-net
+GUARD_MYRIAD_DOCKER_GUARD_NETWORK=myriad-dev-docker-guard-net
+MYRIAD_GUARD_ENV_FILE=/dev/docker-guard.env
+"@
+    Set-Content -Path (Join-Path $devUpdaterDir "docker-guard.env") -Value $guardEnvText -Encoding UTF8
+
     $composeText = @"
 services:
   postgres:

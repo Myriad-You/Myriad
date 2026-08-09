@@ -17,6 +17,8 @@
 #   JWT_SECRET / CORS_ORIGINS
 #   UPDATE_TOKEN / UPDATER_GATEWAY_SECRET
 #   COMPOSE_PROJECT_NAME=myriad
+# 还必须把宿主持有的 docker-guard.env 作为第二个 --env-file 传给 Compose；
+# 不要把 DOCKER_GUARD_IMAGE 放进 updater 可写的应用 .env。
 #
 # 可选：
 #   extra_hosts on backend for host.docker.internal:host-gateway
@@ -60,6 +62,9 @@ services:
       DATA_DIR: /app/data
       CACHE_DIR: /app/cache
       JWT_SECRET: ${JWT_SECRET}
+      MYRIAD_BOOTSTRAP_TOKEN: ${MYRIAD_BOOTSTRAP_TOKEN:-}
+      MYRIAD_BOOTSTRAP_TTL_SECS: ${MYRIAD_BOOTSTRAP_TTL_SECS:-1800}
+      MYRIAD_ALLOW_REMOTE_BOOTSTRAP: ${MYRIAD_ALLOW_REMOTE_BOOTSTRAP:-false}
       # Required for weather/client-geo: honor proxy-rewritten X-Real-IP.
       TRUST_PROXY_HEADERS: "true"
       # Explicit second-hop trust: loopback + docker0 + fixed compose myriad-net,
@@ -155,20 +160,17 @@ services:
       options: { max-size: "10m", max-file: "3" }
 
   docker-guard:
-    image: ${UPDATER_IMAGE:-docker.io/somekawahitomi/myriad-updater}:${UPDATER_TAG}
+    image: ${DOCKER_GUARD_IMAGE:?Pass the host-owned docker-guard.env with an exact repo@sha256 digest}
     container_name: myriad-docker-guard
     entrypoint: ["/usr/bin/tini", "--", "/usr/local/bin/myriad-docker-guard"]
     environment:
-      UPDATE_TOKEN: ${UPDATE_TOKEN}
-      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-myriad}
-      MYRIAD_DOCKER_NETWORK: ${MYRIAD_DOCKER_NETWORK:-myriad-net}
-      MYRIAD_ADMIN_NETWORK: ${MYRIAD_ADMIN_NETWORK:-myriad-admin-net}
-      MYRIAD_DOCKER_GUARD_NETWORK: ${MYRIAD_DOCKER_GUARD_NETWORK:-myriad-docker-guard-net}
+      COMPOSE_PROJECT_NAME: ${GUARD_COMPOSE_PROJECT_NAME:-myriad}
+      MYRIAD_DOCKER_NETWORK: ${GUARD_MYRIAD_DOCKER_NETWORK:-myriad-net}
+      MYRIAD_ADMIN_NETWORK: ${GUARD_MYRIAD_ADMIN_NETWORK:-myriad-admin-net}
+      MYRIAD_DOCKER_GUARD_NETWORK: ${GUARD_MYRIAD_DOCKER_GUARD_NETWORK:-myriad-docker-guard-net}
       DOCKER_GUARD_COMPOSE_DIR: /host/compose
-      DOCKER_GUARD_ENV_FILE: /host/compose/.env
-      # postgres remains in the allowlist so mixed/legacy pulls are not blocked;
-      # this stack does not run a postgres service.
-      DOCKER_GUARD_ALLOWED_IMAGES: ${BACKEND_IMAGE:-docker.io/somekawahitomi/myriad-backend},${FRONTEND_IMAGE:-docker.io/somekawahitomi/myriad-frontend},${PROXY_IMAGE:-docker.io/somekawahitomi/myriad-proxy},${UPDATER_IMAGE:-docker.io/somekawahitomi/myriad-updater},postgres
+      DOCKER_GUARD_EXPECTED_IMAGE: ${DOCKER_GUARD_IMAGE}
+      DOCKER_GUARD_HOST_POLICY_PATH: ${MYRIAD_GUARD_ENV_FILE:?Host Guard policy path is required}
       RUST_LOG: ${DOCKER_GUARD_LOG:-info}
       TZ: Asia/Shanghai
     volumes:
@@ -205,7 +207,7 @@ services:
       MYRIAD_DB_MODE: ${MYRIAD_DB_MODE:-external}
       UPDATER_COMPOSE_DIR: /host/compose
       DOCKER_HOST: tcp://docker-guard:2375
-      DOCKER_GUARD_SELF_UPDATE_URL: http://docker-guard:2375/_myriad/self-update
+      UPDATER_GUARD_ENV_FILE: /run/secrets/docker-guard.env
       COSIGN_VERIFY: ${COSIGN_VERIFY:-strict}
       UPDATER_ALLOW_INSECURE_COSIGN: ${UPDATER_ALLOW_INSECURE_COSIGN:-}
       COSIGN_INSECURE_OK: ${COSIGN_INSECURE_OK:-}
@@ -214,8 +216,10 @@ services:
       MYRIAD_VERSION: ${UPDATER_TAG}
       TZ: Asia/Shanghai
     volumes:
-      # Deployment root only (state + .env + compose). No ./pgdata required.
-      - ./:/host/compose
+      - ./:/host/compose:ro
+      - ./.env:/host/compose/.env:rw
+      - ./state:/host/compose/state:rw
+      - ${MYRIAD_GUARD_ENV_FILE:?Host Guard policy path is required}:/run/secrets/docker-guard.env:ro
     networks: [myriad-admin-net, myriad-docker-guard-net]
     depends_on:
       docker-guard: { condition: service_healthy }

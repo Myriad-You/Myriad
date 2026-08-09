@@ -270,6 +270,7 @@ export interface TranslationKeys {
     bootstrapTokenPlaceholder: string
     bootstrapTokenHint: string
     bootstrapTokenRequired: string
+    bootstrapTokenRotated: string
   }
 
   // 配置

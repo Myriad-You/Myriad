@@ -487,8 +487,26 @@ jobs:
             'has("schema_version") and has("version") and (.commit_sha == $commit_sha) and (.images | length > 0)' \
             release.json >/dev/null
 
+          # Host-owned docker-guard policy seed. It is emitted only when this
+          # release actually ships the updater/Guard image and always pins the
+          # trusted repository by the signed manifest-list digest.
+          if echo "$IMAGES" | jq -e 'has("updater")' >/dev/null; then
+            updater_ref=$(echo "$IMAGES" | jq -r '.updater.ref | sub(":[^/:]+$"; "")')
+            updater_digest=$(echo "$IMAGES" | jq -r '.updater.digest')
+            cat > docker-guard.env <<EOF
+DOCKER_GUARD_IMAGE=${updater_ref}@${updater_digest}
+GUARD_COMPOSE_PROJECT_NAME=myriad
+GUARD_MYRIAD_DOCKER_NETWORK=myriad-net
+GUARD_MYRIAD_ADMIN_NETWORK=myriad-admin-net
+GUARD_MYRIAD_DOCKER_GUARD_NETWORK=myriad-docker-guard-net
+MYRIAD_GUARD_ENV_FILE=/etc/myriad/docker-guard.env
+EOF
+          fi
+
           # Generate checksums.
-          ( cd . && sha256sum release.json > SHA256SUMS )
+          checksum_assets=(release.json)
+          [ ! -f docker-guard.env ] || checksum_assets+=(docker-guard.env)
+          sha256sum "${checksum_assets[@]}" > SHA256SUMS
 
           # Build a minimal changelog stub if not provided.
           if [ ! -f "CHANGELOG-fragment.md" ]; then
@@ -522,18 +540,30 @@ jobs:
             --output-signature SHA256SUMS.sig \
             --output-certificate SHA256SUMS.pem \
             SHA256SUMS
+          if [ -f docker-guard.env ]; then
+            cosign sign-blob \
+              --yes \
+              --output-signature docker-guard.env.sig \
+              --output-certificate docker-guard.env.pem \
+              docker-guard.env
+          fi
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          guard_assets=()
+          if [ -f docker-guard.env ]; then
+            guard_assets=(docker-guard.env docker-guard.env.sig docker-guard.env.pem)
+          fi
           gh release create "${{ needs.resolve.outputs.version }}" \
             --title "${{ needs.resolve.outputs.version }}" \
             --target "${{ github.sha }}" \
             --notes-file CHANGELOG-fragment.md \
             --prerelease=${{ needs.resolve.outputs.prerelease }} \
             release.json release.json.sig release.json.pem \
-            SHA256SUMS SHA256SUMS.sig SHA256SUMS.pem
+            SHA256SUMS SHA256SUMS.sig SHA256SUMS.pem \
+            "${guard_assets[@]}"
 
       - name: Summary
         run: |

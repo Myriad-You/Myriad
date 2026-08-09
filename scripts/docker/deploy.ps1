@@ -29,6 +29,12 @@ function Write-Err   { Write-Color Red $args }
 # Change to repo root.
 Set-Location (Resolve-Path (Join-Path $PSScriptRoot "..\.."))
 
+$GuardEnvFile = if ($env:MYRIAD_GUARD_ENV_FILE) {
+    $env:MYRIAD_GUARD_ENV_FILE
+} else {
+    Join-Path $env:ProgramData "Myriad\docker-guard.env"
+}
+
 function Show-Usage {
     @"
 Usage: deploy.ps1 [command]
@@ -65,8 +71,42 @@ function Get-ComposeCmd {
 }
 
 function Invoke-Compose {
+    Assert-GuardPolicy
+    $env:MYRIAD_GUARD_ENV_FILE = (Resolve-Path -LiteralPath $GuardEnvFile).Path
     $cmd = (Get-ComposeCmd) -split " "
-    & $cmd[0] @($cmd[1..($cmd.Count - 1)]) @args
+    $prefix = @()
+    if ($cmd.Count -gt 1) { $prefix = $cmd[1..($cmd.Count - 1)] }
+    & $cmd[0] @prefix --env-file .env --env-file $GuardEnvFile @args
+}
+
+function Assert-GuardPolicy {
+    if (-not (Test-Path -LiteralPath $GuardEnvFile -PathType Leaf)) {
+        throw "Missing host-owned Guard policy: $GuardEnvFile. Copy docker-guard.env.example outside the deployment root and set an independently verified repo@sha256 digest."
+    }
+    $policyPath = (Resolve-Path -LiteralPath $GuardEnvFile).Path
+    $rootPath = (Resolve-Path -LiteralPath '.').Path.TrimEnd([IO.Path]::DirectorySeparatorChar)
+    if ($policyPath.Equals($rootPath, [StringComparison]::OrdinalIgnoreCase) -or
+        $policyPath.StartsWith("$rootPath$([IO.Path]::DirectorySeparatorChar)", [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Guard policy must be outside the deployment root: $policyPath"
+    }
+    $lines = @(Get-Content -LiteralPath $GuardEnvFile)
+    $required = @('DOCKER_GUARD_IMAGE', 'GUARD_COMPOSE_PROJECT_NAME', 'GUARD_MYRIAD_DOCKER_NETWORK', 'GUARD_MYRIAD_ADMIN_NETWORK', 'GUARD_MYRIAD_DOCKER_GUARD_NETWORK', 'MYRIAD_GUARD_ENV_FILE')
+    foreach ($key in $required) {
+        $entries = @($lines | Where-Object { $_ -match "^$([regex]::Escape($key))=\S.+$" })
+        if ($entries.Count -ne 1) { throw "$GuardEnvFile must contain exactly one non-empty $key" }
+    }
+    $matches = @($lines | Where-Object { $_ -match '^DOCKER_GUARD_IMAGE=' })
+    if ($matches.Count -ne 1) {
+        throw "$GuardEnvFile must contain exactly one DOCKER_GUARD_IMAGE"
+    }
+    $image = ($matches[0] -split '=', 2)[1]
+    if ($image -notmatch '^docker\.io/somekawahitomi/myriad-updater@sha256:[0-9a-fA-F]{64}$') {
+        throw "DOCKER_GUARD_IMAGE must be the trusted repository pinned by an exact sha256 digest"
+    }
+    $configuredPath = (($lines | Where-Object { $_ -match '^MYRIAD_GUARD_ENV_FILE=' }) -split '=', 2)[1]
+    if (-not $configuredPath.Equals($policyPath, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "MYRIAD_GUARD_ENV_FILE must equal the resolved policy path: $policyPath"
+    }
 }
 
 function New-Secret {
@@ -353,16 +393,22 @@ function Cmd-Doctor {
         } else {
             Write-Ok "PASS  docker-guard is not on business net $businessNet"
         }
-        # Proxy pulls go through docker-guard; missing repo in DOCKER_GUARD_ALLOWED_IMAGES
-        # yields 403 and blocks /admin/proxy-update (often misread as a missing Hub tag).
-        if (Test-ContainerExists "myriad-proxy") {
-            $allowedImages = Get-ContainerEnvValue "myriad-docker-guard" "DOCKER_GUARD_ALLOWED_IMAGES"
-            if ($allowedImages -and ($allowedImages -split ',' | Where-Object { $_ -match '(?i)proxy' })) {
-                Write-Ok "PASS  docker-guard DOCKER_GUARD_ALLOWED_IMAGES includes a proxy repository"
-            } else {
-                Write-Err "FAIL  docker-guard DOCKER_GUARD_ALLOWED_IMAGES omits proxy (proxy-update pulls will 403). Add `${PROXY_IMAGE:-docker.io/somekawahitomi/myriad-proxy} then: docker compose up -d --force-recreate docker-guard"
-                $fail++
-            }
+        $expectedGuardImage = Get-ContainerEnvValue "myriad-docker-guard" "DOCKER_GUARD_EXPECTED_IMAGE"
+        $runningGuardImage = docker inspect -f '{{.Config.Image}}' myriad-docker-guard 2>$null
+        if ($expectedGuardImage -match '^docker\.io/somekawahitomi/myriad-updater@sha256:[0-9a-fA-F]{64}$' -and
+            $runningGuardImage -eq $expectedGuardImage) {
+            Write-Ok "PASS  docker-guard runs the host-pinned trusted image digest"
+        } else {
+            Write-Err "FAIL  docker-guard identity mismatch (running=$runningGuardImage expected=$expectedGuardImage)"
+            $fail++
+        }
+        $legacyAllowlist = Get-ContainerEnvValue "myriad-docker-guard" "DOCKER_GUARD_ALLOWED_IMAGES"
+        $legacyToken = Get-ContainerEnvValue "myriad-docker-guard" "UPDATE_TOKEN"
+        if ($legacyAllowlist -or $legacyToken) {
+            Write-Err "FAIL  docker-guard still trusts updater-controlled runtime policy/token (legacy topology)"
+            $fail++
+        } else {
+            Write-Ok "PASS  docker-guard has no mutable image allowlist or updater credential"
         }
     } else {
         Write-Err "FAIL  myriad-docker-guard not found (stack down or legacy pre-guard topology)"

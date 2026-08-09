@@ -296,12 +296,14 @@ export const enUS: TranslationKeys = {
     atLeast8Chars: 'At least 8 characters with letters and numbers',
     enterPasswordAgain: 'Enter password again',
     bootstrapToken: 'Bootstrap token',
-    bootstrapTokenOptional: 'required when recovering a configured instance',
+    bootstrapTokenOptional: 'required for installation operations',
     bootstrapTokenPlaceholder: 'Paste contents of .bootstrap-token',
     bootstrapTokenHint:
-      'If this instance was already configured, read the .bootstrap-token file under the data directory (or MYRIAD_BOOTSTRAP_TOKEN) and paste it here; otherwise save returns 401.',
+      'Read the short-lived token from DATA_DIR/.bootstrap-token (or MYRIAD_BOOTSTRAP_TOKEN). It is required for first install, database initialization, and owner creation.',
     bootstrapTokenRequired:
       'Bootstrap token required: read the server .bootstrap-token file, paste it, and try again.',
+    bootstrapTokenRotated:
+      'The database-initialization token is now invalid. Before creating the owner, read the new .bootstrap-token from the server data directory.',
   },
 
   // Configuration
@@ -517,7 +519,8 @@ export const enUS: TranslationKeys = {
     hideOptionGuide: 'Hide guide',
     hideOptionGuideAria: 'Hide guide for “{title}”',
     pinOptionGuide: 'Pin',
-    pinOptionGuideAria: 'Pin “{title}” guide (close only via the close button; draggable)',
+    pinOptionGuideAria:
+      'Pin “{title}” guide (close only via the close button; draggable)',
     unpinOptionGuide: 'Unpin',
     unpinOptionGuideAria: 'Unpin “{title}” guide',
     optionGuideDragHint: 'Drag to move',
@@ -981,11 +984,11 @@ export const enUS: TranslationKeys = {
     updaterMaintenanceExited: 'Maintenance mode cleared',
     updaterSelfUpdateNeeded:
       'Version {version} needs the updater upgraded to {minVersion}+ first.',
-    updaterSelfUpdateButton: 'Upgrade updater',
+    updaterSelfUpdateButton: 'Host upgrade required',
     updaterSelfUpdateConfirm:
       'Upgrade updater to {version}? A few seconds; site unaffected.',
     updaterSelfUpdateConfirmAuto:
-      'Upgrade updater to the current registry tip? A few seconds; site unaffected.',
+      'Guard/updater belongs to the host trust boundary and cannot be upgraded in-app. A host operator must independently verify the signature and image digest, then recreate Guard, updater, and gateway with the deployment script.',
     updaterSelfUpdateDispatched:
       'Updater upgrade to {version} started (was {previous}); continue the app update when it finishes.',
     updaterInfraGroupTitle: 'Edge & updater components',

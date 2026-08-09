@@ -58,9 +58,7 @@ import { AdvancedPanel } from './updater/AdvancedPanel'
 import {
   CHANNEL_OPTIONS,
   channelDesc,
-
   channelLabel,
-
   deriveMood,
   deriveSelection,
   format,
@@ -69,11 +67,9 @@ import {
   INFRA_OUTCOME_POLL_MS,
   isTransientUpdaterError,
   modeForTarget,
-
   POLL_INTERVAL,
   sleep,
   snapshotDeleteBlockReason,
-
   upstreamDetail,
 } from './updater/helpers'
 import { SnapshotLimitPrefs } from './updater/SnapshotLimitPrefs'
@@ -300,9 +296,9 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
       // Snapshots are a dependent updater resource. Do not emit another 503/502
       // after status has already established that the updater is unavailable.
       // GET /snapshots also self-heals over-limit piles on modern updaters.
-      const snaps: SnapshotsResponse = await api.snapshots().catch(
-        (): SnapshotsResponse => ({ schema_version: 1, items: [] }),
-      )
+      const snaps: SnapshotsResponse = await api
+        .snapshots()
+        .catch((): SnapshotsResponse => ({ schema_version: 1, items: [] }))
       setSnapshots(snaps.items ?? [])
       setSnapshotStats({
         eligible_count: snaps.eligible_count,
@@ -603,15 +599,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
       isDowngrade: plan.isDowngrade,
       needsRisk: plan.needsRisk,
     })
-  }, [
-    api,
-    busy,
-    tokenRequired,
-    explain,
-    u,
-    selOption.mode,
-    dispatchUpdate,
-  ])
+  }, [api, busy, tokenRequired, explain, u, selOption.mode, dispatchUpdate])
 
   /**
    * After proxy/updater recreate the HTTP path blips. Poll durable
@@ -723,74 +711,18 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     }
   }, [api, refresh])
 
-  const triggerSelfUpdate = useCallback(async () => {
-    if (tokenRequired) {
-      setToast({ kind: 'error', text: u.updaterTokenRequiredDirect })
-      return
-    }
-    // Backend resolves the tip itself (release.json or Docker Hub). App
-    // `latest_available` is only a hint — it is cleared when already current.
-    const tip = status?.latest_available?.version
-    const ok = tip
-      ? confirm(format(u.updaterSelfUpdateConfirm, { version: tip }))
-      : confirm(u.updaterSelfUpdateConfirmAuto)
-    if (!ok) return
-    const beforeAt = status?.self_update_last?.at
-    setBusy('self-update')
-    setToast(null)
-    setLinkDown(false)
-    let target = tip || ''
-    let shouldWait = true
-    try {
-      try {
-        const report = await api.triggerSelfUpdate()
-        target = report.new_updater_tag || tip || ''
-        setToast({
-          kind: 'ok',
-          text: format(u.updaterSelfUpdateDispatched, {
-            version: target || '—',
-            previous:
-              report.previous_updater_tag || status?.updater_version || '—',
-          }),
-        })
-      } catch (e) {
-        // Schedule may have been accepted then the gateway died on recreate.
-        if (!isTransientUpdaterError(e)) {
-          setToast({ kind: 'error', text: explain(e) })
-          shouldWait = false
-        } else {
-          setLinkDown(true)
-          setToast({ kind: 'ok', text: u.updaterSelfUpdateReconnecting })
-        }
-      }
-      if (shouldWait) {
-        await waitInfraUpdateOutcome({
-          kind: 'self',
-          beforeAt,
-          targetTag: target,
-        })
-        await refreshAfterInfra()
-      }
-    } finally {
-      setBusy(null)
-      setLinkDown(false)
-    }
-  }, [
-    api,
-    status,
-    tokenRequired,
-    explain,
-    u,
-    waitInfraUpdateOutcome,
-    refreshAfterInfra,
-  ])
+  const triggerSelfUpdate = useCallback(() => {
+    // Guard owns the Docker socket and is a separate host TCB. Never let an
+    // updater credential or updater-writable state select/recreate that TCB.
+    setToast({ kind: 'error', text: u.updaterSelfUpdateConfirmAuto })
+  }, [u])
 
   const triggerProxyUpdate = useCallback(async () => {
     if (tokenRequired) {
       setToast({ kind: 'error', text: u.updaterTokenRequiredDirect })
       return
     }
-    // Same as self-update: tip is optional. Empty body lets the updater pick
+    // Tip is optional. Empty body lets the updater pick
     // the component tip from GitHub/Docker Hub when status has no app tip.
     const tip = status?.latest_available?.version
     const ok = tip
@@ -1244,11 +1176,14 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
           {...bindGuide('updater.infra', g.updater.infra)}
           description={
             requiresSelfUpdate
-              ? `${u.updaterInfraGroupDesc} ${format(u.updaterSelfUpdateNeeded, {
-                  version: status?.latest_available?.version ?? '—',
-                  minVersion:
-                    status?.latest_available?.min_updater_version ?? '—',
-                })}`
+              ? `${u.updaterInfraGroupDesc} ${format(
+                  u.updaterSelfUpdateNeeded,
+                  {
+                    version: status?.latest_available?.version ?? '—',
+                    minVersion:
+                      status?.latest_available?.min_updater_version ?? '—',
+                  },
+                )}`
               : u.updaterInfraGroupDesc
           }
           detailTone={requiresSelfUpdate ? 'warning' : 'default'}

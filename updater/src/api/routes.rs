@@ -107,7 +107,7 @@ struct StatusResp {
     rollback_version: Option<DeployTag>,
     /// Channels valid for the current mode (for UI selectors).
     available_channels: Vec<&'static str>,
-    /// Last TCB self-update helper outcome from `state/self-update-last.json` (if any).
+    /// Legacy TCB self-update outcome retained for status compatibility.
     #[serde(skip_serializing_if = "Option::is_none")]
     self_update_last: Option<crate::docker::self_update_helper::SelfUpdateLastStatus>,
     /// Last manual proxy upgrade outcome from `state/proxy-update-last.json` (if any).
@@ -156,8 +156,7 @@ async fn status(State(st): State<ApiState>) -> Result<Json<StatusResp>, ApiError
     // in validate_channel_for_mode); the channel list itself does not change.
     let available_channels = vec!["stable", "preview"];
     let self_update_last = read_self_update_last(st.state.root());
-    let proxy_update_last =
-        crate::worker::proxy_update::read_proxy_update_last(st.state.root());
+    let proxy_update_last = crate::worker::proxy_update::read_proxy_update_last(st.state.root());
     let proxy_version = crate::env_file::EnvFile::load(&st.worker.cli().env_file)
         .ok()
         .and_then(|env| env.get("PROXY_TAG").map(str::to_owned))
@@ -205,7 +204,7 @@ fn read_self_update_last(
     serde_json::from_str(&raw).ok()
 }
 
-/// Token-authenticated view of `state/self-update-last.json` (null when never run).
+/// Token-authenticated compatibility view of legacy `state/self-update-last.json`.
 async fn self_update_last(State(st): State<ApiState>) -> Result<Json<Value>, ApiError> {
     match read_self_update_last(st.state.root()) {
         Some(s) => Ok(Json(serde_json::to_value(s)?)),
@@ -309,26 +308,30 @@ fn available_to_json(info: Option<AvailableInfo>) -> Value {
             relation,
         }) => {
             // Prefer precomputed direction (push-time / ancestry). Fall back to freshness.
-            let (rel, ahead_by, behind_by, current_sha, is_up, is_down) =
-                match (relation.as_deref(), is_upgrade, is_downgrade, freshness.as_ref()) {
-                    (Some(r), Some(up), Some(down), f) => (
-                        Some(r),
-                        f.map(|x| x.ahead_by),
-                        f.map(|x| x.behind_by),
-                        f.and_then(|x| x.current_sha.clone()),
-                        Some(up),
-                        Some(down),
-                    ),
-                    (_, _, _, Some(f)) => (
-                        Some(f.relation.as_str()),
-                        Some(f.ahead_by),
-                        Some(f.behind_by),
-                        f.current_sha.clone(),
-                        Some(f.is_upgrade()),
-                        Some(f.is_downgrade()),
-                    ),
-                    _ => (Some("unknown"), None, None, None, Some(true), Some(false)),
-                };
+            let (rel, ahead_by, behind_by, current_sha, is_up, is_down) = match (
+                relation.as_deref(),
+                is_upgrade,
+                is_downgrade,
+                freshness.as_ref(),
+            ) {
+                (Some(r), Some(up), Some(down), f) => (
+                    Some(r),
+                    f.map(|x| x.ahead_by),
+                    f.map(|x| x.behind_by),
+                    f.and_then(|x| x.current_sha.clone()),
+                    Some(up),
+                    Some(down),
+                ),
+                (_, _, _, Some(f)) => (
+                    Some(f.relation.as_str()),
+                    Some(f.ahead_by),
+                    Some(f.behind_by),
+                    f.current_sha.clone(),
+                    Some(f.is_upgrade()),
+                    Some(f.is_downgrade()),
+                ),
+                _ => (Some("unknown"), None, None, None, Some(true), Some(false)),
+            };
             json!({
                 "schema_version": 1,
                 "mode": "commit",
@@ -745,7 +748,9 @@ struct PrefsBody {
 }
 
 /// Distinguishes "field omitted" (None) from "field set to null" (Some(None)).
-fn deserialize_opt_opt_u64<'de, D>(deserializer: D) -> std::result::Result<Option<Option<u64>>, D::Error>
+fn deserialize_opt_opt_u64<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<Option<u64>>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -822,10 +827,7 @@ async fn self_update(
     let (tx, rx) = tokio::sync::oneshot::channel();
     st.worker
         .sender()
-        .send(WorkerCmd::SelfUpdate {
-            actor,
-            reply: tx,
-        })
+        .send(WorkerCmd::SelfUpdate { actor, reply: tx })
         .await
         .map_err(|_| ApiError(StatusCode::SERVICE_UNAVAILABLE, "worker unavailable".into()))?;
     let report = rx
@@ -853,9 +855,7 @@ async fn proxy_update(
     Json(body): Json<ProxyUpdateBody>,
 ) -> Result<Json<Value>, ApiError> {
     let actor = extract_actor(&headers);
-    let explicit = body
-        .target_version
-        .filter(|s| !s.trim().is_empty());
+    let explicit = body.target_version.filter(|s| !s.trim().is_empty());
     let (tx, rx) = tokio::sync::oneshot::channel();
     st.worker
         .sender()

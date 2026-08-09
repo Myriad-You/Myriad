@@ -50,16 +50,19 @@ services:
       dockerfile: updater/Dockerfile
       args:
         MYRIAD_VERSION: ${UPDATER_TAG:-v0.0.0-dev}
+        CARGO_PROFILE: dev
     image: ${UPDATER_IMAGE:-myriad-updater-dev}:${UPDATER_TAG:-v0.0.0-dev}
     container_name: myriad-docker-guard-dev
     entrypoint: ["/usr/bin/tini", "--", "/usr/local/bin/myriad-docker-guard"]
     environment:
-      UPDATE_TOKEN: ${UPDATE_TOKEN:-9xQ3vN8mP2rT5wY7zA1bC4dF6hJ8kL0n}
       COMPOSE_PROJECT_NAME: myriad-dev-updater
       MYRIAD_DOCKER_NETWORK: myriad-dev-updater_default
       MYRIAD_ADMIN_NETWORK: myriad-dev-admin-net
       MYRIAD_DOCKER_GUARD_NETWORK: myriad-dev-docker-guard-net
-      DOCKER_GUARD_ALLOWED_IMAGES: example/myriad-backend,example/myriad-frontend,myriad-updater-dev,postgres
+      DOCKER_GUARD_EXPECTED_IMAGE: ${UPDATER_IMAGE:-myriad-updater-dev}:${UPDATER_TAG:-v0.0.0-dev}
+      DOCKER_GUARD_HOST_POLICY_PATH: /dev/docker-guard.env
+      # Dev-only escape hatch; Guard rejects it in release builds.
+      DOCKER_GUARD_ALLOW_UNPINNED_DEV: "true"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./.dev-updater:/host/compose:ro
@@ -80,6 +83,7 @@ services:
       dockerfile: updater/Dockerfile
       args:
         MYRIAD_VERSION: ${UPDATER_TAG:-v0.0.0-dev}
+        CARGO_PROFILE: dev
     image: ${UPDATER_IMAGE:-myriad-updater-dev}:${UPDATER_TAG:-v0.0.0-dev}
     container_name: myriad-updater-dev
     environment:
@@ -95,12 +99,16 @@ services:
       UPDATER_PGDATA: /host/compose/pgdata
       UPDATER_LISTEN: 0.0.0.0:1101
       DOCKER_HOST: tcp://docker-guard:2375
-      DOCKER_GUARD_SELF_UPDATE_URL: http://docker-guard:2375/_myriad/self-update
+      UPDATER_GUARD_ENV_FILE: /host/compose/docker-guard.env
       COMPOSE_PROJECT_NAME: myriad-dev-updater
       MYRIAD_VERSION: ${UPDATER_TAG:-v0.0.0-dev}
       TZ: Asia/Shanghai
     volumes:
-      - ./.dev-updater:/host/compose
+      - ./.dev-updater:/host/compose:ro
+      - ./.dev-updater/.env:/host/compose/.env:rw
+      - ./.dev-updater/state:/host/compose/state:rw
+      - ./.dev-updater/pgdata:/host/compose/pgdata:rw
+      - ./.dev-updater/docker-guard.env:/run/secrets/docker-guard.env:ro
     ports:
       # Legacy direct host hop (still with UPDATE_TOKEN on host backend).
       - "127.0.0.1:1101:1101"
@@ -116,6 +124,7 @@ services:
       dockerfile: updater/Dockerfile
       args:
         MYRIAD_VERSION: ${UPDATER_TAG:-v0.0.0-dev}
+        CARGO_PROFILE: dev
     image: ${UPDATER_IMAGE:-myriad-updater-dev}:${UPDATER_TAG:-v0.0.0-dev}
     container_name: myriad-updater-gateway-dev
     entrypoint: ["/usr/bin/tini", "--", "/usr/local/bin/myriad-updater-gateway"]

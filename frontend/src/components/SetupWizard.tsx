@@ -134,7 +134,7 @@ const SetupWizard: React.FC = () => {
     username: 'postgres',
     password: '',
   })
-  /** 已配置实例恢复时需要；对应 BE X-Bootstrap-Token / .bootstrap-token */
+  /** 所有安装写操作都需要；对应 BE X-Bootstrap-Token / DATA_DIR/.bootstrap-token */
   const [bootstrapToken, setBootstrapToken] = useState('')
   const [savingDb, setSavingDb] = useState(false)
   const [migratingDb, setMigratingDb] = useState(false)
@@ -404,14 +404,23 @@ const SetupWizard: React.FC = () => {
 
   const handleMigrateDatabase = async () => {
     setNotice(null)
+    const token = bootstrapToken.trim()
+    if (!token) {
+      setNotice({ tone: 'error', message: t.setup.bootstrapTokenRequired })
+      return
+    }
     setMigratingDb(true)
 
     try {
       const response = await fetch(`${API_URL}/api/setup/init-database`, {
         method: 'POST',
+        headers: { 'X-Bootstrap-Token': token },
       })
 
       if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          throw new Error(t.setup.bootstrapTokenRequired)
+        }
         throw new Error(
           await getResponseError(response, t.setup.dbMigrationFailed),
         )
@@ -428,6 +437,10 @@ const SetupWizard: React.FC = () => {
         message += `\n• ${t.setup.usersTable}: ${v.users_table ? t.setup.yes : t.setup.no}`
         message += `\n• ${t.setup.platformsTable}: ${v.platforms_table ? t.setup.yes : t.setup.no}`
         message += `\n• ${t.setup.configurationsTable}: ${v.configurations_table ? t.setup.yes : t.setup.no}`
+      }
+      if (result.bootstrap_capability_rotated) {
+        setBootstrapToken('')
+        message += `\n\n${t.setup.bootstrapTokenRotated}`
       }
 
       setNotice({ tone: 'success', message })
@@ -597,12 +610,21 @@ const SetupWizard: React.FC = () => {
       return
     }
 
+    const token = bootstrapToken.trim()
+    if (!token) {
+      setNotice({ tone: 'error', message: t.setup.bootstrapTokenRequired })
+      return
+    }
+
     setCreatingAdmin(true)
 
     try {
       const response = await fetch(`${API_URL}/api/setup/create-admin`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Bootstrap-Token': token,
+        },
         body: JSON.stringify({
           username: adminForm.username,
           password: adminForm.password,
@@ -1017,8 +1039,6 @@ const SetupWizard: React.FC = () => {
                   </Field>
                   <Field
                     label={t.setup.bootstrapToken}
-                    optional
-                    optionalLabel={t.setup.bootstrapTokenOptional}
                     hint={t.setup.bootstrapTokenHint}
                     wide
                   >
@@ -1060,6 +1080,19 @@ const SetupWizard: React.FC = () => {
               />
               <StepBody>
                 <Note tone="success">{t.setup.dbConnectionSuccess}</Note>
+                <Field
+                  label={t.setup.bootstrapToken}
+                  hint={t.setup.bootstrapTokenHint}
+                >
+                  <TextInput
+                    type="password"
+                    mono
+                    value={bootstrapToken}
+                    onChange={(e) => setBootstrapToken(e.target.value)}
+                    placeholder={t.setup.bootstrapTokenPlaceholder}
+                    autoComplete="off"
+                  />
+                </Field>
               </StepBody>
               <ActionBar>
                 <PrimaryButton
@@ -1092,6 +1125,19 @@ const SetupWizard: React.FC = () => {
                 notes={noticeNode}
               />
               <StepBody>
+                <Field
+                  label={t.setup.bootstrapToken}
+                  hint={t.setup.bootstrapTokenHint}
+                >
+                  <TextInput
+                    type="password"
+                    mono
+                    value={bootstrapToken}
+                    onChange={(e) => setBootstrapToken(e.target.value)}
+                    placeholder={t.setup.bootstrapTokenPlaceholder}
+                    autoComplete="off"
+                  />
+                </Field>
                 <Field label={t.auth.username} hint={t.setup.adminUsernameHint}>
                   <TextInput
                     type="text"

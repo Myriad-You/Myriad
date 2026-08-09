@@ -473,6 +473,15 @@ CHANNEL=stable
 CHECK_INTERVAL_SECS=0
 EOF
 
+    cat > "$DEV_UPDATER_DIR/docker-guard.env" <<'EOF'
+DOCKER_GUARD_IMAGE=myriad-updater-dev:v0.0.0-dev
+GUARD_COMPOSE_PROJECT_NAME=myriad-dev-updater
+GUARD_MYRIAD_DOCKER_NETWORK=myriad-dev-updater_default
+GUARD_MYRIAD_ADMIN_NETWORK=myriad-dev-admin-net
+GUARD_MYRIAD_DOCKER_GUARD_NETWORK=myriad-dev-docker-guard-net
+MYRIAD_GUARD_ENV_FILE=/dev/docker-guard.env
+EOF
+
     cat > "$DEV_UPDATER_DIR/docker-compose.yml" <<'EOF'
 services:
   postgres:
