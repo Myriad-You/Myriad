@@ -14,9 +14,6 @@ import { agentService } from './agentApi'
 // 导出 API 服务
 export { agentService } from './agentApi'
 
-/** Stream failures carry a `code`, so callers can single out quota rejections. */
-export { AgentStreamError } from './sseTransport'
-
 // 导出前端动作处理器
 export type { FrontendActionHandler } from './frontendActions'
 
@@ -28,6 +25,9 @@ export {
   registerActionHandler,
   unregisterActionHandler,
 } from './frontendActions'
+
+/** Stream failures carry a `code`, so callers can single out quota rejections. */
+export { AgentStreamError } from './sseTransport'
 export type {
   AgentResponse,
   // 响应

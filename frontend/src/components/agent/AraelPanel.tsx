@@ -43,8 +43,8 @@ import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
 import { usePageContentOptional } from '../../contexts/PageContentContext'
 import {
-  AgentStreamError,
   agentService,
+  AgentStreamError,
   executeFrontendAction,
 } from '../../services/agent'
 import {
