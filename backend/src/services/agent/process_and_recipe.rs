@@ -39,13 +39,15 @@ impl Agent {
     /// 整个回合跑在一次 AI 配额预留里，见 [`AgentTurnBudget`]。
     pub async fn process(&self, request: UserRequest) -> Result<AgentResponse, String> {
         let user_id = request.user_id;
-        let budget =
-            AgentTurnBudget::reserve(&self.db, user_id, "agent.process", turn_task_id(&request))
-                .await?;
-        // Boxed: see `AgentTurnBudget::scope`.
-        let result = budget.scope(Box::pin(self.process_inner(request))).await;
-        budget.settle(&self.db).await;
-        result
+        let task_id = turn_task_id(&request);
+        AgentTurnBudget::run(
+            &self.db,
+            user_id,
+            "agent.process",
+            task_id,
+            Box::pin(self.process_inner(request)),
+        )
+        .await
     }
 
     async fn process_inner(&self, request: UserRequest) -> Result<AgentResponse, String> {
@@ -280,21 +282,15 @@ impl Agent {
         progress_tx: tokio::sync::mpsc::Sender<AgentProgressEvent>,
     ) -> Result<AgentResponse, String> {
         let user_id = request.user_id;
-        let budget = AgentTurnBudget::reserve(
+        let task_id = turn_task_id(&request);
+        AgentTurnBudget::run(
             &self.db,
             user_id,
             "agent.process_with_progress",
-            turn_task_id(&request),
+            task_id,
+            Box::pin(self.process_with_progress_inner(request, progress_tx)),
         )
-        .await?;
-        // Boxed: see `AgentTurnBudget::scope`.
-        let result = budget
-            .scope(Box::pin(
-                self.process_with_progress_inner(request, progress_tx),
-            ))
-            .await;
-        budget.settle(&self.db).await;
-        result
+        .await
     }
 
     async fn process_with_progress_inner(
@@ -1082,6 +1078,22 @@ impl Agent {
     ///
     /// 用于从预设中直接执行任务，避免重复的意图解析
     pub async fn execute_saved_recipe(
+        &self,
+        recipe: &Recipe,
+        user_id: i32,
+        progress_tx: tokio::sync::mpsc::Sender<AgentProgressEvent>,
+    ) -> Result<AgentResponse, String> {
+        AgentTurnBudget::run(
+            &self.db,
+            user_id,
+            "agent.execute_saved_recipe",
+            recipe.id.clone(),
+            Box::pin(self.execute_saved_recipe_inner(recipe, user_id, progress_tx)),
+        )
+        .await
+    }
+
+    async fn execute_saved_recipe_inner(
         &self,
         recipe: &Recipe,
         user_id: i32,

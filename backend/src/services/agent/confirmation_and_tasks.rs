@@ -22,6 +22,22 @@ impl Agent {
         &self,
         confirmation: UserConfirmation,
     ) -> Result<AgentResponse, String> {
+        let user_id = confirmation.user_id;
+        let task_id = confirmation.confirmation_id.clone();
+        AgentTurnBudget::run(
+            &self.db,
+            user_id,
+            "agent.process_confirmation",
+            task_id,
+            Box::pin(self.process_confirmation_inner(confirmation)),
+        )
+        .await
+    }
+
+    async fn process_confirmation_inner(
+        &self,
+        confirmation: UserConfirmation,
+    ) -> Result<AgentResponse, String> {
         // PostgreSQL provides atomic, owner-scoped consumption across replicas.
         // The local map is only a hot cache and is cleared after the shared take.
         let pending = crate::services::tapp_registry::take_for_subject::<
@@ -806,6 +822,22 @@ impl Agent {
         answer: UserAnswer,
         user_id: i32,
     ) -> Result<AgentResponse, String> {
+        AgentTurnBudget::run(
+            &self.db,
+            user_id,
+            "agent.resume_task",
+            task_id.to_string(),
+            Box::pin(self.resume_task_inner(task_id, answer, user_id)),
+        )
+        .await
+    }
+
+    async fn resume_task_inner(
+        &self,
+        task_id: &str,
+        answer: UserAnswer,
+        user_id: i32,
+    ) -> Result<AgentResponse, String> {
         // 获取任务并验证所有权
         let task = executor::get_task_for_user(task_id, user_id)
             .await
@@ -867,6 +899,23 @@ impl Agent {
 
     /// 恢复 WaitingForInput 任务执行（带 SSE 进度流）
     pub async fn resume_task_with_progress(
+        &self,
+        task_id: &str,
+        answer: UserAnswer,
+        user_id: i32,
+        progress_tx: tokio::sync::mpsc::Sender<types::AgentProgressEvent>,
+    ) -> Result<AgentResponse, String> {
+        AgentTurnBudget::run(
+            &self.db,
+            user_id,
+            "agent.resume_task_with_progress",
+            task_id.to_string(),
+            Box::pin(self.resume_task_with_progress_inner(task_id, answer, user_id, progress_tx)),
+        )
+        .await
+    }
+
+    async fn resume_task_with_progress_inner(
         &self,
         task_id: &str,
         answer: UserAnswer,

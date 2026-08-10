@@ -298,6 +298,45 @@ impl AgentTurnBudget {
             );
         }
     }
+
+    /// 预留 → 在作用域内跑 `body` → 结算，一次做完。
+    ///
+    /// 所有会消耗 AI 的入口都该走这里。此前只有 `process` /
+    /// `process_with_progress` 有预留，于是「规划后要确认」的流程是：首轮预留、
+    /// 规划、返回确认、**结算**——随后确认接口把整条 recipe 跑完，全程无预留。
+    /// 额度耗尽的用户只要点一次确认，仍然能把昂贵的活干完；预设执行更是从未
+    /// 碰到过这道门。
+    ///
+    /// 确认 / 恢复采用**重新预留**而不是把首轮的预留挂着：确认之间隔着一次用户
+    /// 往返，可能是几分钟，长时间占着额度只会让并发用户互相饿死。代价是一次
+    /// 「规划 + 确认后执行」记两次调用，这在语义上也说得通——它确实是两次请求。
+    ///
+    /// `body` 用 `Pin<Box<...>>` 接收：见 [`Self::scope`] 关于类型布局递归的说明。
+    /// 用 `AssertUnwindSafe` + `catch_unwind` 包一层，让 body panic 时预留也能被
+    /// 结算掉，否则预留的 tokens 会一直挂到当天配额重置。
+    pub(crate) async fn run<T>(
+        db: &sea_orm::DatabaseConnection,
+        user_id: i32,
+        operation: &str,
+        task_id: String,
+        body: std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, String>> + Send + '_>>,
+    ) -> Result<T, String> {
+        use futures::FutureExt;
+
+        let budget = Self::reserve(db, user_id, operation, task_id).await?;
+        let outcome = budget
+            .scope(std::panic::AssertUnwindSafe(body).catch_unwind())
+            .await;
+        budget.settle(db).await;
+
+        match outcome {
+            Ok(result) => result,
+            Err(panic) => {
+                // 结算已经完成，这里只把 panic 继续抛出去，保持原有崩溃语义。
+                std::panic::resume_unwind(panic)
+            }
+        }
+    }
 }
 
 /// Agent 在配额与成本账里的 bucket key（与 `AiLedgerAttribution.tapp_id` 一致）
