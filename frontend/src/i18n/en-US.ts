@@ -984,11 +984,11 @@ export const enUS: TranslationKeys = {
     updaterMaintenanceExited: 'Maintenance mode cleared',
     updaterSelfUpdateNeeded:
       'Version {version} needs the updater upgraded to {minVersion}+ first.',
-    updaterSelfUpdateButton: 'Host upgrade required',
+    updaterSelfUpdateButton: 'Upgrade updater',
     updaterSelfUpdateConfirm:
       'Upgrade updater to {version}? A few seconds; site unaffected.',
     updaterSelfUpdateConfirmAuto:
-      'Guard/updater belongs to the host trust boundary and cannot be upgraded in-app. A host operator must independently verify the signature and image digest, then recreate Guard, updater, and gateway with the deployment script.',
+      'Upgrade updater to the current registry tip? A few seconds; site unaffected.',
     updaterSelfUpdateDispatched:
       'Updater upgrade to {version} started (was {previous}); continue the app update when it finishes.',
     updaterInfraGroupTitle: 'Edge & updater components',

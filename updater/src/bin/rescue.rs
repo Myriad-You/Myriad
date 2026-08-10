@@ -6,9 +6,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
-use myriad_updater::{
-    config::DbMode, log as logging, rescue, self_version, state::StateDir,
-};
+use myriad_updater::{config::DbMode, log as logging, rescue, self_version, state::StateDir};
 
 #[derive(Debug, Parser)]
 #[command(name = "myriad-rescue", version = self_version(), about = "Offline rescue tool for Myriad updates")]

@@ -925,10 +925,10 @@ export const zhCN: TranslationKeys = {
     updaterMaintenanceExited: '已退出维护模式',
     updaterSelfUpdateNeeded:
       '版本 {version} 需要先将更新器升到 {minVersion}+。',
-    updaterSelfUpdateButton: '需要宿主机升级',
+    updaterSelfUpdateButton: '升级更新器',
     updaterSelfUpdateConfirm: '升级更新器到 {version}？几秒完成，不影响站点。',
     updaterSelfUpdateConfirmAuto:
-      'Guard/更新器属于宿主可信边界，不能在应用内升级。请由宿主运维独立验证签名和镜像摘要，然后使用部署脚本重建 Guard、更新器和网关。',
+      '升级更新器到镜像仓库当前 tip？几秒完成，不影响站点。',
     updaterSelfUpdateDispatched:
       '更新器已开始升级到 {version}（原 {previous}）；完成后可继续业务更新。',
     updaterInfraGroupTitle: '边缘与更新器组件',

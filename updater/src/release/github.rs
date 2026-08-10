@@ -72,7 +72,10 @@ impl GithubClient {
                 // Network / client build oddities may surface as Internal(anyhow).
                 Self::is_expected_unauthenticated_failure(other)
                     || other.to_string().to_ascii_lowercase().contains("timeout")
-                    || other.to_string().to_ascii_lowercase().contains("connection")
+                    || other
+                        .to_string()
+                        .to_ascii_lowercase()
+                        .contains("connection")
             }
         }
     }

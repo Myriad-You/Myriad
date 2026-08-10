@@ -278,13 +278,20 @@ services:
       MYRIAD_ADMIN_NETWORK: ${GUARD_MYRIAD_ADMIN_NETWORK:-myriad-admin-net}
       MYRIAD_DOCKER_GUARD_NETWORK: ${GUARD_MYRIAD_DOCKER_GUARD_NETWORK:-myriad-docker-guard-net}
       DOCKER_GUARD_COMPOSE_DIR: /host/compose
+      DOCKER_GUARD_STATE_DIR: /host/state
       DOCKER_GUARD_EXPECTED_IMAGE: ${DOCKER_GUARD_IMAGE}
       DOCKER_GUARD_HOST_POLICY_PATH: ${MYRIAD_GUARD_ENV_FILE:?Host Guard policy path is required}
       RUST_LOG: ${DOCKER_GUARD_LOG:-info}
       TZ: Asia/Shanghai
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./:/host/compose:ro
+      - type: bind
+        source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}
+        target: /host/compose
+        read_only: true
+      - type: bind
+        source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}/state
+        target: /host/state
     networks: [myriad-docker-guard-net]
     restart: unless-stopped
     security_opt: [no-new-privileges:true]
@@ -300,7 +307,9 @@ services:
       options: { max-size: "10m", max-file: "3" }
 
   updater:
-    image: ${UPDATER_IMAGE:-docker.io/somekawahitomi/myriad-updater}:${UPDATER_TAG}
+    # Self-update pins this full reference to repo@sha256:digest. The tag form is
+    # retained only for first install and developer deployments.
+    image: ${UPDATER_IMAGE_REF:-${UPDATER_IMAGE:-docker.io/somekawahitomi/myriad-updater}:${UPDATER_TAG}}
     container_name: myriad-updater
     environment:
       UPDATE_TOKEN: ${UPDATE_TOKEN}
@@ -336,11 +345,23 @@ services:
     volumes:
       # Deployment definitions are immutable to a compromised updater. Overlay
       # only the state it genuinely owns as writable submounts.
-      - ./:/host/compose:ro
-      - ./.env:/host/compose/.env:rw
-      - ./state:/host/compose/state:rw
-      - ./pgdata:/host/compose/pgdata:rw
-      - ${MYRIAD_GUARD_ENV_FILE:?Host Guard policy path is required}:/run/secrets/docker-guard.env:ro
+      - type: bind
+        source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}
+        target: /host/compose
+        read_only: true
+      - type: bind
+        source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}/.env
+        target: /host/compose/.env
+      - type: bind
+        source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}/state
+        target: /host/compose/state
+      - type: bind
+        source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}/pgdata
+        target: /host/compose/pgdata
+      - type: bind
+        source: ${MYRIAD_GUARD_ENV_FILE:?Host Guard policy path is required}
+        target: /run/secrets/docker-guard.env
+        read_only: true
     # Admin plane for gateway/backend/proxy; guard-net for docker-guard only.
     # Not on myriad-net: frontend/postgres must not share L2 with updater HTTP.
     networks: [myriad-admin-net, myriad-docker-guard-net]
@@ -349,6 +370,12 @@ services:
     restart: unless-stopped
     security_opt: [no-new-privileges:true]
     # NOTE: deliberately no `read_only`: updater needs to write state/snapshots/.env.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:1101/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
     logging:
       driver: "json-file"
       options: { max-size: "10m", max-file: "3" }
@@ -356,8 +383,8 @@ services:
   updater-gateway:
     # Same image/tag as updater; thin binary injects UPDATE_TOKEN for backend.
     # Requires UPDATER_GATEWAY_SECRET from backend hop. Not created via docker-guard
-    # create API — managed business services only; Guard TCB upgrades are host-operated.
-    image: ${UPDATER_IMAGE:-docker.io/somekawahitomi/myriad-updater}:${UPDATER_TAG}
+    # create API — managed business services only; TCB upgrades use Guard's dedicated handoff.
+    image: ${UPDATER_IMAGE_REF:-${UPDATER_IMAGE:-docker.io/somekawahitomi/myriad-updater}:${UPDATER_TAG}}
     container_name: myriad-updater-gateway
     entrypoint: ["/usr/bin/tini", "--", "/usr/local/bin/myriad-updater-gateway"]
     environment:
@@ -374,6 +401,12 @@ services:
     security_opt: [no-new-privileges:true]
     read_only: true
     tmpfs: [/tmp, /run]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:1104/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
     logging:
       driver: "json-file"
       options: { max-size: "10m", max-file: "3" }

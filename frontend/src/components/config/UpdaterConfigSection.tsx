@@ -603,7 +603,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
 
   /**
    * After proxy/updater recreate the HTTP path blips. Poll durable
-   * `*_update_last` until a new outcome appears (~90s), keep last status on
+   * `*_update_last` until a new outcome appears (up to ~90 minutes), keep last status on
    * transient errors, and surface reconnect feedback in toast + linkDown.
    */
   const waitInfraUpdateOutcome = useCallback(
@@ -711,11 +711,67 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     }
   }, [api, refresh])
 
-  const triggerSelfUpdate = useCallback(() => {
-    // Guard owns the Docker socket and is a separate host TCB. Never let an
-    // updater credential or updater-writable state select/recreate that TCB.
-    setToast({ kind: 'error', text: u.updaterSelfUpdateConfirmAuto })
-  }, [u])
+  const triggerSelfUpdate = useCallback(async () => {
+    if (tokenRequired) {
+      setToast({ kind: 'error', text: u.updaterTokenRequiredDirect })
+      return
+    }
+    // Backend resolves the tip itself (release.json or Docker Hub). App
+    // `latest_available` is only a hint — it is cleared when already current.
+    const tip = status?.latest_available?.version
+    const ok = tip
+      ? confirm(format(u.updaterSelfUpdateConfirm, { version: tip }))
+      : confirm(u.updaterSelfUpdateConfirmAuto)
+    if (!ok) return
+    const beforeAt = status?.self_update_last?.at
+    setBusy('self-update')
+    setToast(null)
+    setLinkDown(false)
+    let target = tip || ''
+    let shouldWait = true
+    try {
+      try {
+        const report = await api.triggerSelfUpdate()
+        target = report.new_updater_tag || tip || ''
+        setToast({
+          kind: 'ok',
+          text: format(u.updaterSelfUpdateDispatched, {
+            version: target || '—',
+            previous:
+              report.previous_updater_tag || status?.updater_version || '—',
+          }),
+        })
+      } catch (e) {
+        // Schedule may have been accepted then the gateway died on recreate.
+        if (!isTransientUpdaterError(e)) {
+          setToast({ kind: 'error', text: explain(e) })
+          shouldWait = false
+        } else {
+          setLinkDown(true)
+          setToast({ kind: 'ok', text: u.updaterSelfUpdateReconnecting })
+        }
+      }
+      if (shouldWait) {
+        await waitInfraUpdateOutcome({
+          kind: 'self',
+          beforeAt,
+          targetTag: target,
+        })
+        await refreshAfterInfra()
+      }
+    } finally {
+      setBusy(null)
+      setLinkDown(false)
+    }
+  }, [
+    api,
+    status,
+    tokenRequired,
+    explain,
+    u,
+    waitInfraUpdateOutcome,
+    refreshAfterInfra,
+  ])
 
   const triggerProxyUpdate = useCallback(async () => {
     if (tokenRequired) {

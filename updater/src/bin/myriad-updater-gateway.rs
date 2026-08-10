@@ -64,9 +64,12 @@ async fn main() -> Result<()> {
         return Err(anyhow!("UPDATER_UPSTREAM cannot be empty"));
     }
 
-    let token = std::env::var("UPDATE_TOKEN").context("UPDATE_TOKEN is required by updater-gateway")?;
+    let token =
+        std::env::var("UPDATE_TOKEN").context("UPDATE_TOKEN is required by updater-gateway")?;
     if token.trim().len() < GATEWAY_SECRET_MIN_LEN {
-        return Err(anyhow!("UPDATE_TOKEN must be at least {GATEWAY_SECRET_MIN_LEN} characters"));
+        return Err(anyhow!(
+            "UPDATE_TOKEN must be at least {GATEWAY_SECRET_MIN_LEN} characters"
+        ));
     }
 
     let gateway_secret = std::env::var("UPDATER_GATEWAY_SECRET")
@@ -220,10 +223,7 @@ async fn proxy(State(state): State<Arc<GatewayState>>, req: Request<Body>) -> Re
 /// `Err` 携带的是一个完整的 `Response`（较大）。这条路径每个请求最多走一次、
 /// 且失败即返回，装箱换来的间接寻址不值得。
 #[allow(clippy::result_large_err)]
-fn authorize_gateway_caller(
-    headers: &HeaderMap,
-    expected: &str,
-) -> Result<(), Response> {
+fn authorize_gateway_caller(headers: &HeaderMap, expected: &str) -> Result<(), Response> {
     let source = gateway_source_key(headers);
     if gateway_is_blocked(&source) {
         return Err((
@@ -429,12 +429,18 @@ mod tests {
 
     #[test]
     fn constant_time_eq_accepts_match() {
-        assert!(constant_time_eq(b"same-secret-value-32chars-ok!!", b"same-secret-value-32chars-ok!!"));
+        assert!(constant_time_eq(
+            b"same-secret-value-32chars-ok!!",
+            b"same-secret-value-32chars-ok!!"
+        ));
     }
 
     #[test]
     fn constant_time_eq_rejects_mismatch_and_len() {
-        assert!(!constant_time_eq(b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", b"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
+        assert!(!constant_time_eq(
+            b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            b"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        ));
         assert!(!constant_time_eq(b"short", b"longer-than-short"));
         assert!(!constant_time_eq(b"", b"x"));
     }
@@ -453,7 +459,8 @@ mod tests {
     #[test]
     fn authorize_rejects_missing_secret() {
         let headers = HeaderMap::new();
-        let err = authorize_gateway_caller(&headers, "abcdefghijklmnopqrstuvwxyz012345").unwrap_err();
+        let err =
+            authorize_gateway_caller(&headers, "abcdefghijklmnopqrstuvwxyz012345").unwrap_err();
         assert_eq!(err.status(), StatusCode::UNAUTHORIZED);
     }
 
@@ -464,7 +471,8 @@ mod tests {
             HEADER_GATEWAY_SECRET,
             HeaderValue::from_static("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
         );
-        let err = authorize_gateway_caller(&headers, "abcdefghijklmnopqrstuvwxyz012345").unwrap_err();
+        let err =
+            authorize_gateway_caller(&headers, "abcdefghijklmnopqrstuvwxyz012345").unwrap_err();
         assert_eq!(err.status(), StatusCode::UNAUTHORIZED);
     }
 }

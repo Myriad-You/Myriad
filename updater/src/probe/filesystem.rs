@@ -227,7 +227,11 @@ mod tests {
         let state = tempfile::tempdir().unwrap();
         let probe = probe_pgdata(&missing, state.path()).await;
         assert!(!probe.exists);
-        assert!(probe.error.is_none(), "missing path must not set error: {:?}", probe.error);
+        assert!(
+            probe.error.is_none(),
+            "missing path must not set error: {:?}",
+            probe.error
+        );
         assert!(!probe.is_named_volume);
         assert!(require_pgdata(&missing).is_err());
     }

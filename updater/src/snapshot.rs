@@ -19,9 +19,9 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
-use chrono::Utc;
 #[cfg(test)]
 use chrono::DateTime;
+use chrono::Utc;
 use sha2::{Digest, Sha256};
 use tokio::process::Command;
 use tracing::{info, warn};
@@ -796,10 +796,7 @@ mod tests {
             "nul\0byte",
             "dot.dot",
         ] {
-            assert!(
-                validate_snapshot_id(bad).is_err(),
-                "should reject {bad:?}"
-            );
+            assert!(validate_snapshot_id(bad).is_err(), "should reject {bad:?}");
         }
         for good in ["snap-1", "job_2026", "AbC123", "a"] {
             assert!(validate_snapshot_id(good).is_ok(), "should accept {good:?}");
@@ -1028,7 +1025,11 @@ mod tests {
             pgdata: dir.path().join("pgdata"),
         };
         let removed = mgr.prune(2).unwrap();
-        assert_eq!(removed.len(), 3, "must remove three oldest among five ≥48h backups");
+        assert_eq!(
+            removed.len(),
+            3,
+            "must remove three oldest among five ≥48h backups"
+        );
         let ids: std::collections::HashSet<_> = state
             .read_snapshots()
             .unwrap()
@@ -1058,9 +1059,19 @@ mod tests {
         plant_snapshot_meta_at(&state, "old-b", old - chrono::Duration::hours(3), false);
         plant_snapshot_meta_at(&state, "mid", now - chrono::Duration::hours(12), false);
         plant_snapshot_meta_at(&state, "fresh-a", now - chrono::Duration::hours(2), false);
-        plant_snapshot_meta_at(&state, "fresh-b", now - chrono::Duration::minutes(30), false);
+        plant_snapshot_meta_at(
+            &state,
+            "fresh-b",
+            now - chrono::Duration::minutes(30),
+            false,
+        );
         // Permanent pin survives even when older than all others.
-        plant_snapshot_meta_at(&state, "kept-forever", old - chrono::Duration::hours(10), true);
+        plant_snapshot_meta_at(
+            &state,
+            "kept-forever",
+            old - chrono::Duration::hours(10),
+            true,
+        );
 
         let mgr = SnapshotManager {
             state: &state,
@@ -1205,7 +1216,10 @@ mod tests {
         };
         // keep_n=1 → should try to drop mid + bad-old; mid goes, bad-old stays in JSON.
         let removed = mgr.prune(1).unwrap();
-        assert!(removed.contains(&"ok-mid".to_string()), "removed={removed:?}");
+        assert!(
+            removed.contains(&"ok-mid".to_string()),
+            "removed={removed:?}"
+        );
         assert!(
             !removed.contains(&"bad-old".to_string()),
             "failed disk delete must not appear in removed: {removed:?}"
@@ -1218,7 +1232,10 @@ mod tests {
             .map(|m| m.id)
             .collect();
         assert!(ids.contains("ok-new"));
-        assert!(ids.contains("bad-old"), "meta must stay when disk delete fails");
+        assert!(
+            ids.contains("bad-old"),
+            "meta must stay when disk delete fails"
+        );
         assert!(!ids.contains("ok-mid"));
         assert!(state.snapshots_dir().join("bad-old").is_file());
     }

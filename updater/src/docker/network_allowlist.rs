@@ -21,16 +21,8 @@ impl NetworkAllowlist {
     /// Resolve from process env, then optional `.env`, then docker-guard defaults.
     pub fn resolve(env_file: Option<&Path>) -> Self {
         Self {
-            compose_network: resolve_name(
-                "MYRIAD_DOCKER_NETWORK",
-                "myriad-net",
-                env_file,
-            ),
-            admin_network: resolve_name(
-                "MYRIAD_ADMIN_NETWORK",
-                "myriad-admin-net",
-                env_file,
-            ),
+            compose_network: resolve_name("MYRIAD_DOCKER_NETWORK", "myriad-net", env_file),
+            admin_network: resolve_name("MYRIAD_ADMIN_NETWORK", "myriad-admin-net", env_file),
             guard_network: resolve_name(
                 "MYRIAD_DOCKER_GUARD_NETWORK",
                 "myriad-docker-guard-net",
@@ -41,9 +33,7 @@ impl NetworkAllowlist {
 
     pub fn contains(&self, name: &str) -> bool {
         let name = name.trim_start_matches('/');
-        name == self.compose_network
-            || name == self.admin_network
-            || name == self.guard_network
+        name == self.compose_network || name == self.admin_network || name == self.guard_network
     }
 
     pub fn describe(&self) -> String {

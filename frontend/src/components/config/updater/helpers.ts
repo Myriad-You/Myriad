@@ -37,9 +37,9 @@ export type Tone = 'ok' | 'info' | 'warn' | 'danger' | 'muted'
 export type Toast = { kind: 'ok' | 'error'; text: string } | null
 
 export const POLL_INTERVAL = 4_000
-/** Infra (updater/proxy) outcome poll: 2s × 45 ≈ 90s. */
+/** Trusted TCB handoff + bounded recovery: 2s × 2700 ≈ 90 minutes. */
 export const INFRA_OUTCOME_POLL_MS = 2_000
-export const INFRA_OUTCOME_MAX_TRIES = 45
+export const INFRA_OUTCOME_MAX_TRIES = 2_700
 const TEMPLATE_RE = /\{(\w+)\}/g
 export const COMMIT_URL = 'https://github.com/Myriad-You/Myriad/commit/'
 

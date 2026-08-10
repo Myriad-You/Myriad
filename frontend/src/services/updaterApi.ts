@@ -129,7 +129,7 @@ export interface UpdaterStatus {
   /** Version pinned locally for rollback as `*:myriad-rollback`. */
   rollback_version?: string | null
   available_channels?: string[]
-  /** Legacy TCB self-update outcome, when state from an older release is present. */
+  /** Last TCB self-update helper outcome (`state/self-update-last.json`), when present. */
   self_update_last?: SelfUpdateLastStatus | null
   /** Last manual proxy upgrade outcome (`state/proxy-update-last.json`), when present. */
   proxy_update_last?: InfraUpdateLastStatus | null
@@ -181,7 +181,7 @@ export function isValidSnapshotLimit(n: number): boolean {
 
 /** Shared shape for self-update / proxy-update durable last outcome. */
 export interface InfraUpdateLastStatus {
-  status: 'succeeded' | 'failed'
+  status: 'pending' | 'succeeded' | 'failed'
   target_tag: string
   previous_tag: string
   /** RFC3339 UTC */

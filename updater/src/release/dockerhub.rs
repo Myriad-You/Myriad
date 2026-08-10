@@ -246,15 +246,14 @@ impl DockerHubClient {
     ///
     /// Used by proxy/self-update when GitHub release.json is unavailable and no explicit
     /// target tag was provided.
-    pub async fn list_immutable_tags(
-        &self,
-        image: &str,
-        limit: u32,
-    ) -> Result<Vec<ComponentTag>> {
+    pub async fn list_immutable_tags(&self, image: &str, limit: u32) -> Result<Vec<ComponentTag>> {
         let repo = DockerHubRepository::parse(image)?;
         let page_size = ((limit.max(1) as usize) * 4).clamp(50, 100);
         let page = self.fetch_tags(&repo, page_size).await?;
-        Ok(immutable_component_tags(page.results, limit.max(1) as usize))
+        Ok(immutable_component_tags(
+            page.results,
+            limit.max(1) as usize,
+        ))
     }
 
     async fn fetch_tags(
@@ -311,10 +310,7 @@ fn immutable_component_tags(tags: Vec<TagResult>, limit: usize) -> Vec<Component
 ///
 /// - Commit/dev: newest immutable tag overall (dev-* or v*), same tip policy as backend.
 /// - Release: newest formal `vX.Y.Z` release tag; if none, fall through to newest immutable.
-pub fn select_component_tip(
-    tags: &[ComponentTag],
-    prefer_release: bool,
-) -> Option<&ComponentTag> {
+pub fn select_component_tip(tags: &[ComponentTag], prefer_release: bool) -> Option<&ComponentTag> {
     if prefer_release {
         if let Some(rel) = tags.iter().find(|t| t.kind == "release") {
             return Some(rel);
@@ -425,10 +421,7 @@ pub fn deploy_sha_fragment(tag_or_sha: &str) -> Option<String> {
     if raw.is_empty() {
         return None;
     }
-    let sha = raw
-        .strip_prefix("dev-")
-        .unwrap_or(raw.as_str())
-        .trim();
+    let sha = raw.strip_prefix("dev-").unwrap_or(raw.as_str()).trim();
     if sha.len() >= 7 && sha.bytes().all(|b| b.is_ascii_hexdigit()) {
         Some(sha.to_string())
     } else {
@@ -677,11 +670,8 @@ pub fn select_dev_channel_tip_for<'a>(
     }
     let current_pushed = current_tag.and_then(|t| pushed_at_for_tag(builds, t));
     let current_time = current_pushed.and_then(parse_push_time);
-    let current_release = current_tag.and_then(|t| {
-        DeployTag::parse(t)
-            .ok()
-            .and_then(|d| d.as_release())
-    });
+    let current_release =
+        current_tag.and_then(|t| DeployTag::parse(t).ok().and_then(|d| d.as_release()));
 
     builds.iter().find(|b| {
         if same_deploy_identity(
@@ -1174,8 +1164,8 @@ mod tests {
         assert!(none.is_none());
 
         // Running an older commit → tip is newest different identity.
-        let tip_up = select_dev_channel_tip_for(&builds, Some("dev-ba5c400"), None)
-            .expect("upgrade tip");
+        let tip_up =
+            select_dev_channel_tip_for(&builds, Some("dev-ba5c400"), None).expect("upgrade tip");
         assert_eq!(tip_up.tag, "dev-abcdef1");
     }
 
@@ -1191,10 +1181,7 @@ mod tests {
             10,
         );
         assert_eq!(
-            pushed_at_for_tag(
-                &builds,
-                "dev-f6e2c4d95a43d56ebc25722b785f44c73ef427a2"
-            ),
+            pushed_at_for_tag(&builds, "dev-f6e2c4d95a43d56ebc25722b785f44c73ef427a2"),
             Some("2026-07-31T14:13:00Z")
         );
     }

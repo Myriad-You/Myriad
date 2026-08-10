@@ -56,9 +56,11 @@ updater 对部署根本身只读，仅通过独立挂载写入 `./.env`、`./pgd
 （三网 + docker-guard + updater-gateway）。首次或改拓扑请在宿主执行
 `bash scripts/docker/deploy.sh up`（或等价 compose）；**仅 UI 更新无法创建网络/服务**。
 
-Guard/updater TCB 不允许应用内自更新。宿主运维必须独立验证签名与镜像 digest，更新
-部署根之外的 `docker-guard.env`，再用部署脚本重建 `docker-guard`、`updater` 和
-`updater-gateway`。日常业务 Docker API 仍经 Guard 的固定策略代理。
+管理员可以在 UI 中一键更新 Guard/updater TCB，无需 SSH。Updater 只提交目标 tag；
+Guard 固定官方 updater 仓库、通过宿主 Docker 拉取并固化 `repo@sha256`，再由该精确
+镜像中的固定交接程序更新 `docker-guard`、`updater` 和 `updater-gateway`。交接失败会
+恢复旧 digest 与配置。当前私有仓库阶段使用 #265 定义的显式 `dockerhub_tag` 信任路径；
+不会把它描述成 release.json/Cosign 路径。日常业务 Docker API 仍经 Guard 固定策略代理。
 
 ## 3. 打开 updater UI
 
@@ -165,7 +167,9 @@ audit: update_request job=… target=… mode=… allow_downgrade=… allow_dive
 [updater-spec.md §16.1](./updater-spec.md)）。
 
 Commit 模式成功后 **只写入 `dev-<shortsha>`** 到 `MYRIAD_TAG`。  
-业务更新只换 **backend/frontend**；proxy 独立更新，Guard/updater TCB 由宿主独立验证和升级。
+业务更新只换 **backend/frontend**；proxy 独立更新；Guard/updater TCB 可在 UI 中一键升级。
+成功后 `.env` 的 `UPDATER_IMAGE_REF` 固化为官方 `repo@sha256`，后续不能只改
+`UPDATER_TAG` 手工换版本；请继续使用 UI，或同时清除/更新该 digest 引用。
 
 `.env` 必须包含 `BACKEND_IMAGE` / `FRONTEND_IMAGE`。
 

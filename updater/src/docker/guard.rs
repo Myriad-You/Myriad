@@ -4,10 +4,12 @@
 //! containers in one Compose project, and container-create request bodies are validated before
 //! reaching the daemon. The updater never receives the raw Unix socket.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use axum::body::{to_bytes, Body};
@@ -21,11 +23,43 @@ use hyper::client::conn::http1;
 use hyper_util::rt::TokioIo;
 use serde_json::{json, Value};
 use tokio::net::UnixStream;
+use tokio::process::Command;
 use tracing::{error, info, warn};
+
+use crate::version::{DeployTag, DeployTagKind, MyriadVersion};
 
 const MAX_REQUEST_BODY: usize = 1024 * 1024;
 const MAX_INSPECT_BODY: usize = 2 * 1024 * 1024;
 const TRUSTED_GUARD_REPOSITORY: &str = "docker.io/somekawahitomi/myriad-updater";
+const TRUSTED_UPDATER_REPOSITORY: &str = TRUSTED_GUARD_REPOSITORY;
+const SELF_UPDATE_HELPER_NAME: &str = "myriad-tcb-self-update";
+const SELF_UPDATE_RECOVERY_NAME: &str = "myriad-tcb-self-update-recovery";
+const SELF_UPDATE_EXHAUSTED_NAME: &str = "myriad-tcb-self-update-recovery-exhausted";
+const DOCKER_API_TIMEOUT: Duration = Duration::from_secs(30);
+const TRUSTED_PULL_TIMEOUT: Duration = Duration::from_secs(180);
+const HELPER_LAUNCH_TIMEOUT: Duration = Duration::from_secs(30);
+const HELPER_TOTAL_TIMEOUT: Duration = Duration::from_secs(20 * 60);
+const SELF_UPDATE_GATE: usize = 1usize << (usize::BITS - 1);
+
+#[derive(Debug)]
+struct HandoffCleanupUnconfirmed;
+
+impl std::fmt::Display for HandoffCleanupUnconfirmed {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("self-update helper cleanup could not be confirmed")
+    }
+}
+
+impl std::error::Error for HandoffCleanupUnconfirmed {}
+
+#[derive(Debug, Clone)]
+struct HandoffAttempt {
+    previous_image: String,
+    target_image: String,
+    previous_tag: String,
+    target_tag: String,
+    recovery_only: bool,
+}
 
 #[derive(Debug, Clone)]
 pub struct GuardConfig {
@@ -37,10 +71,12 @@ pub struct GuardConfig {
     pub admin_network: String,
     pub guard_network: String,
     pub compose_dir: PathBuf,
+    pub state_dir: PathBuf,
     pub expected_guard_image: String,
     pub host_policy_path: String,
     pub allow_unpinned_dev: bool,
     pub allowed_images: HashSet<String>,
+    pub service_images: HashMap<String, String>,
 }
 
 impl GuardConfig {
@@ -66,6 +102,9 @@ impl GuardConfig {
         let compose_dir = std::env::var("DOCKER_GUARD_COMPOSE_DIR")
             .unwrap_or_else(|_| "/host/compose".into())
             .into();
+        let state_dir = std::env::var("DOCKER_GUARD_STATE_DIR")
+            .unwrap_or_else(|_| "/host/state".into())
+            .into();
         let expected_guard_image = std::env::var("DOCKER_GUARD_EXPECTED_IMAGE")
             .context("DOCKER_GUARD_EXPECTED_IMAGE is required")?;
         let host_policy_path = std::env::var("DOCKER_GUARD_HOST_POLICY_PATH")
@@ -81,16 +120,20 @@ impl GuardConfig {
         validate_guard_image_ref(&expected_guard_image, allow_unpinned_dev)?;
         // This policy is compiled into the Guard TCB. It must never come from
         // updater-writable `.env` or runtime configuration.
-        let allowed_images = [
-            "docker.io/somekawahitomi/myriad-backend",
-            "docker.io/somekawahitomi/myriad-frontend",
-            "docker.io/somekawahitomi/myriad-proxy",
-            "docker.io/somekawahitomi/myriad-updater",
-            "postgres",
+        let service_images = [
+            ("backend", "docker.io/somekawahitomi/myriad-backend"),
+            (
+                "backend-volume-init",
+                "docker.io/somekawahitomi/myriad-backend",
+            ),
+            ("frontend", "docker.io/somekawahitomi/myriad-frontend"),
+            ("proxy", "docker.io/somekawahitomi/myriad-proxy"),
+            ("postgres", "postgres"),
         ]
         .into_iter()
-        .map(str::to_string)
-        .collect::<HashSet<_>>();
+        .map(|(service, repository)| (service.to_string(), repository.to_string()))
+        .collect::<HashMap<_, _>>();
+        let allowed_images = service_images.values().cloned().collect::<HashSet<_>>();
 
         Ok(Self {
             listen,
@@ -100,10 +143,12 @@ impl GuardConfig {
             admin_network,
             guard_network,
             compose_dir,
+            state_dir,
             expected_guard_image,
             host_policy_path,
             allow_unpinned_dev,
             allowed_images,
+            service_images,
         })
     }
 }
@@ -132,6 +177,7 @@ fn validate_host_policy_path(path: &str) -> Result<()> {
 struct GuardState {
     config: Arc<GuardConfig>,
     host_compose_root: Arc<PathBuf>,
+    mutation_gate: Arc<AtomicUsize>,
 }
 
 pub async fn run(config: GuardConfig) -> Result<()> {
@@ -151,7 +197,151 @@ pub async fn run(config: GuardConfig) -> Result<()> {
     let state = GuardState {
         config: Arc::new(config),
         host_compose_root: Arc::new(host_compose_root.clone()),
+        mutation_gate: Arc::new(AtomicUsize::new(0)),
     };
+    let recovery_exhausted =
+        helper_container_exists(&state.config.socket_path, SELF_UPDATE_EXHAUSTED_NAME).await?;
+    let residual_helper = if recovery_exhausted {
+        None
+    } else if helper_container_exists(&state.config.socket_path, SELF_UPDATE_RECOVERY_NAME).await? {
+        Some((SELF_UPDATE_RECOVERY_NAME, true))
+    } else if helper_container_exists(&state.config.socket_path, SELF_UPDATE_HELPER_NAME).await? {
+        Some((SELF_UPDATE_HELPER_NAME, false))
+    } else {
+        None
+    };
+    if recovery_exhausted {
+        state
+            .mutation_gate
+            .store(SELF_UPDATE_GATE, Ordering::SeqCst);
+        error!(
+            helper = SELF_UPDATE_EXHAUSTED_NAME,
+            "previous-digest recovery retries are exhausted; host recovery is required"
+        );
+        fail_exhausted_pending_handoff(&state);
+    } else if let Some((helper_name, recovery_only)) = residual_helper {
+        state
+            .mutation_gate
+            .store(SELF_UPDATE_GATE, Ordering::SeqCst);
+        warn!(
+            helper = helper_name,
+            "recovering mutation gate for an in-flight self-update helper"
+        );
+        let attempt = match inspect_handoff_attempt(&state.config.socket_path, helper_name).await {
+            Ok(attempt) => Some(attempt),
+            Err(error) => {
+                warn!(%error, "could not recover trusted handoff intent from helper");
+                None
+            }
+        };
+        if attempt
+            .as_ref()
+            .is_some_and(|attempt| attempt.recovery_only != recovery_only)
+        {
+            warn!(
+                helper = helper_name,
+                "trusted helper name and mode disagree"
+            );
+        }
+        let recovered_retries = if recovery_only {
+            attempt
+                .as_ref()
+                .map(|attempt| recovery_attempt_from_status(&state, attempt))
+                .unwrap_or(0)
+        } else {
+            0
+        };
+        let mut monitor_ready = true;
+        let mut durable_exhausted = false;
+        if recovery_only {
+            let docker_host = format!("unix://{}", state.config.socket_path.display());
+            let normal_absent =
+                if helper_container_exists(&state.config.socket_path, SELF_UPDATE_HELPER_NAME)
+                    .await
+                    .unwrap_or(true)
+                {
+                    stop_helper(&docker_host, SELF_UPDATE_HELPER_NAME).await
+                        && cleanup_helper(&docker_host, SELF_UPDATE_HELPER_NAME).await
+                        && wait_for_helper_absence(
+                            &state.config.socket_path,
+                            SELF_UPDATE_HELPER_NAME,
+                            Duration::from_secs(30),
+                        )
+                        .await
+                } else {
+                    true
+                };
+            let recovery_running = helper_container_running(&state.config.socket_path, helper_name)
+                .await
+                .unwrap_or(false);
+            let recovery_exit = helper_container_exit_code(&state.config.socket_path, helper_name)
+                .await
+                .ok()
+                .flatten();
+            let recovery_succeeded = recovery_exit == Some(0);
+            durable_exhausted = recovery_is_durably_exhausted(
+                recovery_exit,
+                recovered_retries,
+                attempt
+                    .as_ref()
+                    .is_some_and(|attempt| failed_status_matches_attempt(&state, attempt)),
+            );
+            if durable_exhausted {
+                let _ = mark_recovery_exhausted(&docker_host, helper_name).await;
+                error!(
+                    helper = helper_name,
+                    "durable recovery failure is exhausted; retaining mutation gate"
+                );
+                monitor_ready = false;
+            } else if !normal_absent
+                || (!recovery_running
+                    && !recovery_succeeded
+                    && !restart_helper(&docker_host, helper_name).await)
+            {
+                error!(
+                    helper = helper_name,
+                    "could not resume staged previous-digest recovery; retaining mutation gate"
+                );
+                monitor_ready = false;
+            }
+        } else {
+            let docker_host = format!("unix://{}", state.config.socket_path.display());
+            let helper_running = helper_container_running(&state.config.socket_path, helper_name)
+                .await
+                .unwrap_or(false);
+            let helper_completed =
+                helper_container_exit_code(&state.config.socket_path, helper_name)
+                    .await
+                    .ok()
+                    .flatten()
+                    .is_some();
+            if !helper_running
+                && !helper_completed
+                && !restart_helper(&docker_host, helper_name).await
+            {
+                error!(
+                    helper = helper_name,
+                    "could not resume staged trusted handoff; retaining mutation gate"
+                );
+                monitor_ready = false;
+            }
+        }
+        if monitor_ready {
+            monitor_handoff(
+                state.clone(),
+                helper_name.into(),
+                attempt,
+                recovery_only,
+                recovered_retries,
+            );
+        } else if !durable_exhausted {
+            if let Some(attempt) = attempt {
+                resume_staged_recovery(state.clone(), attempt, recovered_retries);
+            }
+        }
+    } else {
+        let _ = finalize_or_fail_orphaned_pending_handoff(&state).await;
+    }
 
     info!(
         addr = %listen,
@@ -167,6 +357,86 @@ pub async fn run(config: GuardConfig) -> Result<()> {
     )
     .await?;
     Ok(())
+}
+
+fn fail_exhausted_pending_handoff(state: &GuardState) {
+    let path = state.config.state_dir.join("self-update-last.json");
+    let Some(pending) = std::fs::read(&path).ok().and_then(|bytes| {
+        serde_json::from_slice::<super::self_update_helper::SelfUpdateLastStatus>(&bytes).ok()
+    }) else {
+        return;
+    };
+    if !matches!(
+        pending.status,
+        super::self_update_helper::SelfUpdateOutcome::Pending
+    ) {
+        return;
+    }
+    let failed = super::self_update_helper::SelfUpdateLastStatus::failed_before_handoff(
+        pending.target_tag,
+        pending.previous_tag,
+        "previous-digest recovery retries are exhausted; host recovery is required".into(),
+    );
+    if let Err(error) = super::self_update_helper::write_status(&path, &failed) {
+        warn!(%error, "could not persist exhausted self-update outcome");
+    }
+}
+
+async fn finalize_or_fail_orphaned_pending_handoff(state: &GuardState) -> bool {
+    let path = state.config.state_dir.join("self-update-last.json");
+    let Some(pending) = std::fs::read(&path).ok().and_then(|bytes| {
+        serde_json::from_slice::<super::self_update_helper::SelfUpdateLastStatus>(&bytes).ok()
+    }) else {
+        return false;
+    };
+    if !matches!(
+        pending.status,
+        super::self_update_helper::SelfUpdateOutcome::Pending
+    ) {
+        return false;
+    }
+    let updater_consistent = verify_managed_tcb_container(
+        &state.config.socket_path,
+        "myriad-updater",
+        "updater",
+        &state.config.project,
+        &state.config.expected_guard_image,
+    )
+    .await
+    .is_ok();
+    let gateway_consistent = verify_managed_tcb_container(
+        &state.config.socket_path,
+        "myriad-updater-gateway",
+        "updater-gateway",
+        &state.config.project,
+        &state.config.expected_guard_image,
+    )
+    .await
+    .is_ok();
+    let running_tag = running_updater_tag(&state.config.socket_path).await.ok();
+    let tcb_consistent = updater_consistent && gateway_consistent;
+    let status = if tcb_consistent && running_tag.as_deref() == Some(pending.target_tag.as_str()) {
+        super::self_update_helper::SelfUpdateLastStatus::succeeded_after_handoff(
+            pending.target_tag,
+            pending.previous_tag,
+        )
+    } else {
+        if !tcb_consistent {
+            state
+                .mutation_gate
+                .store(SELF_UPDATE_GATE, Ordering::SeqCst);
+            error!("orphaned handoff left an inconsistent TCB; retaining mutation gate");
+        }
+        super::self_update_helper::SelfUpdateLastStatus::failed_before_handoff(
+            pending.target_tag,
+            pending.previous_tag,
+            "trusted handoff was interrupted; target TCB was not fully active".into(),
+        )
+    };
+    if let Err(error) = super::self_update_helper::write_status(&path, &status) {
+        warn!(%error, "could not persist interrupted self-update outcome");
+    }
+    tcb_consistent
 }
 
 fn validate_guard_image_ref(image: &str, allow_unpinned_dev: bool) -> Result<()> {
@@ -255,21 +525,18 @@ async fn handle(
     req: Request<Body>,
 ) -> Response {
     if req.uri().path() == "/_myriad/self-update" {
-        // A component that holds updater credentials is not allowed to select
-        // or execute the Guard TCB. Guard upgrades are a host-operator action
-        // using a digest-pinned image from independently signed release data.
-        return denial(
-            StatusCode::FORBIDDEN,
-            "docker-guard is a separate TCB; host-verified upgrade required",
-        );
+        return handle_self_update(state, req).await;
     }
 
     let method = req.method().clone();
     let uri = req.uri().clone();
     let (parts, body) = req.into_parts();
-    let body = match to_bytes(body, MAX_REQUEST_BODY).await {
-        Ok(body) => body,
-        Err(_) => return denial(StatusCode::PAYLOAD_TOO_LARGE, "request body exceeds 1 MiB"),
+    let body = match tokio::time::timeout(DOCKER_API_TIMEOUT, to_bytes(body, MAX_REQUEST_BODY))
+        .await
+    {
+        Ok(Ok(body)) => body,
+        Ok(Err(_)) => return denial(StatusCode::PAYLOAD_TOO_LARGE, "request body exceeds 1 MiB"),
+        Err(_) => return denial(StatusCode::REQUEST_TIMEOUT, "request body read timed out"),
     };
 
     let decision = match classify_request(&state, &method, &uri, &body) {
@@ -318,14 +585,1288 @@ async fn handle(
         }
     }
 
+    let mutation_lease = if requires_mutation_lease(&method, &uri) {
+        match GenericMutationLease::acquire(state.mutation_gate.clone()) {
+            Ok(lease) => Some(lease),
+            Err(reason) => return denial(StatusCode::CONFLICT, &reason),
+        }
+    } else {
+        None
+    };
+
     let req = Request::from_parts(parts, Body::from(body));
     match forward(&state.config.socket_path, req).await {
-        Ok(resp) => resp,
+        Ok(mut resp) => {
+            if let Some(lease) = mutation_lease {
+                resp.extensions_mut().insert(lease);
+            }
+            resp
+        }
         Err(e) => {
             error!(err = %e, "docker guard upstream failure");
             denial(StatusCode::BAD_GATEWAY, "docker daemon unavailable")
         }
     }
+}
+
+fn requires_mutation_lease(method: &Method, uri: &Uri) -> bool {
+    if !matches!(
+        *method,
+        Method::POST | Method::PUT | Method::PATCH | Method::DELETE
+    ) {
+        return false;
+    }
+    let path = strip_api_version(uri.path());
+    // Docker models container wait as POST, but it is observation-only and may
+    // legitimately stream until a container exits.
+    !path.ends_with("/wait")
+}
+
+const MAX_SELF_UPDATE_BODY: usize = 4 * 1024;
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SelfUpdateRequestBody {
+    target_tag: String,
+    trust_path: String,
+}
+
+async fn handle_self_update(state: GuardState, req: Request<Body>) -> Response {
+    if req.method() != Method::POST {
+        return denial(StatusCode::METHOD_NOT_ALLOWED, "POST required");
+    }
+    let body = match to_bytes(req.into_body(), MAX_SELF_UPDATE_BODY).await {
+        Ok(body) => body,
+        Err(_) => {
+            return denial(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "self-update body exceeds 4 KiB",
+            )
+        }
+    };
+    let request: SelfUpdateRequestBody = match serde_json::from_slice(&body) {
+        Ok(request) => request,
+        Err(_) => {
+            return denial(
+                StatusCode::BAD_REQUEST,
+                "JSON body requires only target_tag and trust_path",
+            )
+        }
+    };
+    if request.trust_path != "dockerhub_tag" {
+        return denial(
+            StatusCode::BAD_REQUEST,
+            "unsupported self-update trust path",
+        );
+    }
+    if let Err(reason) = validate_self_update_tag(&request.target_tag) {
+        return denial(StatusCode::BAD_REQUEST, &reason);
+    }
+    if let Err(reason) = ensure_no_business_update(&state) {
+        return denial(StatusCode::CONFLICT, &reason);
+    }
+    if state
+        .mutation_gate
+        .compare_exchange(0, SELF_UPDATE_GATE, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return denial(StatusCode::CONFLICT, "self-update already scheduled");
+    }
+
+    let target_tag = request.target_tag;
+    let task_state = state.clone();
+    let task_target = target_tag.clone();
+    tokio::spawn(async move {
+        let mut reset = SelfUpdateGateReset::new(task_state.mutation_gate.clone());
+        match prepare_trusted_self_update(&task_state, &task_target).await {
+            Ok((helper_id, attempt)) => {
+                info!(
+                    %helper_id,
+                    exact_image = %attempt.target_image,
+                    previous_tag = %attempt.previous_tag,
+                    target_tag = %attempt.target_tag,
+                    "trusted self-update handoff launched"
+                );
+                monitor_handoff(task_state.clone(), helper_id, Some(attempt), false, 0);
+                reset.disarm();
+            }
+            Err(error) => {
+                let retain_gate = error.downcast_ref::<HandoffCleanupUnconfirmed>().is_some();
+                warn!(%error, target_tag = %task_target, "trusted self-update rejected");
+                let previous_tag = running_updater_tag(&task_state.config.socket_path)
+                    .await
+                    .unwrap_or_else(|_| "unknown".into());
+                let helper_exists = if retain_gate {
+                    helper_container_exists(&task_state.config.socket_path, SELF_UPDATE_HELPER_NAME)
+                        .await
+                        .ok()
+                } else {
+                    Some(false)
+                };
+                if retain_gate && helper_exists != Some(false) {
+                    let attempt = inspect_handoff_attempt(
+                        &task_state.config.socket_path,
+                        SELF_UPDATE_HELPER_NAME,
+                    )
+                    .await
+                    .ok();
+                    monitor_handoff(
+                        task_state.clone(),
+                        SELF_UPDATE_HELPER_NAME.into(),
+                        attempt.clone(),
+                        attempt
+                            .as_ref()
+                            .is_some_and(|attempt| attempt.recovery_only),
+                        0,
+                    );
+                    reset.disarm();
+                    error!("helper cleanup is unconfirmed; retaining mutation gate");
+                } else {
+                    let status =
+                        super::self_update_helper::SelfUpdateLastStatus::failed_before_handoff(
+                            task_target,
+                            previous_tag,
+                            error.to_string(),
+                        );
+                    if let Err(status_error) = super::self_update_helper::write_status(
+                        &task_state.config.state_dir.join("self-update-last.json"),
+                        &status,
+                    ) {
+                        warn!(%status_error, "could not persist rejected self-update outcome");
+                    }
+                }
+            }
+        }
+    });
+
+    (
+        StatusCode::ACCEPTED,
+        axum::Json(json!({
+            "scheduled": true,
+            "executor": "docker-guard",
+            "target_tag": target_tag,
+            "services": ["docker-guard", "updater", "updater-gateway"],
+        })),
+    )
+        .into_response()
+}
+
+struct SelfUpdateGateReset {
+    gate: Arc<AtomicUsize>,
+    armed: bool,
+}
+
+impl SelfUpdateGateReset {
+    fn new(gate: Arc<AtomicUsize>) -> Self {
+        Self { gate, armed: true }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for SelfUpdateGateReset {
+    fn drop(&mut self) {
+        if self.armed {
+            self.gate.store(0, Ordering::SeqCst);
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct GenericMutationLease {
+    _inner: Arc<GenericMutationLeaseInner>,
+}
+
+#[derive(Debug)]
+struct GenericMutationLeaseInner {
+    gate: Arc<AtomicUsize>,
+}
+
+impl GenericMutationLease {
+    fn acquire(gate: Arc<AtomicUsize>) -> std::result::Result<Self, String> {
+        loop {
+            let current = gate.load(Ordering::SeqCst);
+            if current & SELF_UPDATE_GATE != 0 {
+                return Err("Docker mutations are paused during trusted self-update".into());
+            }
+            if current == SELF_UPDATE_GATE - 1 {
+                return Err("too many concurrent Docker mutations".into());
+            }
+            if gate
+                .compare_exchange(current, current + 1, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+            {
+                return Ok(Self {
+                    _inner: Arc::new(GenericMutationLeaseInner { gate }),
+                });
+            }
+        }
+    }
+}
+
+impl Drop for GenericMutationLeaseInner {
+    fn drop(&mut self) {
+        self.gate.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+fn ensure_no_business_update(state: &GuardState) -> std::result::Result<(), String> {
+    let current_job = state.config.state_dir.join("job.current");
+    let metadata = match std::fs::symlink_metadata(&current_job) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => return Err("cannot verify updater job state".into()),
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err("updater job state must be a regular file".into());
+    }
+    let job = std::fs::read_to_string(current_job)
+        .map_err(|_| "cannot verify updater job state".to_string())?;
+    if !job.trim().is_empty() {
+        return Err("a business update or rollback is still in progress".into());
+    }
+    Ok(())
+}
+
+fn monitor_handoff(
+    state: GuardState,
+    helper_id: String,
+    attempt: Option<HandoffAttempt>,
+    recovery_only: bool,
+    recovery_retries: u8,
+) {
+    tokio::spawn(async move {
+        let monitor_started = chrono::Utc::now();
+        let docker_host = format!("unix://{}", state.config.socket_path.display());
+        let mut wait = Command::new("docker");
+        wait.env("DOCKER_HOST", &docker_host)
+            .args(["container", "wait", &helper_id]);
+        let result = tokio::time::timeout(HELPER_TOTAL_TIMEOUT, wait.output()).await;
+        let failure = match result {
+            Ok(Ok(output)) if output.status.success() => {
+                let exit_code = String::from_utf8_lossy(&output.stdout)
+                    .trim()
+                    .parse::<i32>()
+                    .unwrap_or(-1);
+                if exit_code != 0 {
+                    warn!(%helper_id, exit_code, "trusted TCB handoff process failed");
+                    Some(format!(
+                        "trusted self-update helper exited with code {exit_code}"
+                    ))
+                } else {
+                    info!(%helper_id, "trusted TCB handoff process exited");
+                    None
+                }
+            }
+            Ok(Ok(output)) => {
+                let detail = String::from_utf8_lossy(&output.stderr).into_owned();
+                warn!(
+                    %helper_id,
+                    error = %detail,
+                    "could not observe trusted TCB handoff outcome"
+                );
+                Some(format!("could not observe trusted TCB handoff: {detail}"))
+            }
+            Ok(Err(error)) => {
+                warn!(%helper_id, %error, "could not wait for trusted TCB handoff");
+                Some(format!("could not wait for trusted TCB handoff: {error}"))
+            }
+            Err(_) => {
+                warn!(%helper_id, "trusted TCB handoff exceeded its total deadline");
+                Some("trusted TCB handoff exceeded its total deadline".into())
+            }
+        };
+        if let (Some(failure), Some(attempt)) = (failure.as_deref(), attempt.as_ref()) {
+            if !recovery_only {
+                warn!(%failure, "starting fixed previous-digest recovery handoff");
+                match launch_trusted_handoff(
+                    &state,
+                    &attempt.previous_image,
+                    &attempt.target_image,
+                    &attempt.previous_tag,
+                    &attempt.target_tag,
+                    true,
+                )
+                .await
+                {
+                    Ok(recovery_id) => {
+                        let old_stopped = stop_helper(&docker_host, &helper_id).await;
+                        let old_removed = old_stopped
+                            && cleanup_helper(&docker_host, &helper_id).await
+                            && wait_for_helper_absence(
+                                &state.config.socket_path,
+                                &helper_id,
+                                Duration::from_secs(30),
+                            )
+                            .await;
+                        if !old_removed {
+                            error!(
+                                %helper_id,
+                                %recovery_id,
+                                "old helper cleanup is unconfirmed; recovery remains staged"
+                            );
+                            resume_staged_recovery(state, attempt.clone(), 0);
+                            return;
+                        }
+                        if !restart_helper(&docker_host, &recovery_id).await {
+                            error!(
+                                %recovery_id,
+                                "staged previous-digest recovery could not be started"
+                            );
+                            resume_staged_recovery(state, attempt.clone(), 0);
+                            return;
+                        }
+                        monitor_handoff(state, recovery_id, Some(attempt.clone()), true, 0);
+                        return;
+                    }
+                    Err(error) => {
+                        error!(%error, "could not launch fixed previous-digest recovery handoff");
+                        resume_staged_recovery(state, attempt.clone(), 0);
+                        return;
+                    }
+                }
+            }
+        }
+        if failure.is_some() && recovery_only && recovery_retries < 2 {
+            let next_attempt = recovery_retries + 1;
+            let retry_persisted = attempt
+                .as_ref()
+                .is_some_and(|attempt| persist_recovery_attempt(&state, attempt, next_attempt));
+            if retry_persisted
+                && stop_helper(&docker_host, &helper_id).await
+                && restart_helper(&docker_host, &helper_id).await
+            {
+                warn!(
+                    %helper_id,
+                    attempt = next_attempt + 1,
+                    "retrying fixed previous-digest recovery handoff"
+                );
+                monitor_handoff(state, helper_id, attempt, true, next_attempt);
+                return;
+            }
+            if let Some(attempt) = attempt.clone() {
+                warn!(
+                    %helper_id,
+                    "recovery retry control failed; entering background recovery loop"
+                );
+                resume_staged_recovery(state, attempt, next_attempt);
+                return;
+            }
+        }
+        if let Some(failure) = failure {
+            if attempt.is_none() {
+                warn!(
+                    %helper_id,
+                    "handoff intent is temporarily unavailable; entering reconciliation loop"
+                );
+                resume_unidentified_handoff(state, helper_id);
+                return;
+            }
+            let failure_tags = attempt
+                .as_ref()
+                .map(|attempt| (attempt.target_tag.clone(), attempt.previous_tag.clone()))
+                .or_else(|| {
+                    std::fs::read(state.config.state_dir.join("self-update-last.json"))
+                        .ok()
+                        .and_then(|bytes| {
+                            serde_json::from_slice::<
+                                super::self_update_helper::SelfUpdateLastStatus,
+                            >(&bytes)
+                            .ok()
+                        })
+                        .filter(|status| {
+                            matches!(
+                                status.status,
+                                super::self_update_helper::SelfUpdateOutcome::Pending
+                            )
+                        })
+                        .map(|status| (status.target_tag, status.previous_tag))
+                });
+            if let Some((target_tag, previous_tag)) = failure_tags {
+                record_helper_failure_if_missing(
+                    &state,
+                    &target_tag,
+                    &previous_tag,
+                    failure,
+                    monitor_started,
+                );
+            }
+            if recovery_only
+                && recovery_retries >= 2
+                && !mark_recovery_exhausted(&docker_host, &helper_id).await
+            {
+                warn!(
+                    %helper_id,
+                    "could not persist exhausted recovery identity; durable failure remains"
+                );
+            }
+            error!(
+                %helper_id,
+                "trusted handoff did not converge; retaining mutation gate"
+            );
+            return;
+        }
+        let current_clean = cleanup_helper(&docker_host, &helper_id).await;
+        let normal_clean =
+            !recovery_only || cleanup_helper(&docker_host, SELF_UPDATE_HELPER_NAME).await;
+        if !current_clean || !normal_clean {
+            warn!("trusted helper cleanup is pending before gate recovery");
+        }
+        release_gate_when_helpers_absent(state.clone()).await;
+        if let Some(attempt) = attempt {
+            let status = if recovery_only {
+                super::self_update_helper::SelfUpdateLastStatus::failed_before_handoff(
+                    attempt.target_tag,
+                    attempt.previous_tag,
+                    "trusted handoff terminated; previous TCB restored".into(),
+                )
+            } else {
+                super::self_update_helper::SelfUpdateLastStatus::succeeded_after_handoff(
+                    attempt.target_tag,
+                    attempt.previous_tag,
+                )
+            };
+            if let Err(error) = super::self_update_helper::write_status(
+                &state.config.state_dir.join("self-update-last.json"),
+                &status,
+            ) {
+                warn!(%error, "could not persist final trusted handoff outcome");
+            }
+        }
+    });
+}
+
+fn resume_unidentified_handoff(state: GuardState, helper_id: String) {
+    tokio::spawn(async move {
+        loop {
+            match inspect_handoff_attempt(&state.config.socket_path, &helper_id).await {
+                Ok(attempt) => {
+                    let recovery_only = attempt.recovery_only;
+                    let recovery_retries = if recovery_only {
+                        recovery_attempt_from_status(&state, &attempt)
+                    } else {
+                        0
+                    };
+                    monitor_handoff(
+                        state,
+                        helper_id,
+                        Some(attempt),
+                        recovery_only,
+                        recovery_retries,
+                    );
+                    return;
+                }
+                Err(error) => {
+                    match helper_container_exists(&state.config.socket_path, &helper_id).await {
+                        Ok(false) => {
+                            warn!(%helper_id, %error, "unidentified helper disappeared");
+                            if finalize_or_fail_orphaned_pending_handoff(&state).await {
+                                release_gate_when_helpers_absent(state).await;
+                            } else {
+                                error!(
+                                    %helper_id,
+                                    "orphaned handoff could not be proven consistent; retaining mutation gate"
+                                );
+                            }
+                            return;
+                        }
+                        Ok(true) => {
+                            warn!(%helper_id, %error, "waiting to recover trusted handoff intent");
+                        }
+                        Err(exists_error) => {
+                            warn!(
+                                %helper_id,
+                                %error,
+                                %exists_error,
+                                "helper identity remains unknown"
+                            );
+                        }
+                    }
+                }
+            }
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+    });
+}
+
+fn resume_staged_recovery(state: GuardState, attempt: HandoffAttempt, recovery_retries: u8) {
+    tokio::spawn(async move {
+        let docker_host = format!("unix://{}", state.config.socket_path.display());
+        loop {
+            let recovery_exists =
+                helper_container_exists(&state.config.socket_path, SELF_UPDATE_RECOVERY_NAME)
+                    .await
+                    .unwrap_or(true);
+            if !recovery_exists
+                && launch_trusted_handoff(
+                    &state,
+                    &attempt.previous_image,
+                    &attempt.target_image,
+                    &attempt.previous_tag,
+                    &attempt.target_tag,
+                    true,
+                )
+                .await
+                .is_err()
+            {
+                warn!("could not yet stage previous-digest recovery; retrying");
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                continue;
+            }
+
+            let normal_exists =
+                helper_container_exists(&state.config.socket_path, SELF_UPDATE_HELPER_NAME)
+                    .await
+                    .unwrap_or(true);
+            let normal_absent = !normal_exists
+                || (stop_helper(&docker_host, SELF_UPDATE_HELPER_NAME).await
+                    && cleanup_helper(&docker_host, SELF_UPDATE_HELPER_NAME).await
+                    && wait_for_helper_absence(
+                        &state.config.socket_path,
+                        SELF_UPDATE_HELPER_NAME,
+                        Duration::from_secs(30),
+                    )
+                    .await);
+            if recovery_retries > 0 && !persist_recovery_attempt(&state, &attempt, recovery_retries)
+            {
+                warn!("could not persist recovery retry budget; retrying without execution");
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                continue;
+            }
+            let recovery_running =
+                helper_container_running(&state.config.socket_path, SELF_UPDATE_RECOVERY_NAME)
+                    .await
+                    .unwrap_or(false);
+            let recovery_succeeded =
+                helper_container_exit_code(&state.config.socket_path, SELF_UPDATE_RECOVERY_NAME)
+                    .await
+                    .ok()
+                    .flatten()
+                    == Some(0);
+            if normal_absent
+                && (recovery_running
+                    || recovery_succeeded
+                    || restart_helper(&docker_host, SELF_UPDATE_RECOVERY_NAME).await)
+            {
+                monitor_handoff(
+                    state,
+                    SELF_UPDATE_RECOVERY_NAME.into(),
+                    Some(attempt),
+                    true,
+                    recovery_retries,
+                );
+                return;
+            }
+            warn!("staged previous-digest recovery is not ready; retrying");
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+    });
+}
+
+fn record_helper_failure_if_missing(
+    state: &GuardState,
+    target_tag: &str,
+    previous_tag: &str,
+    error: String,
+    not_before: chrono::DateTime<chrono::Utc>,
+) {
+    let path = state.config.state_dir.join("self-update-last.json");
+    let already_recorded = std::fs::read(&path)
+        .ok()
+        .and_then(|bytes| {
+            serde_json::from_slice::<super::self_update_helper::SelfUpdateLastStatus>(&bytes).ok()
+        })
+        .is_some_and(|status| {
+            status.target_tag == target_tag
+                && matches!(
+                    status.status,
+                    super::self_update_helper::SelfUpdateOutcome::Failed
+                )
+                && chrono::DateTime::parse_from_rfc3339(&status.at)
+                    .map(|at| at.with_timezone(&chrono::Utc) >= not_before)
+                    .unwrap_or(false)
+        });
+    if already_recorded {
+        return;
+    }
+    let status = super::self_update_helper::SelfUpdateLastStatus::failed_before_handoff(
+        target_tag.to_owned(),
+        previous_tag.to_owned(),
+        error,
+    );
+    if let Err(status_error) = super::self_update_helper::write_status(&path, &status) {
+        warn!(%status_error, "could not persist helper failure outcome");
+    }
+}
+
+fn failed_status_matches_attempt(state: &GuardState, attempt: &HandoffAttempt) -> bool {
+    std::fs::read(state.config.state_dir.join("self-update-last.json"))
+        .ok()
+        .and_then(|bytes| {
+            serde_json::from_slice::<super::self_update_helper::SelfUpdateLastStatus>(&bytes).ok()
+        })
+        .is_some_and(|status| {
+            matches!(
+                status.status,
+                super::self_update_helper::SelfUpdateOutcome::Failed
+            ) && status.target_tag == attempt.target_tag
+                && status.previous_tag == attempt.previous_tag
+        })
+}
+
+fn recovery_attempt_from_status(state: &GuardState, attempt: &HandoffAttempt) -> u8 {
+    std::fs::read(state.config.state_dir.join("self-update-last.json"))
+        .ok()
+        .and_then(|bytes| {
+            serde_json::from_slice::<super::self_update_helper::SelfUpdateLastStatus>(&bytes).ok()
+        })
+        .filter(|status| {
+            status.target_tag == attempt.target_tag && status.previous_tag == attempt.previous_tag
+        })
+        .map(|status| status.recovery_attempt.min(2))
+        .unwrap_or(0)
+}
+
+fn recovery_is_durably_exhausted(
+    completed_exit: Option<i64>,
+    recovery_retries: u8,
+    matching_failed_status: bool,
+) -> bool {
+    completed_exit.is_some_and(|code| code != 0)
+        && (recovery_retries >= 2 || matching_failed_status)
+}
+
+fn persist_recovery_attempt(
+    state: &GuardState,
+    attempt: &HandoffAttempt,
+    recovery_attempt: u8,
+) -> bool {
+    let path = state.config.state_dir.join("self-update-last.json");
+    let mut status = std::fs::read(&path)
+        .ok()
+        .and_then(|bytes| {
+            serde_json::from_slice::<super::self_update_helper::SelfUpdateLastStatus>(&bytes).ok()
+        })
+        .filter(|status| {
+            status.target_tag == attempt.target_tag && status.previous_tag == attempt.previous_tag
+        })
+        .unwrap_or_else(|| {
+            super::self_update_helper::SelfUpdateLastStatus::pending_before_handoff(
+                attempt.target_tag.clone(),
+                attempt.previous_tag.clone(),
+            )
+        });
+    status.status = super::self_update_helper::SelfUpdateOutcome::Pending;
+    status.recovery_attempt = recovery_attempt.min(2);
+    super::self_update_helper::write_status(&path, &status).is_ok()
+}
+
+async fn release_gate_when_helpers_absent(state: GuardState) {
+    let docker_host = format!("unix://{}", state.config.socket_path.display());
+    let mut consecutive_absent = 0u8;
+    loop {
+        let mut all_absent = true;
+        for helper in [SELF_UPDATE_HELPER_NAME, SELF_UPDATE_RECOVERY_NAME] {
+            match helper_container_exists(&state.config.socket_path, helper).await {
+                Ok(false) => {}
+                Ok(true) => {
+                    all_absent = false;
+                    if !cleanup_helper(&docker_host, helper).await {
+                        warn!(%helper, "trusted helper cleanup retry did not complete");
+                    }
+                }
+                Err(error) => {
+                    all_absent = false;
+                    warn!(%helper, %error, "cannot yet recover self-update mutation gate");
+                }
+            }
+        }
+        if all_absent {
+            consecutive_absent += 1;
+            if consecutive_absent >= 5 {
+                state.mutation_gate.store(0, Ordering::SeqCst);
+                info!("self-update helpers are stably absent; mutation gate recovered");
+                return;
+            }
+        } else {
+            consecutive_absent = 0;
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+}
+
+async fn stop_helper(docker_host: &str, helper_id: &str) -> bool {
+    let mut stop = Command::new("docker");
+    stop.env("DOCKER_HOST", docker_host)
+        .args(["container", "stop", "--time", "10", helper_id]);
+    stop.kill_on_drop(true);
+    match tokio::time::timeout(HELPER_LAUNCH_TIMEOUT, stop.output()).await {
+        Ok(Ok(output)) if output.status.success() => true,
+        Ok(Ok(output)) => {
+            let error = String::from_utf8_lossy(&output.stderr);
+            error.contains("is not running")
+        }
+        _ => false,
+    }
+}
+
+async fn mark_recovery_exhausted(docker_host: &str, helper_id: &str) -> bool {
+    let mut rename = Command::new("docker");
+    rename.env("DOCKER_HOST", docker_host).args([
+        "container",
+        "rename",
+        helper_id,
+        SELF_UPDATE_EXHAUSTED_NAME,
+    ]);
+    rename.kill_on_drop(true);
+    matches!(
+        tokio::time::timeout(HELPER_LAUNCH_TIMEOUT, rename.output()).await,
+        Ok(Ok(output)) if output.status.success()
+    )
+}
+
+async fn restart_helper(docker_host: &str, helper_id: &str) -> bool {
+    let mut start = Command::new("docker");
+    start
+        .env("DOCKER_HOST", docker_host)
+        .args(["container", "start", helper_id]);
+    start.kill_on_drop(true);
+    matches!(
+        tokio::time::timeout(HELPER_LAUNCH_TIMEOUT, start.output()).await,
+        Ok(Ok(output)) if output.status.success()
+    )
+}
+
+async fn cleanup_helper(docker_host: &str, helper_id: &str) -> bool {
+    let mut remove = Command::new("docker");
+    remove
+        .env("DOCKER_HOST", docker_host)
+        .args(["container", "rm", "--force", helper_id]);
+    remove.kill_on_drop(true);
+    match tokio::time::timeout(HELPER_LAUNCH_TIMEOUT, remove.output()).await {
+        Ok(Ok(output)) if output.status.success() => true,
+        Ok(Ok(output)) => {
+            let error = String::from_utf8_lossy(&output.stderr);
+            error.contains("No such container") || error.contains("No such object")
+        }
+        _ => false,
+    }
+}
+
+async fn helper_container_exists(socket: &Path, helper_id: &str) -> Result<bool> {
+    validate_identifier(helper_id).map_err(anyhow::Error::msg)?;
+    tokio::time::timeout(DOCKER_API_TIMEOUT, async {
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri(format!("/containers/{helper_id}/json"))
+            .header(header::HOST, "localhost")
+            .body(Body::empty())?;
+        let response = forward(socket, req).await?;
+        match response.status() {
+            status if status.is_success() => Ok(true),
+            StatusCode::NOT_FOUND => Ok(false),
+            status => Err(anyhow!("helper inspect returned {status}")),
+        }
+    })
+    .await
+    .context("helper inspection timed out")?
+}
+
+async fn helper_container_running(socket: &Path, helper_id: &str) -> Result<bool> {
+    validate_identifier(helper_id).map_err(anyhow::Error::msg)?;
+    let inspect = daemon_json(socket, &format!("/containers/{helper_id}/json")).await?;
+    inspect
+        .pointer("/State/Running")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| anyhow!("trusted helper has no running state"))
+}
+
+async fn helper_container_exit_code(socket: &Path, helper_id: &str) -> Result<Option<i64>> {
+    validate_identifier(helper_id).map_err(anyhow::Error::msg)?;
+    let inspect = daemon_json(socket, &format!("/containers/{helper_id}/json")).await?;
+    helper_exit_code_from_inspect(&inspect)
+}
+
+fn helper_exit_code_from_inspect(inspect: &Value) -> Result<Option<i64>> {
+    // A newly created, not-yet-started container reports Running=false and
+    // ExitCode=0. Only an actual `exited` state is a completed handoff; staged
+    // `created` recovery containers must still be started after Guard restarts.
+    if inspect.pointer("/State/Status").and_then(Value::as_str) != Some("exited") {
+        return Ok(None);
+    }
+    inspect
+        .pointer("/State/ExitCode")
+        .and_then(Value::as_i64)
+        .map(Some)
+        .ok_or_else(|| anyhow!("trusted helper has no exit code"))
+}
+
+async fn wait_for_helper_absence(socket: &Path, helper_id: &str, timeout: Duration) -> bool {
+    let deadline = tokio::time::Instant::now() + timeout;
+    let mut consecutive_absent = 0u8;
+    loop {
+        match helper_container_exists(socket, helper_id).await {
+            Ok(false) => {
+                consecutive_absent += 1;
+                if consecutive_absent >= 5 {
+                    return true;
+                }
+            }
+            Ok(true) | Err(_) => consecutive_absent = 0,
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+}
+
+async fn inspect_handoff_attempt(socket: &Path, helper_id: &str) -> Result<HandoffAttempt> {
+    validate_identifier(helper_id).map_err(anyhow::Error::msg)?;
+    let inspect = daemon_json(socket, &format!("/containers/{helper_id}/json")).await?;
+    handoff_attempt_from_inspect(&inspect)
+}
+
+fn handoff_attempt_from_inspect(inspect: &Value) -> Result<HandoffAttempt> {
+    if inspect.get("Path").and_then(Value::as_str) != Some("/usr/local/bin/myriad-tcb-self-update")
+        || inspect
+            .pointer("/HostConfig/NetworkMode")
+            .and_then(Value::as_str)
+            != Some("none")
+        || inspect
+            .pointer("/HostConfig/ReadonlyRootfs")
+            .and_then(Value::as_bool)
+            != Some(true)
+    {
+        return Err(anyhow!("container is not the fixed trusted handoff helper"));
+    }
+    let env = inspect
+        .pointer("/Config/Env")
+        .and_then(Value::as_array)
+        .ok_or_else(|| anyhow!("trusted handoff helper has no fixed environment"))?;
+    let required = |name: &str| -> Result<String> {
+        env.iter()
+            .filter_map(Value::as_str)
+            .find_map(|entry| entry.strip_prefix(&format!("{name}=")))
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+            .ok_or_else(|| anyhow!("trusted handoff helper is missing {name}"))
+    };
+    let recovery_only = match env.iter().filter_map(Value::as_str).find_map(|entry| {
+        entry.strip_prefix(&format!(
+            "{}=",
+            super::self_update_helper::ENV_RECOVERY_ONLY
+        ))
+    }) {
+        None => false,
+        Some("1") => true,
+        Some(_) => return Err(anyhow!("trusted handoff helper has invalid recovery mode")),
+    };
+    let attempt = HandoffAttempt {
+        previous_image: required(super::self_update_helper::ENV_PREVIOUS_IMAGE)?,
+        target_image: required(super::self_update_helper::ENV_TARGET_IMAGE)?,
+        previous_tag: required(super::self_update_helper::ENV_PREVIOUS_TAG)?,
+        target_tag: required(super::self_update_helper::ENV_TARGET_TAG)?,
+        recovery_only,
+    };
+    validate_guard_image_ref(&attempt.previous_image, false)?;
+    validate_guard_image_ref(&attempt.target_image, false)?;
+    validate_self_update_tag(&attempt.previous_tag).map_err(anyhow::Error::msg)?;
+    validate_self_update_tag(&attempt.target_tag).map_err(anyhow::Error::msg)?;
+    let configured_image = inspect
+        .pointer("/Config/Image")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("trusted handoff helper has no configured image"))?;
+    if !digest_reference_matches(configured_image, &attempt.target_image) {
+        return Err(anyhow!(
+            "trusted handoff helper image does not match its target digest"
+        ));
+    }
+    Ok(attempt)
+}
+
+async fn prepare_trusted_self_update(
+    state: &GuardState,
+    requested_tag: &str,
+) -> Result<(String, HandoffAttempt)> {
+    let previous_image = state.config.expected_guard_image.clone();
+    verify_managed_tcb_container(
+        &state.config.socket_path,
+        "myriad-updater",
+        "updater",
+        &state.config.project,
+        &previous_image,
+    )
+    .await?;
+    verify_managed_tcb_container(
+        &state.config.socket_path,
+        "myriad-updater-gateway",
+        "updater-gateway",
+        &state.config.project,
+        &previous_image,
+    )
+    .await?;
+    let previous_tag = running_updater_tag(&state.config.socket_path).await?;
+    prevent_release_downgrade(&previous_tag, requested_tag)?;
+
+    // Guard has no egress. The host daemon pulls only the compiled-in official
+    // repository; Guard then converts the result to repo@sha256 before handoff.
+    let (exact_image, target_created_at) =
+        pull_trusted_tag_and_resolve(&state.config.socket_path, requested_tag).await?;
+    let current_created_at =
+        managed_container_image_created_at(&state.config.socket_path, "myriad-updater").await?;
+    if target_created_at < current_created_at {
+        return Err(anyhow!("TCB image creation-time downgrade is forbidden"));
+    }
+    let attempt = HandoffAttempt {
+        previous_image: previous_image.clone(),
+        target_image: exact_image.clone(),
+        previous_tag,
+        target_tag: requested_tag.to_owned(),
+        recovery_only: false,
+    };
+    let pending = super::self_update_helper::SelfUpdateLastStatus::pending_before_handoff(
+        attempt.target_tag.clone(),
+        attempt.previous_tag.clone(),
+    );
+    super::self_update_helper::write_status(
+        &state.config.state_dir.join("self-update-last.json"),
+        &pending,
+    )
+    .context("persist trusted handoff intent")?;
+    let helper_id = launch_trusted_handoff(
+        state,
+        &attempt.previous_image,
+        &attempt.target_image,
+        &attempt.previous_tag,
+        &attempt.target_tag,
+        false,
+    )
+    .await?;
+    Ok((helper_id, attempt))
+}
+
+fn validate_self_update_tag(tag: &str) -> std::result::Result<(), String> {
+    let parsed = DeployTag::parse(tag).map_err(|error| error.to_string())?;
+    if matches!(parsed.kind(), DeployTagKind::Branch) {
+        return Err("mutable branch tags are forbidden for TCB self-update".into());
+    }
+    Ok(())
+}
+
+fn prevent_release_downgrade(previous: &str, target: &str) -> Result<()> {
+    if let (Ok(previous), Ok(target)) =
+        (MyriadVersion::parse(previous), MyriadVersion::parse(target))
+    {
+        if target.older_than(&previous) {
+            return Err(anyhow!("TCB release downgrade is forbidden"));
+        }
+    }
+    Ok(())
+}
+
+async fn running_updater_tag(socket: &Path) -> Result<String> {
+    let inspect = daemon_json(socket, "/containers/myriad-updater/json").await?;
+    inspect
+        .pointer("/Config/Env")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .find_map(|entry| entry.strip_prefix("MYRIAD_VERSION="))
+        .map(str::to_owned)
+        .ok_or_else(|| anyhow!("running updater has no immutable MYRIAD_VERSION identity"))
+        .and_then(|tag| {
+            validate_self_update_tag(&tag).map_err(anyhow::Error::msg)?;
+            Ok(tag)
+        })
+}
+
+async fn verify_managed_tcb_container(
+    socket: &Path,
+    container: &str,
+    service: &str,
+    project: &str,
+    expected_image: &str,
+) -> Result<()> {
+    let inspect = daemon_json(socket, &format!("/containers/{container}/json")).await?;
+    if inspect
+        .pointer("/Config/Labels/com.docker.compose.project")
+        .and_then(Value::as_str)
+        != Some(project)
+        || inspect
+            .pointer("/Config/Labels/com.docker.compose.service")
+            .and_then(Value::as_str)
+            != Some(service)
+    {
+        return Err(anyhow!("{container} is outside the fixed Compose identity"));
+    }
+    if inspect.pointer("/State/Running").and_then(Value::as_bool) != Some(true)
+        || inspect
+            .pointer("/State/Health/Status")
+            .and_then(Value::as_str)
+            != Some("healthy")
+    {
+        return Err(anyhow!("{container} is not running and healthy"));
+    }
+    let image_id = inspect
+        .get("Image")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("{container} has no immutable image id"))?;
+    let image = daemon_json(socket, &format!("/images/{image_id}/json")).await?;
+    let matches = image
+        .get("RepoDigests")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .any(|actual| digest_reference_matches(actual, expected_image));
+    if !matches {
+        return Err(anyhow!(
+            "{container} does not match the currently host-pinned Guard digest"
+        ));
+    }
+    Ok(())
+}
+
+async fn pull_trusted_tag_and_resolve(
+    socket: &Path,
+    target_tag: &str,
+) -> Result<(String, chrono::DateTime<chrono::FixedOffset>)> {
+    let docker_host = format!("unix://{}", socket.display());
+    let tagged_image = format!("{TRUSTED_UPDATER_REPOSITORY}:{target_tag}");
+    let mut pull = Command::new("docker");
+    pull.env("DOCKER_HOST", &docker_host)
+        .args(["image", "pull", "--quiet", &tagged_image]);
+    pull.kill_on_drop(true);
+    let output = tokio::time::timeout(TRUSTED_PULL_TIMEOUT, pull.output())
+        .await
+        .context("trusted updater pull timed out")?
+        .context("spawn fixed trusted-repository pull")?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "pull trusted updater digest failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    let mut inspect = Command::new("docker");
+    inspect.env("DOCKER_HOST", &docker_host).args([
+        "image",
+        "inspect",
+        "--format",
+        "{{.Id}}",
+        &tagged_image,
+    ]);
+    inspect.kill_on_drop(true);
+    let output = tokio::time::timeout(DOCKER_API_TIMEOUT, inspect.output())
+        .await
+        .context("inspect pulled updater digest timed out")?
+        .context("inspect pulled updater digest")?;
+    if !output.status.success() {
+        return Err(anyhow!("inspect trusted updater digest failed"));
+    }
+    let image_id = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    if !image_id.starts_with("sha256:") {
+        return Err(anyhow!("pulled updater has no immutable image id"));
+    }
+    let image = daemon_json(socket, &format!("/images/{image_id}/json")).await?;
+    let exact_image = image
+        .get("RepoDigests")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .find(|actual| {
+            normalize_repository(actual).trim_start_matches("docker.io/")
+                == TRUSTED_UPDATER_REPOSITORY.trim_start_matches("docker.io/")
+        })
+        .map(str::to_owned)
+        .ok_or_else(|| anyhow!("pulled image has no trusted updater repository digest"))?;
+    validate_guard_image_ref(&exact_image, false)?;
+    let created = image
+        .get("Created")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("pulled updater image has no creation timestamp"))?;
+    let created = chrono::DateTime::parse_from_rfc3339(created)
+        .context("pulled updater image has invalid creation timestamp")?;
+    Ok((exact_image, created))
+}
+
+async fn managed_container_image_created_at(
+    socket: &Path,
+    container: &str,
+) -> Result<chrono::DateTime<chrono::FixedOffset>> {
+    let inspect = daemon_json(socket, &format!("/containers/{container}/json")).await?;
+    let image_id = inspect
+        .get("Image")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("{container} has no immutable image id"))?;
+    let image = daemon_json(socket, &format!("/images/{image_id}/json")).await?;
+    let created = image
+        .get("Created")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("{container} image has no creation timestamp"))?;
+    chrono::DateTime::parse_from_rfc3339(created)
+        .with_context(|| format!("{container} image has invalid creation timestamp"))
+}
+
+async fn launch_trusted_handoff(
+    state: &GuardState,
+    previous_image: &str,
+    target_image: &str,
+    previous_tag: &str,
+    target_tag: &str,
+    recovery_only: bool,
+) -> Result<String> {
+    let helper_name = if recovery_only {
+        SELF_UPDATE_RECOVERY_NAME
+    } else {
+        SELF_UPDATE_HELPER_NAME
+    };
+    let socket = state.config.socket_path.to_string_lossy().into_owned();
+    let docker_host = format!("unix://{socket}");
+    let host_root = state.host_compose_root.to_string_lossy().into_owned();
+    // `host_compose_root` is a Docker-daemon host source and generally does
+    // not exist at the same path inside Guard (especially on Docker Desktop).
+    // Validate through the dedicated container-visible read-only/read-write
+    // mounts, then pass the host source only to Docker's --mount API.
+    let env_path = state.config.compose_dir.join(".env");
+    let state_path = &state.config.state_dir;
+    if !env_path.is_file() || !state_path.is_dir() {
+        return Err(anyhow!("fixed updater .env/state paths are unavailable"));
+    }
+    let (policy_parent, policy_name) = split_host_policy_path(&state.config.host_policy_path)?;
+    let policy_container_path = format!("/host/policy/{policy_name}");
+
+    let mut command = Command::new("docker");
+    command.env("DOCKER_HOST", &docker_host);
+    if recovery_only {
+        command.arg("create");
+    } else {
+        command.args(["run", "--detach"]);
+    }
+    command.args([
+        "--pull",
+        "never",
+        "--name",
+        helper_name,
+        "--network",
+        "none",
+        "--read-only",
+        "--security-opt",
+        "no-new-privileges:true",
+        "--tmpfs",
+        "/tmp",
+        "--tmpfs",
+        "/run",
+        "--entrypoint",
+        "/usr/local/bin/myriad-tcb-self-update",
+        "--mount",
+        &format!("type=bind,source={socket},target=/var/run/docker.sock"),
+        // Compose definitions stay read-only. Atomic EnvFile writes use a
+        // second, short-lived mount of the same host root; only this verified,
+        // fixed-entrypoint helper receives the writable view.
+        "--mount",
+        &format!("type=bind,source={host_root},target=/host/compose,readonly"),
+        "--mount",
+        &format!("type=bind,source={host_root},target=/host/write"),
+        "--mount",
+        &format!("type=bind,source={policy_parent},target=/host/policy"),
+    ]);
+    for (name, value) in [
+        (
+            super::self_update_helper::ENV_PREVIOUS_IMAGE,
+            previous_image,
+        ),
+        (super::self_update_helper::ENV_TARGET_IMAGE, target_image),
+        (super::self_update_helper::ENV_PREVIOUS_TAG, previous_tag),
+        (super::self_update_helper::ENV_TARGET_TAG, target_tag),
+        (
+            super::self_update_helper::ENV_PROJECT,
+            &state.config.project,
+        ),
+        (
+            super::self_update_helper::ENV_PROJECT_DIRECTORY,
+            "/host/compose",
+        ),
+        (super::self_update_helper::ENV_HOST_COMPOSE_ROOT, &host_root),
+        (super::self_update_helper::ENV_COMPOSE_DIR, "/host/compose"),
+        (
+            super::self_update_helper::ENV_APP_ENV_FILE,
+            "/host/write/.env",
+        ),
+        (
+            super::self_update_helper::ENV_GUARD_ENV_FILE,
+            &policy_container_path,
+        ),
+        (
+            super::self_update_helper::ENV_STATUS_FILE,
+            "/host/write/state/self-update-last.json",
+        ),
+        (
+            super::self_update_helper::ENV_POLICY_HOST_PATH,
+            &state.config.host_policy_path,
+        ),
+        (
+            super::self_update_helper::ENV_COMPOSE_NETWORK,
+            &state.config.compose_network,
+        ),
+        (
+            super::self_update_helper::ENV_ADMIN_NETWORK,
+            &state.config.admin_network,
+        ),
+        (
+            super::self_update_helper::ENV_GUARD_NETWORK,
+            &state.config.guard_network,
+        ),
+    ] {
+        command.arg("-e").arg(format!("{name}={value}"));
+    }
+    if recovery_only {
+        command.arg("-e").arg(format!(
+            "{}=1",
+            super::self_update_helper::ENV_RECOVERY_ONLY
+        ));
+    }
+    command.arg(target_image);
+    command.kill_on_drop(true);
+    let output = match tokio::time::timeout(HELPER_LAUNCH_TIMEOUT, command.output()).await {
+        Ok(output) => output.context("launch trusted TCB handoff")?,
+        Err(_) => {
+            let _ = cleanup_helper(&docker_host, helper_name).await;
+            return Err(anyhow::Error::new(HandoffCleanupUnconfirmed));
+        }
+    };
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr);
+        if detail.contains("already in use") || detail.contains("Conflict") {
+            return Err(anyhow::Error::new(HandoffCleanupUnconfirmed));
+        }
+        return Err(anyhow!("launch trusted TCB handoff failed: {}", detail));
+    }
+    let helper_id = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    validate_identifier(&helper_id).map_err(anyhow::Error::msg)?;
+    info!(%helper_id, %target_image, "trusted TCB handoff scheduled");
+    Ok(helper_id)
+}
+
+fn split_host_policy_path(path: &str) -> Result<(String, String)> {
+    let split = path
+        .rfind(['/', '\\'])
+        .ok_or_else(|| anyhow!("Guard policy path has no parent directory"))?;
+    let parent = &path[..split];
+    let name = &path[split + 1..];
+    if parent.is_empty()
+        || name.is_empty()
+        || !name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+    {
+        return Err(anyhow!("Guard policy path is not a safe fixed file path"));
+    }
+    Ok((parent.to_owned(), name.to_owned()))
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -374,6 +1915,7 @@ fn classify_request(
     match segments.as_slice() {
         ["containers", "json"] if *method == Method::GET => Ok(Decision::Allow),
         ["containers", "create"] if *method == Method::POST => {
+            validate_container_create_name(uri)?;
             validate_container_create(state, body)?;
             Ok(Decision::Allow)
         }
@@ -396,7 +1938,7 @@ fn classify_request(
             Ok(Decision::ProjectContainer((*id).to_string()))
         }
         ["images", "create"] if *method == Method::POST => {
-            validate_image_pull(state, uri)?;
+            validate_image_pull(state, uri, body)?;
             Ok(Decision::Allow)
         }
         ["images", ..] if *method == Method::GET => Ok(Decision::Allow),
@@ -425,6 +1967,26 @@ fn classify_request(
             "Docker API operation is not allowed: {method} {path}"
         )),
     }
+}
+
+fn validate_container_create_name(uri: &Uri) -> std::result::Result<(), String> {
+    let Some(name) = query_param(uri, "name") else {
+        return Ok(());
+    };
+    let name = name.trim_start_matches('/');
+    validate_identifier(name)?;
+    if matches!(
+        name,
+        SELF_UPDATE_HELPER_NAME
+            | SELF_UPDATE_RECOVERY_NAME
+            | SELF_UPDATE_EXHAUSTED_NAME
+            | "myriad-docker-guard"
+            | "myriad-updater"
+            | "myriad-updater-gateway"
+    ) {
+        return Err("container name is reserved for the trusted updater control plane".into());
+    }
+    Ok(())
 }
 
 fn validate_container_rename(state: &GuardState, uri: &Uri) -> std::result::Result<(), String> {
@@ -472,23 +2034,17 @@ fn validate_container_create(state: &GuardState, body: &Bytes) -> std::result::R
         .get("com.docker.compose.service")
         .and_then(Value::as_str)
         .ok_or_else(|| "container is missing Compose service label".to_string())?;
-    if !matches!(
-        service,
-        "backend" | "backend-volume-init" | "frontend" | "postgres" | "proxy" | "updater"
-    ) {
-        return Err("Compose service is not managed by updater".into());
-    }
+    let expected_repository =
+        state.config.service_images.get(service).ok_or_else(|| {
+            "Compose service is not managed by the generic updater API".to_string()
+        })?;
 
     let image = value
         .get("Image")
         .and_then(Value::as_str)
         .ok_or_else(|| "container image is missing".to_string())?;
-    if !state
-        .config
-        .allowed_images
-        .contains(&normalize_repository(image))
-    {
-        return Err("container image repository is not allowlisted".into());
+    if normalize_repository(image) != *expected_repository {
+        return Err("container image does not match the fixed service repository".into());
     }
     if nonempty(value.get("Entrypoint")) || nonempty(value.get("Cmd")) {
         return Err("command or entrypoint overrides are not allowed".into());
@@ -1002,18 +2558,56 @@ fn validate_visible_host_path(
     Ok(())
 }
 
-fn validate_image_pull(state: &GuardState, uri: &Uri) -> std::result::Result<(), String> {
+fn validate_image_pull(
+    state: &GuardState,
+    uri: &Uri,
+    body: &Bytes,
+) -> std::result::Result<(), String> {
+    if !body.is_empty() {
+        return Err("image pull request body must be empty".into());
+    }
+    let mut has_tag = false;
+    for (name, value) in url::form_urlencoded::parse(uri.query().unwrap_or_default().as_bytes()) {
+        match name.as_ref() {
+            "fromImage" => {}
+            "tag" => {
+                has_tag = true;
+                validate_pull_tag(&value)?;
+            }
+            // Compose/Bollard may select an architecture, but import/build
+            // selectors such as fromSrc/repo are never part of a registry pull.
+            "platform" if !value.trim().is_empty() => {}
+            _ => return Err(format!("image pull query parameter {name} is forbidden")),
+        }
+    }
+    if !has_tag {
+        return Err("images/create requires an explicit tag".into());
+    }
     let image = query_param(uri, "fromImage")
         .ok_or_else(|| "images/create requires fromImage".to_string())?;
-    if state
-        .config
-        .allowed_images
-        .contains(&normalize_repository(&image))
-    {
+    let repository = normalize_repository(&image);
+    if repository == TRUSTED_UPDATER_REPOSITORY {
+        return Err("TCB image pulls require the dedicated self-update endpoint".into());
+    }
+    if state.config.allowed_images.contains(&repository) {
         Ok(())
     } else {
         Err("image pull repository is not allowlisted".into())
     }
+}
+
+fn validate_pull_tag(tag: &str) -> std::result::Result<(), String> {
+    let tag = tag.trim();
+    if tag.is_empty()
+        || tag.len() > 128
+        || tag.eq_ignore_ascii_case("latest")
+        || !tag
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+    {
+        return Err("image pull tag has unsafe syntax".into());
+    }
+    Ok(())
 }
 
 fn validate_image_tag(
@@ -1023,19 +2617,22 @@ fn validate_image_tag(
 ) -> std::result::Result<(), String> {
     let source = decode_path_segment(encoded_source);
     let repo = query_param(uri, "repo").ok_or_else(|| "image tag requires repo".to_string())?;
-    if !state
-        .config
-        .allowed_images
-        .contains(&normalize_repository(&source))
-    {
+    let source_repository = normalize_repository(&source);
+    if source_repository == TRUSTED_UPDATER_REPOSITORY {
+        return Err("TCB image tagging is forbidden on the generic updater API".into());
+    }
+    if !state.config.allowed_images.contains(&source_repository) {
         return Err("image tag source repository is not allowlisted".into());
     }
-    if !state
-        .config
-        .allowed_images
-        .contains(&normalize_repository(&repo))
-    {
+    let target_repository = normalize_repository(&repo);
+    if target_repository == TRUSTED_UPDATER_REPOSITORY {
+        return Err("TCB image tagging is forbidden on the generic updater API".into());
+    }
+    if !state.config.allowed_images.contains(&target_repository) {
         return Err("image tag target repository is not allowlisted".into());
+    }
+    if source_repository != target_repository {
+        return Err("cross-repository image tagging is forbidden".into());
     }
     Ok(())
 }
@@ -1132,17 +2729,21 @@ async fn discover_host_compose_root(socket: &Path, container_id: &str) -> Result
 }
 
 async fn daemon_json(socket: &Path, path: &str) -> Result<Value> {
-    let req = Request::builder()
-        .method(Method::GET)
-        .uri(path)
-        .header(header::HOST, "localhost")
-        .body(Body::empty())?;
-    let resp = forward(socket, req).await?;
-    if !resp.status().is_success() {
-        return Err(anyhow!("docker inspect returned {}", resp.status()));
-    }
-    let body = to_bytes(resp.into_body(), MAX_INSPECT_BODY).await?;
-    Ok(serde_json::from_slice(&body)?)
+    tokio::time::timeout(DOCKER_API_TIMEOUT, async {
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri(path)
+            .header(header::HOST, "localhost")
+            .body(Body::empty())?;
+        let resp = forward(socket, req).await?;
+        if !resp.status().is_success() {
+            return Err(anyhow!("docker inspect returned {}", resp.status()));
+        }
+        let body = to_bytes(resp.into_body(), MAX_INSPECT_BODY).await?;
+        Ok(serde_json::from_slice(&body)?)
+    })
+    .await
+    .context("Docker API inspection timed out")?
 }
 
 async fn forward(socket: &Path, mut req: Request<Body>) -> Result<Response> {
@@ -1288,6 +2889,7 @@ mod tests {
                 admin_network: "myriad-admin-net".into(),
                 guard_network: "myriad-docker-guard-net".into(),
                 compose_dir: visible_root,
+                state_dir: "/host/state".into(),
                 expected_guard_image: format!(
                     "{TRUSTED_GUARD_REPOSITORY}@sha256:{}",
                     "a".repeat(64)
@@ -1297,33 +2899,74 @@ mod tests {
                 allowed_images: [
                     "docker.io/example/backend".into(),
                     "docker.io/example/frontend".into(),
-                    "docker.io/example/updater".into(),
+                    "docker.io/example/proxy".into(),
                     "postgres".into(),
+                ]
+                .into_iter()
+                .collect(),
+                service_images: [
+                    ("backend".into(), "docker.io/example/backend".into()),
+                    (
+                        "backend-volume-init".into(),
+                        "docker.io/example/backend".into(),
+                    ),
+                    ("frontend".into(), "docker.io/example/frontend".into()),
+                    ("proxy".into(), "docker.io/example/proxy".into()),
+                    ("postgres".into(), "postgres".into()),
                 ]
                 .into_iter()
                 .collect(),
             }),
             host_compose_root: Arc::new(PathBuf::from("/srv/myriad")),
+            mutation_gate: Arc::new(AtomicUsize::new(0)),
         }
     }
 
-    #[tokio::test]
-    async fn compromised_updater_cannot_schedule_privileged_self_update() {
-        let request = Request::builder()
-            .method(Method::POST)
-            .uri("/_myriad/self-update")
-            .header("X-Update-Token", "attacker-knows-the-former-shared-token")
-            .body(Body::from(
-                r#"{"previous_tag":"v0.3.28","target_tag":"v9.9.9"}"#,
-            ))
-            .unwrap();
-        let response = handle(
-            State(state()),
-            ConnectInfo("172.30.0.9:50000".parse().unwrap()),
-            request,
-        )
-        .await;
-        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    #[test]
+    fn compromised_updater_cannot_inject_mutable_or_foreign_image_identity() {
+        for tag in ["latest", "preview", "../v9.9.9", "v1.2.3;id"] {
+            assert!(validate_self_update_tag(tag).is_err(), "accepted {tag}");
+        }
+        assert!(validate_self_update_tag("v1.2.3").is_ok());
+        assert!(validate_self_update_tag("dev-0123456").is_ok());
+    }
+
+    #[test]
+    fn self_update_request_rejects_repo_digest_and_command_injection_fields() {
+        let injected = br#"{
+            "target_tag":"v1.2.3",
+            "trust_path":"dockerhub_tag",
+            "repo":"docker.io/attacker/root",
+            "digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "command":["sh","-c","id"]
+        }"#;
+        assert!(serde_json::from_slice::<SelfUpdateRequestBody>(injected).is_err());
+    }
+
+    #[test]
+    fn mutation_gate_is_exclusive_and_clone_safe() {
+        let gate = Arc::new(AtomicUsize::new(0));
+        let lease = GenericMutationLease::acquire(gate.clone()).unwrap();
+        let response_lease = lease.clone();
+        drop(lease);
+        assert_eq!(gate.load(Ordering::SeqCst), 1);
+        assert!(gate
+            .compare_exchange(0, SELF_UPDATE_GATE, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err());
+        drop(response_lease);
+        assert_eq!(gate.load(Ordering::SeqCst), 0);
+        gate.store(SELF_UPDATE_GATE, Ordering::SeqCst);
+        assert!(GenericMutationLease::acquire(gate).is_err());
+    }
+
+    #[test]
+    fn self_update_rejects_nonempty_or_unsafe_job_state() {
+        let state_root = tempfile::tempdir().unwrap();
+        let mut state = state();
+        Arc::make_mut(&mut state.config).state_dir = state_root.path().to_path_buf();
+        assert!(ensure_no_business_update(&state).is_ok());
+        std::fs::write(state_root.path().join("job.current"), "job-123").unwrap();
+        assert!(ensure_no_business_update(&state).is_err());
     }
 
     #[test]
@@ -1344,6 +2987,26 @@ mod tests {
         )
         .is_err());
         assert!(validate_guard_image_ref("myriad-updater-dev:v0.0.0-dev", true).is_ok());
+    }
+
+    #[test]
+    fn host_policy_path_split_supports_linux_and_windows() {
+        assert_eq!(
+            split_host_policy_path("/etc/myriad/docker-guard.env").unwrap(),
+            ("/etc/myriad".into(), "docker-guard.env".into())
+        );
+        assert_eq!(
+            split_host_policy_path(r"C:\ProgramData\Myriad\docker-guard.env").unwrap(),
+            (r"C:\ProgramData\Myriad".into(), "docker-guard.env".into())
+        );
+        assert!(split_host_policy_path("docker-guard.env").is_err());
+    }
+
+    #[test]
+    fn release_self_update_rejects_semver_downgrade() {
+        assert!(prevent_release_downgrade("v1.2.3", "v1.2.2").is_err());
+        assert!(prevent_release_downgrade("v1.2.3", "v1.2.3").is_ok());
+        assert!(prevent_release_downgrade("v1.2.3", "v1.3.0").is_ok());
     }
 
     fn create(service: &str, image: &str, host: Value) -> Bytes {
@@ -1568,51 +3231,170 @@ mod tests {
     }
 
     #[test]
-    fn updater_accepts_only_read_only_root_and_fixed_writable_overlays() {
-        let visible = tempfile::tempdir().unwrap();
-        std::fs::write(visible.path().join(".env"), "MYRIAD_TAG=v1\n").unwrap();
-        std::fs::create_dir(visible.path().join("state")).unwrap();
-        std::fs::create_dir(visible.path().join("pgdata")).unwrap();
-        let state = state_with_visible_root(visible.path().to_path_buf());
-        let good = create(
-            "updater",
-            "docker.io/example/updater:v1",
-            json!({"Binds": [
-                "/srv/myriad:/host/compose:ro",
-                "/srv/myriad/.env:/host/compose/.env:rw",
-                "/srv/myriad/state:/host/compose/state:rw",
-                "/srv/myriad/pgdata:/host/compose/pgdata:rw",
-                "/etc/myriad/docker-guard.env:/run/secrets/docker-guard.env:ro"
-            ]}),
-        );
-        assert!(validate_container_create(&state, &good).is_ok());
+    fn generic_api_cannot_recreate_tcb_services() {
+        for service in ["updater", "updater-gateway", "docker-guard"] {
+            let body = create(service, "docker.io/example/updater:v1", json!({}));
+            assert!(validate_container_create(&state(), &body)
+                .unwrap_err()
+                .contains("generic updater API"));
+        }
+    }
 
-        let writable_root = create(
-            "updater",
-            "docker.io/example/updater:v1",
-            json!({"Binds": ["/srv/myriad:/host/compose:rw"]}),
-        );
-        assert!(validate_container_create(&state, &writable_root)
-            .unwrap_err()
-            .contains("read-only"));
+    #[test]
+    fn generic_create_cannot_reserve_control_plane_container_names() {
+        let body = create("backend", "docker.io/example/backend:v1", json!({}));
+        for name in [
+            "myriad-tcb-self-update",
+            "myriad-tcb-self-update-recovery",
+            "myriad-tcb-self-update-recovery-exhausted",
+            "myriad-docker-guard",
+            "myriad-updater",
+            "myriad-updater-gateway",
+        ] {
+            let uri: Uri = format!("/v1.51/containers/create?name={name}")
+                .parse()
+                .unwrap();
+            assert!(classify_request(&state(), &Method::POST, &uri, &body).is_err());
+        }
+    }
 
-        let writable_policy = create(
-            "updater",
-            "docker.io/example/updater:v1",
-            json!({"Binds": [
-                "/etc/myriad/docker-guard.env:/run/secrets/docker-guard.env:rw"
-            ]}),
+    #[test]
+    fn persisted_helper_identity_recovers_only_guard_created_handoff_intent() {
+        let previous = format!(
+            "docker.io/somekawahitomi/myriad-updater@sha256:{}",
+            "a".repeat(64)
         );
-        assert!(validate_container_create(&state, &writable_policy)
-            .unwrap_err()
-            .contains("read-only"));
+        let target = format!(
+            "docker.io/somekawahitomi/myriad-updater@sha256:{}",
+            "b".repeat(64)
+        );
+        let inspect = json!({
+            "Path": "/usr/local/bin/myriad-tcb-self-update",
+            "HostConfig": {"NetworkMode": "none", "ReadonlyRootfs": true},
+            "Config": {
+                "Image": target.clone(),
+                "Env": [
+                    format!("{}={previous}", super::super::self_update_helper::ENV_PREVIOUS_IMAGE),
+                    format!("{}={target}", super::super::self_update_helper::ENV_TARGET_IMAGE),
+                    format!("{}=v1.2.2", super::super::self_update_helper::ENV_PREVIOUS_TAG),
+                    format!("{}=v1.2.3", super::super::self_update_helper::ENV_TARGET_TAG),
+                ]
+            }
+        });
+        let attempt = handoff_attempt_from_inspect(&inspect).unwrap();
+        assert_eq!(attempt.previous_tag, "v1.2.2");
+        assert_eq!(attempt.target_tag, "v1.2.3");
+        assert!(!attempt.recovery_only);
 
-        let socket = create(
-            "updater",
-            "docker.io/example/updater:v1",
-            json!({"Binds": ["/var/run/docker.sock:/var/run/docker.sock"]}),
+        let mut recovery = inspect.clone();
+        recovery["Config"]["Env"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!(format!(
+                "{}=1",
+                super::super::self_update_helper::ENV_RECOVERY_ONLY
+            )));
+        assert!(
+            handoff_attempt_from_inspect(&recovery)
+                .unwrap()
+                .recovery_only
         );
-        assert!(validate_container_create(&state, &socket).is_err());
+
+        let mut forged = inspect;
+        forged["Config"]["Image"] = json!(previous);
+        assert!(handoff_attempt_from_inspect(&forged).is_err());
+    }
+
+    #[tokio::test]
+    async fn orphaned_pending_handoff_becomes_a_fresh_failure() {
+        let root = tempfile::tempdir().unwrap();
+        let mut state = state();
+        Arc::make_mut(&mut state.config).state_dir = root.path().to_path_buf();
+        let path = root.path().join("self-update-last.json");
+        let pending =
+            super::super::self_update_helper::SelfUpdateLastStatus::pending_before_handoff(
+                "v1.2.3".into(),
+                "v1.2.2".into(),
+            );
+        super::super::self_update_helper::write_status(&path, &pending).unwrap();
+
+        assert!(!finalize_or_fail_orphaned_pending_handoff(&state).await);
+
+        let status: super::super::self_update_helper::SelfUpdateLastStatus =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        assert!(matches!(
+            status.status,
+            super::super::self_update_helper::SelfUpdateOutcome::Failed
+        ));
+        assert!(status
+            .error
+            .unwrap()
+            .contains("target TCB was not fully active"));
+        assert_eq!(state.mutation_gate.load(Ordering::SeqCst), SELF_UPDATE_GATE);
+    }
+
+    #[test]
+    fn recovery_retry_budget_survives_guard_restart() {
+        let root = tempfile::tempdir().unwrap();
+        let mut state = state();
+        Arc::make_mut(&mut state.config).state_dir = root.path().to_path_buf();
+        let attempt = HandoffAttempt {
+            previous_image: format!(
+                "docker.io/somekawahitomi/myriad-updater@sha256:{}",
+                "a".repeat(64)
+            ),
+            target_image: format!(
+                "docker.io/somekawahitomi/myriad-updater@sha256:{}",
+                "b".repeat(64)
+            ),
+            previous_tag: "v1.2.2".into(),
+            target_tag: "v1.2.3".into(),
+            recovery_only: true,
+        };
+
+        assert!(persist_recovery_attempt(&state, &attempt, 1));
+        assert_eq!(recovery_attempt_from_status(&state, &attempt), 1);
+
+        let status: super::super::self_update_helper::SelfUpdateLastStatus =
+            serde_json::from_slice(
+                &std::fs::read(root.path().join("self-update-last.json")).unwrap(),
+            )
+            .unwrap();
+        assert!(matches!(
+            status.status,
+            super::super::self_update_helper::SelfUpdateOutcome::Pending
+        ));
+        assert_eq!(status.recovery_attempt, 1);
+    }
+
+    #[test]
+    fn third_recovery_failure_is_exhausted_even_before_final_status_write() {
+        assert!(recovery_is_durably_exhausted(Some(1), 2, false));
+        assert!(recovery_is_durably_exhausted(Some(1), 0, true));
+        assert!(!recovery_is_durably_exhausted(Some(1), 1, false));
+        assert!(!recovery_is_durably_exhausted(Some(0), 2, true));
+        assert!(!recovery_is_durably_exhausted(None, 2, true));
+    }
+
+    #[test]
+    fn staged_recovery_is_not_mistaken_for_successful_exit() {
+        let created = json!({
+            "State": {"Status": "created", "Running": false, "ExitCode": 0}
+        });
+        let running = json!({
+            "State": {"Status": "running", "Running": true, "ExitCode": 0}
+        });
+        let succeeded = json!({
+            "State": {"Status": "exited", "Running": false, "ExitCode": 0}
+        });
+        let failed = json!({
+            "State": {"Status": "exited", "Running": false, "ExitCode": 1}
+        });
+
+        assert_eq!(helper_exit_code_from_inspect(&created).unwrap(), None);
+        assert_eq!(helper_exit_code_from_inspect(&running).unwrap(), None);
+        assert_eq!(helper_exit_code_from_inspect(&succeeded).unwrap(), Some(0));
+        assert_eq!(helper_exit_code_from_inspect(&failed).unwrap(), Some(1));
     }
 
     #[test]
@@ -1649,38 +3431,34 @@ mod tests {
     }
 
     #[test]
-    fn updater_state_symlink_cannot_be_mounted_separately() {
-        let visible = tempfile::tempdir().unwrap();
-        std::os::unix::fs::symlink("/", visible.path().join("state")).unwrap();
-        let state = state_with_visible_root(visible.path().to_path_buf());
-        let body = create(
-            "updater",
-            "docker.io/example/updater:v1",
-            json!({"Binds": ["/srv/myriad/state:/state:rw"]}),
-        );
-        assert!(validate_container_create(&state, &body).is_err());
+    fn service_repository_mapping_rejects_cross_service_images() {
+        let body = create("frontend", "docker.io/example/backend:v1", json!({}));
+        assert!(validate_container_create(&state(), &body)
+            .unwrap_err()
+            .contains("fixed service repository"));
     }
 
     #[test]
     fn bind_mount_propagation_is_denied() {
         let visible = tempfile::tempdir().unwrap();
+        std::fs::create_dir(visible.path().join("pgdata")).unwrap();
         let state = state_with_visible_root(visible.path().to_path_buf());
         let string_bind = create(
-            "updater",
-            "docker.io/example/updater:v1",
-            json!({"Binds": ["/srv/myriad:/host/compose:rw,rshared"]}),
+            "postgres",
+            "postgres:18-alpine",
+            json!({"Binds": ["/srv/myriad/pgdata:/var/lib/postgresql:rw,rshared"]}),
         );
         assert!(validate_container_create(&state, &string_bind)
             .unwrap_err()
             .contains("propagation"));
 
         let structured_mount = create(
-            "updater",
-            "docker.io/example/updater:v1",
+            "postgres",
+            "postgres:18-alpine",
             json!({"Mounts": [{
                 "Type": "bind",
-                "Source": "/srv/myriad",
-                "Target": "/host/compose",
+                "Source": "/srv/myriad/pgdata",
+                "Target": "/var/lib/postgresql",
                 "BindOptions": {"Propagation": "rshared"}
             }]}),
         );
@@ -1732,9 +3510,17 @@ mod tests {
     fn image_pull_is_repository_allowlisted() {
         let allowed =
             Uri::from_static("/v1.51/images/create?fromImage=docker.io%2Fexample%2Fbackend&tag=v1");
-        assert!(validate_image_pull(&state(), &allowed).is_ok());
+        assert!(validate_image_pull(&state(), &allowed, &Bytes::new()).is_ok());
         let denied = Uri::from_static("/v1.51/images/create?fromImage=evil%2Fpayload&tag=latest");
-        assert!(validate_image_pull(&state(), &denied).is_err());
+        assert!(validate_image_pull(&state(), &denied, &Bytes::new()).is_err());
+
+        let imported = Uri::from_static(
+            "/v1.51/images/create?fromImage=docker.io%2Fexample%2Fbackend&tag=v1&fromSrc=https%3A%2F%2Fevil.invalid%2Fimage.tar",
+        );
+        assert!(validate_image_pull(&state(), &imported, &Bytes::new()).is_err());
+        assert!(
+            validate_image_pull(&state(), &allowed, &Bytes::from_static(b"tar payload")).is_err()
+        );
     }
 
     #[test]
@@ -1744,6 +3530,11 @@ mod tests {
 
         let denied_source = Uri::from_static("/v1.51/images/evil%2Fpayload:v1/tag?repo=docker.io%2Fexample%2Fbackend&tag=myriad-rollback");
         assert!(classify_request(&state(), &Method::POST, &denied_source, &Bytes::new()).is_err());
+
+        let cross_repository = Uri::from_static("/v1.51/images/docker.io%2Fexample%2Fbackend:v1/tag?repo=docker.io%2Fexample%2Ffrontend&tag=v1");
+        assert!(
+            classify_request(&state(), &Method::POST, &cross_repository, &Bytes::new()).is_err()
+        );
 
         let unescaped_slashes = Uri::from_static("/v1.51/images/docker.io/example/backend:v1/tag?repo=docker.io%2Fexample%2Fbackend&tag=myriad-rollback");
         assert!(
@@ -1783,7 +3574,7 @@ mod tests {
     }
 
     #[test]
-    fn only_updater_may_create_with_guard_network_endpoint() {
+    fn generic_api_cannot_create_any_guard_network_client() {
         let s = state();
         let backend = create_with_networking(
             "backend",
@@ -1815,10 +3606,7 @@ mod tests {
                 "myriad-docker-guard-net": {},
             }),
         );
-        assert!(
-            validate_container_create(&s, &updater).is_ok(),
-            "updater dual-homing (admin + guard) at create must remain allowed"
-        );
+        assert!(validate_container_create(&s, &updater).is_err());
     }
 
     #[test]
@@ -1874,7 +3662,7 @@ mod tests {
     }
 
     #[test]
-    fn only_updater_may_use_guard_network_mode() {
+    fn generic_api_rejects_guard_network_mode_for_every_service() {
         let s = state();
         let backend = create(
             "backend",
@@ -1890,7 +3678,7 @@ mod tests {
             "docker.io/example/updater:v1",
             json!({"NetworkMode": "myriad-docker-guard-net"}),
         );
-        assert!(validate_container_create(&s, &updater).is_ok());
+        assert!(validate_container_create(&s, &updater).is_err());
     }
 
     #[test]

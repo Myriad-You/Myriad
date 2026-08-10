@@ -29,8 +29,7 @@ use std::sync::Arc;
 use tracing::{info, warn};
 
 use crate::docker::network_allowlist::{
-    find_disallowed_attachments, networks_for_services, NetworkAllowlist,
-    UPDATE_RECREATE_SERVICES,
+    find_disallowed_attachments, networks_for_services, NetworkAllowlist, UPDATE_RECREATE_SERVICES,
 };
 use crate::env_file::EnvFile;
 use crate::error::{Result, UpdaterError};
@@ -876,18 +875,12 @@ async fn check_compose_networks(worker: &Arc<Worker>) -> Result<()> {
         })?;
 
     let config = compose.config_json().await.map_err(|e| {
-        UpdaterError::Precondition(format!(
-            "compose config for network preflight failed: {e}"
-        ))
+        UpdaterError::Precondition(format!("compose config for network preflight failed: {e}"))
     })?;
 
     // Topology / volume / project-label contract — inspect only; does not alter compose.
-    crate::worker::preflight_env::check_compose_contract(
-        worker,
-        &config,
-        compose.project(),
-    )
-    .await?;
+    crate::worker::preflight_env::check_compose_contract(worker, &config, compose.project())
+        .await?;
 
     let mut services: Vec<&str> = UPDATE_RECREATE_SERVICES.to_vec();
     if worker.cli().db_mode.is_external() {
@@ -968,13 +961,9 @@ async fn check_compose_networks(worker: &Arc<Worker>) -> Result<()> {
     Ok(())
 }
 
-async fn check_running_container_networks(
-    worker: &Worker,
-    allow: &NetworkAllowlist,
-) -> Result<()> {
+async fn check_running_container_networks(worker: &Worker, allow: &NetworkAllowlist) -> Result<()> {
     // Fixed container_name values from production compose (skip leftover postgres when external).
-    let containers =
-        crate::worker::preflight_env::running_check_containers(worker.cli().db_mode);
+    let containers = crate::worker::preflight_env::running_check_containers(worker.cli().db_mode);
     let mut bad = Vec::new();
     for name in containers {
         let info = match worker.docker().raw().inspect_container(name, None).await {
@@ -1058,19 +1047,25 @@ mod github_manifest_fallback_tests {
         let err = UpdaterError::Github(
             "GET release v0.3.3 failed: 404 Not Found {\"message\":\"Not Found\"}".into(),
         );
-        assert!(crate::release::GithubClient::is_release_json_unavailable(&err));
+        assert!(crate::release::GithubClient::is_release_json_unavailable(
+            &err
+        ));
     }
 
     #[test]
     fn github_missing_release_json_asset_is_unavailable() {
         let err = UpdaterError::Github("release v0.3.3 has no release.json asset".into());
-        assert!(crate::release::GithubClient::is_release_json_unavailable(&err));
+        assert!(crate::release::GithubClient::is_release_json_unavailable(
+            &err
+        ));
     }
 
     #[test]
     fn github_401_is_unavailable() {
         let err = UpdaterError::Github("GET release v1.0.0 failed: 401 Unauthorized".into());
-        assert!(crate::release::GithubClient::is_release_json_unavailable(&err));
+        assert!(crate::release::GithubClient::is_release_json_unavailable(
+            &err
+        ));
     }
 
     #[test]
@@ -1079,7 +1074,9 @@ mod github_manifest_fallback_tests {
             std::io::ErrorKind::ConnectionReset,
             "connection reset",
         ));
-        assert!(crate::release::GithubClient::is_release_json_unavailable(&err));
+        assert!(crate::release::GithubClient::is_release_json_unavailable(
+            &err
+        ));
     }
 
     #[test]
@@ -1087,19 +1084,26 @@ mod github_manifest_fallback_tests {
         let err = UpdaterError::Precondition(
             "cosign: signature verification failed: no matching signatures".into(),
         );
-        assert!(!crate::release::GithubClient::is_release_json_unavailable(&err));
+        assert!(!crate::release::GithubClient::is_release_json_unavailable(
+            &err
+        ));
     }
 
     #[test]
     fn invalid_manifest_json_must_not_fall_back() {
-        let err = UpdaterError::Json(serde_json::from_str::<serde_json::Value>("not-json").unwrap_err());
-        assert!(!crate::release::GithubClient::is_release_json_unavailable(&err));
+        let err =
+            UpdaterError::Json(serde_json::from_str::<serde_json::Value>("not-json").unwrap_err());
+        assert!(!crate::release::GithubClient::is_release_json_unavailable(
+            &err
+        ));
     }
 
     #[test]
     fn manifest_validation_precondition_must_not_fall_back() {
         let err = UpdaterError::Precondition("manifest missing images.backend".into());
-        assert!(!crate::release::GithubClient::is_release_json_unavailable(&err));
+        assert!(!crate::release::GithubClient::is_release_json_unavailable(
+            &err
+        ));
     }
 
     #[test]

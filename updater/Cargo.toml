@@ -23,6 +23,10 @@ path = "src/bin/myriad-docker-guard.rs"
 name = "myriad-updater-gateway"
 path = "src/bin/myriad-updater-gateway.rs"
 
+[[bin]]
+name = "myriad-tcb-self-update"
+path = "src/bin/myriad-tcb-self-update.rs"
+
 [lib]
 path = "src/lib.rs"
 
@@ -63,7 +67,7 @@ clap = { version = "4", features = ["derive", "env"] }
 
 # Filesystem & syscalls
 fs2 = "0.4"                                  # file locking (flock)
-nix = { version = "0.31", features = ["fs"] } # fsync directory, etc.
+nix = { version = "0.31", features = ["fs", "process", "signal"] } # fsync + helper process groups
 tempfile = "3"
 walkdir = "2"
 

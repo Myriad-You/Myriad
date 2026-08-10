@@ -971,11 +971,11 @@ export const jaJP: TranslationKeys = {
     updaterMaintenanceExited: 'メンテナンスモードを解除しました',
     updaterSelfUpdateNeeded:
       'バージョン {version} にはアップデーター {minVersion}+ が必要です。',
-    updaterSelfUpdateButton: 'ホストでの更新が必要',
+    updaterSelfUpdateButton: 'アップデーターを更新',
     updaterSelfUpdateConfirm:
       'アップデーターを {version} へ更新しますか？数秒で完了し、サイト影響なし。',
     updaterSelfUpdateConfirmAuto:
-      'Guard/アップデーターはホストの信頼境界に属するため、アプリ内では更新できません。ホスト管理者が署名とイメージダイジェストを独立検証し、デプロイスクリプトで Guard・アップデーター・ゲートウェイを再作成してください。',
+      'アップデーターをレジストリの現在 tip へ更新しますか？数秒で完了し、サイト影響なし。',
     updaterSelfUpdateDispatched:
       'アップデーターを {version} へ更新開始（以前: {previous}）。完了後にアプリ更新を続行できます。',
     updaterInfraGroupTitle: 'エッジとアップデーター',

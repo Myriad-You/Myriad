@@ -28,7 +28,7 @@ Related:
 | **Cosign dual-key** | Default `COSIGN_VERIFY=strict`; `off` requires `UPDATER_ALLOW_INSECURE_COSIGN=true` (or alias) |
 | **Audit** | `state/audit.log` (fsync, rotate); actor header from admin JWT when proxied |
 | **Doctor** | `deploy.sh doctor` / `deploy.ps1 doctor` topology + secrets + cosign; optional `--host` scan |
-| **TCB upgrade** | Guard cannot self-update and updater cannot select its image; a host operator must verify release identity/digest and recreate the TCB |
+| **TCB upgrade** | One-click trusted handoff: updater submits tag intent only; Guard fixes the official repository, resolves and verifies the pulled digest, then an exact-digest helper can recreate only Guard/updater/gateway with rollback |
 | **Hygiene** | Secret redaction, stricter rate limits on mutative admin routes, `confirm_risk` for high-risk flags |
 | **Rescue path** | `PROXY_ALLOW_DIRECT_UPDATER=false` by default; direct `/_updater/*` is temporary only |
 | **Backend** | Non-root image user; soft-doctor after `up` / `upgrade` |
@@ -80,19 +80,23 @@ These are **by design** for single-tenant self-host, not open bugs:
 
 ### Guard upgrade and rollback
 
-There is deliberately no updater/API/UI path that upgrades Guard. On the host:
+The normal path is the admin UI's one-click TCB upgrade. Updater provides only a
+tag intent; Guard fixes the official repository, resolves the pulled image to an
+exact digest, validates the current TCB/downgrade fences, and launches a fixed
+handoff from that exact image. The handoff updates the host policy and the three
+TCB services, verifies their resulting digests, and automatically restores the
+previous policy/image on failure.
 
-1. Verify the release signature and the Guard/updater image digest using an
-   independent trust source; do not obtain the expected digest from the running
-   updater or its writable `.env`.
-2. Update `DOCKER_GUARD_IMAGE` in the host-owned Guard policy and recreate
-   `docker-guard`, `updater`, and `updater-gateway` with the deploy script.
-3. Run `deploy.sh doctor`; it verifies the running Guard `Config.Image` exactly
-   matches `DOCKER_GUARD_EXPECTED_IMAGE` and rejects legacy mutable policy/token.
+For recovery when the UI/Guard path cannot run, a host administrator may still
+verify a digest independently, update `DOCKER_GUARD_IMAGE`, recreate the three
+services with the deploy script, and run `deploy.sh doctor`. Keep a copy of the
+previous policy/digest as the manual recovery point; updater-writable state is
+never the source of repository or digest identity.
 
-Rollback uses the same host path with the previously verified digest. Keep the
-previous policy file/digest as the recovery point; updater state is not a trust
-source for this decision.
+If three fixed previous-digest recovery attempts are exhausted, Guard keeps the
+mutation gate closed and preserves the daemon sentinel
+`myriad-tcb-self-update-recovery-exhausted`. Restore and verify the three TCB
+services from the host first; only then remove that sentinel and restart Guard.
 
 ---
 

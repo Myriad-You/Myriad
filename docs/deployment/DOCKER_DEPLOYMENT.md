@@ -195,10 +195,14 @@ bash scripts/docker/deploy.sh doctor
 - **High-risk updates**: when `allow_risk` / `allow_downgrade` / related flags are set,
   request body must also include `confirm_risk: true` (or header `X-Myriad-Confirm-Risk: true`).
   Normal upgrades without risk flags need no extra confirm field.
-- **TCB upgrades**: application self-update is disabled. A host operator must verify
-  signed release identity and exact digest, update the host-owned Guard policy, and
-  recreate Guard/updater/gateway. Old `self_update_last` status remains readable only
-  for compatibility with existing state.
+- **TCB upgrades**: the admin UI keeps one-click self-update. The lower-trust updater
+  sends only an immutable-shaped target tag. Guard fixes the official updater repository,
+  pulls through the host daemon, converts the result to an exact digest, checks the running
+  TCB and downgrade fences, and starts a fixed helper from that digest. The helper validates
+  the rendered Compose model, updates only Guard/updater/gateway, persists
+  `UPDATER_IMAGE_REF`, and restores the previous digest/config on failure. The current
+  private-repository distribution uses the explicit `dockerhub_tag` trust path from #265;
+  it is not reported as Cosign/release-manifest verification.
 - **Root**: backend warns once at boot if running as uid 0 (compose should stay non-root).
 - **Deploy soft-check**: `deploy.sh|ps1 up|upgrade` runs topology doctor in warn-only mode.
 - **Doctor host checks**: `doctor --host` runs a non-fatal privileged / unexpected

@@ -48,10 +48,7 @@ fn redact_pattern(input: &str, prefix: &str) -> String {
         let after = &rest[idx + prefix.len()..];
         let after_l = &rest_lower[idx + pref_lower.len()..];
         // Skip whitespace after prefix.
-        let trim_start = after
-            .chars()
-            .take_while(|c| c.is_whitespace())
-            .count();
+        let trim_start = after.chars().take_while(|c| c.is_whitespace()).count();
         out.push_str(&after[..trim_start]);
         let token_part = &after[trim_start..];
         let token_len = token_part

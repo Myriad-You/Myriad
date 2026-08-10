@@ -29,6 +29,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
           "target/${artifact_dir}/myriad-rescue" \
           "target/${artifact_dir}/myriad-docker-guard" \
           "target/${artifact_dir}/myriad-updater-gateway" \
+          "target/${artifact_dir}/myriad-tcb-self-update" \
           /out/ \
     && strip /out/*
 
@@ -61,6 +62,7 @@ COPY --from=builder /out/myriad-updater /usr/local/bin/myriad-updater
 COPY --from=builder /out/myriad-rescue  /usr/local/bin/myriad-rescue
 COPY --from=builder /out/myriad-docker-guard /usr/local/bin/myriad-docker-guard
 COPY --from=builder /out/myriad-updater-gateway /usr/local/bin/myriad-updater-gateway
+COPY --from=builder /out/myriad-tcb-self-update /usr/local/bin/myriad-tcb-self-update
 
 # cosign CLI for release.json signature verification (M2). Single static binary, ~50 MB.
 # MYR-047: pin release + per-arch sha256 (from cosign_checksums.txt on the same tag).
