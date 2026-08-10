@@ -258,6 +258,193 @@ mod tests {
         assert!(check_output_contract(&schema, &output).is_none());
     }
 
+    /// Sample outputs mirroring what each handler actually returns on success.
+    ///
+    /// This table is the enforcement point. The runtime only logs violations,
+    /// because the registry's declarations were written before anything read
+    /// them and are not uniformly trustworthy — a wrong *declaration* would
+    /// otherwise fail a working handler. Checking real shapes here catches the
+    /// drift in CI instead, and is what has to be clean before the runtime check
+    /// can be promoted to fatal.
+    ///
+    /// Add a row when you add a capability. Two rows for a handler that returns
+    /// different shapes on different branches.
+    fn ai_handler_samples() -> Vec<(&'static str, Value)> {
+        vec![
+            // execute_ai_summarize
+            (
+                "ai.summarize",
+                json!({ "summary": "摘要正文", "style": "brief" }),
+            ),
+            // execute_ai_analyze — `analysis` is the model's prose, not a struct
+            (
+                "ai.analyze",
+                json!({ "analysis": "分析正文", "type": "custom" }),
+            ),
+            // execute_ai_recommend — array when JSON extraction succeeds…
+            (
+                "ai.recommend",
+                json!({ "recommendations": [{ "name": "x", "reason": "y" }], "count": 5 }),
+            ),
+            // …and the raw string when it does not
+            (
+                "ai.recommend",
+                json!({ "recommendations": "推荐正文", "count": 5 }),
+            ),
+            // execute_ai_chat
+            ("ai.chat", json!({ "reply": "回复正文" })),
+            // execute_ai_image
+            (
+                "ai.image",
+                json!({
+                    "imageUrl": "https://example.invalid/a.png",
+                    "width": 1024,
+                    "height": 768,
+                    "provider": "pollinations"
+                }),
+            ),
+            // execute_gemini_grounding_search_wrapper (ai.webSearch / groundingSearch)
+            (
+                "ai.webSearch",
+                json!({
+                    "success": true,
+                    "query": "q",
+                    "searchType": "web",
+                    "aiSummary": "s",
+                    "results": [],
+                    "totalResults": 0
+                }),
+            ),
+            // groundingSearch shares the same wrapper, so the same shape
+            (
+                "ai.groundingSearch",
+                json!({
+                    "success": true,
+                    "query": "q",
+                    "searchType": "general",
+                    "aiSummary": "s",
+                    "results": [],
+                    "totalResults": 0
+                }),
+            ),
+            // execute_brewlia_annotate — annotations is always an array
+            (
+                "brewlia.annotate",
+                json!({ "annotations": [], "fromCache": false, "itemId": 1 }),
+            ),
+            // execute_brewlia_podcast — duration is chars/200 as f64
+            (
+                "brewlia.podcast",
+                json!({ "script": "台本", "duration": 3.5, "style": "dialogue", "itemId": 1 }),
+            ),
+            // execute_prompt_generate
+            (
+                "prompt.generate",
+                json!({ "prompt": "p", "negativePrompt": "n", "title": "t" }),
+            ),
+            // execute_translate_text
+            (
+                "translate.text",
+                json!({
+                    "originalText": "a",
+                    "translated": "b",
+                    "targetLang": "en",
+                    "sourceLang": "zh"
+                }),
+            ),
+            // execute_code_explain
+            (
+                "code.explain",
+                json!({
+                    "code": "fn main() {}",
+                    "language": "rust",
+                    "explanation": "e",
+                    "complexity": "simple"
+                }),
+            ),
+            // execute_icon_recommend
+            (
+                "icon.recommend",
+                json!({
+                    "platformName": "github",
+                    "iconType": "brand",
+                    "iconName": "github",
+                    "colorSuggestion": "#181717"
+                }),
+            ),
+            // execute_speech_tts
+            (
+                "speech.tts",
+                json!({
+                    "success": true,
+                    "audio": "AAAA",
+                    "audioBase64": "AAAA",
+                    "codec": "mp3",
+                    "cached": false,
+                    "duration": 1.25,
+                    "voice": "v",
+                    "textLength": 4
+                }),
+            ),
+        ]
+    }
+
+    #[tokio::test]
+    async fn declared_schemas_accept_real_handler_output() {
+        let registry = crate::services::agent::capability::get_registry().await;
+        let mut breaches = Vec::new();
+        let mut drifts = Vec::new();
+
+        for (capability_id, sample) in ai_handler_samples() {
+            let capability = registry
+                .get(capability_id)
+                .unwrap_or_else(|| panic!("{capability_id} must be registered"));
+            match check_output_contract(&capability.output_schema, &sample) {
+                Some(violation) if violation.is_fatal() => {
+                    breaches.push(format!("{capability_id}: {}", violation.message()));
+                }
+                Some(violation) => drifts.push(format!("{capability_id}: {}", violation.message())),
+                None => {}
+            }
+        }
+
+        assert!(
+            breaches.is_empty(),
+            "a declared output_schema contradicts what its handler returns; fix the declaration \
+             (or the handler) rather than loosening this test:\n{}",
+            breaches.join("\n")
+        );
+        assert!(
+            drifts.is_empty(),
+            "these declarations share no field with their handler's output:\n{}",
+            drifts.join("\n")
+        );
+    }
+
+    #[tokio::test]
+    async fn sampled_capabilities_declare_the_fields_the_planner_will_reference() {
+        // `declared_output_fields` feeds the planner's `o` index. A declared field
+        // the handler never emits sends the planner after data that cannot exist —
+        // which is how `ai.analyze` came to advertise `insights` and `confidence`.
+        let registry = crate::services::agent::capability::get_registry().await;
+        let mut phantom = Vec::new();
+
+        for (capability_id, sample) in ai_handler_samples() {
+            let capability = registry.get(capability_id).expect("registered");
+            let actual = sample.as_object().expect("object sample");
+            for field in declared_output_fields(&capability.output_schema) {
+                if !actual.contains_key(&field) {
+                    phantom.push(format!("{capability_id}.{field}"));
+                }
+            }
+        }
+
+        assert!(
+            phantom.is_empty(),
+            "declared output fields never produced by the handler: {phantom:?}"
+        );
+    }
+
     #[test]
     fn enum_and_range_bounds_are_enforced() {
         let schema = json!({

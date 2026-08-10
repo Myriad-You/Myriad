@@ -416,8 +416,11 @@ mod tests {
             .iter()
             .filter_map(Value::as_str)
             .collect();
+        // Both fields `execute_ai_summarize` actually returns. It used to declare
+        // `keyPoints`, which the handler never produced — the planner would have
+        // been pointed at data that cannot exist.
         assert!(outputs.contains(&"summary"), "got {outputs:?}");
-        assert!(outputs.contains(&"keyPoints"), "got {outputs:?}");
+        assert!(outputs.contains(&"style"), "got {outputs:?}");
     }
 
     #[tokio::test]
