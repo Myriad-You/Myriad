@@ -4251,6 +4251,8 @@ export const jaJP: TranslationKeys = {
     debugPanel: 'デバッグパネル',
     inputAnswer: '回答を入力...',
     errorWithDetail: 'エラー：{error}',
+    quotaCooldown: 'リクエストが早すぎます。少し待ってから再試行してください。',
+    quotaExhausted: '本日の AI 利用枠を使い切りました。明日リセットされます。',
     aiGeneratedImage: 'AI生成画像',
     memTierLong: '長期',
     memTierMid: '中期',

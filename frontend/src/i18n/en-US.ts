@@ -4260,6 +4260,8 @@ export const enUS: TranslationKeys = {
     debugPanel: 'Debug panel',
     inputAnswer: 'Type your answer...',
     errorWithDetail: 'Error: {error}',
+    quotaCooldown: 'Slow down a moment, then try again.',
+    quotaExhausted: 'The AI budget for today is used up; it resets tomorrow.',
     aiGeneratedImage: 'AI generated image',
     memTierLong: 'Long',
     memTierMid: 'Mid',

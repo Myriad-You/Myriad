@@ -4057,6 +4057,8 @@ export const zhCN: TranslationKeys = {
     debugPanel: '调试面板',
     inputAnswer: '输入回答...',
     errorWithDetail: '出错了：{error}',
+    quotaCooldown: '请求太频繁了，稍等一下再试。',
+    quotaExhausted: '今天的 AI 额度用完了，明天会重置。',
     aiGeneratedImage: 'AI 生成图片',
     memTierLong: '长期',
     memTierMid: '中期',

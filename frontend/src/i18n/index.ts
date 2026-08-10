@@ -3900,6 +3900,8 @@ export interface TranslationKeys {
     debugPanel: string
     inputAnswer: string
     errorWithDetail: string
+    quotaCooldown: string
+    quotaExhausted: string
     aiGeneratedImage: string
     // 记忆 tier
     memTierLong: string
