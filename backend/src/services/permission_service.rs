@@ -177,7 +177,6 @@ impl TappPermission {
             TappPermission::BrewWrite
                 | TappPermission::BrewComment
                 | TappPermission::ReportRead
-                | TappPermission::ComponentTheme
                 | TappPermission::SchedulerRegister
                 | TappPermission::SpeechTts
                 | TappPermission::SpeechAsr
@@ -494,7 +493,7 @@ impl TappPermissionService {
             TappPermission::AiChat => config.guest_perm_ai_chat,
             TappPermission::AiImage => config.guest_perm_ai_image,
             TappPermission::NetworkFetch => config.guest_perm_network_fetch,
-            TappPermission::ComponentTheme => false,
+            TappPermission::ComponentTheme => config.guest_perm_component_theme,
             TappPermission::ShortcutRegister => config.guest_perm_shortcut_register,
             TappPermission::EventPublish => config.guest_perm_event_publish,
             TappPermission::SchedulerRegister => false,
@@ -559,7 +558,7 @@ impl TappPermissionService {
                 // These routes require a durable authenticated subject. Keep
                 // legacy config fields for schema compatibility, but never
                 // advertise them as effective guest delegation settings.
-                component_theme: false,
+                component_theme: config.guest_perm_component_theme,
                 shortcut_register: config.guest_perm_shortcut_register,
                 event_publish: config.guest_perm_event_publish,
                 scheduler_register: false,
@@ -742,6 +741,7 @@ mod tests {
                 "event:subscribe",
                 "storage",
                 "ui:notification",
+                "component:theme",
                 "shortcut:register",
                 "tappList:read",
                 "brew:read",
@@ -765,7 +765,7 @@ mod tests {
         ));
 
         let effective = TappPermissionService::get_permission_config(&config);
-        assert!(!effective.guest.component_theme);
+        assert!(effective.guest.component_theme);
         assert!(effective.guest.shortcut_register);
         assert!(!effective.guest.scheduler_register);
         assert!(!effective.guest.speech_tts);

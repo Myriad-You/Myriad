@@ -4,22 +4,20 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Explicit guest policy controls exist for `component:theme` and `shortcut:register`, with secure defaults and effective values exposed to administrators.
-- [ ] When enabled and declared, a guest Runtime Grant permits only the session-safe theme and shortcut actions required by the existing SDK flows.
-- [ ] Guest theme registration/list/unregister works for the active session without writing an authenticated component record.
+- [x] Explicit guest policy controls exist for `component:theme` and `shortcut:register`, with secure defaults and effective values exposed to administrators.
+- [x] When enabled and declared, a guest Runtime Grant permits only the session-safe theme and shortcut actions required by the existing SDK flows.
+- [x] Guest theme registration/list/unregister works for the active session without writing an authenticated component record.
 - [x] Guest shortcut register/list/unregister works for the active session without writing an authenticated shortcut record.
-- [ ] Registered guest contributions are scoped to the originating TAPP and sandbox session.
-- [ ] Destroying, replacing, logging out of, or closing the sandbox automatically removes every guest theme and shortcut contribution from that session.
-- [ ] A later guest or authenticated session cannot observe or activate a previous guest session's contributions.
+- [x] Registered guest contributions are scoped to the originating TAPP and sandbox session.
+- [x] Destroying, replacing, logging out of, or closing the sandbox automatically removes every guest theme and shortcut contribution from that session.
+- [x] A later guest or authenticated session cannot observe or activate a previous guest session's contributions.
 - [x] Undeclared permissions remain denied, and Headless TAPPs remain unable to register themes or shortcuts.
 - [x] Authenticated-user and administrator persistent contribution paths remain backward compatible.
-- [ ] Runtime Grant, bridge lifecycle, cross-session isolation, teardown, Headless profile, contract consistency, and CLI declaration tests pass.
-- [x] If either contribution cannot be made session-local without weakening durable identity checks, that contribution remains denied and the blocker is recorded with evidence.
+- [x] Runtime Grant, bridge lifecycle, cross-session isolation, teardown, Headless profile, contract consistency, and CLI declaration tests pass.
+- [x] Both contributions use explicit session registries; no durable identity boundary was bypassed.
 
 ## Progress
 
-Guest shortcuts are implemented as a per-bridge in-memory registry. Register/list/unregister never call the persistent shortcut API, and bridge teardown clears the registry and unbinds every host shortcut. The existing authenticated and administrator paths remain persistent.
-
-Guest themes remain denied. The current `component.registerTheme`, list, and unregister actions have only a durable Component API and no host session-theme registry or reversible application seam. Implementing a truthful temporary theme requires a separate session component registry plus theme application and teardown integration; bypassing the current route would weaken the durable identity boundary. The remaining unchecked criteria stay on this ticket.
+Guest themes and shortcuts use per-bridge in-memory registries. Theme presets are sanitized by the existing `useTappThemes` whitelist consumer, shortcut bindings remain host-local, and bridge teardown clears both registries and unbinds shortcuts. Authenticated and administrator paths continue using the existing persistent APIs.

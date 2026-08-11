@@ -23,6 +23,12 @@ import {
   hostUnbindAllForBridge,
   hostUnbindShortcut,
 } from '../../HostShortcutManager'
+import {
+  clearSessionThemes,
+  listSessionThemes,
+  registerSessionTheme,
+  unregisterSessionTheme,
+} from '../../sessionThemeRegistry'
 import { getTappRuntime } from '../../TappRuntime'
 import { GuestShortcutSession } from './guestShortcutSession'
 import { canMutateDynamicContent } from './notificationPolicy'
@@ -1145,6 +1151,14 @@ export function registerAdvancedHandlers(
   bridge.registerHandler('component.registerTheme', async (message) => {
     const [config] = (message.payload as { args: unknown[] }).args || []
     try {
+      if (tappInstance.userRole === 'guest') {
+        const component = registerSessionTheme(
+          bridge,
+          tappInstance.id,
+          config as TappApiService.ComponentConfig,
+        )
+        return { success: true, data: { component, sessionOnly: true } }
+      }
       const result = await TappApiService.registerComponent(
         tappInstance.id,
         'theme',
@@ -1181,6 +1195,15 @@ export function registerAdvancedHandlers(
   bridge.registerHandler('component.unregister', async (message) => {
     const [type, id] = (message.payload as { args: unknown[] }).args || []
     try {
+      if (tappInstance.userRole === 'guest' && type === 'theme') {
+        return {
+          success: true,
+          data: {
+            unregistered: unregisterSessionTheme(bridge, id as string),
+            sessionOnly: true,
+          },
+        }
+      }
       const result = await TappApiService.unregisterComponent(
         tappInstance.id,
         type as TappApiService.ComponentType,
@@ -1199,6 +1222,15 @@ export function registerAdvancedHandlers(
   bridge.registerHandler('component.list', async (message) => {
     const [type] = (message.payload as { args: unknown[] }).args || []
     try {
+      if (tappInstance.userRole === 'guest') {
+        return {
+          success: true,
+          data: {
+            components: type && type !== 'theme' ? [] : listSessionThemes(bridge),
+            sessionOnly: true,
+          },
+        }
+      }
       const result = await TappApiService.listComponents(
         tappInstance.id,
         type as TappApiService.ComponentType | undefined,
@@ -1418,6 +1450,7 @@ export function registerAdvancedHandlers(
       window.removeEventListener(HOST_SHORTCUTS_CHANGED, onHostShortcutsChanged)
     }
     guestShortcuts.clear()
+    clearSessionThemes(bridge)
     // Per-bridge unbind so multi-window peers keep their host shortcuts.
     hostUnbindAllForBridge(bridge)
   }

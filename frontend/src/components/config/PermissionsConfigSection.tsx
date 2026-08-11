@@ -33,7 +33,6 @@ const GUEST_AGENT_PRESET_PERM_KEYS = AGENT_PRESET_PERM_KEYS.filter(
   (key) => key !== 'scheduler_register',
 )
 const GUEST_AUTHENTICATED_PERMISSION_KEYS = new Set([
-  'component_theme',
   'scheduler_register',
   'speech_tts',
   'speech_asr',

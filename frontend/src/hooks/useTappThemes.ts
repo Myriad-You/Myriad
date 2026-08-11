@@ -22,6 +22,10 @@ import type { WidgetGlowMode, WidgetSurface } from './useWidgetTheme'
 import { useEffect, useRef, useState } from 'react'
 // TappApiService 动态加载：该 hook 被 TitleFontSelector（Home 编辑模式）引用，
 // 静态 import 会把整个 tapp 服务层拖进首屏关键路径
+import {
+  listSessionThemes,
+  subscribeSessionThemes,
+} from '../tapp/runtime/sessionThemeRegistry'
 import { GLOW_OPTIONS, SURFACE_OPTIONS } from './useWidgetTheme'
 
 // 类型
@@ -90,6 +94,24 @@ export function useTappThemes(enabled: boolean) {
   }, [])
 
   useEffect(() => {
+    if (!enabled) return
+    const updateSessionThemes = () => {
+      setThemes((persisted) => {
+        const session = listSessionThemes()
+          .map(sanitizeTappTheme)
+          .filter((theme): theme is SafeTappTheme => theme !== null)
+        const sessionIds = new Set(session.map((theme) => theme.id))
+        return [
+          ...persisted.filter((theme) => !sessionIds.has(theme.id)),
+          ...session,
+        ]
+      })
+    }
+    updateSessionThemes()
+    return subscribeSessionThemes(updateSessionThemes)
+  }, [enabled])
+
+  useEffect(() => {
     if (!enabled || fetchedRef.current) return
     fetchedRef.current = true
 
@@ -101,7 +123,14 @@ export function useTappThemes(enabled: boolean) {
         const safe = list
           .map(sanitizeTappTheme)
           .filter((t): t is SafeTappTheme => t !== null)
-        setThemes(safe)
+        const session = listSessionThemes()
+          .map(sanitizeTappTheme)
+          .filter((theme): theme is SafeTappTheme => theme !== null)
+        const sessionIds = new Set(session.map((theme) => theme.id))
+        setThemes([
+          ...safe.filter((theme) => !sessionIds.has(theme.id)),
+          ...session,
+        ])
       })
       .catch((err) => {
         // 未登录 / 无权限 / 无主题都走这里，静默降级为空列表
