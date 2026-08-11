@@ -823,6 +823,53 @@ mod tests {
     }
 
     #[test]
+    fn test_user_receives_default_speech_and_scheduler_only_when_declared() {
+        let config = DynamicConfig::default();
+        let requested = vec![
+            "speech:tts".to_string(),
+            "speech:asr".to_string(),
+            "scheduler:register".to_string(),
+            "ai:chat".to_string(),
+            "network:fetch".to_string(),
+        ];
+
+        assert_eq!(
+            TappPermissionService::filter_permissions_for_role(&config, UserRole::User, &requested,),
+            vec!["speech:tts", "speech:asr", "scheduler:register"]
+        );
+        assert_eq!(TappPermission::SpeechTts.level(), PermissionLevel::Elevated);
+        assert_eq!(TappPermission::SpeechAsr.level(), PermissionLevel::Elevated);
+        assert_eq!(
+            TappPermission::SchedulerRegister.level(),
+            PermissionLevel::Elevated
+        );
+
+        let effective = TappPermissionService::get_permission_config(&config);
+        assert!(effective.user.speech_tts);
+        assert!(effective.user.speech_asr);
+        assert!(effective.user.scheduler_register);
+
+        let disabled = DynamicConfig {
+            user_perm_speech_tts: false,
+            user_perm_speech_asr: false,
+            user_perm_scheduler_register: false,
+            ..DynamicConfig::default()
+        };
+        assert!(TappPermissionService::filter_permissions_for_role(
+            &disabled,
+            UserRole::User,
+            &requested,
+        )
+        .is_empty());
+        assert!(TappPermissionService::filter_permissions_for_role(
+            &config,
+            UserRole::Guest,
+            &requested,
+        )
+        .is_empty());
+    }
+
+    #[test]
     fn test_user_high_cost_elevated_permissions_remain_disabled_by_default() {
         let config = DynamicConfig::default();
         assert!(!TappPermissionService::check(

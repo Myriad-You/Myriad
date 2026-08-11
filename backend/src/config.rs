@@ -681,7 +681,7 @@ impl Default for DynamicConfig {
             tapp_window_schemes: None,
 
             // 普通用户 elevated 权限默认值（13 项）
-            // 低风险 UI / 事件贡献默认开放，成本、联网和后台能力仍由管理员选择性开放。
+            // 应用交互、语音和调度能力默认开放；AI 与联网仍由管理员选择性开放。
             user_perm_ai_generate: false,
             user_perm_ai_analyze: false,
             user_perm_ai_chat: false,
@@ -692,9 +692,9 @@ impl Default for DynamicConfig {
             user_perm_component_theme: true,
             user_perm_shortcut_register: true,
             user_perm_event_publish: true,
-            user_perm_scheduler_register: false,
-            user_perm_speech_tts: false,
-            user_perm_speech_asr: false,
+            user_perm_scheduler_register: true,
+            user_perm_speech_tts: true,
+            user_perm_speech_asr: true,
 
             // 游客 elevated 权限默认值
             // 默认全部关闭
