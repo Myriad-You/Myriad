@@ -65,11 +65,11 @@ function serializedUtf8Bytes(value: unknown): number | null {
     } else if (code < 0x800) {
       bytes += 2
     } else if (
-      code >= 0xd800 &&
-      code <= 0xdbff &&
+      code >= 0xD800 &&
+      code <= 0xDBFF &&
       index + 1 < serialized.length &&
-      serialized.charCodeAt(index + 1) >= 0xdc00 &&
-      serialized.charCodeAt(index + 1) <= 0xdfff
+      serialized.charCodeAt(index + 1) >= 0xDC00 &&
+      serialized.charCodeAt(index + 1) <= 0xDFFF
     ) {
       bytes += 4
       index += 1
