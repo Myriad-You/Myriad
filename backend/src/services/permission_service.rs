@@ -178,7 +178,6 @@ impl TappPermission {
                 | TappPermission::BrewComment
                 | TappPermission::ReportRead
                 | TappPermission::ComponentTheme
-                | TappPermission::ShortcutRegister
                 | TappPermission::SchedulerRegister
                 | TappPermission::SpeechTts
                 | TappPermission::SpeechAsr
@@ -496,7 +495,7 @@ impl TappPermissionService {
             TappPermission::AiImage => config.guest_perm_ai_image,
             TappPermission::NetworkFetch => config.guest_perm_network_fetch,
             TappPermission::ComponentTheme => false,
-            TappPermission::ShortcutRegister => false,
+            TappPermission::ShortcutRegister => config.guest_perm_shortcut_register,
             TappPermission::EventPublish => config.guest_perm_event_publish,
             TappPermission::SchedulerRegister => false,
             TappPermission::SpeechTts => false,
@@ -561,7 +560,7 @@ impl TappPermissionService {
                 // legacy config fields for schema compatibility, but never
                 // advertise them as effective guest delegation settings.
                 component_theme: false,
-                shortcut_register: false,
+                shortcut_register: config.guest_perm_shortcut_register,
                 event_publish: config.guest_perm_event_publish,
                 scheduler_register: false,
                 speech_tts: false,
@@ -743,6 +742,7 @@ mod tests {
                 "event:subscribe",
                 "storage",
                 "ui:notification",
+                "shortcut:register",
                 "tappList:read",
                 "brew:read",
                 "federation:read"
@@ -766,7 +766,7 @@ mod tests {
 
         let effective = TappPermissionService::get_permission_config(&config);
         assert!(!effective.guest.component_theme);
-        assert!(!effective.guest.shortcut_register);
+        assert!(effective.guest.shortcut_register);
         assert!(!effective.guest.scheduler_register);
         assert!(!effective.guest.speech_tts);
         assert!(!effective.guest.speech_asr);

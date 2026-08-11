@@ -24,6 +24,7 @@ import {
   hostUnbindShortcut,
 } from '../../HostShortcutManager'
 import { getTappRuntime } from '../../TappRuntime'
+import { GuestShortcutSession } from './guestShortcutSession'
 import { canMutateDynamicContent } from './notificationPolicy'
 
 /**
@@ -1235,8 +1236,12 @@ export function registerAdvancedHandlers(
   }
 
   let rehydrateCancelled = false
+  const guestShortcuts = new GuestShortcutSession()
   void (async () => {
-    if (!tappInstance.grantedPermissions?.includes('shortcut:register')) {
+    if (
+      tappInstance.userRole === 'guest' ||
+      !tappInstance.grantedPermissions?.includes('shortcut:register')
+    ) {
       return
     }
     try {
@@ -1312,6 +1317,18 @@ export function registerAdvancedHandlers(
     const [config] = (message.payload as { args: unknown[] }).args || []
     try {
       const cfg = config as TappApiService.ShortcutConfig
+      if (tappInstance.userRole === 'guest') {
+        hostBindShortcut({
+          tappId: tappInstance.id,
+          shortcutId: cfg.id,
+          keys: cfg.keys,
+          action: cfg.action || '',
+          scope: cfg.scope,
+          bridge,
+        })
+        guestShortcuts.register(cfg)
+        return { success: true, data: { shortcut: cfg, sessionOnly: true } }
+      }
       const result = await TappApiService.registerShortcut(
         tappInstance.id,
         cfg,
@@ -1348,6 +1365,11 @@ export function registerAdvancedHandlers(
   bridge.registerHandler('shortcut.unregister', async (message) => {
     const [id] = (message.payload as { args: unknown[] }).args || []
     try {
+      if (tappInstance.userRole === 'guest') {
+        guestShortcuts.unregister(id as string)
+        hostUnbindShortcut(tappInstance.id, id as string, bridge)
+        return { success: true, data: { removed: true, sessionOnly: true } }
+      }
       const result = await TappApiService.unregisterShortcut(
         tappInstance.id,
         id as string,
@@ -1371,6 +1393,12 @@ export function registerAdvancedHandlers(
 
   bridge.registerHandler('shortcut.list', async () => {
     try {
+      if (tappInstance.userRole === 'guest') {
+        return {
+          success: true,
+          data: { shortcuts: guestShortcuts.list(), sessionOnly: true },
+        }
+      }
       const result = await TappApiService.listShortcuts(
         tappInstance.id,
         await bridge.getRuntimeGrant(),
@@ -1389,6 +1417,7 @@ export function registerAdvancedHandlers(
     if (typeof window !== 'undefined') {
       window.removeEventListener(HOST_SHORTCUTS_CHANGED, onHostShortcutsChanged)
     }
+    guestShortcuts.clear()
     // Per-bridge unbind so multi-window peers keep their host shortcuts.
     hostUnbindAllForBridge(bridge)
   }

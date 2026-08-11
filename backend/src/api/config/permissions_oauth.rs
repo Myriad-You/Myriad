@@ -96,7 +96,6 @@ pub struct UpdatePermissionsPayload {
     pub guest_perm_media_control: Option<bool>,
     #[allow(dead_code)] // accepted for compatibility; update endpoint forces false
     pub guest_perm_component_theme: Option<bool>,
-    #[allow(dead_code)] // accepted for compatibility; update endpoint forces false
     pub guest_perm_shortcut_register: Option<bool>,
     pub guest_perm_event_publish: Option<bool>,
     #[allow(dead_code)] // accepted for compatibility; update endpoint forces false
@@ -125,7 +124,8 @@ mod tapp_permission_payload_tests {
             "user_perm_speech_asr": false,
             "user_perm_widget_register": true,
             "guest_perm_speech_tts": false,
-            "guest_perm_speech_asr": true
+            "guest_perm_speech_asr": true,
+            "guest_perm_shortcut_register": true
         }))
         .unwrap();
 
@@ -134,6 +134,7 @@ mod tapp_permission_payload_tests {
         assert_eq!(payload.user_perm_widget_register, Some(true));
         assert_eq!(payload.guest_perm_speech_tts, Some(false));
         assert_eq!(payload.guest_perm_speech_asr, Some(true));
+        assert_eq!(payload.guest_perm_shortcut_register, Some(true));
     }
 }
 
@@ -217,7 +218,9 @@ pub async fn update_permissions(
         updates.insert("guest_perm_media_control".to_string(), json!(v));
     }
     updates.insert("guest_perm_component_theme".to_string(), json!(false));
-    updates.insert("guest_perm_shortcut_register".to_string(), json!(false));
+    if let Some(v) = payload.guest_perm_shortcut_register {
+        updates.insert("guest_perm_shortcut_register".to_string(), json!(v));
+    }
     if let Some(v) = payload.guest_perm_event_publish {
         updates.insert("guest_perm_event_publish".to_string(), json!(v));
     }
