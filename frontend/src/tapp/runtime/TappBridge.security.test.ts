@@ -73,8 +73,35 @@ describe('TappBridge session token + inbound event allowlist', () => {
       return
     }
     // Fallback: invoke bound handleMessage if exposed for tests
-    void (bridge as unknown as { handleMessage: (e: MessageEvent) => void })
-      .handleMessage(event)
+    void (
+      bridge as unknown as { handleMessage: (e: MessageEvent) => void }
+    ).handleMessage(event)
+  }
+
+  function validateRequest(
+    action: string,
+    payload: unknown,
+  ): { valid: boolean; error?: string } {
+    const [api, method] = action.split('.', 2)
+    return (
+      bridge as unknown as {
+        validateMessage: (message: Record<string, unknown>) => {
+          valid: boolean
+          error?: string
+        }
+      }
+    ).validateMessage({
+      type: 'request',
+      id: 'validate-request',
+      action,
+      payload: {
+        api,
+        method,
+        ...(payload && typeof payload === 'object' ? payload : {}),
+      },
+      timestamp: Date.now(),
+      _sessionToken: SESSION,
+    })
   }
 
   it('accepts tapp.ready when session token matches', async () => {
@@ -190,6 +217,25 @@ describe('TappBridge session token + inbound event allowlist', () => {
     assert.equal(readyFired, 0)
   })
 
+  it('enforces the federation message cap in UTF-8 bytes', () => {
+    const result = validateRequest('federation.sendMessage', {
+      args: ['channel-1', { payload: '界'.repeat(1_500_000) }],
+    })
+
+    assert.equal(result.valid, false)
+    assert.match(result.error ?? '', /max 4 MiB/)
+    assert.match(result.error ?? '', /UTF-8 bytes/)
+    assert.match(result.error ?? '', /chunked transfer/)
+  })
+
+  it('keeps install packages on their separate larger budget', () => {
+    const result = validateRequest('tappList.install', {
+      args: [{ archive: 'x'.repeat(5 * 1024 * 1024) }],
+    })
+
+    assert.equal(result.valid, true)
+  })
+
   it('resolves bridge via contentWindow scan when source map is cold', async () => {
     // Simulate srcdoc race: message arrives before attachSource populated the map.
     const bridgesBySource = (
@@ -209,7 +255,10 @@ describe('TappBridge session token + inbound event allowlist', () => {
     await new Promise((r) => setTimeout(r, 0))
     assert.equal(readyFired, 1)
     // Map should be healed for subsequent messages
-    assert.equal(bridgesBySource.get(iframe.contentWindow as MessageEventSource), bridge)
+    assert.equal(
+      bridgesBySource.get(iframe.contentWindow as MessageEventSource),
+      bridge,
+    )
   })
 
   function captureResponses(): Array<Record<string, unknown>> {
@@ -283,10 +332,7 @@ describe('TappBridge session token + inbound event allowlist', () => {
     assert.ok(responses.length >= 1)
     const last = responses[responses.length - 1]!
     assert.equal(last.id, 'req-muted-huge')
-    assert.equal(
-      (last.payload as { code?: string }).code,
-      'BRIDGE_MUTED',
-    )
+    assert.equal((last.payload as { code?: string }).code, 'BRIDGE_MUTED')
   })
 
   it('while muted, drops events without hanging requests', async () => {
@@ -343,9 +389,7 @@ describe('TappBridge session token + inbound event allowlist', () => {
     ).inboundRate
     const original = inboundRate.tryTake.bind(inboundRate)
     inboundRate.tryTake = () => false
-    ;(
-      inboundRate as { retryAfterMs: () => number }
-    ).retryAfterMs = () => 1234
+    ;(inboundRate as { retryAfterMs: () => number }).retryAfterMs = () => 1234
 
     dispatchFromIframe({
       type: 'request',

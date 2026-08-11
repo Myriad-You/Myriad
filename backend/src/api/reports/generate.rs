@@ -1462,10 +1462,7 @@ pub(crate) static REPORT_REGEN_IN_FLIGHT: once_cell::sync::Lazy<
 /// Resolve which user's reports the public latest/list endpoints should serve.
 /// Prefers durable site owner (`is_owner`); falls back to the legacy owner id 1.
 /// Viewer credentials never select public report ownership.
-pub(crate) async fn public_report_owner_user_id(
-    db: &DatabaseConnection,
-    _headers: &axum::http::HeaderMap,
-) -> i32 {
+pub(crate) async fn public_report_owner_user_id(db: &DatabaseConnection) -> i32 {
     if let Ok(owner_id) = crate::api::profile::site_owner_user_id(db).await {
         return owner_id;
     }

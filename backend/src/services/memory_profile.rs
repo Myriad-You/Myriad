@@ -1,6 +1,7 @@
 //! Process-wide memory profile (default vs memory-saver).
 //!
-//! - **default**: historical hard-coded budgets (no behavior change).
+//! - **default**: current balanced, bounded product budgets. These are not the
+//!   legacy unbounded/high-water values, so upgrading can change request caps.
 //! - **saver**: tighter concurrent / cache / pool knobs for ~1 GiB hosts.
 //!
 //! Selection order: `MYRIAD_MEMORY_PROFILE` env (`default`|`saver`|`small`) >
@@ -15,7 +16,8 @@ use std::sync::{Arc, RwLock};
 use once_cell::sync::Lazy;
 use tokio::sync::Semaphore;
 
-/// Product / historical defaults (must match pre-profile constants).
+/// Current balanced product defaults. They are not compatibility promises for
+/// releases that predate the bounded federation profile.
 pub const DEFAULT_DB_MIN_CONNECTIONS: u32 = 5;
 pub const DEFAULT_DB_MAX_CONNECTIONS: u32 = 20;
 pub const DEFAULT_INBOX_INFLIGHT_RAW_BUDGET: usize = 32 * 1024 * 1024;
@@ -129,10 +131,8 @@ impl MemoryBudgets {
     }
 }
 
-static INBOX_INFLIGHT_BUDGET: AtomicUsize =
-    AtomicUsize::new(DEFAULT_INBOX_INFLIGHT_RAW_BUDGET);
-static CHUNK_INFLIGHT_BUDGET: AtomicUsize =
-    AtomicUsize::new(DEFAULT_MAX_IN_FLIGHT_CHUNK_BYTES);
+static INBOX_INFLIGHT_BUDGET: AtomicUsize = AtomicUsize::new(DEFAULT_INBOX_INFLIGHT_RAW_BUDGET);
+static CHUNK_INFLIGHT_BUDGET: AtomicUsize = AtomicUsize::new(DEFAULT_MAX_IN_FLIGHT_CHUNK_BYTES);
 static API_CACHE_CAP: AtomicUsize = AtomicUsize::new(DEFAULT_MAX_API_CACHE_ENTRIES);
 static GEO_CACHE_CAP: AtomicUsize = AtomicUsize::new(DEFAULT_MAX_GEO_CACHE_ENTRIES);
 static API_CACHE_BYTES: AtomicUsize = AtomicUsize::new(DEFAULT_MAX_API_CACHE_BYTES);
@@ -173,9 +173,7 @@ pub fn resolve_profile(memory_saver_enabled: bool) -> MemoryProfile {
         let v = raw.trim().to_ascii_lowercase();
         match v.as_str() {
             "saver" | "small" | "1" | "true" | "on" | "yes" => return MemoryProfile::Saver,
-            "default" | "balanced" | "0" | "false" | "off" | "no" => {
-                return MemoryProfile::Default
-            }
+            "default" | "balanced" | "0" | "false" | "off" | "no" => return MemoryProfile::Default,
             "" => {}
             other => {
                 tracing::warn!(
@@ -221,9 +219,7 @@ pub fn apply(profile: MemoryProfile) {
     DB_MAX.store(b.db_max_connections as usize, Ordering::Relaxed);
     ARGON2_PERMITS.store(b.argon2_permits, Ordering::Relaxed);
     {
-        let mut guard = ARGON2_SEMAPHORE
-            .write()
-            .unwrap_or_else(|p| p.into_inner());
+        let mut guard = ARGON2_SEMAPHORE.write().unwrap_or_else(|p| p.into_inner());
         *guard = Arc::new(Semaphore::new(b.argon2_permits));
     }
     ACTIVE_PROFILE.store(profile_to_tag(profile), Ordering::Relaxed);
@@ -392,9 +388,7 @@ mod tests {
         assert!(s.note_video_limit < d.note_video_limit);
         // Envelope headroom: inbox must still exceed message payload by ≥25%.
         assert!(s.inbox_body_limit > s.message_payload_limit);
-        assert!(
-            s.inbox_body_limit - s.message_payload_limit >= s.message_payload_limit / 4
-        );
+        assert!(s.inbox_body_limit - s.message_payload_limit >= s.message_payload_limit / 4);
         // Larger media is intentionally handled by chunked transfer, not inbox JSON.
         assert!(s.message_payload_limit >= 2 * 1024 * 1024);
         assert!(s.note_video_limit >= 96 * 1024 * 1024);
@@ -405,10 +399,7 @@ mod tests {
         let _g = test_profile_lock();
         apply(MemoryProfile::Saver);
         assert_eq!(active_profile(), MemoryProfile::Saver);
-        assert_eq!(
-            inbox_inflight_raw_budget(),
-            SAVER_INBOX_INFLIGHT_RAW_BUDGET
-        );
+        assert_eq!(inbox_inflight_raw_budget(), SAVER_INBOX_INFLIGHT_RAW_BUDGET);
         apply(MemoryProfile::Default);
         assert_eq!(
             inbox_inflight_raw_budget(),

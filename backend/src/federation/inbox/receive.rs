@@ -215,12 +215,14 @@ pub async fn post_inbox(
     // 先做只依赖 header/原始字节的检查，再解析 body（inbox 上限见 federation::limits::INBOX_BODY_LIMIT）
     verify_preparse_gate(&headers, &body)?;
 
-    // Do not queue already-buffered remote bodies behind CPU-heavy parses, and
-    // reject pathological JSON before allocating a complete Value tree.
+    // Do not queue already-buffered remote bodies behind admitted deliveries,
+    // and reject pathological JSON before allocating a complete Value tree.
+    // The permit intentionally lives with `activity` through verification and
+    // dispatch so this cap bounds complete parsed trees, not only parse CPU.
     let _parse_permit = try_acquire_inbox_parse().ok_or_else(|| {
         (
             StatusCode::TOO_MANY_REQUESTS,
-            Json(json!({"error": "Inbox JSON parser budget exhausted; retry later"})),
+            Json(json!({"error": "Inbox delivery budget exhausted; retry later"})),
         )
     })?;
     validate_inbox_json_budget(&body)
@@ -461,10 +463,12 @@ pub async fn post_shared_inbox(
     // 先做只依赖 header/原始字节的检查，再解析 body（inbox 上限见 federation::limits::INBOX_BODY_LIMIT）
     verify_preparse_gate(&headers, &body)?;
 
+    // Held through verification and dispatch while the complete JSON tree is
+    // alive; see FEDERATION.md "Public inbox resource boundary".
     let _parse_permit = try_acquire_inbox_parse().ok_or_else(|| {
         (
             StatusCode::TOO_MANY_REQUESTS,
-            Json(json!({"error": "Inbox JSON parser budget exhausted; retry later"})),
+            Json(json!({"error": "Inbox delivery budget exhausted; retry later"})),
         )
     })?;
     validate_inbox_json_budget(&body)

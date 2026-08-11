@@ -89,6 +89,16 @@ pub fn auth_cookie_value(token: &str, is_production: bool) -> String {
     )
 }
 
+/// `auth_token=…` Set-Cookie value for logout and invalid browser sessions.
+/// Attributes must match issuance so an HttpOnly cookie can be removed by the
+/// server; frontend JavaScript cannot delete it.
+pub fn clear_auth_cookie_value(is_production: bool) -> String {
+    format!(
+        "auth_token=deleted; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT{}",
+        if is_production { "; Secure" } else { "" }
+    )
+}
+
 /// PostgreSQL channel used to fan out auth-state invalidations between service
 /// instances.  NOTIFY is only a latency optimisation: the cache TTL below is
 /// the correctness bound when a notification is missed.
@@ -376,6 +386,7 @@ pub async fn optional_current_auth_middleware(
     req: Request,
     next: Next,
 ) -> Response {
+    let credential_source = auth_credential_source(req.headers());
     match authenticate_optional_request(req.headers(), &db).await {
         Ok(claims) => {
             if let Some(claims) = claims.as_ref() {
@@ -385,7 +396,9 @@ pub async fn optional_current_auth_middleware(
             req.extensions_mut().insert(OptionalClaims(claims));
             next.run(req).await
         }
-        Err(error_response) => *error_response,
+        Err(error_response) => {
+            clear_invalid_cookie_response(*error_response, credential_source).await
+        }
     }
 }
 
@@ -912,6 +925,7 @@ pub async fn optional_auth_middleware(
     next: Next,
 ) -> Response {
     let headers = req.headers();
+    let credential_source = auth_credential_source(headers);
     let mut set_guest_cookie = None;
     // Missing credentials become a signed guest. Presented credentials must
     // pass the full current-state path and never downgrade to guest.
@@ -951,7 +965,9 @@ pub async fn optional_auth_middleware(
                 tv: 0,
             }
         }
-        Err(error_response) => return *error_response,
+        Err(error_response) => {
+            return clear_invalid_cookie_response(*error_response, credential_source).await
+        }
     };
 
     let mut req = req;
@@ -1025,27 +1041,54 @@ pub fn verify_jwt_token(headers: &HeaderMap) -> Result<Claims, Box<Response>> {
     Ok(token_data.claims)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AuthCredentialSource {
+    Authorization,
+    Cookie,
+}
+
+fn auth_cookie_token(headers: &HeaderMap) -> Option<&str> {
+    cookie_value(headers, "auth_token")
+}
+
+fn auth_credential_source(headers: &HeaderMap) -> Option<AuthCredentialSource> {
+    if headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .is_some()
+    {
+        Some(AuthCredentialSource::Authorization)
+    } else {
+        auth_cookie_token(headers).map(|_| AuthCredentialSource::Cookie)
+    }
+}
+
 fn extract_auth_token(headers: &HeaderMap) -> Option<&str> {
-    headers
-        .get("Authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .or_else(|| {
-            // 回退到 HttpOnly Cookie
-            headers
-                .get(header::COOKIE)
-                .and_then(|v| v.to_str().ok())
-                .and_then(|cookies| {
-                    cookies.split(';').find_map(|cookie| {
-                        let (name, value) = cookie.trim().split_once('=')?;
-                        if name == "auth_token" {
-                            Some(value)
-                        } else {
-                            None
-                        }
-                    })
-                })
-        })
+    match auth_credential_source(headers)? {
+        AuthCredentialSource::Authorization => headers
+            .get(header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Bearer ")),
+        AuthCredentialSource::Cookie => auth_cookie_token(headers),
+    }
+}
+
+async fn clear_invalid_cookie_response(
+    mut response: Response,
+    credential_source: Option<AuthCredentialSource>,
+) -> Response {
+    if credential_source != Some(AuthCredentialSource::Cookie)
+        || response.status() != StatusCode::UNAUTHORIZED
+    {
+        return response;
+    }
+
+    let is_production = crate::oauth_url_builder::SiteConfig::is_production().await;
+    if let Ok(value) = HeaderValue::from_str(&clear_auth_cookie_value(is_production)) {
+        response.headers_mut().insert(header::SET_COOKIE, value);
+    }
+    response
 }
 
 #[cfg(test)]
@@ -1054,11 +1097,11 @@ mod tests {
         apply_current_roles, auth_cache_generation, auth_cache_get, auth_cache_put,
         auth_cache_put_if_generation, authenticate_optional_request, claim_auth_load_slot,
         encode_session_token, guest_id, invalidate_auth_cache_local, mint_session_claims,
-        session_epoch_matches, sign_guest_session, verify_guest_session, verify_jwt_token,
-        AuthLoadSlot, AuthSnapshot, AUTH_CACHE_CAPACITY, AUTH_CACHE_TTL, AUTH_COOKIE_MAX_AGE_SECS,
-        JWT_TTL_DAYS,
+        optional_current_auth_middleware, session_epoch_matches, sign_guest_session,
+        verify_guest_session, verify_jwt_token, AuthLoadSlot, AuthSnapshot, AUTH_CACHE_CAPACITY,
+        AUTH_CACHE_TTL, AUTH_COOKIE_MAX_AGE_SECS, JWT_TTL_DAYS,
     };
-    use axum::http::{header, HeaderMap, HeaderValue};
+    use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
     use std::sync::{Mutex, Once, OnceLock};
     use std::time::{Duration, Instant};
 
@@ -1227,6 +1270,59 @@ mod tests {
                 .is_err(),
             "deleted user must not downgrade to anonymous"
         );
+    }
+
+    #[test]
+    fn optional_current_auth_http_rejects_revoked_cookie_and_clears_it() {
+        use axum::{body::Body, middleware::from_fn_with_state, routing::get, Router};
+        use tower::ServiceExt;
+
+        ensure_jwt_secret();
+        let _test_guard = auth_cache_test_guard();
+        clear_auth_cache_for_test();
+
+        let claims = mint_session_claims(78, "revoked", false, false, 4);
+        let token = encode_session_token(&claims).expect("encode revoked token");
+        auth_cache_put(
+            78,
+            Some(AuthSnapshot {
+                token_version: 5,
+                is_admin: false,
+                is_owner: false,
+            }),
+        );
+
+        let app = Router::new()
+            .route("/", get(|| async { StatusCode::OK }))
+            .route_layer(from_fn_with_state(
+                sea_orm::DatabaseConnection::default(),
+                optional_current_auth_middleware,
+            ));
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let response = runtime
+            .block_on(
+                app.oneshot(
+                    axum::http::Request::builder()
+                        .uri("/")
+                        .header(header::COOKIE, format!("auth_token={token}"))
+                        .body(Body::empty())
+                        .expect("request"),
+                ),
+            )
+            .expect("middleware response");
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        let clear_cookie = response
+            .headers()
+            .get(header::SET_COOKIE)
+            .and_then(|value| value.to_str().ok())
+            .expect("revoked HttpOnly cookie must be cleared by the server");
+        assert!(clear_cookie.starts_with("auth_token=deleted;"));
+        assert!(clear_cookie.contains("HttpOnly"));
+        assert!(clear_cookie.contains("Max-Age=0"));
     }
 
     #[test]
