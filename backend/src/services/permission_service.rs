@@ -768,7 +768,62 @@ mod tests {
     }
 
     #[test]
-    fn test_user_no_elevated_by_default() {
+    fn test_user_receives_default_ui_and_event_contributions_only_when_declared() {
+        let config = DynamicConfig::default();
+        let requested = vec![
+            "component:theme".to_string(),
+            "shortcut:register".to_string(),
+            "event:publish".to_string(),
+            "ai:generate".to_string(),
+            "network:fetch".to_string(),
+        ];
+
+        assert_eq!(
+            TappPermissionService::filter_permissions_for_role(&config, UserRole::User, &requested,),
+            vec!["component:theme", "shortcut:register", "event:publish"]
+        );
+        assert_eq!(
+            TappPermissionService::filter_permissions_for_role(
+                &config,
+                UserRole::User,
+                &["event:publish".to_string()],
+            ),
+            vec!["event:publish"]
+        );
+        assert_eq!(
+            TappPermission::ComponentTheme.level(),
+            PermissionLevel::Elevated
+        );
+        assert_eq!(
+            TappPermission::ShortcutRegister.level(),
+            PermissionLevel::Elevated
+        );
+        assert_eq!(
+            TappPermission::EventPublish.level(),
+            PermissionLevel::Elevated
+        );
+
+        let effective = TappPermissionService::get_permission_config(&config);
+        assert!(effective.user.component_theme);
+        assert!(effective.user.shortcut_register);
+        assert!(effective.user.event_publish);
+
+        let disabled = DynamicConfig {
+            user_perm_component_theme: false,
+            user_perm_shortcut_register: false,
+            user_perm_event_publish: false,
+            ..DynamicConfig::default()
+        };
+        assert!(TappPermissionService::filter_permissions_for_role(
+            &disabled,
+            UserRole::User,
+            &requested,
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn test_user_high_cost_elevated_permissions_remain_disabled_by_default() {
         let config = DynamicConfig::default();
         assert!(!TappPermissionService::check(
             &config,
