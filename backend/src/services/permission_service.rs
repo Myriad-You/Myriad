@@ -177,7 +177,6 @@ impl TappPermission {
             TappPermission::BrewWrite
                 | TappPermission::BrewComment
                 | TappPermission::ReportRead
-                | TappPermission::UiNotification
                 | TappPermission::ComponentTheme
                 | TappPermission::ShortcutRegister
                 | TappPermission::SchedulerRegister
@@ -743,6 +742,7 @@ mod tests {
                 "media:control",
                 "event:subscribe",
                 "storage",
+                "ui:notification",
                 "tappList:read",
                 "brew:read",
                 "federation:read"

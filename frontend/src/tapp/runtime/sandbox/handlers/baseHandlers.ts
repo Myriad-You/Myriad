@@ -9,6 +9,7 @@ import type { PermissionLevel, TappInstance } from '../../../types'
 import type { OpenUrlRequest } from '../../../utils/openUrlAllowlist'
 import type { TappBridge } from '../../TappBridge'
 import type { TappNotificationOptions } from '../types'
+import { showToast } from '../../../../utils/toastManager'
 import * as TappApiService from '../../../services/TappApiService'
 import {
   listOpenUrlDeclarations,
@@ -18,6 +19,7 @@ import {
 } from '../../../utils/openUrlAllowlist'
 import { emitTappStorageChange } from '../../WidgetRuntimeSignals'
 import { sanitizeStorageValue, validateStorageKey } from '../security'
+import { prepareTappNotification } from './notificationPolicy'
 
 /** Per-tapp openUrl rate limit (host-side; shared across sandboxes in this tab). */
 const openUrlRateLimiter = new OpenUrlRateLimiter(8, 10_000)
@@ -104,14 +106,24 @@ export function registerUIHandlers(
     if (!options) {
       return { success: false, error: 'Notification options required' }
     }
-    const opts = options as TappNotificationOptions
+    const prepared = prepareTappNotification(
+      options as TappNotificationOptions,
+      tappInstance.userRole,
+    )
+    if (prepared.delivery === 'session') {
+      showToast(prepared)
+      return {
+        success: true,
+        data: { notificationId: null, sessionOnly: true },
+      }
+    }
     try {
       const notificationId = await TappApiService.createTappNotification(
         {
           tappId: tappInstance.id,
-          title: opts.title || 'Tapp 通知',
-          message: opts.message || '',
-          notificationType: opts.type || 'info',
+          title: prepared.title,
+          message: prepared.message,
+          notificationType: prepared.type,
         },
         await bridge.getRuntimeGrant(),
       )

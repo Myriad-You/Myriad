@@ -24,6 +24,7 @@ import {
   hostUnbindShortcut,
 } from '../../HostShortcutManager'
 import { getTappRuntime } from '../../TappRuntime'
+import { canMutateDynamicContent } from './notificationPolicy'
 
 /**
  * 注册 Media 处理器
@@ -1030,6 +1031,9 @@ export function registerDynamicContentHandlers(
   tappInstance: TappInstance,
 ): void {
   bridge.registerHandler('dynamicContent.set', async (message) => {
+    if (!canMutateDynamicContent(tappInstance.userRole)) {
+      return { success: false, error: 'Guest dynamic content mutation is denied' }
+    }
     const [config] = (message.payload as { args: unknown[] }).args || []
     const { icon, text, subtext, priority, showSubtext, expiresAt, i18n } =
       (config || {}) as {
@@ -1071,6 +1075,9 @@ export function registerDynamicContentHandlers(
   })
 
   bridge.registerHandler('dynamicContent.update', async (message) => {
+    if (!canMutateDynamicContent(tappInstance.userRole)) {
+      return { success: false, error: 'Guest dynamic content mutation is denied' }
+    }
     const [updates] = (message.payload as { args: unknown[] }).args || []
     if (!updates) return { success: false, error: 'Updates required' }
     try {
@@ -1093,6 +1100,9 @@ export function registerDynamicContentHandlers(
   })
 
   bridge.registerHandler('dynamicContent.remove', async () => {
+    if (!canMutateDynamicContent(tappInstance.userRole)) {
+      return { success: false, error: 'Guest dynamic content mutation is denied' }
+    }
     try {
       const provider = getDynamicContentProvider()
       provider.removeTappContent(tappInstance.id)
