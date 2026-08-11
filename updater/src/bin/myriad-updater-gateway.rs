@@ -9,7 +9,8 @@
 //! via the gateway (token still never leaves gateway→updater). Prefer not placing
 //! untrusted workloads on admin-net; protect the gateway secret like other secrets.
 
-use std::collections::HashMap;
+use std::borrow::Cow;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -19,13 +20,13 @@ use axum::body::{to_bytes, Body};
 use axum::extract::State;
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue, Method, Request, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
-use axum::routing::any;
+use axum::routing::{delete, get, post};
 use axum::Router;
 use once_cell::sync::Lazy;
 use reqwest::Client;
 use tracing::{error, info, warn};
 
-const MAX_BODY: usize = 16 * 1024 * 1024;
+const MAX_BODY: usize = 64 * 1024;
 const GATEWAY_SECRET_MIN_LEN: usize = 32;
 const HEADER_GATEWAY_SECRET: &str = "x-updater-gateway-secret";
 const HEADER_UPDATE_TOKEN: &str = "x-update-token";
@@ -97,16 +98,49 @@ async fn main() -> Result<()> {
 
     info!(%listen, %upstream, "updater-gateway listening");
 
-    let app = Router::new()
-        .route("/healthz", axum::routing::get(local_healthz))
-        .fallback(any(proxy))
-        .with_state(Arc::new(state));
+    let app = build_router(Arc::new(state));
 
     let listener = tokio::net::TcpListener::bind(listen).await?;
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
     Ok(())
+}
+
+fn build_router(state: Arc<GatewayState>) -> Router {
+    // This is the gateway's authority boundary. A route must be added here and
+    // to `validate_capability` before the updater token can ever be attached.
+    Router::new()
+        .route("/healthz", get(local_healthz))
+        .route("/status", get(proxy))
+        .route("/available", get(proxy))
+        .route("/commits", get(proxy))
+        .route("/builds", get(proxy))
+        .route("/releases", get(proxy))
+        .route("/compare", get(proxy))
+        .route("/jobs", get(proxy))
+        .route("/jobs/{id}", get(proxy))
+        .route("/snapshots", get(proxy))
+        .route("/snapshots/{id}", delete(proxy))
+        .route("/self-update/last", get(proxy))
+        .route("/diagnostics", get(proxy))
+        .route("/update", post(proxy))
+        .route("/prefs", post(proxy))
+        .route("/rollback", post(proxy))
+        .route("/rescue/continue", post(proxy))
+        .route("/rescue/exit-maintenance", post(proxy))
+        .route("/rescue/forget-current", post(proxy))
+        .route("/admin/self-update", post(proxy))
+        .route("/admin/proxy-update", post(proxy))
+        .fallback(unknown_capability)
+        .with_state(state)
+}
+
+async fn unknown_capability() -> Response {
+    rejection(
+        StatusCode::NOT_FOUND,
+        "updater capability is not exposed by this gateway",
+    )
 }
 
 /// Wait for Ctrl+C or (on Unix) SIGTERM so Docker/K8s `stop` enters Axum graceful shutdown.
@@ -182,6 +216,10 @@ async fn proxy(State(state): State<Arc<GatewayState>>, req: Request<Body>) -> Re
         }
     };
 
+    if let Err(error) = validate_capability(&method, &uri, &headers, &body) {
+        return error.into_response();
+    }
+
     let target = upstream_url(&state.upstream, &uri);
     let mut builder = state
         .http
@@ -216,6 +254,502 @@ async fn proxy(State(state): State<Arc<GatewayState>>, req: Request<Body>) -> Re
                 .into_response()
         }
     }
+}
+
+#[derive(Clone, Copy)]
+enum BodySchema {
+    None,
+    Update,
+    Prefs,
+    Rollback,
+    ProxyUpdate,
+}
+
+struct Capability {
+    query_fields: &'static [&'static str],
+    required_query_fields: &'static [&'static str],
+    body: BodySchema,
+    actor_header: bool,
+    idempotency_header: bool,
+    confirm_risk_header: bool,
+}
+
+struct ValidationError {
+    status: StatusCode,
+    message: Cow<'static, str>,
+}
+
+impl IntoResponse for ValidationError {
+    fn into_response(self) -> Response {
+        (
+            self.status,
+            axum::Json(serde_json::json!({"message": self.message})),
+        )
+            .into_response()
+    }
+}
+
+fn validation_error(status: StatusCode, message: impl Into<Cow<'static, str>>) -> ValidationError {
+    ValidationError {
+        status,
+        message: message.into(),
+    }
+}
+
+fn validate_capability(
+    method: &Method,
+    uri: &Uri,
+    headers: &HeaderMap,
+    body: &[u8],
+) -> Result<(), ValidationError> {
+    let path = uri.path();
+    let capability = match (method, path) {
+        (&Method::GET, "/status")
+        | (&Method::GET, "/jobs")
+        | (&Method::GET, "/snapshots")
+        | (&Method::GET, "/self-update/last") => read_capability(&[], &[]),
+        (&Method::GET, "/diagnostics") => Capability {
+            actor_header: false,
+            ..read_capability(&[], &[])
+        },
+        (&Method::GET, "/available") => read_capability(&["channel", "mode"], &[]),
+        (&Method::GET, "/commits") => read_capability(&["branch", "limit"], &[]),
+        (&Method::GET, "/builds") => read_capability(&["limit"], &[]),
+        (&Method::GET, "/releases") => read_capability(&["channel", "limit"], &[]),
+        (&Method::GET, "/compare") => read_capability(&["from", "to"], &["to"]),
+        (&Method::GET, p) if valid_dynamic_id(p, "/jobs/") => read_capability(&[], &[]),
+        (&Method::DELETE, p) if valid_dynamic_id(p, "/snapshots/") => Capability {
+            actor_header: true,
+            ..read_capability(&[], &[])
+        },
+        (&Method::POST, "/update") => Capability {
+            query_fields: &[],
+            required_query_fields: &[],
+            body: BodySchema::Update,
+            actor_header: true,
+            idempotency_header: true,
+            confirm_risk_header: true,
+        },
+        (&Method::POST, "/prefs") => Capability {
+            body: BodySchema::Prefs,
+            ..write_capability(false)
+        },
+        (&Method::POST, "/rollback") => Capability {
+            body: BodySchema::Rollback,
+            ..write_capability(true)
+        },
+        (&Method::POST, "/admin/proxy-update") => Capability {
+            body: BodySchema::ProxyUpdate,
+            ..write_capability(true)
+        },
+        (&Method::POST, "/rescue/continue")
+        | (&Method::POST, "/rescue/exit-maintenance")
+        | (&Method::POST, "/rescue/forget-current")
+        | (&Method::POST, "/admin/self-update") => write_capability(true),
+        // Router method/path filters should make this unreachable. Keeping the
+        // second fence here prevents a future route edit from silently growing
+        // token authority.
+        _ => {
+            return Err(validation_error(
+                StatusCode::NOT_FOUND,
+                "updater capability is not exposed by this gateway",
+            ));
+        }
+    };
+
+    validate_query(
+        uri,
+        capability.query_fields,
+        capability.required_query_fields,
+    )?;
+    validate_headers(headers, &capability)?;
+    validate_body(headers, body, capability.body)
+}
+
+fn read_capability(
+    query_fields: &'static [&'static str],
+    required_query_fields: &'static [&'static str],
+) -> Capability {
+    Capability {
+        query_fields,
+        required_query_fields,
+        body: BodySchema::None,
+        actor_header: false,
+        idempotency_header: false,
+        confirm_risk_header: false,
+    }
+}
+
+fn write_capability(actor_header: bool) -> Capability {
+    Capability {
+        query_fields: &[],
+        required_query_fields: &[],
+        body: BodySchema::None,
+        actor_header,
+        idempotency_header: false,
+        confirm_risk_header: false,
+    }
+}
+
+fn valid_dynamic_id(path: &str, prefix: &str) -> bool {
+    path.strip_prefix(prefix).is_some_and(|id| {
+        !id.is_empty()
+            && id.len() <= 128
+            && id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+    })
+}
+
+fn validate_query(uri: &Uri, allowed: &[&str], required: &[&str]) -> Result<(), ValidationError> {
+    let Some(raw) = uri.query() else {
+        if required.is_empty() {
+            return Ok(());
+        }
+        return Err(validation_error(
+            StatusCode::BAD_REQUEST,
+            "required updater query field is missing",
+        ));
+    };
+    if raw.len() > 2_048 || !valid_percent_encoding(raw) {
+        return Err(validation_error(
+            StatusCode::BAD_REQUEST,
+            "invalid updater query encoding",
+        ));
+    }
+
+    let allowed: HashSet<&str> = allowed.iter().copied().collect();
+    let mut seen = HashSet::new();
+    for (key, value) in url::form_urlencoded::parse(raw.as_bytes()) {
+        let key = key.as_ref();
+        if !allowed.contains(key) || !seen.insert(key.to_string()) {
+            return Err(validation_error(
+                StatusCode::BAD_REQUEST,
+                "unknown or duplicate updater query field",
+            ));
+        }
+        validate_query_value(key, value.as_ref())?;
+    }
+    if required.iter().any(|field| !seen.contains(*field)) {
+        return Err(validation_error(
+            StatusCode::BAD_REQUEST,
+            "required updater query field is missing",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_query_value(key: &str, value: &str) -> Result<(), ValidationError> {
+    if value.len() > 256 || value.chars().any(char::is_control) {
+        return Err(validation_error(
+            StatusCode::BAD_REQUEST,
+            "invalid updater query value",
+        ));
+    }
+    match key {
+        "channel" if !matches!(value, "stable" | "preview") => Err(validation_error(
+            StatusCode::BAD_REQUEST,
+            "channel must be stable or preview",
+        )),
+        "mode" if !matches!(value, "release" | "commit") => Err(validation_error(
+            StatusCode::BAD_REQUEST,
+            "mode must be release or commit",
+        )),
+        "limit" => match value.parse::<u32>() {
+            Ok(1..=100) => Ok(()),
+            _ => Err(validation_error(
+                StatusCode::BAD_REQUEST,
+                "limit must be an integer from 1 to 100",
+            )),
+        },
+        "to" if value.trim().is_empty() => Err(validation_error(
+            StatusCode::BAD_REQUEST,
+            "compare target cannot be empty",
+        )),
+        _ => Ok(()),
+    }
+}
+
+fn valid_percent_encoding(raw: &str) -> bool {
+    let bytes = raw.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            if index + 2 >= bytes.len()
+                || !bytes[index + 1].is_ascii_hexdigit()
+                || !bytes[index + 2].is_ascii_hexdigit()
+            {
+                return false;
+            }
+            index += 3;
+        } else {
+            index += 1;
+        }
+    }
+    true
+}
+
+fn validate_headers(headers: &HeaderMap, capability: &Capability) -> Result<(), ValidationError> {
+    const TRANSPORT_HEADERS: &[&str] = &[
+        "host",
+        "accept",
+        "accept-encoding",
+        "content-type",
+        "content-length",
+        "transfer-encoding",
+        "connection",
+        "user-agent",
+        "x-forwarded-for",
+    ];
+
+    for name in headers.keys() {
+        let name = name.as_str();
+        let allowed = TRANSPORT_HEADERS.contains(&name)
+            || name == HEADER_GATEWAY_SECRET
+            || (name == "x-update-actor" && capability.actor_header)
+            || (name == "idempotency-key" && capability.idempotency_header)
+            || (name == "x-myriad-confirm-risk" && capability.confirm_risk_header);
+        if !allowed || name == HEADER_UPDATE_TOKEN {
+            return Err(validation_error(
+                StatusCode::BAD_REQUEST,
+                "request header is not allowed for this updater capability",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_body(
+    headers: &HeaderMap,
+    body: &[u8],
+    schema: BodySchema,
+) -> Result<(), ValidationError> {
+    if matches!(schema, BodySchema::None) {
+        if body.is_empty() {
+            return Ok(());
+        }
+        return Err(validation_error(
+            StatusCode::BAD_REQUEST,
+            "this updater capability does not accept a request body",
+        ));
+    }
+
+    let is_json = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| {
+            value
+                .split(';')
+                .next()
+                .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("application/json"))
+        });
+    if !is_json {
+        return Err(validation_error(
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "updater capability requires application/json",
+        ));
+    }
+
+    let value: serde_json::Value = serde_json::from_slice(body).map_err(|_| {
+        validation_error(
+            StatusCode::BAD_REQUEST,
+            "updater request body must be valid JSON",
+        )
+    })?;
+    let object = value.as_object().ok_or_else(|| {
+        validation_error(
+            StatusCode::BAD_REQUEST,
+            "updater request body must be a JSON object",
+        )
+    })?;
+
+    match schema {
+        BodySchema::None => unreachable!(),
+        BodySchema::Update => validate_update_body(object),
+        BodySchema::Prefs => validate_prefs_body(object),
+        BodySchema::Rollback => validate_rollback_body(object),
+        BodySchema::ProxyUpdate => validate_proxy_update_body(object),
+    }
+}
+
+fn deny_unknown_fields(
+    object: &serde_json::Map<String, serde_json::Value>,
+    allowed: &[&str],
+) -> Result<(), ValidationError> {
+    if object.keys().any(|key| !allowed.contains(&key.as_str())) {
+        Err(validation_error(
+            StatusCode::BAD_REQUEST,
+            "updater request contains an unknown field",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_update_body(
+    object: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(), ValidationError> {
+    const STRINGS: &[&str] = &["target_version", "target_commit", "mode"];
+    const BOOLEANS: &[&str] = &[
+        "allow_downgrade",
+        "allow_risk",
+        "allow_diverged",
+        "allow_unknown",
+        "allow_irreversible",
+        "allow_skip_versions",
+        "confirm_risk",
+    ];
+    let mut allowed = STRINGS.to_vec();
+    allowed.extend_from_slice(BOOLEANS);
+    deny_unknown_fields(object, &allowed)?;
+    for key in STRINGS {
+        if let Some(value) = object.get(*key) {
+            validate_short_string(value, key)?;
+        }
+    }
+    if let Some(mode) = object.get("mode").and_then(|value| value.as_str()) {
+        if !matches!(mode, "release" | "commit") {
+            return Err(validation_error(
+                StatusCode::BAD_REQUEST,
+                "mode must be release or commit",
+            ));
+        }
+    }
+    for key in BOOLEANS {
+        if object.get(*key).is_some_and(|value| !value.is_boolean()) {
+            return Err(validation_error(
+                StatusCode::BAD_REQUEST,
+                "updater boolean field has the wrong type",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_prefs_body(
+    object: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(), ValidationError> {
+    const ALLOWED: &[&str] = &[
+        "channel",
+        "mode",
+        "check_interval_secs",
+        "auto_install",
+        "snapshot_limit_enabled",
+        "snapshot_limit",
+    ];
+    deny_unknown_fields(object, ALLOWED)?;
+    if object.is_empty() {
+        return Err(validation_error(
+            StatusCode::BAD_REQUEST,
+            "prefs request must change at least one field",
+        ));
+    }
+    if let Some(value) = object.get("channel") {
+        let channel = value
+            .as_str()
+            .ok_or_else(|| validation_error(StatusCode::BAD_REQUEST, "channel must be a string"))?;
+        if !matches!(channel, "stable" | "preview") {
+            return Err(validation_error(
+                StatusCode::BAD_REQUEST,
+                "channel must be stable or preview",
+            ));
+        }
+    }
+    if let Some(value) = object.get("mode") {
+        let mode = value
+            .as_str()
+            .ok_or_else(|| validation_error(StatusCode::BAD_REQUEST, "mode must be a string"))?;
+        if !matches!(mode, "release" | "commit") {
+            return Err(validation_error(
+                StatusCode::BAD_REQUEST,
+                "mode must be release or commit",
+            ));
+        }
+    }
+    if let Some(value) = object.get("check_interval_secs") {
+        let valid =
+            value.is_null() || matches!(value.as_u64(), Some(0 | 3_600 | 21_600 | 43_200 | 86_400));
+        if !valid {
+            return Err(validation_error(
+                StatusCode::BAD_REQUEST,
+                "check_interval_secs is not an allowed interval",
+            ));
+        }
+    }
+    for key in ["auto_install", "snapshot_limit_enabled"] {
+        if object.get(key).is_some_and(|value| !value.is_boolean()) {
+            return Err(validation_error(
+                StatusCode::BAD_REQUEST,
+                "updater preference boolean has the wrong type",
+            ));
+        }
+    }
+    if object
+        .get("snapshot_limit")
+        .is_some_and(|value| !matches!(value.as_u64(), Some(1..=20)))
+    {
+        return Err(validation_error(
+            StatusCode::BAD_REQUEST,
+            "snapshot_limit must be an integer from 1 to 20",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_rollback_body(
+    object: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(), ValidationError> {
+    deny_unknown_fields(object, &["snapshot_id"])?;
+    let id = object
+        .get("snapshot_id")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| validation_error(StatusCode::BAD_REQUEST, "snapshot_id is required"))?;
+    if valid_id(id) {
+        Ok(())
+    } else {
+        Err(validation_error(
+            StatusCode::BAD_REQUEST,
+            "snapshot_id has an invalid shape",
+        ))
+    }
+}
+
+fn validate_proxy_update_body(
+    object: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(), ValidationError> {
+    deny_unknown_fields(object, &["target_version"])?;
+    if let Some(value) = object.get("target_version") {
+        validate_short_string(value, "target_version")?;
+    }
+    Ok(())
+}
+
+fn validate_short_string(value: &serde_json::Value, field: &str) -> Result<(), ValidationError> {
+    let Some(value) = value.as_str() else {
+        return Err(validation_error(
+            StatusCode::BAD_REQUEST,
+            "updater string field has the wrong type",
+        ));
+    };
+    if value.is_empty() || value.len() > 256 || value.chars().any(char::is_control) {
+        return Err(validation_error(
+            StatusCode::BAD_REQUEST,
+            format!("{field} has an invalid shape"),
+        ));
+    }
+    Ok(())
+}
+
+fn valid_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 128
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+}
+
+fn rejection(status: StatusCode, message: &str) -> Response {
+    (status, axum::Json(serde_json::json!({"message": message}))).into_response()
 }
 
 /// Validate `X-Updater-Gateway-Secret` with a length-checked constant-time compare.
@@ -352,16 +886,8 @@ fn upstream_url(base: &str, uri: &Uri) -> String {
 }
 
 fn method_to_reqwest(method: &Method) -> reqwest::Method {
-    match *method {
-        Method::GET => reqwest::Method::GET,
-        Method::POST => reqwest::Method::POST,
-        Method::PUT => reqwest::Method::PUT,
-        Method::PATCH => reqwest::Method::PATCH,
-        Method::DELETE => reqwest::Method::DELETE,
-        Method::HEAD => reqwest::Method::HEAD,
-        Method::OPTIONS => reqwest::Method::OPTIONS,
-        _ => reqwest::Method::GET,
-    }
+    reqwest::Method::from_bytes(method.as_str().as_bytes())
+        .expect("Axum accepted a standard HTTP method")
 }
 
 async fn forward_response(upstream: reqwest::Response) -> Response {
@@ -412,6 +938,30 @@ async fn forward_response(upstream: reqwest::Response) -> Response {
 mod tests {
     use super::*;
     use axum::http::HeaderValue;
+    use tower::ServiceExt;
+
+    const TEST_SECRET: &str = "abcdefghijklmnopqrstuvwxyz012345";
+
+    fn test_router() -> Router {
+        build_router(Arc::new(GatewayState {
+            upstream: "http://127.0.0.1:9".into(),
+            token: TEST_SECRET.into(),
+            gateway_secret: TEST_SECRET.into(),
+            http: Client::builder()
+                .connect_timeout(Duration::from_millis(50))
+                .build()
+                .unwrap(),
+        }))
+    }
+
+    fn authorized_request(method: Method, uri: &str, body: Body) -> Request<Body> {
+        Request::builder()
+            .method(method)
+            .uri(uri)
+            .header(HEADER_GATEWAY_SECRET, TEST_SECRET)
+            .body(body)
+            .unwrap()
+    }
 
     #[test]
     fn upstream_url_joins_path_and_query() {
@@ -474,5 +1024,102 @@ mod tests {
         let err =
             authorize_gateway_caller(&headers, "abcdefghijklmnopqrstuvwxyz012345").unwrap_err();
         assert_eq!(err.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn router_rejects_unknown_path_and_method_without_proxying() {
+        let unknown = test_router()
+            .oneshot(
+                Request::builder()
+                    .uri("/arbitrary/admin/action")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unknown.status(), StatusCode::NOT_FOUND);
+
+        let wrong_method = test_router()
+            .oneshot(authorized_request(Method::PUT, "/status", Body::empty()))
+            .await
+            .unwrap();
+        assert_eq!(wrong_method.status(), StatusCode::METHOD_NOT_ALLOWED);
+    }
+
+    #[tokio::test]
+    async fn router_rejects_encoded_path_traversal() {
+        for path in [
+            "/jobs/%2e%2e",
+            "/jobs/%2E%2E%2Fstatus",
+            "/snapshots/%2e%2e%2fsecret",
+        ] {
+            let method = if path.starts_with("/snapshots/") {
+                Method::DELETE
+            } else {
+                Method::GET
+            };
+            let response = test_router()
+                .oneshot(authorized_request(method, path, Body::empty()))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::NOT_FOUND, "path={path}");
+        }
+    }
+
+    #[tokio::test]
+    async fn router_rejects_unknown_query_header_and_json_field() {
+        let query = test_router()
+            .oneshot(authorized_request(
+                Method::GET,
+                "/status?full=1",
+                Body::empty(),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(query.status(), StatusCode::BAD_REQUEST);
+
+        let mut header = authorized_request(Method::GET, "/status", Body::empty());
+        header
+            .headers_mut()
+            .insert("x-unexpected", HeaderValue::from_static("1"));
+        let header = test_router().oneshot(header).await.unwrap();
+        assert_eq!(header.status(), StatusCode::BAD_REQUEST);
+
+        let mut body = authorized_request(
+            Method::POST,
+            "/update",
+            Body::from(r#"{"command":"shell"}"#),
+        );
+        body.headers_mut().insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        );
+        let body = test_router().oneshot(body).await.unwrap();
+        assert_eq!(body.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn capability_validation_rejects_wrong_body_shapes() {
+        let mut headers = HeaderMap::new();
+        headers.insert(HEADER_GATEWAY_SECRET, HeaderValue::from_static(TEST_SECRET));
+        headers.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        );
+
+        let uri: Uri = "/rollback".parse().unwrap();
+        assert!(validate_capability(
+            &Method::POST,
+            &uri,
+            &headers,
+            br#"{"snapshot_id":"../outside"}"#,
+        )
+        .is_err());
+
+        let uri: Uri = "/prefs".parse().unwrap();
+        assert!(
+            validate_capability(&Method::POST, &uri, &headers, br#"{"snapshot_limit":21}"#,)
+                .is_err()
+        );
     }
 }

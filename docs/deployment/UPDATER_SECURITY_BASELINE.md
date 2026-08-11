@@ -12,6 +12,8 @@ Related:
 - [DOCKER_DEPLOYMENT.md](./DOCKER_DEPLOYMENT.md) — topology and env
 - [UPDATER_QUICKSTART.md](../UPDATER_QUICKSTART.md) — day-to-day update ops
 - [updater-spec.md](../updater-spec.md) §15 — design-level trust boundary
+- [UPDATER_GATEWAY_THREAT_MODEL.md](./UPDATER_GATEWAY_THREAT_MODEL.md) — exact
+  token-bearing gateway capabilities and failure boundaries
 - `bash scripts/docker/deploy.sh doctor` — read-only topology checks
 
 ---
@@ -25,7 +27,7 @@ Related:
 | **Guard identity** | Production Guard is selected by a host-owned `docker-guard.env` outside the deployment root and must use the independently verified `repo@sha256` identity |
 | **Guard local auth** | `/_myriad/self-update` requires a distinct host-policy capability shared only with updater; guard-net membership alone is insufficient |
 | **Token hop** | `UPDATE_TOKEN` in updater + gateway only — **not** in backend or Guard env |
-| **Gateway secret** | `UPDATER_GATEWAY_SECRET` (≥32) on backend ↔ updater-gateway; admin-net alone is not enough |
+| **Gateway secret** | `UPDATER_GATEWAY_SECRET` (≥32) on backend ↔ updater-gateway; admin-net alone is not enough; the token hop exposes only explicit method/path/query/body capabilities |
 | **Cosign dual-key** | Default `COSIGN_VERIFY=strict`; `off` requires `UPDATER_ALLOW_INSECURE_COSIGN=true` (or alias) |
 | **Audit** | `state/audit.log` (fsync, rotate); actor header from admin JWT when proxied |
 | **Doctor** | `deploy.sh doctor` / `deploy.ps1 doctor` topology + secrets + cosign; optional `--host` scan |

@@ -27,6 +27,9 @@ mod federation_inbox_receipts;
 #[path = "013_federation_inbox_receipts_v2.rs"]
 mod federation_inbox_receipts_v2;
 
+#[path = "014_federation_delivery_leases.rs"]
+mod federation_delivery_leases;
+
 pub struct Migrator;
 
 #[async_trait::async_trait]
@@ -47,6 +50,7 @@ impl MigratorTrait for Migrator {
         migrations.extend(retired_history::migrations());
         migrations.push(Box::new(federation_inbox_receipts::Migration));
         migrations.push(Box::new(federation_inbox_receipts_v2::Migration));
+        migrations.push(Box::new(federation_delivery_leases::Migration));
         migrations
     }
 }
@@ -79,6 +83,10 @@ mod tests {
         assert!(
             unique.contains("013_federation_inbox_receipts_v2"),
             "legacy receipt-shape repair must remain registered"
+        );
+        assert!(
+            unique.contains("014_federation_delivery_leases"),
+            "delivery lease ownership migration must remain registered"
         );
     }
 }

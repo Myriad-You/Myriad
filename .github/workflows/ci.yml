@@ -150,6 +150,10 @@ jobs:
         env:
           MYRIAD_SCHEMA_DRIFT_DB: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_drift
         run: cargo test --workspace --locked migrations_leave_no_schema_drift -- --nocapture
+      - name: Federation outbox and delivery lease database contracts
+        env:
+          MYRIAD_SCHEMA_DRIFT_DB: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_drift
+        run: cargo test --workspace --locked federation_outbox_and_delivery_lease_db_contracts -- --nocapture
 
   dependency-audit:
     name: Dependency vulnerability scan

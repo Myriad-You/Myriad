@@ -1,6 +1,6 @@
 //! Room messages, files, and pin.
 use axum::{http::StatusCode, Json};
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
+use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
 use serde_json::json;
 
 use crate::federation::types::*;
@@ -104,8 +104,31 @@ pub async fn send_room_message(
     };
 
     let message_id = generate_message_id();
+    let activity_id = generate_activity_id(&base_url);
+    let msg_activity = json!({
+        "@context": build_context(),
+        "type": "myriad:RoomMessage",
+        "id": &activity_id,
+        "actor": &local_actor,
+        "object": {
+            "type": "myriad:RoomMessage",
+            "room": room_id,
+            "messageId": &message_id,
+            "messageType": message_type,
+            "from": &local_actor,
+            "payload": &stored_payload,
+            "isEncrypted": is_encrypted,
+            "threadId": &req.thread_id,
+            "replyTo": &req.reply_to,
+            "timestamp": now_iso8601()
+        }
+    });
 
-    db.execute_raw(Statement::from_sql_and_values(
+    // The local message and its durable federation effects are one commit.  A
+    // successful response must never describe a message that was committed
+    // without the Activity/outbox rows needed after a crash.
+    let txn = db.begin().await.map_err(db_err)?;
+    txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_room_messages
            (room_id, message_id, sender_actor, message_type, payload, thread_id, reply_to,
@@ -125,9 +148,24 @@ pub async fn send_room_message(
     .await
     .map_err(db_err)?;
 
-    // 广播给 WebSocket 连接。
+    let fanout = fanout_to_remote_members(
+        &txn,
+        user_id,
+        room_id,
+        &activity_id,
+        &msg_activity,
+        "RoomMessage",
+        "RoomMessage",
+    )
+    .await
+    .map_err(db_err)?;
+
+    txn.commit().await.map_err(db_err)?;
+
+    // Only expose the message to local consumers after the durable commit.
+    // Local display uses sender plaintext for E2E messages; DB / ActivityPub
+    // fan-out still retain the encrypted envelope.
     // 本地展示用：E2E 时用发送端明文，避免 Aro 先渲染 ciphertext 信封、等 poll 才正常。
-    // DB / ActivityPub fan-out 仍存密文。
     // 明文落地时 is_encrypted 必须为 false，避免客户端按 flag 二次解密。
     let (ws_payload, ws_is_encrypted) = if is_encrypted {
         (req.payload.clone(), false)
@@ -149,45 +187,6 @@ pub async fn send_room_message(
         }
     });
     crate::federation::ws_gateway::broadcast_to_room(room_id, &ws_msg).await;
-
-    // Fan-out 到远程成员
-    let activity_id = generate_activity_id(&base_url);
-    let msg_activity = json!({
-        "@context": build_context(),
-        "type": "myriad:RoomMessage",
-        "id": &activity_id,
-        "actor": &local_actor,
-        "object": {
-            "type": "myriad:RoomMessage",
-            "room": room_id,
-            "messageId": &message_id,
-            "messageType": message_type,
-            "from": &local_actor,
-            "payload": &stored_payload,
-            "isEncrypted": is_encrypted,
-            "threadId": &req.thread_id,
-            "replyTo": &req.reply_to,
-            "timestamp": now_iso8601()
-        }
-    });
-
-    let fanout = match fanout_to_remote_members(
-        db,
-        user_id,
-        room_id,
-        &activity_id,
-        &msg_activity,
-        "RoomMessage",
-        "RoomMessage",
-    )
-    .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::error!("[Room] fanout error room={}: {}", room_id, e);
-            crate::federation::delivery::FanoutResult::default()
-        }
-    };
     let delivery = fanout.to_enqueue_info();
 
     Ok(SendRoomMessageResponse {

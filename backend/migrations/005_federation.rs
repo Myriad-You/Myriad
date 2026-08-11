@@ -435,6 +435,11 @@ impl MigrationTrait for Migration {
                         ColumnDef::new(FederationDeliveryQueue::LastAttemptAt)
                             .timestamp_with_time_zone(),
                     )
+                    .col(ColumnDef::new(FederationDeliveryQueue::LeaseToken).uuid())
+                    .col(
+                        ColumnDef::new(FederationDeliveryQueue::LeaseExpiresAt)
+                            .timestamp_with_time_zone(),
+                    )
                     .col(
                         ColumnDef::new(FederationDeliveryQueue::NextRetryAt)
                             .timestamp_with_time_zone()
@@ -459,6 +464,18 @@ impl MigrationTrait for Migration {
                     .table(FederationDeliveryQueue::Table)
                     .col(FederationDeliveryQueue::Status)
                     .col(FederationDeliveryQueue::NextRetryAt)
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .if_not_exists()
+                    .name("idx_delivery_lease_expiry")
+                    .table(FederationDeliveryQueue::Table)
+                    .col(FederationDeliveryQueue::Status)
+                    .col(FederationDeliveryQueue::LeaseExpiresAt)
                     .to_owned(),
             )
             .await?;
@@ -1450,6 +1467,8 @@ pub enum FederationDeliveryQueue {
     Attempts,
     MaxAttempts,
     LastAttemptAt,
+    LeaseToken,
+    LeaseExpiresAt,
     NextRetryAt,
     ErrorMessage,
     CreatedAt,

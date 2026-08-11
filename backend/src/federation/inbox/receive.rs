@@ -165,7 +165,15 @@ async fn claim_or_respond(
         .map_err(|e| inbox_err("inbox receipt claim failed", e))?
     {
         ReceiptClaim::Execute(_) => Ok(None),
-        ReceiptClaim::AlreadyAccepted => Ok(Some(StatusCode::ACCEPTED)),
+        ReceiptClaim::AlreadyAccepted => {
+            tracing::info!(
+                signer = %key.signer,
+                activity_id = %key.activity_id,
+                inbox_scope = %key.inbox_scope,
+                "suppressed duplicate federation activity using durable inbox receipt"
+            );
+            Ok(Some(StatusCode::ACCEPTED))
+        }
         ReceiptClaim::Conflict { stored_digest } => Err(receipt_conflict(key, &stored_digest)),
         ReceiptClaim::Rejected { status, message } => {
             Err(receipt_rejected(status, message.as_deref()))

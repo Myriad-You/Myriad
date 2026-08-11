@@ -458,6 +458,18 @@ pub(crate) fn tables() -> Vec<TableDef> {
                     default_value: None,
                 },
                 ColumnDef {
+                    name: "lease_token".into(),
+                    data_type: "uuid".into(),
+                    is_nullable: true,
+                    default_value: None,
+                },
+                ColumnDef {
+                    name: "lease_expires_at".into(),
+                    data_type: "timestamp with time zone".into(),
+                    is_nullable: true,
+                    default_value: None,
+                },
+                ColumnDef {
                     name: "next_retry_at".into(),
                     data_type: "timestamp with time zone".into(),
                     is_nullable: true,
