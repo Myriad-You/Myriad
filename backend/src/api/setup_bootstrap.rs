@@ -617,6 +617,21 @@ mod tests {
     }
 
     #[test]
+    fn missing_bootstrap_capability_has_stable_unauthorized_shape() {
+        let error = bootstrap_token_required_error();
+        assert_eq!(error.status_u16(), 401);
+        let body = error.to_json();
+        assert_eq!(body["error"], "Bootstrap token required");
+        assert!(body["message"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty()));
+        assert_eq!(
+            body["hint"],
+            format!("Send the `{BOOTSTRAP_TOKEN_HEADER}` header")
+        );
+    }
+
+    #[test]
     fn database_initialization_rotation_invalidates_the_original_across_restart() {
         let dir = std::env::temp_dir().join(format!("myriad-bootstrap-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();

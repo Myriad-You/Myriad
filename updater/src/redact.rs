@@ -1,12 +1,14 @@
 //! Best-effort secret redaction for logs and JSON error bodies.
 //!
-//! Replaces known env values (`UPDATE_TOKEN`, `UPDATER_GATEWAY_SECRET`, `JWT_SECRET`,
+//! Replaces known env values (`UPDATE_TOKEN`, `DOCKER_GUARD_SELF_UPDATE_TOKEN`,
+//! `UPDATER_GATEWAY_SECRET`, `JWT_SECRET`,
 //! `POSTGRES_PASSWORD`, `GITHUB_TOKEN`) and a few common header/URL patterns so
 //! accidental echo of secrets does not leak into operator-facing output.
 
 /// Env keys whose values must never appear in logs or error bodies.
 const SECRET_ENV_KEYS: &[&str] = &[
     "UPDATE_TOKEN",
+    "DOCKER_GUARD_SELF_UPDATE_TOKEN",
     "UPDATER_GATEWAY_SECRET",
     "JWT_SECRET",
     "POSTGRES_PASSWORD",
@@ -28,6 +30,7 @@ pub fn redact_secrets(input: &str) -> String {
     // Bearer before Authorization so "Authorization: Bearer <token>" loses the token first.
     out = redact_pattern(&out, "Bearer ");
     out = redact_pattern(&out, "X-Update-Token:");
+    out = redact_pattern(&out, "X-Guard-Self-Update-Token:");
     out = redact_pattern(&out, "X-Updater-Gateway-Secret:");
     out = redact_pattern(&out, "Authorization:");
     out = redact_kv_assignment(&out, "password");
@@ -112,10 +115,11 @@ mod tests {
 
     #[test]
     fn redacts_bearer_and_update_token_headers() {
-        let s = "upstream 401: Authorization: Bearer supersecrettoken123 X-Update-Token: abcdefghijklmnop";
+        let s = "upstream 401: Authorization: Bearer supersecrettoken123 X-Update-Token: abcdefghijklmnop X-Guard-Self-Update-Token: guardcapabilitysecret123";
         let r = redact_secrets(s);
         assert!(!r.contains("supersecrettoken123"));
         assert!(!r.contains("abcdefghijklmnop"));
+        assert!(!r.contains("guardcapabilitysecret123"));
         assert!(r.contains("[REDACTED]"));
     }
 

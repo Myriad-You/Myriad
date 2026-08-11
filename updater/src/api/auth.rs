@@ -197,7 +197,7 @@ pub async fn token_and_manual_required(
         .map_err(|status| status.into_response())
 }
 
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }

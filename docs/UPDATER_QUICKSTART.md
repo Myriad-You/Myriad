@@ -31,6 +31,9 @@ bash scripts/docker/deploy.sh up
 - 创建 `./pgdata`、`./state`、`./backups`
 - 补齐 `MYRIAD_TAG`、`PROXY_TAG`、`UPDATER_TAG`、`COMPOSE_PROJECT_NAME=myriad` 等当前布局 key
 - 若 `UPDATE_TOKEN` 为空则随机生成
+- 若宿主 Guard 策略缺少 `GUARD_SELF_UPDATE_TOKEN` 则随机生成
+- 新建或仍有有效 bootstrap token 的未认领安装默认临时允许浏览器经 proxy 完成 setup；创建 owner 后再次运行
+  `deploy.sh up`，脚本会依据 `.bootstrap-claimed` 自动关闭远程 bootstrap
 - Docker 网络默认显式命名为 `myriad-net`；同机多套部署时可设置 `MYRIAD_DOCKER_NETWORK`
 
 生产布局为 proxy + updater（见 [deployment/DOCKER_DEPLOYMENT.md](./deployment/DOCKER_DEPLOYMENT.md)）。
@@ -44,7 +47,7 @@ proxy (80) ─┬─► frontend
             └─► backend ─► postgres
 updater (内网) ─► docker-guard ─► docker.sock
        └──────── 部署根只读 + .env/pgdata/state 精确可写
-宿主只读策略 ──► docker-guard.env（Guard 的独立镜像 digest）
+宿主只读策略 ──► docker-guard.env（Guard 的独立镜像 digest + 自更新 capability）
 ```
 
 只有 `proxy` 暴露宿主端口。`HTTP_PORT` 可以在 `.env` 调（默认 80）。原始 Docker socket
@@ -57,10 +60,12 @@ updater 对部署根本身只读，仅通过独立挂载写入 `./.env`、`./pgd
 `bash scripts/docker/deploy.sh up`（或等价 compose）；**仅 UI 更新无法创建网络/服务**。
 
 管理员可以在 UI 中一键更新 Guard/updater TCB，无需 SSH。Updater 只提交目标 tag；
-Guard 固定官方 updater 仓库、通过宿主 Docker 拉取并固化 `repo@sha256`，再由该精确
+Updater 使用宿主策略 capability 提交意图；Guard 固定官方 updater 仓库、通过宿主 Docker
+拉取并固化 `repo@sha256`，再由该精确
 镜像中的固定交接程序更新 `docker-guard`、`updater` 和 `updater-gateway`。交接失败会
 恢复旧 digest 与配置。当前私有仓库阶段使用 #265 定义的显式 `dockerhub_tag` 信任路径；
-不会把它描述成 release.json/Cosign 路径。日常业务 Docker API 仍经 Guard 固定策略代理。
+该 registry digest 尚未与签名 release manifest 的 expected digest 做字节级绑定，因此不会
+把它描述成 release.json/Cosign 路径。日常业务 Docker API 仍经 Guard 固定策略代理。
 
 ## 3. 打开 updater UI
 

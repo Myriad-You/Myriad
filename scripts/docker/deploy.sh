@@ -32,10 +32,13 @@ COMMAND="${1:-up}"
 
 show_usage() {
     cat <<EOF
-Usage: $0 [command]
+Usage: $0 [command] [options]
 
 Commands:
-  up        (default) Initialise .env / pgdata if needed, then \`docker compose up -d\`
+  up [--local-bootstrap]
+            (default) Initialise .env / volumes, enable proxy/browser setup until
+            the owner is claimed, then \`docker compose up -d\`. Use
+            --local-bootstrap to keep setup loopback-only.
   down      Stop and remove containers (volumes preserved)
   restart   docker compose restart
   pull      Pull images pinned by .env tags
@@ -54,7 +57,8 @@ Notes:
     run \`$0 upgrade\`.
 
 Examples:
-  $0                 # Bootstrap + start
+  $0                 # Browser/proxy bootstrap + start
+  $0 up --local-bootstrap # Loopback-only bootstrap
   $0 down            # Stop
   $0 status          # See running versions
   $0 doctor          # Topology security checks
@@ -62,6 +66,43 @@ Examples:
   $0 doctor --events # Watch container create/start (look for Privileged / docker.sock)
   $0 upgrade         # After editing .env, recreate with new tags
 EOF
+}
+
+set_env_file_value() {
+    local file="$1" key="$2" value="$3" tmp="${file}.tmp.$$"
+    awk -v key="$key" -v value="$value" '
+      BEGIN { replaced = 0; re = "^" key "=" }
+      $0 ~ re && replaced == 0 {
+        print key "=" value
+        replaced = 1
+        next
+      }
+      $0 ~ re { next }
+      { print }
+      END { if (replaced == 0) print key "=" value }
+    ' "$file" > "$tmp"
+    chmod 600 "$tmp"
+    mv "$tmp" "$file"
+}
+
+ensure_guard_policy_secret() {
+    local count value
+    count="$(grep -c '^GUARD_SELF_UPDATE_TOKEN=' "$GUARD_ENV_FILE" || true)"
+    if [ "$count" -gt 1 ]; then
+        err "✗ $GUARD_ENV_FILE must contain at most one GUARD_SELF_UPDATE_TOKEN"
+        exit 2
+    fi
+    value="$(grep '^GUARD_SELF_UPDATE_TOKEN=' "$GUARD_ENV_FILE" | cut -d= -f2- || true)"
+    if [ -z "$value" ]; then
+        value="$(generate_secret)"
+        set_env_file_value "$GUARD_ENV_FILE" GUARD_SELF_UPDATE_TOKEN "$value"
+        info "  + generated host-owned GUARD_SELF_UPDATE_TOKEN"
+    fi
+    if [ "${#value}" -lt 32 ] || [ "${#value}" -gt 256 ] \
+        || ! printf '%s' "$value" | grep -Eq '^[!-~]+$'; then
+        err "✗ GUARD_SELF_UPDATE_TOKEN must be 32..256 printable non-whitespace ASCII characters"
+        exit 2
+    fi
 }
 
 detect_compose() {
@@ -93,7 +134,16 @@ ensure_guard_policy() {
     case "$policy_real" in
         "$root_real"|"$root_real"/*) err "✗ Guard policy must be outside the deployment root: $policy_real"; exit 2 ;;
     esac
-    for key in DOCKER_GUARD_IMAGE GUARD_COMPOSE_PROJECT_NAME GUARD_MYRIAD_DOCKER_NETWORK GUARD_MYRIAD_ADMIN_NETWORK GUARD_MYRIAD_DOCKER_GUARD_NETWORK MYRIAD_GUARD_ENV_FILE; do
+    if [ "$(uname -s)" != "Darwin" ]; then
+        local mode
+        mode="$(stat -c '%a' "$GUARD_ENV_FILE" 2>/dev/null || true)"
+        case "$mode" in
+            600|640) ;;
+            *) err "✗ Guard policy must be owner-controlled mode 0600 or 0640: $GUARD_ENV_FILE"; exit 2 ;;
+        esac
+    fi
+    ensure_guard_policy_secret
+    for key in DOCKER_GUARD_IMAGE GUARD_SELF_UPDATE_TOKEN GUARD_COMPOSE_PROJECT_NAME GUARD_MYRIAD_DOCKER_NETWORK GUARD_MYRIAD_ADMIN_NETWORK GUARD_MYRIAD_DOCKER_GUARD_NETWORK MYRIAD_GUARD_ENV_FILE; do
         count="$(grep -c "^${key}=[^[:space:]].*" "$GUARD_ENV_FILE" || true)"
         if [ "$count" != "1" ]; then
             err "✗ $GUARD_ENV_FILE must contain exactly one non-empty $key"
@@ -105,14 +155,6 @@ ensure_guard_policy() {
     if [ "$count" != "1" ] || ! printf '%s' "$image" | grep -Eq '^docker\.io/somekawahitomi/myriad-updater@sha256:[0-9a-fA-F]{64}$'; then
         err "✗ $GUARD_ENV_FILE must contain exactly one digest-pinned DOCKER_GUARD_IMAGE"
         exit 2
-    fi
-    if [ "$(uname -s)" != "Darwin" ]; then
-        local mode
-        mode="$(stat -c '%a' "$GUARD_ENV_FILE" 2>/dev/null || true)"
-        case "$mode" in
-            600|640) ;;
-            *) err "✗ Guard policy must be owner-controlled mode 0600 or 0640: $GUARD_ENV_FILE"; exit 2 ;;
-        esac
     fi
     configured_path="$(grep '^MYRIAD_GUARD_ENV_FILE=' "$GUARD_ENV_FILE" | cut -d= -f2-)"
     if [ "$configured_path" != "$policy_real" ]; then
@@ -226,6 +268,71 @@ ensure_current_layout() {
     ensure_updater_gateway_secret
 }
 
+deployment_project_name() {
+    local project="${COMPOSE_PROJECT_NAME:-}"
+    if [ -z "$project" ]; then
+        project="$(grep -E '^COMPOSE_PROJECT_NAME=' .env 2>/dev/null | head -1 | cut -d= -f2-)"
+    fi
+    project="${project:-myriad}"
+    project="${project%\"}"; project="${project#\"}"
+    project="${project%\'}"; project="${project#\'}"
+    if [[ ! "$project" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
+        err "Invalid COMPOSE_PROJECT_NAME: $project"
+        return 1
+    fi
+    printf '%s' "$project"
+}
+
+bootstrap_claim_state() {
+    local data_vol="$(deployment_project_name)_backend_data"
+    docker volume inspect "$data_vol" >/dev/null 2>&1 || return 2
+    docker run --rm -v "${data_vol}:/app/data:ro" alpine:3.20 \
+        sh -c '
+          [ -f /app/data/.bootstrap-claimed ] && exit 0
+          [ -f /app/data/.bootstrap-token ] && exit 1
+          [ -z "$(find /app/data -mindepth 1 -maxdepth 1 -print -quit)" ] && exit 3
+          exit 4
+        '
+}
+
+running_bootstrap_claim_state() {
+    docker inspect myriad-backend >/dev/null 2>&1 || return 2
+    docker exec myriad-backend sh -c '
+      [ -f /app/data/.bootstrap-claimed ] && exit 0
+      [ -f /app/data/.bootstrap-token ] && exit 1
+      [ -z "$(find /app/data -mindepth 1 -maxdepth 1 -print -quit)" ] && exit 3
+      exit 4
+    '
+}
+
+configure_bootstrap_access() {
+    local mode="$1" state
+    if bootstrap_claim_state; then
+        set_env_file_value .env MYRIAD_ALLOW_REMOTE_BOOTSTRAP false
+        ok "Owner claim detected; remote bootstrap is disabled."
+        return 0
+    else
+        state=$?
+    fi
+    if [ "$state" != "1" ] && [ "$state" != "3" ] && [ "$state" != "4" ]; then
+        err "Cannot inspect the backend data volume for bootstrap state."
+        return 1
+    fi
+    if [ "$mode" = "local" ]; then
+        set_env_file_value .env MYRIAD_ALLOW_REMOTE_BOOTSTRAP false
+        warn "Bootstrap remains loopback-only; the browser through the proxy cannot complete setup."
+        warn "Run setup locally against the backend, or rerun: $0 up"
+    elif [ "$mode" = "remote" ] || [ "$state" = "1" ] || [ "$state" = "3" ]; then
+        set_env_file_value .env MYRIAD_ALLOW_REMOTE_BOOTSTRAP true
+        warn "Remote bootstrap temporarily enabled for first-run browser setup."
+        warn "After creating the owner, rerun '$0 up' to detect the claim and disable it."
+    else
+        set_env_file_value .env MYRIAD_ALLOW_REMOTE_BOOTSTRAP false
+        warn "Existing backend data has no bootstrap marker; remote setup was not enabled automatically."
+        warn "If this installation is genuinely unclaimed, rerun: $0 up --remote-bootstrap"
+    fi
+}
+
 # Backend runs as uid 1000 (USER myriad). Named volumes are root-owned on first
 # create, and older deployments may also leave owner-write/search bits unset.
 # Repair both ownership and owner permissions without broadening group/world access.
@@ -309,9 +416,18 @@ cmd_soft_doctor() {
 }
 
 cmd_up() {
+    local bootstrap_mode=auto arg
+    for arg in "$@"; do
+        case "$arg" in
+            --local-bootstrap) bootstrap_mode=local ;;
+            --remote-bootstrap) bootstrap_mode=remote ;;
+            *) err "Unknown up option: $arg"; return 2 ;;
+        esac
+    done
     ensure_env
     ensure_current_layout
     ensure_backend_volume_perms
+    configure_bootstrap_access "$bootstrap_mode"
     info "==> docker compose up -d"
     run_compose up -d
     echo ""
@@ -387,6 +503,32 @@ cmd_doctor() {
     fi
 
     info "==> Deploy topology doctor (read-only)"
+
+    if running_bootstrap_claim_state; then
+        if grep -E '^MYRIAD_ALLOW_REMOTE_BOOTSTRAP=(true|1|yes|on)$' .env >/dev/null 2>&1; then
+            err "FAIL  owner is claimed but MYRIAD_ALLOW_REMOTE_BOOTSTRAP is still enabled"
+            err "      Run '$0 up' to disable it and recreate the backend."
+            fail=$((fail + 1))
+        else
+            ok "PASS  claimed installation has remote bootstrap disabled"
+        fi
+    else
+        local bootstrap_state=$?
+        if [ "$bootstrap_state" = "1" ] || [ "$bootstrap_state" = "3" ]; then
+            if grep -E '^MYRIAD_ALLOW_REMOTE_BOOTSTRAP=(true|1|yes|on)$' .env >/dev/null 2>&1; then
+                warn "WARN  first-run remote bootstrap is enabled until owner claim"
+            else
+                warn "WARN  installation is unclaimed and browser/proxy setup is disabled"
+                warn "      Run '$0 up' (or use --local-bootstrap intentionally)."
+            fi
+        elif [ "$bootstrap_state" = "4" ]; then
+            warn "WARN  existing backend data has no bootstrap claim marker"
+            warn "      Use '$0 up --remote-bootstrap' only if it is genuinely unclaimed."
+        else
+            warn "SKIP  bootstrap claim state is not inspectable"
+            skip=$((skip + 1))
+        fi
+    fi
 
     container_exists() {
         docker inspect "$1" >/dev/null 2>&1
@@ -525,6 +667,19 @@ cmd_doctor() {
     else
         warn "SKIP  myriad-updater not running"
         skip=$((skip + 1))
+    fi
+
+    if container_exists myriad-docker-guard && container_exists myriad-updater; then
+        local guard_self_update_token updater_self_update_token
+        guard_self_update_token="$(container_env_value myriad-docker-guard DOCKER_GUARD_SELF_UPDATE_TOKEN)"
+        updater_self_update_token="$(container_env_value myriad-updater DOCKER_GUARD_SELF_UPDATE_TOKEN)"
+        if [ "${#guard_self_update_token}" -ge 32 ] \
+            && [ "$guard_self_update_token" = "$updater_self_update_token" ]; then
+            ok "PASS  Guard self-update capability is host-policy sourced and consistent"
+        else
+            err "FAIL  Guard/updater self-update capability is missing, weak, or inconsistent"
+            fail=$((fail + 1))
+        fi
     fi
 
     # --- updater-gateway: exists, no docker.sock, admin-net only preferred ---
@@ -737,7 +892,7 @@ cmd_doctor() {
     echo ""
     info "Operator red lines (reminders — see docs/deployment/UPDATER_SECURITY_BASELINE.md):"
     info "  1. Existing installs: host deploy upgrade / compose up -d so topology matches"
-    info "  2. Protect UPDATE_TOKEN and UPDATER_GATEWAY_SECRET (not frontend/tickets)"
+    info "  2. Protect UPDATE_TOKEN, UPDATER_GATEWAY_SECRET, and host Guard policy"
     info "  3. Keep PROXY_ALLOW_DIRECT_UPDATER=false except temporary rescue"
     info "  4. Keep COSIGN_VERIFY=strict unless intentional dual-key off"
     info "  5. Do not publish updater/gateway/guard ports on the host"
@@ -758,7 +913,7 @@ cmd_upgrade() {
 COMPOSE_KIND=$(detect_compose)
 
 case "$COMMAND" in
-    up)       cmd_up ;;
+    up)       shift || true; cmd_up "$@" ;;
     down)     cmd_down ;;
     restart)  cmd_restart ;;
     pull)     cmd_pull ;;

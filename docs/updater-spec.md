@@ -676,8 +676,10 @@ proxy 通道开关：proxy 启动时读 `PROXY_ALLOW_DIRECT_UPDATER`，未开启
 
 Guard 持有 Docker socket，是独立于 updater 的宿主 TCB。运行中的 updater、其 API、
 `UPDATE_TOKEN` 和 updater 可写的 `.env` 都不得选择仓库、镜像 digest、Guard 命令或
-Compose 服务集合。`POST /admin/self-update` 保留一键体验；Updater 只向 Guard 的
-`/_myriad/self-update` 提交 `{target_tag, trust_path}`，请求体拒绝额外 repo、digest、command。
+Compose 服务集合。`POST /admin/self-update` 保留一键体验；Updater 使用宿主策略中的
+专用 capability 向 Guard 的 `/_myriad/self-update` 提交 `{target_tag, trust_path}`，请求体
+拒绝额外 repo、digest、command。Guard network 隔离是第一层边界，capability 用于避免
+错误接入 guard-net 的其他容器直接触发 TCB 操作；它不用于防御本就有权读该值的 updater。
 
 生产 Guard 镜像必须来自宿主机持有的 `docker-guard.env`，且形式严格为
 `docker.io/somekawahitomi/myriad-updater@sha256:<64 hex>`。Guard 启动时通过原始 socket
@@ -705,8 +707,10 @@ Docker mutation gate 关闭。
 `myriad-tcb-self-update-recovery-exhausted`；该 Docker daemon sentinel 跨 Guard 重启保留，
 阻止重启后重置重试预算。宿主完成手动 TCB 恢复和校验后才能删除它并重启 Guard。
 
-该路径信任 Docker Hub 官方仓库身份和 TLS/registry 控制面，不声称做了 release.json/Cosign
-验证。公开 GA 前按 #265 增加签名证明路径；正常用户操作仍保持同一个一键按钮。
+该路径信任 Docker Hub 官方仓库身份和 TLS/registry 控制面。Guard 解析出的 registry
+digest **没有**与签名 release manifest 中的 `expected_digest` 做字节级绑定，因此不声称
+做了 release.json/Cosign 验证。公开 GA 前按 #265 增加该签名证明路径；正常用户操作仍
+保持同一个一键按钮。
 4. 运行 `deploy.sh doctor`，确认运行镜像与期望 digest 完全一致且无旧版动态策略/token。
 
 回滚同样由宿主把策略文件恢复到此前已验证的 digest 后重建 TCB。不得从 updater 的

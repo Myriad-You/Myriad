@@ -85,7 +85,8 @@ sudo install -m 0600 docker-guard.env.example /etc/myriad/docker-guard.env
 
 # Edit at minimum:
 # POSTGRES_PASSWORD, JWT_SECRET, CORS_ORIGINS
-# deploy.sh fills UPDATE_TOKEN and UPDATER_GATEWAY_SECRET if empty.
+# deploy.sh fills UPDATE_TOKEN / UPDATER_GATEWAY_SECRET and the host-policy
+# GUARD_SELF_UPDATE_TOKEN if empty.
 
 bash scripts/docker/deploy.sh up
 ```
@@ -110,12 +111,19 @@ deployment, read it without sending it through logs:
 docker exec myriad-backend sh -c 'cat /app/data/.bootstrap-token'
 ```
 
-When setup runs through the bundled proxy, temporarily set
-`MYRIAD_ALLOW_REMOTE_BOOTSTRAP=true` and recreate the backend. A successful
-database initialization invalidates that token and writes a distinct owner-claim
-token to the same file, so read it again before creating the owner. After owner
-creation, set remote bootstrap back to `false`; the token is deleted and a
-durable claimed marker prevents reopening setup during a database outage.
+The deploy scripts inspect the backend data volume. For a fresh or actively
+unclaimed install, `up` temporarily enables `MYRIAD_ALLOW_REMOTE_BOOTSTRAP=true` so the
+standard browser path through the bundled proxy works. Use `up
+--local-bootstrap` only when intentionally calling the backend from loopback.
+An older non-empty data volume with no claim marker fails safe and needs an
+explicit `up --remote-bootstrap` if it is genuinely unclaimed.
+A successful database initialization invalidates that token and writes a
+distinct owner-claim token to the same file, so read it again before creating
+the owner. After owner creation, rerun `deploy.sh up` / `deploy.ps1 up`; the
+durable `.bootstrap-claimed` marker makes the script disable remote bootstrap
+and recreate the backend. `doctor` reports a **FAIL** if a claimed installation
+still has remote bootstrap enabled. The marker also prevents reopening setup
+during a database outage.
 
 ## Environment
 
@@ -135,7 +143,8 @@ durable claimed marker prevents reopening setup during a database outage.
 | `UPDATER_TAG` | yes | Updater image tag |
 | `COMPOSE_PROJECT_NAME` | yes | Compose project name, default `myriad` |
 | `UPDATE_TOKEN` | yes | Updater token for updater/gateway; deploy script fills it if empty; **not** injected into backend or docker-guard |
-| `MYRIAD_ALLOW_REMOTE_BOOTSTRAP` | no | Defaults `false`. Temporarily opt in only when first setup must traverse a non-loopback proxy peer. |
+| `GUARD_SELF_UPDATE_TOKEN` | yes (Guard policy) | Dedicated self-update capability in host-owned `docker-guard.env`; deploy generates it if empty; Guard + updater only |
+| `MYRIAD_ALLOW_REMOTE_BOOTSTRAP` | no | Backend default `false`; deploy `up` temporarily enables it for fresh/active browser setup and disables it after the claim marker. |
 | `MYRIAD_BOOTSTRAP_TTL_SECS` | no | Short-lived setup capability TTL, default 1800 seconds (range 60..86400). |
 | `UPDATER_GATEWAY_SECRET` | yes | Shared secret for backend→gateway (`X-Updater-Gateway-Secret`); deploy fills if empty; backend + gateway only |
 | `HTTP_PORT` | no | Published proxy port, default `80` |
@@ -171,7 +180,8 @@ out-of-scope items live in:
 - Before Compose, place `docker-guard.env.example` outside the deployment root
   (`/etc/myriad/docker-guard.env` by default), set its exact independently verified
   Guard `repo@sha256`, and restrict it to the host administrator. The deploy scripts
-  pass this second env file to Compose; updater cannot write it.
+  pass this second env file to Compose; updater cannot write it. The scripts
+  also generate a dedicated `GUARD_SELF_UPDATE_TOKEN` there when absent.
 - `COSIGN_VERIFY=off` alone is refused: set `UPDATER_ALLOW_INSECURE_COSIGN=true`
   (or `COSIGN_INSECURE_OK=true`) only when you intentionally accept that risk.
 - Topology check (read-only; no auto-migrate):
@@ -196,13 +206,15 @@ bash scripts/docker/deploy.sh doctor
   request body must also include `confirm_risk: true` (or header `X-Myriad-Confirm-Risk: true`).
   Normal upgrades without risk flags need no extra confirm field.
 - **TCB upgrades**: the admin UI keeps one-click self-update. The lower-trust updater
-  sends only an immutable-shaped target tag. Guard fixes the official updater repository,
+  authenticates with the dedicated host-policy capability and sends only an
+  immutable-shaped target tag. Guard fixes the official updater repository,
   pulls through the host daemon, converts the result to an exact digest, checks the running
   TCB and downgrade fences, and starts a fixed helper from that digest. The helper validates
   the rendered Compose model, updates only Guard/updater/gateway, persists
   `UPDATER_IMAGE_REF`, and restores the previous digest/config on failure. The current
-  private-repository distribution uses the explicit `dockerhub_tag` trust path from #265;
-  it is not reported as Cosign/release-manifest verification.
+  private-repository distribution uses the explicit `dockerhub_tag` trust path from #265.
+  The resolved registry digest is not byte-bound to a signed release manifest;
+  this path is therefore not reported as Cosign/release-manifest verification.
 - **Root**: backend warns once at boot if running as uid 0 (compose should stay non-root).
 - **Deploy soft-check**: `deploy.sh|ps1 up|upgrade` runs topology doctor in warn-only mode.
 - **Doctor host checks**: `doctor --host` runs a non-fatal privileged / unexpected

@@ -59,7 +59,12 @@ pub async fn run(worker: Arc<Worker>, actor: Option<String>) -> Result<SelfUpdat
         trust_path = resolved.trust_path,
         "self-update: requesting docker guard TCB replacement"
     );
-    schedule_guarded_recreate(&resolved.tag, resolved.trust_path).await?;
+    schedule_guarded_recreate(
+        &resolved.tag,
+        resolved.trust_path,
+        worker.config().guard_self_update_token.expose(),
+    )
+    .await?;
 
     let actor_suffix = actor
         .as_deref()
@@ -292,7 +297,11 @@ fn validate_immutable_component_tag(tag: &str) -> Result<String> {
     }
 }
 
-async fn schedule_guarded_recreate(target_tag: &str, trust_path: &str) -> Result<()> {
+async fn schedule_guarded_recreate(
+    target_tag: &str,
+    trust_path: &str,
+    guard_self_update_token: &str,
+) -> Result<()> {
     let endpoint = std::env::var("DOCKER_GUARD_SELF_UPDATE_URL")
         .unwrap_or_else(|_| "http://docker-guard:2375/_myriad/self-update".into());
     let response = reqwest::Client::builder()
@@ -301,6 +310,7 @@ async fn schedule_guarded_recreate(target_tag: &str, trust_path: &str) -> Result
         .build()
         .map_err(|e| UpdaterError::Docker(format!("build docker guard client: {e}")))?
         .post(endpoint)
+        .header("X-Guard-Self-Update-Token", guard_self_update_token)
         .json(&self_update_request_body(target_tag, trust_path))
         .send()
         .await

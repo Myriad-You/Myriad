@@ -61,6 +61,7 @@ services:
       MYRIAD_DOCKER_GUARD_NETWORK: myriad-dev-docker-guard-net
       DOCKER_GUARD_EXPECTED_IMAGE: ${UPDATER_IMAGE:-myriad-updater-dev}:${UPDATER_TAG:-v0.0.0-dev}
       DOCKER_GUARD_HOST_POLICY_PATH: /dev/docker-guard.env
+      DOCKER_GUARD_SELF_UPDATE_TOKEN: ${GUARD_SELF_UPDATE_TOKEN:-dev-guard-self-update-token-32chars!!}
       # Dev-only escape hatch; Guard rejects it in release builds.
       DOCKER_GUARD_ALLOW_UNPINNED_DEV: "true"
     volumes:
@@ -99,6 +100,7 @@ services:
       UPDATER_PGDATA: /host/compose/pgdata
       UPDATER_LISTEN: 0.0.0.0:1101
       DOCKER_HOST: tcp://docker-guard:2375
+      DOCKER_GUARD_SELF_UPDATE_TOKEN: ${GUARD_SELF_UPDATE_TOKEN:-dev-guard-self-update-token-32chars!!}
       UPDATER_GUARD_ENV_FILE: /host/compose/docker-guard.env
       COMPOSE_PROJECT_NAME: myriad-dev-updater
       MYRIAD_VERSION: ${UPDATER_TAG:-v0.0.0-dev}

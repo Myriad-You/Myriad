@@ -172,6 +172,7 @@ services:
       DOCKER_GUARD_STATE_DIR: /host/state
       DOCKER_GUARD_EXPECTED_IMAGE: ${DOCKER_GUARD_IMAGE}
       DOCKER_GUARD_HOST_POLICY_PATH: ${MYRIAD_GUARD_ENV_FILE:?Host Guard policy path is required}
+      DOCKER_GUARD_SELF_UPDATE_TOKEN: ${GUARD_SELF_UPDATE_TOKEN:?Host Guard self-update token is required}
       RUST_LOG: ${DOCKER_GUARD_LOG:-info}
       TZ: Asia/Shanghai
     volumes:
@@ -214,6 +215,7 @@ services:
       MYRIAD_DB_MODE: ${MYRIAD_DB_MODE:-external}
       UPDATER_COMPOSE_DIR: /host/compose
       DOCKER_HOST: tcp://docker-guard:2375
+      DOCKER_GUARD_SELF_UPDATE_TOKEN: ${GUARD_SELF_UPDATE_TOKEN:?Host Guard self-update token is required}
       UPDATER_GUARD_ENV_FILE: /run/secrets/docker-guard.env
       COSIGN_VERIFY: ${COSIGN_VERIFY:-strict}
       UPDATER_ALLOW_INSECURE_COSIGN: ${UPDATER_ALLOW_INSECURE_COSIGN:-}

@@ -26,6 +26,8 @@ use tokio::net::UnixStream;
 use tokio::process::Command;
 use tracing::{error, info, warn};
 
+use crate::api::auth::constant_time_eq;
+use crate::config::{SecretString, GUARD_SELF_UPDATE_TOKEN_MIN_LEN};
 use crate::version::{DeployTag, DeployTagKind, MyriadVersion};
 
 const MAX_REQUEST_BODY: usize = 1024 * 1024;
@@ -40,6 +42,7 @@ const TRUSTED_PULL_TIMEOUT: Duration = Duration::from_secs(180);
 const HELPER_LAUNCH_TIMEOUT: Duration = Duration::from_secs(30);
 const HELPER_TOTAL_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 const SELF_UPDATE_GATE: usize = 1usize << (usize::BITS - 1);
+const SELF_UPDATE_TOKEN_HEADER: &str = "x-guard-self-update-token";
 
 #[derive(Debug)]
 struct HandoffCleanupUnconfirmed;
@@ -74,6 +77,7 @@ pub struct GuardConfig {
     pub state_dir: PathBuf,
     pub expected_guard_image: String,
     pub host_policy_path: String,
+    pub self_update_token: SecretString,
     pub allow_unpinned_dev: bool,
     pub allowed_images: HashSet<String>,
     pub service_images: HashMap<String, String>,
@@ -110,6 +114,9 @@ impl GuardConfig {
         let host_policy_path = std::env::var("DOCKER_GUARD_HOST_POLICY_PATH")
             .context("DOCKER_GUARD_HOST_POLICY_PATH is required")?;
         validate_host_policy_path(&host_policy_path)?;
+        let self_update_token = std::env::var("DOCKER_GUARD_SELF_UPDATE_TOKEN")
+            .context("DOCKER_GUARD_SELF_UPDATE_TOKEN is required")?;
+        validate_self_update_token(&self_update_token)?;
         let allow_unpinned_dev = std::env::var("DOCKER_GUARD_ALLOW_UNPINNED_DEV")
             .is_ok_and(|value| value.eq_ignore_ascii_case("true"));
         if allow_unpinned_dev && !cfg!(debug_assertions) {
@@ -146,11 +153,26 @@ impl GuardConfig {
             state_dir,
             expected_guard_image,
             host_policy_path,
+            self_update_token: SecretString::new(self_update_token),
             allow_unpinned_dev,
             allowed_images,
             service_images,
         })
     }
+}
+
+fn validate_self_update_token(token: &str) -> Result<()> {
+    if token.len() < GUARD_SELF_UPDATE_TOKEN_MIN_LEN || token.len() > 256 {
+        return Err(anyhow!(
+            "DOCKER_GUARD_SELF_UPDATE_TOKEN must be 32..=256 characters"
+        ));
+    }
+    if !token.bytes().all(|byte| byte.is_ascii_graphic()) {
+        return Err(anyhow!(
+            "DOCKER_GUARD_SELF_UPDATE_TOKEN must contain only printable non-whitespace ASCII"
+        ));
+    }
+    Ok(())
 }
 
 fn validate_host_policy_path(path: &str) -> Result<()> {
@@ -634,6 +656,22 @@ struct SelfUpdateRequestBody {
 async fn handle_self_update(state: GuardState, req: Request<Body>) -> Response {
     if req.method() != Method::POST {
         return denial(StatusCode::METHOD_NOT_ALLOWED, "POST required");
+    }
+    let authorized = req
+        .headers()
+        .get(SELF_UPDATE_TOKEN_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|provided| {
+            constant_time_eq(
+                provided.as_bytes(),
+                state.config.self_update_token.expose().as_bytes(),
+            )
+        });
+    if !authorized {
+        return denial(
+            StatusCode::UNAUTHORIZED,
+            "valid host-policy self-update capability required",
+        );
     }
     let body = match to_bytes(req.into_body(), MAX_SELF_UPDATE_BODY).await {
         Ok(body) => body,
@@ -2895,6 +2933,7 @@ mod tests {
                     "a".repeat(64)
                 ),
                 host_policy_path: "/etc/myriad/docker-guard.env".into(),
+                self_update_token: SecretString::new("g7N2pQ8xV4mK6rT9wY3zA5bC1dF0hJ8l"),
                 allow_unpinned_dev: false,
                 allowed_images: [
                     "docker.io/example/backend".into(),
@@ -2941,6 +2980,41 @@ mod tests {
             "command":["sh","-c","id"]
         }"#;
         assert!(serde_json::from_slice::<SelfUpdateRequestBody>(injected).is_err());
+    }
+
+    #[tokio::test]
+    async fn self_update_requires_the_host_policy_capability_before_parsing_body() {
+        let missing = Request::builder()
+            .method(Method::POST)
+            .uri("/_myriad/self-update")
+            .body(Body::from("{}"))
+            .unwrap();
+        assert_eq!(
+            handle_self_update(state(), missing).await.status(),
+            StatusCode::UNAUTHORIZED
+        );
+
+        let wrong = Request::builder()
+            .method(Method::POST)
+            .uri("/_myriad/self-update")
+            .header(SELF_UPDATE_TOKEN_HEADER, "x".repeat(40))
+            .body(Body::from("{}"))
+            .unwrap();
+        assert_eq!(
+            handle_self_update(state(), wrong).await.status(),
+            StatusCode::UNAUTHORIZED
+        );
+
+        let valid = Request::builder()
+            .method(Method::POST)
+            .uri("/_myriad/self-update")
+            .header(SELF_UPDATE_TOKEN_HEADER, "g7N2pQ8xV4mK6rT9wY3zA5bC1dF0hJ8l")
+            .body(Body::from("{}"))
+            .unwrap();
+        assert_eq!(
+            handle_self_update(state(), valid).await.status(),
+            StatusCode::BAD_REQUEST
+        );
     }
 
     #[test]
