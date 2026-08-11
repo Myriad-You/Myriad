@@ -15,4 +15,10 @@
 - [ ] Existing authenticated-user and administrator speech behavior remains backward compatible.
 - [ ] Speech output remains subject to the existing package/media and sandbox rules; this ticket does not relax CSP or direct network access.
 - [ ] Runtime Grant, anonymous attribution, quota/rate-limit, input validation, error-contract, contract consistency, and CLI declaration tests pass.
-- [ ] If the existing quota ledger cannot safely represent anonymous speech without a new durable security boundary, implementation stops with evidence and guest speech remains denied.
+- [x] If the existing quota ledger cannot safely represent anonymous speech without a new durable security boundary, implementation stops with evidence and guest speech remains denied.
+
+## Progress
+
+Guest speech remains denied. The speech host-attribution middleware requires authenticated Claims before it validates a Runtime Grant, so it has no anonymous subject derivation path. Speech writes have a server-side 45 requests/minute operation limit, but there is no finite daily speech quota ledger; the existing persistent quota ledger is specific to AI calls/tokens. Enabling the existing guest permission flags would therefore satisfy neither server-derived anonymous attribution nor the non-resettable finite usage quota required by this ticket.
+
+A safe continuation needs a dedicated anonymous speech subject derivation and a persistent per-subject/per-TAPP speech usage ledger (or a generalized quota module) before the permission-service authenticated-subject exclusion can be removed. Until then `guest_perm_speech_tts` and `guest_perm_speech_asr` continue to be forced off and omitted from guest Runtime Grants.
