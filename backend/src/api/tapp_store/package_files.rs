@@ -1,14 +1,51 @@
 //! Filesystem staging, recovery, package resources and archive boundaries.
 
-use crate::error::HttpError;
-use myriad_error::AppError;
 use super::{
     decode_asset_base64, lock_tapp_lifecycle, validate_asset_path, validate_tapp_id, TappManifest,
 };
+use crate::error::HttpError;
 use axum::http::StatusCode;
+use myriad_error::AppError;
 use sea_orm::{ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, TransactionTrait};
 use std::path::{Path as FsPath, PathBuf};
 use tokio::fs;
+
+#[cfg(test)]
+static ACTIVATE_RENAME_FAILURES: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<PathBuf, std::io::ErrorKind>>,
+> = std::sync::OnceLock::new();
+
+#[cfg(test)]
+pub(crate) fn fail_next_activation_rename(from: &FsPath) {
+    fail_next_activation_rename_with_kind(from, std::io::ErrorKind::Other);
+}
+
+#[cfg(test)]
+pub(crate) fn fail_next_activation_rename_with_kind(from: &FsPath, kind: std::io::ErrorKind) {
+    ACTIVATE_RENAME_FAILURES
+        .get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(from.to_path_buf(), kind);
+}
+
+async fn rename_activation_path(from: &FsPath, to: &FsPath) -> Result<(), std::io::Error> {
+    #[cfg(test)]
+    {
+        let failure_kind = ACTIVATE_RENAME_FAILURES
+            .get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(from);
+        if let Some(kind) = failure_kind {
+            return Err(std::io::Error::new(
+                kind,
+                "injected Tapp activation rename failure",
+            ));
+        }
+    }
+    fs::rename(from, to).await
+}
 
 use crate::models::entities::tapps;
 use crate::services::data_paths::paths;
@@ -97,7 +134,7 @@ impl TappDirStage {
                 "backup",
                 &uuid::Uuid::new_v4().simple().to_string(),
             ));
-            match fs::rename(final_path, &backup).await {
+            match rename_activation_path(final_path, &backup).await {
                 Ok(()) => Some(backup),
                 Err(rename_error) => {
                     tracing::error!(
@@ -105,38 +142,20 @@ impl TappDirStage {
                         to = %backup.display(),
                         kind = ?rename_error.kind(),
                         %rename_error,
-                        "Failed to rename live Tapp dir to backup during activate; attempting remove"
+                        "Failed to rename live Tapp dir to backup during activate; preserving live version"
                     );
-                    // Orphan leftover after failed uninstall quarantine, or a
-                    // non-renameable live dir: free the final path so staging
-                    // can take its place. Prefer remove over leaving install stuck.
-                    match remove_path_best_effort(final_path).await {
-                        Ok(()) => None,
-                        Err(remove_error) => {
-                            tracing::error!(
-                                path = %final_path.display(),
-                                rename_kind = ?rename_error.kind(),
-                                %rename_error,
-                                remove_kind = ?remove_error.kind(),
-                                %remove_error,
-                                "Cannot free final Tapp path for activate"
-                            );
-                            return Err(std::io::Error::new(
-                                rename_error.kind(),
-                                format!(
-                                    "cannot free final Tapp path {}: rename failed ({rename_error}); remove failed ({remove_error})",
-                                    final_path.display()
-                                ),
-                            ));
-                        }
-                    }
+                    // A failed backup rename means ownership of the live path
+                    // was never transferred. Deleting it here would turn a
+                    // recoverable activation error into loss of the last
+                    // known-good installation.
+                    return Err(rename_error);
                 }
             }
         } else {
             None
         };
 
-        if let Err(error) = fs::rename(&self.path, final_path).await {
+        if let Err(error) = rename_activation_path(&self.path, final_path).await {
             tracing::error!(
                 from = %self.path.display(),
                 to = %final_path.display(),
@@ -145,7 +164,7 @@ impl TappDirStage {
                 "Failed to rename staging Tapp dir to final path"
             );
             if let Some(backup) = &backup_path {
-                if let Err(restore_error) = fs::rename(backup, final_path).await {
+                if let Err(restore_error) = rename_activation_path(backup, final_path).await {
                     tracing::error!(
                         from = %backup.display(),
                         to = %final_path.display(),
@@ -205,9 +224,67 @@ impl ActivatedTappDir {
     }
 
     pub(super) async fn rollback(mut self) {
-        let _ = fs::remove_dir_all(&self.final_path).await;
+        self.rollback_with_candidate_policy(false).await;
+    }
+
+    pub(super) async fn rollback_after_commit_error(mut self) {
+        self.rollback_with_candidate_policy(true).await;
+    }
+
+    async fn rollback_with_candidate_policy(&mut self, preserve_candidate: bool) {
         if let Some(backup) = self.backup_path.take() {
-            let _ = fs::rename(backup, &self.final_path).await;
+            let name = self
+                .final_path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("tapp");
+            let discard = self
+                .final_path
+                .with_file_name(recovery_discard_artifact_name(
+                    name,
+                    &uuid::Uuid::new_v4().simple().to_string(),
+                ));
+            let candidate_exists = fs::symlink_metadata(&self.final_path).await.is_ok();
+            if candidate_exists {
+                if let Err(error) = rename_activation_path(&self.final_path, &discard).await {
+                    tracing::error!(
+                        from = %self.final_path.display(),
+                        to = %discard.display(),
+                        %error,
+                        "Failed to quarantine candidate Tapp during rollback; preserving both generations"
+                    );
+                    return;
+                }
+            }
+
+            if let Err(error) = rename_activation_path(&backup, &self.final_path).await {
+                tracing::error!(
+                    from = %backup.display(),
+                    to = %self.final_path.display(),
+                    %error,
+                    "Failed to restore previous Tapp during rollback; preserving backup"
+                );
+                if candidate_exists {
+                    if let Err(restore_error) =
+                        rename_activation_path(&discard, &self.final_path).await
+                    {
+                        tracing::error!(
+                            from = %discard.display(),
+                            to = %self.final_path.display(),
+                            %restore_error,
+                            "Failed to restore candidate Tapp after rollback failure"
+                        );
+                    }
+                }
+                return;
+            }
+
+            if candidate_exists && !preserve_candidate {
+                let _ = remove_path_best_effort(&discard).await;
+            }
+        } else {
+            // A failed first install has no prior live generation to preserve.
+            let _ = remove_path_best_effort(&self.final_path).await;
         }
     }
 }
@@ -654,7 +731,8 @@ pub(crate) async fn recover_tapp_filesystem_state(db: &DatabaseConnection) -> Re
 }
 
 pub(crate) fn installed_tapp_dir(tapp: &tapps::Model) -> Result<PathBuf, HttpError> {
-    tapp_dir_for(tapp.user_id, &tapp.tapp_id).map_err(|_| HttpError(AppError::bad_request("Bad request")))
+    tapp_dir_for(tapp.user_id, &tapp.tapp_id)
+        .map_err(|_| HttpError(AppError::bad_request("Bad request")))
 }
 
 pub(crate) fn installed_code_path(tapp: &tapps::Model) -> Result<PathBuf, HttpError> {
@@ -876,13 +954,8 @@ pub(crate) fn validate_tapp_archive<R: std::io::Read + std::io::Seek>(
             .by_index(index)
             .map_err(|error| format!("Invalid Tapp archive entry: {error}"))?;
         let name = file.name().trim_end_matches('/');
-        total_size = validate_archive_entry(
-            name,
-            file.is_dir(),
-            file.size(),
-            &mut paths,
-            total_size,
-        )?;
+        total_size =
+            validate_archive_entry(name, file.is_dir(), file.size(), &mut paths, total_size)?;
     }
 
     Ok(())
