@@ -1097,9 +1097,9 @@ Tapp.federation.onChannelUpdate((ev) => { /* accepted | closed | disconnected */
 Tapp.federation.onRoomUpdate((ev) => { /* governance_changed | member_* | disconnected */ });
 ```
 
-Channel/Room **JSON 消息**（含内联 base64 图）后端载荷上限 **36 MiB**
-（`MESSAGE_PAYLOAD_LIMIT` / `MAX_ROOM_MESSAGE_PAYLOAD`）；联邦 inbox DefaultBodyLimit
-为 **64 MiB**（见 `federation::limits`；已认证内容路由约 **80 MiB** = inbox + 16 MiB）。更大附件请走分块传输
+Channel/Room **JSON 消息**（含小型内联数据）后端载荷上限 **4 MiB**
+（`MESSAGE_PAYLOAD_LIMIT` / `MAX_ROOM_MESSAGE_PAYLOAD`）；联邦 inbox 独立硬上限
+为 **8 MiB**（见 `federation::limits`；已认证内容路由约 **24 MiB** = inbox + 16 MiB）。更大附件请走分块传输
 （默认 chunk **4 MiB** raw；base64 JSON 体上限 16 MiB，见 `TRANSFER_CHUNK_*`）。
 加密时 `sendMessage` / `sendRoomMessage` 可设 `encrypt: true`：库内与联邦 fan-out 仍为密文，
 本机 WebSocket 在密钥可用时推送明文以免 UI 先闪 ciphertext。

@@ -1460,19 +1460,16 @@ pub(crate) static REPORT_REGEN_IN_FLIGHT: once_cell::sync::Lazy<
 > = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
 
 /// Resolve which user's reports the public latest/list endpoints should serve.
-/// Prefers durable site owner (`is_owner`); falls back to positive claims / 1.
-/// Never uses a non-owner viewer session — that emptied home ReportCards.
+/// Prefers durable site owner (`is_owner`); falls back to the legacy owner id 1.
+/// Viewer credentials never select public report ownership.
 pub(crate) async fn public_report_owner_user_id(
     db: &DatabaseConnection,
-    headers: &axum::http::HeaderMap,
+    _headers: &axum::http::HeaderMap,
 ) -> i32 {
     if let Ok(owner_id) = crate::api::profile::site_owner_user_id(db).await {
         return owner_id;
     }
-    crate::middleware::auth::extract_optional_claims(headers)
-        .and_then(|claims| claims.sub.parse::<i32>().ok())
-        .filter(|id| *id > 0)
-        .unwrap_or(1)
+    1
 }
 
 /// Prefer `preferred` when they have platform reports; otherwise use the user_id

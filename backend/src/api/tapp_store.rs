@@ -80,7 +80,9 @@ use axum::{
     Router,
 };
 
-use crate::middleware::auth::{auth_middleware, optional_auth_middleware};
+use crate::middleware::auth::{
+    auth_middleware, optional_auth_middleware, optional_current_auth_middleware,
+};
 
 /// 创建 Tapp 路由
 ///
@@ -135,7 +137,11 @@ pub fn create_tapp_routes(
         .route("/{tapp_id}/code", get(get_tapp_code))
         .route("/{tapp_id}/resources", get(get_tapp_resources))
         .route("/{tapp_id}/asset", get(get_tapp_asset))
-        .route("/{tapp_id}/export", get(export_tapp));
+        .route("/{tapp_id}/export", get(export_tapp))
+        .route_layer(from_fn_with_state(
+            app_state.clone(),
+            optional_current_auth_middleware,
+        ));
 
     // Stable subject (JWT or signed guest cookie) + Runtime Grant for sandbox
     // storage. Guests keep private storage under their negative session id.

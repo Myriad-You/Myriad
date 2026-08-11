@@ -703,9 +703,22 @@ pub async fn get_visitor_card(
 
     // Staff sessions (admin or site owner) are never recorded (see `collect`),
     // so they have no ordinal of their own. Report that rather than a blank slot.
-    let is_staff = crate::middleware::auth::extract_optional_claims(request.headers())
-        .map(|c| c.is_admin || c.is_owner)
-        .unwrap_or(false);
+    let is_staff = match crate::middleware::auth::authenticate_optional_request(
+        request.headers(),
+        &db,
+    )
+    .await
+    {
+        Ok(claims) => claims
+            .map(|claims| claims.is_admin || claims.is_owner)
+            .unwrap_or(false),
+        Err(response) => {
+            return (
+                response.status(),
+                Json(json!({"success": false, "error": "Invalid authentication state"})),
+            );
+        }
+    };
     let ip = crate::middleware::client_ip::extract_client_ip(&request);
     let ua = request
         .headers()

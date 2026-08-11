@@ -22,22 +22,24 @@
 //! 注意跨实例时对端可能是旧版本或别的实现，它的 inbox 上限我们无从得知 ——
 //! 放宽本端只在双方都升级后才完全生效。
 //!
-//! # 内存上界
+//! # 内存与解析上界
 //!
 //! inbox 是**远端可达**的表面。一个请求最坏会同时持有：原始字节
 //! （≤ [`INBOX_BODY_LIMIT`]）+ 解析后的 `serde_json::Value`（结构化开销通常是
-//! 原始大小的 2–3 倍）。也就是说单个满额请求的峰值约 `3 × INBOX_BODY_LIMIT`。
+//! 原始大小的 2–3 倍）。[`INBOX_PARSE_CONCURRENCY`] 限制同时持有完整解析树的
+//! 请求数；[`validate_inbox_json_budget`] 在构造 `Value` 前拒绝过深、结构项过多或
+//! 单字符串过大的 JSON。
 //!
-//! docker-compose 给 backend 的限制是 **2 GiB**。当前取值下，若干并发满额投递
-//! 仍在预算内；继续调高必须同步抬高容器内存限制，否则表现为 OOM 被杀而不是
-//! 干净的 413。
+//! 大文件必须走分块传输端点，不能借公共 inbox 的 JSON 上限绕过资源预算。
 //!
 //! 缓解措施：
 //! 1. `inbox::verify_preparse_gate` 在解析 JSON **之前**先校验签名头、
 //!    Date 新鲜度与 Digest（对原始字节逐字节比对），攻击者要让我们开始解析就得先
 //!    算出正确的 SHA-256，不能靠一坨随机字节撑爆内存。
 //! 2. [`INBOX_INFLIGHT_RAW_BUDGET`] 限制**并发**缓冲的原始 body 总量；预算耗尽
-//!    返回 429，**不**压低单请求上限（MYR-002）。
+//!    返回 429。
+//! 3. [`INBOX_PARSE_CONCURRENCY`] 限制完整 JSON 树的并发存活数；没有排队持有大
+//!    body，预算耗尽直接返回 429。
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -46,9 +48,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// 按 `payload.to_string().len()` 度量，覆盖小文件内联 base64 与 Tapp 安装包
 /// 分享；更大的附件走 [`file_transfer`](crate::federation::file_transfer) 分块。
 ///
-/// MYR-002（产品）：从 64 MiB 降到 **36 MiB**，缩小内存 DoS 面，仍为正常活动
-/// 留业务余量（不是审计报告式的 multi-KiB 苛刻裁剪）。
-pub const MESSAGE_PAYLOAD_LIMIT: usize = 36 * 1024 * 1024;
+/// 公共 inbox 只承载活动与小型内联数据；大文件走分块传输。4 MiB 仍为普通消息、
+/// 加密信封和小图保留余量，同时不再让单条公共 JSON 承担媒体传输职责。
+pub const MESSAGE_PAYLOAD_LIMIT: usize = 4 * 1024 * 1024;
 
 /// Live message payload cap (default or memory-saver).
 #[inline]
@@ -61,10 +63,10 @@ pub fn message_payload_limit() -> usize {
 /// 必须容纳 [`MESSAGE_PAYLOAD_LIMIT`] 加上活动信封、JSON 转义膨胀与
 /// base64 分块的 4/3 放大。
 ///
-/// MYR-002（产品）：**显式 64 MiB**，不要写成 `MESSAGE_PAYLOAD_LIMIT * 3 / 2`
-/// （那会得到 54 MiB）。信封余量由编译期 assert 约束（≥ 25% of payload）。
+/// 8 MiB 是独立于全局 body limit 的远端硬上限。它可容纳 4 MiB payload、加密/
+/// base64 膨胀和活动信封；更大内容必须走分块传输。
 /// Active process value: [`inbox_body_limit`].
-pub const INBOX_BODY_LIMIT: usize = 64 * 1024 * 1024;
+pub const INBOX_BODY_LIMIT: usize = 8 * 1024 * 1024;
 
 /// Live inbox body cap (default or memory-saver).
 #[inline]
@@ -75,7 +77,7 @@ pub fn inbox_body_limit() -> usize {
 /// 已认证用户提交内容的路由上限（发布、房间/频道消息、媒体上传）。
 ///
 /// 比 inbox 略宽：这些请求来自已登录的本地用户，不是任意远端。
-/// MYR-002：`INBOX + 16 MiB` → **80 MiB**。
+/// 本地已认证写路径保留额外 16 MiB 余量；公开 inbox 不继承该宽限。
 /// Active: [`authenticated_body_limit`].
 pub const AUTHENTICATED_BODY_LIMIT: usize = INBOX_BODY_LIMIT + 16 * 1024 * 1024;
 
@@ -89,7 +91,20 @@ pub fn authenticated_body_limit() -> usize {
 ///
 /// 这些端点的 body 只有几百字节到几 KiB。放宽到 1 MiB 足够容纳异常大的
 /// 名称/描述，同时避免一个只需要 JSON 小对象的端点可以缓冲整个路由上限。
-pub const SMALL_CONTROL_BODY_LIMIT: usize = 1024 * 1024;
+pub const SMALL_CONTROL_BODY_LIMIT: usize = 256 * 1024;
+
+/// 同时持有完整 inbox JSON 树的最大请求数。
+pub const INBOX_PARSE_CONCURRENCY: usize = 4;
+
+/// inbox JSON 最大嵌套层数。ActivityPub/MFP 合法信封通常远低于此值。
+pub const INBOX_JSON_MAX_DEPTH: usize = 32;
+
+/// 所有数组/对象结构项的全局预算（逗号、键值分隔符和容器起点）。
+pub const INBOX_JSON_MAX_STRUCTURAL_ITEMS: usize = 65_536;
+
+/// 单个 JSON 字符串的最大原始编码字节数。
+/// 6 MiB 可容纳 4 MiB payload 的 base64/加密膨胀，但拒绝占满整个 body 的单值。
+pub const INBOX_JSON_MAX_STRING_BYTES: usize = 6 * 1024 * 1024;
 
 /// 文件分块传输的单块大小。
 pub const TRANSFER_CHUNK_SIZE: i64 = 4 * 1024 * 1024;
@@ -160,30 +175,30 @@ pub const NOTE_ATTACHMENT_COUNT_LIMIT: usize = 32;
 pub const NOTE_TEXT_CHAR_LIMIT: usize = 100_000;
 
 // ---------------------------------------------------------------------------
-// In-flight inbox raw-body budget (MYR-002)
+// In-flight inbox raw-body budget
 // ---------------------------------------------------------------------------
 //
 // Per-request body limit still allows a full-size delivery. This budget only
-// caps *concurrent* buffering so ~10 full-size peaks cannot pile up inside a
-// 2 GiB container.
+// caps *concurrent* buffering so remote requests cannot pile up parse-sized
+// allocations inside the backend container.
 //
 // Chosen numbers (document + keep in sync with asserts below):
 //
 // | quantity                         | value        | rationale                          |
 // |----------------------------------|--------------|------------------------------------|
-// | INBOX_BODY_LIMIT (single)        | 64 MiB       | product; envelope over 36 MiB msg  |
-// | single-request parse peak (≈3×)  | ~192 MiB     | raw + serde_json::Value            |
-// | INBOX_INFLIGHT_RAW_BUDGET        | 512 MiB      | up to 8× full concurrent raw body  |
-// | worst concurrent parse peak      | ~1.5 GiB     | 3 × 512 MiB; leaves ~0.5 GiB slack |
-// | max concurrent full-size         | 8            | not ~10; still "several" medium OK |
+// | INBOX_BODY_LIMIT (single)        | 8 MiB        | public JSON envelope               |
+// | single-request parse peak (≈3×)  | ~24 MiB      | raw + serde_json::Value            |
+// | INBOX_INFLIGHT_RAW_BUDGET        | 32 MiB       | at most 4 full raw bodies          |
+// | INBOX_PARSE_CONCURRENCY          | 4            | at most 4 complete JSON trees      |
+// | bounded parse-tree peak (≈3×)    | ~96 MiB      | independent of global body limit   |
 //
 // Exhausted budget → HTTP **429** (not a lower body limit / 413).
 
 /// Concurrent raw-body reservation budget for inbox handlers (**default** profile).
 ///
 /// Active process budget is [`inbox_inflight_raw_budget`] (memory-saver may lower it).
-/// See module comment block above for the full sizing rationale (MYR-002).
-pub const INBOX_INFLIGHT_RAW_BUDGET: usize = 512 * 1024 * 1024;
+/// See the module comment block above for the full sizing rationale.
+pub const INBOX_INFLIGHT_RAW_BUDGET: usize = 32 * 1024 * 1024;
 
 /// Live inbox concurrent raw-body budget (default or memory-saver).
 #[inline]
@@ -193,6 +208,9 @@ pub fn inbox_inflight_raw_budget() -> usize {
 
 /// Currently reserved raw body bytes across in-flight inbox handlers.
 static INBOX_INFLIGHT_RAW_BYTES: AtomicUsize = AtomicUsize::new(0);
+
+/// Complete inbox JSON trees currently admitted for parsing/dispatch.
+static INBOX_ACTIVE_PARSES: AtomicUsize = AtomicUsize::new(0);
 
 /// RAII permit for concurrent inbox body buffering. Releases on drop.
 #[derive(Debug)]
@@ -214,6 +232,105 @@ impl Drop for InboxInflightPermit {
             self.bytes = 0;
         }
     }
+}
+
+/// RAII admission for one complete inbox JSON parse tree.
+#[derive(Debug)]
+pub struct InboxParsePermit;
+
+impl Drop for InboxParsePermit {
+    fn drop(&mut self) {
+        INBOX_ACTIVE_PARSES.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+/// Current complete inbox JSON trees retained by handlers.
+pub fn inbox_active_parses() -> usize {
+    INBOX_ACTIVE_PARSES.load(Ordering::Acquire)
+}
+
+/// Refuse work instead of queueing already-buffered remote bodies.
+pub fn try_acquire_inbox_parse() -> Option<InboxParsePermit> {
+    loop {
+        let current = INBOX_ACTIVE_PARSES.load(Ordering::Acquire);
+        if current >= INBOX_PARSE_CONCURRENCY {
+            return None;
+        }
+        match INBOX_ACTIVE_PARSES.compare_exchange_weak(
+            current,
+            current + 1,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        ) {
+            Ok(_) => return Some(InboxParsePermit),
+            Err(_) => continue,
+        }
+    }
+}
+
+/// Lexically enforce JSON resource budgets before `serde_json::Value` allocates
+/// the complete tree. This is intentionally not a second JSON parser: it only
+/// recognizes strings and container delimiters needed for resource accounting;
+/// `serde_json` remains the syntax authority.
+pub fn validate_inbox_json_budget(input: &[u8]) -> Result<(), &'static str> {
+    let mut stack = [0_u8; INBOX_JSON_MAX_DEPTH];
+    let mut depth = 0_usize;
+    let mut structural_items = 0_usize;
+    let mut string_bytes = 0_usize;
+    let mut in_string = false;
+    let mut escaped = false;
+
+    for &byte in input {
+        if in_string {
+            string_bytes = string_bytes.saturating_add(1);
+            if string_bytes > INBOX_JSON_MAX_STRING_BYTES {
+                return Err("JSON string exceeds inbox budget");
+            }
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+
+        match byte {
+            b'"' => {
+                in_string = true;
+                string_bytes = 0;
+            }
+            b'{' | b'[' => {
+                if depth >= INBOX_JSON_MAX_DEPTH {
+                    return Err("JSON nesting exceeds inbox budget");
+                }
+                stack[depth] = byte;
+                depth += 1;
+                structural_items = structural_items.saturating_add(1);
+            }
+            b'}' | b']' => {
+                let expected = if byte == b'}' { b'{' } else { b'[' };
+                if depth == 0 || stack[depth - 1] != expected {
+                    return Err("JSON containers are unbalanced");
+                }
+                depth -= 1;
+            }
+            b',' | b':' => {
+                structural_items = structural_items.saturating_add(1);
+            }
+            _ => {}
+        }
+
+        if structural_items > INBOX_JSON_MAX_STRUCTURAL_ITEMS {
+            return Err("JSON collection size exceeds inbox budget");
+        }
+    }
+
+    if in_string || depth != 0 {
+        return Err("JSON is structurally incomplete");
+    }
+    Ok(())
 }
 
 /// Snapshot of currently reserved in-flight raw body bytes (tests / metrics).
@@ -258,8 +375,10 @@ pub fn try_acquire_inbox_inflight(bytes: usize) -> Option<InboxInflightPermit> {
 /// finishes (drop releases the reservation).
 pub async fn buffer_inbox_body(
     request: axum::http::Request<axum::body::Body>,
-) -> Result<(axum::body::Bytes, InboxInflightPermit), (axum::http::StatusCode, axum::Json<serde_json::Value>)>
-{
+) -> Result<
+    (axum::body::Bytes, InboxInflightPermit),
+    (axum::http::StatusCode, axum::Json<serde_json::Value>),
+> {
     use axum::http::{header, StatusCode};
     use axum::Json;
     use serde_json::json;
@@ -419,8 +538,6 @@ pub async fn live_small_control_body_limit(
     live_body_limit_middleware(LiveBodyLimitKind::SmallControl, request, next).await
 }
 
-
-
 // 编译期不变量
 //
 // 这些关系是常量之间的，没有理由等到跑测试才发现 —— 违反它们直接编译失败。
@@ -495,11 +612,16 @@ const _: () = assert!(
     "INBOX_INFLIGHT_RAW_BUDGET must admit at least one full-size inbox body"
 );
 
-/// 并发 raw 预算不得接近「10 个满额」—— 那是 2 GiB 容器的危险区。
-/// 8 × full 仍属「若干」；10 × full 会被这条挡住。
+/// Raw reservation and complete-tree admission describe the same full-size
+/// concurrency ceiling; neither budget may silently outrun the other.
 const _: () = assert!(
-    INBOX_INFLIGHT_RAW_BUDGET < INBOX_BODY_LIMIT * 10,
-    "INBOX_INFLIGHT_RAW_BUDGET allows ~10 concurrent full-size bodies; too high for 2 GiB"
+    INBOX_INFLIGHT_RAW_BUDGET <= INBOX_BODY_LIMIT * INBOX_PARSE_CONCURRENCY,
+    "raw inbox budget exceeds complete JSON parse concurrency budget"
+);
+
+const _: () = assert!(
+    INBOX_JSON_MAX_STRING_BYTES < INBOX_BODY_LIMIT,
+    "a single inbox string must not consume the entire public body budget"
 );
 
 /// 并发 raw 预算对应的解析峰值（按 3× 粗算）应落在 2 GiB 容器内。
@@ -573,21 +695,17 @@ mod constant_tests {
     use super::*;
 
     #[test]
-    fn myr002_product_limits() {
-        assert_eq!(MESSAGE_PAYLOAD_LIMIT, 36 * 1024 * 1024);
-        assert_eq!(INBOX_BODY_LIMIT, 64 * 1024 * 1024);
-        // Must be explicit 64 MiB, not MESSAGE * 3/2 (= 54 MiB).
-        assert_ne!(INBOX_BODY_LIMIT, MESSAGE_PAYLOAD_LIMIT * 3 / 2);
+    fn public_inbox_has_independent_bounded_json_budget() {
+        assert_eq!(MESSAGE_PAYLOAD_LIMIT, 4 * 1024 * 1024);
+        assert_eq!(INBOX_BODY_LIMIT, 8 * 1024 * 1024);
         assert_eq!(
             AUTHENTICATED_BODY_LIMIT,
             INBOX_BODY_LIMIT + 16 * 1024 * 1024
         );
-        assert_eq!(AUTHENTICATED_BODY_LIMIT, 80 * 1024 * 1024);
-        assert_eq!(INBOX_INFLIGHT_RAW_BUDGET, 512 * 1024 * 1024);
-        // Several concurrent full-size, not ~10.
+        assert_eq!(AUTHENTICATED_BODY_LIMIT, 24 * 1024 * 1024);
+        assert_eq!(INBOX_INFLIGHT_RAW_BUDGET, 32 * 1024 * 1024);
         let max_full = INBOX_INFLIGHT_RAW_BUDGET / INBOX_BODY_LIMIT;
-        assert!(max_full >= 4, "budget should allow several full deliveries");
-        assert!(max_full < 10, "budget must not allow ~10 concurrent full-size");
+        assert_eq!(max_full, INBOX_PARSE_CONCURRENCY);
     }
 
     /// Locks constants cited by `docs/development/BACKEND_MEMORY_AUDIT.md`.
@@ -597,19 +715,13 @@ mod constant_tests {
     /// is a product/profile decision — this test fails loudly if they drift
     /// without updating the audit.
     #[test]
-    fn memory_audit_1g_host_budget_tension() {
+    fn public_inbox_peak_stays_bounded_on_1g_host() {
         const ONE_GIB: usize = 1024 * 1024 * 1024;
-        // Single-request product floor (do not silently shrink in drive-by refactors).
         const {
-            assert!(MESSAGE_PAYLOAD_LIMIT >= 32 * 1024 * 1024);
             assert!(INBOX_BODY_LIMIT >= MESSAGE_PAYLOAD_LIMIT);
-        }
-        // Concurrent budget is half a 1 GiB host — intentional audit finding.
-        assert_eq!(INBOX_INFLIGHT_RAW_BUDGET, 512 * 1024 * 1024);
-        const {
             assert!(
-                INBOX_INFLIGHT_RAW_BUDGET * 2 <= ONE_GIB,
-                "inflight raw budget is sized as half of 1 GiB (audit R2)"
+                INBOX_INFLIGHT_RAW_BUDGET * 3 <= ONE_GIB / 4,
+                "estimated inbox parse peak must stay below one quarter of 1 GiB"
             );
             assert!(
                 MAX_IN_FLIGHT_CHUNK_BYTES <= 128 * 1024 * 1024,
@@ -625,10 +737,7 @@ mod constant_tests {
         crate::services::memory_profile::apply(
             crate::services::memory_profile::MemoryProfile::Default,
         );
-        assert_eq!(
-            LiveBodyLimitKind::Inbox.limit_bytes(),
-            INBOX_BODY_LIMIT
-        );
+        assert_eq!(LiveBodyLimitKind::Inbox.limit_bytes(), INBOX_BODY_LIMIT);
         assert_eq!(
             LiveBodyLimitKind::Authenticated.limit_bytes(),
             AUTHENTICATED_BODY_LIMIT
@@ -645,10 +754,7 @@ mod constant_tests {
             LiveBodyLimitKind::Authenticated.limit_bytes(),
             crate::services::memory_profile::SAVER_AUTHENTICATED_BODY_LIMIT
         );
-        assert!(
-            LiveBodyLimitKind::NoteMedia.limit_bytes()
-                < NOTE_VIDEO_LIMIT + 16 * 1024 * 1024
-        );
+        assert!(LiveBodyLimitKind::NoteMedia.limit_bytes() < NOTE_VIDEO_LIMIT + 16 * 1024 * 1024);
         // Restore default for other tests in this process.
         crate::services::memory_profile::apply(
             crate::services::memory_profile::MemoryProfile::Default,
@@ -726,6 +832,58 @@ mod inflight_budget_tests {
         assert_eq!(p.bytes(), INBOX_BODY_LIMIT);
         drop(p);
         assert_eq!(inbox_inflight_raw_bytes(), 0);
+    }
+
+    #[test]
+    fn parse_admission_refuses_the_fifth_complete_tree() {
+        let _guard = budget_test_lock();
+        assert_eq!(inbox_active_parses(), 0);
+        let permits: Vec<_> = (0..INBOX_PARSE_CONCURRENCY)
+            .map(|_| try_acquire_inbox_parse().expect("parse slot"))
+            .collect();
+        assert!(try_acquire_inbox_parse().is_none());
+        drop(permits);
+        assert_eq!(inbox_active_parses(), 0);
+    }
+
+    #[test]
+    fn json_budget_accepts_normal_activity_and_escaped_delimiters() {
+        let body =
+            br#"{"type":"Create","actor":"https://peer.test/u/a","object":{"content":"[]{}\\\""}}"#;
+        assert_eq!(validate_inbox_json_budget(body), Ok(()));
+        let _: serde_json::Value = serde_json::from_slice(body).expect("valid control JSON");
+    }
+
+    #[test]
+    fn json_budget_rejects_depth_before_value_allocation() {
+        let mut body = vec![b'['; INBOX_JSON_MAX_DEPTH + 1];
+        body.extend(std::iter::repeat_n(b']', INBOX_JSON_MAX_DEPTH + 1));
+        assert_eq!(
+            validate_inbox_json_budget(&body),
+            Err("JSON nesting exceeds inbox budget")
+        );
+    }
+
+    #[test]
+    fn json_budget_rejects_large_collection_and_string() {
+        let mut collection = Vec::from("[0".as_bytes());
+        for _ in 0..=INBOX_JSON_MAX_STRUCTURAL_ITEMS {
+            collection.extend_from_slice(b",0");
+        }
+        collection.push(b']');
+        assert_eq!(
+            validate_inbox_json_budget(&collection),
+            Err("JSON collection size exceeds inbox budget")
+        );
+
+        let mut string = Vec::with_capacity(INBOX_JSON_MAX_STRING_BYTES + 3);
+        string.push(b'"');
+        string.extend(std::iter::repeat_n(b'x', INBOX_JSON_MAX_STRING_BYTES + 1));
+        string.push(b'"');
+        assert_eq!(
+            validate_inbox_json_budget(&string),
+            Err("JSON string exceeds inbox budget")
+        );
     }
 }
 
@@ -822,7 +980,9 @@ mod rejection_tests {
         async fn handler(payload: Result<Json<P>, JsonRejection>) -> axum::response::Response {
             match payload {
                 Ok(_) => "ok".into_response(),
-                Err(e) => crate::api::federation::json_rejection_response(e, Some("use chunked transfer")),
+                Err(e) => {
+                    crate::api::federation::json_rejection_response(e, Some("use chunked transfer"))
+                }
             }
         }
         use axum::response::IntoResponse;

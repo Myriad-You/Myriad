@@ -1,6 +1,6 @@
 // 权限配置 API
 
-use crate::middleware::auth::extract_optional_claims;
+use crate::middleware::auth::authenticate_optional_request;
 use crate::services::permission_service::{TappPermissionService, UserRole};
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
@@ -13,6 +13,15 @@ pub async fn get_permissions(
     crate::extract::Db(db): crate::extract::Db,
     headers: HeaderMap,
 ) -> (StatusCode, Json<Value>) {
+    let claims = match authenticate_optional_request(&headers, &db).await {
+        Ok(claims) => claims,
+        Err(response) => {
+            return (
+                response.status(),
+                Json(json!({"success": false, "error": "Invalid authentication state"})),
+            );
+        }
+    };
     let config_service = crate::services::config_service::ConfigService::new(db);
     let config = match config_service.load_config().await {
         Ok(c) => c,
@@ -28,7 +37,6 @@ pub async fn get_permissions(
     };
 
     // 获取当前用户角色
-    let claims = extract_optional_claims(&headers);
     let role = match &claims {
         Some(c) if c.is_admin => UserRole::Admin,
         Some(c) => {

@@ -131,8 +131,8 @@ pub(crate) async fn start_unified_server(config: AppConfig) -> anyhow::Result<()
         // Apply security headers after the complete route graph is assembled.
         .layer(from_fn(middleware::security::security_headers_middleware))
         // Global 50 MiB default for most routes. Nested federation routers set
-        // their own DefaultBodyLimit from `federation::limits` (inbox 64 MiB,
-        // authenticated 80 MiB — MYR-002) which **may exceed** this outer layer —
+        // their own DefaultBodyLimit from `federation::limits` (inbox 8 MiB,
+        // authenticated 24 MiB) which may use a different budget than this outer layer —
         // see `federation::limits` tests. Do not assume 50 MiB caps public inbox.
         .layer(axum::extract::DefaultBodyLimit::max(50 * 1024 * 1024))
         .layer(cors)

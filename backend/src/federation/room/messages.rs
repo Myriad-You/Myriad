@@ -19,7 +19,7 @@ pub async fn send_room_message(
     db: &DatabaseConnection,
     req: &SendRoomMessageRequest,
 ) -> Result<SendRoomMessageResponse, (StatusCode, Json<serde_json::Value>)> {
-    // 验证载荷大小（default 36 MiB；内存节约档略低）
+    // 验证载荷大小（default 4 MiB；内存节约档略低）
     let max_payload = crate::federation::limits::message_payload_limit();
     let payload_size = req.payload.to_string().len();
     if payload_size > max_payload {

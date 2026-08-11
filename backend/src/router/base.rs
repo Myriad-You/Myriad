@@ -561,7 +561,7 @@ pub(super) fn build_base_api_router(
             get(federation::actor::get_following),
         )
         // Layer 2: Inbox（远程实例投递，通过 HTTP Signature 验证）
-        // Live body limit follows memory profile (default 64 MiB / saver 48 MiB).
+        // Live body limit follows memory profile (default 8 MiB / saver 4 MiB).
         // Concurrent buffering is also gated by inbox inflight budget (429).
         .merge(
             Router::<crate::state::AppState>::new()
