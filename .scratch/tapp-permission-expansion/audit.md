@@ -2,7 +2,7 @@
 
 Audit time: 2026-08-12 02:19
 
-Status: partial — safe completed slices are committed; remaining unsafe or blocked slices are explicitly open.
+Status: partial — safe completed slices are committed; anonymous guest speech and the final complete example remain explicitly open.
 
 ## Objective restatement
 
@@ -25,9 +25,9 @@ Deliver a local specification and agent-ready vertical tickets for expanding the
 | Guest session-only notification, no durable record | Ticket 04 resolved; commit `1be7ca21`; policy test proves session delivery; authenticated roles remain durable | Verified |
 | Deny guest Dynamic Content mutation sharing notification permission | `canMutateDynamicContent` policy + set/update/remove handler guards and tests | Verified |
 | Guest session shortcut register/list/unregister + teardown | Commit `585626ce`; per-bridge `GuestShortcutSession`, teardown clear, host unbind, behavior test | Verified |
-| Guest temporary theme | Ticket 05 Progress records blocker: no session theme registry/application/teardown seam; durable API remains protected | Not achieved; safely blocked |
+| Guest temporary theme | Commit `29d78c41`; per-bridge session theme registry, whitelist consumption through `useTappThemes`, teardown cleanup, behavior test | Verified |
 | Guest metered TTS/ASR | Ticket 06 Progress records blockers: speech middleware requires authenticated Claims; only 45/min rate limit exists; no persistent finite speech quota ledger | Not achieved; safely blocked |
-| Mood Radio complete example covering every newly accessible SDK action | Ticket 07 remains blocked by 05 and 06 | Not achieved |
+| Mood Radio complete example covering every newly accessible SDK action | Ticket 07 remains blocked by 06 | Not achieved |
 | Shared permission/catalog consistency | Frontend permission-map tests and CLI generated-contract tests pass | Verified |
 | CLI check/permissions/pack compatibility | `npm test` in `tools/tapp-cli`: 47/47 pass | Verified |
 | Headless boundaries | capabilityProfiles tests: 3/3 pass; CLI headless checks included in 47/47 | Verified |
@@ -46,11 +46,10 @@ Deliver a local specification and agent-ready vertical tickets for expanding the
 
 ## Missing or weakly covered requirements
 
-1. Guest temporary themes are intentionally not implemented. The only current theme contribution path is durable and authenticated; a new session registry plus application/teardown integration is required.
-2. Guest speech is intentionally not implemented. The current authenticated middleware and absence of a finite persistent speech quota make enabling it non-compliant with the agreed safety contract.
-3. The complete Mood Radio example and final four-role executable matrix remain blocked by items 1 and 2.
-4. No browser-level manual QA was performed; current evidence is backend, frontend policy/contract, typecheck, and CLI test coverage.
+1. Guest speech is intentionally not implemented. The current authenticated middleware and absence of a finite persistent speech quota make enabling it non-compliant with the agreed safety contract.
+2. The complete Mood Radio example and final four-role executable matrix remain blocked by guest speech.
+3. No browser-level manual QA was performed; current evidence is backend, frontend policy/contract, typecheck, and CLI test coverage.
 
 ## Stop condition
 
-Do not mark the whole feature complete. Safe slices 01–04 are resolved. Ticket 05 remains open with shortcut progress and a theme blocker. Ticket 06 remains open with an anonymous attribution/quota blocker. Ticket 07 remains blocked by both. The next defensible implementation input is either (a) a design for a session theme registry, or (b) approval and design for a generalized persistent anonymous speech quota ledger.
+Do not mark the whole feature complete. Safe slices 01–05 are resolved. Ticket 06 remains open with an anonymous attribution/quota blocker. Ticket 07 remains blocked by Ticket 06. The next defensible implementation input is approval and design for a generalized persistent anonymous speech quota ledger.
