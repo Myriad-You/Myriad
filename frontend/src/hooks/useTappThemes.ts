@@ -19,7 +19,7 @@
 
 import type { WidgetGlowMode, WidgetSurface } from './useWidgetTheme'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 // TappApiService 动态加载：该 hook 被 TitleFontSelector（Home 编辑模式）引用，
 // 静态 import 会把整个 tapp 服务层拖进首屏关键路径
 import {
@@ -75,6 +75,17 @@ function sanitizeTappTheme(raw: unknown): SafeTappTheme | null {
   return { id, name, surface, glow }
 }
 
+export function mergeTappThemes(
+  persisted: SafeTappTheme[],
+  session: SafeTappTheme[],
+): SafeTappTheme[] {
+  const sessionIds = new Set(session.map((theme) => theme.id))
+  return [
+    ...persisted.filter((theme) => !sessionIds.has(theme.id)),
+    ...session,
+  ]
+}
+
 // Hook
 
 /**
@@ -82,7 +93,8 @@ function sanitizeTappTheme(raw: unknown): SafeTappTheme | null {
  * @param enabled 仅在需要时（如编辑模式打开面板）拉取，避免无谓请求
  */
 export function useTappThemes(enabled: boolean) {
-  const [themes, setThemes] = useState<SafeTappTheme[]>([])
+  const [persistedThemes, setPersistedThemes] = useState<SafeTappTheme[]>([])
+  const [sessionThemes, setSessionThemes] = useState<SafeTappTheme[]>([])
   const fetchedRef = useRef(false)
   const mountedRef = useRef(true)
 
@@ -96,16 +108,11 @@ export function useTappThemes(enabled: boolean) {
   useEffect(() => {
     if (!enabled) return
     const updateSessionThemes = () => {
-      setThemes((persisted) => {
-        const session = listSessionThemes()
+      setSessionThemes(
+        listSessionThemes()
           .map(sanitizeTappTheme)
-          .filter((theme): theme is SafeTappTheme => theme !== null)
-        const sessionIds = new Set(session.map((theme) => theme.id))
-        return [
-          ...persisted.filter((theme) => !sessionIds.has(theme.id)),
-          ...session,
-        ]
-      })
+          .filter((theme): theme is SafeTappTheme => theme !== null),
+      )
     }
     updateSessionThemes()
     return subscribeSessionThemes(updateSessionThemes)
@@ -123,20 +130,18 @@ export function useTappThemes(enabled: boolean) {
         const safe = list
           .map(sanitizeTappTheme)
           .filter((t): t is SafeTappTheme => t !== null)
-        const session = listSessionThemes()
-          .map(sanitizeTappTheme)
-          .filter((theme): theme is SafeTappTheme => theme !== null)
-        const sessionIds = new Set(session.map((theme) => theme.id))
-        setThemes([
-          ...safe.filter((theme) => !sessionIds.has(theme.id)),
-          ...session,
-        ])
+        setPersistedThemes(safe)
       })
       .catch((err) => {
         // 未登录 / 无权限 / 无主题都走这里，静默降级为空列表
         console.debug('[useTappThemes] 加载 Tapp 主题失败:', err)
       })
   }, [enabled])
+
+  const themes = useMemo(
+    () => mergeTappThemes(persistedThemes, sessionThemes),
+    [persistedThemes, sessionThemes],
+  )
 
   return { themes }
 }
