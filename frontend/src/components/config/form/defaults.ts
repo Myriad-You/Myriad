@@ -14,6 +14,7 @@ export const DEFAULT_PERMISSION_CONFIG: PermissionConfigValues = {
   user_perm_scheduler_register: true,
   user_perm_speech_tts: true,
   user_perm_speech_asr: true,
+  user_perm_widget_register: true,
   guest_perm_ai_generate: false,
   guest_perm_ai_analyze: false,
   guest_perm_ai_chat: false,

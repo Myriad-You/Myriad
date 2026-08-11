@@ -1812,6 +1812,9 @@ export const jaJP: TranslationKeys = {
     permSpeechTtsHint: 'Tappにクラウド音声合成サービス（TTS）の使用を許可',
     permSpeechAsr: '音声認識',
     permSpeechAsrHint: 'Tappにクラウド音声認識サービス（ASR）の使用を許可',
+    permWidgetRegister: 'ウィジェット登録',
+    permWidgetRegisterHint:
+      'TappにManifestで宣言されたウィジェットの登録と管理を許可',
     permissionsSaved: '権限設定を保存しました',
     permissionsSaveFailed: '権限設定の保存に失敗しました',
     // モジュール設定
@@ -3097,7 +3100,7 @@ export const jaJP: TranslationKeys = {
 
     // 権限説明
     permRegisterWidgetDesc:
-      '管理者によるホームページへのカスタムウィジェット登録を許可',
+      '許可されたTappによるManifest宣言済みウィジェットの登録を許可',
     permReadPlatformDesc: '既存のプラットフォームデータ読取を許可',
     permWritePlatformDesc: '新しいプラットフォームデータエントリの追加を許可',
     permRegisterPlatformDesc: 'カスタムデータプラットフォームの登録を許可',

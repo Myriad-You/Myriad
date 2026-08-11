@@ -162,6 +162,7 @@ export function useConfigSideDrafts(
           user_perm_scheduler_register: user.scheduler_register,
           user_perm_speech_tts: user.speech_tts,
           user_perm_speech_asr: user.speech_asr,
+          user_perm_widget_register: user.widget_register,
           guest_perm_ai_generate: guest.ai_generate,
           guest_perm_ai_analyze: guest.ai_analyze,
           guest_perm_ai_chat: guest.ai_chat,

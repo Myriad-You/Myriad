@@ -428,12 +428,12 @@ pub struct DynamicConfig {
     pub tapp_window_schemes: Option<String>, // 窗口方案数据 (JSON)
 
     // Tapp 权限下放配置
-    // 基于 Tapp 系统的 elevated 级别权限（13 项可配置下放）
+    // 基于 Tapp 系统的 elevated 级别权限（普通用户 14 项可配置下放）
     // 这些权限默认只有管理员可用，可以配置下放给普通用户或游客
     // 注意：basic 级别权限默认可授予所有用户
     // 注意：privileged 级别权限始终只限管理员
 
-    // 普通用户可使用的 elevated 权限（13 项）
+    // 普通用户可使用的 elevated 权限（14 项）
     /// ai:generate - AI 生成内容
     pub user_perm_ai_generate: bool,
     /// ai:analyze - AI 分析数据
@@ -460,6 +460,8 @@ pub struct DynamicConfig {
     pub user_perm_speech_tts: bool,
     /// speech:asr - 语音转文本
     pub user_perm_speech_asr: bool,
+    /// widget:register - 注册并管理 Manifest 声明的 Widget
+    pub user_perm_widget_register: bool,
 
     // 游客可使用的 elevated 权限（13 项）
     /// ai:generate - AI 生成内容（游客）
@@ -680,7 +682,7 @@ impl Default for DynamicConfig {
 
             tapp_window_schemes: None,
 
-            // 普通用户 elevated 权限默认值（13 项）
+            // 普通用户 elevated 权限默认值（14 项）
             // 应用交互、语音和调度能力默认开放；AI 与联网仍由管理员选择性开放。
             user_perm_ai_generate: false,
             user_perm_ai_analyze: false,
@@ -695,6 +697,7 @@ impl Default for DynamicConfig {
             user_perm_scheduler_register: true,
             user_perm_speech_tts: true,
             user_perm_speech_asr: true,
+            user_perm_widget_register: true,
 
             // 游客 elevated 权限默认值
             // 默认全部关闭

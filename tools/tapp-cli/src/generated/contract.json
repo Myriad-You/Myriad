@@ -1286,7 +1286,7 @@
   },
   "permissions": {
     "permissionLevels": {
-      "widget:register": "privileged",
+      "widget:register": "elevated",
       "platform:read": "basic",
       "platform:write": "privileged",
       "platform:register": "privileged",

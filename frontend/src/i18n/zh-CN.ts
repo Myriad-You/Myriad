@@ -1723,6 +1723,8 @@ export const zhCN: TranslationKeys = {
     permSpeechTtsHint: '允许 Tapp 使用云端语音合成服务（TTS）',
     permSpeechAsr: '语音转文本',
     permSpeechAsrHint: '允许 Tapp 使用云端语音识别服务（ASR）',
+    permWidgetRegister: '注册小组件',
+    permWidgetRegisterHint: '允许 Tapp 注册和管理 Manifest 中声明的小组件',
     permissionsSaved: '权限设置已保存',
     permissionsSaveFailed: '保存权限设置失败',
     // 模块设置
@@ -2963,7 +2965,7 @@ export const zhCN: TranslationKeys = {
     permFederationFiles: '联邦文件',
 
     // 权限描述
-    permRegisterWidgetDesc: '仅允许管理员注册自定义小组件到主页',
+    permRegisterWidgetDesc: '允许获授权的 Tapp 注册 Manifest 中声明的小组件',
     permReadPlatformDesc: '允许读取已有的平台数据',
     permWritePlatformDesc: '允许添加新的平台数据条目',
     permRegisterPlatformDesc: '允许注册自定义数据平台',

@@ -2261,6 +2261,7 @@ pub(crate) const REGISTERED_CONFIGURATION_KEYS_V1: &[&str] = &[
     "user_perm_shortcut_register",
     "user_perm_speech_asr",
     "user_perm_speech_tts",
+    "user_perm_widget_register",
     "widget_theme",
     "x_bearer_token",
     "x_enabled",

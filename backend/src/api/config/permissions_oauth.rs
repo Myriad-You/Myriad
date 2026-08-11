@@ -69,7 +69,7 @@ pub async fn get_permissions(
 /// 更新 Tapp 权限下放配置（仅管理员）
 #[derive(Debug, Deserialize)]
 pub struct UpdatePermissionsPayload {
-    // 普通用户可下放的 elevated 权限（13 项）
+    // 普通用户可下放的 elevated 权限（14 项）
     pub user_perm_ai_generate: Option<bool>,
     pub user_perm_ai_analyze: Option<bool>,
     pub user_perm_ai_chat: Option<bool>,
@@ -84,6 +84,7 @@ pub struct UpdatePermissionsPayload {
     pub user_perm_scheduler_register: Option<bool>,
     pub user_perm_speech_tts: Option<bool>,
     pub user_perm_speech_asr: Option<bool>,
+    pub user_perm_widget_register: Option<bool>,
     // 游客 elevated 配置；认证绑定字段仅为兼容旧请求，实际强制关闭
     pub guest_perm_ai_generate: Option<bool>,
     pub guest_perm_ai_analyze: Option<bool>,
@@ -118,10 +119,11 @@ mod tapp_permission_payload_tests {
     use super::UpdatePermissionsPayload;
 
     #[test]
-    fn accepts_speech_permission_delegation_fields() {
+    fn accepts_speech_and_widget_permission_delegation_fields() {
         let payload: UpdatePermissionsPayload = serde_json::from_value(serde_json::json!({
             "user_perm_speech_tts": true,
             "user_perm_speech_asr": false,
+            "user_perm_widget_register": true,
             "guest_perm_speech_tts": false,
             "guest_perm_speech_asr": true
         }))
@@ -129,6 +131,7 @@ mod tapp_permission_payload_tests {
 
         assert_eq!(payload.user_perm_speech_tts, Some(true));
         assert_eq!(payload.user_perm_speech_asr, Some(false));
+        assert_eq!(payload.user_perm_widget_register, Some(true));
         assert_eq!(payload.guest_perm_speech_tts, Some(false));
         assert_eq!(payload.guest_perm_speech_asr, Some(true));
     }
@@ -149,7 +152,7 @@ pub async fn update_permissions(
     let config_service = crate::services::config_service::ConfigService::new(db);
     let mut updates = std::collections::HashMap::new();
 
-    // 普通用户权限（13 项 elevated）
+    // 普通用户权限（14 项 elevated）
     if let Some(v) = payload.user_perm_ai_generate {
         updates.insert("user_perm_ai_generate".to_string(), json!(v));
     }
@@ -187,6 +190,9 @@ pub async fn update_permissions(
     }
     if let Some(v) = payload.user_perm_speech_asr {
         updates.insert("user_perm_speech_asr".to_string(), json!(v));
+    }
+    if let Some(v) = payload.user_perm_widget_register {
+        updates.insert("user_perm_widget_register".to_string(), json!(v));
     }
 
     // 游客权限。需要持久登录主体的能力保留兼容字段，但强制关闭。

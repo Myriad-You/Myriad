@@ -223,11 +223,11 @@ impl TappPermission {
             | TappPermission::EventPublish
             | TappPermission::SchedulerRegister
             | TappPermission::SpeechTts
-            | TappPermission::SpeechAsr => PermissionLevel::Elevated,
+            | TappPermission::SpeechAsr
+            | TappPermission::WidgetRegister => PermissionLevel::Elevated,
 
             // Privileged
-            TappPermission::WidgetRegister
-            | TappPermission::PlatformWrite
+            TappPermission::PlatformWrite
             | TappPermission::PlatformRegister
             | TappPermission::ComponentAgent
             | TappPermission::TappListManage
@@ -298,6 +298,7 @@ impl TappPermission {
             TappPermission::SchedulerRegister,
             TappPermission::SpeechTts,
             TappPermission::SpeechAsr,
+            TappPermission::WidgetRegister,
         ]
     }
 
@@ -482,6 +483,7 @@ impl TappPermissionService {
             TappPermission::SchedulerRegister => config.user_perm_scheduler_register,
             TappPermission::SpeechTts => config.user_perm_speech_tts,
             TappPermission::SpeechAsr => config.user_perm_speech_asr,
+            TappPermission::WidgetRegister => config.user_perm_widget_register,
             _ => false,
         }
     }
@@ -545,6 +547,7 @@ impl TappPermissionService {
                 scheduler_register: config.user_perm_scheduler_register,
                 speech_tts: config.user_perm_speech_tts,
                 speech_asr: config.user_perm_speech_asr,
+                widget_register: config.user_perm_widget_register,
             },
             guest: ElevatedPermissions {
                 ai_generate: config.guest_perm_ai_generate,
@@ -564,6 +567,7 @@ impl TappPermissionService {
                 scheduler_register: false,
                 speech_tts: false,
                 speech_asr: false,
+                widget_register: false,
             },
             user_ai_quota: AiQuotaConfig {
                 daily_calls: config.user_ai_daily_calls,
@@ -621,6 +625,7 @@ pub struct ElevatedPermissions {
     pub scheduler_register: bool,
     pub speech_tts: bool,
     pub speech_asr: bool,
+    pub widget_register: bool,
 }
 
 #[cfg(test)]
@@ -927,7 +932,7 @@ mod tests {
     }
 
     #[test]
-    fn test_widget_registration_is_admin_only_without_blocking_other_user_permissions() {
+    fn test_widget_registration_is_delegated_to_users_but_not_guests() {
         let config = DynamicConfig::default();
         let requested = vec![
             "widget:register".to_string(),
@@ -940,7 +945,7 @@ mod tests {
             UserRole::Admin,
             TappPermission::WidgetRegister
         ));
-        assert!(!TappPermissionService::check(
+        assert!(TappPermissionService::check(
             &config,
             UserRole::User,
             TappPermission::WidgetRegister
@@ -952,7 +957,7 @@ mod tests {
         ));
         assert_eq!(
             TappPermissionService::filter_permissions_for_role(&config, UserRole::User, &requested,),
-            vec!["storage", "ui:theme"]
+            vec!["widget:register", "storage", "ui:theme"]
         );
         assert_eq!(
             TappPermissionService::filter_permissions_for_role(
@@ -962,6 +967,25 @@ mod tests {
             ),
             vec!["storage", "ui:theme"]
         );
+        assert_eq!(
+            TappPermission::WidgetRegister.level(),
+            PermissionLevel::Elevated
+        );
+        assert!(
+            TappPermissionService::get_permission_config(&config)
+                .user
+                .widget_register
+        );
+
+        let disabled = DynamicConfig {
+            user_perm_widget_register: false,
+            ..DynamicConfig::default()
+        };
+        assert!(!TappPermissionService::check(
+            &disabled,
+            UserRole::User,
+            TappPermission::WidgetRegister
+        ));
     }
 
     #[test]

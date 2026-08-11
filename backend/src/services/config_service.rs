@@ -735,7 +735,7 @@ impl ConfigService {
         }
 
         // Tapp 权限下放配置
-        // 普通用户可下放的 elevated 权限（13 项）
+        // 普通用户可下放的 elevated 权限（14 项）
         if let Some(v) = map.get("user_perm_ai_generate") {
             if let Some(b) = v.as_bool() {
                 config.user_perm_ai_generate = b;
@@ -799,6 +799,11 @@ impl ConfigService {
         if let Some(v) = map.get("user_perm_speech_asr") {
             if let Some(b) = v.as_bool() {
                 config.user_perm_speech_asr = b;
+            }
+        }
+        if let Some(v) = map.get("user_perm_widget_register") {
+            if let Some(b) = v.as_bool() {
+                config.user_perm_widget_register = b;
             }
         }
 

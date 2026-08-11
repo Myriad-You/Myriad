@@ -1548,6 +1548,8 @@ export interface TranslationKeys {
     permSpeechTtsHint: string
     permSpeechAsr: string
     permSpeechAsrHint: string
+    permWidgetRegister: string
+    permWidgetRegisterHint: string
     permissionsSaved: string
     permissionsSaveFailed: string
     moduleSettings: string

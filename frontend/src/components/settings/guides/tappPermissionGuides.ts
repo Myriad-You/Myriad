@@ -302,7 +302,7 @@ const en: TappPermissionGuides = {
   'widget:register': {
     what: 'Allows registering custom widgets on the home grid.',
     chain:
-      '1) App is granted this permission.\n2) Widget register API places cards on the home grid.\n3) Admin-level; all visitors can see those widgets.',
+      '1) App declares and is granted this permission.\n2) Widget register API manages Manifest-declared cards on the home grid.\n3) Elevated delegation can be enabled or disabled by an administrator.',
     frontend: 'Home widget grid; in-app register/unregister controls.',
     notes: 'Only install trusted apps — widgets appear site-wide.',
   },

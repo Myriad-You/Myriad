@@ -23,7 +23,7 @@ type TappPermissionLevel = Exclude<PermissionLevel, 'public'>
  * 权限级别映射（与 TappPermission.ts 保持同步）
  */
 export const PERMISSION_LEVELS: Record<TappPermission, TappPermissionLevel> = {
-  'widget:register': 'privileged',
+  'widget:register': 'elevated',
   'platform:read': 'basic',
   'platform:write': 'privileged',
   'platform:register': 'privileged',

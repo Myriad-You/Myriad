@@ -38,6 +38,7 @@ const GUEST_AUTHENTICATED_PERMISSION_KEYS = new Set([
   'scheduler_register',
   'speech_tts',
   'speech_asr',
+  'widget_register',
 ])
 export type AgentPermissionPreset = 'none' | 'chat' | 'standard' | 'elevated'
 
@@ -115,6 +116,7 @@ export interface PermissionConfigValues extends Record<
   user_perm_scheduler_register: boolean
   user_perm_speech_tts: boolean
   user_perm_speech_asr: boolean
+  user_perm_widget_register: boolean
   // 游客权限
   guest_perm_ai_generate: boolean
   guest_perm_ai_analyze: boolean
@@ -236,6 +238,12 @@ export const PermissionsConfigSection: React.FC<
       code: 'scheduler:register',
       label: t.config.permSchedulerRegister,
       hint: t.config.permSchedulerRegisterHint,
+    },
+    {
+      key: 'widget_register',
+      code: 'widget:register',
+      label: t.config.permWidgetRegister,
+      hint: t.config.permWidgetRegisterHint,
     },
   ]
   const guestPermissionItems = permissionItems.filter(

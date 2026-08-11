@@ -1833,6 +1833,9 @@ export const enUS: TranslationKeys = {
     permSpeechAsr: 'Speech to Text',
     permSpeechAsrHint:
       'Allow Tapp to use cloud speech recognition service (ASR)',
+    permWidgetRegister: 'Register Widgets',
+    permWidgetRegisterHint:
+      'Allow Tapp to register and manage Manifest-declared Widgets',
     permissionsSaved: 'Permission settings saved',
     permissionsSaveFailed: 'Failed to save permission settings',
     // Module settings
@@ -3117,7 +3120,7 @@ export const enUS: TranslationKeys = {
 
     // Permission descriptions
     permRegisterWidgetDesc:
-      'Allow administrators to register custom widgets to the homepage',
+      'Allow authorized Tapps to register Manifest-declared Widgets',
     permReadPlatformDesc: 'Allow reading existing platform data',
     permWritePlatformDesc: 'Allow adding new platform data entries',
     permRegisterPlatformDesc: 'Allow registering custom data platform',
