@@ -4,21 +4,23 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Explicit guest policy controls exist for `speech:tts` and `speech:asr`, remain independently configurable, and expose effective values to administrators.
-- [ ] When enabled and declared, guest Runtime Grants can include TTS and ASR without granting scheduler, AI, network, federation mutation, or other authenticated-only permissions.
-- [ ] Guest speech calls are attributed to a server-derived anonymous subject and TAPP identity rather than a client-resettable identifier.
-- [ ] TTS and ASR retain the existing input validation and host attribution paths.
-- [ ] Anonymous usage is protected by server-authoritative request rate limits and finite usage quotas that cannot be reset by reloading the iframe.
-- [ ] Responses distinguish permission denial, invalid input, exhausted rate/quota, and unavailable speech-service configuration.
-- [ ] Existing authenticated-user and administrator speech behavior remains backward compatible.
-- [ ] Speech output remains subject to the existing package/media and sandbox rules; this ticket does not relax CSP or direct network access.
-- [ ] Runtime Grant, anonymous attribution, quota/rate-limit, input validation, error-contract, contract consistency, and CLI declaration tests pass.
-- [x] If the existing quota ledger cannot safely represent anonymous speech without a new durable security boundary, implementation stops with evidence and guest speech remains denied.
+- [x] Explicit guest policy controls exist for `speech:tts` and `speech:asr`, remain independently configurable, and expose effective values to administrators.
+- [x] When enabled and declared, guest Runtime Grants can include TTS and ASR without granting scheduler, AI, network, federation mutation, or other authenticated-only permissions.
+- [x] Guest speech calls are attributed to the signed guest subject, validated Runtime Grant owner/TAPP identity, and HMAC-IP/site aggregate buckets rather than a client-resettable iframe identifier.
+- [x] TTS and ASR retain the existing input validation and host attribution paths; guest ASR URL input is rejected to avoid anonymous provider-side URL fetching.
+- [x] Anonymous usage is protected by server-authoritative per-subject/TAPP rate limits, HMAC-IP short-window limits, and finite daily quota ledger buckets that cannot be reset by reloading the iframe or replacing a guest cookie alone.
+- [x] Responses distinguish permission denial, invalid input, exhausted rate/quota, and unavailable speech-service configuration with stable error codes.
+- [x] Existing authenticated-user and administrator speech behavior remains backward compatible; authenticated requests bypass guest quota accounting.
+- [x] Speech output remains subject to the existing package/media and sandbox rules; this ticket does not relax CSP or direct network access.
+- [x] Runtime Grant, anonymous attribution, quota/rate-limit, input validation, error-contract, contract consistency, and CLI declaration tests pass.
+- [x] If the existing quota ledger cannot safely represent anonymous speech without a new durable security boundary, implementation stops with evidence and guest speech remains denied. The existing durable `tapp_quota_usage` table safely represents the required speech buckets, so implementation proceeded.
 
 ## Progress
 
-Guest speech remains denied. The speech host-attribution middleware requires authenticated Claims before it validates a Runtime Grant, so it has no anonymous subject derivation path. Speech writes have a server-side 45 requests/minute operation limit, but there is no finite daily speech quota ledger; the existing persistent quota ledger is specific to AI calls/tokens. Enabling the existing guest permission flags would therefore satisfy neither server-derived anonymous attribution nor the non-resettable finite usage quota required by this ticket.
+Implemented in commit `29485b2f` (`feat(tapp): enable metered guest speech`). Guest speech now uses the existing optional-auth middleware and signed guest session Claims, then validates the Runtime Grant before entering the handler. The permission service re-evaluates the current role/config and Manifest-approved permissions on every grant validation, so enabling `guest_perm_speech_tts` or `guest_perm_speech_asr` remains explicit and independently configurable.
 
-A safe continuation needs a dedicated anonymous speech subject derivation and a persistent per-subject/per-TAPP speech usage ledger (or a generalized quota module) before the permission-service authenticated-subject exclusion can be removed. Until then `guest_perm_speech_tts` and `guest_perm_speech_asr` continue to be forced off and omitted from guest Runtime Grants.
+Daily usage is server-authoritative in the existing `tapp_quota_usage` ledger. Each guest call reserves session/TAPP, HMAC-IP/TAPP, and site-owner aggregate buckets transactionally; the original IP is never stored. The existing `speech.tts`/`speech.asr` 45-per-60-second host limiter remains active, and guest calls additionally use an HMAC-IP limiter. Batch TTS is denied to guests because it is not part of the guest SDK surface and would otherwise bypass the single-call quota path. Guest ASR accepts only base64 audio; authenticated URL-based ASR remains unchanged.
+
+Validation evidence: `cargo check -p myriad-backend`; permission-service 15/15; host-attribution 19/19; speech quota 3/3; rate-limit 7/7; configuration payload test 1/1; frontend `pnpm exec tsc --noEmit`; CLI `npm test` 47/47; `git diff --check`. Browser-level manual QA was not performed.
