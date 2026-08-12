@@ -15,19 +15,26 @@
 //!   planner can reference a concrete field (`"dataFrom": "search.results"`).
 //! - [`check_output_contract`] runs after a step completes.
 //!
-//! Violations carry two severities, because the declarations are not uniformly
-//! trustworthy yet:
+//! **Runtime is report-only.** `Executor::report_output_contract` logs whatever
+//! this module returns and never fails the step: the declarations are not
+//! uniformly trustworthy yet, and the wrong party is as often the *schema* as
+//! the handler — `output_schema` was read by no code before this, so a
+//! declaration typo would take out a working feature. The real gate is CI: the
+//! sample-output table in this module's tests asserts that covered capabilities
+//! produce no [`ContractViolation::Breach`]. Once the registry is calibrated,
+//! enforcement can move back into the executor.
+//!
+//! The two severities therefore describe *confidence*, not runtime behaviour:
 //!
 //! - [`ContractViolation::Breach`] — a declared field is present with the wrong
 //!   JSON type, a `required` field is missing, or an enum/range bound is
-//!   exceeded. Unambiguous; the step fails.
+//!   exceeded. Unambiguous: one side is definitely wrong, so CI rejects it.
 //! - [`ContractViolation::Drift`] — the handler returned an object sharing no
-//!   key at all with the declared properties. Reported, not fatal: a static
-//!   audit of the registry found ~10 capabilities whose declaration never
-//!   matched its handler (`bilibili.user`, `github.repos`, `steam.user`,
-//!   `music.status`, `tapp.generate`, …), and failing those would break flows
-//!   that work today. Correcting those declarations is follow-up work; until
-//!   then this turns silent drift into a logged, actionable signal.
+//!   key at all with the declared properties. A static audit of the registry
+//!   found ~10 capabilities whose declaration never matched its handler
+//!   (`bilibili.user`, `github.repos`, `steam.user`, `music.status`,
+//!   `tapp.generate`, …), so this stays a logged signal rather than a gate.
+//!   Correcting those declarations is follow-up work.
 
 use serde_json::Value;
 
@@ -39,15 +46,18 @@ const ANY_TYPE: &str = "any";
 /// A mismatch between a step's output and its capability's declared contract.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContractViolation {
-    /// The output contradicts the schema. Fatal for the step.
+    /// The output contradicts the schema. Unambiguous — CI fails on it.
     Breach(String),
     /// The output is schema-clean but carries none of the declared fields —
-    /// the declaration and the handler have drifted apart. Reported only.
+    /// the declaration and the handler have drifted apart. Logged only.
     Drift(String),
 }
 
 impl ContractViolation {
-    /// Whether this violation should fail the step.
+    /// Whether the mismatch is unambiguous enough to gate on.
+    ///
+    /// Only selects the log message at runtime (see the module docs); the CI
+    /// sample table is what actually rejects a `Breach`.
     pub fn is_fatal(&self) -> bool {
         matches!(self, ContractViolation::Breach(_))
     }
