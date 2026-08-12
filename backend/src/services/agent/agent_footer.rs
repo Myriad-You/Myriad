@@ -215,6 +215,30 @@ pub(crate) struct AgentTurnBudget {
 /// 由下一回合的预留检查拦下。
 const AGENT_TURN_TOKEN_ESTIMATE: usize = 10_000;
 
+/// 这次预留属于哪种回合。
+///
+/// 冷却是用来给**新需求**之间留间隔的。确认 / 恢复不是新需求——它们是 Agent 自己
+/// 提出的问题的回答，紧接着上一轮，用户点得多快就来得多快。默认配置
+/// （`user_ai_cooldown_seconds = 5` / `guest_ai_cooldown_seconds = 10`）下按新回合
+/// 判定，「规划 → 确认」几乎必然撞上 `AI_COOLDOWN_ACTIVE`：用户刚批准的活反而干不了。
+///
+/// 调用次数和 token 检查两种都照收——续跑确实要花 AI；只有冷却门对续跑放行。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AgentTurnKind {
+    /// 用户发起的新回合（`process` / 预设执行）。
+    Fresh,
+    /// 上一回合的延续（确认后执行、WaitingForInput 恢复）。
+    Continuation,
+}
+
+impl AgentTurnKind {
+    fn reserve_options(self) -> crate::services::ai_quota::AiQuotaReserveOptions {
+        crate::services::ai_quota::AiQuotaReserveOptions {
+            skip_cooldown: self == Self::Continuation,
+        }
+    }
+}
+
 impl AgentTurnBudget {
     /// 预留本回合额度；额度不足直接返回错误，不进入执行。
     pub(crate) async fn reserve(
@@ -222,12 +246,13 @@ impl AgentTurnBudget {
         user_id: i32,
         operation: &str,
         task_id: String,
+        kind: AgentTurnKind,
     ) -> Result<Self, String> {
         let role = crate::services::tapp_context::role_for_subject(
             user_id,
             user_is_current_admin(db, user_id).await,
         );
-        let reservation = crate::services::ai_quota::reserve_ai_quota(
+        let reservation = crate::services::ai_quota::reserve_ai_quota_with_options(
             db,
             role,
             user_id,
@@ -235,12 +260,14 @@ impl AgentTurnBudget {
             AGENT_LEDGER_TAPP_ID,
             AGENT_TURN_TOKEN_ESTIMATE,
             None,
+            kind.reserve_options(),
         )
         .await
         .map_err(|error| {
             tracing::info!(
                 user_id,
                 code = error.code(),
+                kind = ?kind,
                 "[Agent] Turn rejected by AI quota"
             );
             error.to_string()
@@ -299,7 +326,7 @@ impl AgentTurnBudget {
         }
     }
 
-    /// 预留 → 在作用域内跑 `body` → 结算，一次做完。
+    /// 预留 → 在作用域内跑 `body` → 结算，一次做完（用户发起的新回合）。
     ///
     /// 所有会消耗 AI 的入口都该走这里。此前只有 `process` /
     /// `process_with_progress` 有预留，于是「规划后要确认」的流程是：首轮预留、
@@ -310,6 +337,7 @@ impl AgentTurnBudget {
     /// 确认 / 恢复采用**重新预留**而不是把首轮的预留挂着：确认之间隔着一次用户
     /// 往返，可能是几分钟，长时间占着额度只会让并发用户互相饿死。代价是一次
     /// 「规划 + 确认后执行」记两次调用，这在语义上也说得通——它确实是两次请求。
+    /// 但那第二次是续跑，不该再过冷却门，见 [`Self::run_continuation`]。
     ///
     /// `body` 用 `Pin<Box<...>>` 接收：见 [`Self::scope`] 关于类型布局递归的说明。
     /// 用 `AssertUnwindSafe` + `catch_unwind` 包一层，让 body panic 时预留也能被
@@ -321,9 +349,46 @@ impl AgentTurnBudget {
         task_id: String,
         body: std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, String>> + Send + '_>>,
     ) -> Result<T, String> {
+        Self::run_with_kind(db, user_id, operation, task_id, AgentTurnKind::Fresh, body).await
+    }
+
+    /// 同 [`Self::run`]，但按**续跑**预留：不再过冷却门。
+    ///
+    /// 用于确认后执行与 WaitingForInput 恢复——这两条路上的「等待」是我们让用户等
+    /// 的，冷却再拦一道只会把刚批准的操作挡在门外。
+    ///
+    /// 调用方要负责把不跑 AI 的分支（取消、越权、不存在、已过期、参数还没齐）留在
+    /// 预留**之外**：那些路径一次模型都不调，不该记一次调用、也不该把 10k tokens
+    /// 挂到结算才退。
+    pub(crate) async fn run_continuation<T>(
+        db: &sea_orm::DatabaseConnection,
+        user_id: i32,
+        operation: &str,
+        task_id: String,
+        body: std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, String>> + Send + '_>>,
+    ) -> Result<T, String> {
+        Self::run_with_kind(
+            db,
+            user_id,
+            operation,
+            task_id,
+            AgentTurnKind::Continuation,
+            body,
+        )
+        .await
+    }
+
+    async fn run_with_kind<T>(
+        db: &sea_orm::DatabaseConnection,
+        user_id: i32,
+        operation: &str,
+        task_id: String,
+        kind: AgentTurnKind,
+        body: std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, String>> + Send + '_>>,
+    ) -> Result<T, String> {
         use futures::FutureExt;
 
-        let budget = Self::reserve(db, user_id, operation, task_id).await?;
+        let budget = Self::reserve(db, user_id, operation, task_id, kind).await?;
         let outcome = budget
             .scope(std::panic::AssertUnwindSafe(body).catch_unwind())
             .await;
@@ -886,6 +951,21 @@ mod tests {
             confirmation_message: String::new(),
             impact: Vec::new(),
         }
+    }
+
+    #[test]
+    fn only_continuations_skip_the_cooldown_gate() {
+        // Confirm / resume arrive as fast as a human can click. Reserving them
+        // as fresh turns means the default 5s (user) / 10s (guest) cooldown
+        // rejects the work the user just approved.
+        assert!(
+            AgentTurnKind::Continuation.reserve_options().skip_cooldown,
+            "confirm / resume must not re-apply cooldown"
+        );
+        assert!(
+            !AgentTurnKind::Fresh.reserve_options().skip_cooldown,
+            "a new user turn is exactly what cooldown is for"
+        );
     }
 
     #[test]
