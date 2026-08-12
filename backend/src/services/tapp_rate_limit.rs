@@ -190,13 +190,33 @@ pub async fn check_anonymous_rate_limit(
     client_ip: Option<&str>,
     tapp_id: &str,
 ) -> Result<(), RateLimitError> {
+    check_anonymous_operation_rate_limit(db, client_ip, tapp_id, "ai.anonymous").await
+}
+
+/// Anonymous operation limiter keyed by a one-way client-address fingerprint.
+/// Used by metered guest host capabilities in addition to the signed-session
+/// subject limiter so replacing the guest cookie cannot reset the short window.
+fn anonymous_operation_rate_limit_key(
+    client_ip: Option<&str>,
+    tapp_id: &str,
+    operation: &str,
+) -> String {
     let fingerprint = anonymous_subject_fingerprint(client_ip.unwrap_or("unresolved"));
+    format!("anonymous:{fingerprint}:{tapp_id}:{operation}")
+}
+
+pub async fn check_anonymous_operation_rate_limit(
+    db: &DatabaseConnection,
+    client_ip: Option<&str>,
+    tapp_id: &str,
+    operation: &str,
+) -> Result<(), RateLimitError> {
     check_rate_limit_key(
         db,
         0,
-        format!("anonymous:{fingerprint}:{tapp_id}:ai.anonymous"),
+        anonymous_operation_rate_limit_key(client_ip, tapp_id, operation),
         tapp_id,
-        "ai.anonymous",
+        operation,
     )
     .await
 }
@@ -324,10 +344,28 @@ pub async fn get_rate_limiter_active_count(db: &DatabaseConnection) -> Result<us
 #[cfg(test)]
 mod tests {
     use super::{
-        get_rate_limit_config, host_write_rate_limit_operation, rate_limit_key, rate_limit_record_id,
-        RateLimitError,
+        anonymous_operation_rate_limit_key, get_rate_limit_config,
+        host_write_rate_limit_operation, rate_limit_key, rate_limit_record_id, RateLimitError,
     };
     use crate::services::permission_service::TappPermission;
+
+    #[test]
+    fn anonymous_operation_keys_are_scoped_and_do_not_expose_raw_ip() {
+        let tts = anonymous_operation_rate_limit_key(
+            Some("203.0.113.8"),
+            "radio",
+            "speech.tts",
+        );
+        let asr = anonymous_operation_rate_limit_key(
+            Some("203.0.113.8"),
+            "radio",
+            "speech.asr",
+        );
+        assert_ne!(tts, asr);
+        assert!(tts.contains("radio"));
+        assert!(tts.contains("speech.tts"));
+        assert!(!tts.contains("203.0.113.8"));
+    }
 
     #[test]
     fn rate_limit_keys_are_identity_and_operation_scoped() {

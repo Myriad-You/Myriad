@@ -874,6 +874,17 @@ impl ConfigService {
             }
         }
 
+        if let Some(v) = map.get("guest_speech_daily_tts") {
+            if let Some(n) = v.as_i64().and_then(|n| i32::try_from(n).ok()) {
+                config.guest_speech_daily_tts = n.clamp(0, 10_000);
+            }
+        }
+        if let Some(v) = map.get("guest_speech_daily_asr") {
+            if let Some(n) = v.as_i64().and_then(|n| i32::try_from(n).ok()) {
+                config.guest_speech_daily_asr = n.clamp(0, 10_000);
+            }
+        }
+
         // 内存节约（高级设置）
         if let Some(v) = map.get("memory_saver_enabled") {
             if let Some(b) = v.as_bool() {

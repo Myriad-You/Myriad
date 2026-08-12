@@ -1612,6 +1612,12 @@ export interface TranslationKeys {
     userAiQuotaDesc: string
     guestAiQuota: string
     guestAiQuotaDesc: string
+    guestSpeechQuota: string
+    guestSpeechQuotaDesc: string
+    speechDailyTts: string
+    speechDailyTtsHint: string
+    speechDailyAsr: string
+    speechDailyAsrHint: string
     aiDailyCalls: string
     aiDailyCallsHint: string
     aiDailyTokens: string

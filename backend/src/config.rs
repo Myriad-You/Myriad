@@ -506,6 +506,10 @@ pub struct DynamicConfig {
     pub guest_ai_daily_tokens: i32,
     /// 游客 AI 调用冷却时间（秒）
     pub guest_ai_cooldown_seconds: i32,
+    /// 游客 TTS 每日调用次数限制
+    pub guest_speech_daily_tts: i32,
+    /// 游客 ASR 每日调用次数限制
+    pub guest_speech_daily_asr: i32,
 
     /// 内存节约模式（高级设置）：收紧并发预算 / 缓存 / 连接池等，适合 ~1 GiB 主机。
     /// 默认 false = 历史行为。`MYRIAD_MEMORY_PROFILE` env 可覆盖。
@@ -725,6 +729,9 @@ impl Default for DynamicConfig {
             guest_ai_daily_calls: 10,
             guest_ai_daily_tokens: 5000,
             guest_ai_cooldown_seconds: 10,
+            // 游客语音默认关闭权限；配额仍为有限正值，开启权限时生效。
+            guest_speech_daily_tts: 20,
+            guest_speech_daily_asr: 20,
 
             // 网络代理配置默认值
             memory_saver_enabled: false,

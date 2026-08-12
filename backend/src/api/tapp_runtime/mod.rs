@@ -68,6 +68,7 @@ pub use reports::{
 pub use host_attribution::{
     brew_host_attribution, federation_host_attribution, speech_host_attribution,
 };
+pub(crate) use host_attribution::HostAttributionClientIp;
 
 // Runtime identity grants
 pub use runtime_grant::{

@@ -3,7 +3,7 @@
 //! 提供腾讯云 TTS（文本转语音）和 ASR（语音转文本）的 HTTP API 接口
 
 use axum::{
-    extract::{Query, State},
+    extract::{Extension, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{delete, get, post},
@@ -11,8 +11,10 @@ use axum::{
 };
 use sea_orm::DatabaseConnection;
 
-use crate::middleware::auth::verify_current_admin_from_headers;
+use crate::api::tapp_runtime::{HostAttributionClientIp, RuntimeGrantContext};
+use crate::middleware::auth::{verify_current_admin_from_headers, Claims};
 use crate::services::data_paths::paths;
+use crate::services::speech_quota::{self, SpeechOperation, SpeechQuotaError};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -63,10 +65,11 @@ pub fn create_speech_routes(
             app_state.clone(),
             crate::api::tapp_runtime::speech_host_attribution,
         ))
-        // TTS/ASR 端点需要认证（调用付费 API）
+        // Host UI keeps authenticated behavior; guests receive a signed session
+        // identity and are admitted only with a valid Runtime Grant above.
         .route_layer(from_fn_with_state(
             app_state,
-            crate::middleware::auth::auth_middleware,
+            crate::middleware::auth::optional_auth_middleware,
         ))
 }
 
@@ -382,34 +385,128 @@ fn speech_error_to_response(error: TencentSpeechError) -> (StatusCode, String) {
     }
 }
 
+fn speech_quota_response(error: SpeechQuotaError) -> axum::response::Response {
+    let message = match error {
+        SpeechQuotaError::Exhausted { operation, limit } => format!(
+            "Guest {} daily quota exhausted (limit: {limit})",
+            operation.quota_type()
+        ),
+        SpeechQuotaError::Ledger => "Speech quota service is unavailable".to_string(),
+    };
+    (
+        error.status(),
+        Json(serde_json::json!({
+            "success": false,
+            "error": message,
+            "code": error.code()
+        })),
+    )
+        .into_response()
+}
+
+async fn reserve_guest_speech(
+    db: &DatabaseConnection,
+    config: &std::sync::Arc<tokio::sync::RwLock<crate::config::DynamicConfig>>,
+    claims: &Claims,
+    grant: Option<&RuntimeGrantContext>,
+    client_ip: Option<&HostAttributionClientIp>,
+    operation: SpeechOperation,
+) -> Result<(), axum::response::Response> {
+    let subject_id = claims.sub.parse::<i32>().unwrap_or(i32::MIN);
+    if subject_id >= 0 {
+        return Ok(());
+    }
+    let grant = grant.ok_or_else(|| {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({
+                "success": false,
+                "error": "Guest speech requires a Tapp Runtime Grant",
+                "code": "RUNTIME_GRANT_REQUIRED"
+            })),
+        )
+            .into_response()
+    })?;
+    let config_guard = config.read().await;
+    let limit = operation.config_limit(&config_guard);
+    drop(config_guard);
+    speech_quota::reserve_guest_speech_call(
+        db,
+        grant.subject_id(),
+        grant.owner_id(),
+        grant.tapp_id(),
+        operation,
+        limit,
+        client_ip.and_then(|client_ip| client_ip.0.as_deref()),
+    )
+    .await
+    .map_err(speech_quota_response)
+}
+
 /// 文本转语音 API
 ///
 /// POST /api/speech/tts
-pub async fn text_to_speech(Json(request): Json<TtsApiRequest>) -> impl IntoResponse {
+pub async fn text_to_speech(
+    State(db): State<DatabaseConnection>,
+    State(config): State<std::sync::Arc<tokio::sync::RwLock<crate::config::DynamicConfig>>>,
+    Extension(claims): Extension<Claims>,
+    grant: Option<Extension<RuntimeGrantContext>>,
+    client_ip: Option<Extension<HostAttributionClientIp>>,
+    Json(request): Json<TtsApiRequest>,
+) -> axum::response::Response {
+    let text_error = if request.text.trim().is_empty() {
+        Some("文本不能为空")
+    } else if request.text.chars().count() > 150 {
+        Some("文本过长，最大150个字符")
+    } else {
+        None
+    };
+    if let Some(error) = text_error {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "success": false,
+                "error": error,
+                "code": "SPEECH_INVALID_INPUT"
+            })),
+        )
+            .into_response();
+    }
+    if let Err(response) = reserve_guest_speech(
+        &db,
+        &config,
+        &claims,
+        grant.as_ref().map(|Extension(grant)| grant),
+        client_ip.as_ref().map(|Extension(client_ip)| client_ip),
+        SpeechOperation::Tts,
+    )
+    .await
+    {
+        return response;
+    }
+
     match synthesize_standalone_tts(&request).await {
-        Ok(response) => (StatusCode::OK, Json(response)),
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
         Err(msg) => {
-            let status = if msg.contains("不能为空") {
-                StatusCode::BAD_REQUEST
-            } else if msg.contains("未配置") || msg.contains("过长") {
-                if msg.contains("过长") {
-                    StatusCode::BAD_REQUEST
-                } else {
-                    StatusCode::SERVICE_UNAVAILABLE
-                }
+            let (status, code) = if msg.contains("未配置") {
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "SPEECH_SERVICE_UNAVAILABLE",
+                )
+            } else if msg.contains("不能为空") || msg.contains("过长") {
+                (StatusCode::BAD_REQUEST, "SPEECH_INVALID_INPUT")
             } else {
-                StatusCode::BAD_GATEWAY
+                (StatusCode::BAD_GATEWAY, "SPEECH_PROVIDER_ERROR")
             };
             (
                 status,
-                Json(TtsApiResponse {
-                    success: false,
-                    audio: None,
-                    session_id: None,
-                    cached: None,
-                    error: Some(msg),
-                }),
+                Json(serde_json::json!({
+                    "success": false,
+                    "error": msg,
+                    "code": code
+                })),
             )
+                .into_response()
         }
     }
 }
@@ -637,38 +734,43 @@ pub async fn batch_text_to_speech(Json(request): Json<BatchTtsApiRequest>) -> im
 /// 语音转文本 API
 ///
 /// POST /api/speech/asr
-pub async fn speech_to_text(Json(request): Json<AsrApiRequest>) -> impl IntoResponse {
+pub async fn speech_to_text(
+    State(db): State<DatabaseConnection>,
+    State(config): State<std::sync::Arc<tokio::sync::RwLock<crate::config::DynamicConfig>>>,
+    Extension(claims): Extension<Claims>,
+    grant: Option<Extension<RuntimeGrantContext>>,
+    client_ip: Option<Extension<HostAttributionClientIp>>,
+    Json(request): Json<AsrApiRequest>,
+) -> axum::response::Response {
+    // Guest Tapp SDK exposes base64 audio only; do not let an anonymous
+    // Runtime Grant cause the provider to fetch an arbitrary client URL.
+    if claims.sub.parse::<i32>().is_ok_and(|subject_id| subject_id < 0)
+        && request.url.is_some()
+        && request.audio_data.is_none()
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "success": false,
+                "error": "Guest ASR requires audio_data",
+                "code": "SPEECH_INVALID_INPUT"
+            })),
+        )
+            .into_response();
+    }
+
     // 验证输入
     if request.audio_data.is_none() && request.url.is_none() {
         return (
             StatusCode::BAD_REQUEST,
-            Json(AsrApiResponse {
-                success: false,
-                text: None,
-                duration: None,
-                words: None,
-                error: Some("必须提供 audio_data 或 url".to_string()),
-            }),
-        );
+            Json(serde_json::json!({
+                "success": false,
+                "error": "必须提供 audio_data 或 url",
+                "code": "SPEECH_INVALID_INPUT"
+            })),
+        )
+            .into_response();
     }
-
-    // 创建服务
-    let service = match TencentSpeechService::new().await {
-        Ok(s) => s,
-        Err(e) => {
-            let (_, msg) = speech_error_to_response(e);
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(AsrApiResponse {
-                    success: false,
-                    text: None,
-                    duration: None,
-                    words: None,
-                    error: Some(msg),
-                }),
-            );
-        }
-    };
 
     // 构建ASR请求
     let format = request.format.unwrap_or_else(|| "wav".to_string());
@@ -681,14 +783,13 @@ pub async fn speech_to_text(Json(request): Json<AsrApiRequest>) -> impl IntoResp
             Err(e) => {
                 return (
                     StatusCode::BAD_REQUEST,
-                    Json(AsrApiResponse {
-                        success: false,
-                        text: None,
-                        duration: None,
-                        words: None,
-                        error: Some(format!("无效的Base64音频数据: {}", e)),
-                    }),
-                );
+                    Json(serde_json::json!({
+                        "success": false,
+                        "error": format!("无效的Base64音频数据: {}", e),
+                        "code": "SPEECH_INVALID_INPUT"
+                    })),
+                )
+                    .into_response();
             }
         };
 
@@ -713,6 +814,35 @@ pub async fn speech_to_text(Json(request): Json<AsrApiRequest>) -> impl IntoResp
             filter_dirty: request.filter_dirty,
             hotword_list: request.hotword_list,
             ..Default::default()
+        }
+    };
+
+    if let Err(response) = reserve_guest_speech(
+        &db,
+        &config,
+        &claims,
+        grant.as_ref().map(|Extension(grant)| grant),
+        client_ip.as_ref().map(|Extension(client_ip)| client_ip),
+        SpeechOperation::Asr,
+    )
+    .await
+    {
+        return response;
+    }
+
+    let service = match TencentSpeechService::new().await {
+        Ok(service) => service,
+        Err(error) => {
+            let (_, message) = speech_error_to_response(error);
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({
+                    "success": false,
+                    "error": message,
+                    "code": "SPEECH_SERVICE_UNAVAILABLE"
+                })),
+            )
+                .into_response();
         }
     };
 
@@ -741,19 +871,23 @@ pub async fn speech_to_text(Json(request): Json<AsrApiRequest>) -> impl IntoResp
                     error: None,
                 }),
             )
+                .into_response()
         }
         Err(e) => {
             let (status, msg) = speech_error_to_response(e);
             (
                 status,
-                Json(AsrApiResponse {
-                    success: false,
-                    text: None,
-                    duration: None,
-                    words: None,
-                    error: Some(msg),
-                }),
+                Json(serde_json::json!({
+                    "success": false,
+                    "error": msg,
+                    "code": if status == StatusCode::BAD_REQUEST {
+                        "SPEECH_INVALID_INPUT"
+                    } else {
+                        "SPEECH_PROVIDER_ERROR"
+                    }
+                })),
             )
+                .into_response()
         }
     }
 }

@@ -148,7 +148,13 @@ export function useConfigSideDrafts(
       setPermissionLoading(true)
       const response = await fetchPermissionsConfig()
       if (response.success && response.config) {
-        const { guest, user, user_ai_quota, guest_ai_quota } = response.config
+        const {
+          guest,
+          user,
+          user_ai_quota,
+          guest_ai_quota,
+          guest_speech_quota,
+        } = response.config
         const loaded: PermissionConfigValues = {
           user_perm_ai_generate: user.ai_generate,
           user_perm_ai_analyze: user.ai_analyze,
@@ -181,6 +187,8 @@ export function useConfigSideDrafts(
           guest_ai_daily_calls: guest_ai_quota?.daily_calls ?? 10,
           guest_ai_daily_tokens: guest_ai_quota?.daily_tokens ?? 5000,
           guest_ai_cooldown_seconds: guest_ai_quota?.cooldown_seconds ?? 10,
+          guest_speech_daily_tts: guest_speech_quota?.daily_tts ?? 20,
+          guest_speech_daily_asr: guest_speech_quota?.daily_asr ?? 20,
         }
         setPermissionConfig(loaded)
         setSavedPermissionConfig(loaded)

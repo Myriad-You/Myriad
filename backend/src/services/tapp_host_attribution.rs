@@ -405,6 +405,10 @@ mod tests {
             Some(TappPermission::SpeechAsr)
         );
         assert_eq!(
+            speech_permission("GET", "/api/speech/status"),
+            Some(TappPermission::SpeechTts)
+        );
+        assert_eq!(
             speech_permission("GET", "/api/speech/voices"),
             Some(TappPermission::SpeechTts)
         );

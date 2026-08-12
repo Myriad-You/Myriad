@@ -69,6 +69,7 @@ pub mod image_proxy_urls; // Shared image proxy URL rewrite (profile/export)
 pub mod library_items; // Library item pure builders (Bangumi/MAL/preferences)
 pub mod server_location; // Egress location dual-source probe
 pub mod smart_filter;
+pub mod speech_quota; // Persistent daily quota for guest Tapp speech
 pub mod spoof_utils; // Region IP/UA spoofing helpers
 pub mod tapp_api_service; // Declared-API execution (public/protected)
 pub mod tapp_ownership;

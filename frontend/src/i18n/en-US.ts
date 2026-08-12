@@ -1915,6 +1915,12 @@ export const enUS: TranslationKeys = {
     userAiQuotaDesc: 'Daily AI usage quota for logged-in users',
     guestAiQuota: 'Guest AI Quota',
     guestAiQuotaDesc: 'Daily AI usage quota for anonymous visitors',
+    guestSpeechQuota: 'Guest Speech Quota',
+    guestSpeechQuotaDesc: 'Daily speech quota tracked per guest session and Tapp',
+    speechDailyTts: 'Daily TTS Calls',
+    speechDailyTtsHint: 'Maximum text-to-speech calls per guest session and Tapp each day',
+    speechDailyAsr: 'Daily ASR Calls',
+    speechDailyAsrHint: 'Maximum speech-recognition calls per guest session and Tapp each day',
     aiDailyCalls: 'Daily Calls',
     aiDailyCallsHint:
       'Maximum AI calls per day (shared across all AI features)',

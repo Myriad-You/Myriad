@@ -2163,6 +2163,8 @@ pub(crate) const REGISTERED_CONFIGURATION_KEYS_V1: &[&str] = &[
     "guest_perm_shortcut_register",
     "guest_perm_speech_asr",
     "guest_perm_speech_tts",
+    "guest_speech_daily_asr",
+    "guest_speech_daily_tts",
     "hitokoto_config",
     "library_source_preferences",
     "mal_client_id",

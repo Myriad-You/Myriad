@@ -34,8 +34,6 @@ const GUEST_AGENT_PRESET_PERM_KEYS = AGENT_PRESET_PERM_KEYS.filter(
 )
 const GUEST_AUTHENTICATED_PERMISSION_KEYS = new Set([
   'scheduler_register',
-  'speech_tts',
-  'speech_asr',
   'widget_register',
 ])
 export type AgentPermissionPreset = 'none' | 'chat' | 'standard' | 'elevated'
@@ -135,6 +133,8 @@ export interface PermissionConfigValues extends Record<
   guest_ai_daily_calls: number
   guest_ai_daily_tokens: number
   guest_ai_cooldown_seconds: number
+  guest_speech_daily_tts: number
+  guest_speech_daily_asr: number
 }
 
 interface PermissionsConfigSectionProps {
@@ -307,6 +307,28 @@ export const PermissionsConfigSection: React.FC<
     cooldown_seconds: permissionConfig.guest_ai_cooldown_seconds,
   })
 
+  const speechQuotaItems: QuotaItem[] = [
+    {
+      key: 'daily_tts',
+      label: t.config.speechDailyTts,
+      hint: t.config.speechDailyTtsHint,
+      min: 0,
+      max: 10000,
+    },
+    {
+      key: 'daily_asr',
+      label: t.config.speechDailyAsr,
+      hint: t.config.speechDailyAsrHint,
+      min: 0,
+      max: 10000,
+    },
+  ]
+
+  const getGuestSpeechQuotaValues = () => ({
+    daily_tts: permissionConfig.guest_speech_daily_tts,
+    daily_asr: permissionConfig.guest_speech_daily_asr,
+  })
+
   const userAgentValues = useMemo(() => {
     const values: Record<string, boolean> = {}
     for (const k of AGENT_PRESET_PERM_KEYS) {
@@ -471,6 +493,16 @@ export const PermissionsConfigSection: React.FC<
           values={getGuestQuotaValues()}
           onChange={(key, value) =>
             updatePermissionConfig(`guest_ai_${key}`, value)
+          }
+          loading={loading}
+        />
+        <QuotaGroup
+          title={t.config.guestSpeechQuota}
+          description={t.config.guestSpeechQuotaDesc}
+          quotas={speechQuotaItems}
+          values={getGuestSpeechQuotaValues()}
+          onChange={(key, value) =>
+            updatePermissionConfig(`guest_speech_${key}`, value)
           }
           loading={loading}
         />

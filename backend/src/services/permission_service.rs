@@ -27,7 +27,7 @@
 //! - ai:generate, ai:analyze, ai:chat, ai:image
 //! - network:fetch, component:theme (authenticated)
 //! - shortcut:register (authenticated), event:publish
-//! - scheduler:register, speech:tts, speech:asr (all authenticated)
+//! - scheduler:register (authenticated), speech:tts, speech:asr (guest-metered)
 //!
 //! ### Privileged - 仅管理员
 //! - widget:register, platform:write, platform:register, component:agent
@@ -178,8 +178,6 @@ impl TappPermission {
                 | TappPermission::BrewComment
                 | TappPermission::ReportRead
                 | TappPermission::SchedulerRegister
-                | TappPermission::SpeechTts
-                | TappPermission::SpeechAsr
         )
     }
 
@@ -497,8 +495,8 @@ impl TappPermissionService {
             TappPermission::ShortcutRegister => config.guest_perm_shortcut_register,
             TappPermission::EventPublish => config.guest_perm_event_publish,
             TappPermission::SchedulerRegister => false,
-            TappPermission::SpeechTts => false,
-            TappPermission::SpeechAsr => false,
+            TappPermission::SpeechTts => config.guest_perm_speech_tts,
+            TappPermission::SpeechAsr => config.guest_perm_speech_asr,
             _ => false,
         }
     }
@@ -555,15 +553,14 @@ impl TappPermissionService {
                 network_fetch: config.guest_perm_network_fetch,
                 // media:control 已降 basic，始终可用；字段保留供 API 兼容
                 media_control: true,
-                // These routes require a durable authenticated subject. Keep
-                // legacy config fields for schema compatibility, but never
-                // advertise them as effective guest delegation settings.
+                // Guest speech is optional-auth + Runtime Grant gated and
+                // metered by the server-side daily speech ledger.
                 component_theme: config.guest_perm_component_theme,
                 shortcut_register: config.guest_perm_shortcut_register,
                 event_publish: config.guest_perm_event_publish,
                 scheduler_register: false,
-                speech_tts: false,
-                speech_asr: false,
+                speech_tts: config.guest_perm_speech_tts,
+                speech_asr: config.guest_perm_speech_asr,
                 widget_register: false,
             },
             user_ai_quota: AiQuotaConfig {
@@ -576,6 +573,10 @@ impl TappPermissionService {
                 daily_tokens: config.guest_ai_daily_tokens,
                 cooldown_seconds: config.guest_ai_cooldown_seconds,
             },
+            guest_speech_quota: SpeechQuotaConfig {
+                daily_tts: config.guest_speech_daily_tts,
+                daily_asr: config.guest_speech_daily_asr,
+            },
         }
     }
 }
@@ -585,10 +586,19 @@ impl TappPermissionService {
 pub struct TappPermissionConfig {
     pub user: ElevatedPermissions,
     pub guest: ElevatedPermissions,
+    /// 游客语音每日调用限额配置
+    pub guest_speech_quota: SpeechQuotaConfig,
     /// 普通用户 AI 使用限额配置
     pub user_ai_quota: AiQuotaConfig,
     /// 游客 AI 使用限额配置
     pub guest_ai_quota: AiQuotaConfig,
+}
+
+/// 游客语音限额配置（用于设置界面）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpeechQuotaConfig {
+    pub daily_tts: i32,
+    pub daily_asr: i32,
 }
 
 /// AI 限额配置（用于设置界面）
@@ -717,6 +727,8 @@ mod tests {
             "scheduler:register".to_string(),
             "speech:tts".to_string(),
             "speech:asr".to_string(),
+            "ai:chat".to_string(),
+            "network:fetch".to_string(),
             "tappList:read".to_string(),
             "brew:read".to_string(),
             "federation:read".to_string(),
@@ -730,7 +742,7 @@ mod tests {
 
         // Guest-safe: platform:read, analytics:read (visitor-card aggregates only;
         // full admin summary is role-gated in the handler) + storage.
-        // Still excluded: brew:write, report:read, notifications, speech, etc.
+        // Still excluded: brew:write, report:read, notifications, etc.
         assert_eq!(
             granted,
             vec![
@@ -743,6 +755,8 @@ mod tests {
                 "ui:notification",
                 "component:theme",
                 "shortcut:register",
+                "speech:tts",
+                "speech:asr",
                 "tappList:read",
                 "brew:read",
                 "federation:read"
@@ -768,8 +782,40 @@ mod tests {
         assert!(effective.guest.component_theme);
         assert!(effective.guest.shortcut_register);
         assert!(!effective.guest.scheduler_register);
-        assert!(!effective.guest.speech_tts);
-        assert!(!effective.guest.speech_asr);
+        assert!(effective.guest.speech_tts);
+        assert!(effective.guest.speech_asr);
+    }
+
+    #[test]
+    fn test_guest_speech_permissions_are_independently_configurable() {
+        let tts_only = DynamicConfig {
+            guest_perm_speech_tts: true,
+            guest_perm_speech_asr: false,
+            ..DynamicConfig::default()
+        };
+        let requested = vec!["speech:tts".to_string(), "speech:asr".to_string()];
+        assert_eq!(
+            TappPermissionService::filter_permissions_for_role(
+                &tts_only,
+                UserRole::Guest,
+                &requested,
+            ),
+            vec!["speech:tts"]
+        );
+
+        let asr_only = DynamicConfig {
+            guest_perm_speech_tts: false,
+            guest_perm_speech_asr: true,
+            ..DynamicConfig::default()
+        };
+        assert_eq!(
+            TappPermissionService::filter_permissions_for_role(
+                &asr_only,
+                UserRole::Guest,
+                &requested,
+            ),
+            vec!["speech:asr"]
+        );
     }
 
     #[test]

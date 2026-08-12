@@ -36,6 +36,9 @@ use super::runtime_grant::{validate_runtime_grant, RUNTIME_GRANT_HEADER};
 
 type PermissionMapper = fn(&str, &str) -> Option<TappPermission>;
 
+#[derive(Debug, Clone)]
+pub(crate) struct HostAttributionClientIp(pub Option<String>);
+
 fn attribution_error(status: StatusCode, code: &str, message: &str) -> Response {
     (
         status,
@@ -104,9 +107,10 @@ async fn attribute_host_request(
 
     // Coarse per-(subject, tapp, operation class) limits on write-ish methods.
     // Host UI traffic never reaches this branch (no grant header above).
-    if let Some(operation) =
-        tapp_host_attribution::host_attribution_rate_limit_operation(req.method().as_str(), permission)
-    {
+    if let Some(operation) = tapp_host_attribution::host_attribution_rate_limit_operation(
+        req.method().as_str(),
+        permission,
+    ) {
         if let Err(error) =
             check_rate_limit(db, grant.subject_id(), grant.tapp_id(), operation).await
         {
@@ -114,6 +118,25 @@ async fn attribute_host_request(
         }
     }
 
+    let client_ip = crate::middleware::client_ip::extract_client_ip(&req)
+        .map(|ip| ip.to_string());
+    if grant.subject_id() < 0 {
+        if let Some(operation) = tapp_host_attribution::host_attribution_rate_limit_operation(
+            req.method().as_str(),
+            permission,
+        ) {
+            if let Err(error) = crate::services::tapp_rate_limit::check_anonymous_operation_rate_limit(
+                db,
+                client_ip.as_deref(),
+                grant.tapp_id(),
+                operation,
+            )
+            .await
+            {
+                return super::common::rate_limit_http_error(error).into_response();
+            }
+        }
+    }
     tracing::info!(
         tapp_id = %grant.tapp_id(),
         runtime_id = %grant.runtime_id(),
@@ -124,7 +147,33 @@ async fn attribute_host_request(
         "[TAPP] Host route attributed to Tapp runtime"
     );
     req.extensions_mut().insert(grant);
+    req.extensions_mut()
+        .insert(HostAttributionClientIp(client_ip));
     next.run(req).await
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GuestSpeechEntryPolicy {
+    Continue,
+    GrantRequired,
+    PathNotAllowed,
+}
+
+fn guest_speech_entry_policy(
+    is_guest: bool,
+    has_runtime_grant: bool,
+    matched_path: Option<&str>,
+) -> GuestSpeechEntryPolicy {
+    if !is_guest {
+        return GuestSpeechEntryPolicy::Continue;
+    }
+    if !has_runtime_grant {
+        return GuestSpeechEntryPolicy::GrantRequired;
+    }
+    if matched_path == Some("/api/speech/tts/batch") {
+        return GuestSpeechEntryPolicy::PathNotAllowed;
+    }
+    GuestSpeechEntryPolicy::Continue
 }
 
 /// Middleware for `/api/speech`: enforce and attribute grant-bearing requests.
@@ -133,6 +182,36 @@ pub async fn speech_host_attribution(
     req: Request,
     next: Next,
 ) -> Response {
+    let is_guest = req
+        .extensions()
+        .get::<Claims>()
+        .and_then(|claims| claims.sub.parse::<i32>().ok())
+        .is_some_and(|subject_id| subject_id < 0);
+    let matched_path = req
+        .extensions()
+        .get::<MatchedPath>()
+        .map(|path| path.as_str());
+    match guest_speech_entry_policy(
+        is_guest,
+        req.headers().contains_key(RUNTIME_GRANT_HEADER),
+        matched_path,
+    ) {
+        GuestSpeechEntryPolicy::GrantRequired => {
+            return attribution_error(
+                StatusCode::UNAUTHORIZED,
+                "RUNTIME_GRANT_REQUIRED",
+                "Guest speech requires a Tapp Runtime Grant",
+            );
+        }
+        GuestSpeechEntryPolicy::PathNotAllowed => {
+            return attribution_error(
+                StatusCode::FORBIDDEN,
+                error_codes::PATH_NOT_ALLOWED,
+                "Batch TTS is not available to guest Tapp runtimes",
+            );
+        }
+        GuestSpeechEntryPolicy::Continue => {}
+    }
     attribute_host_request(&db, req, next, speech_permission).await
 }
 
@@ -152,4 +231,33 @@ pub async fn federation_host_attribution(
     next: Next,
 ) -> Response {
     attribute_host_request(&db, req, next, federation_permission).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{guest_speech_entry_policy, GuestSpeechEntryPolicy};
+
+    #[test]
+    fn guest_speech_requires_runtime_grant_and_rejects_batch_tts() {
+        assert_eq!(
+            guest_speech_entry_policy(true, false, Some("/api/speech/tts")),
+            GuestSpeechEntryPolicy::GrantRequired
+        );
+        assert_eq!(
+            guest_speech_entry_policy(true, true, Some("/api/speech/tts/batch")),
+            GuestSpeechEntryPolicy::PathNotAllowed
+        );
+        assert_eq!(
+            guest_speech_entry_policy(true, true, Some("/api/speech/tts")),
+            GuestSpeechEntryPolicy::Continue
+        );
+        assert_eq!(
+            guest_speech_entry_policy(true, true, Some("/api/speech/asr")),
+            GuestSpeechEntryPolicy::Continue
+        );
+        assert_eq!(
+            guest_speech_entry_policy(false, false, Some("/api/speech/tts/batch")),
+            GuestSpeechEntryPolicy::Continue
+        );
+    }
 }

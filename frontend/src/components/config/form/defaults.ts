@@ -33,6 +33,8 @@ export const DEFAULT_PERMISSION_CONFIG: PermissionConfigValues = {
   guest_ai_daily_calls: 10,
   guest_ai_daily_tokens: 5000,
   guest_ai_cooldown_seconds: 10,
+  guest_speech_daily_tts: 20,
+  guest_speech_daily_asr: 20,
 }
 
 export const DEFAULT_CONFIG_FAVORITES = ['platforms', 'ai']

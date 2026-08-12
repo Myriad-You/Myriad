@@ -44,7 +44,7 @@ pub use crate::services::platform_cache::{
 
 pub use crate::services::tapp_rate_limit::get_rate_limit_config;
 
-fn rate_limit_http_error(err: RateLimitError) -> HttpError {
+pub(super) fn rate_limit_http_error(err: RateLimitError) -> HttpError {
     match err {
         RateLimitError::Unavailable => HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,

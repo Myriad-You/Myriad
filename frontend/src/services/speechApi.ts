@@ -72,6 +72,8 @@ export interface TTSResponse {
   cached?: boolean
   /** 错误信息 */
   error?: string
+  /** 稳定的服务端错误码 */
+  code?: string
 }
 
 /**
@@ -286,6 +288,8 @@ export interface ASRResponse {
   words?: ASRWord[]
   /** 错误信息 */
   error?: string
+  /** 稳定的服务端错误码 */
+  code?: string
 }
 
 /**

@@ -99,9 +99,7 @@ pub struct UpdatePermissionsPayload {
     pub guest_perm_event_publish: Option<bool>,
     #[allow(dead_code)] // accepted for compatibility; update endpoint forces false
     pub guest_perm_scheduler_register: Option<bool>,
-    #[allow(dead_code)] // accepted for compatibility; update endpoint forces false
     pub guest_perm_speech_tts: Option<bool>,
-    #[allow(dead_code)] // accepted for compatibility; update endpoint forces false
     pub guest_perm_speech_asr: Option<bool>,
     // AI 使用限额配置
     pub user_ai_daily_calls: Option<i32>,
@@ -110,6 +108,8 @@ pub struct UpdatePermissionsPayload {
     pub guest_ai_daily_calls: Option<i32>,
     pub guest_ai_daily_tokens: Option<i32>,
     pub guest_ai_cooldown_seconds: Option<i32>,
+    pub guest_speech_daily_tts: Option<i32>,
+    pub guest_speech_daily_asr: Option<i32>,
 }
 
 #[cfg(test)]
@@ -125,7 +125,9 @@ mod tapp_permission_payload_tests {
             "guest_perm_component_theme": true,
             "guest_perm_speech_tts": false,
             "guest_perm_speech_asr": true,
-            "guest_perm_shortcut_register": true
+            "guest_perm_shortcut_register": true,
+            "guest_speech_daily_tts": 7,
+            "guest_speech_daily_asr": 8
         }))
         .unwrap();
 
@@ -136,6 +138,8 @@ mod tapp_permission_payload_tests {
         assert_eq!(payload.guest_perm_speech_tts, Some(false));
         assert_eq!(payload.guest_perm_speech_asr, Some(true));
         assert_eq!(payload.guest_perm_shortcut_register, Some(true));
+        assert_eq!(payload.guest_speech_daily_tts, Some(7));
+        assert_eq!(payload.guest_speech_daily_asr, Some(8));
     }
 }
 
@@ -227,9 +231,13 @@ pub async fn update_permissions(
     if let Some(v) = payload.guest_perm_event_publish {
         updates.insert("guest_perm_event_publish".to_string(), json!(v));
     }
+    if let Some(v) = payload.guest_perm_speech_tts {
+        updates.insert("guest_perm_speech_tts".to_string(), json!(v));
+    }
+    if let Some(v) = payload.guest_perm_speech_asr {
+        updates.insert("guest_perm_speech_asr".to_string(), json!(v));
+    }
     updates.insert("guest_perm_scheduler_register".to_string(), json!(false));
-    updates.insert("guest_perm_speech_tts".to_string(), json!(false));
-    updates.insert("guest_perm_speech_asr".to_string(), json!(false));
 
     // AI 使用限额配置
     if let Some(v) = payload.user_ai_daily_calls {
@@ -249,6 +257,12 @@ pub async fn update_permissions(
     }
     if let Some(v) = payload.guest_ai_cooldown_seconds {
         updates.insert("guest_ai_cooldown_seconds".to_string(), json!(v));
+    }
+    if let Some(v) = payload.guest_speech_daily_tts {
+        updates.insert("guest_speech_daily_tts".to_string(), json!(v.clamp(0, 10_000)));
+    }
+    if let Some(v) = payload.guest_speech_daily_asr {
+        updates.insert("guest_speech_daily_asr".to_string(), json!(v.clamp(0, 10_000)));
     }
 
     if updates.is_empty() {
