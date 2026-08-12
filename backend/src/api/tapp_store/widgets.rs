@@ -2,7 +2,7 @@
 
 use super::{
     authorize_tapp_permission, current_is_admin, find_admin_user_id, lock_tapp_lifecycle,
-    optional_authenticated_user_id, require_current_admin, validate_tapp_settings,
+    optional_authenticated_user_id, validate_tapp_settings,
     validate_widget_refresh_policy, ApiResponse, TappManifest, TappSettingDef, TappWidgetCategory,
     TappWidgetRefreshPolicy, MAX_WIDGETS_PER_TAPP,
 };
@@ -294,7 +294,9 @@ pub(super) async fn register_widget(
     Path(tapp_id): Path<String>,
     Json(request): Json<RegisterWidgetRequest>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, HttpError> {
-    require_current_admin(&claims, &db).await?;
+    // The authenticated route plus Runtime Grant, current role/config,
+    // approved Manifest permission, and installation owner checks below form
+    // the delegated Widget boundary for administrators and ordinary users.
     runtime_grant.require_tapp_id(&tapp_id)?;
     runtime_grant.require(TappPermission::WidgetRegister)?;
     let user_id =
@@ -468,7 +470,6 @@ pub(super) async fn unregister_widget(
     runtime_grant: RuntimeGrantContext,
     Path((tapp_id, widget_id)): Path<(String, String)>,
 ) -> Result<Json<ApiResponse<()>>, HttpError> {
-    require_current_admin(&claims, &db).await?;
     runtime_grant.require_tapp_id(&tapp_id)?;
     runtime_grant.require(TappPermission::WidgetRegister)?;
     let user_id =

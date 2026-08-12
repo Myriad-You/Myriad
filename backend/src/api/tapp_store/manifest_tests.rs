@@ -1183,6 +1183,26 @@ fn normalizes_and_restricts_widget_categories_across_manifest_and_runtime() {
 }
 
 #[test]
+fn delegated_widget_handlers_do_not_reintroduce_admin_only_gate() {
+    let source = include_str!("widgets.rs");
+    let register = source
+        .split("pub(super) async fn register_widget")
+        .nth(1)
+        .and_then(|tail| tail.split("pub(super) async fn unregister_widget").next())
+        .expect("register_widget source");
+    let unregister = source
+        .split("pub(super) async fn unregister_widget")
+        .nth(1)
+        .expect("unregister_widget source");
+    assert!(!register.contains("require_current_admin"));
+    assert!(!unregister.contains("require_current_admin"));
+    for handler in [register, unregister] {
+        assert!(handler.contains("runtime_grant.require(TappPermission::WidgetRegister)"));
+        assert!(handler.contains("authorize_tapp_permission"));
+    }
+}
+
+#[test]
 fn runtime_widget_owner_binding_prevents_cross_installation_reuse() {
     let now = chrono::Utc::now().fixed_offset();
     let widget = |subject_id: i32, config: serde_json::Value| tapp_widgets::Model {
