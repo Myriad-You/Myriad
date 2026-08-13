@@ -4095,7 +4095,7 @@ async fn execute_permission_check(params: &HashMap<String, Value>) -> Result<Val
         "widget:register",
         "platform:read",
         "report:read",
-        "storage",
+        "storage:read",
         "ui:notification",
         "ui:fullscreen",
         "ui:theme",
@@ -4116,6 +4116,7 @@ async fn execute_permission_check(params: &HashMap<String, Value>) -> Result<Val
         "component:theme",
         "shortcut:register",
         "event:publish",
+        "storage:write",
     ];
 
     let privileged_permissions = ["platform:write", "platform:register", "component:agent"];

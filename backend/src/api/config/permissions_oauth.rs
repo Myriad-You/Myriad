@@ -77,7 +77,7 @@ pub async fn get_permissions(
 /// 更新 Tapp 权限下放配置（仅管理员）
 #[derive(Debug, Deserialize)]
 pub struct UpdatePermissionsPayload {
-    // 普通用户可下放的 elevated 权限（14 项）
+    // 普通用户可下放的 elevated 权限（13 项）
     pub user_perm_ai_generate: Option<bool>,
     pub user_perm_ai_analyze: Option<bool>,
     pub user_perm_ai_chat: Option<bool>,
