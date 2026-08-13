@@ -125,5 +125,6 @@ scraper = "0.27"                                        # HTML parsing for web.s
 
 [dev-dependencies]
 mockall = "0.15"
+syn = { version = "2", features = ["full", "visit"] }
 
 # release profile lives in the root workspace Cargo.toml

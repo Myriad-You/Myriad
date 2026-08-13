@@ -2535,6 +2535,7 @@ dependencies = [
  "serde_yaml",
  "sha2 0.11.0",
  "subtle",
+ "syn 2.0.119",
  "tokio",
  "tokio-stream",
  "tower",

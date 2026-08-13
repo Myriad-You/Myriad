@@ -86,6 +86,10 @@ impl ConfigService {
             }
         }
 
+        if let Some(v) = map.get("openweather_api_key") {
+            config.openweather_api_key = v.as_str().map(str::to_string);
+        }
+
         if let Some(v) = map.get("topic_style") {
             if let Some(s) = v.as_str() {
                 config.topic_style = s.to_string();
@@ -416,6 +420,15 @@ impl ConfigService {
                 config.ui_evocative_ripple_quality = n;
             }
         }
+        if let Some(v) = map.get("ui_theme") {
+            config.ui_theme = v.as_str().map(str::to_string);
+        }
+        if let Some(v) = map.get("ui_primary_color") {
+            config.ui_primary_color = v.as_str().map(str::to_string);
+        }
+        if let Some(v) = map.get("ui_secondary_color") {
+            config.ui_secondary_color = v.as_str().map(str::to_string);
+        }
         if let Some(v) = map.get("pet_enabled") {
             if let Some(b) = v.as_bool() {
                 config.pet_enabled = b;
@@ -567,7 +580,11 @@ impl ConfigService {
 
         // Private Tapp install retention (users section)
         if let Some(v) = map.get("tapp_private_install_cleanup") {
-            let mode = v.as_str().unwrap_or("inactivity").trim().to_ascii_lowercase();
+            let mode = v
+                .as_str()
+                .unwrap_or("inactivity")
+                .trim()
+                .to_ascii_lowercase();
             config.tapp_private_install_cleanup = if mode == "logout" {
                 "logout".to_string()
             } else {
@@ -575,7 +592,10 @@ impl ConfigService {
             };
         }
         if let Some(v) = map.get("tapp_private_install_inactivity_days") {
-            let days = v.as_i64().or_else(|| v.as_u64().map(|n| n as i64)).unwrap_or(14);
+            let days = v
+                .as_i64()
+                .or_else(|| v.as_u64().map(|n| n as i64))
+                .unwrap_or(14);
             config.tapp_private_install_inactivity_days = days.clamp(1, 365) as i32;
         }
 
@@ -869,6 +889,38 @@ impl ConfigService {
             }
         }
 
+        // AI 使用限额配置
+        if let Some(v) = map.get("user_ai_daily_calls") {
+            if let Some(n) = v.as_i64() {
+                config.user_ai_daily_calls = n as i32;
+            }
+        }
+        if let Some(v) = map.get("user_ai_daily_tokens") {
+            if let Some(n) = v.as_i64() {
+                config.user_ai_daily_tokens = n as i32;
+            }
+        }
+        if let Some(v) = map.get("user_ai_cooldown_seconds") {
+            if let Some(n) = v.as_i64() {
+                config.user_ai_cooldown_seconds = n as i32;
+            }
+        }
+        if let Some(v) = map.get("guest_ai_daily_calls") {
+            if let Some(n) = v.as_i64() {
+                config.guest_ai_daily_calls = n as i32;
+            }
+        }
+        if let Some(v) = map.get("guest_ai_daily_tokens") {
+            if let Some(n) = v.as_i64() {
+                config.guest_ai_daily_tokens = n as i32;
+            }
+        }
+        if let Some(v) = map.get("guest_ai_cooldown_seconds") {
+            if let Some(n) = v.as_i64() {
+                config.guest_ai_cooldown_seconds = n as i32;
+            }
+        }
+
         // 内存节约（高级设置）
         if let Some(v) = map.get("memory_saver_enabled") {
             if let Some(b) = v.as_bool() {
@@ -936,5 +988,120 @@ impl ConfigService {
         }
         tracing::info!("✅ Updated {} configurations", count);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ConfigService;
+    use serde_json::json;
+    use std::collections::{HashMap, HashSet};
+    use syn::visit::Visit;
+
+    #[test]
+    fn parses_ai_quota_values_from_database_config() {
+        let config = ConfigService::parse_config(HashMap::from([
+            ("user_ai_daily_calls".into(), json!(101)),
+            ("user_ai_daily_tokens".into(), json!(202)),
+            ("user_ai_cooldown_seconds".into(), json!(303)),
+            ("guest_ai_daily_calls".into(), json!(404)),
+            ("guest_ai_daily_tokens".into(), json!(505)),
+            ("guest_ai_cooldown_seconds".into(), json!(606)),
+            ("openweather_api_key".into(), json!("weather-secret")),
+            ("ui_theme".into(), json!("paper")),
+            ("ui_primary_color".into(), json!("#112233")),
+            ("ui_secondary_color".into(), json!("#445566")),
+        ]));
+
+        assert_eq!(config.user_ai_daily_calls, 101);
+        assert_eq!(config.user_ai_daily_tokens, 202);
+        assert_eq!(config.user_ai_cooldown_seconds, 303);
+        assert_eq!(config.guest_ai_daily_calls, 404);
+        assert_eq!(config.guest_ai_daily_tokens, 505);
+        assert_eq!(config.guest_ai_cooldown_seconds, 606);
+        assert_eq!(
+            config.openweather_api_key.as_deref(),
+            Some("weather-secret")
+        );
+        assert_eq!(config.ui_theme.as_deref(), Some("paper"));
+        assert_eq!(config.ui_primary_color.as_deref(), Some("#112233"));
+        assert_eq!(config.ui_secondary_color.as_deref(), Some("#445566"));
+    }
+
+    #[test]
+    fn every_dynamic_config_field_has_a_database_parse_branch_or_documented_exemption() {
+        let config_file = syn::parse_file(include_str!("../config.rs")).expect("valid config.rs");
+        let dynamic_config = config_file
+            .items
+            .iter()
+            .find_map(|item| match item {
+                syn::Item::Struct(item) if item.ident == "DynamicConfig" => Some(item),
+                _ => None,
+            })
+            .expect("DynamicConfig struct exists");
+        let fields: HashSet<String> = dynamic_config
+            .fields
+            .iter()
+            .filter_map(|field| field.ident.as_ref().map(ToString::to_string))
+            .collect();
+
+        let service_file =
+            syn::parse_file(include_str!("config_service.rs")).expect("valid config_service.rs");
+        let parse_config = service_file
+            .items
+            .iter()
+            .find_map(|item| match item {
+                syn::Item::Impl(item) => item.items.iter().find_map(|impl_item| match impl_item {
+                    syn::ImplItem::Fn(function) if function.sig.ident == "parse_config" => {
+                        Some(function)
+                    }
+                    _ => None,
+                }),
+                _ => None,
+            })
+            .expect("ConfigService::parse_config exists");
+
+        #[derive(Default)]
+        struct MapGetVisitor {
+            keys: HashSet<String>,
+        }
+
+        impl<'ast> Visit<'ast> for MapGetVisitor {
+            fn visit_expr_method_call(&mut self, node: &'ast syn::ExprMethodCall) {
+                if node.method == "get" {
+                    if let Some(syn::Expr::Lit(syn::ExprLit {
+                        lit: syn::Lit::Str(key),
+                        ..
+                    })) = node.args.first()
+                    {
+                        self.keys.insert(key.value());
+                    }
+                }
+                syn::visit::visit_expr_method_call(self, node);
+            }
+        }
+
+        // Fields that are intentionally derived at runtime instead of loaded from
+        // the configurations table. Every entry must explain the alternate source.
+        const EXEMPTIONS: &[(&str, &str)] = &[];
+
+        let mut visitor = MapGetVisitor::default();
+        visitor.visit_impl_item_fn(parse_config);
+        let exemptions: HashSet<&str> = EXEMPTIONS.iter().map(|(field, _)| *field).collect();
+        assert!(EXEMPTIONS
+            .iter()
+            .all(|(_, reason)| !reason.trim().is_empty()));
+
+        let mut missing: Vec<_> = fields
+            .difference(&visitor.keys)
+            .filter(|field| !exemptions.contains(field.as_str()))
+            .cloned()
+            .collect();
+        missing.sort();
+        assert!(
+            missing.is_empty(),
+            "DynamicConfig fields missing from ConfigService::parse_config: {}",
+            missing.join(", ")
+        );
     }
 }
