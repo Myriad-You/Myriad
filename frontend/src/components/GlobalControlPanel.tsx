@@ -1213,9 +1213,16 @@ const GlobalControlPanel: React.FC = () => {
       // 先解除武装再消费哨兵记录；pendingBack 让「关→立刻开」时迟到的
       // popstate 不会把刚展开的面板再收掉
       historyArmedRef.current = false
-      pendingBackRef.current = 1
+      // 必须计数而不是置 1：同一 tick 内可能连续消费多条哨兵
+      // （程序化的连开连关），每次 back 都会各自回一个 popstate，
+      // 置 1 会让第二个之后的被当成用户按返回键，把刚展开的面板收掉
+      pendingBackRef.current += 1
       window.history.back()
     }
+    // 与 expandPanel 的立即置位对称：不等下一次提交的 layout effect。
+    // 否则同一 tick 内「关→立刻开」时第二次调用仍读到 true，
+    // 会被 handleTogglePanel 误判成再关一次，面板打不开。
+    isExpandedRef.current = false
     dispatchPanel({ type: 'close' })
   }, [])
 
@@ -1242,7 +1249,7 @@ const GlobalControlPanel: React.FC = () => {
     const handlePopState = () => {
       // 自己调用 history.back() 产生的那次回退：只记账，不改状态
       if (pendingBackRef.current > 0) {
-        pendingBackRef.current = 0
+        pendingBackRef.current -= 1
         return
       }
       if (!historyArmedRef.current) return
