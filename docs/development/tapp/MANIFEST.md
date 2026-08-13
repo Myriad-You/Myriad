@@ -766,7 +766,12 @@ Tapp 私有 storage、报告和内部状态不会因为知道另一个 `tappId` 
 
 ```json
 {
-  "permissions": ["ai:generate", "event:publish", "event:subscribe"],
+  "permissions": [
+    "ai:generate",
+    "event:publish",
+    "event:subscribe",
+    "ui:theme:subscribe"
+  ],
   "ai": {
     "protocolVersion": 2,
     "operations": ["generate", "chat"],
@@ -799,7 +804,9 @@ Tapp 私有 storage、报告和内部状态不会因为知道另一个 `tappId` 
 - Event publish topic 必须位于 `tapp.<当前 id>.*`；Tapp 不能发布 `system.*`；每个方向最多
   100 个 topic；
 - `system.*` 只能由宿主发布；当前提供 theme、network、locale、visibility 和 navigation
-  状态变更 producer；
+  状态变更 producer；订阅 `system.theme.changed` 除 `event:subscribe` 外还**必须授予
+  `ui:theme:subscribe`**（该事件注册即回放当前主题，仅 `ui:theme:read` 不会开放订阅）；
+  其余 `system.*` 事件只要求 `event:subscribe`；
 - Event `owner` 作用域只允许有界状态元数据，跨 Tapp 正文必须使用 `dataExchange`；
 - Agent interaction type 最多 32 个。schema 是安装根目录内的 JSON 资源，安装时校验存在，
   运行时限制为 64 KiB、禁止 `$ref`，输入和结果都由后端验证；

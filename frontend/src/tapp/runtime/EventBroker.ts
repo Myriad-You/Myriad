@@ -22,10 +22,13 @@ export function registerEventHandlers(
   const hasServerSubscriptions = [...subscriptions].some(
     (topic) => !topic.startsWith('system.'),
   )
-
   // system.* topics are produced by the trusted host, never by sandbox code.
-  // They are browser-local facts, so delivering them directly also avoids
-  // pretending that theme/network/visibility state is global server state.
+  // `system.theme.changed` carries the current theme (subscribeToTheme re-emits
+  // it immediately on registration), so forwarding requires the granted
+  // `ui:theme:subscribe` permission — `event:subscribe` alone must not unlock
+  // theme reads/subscriptions through the event broker.
+  const granted = new Set(tappInstance.grantedPermissions ?? [])
+  const hasThemeSubscribe = granted.has('ui:theme:subscribe')
   let hostRuntimeId = 'host'
   void bridge
     .getRuntimeId()
@@ -46,7 +49,11 @@ export function registerEventHandlers(
     } satisfies TappEvent)
   }
 
-  if (subscriptions.has('system.theme.changed')) {
+  // Theme is the only system.* topic gated on a dedicated permission: it leaks
+  // the current theme on registration (initial callback) and every later
+  // switch. `ui:theme:read` does not imply subscribe; only the granted
+  // `ui:theme:subscribe` permission opens this producer.
+  if (subscriptions.has('system.theme.changed') && hasThemeSubscribe) {
     cleanupSystemProducers.push(
       subscribeToTheme((isDark) =>
         emitSystem('system.theme.changed', {

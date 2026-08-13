@@ -1291,6 +1291,11 @@ subject 数据空间内、Manifest 明确订阅 topic 的在线 Page/Widget/head
 `system.*` 只能由宿主发布。当前可订阅 `system.theme.changed`、`system.network.changed`、
 `system.locale.changed`、`system.visibility.changed` 与 `system.navigation.changed`。
 
+`system.theme.changed` 是唯一需要专属权限的宿主事件：注册即回放当前主题（明暗），之后每次
+切主题都会推送，因此除 Manifest `events.subscribe` 声明与 `event:subscribe` 外，还**必须授予
+`ui:theme:subscribe`** 才会注册/转发；仅授予 `ui:theme:read` 不会开放该订阅。其余 `system.*`
+事件只要求 `event:subscribe`。
+
 游客 subject 由 HttpOnly HMAC 签名的浏览器 guest session 派生，不共享出口 IP；当前权限策略
 仍只允许游客发布 `instance` scope，`owner` 返回 `GUEST_OWNER_EVENT_UNAVAILABLE`。
 

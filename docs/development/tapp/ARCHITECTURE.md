@@ -505,6 +505,8 @@ Scoped Event Broker 使用 Manifest publish/subscribe allowlist 与 Runtime Gran
 跨副本并发重试不会产生重复事件。
 宿主已提供 `system.theme.changed`、`system.network.changed`、`system.locale.changed`、
 `system.visibility.changed` 与 `system.navigation.changed` producer。
+其中 `system.theme.changed` 需要额外授予 `ui:theme:subscribe` 才会注册/转发（注册即回放
+当前主题），仅凭 `event:subscribe` 或 `ui:theme:read` 不会开放该订阅。
 
 AI Task 将 generate/analyze/chat/image 统一为服务端任务，校验 Manifest operation、model tier、
 context source 与 output format，限制并发和执行/保留时间，并通过 SSE 返回 delta/progress/state。
