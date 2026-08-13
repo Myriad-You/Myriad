@@ -608,6 +608,19 @@ mod tests {
             federation_permission("PUT", "/api/federation/rooms/{room_id}"),
             Some(TappPermission::FederationRoom)
         );
+        // room sticker 路由与 action addRoomSticker/removeRoomSticker 同域
+        // （federation:room）：host route 与 action fixture 必须 lockstep。
+        assert_eq!(
+            federation_permission("POST", "/api/federation/rooms/{room_id}/stickers"),
+            Some(TappPermission::FederationRoom)
+        );
+        assert_eq!(
+            federation_permission(
+                "DELETE",
+                "/api/federation/rooms/{room_id}/stickers/{sticker_id}"
+            ),
+            Some(TappPermission::FederationRoom)
+        );
         // ring 域
         assert_eq!(
             federation_permission("POST", "/api/federation/rings"),

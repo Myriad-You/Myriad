@@ -690,6 +690,18 @@
       "method": "POST",
       "path": "/api/federation/transfers/{transfer_id}/cancel",
       "permission": "federation:files"
+    },
+    {
+      "domain": "federation",
+      "method": "POST",
+      "path": "/api/federation/rooms/{room_id}/stickers",
+      "permission": "federation:room"
+    },
+    {
+      "domain": "federation",
+      "method": "DELETE",
+      "path": "/api/federation/rooms/{room_id}/stickers/{sticker_id}",
+      "permission": "federation:room"
     }
   ]
 }
