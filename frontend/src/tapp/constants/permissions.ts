@@ -29,6 +29,7 @@ import {
   FaFolder,
   FaGlobe,
   FaHdd,
+  FaHeart,
   FaImage,
   FaList,
   FaLock,
@@ -43,6 +44,7 @@ import {
   FaQuestionCircle,
   FaRobot,
   FaServer,
+  FaSignInAlt,
   FaTh,
   FaTools,
   FaUsers,
@@ -275,10 +277,30 @@ export const PERMISSION_CONFIG: Record<
     labelKey: 'permReadFederation',
     descriptionKey: 'permReadFederationDesc',
   },
-  'federation:write': {
+  'federation:post': {
+    icon: FaEdit,
+    labelKey: 'permPostFederation',
+    descriptionKey: 'permPostFederationDesc',
+  },
+  'federation:interact': {
+    icon: FaHeart,
+    labelKey: 'permInteractFederation',
+    descriptionKey: 'permInteractFederationDesc',
+  },
+  'federation:channel': {
+    icon: FaComments,
+    labelKey: 'permChannelFederation',
+    descriptionKey: 'permChannelFederationDesc',
+  },
+  'federation:room': {
+    icon: FaSignInAlt,
+    labelKey: 'permRoomFederation',
+    descriptionKey: 'permRoomFederationDesc',
+  },
+  'federation:ring': {
     icon: FaExchangeAlt,
-    labelKey: 'permWriteFederation',
-    descriptionKey: 'permWriteFederationDesc',
+    labelKey: 'permRingFederation',
+    descriptionKey: 'permRingFederationDesc',
   },
   'federation:message': {
     icon: FaEnvelope,

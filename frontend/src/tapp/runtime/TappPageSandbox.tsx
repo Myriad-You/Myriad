@@ -750,7 +750,11 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
         hasExact('brew:manage')
       const hasFederation =
         hasExact('federation:read') ||
-        hasExact('federation:write') ||
+        hasExact('federation:post') ||
+        hasExact('federation:interact') ||
+        hasExact('federation:channel') ||
+        hasExact('federation:room') ||
+        hasExact('federation:ring') ||
         hasExact('federation:message') ||
         hasExact('federation:trust') ||
         hasExact('federation:files')

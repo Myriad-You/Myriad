@@ -3115,7 +3115,11 @@ export const enUS: TranslationKeys = {
     permCommentBrew: 'Comment on Brew',
     permManageBrew: 'Manage Brew',
     permReadFederation: 'Read Federation Data',
-    permWriteFederation: 'Write Federation Data',
+    permPostFederation: 'Post Federation Content',
+    permInteractFederation: 'Federation Interactions',
+    permChannelFederation: 'Channel Management',
+    permRoomFederation: 'Room Management',
+    permRingFederation: 'Ring Management',
     permMessageFederation: 'Federation Messaging',
     permTrustFederation: 'Federation Trust',
     permFederationFiles: 'Federation Files',
@@ -3164,7 +3168,16 @@ export const enUS: TranslationKeys = {
     permManageBrewDesc: 'Allow managing Brew sources and advanced settings',
     permReadFederationDesc:
       'Allow reading federation rooms, channels, and members',
-    permWriteFederationDesc: 'Allow creating or updating federation resources',
+    permPostFederationDesc:
+      'Allow publishing/unpublishing content, creating Notes, uploading media, and managing outbound delivery',
+    permInteractFederationDesc:
+      'Allow follow/unfollow, like/unlike, bookmark/unbookmark, and announce/unannounce',
+    permChannelFederationDesc:
+      'Allow creating, accepting, closing, deleting channels and channel E2E key setup',
+    permRoomFederationDesc:
+      'Allow create/update/delete rooms, join/invite, member governance, E2E keys, stickers and pins',
+    permRingFederationDesc:
+      'Allow Ring membership management and peer/sync operations',
     permMessageFederationDesc:
       'Allow sending and receiving federation messages',
     permTrustFederationDesc: 'Allow managing federation trust relationships',

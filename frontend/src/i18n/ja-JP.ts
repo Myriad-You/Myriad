@@ -3095,7 +3095,11 @@ export const jaJP: TranslationKeys = {
     permCommentBrew: 'Brew コメント',
     permManageBrew: 'Brew 管理',
     permReadFederation: 'Federation データ読取',
-    permWriteFederation: 'Federation データ書込',
+    permPostFederation: 'Federation 投稿',
+    permInteractFederation: 'Federation 操作',
+    permChannelFederation: 'チャンネル管理',
+    permRoomFederation: 'ルーム管理',
+    permRingFederation: 'Ring 管理',
     permMessageFederation: 'Federation メッセージ',
     permTrustFederation: 'Federation 信頼管理',
     permFederationFiles: 'Federation ファイル',
@@ -3144,7 +3148,15 @@ export const jaJP: TranslationKeys = {
     permManageBrewDesc: 'Brew ソースと詳細設定の管理を許可',
     permReadFederationDesc:
       'Federation のルーム、チャンネル、メンバーの読取を許可',
-    permWriteFederationDesc: 'Federation リソースの作成または更新を許可',
+    permPostFederationDesc:
+      '公開/非公開、Note 作成、メディアアップロード、送信キュー管理を許可',
+    permInteractFederationDesc:
+      'フォロー/解除、いいね、ブックマーク、announce を許可',
+    permChannelFederationDesc:
+      'チャンネルの作成・受諾・閉鎖・削除と E2E 鍵設定を許可',
+    permRoomFederationDesc:
+      '部屋の作成/更新/削除、参加・招待、メンバー管理、E2E 鍵、ステッカー、ピン留めを許可',
+    permRingFederationDesc: 'Ring メンバー管理と peer/同期操作を許可',
     permMessageFederationDesc: 'Federation メッセージの送受信を許可',
     permTrustFederationDesc: 'Federation の信頼関係の管理を許可',
     permFederationFilesDesc: 'Federation ファイル転送機能へのアクセスを許可',

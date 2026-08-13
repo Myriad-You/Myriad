@@ -38,6 +38,10 @@ const GUEST_AUTHENTICATED_PERMISSION_KEYS = new Set([
   'scheduler_register',
   'speech_tts',
   'speech_asr',
+  // federation 写域全部要求持久登录主体（AuthedClaims），游客下放无意义
+  'federation_post',
+  'federation_channel',
+  'federation_room',
 ])
 export type AgentPermissionPreset = 'none' | 'chat' | 'standard' | 'elevated'
 
@@ -116,6 +120,9 @@ export interface PermissionConfigValues extends Record<
   user_perm_speech_tts: boolean
   user_perm_speech_asr: boolean
   user_perm_storage_write: boolean
+  user_perm_federation_post: boolean
+  user_perm_federation_channel: boolean
+  user_perm_federation_room: boolean
   // 游客权限
   guest_perm_ai_generate: boolean
   guest_perm_ai_analyze: boolean
@@ -130,6 +137,9 @@ export interface PermissionConfigValues extends Record<
   guest_perm_speech_tts: boolean
   guest_perm_speech_asr: boolean
   guest_perm_storage_write: boolean
+  guest_perm_federation_post: boolean
+  guest_perm_federation_channel: boolean
+  guest_perm_federation_room: boolean
   // AI 配额
   user_ai_daily_calls: number
   user_ai_daily_tokens: number
@@ -211,6 +221,25 @@ export const PermissionsConfigSection: React.FC<
       code: 'storage:write',
       label: '写入本地存储',
       hint: '允许写入该应用的私有存储空间',
+    },
+    // 联邦（拆分自 federation:write；游客不展示，见 GUEST_AUTHENTICATED_PERMISSION_KEYS）
+    {
+      key: 'federation_post',
+      code: 'federation:post',
+      label: '发布联邦内容',
+      hint: '允许发布/取消发布内容、创建 Note、上传媒体及管理对外投递',
+    },
+    {
+      key: 'federation_channel',
+      code: 'federation:channel',
+      label: '频道管理',
+      hint: '允许创建、接受、关闭、删除频道及频道 E2E 密钥协商',
+    },
+    {
+      key: 'federation_room',
+      code: 'federation:room',
+      label: '房间管理',
+      hint: '允许创建/更新/删除房间、加入/邀请、成员治理、E2E 密钥、贴纸与置顶',
     },
     // 网络（report:write 已仅管理员，不再展示下放开关）
     {

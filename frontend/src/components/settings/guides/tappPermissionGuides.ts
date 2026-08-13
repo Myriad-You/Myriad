@@ -274,12 +274,40 @@ const zh: TappPermissionGuides = {
     frontend: '联邦相关页面与应用内联邦视图。',
     notes: '能看到的范围仍受信任策略限制。',
   },
-  'federation:write': {
-    what: '允许创建或更新联邦资源（房间、频道等）。',
+  'federation:post': {
+    what: '允许发布/取消发布帖子、创建 Note、上传媒体，以及管理对外投递。',
     chain:
-      '① 应用写入联邦 API。\n② 资源在本站与可能的对端变更。\n③ 成员可见结构变化。',
-    frontend: '联邦管理与创建流程。',
-    notes: '写操作可能同步到外部实例，谨慎授权。',
+      '① 应用写入联邦 API。\n② 内容在本站与对端实例落库。\n③ 关注者可见新内容。',
+    frontend: '发帖、媒体上传、投递队列管理。',
+    notes: '发布内容会同步到外部实例，谨慎授权。',
+  },
+  'federation:interact': {
+    what: '允许关注/取关、点赞、收藏、转发（announce）。',
+    chain:
+      '① 应用发起互动。\n② 互动记录落库并对作者广播。\n③ 对方可见互动结果。',
+    frontend: '关注、点赞、收藏、转发入口。',
+    notes: '互动会向其他用户广播，需持久登录身份。',
+  },
+  'federation:channel': {
+    what: '允许创建、接受、关闭、删除频道，以及频道 E2E 密钥协商。',
+    chain:
+      '① 应用创建/治理频道。\n② 频道结构与密钥状态变更。\n③ 成员可见频道变化。',
+    frontend: '频道创建与管理流程。',
+    notes: '频道治理会同步到对端实例。',
+  },
+  'federation:room': {
+    what: '允许创建/更新/删除房间、加入/邀请、成员治理、E2E 密钥、贴纸与置顶。',
+    chain:
+      '① 应用操作房间。\n② 房间结构与成员关系变更。\n③ 成员可见房间变化。',
+    frontend: '房间创建、加入、成员与治理界面。',
+    notes: '房间治理会同步到对端实例。',
+  },
+  'federation:ring': {
+    what: '允许 Ring 成员管理与 peer/同步操作。',
+    chain:
+      '① 应用管理 Ring 成员与 peer。\n② Ring 成员表与同步状态变更。\n③ 对端 peer 收到同步。',
+    frontend: 'Ring 管理、peer 列表与同步触发。',
+    notes: 'Ring 同步会把数据推给对端 peer。',
   },
   'federation:message': {
     what: '允许发送和接收联邦消息。',
@@ -564,12 +592,40 @@ const en: TappPermissionGuides = {
     frontend: 'Federation pages / in-app views.',
     notes: 'Visibility still limited by trust rules.',
   },
-  'federation:write': {
-    what: 'Allows creating or updating federation resources.',
+  'federation:post': {
+    what: 'Allows publish/unpublish, creating Notes, uploading media, and managing outbound delivery.',
     chain:
-      '1) App writes federation APIs.\n2) Local (and possibly remote) resources change.\n3) Members see structure updates.',
-    frontend: 'Federation create/manage flows.',
-    notes: 'May sync to remote instances.',
+      '1) App writes federation APIs.\n2) Content lands on local and remote instances.\n3) Followers see new content.',
+    frontend: 'Posting, media upload, delivery queue management.',
+    notes: 'Posts sync to remote instances — grant carefully.',
+  },
+  'federation:interact': {
+    what: 'Allows follow/unfollow, like/unlike, bookmark/unbookmark, and announce/unannounce.',
+    chain:
+      '1) App performs interactions.\n2) Interaction is stored and broadcast to authors.\n3) Authors see the result.',
+    frontend: 'Follow, like, bookmark, and boost entry points.',
+    notes: 'Interactions broadcast to other users; a durable login is required.',
+  },
+  'federation:channel': {
+    what: 'Allows creating, accepting, closing, deleting channels and channel E2E key setup.',
+    chain:
+      '1) App creates/governs channels.\n2) Channel structure and key state change.\n3) Members see channel updates.',
+    frontend: 'Channel creation and management flows.',
+    notes: 'Channel governance syncs to remote instances.',
+  },
+  'federation:room': {
+    what: 'Allows create/update/delete rooms, join/invite, member governance, E2E keys, stickers and pins.',
+    chain:
+      '1) App operates on rooms.\n2) Room structure and membership change.\n3) Members see room updates.',
+    frontend: 'Room create, join, member and governance screens.',
+    notes: 'Room governance syncs to remote instances.',
+  },
+  'federation:ring': {
+    what: 'Allows Ring membership management and peer/sync operations.',
+    chain:
+      '1) App manages ring members and peers.\n2) Ring membership and sync state change.\n3) Remote peers receive sync.',
+    frontend: 'Ring management, peer lists and sync triggers.',
+    notes: 'Ring sync pushes data to remote peers.',
   },
   'federation:message': {
     what: 'Allows sending and receiving federation messages.',
@@ -854,12 +910,40 @@ const ja: TappPermissionGuides = {
     frontend: 'フェデレーション画面。',
     notes: '見える範囲は信頼設定に依存。',
   },
-  'federation:write': {
-    what: 'フェデレーション資源の作成・更新ができます。',
+  'federation:post': {
+    what: '公開/非公開、Note 作成、メディアアップロード、送信キュー管理ができます。',
     chain:
-      '① 書き込み API。\n② 自サイト（と相手）が変わり得る。\n③ 構成が更新される。',
-    frontend: '作成・管理フロー。',
-    notes: '外部インスタンスへ同期することがあります。',
+      '① 書き込み API。\n② 自サイトと相手先に内容が保存される。\n③ フォロワーに表示。',
+    frontend: '投稿・メディアアップロード・配信キュー管理。',
+    notes: '外部インスタンスへ同期されます。',
+  },
+  'federation:interact': {
+    what: 'フォロー/解除、いいね、ブックマーク、announce ができます。',
+    chain:
+      '① 操作を実行。\n② 記録が保存され作者へ通知。\n③ 相手に結果が見える。',
+    frontend: 'フォロー・いいね・ブックマーク・ブースト入口。',
+    notes: '他のユーザーへ通知されます。ログイン必須。',
+  },
+  'federation:channel': {
+    what: 'チャンネルの作成・受諾・閉鎖・削除と E2E 鍵設定ができます。',
+    chain:
+      '① 作成/管理 API。\n② チャンネル構成と鍵状態が変わる。\n③ メンバーに反映。',
+    frontend: 'チャンネル作成・管理フロー。',
+    notes: '外部インスタンスへ同期されます。',
+  },
+  'federation:room': {
+    what: '部屋の作成/更新/削除、参加・招待、メンバー管理、E2E 鍵、ステッカー、ピン留めができます。',
+    chain:
+      '① 部屋を操作。\n② 構成とメンバー関係が変わる。\n③ メンバーに反映。',
+    frontend: '部屋の作成・参加・メンバー管理画面。',
+    notes: '外部インスタンスへ同期されます。',
+  },
+  'federation:ring': {
+    what: 'Ring メンバー管理と peer/同期操作ができます。',
+    chain:
+      '① Ring メンバーと peer を管理。\n② メンバー表と同期状態が変わる。\n③ peer に同期。',
+    frontend: 'Ring 管理・peer 一覧・同期トリガー。',
+    notes: '同期でデータが peer に送信されます。',
   },
   'federation:message': {
     what: 'フェデレーションメッセージの送受信ができます。',

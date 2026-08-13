@@ -478,7 +478,11 @@ export type TappPermission =
   | 'brew:manage'
   // 联邦权限
   | 'federation:read'
-  | 'federation:write'
+  | 'federation:post'
+  | 'federation:interact'
+  | 'federation:channel'
+  | 'federation:room'
+  | 'federation:ring'
   | 'federation:message'
   | 'federation:trust'
   | 'federation:files'
