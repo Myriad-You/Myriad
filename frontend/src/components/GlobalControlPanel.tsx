@@ -422,6 +422,16 @@ const GlobalControlPanel: React.FC = () => {
       }),
     [anim.level, perf.reduceMotion, perf.isMobile],
   )
+  // morph 一旦开始就用开始时的档位跑完。动效档位可能在动画中途变化
+  // （面板里的动效开关，以及 startAutoFrameAdapt 掉帧时的自动降级——
+  // 后者恰好发生在低端设备 morph 掉帧时），若让它进 settle effect 的依赖，
+  // effect 会重建并在 cleanup 里提前派发 gcp-animation-end，
+  // 触发一次 measure(true) 在 morph 中途写高度顶跳外壳。
+  const motionRef = useRef(motion)
+  useLayoutEffect(() => {
+    motionRef.current = motion
+  }, [motion])
+
   // 时长以 CSS 变量下发：内容交接的 delay/duration 全部按 morph 比例计算，
   // 保证两条时间线永远同步（不会因为改时长而错位）
   const motionVars = useMemo(
@@ -1091,6 +1101,8 @@ const GlobalControlPanel: React.FC = () => {
     if (!isPanelMorphing(panel)) return
     const el = triggerRef.current
     const generation = panel.generation
+    // 用相位开始时的档位，中途换档不重启这条时间线
+    const activeMotion = motionRef.current
 
     // 子组件（MusicPlayer 频谱/歌词引擎）仍按这两个事件冻结
     window.dispatchEvent(new CustomEvent('gcp-animation-start'))
@@ -1108,11 +1120,11 @@ const GlobalControlPanel: React.FC = () => {
     const handleTransitionEnd = (e: TransitionEvent) => {
       if (e.target === el && e.propertyName === 'width') finish()
     }
-    if (motion.spatial && el) {
+    if (activeMotion.spatial && el) {
       el.addEventListener('transitionend', handleTransitionEnd)
     }
     // 兜底：非空间档位没有尺寸过渡、后台标签页被节流、过渡被 !important 覆盖
-    const fallback = window.setTimeout(finish, settleTimeoutMs(motion))
+    const fallback = window.setTimeout(finish, settleTimeoutMs(activeMotion))
 
     return () => {
       window.clearTimeout(fallback)
@@ -1122,7 +1134,7 @@ const GlobalControlPanel: React.FC = () => {
         window.dispatchEvent(new CustomEvent('gcp-animation-end'))
       }
     }
-  }, [panel.phase, panel.generation, motion])
+  }, [panel.phase, panel.generation])
 
   // 展开态写入 html.gcp-panel-open：全屏 TApp iframe 在移动端会抢 hit-test，
   // 宿主侧用该 class 临时关闭 TApp 层 pointer-events（见 GlobalControlPanel.css）
