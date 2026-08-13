@@ -22,6 +22,7 @@ import { getCSRFToken } from '../../utils/csrf'
 import { getUIConfigDeduped } from '../../utils/requestDedup'
 import WidgetGrid from '../WidgetGrid'
 import { getBuiltinWidgets } from '../widgets/builtinWidgets'
+import { shouldAutoAdvanceWidgets } from './widgetCarousel'
 import './ControlPanelWidgets.css'
 
 const API_URL = CONFIG_API_URL
@@ -43,12 +44,20 @@ const DEFAULT_CONTROL_PANEL_LAYOUT: WidgetConfig[] = [
 
 interface ControlPanelWidgetsProps {
   isAdmin?: boolean
+  /**
+   * 小组件当前是否真的看得见（面板已展开且停在控制页）。
+   * 收起后本组件仍然挂载（外壳只是 content-visibility: hidden），
+   * 若不接这个信号，自动轮播会在看不见的子树上继续每 10 秒重渲染一次，
+   * 下次展开时页码已经漂到别处。与 MusicPlayer 的 panelVisible 同源。
+   */
+  panelVisible?: boolean
 }
 
 // memo：宿主 GlobalControlPanel 因音乐进度/歌词轮播频繁重渲染，
-// 本组件 props 仅 isAdmin，隔离后不再跟随重渲染
+// 本组件 props 只有 isAdmin 与低频的 panelVisible（仅相位切换时变），
+// 隔离后不再跟随宿主的高频重渲染
 export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
-  ({ isAdmin = false }) => {
+  ({ isAdmin = false, panelVisible = true }) => {
     const { t } = useI18n()
 
     // Shared built-in catalog (same source as Home)
@@ -76,6 +85,9 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
     const [currentPage, setCurrentPage] = useState(0)
     const [gridRows, setGridRows] = useState(2)
     const [_isLoading, setIsLoading] = useState(true)
+    // 指针停在小组件区域内：视为用户正在阅读/准备点击，暂停自动翻页。
+    // 与智能岛收缩态轮播的 isHovering 语义保持一致
+    const [isHovering, setIsHovering] = useState(false)
     const longPressTimer = useRef<NodeJS.Timeout | null>(null)
     const wheelCooldown = useRef(false)
     const startYRef = useRef(0)
@@ -362,11 +374,15 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
       }
     }, [maxPage, currentPage])
 
-    // 使用首页原子化可见性感知定时器自动切换页面 (10秒一次，仅在非编辑模式且有多页时)
+    // 自动切换页面（10 秒一次）。hook 自带的可见性是页面级（tab 是否可见），
+    // 面板收起与指针停留都要另外把闸门关掉：
+    // - panelVisible：收起或切到通知页时小组件根本看不见，不该继续翻页
+    // - isHovering：用户正停在某张卡片上时翻走会打断阅读/点击
+    //   （滚轮切页时指针必然在区域内，因此手动翻页期间轮播天然静默）
     useHomeVisibilityInterval(
       () => setCurrentPage((prev) => (prev >= maxPage ? 0 : prev + 1)),
       10000,
-      !isEditMode && maxPage > 0,
+      shouldAutoAdvanceWidgets({ isEditMode, maxPage, panelVisible, isHovering }),
     )
 
     // 根据 gridRows 过滤可用小组件（1行模式只显示支持 4x1/2x1/1x1 的小组件）
@@ -445,7 +461,11 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
           className={`control-panel-widgets-container relative w-full transition-all rounded-xl ${isEditMode ? 'z-9999' : ''}`}
           onMouseDown={handleMouseDown}
           onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
+          onMouseEnter={() => setIsHovering(true)}
+          onMouseLeave={() => {
+            handleMouseUp()
+            setIsHovering(false)
+          }}
           onTouchStart={handleMouseDown}
           onTouchEnd={handleMouseUp}
         >

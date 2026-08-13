@@ -1764,7 +1764,10 @@ const GlobalControlPanel: React.FC = () => {
                   {/* 动态信息卡片 - 仅桌面显示；移动端关闭以省高度与资源 */}
                   <Suspense fallback={null}>
                     {showControlPanelWidgets && (
-                      <ControlPanelWidgets isAdmin={user?.is_admin} />
+                      <ControlPanelWidgets
+                        isAdmin={user?.is_admin}
+                        panelVisible={progressUiVisible}
+                      />
                     )}
 
                     {/* 音乐播放器：收起或非控制 Tab 时停频谱/歌词引擎，不刷进度 */}
