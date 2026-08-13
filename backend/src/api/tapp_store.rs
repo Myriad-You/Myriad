@@ -35,7 +35,9 @@ use access::{
     installation_conflict_owner_ids, lock_tapp_lifecycle, optional_authenticated_user_id,
     require_current_admin,
 };
-pub(crate) use access::{installation_write_forbidden_error, TappStorageAccess};
+pub(crate) use access::{
+    authorize_runtime_storage_write, installation_write_forbidden_error, TappStorageAccess,
+};
 #[cfg(test)]
 use catalog::tapp_detail_from_model;
 use catalog::{get_tapp, list_tapp_details, list_tapps, set_tapp_visibility};

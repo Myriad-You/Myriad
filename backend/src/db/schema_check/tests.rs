@@ -168,6 +168,8 @@ fn test_default_config_seeds_include_quota_and_explicit_open_permissions() {
     let values: std::collections::HashMap<_, _> = seeds.into_iter().collect();
     assert_eq!(values["user_ai_daily_calls"], serde_json::json!(50));
     assert_eq!(values["guest_ai_daily_tokens"], serde_json::json!(5000));
+    assert_eq!(values["user_perm_storage_write"], serde_json::json!(false));
+    assert_eq!(values["guest_perm_storage_write"], serde_json::json!(false));
     assert!(!values.contains_key("user_perm_component_theme"));
     assert!(!values.contains_key("user_perm_shortcut_register"));
     assert_eq!(values["stash_hidden_capacity"], serde_json::json!(8));

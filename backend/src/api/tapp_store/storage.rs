@@ -4,7 +4,8 @@
 //! them to Axum status codes and owns HTTP handlers.
 
 use super::{
-    authorize_runtime_storage, can_write_installation_settings, current_is_admin,
+    authorize_runtime_storage, authorize_runtime_storage_write, can_write_installation_settings,
+    current_is_admin,
     optional_authenticated_user_id, tapp_setting_value_is_valid, validate_tapp_id, ApiResponse,
     TappSettingDef, TappStorageAccess,
 };
@@ -325,7 +326,7 @@ pub(super) async fn set_storage(
         .map_err(|_| HttpError(AppError::bad_request("Bad request")))?;
     validate_storage_value_size(&value)?;
     let access =
-        authorize_runtime_storage(&db, &claims, &runtime_grant, &tapp_id, &dynamic_config).await?;
+        authorize_runtime_storage_write(&db, &claims, &runtime_grant, &tapp_id, &dynamic_config).await?;
     write_storage_value(
         &db,
         access.private_storage_namespace(),
@@ -347,7 +348,7 @@ pub(super) async fn delete_storage(
     validate_sandbox_storage_key(&key)
         .map_err(|_| HttpError(AppError::bad_request("Bad request")))?;
     let access =
-        authorize_runtime_storage(&db, &claims, &runtime_grant, &tapp_id, &dynamic_config).await?;
+        authorize_runtime_storage_write(&db, &claims, &runtime_grant, &tapp_id, &dynamic_config).await?;
     tapp_storage_entity::Entity::delete_many()
         .filter(tapp_storage_entity::Column::UserId.eq(access.private_storage_namespace()))
         .filter(tapp_storage_entity::Column::TappId.eq(&tapp_id))
@@ -366,7 +367,7 @@ pub(super) async fn clear_storage(
     Path(tapp_id): Path<String>,
 ) -> Result<Json<ApiResponse<()>>, HttpError> {
     let access =
-        authorize_runtime_storage(&db, &claims, &runtime_grant, &tapp_id, &dynamic_config).await?;
+        authorize_runtime_storage_write(&db, &claims, &runtime_grant, &tapp_id, &dynamic_config).await?;
     storage_svc::clear_sandbox_storage(&db, access.private_storage_namespace(), &tapp_id)
         .await
         .map_err(|error| HttpError::from(storage_status(error)))?;

@@ -177,7 +177,7 @@ Manifest 的 `permissions` 是申请集合；安装批准后写入 `approved_per
 
 ```json
 {
-  "permissions": ["storage", "ui:theme", "platform:read"]
+  "permissions": ["storage:read", "ui:theme", "platform:read"]
 }
 ```
 
@@ -214,7 +214,7 @@ container.textContent = userInput;
 
 持久 storage 命名空间跟随 Runtime Grant **subject**（持久用户或**签名游客 session**），
 即使运行的是站点公开安装也不会读取安装 owner 的 storage。每个 subject 读写自己的
-`user_id + tapp_id` 空间（游客为负 id）；`storage` 为 guest-safe basic，签名游客可获
+`user_id + tapp_id` 空间（游客为负 id）；`storage:read` 为 guest-safe basic，签名游客可获
 Grant 与持久 storage。`_settings.`、`_component:`、`_shortcut:`、`_report:` 是宿主保留
 前缀，不能通过 `Tapp.storage` 读取、写入、列举或清除。
 

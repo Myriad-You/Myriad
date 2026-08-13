@@ -439,7 +439,8 @@ export type TappPermission =
   | 'report:read'
   | 'report:write'
   // 存储权限
-  | 'storage'
+  | 'storage:read'
+  | 'storage:write'
   // UI 权限
   | 'ui:notification'
   | 'ui:fullscreen'

@@ -77,7 +77,7 @@ Tapp 管理接口大多返回：
 
 Storage 按当前 **subject**（持久用户或签名游客 session）命名空间隔离：打开公开安装时，
 每个 subject 读写自己的 `user_id + tapp_id` 数据，不会读取站点 owner 的 storage。
-`storage` / `platform:read` 可进入访客 Runtime Grant（见下「Widget 与存储」）。
+`storage:read` / `platform:read` 可进入访客 Runtime Grant（见下「Widget 与存储」）。
 安装级 Manifest 设置仍由安装 owner 或管理员写入；能打开该安装的运行者（含游客）可读已
 保存的声明键。
 
@@ -217,7 +217,7 @@ PUT body 只写调用者个人行：`{ "sizes": { "<tappId>": "1x1"|"2x1" }, "or
   "source": "store",
   "storeSource": "1",
   "tappId": "com.example.app",
-  "permissions": ["storage"]
+  "permissions": ["storage:read"]
 }
 ```
 
@@ -312,8 +312,8 @@ storage entity 也不会序列化密文；数据库约束只允许 `_credentials
 | POST   | `/api/tapps/{tappId}/storage/{key}`      | 写入值                                      |
 | DELETE | `/api/tapps/{tappId}/storage/{key}`      | 删除值                                      |
 
-`storage` 路由要求 optional_auth + Runtime Grant。`storage` 与 `platform:read` 均为
-**guest-safe basic**（见 [MANIFEST · 权限](MANIFEST.md) 与
+storage 路由要求 optional_auth + Runtime Grant。读取需要 `storage:read`；写入、删除和清空
+需要 `storage:write`。`storage:read` 与 `platform:read` 均为 **guest-safe basic**（见 [MANIFEST · 权限](MANIFEST.md) 与
 `permission_service::requires_authenticated_subject`）：签名游客 session 可作为 subject，
 私有 storage 落在负 id 命名空间下，平台 **读** 走 optional_auth 的公开站点缓存。
 通用 storage 使用当前 subject 命名空间，并拒绝访问 `_settings.`、`_component:`、

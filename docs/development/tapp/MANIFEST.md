@@ -197,7 +197,7 @@ Page、Widget 和 headless core 是运行形态，由 `hasPage`、`widgets` 和
 - **Storage 与 Settings 不同命名空间**：
   - `Tapp.storage` 的持久主体是 Runtime Grant **subject**（`user_id + tapp_id`）。打开
     公开安装时，每个 subject（持久用户或**签名游客 session**）读写自己的私有 storage，
-    不会读取站点 owner 的数据。`storage` 为 guest-safe basic：签名游客可获 Grant 与负 id
+    不会读取站点 owner 的数据。`storage:read` 为 guest-safe basic：签名游客可获 Grant 与负 id
     命名空间下的持久 storage；无签名 session 则无 storage。
   - Manifest 声明的安装级设置（宿主 `Tapp.settings` / REST `GET|POST …/settings`）挂在
     **installation owner** 命名空间：owner 或管理员可**写**；凡能解析到该安装的运行者
@@ -224,7 +224,7 @@ Page、Widget 和 headless core 是运行形态，由 `hasPage`、`widgets` 和
   "icon": "🚀",
   "themeColor": "#6366f1",
   "permissions": [
-    "storage",
+    "storage:read",
     "ui:notification",
     "platform:read",
     "network:fetch"
@@ -817,7 +817,7 @@ Tapp 私有 storage、报告和内部状态不会因为知道另一个 `tappId` 
 
 | 权限                 | 说明             |
 | -------------------- | ---------------- |
-| `storage`            | 本地数据存储     |
+| `storage:read`       | 读取本地数据存储 |
 | `ui:notification`    | 显示通知         |
 | `ui:theme`           | 读取主题信息     |
 | `ui:confirm`         | 显示确认对话框   |
@@ -854,12 +854,13 @@ Tapp 私有 storage、报告和内部状态不会因为知道另一个 `tappId` 
 | `scheduler:register` | 注册定时任务      |
 | `speech:tts`         | 文本转语音        |
 | `speech:asr`         | 语音转文本        |
+| `storage:write`      | 写入本地数据存储  |
 
 `brew:write` 与 `brew:comment` 描述的是 Tapp 能力，不按宿主用户角色下放。Tapp 仍必须在
 Manifest 中声明并在安装时获授；实际读写始终落在当前会话可访问的 Brew 数据范围内。
 
 “基础”表示不需要管理员额外下放 elevated 权限，不等于匿名访客一定可用。访客没有持久
-用户主体时，部分能力仍可通过签名游客 session 使用（如 `storage`、`platform:read`、
+用户主体时，部分能力仍可通过签名游客 session 使用（如 `storage:read`、`platform:read`、
 `analytics:read`）。下列能力的真实后端路由仍要求登录：`brew:write`、
 `brew:comment`、`report:read`、`ui:notification` 等。
 

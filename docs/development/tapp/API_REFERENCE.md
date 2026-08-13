@@ -62,9 +62,9 @@ const allTranslations = Tapp.i18n.getAll(); // 返回只读数据的深拷贝
 
 ## 存储 API
 
-**权限**: `storage`
+**权限**: 读取方法使用 `storage:read`；写入、删除与清空使用 `storage:write`
 
-`storage` 为 **guest-safe basic**：真实用户与**签名游客 session** 均可进入 Runtime Grant。
+`storage:read` 为 **guest-safe basic**：真实用户与**签名游客 session** 均可进入 Runtime Grant。
 持久主体是 Grant subject（`user_id + tapp_id`）；游客落在负 id 命名空间，不与登录用户或
 站点 owner 共享。无签名 session 的纯匿名调用不会获得 Grant。
 
@@ -150,7 +150,8 @@ runtime 中选择提供方，不会为没有后台实例的 Tapp 隐式启动完
 
 ## 设置 API
 
-**权限**: `storage`（宿主 gate；与私有 `Tapp.storage` 共用权限位，但**数据命名空间不同**）
+**权限**: `settings.get/getAll` 使用 `storage:read`，`settings.set` 使用 `storage:write`；与私有
+`Tapp.storage` 共用权限位，但**数据命名空间不同**
 
 ```javascript
 // 获取设置项（未保存时回落 Manifest defaultValue）
@@ -708,7 +709,8 @@ Tapp.dom.renderList(container, items, (item, index) => {
 ## 数据处理 API
 
 权限按数据流动态计算：inline 输入且无输出不需要静态权限；platform 输入需要
-`platform:read`，platform 输出需要 `platform:write`，storage 输入/输出需要 `storage`。
+`platform:read`，platform 输出需要 `platform:write`，storage 输入需要 `storage:read`，
+storage 输出需要 `storage:write`。
 纯 inline 输入与返回值不需要额外权限，访客也可使用；一旦请求 platform 或 storage，
 服务端仍按当前 Runtime Grant 拒绝未获授权的访问。
 后端同时校验 Runtime Grant 与安装授权。
@@ -1125,7 +1127,7 @@ await Tapp.tappList.install({
   source: "store",
   storeSource: "1", // 或完整 index.json URL；禁止 "store"/"direct"
   tappId: "com.example.app",
-  permissions: ["storage"],
+  permissions: ["storage:read"],
 });
 // 等价：source 为 http(s) catalog URL（可省略 storeSource）
 // await Tapp.tappList.install({
@@ -1140,7 +1142,7 @@ await Tapp.tappList.install({
 //   manifest: { id: "com.example.app", name: "App", version: "1.0.0",
 //               category: "utility", main: "main.js", permissions: [] },
 //   code: "/* ... */",
-//   permissions: ["storage"],
+//   permissions: ["storage:read"],
 // });
 // ❌ 无效：source:"direct" 且缺少 manifest 或 code
 
@@ -1499,7 +1501,7 @@ const declaredApis = await Tapp.api.list();
 
 ## 文件与语音 API
 
-**权限**: `storage`（`file.download`）
+**权限**: `storage:read`（`file.download`）
 
 文件下载由宿主创建 Blob 并触发下载，不依赖 iframe 的 download sandbox 权限：
 
@@ -1553,7 +1555,7 @@ Tapp.assets.revokeAll(); // 也会在 onDestroy 时自动调用
 
 | 命名空间                                   | 主要能力                                            | 权限族                             |
 | ------------------------------------------ | --------------------------------------------------- | ---------------------------------- |
-| `storage`, `settings`                      | Tapp 私有键值存储与设置（`storage` 含签名游客）     | `storage`                          |
+| `storage`, `settings`                      | Tapp 私有键值存储与设置（读权限含签名游客）         | `storage:read`, `storage:write`    |
 | `dataExchange`                             | 逐次授权的跨 Tapp 具名数据交换                      | Manifest + one-shot consent        |
 | `ui`, `animation`, `dynamicContent`, `dom` | 宿主 UI、主题、动画和安全 DOM helper                | `ui:*` 或 public                   |
 | `platform`, `data`                         | 平台数据读取、写入、转换和注册                      | `platform:*`                       |
@@ -1566,7 +1568,7 @@ Tapp.assets.revokeAll(); // 也会在 onDestroy 时自动调用
 | `event`, `background`, `scheduler`         | 在线 Event Broker、常驻需求和持久化任务             | `event:*`（含 background.require/release→`event:subscribe`）、`scheduler:register` |
 | `agent`                                    | schema 约束的 Agent Interaction                     | Manifest + Runtime Grant           |
 | `api`                                      | Manifest 声明的 HTTP/builtin 能力                   | HTTP 需 `network:fetch`；`access` 仅控制调用者范围 |
-| `file`, `speech`                           | 文件下载、TTS 和 ASR                                | `storage`, `speech:*`              |
+| `file`, `speech`                           | 文件下载、TTS 和 ASR                                | `storage:read`, `speech:*`         |
 | `assets`                                   | 包内静态资源 list/get/blob URL                      | public（限 manifest.assets）       |
 | `tappList`                                 | Tapp 查询、安装、启停、卸载与导出                   | `tappList:*`                       |
 | `brewList`                                 | Brew 列表、源、用户分类 create/delete、评论和 OPML  | `brew:*`                           |

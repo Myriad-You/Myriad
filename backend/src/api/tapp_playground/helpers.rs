@@ -311,7 +311,7 @@ pub(super) fn validate_sdk_namespaces(fields: &[(&str, &str)]) -> Result<(), Str
 /// be exercised, and only when also declared. Keep in sync with frontend
 /// `PREVIEW_PERMISSIONS` in `frontend/src/tapp/utils/previewGrants.ts`.
 pub(super) const PREVIEW_PERMISSIONS: &[&str] = &[
-    "storage",
+    "storage:read",
     "ui:theme",
     "ui:confirm",
     "ui:fullscreen",
@@ -374,7 +374,7 @@ mod tests {
                 "styles": "styles.css",
                 "pageTemplate": "page.html",
                 "cssMode": "unified",
-                "permissions": ["storage"],
+                "permissions": ["storage:read"],
                 "icon": "🧪",
                 "themeColor": "#7C3AED",
                 "hasPage": true,
@@ -404,7 +404,7 @@ mod tests {
                     "styles": "styles.css",
                     "pageTemplate": "page.html",
                     "cssMode": "unified",
-                    "permissions": ["storage"],
+                    "permissions": ["storage:read"],
                     "icon": "🧪",
                     "themeColor": "#7C3AED",
                     "hasPage": true,
@@ -790,7 +790,7 @@ mod tests {
 
     #[test]
     fn reports_permissions_unavailable_in_preview() {
-        let warnings = preview_warnings(&["storage".into(), "network:fetch".into()]);
+        let warnings = preview_warnings(&["storage:read".into(), "network:fetch".into()]);
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("network:fetch"));
         assert!(!warnings[0].contains("storage,"));
@@ -800,7 +800,7 @@ mod tests {
     fn preview_grants_are_allowlist_intersection_not_full_manifest() {
         // MYR-024: declared ≠ granted for real host capabilities in preview.
         let declared = vec![
-            "storage".into(),
+            "storage:read".into(),
             "network:fetch".into(),
             "ai:generate".into(),
             "ui:theme".into(),
@@ -808,7 +808,7 @@ mod tests {
         ];
         assert_eq!(
             select_preview_granted_permissions(&declared),
-            vec!["storage".to_string(), "ui:theme".to_string()]
+            vec!["storage:read".to_string(), "ui:theme".to_string()]
         );
         assert!(select_preview_granted_permissions(&[]).is_empty());
         // Deny-by-default: allowlist entries not declared stay ungranted.

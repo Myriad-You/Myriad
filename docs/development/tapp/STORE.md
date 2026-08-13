@@ -307,7 +307,7 @@ flowchart TB
       "description": "A note-taking Tapp",
       "author": { "name": "Example" },
       "category": "productivity",
-      "permissions": ["storage", "widget:register"],
+      "permissions": ["storage:read", "storage:write", "widget:register"],
       "download": {
         "manifest": "apps/com.example.notes/manifest.json",
         "code": "apps/com.example.notes/main.js",
@@ -376,7 +376,7 @@ Cookie: …  X-CSRF-Token: …
   "source": "store",
   "storeSource": "1",
   "tappId": "com.example.notes",
-  "permissions": ["storage", "widget:register"]
+  "permissions": ["storage:read", "storage:write", "widget:register"]
 }
 ```
 

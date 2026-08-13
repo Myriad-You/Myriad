@@ -482,7 +482,7 @@ mod tests {
     fn runtime_grant_permissions_only_shrink_after_issuance() {
         let mut issued = vec![
             "platform:read".to_string(),
-            "storage".to_string(),
+            "storage:read".to_string(),
             "network:fetch".to_string(),
         ];
         let current = vec!["platform:read".to_string(), "ai:chat".to_string()];
@@ -524,7 +524,7 @@ mod tests {
         );
         assert_eq!(
             RuntimeGrantError::PermissionDenied {
-                permission: "storage".into()
+                permission: "storage:read".into()
             }
             .code(),
             "RUNTIME_GRANT_PERMISSION_DENIED"

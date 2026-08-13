@@ -92,12 +92,18 @@ const zh: TappPermissionGuides = {
     frontend: '报告模块列表与详情。',
     notes: '可删除用户可见报告，属高敏感写权限。',
   },
-  storage: {
+  'storage:read': {
     what: '允许使用该应用的本地/服务端键值存储（应用私有数据）。',
     chain:
       '① 应用读写 storage API。\n② 数据按应用隔离保存。\n③ 卸载时可选是否清除。',
     frontend: '应用自身的偏好、草稿、缓存状态。',
     notes: '一般不共享给其他应用；别存密钥到不可信应用。',
+  },
+  'storage:write': {
+    what: '允许写入该应用的私有键值存储。',
+    chain: '① 应用调用写入 API。\n② 数据按应用隔离保存。\n③ 写入内容会影响应用后续状态。',
+    frontend: '应用偏好、草稿和持久化状态。',
+    notes: '写入权限默认关闭，仅向可信应用下放。',
   },
   'ui:notification': {
     what: '允许向用户发送系统通知（站内通知等）。',
@@ -376,12 +382,18 @@ const en: TappPermissionGuides = {
     frontend: 'Reports list and detail.',
     notes: 'Can delete user-visible reports — sensitive.',
   },
-  storage: {
+  'storage:read': {
     what: 'Allows private key-value storage for this app.',
     chain:
       '1) App uses storage APIs.\n2) Data is isolated per app.\n3) Uninstall may clear it (user choice).',
     frontend: 'App preferences, drafts, local state.',
     notes: 'Do not store secrets in untrusted apps.',
+  },
+  'storage:write': {
+    what: 'Allows writing to this app private key-value storage.',
+    chain: '1) App calls write APIs.\n2) Data is isolated per app.\n3) Writes affect later app state.',
+    frontend: 'App preferences, drafts, and persistent state.',
+    notes: 'Write access is disabled by default; delegate only to trusted apps.',
   },
   'ui:notification': {
     what: 'Allows sending system notifications to the user.',
@@ -660,12 +672,18 @@ const ja: TappPermissionGuides = {
     frontend: 'レポート一覧と詳細。',
     notes: 'ユーザー向けレポートを消せる高リスクです。',
   },
-  storage: {
+  'storage:read': {
     what: 'このアプリ専用のキー値ストレージを使えます。',
     chain:
       '① storage API。\n② アプリ単位で隔離。\n③ 削除時に消すか選べる。',
     frontend: '設定・下書き・状態の保存。',
     notes: '信頼できないアプリに秘密を置かないでください。',
+  },
+  'storage:write': {
+    what: 'このアプリ専用のキー値ストレージへ書き込めます。',
+    chain: '① 書き込み API。\n② アプリ単位で隔離。\n③ 次回のアプリ状態に反映。',
+    frontend: '設定・下書き・永続状態の保存。',
+    notes: '既定では無効。信頼できるアプリだけに下放してください。',
   },
   'ui:notification': {
     what: 'ユーザーへシステム通知を送れます。',

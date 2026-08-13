@@ -228,7 +228,7 @@ SDK 的 `lifecycle.onDestroy` 同时监听 `pagehide` 与 `beforeunload`，并�
 **Storage 与 Settings 分离**：
 
 - 私有 `Tapp.storage` 经 Runtime Grant 挂在 **subject** 命名空间（持久用户或签名游客）；
-  `_settings.` 等为宿主保留前缀，storage API 不可访问。`storage` / `platform:read` 均为
+  `_settings.` 等为宿主保留前缀，storage API 不可访问。`storage:read` / `platform:read` 均为
   **guest-safe basic**（与 [REST_API · Widget 与存储](REST_API.md#widget-与存储) 一致）：
   签名游客可获 Grant 与负 id 下持久 storage、以及平台公开缓存读；无签名 session 则无。
 - 安装级 `Tapp.settings` 走专用 REST：`GET` 在 **optional_auth** 上（游客打开公开安装可读
@@ -350,7 +350,7 @@ Grant 不能继续保留已撤销能力，安装 owner 改变则令牌失效并�
 配置保存会同步有效权限并重建受影响的 Page、Widget 和 headless 沙箱。
 
 访客 Grant 只包含真实使用可选认证路由或纯宿主本地处理的能力。**guest-safe basic** 可进入
-签名游客 Grant：`storage`（负 id 私有命名空间）、`platform:read`（站点公开缓存）、
+签名游客 Grant：`storage:read`（负 id 私有命名空间）、`platform:read`（站点公开缓存）、
 `analytics:read`（**仅** visitor-card 聚合；完整 admin summary 在 handler 内按 Admin 角色
 门控，见 `tapp_runtime/analytics.rs`）。下列能力的真实后端路由仍要求**持久登录**主体，
 不会仅因 broad level 为 basic/elevated 就出现在访客 Grant 中：`report:read`、统一通知、

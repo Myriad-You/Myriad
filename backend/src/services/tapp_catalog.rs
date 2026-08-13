@@ -229,10 +229,10 @@ mod tests {
                 "main": "main.js",
                 "iconSvg": "<svg/>",
                 "locales": { "zh-CN": { "name": "详情" } },
-                "permissions": ["storage", "brew:write", "ai:generate"]
+                "permissions": ["storage:read", "brew:write", "ai:generate"]
             }),
             status: tapps::TappStatus::Installed,
-            granted_permissions: json!(["storage"]),
+            granted_permissions: json!(["storage:read"]),
             approved_permissions: approved,
             file_path: "manifest.json".to_string(),
             code_path: "main.js".to_string(),
@@ -329,7 +329,7 @@ mod tests {
             ..Default::default()
         };
         let detail = tapp_detail_from_model(
-            sample_model(json!(["storage", "brew:write", "ai:generate"])),
+                sample_model(json!(["storage:read", "brew:write", "ai:generate"])),
             UserRole::User,
             true,
             false,
@@ -341,7 +341,7 @@ mod tests {
         assert!(!detail.is_admin_tapp);
         assert_eq!(
             detail.granted_permissions,
-            vec!["storage", "brew:write", "ai:generate"]
+            vec!["storage:read", "brew:write", "ai:generate"]
         );
         assert_eq!(detail.status, "installed");
         assert_eq!(detail.theme_color.as_deref(), Some("#fff"));
@@ -356,13 +356,13 @@ mod tests {
             ..Default::default()
         };
         let detail = tapp_detail_from_model(
-            sample_model(json!(["storage", "ai:generate"])),
+            sample_model(json!(["storage:read", "ai:generate"])),
             UserRole::User,
             false,
             true,
             &config,
         );
-        assert!(detail.granted_permissions.contains(&"storage".to_string()));
+        assert!(detail.granted_permissions.contains(&"storage:read".to_string()));
         assert!(!detail
             .granted_permissions
             .iter()
@@ -375,7 +375,7 @@ mod tests {
     fn guest_detail_uses_guest_role_string() {
         let config = DynamicConfig::default();
         let detail = tapp_detail_from_model(
-            sample_model(json!(["storage"])),
+            sample_model(json!(["storage:read"])),
             UserRole::Guest,
             false,
             true,
@@ -386,7 +386,7 @@ mod tests {
 
     #[test]
     fn unknown_approved_permission_marks_reauthorization_without_breaking_projection() {
-        let model = sample_model(json!(["storage", "legacy:unknown", "ui:theme"]));
+        let model = sample_model(json!(["storage:read", "legacy:unknown", "ui:theme"]));
         let item = tapp_list_item_from_model(model.clone(), false, true);
         let detail = tapp_detail_from_model(
             model,

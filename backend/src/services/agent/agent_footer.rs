@@ -581,8 +581,8 @@ fn agent_perm_to_tapp(perm: &str) -> Option<crate::services::permission_service:
         "report:write" => Some(TappPermission::ReportWrite),
         "http:fetch" | "web:scrape" | "proxy:read" => Some(TappPermission::NetworkFetch),
         "scheduler:read" | "scheduler:write" => Some(TappPermission::SchedulerRegister),
-        // 个人 Tapp 写：用 storage（basic）表达「可持久化自己的内容」，非 manage 全站
-        "tapp:write" => Some(TappPermission::Storage),
+        // 个人 Tapp 写：用 storage:write 表达「可持久化自己的内容」，非 manage 全站
+        "tapp:write" => Some(TappPermission::StorageWrite),
         // system:read 无 Tapp 对应，见 retain 特例
         _ => None,
     }

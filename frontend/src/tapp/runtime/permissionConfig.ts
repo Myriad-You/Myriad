@@ -34,7 +34,8 @@ export const PERMISSION_LEVELS: Record<TappPermission, TappPermissionLevel> = {
   'ai:image': 'elevated',
   'report:read': 'basic',
   'report:write': 'privileged',
-  storage: 'basic',
+  'storage:read': 'basic',
+  'storage:write': 'elevated',
   'ui:notification': 'basic',
   'ui:fullscreen': 'basic',
   'ui:theme': 'basic',
@@ -202,16 +203,16 @@ export const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> =
     ['report.delete', 'report:write'],
 
     // 存储权限
-    ['storage.get', 'storage'],
-    ['storage.set', 'storage'],
-    ['storage.remove', 'storage'],
-    ['storage.keys', 'storage'],
-    ['storage.getAll', 'storage'],
-    ['storage.clear', 'storage'],
-    ['storage.usage', 'storage'],
-    ['settings.get', 'storage'],
-    ['settings.set', 'storage'],
-    ['settings.getAll', 'storage'],
+    ['storage.get', 'storage:read'],
+    ['storage.set', 'storage:write'],
+    ['storage.remove', 'storage:write'],
+    ['storage.keys', 'storage:read'],
+    ['storage.getAll', 'storage:read'],
+    ['storage.clear', 'storage:write'],
+    ['storage.usage', 'storage:read'],
+    ['settings.get', 'storage:read'],
+    ['settings.set', 'storage:write'],
+    ['settings.getAll', 'storage:read'],
 
     // UI 权限
     ['ui.showNotification', 'ui:notification'],
@@ -269,7 +270,7 @@ export const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> =
     ['dynamicContent.remove', 'ui:notification'],
 
     // 文件操作权限
-    ['file.download', 'storage'],
+    ['file.download', 'storage:read'],
 
     // 包内静态资源（安装包声明内容，可读即可运行的 Tapp 已可见）
     ['assets.get', 'public'],

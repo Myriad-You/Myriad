@@ -428,12 +428,12 @@ pub struct DynamicConfig {
     pub tapp_window_schemes: Option<String>, // 窗口方案数据 (JSON)
 
     // Tapp 权限下放配置
-    // 基于 Tapp 系统的 elevated 级别权限（13 项可配置下放）
+    // 基于 Tapp 系统的 elevated 级别权限（14 项可配置下放）
     // 这些权限默认只有管理员可用，可以配置下放给普通用户或游客
     // 注意：basic 级别权限默认可授予所有用户
     // 注意：privileged 级别权限始终只限管理员
 
-    // 普通用户可使用的 elevated 权限（13 项）
+    // 普通用户可使用的 elevated 权限（14 项）
     /// ai:generate - AI 生成内容
     pub user_perm_ai_generate: bool,
     /// ai:analyze - AI 分析数据
@@ -460,8 +460,10 @@ pub struct DynamicConfig {
     pub user_perm_speech_tts: bool,
     /// speech:asr - 语音转文本
     pub user_perm_speech_asr: bool,
+    /// storage:write - 写入 Tapp 存储
+    pub user_perm_storage_write: bool,
 
-    // 游客可使用的 elevated 权限（13 项）
+    // 游客可使用的 elevated 权限（14 项）
     /// ai:generate - AI 生成内容（游客）
     pub guest_perm_ai_generate: bool,
     /// ai:analyze - AI 分析数据（游客）
@@ -488,6 +490,8 @@ pub struct DynamicConfig {
     pub guest_perm_speech_tts: bool,
     /// speech:asr - 语音转文本（游客）
     pub guest_perm_speech_asr: bool,
+    /// storage:write - 写入 Tapp 存储（游客）
+    pub guest_perm_storage_write: bool,
 
     // AI 使用限额配置（当权限已下放时生效）
     // 这些限额只对非管理员用户生效，管理员无限制
@@ -705,6 +709,7 @@ impl Default for DynamicConfig {
             user_perm_scheduler_register: false,
             user_perm_speech_tts: false,
             user_perm_speech_asr: false,
+            user_perm_storage_write: false,
 
             // 游客 elevated 权限默认值
             // 默认全部关闭
@@ -721,6 +726,7 @@ impl Default for DynamicConfig {
             guest_perm_scheduler_register: false,
             guest_perm_speech_tts: false,
             guest_perm_speech_asr: false,
+            guest_perm_storage_write: false,
 
             // AI 使用限额默认值
             // 普通用户: 每日 50 次调用, 20000 tokens, 5 秒冷却

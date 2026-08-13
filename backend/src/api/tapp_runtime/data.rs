@@ -124,7 +124,7 @@ pub async fn data_transform(
         DataInput::Storage { key } => {
             validate_sandbox_storage_key(key)
                 .map_err(|error| (StatusCode::BAD_REQUEST, Json(json!({ "error": error }))))?;
-            required_permissions.push(TappPermission::Storage);
+            required_permissions.push(TappPermission::StorageRead);
         }
         DataInput::Inline { .. } => {}
     }
@@ -135,9 +135,7 @@ pub async fn data_transform(
         Some(DataOutput::Storage { key }) => {
             validate_sandbox_storage_key(key)
                 .map_err(|error| (StatusCode::BAD_REQUEST, Json(json!({ "error": error }))))?;
-            if !required_permissions.contains(&TappPermission::Storage) {
-                required_permissions.push(TappPermission::Storage);
-            }
+            required_permissions.push(TappPermission::StorageWrite);
         }
         None => {}
     }

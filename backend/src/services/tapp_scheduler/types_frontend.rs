@@ -114,8 +114,8 @@ pub fn backend_action_permissions(
         let permission = match wrapper.action {
             BackendAction::PlatformSync { .. } => Some(TappPermission::PlatformWrite),
             BackendAction::StorageSet { .. }
-            | BackendAction::StorageDelete { .. }
-            | BackendAction::StorageGet { .. } => Some(TappPermission::Storage),
+            | BackendAction::StorageDelete { .. } => Some(TappPermission::StorageWrite),
+            BackendAction::StorageGet { .. } => Some(TappPermission::StorageRead),
             BackendAction::AiGenerate { .. } => Some(TappPermission::AiGenerate),
             BackendAction::Fetch { .. } => Some(TappPermission::NetworkFetch),
             BackendAction::NotificationQueue { .. } => Some(TappPermission::UiNotification),
@@ -312,4 +312,3 @@ pub struct TappSchedulerEngine {
     /// 是否正在运行
     pub(crate) running: Arc<RwLock<bool>>,
 }
-

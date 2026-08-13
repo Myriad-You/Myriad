@@ -285,9 +285,9 @@ mod tests {
         assert_eq!(m["description"], "desc");
 
         let perms = manifest_permission_strings(&json!({
-            "permissions": ["storage", 1, "network"]
+            "permissions": ["storage:read", 1, "network"]
         }));
-        assert_eq!(perms, vec!["storage".to_string(), "network".to_string()]);
+        assert_eq!(perms, vec!["storage:read".to_string(), "network".to_string()]);
     }
 
     #[test]

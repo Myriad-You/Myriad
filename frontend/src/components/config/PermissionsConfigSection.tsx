@@ -115,6 +115,7 @@ export interface PermissionConfigValues extends Record<
   user_perm_scheduler_register: boolean
   user_perm_speech_tts: boolean
   user_perm_speech_asr: boolean
+  user_perm_storage_write: boolean
   // 游客权限
   guest_perm_ai_generate: boolean
   guest_perm_ai_analyze: boolean
@@ -128,6 +129,7 @@ export interface PermissionConfigValues extends Record<
   guest_perm_scheduler_register: boolean
   guest_perm_speech_tts: boolean
   guest_perm_speech_asr: boolean
+  guest_perm_storage_write: boolean
   // AI 配额
   user_ai_daily_calls: number
   user_ai_daily_tokens: number
@@ -203,6 +205,12 @@ export const PermissionsConfigSection: React.FC<
       code: 'speech:asr',
       label: t.config.permSpeechAsr,
       hint: t.config.permSpeechAsrHint,
+    },
+    {
+      key: 'storage_write',
+      code: 'storage:write',
+      label: '写入本地存储',
+      hint: '允许写入该应用的私有存储空间',
     },
     // 网络（report:write 已仅管理员，不再展示下放开关）
     {

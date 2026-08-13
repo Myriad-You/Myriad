@@ -394,7 +394,7 @@ mod tests {
 
     #[test]
     fn install_approved_permissions_empty_defaults_to_full_manifest() {
-        let manifest = vec!["storage".into(), "network".into(), "ai".into()];
+        let manifest = vec!["storage:read".into(), "network".into(), "ai".into()];
         // Product: omit / empty request → full manifest (file install without permissions field).
         assert_eq!(
             select_install_approved_permissions(&manifest, &[]),
@@ -409,13 +409,13 @@ mod tests {
 
     #[test]
     fn update_approved_permissions_keeps_overlap_or_replaces() {
-        let manifest = vec!["storage".into(), "network".into(), "ai".into()];
-        let previous = vec!["storage".into(), "network".into(), "legacy".into()];
+        let manifest = vec!["storage:read".into(), "network".into(), "ai".into()];
+        let previous = vec!["storage:read".into(), "network".into(), "legacy".into()];
 
         // No request: keep previous that still exist in new manifest.
         assert_eq!(
             select_update_approved_permissions(&manifest, None, &previous),
-            vec!["storage".to_string(), "network".to_string()]
+            vec!["storage:read".to_string(), "network".to_string()]
         );
         // Empty list: default full grant of new manifest (same as install).
         assert_eq!(
@@ -447,7 +447,7 @@ mod tests {
             "description": "demo",
             "main": "src/main.js",
             "category": "utility",
-            "permissions": ["storage"],
+            "permissions": ["storage:read"],
             "icon": "icon.png",
             "themeColor": "#abc",
             "author": { "name": "Ada" }
@@ -475,8 +475,8 @@ mod tests {
         let snap = build_new_install_persist(
             &sample_manifest(),
             7,
-            &["storage".into()],
-            &["storage".into()],
+            &["storage:read".into()],
+            &["storage:read".into()],
             Path::new("/data/tapps/7/com.example.app"),
             now,
         )
@@ -490,7 +490,7 @@ mod tests {
         assert_eq!(snap.code_path, root.join("src/main.js").to_string_lossy());
         assert_eq!(snap.installed_at, now);
         assert_eq!(snap.last_run_at, now);
-        assert_eq!(snap.granted_permissions, json!(["storage"]));
+        assert_eq!(snap.granted_permissions, json!(["storage:read"]));
         assert_eq!(snap.author.as_ref().unwrap()["name"], "Ada");
     }
 
@@ -499,8 +499,8 @@ mod tests {
         let now = DateTime::parse_from_rfc3339("2026-02-01T00:00:00+00:00").unwrap();
         let snap = build_update_install_persist(
             &sample_manifest(),
-            &["storage".into()],
-            &["storage".into()],
+            &["storage:read".into()],
+            &["storage:read".into()],
             Path::new("/data/tapps/1/com.example.app"),
             now,
         )
@@ -513,7 +513,7 @@ mod tests {
                 .to_string_lossy()
         );
         assert_eq!(snap.updated_at, now);
-        assert_eq!(snap.approved_permissions, json!(["storage"]));
+        assert_eq!(snap.approved_permissions, json!(["storage:read"]));
     }
 
     #[test]

@@ -748,7 +748,7 @@ Dashboard Widget（refreshPolicy 默认 event）
 
 ```json
 {
-  "permissions": ["network:fetch", "storage", "scheduler:register"],
+  "permissions": ["network:fetch", "storage:read", "storage:write", "scheduler:register"],
   "apis": {
     "stats": {
       "type": "http",
@@ -774,8 +774,8 @@ Dashboard Widget（refreshPolicy 默认 event）
 }
 ```
 
-> 存储权限是 **`storage`**（不是 `storage:read` / `storage:write`）。未知权限 token
-> 不会映射到任何能力，安装授权后调用仍会失败。
+> 存储读取使用 **`storage:read`**，写入、删除与清空使用 **`storage:write`**。旧 `storage`
+> token 会在安装时被拒绝。
 
 2. **core 拉数并写入 storage**（可在 headless 中被 scheduler 周期性执行）
 

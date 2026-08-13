@@ -61,9 +61,10 @@ pub(super) fn optional_authenticated_user_id(claims: Option<&Claims>) -> Option<
 fn require_runtime_storage_grant(
     grant: &RuntimeGrantContext,
     tapp_id: &str,
+    permission: TappPermission,
 ) -> Result<(), HttpError> {
     grant.require_tapp_id(tapp_id)?;
-    grant.require(TappPermission::Storage)?;
+    grant.require(permission)?;
     Ok(())
 }
 
@@ -120,8 +121,20 @@ pub(super) async fn authorize_runtime_storage(
     tapp_id: &str,
     dynamic_config: &std::sync::Arc<tokio::sync::RwLock<crate::config::DynamicConfig>>,
 ) -> Result<TappStorageAccess, HttpError> {
-    require_runtime_storage_grant(grant, tapp_id)?;
-    authorize_tapp_permission(db, claims, tapp_id, TappPermission::Storage, dynamic_config).await?;
+    require_runtime_storage_grant(grant, tapp_id, TappPermission::StorageRead)?;
+    authorize_tapp_permission(db, claims, tapp_id, TappPermission::StorageRead, dynamic_config).await?;
+    storage_access_from_runtime_grant(grant, claims)
+}
+
+pub(crate) async fn authorize_runtime_storage_write(
+    db: &DatabaseConnection,
+    claims: &Claims,
+    grant: &RuntimeGrantContext,
+    tapp_id: &str,
+    dynamic_config: &std::sync::Arc<tokio::sync::RwLock<crate::config::DynamicConfig>>,
+) -> Result<TappStorageAccess, HttpError> {
+    require_runtime_storage_grant(grant, tapp_id, TappPermission::StorageWrite)?;
+    authorize_tapp_permission(db, claims, tapp_id, TappPermission::StorageWrite, dynamic_config).await?;
     storage_access_from_runtime_grant(grant, claims)
 }
 
