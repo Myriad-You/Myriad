@@ -2922,6 +2922,8 @@ export const zhCN: TranslationKeys = {
     elevatedPermission: '提升',
     privilegedPermission: '特权',
     grantedPermissions: '已授权权限',
+    reauthorizationRequired: '需重新授权',
+    reauthorizationMessage: '权限已过期，请在设置中重新授权后运行。',
 
     // 权限标签
     permRegisterWidget: '注册小组件',

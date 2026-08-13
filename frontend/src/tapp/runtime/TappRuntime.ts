@@ -226,6 +226,10 @@ export class TappRuntime {
               : detail.status === 'error'
                 ? 'error'
                 : 'installed'
+          const needsReauthorization = detail.needs_reauthorization ?? false
+          if (needsReauthorization) {
+            this.sessionRunningTapps.delete(detail.id)
+          }
 
           // Site-public (admin) install stopped → drop any leftover local session
           // "starts" so visitors cannot keep a stopped Tapp alive after refresh.
@@ -236,10 +240,12 @@ export class TappRuntime {
           // Public admin Tapp: only server `running` counts for everyone (including
           // guests). Session starts are not used to override a site-wide stop.
           // Owners (admin public / user temporary) still use persisted + session.
-          const isRunning = isAdminTapp
-            ? installationStatus === 'running'
-            : this.sessionRunningTapps.has(detail.id) ||
-              (persistsLifecycle && installationStatus === 'running')
+          const isRunning =
+            !needsReauthorization &&
+            (isAdminTapp
+              ? installationStatus === 'running'
+              : this.sessionRunningTapps.has(detail.id) ||
+                (persistsLifecycle && installationStatus === 'running'))
 
           const instance: TappInstance = {
             id: detail.id,
@@ -253,6 +259,7 @@ export class TappRuntime {
             installedAt: detail.installed_at,
             lastRunAt: detail.last_run_at,
             grantedPermissions: detail.granted_permissions as TappPermission[],
+            needsReauthorization,
             userRole,
             isTemporary: detail.is_temporary ?? false,
             isAdminTapp,
@@ -385,6 +392,7 @@ export class TappRuntime {
       installedAt: detail.installed_at,
       lastRunAt: detail.last_run_at,
       grantedPermissions: backendPerms,
+      needsReauthorization: detail.needs_reauthorization ?? false,
       userRole,
       isTemporary: detail.is_temporary ?? result.isTemporary ?? false,
       isAdminTapp: detail.is_admin_tapp ?? result.isAdminTapp ?? false,
@@ -477,6 +485,9 @@ export class TappRuntime {
       }
       if (this.uninstallingTapps.has(tappId)) {
         throw new Error(`Tapp ${tappId} is being uninstalled`)
+      }
+      if (instance.needsReauthorization) {
+        throw new Error(`Tapp ${tappId} requires permission reauthorization`)
       }
 
       if (this.runningTapps.has(tappId)) return

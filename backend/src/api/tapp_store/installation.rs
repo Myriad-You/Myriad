@@ -331,7 +331,7 @@ async fn install_prepared_package(
         .map_err(api_response_err)?;
     // Approved = pure domain selection; granted = role-config filter (async).
     let approved = select_install_approved_permissions(&manifest.permissions, &permissions);
-    let granted = filter_install_permissions(dynamic_config, role, approved.clone()).await;
+    let granted = filter_install_permissions(dynamic_config, role, approved.clone()).await?;
 
     let txn = db.begin().await.map_err(|error| {
         log_install_failure(
@@ -797,7 +797,7 @@ pub(super) async fn update_tapp(
         permissions.as_deref(),
         &previous_approved,
     );
-    let granted = filter_install_permissions(&dynamic_config, role, approved.clone()).await;
+    let granted = filter_install_permissions(&dynamic_config, role, approved.clone()).await?;
 
     let activated = match stage.activate(&final_tapp_dir).await {
         Ok(activated) => activated,

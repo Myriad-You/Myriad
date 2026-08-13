@@ -37,6 +37,31 @@
 use crate::config::DynamicConfig;
 use serde::{Deserialize, Serialize};
 
+pub const UNKNOWN_TAPP_PERMISSION_CODE: &str = "UNKNOWN_TAPP_PERMISSION";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnknownTappPermission {
+    pub permission: String,
+}
+
+impl UnknownTappPermission {
+    pub fn code(&self) -> &'static str {
+        UNKNOWN_TAPP_PERMISSION_CODE
+    }
+
+    pub fn message(&self) -> String {
+        format!("Unknown Tapp permission '{}'", self.permission)
+    }
+}
+
+impl std::fmt::Display for UnknownTappPermission {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message())
+    }
+}
+
+impl std::error::Error for UnknownTappPermission {}
+
 /// 用户角色
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -414,13 +439,21 @@ impl TappPermissionService {
         config: &DynamicConfig,
         role: UserRole,
         permissions: &[String],
-    ) -> Vec<String> {
-        permissions
+    ) -> Result<Vec<String>, UnknownTappPermission> {
+        let parsed = permissions
             .iter()
-            .filter_map(|permission| TappPermission::from_str(permission))
+            .map(|permission| {
+                TappPermission::from_str(permission).ok_or_else(|| UnknownTappPermission {
+                    permission: permission.clone(),
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(parsed
+            .into_iter()
             .filter(|permission| Self::check(config, role, *permission))
             .map(|permission| permission.as_str().to_string())
-            .collect()
+            .collect())
     }
 
     /// 检查用户是否拥有特定 Tapp 权限
@@ -724,7 +757,8 @@ mod tests {
             &config,
             UserRole::Guest,
             &requested,
-        );
+        )
+        .unwrap();
 
         // Guest-safe: platform:read, analytics:read (visitor-card aggregates only;
         // full admin summary is role-gated in the handler) + storage.
@@ -850,7 +884,7 @@ mod tests {
         ));
         assert_eq!(
             TappPermissionService::filter_permissions_for_role(&config, UserRole::User, &requested,),
-            vec!["storage", "ui:theme"]
+            Ok(vec!["storage".to_string(), "ui:theme".to_string()])
         );
         assert_eq!(
             TappPermissionService::filter_permissions_for_role(
@@ -858,7 +892,7 @@ mod tests {
                 UserRole::Guest,
                 &requested,
             ),
-            vec!["storage", "ui:theme"]
+            Ok(vec!["storage".to_string(), "ui:theme".to_string()])
         );
     }
 
@@ -900,7 +934,8 @@ mod tests {
         ];
 
         let granted =
-            TappPermissionService::filter_permissions_for_role(&config, UserRole::User, &requested);
+            TappPermissionService::filter_permissions_for_role(&config, UserRole::User, &requested)
+                .unwrap();
 
         assert_eq!(
             granted,
@@ -928,7 +963,8 @@ mod tests {
             &config,
             UserRole::Guest,
             &requested,
-        );
+        )
+        .unwrap();
 
         assert_eq!(granted, vec!["federation:read"]);
     }
@@ -948,8 +984,28 @@ mod tests {
             &config,
             UserRole::Admin,
             &requested,
-        );
+        )
+        .unwrap();
 
         assert_eq!(granted, requested);
+    }
+
+    #[test]
+    fn filter_permissions_rejects_unknown_name_without_partial_result() {
+        let requested = vec![
+            "storage".to_string(),
+            "legacy:unknown".to_string(),
+            "ui:theme".to_string(),
+        ];
+
+        let error = TappPermissionService::filter_permissions_for_role(
+            &DynamicConfig::default(),
+            UserRole::Admin,
+            &requested,
+        )
+        .unwrap_err();
+
+        assert_eq!(error.permission, "legacy:unknown");
+        assert_eq!(error.code(), UNKNOWN_TAPP_PERMISSION_CODE);
     }
 }

@@ -37,6 +37,8 @@ pub struct TappListItem {
     /// 公开安装可见性：`all` | `admin`（私有安装始终仅本人）
     #[serde(default = "default_tapp_visibility")]
     pub visibility: String,
+    #[serde(default)]
+    pub needs_reauthorization: bool,
 }
 
 /// Full detail projection for catalog detail endpoints.
@@ -52,6 +54,8 @@ pub struct TappDetail {
     pub manifest: serde_json::Value,
     pub status: String,
     pub granted_permissions: Vec<String>,
+    #[serde(default)]
+    pub needs_reauthorization: bool,
     pub installed_at: String,
     pub last_run_at: Option<String>,
     /// 当前用户角色: "guest" | "user" | "admin"
@@ -105,6 +109,11 @@ pub fn tapp_list_item_from_model(
     is_temporary: bool,
     is_admin_tapp: bool,
 ) -> TappListItem {
+    let approved_permissions: Vec<String> =
+        serde_json::from_value(tapp.approved_permissions.clone()).unwrap_or_default();
+    let needs_reauthorization = approved_permissions.iter().any(|permission| {
+        crate::services::permission_service::TappPermission::from_str(permission).is_none()
+    });
     let icon_svg = icon_svg_from_manifest(&tapp.manifest);
     let locales = manifest_locales(&tapp.manifest);
     let visibility =
@@ -123,6 +132,7 @@ pub fn tapp_list_item_from_model(
         is_temporary,
         is_admin_tapp,
         visibility,
+        needs_reauthorization,
     }
 }
 
@@ -132,10 +142,7 @@ pub fn tapp_list_item_from_model(
 /// reports `status = "installed"` and omits `last_run_at` even when the DB row
 /// was inserted as Running with a timestamp (clients treat install as not yet
 /// "started" from the list UI).
-pub fn install_response_list_item(
-    tapp: tapps::Model,
-    is_site_owner_install: bool,
-) -> TappListItem {
+pub fn install_response_list_item(tapp: tapps::Model, is_site_owner_install: bool) -> TappListItem {
     let (is_temporary, is_admin_tapp) = catalog_install_flags(is_site_owner_install);
     let mut item = tapp_list_item_from_model(tapp, is_temporary, is_admin_tapp);
     item.status = "installed".to_string();
@@ -147,10 +154,7 @@ pub fn install_response_list_item(
 ///
 /// Preserves live status / last_run_at from the DB row; flags follow
 /// [`catalog_install_flags`].
-pub fn update_response_list_item(
-    tapp: tapps::Model,
-    is_site_owner_install: bool,
-) -> TappListItem {
+pub fn update_response_list_item(tapp: tapps::Model, is_site_owner_install: bool) -> TappListItem {
     let (is_temporary, is_admin_tapp) = catalog_install_flags(is_site_owner_install);
     tapp_list_item_from_model(tapp, is_temporary, is_admin_tapp)
 }
@@ -168,8 +172,15 @@ pub fn tapp_detail_from_model(
 ) -> TappDetail {
     let approved_permissions: Vec<String> =
         serde_json::from_value(tapp.approved_permissions.clone()).unwrap_or_default();
-    let granted_permissions =
-        TappPermissionService::filter_permissions_for_role(config, role, &approved_permissions);
+    let (granted_permissions, needs_reauthorization) =
+        match TappPermissionService::filter_permissions_for_role(
+            config,
+            role,
+            &approved_permissions,
+        ) {
+            Ok(granted_permissions) => (granted_permissions, false),
+            Err(_) => (Vec::new(), true),
+        };
     let visibility =
         crate::services::tapp_ownership::normalize_tapp_visibility(&tapp.visibility).to_string();
     TappDetail {
@@ -183,6 +194,7 @@ pub fn tapp_detail_from_model(
         manifest: tapp.manifest,
         status: install_status_label(&tapp.status),
         granted_permissions,
+        needs_reauthorization,
         installed_at: tapp.installed_at.to_rfc3339(),
         last_run_at: tapp.last_run_at.map(|date| date.to_rfc3339()),
         user_role: role.as_str().to_string(),
@@ -275,6 +287,7 @@ mod tests {
         assert!(item.is_temporary);
         assert!(!item.is_admin_tapp);
         assert!(item.last_run_at.is_none());
+        assert!(!item.needs_reauthorization);
     }
 
     #[test]
@@ -332,6 +345,7 @@ mod tests {
         );
         assert_eq!(detail.status, "installed");
         assert_eq!(detail.theme_color.as_deref(), Some("#fff"));
+        assert!(!detail.needs_reauthorization);
     }
 
     #[test]
@@ -368,5 +382,22 @@ mod tests {
             &config,
         );
         assert_eq!(detail.user_role, "guest");
+    }
+
+    #[test]
+    fn unknown_approved_permission_marks_reauthorization_without_breaking_projection() {
+        let model = sample_model(json!(["storage", "legacy:unknown", "ui:theme"]));
+        let item = tapp_list_item_from_model(model.clone(), false, true);
+        let detail = tapp_detail_from_model(
+            model,
+            UserRole::Admin,
+            false,
+            true,
+            &DynamicConfig::default(),
+        );
+
+        assert!(item.needs_reauthorization);
+        assert!(detail.needs_reauthorization);
+        assert!(detail.granted_permissions.is_empty());
     }
 }

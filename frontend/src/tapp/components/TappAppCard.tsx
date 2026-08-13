@@ -12,6 +12,7 @@ import type { IconStyle } from '../utils/tappColors'
 import {
   FaCog,
   FaCompress,
+  FaExclamationTriangle,
   FaExpand,
   FaGripVertical,
   FaLock,
@@ -587,9 +588,11 @@ export const TappAppCard = forwardRef<HTMLDivElement, TappAppCardProps>(
     })
 
     const categoryId = resolveTappCategory(manifest)
+    const needsReauthorization = tapp.needsReauthorization === true
     const canStartStop =
-      (tapp.userRole === 'admin' && tapp.isAdminTapp === true) ||
-      (tapp.userRole === 'user' && tapp.isTemporary === true)
+      !needsReauthorization &&
+      ((tapp.userRole === 'admin' && tapp.isAdminTapp === true) ||
+        (tapp.userRole === 'user' && tapp.isTemporary === true))
     const canUninstall =
       tapp.userRole === 'admin' ||
       (tapp.userRole === 'user' && tapp.isTemporary === true)
@@ -598,7 +601,7 @@ export const TappAppCard = forwardRef<HTMLDivElement, TappAppCardProps>(
       (tapp.userRole === 'user' && tapp.isTemporary === true)
     const category = t.tapp[TAPP_CATEGORY_I18N_KEYS[categoryId]]
 
-    const hasPage = manifest.hasPage === true
+    const hasPage = manifest.hasPage === true && !needsReauthorization
     const iconStyle = getTappIconStyle(tapp)
     const accent =
       iconStyle.accentColor ||
@@ -609,11 +612,17 @@ export const TappAppCard = forwardRef<HTMLDivElement, TappAppCardProps>(
     const descriptionText = displayDescription?.trim() || ''
     const cardPermissions = useMemo(
       () =>
-        resolveCardPermissions(
-          tapp.grantedPermissions,
-          tapp.manifest.permissions,
-        ),
-      [tapp.grantedPermissions, tapp.manifest.permissions],
+        needsReauthorization
+          ? []
+          : resolveCardPermissions(
+              tapp.grantedPermissions,
+              tapp.manifest.permissions,
+            ),
+      [
+        needsReauthorization,
+        tapp.grantedPermissions,
+        tapp.manifest.permissions,
+      ],
     )
 
     const subtitleLines = useMemo(() => {
@@ -863,11 +872,22 @@ export const TappAppCard = forwardRef<HTMLDivElement, TappAppCardProps>(
                     aria-label={t.tapp.running || 'Running'}
                   />
                 )}
+                {needsReauthorization && (
+                  <FaExclamationTriangle
+                    className="tapp-app-card__reauth-icon"
+                    title={t.tapp.reauthorizationRequired}
+                    aria-label={t.tapp.reauthorizationRequired}
+                  />
+                )}
               </div>
               {/* 2x1: category tag + desc; 1x1: rotating subtitle */}
               {isWide ? (
                 <>
-                  {category ? (
+                  {needsReauthorization ? (
+                    <span className="tapp-app-card__reauth-label">
+                      {t.tapp.reauthorizationRequired}
+                    </span>
+                  ) : category ? (
                     <span className="tapp-app-card__rest-cat">{category}</span>
                   ) : null}
                   {descriptionText ? (
@@ -896,10 +916,17 @@ export const TappAppCard = forwardRef<HTMLDivElement, TappAppCardProps>(
             {/* 2x1 hover: permissions only + dock (no title/desc/icon) */}
             {isWide ? (
               <div className="tapp-app-card__detail-mid tapp-app-card__detail-mid--perms-only">
-                <CardPermissionIndicators
-                  permissions={cardPermissions}
-                  variant="full"
-                />
+                {needsReauthorization ? (
+                  <p className="tapp-app-card__reauth-message">
+                    <FaExclamationTriangle aria-hidden />
+                    <span>{t.tapp.reauthorizationMessage}</span>
+                  </p>
+                ) : (
+                  <CardPermissionIndicators
+                    permissions={cardPermissions}
+                    variant="full"
+                  />
+                )}
               </div>
             ) : (
               <>
@@ -918,7 +945,12 @@ export const TappAppCard = forwardRef<HTMLDivElement, TappAppCardProps>(
                 </header>
 
                 <div className="tapp-app-card__detail-mid">
-                  {detailDescription ? (
+                  {needsReauthorization ? (
+                    <p className="tapp-app-card__reauth-message">
+                      <FaExclamationTriangle aria-hidden />
+                      <span>{t.tapp.reauthorizationMessage}</span>
+                    </p>
+                  ) : detailDescription ? (
                     <p className="tapp-app-card__detail-desc">
                       {detailDescription}
                     </p>

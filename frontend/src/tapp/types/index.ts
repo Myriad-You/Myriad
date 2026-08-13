@@ -520,6 +520,9 @@ export interface TappInstance {
   /** 已授权的权限 */
   grantedPermissions: TappPermission[]
 
+  /** 批准权限包含平台不再识别的名称，必须重新授权后才能运行 */
+  needsReauthorization?: boolean
+
   /**
    * 当前用户角色
    * - guest: 未登录用户（只能查看管理员的 Tapp）

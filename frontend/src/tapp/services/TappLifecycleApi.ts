@@ -19,6 +19,7 @@ export interface TappListItem {
   isAdminTapp?: boolean
   /** Public install visibility: everyone | admins only */
   visibility?: TappVisibility
+  needsReauthorization?: boolean
 }
 
 /** Public (site-owner) install visibility. Private installs ignore this. */
@@ -39,6 +40,7 @@ export interface TappDetail {
   manifest: TappManifest
   status: string
   granted_permissions: string[]
+  needs_reauthorization?: boolean
   installed_at: string
   last_run_at?: string
   user_role?: string

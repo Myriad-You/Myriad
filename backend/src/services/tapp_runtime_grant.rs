@@ -15,7 +15,9 @@ use sha2::{Digest, Sha256};
 use std::time::Duration;
 use uuid::Uuid;
 
-use crate::services::permission_service::{TappPermission, TappPermissionService, UserRole};
+use crate::services::permission_service::{
+    TappPermission, TappPermissionService, UnknownTappPermission, UserRole,
+};
 use crate::services::tapp_ownership;
 use crate::services::tapp_registry as shared_registry;
 use crate::GLOBAL_DYNAMIC_CONFIG;
@@ -123,7 +125,12 @@ pub enum RuntimeGrantError {
     ScopeChanged,
     SubjectMismatch,
     RoleChanged,
-    PermissionDenied { permission: String },
+    UnknownPermission {
+        permission: String,
+    },
+    PermissionDenied {
+        permission: String,
+    },
     TappMismatch,
     InvalidInstanceId,
     LimitExceeded,
@@ -136,6 +143,7 @@ impl RuntimeGrantError {
             Self::Invalid | Self::ScopeChanged => "INVALID_RUNTIME_GRANT",
             Self::SubjectMismatch => "RUNTIME_GRANT_SUBJECT_MISMATCH",
             Self::RoleChanged => "RUNTIME_GRANT_ROLE_CHANGED",
+            Self::UnknownPermission { .. } => "UNKNOWN_TAPP_PERMISSION",
             Self::PermissionDenied { .. } => "RUNTIME_GRANT_PERMISSION_DENIED",
             Self::TappMismatch => "RUNTIME_GRANT_TAPP_MISMATCH",
             Self::InvalidInstanceId => "INVALID_RUNTIME_INSTANCE_ID",
@@ -152,6 +160,9 @@ impl RuntimeGrantError {
             Self::RoleChanged => {
                 "Runtime grant administrator role is no longer current".to_string()
             }
+            Self::UnknownPermission { permission } => {
+                format!("Unknown Tapp permission '{permission}'")
+            }
             Self::PermissionDenied { permission } => {
                 format!("Runtime grant is missing '{permission}'")
             }
@@ -166,7 +177,10 @@ impl RuntimeGrantError {
         match self {
             Self::Unavailable => 503,
             Self::Invalid | Self::ScopeChanged => 401,
-            Self::SubjectMismatch | Self::RoleChanged | Self::PermissionDenied { .. }
+            Self::UnknownPermission { .. } => 409,
+            Self::SubjectMismatch
+            | Self::RoleChanged
+            | Self::PermissionDenied { .. }
             | Self::TappMismatch => 403,
             Self::InvalidInstanceId => 400,
             Self::LimitExceeded => 429,
@@ -181,6 +195,14 @@ impl std::fmt::Display for RuntimeGrantError {
 }
 
 impl std::error::Error for RuntimeGrantError {}
+
+impl From<UnknownTappPermission> for RuntimeGrantError {
+    fn from(error: UnknownTappPermission) -> Self {
+        Self::UnknownPermission {
+            permission: error.permission,
+        }
+    }
+}
 
 /// Result of successfully issuing a runtime grant.
 #[derive(Debug, Clone)]
@@ -216,7 +238,10 @@ pub(crate) fn valid_instance_id(instance_id: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
 }
 
-pub(crate) fn intersect_current_permissions(issued: &mut Vec<String>, currently_allowed: &[String]) {
+pub(crate) fn intersect_current_permissions(
+    issued: &mut Vec<String>,
+    currently_allowed: &[String],
+) {
     issued.retain(|permission| {
         currently_allowed
             .iter()
@@ -257,8 +282,7 @@ pub async fn validate_runtime_grant(
     // A grant is a short-lived upper bound, not a frozen authorization fact.
     // Rebind it to the installation that is visible now and intersect its
     // permissions with the current role/config/installation on every request.
-    let tapp = match tapp_ownership::resolve_accessible_tapp(db, subject_id, &grant.tapp_id).await
-    {
+    let tapp = match tapp_ownership::resolve_accessible_tapp(db, subject_id, &grant.tapp_id).await {
         Ok(tapp) if tapp.user_id == grant.owner_id => tapp,
         Ok(_) | Err(_) => {
             let _ = shared_registry::delete(db, RUNTIME_GRANT_NAMESPACE, &hash).await;
@@ -269,7 +293,7 @@ pub async fn validate_runtime_grant(
         serde_json::from_value(tapp.approved_permissions).unwrap_or_default();
     let currently_allowed = {
         let config = GLOBAL_DYNAMIC_CONFIG.read().await;
-        TappPermissionService::filter_permissions_for_role(&config, role, &installed_permissions)
+        TappPermissionService::filter_permissions_for_role(&config, role, &installed_permissions)?
     };
     intersect_current_permissions(&mut grant.permissions, &currently_allowed);
 
@@ -492,6 +516,13 @@ mod tests {
             "RUNTIME_GRANT_ROLE_CHANGED"
         );
         assert_eq!(
+            RuntimeGrantError::UnknownPermission {
+                permission: "legacy:unknown".into()
+            }
+            .code(),
+            "UNKNOWN_TAPP_PERMISSION"
+        );
+        assert_eq!(
             RuntimeGrantError::PermissionDenied {
                 permission: "storage".into()
             }
@@ -526,8 +557,12 @@ mod tests {
         assert_eq!(RuntimeGrantError::Invalid.status_hint(), 401);
         assert_eq!(RuntimeGrantError::LimitExceeded.status_hint(), 429);
         assert_eq!(RuntimeGrantError::InvalidInstanceId.status_hint(), 400);
-        assert_eq!(RuntimeGrantError::PermissionDenied {
-            permission: "x".into()
-        }.status_hint(), 403);
+        assert_eq!(
+            RuntimeGrantError::PermissionDenied {
+                permission: "x".into()
+            }
+            .status_hint(),
+            403
+        );
     }
 }

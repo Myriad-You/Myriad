@@ -13,13 +13,13 @@ use sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::error::HttpError;
 use crate::middleware::auth::{ensure_current_admin_on, Claims};
 use crate::services::permission_service::{TappPermission, UserRole};
 use crate::services::tapp_api_service::{ApiExecutionContext, TappApiService};
 use crate::services::tapp_credentials::{self, TappCredentialError};
 use crate::services::tapp_declared_api::{self, DeclaredApiError};
 use crate::services::tapp_ownership::TappAccessError;
-use crate::error::HttpError;
 
 use super::common::check_rate_limit;
 use super::runtime_grant::RuntimeGrantContext;
@@ -46,27 +46,20 @@ fn declared_http_error(err: DeclaredApiError) -> (StatusCode, Json<Value>) {
                         "message": access.message(),
                     })),
                 ),
-                TappAccessError::Database | TappAccessError::NoAdmin => (
-                    status,
-                    Json(json!({ "error": access.error_code() })),
-                ),
+                TappAccessError::Database | TappAccessError::NoAdmin => {
+                    (status, Json(json!({ "error": access.error_code() })))
+                }
             }
         }
-        DeclaredApiError::GrantScopeChanged => (
+        DeclaredApiError::GrantScopeChanged | DeclaredApiError::UnknownPermission { .. } => (
             status,
             Json(json!({
                 "error": err.message(),
                 "code": err.code(),
             })),
         ),
-        DeclaredApiError::ApiNotFound { .. } => (
-            status,
-            Json(json!({ "error": err.message() })),
-        ),
-        DeclaredApiError::InvalidUser => (
-            status,
-            Json(json!({ "error": err.message() })),
-        ),
+        DeclaredApiError::ApiNotFound { .. } => (status, Json(json!({ "error": err.message() }))),
+        DeclaredApiError::InvalidUser => (status, Json(json!({ "error": err.message() }))),
     }
 }
 
@@ -116,9 +109,10 @@ pub async fn execute_tapp_api(
         claims.username
     );
 
-    let user_id: i32 = claims.sub.parse().map_err(|_| {
-        declared_http_error(DeclaredApiError::InvalidUser)
-    })?;
+    let user_id: i32 = claims
+        .sub
+        .parse()
+        .map_err(|_| declared_http_error(DeclaredApiError::InvalidUser))?;
 
     // 1. Resolve the same private-first installation bound into the Runtime Grant.
     let tapp = tapp_declared_api::resolve_declared_api_tapp(
@@ -135,7 +129,8 @@ pub async fn execute_tapp_api(
     let apis =
         tapp_declared_api::get_tapp_apis(&manifest_cache_key, &tapp_id, &tapp.manifest).await;
 
-    let api_def = tapp_declared_api::require_api_def(&apis, &api_name).map_err(declared_http_error)?;
+    let api_def =
+        tapp_declared_api::require_api_def(&apis, &api_name).map_err(declared_http_error)?;
     if api_def.api_type == "http" {
         // Public/protected controls the audience only. Every server-side
         // outbound request remains a network capability and must be present in
@@ -172,7 +167,9 @@ pub async fn execute_tapp_api(
         UserRole::User
     };
     let granted_permissions =
-        tapp_declared_api::filter_granted_permissions(installed_permissions, role).await;
+        tapp_declared_api::filter_granted_permissions(installed_permissions, role)
+            .await
+            .map_err(declared_http_error)?;
 
     // Resolve host-only credential material only after determining that this
     // caller is part of the API's declared audience. This avoids turning
@@ -233,9 +230,10 @@ pub async fn list_tapp_apis(
         claims.username
     );
 
-    let user_id = claims.sub.parse::<i32>().map_err(|_| {
-        declared_http_error(DeclaredApiError::InvalidUser)
-    })?;
+    let user_id = claims
+        .sub
+        .parse::<i32>()
+        .map_err(|_| declared_http_error(DeclaredApiError::InvalidUser))?;
     let tapp = tapp_declared_api::resolve_declared_api_tapp(
         &db,
         user_id,

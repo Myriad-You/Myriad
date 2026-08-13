@@ -2739,6 +2739,8 @@ export interface TranslationKeys {
     elevatedPermission: string
     privilegedPermission: string
     grantedPermissions: string
+    reauthorizationRequired: string
+    reauthorizationMessage: string
 
     // 权限标签
     permRegisterWidget: string

@@ -3055,6 +3055,8 @@ export const jaJP: TranslationKeys = {
     elevatedPermission: '昇格',
     privilegedPermission: '特権',
     grantedPermissions: '付与済み権限',
+    reauthorizationRequired: '再承認が必要',
+    reauthorizationMessage: '権限の有効期限が切れました。設定で再承認してから実行してください。',
 
     // 権限ラベル
     permRegisterWidget: 'ウィジェット登録',

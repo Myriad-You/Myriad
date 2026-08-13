@@ -192,7 +192,9 @@ pub async fn issue_runtime_grant(
     let permissions = {
         let config = dynamic_config.read().await;
         TappPermissionService::filter_permissions_for_role(&config, role, &installed_permissions)
-    };
+    }
+    .map_err(RuntimeGrantError::from)
+    .map_err(grant_http_error)?;
 
     let issued = tapp_runtime_grant::issue_runtime_grant(
         &db,

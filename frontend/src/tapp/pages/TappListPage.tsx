@@ -195,8 +195,10 @@ export function TappListPage() {
             : detail.status === 'error'
               ? 'error'
               : 'installed'
+        const needsReauthorization = detail.needs_reauthorization ?? false
         const isRunning =
-          runtime.isRunning(detail.id) || installationStatus === 'running'
+          !needsReauthorization &&
+          (runtime.isRunning(detail.id) || installationStatus === 'running')
         return {
           id: detail.id,
           manifest: detail.manifest,
@@ -210,6 +212,7 @@ export function TappListPage() {
           lastRunAt: detail.last_run_at,
           grantedPermissions: (detail.granted_permissions ||
             []) as TappPermission[],
+          needsReauthorization,
           // Keep viewer role for actions; mark as site-public for filtering
           userRole: existing?.userRole ?? (isAdmin ? 'admin' : 'user'),
           isTemporary: false,

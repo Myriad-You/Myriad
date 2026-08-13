@@ -5,10 +5,10 @@ use sea_orm::{ConnectionTrait, DatabaseConnection, DbErr};
 use crate::api::tapp_runtime::common as tapp_common;
 use crate::api::tapp_runtime::RuntimeGrantContext;
 use crate::error::HttpError;
-use myriad_error::AppError;
 use crate::middleware::auth::{ensure_current_admin_on, Claims};
 use crate::services::permission_service::{TappPermission, TappPermissionService, UserRole};
 use crate::services::tapp_ownership::{self, TappAccessError};
+use myriad_error::AppError;
 
 /// 获取管理员用户 ID（委托给 tapp_runtime::common 的缓存版本）
 pub(super) async fn get_admin_user_id(db: &DatabaseConnection) -> Result<i32, HttpError> {
@@ -93,7 +93,9 @@ pub(crate) fn storage_access_from_runtime_grant(
         actor_subject_id(claims),
     )
     .map_err(|err| match err {
-        TappStorageAccessError::Unauthenticated => HttpError(AppError::unauthorized("Unauthorized")),
+        TappStorageAccessError::Unauthenticated => {
+            HttpError(AppError::unauthorized("Unauthorized"))
+        }
         TappStorageAccessError::SubjectMismatch | TappStorageAccessError::InstallationReadOnly => {
             HttpError(AppError::forbidden("Forbidden"))
         }
@@ -160,11 +162,20 @@ pub(super) async fn filter_install_permissions(
     dynamic_config: &tokio::sync::RwLock<crate::config::DynamicConfig>,
     role: UserRole,
     permissions: Vec<String>,
-) -> Vec<String> {
+) -> Result<Vec<String>, HttpError> {
     let config = dynamic_config.read().await;
-    let granted = TappPermissionService::filter_permissions_for_role(&config, role, &permissions);
+    let granted = TappPermissionService::filter_permissions_for_role(&config, role, &permissions)
+        .map_err(|error| {
+        HttpError::from((
+            StatusCode::CONFLICT,
+            axum::Json(serde_json::json!({
+                "error": error.message(),
+                "code": error.code(),
+            })),
+        ))
+    })?;
     drop(config);
-    granted
+    Ok(granted)
 }
 
 pub(super) async fn authorize_tapp_permission(

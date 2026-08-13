@@ -3075,6 +3075,8 @@ export const enUS: TranslationKeys = {
     elevatedPermission: 'Elevated',
     privilegedPermission: 'Privileged',
     grantedPermissions: 'Granted Permissions',
+    reauthorizationRequired: 'Reauthorization required',
+    reauthorizationMessage: 'Permissions expired. Reauthorize in settings before running.',
 
     // Permission labels
     permRegisterWidget: 'Register Widget',

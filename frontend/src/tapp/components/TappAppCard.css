@@ -589,6 +589,59 @@ html.dark .tapp-app-card__rest-version {
   animation: tapp-app-card-pulse 1.6s ease-in-out infinite;
 }
 
+.tapp-app-card__reauth-icon {
+  flex: 0 0 auto;
+  width: 0.75rem;
+  height: 0.75rem;
+  color: #b45309;
+}
+
+.tapp-app-card__reauth-label {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 0.1rem 0.35rem;
+  overflow: hidden;
+  color: #92400e;
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: rgb(245 158 11 / 14%);
+  border: 1px solid rgb(217 119 6 / 24%);
+  border-radius: 4px;
+}
+
+.tapp-app-card__reauth-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  margin: 0;
+  color: #92400e;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.tapp-app-card__reauth-message svg {
+  flex: 0 0 auto;
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-top: 0.08rem;
+}
+
+html.dark .tapp-app-card__reauth-icon,
+html.dark .tapp-app-card__reauth-label,
+html.dark .tapp-app-card__reauth-message {
+  color: #fbbf24;
+}
+
+html.dark .tapp-app-card__reauth-label {
+  background: rgb(245 158 11 / 12%);
+  border-color: rgb(251 191 36 / 24%);
+}
+
 .tapp-app-card__sub {
   margin: 0;
   width: 100%;

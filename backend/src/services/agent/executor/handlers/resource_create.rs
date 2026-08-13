@@ -53,13 +53,8 @@ async fn persist_agent_tapp(
     author: Value,
 ) -> Result<chrono::DateTime<Utc>, String> {
     require_nonempty_code(code)?;
-    let manifest = normalize_agent_tapp_manifest(
-        manifest,
-        tapp_id,
-        name,
-        description.as_deref(),
-        &author,
-    )?;
+    let manifest =
+        normalize_agent_tapp_manifest(manifest, tapp_id, name, description.as_deref(), &author)?;
     let requested_permissions = manifest_permission_strings(&manifest);
     let role = if crate::services::agent::user_is_current_admin(ctx.db, ctx.user_id).await {
         UserRole::Admin
@@ -69,7 +64,8 @@ async fn persist_agent_tapp(
     let granted_permissions = {
         let config = GLOBAL_DYNAMIC_CONFIG.read().await;
         TappPermissionService::filter_permissions_for_role(&config, role, &requested_permissions)
-    };
+    }
+    .map_err(|error| format!("{}: {}", error.code(), error.message()))?;
 
     let tapp_dir = paths().tapp_user_dir(ctx.user_id).join(tapp_id);
     let code_path = tapp_dir.join("main.js");
@@ -563,5 +559,3 @@ async fn execute_bookmark_save(
         }
     }))
 }
-
-
