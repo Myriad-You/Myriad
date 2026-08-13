@@ -9,7 +9,7 @@ import {
 describe('previewGrants (MYR-024)', () => {
   it('does not treat full manifest permissions as granted', () => {
     const declared = [
-      'storage',
+      'storage:read',
       'network:fetch',
       'ai:generate',
       'platform:read',
@@ -20,7 +20,7 @@ describe('previewGrants (MYR-024)', () => {
       'media:read',
     ]
     assert.deepEqual(selectPreviewGrantedPermissions(declared), [
-      'storage',
+      'storage:read',
       'ui:theme',
       'ui:confirm',
       'ui:fullscreen',
@@ -43,7 +43,7 @@ describe('previewGrants (MYR-024)', () => {
 
   it('keeps allowlist stable for host docs and backend parity', () => {
     assert.deepEqual([...PREVIEW_PERMISSIONS], [
-      'storage',
+      'storage:read',
       'ui:theme',
       'ui:confirm',
       'ui:fullscreen',
