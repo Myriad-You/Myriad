@@ -386,7 +386,13 @@ export const TappWidgetSandbox = memo(
     }, [onReady, tappInstance.id, widgetId, widgetProps.size])
 
     // 共享订阅 hook：主题/主色调/页面可见性联动
-    useSandboxSubscriptions(bridgeRef, isReady)
+    // 主题变化转发仅当已授予 ui:theme:subscribe 时开启。
+    useSandboxSubscriptions(
+      bridgeRef,
+      isReady,
+      false,
+      tappInstance.grantedPermissions?.includes('ui:theme:subscribe') ?? false,
+    )
 
     // 同一个 Tapp 的 Page/其他 Widget 改写共享 storage 后，通知当前沙箱并刷新视图。
     useEffect(

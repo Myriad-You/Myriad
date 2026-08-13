@@ -3073,6 +3073,7 @@ export const jaJP: TranslationKeys = {
     permNotification: '通知送信',
     permFullscreen: 'フルスクリーンモード',
     permReadTheme: 'テーマ読取',
+    permSubscribeTheme: 'テーマ変更の購読',
     permConfirm: '確認ダイアログ',
     permOpenUrl: '宣言リンクを開く',
     permNetworkFetch: 'ネットワークリクエスト',
@@ -3117,6 +3118,7 @@ export const jaJP: TranslationKeys = {
     permNotificationDesc: 'システム通知の送信を許可',
     permFullscreenDesc: 'フルスクリーン表示のリクエストを許可',
     permReadThemeDesc: '現在のテーマ設定の読取を許可',
+    permSubscribeThemeDesc: 'ホストのテーマ変更イベント受信を許可',
     permConfirmDesc: '確認ダイアログの表示を許可',
     permOpenUrlDesc:
       'Manifest openUrls で宣言したリンクのみホスト経由で開く（未宣言 URL は拒否）',
@@ -3321,7 +3323,7 @@ export const jaJP: TranslationKeys = {
     playgroundExampleLabelMarkdown: 'Markdown',
     playgroundExamplesLabel: '例を試す',
     playgroundPreviewCapabilities:
-      'プレビューでは storage・settings・ui:theme・ui:confirm・ui:openUrl・全画面などが使えます。その他の権限はインストール後に利用できます。',
+      'プレビューでは storage・settings・ui:theme:read・ui:confirm・ui:openUrl・全画面などが使えます。テーマ変更の購読（ui:theme:subscribe）を含むその他の権限はインストール後に利用できます。',
     playgroundPreviewCapabilitiesDismiss: '了解',
     playgroundPruneNotice:
       'ブラウザの保存容量がいっぱいだったため、古い履歴を整理しました。',

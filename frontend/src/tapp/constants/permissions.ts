@@ -43,6 +43,7 @@ import {
   FaQuestionCircle,
   FaRobot,
   FaServer,
+  FaSyncAlt,
   FaTh,
   FaTools,
   FaUsers,
@@ -151,10 +152,15 @@ export const PERMISSION_CONFIG: Record<
     labelKey: 'permFullscreen',
     descriptionKey: 'permFullscreenDesc',
   },
-  'ui:theme': {
+  'ui:theme:read': {
     icon: FaPalette,
     labelKey: 'permReadTheme',
     descriptionKey: 'permReadThemeDesc',
+  },
+  'ui:theme:subscribe': {
+    icon: FaSyncAlt,
+    labelKey: 'permSubscribeTheme',
+    descriptionKey: 'permSubscribeThemeDesc',
   },
   'ui:confirm': {
     icon: FaQuestionCircle,

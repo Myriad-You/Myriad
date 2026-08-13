@@ -3093,6 +3093,7 @@ export const enUS: TranslationKeys = {
     permNotification: 'Send Notification',
     permFullscreen: 'Fullscreen Mode',
     permReadTheme: 'Read Theme',
+    permSubscribeTheme: 'Subscribe to Theme Changes',
     permConfirm: 'Confirm Dialog',
     permOpenUrl: 'Open Declared Links',
     permNetworkFetch: 'Network Fetch',
@@ -3137,6 +3138,7 @@ export const enUS: TranslationKeys = {
     permNotificationDesc: 'Allow sending system notifications',
     permFullscreenDesc: 'Allow requesting fullscreen display',
     permReadThemeDesc: 'Allow reading current theme settings',
+    permSubscribeThemeDesc: 'Allow receiving host theme change events',
     permConfirmDesc: 'Allow showing confirm dialogs',
     permOpenUrlDesc:
       'Allow the host to open links declared in Manifest openUrls (all other URLs are rejected)',
@@ -3341,7 +3343,7 @@ export const enUS: TranslationKeys = {
     playgroundExampleLabelMarkdown: 'Markdown pad',
     playgroundExamplesLabel: 'Try an example',
     playgroundPreviewCapabilities:
-      'Preview supports storage, settings, ui:theme, ui:confirm, ui:openUrl, and fullscreen. Other permissions need Install.',
+      'Preview supports storage, settings, ui:theme:read, ui:confirm, ui:openUrl, and fullscreen. Theme-change subscription (ui:theme:subscribe) needs Install; other permissions need Install.',
     playgroundPreviewCapabilitiesDismiss: 'Got it',
     playgroundPruneNotice:
       'Browser storage was full — older history was trimmed to free space.',

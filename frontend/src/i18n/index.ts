@@ -2757,6 +2757,7 @@ export interface TranslationKeys {
     permNotification: string
     permFullscreen: string
     permReadTheme: string
+    permSubscribeTheme: string
     permConfirm: string
     permOpenUrl: string
     permNetworkFetch: string
@@ -2799,6 +2800,7 @@ export interface TranslationKeys {
     permNotificationDesc: string
     permFullscreenDesc: string
     permReadThemeDesc: string
+    permSubscribeThemeDesc: string
     permConfirmDesc: string
     permOpenUrlDesc: string
     permNetworkFetchDesc: string

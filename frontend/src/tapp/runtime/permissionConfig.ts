@@ -38,7 +38,8 @@ export const PERMISSION_LEVELS: Record<TappPermission, TappPermissionLevel> = {
   'storage:write': 'elevated',
   'ui:notification': 'basic',
   'ui:fullscreen': 'basic',
-  'ui:theme': 'basic',
+  'ui:theme:read': 'basic',
+  'ui:theme:subscribe': 'basic',
   'ui:confirm': 'basic',
   'ui:openUrl': 'basic',
   'network:fetch': 'elevated',
@@ -77,8 +78,9 @@ export const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> =
     // 公开 API（无需权限）
     ['lifecycle.ready', 'public'],
     ['lifecycle.error', 'public'],
-    ['ui.getTheme', 'public'],
-    ['ui.getPrimaryColor', 'public'],
+    // 一次性主题读取需要 ui:theme:read（preview allowlist 只授这一半）
+    ['ui.getTheme', 'ui:theme:read'],
+    ['ui.getPrimaryColor', 'ui:theme:read'],
     ['ui.getLocale', 'public'],
     ['ui.setTitle', 'public'],
     ['context.getApp', 'public'],

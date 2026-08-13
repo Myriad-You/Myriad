@@ -119,12 +119,19 @@ const zh: TappPermissionGuides = {
     frontend: '应用运行页的全屏体验。',
     notes: '多数浏览器要求用户手势后才能进入全屏。',
   },
-  'ui:theme': {
+  'ui:theme:read': {
     what: '允许读取当前站点主题（明暗、主色等），以便界面适配。',
     chain:
       '① 应用查询主题 API。\n② 拿到当前主题令牌。\n③ 用于自身样式，不改站点主题。',
     frontend: '应用 UI 颜色与站点一致。',
     notes: '只读；改站点主题在设置「外观」里。',
+  },
+  'ui:theme:subscribe': {
+    what: '允许订阅宿主主题变化事件，主题切换时即时响应。',
+    chain:
+      '① 应用注册 Tapp.ui.onThemeChange 监听。\n② 宿主主题变化时推送事件。\n③ 应用按新主题更新自身样式。',
+    frontend: '跟随宿主明暗/主色切换的实时 UI 更新。',
+    notes: '不订阅则只能读取当前主题，无法感知后续变化。',
   },
   'ui:confirm': {
     what: '允许弹出系统确认对话框（危险操作二次确认等）。',
@@ -409,12 +416,19 @@ const en: TappPermissionGuides = {
     frontend: 'Fullscreen run experience.',
     notes: 'Usually requires a user gesture.',
   },
-  'ui:theme': {
+  'ui:theme:read': {
     what: 'Allows reading the current site theme for UI matching.',
     chain:
       '1) App queries theme APIs.\n2) Receives theme tokens.\n3) Styles itself; does not change site theme.',
     frontend: 'App chrome matching light/dark and accent.',
     notes: 'Read-only; change theme in UI settings.',
+  },
+  'ui:theme:subscribe': {
+    what: 'Allows subscribing to host theme change events for live UI updates.',
+    chain:
+      '1) App registers Tapp.ui.onThemeChange.\n2) Host pushes changes when the theme switches.\n3) App re-styles against the new theme.',
+    frontend: 'Real-time UI updates following host light/dark or accent switches.',
+    notes: 'Without it the app only reads the current theme and never sees later changes.',
   },
   'ui:confirm': {
     what: 'Allows showing system confirm dialogs.',
@@ -699,12 +713,19 @@ const ja: TappPermissionGuides = {
     frontend: '実行ページの全画面。',
     notes: '多くの場合ユーザー操作が必要です。',
   },
-  'ui:theme': {
+  'ui:theme:read': {
     what: '現在のサイトテーマ（明暗・主色など）を読めます。',
     chain:
       '① テーマ API。\n② トークン取得。\n③ 見た目合わせのみ（変更はしない）。',
     frontend: 'アプリ UI の配色合わせ。',
     notes: '読み取り専用。変更は設定の外観から。',
+  },
+  'ui:theme:subscribe': {
+    what: 'ホストのテーマ変更イベントを購読し、切替に即時追従できます。',
+    chain:
+      '① Tapp.ui.onThemeChange でリスナー登録。\n② ホストのテーマ切替でイベント配信。\n③ 新しいテーマに合わせてスタイル更新。',
+    frontend: '明暗・アクセント切替に追従するリアルタイム UI 更新。',
+    notes: '購読しない場合、現在のテーマを読むだけで以降の変化は見えません。',
   },
   'ui:confirm': {
     what: '確認ダイアログを出せます。',

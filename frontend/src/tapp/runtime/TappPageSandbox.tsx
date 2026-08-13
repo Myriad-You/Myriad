@@ -464,7 +464,13 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
 
   // Visibility + host minimize/paused composed into one lifecycle stream;
   // also theme / primary-color subscriptions (shared with widget sandbox).
-  useSandboxSubscriptions(bridgeRef, isReady, paused)
+  // Theme change forwarding is gated on the granted `ui:theme:subscribe`.
+  useSandboxSubscriptions(
+    bridgeRef,
+    isReady,
+    paused,
+    tappInstance.grantedPermissions?.includes('ui:theme:subscribe') ?? false,
+  )
 
   // Host keyboard shortcuts skip minimized / paused surfaces.
   // Init path also applies pausedRef (this effect may run before bridge exists).

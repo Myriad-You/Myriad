@@ -386,7 +386,7 @@ mod tests {
 
     #[test]
     fn unknown_approved_permission_marks_reauthorization_without_breaking_projection() {
-        let model = sample_model(json!(["storage:read", "legacy:unknown", "ui:theme"]));
+        let model = sample_model(json!(["storage:read", "legacy:unknown", "ui:theme:read"]));
         let item = tapp_list_item_from_model(model.clone(), false, true);
         let detail = tapp_detail_from_model(
             model,

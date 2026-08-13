@@ -19,7 +19,7 @@
 //! - platform:read, analytics:read, tappList:read, brew:read
 //! - brew:write (authenticated), brew:comment (authenticated)
 //! - report:read (authenticated), storage:read (guest-safe)
-//! - ui:notification (authenticated), ui:fullscreen, ui:theme, ui:confirm, ui:openUrl
+//! - ui:notification (authenticated), ui:fullscreen, ui:theme:read, ui:theme:subscribe, ui:confirm, ui:openUrl
 //! - media:read, media:control, media:audio, event:subscribe
 //! - federation:read, federation:write, federation:message, federation:files
 //!
@@ -50,6 +50,14 @@ impl UnknownTappPermission {
     }
 
     pub fn message(&self) -> String {
+        // ADR 0013: removed coarse permissions must fail explicitly and point
+        // at the replacement names. `ui:theme` split into read + subscribe;
+        // the hint is copy only — parsing still rejects the old name.
+        if self.permission == "ui:theme" {
+            return format!(
+                "Unknown Tapp permission 'ui:theme' — split into 'ui:theme:read' (read the current site theme and primary color) and 'ui:theme:subscribe' (subscribe to host theme changes). Update the manifest and reinstall."
+            );
+        }
         format!("Unknown Tapp permission '{}'", self.permission)
     }
 }
@@ -116,8 +124,12 @@ pub enum TappPermission {
     UiNotification,
     #[serde(rename = "ui:fullscreen")]
     UiFullscreen,
-    #[serde(rename = "ui:theme")]
-    UiTheme,
+    /// Read the current site theme and primary color once.
+    #[serde(rename = "ui:theme:read")]
+    UiThemeRead,
+    /// Subscribe to future host theme / primary-color changes.
+    #[serde(rename = "ui:theme:subscribe")]
+    UiThemeSubscribe,
     #[serde(rename = "ui:confirm")]
     UiConfirm,
     /// Open a host browser tab for a manifest-declared allowlisted link only.
@@ -227,7 +239,8 @@ impl TappPermission {
             | TappPermission::StorageRead
             | TappPermission::UiNotification
             | TappPermission::UiFullscreen
-            | TappPermission::UiTheme
+            | TappPermission::UiThemeRead
+            | TappPermission::UiThemeSubscribe
             | TappPermission::UiConfirm
             | TappPermission::UiOpenUrl
             | TappPermission::MediaRead
@@ -288,7 +301,8 @@ impl TappPermission {
             TappPermission::StorageWrite => "写入本地存储",
             TappPermission::UiNotification => "显示通知",
             TappPermission::UiFullscreen => "全屏模式",
-            TappPermission::UiTheme => "主题访问",
+            TappPermission::UiThemeRead => "读取主题",
+            TappPermission::UiThemeSubscribe => "订阅主题变化",
             TappPermission::UiConfirm => "确认对话框",
             TappPermission::UiOpenUrl => "打开声明链接",
             TappPermission::NetworkFetch => "网络请求",
@@ -348,7 +362,8 @@ impl TappPermission {
             "storage:read" => Some(TappPermission::StorageRead),
             "ui:notification" => Some(TappPermission::UiNotification),
             "ui:fullscreen" => Some(TappPermission::UiFullscreen),
-            "ui:theme" => Some(TappPermission::UiTheme),
+            "ui:theme:read" => Some(TappPermission::UiThemeRead),
+            "ui:theme:subscribe" => Some(TappPermission::UiThemeSubscribe),
             "ui:confirm" => Some(TappPermission::UiConfirm),
             "ui:openUrl" => Some(TappPermission::UiOpenUrl),
             "ai:generate" => Some(TappPermission::AiGenerate),
@@ -397,7 +412,8 @@ impl TappPermission {
             TappPermission::StorageWrite => "storage:write",
             TappPermission::UiNotification => "ui:notification",
             TappPermission::UiFullscreen => "ui:fullscreen",
-            TappPermission::UiTheme => "ui:theme",
+            TappPermission::UiThemeRead => "ui:theme:read",
+            TappPermission::UiThemeSubscribe => "ui:theme:subscribe",
             TappPermission::UiConfirm => "ui:confirm",
             TappPermission::UiOpenUrl => "ui:openUrl",
             TappPermission::AiGenerate => "ai:generate",
@@ -915,7 +931,7 @@ mod tests {
         let requested = vec![
             "widget:register".to_string(),
             "storage:read".to_string(),
-            "ui:theme".to_string(),
+            "ui:theme:read".to_string(),
         ];
 
         assert!(TappPermissionService::check(
@@ -935,7 +951,10 @@ mod tests {
         ));
         assert_eq!(
             TappPermissionService::filter_permissions_for_role(&config, UserRole::User, &requested,),
-            Ok(vec!["storage:read".to_string(), "ui:theme".to_string()])
+            Ok(vec![
+                "storage:read".to_string(),
+                "ui:theme:read".to_string()
+            ])
         );
         assert_eq!(
             TappPermissionService::filter_permissions_for_role(
@@ -943,8 +962,94 @@ mod tests {
                 UserRole::Guest,
                 &requested,
             ),
-            Ok(vec!["storage:read".to_string(), "ui:theme".to_string()])
+            Ok(vec![
+                "storage:read".to_string(),
+                "ui:theme:read".to_string()
+            ])
         );
+    }
+
+    #[test]
+    fn theme_permissions_split_read_from_subscribe() {
+        // ADR 0013 / 0020: `ui:theme` split into read + subscribe, both Basic.
+        // The old coarse name must not parse and its error must name the replacements.
+        assert!(TappPermission::from_str("ui:theme").is_none());
+        assert_eq!(
+            TappPermission::from_str("ui:theme:read"),
+            Some(TappPermission::UiThemeRead)
+        );
+        assert_eq!(
+            TappPermission::from_str("ui:theme:subscribe"),
+            Some(TappPermission::UiThemeSubscribe)
+        );
+        assert_eq!(TappPermission::UiThemeRead.as_str(), "ui:theme:read");
+        assert_eq!(
+            TappPermission::UiThemeSubscribe.as_str(),
+            "ui:theme:subscribe"
+        );
+        assert_eq!(TappPermission::UiThemeRead.level(), PermissionLevel::Basic);
+        assert_eq!(
+            TappPermission::UiThemeSubscribe.level(),
+            PermissionLevel::Basic
+        );
+
+        let config = DynamicConfig::default();
+        for role in [UserRole::Admin, UserRole::User, UserRole::Guest] {
+            assert!(TappPermissionService::check(
+                &config,
+                role,
+                TappPermission::UiThemeRead
+            ));
+            assert!(TappPermissionService::check(
+                &config,
+                role,
+                TappPermission::UiThemeSubscribe
+            ));
+        }
+
+        // Read-only grants do not imply subscription and vice versa: the
+        // granted set is exactly what was declared (no alias expansion).
+        let read_only =
+            TappPermissionService::filter_permissions_for_role(&config, UserRole::User, &[
+                "ui:theme:read".to_string(),
+            ])
+            .unwrap();
+        assert_eq!(read_only, vec!["ui:theme:read"]);
+
+        let subscribe_only =
+            TappPermissionService::filter_permissions_for_role(&config, UserRole::User, &[
+                "ui:theme:subscribe".to_string(),
+            ])
+            .unwrap();
+        assert_eq!(subscribe_only, vec!["ui:theme:subscribe"]);
+
+        // `component:theme` stays a separate elevated, owner-scoped permission.
+        assert_eq!(TappPermission::ComponentTheme.level(), PermissionLevel::Elevated);
+        assert!(TappPermissionService::check(
+            &config,
+            UserRole::Admin,
+            TappPermission::ComponentTheme
+        ));
+        assert!(!TappPermissionService::check(
+            &config,
+            UserRole::Guest,
+            TappPermission::ComponentTheme
+        ));
+    }
+
+    #[test]
+    fn removed_theme_permission_error_names_replacement_permissions() {
+        let error = TappPermissionService::filter_permissions_for_role(
+            &DynamicConfig::default(),
+            UserRole::Admin,
+            &["ui:theme".to_string()],
+        )
+        .unwrap_err();
+        assert_eq!(error.permission, "ui:theme");
+        assert_eq!(error.code(), UNKNOWN_TAPP_PERMISSION_CODE);
+        let message = error.message();
+        assert!(message.contains("ui:theme:read"));
+        assert!(message.contains("ui:theme:subscribe"));
     }
 
     #[test]
@@ -1046,7 +1151,7 @@ mod tests {
         let requested = vec![
             "storage:read".to_string(),
             "legacy:unknown".to_string(),
-            "ui:theme".to_string(),
+            "ui:theme:read".to_string(),
         ];
 
         let error = TappPermissionService::filter_permissions_for_role(

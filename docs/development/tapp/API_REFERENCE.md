@@ -186,7 +186,7 @@ const allSettings = await Tapp.settings.getAll();
 
 ## UI API
 
-**权限**: `ui:notification`, `ui:theme`, `ui:confirm`, `ui:fullscreen`, `ui:openUrl`
+**权限**: `ui:notification`, `ui:theme:read`, `ui:theme:subscribe`, `ui:confirm`, `ui:fullscreen`, `ui:openUrl`
 
 ### 基础 UI
 
@@ -245,20 +245,20 @@ await Tapp.ui.openUrl({
 ### 主题
 
 ```javascript
-// 获取当前主题
+// 获取当前主题（需要 ui:theme:read）
 const theme = await Tapp.ui.getTheme();
 // 返回: 'light' | 'dark'
 
-// 监听主题变化
+// 监听主题变化（需要 ui:theme:subscribe）
 const unsubscribe = Tapp.ui.onThemeChange((theme) => {
   console.log("主题切换为:", theme);
 });
 
-// 获取全局主色调（壁纸色）
+// 获取全局主色调（壁纸色；需要 ui:theme:read）
 const primaryColor = await Tapp.ui.getPrimaryColor();
 // 返回: '#6366f1' (十六进制颜色值)
 
-// 监听主色调变化
+// 监听主色调变化（需要 ui:theme:subscribe）
 Tapp.ui.onPrimaryColorChange((color) => {
   console.log("主色调变化:", color);
 });

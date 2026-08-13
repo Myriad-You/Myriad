@@ -312,7 +312,9 @@ pub(super) fn validate_sdk_namespaces(fields: &[(&str, &str)]) -> Result<(), Str
 /// `PREVIEW_PERMISSIONS` in `frontend/src/tapp/utils/previewGrants.ts`.
 pub(super) const PREVIEW_PERMISSIONS: &[&str] = &[
     "storage:read",
-    "ui:theme",
+    // Read-only theme access only; preview never grants the subscription
+    // half — least privilege, subscription needs install-time approval.
+    "ui:theme:read",
     "ui:confirm",
     "ui:fullscreen",
     "ui:openUrl",
@@ -803,12 +805,13 @@ mod tests {
             "storage:read".into(),
             "network:fetch".into(),
             "ai:generate".into(),
-            "ui:theme".into(),
+            "ui:theme:read".into(),
+            "ui:theme:subscribe".into(),
             "platform:read".into(),
         ];
         assert_eq!(
             select_preview_granted_permissions(&declared),
-            vec!["storage:read".to_string(), "ui:theme".to_string()]
+            vec!["storage:read".to_string(), "ui:theme:read".to_string()]
         );
         assert!(select_preview_granted_permissions(&[]).is_empty());
         // Deny-by-default: allowlist entries not declared stay ungranted.
@@ -817,6 +820,9 @@ mod tests {
             vec!["ui:confirm".to_string()]
         );
         assert!(select_preview_granted_permissions(&["media:read".into()]).is_empty());
+        // Least privilege: subscription is never granted merely because the
+        // read half is allowlisted and declared.
+        assert!(select_preview_granted_permissions(&["ui:theme:subscribe".into()]).is_empty());
     }
 
     #[test]

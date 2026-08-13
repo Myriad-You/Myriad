@@ -2940,6 +2940,7 @@ export const zhCN: TranslationKeys = {
     permNotification: '发送通知',
     permFullscreen: '全屏模式',
     permReadTheme: '读取主题',
+    permSubscribeTheme: '订阅主题变化',
     permConfirm: '确认对话框',
     permOpenUrl: '打开声明链接',
     permNetworkFetch: '网络请求',
@@ -2982,6 +2983,7 @@ export const zhCN: TranslationKeys = {
     permNotificationDesc: '允许发送系统通知',
     permFullscreenDesc: '允许请求全屏显示',
     permReadThemeDesc: '允许读取当前主题设置',
+    permSubscribeThemeDesc: '允许接收宿主主题变化事件',
     permConfirmDesc: '允许显示确认对话框',
     permOpenUrlDesc:
       '允许通过宿主打开 Manifest openUrls 中声明的链接（未声明地址一律拒绝）',
@@ -3166,7 +3168,7 @@ export const zhCN: TranslationKeys = {
     playgroundExampleLabelMarkdown: 'Markdown',
     playgroundExamplesLabel: '试试示例',
     playgroundPreviewCapabilities:
-      '预览仅支持 storage、settings、ui:theme、ui:confirm、ui:openUrl 与全屏等能力；其他权限需安装后使用。',
+      '预览仅支持 storage、settings、ui:theme:read、ui:confirm、ui:openUrl 与全屏等能力；主题变化订阅（ui:theme:subscribe）及其他权限需安装后使用。',
     playgroundPreviewCapabilitiesDismiss: '知道了',
     playgroundPruneNotice: '浏览器存储已满，已自动清理较早的历史以腾出空间。',
     playgroundPruneNoticeSessions: '已移除 {n} 个较早会话以腾出存储空间。',

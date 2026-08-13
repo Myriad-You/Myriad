@@ -819,7 +819,8 @@ Tapp 私有 storage、报告和内部状态不会因为知道另一个 `tappId` 
 | -------------------- | ---------------- |
 | `storage:read`       | 读取本地数据存储 |
 | `ui:notification`    | 显示通知         |
-| `ui:theme`           | 读取主题信息     |
+| `ui:theme:read`      | 读取主题信息（当前主题与主色） |
+| `ui:theme:subscribe` | 订阅主题变化     |
 | `ui:confirm`         | 显示确认对话框   |
 | `ui:openUrl`         | 打开 Manifest `openUrls` 声明的链接（宿主代开；未声明一律拒绝） |
 | `ui:fullscreen`      | 请求全屏显示     |

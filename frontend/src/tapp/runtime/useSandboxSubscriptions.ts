@@ -27,11 +27,15 @@ import { subscribeToTheme } from '../../utils/themeSubscriber'
  * @param bridgeRef - TappBridge 引用
  * @param isReady - 沙箱是否就绪
  * @param paused - Host has hidden this surface (e.g. multi-window minimize)
+ * @param canSubscribeTheme - granted `ui:theme:subscribe`; theme/primary-color
+ * change forwarding is gated on it so subscription requires its own granted
+ * permission (one-shot reads are gated separately via `ui:theme:read`).
  */
 export function useSandboxSubscriptions(
   bridgeRef: React.RefObject<TappBridge | null>,
   isReady: boolean,
   paused = false,
+  canSubscribeTheme = false,
 ): void {
   const pageVisibleRef = useRef(isPageVisible())
   const pausedRef = useRef(paused)
@@ -88,20 +92,20 @@ export function useSandboxSubscriptions(
     })
   }, [isReady, bridgeRef])
 
-  // 主题变化监听
+  // 主题变化监听（仅当已授予 ui:theme:subscribe 时转发，见上）
   useEffect(() => {
-    if (!isReady) return
+    if (!isReady || !canSubscribeTheme) return
     return subscribeToTheme((isDark) => {
       const bridge = bridgeRef.current
       if (bridge) {
         bridge.emit('theme:change', isDark ? 'dark' : 'light')
       }
     })
-  }, [isReady, bridgeRef])
+  }, [isReady, canSubscribeTheme, bridgeRef])
 
   // 主色调变化监听（isReady 时立即发送当前颜色 + 订阅后续变化）
   useEffect(() => {
-    if (!isReady) return
+    if (!isReady || !canSubscribeTheme) return
 
     const bridge = bridgeRef.current
     const currentColor = getPrimaryColor()
@@ -115,5 +119,5 @@ export function useSandboxSubscriptions(
         bridge.emit('primaryColor:change', color)
       }
     })
-  }, [isReady, bridgeRef])
+  }, [isReady, canSubscribeTheme, bridgeRef])
 }

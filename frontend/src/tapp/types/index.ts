@@ -444,7 +444,10 @@ export type TappPermission =
   // UI 权限
   | 'ui:notification'
   | 'ui:fullscreen'
-  | 'ui:theme'
+  /** 读取当前站点主题与主色（一次性） */
+  | 'ui:theme:read'
+  /** 订阅宿主主题/主色变化 */
+  | 'ui:theme:subscribe'
   | 'ui:confirm'
   /** Open host browser tab for a manifest `openUrls` allowlisted link only. */
   | 'ui:openUrl'
