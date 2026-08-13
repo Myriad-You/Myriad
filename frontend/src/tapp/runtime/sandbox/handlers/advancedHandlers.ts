@@ -5,7 +5,7 @@
  */
 
 import type { DynamicContentItem } from '../../../../services/DynamicContentProvider'
-import type { BackgroundRequirement, TappInstance } from '../../../types'
+import type { BackgroundRequirement, TappInstance, TappPermission } from '../../../types'
 import type { TappBridge } from '../../TappBridge'
 import type { AnimationConfigRef } from '../types'
 import { isExlight } from '../../../../hooks/useAnimationLevel'
@@ -24,8 +24,55 @@ import {
   hostUnbindAllForBridge,
   hostUnbindShortcut,
 } from '../../HostShortcutManager'
-import { MEDIA_ACTION_PERMISSIONS } from '../../permissionConfig'
+import { MEDIA_ACTION_PERMISSIONS, mediaControlGrantedDenial } from '../../permissionConfig'
 import { getTappRuntime } from '../../TappRuntime'
+
+/**
+ * 逐 action 回打 runtime-grants/authorize：在行为前确认该权限在服务端仍有效
+ * （吊销安全）。权限必须来自 MEDIA_ACTION_PERMISSIONS，绝不回退已删除的粗
+ * 权限 media:control。返回 null 表示通过，否则为拒绝文案。
+ */
+async function reauthorizeMediaAction(
+  bridge: TappBridge,
+  tappId: string,
+  permission: TappPermission,
+): Promise<string | null> {
+  try {
+    await authorizeTappRuntimePermission(
+      tappId,
+      permission,
+      await bridge.getRuntimeGrant(),
+    )
+    return null
+  } catch {
+    return `Permission denied: ${permission} was revoked`
+  }
+}
+
+/**
+ * 高层 media bridge action 的统一授权：granted 层判定 + 服务端回打。
+ * 沙箱每个写 action 在派发任何事件前必须通过这里。
+ */
+async function authorizeMediaBridgeAction(
+  bridge: TappBridge,
+  tappInstance: TappInstance,
+  action:
+    | 'media.playTrack'
+    | 'media.jumpToIndex'
+    | 'media.setSkipVip'
+    | 'media.loadNeteasePlaylist',
+): Promise<string | null> {
+  const grantedDenial = mediaControlGrantedDenial(
+    tappInstance.grantedPermissions,
+    action,
+  )
+  if (grantedDenial) return grantedDenial
+  return reauthorizeMediaAction(
+    bridge,
+    tappInstance.id,
+    MEDIA_ACTION_PERMISSIONS[action],
+  )
+}
 
 /**
  * 注册 Media 处理器
@@ -47,28 +94,23 @@ export function registerMediaHandlers(
       // 按 action 分域鉴权（最窄授权）：行为发生前先校验 granted 层权限，
       // 并用 runtime-grants/authorize 回打服务端确认（吊销安全）。
       // 旧的粗权限 media:control 已不存在，这里没有任何兼容别名。
-      const permission =
-        MEDIA_ACTION_PERMISSIONS[action as keyof typeof MEDIA_ACTION_PERMISSIONS]
-      if (!permission) {
+      if (!action || !MEDIA_ACTION_PERMISSIONS[action]) {
         return { success: false, error: `Unknown media action: ${action}` }
       }
-      if (!tappInstance.grantedPermissions?.includes(permission)) {
-        return {
-          success: false,
-          error: `Permission denied: ${permission} required`,
-        }
+      const grantedDenial = mediaControlGrantedDenial(
+        tappInstance.grantedPermissions,
+        action,
+      )
+      if (grantedDenial) {
+        return { success: false, error: grantedDenial }
       }
-      try {
-        await authorizeTappRuntimePermission(
-          tappInstance.id,
-          permission,
-          await bridge.getRuntimeGrant(),
-        )
-      } catch {
-        return {
-          success: false,
-          error: `Permission denied: ${permission} was revoked`,
-        }
+      const revoked = await reauthorizeMediaAction(
+        bridge,
+        tappInstance.id,
+        MEDIA_ACTION_PERMISSIONS[action],
+      )
+      if (revoked) {
+        return { success: false, error: revoked }
       }
 
       // 先触发播放器控制事件（即时响应，避免后端 API 延迟阻塞 UI）
@@ -321,6 +363,14 @@ export function registerMediaHandlers(
 
   // 设置「跳过/禁止播放 VIP 歌曲」开关
   bridge.registerHandler('media.setSkipVip', async (message) => {
+    const denied = await authorizeMediaBridgeAction(
+      bridge,
+      tappInstance,
+      'media.setSkipVip',
+    )
+    if (denied) {
+      return { success: false, error: denied }
+    }
     const [params] = (message.payload as { args: unknown[] }).args || []
     const { value } = (params || {}) as { value?: boolean }
     const skipVip = !!value
@@ -580,6 +630,14 @@ export function registerMediaHandlers(
   })
 
   bridge.registerHandler('media.playTrack', async (message) => {
+    const denied = await authorizeMediaBridgeAction(
+      bridge,
+      tappInstance,
+      'media.playTrack',
+    )
+    if (denied) {
+      return { success: false, error: denied }
+    }
     const [params] = (message.payload as { args: unknown[] }).args || []
     const raw = (params || {}) as {
       trackId?: string
@@ -695,6 +753,14 @@ export function registerMediaHandlers(
 
   // 在当前播放列表中跳转到指定索引（不触发临时播放）
   bridge.registerHandler('media.jumpToIndex', async (message) => {
+    const denied = await authorizeMediaBridgeAction(
+      bridge,
+      tappInstance,
+      'media.jumpToIndex',
+    )
+    if (denied) {
+      return { success: false, error: denied }
+    }
     const [params] = (message.payload as { args: unknown[] }).args || []
     const { index } = (params || {}) as { index?: number }
     const globalState = (
@@ -737,12 +803,14 @@ export function registerMediaHandlers(
       return { success: false, error: 'Playlist ID required' }
     }
 
-    // 检查权限：加载歌单属于队列域（media:queue）
-    if (!tappInstance.grantedPermissions?.includes('media:queue')) {
-      return {
-        success: false,
-        error: 'Permission denied: media:queue required',
-      }
+    // 检查权限：加载歌单属于队列域（media:queue），逐 action 回打服务端
+    const denied = await authorizeMediaBridgeAction(
+      bridge,
+      tappInstance,
+      'media.loadNeteasePlaylist',
+    )
+    if (denied) {
+      return { success: false, error: denied }
     }
 
     try {

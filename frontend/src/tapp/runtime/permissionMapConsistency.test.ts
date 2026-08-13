@@ -231,3 +231,69 @@ describe('media action → permission split', () => {
     }
   })
 })
+
+describe('media action fixture lockstep (media_action_permissions.json)', () => {
+  interface MediaActionEntry {
+    action: string
+    permission: string
+  }
+
+  interface MediaActionFixture {
+    controlActions: MediaActionEntry[]
+    bridgeActions: MediaActionEntry[]
+  }
+
+  const mediaFixture = loadJson<MediaActionFixture>('media_action_permissions.json')
+
+  it('MEDIA_ACTION_PERMISSIONS matches every control + bridge fixture row', () => {
+    for (const entry of [
+      ...mediaFixture.controlActions,
+      ...mediaFixture.bridgeActions,
+    ]) {
+      assert.equal(
+        MEDIA_ACTION_PERMISSIONS[entry.action],
+        entry.permission,
+        `MEDIA_ACTION_PERMISSIONS[${entry.action}] must be ${entry.permission}`,
+      )
+    }
+  })
+
+  it('MEDIA_ACTION_PERMISSIONS has no media write action outside the fixture', () => {
+    const fixtureKeys = new Set([
+      ...mediaFixture.controlActions.map((a) => a.action),
+      ...mediaFixture.bridgeActions.map((a) => a.action),
+    ])
+    for (const key of Object.keys(MEDIA_ACTION_PERMISSIONS)) {
+      assert.ok(
+        fixtureKeys.has(key),
+        `MEDIA_ACTION_PERMISSIONS key ${key} missing from media_action_permissions.json`,
+      )
+    }
+  })
+
+  it('PERMISSION_MAP bridge rows match the fixture and media.control stays public', () => {
+    for (const entry of mediaFixture.bridgeActions) {
+      assert.equal(
+        PERMISSION_MAP.get(entry.action),
+        entry.permission,
+        `PERMISSION_MAP[${entry.action}] must be ${entry.permission}`,
+      )
+    }
+    assert.equal(PERMISSION_MAP.get('media.control'), 'public')
+    assert.equal(PERMISSION_MAP.get('media.getStatus'), 'media:read')
+  })
+
+  it('every media fixture permission is a basic level', () => {
+    for (const entry of [
+      ...mediaFixture.controlActions,
+      ...mediaFixture.bridgeActions,
+    ]) {
+      const level = PERMISSION_LEVELS[entry.permission as keyof typeof PERMISSION_LEVELS]
+      assert.equal(
+        level,
+        'basic',
+        `fixture permission ${entry.permission} for ${entry.action} must be basic`,
+      )
+    }
+  })
+})

@@ -1,0 +1,20 @@
+{
+  "description": "media 域写 action → 最窄动作域权限的机器可读事实源。controlActions 是 POST /api/tapp/media/control 与沙箱 media.control handler 的 payload.action（playback=media:playback，volume=media:volume，mode=media:queue）；bridgeActions 是 TappBridge 顶层 action，用于 PERMISSION_MAP 与 SDK。前端 MEDIA_ACTION_PERMISSIONS / PERMISSION_MAP 一致性测试与后端 media_control_permission 表驱动测试共同锁定本文件；旧的粗权限 media:control 已移除，无兼容别名。",
+  "controlActions": [
+    { "action": "play", "permission": "media:playback" },
+    { "action": "pause", "permission": "media:playback" },
+    { "action": "next", "permission": "media:playback" },
+    { "action": "prev", "permission": "media:playback" },
+    { "action": "seek", "permission": "media:playback" },
+    { "action": "volume", "permission": "media:volume" },
+    { "action": "mute", "permission": "media:volume" },
+    { "action": "unmute", "permission": "media:volume" },
+    { "action": "mode", "permission": "media:queue" }
+  ],
+  "bridgeActions": [
+    { "action": "media.playTrack", "permission": "media:playback" },
+    { "action": "media.jumpToIndex", "permission": "media:playback" },
+    { "action": "media.setSkipVip", "permission": "media:queue" },
+    { "action": "media.loadNeteasePlaylist", "permission": "media:queue" }
+  ]
+}

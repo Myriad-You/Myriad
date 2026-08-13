@@ -1,12 +1,14 @@
 # Tapp host permission fixtures
 
 Machine-readable source of truth for **speech / brew / federation** host-proxied
-capabilities. Comment-only sync across stacks is not enough; tests fail on drift.
+capabilities and the **media** action-domain split. Comment-only sync across
+stacks is not enough; tests fail on drift.
 
 | File | What it captures | Consumers |
 | ---- | ---------------- | --------- |
 | `host_route_permissions.json` | HTTP method + Axum matched path → permission | Backend `host_attribution` (loaded at runtime via `include_str!`) + Rust unit tests |
-| `action_permissions.json` | Sandbox bridge action → permission | Frontend `PERMISSION_MAP` consistency test + Rust permission-string checks |
+| `action_permissions.json` | Sandbox bridge action → permission (speech / brew / federation) | Frontend `PERMISSION_MAP` consistency test + Rust permission-string checks |
+| `media_action_permissions.json` | media 域写 action → 最窄权限（control 子 action + 高层 bridge action） | Frontend `MEDIA_ACTION_PERMISSIONS` / `PERMISSION_MAP` consistency test + backend `media_control_permission` table-driven tests |
 
 ## How to update
 
@@ -29,6 +31,6 @@ capabilities. Comment-only sync across stacks is not enough; tests fail on drift
 
 ## Out of scope
 
-- Non-host-proxied sandbox actions (storage, AI, etc.) still live only in
-  `PERMISSION_MAP`.
+- Non-host-proxied sandbox actions outside the media split (storage, AI, etc.)
+  still live only in `PERMISSION_MAP`.
 - WebSocket tickets, CSP, quotas.

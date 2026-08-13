@@ -69,25 +69,17 @@ export const PERMISSION_LEVELS: Record<TappPermission, TappPermissionLevel> = {
 }
 
 /**
- * `media.control` action → 最窄动作域权限。
+ * `media` 域写 action → 最窄动作域权限。
  *
  * 与后端 `media_control_permission`（backend/src/api/tapp_runtime/media.rs）
- * 镜像；两侧表驱动测试锁定同一份映射。旧的粗权限 `media:control` 已移除，
- * 这里不存在任何兼容别名：播放状态=media:playback，音量=media:volume，
- * 队列/模式=media:queue。
+ * 及 `docs/development/tapp/fixtures/media_action_permissions.json` 镜像，
+ * 前后端表驱动测试共同锁定同一份映射。control 子 action 用于 media.control
+ * 的 payload.action 与 POST /api/tapp/media/control；bridge 顶层 action 用于
+ * TappBridge 高层 handler。旧的粗权限 `media:control` 已移除，这里不存在
+ * 任何兼容别名：播放状态=media:playback，音量=media:volume，队列/模式=media:queue。
  */
-export const MEDIA_ACTION_PERMISSIONS: Record<
-  | 'play'
-  | 'pause'
-  | 'next'
-  | 'prev'
-  | 'seek'
-  | 'volume'
-  | 'mode'
-  | 'mute'
-  | 'unmute',
-  TappPermission
-> = {
+export const MEDIA_ACTION_PERMISSIONS: Record<string, TappPermission> = {
+  // media.control 子 action（payload.action）
   play: 'media:playback',
   pause: 'media:playback',
   next: 'media:playback',
@@ -97,6 +89,30 @@ export const MEDIA_ACTION_PERMISSIONS: Record<
   mute: 'media:volume',
   unmute: 'media:volume',
   mode: 'media:queue',
+  // 高层 bridge action（TappBridge / SDK）
+  'media.playTrack': 'media:playback',
+  'media.jumpToIndex': 'media:playback',
+  'media.setSkipVip': 'media:queue',
+  'media.loadNeteasePlaylist': 'media:queue',
+}
+
+/**
+ * media 写 action 在 granted 层的拒绝判定（沙箱 handler 行为前调用）。
+ *
+ * 返回 null 表示 granted 层放行（调用方仍须回打 runtime-grants/authorize，
+ * 后端 POST /api/tapp/media/control 亦按 action 再强制）。未知 action 一律
+ * 拒绝；缺失权限给出最窄权限名的 deny 文案。
+ */
+export function mediaControlGrantedDenial(
+  grantedPermissions: readonly string[] | undefined | null,
+  action: string,
+): string | null {
+  const permission = MEDIA_ACTION_PERMISSIONS[action]
+  if (!permission) return `Unknown media action: ${action}`
+  if (!grantedPermissions?.includes(permission)) {
+    return `Permission denied: ${permission} required`
+  }
+  return null
 }
 
 /**
