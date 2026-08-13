@@ -426,7 +426,7 @@ const GlobalControlPanel: React.FC = () => {
   // （面板里的动效开关，以及 startAutoFrameAdapt 掉帧时的自动降级——
   // 后者恰好发生在低端设备 morph 掉帧时），若让它进 settle effect 的依赖，
   // effect 会重建并在 cleanup 里提前派发 gcp-animation-end，
-  // 触发一次 measure(true) 在 morph 中途写高度顶跳外壳。
+  // 触发一次绕过 morph 闸门的重测，在过渡中途写高度顶跳外壳。
   const motionRef = useRef(motion)
   useLayoutEffect(() => {
     motionRef.current = motion
@@ -926,13 +926,19 @@ const GlobalControlPanel: React.FC = () => {
     // 加大节流时间，减少克隆测量频率
     const THROTTLE_MS = isMobileDevice ? 1200 : 600
 
-    const measure = (force = false) => {
-      // morph 期间不写高度：目标值留给动画结束后的 measure(true) 一次性应用，
-      // 异步到达的用户/配置/音乐/通知内容不会在过渡中途顶跳外壳
-      if (morphingRef.current && !force) return
+    /**
+     * 两个闸门是独立的，不能用同一个 force 一起绕过：
+     * - duringMorph：morph 期间不写高度，目标值留到动画结束一次性应用，
+     *   否则异步到达的用户/配置/音乐/通知内容会在过渡中途顶跳外壳
+     * - immediate：跳过节流。行数切换这类用户主动触发的尺寸变化需要外壳
+     *   当帧就拿到新目标值，才能和内容高度跑在同一条时间线上；
+     *   但它仍然必须服从 morph 闸门
+     */
+    const measure = (opts?: { immediate?: boolean, duringMorph?: boolean }) => {
+      if (morphingRef.current && !opts?.duringMorph) return
 
       const now = Date.now()
-      if (now - lastUpdateTime < THROTTLE_MS && !force) {
+      if (now - lastUpdateTime < THROTTLE_MS && !opts?.immediate) {
         // 如果在节流期内,标记待测量,稍后执行
         if (!pendingMeasure) {
           pendingMeasure = true
@@ -984,20 +990,24 @@ const GlobalControlPanel: React.FC = () => {
     }
 
     // 立即测量，确保动画起始帧即为正确高度
-    measure(true)
+    measure({ immediate: true, duringMorph: true })
 
     // 动画结束后精确重测一次，补齐 morph 期间被丢弃的内容变化。
     // 注意：闸门读的是组件级 morphingRef，本 effect 因依赖变化重建时
     // 不会丢失「当前正在动画」这一事实（旧实现的局部标记会被重置为 false）
     const handleAnimationEnd = () => {
       lastUpdateTime = 0
-      measure(true)
+      measure({ immediate: true, duringMorph: true })
     }
     window.addEventListener('gcp-animation-end', handleAnimationEnd)
 
-    // 统一使用事件驱动重测（移除轮询）
-    const handleRemeasure = () => {
-      measure()
+    // 统一使用事件驱动重测（移除轮询）。
+    // detail.immediate 由内容侧在「用户主动改变尺寸」时带上（如小组件行数切换），
+    // 用于跳过节流，让外壳与内容的高度动画同帧开始
+    const handleRemeasure = (e: Event) => {
+      const detail = (e as CustomEvent<{ immediate?: boolean } | undefined>)
+        .detail
+      measure({ immediate: detail?.immediate })
     }
     window.addEventListener('gcp-remeasure', handleRemeasure)
     // 兼容 ControlPanelWidgets 触发的事件
@@ -1064,7 +1074,7 @@ const GlobalControlPanel: React.FC = () => {
     // .control-items-grid 内部（contentEl 的孙节点），MutationObserver
     // （仅监听直接子节点）观察不到，移动端又没有 ResizeObserver 兜底——
     // 历史上全靠 ×1.08 的冗余高度硬扛，不够时按钮被裁掉"第一时间不显示"。
-    // 加入 deps 后翻转即触发 measure(true) 精确重测
+    // 加入 deps 后翻转即触发一次强制重测，精确修正高度
   }, [
     isExpanded,
     perf.highHardware,

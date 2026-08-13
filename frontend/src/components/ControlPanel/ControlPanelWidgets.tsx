@@ -5,6 +5,7 @@ import React, {
   memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -23,6 +24,7 @@ import { getUIConfigDeduped } from '../../utils/requestDedup'
 import WidgetGrid from '../WidgetGrid'
 import { getBuiltinWidgets } from '../widgets/builtinWidgets'
 import { shouldAutoAdvanceWidgets } from './widgetCarousel'
+import { packControlPanelWidgets } from './widgetReflow'
 import './ControlPanelWidgets.css'
 
 const API_URL = CONFIG_API_URL
@@ -94,6 +96,11 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
     const startRowsRef = useRef(2)
     const currentDragRowsRef = useRef(2)
     const isDraggingRef = useRef(false)
+    // 行数切换前的容器高度，供切换后的 FLIP 动画用
+    const heightBeforeRowsRef = useRef<number | null>(null)
+    // 行数切换动画进行中：期间的尺寸变化由下面的 layout effect 统一驱动，
+    // ResizeObserver 不要再把动画中间值当成新目标报给外壳
+    const rowsAnimatingRef = useRef(false)
     const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
     const containerRef = useRef<HTMLDivElement>(null)
 
@@ -191,6 +198,11 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
 
     const handleRowsChange = useCallback(
       (rows: number) => {
+        // 必须在 setState 之前同步读，之后 DOM 已经是新布局
+        const el = containerRef.current
+        heightBeforeRowsRef.current = el
+          ? el.getBoundingClientRect().height
+          : null
         setGridRows(rows)
 
         // 当切换到 1 行模式时，自动调整小组件尺寸为 4x1
@@ -203,11 +215,9 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
                 (wt) => wt.id === w.type,
               )
               if (widgetType?.supportedSizes?.includes('4x1')) {
-                return {
-                  ...w,
-                  size: '4x1' as const,
-                  position: { x: w.position.x, y: 0 },
-                }
+                // 位置交给下面的重新打包决定：这里若保留原 x，
+                // 宽度从 2 列变 4 列后相邻小组件必然叠上
+                return { ...w, size: '4x1' as const }
               }
               // Keep unknown types (e.g. Tapp still loading) so we don't drop them
               if (!widgetType && isTappWidgetsLoading) return w
@@ -234,6 +244,10 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
           })
         }
 
+        // 行数变化会改变每个小组件占的格子数，原坐标不再成立 ——
+        // 按当前顺序重新打包，保证输出恒不重叠（见 widgetReflow.test.ts）
+        updatedWidgets = packControlPanelWidgets(updatedWidgets, rows)
+
         setWidgets(updatedWidgets)
         setRawLayoutData(updatedWidgets)
         // Avoid persisting a layout filtered without Tapp catalog
@@ -243,6 +257,55 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
       },
       [widgets, saveToBackend, CONTROL_PANEL_WIDGETS, isTappWidgetsLoading],
     )
+
+    /**
+     * 行数切换的高度过渡：让内容与外壳跑在同一条时间线上。
+     *
+     * 内容高度由 WidgetGrid 的 autoHeight 决定，是 auto —— `transition-all`
+     * 对 auto 不生效，所以旧行为是内容瞬间跳变；而外壳要等
+     * ResizeObserver 的 150ms 节流 + 测量侧的 600ms 节流才开始它的 700ms 过渡，
+     * 中间几百毫秒面板底部要么露白要么把控制项裁掉。
+     *
+     * 这里把新高度钉成显式值做 FLIP，并在同一帧用 immediate 重测通知外壳，
+     * 两条高度用同一个 --gcp-morph 时长与曲线同时开始、同时结束。
+     */
+    useLayoutEffect(() => {
+      const el = containerRef.current
+      const from = heightBeforeRowsRef.current
+      heightBeforeRowsRef.current = null
+      if (!el || from == null) return
+
+      // 此刻 DOM 已是新布局，height 仍是 auto，读到的就是目标高度
+      const to = el.getBoundingClientRect().height
+      if (Math.abs(to - from) < 1) return
+
+      // 先让外壳按新的内容高度拿到目标值（measure 读的是 auto 布局下的
+      // scrollHeight，必须赶在下面把高度钉住之前完成）
+      window.dispatchEvent(
+        new CustomEvent('gcp-remeasure', { detail: { immediate: true } }),
+      )
+
+      rowsAnimatingRef.current = true
+      el.style.height = `${from}px`
+      void el.offsetHeight // 强制回流，确保下一行是一次真正的过渡起点
+      el.style.height = `${to}px`
+
+      const done = (e: TransitionEvent) => {
+        if (e.target !== el || e.propertyName !== 'height') return
+        finish()
+      }
+      const finish = () => {
+        el.removeEventListener('transitionend', done)
+        window.clearTimeout(fallback)
+        rowsAnimatingRef.current = false
+        el.style.height = '' // 交还给内容驱动
+      }
+      // 兜底：过渡被打断或时长被 reduced-motion 压到 0 时仍要解除钉住
+      const fallback = window.setTimeout(finish, 1200)
+      el.addEventListener('transitionend', done)
+
+      return finish
+    }, [gridRows])
 
     // 🆕 使用首页原子化 ResizeObserver
     const { observeHomeResize, unobserveHomeResize } = useHomeResizeObserver()
@@ -256,6 +319,8 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
       const THROTTLE_MS = 150 // 最少150ms触发一次
 
       observeHomeResize(widgetContainer, () => {
+        // 行数切换动画期间高度每帧都在变，交给 layout effect 一次性通知外壳
+        if (rowsAnimatingRef.current) return
         if (throttleTimer) return
 
         throttleTimer = setTimeout(() => {
