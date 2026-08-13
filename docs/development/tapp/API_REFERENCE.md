@@ -933,12 +933,17 @@ Runtime Grant 中。
 | 权限 | 用途 |
 | ---- | ---- |
 | `federation:read` | 身份、Feed/Timeline、关注列表、已发布列表、Channel/Room/Ring 读取 |
-| `federation:write` | 关注/取关、publish、createNote、uploadMedia、unpublish、创建/治理 Channel·Room·Ring |
+| `federation:post` | 发布/取消发布、createNote、uploadMedia、密钥轮换、对外投递管理（Elevated） |
+| `federation:interact` | 关注/取关、点赞/取消点赞、收藏/取消收藏、转发/取消转发（Basic） |
+| `federation:channel` | 创建/接受/关闭/删除频道及频道 E2E 密钥协商（Elevated） |
+| `federation:room` | 创建/更新/删除/加入/邀请/治理房间、E2E 密钥、贴纸、置顶（Elevated） |
+| `federation:ring` | Ring 成员管理与 peer/同步操作（Basic） |
 | `federation:message` | 发送 Channel/Room 消息与实时订阅（WS ticket） |
 | `federation:files` | Channel 文件分块传输 |
 | `federation:trust` | 实例信任策略（特权，仅管理员） |
 
-游客不会取得 `federation:write`、`federation:message` 或 `federation:files`。Tapp 应使用
+游客不会取得 `federation:post`、`federation:interact`、`federation:channel`、
+`federation:room`、`federation:ring`、`federation:message` 或 `federation:files`。Tapp 应使用
 `Tapp.user.getRole()` 调整界面，不要向游客展示关注、发布、私聊、Room 或文件传输操作。
 
 **Channel 列表与游客**：`GET /api/federation/channels` 需要登录。宿主对
@@ -973,7 +978,7 @@ Timeline。需要同时展示公开内容时优先 `getFeed()`；`getTimeline()`
 
 ### 媒体上传与 freeform Note
 
-**权限**: `federation:write`
+**权限**: `federation:post`
 
 推荐流程：**先 `uploadMedia`，再把返回的 URL 放进 `createNote` / `publish` 的
 `attachments`**。不要把任意外链当作附件；bridge 与后端都会校验联邦媒体 URL 形态
@@ -1051,9 +1056,9 @@ SDK 已暴露完整方法面（`sdkGenerator` + `FederationBridge`）。调用�
 
 | 域 | 读 (`federation:read`) | 写 / 消息 |
 | -- | ---------------------- | --------- |
-| Channel | `getChannels`, `getChannel`, `getMessages` | `createChannel`, `acceptChannel`, `closeChannel`, `deleteChannel`；E2E：`initiateChannelE2e`（`federation:write`）；消息与订阅：`sendMessage`, `subscribeChannel`…（`federation:message`） |
-| Room | `getRooms`, `getRoom`, `getRoomMembers`, `getRoomMessages`, `listRoomFiles` | `createRoom`, `updateRoom`, `inviteMember`, `acceptRoomInvite`, `rejectRoomInvite`, `joinRoom`, `removeMember`, `leaveRoom`, `transferRoomOwnership`, `deleteRoom`, `pinRoomMessage`；E2E：`initiateRoomE2e`（`federation:write`）；消息：`sendRoomMessage`（`federation:message`） |
-| Ring | `getRings`, `getRing`, `getRingPeers` | `createRing`, `leaveRing`, `addPeer`, `removePeer`, `triggerSync` |
+| Channel | `getChannels`, `getChannel`, `getMessages` | `createChannel`, `acceptChannel`, `closeChannel`, `deleteChannel`；E2E：`initiateChannelE2e`（`federation:channel`）；消息与订阅：`sendMessage`, `subscribeChannel`…（`federation:message`） |
+| Room | `getRooms`, `getRoom`, `getRoomMembers`, `getRoomMessages`, `listRoomFiles` | `createRoom`, `updateRoom`, `inviteMember`, `acceptRoomInvite`, `rejectRoomInvite`, `joinRoom`, `removeMember`, `leaveRoom`, `transferRoomOwnership`, `deleteRoom`, `pinRoomMessage`；E2E：`initiateRoomE2e`（`federation:room`）；消息：`sendRoomMessage`（`federation:message`） |
+| Ring | `getRings`, `getRing`, `getRingPeers` | `createRing`, `leaveRing`, `addPeer`, `removePeer`, `triggerSync`（`federation:ring`） |
 | Trust | — | `getTrustPolicy`, `getInstances`, `updateInstanceTrust`, `toggleInstanceBlock`（`federation:trust`） |
 | Files | — | `initiateTransfer`, `initiateRoomTransfer`, `listTransfers`, `listRoomTransfers`, `getTransfer`, `uploadChunk`, `cancelTransfer`, `downloadTransfer`（`federation:files`） |
 

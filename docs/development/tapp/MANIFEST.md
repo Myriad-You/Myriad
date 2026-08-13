@@ -835,7 +835,8 @@ Tapp 私有 storage、报告和内部状态不会因为知道另一个 `tappId` 
 | `media:audio`        | 播放包内/blob/data 音频 |
 | `event:subscribe`    | 订阅声明的 topic |
 | `federation:read`    | 读取联邦数据     |
-| `federation:write`   | 联邦个人操作     |
+| `federation:interact` | 关注/取关、点赞、收藏、转发（announce）（需持久登录主体） |
+| `federation:ring`    | Ring 成员管理与 peer/同步操作（需持久登录主体） |
 | `federation:message` | 联邦消息         |
 | `federation:files`   | 联邦文件传输     |
 
@@ -855,6 +856,9 @@ Tapp 私有 storage、报告和内部状态不会因为知道另一个 `tappId` 
 | `speech:tts`         | 文本转语音        |
 | `speech:asr`         | 语音转文本        |
 | `storage:write`      | 写入本地数据存储  |
+| `federation:post`    | 发布/取消发布、创建 Note、上传媒体、密钥轮换与对外投递管理 |
+| `federation:channel` | 创建/接受/关闭/删除频道及频道 E2E 密钥协商 |
+| `federation:room`    | 创建/更新/删除/加入/邀请/治理房间、E2E 密钥、贴纸与置顶 |
 
 `brew:write` 与 `brew:comment` 描述的是 Tapp 能力，不按宿主用户角色下放。Tapp 仍必须在
 Manifest 中声明并在安装时获授；实际读写始终落在当前会话可访问的 Brew 数据范围内。
@@ -862,7 +866,8 @@ Manifest 中声明并在安装时获授；实际读写始终落在当前会话�
 “基础”表示不需要管理员额外下放 elevated 权限，不等于匿名访客一定可用。访客没有持久
 用户主体时，部分能力仍可通过签名游客 session 使用（如 `storage:read`、`platform:read`、
 `analytics:read`）。下列能力的真实后端路由仍要求登录：`brew:write`、
-`brew:comment`、`report:read`、`ui:notification` 等。
+`brew:comment`、`report:read`、`ui:notification`、`federation:interact`、
+`federation:ring` 等。
 
 `component:theme`、`shortcut:register`、`scheduler:register`、`speech:tts` 与 `speech:asr`
 也要求持久登录主体，不会下放给匿名访客；管理配置中的旧字段仅为兼容历史配置而保留，
