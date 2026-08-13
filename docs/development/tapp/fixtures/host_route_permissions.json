@@ -84,61 +84,61 @@
       "domain": "brew",
       "method": "POST",
       "path": "/api/brew/items/{id}/read",
-      "permission": "brew:write"
+      "permission": "brew:readStatus"
     },
     {
       "domain": "brew",
       "method": "POST",
       "path": "/api/brew/items/{id}/unread",
-      "permission": "brew:write"
+      "permission": "brew:readStatus"
     },
     {
       "domain": "brew",
       "method": "POST",
       "path": "/api/brew/items/{id}/star",
-      "permission": "brew:write"
+      "permission": "brew:favorite"
     },
     {
       "domain": "brew",
       "method": "POST",
       "path": "/api/brew/items/{id}/unstar",
-      "permission": "brew:write"
+      "permission": "brew:favorite"
     },
     {
       "domain": "brew",
       "method": "POST",
       "path": "/api/brew/mark-all-read",
-      "permission": "brew:write"
+      "permission": "brew:readStatus"
     },
     {
       "domain": "brew",
       "method": "GET",
       "path": "/api/brew/items/{id}/comments",
-      "permission": "brew:comment"
+      "permission": "brew:read"
     },
     {
       "domain": "brew",
       "method": "POST",
       "path": "/api/brew/items/{id}/comments",
-      "permission": "brew:comment"
+      "permission": "brew:commentWrite"
     },
     {
       "domain": "brew",
       "method": "PUT",
       "path": "/api/brew/comments/{id}",
-      "permission": "brew:comment"
+      "permission": "brew:commentWrite"
     },
     {
       "domain": "brew",
       "method": "DELETE",
       "path": "/api/brew/comments/{id}",
-      "permission": "brew:comment"
+      "permission": "brew:commentWrite"
     },
     {
       "domain": "brew",
       "method": "GET",
       "path": "/api/brew/comments/{id}/replies",
-      "permission": "brew:comment"
+      "permission": "brew:read"
     },
     {
       "domain": "brew",

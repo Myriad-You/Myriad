@@ -826,6 +826,11 @@ impl ConfigService {
                 config.user_perm_storage_write = b;
             }
         }
+        if let Some(v) = map.get("user_perm_brew_comment_write") {
+            if let Some(b) = v.as_bool() {
+                config.user_perm_brew_comment_write = b;
+            }
+        }
 
         // 游客可下放的 elevated 权限（13 项）
         if let Some(v) = map.get("guest_perm_ai_generate") {
@@ -896,6 +901,11 @@ impl ConfigService {
         if let Some(v) = map.get("guest_perm_storage_write") {
             if let Some(b) = v.as_bool() {
                 config.guest_perm_storage_write = b;
+            }
+        }
+        if let Some(v) = map.get("guest_perm_brew_comment_write") {
+            if let Some(b) = v.as_bool() {
+                config.guest_perm_brew_comment_write = b;
             }
         }
 

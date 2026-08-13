@@ -83,8 +83,9 @@ pub fn get_rate_limit_config(operation: &str) -> (u32, u64) {
         // Storage autosave / multi-key writes are normal Tapp traffic.
         "storage.set" | "storage.clear" => (180, 60),
         // Host-proxied brew mutations (grant-bearing only).
-        "brew.write" => (90, 60),
-        "brew.comment" => (90, 60),
+        "brew.readStatus" => (90, 60),
+        "brew.favorite" => (90, 60),
+        "brew.commentWrite" => (90, 60),
         "brew.manage" => (30, 60),
         // Host-proxied federation mutations.
         "federation.write" => (90, 60),
@@ -108,8 +109,9 @@ pub fn get_rate_limit_config(operation: &str) -> (u32, u64) {
 /// counted against `speech.tts`.
 pub fn host_write_rate_limit_operation(permission: TappPermission) -> Option<&'static str> {
     match permission {
-        TappPermission::BrewWrite => Some("brew.write"),
-        TappPermission::BrewComment => Some("brew.comment"),
+        TappPermission::BrewReadStatus => Some("brew.readStatus"),
+        TappPermission::BrewFavorite => Some("brew.favorite"),
+        TappPermission::BrewCommentWrite => Some("brew.commentWrite"),
         TappPermission::BrewManage => Some("brew.manage"),
         TappPermission::FederationWrite => Some("federation.write"),
         TappPermission::FederationMessage => Some("federation.message"),
@@ -342,12 +344,16 @@ mod tests {
     #[test]
     fn host_write_permissions_map_to_operation_classes() {
         assert_eq!(
-            host_write_rate_limit_operation(TappPermission::BrewWrite),
-            Some("brew.write")
+            host_write_rate_limit_operation(TappPermission::BrewReadStatus),
+            Some("brew.readStatus")
         );
         assert_eq!(
-            host_write_rate_limit_operation(TappPermission::BrewComment),
-            Some("brew.comment")
+            host_write_rate_limit_operation(TappPermission::BrewFavorite),
+            Some("brew.favorite")
+        );
+        assert_eq!(
+            host_write_rate_limit_operation(TappPermission::BrewCommentWrite),
+            Some("brew.commentWrite")
         );
         assert_eq!(
             host_write_rate_limit_operation(TappPermission::BrewManage),
@@ -403,8 +409,9 @@ mod tests {
     #[test]
     fn host_write_rate_limit_defaults_are_sensible() {
         // (limit, window_secs) — tens–low hundreds / minute; manage/trust/speech stricter.
-        assert_eq!(get_rate_limit_config("brew.write"), (90, 60));
-        assert_eq!(get_rate_limit_config("brew.comment"), (90, 60));
+        assert_eq!(get_rate_limit_config("brew.readStatus"), (90, 60));
+        assert_eq!(get_rate_limit_config("brew.favorite"), (90, 60));
+        assert_eq!(get_rate_limit_config("brew.commentWrite"), (90, 60));
         assert_eq!(get_rate_limit_config("brew.manage"), (30, 60));
         assert_eq!(get_rate_limit_config("federation.write"), (90, 60));
         assert_eq!(get_rate_limit_config("federation.message"), (180, 60));
@@ -414,7 +421,7 @@ mod tests {
         assert_eq!(get_rate_limit_config("speech.asr"), (45, 60));
 
         // Stricter classes stay below chatty ones.
-        assert!(get_rate_limit_config("brew.manage").0 < get_rate_limit_config("brew.write").0);
+        assert!(get_rate_limit_config("brew.manage").0 < get_rate_limit_config("brew.readStatus").0);
         assert!(
             get_rate_limit_config("federation.trust").0
                 < get_rate_limit_config("federation.message").0

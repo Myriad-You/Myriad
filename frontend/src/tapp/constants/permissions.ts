@@ -17,6 +17,7 @@ import {
   FaBrain,
   FaBroadcastTower,
   FaChartBar,
+  FaCheckCircle,
   FaClock,
   FaCog,
   FaComments,
@@ -43,6 +44,7 @@ import {
   FaQuestionCircle,
   FaRobot,
   FaServer,
+  FaStar,
   FaTh,
   FaTools,
   FaUsers,
@@ -253,15 +255,20 @@ export const PERMISSION_CONFIG: Record<
     labelKey: 'permReadBrew',
     descriptionKey: 'permReadBrewDesc',
   },
-  'brew:write': {
-    icon: FaEdit,
-    labelKey: 'permWriteBrew',
-    descriptionKey: 'permWriteBrewDesc',
+  'brew:readStatus': {
+    icon: FaCheckCircle,
+    labelKey: 'permReadStatusBrew',
+    descriptionKey: 'permReadStatusBrewDesc',
   },
-  'brew:comment': {
+  'brew:favorite': {
+    icon: FaStar,
+    labelKey: 'permFavoriteBrew',
+    descriptionKey: 'permFavoriteBrewDesc',
+  },
+  'brew:commentWrite': {
     icon: FaComments,
-    labelKey: 'permCommentBrew',
-    descriptionKey: 'permCommentBrewDesc',
+    labelKey: 'permCommentWriteBrew',
+    descriptionKey: 'permCommentWriteBrewDesc',
   },
   'brew:manage': {
     icon: FaCog,

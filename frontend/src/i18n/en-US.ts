@@ -3111,8 +3111,9 @@ export const enUS: TranslationKeys = {
     permReadTappList: 'Read Tapp List',
     permManageTappList: 'Manage Tapp List',
     permReadBrew: 'Read Brew',
-    permWriteBrew: 'Write Brew',
-    permCommentBrew: 'Comment on Brew',
+    permReadStatusBrew: 'Change Read Status',
+    permFavoriteBrew: 'Favorite Brew Content',
+    permCommentWriteBrew: 'Write Brew Comments',
     permManageBrew: 'Manage Brew',
     permReadFederation: 'Read Federation Data',
     permWriteFederation: 'Write Federation Data',
@@ -3158,9 +3159,13 @@ export const enUS: TranslationKeys = {
     permSpeechAsrDesc: 'Allow using speech recognition service',
     permReadTappListDesc: 'Allow reading the installed Tapp list',
     permManageTappListDesc: 'Allow installing, updating, or removing Tapps',
-    permReadBrewDesc: 'Allow reading Brew feeds and articles',
-    permWriteBrewDesc: 'Allow writing Brew feed and article data',
-    permCommentBrewDesc: 'Allow creating and managing Brew comments',
+    permReadBrewDesc: 'Allow reading Brew feeds, articles, and comments',
+    permReadStatusBrewDesc:
+      'Allow marking articles read / unread / all read (current user only)',
+    permFavoriteBrewDesc:
+      'Allow starring / unstarring articles (current user only)',
+    permCommentWriteBrewDesc:
+      'Allow creating, editing, or deleting Brew comments and replies',
     permManageBrewDesc: 'Allow managing Brew sources and advanced settings',
     permReadFederationDesc:
       'Allow reading federation rooms, channels, and members',

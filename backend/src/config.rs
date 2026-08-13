@@ -462,6 +462,8 @@ pub struct DynamicConfig {
     pub user_perm_speech_asr: bool,
     /// storage:write - 写入 Tapp 存储
     pub user_perm_storage_write: bool,
+    /// brew:commentWrite - 写 Brew 评论（需登录主体）
+    pub user_perm_brew_comment_write: bool,
 
     // 游客可使用的 elevated 权限（14 项）
     /// ai:generate - AI 生成内容（游客）
@@ -492,6 +494,8 @@ pub struct DynamicConfig {
     pub guest_perm_speech_asr: bool,
     /// storage:write - 写入 Tapp 存储（游客）
     pub guest_perm_storage_write: bool,
+    /// brew:commentWrite - 写 Brew 评论（游客；路由要求登录主体，实际恒为关闭）
+    pub guest_perm_brew_comment_write: bool,
 
     // AI 使用限额配置（当权限已下放时生效）
     // 这些限额只对非管理员用户生效，管理员无限制
@@ -710,6 +714,7 @@ impl Default for DynamicConfig {
             user_perm_speech_tts: false,
             user_perm_speech_asr: false,
             user_perm_storage_write: false,
+            user_perm_brew_comment_write: false,
 
             // 游客 elevated 权限默认值
             // 默认全部关闭
@@ -727,6 +732,7 @@ impl Default for DynamicConfig {
             guest_perm_speech_tts: false,
             guest_perm_speech_asr: false,
             guest_perm_storage_write: false,
+            guest_perm_brew_comment_write: false,
 
             // AI 使用限额默认值
             // 普通用户: 每日 50 次调用, 20000 tokens, 5 秒冷却

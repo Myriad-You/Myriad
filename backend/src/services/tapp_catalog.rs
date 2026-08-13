@@ -229,7 +229,7 @@ mod tests {
                 "main": "main.js",
                 "iconSvg": "<svg/>",
                 "locales": { "zh-CN": { "name": "详情" } },
-                "permissions": ["storage:read", "brew:write", "ai:generate"]
+                "permissions": ["storage:read", "brew:readStatus", "brew:favorite", "ai:generate"]
             }),
             status: tapps::TappStatus::Installed,
             granted_permissions: json!(["storage:read"]),
@@ -329,7 +329,7 @@ mod tests {
             ..Default::default()
         };
         let detail = tapp_detail_from_model(
-                sample_model(json!(["storage:read", "brew:write", "ai:generate"])),
+                sample_model(json!(["storage:read", "brew:readStatus", "brew:favorite", "ai:generate"])),
             UserRole::User,
             true,
             false,
@@ -341,7 +341,7 @@ mod tests {
         assert!(!detail.is_admin_tapp);
         assert_eq!(
             detail.granted_permissions,
-            vec!["storage:read", "brew:write", "ai:generate"]
+            vec!["storage:read", "brew:readStatus", "brew:favorite", "ai:generate"]
         );
         assert_eq!(detail.status, "installed");
         assert_eq!(detail.theme_color.as_deref(), Some("#fff"));

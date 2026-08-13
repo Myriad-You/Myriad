@@ -17,7 +17,7 @@
 //!
 //! ### Basic - 默认开放（标注 authenticated 的能力不向游客签发）
 //! - platform:read, analytics:read, tappList:read, brew:read
-//! - brew:write (authenticated), brew:comment (authenticated)
+//! - brew:readStatus (authenticated), brew:favorite (authenticated)
 //! - report:read (authenticated), storage:read (guest-safe)
 //! - ui:notification (authenticated), ui:fullscreen, ui:theme, ui:confirm, ui:openUrl
 //! - media:read, media:control, media:audio, event:subscribe
@@ -28,6 +28,7 @@
 //! - network:fetch, component:theme (authenticated)
 //! - shortcut:register (authenticated), event:publish
 //! - scheduler:register, speech:tts, speech:asr (all authenticated)
+//! - brew:commentWrite (authenticated)
 //!
 //! ### Privileged - 仅管理员
 //! - widget:register, platform:write, platform:register, component:agent
@@ -104,10 +105,12 @@ pub enum TappPermission {
     TappListRead,
     #[serde(rename = "brew:read")]
     BrewRead,
-    #[serde(rename = "brew:write")]
-    BrewWrite,
-    #[serde(rename = "brew:comment")]
-    BrewComment,
+    /// 标记当前用户自己的已读/未读/全部已读状态（Basic，需登录主体）。
+    #[serde(rename = "brew:readStatus")]
+    BrewReadStatus,
+    /// 收藏/取消收藏当前用户的文章（Basic，需登录主体）。
+    #[serde(rename = "brew:favorite")]
+    BrewFavorite,
     #[serde(rename = "report:read")]
     ReportRead,
     #[serde(rename = "storage:read")]
@@ -169,6 +172,9 @@ pub enum TappPermission {
     SpeechAsr,
     #[serde(rename = "storage:write")]
     StorageWrite,
+    /// 创建/更新/删除 Brew 评论与回复（Elevated，需登录主体）。
+    #[serde(rename = "brew:commentWrite")]
+    BrewCommentWrite,
 
     // Privileged 级别
     #[serde(rename = "widget:register")]
@@ -201,8 +207,9 @@ impl TappPermission {
     fn requires_authenticated_subject(&self) -> bool {
         matches!(
             self,
-            TappPermission::BrewWrite
-                | TappPermission::BrewComment
+            TappPermission::BrewReadStatus
+                | TappPermission::BrewFavorite
+                | TappPermission::BrewCommentWrite
                 | TappPermission::ReportRead
                 | TappPermission::UiNotification
                 | TappPermission::ComponentTheme
@@ -221,8 +228,8 @@ impl TappPermission {
             | TappPermission::AnalyticsRead
             | TappPermission::TappListRead
             | TappPermission::BrewRead
-            | TappPermission::BrewWrite
-            | TappPermission::BrewComment
+            | TappPermission::BrewReadStatus
+            | TappPermission::BrewFavorite
             | TappPermission::ReportRead
             | TappPermission::StorageRead
             | TappPermission::UiNotification
@@ -239,7 +246,7 @@ impl TappPermission {
             | TappPermission::FederationMessage
             | TappPermission::FederationFiles => PermissionLevel::Basic,
 
-            // Elevated（可配置下放的集合见 all_elevated；brew:write 不在其中）
+            // Elevated（可配置下放的集合见 all_elevated）
             TappPermission::AiGenerate
             | TappPermission::AiAnalyze
             | TappPermission::AiChat
@@ -252,6 +259,7 @@ impl TappPermission {
             | TappPermission::SpeechTts
             | TappPermission::SpeechAsr => PermissionLevel::Elevated,
             TappPermission::StorageWrite => PermissionLevel::Elevated,
+            TappPermission::BrewCommentWrite => PermissionLevel::Elevated,
 
             // Privileged
             TappPermission::WidgetRegister
@@ -274,6 +282,9 @@ impl TappPermission {
             TappPermission::AnalyticsRead => "读取访问统计",
             TappPermission::TappListRead => "读取 Tapp 列表",
             TappPermission::BrewRead => "读取 Brew 内容",
+            TappPermission::BrewReadStatus => "修改 Brew 已读状态",
+            TappPermission::BrewFavorite => "收藏 Brew 内容",
+            TappPermission::BrewCommentWrite => "写 Brew 评论",
             TappPermission::PlatformWrite => "写入平台数据",
             TappPermission::PlatformRegister => "注册新平台",
             TappPermission::AiGenerate => "AI 生成",
@@ -282,8 +293,6 @@ impl TappPermission {
             TappPermission::AiImage => "AI 图片生成",
             TappPermission::ReportRead => "读取报告",
             TappPermission::ReportWrite => "生成报告",
-            TappPermission::BrewWrite => "编辑 Brew 内容",
-            TappPermission::BrewComment => "Brew 评论",
             TappPermission::StorageRead => "读取本地存储",
             TappPermission::StorageWrite => "写入本地存储",
             TappPermission::UiNotification => "显示通知",
@@ -313,7 +322,7 @@ impl TappPermission {
         }
     }
 
-    /// 获取所有可配置下放的 elevated 级别权限（不含 report:write / brew:write）
+    /// 获取所有可配置下放的 elevated 级别权限（不含 report:write）
     pub fn all_elevated() -> Vec<TappPermission> {
         vec![
             TappPermission::AiGenerate,
@@ -328,6 +337,7 @@ impl TappPermission {
             TappPermission::SpeechTts,
             TappPermission::SpeechAsr,
             TappPermission::StorageWrite,
+            TappPermission::BrewCommentWrite,
         ]
     }
 
@@ -339,12 +349,12 @@ impl TappPermission {
             "analytics:read" => Some(TappPermission::AnalyticsRead),
             "tappList:read" => Some(TappPermission::TappListRead),
             "brew:read" => Some(TappPermission::BrewRead),
+            "brew:readStatus" => Some(TappPermission::BrewReadStatus),
+            "brew:favorite" => Some(TappPermission::BrewFavorite),
             "platform:write" => Some(TappPermission::PlatformWrite),
             "platform:register" => Some(TappPermission::PlatformRegister),
             "report:read" => Some(TappPermission::ReportRead),
             "report:write" => Some(TappPermission::ReportWrite),
-            "brew:write" => Some(TappPermission::BrewWrite),
-            "brew:comment" => Some(TappPermission::BrewComment),
             "storage:read" => Some(TappPermission::StorageRead),
             "ui:notification" => Some(TappPermission::UiNotification),
             "ui:fullscreen" => Some(TappPermission::UiFullscreen),
@@ -370,6 +380,7 @@ impl TappPermission {
             "speech:tts" => Some(TappPermission::SpeechTts),
             "speech:asr" => Some(TappPermission::SpeechAsr),
             "storage:write" => Some(TappPermission::StorageWrite),
+            "brew:commentWrite" => Some(TappPermission::BrewCommentWrite),
             "federation:read" => Some(TappPermission::FederationRead),
             "federation:write" => Some(TappPermission::FederationWrite),
             "federation:message" => Some(TappPermission::FederationMessage),
@@ -387,14 +398,15 @@ impl TappPermission {
             TappPermission::AnalyticsRead => "analytics:read",
             TappPermission::TappListRead => "tappList:read",
             TappPermission::BrewRead => "brew:read",
+            TappPermission::BrewReadStatus => "brew:readStatus",
+            TappPermission::BrewFavorite => "brew:favorite",
             TappPermission::PlatformWrite => "platform:write",
             TappPermission::PlatformRegister => "platform:register",
             TappPermission::ReportRead => "report:read",
             TappPermission::ReportWrite => "report:write",
-            TappPermission::BrewWrite => "brew:write",
-            TappPermission::BrewComment => "brew:comment",
             TappPermission::StorageRead => "storage:read",
             TappPermission::StorageWrite => "storage:write",
+            TappPermission::BrewCommentWrite => "brew:commentWrite",
             TappPermission::UiNotification => "ui:notification",
             TappPermission::UiFullscreen => "ui:fullscreen",
             TappPermission::UiTheme => "ui:theme",
@@ -514,7 +526,7 @@ impl TappPermissionService {
             TappPermission::AiAnalyze => config.user_perm_ai_analyze,
             TappPermission::AiChat => config.user_perm_ai_chat,
             TappPermission::AiImage => config.user_perm_ai_image,
-            // report:write 已升 privileged；media:control 已降 basic；brew:write 不开放下放
+            // report:write 已升 privileged；media:control 已降 basic
             TappPermission::NetworkFetch => config.user_perm_network_fetch,
             TappPermission::ComponentTheme => config.user_perm_component_theme,
             TappPermission::ShortcutRegister => config.user_perm_shortcut_register,
@@ -523,6 +535,7 @@ impl TappPermissionService {
             TappPermission::SpeechTts => config.user_perm_speech_tts,
             TappPermission::SpeechAsr => config.user_perm_speech_asr,
             TappPermission::StorageWrite => config.user_perm_storage_write,
+            TappPermission::BrewCommentWrite => config.user_perm_brew_comment_write,
             _ => false,
         }
     }
@@ -542,6 +555,7 @@ impl TappPermissionService {
             TappPermission::SpeechTts => false,
             TappPermission::SpeechAsr => false,
             TappPermission::StorageWrite => config.guest_perm_storage_write,
+            TappPermission::BrewCommentWrite => config.guest_perm_brew_comment_write,
             _ => false,
         }
     }
@@ -588,6 +602,7 @@ impl TappPermissionService {
                 speech_tts: config.user_perm_speech_tts,
                 speech_asr: config.user_perm_speech_asr,
                 storage_write: config.user_perm_storage_write,
+                brew_comment_write: config.user_perm_brew_comment_write,
             },
             guest: ElevatedPermissions {
                 ai_generate: config.guest_perm_ai_generate,
@@ -608,6 +623,8 @@ impl TappPermissionService {
                 speech_tts: false,
                 speech_asr: false,
                 storage_write: config.guest_perm_storage_write,
+                // brew:commentWrite 路由要求持久登录主体，游客一律关闭
+                brew_comment_write: false,
             },
             user_ai_quota: AiQuotaConfig {
                 daily_calls: config.user_ai_daily_calls,
@@ -666,6 +683,8 @@ pub struct ElevatedPermissions {
     pub speech_tts: bool,
     pub speech_asr: bool,
     pub storage_write: bool,
+    /// brew:commentWrite - 写 Brew 评论（Elevated，需登录主体）
+    pub brew_comment_write: bool,
 }
 
 #[cfg(test)]
@@ -789,8 +808,9 @@ mod tests {
             "media:control".to_string(),
             "event:subscribe".to_string(),
             "widget:register".to_string(),
-            "brew:write".to_string(),
-            "brew:comment".to_string(),
+            "brew:readStatus".to_string(),
+            "brew:favorite".to_string(),
+            "brew:commentWrite".to_string(),
             "report:read".to_string(),
             "storage:read".to_string(),
             "ui:notification".to_string(),
@@ -813,7 +833,8 @@ mod tests {
 
         // Guest-safe: platform:read, analytics:read (visitor-card aggregates only;
         // full admin summary is role-gated in the handler) + storage.
-        // Still excluded: brew:write, report:read, notifications, speech, etc.
+        // Still excluded: brew:readStatus / brew:favorite / brew:commentWrite,
+        // report:read, notifications, speech, etc.
         assert_eq!(
             granted,
             vec![
@@ -948,29 +969,159 @@ mod tests {
     }
 
     #[test]
-    fn test_brew_mutation_permissions_require_authenticated_subject() {
-        let config = DynamicConfig::default();
+    fn brew_permissions_split_status_favorite_and_comment_write() {
+        let defaults = DynamicConfig::default();
 
+        // readStatus / favorite 是 Basic；commentWrite 是 Elevated
+        assert_eq!(
+            TappPermission::BrewReadStatus.level(),
+            PermissionLevel::Basic
+        );
+        assert_eq!(
+            TappPermission::BrewFavorite.level(),
+            PermissionLevel::Basic
+        );
+        assert_eq!(
+            TappPermission::BrewCommentWrite.level(),
+            PermissionLevel::Elevated
+        );
+
+        // 旧粗权限名已移除，不可解析
+        assert!(TappPermission::from_str("brew:write").is_none());
+        assert!(TappPermission::from_str("brew:comment").is_none());
+
+        // readStatus / favorite 要求持久登录主体：user 可、guest 不可
         assert!(TappPermissionService::check(
-            &config,
+            &defaults,
             UserRole::User,
-            TappPermission::BrewWrite
+            TappPermission::BrewReadStatus
         ));
         assert!(TappPermissionService::check(
-            &config,
+            &defaults,
             UserRole::User,
-            TappPermission::BrewComment
+            TappPermission::BrewFavorite
         ));
         assert!(!TappPermissionService::check(
-            &config,
+            &defaults,
             UserRole::Guest,
-            TappPermission::BrewWrite
+            TappPermission::BrewReadStatus
         ));
         assert!(!TappPermissionService::check(
-            &config,
+            &defaults,
             UserRole::Guest,
-            TappPermission::BrewComment
+            TappPermission::BrewFavorite
         ));
+
+        // commentWrite 默认不下放：user/guest 均不可
+        assert!(!TappPermissionService::check(
+            &defaults,
+            UserRole::User,
+            TappPermission::BrewCommentWrite
+        ));
+        assert!(!TappPermissionService::check(
+            &defaults,
+            UserRole::Guest,
+            TappPermission::BrewCommentWrite
+        ));
+
+        // 显式下放后 user 可用；guest 仍受认证主体约束
+        let delegated = DynamicConfig {
+            user_perm_brew_comment_write: true,
+            guest_perm_brew_comment_write: true,
+            ..DynamicConfig::default()
+        };
+        assert!(TappPermissionService::check(
+            &delegated,
+            UserRole::User,
+            TappPermission::BrewCommentWrite
+        ));
+        assert!(!TappPermissionService::check(
+            &delegated,
+            UserRole::Guest,
+            TappPermission::BrewCommentWrite
+        ));
+
+        // 摘要中 guest 的 commentWrite 恒为关闭
+        let effective = TappPermissionService::get_permission_config(&defaults);
+        assert!(!effective.guest.brew_comment_write);
+        let effective = TappPermissionService::get_permission_config(&delegated);
+        assert!(effective.user.brew_comment_write);
+        assert!(!effective.guest.brew_comment_write);
+    }
+
+    #[test]
+    fn brew_grants_do_not_cross_between_status_favorite_and_comments() {
+        // readStatus 授予不连带 favorite / commentWrite
+        let config = DynamicConfig::default();
+        let granted = TappPermissionService::filter_permissions_for_role(
+            &config,
+            UserRole::User,
+            &["brew:readStatus".to_string()],
+        )
+        .unwrap();
+        assert_eq!(granted, vec!["brew:readStatus"]);
+
+        // favorite 授予不连带 readStatus / commentWrite
+        let granted = TappPermissionService::filter_permissions_for_role(
+            &config,
+            UserRole::User,
+            &["brew:favorite".to_string()],
+        )
+        .unwrap();
+        assert_eq!(granted, vec!["brew:favorite"]);
+
+        // brew:read 只能读内容与评论，不能改状态、收藏或写评论
+        let granted = TappPermissionService::filter_permissions_for_role(
+            &config,
+            UserRole::User,
+            &["brew:read".to_string()],
+        )
+        .unwrap();
+        assert_eq!(granted, vec!["brew:read"]);
+        assert!(!TappPermissionService::check(
+            &config,
+            UserRole::User,
+            TappPermission::BrewCommentWrite
+        ));
+    }
+
+    #[test]
+    fn brew_comment_write_requires_explicit_declaration_after_delegation() {
+        // 即使把 commentWrite 下放给 user，声明 brew:read 也不会附带 commentWrite
+        let config = DynamicConfig {
+            user_perm_brew_comment_write: true,
+            ..DynamicConfig::default()
+        };
+        let granted = TappPermissionService::filter_permissions_for_role(
+            &config,
+            UserRole::User,
+            &["brew:read".to_string()],
+        )
+        .unwrap();
+        assert_eq!(granted, vec!["brew:read"]);
+
+        // 单独声明 commentWrite 才进入授予集合
+        let granted = TappPermissionService::filter_permissions_for_role(
+            &config,
+            UserRole::User,
+            &["brew:read".to_string(), "brew:commentWrite".to_string()],
+        )
+        .unwrap();
+        assert_eq!(granted, vec!["brew:read", "brew:commentWrite"]);
+    }
+
+    #[test]
+    fn removed_brew_permission_names_are_rejected_explicitly() {
+        for old in ["brew:write", "brew:comment"] {
+            let error = TappPermissionService::filter_permissions_for_role(
+                &DynamicConfig::default(),
+                UserRole::Admin,
+                &[old.to_string()],
+            )
+            .unwrap_err();
+            assert_eq!(error.permission, old);
+            assert_eq!(error.code(), UNKNOWN_TAPP_PERMISSION_CODE);
+        }
     }
 
     #[test]

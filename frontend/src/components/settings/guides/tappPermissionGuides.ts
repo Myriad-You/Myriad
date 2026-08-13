@@ -240,25 +240,32 @@ const zh: TappPermissionGuides = {
     notes: '可增删任意应用，属最高危能力之一。',
   },
   'brew:read': {
-    what: '允许读取 Brew 订阅源与文章内容。',
+    what: '允许读取 Brew 订阅源、文章内容与评论/回复。',
     chain:
-      '① 应用请求 Brew 列表/正文。\n② 读取本站已订阅数据。\n③ 在应用内展示阅读内容。',
+      '① 应用请求 Brew 列表/正文/评论。\n② 读取本站已订阅数据。\n③ 在应用内展示阅读内容。',
     frontend: 'Brew 模块与应用内阅读视图。',
-    notes: '只读订阅数据，不改已读状态（写在 brew:write）。',
+    notes: '只读订阅数据，不能改已读状态、收藏或写评论。',
   },
-  'brew:write': {
-    what: '允许写入 Brew 数据（如已读、星标等用户状态）。',
+  'brew:readStatus': {
+    what: '允许标记当前用户的已读/未读/全部已读状态。',
     chain:
-      '① 应用更新条目状态。\n② 写入 Brew 存储。\n③ Brew 列表筛选与角标可能变化。',
-    frontend: 'Brew 已读/收藏等状态。',
-    notes: '会改你的阅读状态，确认应用行为符合预期。',
+      '① 应用更新条目阅读状态。\n② 只改当前用户自己的状态。\n③ Brew 列表筛选与角标可能变化。',
+    frontend: 'Brew 已读状态。',
+    notes: '只影响你自己的阅读状态，不影响共享内容。',
   },
-  'brew:comment': {
-    what: '允许创建和管理 Brew 评论。',
+  'brew:favorite': {
+    what: '允许收藏/取消收藏当前用户的文章（星标）。',
+    chain:
+      '① 应用更新条目星标。\n② 只改当前用户自己的收藏。\n③ Brew 星标筛选随之变化。',
+    frontend: 'Brew 收藏/星标。',
+    notes: '只影响你自己的收藏，不影响共享内容。',
+  },
+  'brew:commentWrite': {
+    what: '允许创建、编辑和删除 Brew 评论与回复。',
     chain:
       '① 应用提交评论。\n② 评论关联到文章。\n③ 其它读者可能看到（视站点策略）。',
     frontend: 'Brew 文章评论区。',
-    notes: '涉及公开表达时注意内容规范。',
+    notes: '涉及公开表达时注意内容规范；默认仅管理员可下放。',
   },
   'brew:manage': {
     what: '允许管理 Brew 订阅源与高级设置（添加源、发现源等）。',
@@ -534,21 +541,28 @@ const en: TappPermissionGuides = {
     chain:
       '1) App requests Brew data.\n2) Reads site subscriptions.\n3) Renders reading UI.',
     frontend: 'Brew module and in-app readers.',
-    notes: 'Read-only; read-state changes need brew:write.',
+    notes: 'Read-only; cannot change read state, favorite, or write comments.',
   },
-  'brew:write': {
-    what: 'Allows writing Brew user state (read/star, etc.).',
+  'brew:readStatus': {
+    what: "Allows marking the current user's articles read/unread/all-read.",
     chain:
-      '1) App updates item state.\n2) Persists to Brew storage.\n3) Filters/badges may change.',
-    frontend: 'Brew read/star markers.',
-    notes: 'Changes your reading state.',
+      "1) App updates item read state.\n2) Changes only the current user's own state.\n3) Filters/badges may change.",
+    frontend: 'Brew read state.',
+    notes: 'Only affects your own reading state, not shared content.',
   },
-  'brew:comment': {
-    what: 'Allows creating and managing Brew comments.',
+  'brew:favorite': {
+    what: 'Allows starring/unstarring articles for the current user.',
+    chain:
+      "1) App updates item star state.\n2) Changes only the current user's own favorites.\n3) Starred filter updates.",
+    frontend: 'Brew favorites/stars.',
+    notes: 'Only affects your own favorites, not shared content.',
+  },
+  'brew:commentWrite': {
+    what: 'Allows creating, editing, and deleting Brew comments and replies.',
     chain:
       '1) App posts comments.\n2) Comments attach to articles.\n3) Others may see them per policy.',
     frontend: 'Brew article comments.',
-    notes: 'Public expression — follow content norms.',
+    notes: 'Public expression — follow content norms; delegated by admins only by default.',
   },
   'brew:manage': {
     what: 'Allows managing Brew sources and advanced settings.',
@@ -820,25 +834,32 @@ const ja: TappPermissionGuides = {
     notes: '最も危険な権限の一つです。',
   },
   'brew:read': {
-    what: 'Brew の購読と記事を読めます。',
+    what: 'Brew の購読・記事・コメントを読めます。',
     chain:
       '① Brew データ取得。\n② サイトの購読から読む。\n③ アプリで表示。',
     frontend: 'Brew とアプリ内リーダー。',
-    notes: '既読変更は brew:write が必要。',
+    notes: '読み取り専用。既読変更・お気に入り・コメント書き込みは不可。',
   },
-  'brew:write': {
-    what: 'Brew の既読・スターなどユーザー状態を書けます。',
+  'brew:readStatus': {
+    what: '現在のユーザーの既読/未読/すべて既読を変更できます。',
     chain:
-      '① 状態更新。\n② Brew 保存。\n③ フィルタやバッジが変わり得る。',
-    frontend: '既読・お気に入り表示。',
-    notes: '読書状態が変わります。',
+      '① 状態更新。\n② 自分の状態だけ変わる。\n③ フィルタやバッジが変わり得る。',
+    frontend: 'Brew 既読状態。',
+    notes: '自分だけの読書状態に影響し、共有内容には影響しません。',
   },
-  'brew:comment': {
-    what: 'Brew コメントの作成・管理ができます。',
+  'brew:favorite': {
+    what: '現在のユーザーの記事をスター/スター解除できます。',
+    chain:
+      '① スター更新。\n② 自分のお気に入りだけ変わる。\n③ スター絞り込みが更新。',
+    frontend: 'Brew お気に入り/スター。',
+    notes: '自分だけのお気に入りに影響し、共有内容には影響しません。',
+  },
+  'brew:commentWrite': {
+    what: 'Brew コメントと返信の作成・編集・削除ができます。',
     chain:
       '① コメント投稿。\n② 記事に紐づく。\n③ 方針により他者も見る。',
     frontend: 'Brew のコメント欄。',
-    notes: '公開表現のマナーに注意。',
+    notes: '公開表現のマナーに注意。デフォルトでは管理者のみ下放可能。',
   },
   'brew:manage': {
     what: 'Brew の購読源と高度な設定を管理できます。',

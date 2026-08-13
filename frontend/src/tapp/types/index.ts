@@ -473,8 +473,9 @@ export type TappPermission =
   | 'tappList:manage'
   // Brew 权限
   | 'brew:read'
-  | 'brew:write'
-  | 'brew:comment'
+  | 'brew:readStatus'
+  | 'brew:favorite'
+  | 'brew:commentWrite'
   | 'brew:manage'
   // 联邦权限
   | 'federation:read'

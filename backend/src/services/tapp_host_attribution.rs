@@ -419,11 +419,19 @@ mod tests {
         );
         assert_eq!(
             brew_permission("POST", "/api/brew/items/{id}/read"),
-            Some(TappPermission::BrewWrite)
+            Some(TappPermission::BrewReadStatus)
+        );
+        assert_eq!(
+            brew_permission("POST", "/api/brew/items/{id}/star"),
+            Some(TappPermission::BrewFavorite)
+        );
+        assert_eq!(
+            brew_permission("GET", "/api/brew/items/{id}/comments"),
+            Some(TappPermission::BrewRead)
         );
         assert_eq!(
             brew_permission("POST", "/api/brew/items/{id}/comments"),
-            Some(TappPermission::BrewComment)
+            Some(TappPermission::BrewCommentWrite)
         );
         assert_eq!(
             brew_permission("POST", "/api/brew/sources"),
@@ -555,16 +563,20 @@ mod tests {
     #[test]
     fn host_write_methods_are_rate_limited_by_permission_class() {
         assert_eq!(
-            host_attribution_rate_limit_operation("POST", TappPermission::BrewWrite),
-            Some("brew.write")
+            host_attribution_rate_limit_operation("POST", TappPermission::BrewReadStatus),
+            Some("brew.readStatus")
+        );
+        assert_eq!(
+            host_attribution_rate_limit_operation("POST", TappPermission::BrewFavorite),
+            Some("brew.favorite")
         );
         assert_eq!(
             host_attribution_rate_limit_operation("PUT", TappPermission::BrewManage),
             Some("brew.manage")
         );
         assert_eq!(
-            host_attribution_rate_limit_operation("DELETE", TappPermission::BrewComment),
-            Some("brew.comment")
+            host_attribution_rate_limit_operation("DELETE", TappPermission::BrewCommentWrite),
+            Some("brew.commentWrite")
         );
         assert_eq!(
             host_attribution_rate_limit_operation("POST", TappPermission::FederationMessage),
@@ -595,7 +607,7 @@ mod tests {
             None
         );
         assert_eq!(
-            host_attribution_rate_limit_operation("HEAD", TappPermission::BrewWrite),
+            host_attribution_rate_limit_operation("HEAD", TappPermission::BrewReadStatus),
             None
         );
         assert_eq!(

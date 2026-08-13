@@ -3091,8 +3091,9 @@ export const jaJP: TranslationKeys = {
     permReadTappList: 'Tapp リスト読取',
     permManageTappList: 'Tapp リスト管理',
     permReadBrew: 'Brew 読取',
-    permWriteBrew: 'Brew 書込',
-    permCommentBrew: 'Brew コメント',
+    permReadStatusBrew: '既読状態の変更',
+    permFavoriteBrew: 'Brew のお気に入り',
+    permCommentWriteBrew: 'Brew コメント書込',
     permManageBrew: 'Brew 管理',
     permReadFederation: 'Federation データ読取',
     permWriteFederation: 'Federation データ書込',
@@ -3138,9 +3139,12 @@ export const jaJP: TranslationKeys = {
     permSpeechAsrDesc: '音声認識サービスの使用を許可',
     permReadTappListDesc: 'インストール済み Tapp リストの読取を許可',
     permManageTappListDesc: 'Tapp のインストール、更新、削除を許可',
-    permReadBrewDesc: 'Brew のフィードと記事の読取を許可',
-    permWriteBrewDesc: 'Brew のフィードと記事データの書込を許可',
-    permCommentBrewDesc: 'Brew コメントの作成と管理を許可',
+    permReadBrewDesc: 'Brew のフィード、記事、コメントの読取を許可',
+    permReadStatusBrewDesc:
+      '記事を既読/未読/すべて既読にする操作を許可（自分のみ）',
+    permFavoriteBrewDesc: '記事のスター/スター解除を許可（自分のみ）',
+    permCommentWriteBrewDesc:
+      'Brew コメントと返信の作成・編集・削除を許可',
     permManageBrewDesc: 'Brew ソースと詳細設定の管理を許可',
     permReadFederationDesc:
       'Federation のルーム、チャンネル、メンバーの読取を許可',

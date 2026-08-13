@@ -54,57 +54,57 @@
     {
       "domain": "brew",
       "action": "brewList.markRead",
-      "permission": "brew:write"
+      "permission": "brew:readStatus"
     },
     {
       "domain": "brew",
       "action": "brewList.markUnread",
-      "permission": "brew:write"
+      "permission": "brew:readStatus"
     },
     {
       "domain": "brew",
       "action": "brewList.star",
-      "permission": "brew:write"
+      "permission": "brew:favorite"
     },
     {
       "domain": "brew",
       "action": "brewList.unstar",
-      "permission": "brew:write"
+      "permission": "brew:favorite"
     },
     {
       "domain": "brew",
       "action": "brewList.markAllRead",
-      "permission": "brew:write"
+      "permission": "brew:readStatus"
     },
     {
       "domain": "brew",
       "action": "brewList.getComments",
-      "permission": "brew:comment"
+      "permission": "brew:read"
     },
     {
       "domain": "brew",
       "action": "brewList.createComment",
-      "permission": "brew:comment"
+      "permission": "brew:commentWrite"
     },
     {
       "domain": "brew",
       "action": "brewList.updateComment",
-      "permission": "brew:comment"
+      "permission": "brew:commentWrite"
     },
     {
       "domain": "brew",
       "action": "brewList.deleteComment",
-      "permission": "brew:comment"
+      "permission": "brew:commentWrite"
     },
     {
       "domain": "brew",
       "action": "brewList.getReplies",
-      "permission": "brew:comment"
+      "permission": "brew:read"
     },
     {
       "domain": "brew",
       "action": "brewList.createReply",
-      "permission": "brew:comment"
+      "permission": "brew:commentWrite"
     },
     {
       "domain": "brew",
