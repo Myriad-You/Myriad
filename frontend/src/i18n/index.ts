@@ -1146,6 +1146,8 @@ export interface TranslationKeys {
     mcpFieldTools: string
     mcpFieldAutoRestart: string
     mcpFieldAutoRestartHint: string
+    mcpFieldTrustAnnotations: string
+    mcpFieldTrustAnnotationsHint: string
     mcpFieldMaxRestart: string
     mcpFieldMaxRestartHint: string
     mcpRefreshDesc: string
@@ -3899,6 +3901,8 @@ export interface TranslationKeys {
     debugPanel: string
     inputAnswer: string
     errorWithDetail: string
+    quotaCooldown: string
+    quotaExhausted: string
     aiGeneratedImage: string
     // 记忆 tier
     memTierLong: string

@@ -91,15 +91,47 @@ pub(crate) async fn record_execution_memory(params: MemoryRecordParams<'_>) {
                 .filter_map(|m| serde_json::to_value(m).ok())
                 .collect()
         });
-    mem.extract_memories_from_execution(
-        params.user_input,
-        conversation_values.as_deref(),
-        &exec_results,
-        ok,
-        &step_caps,
-        params.user_id,
-    )
-    .await;
+    // AI 提取整轮记忆是一次完整的 Standard 往返，此前同步 await 在响应路径上——
+    // 用户每次请求都要为一件自己看不见的后台整理白等一个来回。旁边的 Skill 自动
+    // 创建早就是 spawn 的。
+    //
+    // 归属需要显式带进去：detached task 的 task-local 是空的，不带就会从成本账里
+    // 消失。用量计量器**不**带——它属于本回合的配额预留，而这份工作在预留结算之后
+    // 才跑完；后台整理也不该记在用户的额度上。
+    {
+        let mem = mem.clone();
+        let attribution = crate::services::ai_cost_ledger::current_ai_attribution();
+        let user_input = params.user_input.to_string();
+        let exec_results = exec_results.clone();
+        let step_caps_for_extraction = step_caps.clone();
+        let user_id = params.user_id;
+        tokio::spawn(async move {
+            let extract = async {
+                mem.extract_memories_from_execution(
+                    &user_input,
+                    conversation_values.as_deref(),
+                    &exec_results,
+                    ok,
+                    &step_caps_for_extraction,
+                    user_id,
+                )
+                .await;
+            };
+            match attribution {
+                Some(attribution) => {
+                    crate::services::ai_cost_ledger::with_ai_ledger_attribution(
+                        crate::services::ai_cost_ledger::AiLedgerAttribution {
+                            operation: "agent.memory".to_string(),
+                            ..attribution
+                        },
+                        extract,
+                    )
+                    .await
+                }
+                None => extract.await,
+            }
+        });
+    }
 
     // 2. 失败教训
     if !ok {
@@ -158,6 +190,222 @@ pub(crate) async fn record_execution_memory(params: MemoryRecordParams<'_>) {
     mem.promote_memories().await;
     mem.cleanup_short_term().await;
 }
+
+/// 一次 Agent 回合的 AI 预算：先按估算预留，结束后按实际消耗结算。
+///
+/// 此前 Agent 路径只有 `with_ai_ledger_attribution` 的**事后记账**，没有任何
+/// 上限。一次回合会打出规划、每个数据步骤的动态分析、各 AI 步骤、结果汇总、
+/// 记忆提取，失败还要 replan 重跑——跑飞时没有任何东西会拦，只会在账单里被看到。
+/// Tapp AI 任务早就走 `reserve_ai_quota` 全套，Agent 只是没接上。
+///
+/// Admin（含 `SYSTEM_USER_ID` 的定时任务）在 `limits_for_role` 里是 unlimited，
+/// 预留是空操作，所以这条门只对普通用户和访客生效。
+pub(crate) struct AgentTurnBudget {
+    reservation: crate::services::ai_quota::AiQuotaReservation,
+    meter: crate::services::ai_cost_ledger::AiUsageMeter,
+    attribution: crate::services::ai_cost_ledger::AiLedgerAttribution,
+}
+
+/// 一次回合的预留额度。
+///
+/// 回合的真实开销要到跑完才知道（步骤数、是否 replan 都不确定），所以这里只预留
+/// 一个够判断「预算是不是已经见底」的基数：Planner 的 system prompt 本身就约
+/// 30k 字符 ≈ 7.6k tokens，再留一点余量给用户 prompt 和至少一个下游 AI 步骤。
+/// 低估不会漏账——`settle_ai_quota` 会按实际用量补差，超出的部分记在这一回合，
+/// 由下一回合的预留检查拦下。
+const AGENT_TURN_TOKEN_ESTIMATE: usize = 10_000;
+
+/// 这次预留属于哪种回合。
+///
+/// 冷却是用来给**新需求**之间留间隔的。确认 / 恢复不是新需求——它们是 Agent 自己
+/// 提出的问题的回答，紧接着上一轮，用户点得多快就来得多快。默认配置
+/// （`user_ai_cooldown_seconds = 5` / `guest_ai_cooldown_seconds = 10`）下按新回合
+/// 判定，「规划 → 确认」几乎必然撞上 `AI_COOLDOWN_ACTIVE`：用户刚批准的活反而干不了。
+///
+/// 调用次数和 token 检查两种都照收——续跑确实要花 AI；只有冷却门对续跑放行。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AgentTurnKind {
+    /// 用户发起的新回合（`process` / 预设执行）。
+    Fresh,
+    /// 上一回合的延续（确认后执行、WaitingForInput 恢复）。
+    Continuation,
+}
+
+impl AgentTurnKind {
+    fn reserve_options(self) -> crate::services::ai_quota::AiQuotaReserveOptions {
+        crate::services::ai_quota::AiQuotaReserveOptions {
+            skip_cooldown: self == Self::Continuation,
+        }
+    }
+}
+
+impl AgentTurnBudget {
+    /// 预留本回合额度；额度不足直接返回错误，不进入执行。
+    pub(crate) async fn reserve(
+        db: &sea_orm::DatabaseConnection,
+        user_id: i32,
+        operation: &str,
+        task_id: String,
+        kind: AgentTurnKind,
+    ) -> Result<Self, String> {
+        let role = crate::services::tapp_context::role_for_subject(
+            user_id,
+            user_is_current_admin(db, user_id).await,
+        );
+        let reservation = crate::services::ai_quota::reserve_ai_quota_with_options(
+            db,
+            role,
+            user_id,
+            user_id,
+            AGENT_LEDGER_TAPP_ID,
+            AGENT_TURN_TOKEN_ESTIMATE,
+            None,
+            kind.reserve_options(),
+        )
+        .await
+        .map_err(|error| {
+            tracing::info!(
+                user_id,
+                code = error.code(),
+                kind = ?kind,
+                "[Agent] Turn rejected by AI quota"
+            );
+            error.to_string()
+        })?;
+
+        Ok(Self {
+            reservation,
+            meter: crate::services::ai_cost_ledger::AiUsageMeter::new(),
+            attribution: crate::services::ai_cost_ledger::AiLedgerAttribution {
+                subject_id: user_id,
+                owner_id: user_id,
+                source: "agent".into(),
+                operation: operation.into(),
+                tapp_id: AGENT_LEDGER_TAPP_ID.into(),
+                task_id,
+            },
+        })
+    }
+
+    /// 在预算作用域内运行整个回合。
+    ///
+    /// 同时装上归属和计量：归属让 Planner 的调用第一次被记进成本账（此前它在
+    /// 任何 attribution 作用域之外，executor 里那层只覆盖执行阶段），计量则跨越
+    /// executor 内层重新设置的归属，保证统计的是整个回合。
+    ///
+    /// **调用方必须传入 `Box::pin(...)` 的回合体。** `process` /
+    /// `process_with_progress` 的状态机本来就极大，再套两层 task-local 作用域后，
+    /// 等着它们的 API handler 在计算类型布局时会超过 rustc 的递归上限
+    /// （`queries overflow the depth limit`，深度 +130）。装箱让布局查询在指针处
+    /// 终止；一次回合多一次堆分配，相对一次模型调用可以忽略。
+    ///
+    /// 注意这个错误只在**全新编译**时出现——增量缓存会让本地 `cargo check` 假通过。
+    pub(crate) async fn scope<F, T>(&self, fut: F) -> T
+    where
+        F: std::future::Future<Output = T>,
+    {
+        crate::services::ai_cost_ledger::with_ai_ledger_attribution(
+            self.attribution.clone(),
+            crate::services::ai_cost_ledger::with_ai_usage_meter(self.meter.clone(), fut),
+        )
+        .await
+    }
+
+    /// 按实际消耗结算预留。
+    pub(crate) async fn settle(self, db: &sea_orm::DatabaseConnection) {
+        let spent = self.meter.total_tokens();
+        if let Err(error) =
+            crate::services::ai_quota::settle_ai_quota(db, &self.reservation, spent as usize).await
+        {
+            // 结算失败只影响计量精度，不该让已经完成的回合失败。
+            tracing::warn!(
+                %error,
+                spent_tokens = spent,
+                "[Agent] Failed to settle AI quota for this turn"
+            );
+        }
+    }
+
+    /// 预留 → 在作用域内跑 `body` → 结算，一次做完（用户发起的新回合）。
+    ///
+    /// 所有会消耗 AI 的入口都该走这里。此前只有 `process` /
+    /// `process_with_progress` 有预留，于是「规划后要确认」的流程是：首轮预留、
+    /// 规划、返回确认、**结算**——随后确认接口把整条 recipe 跑完，全程无预留。
+    /// 额度耗尽的用户只要点一次确认，仍然能把昂贵的活干完；预设执行更是从未
+    /// 碰到过这道门。
+    ///
+    /// 确认 / 恢复采用**重新预留**而不是把首轮的预留挂着：确认之间隔着一次用户
+    /// 往返，可能是几分钟，长时间占着额度只会让并发用户互相饿死。代价是一次
+    /// 「规划 + 确认后执行」记两次调用，这在语义上也说得通——它确实是两次请求。
+    /// 但那第二次是续跑，不该再过冷却门，见 [`Self::run_continuation`]。
+    ///
+    /// `body` 用 `Pin<Box<...>>` 接收：见 [`Self::scope`] 关于类型布局递归的说明。
+    /// 用 `AssertUnwindSafe` + `catch_unwind` 包一层，让 body panic 时预留也能被
+    /// 结算掉，否则预留的 tokens 会一直挂到当天配额重置。
+    pub(crate) async fn run<T>(
+        db: &sea_orm::DatabaseConnection,
+        user_id: i32,
+        operation: &str,
+        task_id: String,
+        body: std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, String>> + Send + '_>>,
+    ) -> Result<T, String> {
+        Self::run_with_kind(db, user_id, operation, task_id, AgentTurnKind::Fresh, body).await
+    }
+
+    /// 同 [`Self::run`]，但按**续跑**预留：不再过冷却门。
+    ///
+    /// 用于确认后执行与 WaitingForInput 恢复——这两条路上的「等待」是我们让用户等
+    /// 的，冷却再拦一道只会把刚批准的操作挡在门外。
+    ///
+    /// 调用方要负责把不跑 AI 的分支（取消、越权、不存在、已过期、参数还没齐）留在
+    /// 预留**之外**：那些路径一次模型都不调，不该记一次调用、也不该把 10k tokens
+    /// 挂到结算才退。
+    pub(crate) async fn run_continuation<T>(
+        db: &sea_orm::DatabaseConnection,
+        user_id: i32,
+        operation: &str,
+        task_id: String,
+        body: std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, String>> + Send + '_>>,
+    ) -> Result<T, String> {
+        Self::run_with_kind(
+            db,
+            user_id,
+            operation,
+            task_id,
+            AgentTurnKind::Continuation,
+            body,
+        )
+        .await
+    }
+
+    async fn run_with_kind<T>(
+        db: &sea_orm::DatabaseConnection,
+        user_id: i32,
+        operation: &str,
+        task_id: String,
+        kind: AgentTurnKind,
+        body: std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, String>> + Send + '_>>,
+    ) -> Result<T, String> {
+        use futures::FutureExt;
+
+        let budget = Self::reserve(db, user_id, operation, task_id, kind).await?;
+        let outcome = budget
+            .scope(std::panic::AssertUnwindSafe(body).catch_unwind())
+            .await;
+        budget.settle(db).await;
+
+        match outcome {
+            Ok(result) => result,
+            Err(panic) => {
+                // 结算已经完成，这里只把 panic 继续抛出去，保持原有崩溃语义。
+                std::panic::resume_unwind(panic)
+            }
+        }
+    }
+}
+
+/// Agent 在配额与成本账里的 bucket key（与 `AiLedgerAttribution.tapp_id` 一致）
+pub(crate) const AGENT_LEDGER_TAPP_ID: &str = "__agent__";
 
 /// 获取系统能力摘要
 pub async fn get_capabilities_summary() -> serde_json::Value {
@@ -703,6 +951,21 @@ mod tests {
             confirmation_message: String::new(),
             impact: Vec::new(),
         }
+    }
+
+    #[test]
+    fn only_continuations_skip_the_cooldown_gate() {
+        // Confirm / resume arrive as fast as a human can click. Reserving them
+        // as fresh turns means the default 5s (user) / 10s (guest) cooldown
+        // rejects the work the user just approved.
+        assert!(
+            AgentTurnKind::Continuation.reserve_options().skip_cooldown,
+            "confirm / resume must not re-apply cooldown"
+        );
+        assert!(
+            !AgentTurnKind::Fresh.reserve_options().skip_cooldown,
+            "a new user turn is exactly what cooldown is for"
+        );
     }
 
     #[test]

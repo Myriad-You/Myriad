@@ -36,7 +36,7 @@ pub async fn execute(
         "brew.page" => execute_brew_page_content(params, ctx).await,
         "brew.generateReadingList" => execute_brew_generate_reading_list(params, ctx).await,
         "tapp.page" => execute_tapp_page_content(params, ctx).await,
-        "fuzzy.search" | "search.fuzzy" => execute_fuzzy_search(params, ctx).await,
+        "search.fuzzy" => execute_fuzzy_search(params, ctx).await,
         "config.get" => execute_config_get(params).await,
         "time.info" => execute_time_info(params).await,
         "auth.status" => execute_auth_status(params).await,

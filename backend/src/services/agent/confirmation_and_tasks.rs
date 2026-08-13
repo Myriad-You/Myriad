@@ -15,13 +15,49 @@ use super::agent_header::*;
 use super::agent_footer::*;
 use super::types::*;
 
+/// 确认请求的判定结果：能直接答复的，和真要跑 recipe 的。
+///
+/// 分开是为了让预算作用域只包住后者——见 [`Agent::process_confirmation`]。
+enum ConfirmationOutcome {
+    /// 不跑任何 AI 就能给出的答复（取消 / 越权 / 不存在 / 过期 / 参数缺失）
+    Answered(Box<AgentResponse>),
+    /// 校验通过，待执行的 recipe
+    Execute(Box<PendingRecipeConfirmation>),
+}
+
 impl Agent {
 
     /// 处理用户确认
+    ///
+    /// 只有「真的要跑 recipe」这一段进预算作用域。取消、越权、找不到、已过期、
+    /// 参数还没齐——这些分支一次模型都不调，不该记一次调用额度，也不该把 10k
+    /// tokens 挂到结算才退。
     pub async fn process_confirmation(
         &self,
         confirmation: UserConfirmation,
     ) -> Result<AgentResponse, String> {
+        let user_id = confirmation.user_id;
+        let task_id = confirmation.confirmation_id.clone();
+        let pending_confirmation = match self.resolve_confirmation(confirmation).await? {
+            ConfirmationOutcome::Answered(response) => return Ok(*response),
+            ConfirmationOutcome::Execute(pending) => *pending,
+        };
+
+        AgentTurnBudget::run_continuation(
+            &self.db,
+            user_id,
+            "agent.process_confirmation",
+            task_id,
+            Box::pin(self.execute_confirmed_recipe(pending_confirmation)),
+        )
+        .await
+    }
+
+    /// 消费待确认记录并判定：直接答复，还是执行 recipe。全程不调用 AI。
+    async fn resolve_confirmation(
+        &self,
+        confirmation: UserConfirmation,
+    ) -> Result<ConfirmationOutcome, String> {
         // PostgreSQL provides atomic, owner-scoped consumption across replicas.
         // The local map is only a hot cache and is cleared after the shared take.
         let pending = crate::services::tapp_registry::take_for_subject::<
@@ -43,7 +79,7 @@ impl Agent {
             Some(pending_confirmation) => {
                 // 二次校验（防御性）
                 if pending_confirmation.user_id != confirmation.user_id {
-                    return Ok(AgentResponse {
+                    return Ok(ConfirmationOutcome::Answered(Box::new(AgentResponse {
                         response_type: AgentResponseType::Error,
                         message: response_agent::confirmation_not_found(),
                         data: None,
@@ -52,11 +88,11 @@ impl Agent {
                         task: None,
                         confirmation: None,
                         frontend_action: None,
-                    });
+                    })));
                 }
 
                 if !confirmation.confirmed {
-                    return Ok(AgentResponse {
+                    return Ok(ConfirmationOutcome::Answered(Box::new(AgentResponse {
                         response_type: AgentResponseType::Answer,
                         message: response_agent::operation_cancelled(),
                         data: Some(json!({
@@ -68,7 +104,7 @@ impl Agent {
                         task: None,
                         confirmation: None,
                         frontend_action: None,
-                    });
+                    })));
                 }
 
                 if Utc::now() > pending_confirmation.request.expires_at {
@@ -76,7 +112,7 @@ impl Agent {
                         confirmation_id = %confirmation.confirmation_id,
                         "[Agent] Confirmation expired, rejecting"
                     );
-                    return Ok(AgentResponse {
+                    return Ok(ConfirmationOutcome::Answered(Box::new(AgentResponse {
                         response_type: AgentResponseType::Error,
                         message: response_agent::confirmation_expired(),
                         data: None,
@@ -85,7 +121,7 @@ impl Agent {
                         task: None,
                         confirmation: None,
                         frontend_action: None,
-                    });
+                    })));
                 }
 
                 tracing::info!(
@@ -97,6 +133,7 @@ impl Agent {
                 // Sensitive gating runs before required-parameter prompting in
                 // the initial request. After confirmation, ask for any missing
                 // values instead of executing a partially specified recipe.
+                // Schema-driven, no model call — hence still outside the budget.
                 if let Some(missing_response) = self
                     .check_missing_required_parameters(
                         &pending_confirmation.recipe,
@@ -106,53 +143,12 @@ impl Agent {
                     )
                     .await?
                 {
-                    return Ok(missing_response);
+                    return Ok(ConfirmationOutcome::Answered(Box::new(missing_response)));
                 }
 
-                // 始终以 pending 所有者身份执行（已与 caller 对齐）
-                let task_state = self
-                    .executor
-                    .execute(&pending_confirmation.recipe, pending_confirmation.user_id)
-                    .await?;
-
-                let result = self.extract_final_result(&task_state);
-                let frontend_action = self.extract_frontend_action(&result);
-
-                // v3 记忆记录（确认后的敏感操作也需要记录）
-                {
-                    let ok = task_state.status == TaskStatus::Completed;
-                    record_execution_memory(MemoryRecordParams {
-                        user_id: pending_confirmation.user_id,
-                        user_input: &pending_confirmation.recipe.name,
-                        recipe: &pending_confirmation.recipe,
-                        planner_steps_len: pending_confirmation.recipe.steps.len(),
-                        success: ok,
-                        error_msg: task_state.error.as_deref(),
-                        log_prefix: "confirmed:",
-                        conversation_context: None,
-                        step_results: Some(&task_state.step_results),
-                    })
-                    .await;
-                }
-
-                Ok(AgentResponse {
-                    response_type: AgentResponseType::Answer,
-                    message: self
-                        .generate_response_message_v2(
-                            &pending_confirmation.planner_output,
-                            &task_state,
-                            None,
-                        )
-                        .await,
-                    data: Some(result),
-                    data_display: None,
-                    suggestions: vec![],
-                    task: Some(task_state),
-                    confirmation: None,
-                    frontend_action,
-                })
+                Ok(ConfirmationOutcome::Execute(Box::new(pending_confirmation)))
             }
-            None => Ok(AgentResponse {
+            None => Ok(ConfirmationOutcome::Answered(Box::new(AgentResponse {
                 response_type: AgentResponseType::Error,
                 message: response_agent::confirmation_not_found(),
                 data: None,
@@ -161,8 +157,57 @@ impl Agent {
                 task: None,
                 confirmation: None,
                 frontend_action: None,
-            }),
+            }))),
         }
+    }
+
+    /// 执行已确认的 recipe。调用方保证这一段确实会消耗 AI，并已装好预算作用域。
+    async fn execute_confirmed_recipe(
+        &self,
+        pending_confirmation: PendingRecipeConfirmation,
+    ) -> Result<AgentResponse, String> {
+        // 始终以 pending 所有者身份执行（已与 caller 对齐）
+        let task_state = self
+            .executor
+            .execute(&pending_confirmation.recipe, pending_confirmation.user_id)
+            .await?;
+
+        let result = self.extract_final_result(&task_state);
+        let frontend_action = self.extract_frontend_action(&result);
+
+        // v3 记忆记录（确认后的敏感操作也需要记录）
+        {
+            let ok = task_state.status == TaskStatus::Completed;
+            record_execution_memory(MemoryRecordParams {
+                user_id: pending_confirmation.user_id,
+                user_input: &pending_confirmation.recipe.name,
+                recipe: &pending_confirmation.recipe,
+                planner_steps_len: pending_confirmation.recipe.steps.len(),
+                success: ok,
+                error_msg: task_state.error.as_deref(),
+                log_prefix: "confirmed:",
+                conversation_context: None,
+                step_results: Some(&task_state.step_results),
+            })
+            .await;
+        }
+
+        Ok(AgentResponse {
+            response_type: AgentResponseType::Answer,
+            message: self
+                .generate_response_message_v2(
+                    &pending_confirmation.planner_output,
+                    &task_state,
+                    None,
+                )
+                .await,
+            data: Some(result),
+            data_display: None,
+            suggestions: vec![],
+            task: Some(task_state),
+            confirmation: None,
+            frontend_action,
+        })
     }
 
     /// 检查配方步骤中是否有必需参数缺失
@@ -799,13 +844,15 @@ impl Agent {
         executor::get_user_tasks(user_id).await
     }
 
-    /// 恢复 WaitingForInput 任务执行
-    pub async fn resume_task(
+    /// 取出可恢复任务的 recipe，并验证所有权与状态。全程不调用 AI。
+    ///
+    /// 独立于预算作用域之外：任务不存在、不在等待输入、重启后丢了 recipe——这三种
+    /// 都拿不到一个模型调用，不该记一次调用额度。
+    async fn resolve_resumable_recipe(
         &self,
         task_id: &str,
-        answer: UserAnswer,
         user_id: i32,
-    ) -> Result<AgentResponse, String> {
+    ) -> Result<Recipe, String> {
         // 获取任务并验证所有权
         let task = executor::get_task_for_user(task_id, user_id)
             .await
@@ -816,10 +863,37 @@ impl Agent {
         }
 
         // 从 task_state 中取出保存的 recipe
-        let recipe = task.recipe.as_ref().ok_or(
-            "Recipe not available for resume (task may have been loaded from DB after restart)",
-        )?;
+        task.recipe.ok_or_else(|| {
+            "Recipe not available for resume (task may have been loaded from DB after restart)"
+                .to_string()
+        })
+    }
 
+    /// 恢复 WaitingForInput 任务执行
+    pub async fn resume_task(
+        &self,
+        task_id: &str,
+        answer: UserAnswer,
+        user_id: i32,
+    ) -> Result<AgentResponse, String> {
+        let recipe = self.resolve_resumable_recipe(task_id, user_id).await?;
+        AgentTurnBudget::run_continuation(
+            &self.db,
+            user_id,
+            "agent.resume_task",
+            task_id.to_string(),
+            Box::pin(self.resume_task_inner(task_id, answer, user_id, &recipe)),
+        )
+        .await
+    }
+
+    async fn resume_task_inner(
+        &self,
+        task_id: &str,
+        answer: UserAnswer,
+        user_id: i32,
+        recipe: &Recipe,
+    ) -> Result<AgentResponse, String> {
         let task_state = self
             .executor
             .resume_with_answer(task_id, answer, recipe, user_id, None)
@@ -873,19 +947,31 @@ impl Agent {
         user_id: i32,
         progress_tx: tokio::sync::mpsc::Sender<types::AgentProgressEvent>,
     ) -> Result<AgentResponse, String> {
-        let task = executor::get_task_for_user(task_id, user_id)
-            .await
-            .ok_or("Task not found or access denied")?;
+        let recipe = self.resolve_resumable_recipe(task_id, user_id).await?;
+        AgentTurnBudget::run_continuation(
+            &self.db,
+            user_id,
+            "agent.resume_task_with_progress",
+            task_id.to_string(),
+            Box::pin(self.resume_task_with_progress_inner(
+                task_id,
+                answer,
+                user_id,
+                progress_tx,
+                &recipe,
+            )),
+        )
+        .await
+    }
 
-        if task.status != TaskStatus::WaitingForInput {
-            return Err("Task is not waiting for input".to_string());
-        }
-
-        let recipe = task
-            .recipe
-            .as_ref()
-            .ok_or("Recipe not available for resume")?;
-
+    async fn resume_task_with_progress_inner(
+        &self,
+        task_id: &str,
+        answer: UserAnswer,
+        user_id: i32,
+        progress_tx: tokio::sync::mpsc::Sender<types::AgentProgressEvent>,
+        recipe: &Recipe,
+    ) -> Result<AgentResponse, String> {
         let task_state = self
             .executor
             .resume_with_answer(task_id, answer, recipe, user_id, Some(progress_tx))

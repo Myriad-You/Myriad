@@ -317,7 +317,6 @@ impl ResultEvaluator {
         id.starts_with("brew.")
             || id.starts_with("platform.")
             || id == "search.fuzzy"
-            || id == "fuzzy.search"
             || id.starts_with("config.get")
             || id == "library.read"
             || id == "library.search"
@@ -359,7 +358,7 @@ impl ResultEvaluator {
 
         if capability_ids
             .iter()
-            .any(|c| c == "search.fuzzy" || c == "fuzzy.search" || c.starts_with("platform."))
+            .any(|c| c == "search.fuzzy" || c.starts_with("platform."))
         {
             hints.push(
                 "本地缓存/模糊搜索无结果时，请放宽关键词、列出相近建议或向用户澄清，不要改用联网搜索"

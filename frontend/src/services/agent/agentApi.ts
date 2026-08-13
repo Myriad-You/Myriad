@@ -37,6 +37,11 @@ export interface McpServerConfig {
   enabled: boolean
   auto_restart: boolean
   max_restart_attempts: number
+  /**
+   * Honour the server's own tool annotations when classifying risk.
+   * Optional: the backend defaults it to false, so an older instance omits it.
+   */
+  trust_annotations?: boolean
 }
 
 export interface McpRuntimeServer {
@@ -73,7 +78,8 @@ function parseMcpRuntimeServers(
     .filter((s): s is McpRuntimeServer => s != null)
 }
 
-function parseMcpServerConfig(raw: unknown): McpServerConfig | null {
+/** Exported for `mcpServerConfig.test.ts`. */
+export function parseMcpServerConfig(raw: unknown): McpServerConfig | null {
   if (!raw || typeof raw !== 'object') return null
   const o = raw as Record<string, unknown>
   const id = typeof o.id === 'string' ? o.id.trim() : ''
@@ -100,6 +106,11 @@ function parseMcpServerConfig(raw: unknown): McpServerConfig | null {
       Number.isFinite(o.max_restart_attempts)
         ? Math.max(0, Math.min(50, Math.floor(o.max_restart_attempts)))
         : 3,
+    // Must be parsed, not defaulted: the settings panel rebuilds each server
+    // field by field, so dropping it here would show the switch off after a
+    // reload and write `false` back on the next save — silently revoking the
+    // operator's opt-in to trusting this server's tool annotations.
+    trust_annotations: o.trust_annotations === true,
   }
 }
 

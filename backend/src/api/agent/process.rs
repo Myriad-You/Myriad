@@ -2,6 +2,54 @@
 use super::*;
 use crate::error::HttpError;
 
+/// Map an agent turn failure to an HTTP error.
+///
+/// A turn now reserves AI quota before it runs, so "you are out of budget" and
+/// "the agent broke" arrive on the same `Err(String)` channel. Reporting a
+/// budget rejection as a 500 would both mislead the user and hide a retryable
+/// condition from the client, so client limits become 429 and carry the quota
+/// code through for the UI to act on.
+fn agent_turn_error(error: String) -> HttpError {
+    if crate::services::ai_quota::is_client_limit_message(&error) {
+        let code = quota_code(&error);
+        tracing::info!(error = %error, "[Agent API] Turn rejected by AI quota");
+        return HttpError::from((
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(json!({ "error": error, "code": code })),
+        ));
+    }
+    tracing::error!(error = %error, "[Agent API] Processing failed");
+    HttpError::from((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(json!({ "error": error })),
+    ))
+}
+
+/// `AiQuotaError` renders as `CODE: message`, so the leading token is the code.
+fn quota_code(error: &str) -> String {
+    error
+        .split(':')
+        .next()
+        .filter(|code| !code.is_empty())
+        .unwrap_or("AI_QUOTA_EXCEEDED")
+        .to_string()
+}
+
+/// Code for an SSE `error` event.
+///
+/// Every agent surface that streams can now fail on quota, and the client needs
+/// to tell "you are out of budget / in cooldown" apart from "the agent broke" —
+/// on the stream that distinction only exists in this code, because the HTTP
+/// status was already sent as 200 when the stream opened.
+pub(crate) fn agent_stream_error_code(error: &str, fallback: &str) -> String {
+    if crate::services::ai_quota::is_client_limit_message(error) {
+        tracing::info!(error = %error, "[Agent API] Stream rejected by AI quota");
+        quota_code(error)
+    } else {
+        fallback.to_string()
+    }
+}
+
 // API 端点
 
 /// 处理自然语言请求
@@ -85,13 +133,7 @@ pub async fn process(
 
     // 创建 Agent 并处理请求
     let agent = Agent::new(db.clone()).await;
-    let response = agent.process(user_request).await.map_err(|e| {
-            tracing::error!(error = %e, "[Agent API] Processing failed");
-            HttpError::from((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e })),
-        ))
-        })?;
+    let response = agent.process(user_request).await.map_err(agent_turn_error)?;
 
     let mut api_response: ApiResponse = response.into();
     let metadata = json!({
@@ -684,16 +726,28 @@ pub async fn process_stream(
                 }
             }
             Err(e) => {
-                tracing::error!(error = %e, "[Agent API] Processing failed, sending error event");
+                // A turn reserves AI quota before it runs, so an exhausted
+                // budget arrives here alongside real faults. It is neither an
+                // error to log at ERROR nor a "处理失败" for the transcript.
+                let quota_rejected = crate::services::ai_quota::is_client_limit_message(&e);
+                if !quota_rejected {
+                    tracing::error!(error = %e, "[Agent API] Processing failed, sending error event");
+                }
+                let code = agent_stream_error_code(&e, "PROCESSING_ERROR");
 
                 // 持久化错误消息
                 if !session_id_clone.is_empty() {
+                    let text = if quota_rejected {
+                        e.clone()
+                    } else {
+                        format!("处理失败: {}", e)
+                    };
                     let _ = persist_assistant_message(
                         &db_clone,
                         &session_id_clone,
                         None,
-                        &format!("处理失败: {}", e),
-                        Some(json!({"error": true})),
+                        &text,
+                        Some(json!({"error": true, "code": code})),
                     )
                     .await;
                 }
@@ -702,7 +756,7 @@ pub async fn process_stream(
                     .send(AgentProgressEvent::Error {
                         task_id: None,
                         message: e.clone(),
-                        code: "PROCESSING_ERROR".to_string(),
+                        code,
                     })
                     .await;
             }
@@ -1004,13 +1058,9 @@ pub async fn answer_task_question(
         .resume_task(&task_id, answer, user_id)
         .await
         .map(|response| Json(ApiResponse::from(response)))
-        .map_err(|e| {
-            tracing::error!(error = %e, "[Agent API] Failed to resume task");
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": format!("恢复任务失败: {}", e) })),
-            ))
-        })
+        // Resume reserves its own budget, so a quota rejection can surface here
+        // too and must not be reported as a server error.
+        .map_err(agent_turn_error)
 }
 
 /// 回答问题（SSE 流式版本）
@@ -1152,7 +1202,10 @@ pub async fn answer_task_question_stream(
                 }
             }
             Err(e) => {
-                tracing::error!(error = %e, "[Agent API] Resume failed");
+                let code = agent_stream_error_code(&e, "RESUME_ERROR");
+                if code == "RESUME_ERROR" {
+                    tracing::error!(error = %e, "[Agent API] Resume failed");
+                }
 
                 // 回传错误给 process_stream
                 if let Some(ctx) = waiting_ctx {
@@ -1167,7 +1220,7 @@ pub async fn answer_task_question_stream(
                     .send(AgentProgressEvent::Error {
                         task_id: Some(task_id),
                         message: e,
-                        code: "RESUME_ERROR".to_string(),
+                        code,
                     })
                     .await;
             }
@@ -1223,10 +1276,10 @@ pub async fn clarify(
     };
 
     let agent = Agent::new(db).await;
-    let response = agent.process(user_request).await.map_err(|e| HttpError::from((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e })),
-        )))?;
+    let response = agent
+        .process(user_request)
+        .await
+        .map_err(agent_turn_error)?;
 
     Ok(Json(response.into()))
 }
@@ -1286,10 +1339,7 @@ pub async fn confirm_operation(
     let response = agent
         .process_confirmation(confirmation)
         .await
-        .map_err(|e| HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e })),
-            )))?;
+        .map_err(agent_turn_error)?;
 
     Ok(Json(response.into()))
 }
@@ -1688,3 +1738,63 @@ pub async fn health() -> Json<Value> {
 }
 
 
+#[cfg(test)]
+mod quota_error_tests {
+    use super::{agent_stream_error_code, quota_code};
+    use crate::services::ai_quota::AiQuotaError;
+
+    #[test]
+    fn stream_errors_carry_the_quota_code_instead_of_a_generic_one() {
+        // On a stream the HTTP status was already sent as 200, so this code is
+        // the only place the client can tell a budget limit from a crash.
+        for (error, expected) in [
+            (
+                AiQuotaError::Cooldown {
+                    remaining_seconds: 7,
+                },
+                "AI_COOLDOWN_ACTIVE",
+            ),
+            (
+                AiQuotaError::DailyCallLimit { anonymous: false },
+                "AI_DAILY_CALL_LIMIT",
+            ),
+            (
+                AiQuotaError::DailyTokenLimit { anonymous: true },
+                "AI_ANONYMOUS_DAILY_TOKEN_LIMIT",
+            ),
+        ] {
+            assert_eq!(
+                agent_stream_error_code(&error.to_string(), "PROCESSING_ERROR"),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn non_quota_failures_keep_the_callers_fallback_code() {
+        for fallback in ["PROCESSING_ERROR", "RESUME_ERROR", "EXECUTION_ERROR"] {
+            assert_eq!(
+                agent_stream_error_code("Unknown capability_id: foo", fallback),
+                fallback
+            );
+            // A ledger fault is a server error, not a client budget limit.
+            assert_eq!(
+                agent_stream_error_code(
+                    &AiQuotaError::Ledger {
+                        message: "db down".into()
+                    }
+                    .to_string(),
+                    fallback
+                ),
+                fallback
+            );
+        }
+    }
+
+    #[test]
+    fn quota_code_survives_a_message_without_a_colon() {
+        assert_eq!(quota_code("AI_DAILY_CALL_LIMIT"), "AI_DAILY_CALL_LIMIT");
+        assert_eq!(quota_code(""), "AI_QUOTA_EXCEEDED");
+        assert_eq!(quota_code(": leading colon"), "AI_QUOTA_EXCEEDED");
+    }
+}

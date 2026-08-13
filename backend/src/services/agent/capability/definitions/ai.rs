@@ -22,11 +22,13 @@ pub fn register(registry: &mut CapabilityRegistry) {
                 "maxLength": { "type": "integer" }
             }
         }),
+        // `execute_ai_summarize` 只返回摘要正文和回显的 style；声明过的 `keyPoints`
+        // 从未被产出，留在这里只会让 Planner 去引用一个取不到的字段。
         output_schema: json!({
             "type": "object",
             "properties": {
-                "summary": { "type": "string" },
-                "keyPoints": { "type": "array" }
+                "summary": { "type": "string", "description": "摘要正文" },
+                "style": { "type": "string", "description": "回显的摘要风格" }
             }
         }),
         required_permissions: vec!["ai:analyze".to_string()],
@@ -54,9 +56,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
         output_schema: json!({
             "type": "object",
             "properties": {
-                "analysis": { "type": "object" },
-                "insights": { "type": "array" },
-                "confidence": { "type": "number" }
+                "analysis": { "type": "string", "description": "AI 分析正文" },
+                "type": { "type": "string", "description": "回显的 analysisType" }
             }
         }),
         required_permissions: vec!["ai:analyze".to_string()],
@@ -80,11 +81,16 @@ pub fn register(registry: &mut CapabilityRegistry) {
                 "count": { "type": "integer", "default": 5 }
             }
         }),
+        // `execute_ai_recommend` 在 AI 没能给出合法 JSON 数组时会退化成原始文本，
+        // 所以 `recommendations` 两种形状都合法。`reasoning` 从未被产出过。
         output_schema: json!({
             "type": "object",
             "properties": {
-                "recommendations": { "type": "array" },
-                "reasoning": { "type": "string" }
+                "recommendations": {
+                    "type": ["array", "string"],
+                    "description": "推荐列表；AI 未返回合法 JSON 数组时退化为原始文本"
+                },
+                "count": { "type": "integer", "description": "请求的推荐条数" }
             }
         }),
         required_permissions: vec!["ai:analyze".to_string()],
@@ -209,12 +215,18 @@ pub fn register(registry: &mut CapabilityRegistry) {
             },
             "required": ["query"]
         }),
+        // 与 `execute_gemini_grounding_search_wrapper` 的实际返回一致。原先声明的
+        // `source` / `searchPrompt` 从未被产出，而真正有用的 `aiSummary` /
+        // `totalResults` 反倒没被声明——Planner 因此看不到它们。
         output_schema: json!({
             "type": "object",
             "properties": {
+                "success": { "type": "boolean" },
+                "query": { "type": "string", "description": "回显的查询" },
+                "searchType": { "type": "string", "description": "回显的搜索类型" },
+                "aiSummary": { "type": "string", "description": "AI 对搜索结果的综述" },
                 "results": { "type": "array", "description": "搜索结果列表" },
-                "source": { "type": "string", "description": "结果来源" },
-                "searchPrompt": { "type": "string", "description": "使用的搜索提示词" }
+                "totalResults": { "type": "integer", "description": "结果条数" }
             }
         }),
         required_permissions: vec!["ai:search".to_string()],
@@ -253,11 +265,16 @@ pub fn register(registry: &mut CapabilityRegistry) {
             },
             "required": ["query"]
         }),
+        // 与 ai.webSearch 共用 `execute_gemini_grounding_search_wrapper`，返回同一形状。
         output_schema: json!({
             "type": "object",
             "properties": {
+                "success": { "type": "boolean" },
+                "query": { "type": "string", "description": "回显的查询" },
+                "searchType": { "type": "string", "description": "回显的搜索类型" },
+                "aiSummary": { "type": "string", "description": "AI 对搜索结果的综述" },
                 "results": { "type": "array", "description": "搜索结果列表" },
-                "source": { "type": "string", "description": "结果来源" }
+                "totalResults": { "type": "integer", "description": "结果条数" }
             }
         }),
         required_permissions: vec!["ai:search".to_string()],

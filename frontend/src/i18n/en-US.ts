@@ -1359,6 +1359,9 @@ export const enUS: TranslationKeys = {
     mcpFieldTools: 'Tool count',
     mcpFieldAutoRestart: 'Auto-restart on crash',
     mcpFieldAutoRestartHint: 'Try to relaunch if the child exits unexpectedly',
+    mcpFieldTrustAnnotations: 'Trust tool annotations from this server',
+    mcpFieldTrustAnnotationsHint:
+      'Let read-only tools skip the confirmation prompt. Annotations are self-reported by the server, so enable this only for servers you control. Destructive tools always confirm.',
     mcpFieldMaxRestart: 'Max restart attempts',
     mcpFieldMaxRestartHint: '0–50; stop auto-restart after this many tries',
     mcpRefreshDesc: 'Reload the list',
@@ -4260,6 +4263,8 @@ export const enUS: TranslationKeys = {
     debugPanel: 'Debug panel',
     inputAnswer: 'Type your answer...',
     errorWithDetail: 'Error: {error}',
+    quotaCooldown: 'Slow down a moment, then try again.',
+    quotaExhausted: 'The AI budget for today is used up; it resets tomorrow.',
     aiGeneratedImage: 'AI generated image',
     memTierLong: 'Long',
     memTierMid: 'Mid',

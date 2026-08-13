@@ -16,6 +16,38 @@ import type {
 
 import { clearCSRFToken, getCSRFToken } from '../../utils/csrf'
 
+/**
+ * A backend `error` event, keeping its `code`.
+ *
+ * The stream is already HTTP 200 by the time anything can fail, so the code is
+ * the only way a caller can tell an AI budget rejection (cooldown, daily call
+ * or token limit) from a processing failure. Rejecting with a bare `Error`
+ * dropped it and left the UI string-matching the message.
+ */
+export class AgentStreamError extends Error {
+  readonly code: string
+
+  constructor(message: string, code: string) {
+    super(message)
+    this.name = 'AgentStreamError'
+    this.code = code
+  }
+
+  /** Whether this is an AI quota/cooldown rejection rather than a fault. */
+  get isQuotaRejection(): boolean {
+    return QUOTA_CODES.has(this.code)
+  }
+}
+
+const QUOTA_CODES = new Set([
+  'AI_COOLDOWN_ACTIVE',
+  'AI_DAILY_CALL_LIMIT',
+  'AI_ANONYMOUS_DAILY_CALL_LIMIT',
+  'AI_DAILY_TOKEN_LIMIT',
+  'AI_ANONYMOUS_DAILY_TOKEN_LIMIT',
+  'AI_QUOTA_EXCEEDED',
+])
+
 /** Why a stream AbortController was aborted. */
 export type StreamAbortIntent = 'user' | 'replace' | 'timeout'
 
@@ -197,7 +229,13 @@ export async function executeSSERequest({
                 if (event.type === 'task_completed') {
                   finalResponse = (event as TaskCompletedEvent).response
                 } else if (event.type === 'error') {
-                  reject(new Error((event as ErrorEvent).message))
+                  const errorEvent = event as ErrorEvent
+                  reject(
+                    new AgentStreamError(
+                      errorEvent.message,
+                      errorEvent.code || 'PROCESSING_ERROR',
+                    ),
+                  )
                   return
                 }
               } catch (parseError) {

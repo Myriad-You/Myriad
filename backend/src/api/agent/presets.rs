@@ -491,12 +491,15 @@ pub async fn execute_preset(
                     .await;
             }
             Err(e) => {
-                tracing::error!(error = %e, "[Agent API] Preset execution failed");
+                let code = agent_stream_error_code(&e, "EXECUTION_ERROR");
+                if code == "EXECUTION_ERROR" {
+                    tracing::error!(error = %e, "[Agent API] Preset execution failed");
+                }
                 let _ = tx
                     .send(ProgressEvent::Error {
                         task_id: None,
                         message: e.clone(),
-                        code: "EXECUTION_ERROR".to_string(),
+                        code,
                     })
                     .await;
             }

@@ -230,6 +230,8 @@ export const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> =
     ['media.playTrack', 'media:control'],
     ['media.jumpToIndex', 'media:control'],
     ['media.getSpectrum', 'media:read'],
+    // 推流版的 getSpectrum：由 tapp 订阅后由宿主按帧推送，读到的是同一份频谱数据，
+    // 沙箱 handler 自身也是校验 media:read
     ['media.spectrumStream', 'media:read'],
     ['media.getLyrics', 'media:read'],
     ['media.getBeatGrid', 'media:read'],

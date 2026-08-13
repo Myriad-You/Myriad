@@ -2,6 +2,7 @@ import type { DynamicContentType } from '../services/DynamicContentProvider'
 
 import type { AppNotification } from '../services/notificationApi'
 import type { QuoteData, WeatherData } from '../utils/dynamicContent'
+import type { PanelTab } from './ControlPanel/panelTransition'
 import React, {
   lazy,
   Suspense,
@@ -9,12 +10,13 @@ import React, {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
   useSyncExternalStore,
 } from 'react'
-import { useNavigate } from 'react-router-dom'
 
+import { useNavigate } from 'react-router-dom'
 import { useAnimationPreference } from '../contexts/AnimationPreferenceContext'
 import { useAuth } from '../contexts/AuthContext'
 import { useI18n } from '../contexts/I18nContext'
@@ -48,7 +50,22 @@ import {
 import { loadResource } from '../utils/resourceLoader'
 import { useThemeMode } from '../utils/themeSubscriber'
 import { showToast } from '../utils/toastManager'
+import {
+  initialPanelState,
+  isPanelMorphing,
+  isPanelOpen,
+  mountsNotifications,
+  panelReducer,
+  resolvePanelMotion,
+  settleTimeoutMs,
+  showsDynamicContent,
+  showsOverlay,
+  showsOverlayBlur,
+  showsPanelContent,
+  showsProgressUi,
+} from './ControlPanel/panelTransition'
 import { UserSection } from './ControlPanel/UserSection'
+import { isHoverCapablePointer } from './ControlPanel/widgetCarousel'
 import NotificationPanelList from './NotificationPanelList'
 import {
   NotificationSourceIcon,
@@ -154,10 +171,16 @@ const GlobalControlPanel: React.FC = () => {
   const { preferences: notificationPreferences } = useNotificationPreferences(
     user?.id,
   )
-  const [isExpanded, setIsExpanded] = useState(false)
-  const [showDynamicContent, setShowDynamicContent] = useState(true)
-  const [showPanelContent, setShowPanelContent] = useState(false)
-  const [showOverlay, setShowOverlay] = useState(false)
+  // 展开/收起的唯一状态所有者（issue #320）。
+  // 遮罩、收缩内容、展开内容、进度 UI、动画类名全部从 phase 派生，
+  // 不再由若干独立 boolean + 固定 setTimeout 各自维护。
+  const [panel, dispatchPanel] = useReducer(panelReducer, initialPanelState)
+  const isExpanded = isPanelOpen(panel)
+  const showDynamicContent = showsDynamicContent(panel)
+  const showPanelContent = showsPanelContent(panel)
+  const showOverlay = showsOverlay(panel)
+  /** 面板 tab：控制面板 / 通知 */
+  const panelTab = panel.tab
   // 使用共享主题订阅器，避免创建多余的 MutationObserver
   const isDark = useThemeMode()
 
@@ -224,10 +247,6 @@ const GlobalControlPanel: React.FC = () => {
 
   // 通知中心
 
-  /** 面板 tab：控制面板 / 通知 */
-  const [panelTab, setPanelTab] = useState<'control' | 'notifications'>(
-    'control',
-  )
   const notifCarouselTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   )
@@ -290,9 +309,13 @@ const GlobalControlPanel: React.FC = () => {
           showCloseButton: true,
           onClick: showInPanel
             ? () => {
-                setPanelTab('notifications')
-                // 复用既有的打开面板事件（已展开时该监听为 no-op，只切 tab）
-                window.dispatchEvent(new CustomEvent('open-control-panel'))
+                // 复用既有的打开面板事件并带上目标 tab：
+                // 收起时展开直达通知页，已展开时只做一次 tab 交叉淡入
+                window.dispatchEvent(
+                  new CustomEvent('open-control-panel', {
+                    detail: { tab: 'notifications' },
+                  }),
+                )
               }
             : undefined,
         })
@@ -380,8 +403,62 @@ const GlobalControlPanel: React.FC = () => {
   const isExpandedRef = useRef(false)
   // 是否已压入哨兵历史记录（面板展开时移动端系统返回应先收起面板）
   const historyArmedRef = useRef(false)
+  // 自己调用 history.back() 产生的 popstate 计数：快速「关→开」时，
+  // 迟到的那次回退不得把刚展开的面板再收掉
+  const pendingBackRef = useRef(0)
+  // 外壳 morph 进行中（供测量闭包读取）。必须是组件级 ref：
+  // 局部变量会随测量 effect 重建而丢失已经发生的开始信号
+  const morphingRef = useRef(false)
   const perf = usePerformanceProfile()
   const anim = useAnimationLevel()
+
+  // 动效档位：同一套状态机按 motion / performance policy 选择 transition profile，
+  // 不维护第二套交互实现
+  const motion = useMemo(
+    () =>
+      resolvePanelMotion({
+        level: anim.level,
+        reduceMotion: perf.reduceMotion,
+        isMobile: perf.isMobile,
+      }),
+    [anim.level, perf.reduceMotion, perf.isMobile],
+  )
+  /**
+   * morph 一旦开始就用开始时的档位跑完 —— JS 与 CSS 两条线都要冻结。
+   *
+   * 档位可能在动画中途变化：面板里就有动效开关，而 startAutoFrameAdapt
+   * 会在掉帧时自动降级 —— 后者恰好发生在低端设备 morph 掉帧时。
+   *
+   * 不冻结的两个后果：
+   * - JS 侧：motion 进 settle effect 的依赖会让 effect 重建，cleanup 提前
+   *   派发 gcp-animation-end，触发一次绕过 morph 闸门的重测顶跳高度。
+   * - CSS 侧：降到 exlight 会给外壳挂上 gcp-no-morph，该类把 width/height
+   *   移出 transition-property，浏览器当场 cancel 掉运行中的尺寸过渡，
+   *   外壳直接瞬移到终态（实测 width 160 → 400 无过渡），
+   *   而且 transitionend 再也不会来，相位只能等兜底超时。
+   */
+  const [activeMotion, setActiveMotion] = useState(motion)
+  useEffect(() => {
+    // 只在稳定态跟进最新档位；改档位影响的是下一次交互
+    if (!isPanelMorphing(panel)) setActiveMotion(motion)
+  }, [motion, panel.phase])
+
+  const motionRef = useRef(activeMotion)
+  useLayoutEffect(() => {
+    motionRef.current = activeMotion
+  }, [activeMotion])
+
+  // 时长以 CSS 变量下发：内容交接的 delay/duration 全部按 morph 比例计算，
+  // 保证两条时间线永远同步（不会因为改时长而错位）
+  const motionVars = useMemo(
+    () =>
+      ({
+        '--gcp-morph': `${activeMotion.morphMs}ms`,
+        '--gcp-tab': `${activeMotion.tabMs}ms`,
+      }) as React.CSSProperties,
+    [activeMotion],
+  )
+
   const { preference: animPreference, togglePerformanceMode } =
     useAnimationPreference()
   const effectiveAnimationLevel =
@@ -390,6 +467,14 @@ const GlobalControlPanel: React.FC = () => {
   const animationModeClass = isStandardAnimation
     ? 'performance-standard'
     : 'performance-light'
+
+  // 原生事件回调（popstate）与测量闭包读取的状态镜像。
+  // 用 layout effect 保证在同一次提交内、且早于下方的测量 effect 生效
+  useLayoutEffect(() => {
+    isExpandedRef.current = isPanelOpen(panel)
+    historyArmedRef.current = panel.historyArmed
+    morphingRef.current = isPanelMorphing(panel)
+  }, [panel])
 
   useEffect(() => {
     // 主题状态现在由 useThemeMode() hook 自动管理
@@ -848,7 +933,7 @@ const GlobalControlPanel: React.FC = () => {
     let lastUpdateTime = 0
     let pendingMeasure = false
     let measureTimeout: number | null = null
-    let isAnimating = false // 动画状态标记
+    let visibilityTimeout: number | null = null
 
     // 移动端 / 低性能模式：加大节流、跳过 ResizeObserver
     const isMobileDevice = perf.isMobile || isReducedAnimation(anim)
@@ -857,12 +942,19 @@ const GlobalControlPanel: React.FC = () => {
     // 加大节流时间，减少克隆测量频率
     const THROTTLE_MS = isMobileDevice ? 1200 : 600
 
-    const measure = (force = false) => {
-      // 动画期间跳过测量（除非强制）
-      if (isAnimating && !force) return
+    /**
+     * 两个闸门是独立的，不能用同一个 force 一起绕过：
+     * - duringMorph：morph 期间不写高度，目标值留到动画结束一次性应用，
+     *   否则异步到达的用户/配置/音乐/通知内容会在过渡中途顶跳外壳
+     * - immediate：跳过节流。行数切换这类用户主动触发的尺寸变化需要外壳
+     *   当帧就拿到新目标值，才能和内容高度跑在同一条时间线上；
+     *   但它仍然必须服从 morph 闸门
+     */
+    const measure = (opts?: { immediate?: boolean, duringMorph?: boolean }) => {
+      if (morphingRef.current && !opts?.duringMorph) return
 
       const now = Date.now()
-      if (now - lastUpdateTime < THROTTLE_MS && !force) {
+      if (now - lastUpdateTime < THROTTLE_MS && !opts?.immediate) {
         // 如果在节流期内,标记待测量,稍后执行
         if (!pendingMeasure) {
           pendingMeasure = true
@@ -914,24 +1006,24 @@ const GlobalControlPanel: React.FC = () => {
     }
 
     // 立即测量，确保动画起始帧即为正确高度
-    measure(true)
+    measure({ immediate: true, duringMorph: true })
 
-    // 监听动画状态
-    const handleAnimationStart = () => {
-      isAnimating = true
-    }
+    // 动画结束后精确重测一次，补齐 morph 期间被丢弃的内容变化。
+    // 注意：闸门读的是组件级 morphingRef，本 effect 因依赖变化重建时
+    // 不会丢失「当前正在动画」这一事实（旧实现的局部标记会被重置为 false）
     const handleAnimationEnd = () => {
-      isAnimating = false
-      // 动画结束后重新测量
       lastUpdateTime = 0
-      measure(true)
+      measure({ immediate: true, duringMorph: true })
     }
-    window.addEventListener('gcp-animation-start', handleAnimationStart)
     window.addEventListener('gcp-animation-end', handleAnimationEnd)
 
-    // 统一使用事件驱动重测（移除轮询）
-    const handleRemeasure = () => {
-      measure()
+    // 统一使用事件驱动重测（移除轮询）。
+    // detail.immediate 由内容侧在「用户主动改变尺寸」时带上（如小组件行数切换），
+    // 用于跳过节流，让外壳与内容的高度动画同帧开始
+    const handleRemeasure = (e: Event) => {
+      const detail = (e as CustomEvent<{ immediate?: boolean } | undefined>)
+        .detail
+      measure({ immediate: detail?.immediate })
     }
     window.addEventListener('gcp-remeasure', handleRemeasure)
     // 兼容 ControlPanelWidgets 触发的事件
@@ -945,11 +1037,16 @@ const GlobalControlPanel: React.FC = () => {
     window.addEventListener('resize', handleViewportChange)
     window.addEventListener('orientationchange', handleViewportChange)
 
-    // 可见性变化时重新测量
+    // 可见性变化时重新测量。定时器必须可清理：effect 因依赖变化重建、
+    // 或组件卸载后，这一发迟到的 measure 仍会朝旧的外壳写高度
     const handleVisibility = () => {
       if (!document.hidden) {
         lastUpdateTime = 0
-        setTimeout(measure, 100)
+        if (visibilityTimeout !== null) clearTimeout(visibilityTimeout)
+        visibilityTimeout = window.setTimeout(() => {
+          visibilityTimeout = null
+          measure()
+        }, 100)
       }
     }
     document.addEventListener('visibilitychange', handleVisibility)
@@ -968,7 +1065,6 @@ const GlobalControlPanel: React.FC = () => {
     })
 
     return () => {
-      window.removeEventListener('gcp-animation-start', handleAnimationStart)
       window.removeEventListener('gcp-animation-end', handleAnimationEnd)
       window.removeEventListener('gcp-remeasure', handleRemeasure)
       window.removeEventListener(
@@ -985,13 +1081,16 @@ const GlobalControlPanel: React.FC = () => {
       if (measureTimeout !== null) {
         clearTimeout(measureTimeout)
       }
+      if (visibilityTimeout !== null) {
+        clearTimeout(visibilityTimeout)
+      }
     }
     // canRefreshWallpaper / user?.is_admin：壁纸配置与用户信息均为异步加载，
     // 壁纸切换/系统配置两个控制项会在面板展开后才出现。它们渲染在
     // .control-items-grid 内部（contentEl 的孙节点），MutationObserver
     // （仅监听直接子节点）观察不到，移动端又没有 ResizeObserver 兜底——
     // 历史上全靠 ×1.08 的冗余高度硬扛，不够时按钮被裁掉"第一时间不显示"。
-    // 加入 deps 后翻转即触发 measure(true) 精确重测
+    // 加入 deps 后翻转即触发一次强制重测，精确修正高度
   }, [
     isExpanded,
     perf.highHardware,
@@ -1030,34 +1129,47 @@ const GlobalControlPanel: React.FC = () => {
     )
   }, [themePreference])
 
-  // 动画期间给智能岛挂 gcp-animating 类：移动端 Chrome 的 backdrop-filter 元素
-  // 在尺寸动画期间会因合成层重建而闪烁，CSS 侧仅在触屏设备上临时冻结模糊
-  // （容器背景本身 90% 不透明，冻结期间观感差异可忽略）。
-  // 用计数器配对 start/end：快速连续切换时，前一次动画的 end 事件
-  // 不会提前摘掉本次动画仍需要的类
+  // 相位推进：由外壳真实的过渡结束事件驱动，定时器只作兜底。
+  // 收缩内容淡出 → 外壳 morph → 展开内容淡入 → 遮罩，共用同一条时间线，
+  // 不再有「先出空壳、400ms 后内容突然加入」的固定猜测。
   useEffect(() => {
+    if (!isPanelMorphing(panel)) return
     const el = triggerRef.current
-    if (!el) return
+    const generation = panel.generation
+    // 用相位开始时的档位，中途换档不重启这条时间线
+    const activeMotion = motionRef.current
 
-    let activeCount = 0
-    const handleStart = () => {
-      activeCount++
-      el.classList.add('gcp-animating')
+    // 子组件（MusicPlayer 频谱/歌词引擎）仍按这两个事件冻结
+    window.dispatchEvent(new CustomEvent('gcp-animation-start'))
+
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      settled = true
+      window.dispatchEvent(new CustomEvent('gcp-animation-end'))
+      dispatchPanel({ type: 'settle', generation })
     }
-    const handleEnd = () => {
-      activeCount = Math.max(0, activeCount - 1)
-      if (activeCount === 0) {
-        el.classList.remove('gcp-animating')
+
+    // width 在两个方向上都必然变化（160px ↔ 400px），是最可靠的结束信号；
+    // 过渡被打断时浏览器发 transitioncancel，由新一轮 effect 接管
+    const handleTransitionEnd = (e: TransitionEvent) => {
+      if (e.target === el && e.propertyName === 'width') finish()
+    }
+    if (activeMotion.spatial && el) {
+      el.addEventListener('transitionend', handleTransitionEnd)
+    }
+    // 兜底：非空间档位没有尺寸过渡、后台标签页被节流、过渡被 !important 覆盖
+    const fallback = window.setTimeout(finish, settleTimeoutMs(activeMotion))
+
+    return () => {
+      window.clearTimeout(fallback)
+      el?.removeEventListener('transitionend', handleTransitionEnd)
+      // 被新动作抢占：补发 end，避免子组件停在冻结态
+      if (!settled) {
+        window.dispatchEvent(new CustomEvent('gcp-animation-end'))
       }
     }
-    window.addEventListener('gcp-animation-start', handleStart)
-    window.addEventListener('gcp-animation-end', handleEnd)
-    return () => {
-      window.removeEventListener('gcp-animation-start', handleStart)
-      window.removeEventListener('gcp-animation-end', handleEnd)
-      el.classList.remove('gcp-animating')
-    }
-  }, [])
+  }, [panel.phase, panel.generation])
 
   // 展开态写入 html.gcp-panel-open：全屏 TApp iframe 在移动端会抢 hit-test，
   // 宿主侧用该 class 临时关闭 TApp 层 pointer-events（见 GlobalControlPanel.css）
@@ -1073,115 +1185,96 @@ const GlobalControlPanel: React.FC = () => {
     }
   }, [isExpanded])
 
-  // 展开/收起动画世代号：快速连点时作废过期 setTimeout，避免内容/进度闸门错位
-  const panelAnimGenRef = useRef(0)
-
-  // 收起动画（时序与曲线保持不变：0.7s 容器收缩，400ms 中点切换内容）
-  const collapsePanel = useCallback(() => {
-    const gen = ++panelAnimGenRef.current
-    // 通知子组件动画开始
-    window.dispatchEvent(new CustomEvent('gcp-animation-start'))
-    isExpandedRef.current = false
-
-    // 收缩：面板内容立即淡出，容器开始收缩，动态内容在中途淡入
-    setShowPanelContent(false)
-    setShowOverlay(false) // 遮罩层开始淡出
-    setIsExpanded(false)
-    // 重置到控制面板 tab：重新展开时默认展示控制面板
-    setPanelTab('control')
-    setProgressUiVisible(false) // 进度条不可见，停止 currentTime 状态更新
-    setTimeout(() => {
-      if (gen !== panelAnimGenRef.current) return
-      setShowDynamicContent(true)
-    }, 400) // 容器收缩到一半时显示（0.7s 动画的中点）
-    // 动画结束后通知
-    setTimeout(() => {
-      if (gen !== panelAnimGenRef.current) return
-      window.dispatchEvent(new CustomEvent('gcp-animation-end'))
-    }, 700)
-  }, [setProgressUiVisible])
-
-  // 通知 Tab 下控制区仅 opacity 隐藏：进度 tick / 引擎需与 panelVisible 对齐
+  // 通知 Tab 下控制区仅 opacity 隐藏：进度 tick / 引擎需与可见性对齐。
+  // 展开首帧即置位，展开内容淡入时 currentTime 已是最新值
+  const progressUiVisible = showsProgressUi(panel)
   useEffect(() => {
-    if (!isExpanded || !showPanelContent) return
-    setProgressUiVisible(panelTab === 'control')
-  }, [panelTab, isExpanded, showPanelContent, setProgressUiVisible])
+    setProgressUiVisible(progressUiVisible)
+  }, [progressUiVisible, setProgressUiVisible])
 
-  const expandPanel = useCallback(() => {
-    const gen = ++panelAnimGenRef.current
-    // 通知子组件动画开始
-    window.dispatchEvent(new CustomEvent('gcp-animation-start'))
-    isExpandedRef.current = true
+  const collapsePanel = useCallback(() => {
+    dispatchPanel({ type: 'close' })
+  }, [])
 
+  const expandPanel = useCallback((tab?: PanelTab) => {
     // 压入哨兵历史记录：移动端系统返回时先收起面板，而非直接离开页面
     // 保留 react-router 写入的 state（usr/key/idx），避免破坏其内部索引
-    try {
-      const st = window.history.state
-      window.history.pushState(
-        { ...(st ?? {}), idx: (st?.idx ?? 0) + 1, __gcpPanel: true },
-        '',
-      )
-      historyArmedRef.current = true
-    } catch {
-      historyArmedRef.current = false
+    let historyArmed = false
+    if (!isExpandedRef.current) {
+      // 立即翻转镜像，不等下一次提交的 layout effect。
+      // open-control-panel 有多个派发源，同一 tick 内可能到达两次展开请求；
+      // 若这里仍读到过期的 false 就会再压一条哨兵，而 reducer 在 opening
+      // 相位会忽略 historyArmed，多出来的那条永远不会被消费 ——
+      // 表现为之后按一次系统返回键被吞掉。
+      // 立即置位同时保证：同一 tick 内的提前关闭仍能消费掉这条哨兵。
+      isExpandedRef.current = true
+      try {
+        const st = window.history.state
+        window.history.pushState(
+          { ...(st ?? {}), idx: (st?.idx ?? 0) + 1, __gcpPanel: true },
+          '',
+        )
+        historyArmed = true
+      } catch {
+        historyArmed = false
+      }
+      historyArmedRef.current = historyArmed
     }
-
-    // 展开：动态内容立即淡出，容器开始展开，面板内容在中途淡入
-    setShowDynamicContent(false)
-    setIsExpanded(true)
-    // 先同步进度到 React 态，避免内容淡入首帧仍是旧 currentTime
-    setProgressUiVisible(true)
-    // 遮罩层立即显示但透明，然后淡入
-    setTimeout(() => {
-      if (gen !== panelAnimGenRef.current) return
-      setShowOverlay(true)
-    }, 0)
-    setTimeout(() => {
-      if (gen !== panelAnimGenRef.current) return
-      setShowPanelContent(true)
-    }, 400) // 容器展开到一半时显示（0.7s 动画的中点）
-    // 动画结束后通知
-    setTimeout(() => {
-      if (gen !== panelAnimGenRef.current) return
-      window.dispatchEvent(new CustomEvent('gcp-animation-end'))
-    }, 700)
-  }, [setProgressUiVisible])
+    dispatchPanel({ type: 'open', tab, historyArmed })
+  }, [])
 
   const handleClosePanel = useCallback(() => {
     if (!isExpandedRef.current) return
     if (historyArmedRef.current) {
-      // 先解除武装再消费哨兵记录，随后到达的 popstate 不会重复触发收起
+      // 先解除武装再消费哨兵记录；pendingBack 让「关→立刻开」时迟到的
+      // popstate 不会把刚展开的面板再收掉
       historyArmedRef.current = false
+      // 必须计数而不是置 1：同一 tick 内可能连续消费多条哨兵
+      // （程序化的连开连关），每次 back 都会各自回一个 popstate，
+      // 置 1 会让第二个之后的被当成用户按返回键，把刚展开的面板收掉
+      pendingBackRef.current += 1
       window.history.back()
     }
-    collapsePanel()
-  }, [collapsePanel])
+    // 与 expandPanel 的立即置位对称：不等下一次提交的 layout effect。
+    // 否则同一 tick 内「关→立刻开」时第二次调用仍读到 true，
+    // 会被 handleTogglePanel 误判成再关一次，面板打不开。
+    isExpandedRef.current = false
+    dispatchPanel({ type: 'close' })
+  }, [])
 
-  const handleTogglePanel = useCallback(() => {
-    if (isExpanded) {
-      handleClosePanel()
-    } else {
-      expandPanel()
-      void import('../utils/analyticsEvents').then(
-        ({ trackProductEvent, AnalyticsEvents }) => {
-          trackProductEvent(AnalyticsEvents.CONTROL_PANEL_OPEN, {
-            throttleMs: 5000,
-          })
-        },
-      )
-    }
-  }, [isExpanded, handleClosePanel, expandPanel])
+  const handleTogglePanel = useCallback(
+    (tab?: PanelTab) => {
+      if (isExpandedRef.current) {
+        handleClosePanel()
+      } else {
+        expandPanel(tab)
+        void import('../utils/analyticsEvents').then(
+          ({ trackProductEvent, AnalyticsEvents }) => {
+            trackProductEvent(AnalyticsEvents.CONTROL_PANEL_OPEN, {
+              throttleMs: 5000,
+            })
+          },
+        )
+      }
+    },
+    [handleClosePanel, expandPanel],
+  )
 
   // 系统返回（popstate）时收起面板 — 复用同一条收起动画路径
   useEffect(() => {
     const handlePopState = () => {
+      // 自己调用 history.back() 产生的那次回退：只记账，不改状态
+      if (pendingBackRef.current > 0) {
+        pendingBackRef.current -= 1
+        return
+      }
       if (!historyArmedRef.current) return
       historyArmedRef.current = false
-      if (isExpandedRef.current) collapsePanel()
+      dispatchPanel({ type: 'close' })
     }
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
-  }, [collapsePanel])
+  }, [])
 
   // 从面板内部导航到其他页面：收起面板，并用目标路由替换哨兵记录
   // （不能走 handleClosePanel 的 history.back()——异步回退会吞掉紧随其后的 push）
@@ -1226,17 +1319,20 @@ const GlobalControlPanel: React.FC = () => {
 
   // 监听打开控制面板事件（来自音乐小组件等点击）
   useEffect(() => {
-    const handleOpenPanel = () => {
-      if (!isExpanded) {
-        handleTogglePanel()
+    const handleOpenPanel = (e: Event) => {
+      const tab = (e as CustomEvent<{ tab?: PanelTab } | undefined>).detail?.tab
+      if (isExpandedRef.current) {
+        if (tab) dispatchPanel({ type: 'selectTab', tab })
+        return
       }
+      handleTogglePanel(tab)
     }
 
     window.addEventListener('open-control-panel', handleOpenPanel)
     return () => {
       window.removeEventListener('open-control-panel', handleOpenPanel)
     }
-  }, [isExpanded, handleTogglePanel])
+  }, [handleTogglePanel])
 
   // 音乐错误兜底提示：面板收起时 MusicPlayer 的内联错误不可见
   // （典型场景：Agent 触发歌单加载失败），用全局 toast 兜底；
@@ -1549,20 +1645,34 @@ const GlobalControlPanel: React.FC = () => {
         <div className="control-bar-content">
           <div
             ref={triggerRef}
-            className={`control-bar-trigger ${isExpanded ? 'expanded' : ''}`}
-            onMouseEnter={() => setIsHovering(true)}
-            onMouseLeave={() => setIsHovering(false)}
+            className={[
+              'control-bar-trigger',
+              isExpanded ? 'expanded' : '',
+              // morph 进行中：冻结 hover/active 变换，按档位决定是否停背景模糊
+              isPanelMorphing(panel) ? 'gcp-animating' : '',
+              panel.phase === 'closing' ? 'gcp-closing' : '',
+              activeMotion.spatial ? '' : 'gcp-no-morph',
+              activeMotion.blurDuringMorph ? '' : 'gcp-freeze-blur',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            style={motionVars}
+            onPointerEnter={(e) => {
+              if (isHoverCapablePointer(e.pointerType)) setIsHovering(true)
+            }}
+            onPointerLeave={() => setIsHovering(false)}
           >
             {/* 动态轮播内容 - 仅在有有效内容时显示 */}
             {hasValidContent && currentContent && (
               <div
                 className={`dynamic-content-wrapper ${!showDynamicContent || isTransitioning ? 'hidden' : ''}`}
                 onClick={() => {
-                  // 点击轮播中的通知内容 → 直接进入通知 tab
-                  if (currentContent.type === 'notification') {
-                    setPanelTab('notifications')
-                  }
-                  handleTogglePanel()
+                  // 点击轮播中的通知内容 → 直接进入通知 tab（与展开同一次状态切换）
+                  handleTogglePanel(
+                    currentContent.type === 'notification'
+                      ? 'notifications'
+                      : undefined,
+                  )
                 }}
               >
                 <span className="dynamic-icon">{currentContent.icon}</span>
@@ -1585,11 +1695,14 @@ const GlobalControlPanel: React.FC = () => {
               </div>
             )}
 
-            {/* 无有效内容时，仍需保持可点击区域以展开面板 */}
-            {!hasValidContent && !isExpanded && (
+            {/* 无有效内容时，仍需保持可点击区域以展开面板。
+                不按 isExpanded 卸载：卸载会让收缩内容在展开首帧硬切消失，
+                这里交给 showDynamicContent 走与外壳同一条时间线的淡出/淡入
+                （隐藏态是绝对定位 + opacity:0 + pointer-events:none，无布局代价） */}
+            {!hasValidContent && (
               <div
                 className={`dynamic-content-wrapper empty-state ${!showDynamicContent ? 'hidden' : ''}`}
-                onClick={handleTogglePanel}
+                onClick={() => handleTogglePanel()}
               >
                 {collapsedIndicator}
               </div>
@@ -1640,7 +1753,8 @@ const GlobalControlPanel: React.FC = () => {
                   role="tab"
                   aria-selected={panelTab === 'control'}
                   className={`notif-tab ${panelTab === 'control' ? 'active' : ''}`}
-                  onClick={() => setPanelTab('control')}
+                  onClick={() =>
+                    dispatchPanel({ type: 'selectTab', tab: 'control' })}
                 >
                   {t.notificationCenter.tabControl}
                 </button>
@@ -1650,7 +1764,7 @@ const GlobalControlPanel: React.FC = () => {
                   aria-selected={panelTab === 'notifications'}
                   className={`notif-tab ${panelTab === 'notifications' ? 'active' : ''}`}
                   onClick={() => {
-                    setPanelTab('notifications')
+                    dispatchPanel({ type: 'selectTab', tab: 'notifications' })
                     void import('../utils/analyticsEvents').then(
                       ({ trackProductEvent, AnalyticsEvents }) => {
                         trackProductEvent(AnalyticsEvents.NOTIFICATION_OPEN, {
@@ -1685,17 +1799,16 @@ const GlobalControlPanel: React.FC = () => {
                   {/* 动态信息卡片 - 仅桌面显示；移动端关闭以省高度与资源 */}
                   <Suspense fallback={null}>
                     {showControlPanelWidgets && (
-                      <ControlPanelWidgets isAdmin={user?.is_admin} />
+                      <ControlPanelWidgets
+                        isAdmin={user?.is_admin}
+                        panelVisible={progressUiVisible}
+                      />
                     )}
 
                     {/* 音乐播放器：收起或非控制 Tab 时停频谱/歌词引擎，不刷进度 */}
                     <MusicPlayer
                       player={musicPlayer}
-                      panelVisible={
-                        isExpanded &&
-                        showPanelContent &&
-                        panelTab === 'control'
-                      }
+                      panelVisible={progressUiVisible}
                     />
                   </Suspense>
 
@@ -1927,9 +2040,15 @@ const GlobalControlPanel: React.FC = () => {
                   </div>
                 </div>
 
-                {/* 通知覆盖层：inset:0 跟随控制面板高度，列表内部滚动 */}
-                {panelTab === 'notifications' && (
-                  <div className="notif-overlay">
+                {/* 通知覆盖层：inset:0 跟随控制面板高度，列表内部滚动。
+                    首次进入通知页后保持挂载：tab 往返是同一表面上的交叉淡入，
+                    而不是「立即卸载 + 条件挂载」的硬切；收起到 collapsed 时随
+                    状态机复位一起卸载，回收列表资源 */}
+                {mountsNotifications(panel) && (
+                  <div
+                    className={`notif-overlay ${panelTab === 'notifications' ? 'active' : ''}`}
+                    inert={panelTab !== 'notifications'}
+                  >
                     <NotificationPanelList
                       center={notifCenter}
                       fill
@@ -1948,9 +2067,19 @@ const GlobalControlPanel: React.FC = () => {
         </div>
       </div>
 
-      {/* 遮罩层 - 始终存在，通过 CSS 控制显示 */}
+      {/* 遮罩层 - 始终存在，通过 CSS 控制显示。
+          defer-blur 档位（移动端 / 低性能 / reduced-motion）把全屏 backdrop-filter
+          移出 morph 热路径，稳定展开后再淡入模糊；桌面标准档观感不变 */}
       <div
-        className={`control-panel-overlay ${showOverlay ? 'visible' : ''}`}
+        className={[
+          'control-panel-overlay',
+          showOverlay ? 'visible' : '',
+          activeMotion.blurDuringMorph ? '' : 'defer-blur',
+          showsOverlayBlur(panel, activeMotion) ? 'blurred' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        style={motionVars}
         onClick={handleClosePanel}
       />
     </React.Fragment>

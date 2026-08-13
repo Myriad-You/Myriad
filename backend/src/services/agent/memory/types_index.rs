@@ -6,8 +6,16 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, RwLock};
 
-/// 记忆容量上限
-pub(crate) const MAX_MEMORY_ENTRIES: usize = 500;
+/// 每个用户的记忆容量上限。
+///
+/// 此前这是一个 **全局** 上限：淘汰在全体条目上打分，跨用户竞争同一份配额，
+/// 一个活跃用户可以把别人的记忆全部挤掉，而被清空的一方毫无感知。现在配额按
+/// 用户独立结算，淘汰只在超额用户自己的桶里进行。
+///
+/// 数值保持 500 不变：单用户站点升级后条目数不会突然缩水。代价是总量随用户数
+/// 线性增长（上限 = 用户数 × 500），多租户部署需要留意——真正的全局上限属于
+/// 「记忆搬进 Postgres」那件事，不适合用跨用户淘汰来凑。
+pub(crate) const MAX_MEMORY_ENTRIES_PER_USER: usize = 500;
 
 /// 记忆去重——TF-IDF 相似度超过此值认为重复
 pub(crate) const DEDUP_SIMILARITY_THRESHOLD: f32 = 0.85;
@@ -324,9 +332,11 @@ impl TfIdfIndex {
     }
 
     /// 搜索：返回 (doc_id, similarity_score) 降序
-    pub(crate) fn search(&mut self, query: &str, limit: usize) -> Vec<(String, f32)> {
-        self.ensure_idf_fresh();
-
+    ///
+    /// 只读。IDF 的重建由写入方在释放写锁前完成（见 [`Self::ensure_idf_fresh`]），
+    /// 否则召回就必须拿写锁——而一次规划要打 3 次召回、执行阶段还有 1 次，
+    /// 全站的召回会因此彼此串行。
+    pub(crate) fn search(&self, query: &str, limit: usize) -> Vec<(String, f32)> {
         let tokens = Self::tokenize(query);
         if tokens.is_empty() {
             return Vec::new();
@@ -410,8 +420,16 @@ pub struct AgentMemory {
     pub(crate) memory_dir: PathBuf,
     /// 全部记忆条目 (id → entry)
     pub(crate) entries: RwLock<HashMap<String, MemoryEntry>>,
-    /// TF-IDF 搜索索引
-    pub(crate) index: RwLock<TfIdfIndex>,
+    /// 按用户分片的 TF-IDF 搜索索引（key 即 `MemoryEntry::user_id`）
+    ///
+    /// 分片而不是单表，是因为召回、去重都先按相似度取 top-N **再**做用户过滤：
+    /// 单表时用户 A 的候选会被用户 B 的高分文档挤出候选池，表现为「明明存了却
+    /// 召不回」，且没有任何日志能把它和「根本没记住」区分开。顺带也让 IDF 不再
+    /// 被其他用户的语料污染。
+    ///
+    /// key 用 `Option<i32>`：遗留 markdown 导入的条目 `user_id` 为 `None`，它们
+    /// 对普通用户不可见，单独成片后就不再干扰任何人的词权重。
+    pub(crate) indexes: RwLock<HashMap<Option<i32>, TfIdfIndex>>,
     /// 有低优先级变更（访问计数等）尚未落盘，由后台维护任务批量 flush
     pub(crate) dirty: std::sync::atomic::AtomicBool,
     /// 串行化全量快照，避免较旧的并发保存覆盖较新的状态

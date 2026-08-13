@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   abortSseSubscriptions,
+  AgentStreamError,
   decideStreamDropAction,
 } from './sseTransport'
 
@@ -106,5 +107,44 @@ describe('abortSseSubscriptions', () => {
       }),
       'reject_user_abort',
     )
+  })
+})
+
+describe('AgentStreamError', () => {
+  it('keeps the backend code so quota rejections are distinguishable', () => {
+    // The stream is HTTP 200 before anything can fail, so this code is the only
+    // way a caller can tell a budget rejection from a processing failure.
+    for (const code of [
+      'AI_COOLDOWN_ACTIVE',
+      'AI_DAILY_CALL_LIMIT',
+      'AI_ANONYMOUS_DAILY_CALL_LIMIT',
+      'AI_DAILY_TOKEN_LIMIT',
+      'AI_ANONYMOUS_DAILY_TOKEN_LIMIT',
+      'AI_QUOTA_EXCEEDED',
+    ]) {
+      const error = new AgentStreamError('nope', code)
+      assert.equal(error.code, code)
+      assert.equal(error.isQuotaRejection, true)
+    }
+  })
+
+  it('does not treat processing failures as quota rejections', () => {
+    for (const code of [
+      'PROCESSING_ERROR',
+      'RESUME_ERROR',
+      'EXECUTION_ERROR',
+      'QUEUE_FULL',
+      'AI_QUOTA_LEDGER_ERROR',
+      '',
+    ]) {
+      assert.equal(new AgentStreamError('boom', code).isQuotaRejection, false)
+    }
+  })
+
+  it('stays a real Error so existing catch sites keep working', () => {
+    const error = new AgentStreamError('boom', 'PROCESSING_ERROR')
+    assert.ok(error instanceof Error)
+    assert.equal(error.message, 'boom')
+    assert.equal(error.name, 'AgentStreamError')
   })
 })

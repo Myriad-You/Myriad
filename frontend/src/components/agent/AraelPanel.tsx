@@ -42,7 +42,11 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
 import { usePageContentOptional } from '../../contexts/PageContentContext'
-import { agentService, executeFrontendAction } from '../../services/agent'
+import {
+  agentService,
+  AgentStreamError,
+  executeFrontendAction,
+} from '../../services/agent'
 import {
   collectReattachCandidates,
   isNonTerminalTaskStatus,
@@ -1240,10 +1244,20 @@ export const AraelPanel: React.FC = () => {
           handleAgentResponseRef.current(assistantMsgId, response)
         }
       } catch (error) {
+        // A budget rejection arrives on the same channel as a real failure and
+        // reads as "出错了" without this: the stream is already HTTP 200 by then,
+        // so the quota code on the error event is the only signal.
         const errorMsg =
-          error instanceof Error ? error.message : t.arael.unknownError
+          error instanceof AgentStreamError && error.isQuotaRejection
+            ? error.code === 'AI_COOLDOWN_ACTIVE'
+              ? t.arael.quotaCooldown
+              : t.arael.quotaExhausted
+            : error instanceof Error
+              ? error.message
+              : t.arael.unknownError
         pushDebugLog('error', {
           message: errorMsg,
+          code: error instanceof AgentStreamError ? error.code : undefined,
           stack: error instanceof Error ? error.stack : undefined,
         })
         setLastError(errorMsg)

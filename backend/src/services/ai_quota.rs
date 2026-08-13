@@ -46,6 +46,25 @@ struct AiQuotaBucketLimits {
     anonymous: bool,
 }
 
+/// Knobs for a single [`reserve_ai_quota_with_options`] call.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AiQuotaReserveOptions {
+    /// Skip the per-role cooldown gate for this reservation.
+    ///
+    /// Cooldown exists to space out *new* demand. A continuation — the user
+    /// confirming a sensitive step we asked about, or answering a question the
+    /// agent raised — is the tail of a turn they already paid a call for, and
+    /// arrives exactly as fast as a human can click. With the default
+    /// `user_ai_cooldown_seconds = 5` / `guest_ai_cooldown_seconds = 10`, gating
+    /// it means "plan → confirm" reliably answers `AI_COOLDOWN_ACTIVE` instead
+    /// of doing the work the user just approved.
+    ///
+    /// The call charge and the token check still apply, and the cooldown clock
+    /// is still advanced by the reservation — a continuation does spend AI, so
+    /// the *next* fresh turn is spaced from it.
+    pub skip_cooldown: bool,
+}
+
 const ANONYMOUS_LEDGER_USER_ID: i32 = 0;
 const GUEST_IP_BUDGET_MULTIPLIER: i32 = 3;
 const GUEST_SITE_BUDGET_MULTIPLIER: i32 = 100;
@@ -117,6 +136,26 @@ impl AiQuotaError {
     pub fn is_client_limit(&self) -> bool {
         !matches!(self, Self::Ledger { .. })
     }
+}
+
+/// Recognise a stringified [`AiQuotaError`] that is a client budget rejection.
+///
+/// Paths that surface quota failures as plain `String` (the agent returns
+/// `Result<_, String>` throughout) would otherwise report "out of budget" as a
+/// 500. [`Display`](std::fmt::Display) writes `CODE: message`, so the leading
+/// code is a stable discriminator. Ledger faults are deliberately excluded —
+/// those really are server errors.
+pub fn is_client_limit_message(message: &str) -> bool {
+    const CLIENT_LIMIT_CODES: &[&str] = &[
+        "AI_COOLDOWN_ACTIVE",
+        "AI_DAILY_CALL_LIMIT",
+        "AI_ANONYMOUS_DAILY_CALL_LIMIT",
+        "AI_DAILY_TOKEN_LIMIT",
+        "AI_ANONYMOUS_DAILY_TOKEN_LIMIT",
+    ];
+    CLIENT_LIMIT_CODES
+        .iter()
+        .any(|code| message.starts_with(code))
 }
 
 impl std::fmt::Display for AiQuotaError {
@@ -353,6 +392,27 @@ async fn increment_row<C: ConnectionTrait>(
     Ok(())
 }
 
+/// Seconds still owed on the cooldown, or `None` when the call may proceed.
+///
+/// `enforced` folds together the bucket's own `enforce_cooldown` (guest IP and
+/// site-wide buckets never gate on it — one shared clock across users would let
+/// anyone stall everyone) and the per-call
+/// [`AiQuotaReserveOptions::skip_cooldown`]. Note this only decides the *check*:
+/// the reservation still touches `updated_at`, so the clock keeps running for
+/// whoever comes next.
+fn cooldown_remaining(
+    enforced: bool,
+    calls_used: i32,
+    elapsed_seconds: i64,
+    cooldown_seconds: i32,
+) -> Option<i64> {
+    if !enforced || calls_used <= 0 {
+        return None;
+    }
+    let required = i64::from(cooldown_seconds);
+    (elapsed_seconds < required).then(|| required - elapsed_seconds)
+}
+
 pub async fn reserve_ai_quota(
     db: &DatabaseConnection,
     role: UserRole,
@@ -361,6 +421,30 @@ pub async fn reserve_ai_quota(
     tapp_id: &str,
     estimated_tokens: usize,
     anonymous_scope: Option<&str>,
+) -> Result<AiQuotaReservation, AiQuotaError> {
+    reserve_ai_quota_with_options(
+        db,
+        role,
+        subject_id,
+        owner_id,
+        tapp_id,
+        estimated_tokens,
+        anonymous_scope,
+        AiQuotaReserveOptions::default(),
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn reserve_ai_quota_with_options(
+    db: &DatabaseConnection,
+    role: UserRole,
+    subject_id: i32,
+    owner_id: i32,
+    tapp_id: &str,
+    estimated_tokens: usize,
+    anonymous_scope: Option<&str>,
+    options: AiQuotaReserveOptions,
 ) -> Result<AiQuotaReservation, AiQuotaError> {
     let limits = limits_for_role(role).await;
     if limits.unlimited {
@@ -426,17 +510,17 @@ pub async fn reserve_ai_quota(
         )
         .await?;
 
-        if limits.enforce_cooldown {
-            let cooldown_elapsed = Utc::now()
-                .signed_duration_since(last_call_at)
-                .num_seconds()
-                .max(0);
-            if calls_used > 0 && cooldown_elapsed < i64::from(cooldown_seconds) {
-                let remaining = i64::from(cooldown_seconds) - cooldown_elapsed;
-                return Err(AiQuotaError::Cooldown {
-                    remaining_seconds: remaining,
-                });
-            }
+        let cooldown_elapsed = Utc::now()
+            .signed_duration_since(last_call_at)
+            .num_seconds()
+            .max(0);
+        if let Some(remaining_seconds) = cooldown_remaining(
+            limits.enforce_cooldown && !options.skip_cooldown,
+            calls_used,
+            cooldown_elapsed,
+            cooldown_seconds,
+        ) {
+            return Err(AiQuotaError::Cooldown { remaining_seconds });
         }
         if calls_used >= limits.calls {
             return Err(AiQuotaError::DailyCallLimit {
@@ -692,7 +776,75 @@ pub async fn get_ai_usage(
 
 #[cfg(test)]
 mod tests {
-    use super::{guest_quota_buckets, quota_type, AiQuotaError, AiQuotaLimits};
+    use super::{
+        cooldown_remaining, guest_quota_buckets, is_client_limit_message, quota_type, AiQuotaError,
+        AiQuotaLimits, AiQuotaReserveOptions,
+    };
+
+    #[test]
+    fn cooldown_gates_a_fresh_call_but_not_the_first_of_the_day() {
+        // Default config: user 5s, guest 10s.
+        assert_eq!(cooldown_remaining(true, 1, 2, 5), Some(3));
+        assert_eq!(cooldown_remaining(true, 1, 5, 5), None);
+        assert_eq!(cooldown_remaining(true, 1, 9, 5), None);
+        // Nothing spent yet today — nothing to space out from.
+        assert_eq!(cooldown_remaining(true, 0, 0, 5), None);
+        // Cooldown disabled by config.
+        assert_eq!(cooldown_remaining(true, 3, 0, 0), None);
+    }
+
+    #[test]
+    fn continuations_are_not_blocked_by_the_cooldown_they_just_started() {
+        // The bug: `process` plans, returns a confirmation and settles (call +1,
+        // clock starts). The user clicks confirm ~2s later. Reserving that
+        // continuation as a fresh turn answers AI_COOLDOWN_ACTIVE instead of
+        // running the work they just approved.
+        let elapsed_since_plan = 2;
+        assert_eq!(
+            cooldown_remaining(true, 1, elapsed_since_plan, 5),
+            Some(3),
+            "a brand-new turn this soon is still spaced out"
+        );
+
+        // What `AgentTurnBudget::run_continuation` passes down.
+        let continuation = AiQuotaReserveOptions {
+            skip_cooldown: true,
+        };
+        let bucket_enforces = true;
+        assert_eq!(
+            cooldown_remaining(
+                bucket_enforces && !continuation.skip_cooldown,
+                1,
+                elapsed_since_plan,
+                5
+            ),
+            None,
+            "confirm / resume continue a turn the user already paid for"
+        );
+    }
+
+    #[test]
+    fn skip_cooldown_is_opt_in() {
+        assert!(!AiQuotaReserveOptions::default().skip_cooldown);
+    }
+
+    #[test]
+    fn anonymous_guest_buckets_never_own_the_cooldown_clock() {
+        let limits = AiQuotaLimits {
+            calls: 10,
+            tokens: 5_000,
+            cooldown_seconds: 10,
+            unlimited: false,
+        };
+        let buckets = guest_quota_buckets(-42, 1, "com.example.app", limits, Some("203.0.113.8"));
+        assert!(buckets[0].enforce_cooldown, "per-subject bucket gates");
+        for shared in &buckets[1..] {
+            assert!(
+                cooldown_remaining(shared.enforce_cooldown, 5, 0, 10).is_none(),
+                "a shared bucket's clock would let one guest stall every other"
+            );
+        }
+    }
 
     #[test]
     fn quota_key_isolated_by_install_owner() {
@@ -750,5 +902,36 @@ mod tests {
             message: "x".into()
         }
         .is_client_limit());
+    }
+
+    #[test]
+    fn client_limit_messages_are_recognised_from_their_display_form() {
+        // Callers that only have `Result<_, String>` classify on this.
+        for error in [
+            AiQuotaError::Cooldown {
+                remaining_seconds: 5,
+            },
+            AiQuotaError::DailyCallLimit { anonymous: false },
+            AiQuotaError::DailyCallLimit { anonymous: true },
+            AiQuotaError::DailyTokenLimit { anonymous: false },
+            AiQuotaError::DailyTokenLimit { anonymous: true },
+        ] {
+            assert!(
+                is_client_limit_message(&error.to_string()),
+                "{} must be a client limit",
+                error.code()
+            );
+            assert!(error.is_client_limit());
+        }
+    }
+
+    #[test]
+    fn ledger_faults_and_unrelated_errors_stay_server_errors() {
+        let ledger = AiQuotaError::Ledger {
+            message: "db down".into(),
+        };
+        assert!(!is_client_limit_message(&ledger.to_string()));
+        assert!(!is_client_limit_message("Unknown capability_id: foo"));
+        assert!(!is_client_limit_message(""));
     }
 }

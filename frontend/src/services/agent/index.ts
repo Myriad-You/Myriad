@@ -25,6 +25,9 @@ export {
   registerActionHandler,
   unregisterActionHandler,
 } from './frontendActions'
+
+/** Stream failures carry a `code`, so callers can single out quota rejections. */
+export { AgentStreamError } from './sseTransport'
 export type {
   AgentResponse,
   // 响应

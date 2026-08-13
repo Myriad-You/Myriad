@@ -80,15 +80,32 @@ impl Planner {
             .build_system_prompt(request, language, escalation_hint)
             .await;
         let user_prompt = self.build_user_prompt(request, escalation_hint);
-        let full_prompt = format!("{}\n\n---\n\n{}", system_prompt, user_prompt);
 
-        // 调用 Pro AI（失败时有限重试，仍失败则规则 fallback，避免整次对话硬失败）
-        let response = match ai_analyzer.analyze(&full_prompt).await {
+        // 走提供商原生的结构化输出：由 API 层保证返回是合法 JSON，
+        // 而不是靠 prompt 里的「请只输出 JSON」再从自由文本里抠花括号。
+        let schema = planner_output_schema();
+        let response = match ai_analyzer
+            .analyze_json(
+                &system_prompt,
+                &user_prompt,
+                PLANNER_SCHEMA_NAME,
+                Some(&schema),
+            )
+            .await
+        {
             Ok(r) => r,
             Err(e) => {
                 tracing::warn!(error = %e, "[Planner] AI call failed, retrying once");
                 tokio::time::sleep(std::time::Duration::from_millis(400)).await;
-                match ai_analyzer.analyze(&full_prompt).await {
+                match ai_analyzer
+                    .analyze_json(
+                        &system_prompt,
+                        &user_prompt,
+                        PLANNER_SCHEMA_NAME,
+                        Some(&schema),
+                    )
+                    .await
+                {
                     Ok(r) => r,
                     Err(e2) => {
                         tracing::warn!(
@@ -122,45 +139,46 @@ impl Planner {
     }
 
     /// 构建系统 prompt
+    ///
+    /// **段落顺序按「跨请求是否稳定」排，不按叙事顺序排。** OpenAI 的自动 prompt
+    /// caching 和 Gemini 的 context caching 都是前缀匹配：前缀一旦出现差异，后面
+    /// 全部无法命中。此前当前时间戳排在第一段，意味着每分钟都会让整个 prompt 前缀
+    /// 失配，而最大的两块（能力索引 ~113 条 + 190 行规则）恰好排在最后，永远进不了
+    /// 缓存。
+    ///
+    /// 现在拆成两段拼接：
+    /// - `stable`：身份 / 用户偏好 / 协作团队 / 能力索引 / 规则——只在部署配置、
+    ///   Skill 注册表或 MCP 工具列表变化时才变
+    /// - `volatile`：环境（时间+语言）/ 记忆 / 教训 / 推荐 Skill / 执行记录 /
+    ///   升级上下文——每次请求都可能不同
+    ///
+    /// 副作用是语言指令移到了末尾，离模型的输出更近，指令跟随反而更稳。
     async fn build_system_prompt(
         &self,
         request: &UserRequest,
         language: super::intent::keywords::Language,
         escalation_hint: Option<&str>,
     ) -> String {
-        let mut sections: Vec<String> = Vec::new();
-
-        // 0. 环境上下文（时间、语言）
-        let now = chrono::Local::now();
-        let lang_instruction = match language {
-            super::intent::keywords::Language::Chinese => "请用中文回复。",
-            super::intent::keywords::Language::English => "Please respond in English.",
-            super::intent::keywords::Language::Japanese => "日本語で返信してください。",
-        };
-        sections.push(format!(
-            "## 环境\n当前时间：{}\n{}",
-            now.format("%Y-%m-%d %H:%M (%A)"),
-            lang_instruction
-        ));
+        let mut stable: Vec<String> = Vec::new();
+        let mut volatile: Vec<String> = Vec::new();
 
         // 1. 身份（全局 SOUL.md）
         let global_identity = identity::get_identity().await;
-        if let Some(ref id) = global_identity {
-            if let Some(role) = id.role_prompt() {
-                sections.push(format!("## 身份\n{}", role));
-            }
-        }
-        if sections.is_empty() {
-            sections.push(
+        let role_prompt = global_identity.as_ref().and_then(|id| id.role_prompt());
+        // 兜底身份此前是死代码：它的条件是 `sections.is_empty()`，而环境段总是先被
+        // 压入，所以没有 SOUL.md 时 prompt 里根本不含身份段。
+        stable.push(match role_prompt {
+            Some(role) => format!("## 身份\n{}", role),
+            None => {
                 "## 身份\n你是 Arael，一个智能 AI 助手。你能理解用户的自然语言请求并规划执行步骤。"
-                    .to_string(),
-            );
-        }
+                    .to_string()
+            }
+        });
 
         // 1.2. 用户偏好（USER.md）
         if let Some(ref id) = global_identity {
             if let Some(user_ctx) = id.user_context() {
-                sections.push(format!("## 用户偏好\n{}", user_ctx));
+                stable.push(format!("## 用户偏好\n{}", user_ctx));
             }
         }
 
@@ -168,7 +186,7 @@ impl Planner {
         if let Some(mgr) = identity::get_identity_manager() {
             let summaries = mgr.get_role_summaries().await;
             if !summaries.is_empty() {
-                sections.push(format!(
+                stable.push(format!(
                     "## 协作团队\n你可以调度以下专业 Agent 的能力：\n{}",
                     summaries
                 ));
@@ -252,14 +270,14 @@ impl Planner {
             }
 
             if !mem_lines.is_empty() {
-                sections.push(format!(
+                volatile.push(format!(
                     "## 参考记忆\n以下是历史记忆，仅供参考。当用户请求包含「最近」「最新」「目前」「现在」等时效性词汇时，\
                     必须通过搜索获取实时信息，不要用历史记忆中的旧结论替代。\n<memory_context>\n{}\n</memory_context>",
                     mem_lines.join("\n")
                 ));
             }
             if !lesson_lines.is_empty() {
-                sections.push(format!(
+                volatile.push(format!(
                     "## 注意事项（历史教训）\n<lessons>\n{}\n</lessons>",
                     lesson_lines.join("\n")
                 ));
@@ -268,22 +286,22 @@ impl Planner {
 
         // 3. 能力索引（含相关 Skill）
         let compact_index = get_compact_index().await;
-        sections.push(format!(
-            "## 可用能力（紧凑索引）\n```json\n{}\n```",
+        stable.push(format!(
+            "## 可用能力（紧凑索引）\n\
+             条目字段：`id` 能力 ID、`h` 用途、`p` 必需参数、`o` 该能力的输出字段。\n\
+             引用前序步骤输出时，优先按 `o` 写出精确字段——\
+             `\"dataFrom\": \"search.results\"` 而不是 `\"dataFrom\": \"search\"`；\
+             只有确实需要整个输出对象时才引用步骤 ID 本身。\n\
+             ```json\n{}\n```",
             serde_json::to_string_pretty(&compact_index).unwrap_or_default()
         ));
 
-        // 3.2 近期执行摘要（从对话历史中提取能力使用记录，帮助 Planner 了解上下文）
-        if let Some(ref context) = request.context {
-            if let Some(ref history) = context.conversation_history {
-                let exec_summary = Self::extract_execution_summary(history);
-                if !exec_summary.is_empty() {
-                    sections.push(format!("## 本轮对话执行记录\n{}", exec_summary));
-                }
-            }
-        }
+        // 4. 输出格式与规则（纯常量，稳定段的最后一块）
+        stable.push(PLANNER_RULES.to_string());
 
-        // 3.5 相关 Skill 预过滤（语义匹配 top-5）
+        // —— 以下按请求变化，排在缓存前缀之后 ——
+
+        // 5. 相关 Skill 预过滤（语义匹配 top-5，随用户输入变化）
         if let Some(registry) = super::skill::get_skill_registry() {
             let relevant = registry.get_relevant_skills(&request.raw_input, 5).await;
             if !relevant.is_empty() {
@@ -304,22 +322,47 @@ impl Planner {
                         )
                     })
                     .collect();
-                sections.push(format!(
+                volatile.push(format!(
                     "## 推荐 Skill\n以下 Skill 与用户请求高度相关，可优先考虑使用：\n{}",
                     skill_lines.join("\n")
                 ));
             }
         }
 
-        // 4. 升级提示
-        if let Some(hint) = escalation_hint {
-            sections.push(format!("## 升级上下文\n前次执行结果不满意。{}", hint));
+        // 6. 近期执行摘要（从对话历史中提取能力使用记录）
+        if let Some(ref context) = request.context {
+            if let Some(ref history) = context.conversation_history {
+                let exec_summary = Self::extract_execution_summary(history);
+                if !exec_summary.is_empty() {
+                    volatile.push(format!("## 本轮对话执行记录\n{}", exec_summary));
+                }
+            }
         }
 
-        // 5. 输出格式与规则
-        sections.push(PLANNER_RULES.to_string());
+        // 7. 升级提示
+        if let Some(hint) = escalation_hint {
+            volatile.push(format!("## 升级上下文\n前次执行结果不满意。{}", hint));
+        }
 
-        sections.join("\n\n")
+        // 8. 环境上下文（时间、语言）——放在最后：时间戳每分钟都变，
+        // 排在前面会让后续所有内容都失去缓存前缀；放末尾还能让语言指令离输出更近
+        let now = chrono::Local::now();
+        let lang_instruction = match language {
+            super::intent::keywords::Language::Chinese => "请用中文回复。",
+            super::intent::keywords::Language::English => "Please respond in English.",
+            super::intent::keywords::Language::Japanese => "日本語で返信してください。",
+        };
+        volatile.push(format!(
+            "## 环境\n当前时间：{}\n{}",
+            now.format("%Y-%m-%d %H:%M (%A)"),
+            lang_instruction
+        ));
+
+        stable
+            .into_iter()
+            .chain(volatile)
+            .collect::<Vec<_>>()
+            .join("\n\n")
     }
 
     /// 构建用户 prompt（使用结构化边界防止提示词注入）
@@ -560,6 +603,98 @@ impl Planner {
     }
 }
 
+/// 结构化输出的 schema 名（OpenAI `response_format.json_schema.name`）
+const PLANNER_SCHEMA_NAME: &str = "planner_output";
+
+/// [`PlannerOutput`] 的 JSON Schema，交给提供商做结构化输出约束。
+///
+/// 字段名与 `PlannerOutput` / `AiRecipeStep` 的 serde 表示一一对应（两者都用
+/// Rust 字段名，未做 rename）。
+///
+/// 注意 `steps[].params` 是自由 map——能力各自的参数由 `validate_and_convert_steps`
+/// 按 capability 的 `input_schema` 校验，不在这里穷举。它同时意味着这份 schema
+/// 无法翻译成 Gemini 的 `responseSchema` 方言（Gemini 不接受没有 `properties` 的
+/// OBJECT），Gemini 上只生效 `responseMimeType: application/json`；OpenAI 侧走
+/// 非 strict 的 `json_schema`，两边都能保证返回是合法 JSON。
+fn planner_output_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "status": {
+                "type": "string",
+                "enum": ["plan", "clarify", "unsupported", "chat"],
+                "description": "本次判断的请求类型"
+            },
+            "confidence": {
+                "type": "number",
+                "minimum": 0.0,
+                "maximum": 1.0
+            },
+            "reasoning": {
+                "type": "string",
+                "description": "简要说明判断思路"
+            },
+            "steps": {
+                "type": "array",
+                "description": "status=plan 时的执行步骤，最多 8 个",
+                "maxItems": 8,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "string" },
+                        "capability_id": {
+                            "type": "string",
+                            "description": "必须来自可用能力索引的 id"
+                        },
+                        "action": {
+                            "type": "string",
+                            "description": "对这个步骤的具体指令"
+                        },
+                        "params": {
+                            "type": "object",
+                            "description": "能力入参；引用前序步骤用 xxxFrom: \"step_id.字段\""
+                        },
+                        "depends_on": {
+                            "type": "array",
+                            "items": { "type": "string" }
+                        },
+                        "on_failure": {
+                            "type": "string",
+                            "enum": ["abort", "skip"]
+                        },
+                        "retry": {
+                            "type": "object",
+                            "properties": {
+                                "max_attempts": { "type": "integer" },
+                                "delay_ms": { "type": "integer" },
+                                "exponential_backoff": { "type": "boolean" }
+                            },
+                            "required": ["max_attempts", "delay_ms", "exponential_backoff"]
+                        },
+                        "timeout_ms": { "type": "integer" }
+                    },
+                    "required": ["id", "capability_id", "action", "params", "depends_on"]
+                }
+            },
+            "clarification": {
+                "type": "object",
+                "description": "status=clarify 时的提问",
+                "properties": {
+                    "message": { "type": "string" },
+                    "options": {
+                        "type": "array",
+                        "items": { "type": "string" }
+                    }
+                },
+                "required": ["message"]
+            },
+            "unsupported_reason": { "type": "string" },
+            "chat_reply": { "type": "string" }
+        },
+        "required": ["status", "confidence"]
+    })
+}
+
 /// 路由描述
 fn describe_route(route: &str) -> &'static str {
     match route.trim_matches('/') {
@@ -603,6 +738,7 @@ const PLANNER_RULES: &str = r#"## 规则
 3. **Skill 单次调用原则**：同一个 `skill:xxx` 在整个计划中最多出现一次。如果用户要求多张图/多个变体/一些/一批，通过 Skill 的参数传达数量和变体需求（如 `"count": 3`、`"variations": ["场景A", "场景B"]`），由 Skill 内部自行编排多轮生成。**绝不允许**把同一个 Skill 在步骤列表里重复调用多次
 4. `params` 根据能力描述和 `"p"` 参数列表推断合理值
 5. **❗ xxxFrom 必须配合 depends_on**：使用 `"xxxFrom": "step_id"` 引用其他步骤输出时，**必须同时在 `depends_on` 中声明该步骤**。例如 `"dataFrom": "search"` → `"depends_on": ["search"]`。缺少 depends_on 会导致步骤并行执行、引用为 null
+5.1 **优先引用具体字段**：`"xxxFrom"` 支持 `"step_id.字段名"`，字段名取自能力索引的 `o` 列表。例如 `ai.webSearch` 的 `o` 含 `results`，就写 `"dataFrom": "search.results"`。引用整个步骤（`"search"`）只在需要完整输出对象时使用
 6. 如果页面上下文可用，可用 `"inputFrom": "__page_context__"` 引用当前页面内容
 7. `on_failure` 策略：
    - 数据获取步骤用 `"abort"`（后续步骤依赖数据，获取失败则无法继续）
@@ -767,3 +903,260 @@ search(ai.webSearch) → analyze(ai.analyze, dataFrom:"search") → gen_prompt(p
   "chat_reply": "直接回复内容"
 }
 ```"#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A full planner answer, as the model is asked to produce it.
+    fn plan_response() -> serde_json::Value {
+        serde_json::json!({
+            "status": "plan",
+            "confidence": 0.9,
+            "reasoning": "搜索后分析",
+            "steps": [{
+                "id": "search",
+                "capability_id": "ai.webSearch",
+                "action": "搜索角色信息",
+                "params": { "query": "x" },
+                "depends_on": [],
+                "on_failure": "abort",
+                "timeout_ms": 15000
+            }, {
+                "id": "analyze",
+                "capability_id": "ai.analyze",
+                "action": "分析结果",
+                "params": { "dataFrom": "search.results" },
+                "depends_on": ["search"],
+                "on_failure": "skip",
+                "retry": {
+                    "max_attempts": 2,
+                    "delay_ms": 1000,
+                    "exponential_backoff": true
+                }
+            }]
+        })
+    }
+
+    #[test]
+    fn schema_matches_what_planner_output_deserializes() {
+        // The schema is handed to the provider as the response contract, so a
+        // document that satisfies it must also deserialize into PlannerOutput.
+        let parsed: PlannerOutput =
+            serde_json::from_value(plan_response()).expect("schema-shaped response must parse");
+        assert_eq!(parsed.status, PlannerStatus::Plan);
+        assert_eq!(parsed.steps.len(), 2);
+        assert_eq!(parsed.steps[1].depends_on, vec!["search".to_string()]);
+        assert_eq!(
+            parsed.steps[1]
+                .params
+                .get("dataFrom")
+                .and_then(|v| v.as_str()),
+            Some("search.results")
+        );
+        assert!(parsed.steps[1].retry.is_some());
+    }
+
+    #[test]
+    fn schema_declares_every_field_planner_output_reads() {
+        let schema = planner_output_schema();
+        let properties = schema["properties"]
+            .as_object()
+            .expect("object schema with properties");
+        for field in [
+            "status",
+            "confidence",
+            "reasoning",
+            "steps",
+            "clarification",
+            "unsupported_reason",
+            "chat_reply",
+        ] {
+            assert!(
+                properties.contains_key(field),
+                "missing `{field}` in schema"
+            );
+        }
+
+        let step = &schema["properties"]["steps"]["items"]["properties"];
+        for field in [
+            "id",
+            "capability_id",
+            "action",
+            "params",
+            "depends_on",
+            "on_failure",
+            "retry",
+            "timeout_ms",
+        ] {
+            assert!(
+                step.get(field).is_some(),
+                "missing step field `{field}` in schema"
+            );
+        }
+    }
+
+    #[test]
+    fn schema_status_enum_covers_every_planner_status() {
+        let declared = planner_output_schema()["properties"]["status"]["enum"].clone();
+        let declared = declared.as_array().expect("status enum");
+        for status in [
+            PlannerStatus::Plan,
+            PlannerStatus::Clarify,
+            PlannerStatus::Unsupported,
+            PlannerStatus::Chat,
+        ] {
+            let serialized = serde_json::to_value(&status).expect("serialize status");
+            assert!(
+                declared.contains(&serialized),
+                "status {serialized} missing from the schema enum"
+            );
+        }
+        assert_eq!(
+            declared.len(),
+            4,
+            "schema enum has drifted from PlannerStatus"
+        );
+    }
+
+    #[test]
+    fn schema_step_cap_matches_the_planner_rules() {
+        // PLANNER_RULES tells the model 8 steps is the hard ceiling and
+        // validate_and_convert_steps truncates there; the schema must agree.
+        assert_eq!(
+            planner_output_schema()["properties"]["steps"]["maxItems"],
+            8
+        );
+    }
+
+    fn test_planner() -> Planner {
+        Planner {
+            ai_analyzer: None,
+            language_detector: crate::services::agent::intent::keywords::LanguageDetector::new(),
+        }
+    }
+
+    fn request(raw_input: &str) -> UserRequest {
+        UserRequest {
+            raw_input: raw_input.to_string(),
+            timestamp: chrono::Utc::now(),
+            user_id: 1,
+            context: None,
+        }
+    }
+
+    /// Longest shared prefix, which is exactly what a provider's prefix cache
+    /// can reuse between two requests.
+    fn shared_prefix<'a>(a: &'a str, b: &str) -> &'a str {
+        let shared = a
+            .char_indices()
+            .zip(b.chars())
+            .take_while(|((_, x), y)| x == y)
+            .last()
+            .map(|((index, ch), _)| index + ch.len_utf8())
+            .unwrap_or(0);
+        &a[..shared]
+    }
+
+    #[tokio::test]
+    async fn stable_sections_come_before_anything_request_specific() {
+        let planner = test_planner();
+        let chinese = planner
+            .build_system_prompt(
+                &request("帮我看看最新的订阅文章"),
+                crate::services::agent::intent::keywords::Language::Chinese,
+                None,
+            )
+            .await;
+        let english = planner
+            .build_system_prompt(
+                &request("summarize my newest feed items"),
+                crate::services::agent::intent::keywords::Language::English,
+                None,
+            )
+            .await;
+
+        // Two unrelated requests must still share the whole stable block, or the
+        // capability index and the rules never reach a provider prefix cache.
+        let prefix = shared_prefix(&chinese, &english);
+        assert!(prefix.contains("## 身份"), "identity must be cacheable");
+        assert!(
+            prefix.contains("## 可用能力（紧凑索引）"),
+            "the capability index is the largest block and must be cacheable"
+        );
+        assert!(
+            prefix.contains("## 规则"),
+            "PLANNER_RULES must be cacheable"
+        );
+        // The language instruction is what diverges, and it belongs after them.
+        assert!(!prefix.contains("请用中文回复。"));
+    }
+
+    #[tokio::test]
+    async fn volatile_sections_come_after_the_stable_block() {
+        let planner = test_planner();
+        let prompt = planner
+            .build_system_prompt(
+                &request("换一个说法"),
+                crate::services::agent::intent::keywords::Language::Chinese,
+                Some("上次没有找到数据"),
+            )
+            .await;
+
+        let rules = prompt.find("## 规则").expect("rules section");
+        let escalation = prompt.find("## 升级上下文").expect("escalation section");
+        let environment = prompt.find("## 环境").expect("environment section");
+        let capabilities = prompt
+            .find("## 可用能力（紧凑索引）")
+            .expect("capability index");
+
+        assert!(capabilities < rules, "index precedes rules");
+        assert!(rules < escalation, "escalation is request-specific");
+        assert!(escalation < environment, "the timestamp goes last");
+    }
+
+    #[tokio::test]
+    async fn identity_falls_back_when_no_soul_file_is_loaded() {
+        // The previous fallback was unreachable: it was guarded on
+        // `sections.is_empty()` while the environment section had already been
+        // pushed, so a deployment without SOUL.md got no identity at all.
+        let prompt = test_planner()
+            .build_system_prompt(
+                &request("你好"),
+                crate::services::agent::intent::keywords::Language::Chinese,
+                None,
+            )
+            .await;
+        assert!(prompt.contains("## 身份"));
+        assert!(prompt.contains("你是 Arael"));
+    }
+
+    #[test]
+    fn structured_response_needs_no_brace_scraping() {
+        // With provider-enforced JSON the response is the document itself.
+        let planner = Planner {
+            ai_analyzer: None,
+            language_detector: crate::services::agent::intent::keywords::LanguageDetector::new(),
+        };
+        let raw = serde_json::to_string(&plan_response()).expect("serialize");
+        let parsed = planner.parse_response(&raw).expect("parse");
+        assert_eq!(parsed.status, PlannerStatus::Plan);
+        assert_eq!(parsed.steps.len(), 2);
+    }
+
+    #[test]
+    fn prose_wrapped_json_still_parses_on_the_fallback_path() {
+        // Endpoints that reject response_format fall back to prompt-only mode,
+        // where the model may still wrap the document in a fence.
+        let planner = Planner {
+            ai_analyzer: None,
+            language_detector: crate::services::agent::intent::keywords::LanguageDetector::new(),
+        };
+        let raw = format!(
+            "好的，这是计划：\n```json\n{}\n```",
+            serde_json::to_string(&plan_response()).expect("serialize")
+        );
+        let parsed = planner.parse_response(&raw).expect("parse");
+        assert_eq!(parsed.status, PlannerStatus::Plan);
+    }
+}

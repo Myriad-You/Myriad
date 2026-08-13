@@ -1270,6 +1270,9 @@ export const zhCN: TranslationKeys = {
     mcpFieldTools: '工具数',
     mcpFieldAutoRestart: '崩溃自动重启',
     mcpFieldAutoRestartHint: '子进程异常退出时尝试拉起',
+    mcpFieldTrustAnnotations: '采信该服务器的工具自述',
+    mcpFieldTrustAnnotationsHint:
+      '让只读工具跳过确认框。annotations 由服务器自己声明，只对你自己掌控的服务器开启。破坏性工具始终需要确认。',
     mcpFieldMaxRestart: '最大重启次数',
     mcpFieldMaxRestartHint: '0–50；达到上限后不再自动重启',
     mcpRefreshDesc: '重新加载列表',
@@ -4057,6 +4060,8 @@ export const zhCN: TranslationKeys = {
     debugPanel: '调试面板',
     inputAnswer: '输入回答...',
     errorWithDetail: '出错了：{error}',
+    quotaCooldown: '请求太频繁了，稍等一下再试。',
+    quotaExhausted: '今天的 AI 额度用完了，明天会重置。',
     aiGeneratedImage: 'AI 生成图片',
     memTierLong: '长期',
     memTierMid: '中期',

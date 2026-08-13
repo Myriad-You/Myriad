@@ -177,7 +177,7 @@ impl Executor {
         );
 
         // 分发到具体 handler（超时 + 执行中取消轮询，避免长步骤只能等步间检查）
-        execute_capability_with_timeout_and_cancel(
+        let output = execute_capability_with_timeout_and_cancel(
             &step.capability_id,
             &step.action,
             &capability_category,
@@ -186,7 +186,58 @@ impl Executor {
             timeout_secs,
             handler_ctx.task_id.as_deref(),
         )
-        .await
+        .await?;
+
+        Self::report_output_contract(step, &capability, &output);
+
+        Ok(output)
+    }
+
+    /// 校验步骤输出是否符合能力声明的 `output_schema`，**只上报、不判失败**。
+    ///
+    /// 最初的版本把 Breach（声明字段类型不符）判为步骤失败，理由是「声明和实现
+    /// 不一致必然是 bug」。但错的一方可能是**声明**：`output_schema` 在此之前从未
+    /// 被任何代码读取，注册表里的声明基本是照着愿望写的。仅在 16 个 AI 能力里就
+    /// 查出 2 处类型写错（`ai.analyze` 的 `analysis` 实为字符串、`ai.recommend`
+    /// 的 `recommendations` 在退化路径上是字符串）——按 12% 的错误率推算，未采样的
+    /// 路径几乎必然还有。判失败就等于让一处声明笔误直接打挂一条正常功能。
+    ///
+    /// 另外 `required` 在全部 output_schema 里出现 0 次，所以「只对缺 required
+    /// 致命」也是空条件，起不到兜底作用。
+    ///
+    /// 因此运行时只记录，`Breach` / `Drift` 的区分留给 CI：
+    /// `output_contract` 的样本输出表断言被覆盖的能力不得出现 Breach。等注册表
+    /// 的声明被逐个校准干净，再把这里翻回判失败。
+    ///
+    /// MCP 工具的 output_schema 是本地合成的占位（`{"type": "string"}`），不是
+    /// 外部服务的真实契约，完全不参与校验。
+    fn report_output_contract(step: &RecipeStep, capability: &Capability, output: &Value) {
+        if step.capability_id.starts_with("mcp.") {
+            return;
+        }
+
+        let Some(violation) = crate::services::agent::capability::check_output_contract(
+            &capability.output_schema,
+            output,
+        ) else {
+            return;
+        };
+
+        if violation.is_fatal() {
+            tracing::warn!(
+                step_id = %step.id,
+                capability = %step.capability_id,
+                violation = violation.message(),
+                "[Executor] Step output breaches its declared contract (reported, not enforced)"
+            );
+        } else {
+            tracing::warn!(
+                step_id = %step.id,
+                capability = %step.capability_id,
+                violation = violation.message(),
+                "[Executor] Capability output_schema has drifted from its handler"
+            );
+        }
     }
 
     /// 执行 Skill 步骤
@@ -1025,4 +1076,83 @@ impl Executor {
     }
 
     // 动态步骤生成系统
+}
+
+#[cfg(test)]
+mod output_contract_tests {
+    use super::*;
+
+    fn step(capability_id: &str) -> RecipeStep {
+        RecipeStep {
+            id: "s1".to_string(),
+            order: 0,
+            capability_id: capability_id.to_string(),
+            action: String::new(),
+            params: HashMap::new(),
+            depends_on: vec![],
+            on_failure: FailureStrategy::Abort,
+            retry: None,
+            timeout_ms: None,
+            model_tier: None,
+            generator: None,
+        }
+    }
+
+    fn capability(capability_id: &str, output_schema: Value) -> Capability {
+        Capability {
+            id: capability_id.to_string(),
+            output_schema,
+            ..Default::default()
+        }
+    }
+
+    fn summarize_schema() -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "summary": { "type": "string" },
+                "keyPoints": { "type": "array" }
+            }
+        })
+    }
+
+    /// The reporter never fails a step, whatever it finds. Enforcement lives in
+    /// CI (see `output_contract`'s sample-output table) until the registry's
+    /// declarations have been verified against their handlers.
+    #[test]
+    fn reporting_never_fails_a_step() {
+        for output in [
+            json!({ "summary": "ok" }),
+            json!({ "summary": 42 }),
+            json!({ "message": "no declared field present" }),
+            json!({}),
+            json!("not an object at all"),
+        ] {
+            Executor::report_output_contract(
+                &step("ai.summarize"),
+                &capability("ai.summarize", summarize_schema()),
+                &output,
+            );
+        }
+    }
+
+    #[test]
+    fn mcp_tools_are_exempt_from_the_contract() {
+        // `mcp_capability` synthesizes `{"type": "string"}` locally; it is not a
+        // contract the external server ever agreed to.
+        Executor::report_output_contract(
+            &step("mcp.docs.lookup"),
+            &capability("mcp.docs.lookup", json!({ "type": "string" })),
+            &json!({ "content": [{ "type": "text" }] }),
+        );
+    }
+
+    #[test]
+    fn capabilities_without_a_declared_schema_are_unconstrained() {
+        Executor::report_output_contract(
+            &step("router.navigate"),
+            &capability("router.navigate", json!({})),
+            &json!({ "whatever": true }),
+        );
+    }
 }

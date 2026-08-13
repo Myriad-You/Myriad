@@ -313,6 +313,20 @@ impl McpManager {
         all_tools
     }
 
+    /// 该服务器的工具 annotations 是否被运维标记为可信。
+    ///
+    /// 未知服务器返回 `false`：调用方据此判定风险等级，找不到时必须按最严处理。
+    pub async fn server_trusts_annotations(&self, server_id: &str) -> bool {
+        let servers = self.servers.read().await;
+        for server in servers.iter() {
+            let srv = server.lock().await;
+            if srv.config.id == server_id {
+                return srv.config.trust_annotations;
+            }
+        }
+        false
+    }
+
     /// 服务器健康/工具数一览（运维与 Manage UI）
     pub async fn list_server_status(&self) -> Vec<McpServerStatus> {
         let mut out = Vec::new();

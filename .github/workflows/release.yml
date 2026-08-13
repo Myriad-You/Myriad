@@ -493,14 +493,16 @@ jobs:
           if echo "$IMAGES" | jq -e 'has("updater")' >/dev/null; then
             updater_ref=$(echo "$IMAGES" | jq -r '.updater.ref | sub(":[^/:]+$"; "")')
             updater_digest=$(echo "$IMAGES" | jq -r '.updater.digest')
-            cat > docker-guard.env <<EOF
-DOCKER_GUARD_IMAGE=${updater_ref}@${updater_digest}
-GUARD_COMPOSE_PROJECT_NAME=myriad
-GUARD_MYRIAD_DOCKER_NETWORK=myriad-net
-GUARD_MYRIAD_ADMIN_NETWORK=myriad-admin-net
-GUARD_MYRIAD_DOCKER_GUARD_NETWORK=myriad-docker-guard-net
-MYRIAD_GUARD_ENV_FILE=/etc/myriad/docker-guard.env
-EOF
+            # A heredoc body would have to sit at column 0 and would break out of
+            # this YAML block scalar, so emit the file line by line instead.
+            {
+              echo "DOCKER_GUARD_IMAGE=${updater_ref}@${updater_digest}"
+              echo "GUARD_COMPOSE_PROJECT_NAME=myriad"
+              echo "GUARD_MYRIAD_DOCKER_NETWORK=myriad-net"
+              echo "GUARD_MYRIAD_ADMIN_NETWORK=myriad-admin-net"
+              echo "GUARD_MYRIAD_DOCKER_GUARD_NETWORK=myriad-docker-guard-net"
+              echo "MYRIAD_GUARD_ENV_FILE=/etc/myriad/docker-guard.env"
+            } > docker-guard.env
           fi
 
           # Generate checksums.

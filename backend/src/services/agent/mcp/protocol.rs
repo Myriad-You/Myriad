@@ -60,6 +60,38 @@ pub struct McpToolDef {
     pub description: String,
     #[serde(default = "default_schema")]
     pub input_schema: Value,
+    /// 工具自述的行为提示；老 server 不返回时为 `None`
+    #[serde(default)]
+    pub annotations: Option<McpToolAnnotations>,
+}
+
+/// MCP `ToolAnnotations`：工具对自身行为的自述。
+///
+/// 全部字段用 `Option` 而不是带默认值的 `bool`，是为了区分「服务器明确声明为
+/// false」和「服务器没说」——两者在风险判定上不同：规范给 `destructiveHint` 的
+/// 默认值是 `true`，即沉默应当按「可能有破坏性」处理。
+///
+/// 规范同时明确这些只是**提示**，客户端不应基于不可信服务器的 annotations 做
+/// 安全决策。因此只有配置里显式标记 `trust_annotations` 的服务器，其自述才会
+/// 被用来降低风险等级。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpToolAnnotations {
+    /// 人类可读标题（仅展示用）
+    #[serde(default)]
+    pub title: Option<String>,
+    /// 不修改任何环境状态。规范默认 false
+    #[serde(default)]
+    pub read_only_hint: Option<bool>,
+    /// 可能执行破坏性更新。**规范默认 true**，仅在 `read_only_hint` 为假时有意义
+    #[serde(default)]
+    pub destructive_hint: Option<bool>,
+    /// 相同参数重复调用没有额外副作用。规范默认 false
+    #[serde(default)]
+    pub idempotent_hint: Option<bool>,
+    /// 与外部实体交互。规范默认 true
+    #[serde(default)]
+    pub open_world_hint: Option<bool>,
 }
 
 fn default_schema() -> Value {

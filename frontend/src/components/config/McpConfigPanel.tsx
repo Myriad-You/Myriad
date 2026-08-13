@@ -56,6 +56,7 @@ interface DraftServer {
   enabled: boolean
   auto_restart: boolean
   max_restart_attempts: number
+  trust_annotations: boolean
 }
 
 function emptyDraft(): DraftServer {
@@ -68,6 +69,7 @@ function emptyDraft(): DraftServer {
     enabled: true,
     auto_restart: true,
     max_restart_attempts: 3,
+    trust_annotations: false,
   }
 }
 
@@ -84,6 +86,7 @@ function configToDraft(s: McpServerConfig): DraftServer {
     enabled: s.enabled,
     auto_restart: s.auto_restart,
     max_restart_attempts: s.max_restart_attempts,
+    trust_annotations: s.trust_annotations ?? false,
   }
 }
 
@@ -125,6 +128,7 @@ function draftToConfig(d: DraftServer): McpServerConfig {
       0,
       Math.min(50, Math.floor(d.max_restart_attempts) || 0),
     ),
+    trust_annotations: d.trust_annotations,
   }
 }
 
@@ -579,6 +583,15 @@ export function McpConfigPanel({ onMessage }: McpConfigPanelProps) {
         description={c.mcpFieldAutoRestartHint}
         value={draft.auto_restart}
         onChange={(v) => setDraft((d) => ({ ...d, auto_restart: v }))}
+        layout="horizontal"
+        disabled={saving}
+      />
+      <SwitchItem
+        itemKey="mcp_trust_annotations"
+        label={c.mcpFieldTrustAnnotations}
+        description={c.mcpFieldTrustAnnotationsHint}
+        value={draft.trust_annotations}
+        onChange={(v) => setDraft((d) => ({ ...d, trust_annotations: v }))}
         layout="horizontal"
         disabled={saving}
       />

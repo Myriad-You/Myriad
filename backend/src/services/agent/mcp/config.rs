@@ -34,6 +34,14 @@ pub struct McpServerConfig {
     /// 最大重启次数
     #[serde(default = "default_max_restarts")]
     pub max_restart_attempts: u32,
+    /// 采信该服务器工具自述的 annotations（`readOnlyHint` 等）来判定风险等级。
+    ///
+    /// **默认关闭。** annotations 由服务器进程自己提供，MCP 规范明确要求客户端
+    /// 不要基于不可信服务器的 annotations 做安全决策——否则等于让外部进程自行
+    /// 声明「我无害」来关掉确认框。为某个服务器打开这个开关，是运维对「它的自述
+    /// 可信」的显式表态。关闭时该服务器的所有工具一律按高风险处理。
+    #[serde(default)]
+    pub trust_annotations: bool,
 }
 
 fn default_true() -> bool {
@@ -171,6 +179,7 @@ mod tests {
                     enabled: true,
                     auto_restart: true,
                     max_restart_attempts: 3,
+                    trust_annotations: false,
                 },
                 McpServerConfig {
                     id: "a".into(),
@@ -180,6 +189,7 @@ mod tests {
                     enabled: true,
                     auto_restart: true,
                     max_restart_attempts: 3,
+                    trust_annotations: false,
                 },
             ],
         };
@@ -194,6 +204,7 @@ mod tests {
                 enabled: true,
                 auto_restart: true,
                 max_restart_attempts: 3,
+                trust_annotations: false,
             }],
         };
         assert!(validate_config(bad).is_err());
@@ -210,6 +221,7 @@ mod tests {
                 enabled: true,
                 auto_restart: true,
                 max_restart_attempts: 3,
+                trust_annotations: false,
             }],
         };
         assert!(validate_config(cfg).is_ok());
