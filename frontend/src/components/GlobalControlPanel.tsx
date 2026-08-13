@@ -422,25 +422,40 @@ const GlobalControlPanel: React.FC = () => {
       }),
     [anim.level, perf.reduceMotion, perf.isMobile],
   )
-  // morph 一旦开始就用开始时的档位跑完。动效档位可能在动画中途变化
-  // （面板里的动效开关，以及 startAutoFrameAdapt 掉帧时的自动降级——
-  // 后者恰好发生在低端设备 morph 掉帧时），若让它进 settle effect 的依赖，
-  // effect 会重建并在 cleanup 里提前派发 gcp-animation-end，
-  // 触发一次绕过 morph 闸门的重测，在过渡中途写高度顶跳外壳。
-  const motionRef = useRef(motion)
+  /**
+   * morph 一旦开始就用开始时的档位跑完 —— JS 与 CSS 两条线都要冻结。
+   *
+   * 档位可能在动画中途变化：面板里就有动效开关，而 startAutoFrameAdapt
+   * 会在掉帧时自动降级 —— 后者恰好发生在低端设备 morph 掉帧时。
+   *
+   * 不冻结的两个后果：
+   * - JS 侧：motion 进 settle effect 的依赖会让 effect 重建，cleanup 提前
+   *   派发 gcp-animation-end，触发一次绕过 morph 闸门的重测顶跳高度。
+   * - CSS 侧：降到 exlight 会给外壳挂上 gcp-no-morph，该类把 width/height
+   *   移出 transition-property，浏览器当场 cancel 掉运行中的尺寸过渡，
+   *   外壳直接瞬移到终态（实测 width 160 → 400 无过渡），
+   *   而且 transitionend 再也不会来，相位只能等兜底超时。
+   */
+  const [activeMotion, setActiveMotion] = useState(motion)
+  useEffect(() => {
+    // 只在稳定态跟进最新档位；改档位影响的是下一次交互
+    if (!isPanelMorphing(panel)) setActiveMotion(motion)
+  }, [motion, panel.phase])
+
+  const motionRef = useRef(activeMotion)
   useLayoutEffect(() => {
-    motionRef.current = motion
-  }, [motion])
+    motionRef.current = activeMotion
+  }, [activeMotion])
 
   // 时长以 CSS 变量下发：内容交接的 delay/duration 全部按 morph 比例计算，
   // 保证两条时间线永远同步（不会因为改时长而错位）
   const motionVars = useMemo(
     () =>
       ({
-        '--gcp-morph': `${motion.morphMs}ms`,
-        '--gcp-tab': `${motion.tabMs}ms`,
+        '--gcp-morph': `${activeMotion.morphMs}ms`,
+        '--gcp-tab': `${activeMotion.tabMs}ms`,
       }) as React.CSSProperties,
-    [motion],
+    [activeMotion],
   )
 
   const { preference: animPreference, togglePerformanceMode } =
@@ -1635,8 +1650,8 @@ const GlobalControlPanel: React.FC = () => {
               // morph 进行中：冻结 hover/active 变换，按档位决定是否停背景模糊
               isPanelMorphing(panel) ? 'gcp-animating' : '',
               panel.phase === 'closing' ? 'gcp-closing' : '',
-              motion.spatial ? '' : 'gcp-no-morph',
-              motion.blurDuringMorph ? '' : 'gcp-freeze-blur',
+              activeMotion.spatial ? '' : 'gcp-no-morph',
+              activeMotion.blurDuringMorph ? '' : 'gcp-freeze-blur',
             ]
               .filter(Boolean)
               .join(' ')}
@@ -2056,8 +2071,8 @@ const GlobalControlPanel: React.FC = () => {
         className={[
           'control-panel-overlay',
           showOverlay ? 'visible' : '',
-          motion.blurDuringMorph ? '' : 'defer-blur',
-          showsOverlayBlur(panel, motion) ? 'blurred' : '',
+          activeMotion.blurDuringMorph ? '' : 'defer-blur',
+          showsOverlayBlur(panel, activeMotion) ? 'blurred' : '',
         ]
           .filter(Boolean)
           .join(' ')}
