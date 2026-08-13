@@ -195,7 +195,11 @@ describe('Tapp project core', () => {
     assert.ok(codes.has('unknown-manifest-field'))
     assert.ok(codes.has('undeclared-api'))
     assert.ok(codes.has('missing-permission'))
-    assert.ok(report.permissions.missing.some(({ permission }) => permission === 'storage'))
+    assert.ok(
+      report.permissions.missing.some(
+        ({ permission }) => permission === 'storage:write',
+      ),
+    )
   })
 
   it('uses the TypeScript AST for calls without matching comments or strings', async () => {
@@ -203,7 +207,7 @@ describe('Tapp project core', () => {
     await createProject(root, { type: 'page' })
     const manifestPath = join(root, 'manifest.json')
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
-    manifest.permissions = ['storage']
+    manifest.permissions = ['storage:read']
     await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
     await writeFile(
       join(root, 'main.js'),
