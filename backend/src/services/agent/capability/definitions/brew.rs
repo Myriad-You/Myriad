@@ -429,3 +429,19 @@ pub fn register(registry: &mut CapabilityRegistry) {
         ..Default::default()
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::services::agent::capability::CapabilityRegistry;
+
+    #[test]
+    fn add_subscription_source_requires_brew_manage() {
+        // ADR 0013 / handoff：brew.subscribe 对应真实 host 路由
+        // POST /api/brew/sources（Privileged brew:manage），不得回落到已移除的 brew:write。
+        let registry = CapabilityRegistry::new();
+        let capability = registry
+            .get("brew.subscribe")
+            .expect("brew.subscribe capability must be registered");
+        assert_eq!(capability.required_permissions, vec!["brew:manage"]);
+    }
+}

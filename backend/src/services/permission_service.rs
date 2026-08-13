@@ -50,8 +50,25 @@ impl UnknownTappPermission {
         UNKNOWN_TAPP_PERMISSION_CODE
     }
 
+    /// 已移除权限名的替代建议（仅用于错误提示，不构成兼容映射；
+    /// 未知名仍 fail-closed，绝不解码成新权限）。
+    fn replacement_hint(permission: &str) -> Option<&'static str> {
+        match permission {
+            "brew:write" => Some(
+                "use 'brew:readStatus' (read status) or 'brew:favorite' (star) instead",
+            ),
+            "brew:comment" => Some(
+                "use 'brew:read' (read comments) or 'brew:commentWrite' (write comments) instead",
+            ),
+            _ => None,
+        }
+    }
+
     pub fn message(&self) -> String {
-        format!("Unknown Tapp permission '{}'", self.permission)
+        match Self::replacement_hint(&self.permission) {
+            Some(hint) => format!("Unknown Tapp permission '{}'; {}", self.permission, hint),
+            None => format!("Unknown Tapp permission '{}'", self.permission),
+        }
     }
 }
 
@@ -1122,6 +1139,44 @@ mod tests {
             assert_eq!(error.permission, old);
             assert_eq!(error.code(), UNKNOWN_TAPP_PERMISSION_CODE);
         }
+    }
+
+    #[test]
+    fn removed_brew_permission_rejections_list_replacements() {
+        // brew:write → brew:readStatus + brew:favorite
+        let error = TappPermissionService::filter_permissions_for_role(
+            &DynamicConfig::default(),
+            UserRole::Admin,
+            &["brew:write".to_string()],
+        )
+        .unwrap_err();
+        let message = error.message();
+        assert!(message.contains("'brew:write'"), "{message}");
+        assert!(message.contains("brew:readStatus"), "{message}");
+        assert!(message.contains("brew:favorite"), "{message}");
+        assert!(!message.contains("brew:commentWrite"), "{message}");
+
+        // brew:comment → brew:read + brew:commentWrite
+        let error = TappPermissionService::filter_permissions_for_role(
+            &DynamicConfig::default(),
+            UserRole::Admin,
+            &["brew:comment".to_string()],
+        )
+        .unwrap_err();
+        let message = error.message();
+        assert!(message.contains("'brew:comment'"), "{message}");
+        assert!(message.contains("brew:read"), "{message}");
+        assert!(message.contains("brew:commentWrite"), "{message}");
+        assert!(!message.contains("brew:favorite"), "{message}");
+
+        // 未知名的提示不改变通用消息形态
+        let generic = UnknownTappPermission {
+            permission: "legacy:unknown".to_string(),
+        };
+        assert_eq!(
+            generic.message(),
+            "Unknown Tapp permission 'legacy:unknown'"
+        );
     }
 
     #[test]

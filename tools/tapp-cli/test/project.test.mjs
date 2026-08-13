@@ -202,6 +202,37 @@ describe('Tapp project core', () => {
     )
   })
 
+  it('rejects removed brew permission names with replacement hints', async () => {
+    const root = await temporaryDirectory('brew-removed')
+    await createProject(root, { type: 'page' })
+    const manifestPath = join(root, 'manifest.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+    manifest.permissions = ['brew:write', 'brew:comment']
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+
+    const report = await inspectProject(root)
+    const diagnostics = report.diagnostics.filter(
+      ({ code }) => code === 'unknown-permission',
+    )
+    assert.equal(diagnostics.length, 2)
+
+    // brew:write → brew:readStatus + brew:favorite（仍 fail-closed）
+    const write = diagnostics.find(({ message }) =>
+      message.includes('brew:write'),
+    )
+    assert.ok(write, 'brew:write must be rejected')
+    assert.ok(write.message.includes('brew:readStatus'))
+    assert.ok(write.message.includes('brew:favorite'))
+
+    // brew:comment → brew:read + brew:commentWrite（仍 fail-closed）
+    const comment = diagnostics.find(({ message }) =>
+      message.includes('brew:comment'),
+    )
+    assert.ok(comment, 'brew:comment must be rejected')
+    assert.ok(comment.message.includes('brew:read'))
+    assert.ok(comment.message.includes('brew:commentWrite'))
+  })
+
   it('uses the TypeScript AST for calls without matching comments or strings', async () => {
     const root = await temporaryDirectory('ast-analysis')
     await createProject(root, { type: 'page' })
