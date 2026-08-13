@@ -17,8 +17,16 @@ export interface WidgetCarouselGate {
    * 面板收起后组件仍然挂载，只是外壳 content-visibility: hidden。
    */
   panelVisible: boolean
-  /** 指针是否停在小组件区域内 —— 视为用户正在阅读或准备点击。 */
+  /**
+   * 精细鼠标是否停在小组件区域内 —— 视为用户正在阅读或准备点击。
+   * 触屏不要置位：兼容 mouseenter 会粘滞，轮播会停到点到区域外才恢复。
+   */
   isHovering: boolean
+}
+
+/** 与导航岛 tooltip、CSS `@media (hover: hover)` 同一套：只认鼠标。 */
+export function isHoverCapablePointer(pointerType: string): boolean {
+  return pointerType === 'mouse'
 }
 
 /**

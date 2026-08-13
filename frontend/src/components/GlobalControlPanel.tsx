@@ -65,6 +65,7 @@ import {
   showsProgressUi,
 } from './ControlPanel/panelTransition'
 import { UserSection } from './ControlPanel/UserSection'
+import { isHoverCapablePointer } from './ControlPanel/widgetCarousel'
 import NotificationPanelList from './NotificationPanelList'
 import {
   NotificationSourceIcon,
@@ -1656,8 +1657,10 @@ const GlobalControlPanel: React.FC = () => {
               .filter(Boolean)
               .join(' ')}
             style={motionVars}
-            onMouseEnter={() => setIsHovering(true)}
-            onMouseLeave={() => setIsHovering(false)}
+            onPointerEnter={(e) => {
+              if (isHoverCapablePointer(e.pointerType)) setIsHovering(true)
+            }}
+            onPointerLeave={() => setIsHovering(false)}
           >
             {/* 动态轮播内容 - 仅在有有效内容时显示 */}
             {hasValidContent && currentContent && (

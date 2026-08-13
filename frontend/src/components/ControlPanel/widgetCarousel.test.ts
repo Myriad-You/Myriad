@@ -8,7 +8,10 @@
 import type { WidgetCarouselGate } from './widgetCarousel.ts'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { shouldAutoAdvanceWidgets } from './widgetCarousel.ts'
+import {
+  isHoverCapablePointer,
+  shouldAutoAdvanceWidgets,
+} from './widgetCarousel.ts'
 
 /** 唯一会自动翻页的组合。 */
 const RUNNING: WidgetCarouselGate = {
@@ -72,5 +75,14 @@ describe('shouldAutoAdvanceWidgets', () => {
       shouldAutoAdvanceWidgets({ ...RUNNING, maxPage: -1 }),
       false,
     )
+  })
+})
+
+describe('isHoverCapablePointer', () => {
+  it('只把鼠标当成会粘滞的 hover，触屏 / 笔不暂停轮播', () => {
+    assert.equal(isHoverCapablePointer('mouse'), true)
+    assert.equal(isHoverCapablePointer('touch'), false)
+    assert.equal(isHoverCapablePointer('pen'), false)
+    assert.equal(isHoverCapablePointer(''), false)
   })
 })

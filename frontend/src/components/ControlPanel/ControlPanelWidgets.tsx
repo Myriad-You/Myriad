@@ -23,8 +23,18 @@ import { getCSRFToken } from '../../utils/csrf'
 import { getUIConfigDeduped } from '../../utils/requestDedup'
 import WidgetGrid from '../WidgetGrid'
 import { getBuiltinWidgets } from '../widgets/builtinWidgets'
-import { shouldAutoAdvanceWidgets } from './widgetCarousel'
-import { packControlPanelWidgets } from './widgetReflow'
+import {
+  PANEL_MORPH_BASE_MS,
+  PANEL_SETTLE_SLACK_MS,
+} from './panelTransition'
+import {
+  isHoverCapablePointer,
+  shouldAutoAdvanceWidgets,
+} from './widgetCarousel'
+import {
+  mergeVisibleWithHidden,
+  packControlPanelWidgets,
+} from './widgetReflow'
 import './ControlPanelWidgets.css'
 
 const API_URL = CONFIG_API_URL
@@ -96,6 +106,9 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
     const startRowsRef = useRef(2)
     const currentDragRowsRef = useRef(2)
     const isDraggingRef = useRef(false)
+    // 当前行数装不下、因而没有渲染出来的小组件。
+    // 用 ref 而不是让 handleWidgetsChange 直接依赖，避免编辑回调随布局重建
+    const hiddenWidgetsRef = useRef<WidgetConfig[]>([])
     // 行数切换前的容器高度，供切换后的 FLIP 动画用
     const heightBeforeRowsRef = useRef<number | null>(null)
     // 行数切换动画进行中：期间的尺寸变化由下面的 layout effect 统一驱动，
@@ -187,10 +200,17 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
         const validWidgets = isTappWidgetsLoading
           ? newWidgets
           : newWidgets.filter((w) => registeredIds.has(w.type))
-        setWidgets(validWidgets)
-        setRawLayoutData(validWidgets)
+        // WidgetGrid 收到的是规范化后的可见集合，回传的自然也只有可见项。
+        // 当前行数装不下、因而没有渲染出来的那些必须原样并回去，
+        // 否则在 1 行模式下随便拖一下就把它们删了
+        const merged = mergeVisibleWithHidden(
+          validWidgets,
+          hiddenWidgetsRef.current,
+        )
+        setWidgets(merged)
+        setRawLayoutData(merged)
         if (!isTappWidgetsLoading) {
-          saveToBackend(validWidgets, gridRows)
+          saveToBackend(merged, gridRows)
         }
       },
       [gridRows, saveToBackend, CONTROL_PANEL_WIDGETS, isTappWidgetsLoading],
@@ -209,27 +229,18 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
         // 当切换到 2 行模式时，恢复为默认尺寸
         let updatedWidgets: WidgetConfig[]
         if (rows === 1) {
-          updatedWidgets = widgets
-            .map((w) => {
-              const widgetType = CONTROL_PANEL_WIDGETS.find(
-                (wt) => wt.id === w.type,
-              )
-              if (widgetType?.supportedSizes?.includes('4x1')) {
-                // 位置交给下面的重新打包决定：这里若保留原 x，
-                // 宽度从 2 列变 4 列后相邻小组件必然叠上
-                return { ...w, size: '4x1' as const }
-              }
-              // Keep unknown types (e.g. Tapp still loading) so we don't drop them
-              if (!widgetType && isTappWidgetsLoading) return w
-              return w
-            })
-            .filter((w) => {
-              const widgetType = CONTROL_PANEL_WIDGETS.find(
-                (wt) => wt.id === w.type,
-              )
-              if (!widgetType) return isTappWidgetsLoading
-              return widgetType.supportedSizes?.includes('4x1')
-            })
+          // 只改能压成 4x1 的尺寸。不支持 4x1 的（或 Tapp 还在加载）原样留下，
+          // 渲染时的 pack 会把它们放进 overflow，切回 2 行时再出来。
+          // 绝不能在这里 filter：否则一改行数就把用户的小组件从存盘里删了。
+          updatedWidgets = widgets.map((w) => {
+            const widgetType = CONTROL_PANEL_WIDGETS.find(
+              (wt) => wt.id === w.type,
+            )
+            if (widgetType?.supportedSizes?.includes('4x1')) {
+              return { ...w, size: '4x1' as const }
+            }
+            return w
+          })
         } else {
           // 切换回 2 行模式时，恢复为 2x2 尺寸
           updatedWidgets = widgets.map((w) => {
@@ -244,10 +255,9 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
           })
         }
 
-        // 行数变化会改变每个小组件占的格子数，原坐标不再成立 ——
-        // 按当前顺序重新打包，保证输出恒不重叠（见 widgetReflow.test.ts）
-        updatedWidgets = packControlPanelWidgets(updatedWidgets, rows)
-
+        // 只调整 size，位置交给渲染时的规范化（displayWidgets）。
+        // 这里不做打包也不裁剪：1 行模式装不下的小组件必须留在数据里，
+        // 否则切一次行数就把它们从后端永久删掉了
         setWidgets(updatedWidgets)
         setRawLayoutData(updatedWidgets)
         // Avoid persisting a layout filtered without Tapp catalog
@@ -296,13 +306,24 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
       }
       const finish = () => {
         el.removeEventListener('transitionend', done)
+        el.removeEventListener('transitioncancel', done)
         window.clearTimeout(fallback)
         rowsAnimatingRef.current = false
         el.style.height = '' // 交还给内容驱动
       }
-      // 兜底：过渡被打断或时长被 reduced-motion 压到 0 时仍要解除钉住
-      const fallback = window.setTimeout(finish, 1200)
+      // 跟外壳同一条时钟：--gcp-morph + slack。写死 1200ms 会在
+      // reduced-motion / exlight 丢 transitionend 时把高度钉住一整秒。
+      const morphMs = Number.parseFloat(
+        getComputedStyle(el).getPropertyValue('--gcp-morph'),
+      )
+      const fallback = window.setTimeout(
+        finish,
+        (Number.isFinite(morphMs) && morphMs >= 0
+          ? morphMs
+          : PANEL_MORPH_BASE_MS) + PANEL_SETTLE_SLACK_MS,
+      )
       el.addEventListener('transitionend', done)
+      el.addEventListener('transitioncancel', done)
 
       return finish
     }, [gridRows])
@@ -418,9 +439,25 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
     }, [isEditMode])
 
     // 计算最大页数 (基于内容)
+    /**
+     * 渲染用的规范化布局。
+     *
+     * 打包放在这里而不是放进 state：行数、尺寸都可能让存下来的坐标失效
+     * （历史上还存进过互相重叠的布局），渲染前统一规范一次就都正了；
+     * 而 widgets 保持完整逻辑列表，换回容量更大的行数时溢出项会自己回来。
+     */
+    const { placed: displayWidgets, overflow: hiddenWidgets } = useMemo(
+      () => packControlPanelWidgets(widgets, gridRows),
+      [widgets, gridRows],
+    )
+
+    useLayoutEffect(() => {
+      hiddenWidgetsRef.current = hiddenWidgets
+    }, [hiddenWidgets])
+
     const maxPage = useMemo(() => {
       let maxX = -1
-      widgets.forEach((w) => {
+      displayWidgets.forEach((w) => {
         // 简单判断：如果 x >= 8 则在第3页，x >= 4 则在第2页
         if (w.position.x > maxX) maxX = w.position.x
       })
@@ -430,7 +467,7 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
       if (isEditMode) return Math.min(2, lastOccupiedPage + 1)
       // 浏览模式下仅允许访问有内容的页
       return Math.max(0, lastOccupiedPage)
-    }, [widgets, isEditMode])
+    }, [displayWidgets, isEditMode])
 
     // 确保当前页不超过最大页
     useEffect(() => {
@@ -526,8 +563,10 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
           className={`control-panel-widgets-container relative w-full transition-all rounded-xl ${isEditMode ? 'z-9999' : ''}`}
           onMouseDown={handleMouseDown}
           onMouseUp={handleMouseUp}
-          onMouseEnter={() => setIsHovering(true)}
-          onMouseLeave={() => {
+          onPointerEnter={(e) => {
+            if (isHoverCapablePointer(e.pointerType)) setIsHovering(true)
+          }}
+          onPointerLeave={() => {
             handleMouseUp()
             setIsHovering(false)
           }}
@@ -543,7 +582,7 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
               >
                 <div className="w-full transition-all duration-300 ease-in-out">
                   <WidgetGrid
-                    widgets={widgets}
+                    widgets={displayWidgets}
                     availableWidgets={filteredWidgets}
                     onWidgetsChange={handleWidgetsChange}
                     isEditMode={isEditMode}
