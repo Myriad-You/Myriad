@@ -18,7 +18,7 @@ use myriad_tapp_contract::manifest::{
 use reqwest::header::HeaderName;
 use std::str::FromStr;
 
-use crate::services::permission_service::TappPermission;
+use crate::services::permission_service::{tapp_permission_replacement_hint, TappPermission};
 use crate::services::tapp_storage::validate_storage_key;
 
 // Single source of truth shared with the offline CLI contract exporter.
@@ -576,12 +576,18 @@ pub fn validate_tapp_manifest(manifest: &TappManifest) -> Result<(), String> {
     }
     let mut permissions = std::collections::HashSet::new();
     for permission in &manifest.permissions {
-        if TappPermission::from_str(permission).is_none()
-            || !permissions.insert(permission.as_str())
-        {
-            return Err(format!(
-                "Unknown or duplicate Tapp permission: {permission}"
-            ));
+        // 未知名与重复名分开报错：未知名附加已移除权限的替代建议
+        // （hint 与 UnknownTappPermission 共用单一来源，见 permission_service）。
+        if TappPermission::from_str(permission).is_none() {
+            return Err(match tapp_permission_replacement_hint(permission) {
+                Some(hint) => {
+                    format!("Unknown Tapp permission: {permission}; {hint}")
+                }
+                None => format!("Unknown Tapp permission: {permission}"),
+            });
+        }
+        if !permissions.insert(permission.as_str()) {
+            return Err(format!("Duplicate Tapp permission: {permission}"));
         }
     }
     if manifest
@@ -1213,6 +1219,52 @@ mod tests {
         assert!(validate_tapp_id("a/b").is_err());
         assert!(validate_tapp_id("../x").is_err());
         assert!(validate_tapp_id(&"a".repeat(MAX_TAPP_ID_LEN + 1)).is_err());
+    }
+
+    #[test]
+    fn removed_brew_permissions_are_rejected_with_replacement_hints() {
+        let manifest = |permissions: Vec<&str>| {
+            serde_json::from_value::<TappManifest>(json!({
+                "id": "com.example.brew-removed",
+                "name": "Brew removed",
+                "version": "1.0.0",
+                "main": "main.js",
+                "category": "utility",
+                "permissions": permissions,
+            }))
+            .unwrap()
+        };
+
+        // brew:write → brew:readStatus + brew:favorite
+        let error =
+            validate_tapp_manifest(&manifest(vec!["brew:write"])).unwrap_err();
+        assert!(error.contains("brew:write"), "{error}");
+        assert!(error.contains("brew:readStatus"), "{error}");
+        assert!(error.contains("brew:favorite"), "{error}");
+
+        // brew:comment → brew:read + brew:commentWrite
+        let error =
+            validate_tapp_manifest(&manifest(vec!["brew:comment"])).unwrap_err();
+        assert!(error.contains("brew:comment"), "{error}");
+        assert!(error.contains("brew:read"), "{error}");
+        assert!(error.contains("brew:commentWrite"), "{error}");
+
+        // 普通未知名不带替代提示
+        let error =
+            validate_tapp_manifest(&manifest(vec!["legacy:unknown"])).unwrap_err();
+        assert!(
+            error.contains("Unknown Tapp permission: legacy:unknown"),
+            "{error}"
+        );
+        assert!(!error.contains("instead"), "{error}");
+
+        // 重复名保持 duplicate 语义，不附加替代提示
+        let error = validate_tapp_manifest(&manifest(vec!["brew:read", "brew:read"]))
+            .unwrap_err();
+        assert!(
+            error.contains("Duplicate Tapp permission: brew:read"),
+            "{error}"
+        );
     }
 
     fn credential_manifest(endpoint: &str) -> TappManifest {

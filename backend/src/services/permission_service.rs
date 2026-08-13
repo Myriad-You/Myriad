@@ -40,6 +40,21 @@ use serde::{Deserialize, Serialize};
 
 pub const UNKNOWN_TAPP_PERMISSION_CODE: &str = "UNKNOWN_TAPP_PERMISSION";
 
+/// 已移除权限名的替代建议（仅用于错误提示，不构成兼容映射；
+/// 未知名仍 fail-closed，绝不解码成新权限）。
+/// 单一来源：`UnknownTappPermission::message` 与 manifest 安装校验共用。
+pub(crate) fn tapp_permission_replacement_hint(permission: &str) -> Option<&'static str> {
+    match permission {
+        "brew:write" => Some(
+            "use 'brew:readStatus' (read status) or 'brew:favorite' (star) instead",
+        ),
+        "brew:comment" => Some(
+            "use 'brew:read' (read comments) or 'brew:commentWrite' (write comments) instead",
+        ),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnknownTappPermission {
     pub permission: String,
@@ -50,22 +65,8 @@ impl UnknownTappPermission {
         UNKNOWN_TAPP_PERMISSION_CODE
     }
 
-    /// 已移除权限名的替代建议（仅用于错误提示，不构成兼容映射；
-    /// 未知名仍 fail-closed，绝不解码成新权限）。
-    fn replacement_hint(permission: &str) -> Option<&'static str> {
-        match permission {
-            "brew:write" => Some(
-                "use 'brew:readStatus' (read status) or 'brew:favorite' (star) instead",
-            ),
-            "brew:comment" => Some(
-                "use 'brew:read' (read comments) or 'brew:commentWrite' (write comments) instead",
-            ),
-            _ => None,
-        }
-    }
-
     pub fn message(&self) -> String {
-        match Self::replacement_hint(&self.permission) {
+        match tapp_permission_replacement_hint(&self.permission) {
             Some(hint) => format!("Unknown Tapp permission '{}'; {}", self.permission, hint),
             None => format!("Unknown Tapp permission '{}'", self.permission),
         }
