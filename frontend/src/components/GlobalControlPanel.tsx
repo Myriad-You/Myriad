@@ -1175,6 +1175,13 @@ const GlobalControlPanel: React.FC = () => {
     // 保留 react-router 写入的 state（usr/key/idx），避免破坏其内部索引
     let historyArmed = false
     if (!isExpandedRef.current) {
+      // 立即翻转镜像，不等下一次提交的 layout effect。
+      // open-control-panel 有多个派发源，同一 tick 内可能到达两次展开请求；
+      // 若这里仍读到过期的 false 就会再压一条哨兵，而 reducer 在 opening
+      // 相位会忽略 historyArmed，多出来的那条永远不会被消费 ——
+      // 表现为之后按一次系统返回键被吞掉。
+      // 立即置位同时保证：同一 tick 内的提前关闭仍能消费掉这条哨兵。
+      isExpandedRef.current = true
       try {
         const st = window.history.state
         window.history.pushState(
@@ -1185,6 +1192,7 @@ const GlobalControlPanel: React.FC = () => {
       } catch {
         historyArmed = false
       }
+      historyArmedRef.current = historyArmed
     }
     dispatchPanel({ type: 'open', tab, historyArmed })
   }, [])
