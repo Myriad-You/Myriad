@@ -7,6 +7,7 @@
 
 | 文档 | 说明 |
 | ---- | ---- |
+| [愿景与用户故事](tapp/VISION.md) | 权限放宽的需求背景、三大痛点与五个用户故事 |
 | [架构总览](tapp/ARCHITECTURE.md) | 安装态、运行态、列表布局、私有安装清理、沙箱与调度器 |
 | [Tapp 商店](tapp/STORE.md) | 远程目录 `index.json`、源管理、安装链路、商店索引 UI 字段（如 `icon_shell`）与发布 |
 | [Tapp Playground](tapp/PLAYGROUND.md) | Pro AI 双模式（Page / Widget-only）生成、预览、导出与安装边界 |
