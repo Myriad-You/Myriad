@@ -5,7 +5,9 @@ Supersedes: ADR-0010
 
 ADR 0010 决定为旧粗权限保留兼容映射（expand 阶段），让老 manifest 继续可用。这个决定被推翻。
 
-仓库内引用旧粗权限的只有两份 host/action fixture 和生成的 `contract.json`，没有仓库外 manifest 依赖它们。为一个没有实际存量的兼容面维护一张映射表，代价高于收益：映射表要在授予层展开、要进一致性测试、要在将来删除时再做一次迁移，而它保护的是不存在的用户。
+仓库内引用旧粗权限的主要是两份 host/action fixture 和生成的 `contract.json`，没有仓库外 manifest 依赖它们。为一个没有实际存量的兼容面维护一张映射表，代价高于收益：映射表要在授予层展开、要进一致性测试、要在将来删除时再做一次迁移，而它保护的是不存在的用户。
+
+另有一处非 fixture 的存量需在删除时一并处理：agent capability 定义里有一处过时引用——`backend/src/services/agent/capability/definitions/brew.rs:247` 的「添加订阅源」声明 `required_permissions: ["brew:write"]`，而该 capability 对应的真实 host 路由 `/api/brew/sources`（POST）绑的是 `brew:manage`（Privileged）。这是一处**过时的权限串**，不是需要保护的真实依赖：删除 `brew:write` 时应把它改成 `brew:manage`，语义与现状一致（agent_footer 亦注明「加/改/删源仅管理员」）。它不构成保留兼容映射的理由，但构成 D1 完成标准里必须列出的一处改动点。
 
 决定：按动作域拆细权限的同时，**直接从枚举中移除旧粗权限**，不保留任何映射规则。被移除的是 `storage`、`ui:theme`、`media:control`、`brew:write`、`brew:comment`、`federation:write`。声明这些权限的 manifest 在安装校验时被明确拒绝，错误信息指出应改用的新权限名。
 
