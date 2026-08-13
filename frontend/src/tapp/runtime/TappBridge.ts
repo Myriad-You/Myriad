@@ -146,10 +146,10 @@ interface PermissionCheckResult {
 }
 
 // 仅浏览器侧执行、没有可强制权限的后端端点的能力才需要行前 authorize。
-// speech/brew 走真实宿主端点并携带 Runtime Grant 头，由服务端就地强制。
-const SERVER_AUTHORITATIVE_HOST_PERMISSIONS = new Set<TappPermission>([
-  'media:control',
-])
+// speech/brew 走真实宿主端点并携带 Runtime Grant 头，由服务端就地强制；
+// media.control 已按 action 分域（MEDIA_ACTION_PERMISSIONS）：沙箱 handler 逐
+// action 校验 grantedPermissions 并回打 runtime-grants/authorize，后端
+// POST /api/tapp/media/control 再按 action 强制，故无行前集合。
 
 /**
  * Tapp Bridge 类
@@ -1111,26 +1111,6 @@ export class TappBridge {
         allowed: false,
         reason: `Missing permission: ${requiredPermission}`,
         requiredPermission,
-      }
-    }
-
-    if (SERVER_AUTHORITATIVE_HOST_PERMISSIONS.has(requiredPermission)) {
-      if (!this.runtimeGrant && !this.grantSeed) {
-        return {
-          allowed: false,
-          reason: 'Runtime grant is not initialized',
-          requiredPermission,
-        }
-      }
-      try {
-        // Re-mint if subject reset destroyed the previous grant.
-        await this.ensureLiveRuntimeGrant().authorize(requiredPermission)
-      } catch {
-        return {
-          allowed: false,
-          reason: `Permission was revoked: ${requiredPermission}`,
-          requiredPermission,
-        }
       }
     }
 

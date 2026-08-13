@@ -219,7 +219,8 @@ export const PermissionsConfigSection: React.FC<
       label: t.config.permNetworkFetch,
       hint: t.config.permNetworkFetchHint,
     },
-    // 界面与交互（media:control 已降 basic，始终开放，不再展示下放开关）
+    // 界面与交互（媒体权限 media:playback/media:volume/media:queue 均为 basic，
+    // 始终开放，不再展示下放开关）
     {
       key: 'event_publish',
       code: 'event:publish',

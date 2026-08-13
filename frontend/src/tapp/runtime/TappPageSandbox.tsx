@@ -733,7 +733,9 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
         hasExact('ai:image')
       const hasMedia =
         hasExact('media:read') ||
-        hasExact('media:control') ||
+        hasExact('media:playback') ||
+        hasExact('media:volume') ||
+        hasExact('media:queue') ||
         hasExact('media:audio')
       const hasSpeech = hasExact('speech:tts') || hasExact('speech:asr')
       const hasEvents =

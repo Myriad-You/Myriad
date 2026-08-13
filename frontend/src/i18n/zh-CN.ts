@@ -1711,7 +1711,6 @@ export const zhCN: TranslationKeys = {
     permAiChatHint: '允许 Tapp 使用 AI 对话功能',
     permNetworkFetch: '网络请求',
     permNetworkFetchHint: '允许声明式出站请求，以及加载远端图片/音视频资源',
-    permMediaControl: '媒体控制',
     permComponentTheme: '注册主题',
     permComponentThemeHint: '允许 Tapp 注册自定义主题',
     permShortcutRegister: '注册快捷键',
@@ -2943,7 +2942,9 @@ export const zhCN: TranslationKeys = {
     permConfirm: '确认对话框',
     permOpenUrl: '打开声明链接',
     permNetworkFetch: '网络请求',
-    permMediaControl: '媒体控制',
+    permMediaPlayback: '播放控制',
+    permMediaVolume: '音量控制',
+    permMediaQueue: '播放队列',
     permMediaRead: '读取媒体状态',
     permMediaAudio: '播放音频',
     permRegisterTheme: '注册主题',
@@ -2987,7 +2988,11 @@ export const zhCN: TranslationKeys = {
       '允许通过宿主打开 Manifest openUrls 中声明的链接（未声明地址一律拒绝）',
     permNetworkFetchDesc:
       '允许声明式 HTTP API，以及加载远端图片/音视频（封面 CDN 等）',
-    permMediaControlDesc: '允许控制媒体播放（播放、暂停、切换等）',
+    permMediaPlaybackDesc:
+      '允许控制媒体播放（播放、暂停、上/下一首、跳转进度等）',
+    permMediaVolumeDesc: '允许调整音量、静音与取消静音',
+    permMediaQueueDesc:
+      '允许选择、排序和加载播放队列（歌单、播放模式等）',
     permMediaReadDesc: '允许读取当前媒体播放状态',
     permMediaAudioDesc: '允许在沙箱内播放包内/blob/data 音频',
     permRegisterThemeDesc: '允许注册自定义主题样式',

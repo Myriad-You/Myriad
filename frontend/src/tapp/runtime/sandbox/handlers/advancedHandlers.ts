@@ -18,11 +18,13 @@ import {
 } from '../../../../utils/musicPlayer'
 import { proxyImageUrlOr } from '../../../../utils/proxyImageUrl'
 import * as TappApiService from '../../../services/TappApiService'
+import { authorizeTappRuntimePermission } from '../../../services/TappRuntimeAccessApi'
 import {
   hostBindShortcut,
   hostUnbindAllForBridge,
   hostUnbindShortcut,
 } from '../../HostShortcutManager'
+import { MEDIA_ACTION_PERMISSIONS } from '../../permissionConfig'
 import { getTappRuntime } from '../../TappRuntime'
 
 /**
@@ -42,6 +44,33 @@ export function registerMediaHandlers(
       value?: unknown
     }
     try {
+      // 按 action 分域鉴权（最窄授权）：行为发生前先校验 granted 层权限，
+      // 并用 runtime-grants/authorize 回打服务端确认（吊销安全）。
+      // 旧的粗权限 media:control 已不存在，这里没有任何兼容别名。
+      const permission =
+        MEDIA_ACTION_PERMISSIONS[action as keyof typeof MEDIA_ACTION_PERMISSIONS]
+      if (!permission) {
+        return { success: false, error: `Unknown media action: ${action}` }
+      }
+      if (!tappInstance.grantedPermissions?.includes(permission)) {
+        return {
+          success: false,
+          error: `Permission denied: ${permission} required`,
+        }
+      }
+      try {
+        await authorizeTappRuntimePermission(
+          tappInstance.id,
+          permission,
+          await bridge.getRuntimeGrant(),
+        )
+      } catch {
+        return {
+          success: false,
+          error: `Permission denied: ${permission} was revoked`,
+        }
+      }
+
       // 先触发播放器控制事件（即时响应，避免后端 API 延迟阻塞 UI）
       switch (action) {
         case 'play':
@@ -708,11 +737,11 @@ export function registerMediaHandlers(
       return { success: false, error: 'Playlist ID required' }
     }
 
-    // 检查权限
-    if (!tappInstance.grantedPermissions?.includes('media:control')) {
+    // 检查权限：加载歌单属于队列域（media:queue）
+    if (!tappInstance.grantedPermissions?.includes('media:queue')) {
       return {
         success: false,
-        error: 'Permission denied: media:control required',
+        error: 'Permission denied: media:queue required',
       }
     }
 

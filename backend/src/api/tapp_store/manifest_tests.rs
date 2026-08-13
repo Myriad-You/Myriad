@@ -997,6 +997,43 @@ fn rejects_ai_operation_without_matching_permission() {
 }
 
 #[test]
+fn rejects_removed_media_control_with_replacement_names() {
+    let manifest: TappManifest = serde_json::from_value(json!({
+        "id": "com.example.legacy-media",
+        "name": "Legacy media app",
+        "version": "1.0.0",
+        "main": "main.js",
+        "category": "utility",
+        "permissions": ["media:control"]
+    }))
+    .expect("manifest should deserialize");
+
+    let error = validate_tapp_manifest(&manifest).expect_err("media:control must fail validation");
+    assert!(
+        error.contains("media:control"),
+        "error should name the removed permission: {error}"
+    );
+    assert!(error.contains("media:playback"), "error should list media:playback: {error}");
+    assert!(error.contains("media:volume"), "error should list media:volume: {error}");
+    assert!(error.contains("media:queue"), "error should list media:queue: {error}");
+}
+
+#[test]
+fn accepts_split_media_permissions() {
+    let manifest: TappManifest = serde_json::from_value(json!({
+        "id": "com.example.split-media",
+        "name": "Split media app",
+        "version": "1.0.0",
+        "main": "main.js",
+        "category": "utility",
+        "permissions": ["media:playback", "media:volume", "media:queue", "media:read"]
+    }))
+    .expect("manifest should deserialize");
+
+    validate_tapp_manifest(&manifest).expect("split media permissions should validate");
+}
+
+#[test]
 fn preserves_and_validates_event_topics() {
     let manifest: TappManifest = serde_json::from_value(json!({
         "id": "com.example.player",

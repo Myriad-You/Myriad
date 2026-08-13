@@ -831,7 +831,9 @@ Tapp 私有 storage、报告和内部状态不会因为知道另一个 `tappId` 
 | `brew:comment`       | 操作 Brew 评论   |
 | `report:read`        | 读取报告         |
 | `media:read`         | 读取媒体状态     |
-| `media:control`      | 控制媒体播放     |
+| `media:playback`     | 控制媒体播放状态（播放、暂停、上/下一首、跳转） |
+| `media:volume`       | 调整音量、静音与取消静音 |
+| `media:queue`        | 选择、排序和加载播放队列（歌单、播放模式） |
 | `media:audio`        | 播放包内/blob/data 音频 |
 | `event:subscribe`    | 订阅声明的 topic |
 | `federation:read`    | 读取联邦数据     |

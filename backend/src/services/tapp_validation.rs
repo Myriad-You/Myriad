@@ -576,6 +576,15 @@ pub fn validate_tapp_manifest(manifest: &TappManifest) -> Result<(), String> {
     }
     let mut permissions = std::collections::HashSet::new();
     for permission in &manifest.permissions {
+        // Removed coarse permission: fail explicitly and point at the
+        // action-domain replacements (ADR 0013 / 0020). No compatibility alias.
+        if permission == "media:control" {
+            return Err(
+                "Tapp permission media:control was removed; declare media:playback, \
+                 media:volume and/or media:queue instead"
+                    .to_string(),
+            );
+        }
         if TappPermission::from_str(permission).is_none()
             || !permissions.insert(permission.as_str())
         {

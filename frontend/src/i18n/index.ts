@@ -1535,7 +1535,6 @@ export interface TranslationKeys {
     permAiChatHint: string
     permNetworkFetch: string
     permNetworkFetchHint: string
-    permMediaControl: string
     permComponentTheme: string
     permComponentThemeHint: string
     permShortcutRegister: string
@@ -2760,7 +2759,9 @@ export interface TranslationKeys {
     permConfirm: string
     permOpenUrl: string
     permNetworkFetch: string
-    permMediaControl: string
+    permMediaPlayback: string
+    permMediaVolume: string
+    permMediaQueue: string
     permMediaRead: string
     permMediaAudio: string
     permRegisterTheme: string
@@ -2802,7 +2803,9 @@ export interface TranslationKeys {
     permConfirmDesc: string
     permOpenUrlDesc: string
     permNetworkFetchDesc: string
-    permMediaControlDesc: string
+    permMediaPlaybackDesc: string
+    permMediaVolumeDesc: string
+    permMediaQueueDesc: string
     permMediaReadDesc: string
     permMediaAudioDesc: string
     permRegisterThemeDesc: string

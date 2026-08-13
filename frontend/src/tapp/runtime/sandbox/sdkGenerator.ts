@@ -1043,7 +1043,11 @@ export function resolveWidgetSdkCaps(
     analytics: has('analytics:read'),
     report: has('report:read'),
     media:
-      has('media:read') || has('media:control') || has('media:audio'),
+      has('media:read') ||
+      has('media:playback') ||
+      has('media:volume') ||
+      has('media:queue') ||
+      has('media:audio'),
     speech: has('speech:tts') || has('speech:asr'),
     event: has('event:publish') || has('event:subscribe'),
     agent: has('component:agent'),
@@ -1217,13 +1221,13 @@ function buildWidgetSdkBody(
     },`
     : `
     media: {
-      play: _denied('media:control'), pause: _denied('media:control'), next: _denied('media:control'),
-      prev: _denied('media:control'), seek: _denied('media:control'), setVolume: _denied('media:control'),
-      setMode: _denied('media:control'), mute: _denied('media:control'), unmute: _denied('media:control'),
+      play: _denied('media:playback'), pause: _denied('media:playback'), next: _denied('media:playback'),
+      prev: _denied('media:playback'), seek: _denied('media:playback'), setVolume: _denied('media:volume'),
+      setMode: _denied('media:queue'), mute: _denied('media:volume'), unmute: _denied('media:volume'),
       getStatus: _denied('media:read'), getPlaylist: _denied('media:read'), getSpectrum: _denied('media:read'),
-      getLyrics: _denied('media:read'), getBeatGrid: _denied('media:read'), playTrack: _denied('media:control'),
-      jumpToIndex: _denied('media:control'), loadNeteasePlaylist: _denied('media:control'),
-      getSkipVip: _denied('media:read'), setSkipVip: _denied('media:control'),
+      getLyrics: _denied('media:read'), getBeatGrid: _denied('media:read'), playTrack: _denied('media:playback'),
+      jumpToIndex: _denied('media:playback'), loadNeteasePlaylist: _denied('media:queue'),
+      getSkipVip: _denied('media:read'), setSkipVip: _denied('media:queue'),
       onStateChange: function() { return function() {}; },
       onProgress: function() { return function() {}; },
       onSpectrum: function() { return function() {}; }

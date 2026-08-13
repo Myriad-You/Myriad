@@ -451,7 +451,9 @@ export type TappPermission =
   // 网络权限
   | 'network:fetch'
   // 媒体权限
-  | 'media:control'
+  | 'media:playback'
+  | 'media:volume'
+  | 'media:queue'
   | 'media:read'
   /** 在沙箱内播放包内/blob/data 音频 */
   | 'media:audio'

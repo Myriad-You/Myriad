@@ -20,7 +20,7 @@
 //! - brew:write (authenticated), brew:comment (authenticated)
 //! - report:read (authenticated), storage:read (guest-safe)
 //! - ui:notification (authenticated), ui:fullscreen, ui:theme, ui:confirm, ui:openUrl
-//! - media:read, media:control, media:audio, event:subscribe
+//! - media:read, media:playback, media:volume, media:queue, media:audio, event:subscribe
 //! - federation:read, federation:write, federation:message, federation:files
 //!
 //! ### Elevated - 可配置下放
@@ -128,9 +128,15 @@ pub enum TappPermission {
     /// Play package audio via blob/data URLs inside the sandbox.
     #[serde(rename = "media:audio")]
     MediaAudio,
-    /// Control media playback (play/pause/skip). Basic — always available.
-    #[serde(rename = "media:control")]
-    MediaControl,
+    /// Playback state control (play/pause/prev-next/seek and equivalent). Basic.
+    #[serde(rename = "media:playback")]
+    MediaPlayback,
+    /// Volume, mute and unmute control. Basic.
+    #[serde(rename = "media:volume")]
+    MediaVolume,
+    /// Playback queue/playlist selection, ordering and loading. Basic.
+    #[serde(rename = "media:queue")]
+    MediaQueue,
     #[serde(rename = "event:subscribe")]
     EventSubscribe,
     #[serde(rename = "federation:read")]
@@ -232,7 +238,9 @@ impl TappPermission {
             | TappPermission::UiOpenUrl
             | TappPermission::MediaRead
             | TappPermission::MediaAudio
-            | TappPermission::MediaControl
+            | TappPermission::MediaPlayback
+            | TappPermission::MediaVolume
+            | TappPermission::MediaQueue
             | TappPermission::EventSubscribe
             | TappPermission::FederationRead
             | TappPermission::FederationWrite
@@ -292,7 +300,9 @@ impl TappPermission {
             TappPermission::UiConfirm => "确认对话框",
             TappPermission::UiOpenUrl => "打开声明链接",
             TappPermission::NetworkFetch => "网络请求",
-            TappPermission::MediaControl => "媒体控制",
+            TappPermission::MediaPlayback => "媒体播放控制",
+            TappPermission::MediaVolume => "媒体音量控制",
+            TappPermission::MediaQueue => "媒体播放队列",
             TappPermission::MediaRead => "读取媒体",
             TappPermission::MediaAudio => "播放音频",
             TappPermission::ComponentTheme => "注册主题",
@@ -356,7 +366,9 @@ impl TappPermission {
             "ai:chat" => Some(TappPermission::AiChat),
             "ai:image" => Some(TappPermission::AiImage),
             "network:fetch" => Some(TappPermission::NetworkFetch),
-            "media:control" => Some(TappPermission::MediaControl),
+            "media:playback" => Some(TappPermission::MediaPlayback),
+            "media:volume" => Some(TappPermission::MediaVolume),
+            "media:queue" => Some(TappPermission::MediaQueue),
             "media:read" => Some(TappPermission::MediaRead),
             "media:audio" => Some(TappPermission::MediaAudio),
             "component:theme" => Some(TappPermission::ComponentTheme),
@@ -405,7 +417,9 @@ impl TappPermission {
             TappPermission::AiChat => "ai:chat",
             TappPermission::AiImage => "ai:image",
             TappPermission::NetworkFetch => "network:fetch",
-            TappPermission::MediaControl => "media:control",
+            TappPermission::MediaPlayback => "media:playback",
+            TappPermission::MediaVolume => "media:volume",
+            TappPermission::MediaQueue => "media:queue",
             TappPermission::MediaRead => "media:read",
             TappPermission::MediaAudio => "media:audio",
             TappPermission::ComponentTheme => "component:theme",
@@ -514,7 +528,7 @@ impl TappPermissionService {
             TappPermission::AiAnalyze => config.user_perm_ai_analyze,
             TappPermission::AiChat => config.user_perm_ai_chat,
             TappPermission::AiImage => config.user_perm_ai_image,
-            // report:write 已升 privileged；media:control 已降 basic；brew:write 不开放下放
+            // report:write 已升 privileged；brew:write 不开放下放；media 权限均为 basic 不走下放
             TappPermission::NetworkFetch => config.user_perm_network_fetch,
             TappPermission::ComponentTheme => config.user_perm_component_theme,
             TappPermission::ShortcutRegister => config.user_perm_shortcut_register,
@@ -579,8 +593,6 @@ impl TappPermissionService {
                 ai_image: config.user_perm_ai_image,
                 report_write: false, // 不再下放
                 network_fetch: config.user_perm_network_fetch,
-                // media:control 已降 basic，始终可用；字段保留供 API 兼容
-                media_control: true,
                 component_theme: config.user_perm_component_theme,
                 shortcut_register: config.user_perm_shortcut_register,
                 event_publish: config.user_perm_event_publish,
@@ -596,8 +608,6 @@ impl TappPermissionService {
                 ai_image: config.guest_perm_ai_image,
                 report_write: false, // 不再下放
                 network_fetch: config.guest_perm_network_fetch,
-                // media:control 已降 basic，始终可用；字段保留供 API 兼容
-                media_control: true,
                 // These routes require a durable authenticated subject. Keep
                 // legacy config fields for schema compatibility, but never
                 // advertise them as effective guest delegation settings.
@@ -656,9 +666,6 @@ pub struct ElevatedPermissions {
     #[serde(default)]
     pub report_write: bool,
     pub network_fetch: bool,
-    /// 保留字段：media:control 已降 basic，摘要中始终为 true
-    #[serde(default)]
-    pub media_control: bool,
     pub component_theme: bool,
     pub shortcut_register: bool,
     pub event_publish: bool,
@@ -742,34 +749,29 @@ mod tests {
     }
 
     #[test]
-    fn test_media_control_is_basic_for_all_roles() {
-        // media:control is basic: always allowed regardless of legacy config flags
-        let config = DynamicConfig {
-            user_perm_media_control: false,
-            guest_perm_media_control: false,
-            ..DynamicConfig::default()
-        };
-        assert_eq!(TappPermission::MediaControl.level(), PermissionLevel::Basic);
-        assert!(!TappPermission::all_elevated().contains(&TappPermission::MediaControl));
-        assert!(TappPermissionService::check(
-            &config,
-            UserRole::Admin,
-            TappPermission::MediaControl
-        ));
-        assert!(TappPermissionService::check(
-            &config,
-            UserRole::User,
-            TappPermission::MediaControl
-        ));
-        assert!(TappPermissionService::check(
-            &config,
-            UserRole::Guest,
-            TappPermission::MediaControl
-        ));
-
-        let effective = TappPermissionService::get_permission_config(&config);
-        assert!(effective.user.media_control);
-        assert!(effective.guest.media_control);
+    fn media_permissions_split_three_basic_action_domains() {
+        // media:control is gone; the three replacements are basic for all roles
+        // and never flow through elevated delegation config flags.
+        let config = DynamicConfig::default();
+        assert_eq!(TappPermission::MediaPlayback.level(), PermissionLevel::Basic);
+        assert_eq!(TappPermission::MediaVolume.level(), PermissionLevel::Basic);
+        assert_eq!(TappPermission::MediaQueue.level(), PermissionLevel::Basic);
+        assert!(TappPermission::from_str("media:control").is_none());
+        for permission in [
+            TappPermission::MediaPlayback,
+            TappPermission::MediaVolume,
+            TappPermission::MediaQueue,
+        ] {
+            assert!(!TappPermission::all_elevated().contains(&permission));
+            for role in [UserRole::Admin, UserRole::User, UserRole::Guest] {
+                assert!(
+                    TappPermissionService::check(&config, role, permission),
+                    "{:?} must be granted to {:?} by default",
+                    permission.as_str(),
+                    role
+                );
+            }
+        }
     }
 
     #[test]
@@ -786,7 +788,9 @@ mod tests {
             "platform:read".to_string(),
             "analytics:read".to_string(),
             "media:read".to_string(),
-            "media:control".to_string(),
+            "media:playback".to_string(),
+            "media:volume".to_string(),
+            "media:queue".to_string(),
             "event:subscribe".to_string(),
             "widget:register".to_string(),
             "brew:write".to_string(),
@@ -820,7 +824,9 @@ mod tests {
                 "platform:read",
                 "analytics:read",
                 "media:read",
-                "media:control",
+                "media:playback",
+                "media:volume",
+                "media:queue",
                 "event:subscribe",
                 "storage:read",
                 "tappList:read",

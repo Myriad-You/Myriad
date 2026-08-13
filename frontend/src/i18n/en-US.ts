@@ -1819,7 +1819,6 @@ export const enUS: TranslationKeys = {
     permNetworkFetch: 'Network Requests',
     permNetworkFetchHint:
       'Allow declared outbound requests and loading remote images/media',
-    permMediaControl: 'Media Control',
     permComponentTheme: 'Register Theme',
     permComponentThemeHint: 'Allow Tapp to register custom themes',
     permShortcutRegister: 'Register Shortcuts',
@@ -3096,7 +3095,9 @@ export const enUS: TranslationKeys = {
     permConfirm: 'Confirm Dialog',
     permOpenUrl: 'Open Declared Links',
     permNetworkFetch: 'Network Fetch',
-    permMediaControl: 'Media Control',
+    permMediaPlayback: 'Playback Control',
+    permMediaVolume: 'Volume Control',
+    permMediaQueue: 'Playback Queue',
     permMediaRead: 'Read Media Status',
     permMediaAudio: 'Play Audio',
     permRegisterTheme: 'Register Theme',
@@ -3142,8 +3143,12 @@ export const enUS: TranslationKeys = {
       'Allow the host to open links declared in Manifest openUrls (all other URLs are rejected)',
     permNetworkFetchDesc:
       'Allow declared HTTP APIs and loading remote images/media (e.g. cover CDNs)',
-    permMediaControlDesc:
-      'Allow controlling media playback (play, pause, switch, etc.)',
+    permMediaPlaybackDesc:
+      'Allow controlling media playback (play, pause, previous/next, seek)',
+    permMediaVolumeDesc:
+      'Allow adjusting volume, mute and unmute',
+    permMediaQueueDesc:
+      'Allow selecting, ordering and loading the playback queue (playlists, play modes)',
     permMediaReadDesc: 'Allow reading current media playback status',
     permMediaAudioDesc:
       'Allow playing package/blob/data audio inside the sandbox',

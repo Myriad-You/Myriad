@@ -148,26 +148,40 @@ const zh: TappPermissionGuides = {
     frontend: '应用拉取的外部数据、封面、媒体。',
     notes: '可能受代理、CORS、站点网络安全策略限制；有外联风险。',
   },
-  'media:control': {
-    what: '允许控制媒体播放（播放、暂停、切歌等）。',
+  'media:playback': {
+    what: '允许控制媒体播放状态（播放、暂停、上/下一首、跳转进度等）。',
     chain:
       '① 应用调用媒体控制 API。\n② 作用于站点媒体/播放器状态。\n③ 控制面板音乐等可能同步变化。',
     frontend: '全局音乐播放器、应用内播放控件。',
-    notes: '可能打断用户正在听的内容。',
+    notes: '可能打断用户正在听的内容；不影响音量和歌单。',
+  },
+  'media:volume': {
+    what: '允许调整媒体音量、静音与取消静音。',
+    chain:
+      '① 应用调用音量控制 API。\n② 改变当前播放音量/静音状态。\n③ 控制面板音乐同步变化。',
+    frontend: '音量滑块、静音按钮。',
+    notes: '只影响音量，不改变播放与歌单。',
+  },
+  'media:queue': {
+    what: '允许选择、排序和加载播放队列（歌单、播放模式、VIP 过滤等）。',
+    chain:
+      '① 应用调用队列/模式 API。\n② 替换或重排播放队列。\n③ 后续自动播放按新队列/模式进行。',
+    frontend: '歌单加载、播放模式切换、VIP 开关。',
+    notes: '改变的是接下来播什么、按什么顺序播。',
   },
   'media:read': {
     what: '允许读取当前媒体播放状态（曲目、进度、是否播放等）。',
     chain:
       '① 应用查询媒体状态。\n② 只读当前播放会话信息。\n③ 用于歌词、可视化等。',
     frontend: '应用内的「正在播放」展示。',
-    notes: '不包含改播放列表的能力（那是 control）。',
+    notes: '不包含改播放列表的能力（那是 media:queue）。',
   },
   'media:audio': {
     what: '允许在沙箱内播放包内、blob 或 data 音频。',
     chain:
       '① 应用触发音频播放。\n② 仅限允许来源的音频。\n③ 不自动获得任意外链播控。',
     frontend: '应用内音效、语音片段播放。',
-    notes: '与 media:control 不同，侧重沙箱内音频源播放。',
+    notes: '与 media:playback/media:volume/media:queue 不同，侧重沙箱内音频源播放。',
   },
   'component:theme': {
     what: '允许注册自定义主题样式组件，扩展站点主题选项。',
@@ -438,26 +452,40 @@ const en: TappPermissionGuides = {
     frontend: 'External data, covers, media in the app.',
     notes: 'Subject to proxy/CORS/security policy; outbound risk.',
   },
-  'media:control': {
-    what: 'Allows controlling playback (play, pause, skip, etc.).',
+  'media:playback': {
+    what: 'Allows controlling playback state (play, pause, previous/next, seek).',
     chain:
       '1) App calls media control APIs.\n2) Affects site player state.\n3) Control-panel music may update.',
     frontend: 'Global music player; in-app transport controls.',
-    notes: 'May interrupt what the user is listening to.',
+    notes: 'May interrupt what the user is listening to; does not touch volume or queue.',
+  },
+  'media:volume': {
+    what: 'Allows adjusting media volume, mute and unmute.',
+    chain:
+      '1) App calls volume APIs.\n2) Changes current volume/mute state.\n3) Control-panel music follows.',
+    frontend: 'Volume sliders, mute buttons.',
+    notes: 'Only volume; does not change playback or queue.',
+  },
+  'media:queue': {
+    what: 'Allows selecting, ordering and loading the playback queue (playlists, play modes, VIP filter).',
+    chain:
+      '1) App calls queue/mode APIs.\n2) Queue is replaced or reordered.\n3) Auto-advance follows the new queue/mode.',
+    frontend: 'Playlist loading, mode switching, VIP toggle.',
+    notes: 'Controls what plays next and in what order.',
   },
   'media:read': {
     what: 'Allows reading current media state (track, progress, playing).',
     chain:
       '1) App queries media state.\n2) Read-only session info.\n3) Used for lyrics/visualizers.',
     frontend: 'In-app “now playing” UI.',
-    notes: 'Does not change the queue (that is control).',
+    notes: 'Does not change the queue (that is media:queue).',
   },
   'media:audio': {
     what: 'Allows playing package/blob/data audio inside the sandbox.',
     chain:
       '1) App starts audio.\n2) Only allowed sources play.\n3) Not full arbitrary remote control.',
     frontend: 'In-app SFX / audio clips.',
-    notes: 'Different from media:control — focuses on sandboxed sources.',
+    notes: 'Different from media:playback/media:volume/media:queue — focuses on sandboxed sources.',
   },
   'component:theme': {
     what: 'Allows registering custom theme styles for the site.',
@@ -728,26 +756,40 @@ const ja: TappPermissionGuides = {
     frontend: '外部データ、カバー、メディア。',
     notes: 'プロキシ/CORS 制限あり。外部接続リスク。',
   },
-  'media:control': {
-    what: '再生の操作（再生・一時停止・送りなど）ができます。',
+  'media:playback': {
+    what: '再生状態の操作（再生・一時停止・前後・シークなど）ができます。',
     chain:
       '① 制御 API。\n② サイトの再生状態に作用。\n③ コントロールパネルの音楽も変わり得る。',
     frontend: '全体の音楽プレイヤー、アプリ内操作。',
-    notes: 'ユーザーが聴いている内容を中断し得ます。',
+    notes: 'ユーザーが聴いている内容を中断し得ます。音量・キューには影響しません。',
+  },
+  'media:volume': {
+    what: '音量の調整・ミュート・ミュート解除ができます。',
+    chain:
+      '① 音量 API。\n② 現在の音量/ミュート状態が変わる。\n③ コントロールパネルの音楽も同期。',
+    frontend: '音量スライダー、ミュートボタン。',
+    notes: '音量のみ。再生とキューは変わりません。',
+  },
+  'media:queue': {
+    what: '再生キュー（プレイリスト・再生モード・VIP フィルタ）の選択・並び替え・読み込みができます。',
+    chain:
+      '① キュー/モード API。\n② キューが置き換わる・並び替わる。\n③ 自動再生は新しいキュー/モードに従う。',
+    frontend: 'プレイリスト読み込み、モード切替、VIP トグル。',
+    notes: '次に何を・どんな順で流すかを変えます。',
   },
   'media:read': {
     what: '現在の再生状態（曲・進捗・再生中か）を読めます。',
     chain:
       '① 状態照会。\n② 読み取りのみ。\n③ 歌詞や可視化に利用。',
     frontend: '「再生中」表示。',
-    notes: 'キュー変更は control 側です。',
+    notes: 'キュー変更は media:queue 側です。',
   },
   'media:audio': {
     what: 'サンドボックス内でパッケージ/blob/data 音声を再生できます。',
     chain:
       '① 再生開始。\n② 許可された音源のみ。\n③ 任意外部の完全制御ではない。',
     frontend: '効果音・短い音声。',
-    notes: 'media:control とは役割が違います。',
+    notes: 'media:playback/media:volume/media:queue とは役割が違います。',
   },
   'component:theme': {
     what: 'カスタムテーマを登録し、見た目の選択肢を増やせます。',

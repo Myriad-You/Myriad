@@ -173,10 +173,20 @@ export const PERMISSION_CONFIG: Record<
     labelKey: 'permNetworkFetch',
     descriptionKey: 'permNetworkFetchDesc',
   },
-  'media:control': {
+  'media:playback': {
     icon: FaPlay,
-    labelKey: 'permMediaControl',
-    descriptionKey: 'permMediaControlDesc',
+    labelKey: 'permMediaPlayback',
+    descriptionKey: 'permMediaPlaybackDesc',
+  },
+  'media:volume': {
+    icon: FaVolumeUp,
+    labelKey: 'permMediaVolume',
+    descriptionKey: 'permMediaVolumeDesc',
+  },
+  'media:queue': {
+    icon: FaList,
+    labelKey: 'permMediaQueue',
+    descriptionKey: 'permMediaQueueDesc',
   },
   'media:read': {
     icon: FaMusic,

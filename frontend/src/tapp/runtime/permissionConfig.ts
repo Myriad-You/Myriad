@@ -42,7 +42,9 @@ export const PERMISSION_LEVELS: Record<TappPermission, TappPermissionLevel> = {
   'ui:confirm': 'basic',
   'ui:openUrl': 'basic',
   'network:fetch': 'elevated',
-  'media:control': 'basic',
+  'media:playback': 'basic',
+  'media:volume': 'basic',
+  'media:queue': 'basic',
   'media:read': 'basic',
   'media:audio': 'basic',
   'component:theme': 'elevated',
@@ -64,6 +66,37 @@ export const PERMISSION_LEVELS: Record<TappPermission, TappPermissionLevel> = {
   'federation:message': 'basic',
   'federation:trust': 'privileged',
   'federation:files': 'basic',
+}
+
+/**
+ * `media.control` action → 最窄动作域权限。
+ *
+ * 与后端 `media_control_permission`（backend/src/api/tapp_runtime/media.rs）
+ * 镜像；两侧表驱动测试锁定同一份映射。旧的粗权限 `media:control` 已移除，
+ * 这里不存在任何兼容别名：播放状态=media:playback，音量=media:volume，
+ * 队列/模式=media:queue。
+ */
+export const MEDIA_ACTION_PERMISSIONS: Record<
+  | 'play'
+  | 'pause'
+  | 'next'
+  | 'prev'
+  | 'seek'
+  | 'volume'
+  | 'mode'
+  | 'mute'
+  | 'unmute',
+  TappPermission
+> = {
+  play: 'media:playback',
+  pause: 'media:playback',
+  next: 'media:playback',
+  prev: 'media:playback',
+  seek: 'media:playback',
+  volume: 'media:volume',
+  mute: 'media:volume',
+  unmute: 'media:volume',
+  mode: 'media:queue',
 }
 
 /**
@@ -225,20 +258,23 @@ export const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> =
     ['ui.isFullscreen', 'ui:fullscreen'],
 
     // 媒体权限
-    ['media.control', 'media:control'],
+    // media.control 的 action 分域权限在沙箱 handler 内按
+    // MEDIA_ACTION_PERMISSIONS 逐 action 校验，并在后端
+    // POST /api/tapp/media/control 再强制；此处标记 public 仅放行到 handler。
+    ['media.control', 'public'],
     ['media.getStatus', 'media:read'],
     ['media.getPlaylist', 'media:read'],
-    ['media.playTrack', 'media:control'],
-    ['media.jumpToIndex', 'media:control'],
+    ['media.playTrack', 'media:playback'],
+    ['media.jumpToIndex', 'media:playback'],
     ['media.getSpectrum', 'media:read'],
     // 推流版的 getSpectrum：由 tapp 订阅后由宿主按帧推送，读到的是同一份频谱数据，
     // 沙箱 handler 自身也是校验 media:read
     ['media.spectrumStream', 'media:read'],
     ['media.getLyrics', 'media:read'],
     ['media.getBeatGrid', 'media:read'],
-    ['media.loadNeteasePlaylist', 'media:control'],
+    ['media.loadNeteasePlaylist', 'media:queue'],
     ['media.getSkipVip', 'media:read'],
-    ['media.setSkipVip', 'media:control'],
+    ['media.setSkipVip', 'media:queue'],
 
     // 组件权限
     ['component.registerTheme', 'component:theme'],

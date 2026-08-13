@@ -13,7 +13,11 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { PERMISSION_LEVELS, PERMISSION_MAP } from './permissionConfig.ts'
+import {
+  MEDIA_ACTION_PERMISSIONS,
+  PERMISSION_LEVELS,
+  PERMISSION_MAP,
+} from './permissionConfig.ts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 // runtime/ → tapp/ → src/ → frontend/ → repo root
@@ -128,6 +132,102 @@ describe('host-proxied action → permission fixture', () => {
         `duplicate action in action_permissions.json: ${entry.action}`,
       )
       seen.add(entry.action)
+    }
+  })
+})
+
+describe('media action → permission split', () => {
+  const MEDIA_CONTROL_ACTIONS = [
+    'play',
+    'pause',
+    'next',
+    'prev',
+    'seek',
+    'volume',
+    'mute',
+    'unmute',
+    'mode',
+  ] as const
+
+  it('maps every media.control action to its narrowest permission domain', () => {
+    const expected: Record<string, string> = {
+      play: 'media:playback',
+      pause: 'media:playback',
+      next: 'media:playback',
+      prev: 'media:playback',
+      seek: 'media:playback',
+      volume: 'media:volume',
+      mute: 'media:volume',
+      unmute: 'media:volume',
+      mode: 'media:queue',
+    }
+    for (const action of MEDIA_CONTROL_ACTIONS) {
+      assert.equal(
+        MEDIA_ACTION_PERMISSIONS[action],
+        expected[action],
+        `media.control action ${action} must require ${expected[action]}`,
+      )
+    }
+  })
+
+  it('all media permissions referenced anywhere are Basic and exist in levels', () => {
+    const levels = new Set(Object.keys(PERMISSION_LEVELS))
+    for (const perm of [
+      'media:playback',
+      'media:volume',
+      'media:queue',
+      'media:read',
+      'media:audio',
+    ]) {
+      assert.ok(levels.has(perm), `${perm} must exist in PERMISSION_LEVELS`)
+      assert.equal(PERMISSION_LEVELS[perm as keyof typeof PERMISSION_LEVELS], 'basic')
+    }
+  })
+
+  it('removed media:control never appears in levels, map or action map', () => {
+    assert.ok(!('media:control' in PERMISSION_LEVELS))
+    for (const [action, permission] of PERMISSION_MAP) {
+      assert.notEqual(
+        permission,
+        'media:control',
+        `PERMISSION_MAP[${action}] must not reference removed media:control`,
+      )
+    }
+    assert.ok(!Object.values(MEDIA_ACTION_PERMISSIONS).includes('media:control'))
+  })
+
+  it('cross-domain grants are not covered by a single media domain', () => {
+    const domainOf = (action: string): string =>
+      MEDIA_ACTION_PERMISSIONS[action as keyof typeof MEDIA_ACTION_PERMISSIONS]
+    const playbackOnly = new Set(['media:playback'])
+    for (const action of ['volume', 'mute', 'unmute', 'mode']) {
+      assert.ok(
+        !playbackOnly.has(domainOf(action)),
+        `media:playback-only grant must not cover ${action}`,
+      )
+    }
+    const volumeOnly = new Set(['media:volume'])
+    for (const action of ['play', 'pause', 'next', 'prev', 'seek', 'mode']) {
+      assert.ok(
+        !volumeOnly.has(domainOf(action)),
+        `media:volume-only grant must not cover ${action}`,
+      )
+    }
+    const queueOnly = new Set(['media:queue'])
+    for (const action of [
+      'play',
+      'pause',
+      'next',
+      'prev',
+      'seek',
+      'volume',
+      'mute',
+      'unmute',
+    ]) {
+      assert.ok(
+        !queueOnly.has(domainOf(action)),
+        `media:queue-only grant must not cover ${action}`,
+      )
     }
   })
 })

@@ -1800,7 +1800,6 @@ export const jaJP: TranslationKeys = {
     permNetworkFetch: 'ネットワークリクエスト',
     permNetworkFetchHint:
       '宣言型の送信リクエストとリモート画像/メディアの読み込みを許可',
-    permMediaControl: 'メディア制御',
     permComponentTheme: 'テーマ登録',
     permComponentThemeHint: 'Tappにカスタムテーマの登録を許可',
     permShortcutRegister: 'ショートカット登録',
@@ -3076,7 +3075,9 @@ export const jaJP: TranslationKeys = {
     permConfirm: '確認ダイアログ',
     permOpenUrl: '宣言リンクを開く',
     permNetworkFetch: 'ネットワークリクエスト',
-    permMediaControl: 'メディア制御',
+    permMediaPlayback: '再生制御',
+    permMediaVolume: '音量制御',
+    permMediaQueue: '再生キュー',
     permMediaRead: 'メディア状態読取',
     permMediaAudio: 'オーディオ再生',
     permRegisterTheme: 'テーマ登録',
@@ -3122,8 +3123,12 @@ export const jaJP: TranslationKeys = {
       'Manifest openUrls で宣言したリンクのみホスト経由で開く（未宣言 URL は拒否）',
     permNetworkFetchDesc:
       '宣言型 HTTP API、およびリモート画像/メディア（カバー CDN 等）の読み込みを許可',
-    permMediaControlDesc:
-      'メディア再生の制御（再生、一時停止、切替など）を許可',
+    permMediaPlaybackDesc:
+      'メディア再生の操作（再生・一時停止・前後・シークなど）を許可',
+    permMediaVolumeDesc:
+      '音量の調整・ミュート・ミュート解除を許可',
+    permMediaQueueDesc:
+      '再生キュー（プレイリスト・再生モードなど）の選択・並び替え・読み込みを許可',
     permMediaReadDesc: '現在のメディア再生状態の読取を許可',
     permMediaAudioDesc:
       'サンドボックス内でパッケージ/blob/data オーディオの再生を許可',

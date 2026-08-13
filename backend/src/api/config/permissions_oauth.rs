@@ -85,7 +85,6 @@ pub struct UpdatePermissionsPayload {
     #[allow(dead_code)]
     pub user_perm_report_write: Option<bool>, // 忽略：强制 false
     pub user_perm_network_fetch: Option<bool>,
-    pub user_perm_media_control: Option<bool>,
     pub user_perm_component_theme: Option<bool>,
     pub user_perm_shortcut_register: Option<bool>,
     pub user_perm_event_publish: Option<bool>,
@@ -101,7 +100,6 @@ pub struct UpdatePermissionsPayload {
     #[allow(dead_code)]
     pub guest_perm_report_write: Option<bool>, // 忽略：强制 false
     pub guest_perm_network_fetch: Option<bool>,
-    pub guest_perm_media_control: Option<bool>,
     #[allow(dead_code)] // accepted for compatibility; update endpoint forces false
     pub guest_perm_component_theme: Option<bool>,
     #[allow(dead_code)] // accepted for compatibility; update endpoint forces false
@@ -181,9 +179,6 @@ pub async fn update_permissions(
     if let Some(v) = payload.user_perm_network_fetch {
         updates.insert("user_perm_network_fetch".to_string(), json!(v));
     }
-    if let Some(v) = payload.user_perm_media_control {
-        updates.insert("user_perm_media_control".to_string(), json!(v));
-    }
     if let Some(v) = payload.user_perm_component_theme {
         updates.insert("user_perm_component_theme".to_string(), json!(v));
     }
@@ -223,9 +218,6 @@ pub async fn update_permissions(
     updates.insert("guest_perm_report_write".to_string(), json!(false));
     if let Some(v) = payload.guest_perm_network_fetch {
         updates.insert("guest_perm_network_fetch".to_string(), json!(v));
-    }
-    if let Some(v) = payload.guest_perm_media_control {
-        updates.insert("guest_perm_media_control".to_string(), json!(v));
     }
     updates.insert("guest_perm_component_theme".to_string(), json!(false));
     updates.insert("guest_perm_shortcut_register".to_string(), json!(false));

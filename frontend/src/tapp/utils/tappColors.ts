@@ -161,7 +161,9 @@ function resolveShellStops(source: TappIconStyleSource): {
     return { from: c.fromHex, to: c.toHex, accent: c.fromHex }
   }
   if (
-    permissions.includes('media:control') ||
+    permissions.includes('media:playback') ||
+    permissions.includes('media:volume') ||
+    permissions.includes('media:queue') ||
     permissions.includes('media:read')
   ) {
     const c = CATEGORY_COLORS.media

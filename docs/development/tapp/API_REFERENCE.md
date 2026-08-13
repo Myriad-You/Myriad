@@ -761,25 +761,25 @@ const result = await Tapp.data.transform({
 
 ## 媒体控制 API
 
-**权限**: `media:control`, `media:read`
+**权限**: `media:playback`, `media:volume`, `media:queue`, `media:read`
 
 ```javascript
-// 播放控制（需要 media:control）
+// 播放控制（需要 media:playback）
 await Tapp.media.play();
 await Tapp.media.pause();
 await Tapp.media.next();
 await Tapp.media.prev();
 await Tapp.media.seek(120); // 秒
 
-// 音量控制
+// 音量控制（需要 media:volume）
 await Tapp.media.setVolume(0.8); // 0-1
 await Tapp.media.mute();
 await Tapp.media.unmute();
 
-// 播放模式
+// 播放模式/队列（需要 media:queue）
 await Tapp.media.setMode("repeat"); // repeat | shuffle | normal
 
-// 播放指定曲目
+// 播放指定曲目（需要 media:playback）
 await Tapp.media.playTrack(trackId, trackIndex);
 
 // 获取播放状态（需要 media:read）
@@ -837,7 +837,7 @@ const grid = await Tapp.media.getBeatGrid();
 // 注意：首次调用会触发全曲下载+分析（约 1-3s），结果按歌缓存
 
 // VIP 歌曲开关（与系统音乐播放器「显示/隐藏 VIP」同一状态）
-// 读 media:read / 写 media:control
+// 读 media:read / 写 media:queue
 const { skipVip } = await Tapp.media.getSkipVip();
 // skipVip === true  → 列表与自动切歌跳过 VIP 曲（系统默认）
 // skipVip === false → 打开 VIP：队列中保留 VIP 曲，允许选中/切到 VIP
@@ -858,7 +858,7 @@ await Tapp.media.setSkipVip(true);
 
 - `getSkipVip` / `setSkipVip` 读写的是主应用 `excludeVipSongs`（`true` ⇔ `skipVip`）。
 - 资料库等入口的**显式临时点播**可能绕过「跳过 VIP」过滤，与自动连播策略不同。
-- 需要改开关时申请 `media:control`；只展示当前策略用 `media:read`。
+- 需要改开关时申请 `media:queue`；只展示当前策略用 `media:read`。
 
 ---
 

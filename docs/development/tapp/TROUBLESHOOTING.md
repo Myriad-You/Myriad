@@ -115,7 +115,7 @@ Failed to load resource: the server responded with a status of 401 ()
 
 1. **宿主「跳过 VIP」开关**（默认开启）
    - `getSkipVip()` → `{ skipVip: true }` 时自动切歌会跳过 VIP 曲。
-   - **打开 VIP 显示/入队**：`await Tapp.media.setSkipVip(false)`（需 `media:control`）。
+   - **打开 VIP 显示/入队**：`await Tapp.media.setSkipVip(false)`（需 `media:queue`）。
    - 与系统音乐播放器「显示 VIP 歌曲」为同一状态。
 2. **平台会员/试听**
    - 即使 `skipVip === false`，网易云等仍可能对 VIP 曲返回不可播；这是源站策略，不是

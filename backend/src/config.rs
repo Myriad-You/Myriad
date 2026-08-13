@@ -428,12 +428,12 @@ pub struct DynamicConfig {
     pub tapp_window_schemes: Option<String>, // 窗口方案数据 (JSON)
 
     // Tapp 权限下放配置
-    // 基于 Tapp 系统的 elevated 级别权限（14 项可配置下放）
+    // 基于 Tapp 系统的 elevated 级别权限（13 项可配置下放）
     // 这些权限默认只有管理员可用，可以配置下放给普通用户或游客
     // 注意：basic 级别权限默认可授予所有用户
     // 注意：privileged 级别权限始终只限管理员
 
-    // 普通用户可使用的 elevated 权限（14 项）
+    // 普通用户可使用的 elevated 权限（13 项）
     /// ai:generate - AI 生成内容
     pub user_perm_ai_generate: bool,
     /// ai:analyze - AI 分析数据
@@ -446,8 +446,6 @@ pub struct DynamicConfig {
     pub user_perm_report_write: bool,
     /// network:fetch - 发起网络请求
     pub user_perm_network_fetch: bool,
-    /// media:control - 已降为 basic，始终允许；字段保留供 DB/API 兼容
-    pub user_perm_media_control: bool,
     /// component:theme - 注册主题组件
     pub user_perm_component_theme: bool,
     /// shortcut:register - 注册快捷键
@@ -463,7 +461,7 @@ pub struct DynamicConfig {
     /// storage:write - 写入 Tapp 存储
     pub user_perm_storage_write: bool,
 
-    // 游客可使用的 elevated 权限（14 项）
+    // 游客可使用的 elevated 权限（13 项）
     /// ai:generate - AI 生成内容（游客）
     pub guest_perm_ai_generate: bool,
     /// ai:analyze - AI 分析数据（游客）
@@ -476,8 +474,6 @@ pub struct DynamicConfig {
     pub guest_perm_report_write: bool,
     /// network:fetch - 发起网络请求（游客）
     pub guest_perm_network_fetch: bool,
-    /// media:control - 已降为 basic，始终允许；字段保留供 DB/API 兼容（游客）
-    pub guest_perm_media_control: bool,
     /// component:theme - 注册主题组件（游客）
     pub guest_perm_component_theme: bool,
     /// shortcut:register - 注册快捷键（游客）
@@ -702,7 +698,6 @@ impl Default for DynamicConfig {
             user_perm_ai_image: false,
             user_perm_report_write: false,
             user_perm_network_fetch: false,
-            user_perm_media_control: false,
             user_perm_component_theme: false,
             user_perm_shortcut_register: false,
             user_perm_event_publish: false,
@@ -719,7 +714,6 @@ impl Default for DynamicConfig {
             guest_perm_ai_image: false,
             guest_perm_report_write: false,
             guest_perm_network_fetch: false,
-            guest_perm_media_control: false,
             guest_perm_component_theme: false,
             guest_perm_shortcut_register: false,
             guest_perm_event_publish: false,

@@ -4101,7 +4101,9 @@ async fn execute_permission_check(params: &HashMap<String, Value>) -> Result<Val
         "ui:theme",
         "ui:confirm",
         "media:read",
-        "media:control",
+        "media:playback",
+        "media:volume",
+        "media:queue",
         "event:subscribe",
     ];
 

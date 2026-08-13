@@ -786,11 +786,6 @@ impl ConfigService {
                 config.user_perm_network_fetch = b;
             }
         }
-        if let Some(v) = map.get("user_perm_media_control") {
-            if let Some(b) = v.as_bool() {
-                config.user_perm_media_control = b;
-            }
-        }
         if let Some(v) = map.get("user_perm_component_theme") {
             if let Some(b) = v.as_bool() {
                 config.user_perm_component_theme = b;
@@ -856,11 +851,6 @@ impl ConfigService {
         if let Some(v) = map.get("guest_perm_network_fetch") {
             if let Some(b) = v.as_bool() {
                 config.guest_perm_network_fetch = b;
-            }
-        }
-        if let Some(v) = map.get("guest_perm_media_control") {
-            if let Some(b) = v.as_bool() {
-                config.guest_perm_media_control = b;
             }
         }
         if let Some(v) = map.get("guest_perm_component_theme") {
