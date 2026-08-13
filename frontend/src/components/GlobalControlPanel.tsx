@@ -917,6 +917,7 @@ const GlobalControlPanel: React.FC = () => {
     let lastUpdateTime = 0
     let pendingMeasure = false
     let measureTimeout: number | null = null
+    let visibilityTimeout: number | null = null
 
     // 移动端 / 低性能模式：加大节流、跳过 ResizeObserver
     const isMobileDevice = perf.isMobile || isReducedAnimation(anim)
@@ -1010,11 +1011,16 @@ const GlobalControlPanel: React.FC = () => {
     window.addEventListener('resize', handleViewportChange)
     window.addEventListener('orientationchange', handleViewportChange)
 
-    // 可见性变化时重新测量
+    // 可见性变化时重新测量。定时器必须可清理：effect 因依赖变化重建、
+    // 或组件卸载后，这一发迟到的 measure 仍会朝旧的外壳写高度
     const handleVisibility = () => {
       if (!document.hidden) {
         lastUpdateTime = 0
-        setTimeout(measure, 100)
+        if (visibilityTimeout !== null) clearTimeout(visibilityTimeout)
+        visibilityTimeout = window.setTimeout(() => {
+          visibilityTimeout = null
+          measure()
+        }, 100)
       }
     }
     document.addEventListener('visibilitychange', handleVisibility)
@@ -1048,6 +1054,9 @@ const GlobalControlPanel: React.FC = () => {
       mutationObserver.disconnect()
       if (measureTimeout !== null) {
         clearTimeout(measureTimeout)
+      }
+      if (visibilityTimeout !== null) {
+        clearTimeout(visibilityTimeout)
       }
     }
     // canRefreshWallpaper / user?.is_admin：壁纸配置与用户信息均为异步加载，

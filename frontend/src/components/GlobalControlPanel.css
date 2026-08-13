@@ -524,17 +524,23 @@ html.dark .control-panel-header {
   transition: all 0.2s ease;
 }
 
-.control-close-btn:hover {
-  background: rgb(0 0 0 / 10%);
-  color: var(--text-primary);
+/* 限定 hover: hover：触屏点按后 :hover 会粘滞，会让某个控制项一直停在悬停态 */
+@media (hover: hover) {
+  .control-close-btn:hover {
+    background: rgb(0 0 0 / 10%);
+    color: var(--text-primary);
+  }
 }
 
 html.dark .control-close-btn {
   background: rgb(255 255 255 / 5%);
 }
 
-html.dark .control-close-btn:hover {
-  background: rgb(255 255 255 / 10%);
+/* 限定 hover: hover：触屏点按后 :hover 会粘滞，会让某个控制项一直停在悬停态 */
+@media (hover: hover) {
+  html.dark .control-close-btn:hover {
+    background: rgb(255 255 255 / 10%);
+  }
 }
 
 /* ==========================================
@@ -576,15 +582,18 @@ html.dark .info-card {
   border-color: rgb(255 255 255 / 10%);
 }
 
-.info-card:hover {
-  background: rgb(0 0 0 / 5%);
-  border-color: rgb(0 0 0 / 12%);
-  transform: translateY(-1px);
-}
+/* 限定 hover: hover：触屏点按后 :hover 会粘滞，会让某个控制项一直停在悬停态 */
+@media (hover: hover) {
+  .info-card:hover {
+    background: rgb(0 0 0 / 5%);
+    border-color: rgb(0 0 0 / 12%);
+    transform: translateY(-1px);
+  }
 
-html.dark .info-card:hover {
-  background: rgb(255 255 255 / 6%);
-  border-color: rgb(255 255 255 / 15%);
+  html.dark .info-card:hover {
+    background: rgb(255 255 255 / 6%);
+    border-color: rgb(255 255 255 / 15%);
+  }
 }
 
 .info-card-header {
@@ -667,26 +676,29 @@ html.dark .control-item {
   );
 }
 
-.control-item:hover {
-  background: rgb(255 255 255 / 70%);
-  border-color: color-mix(
-    in srgb,
-    var(--color-primary, #94a3b8) 20%,
-    transparent
-  );
-}
+/* 限定 hover: hover：触屏点按后 :hover 会粘滞，会让某个控制项一直停在悬停态 */
+@media (hover: hover) {
+  .control-item:hover {
+    background: rgb(255 255 255 / 70%);
+    border-color: color-mix(
+      in srgb,
+      var(--color-primary, #94a3b8) 20%,
+      transparent
+    );
+  }
 
-html.dark .control-item:hover {
-  background: color-mix(
-    in srgb,
-    var(--color-primary, #94a3b8) 15%,
-    transparent
-  );
-  border-color: color-mix(
-    in srgb,
-    var(--color-primary, #94a3b8) 25%,
-    transparent
-  );
+  html.dark .control-item:hover {
+    background: color-mix(
+      in srgb,
+      var(--color-primary, #94a3b8) 15%,
+      transparent
+    );
+    border-color: color-mix(
+      in srgb,
+      var(--color-primary, #94a3b8) 25%,
+      transparent
+    );
+  }
 }
 
 .control-item-info {
@@ -841,8 +853,11 @@ html.dark .icon-theme {
   min-height: 1.375rem;
 }
 
-.control-toggle:hover {
-  background: #9ca3af;
+/* 限定 hover: hover：触屏点按后 :hover 会粘滞，会让某个控制项一直停在悬停态 */
+@media (hover: hover) {
+  .control-toggle:hover {
+    background: #9ca3af;
+  }
 }
 
 .control-toggle.active {
@@ -860,12 +875,15 @@ html.dark .icon-theme {
     color-mix(in srgb, var(--color-primary, #94a3b8) 12%, transparent);
 }
 
-.control-toggle.animation-toggle.performance-light:hover {
-  background: color-mix(
-    in srgb,
-    var(--color-primary, #94a3b8) 42%,
-    transparent
-  );
+/* 限定 hover: hover：触屏点按后 :hover 会粘滞，会让某个控制项一直停在悬停态 */
+@media (hover: hover) {
+  .control-toggle.animation-toggle.performance-light:hover {
+    background: color-mix(
+      in srgb,
+      var(--color-primary, #94a3b8) 42%,
+      transparent
+    );
+  }
 }
 
 .control-toggle.animation-toggle.performance-standard.active {
@@ -874,12 +892,15 @@ html.dark .icon-theme {
     color-mix(in srgb, var(--color-primary, #94a3b8) 12%, transparent);
 }
 
-.control-toggle.active:hover {
-  background: color-mix(in srgb, var(--color-primary, #94a3b8) 90%, black);
-}
+/* 限定 hover: hover：触屏点按后 :hover 会粘滞，会让某个控制项一直停在悬停态 */
+@media (hover: hover) {
+  .control-toggle.active:hover {
+    background: color-mix(in srgb, var(--color-primary, #94a3b8) 90%, black);
+  }
 
-.control-toggle.animation-toggle.performance-standard.active:hover {
-  background: color-mix(in srgb, var(--color-primary, #94a3b8) 90%, black);
+  .control-toggle.animation-toggle.performance-standard.active:hover {
+    background: color-mix(in srgb, var(--color-primary, #94a3b8) 90%, black);
+  }
 }
 
 .control-toggle-slider {
@@ -928,17 +949,20 @@ html.dark .icon-theme {
   transition: all 0.2s ease;
 }
 
-.language-switch-btn:hover {
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--color-primary, #94a3b8) 20%, transparent),
-    color-mix(in srgb, var(--color-secondary, #94a3b8) 15%, transparent)
-  );
-  border-color: color-mix(
-    in srgb,
-    var(--color-primary, #94a3b8) 50%,
-    transparent
-  );
+/* 限定 hover: hover：触屏点按后 :hover 会粘滞，会让某个控制项一直停在悬停态 */
+@media (hover: hover) {
+  .language-switch-btn:hover {
+    background: linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--color-primary, #94a3b8) 20%, transparent),
+      color-mix(in srgb, var(--color-secondary, #94a3b8) 15%, transparent)
+    );
+    border-color: color-mix(
+      in srgb,
+      var(--color-primary, #94a3b8) 50%,
+      transparent
+    );
+  }
 }
 
 .language-switch-btn:active {
@@ -992,26 +1016,29 @@ html.dark .control-action-btn {
   );
 }
 
-.control-action-btn:hover {
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--color-primary, #94a3b8) 25%, transparent),
-    color-mix(in srgb, var(--color-secondary, #94a3b8) 20%, transparent)
-  );
-  border-color: color-mix(
-    in srgb,
-    var(--color-primary, #94a3b8) 35%,
-    transparent
-  );
-  transform: scale(1.05);
-}
+/* 限定 hover: hover：触屏点按后 :hover 会粘滞，会让某个控制项一直停在悬停态 */
+@media (hover: hover) {
+  .control-action-btn:hover {
+    background: linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--color-primary, #94a3b8) 25%, transparent),
+      color-mix(in srgb, var(--color-secondary, #94a3b8) 20%, transparent)
+    );
+    border-color: color-mix(
+      in srgb,
+      var(--color-primary, #94a3b8) 35%,
+      transparent
+    );
+    transform: scale(1.05);
+  }
 
-html.dark .control-action-btn:hover {
-  border-color: color-mix(
-    in srgb,
-    var(--color-primary, #94a3b8) 45%,
-    transparent
-  );
+  html.dark .control-action-btn:hover {
+    border-color: color-mix(
+      in srgb,
+      var(--color-primary, #94a3b8) 45%,
+      transparent
+    );
+  }
 }
 
 .control-action-btn:active {
