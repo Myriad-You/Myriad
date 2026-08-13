@@ -29,7 +29,9 @@ mod tables_tapp;
 mod types;
 
 pub use orchestrator::ensure_schema;
-pub use seeds::{default_platform_seeds, DefaultPlatformSeed};
+pub use seeds::{
+    default_config_seeds, default_platform_seeds, ensure_default_config, DefaultPlatformSeed,
+};
 
 #[cfg(test)]
 mod tests;

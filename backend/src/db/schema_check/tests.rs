@@ -226,9 +226,15 @@ async fn runtime_config_seed_preserves_existing_values_and_is_idempotent() {
             )
         })
         .collect();
-    assert_eq!(values["user_perm_component_theme"], serde_json::json!(false));
+    assert_eq!(
+        values["user_perm_component_theme"],
+        serde_json::json!(false)
+    );
     assert_eq!(values["user_ai_daily_calls"], serde_json::json!(999));
-    assert_eq!(values["user_perm_shortcut_register"], serde_json::json!(true));
+    assert_eq!(
+        values["user_perm_shortcut_register"],
+        serde_json::json!(true)
+    );
     assert_eq!(values["stash_hidden_capacity"], serde_json::json!(8));
     assert_eq!(values["resident_quota_site_total"], serde_json::json!(3));
 

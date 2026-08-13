@@ -542,6 +542,6 @@ pub(crate) fn tables() -> Vec<TableDef> {
                     default_value: None,
                 },
             ],
-        }
+        },
     ]
 }

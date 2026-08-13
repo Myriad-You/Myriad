@@ -678,6 +678,6 @@ pub(crate) fn tables() -> Vec<TableDef> {
                     default_value: Some("CURRENT_TIMESTAMP".into()),
                 },
             ],
-        }
+        },
     ]
 }

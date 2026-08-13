@@ -839,6 +839,6 @@ pub(crate) fn tables() -> Vec<TableDef> {
                     default_value: Some("1".into()),
                 },
             ],
-        }
+        },
     ]
 }
