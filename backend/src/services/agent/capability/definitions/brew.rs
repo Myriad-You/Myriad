@@ -244,7 +244,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
                 "itemCount": { "type": "integer" }
             }
         }),
-        required_permissions: vec!["brew:write".to_string()],
+        required_permissions: vec!["brew:manage".to_string()],
         requires_ai: false,
         estimated_duration_ms: Some(5000),
         requires_confirmation: true,

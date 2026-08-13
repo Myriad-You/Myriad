@@ -473,7 +473,7 @@ impl AgentUsageMode {
     }
 }
 
-/// 某预设对应的 Agent 权限串（不含 brew:write / report:write）
+/// 某预设对应的 Agent 权限串（不含 brew:manage / report:write）
 fn permissions_for_usage_mode(mode: AgentUsageMode) -> std::collections::HashSet<String> {
     use std::collections::HashSet;
     let mut perms = HashSet::new();
@@ -484,7 +484,7 @@ fn permissions_for_usage_mode(mode: AgentUsageMode) -> std::collections::HashSet
                 perms.insert((*p).to_string());
             }
         }
-        // 共享订阅库：普通用户永不授予 brew:write（加/改/删源仅管理员）
+        // 共享订阅库：普通用户永不授予 brew:manage（加/改/删源仅管理员）
         AgentUsageMode::Standard | AgentUsageMode::Elevated => {
             for p in &[
                 "platform:read",
@@ -577,7 +577,7 @@ fn agent_perm_to_tapp(perm: &str) -> Option<crate::services::permission_service:
         | "netease:read" | "weather:read" | "metadata:read" => Some(TappPermission::PlatformRead),
         "tapp:read" => Some(TappPermission::TappListRead),
         // 写 / 出站（elevated 或 privileged）
-        "brew:write" => Some(TappPermission::BrewWrite),
+        "brew:manage" => Some(TappPermission::BrewManage),
         "report:write" => Some(TappPermission::ReportWrite),
         "http:fetch" | "web:scrape" | "proxy:read" => Some(TappPermission::NetworkFetch),
         "scheduler:read" | "scheduler:write" => Some(TappPermission::SchedulerRegister),
@@ -1039,12 +1039,12 @@ mod tests {
 
         let chat = permissions_for_usage_mode(AgentUsageMode::Chat);
         assert!(chat.contains("ai:chat"));
-        assert!(!chat.contains("brew:write"));
+        assert!(!chat.contains("brew:manage"));
         assert!(!chat.contains("http:fetch"));
 
         let standard = permissions_for_usage_mode(AgentUsageMode::Standard);
         assert!(standard.contains("brew:read"));
-        assert!(!standard.contains("brew:write"));
+        assert!(!standard.contains("brew:manage"));
         assert!(standard.contains("ai:chat"));
         assert!(!standard.contains("http:fetch"));
 
@@ -1053,7 +1053,7 @@ mod tests {
         assert!(elevated.contains("web:scrape"));
         assert!(elevated.contains("tapp:write"));
         assert!(elevated.contains("scheduler:read"));
-        assert!(!elevated.contains("brew:write"));
+        assert!(!elevated.contains("brew:manage"));
         assert!(!elevated.contains("report:write"));
 
         let max = max_user_agent_permissions();
@@ -1075,6 +1075,10 @@ mod tests {
         assert_eq!(
             agent_perm_to_tapp("brew:read"),
             Some(TappPermission::BrewRead)
+        );
+        assert_eq!(
+            agent_perm_to_tapp("brew:manage"),
+            Some(TappPermission::BrewManage)
         );
         assert_eq!(
             agent_perm_to_tapp("report:write"),
