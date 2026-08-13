@@ -126,21 +126,29 @@ html.dark .control-bar-trigger {
  * 与 width/height 收起动画抢 transform，Android 上表现为关闭动画错误；
  * 点遮罩关闭时手指不在岛上，不会踩这条路径。
  */
-.control-bar-trigger:not(.expanded, .gcp-animating):hover {
-  background: rgb(255 255 255 / 95%);
-  transform: scale(1.03);
-  box-shadow:
-    0 8px 24px rgb(0 0 0 / 12%),
-    0 4px 12px rgb(0 0 0 / 8%);
-  border-color: rgb(0 0 0 / 15%);
-}
 
-html.dark .control-bar-trigger:not(.expanded, .gcp-animating):hover {
-  background: rgb(26 26 26 / 95%);
-  box-shadow:
-    0 8px 24px rgb(0 0 0 / 80%),
-    0 4px 12px rgb(0 0 0 / 60%);
-  border-color: rgb(255 255 255 / 15%);
+/* 必须限定 hover: hover —— 安卓 Chrome 上触摸后 :hover 会粘滞在元素上，
+   直到点击别处才清除。收起动画期间 .gcp-animating 挡住了这条分支，
+   但 morph 结束摘掉该类的瞬间粘滞的 hover 立刻生效，岛会自己再涨一下；
+   点遮罩关闭时手指不在岛上则没有这条尾巴 —— 两条关闭路径观感因此不一致。
+   :active 不加限定：触屏上按下反馈是正常的，且已被 .gcp-animating 排除 */
+@media (hover: hover) {
+  .control-bar-trigger:not(.expanded, .gcp-animating):hover {
+    background: rgb(255 255 255 / 95%);
+    transform: scale(1.03);
+    box-shadow:
+      0 8px 24px rgb(0 0 0 / 12%),
+      0 4px 12px rgb(0 0 0 / 8%);
+    border-color: rgb(0 0 0 / 15%);
+  }
+
+  html.dark .control-bar-trigger:not(.expanded, .gcp-animating):hover {
+    background: rgb(26 26 26 / 95%);
+    box-shadow:
+      0 8px 24px rgb(0 0 0 / 80%),
+      0 4px 12px rgb(0 0 0 / 60%);
+    border-color: rgb(255 255 255 / 15%);
+  }
 }
 
 .control-bar-trigger:not(.expanded, .gcp-animating):active {
@@ -249,8 +257,10 @@ html.dark .control-bar-trigger.expanded {
   object-fit: contain;
 }
 
-.control-bar-trigger:not(.expanded, .gcp-animating):hover .dynamic-icon {
-  transform: scale(1.1);
+@media (hover: hover) {
+  .control-bar-trigger:not(.expanded, .gcp-animating):hover .dynamic-icon {
+    transform: scale(1.1);
+  }
 }
 
 .dynamic-text {
@@ -319,9 +329,11 @@ html.dark .control-bar-trigger.expanded {
   }
 }
 
-/* 悬停时暂停滚�? */
-.control-bar-trigger:hover .dynamic-text-main.scrolling {
-  animation-play-state: paused;
+/* 悬停时暂停滚动。限定 hover: hover：触屏上粘滞的 hover 会让跑马灯一直停住 */
+@media (hover: hover) {
+  .control-bar-trigger:hover .dynamic-text-main.scrolling {
+    animation-play-state: paused;
+  }
 }
 
 .dynamic-text-main::-webkit-scrollbar {
@@ -345,14 +357,16 @@ html.dark .dynamic-text-main::-webkit-scrollbar-thumb {
   background: rgb(255 255 255 / 20%);
 }
 
-.control-bar-trigger:not(.expanded, .gcp-animating):hover .dynamic-text-main {
-  color: var(--text-primary, #111827);
-}
+@media (hover: hover) {
+  .control-bar-trigger:not(.expanded, .gcp-animating):hover .dynamic-text-main {
+    color: var(--text-primary, #111827);
+  }
 
-html.dark
-  .control-bar-trigger:not(.expanded, .gcp-animating):hover
-  .dynamic-text-main {
-  color: #fff;
+  html.dark
+    .control-bar-trigger:not(.expanded, .gcp-animating):hover
+    .dynamic-text-main {
+    color: #fff;
+  }
 }
 
 .dynamic-text-sub {
@@ -370,14 +384,16 @@ html.dark .dynamic-text-sub {
   color: rgb(255 255 255 / 50%);
 }
 
-.control-bar-trigger:not(.expanded, .gcp-animating):hover .dynamic-text-sub {
-  color: var(--text-secondary, #4b5563);
-}
+@media (hover: hover) {
+  .control-bar-trigger:not(.expanded, .gcp-animating):hover .dynamic-text-sub {
+    color: var(--text-secondary, #4b5563);
+  }
 
-html.dark
-  .control-bar-trigger:not(.expanded, .gcp-animating):hover
-  .dynamic-text-sub {
-  color: rgb(255 255 255 / 70%);
+  html.dark
+    .control-bar-trigger:not(.expanded, .gcp-animating):hover
+    .dynamic-text-sub {
+    color: rgb(255 255 255 / 70%);
+  }
 }
 
 .dynamic-arrow {
@@ -389,9 +405,11 @@ html.dark
   color: currentcolor;
 }
 
-.control-bar-trigger:not(.expanded, .gcp-animating):hover .dynamic-arrow {
-  opacity: 0.8;
-  transform: translateY(2px) scale(1.1);
+@media (hover: hover) {
+  .control-bar-trigger:not(.expanded, .gcp-animating):hover .dynamic-arrow {
+    opacity: 0.8;
+    transform: translateY(2px) scale(1.1);
+  }
 }
 
 .control-bar-trigger:not(.expanded, .gcp-animating):active .dynamic-arrow {
@@ -1275,11 +1293,15 @@ html.dark .control-panel-overlay {
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.control-bar-trigger:not(.expanded, .gcp-animating):hover .dynamic-arrow-badge {
-  transform: scale(1.1);
+@media (hover: hover) {
+  .control-bar-trigger:not(.expanded, .gcp-animating):hover
+    .dynamic-arrow-badge {
+    transform: scale(1.1);
+  }
 }
 
-.control-bar-trigger:not(.expanded, .gcp-animating):active .dynamic-arrow-badge {
+.control-bar-trigger:not(.expanded, .gcp-animating):active
+  .dynamic-arrow-badge {
   transform: scale(1.05);
 }
 
