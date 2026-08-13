@@ -100,7 +100,7 @@ Gate helper: `rotation_confirm_accepted` in `backend/src/federation/actor.rs`
 Host surface (stacked with this branch family):
 
 - REST: `federationApi.rotateKeys({ confirm: true })`
-- Bridge: `federation.rotateKeys` → `federation:write`
+- Bridge: `federation.rotateKeys` → `federation:post`
 - Host UI: Config → Federation → **Identity & keys**
 
 ## Accept matching (Follow)
