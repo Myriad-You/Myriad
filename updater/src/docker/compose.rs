@@ -3,6 +3,7 @@
 //! We don't reach for the compose-as-library crate because it's not first-party. Shelling out
 //! is what users would do; it keeps behavior obvious and avoids API drift.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
@@ -14,12 +15,115 @@ use tracing::debug;
 use crate::error::{Result, UpdaterError};
 use crate::probe::compose::ComposeBinary;
 
+pub(crate) const GUARD_ENV_KEYS: [&str; 7] = [
+    "DOCKER_GUARD_IMAGE",
+    "DOCKER_GUARD_LOG",
+    "GUARD_COMPOSE_PROJECT_NAME",
+    "GUARD_MYRIAD_DOCKER_NETWORK",
+    "GUARD_MYRIAD_ADMIN_NETWORK",
+    "GUARD_MYRIAD_DOCKER_GUARD_NETWORK",
+    "MYRIAD_GUARD_ENV_FILE",
+];
+pub(crate) const GUARDED_DOCKER_HOST: &str = "tcp://docker-guard:2375";
+
+pub(crate) fn harden_docker_command(command: &mut Command) {
+    let guarded_host = if cfg!(debug_assertions) {
+        std::env::var("UPDATER_DEBUG_GUARDED_DOCKER_HOST")
+            .unwrap_or_else(|_| GUARDED_DOCKER_HOST.to_string())
+    } else {
+        GUARDED_DOCKER_HOST.to_string()
+    };
+    for key in [
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "NO_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+        "no_proxy",
+    ] {
+        command.env_remove(key);
+    }
+    command
+        .env_remove("DOCKER_CONTEXT")
+        .env_remove("DOCKER_CONFIG")
+        .env("DOCKER_HOST", guarded_host);
+}
+
+pub(crate) fn guard_env_file_path() -> PathBuf {
+    if cfg!(debug_assertions) {
+        std::env::var("UPDATER_GUARD_ENV_FILE")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| "/run/secrets/docker-guard.env".into())
+    } else {
+        PathBuf::from("/run/secrets/docker-guard.env")
+    }
+}
+
+pub(crate) fn validate_guard_policy_file(path: &std::path::Path) -> Result<()> {
+    let text = std::fs::read_to_string(path).map_err(|error| {
+        UpdaterError::Precondition(format!(
+            "cannot read host-owned Guard policy {}: {error}",
+            path.display()
+        ))
+    })?;
+    let mut values = HashMap::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            return Err(UpdaterError::Precondition(
+                "Guard policy contains a malformed line".into(),
+            ));
+        };
+        if values.insert(key, value).is_some() {
+            return Err(UpdaterError::Precondition(format!(
+                "Guard policy contains duplicate key {key}"
+            )));
+        }
+    }
+    for key in [
+        "DOCKER_GUARD_IMAGE",
+        "GUARD_COMPOSE_PROJECT_NAME",
+        "GUARD_MYRIAD_DOCKER_NETWORK",
+        "GUARD_MYRIAD_ADMIN_NETWORK",
+        "GUARD_MYRIAD_DOCKER_GUARD_NETWORK",
+        "MYRIAD_GUARD_ENV_FILE",
+    ] {
+        if values.get(key).is_none_or(|value| value.trim().is_empty()) {
+            return Err(UpdaterError::Precondition(format!(
+                "host-owned Guard policy is missing {key}"
+            )));
+        }
+    }
+    let image = values["DOCKER_GUARD_IMAGE"];
+    if cfg!(debug_assertions) && image.starts_with("myriad-updater-dev:") {
+        return Ok(());
+    }
+    let prefix = "docker.io/somekawahitomi/myriad-updater@sha256:";
+    let digest = image.strip_prefix(prefix).ok_or_else(|| {
+        UpdaterError::Precondition("Guard policy image is outside the trusted repository".into())
+    })?;
+    if digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(UpdaterError::Precondition(
+            "Guard policy image must use an exact sha256 digest".into(),
+        ));
+    }
+    Ok(())
+}
+
 pub struct ComposeRunner {
     binary: ComposeBinary,
     project: String,
     files: Vec<PathBuf>,
     /// Path to .env. Passed as --env-file so compose sees the same set as we do.
     env_file: PathBuf,
+    /// Host-owned Guard TCB policy, mounted read-only into the updater. Passed
+    /// after `.env` so updater-controlled values cannot select Guard identity.
+    guard_env_file: PathBuf,
     /// Working directory for compose, so relative bind mounts resolve correctly.
     workdir: PathBuf,
     /// Host-side project directory used to resolve relative bind sources for the daemon.
@@ -51,6 +155,7 @@ impl ComposeRunner {
         project: impl Into<String>,
         files: Vec<PathBuf>,
         env_file: PathBuf,
+        guard_env_file: PathBuf,
         workdir: PathBuf,
         project_directory: PathBuf,
     ) -> Self {
@@ -59,6 +164,7 @@ impl ComposeRunner {
             project: project.into(),
             files,
             env_file,
+            guard_env_file,
             workdir,
             project_directory,
         }
@@ -66,10 +172,20 @@ impl ComposeRunner {
 
     fn base_cmd(&self) -> Command {
         let mut c = self.binary.command(&self.project, &self.files);
+        // Compose gives the calling process environment precedence over every
+        // --env-file. Strip all Guard-TCB interpolation keys so a compromised
+        // updater cannot override the host-owned policy file when spawning the
+        // Compose subprocess.
+        for key in GUARD_ENV_KEYS {
+            c.env_remove(key);
+        }
+        harden_docker_command(&mut c);
         c.arg("--project-directory")
             .arg(&self.project_directory)
             .arg("--env-file")
-            .arg(&self.env_file);
+            .arg(&self.env_file)
+            .arg("--env-file")
+            .arg(&self.guard_env_file);
         c.current_dir(&self.workdir);
         c.stdout(Stdio::piped());
         c.stderr(Stdio::piped());
@@ -257,6 +373,7 @@ impl ComposeRunner {
 
     async fn run_docker(&self, args: &[&str], timeout: Duration) -> Result<ComposeOutput> {
         let mut command = Command::new("docker");
+        harden_docker_command(&mut command);
         command
             .args(args)
             .current_dir(&self.workdir)

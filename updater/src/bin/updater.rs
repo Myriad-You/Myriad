@@ -37,10 +37,6 @@ struct Cli {
     /// Listen address.
     #[arg(long, env = "UPDATER_LISTEN", default_value = "0.0.0.0:1101")]
     listen: String,
-
-    /// Optional: bootstrap-self mode (used during self-update; see spec §14.2).
-    #[arg(long)]
-    bootstrap_self: bool,
 }
 
 #[tokio::main]
@@ -49,10 +45,6 @@ async fn main() -> Result<()> {
     logging::init();
 
     info!(version = self_version(), "myriad-updater starting");
-
-    if cli.bootstrap_self {
-        return myriad_updater::worker::bootstrap_self::run(&cli.compose_dir, &cli.env_file).await;
-    }
 
     // Phase 1: load config & open state. Failures here are fatal.
     let config = Config::load_from_env().map_err(|e| {
@@ -64,9 +56,7 @@ async fn main() -> Result<()> {
     // Security posture (R5/R6): warn only on non-default / insecure choices.
     // Secure defaults (cosign=strict, strong token) stay quiet beyond the boot audit line.
     {
-        use myriad_updater::config::{
-            cosign_verify_is_off, UPDATE_TOKEN_WARN_BELOW_LEN,
-        };
+        use myriad_updater::config::{cosign_verify_is_off, UPDATE_TOKEN_WARN_BELOW_LEN};
         use myriad_updater::release::CosignPolicy;
 
         let policy = CosignPolicy::from_env(Some(&config.cosign_verify));
@@ -178,9 +168,8 @@ async fn main() -> Result<()> {
                     err = %e,
                     "recovery: pre-swap stack restore failed; site may stay down until manual compose up"
                 );
-                let _ = state.append_history(&format!(
-                    "recovery: pre-swap stack restore failed: {e}"
-                ));
+                let _ =
+                    state.append_history(&format!("recovery: pre-swap stack restore failed: {e}"));
             }
         }
     }

@@ -164,10 +164,7 @@ fn assert_writable_dir(path: &Path, label: &str) -> Result<()> {
             path.display()
         ))
     })?;
-    let probe = path.join(format!(
-        ".myriad-preflight-write.{}",
-        std::process::id()
-    ));
+    let probe = path.join(format!(".myriad-preflight-write.{}", std::process::id()));
     std::fs::write(&probe, b"ok").map_err(|e| {
         UpdaterError::Precondition(format!(
             "{label} {} is not writable: {e}. Mount the deployment root read-write for updater.",
@@ -180,10 +177,7 @@ fn assert_writable_dir(path: &Path, label: &str) -> Result<()> {
 
 fn assert_readable_dir(path: &Path, label: &str) -> Result<()> {
     let meta = std::fs::metadata(path).map_err(|e| {
-        UpdaterError::Precondition(format!(
-            "{label} {} is not readable: {e}",
-            path.display()
-        ))
+        UpdaterError::Precondition(format!("{label} {} is not readable: {e}", path.display()))
     })?;
     if !meta.is_dir() {
         return Err(UpdaterError::Precondition(format!(
@@ -209,16 +203,13 @@ fn assert_writable_file(path: &Path, label: &str) -> Result<()> {
         )));
     }
     use std::fs::OpenOptions;
-    OpenOptions::new()
-        .append(true)
-        .open(path)
-        .map_err(|e| {
-            UpdaterError::Precondition(format!(
-                "{label} {} is not writable: {e}. Tag swap requires a writable .env on the \
+    OpenOptions::new().append(true).open(path).map_err(|e| {
+        UpdaterError::Precondition(format!(
+            "{label} {} is not writable: {e}. Tag swap requires a writable .env on the \
                  deployment-root bind.",
-                path.display()
-            ))
-        })?;
+            path.display()
+        ))
+    })?;
     Ok(())
 }
 
@@ -295,10 +286,7 @@ pub fn check_postgres_pgdata_volume(config: &serde_json::Value, db_mode: DbMode)
     if db_mode.is_external() {
         return Ok(());
     }
-    let Some(pg) = config
-        .get("services")
-        .and_then(|s| s.get("postgres"))
-    else {
+    let Some(pg) = config.get("services").and_then(|s| s.get("postgres")) else {
         return Ok(()); // topology check already fails if missing
     };
 
@@ -340,10 +328,7 @@ pub fn check_postgres_pgdata_volume(config: &serde_json::Value, db_mode: DbMode)
             continue;
         }
         saw_pgdata_mount = true;
-        let typ = obj
-            .get("type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("bind");
+        let typ = obj.get("type").and_then(|v| v.as_str()).unwrap_or("bind");
         if typ == "volume" {
             let source = obj
                 .get("source")
@@ -409,13 +394,12 @@ async fn check_running_compose_project(worker: &Worker, project: &str) -> Result
             Ok(info) => info,
             Err(_) => continue,
         };
-        let labels = info
-            .config
-            .and_then(|c| c.labels)
-            .unwrap_or_default();
+        let labels = info.config.and_then(|c| c.labels).unwrap_or_default();
         match labels.get("com.docker.compose.project") {
             Some(p) if p == project => {}
-            Some(p) => bad.push(format!("{name} com.docker.compose.project={p:?} (expected {project:?})")),
+            Some(p) => bad.push(format!(
+                "{name} com.docker.compose.project={p:?} (expected {project:?})"
+            )),
             None => {
                 // Not compose-managed or labels stripped — still dangerous for `compose up`.
                 bad.push(format!(

@@ -296,12 +296,14 @@ export const enUS: TranslationKeys = {
     atLeast8Chars: 'At least 8 characters with letters and numbers',
     enterPasswordAgain: 'Enter password again',
     bootstrapToken: 'Bootstrap token',
-    bootstrapTokenOptional: 'required when recovering a configured instance',
+    bootstrapTokenOptional: 'required for installation operations',
     bootstrapTokenPlaceholder: 'Paste contents of .bootstrap-token',
     bootstrapTokenHint:
-      'If this instance was already configured, read the .bootstrap-token file under the data directory (or MYRIAD_BOOTSTRAP_TOKEN) and paste it here; otherwise save returns 401.',
+      'Read the short-lived token from DATA_DIR/.bootstrap-token (or MYRIAD_BOOTSTRAP_TOKEN). It is required for first install, database initialization, and owner creation.',
     bootstrapTokenRequired:
       'Bootstrap token required: read the server .bootstrap-token file, paste it, and try again.',
+    bootstrapTokenRotated:
+      'The database-initialization token is now invalid. Before creating the owner, read the new .bootstrap-token from the server data directory.',
   },
 
   // Configuration
@@ -517,7 +519,8 @@ export const enUS: TranslationKeys = {
     hideOptionGuide: 'Hide guide',
     hideOptionGuideAria: 'Hide guide for “{title}”',
     pinOptionGuide: 'Pin',
-    pinOptionGuideAria: 'Pin “{title}” guide (close only via the close button; draggable)',
+    pinOptionGuideAria:
+      'Pin “{title}” guide (close only via the close button; draggable)',
     unpinOptionGuide: 'Unpin',
     unpinOptionGuideAria: 'Unpin “{title}” guide',
     optionGuideDragHint: 'Drag to move',
@@ -1306,7 +1309,7 @@ export const enUS: TranslationKeys = {
       'Runtime diagnostics, memory saver, outbound proxy, API mirrors, settings backup/restore, and dangerous actions',
     memorySaverGroup: 'Memory',
     memorySaverGroupDesc:
-      'Lower concurrent memory use on small hosts (~1 GiB). Default off = balanced (historical) budgets.',
+      'Lower concurrent memory use on small hosts (~1 GiB). Default off uses the current bounded balanced profile; upgrades from older releases can change request limits.',
     memorySaver: 'Memory saver',
     memorySaverHint:
       'Tightens concurrent federation buffers, slightly lowers single-message/attachment size caps, transfer chunk concurrency, process caches, DB pool size, and password-hash concurrency. Features stay available; very large media or multi-path peaks may reject sooner or show “retry later”. Env MYRIAD_MEMORY_PROFILE can override. DB pool fully applies after backend restart.',

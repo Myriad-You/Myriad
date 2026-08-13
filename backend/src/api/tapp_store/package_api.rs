@@ -12,30 +12,29 @@ use super::{
 };
 use axum::{
     extract::{Path, Query, State},
-    http::{header, HeaderMap, StatusCode},
+    http::{header, StatusCode},
     response::IntoResponse,
-    Json,
+    Extension, Json,
 };
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::fs;
 
-use crate::middleware::auth::extract_optional_claims;
 use crate::error::HttpError;
-use myriad_error::AppError;
+use crate::middleware::auth::{Claims, OptionalClaims};
 use crate::services::tapp_package_read::{
     asset_bytes_within_limit, installed_page_module_names, installed_page_module_relative_path,
     installed_text_resource_plan, installed_widget_template_paths, manifest_declares_asset,
 };
+use myriad_error::AppError;
 
 async fn visible_tapp(
     db: &DatabaseConnection,
-    headers: &HeaderMap,
+    claims: Option<&Claims>,
     tapp_id: &str,
 ) -> Result<crate::models::entities::tapps::Model, HttpError> {
-    let claims = extract_optional_claims(headers);
-    let user_id = optional_authenticated_user_id(claims.as_ref());
+    let user_id = optional_authenticated_user_id(claims);
     Ok(find_visible_tapp(db, user_id, tapp_id)
         .await?
         .ok_or_else(|| HttpError(AppError::not_found("Not found")))?
@@ -44,10 +43,10 @@ async fn visible_tapp(
 
 pub(super) async fn get_tapp_code(
     State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
+    Extension(OptionalClaims(claims)): Extension<OptionalClaims>,
     Path(tapp_id): Path<String>,
 ) -> Result<String, HttpError> {
-    let tapp = visible_tapp(&db, &headers, &tapp_id).await?;
+    let tapp = visible_tapp(&db, claims.as_ref(), &tapp_id).await?;
     fs::read_to_string(installed_code_path(&tapp)?)
         .await
         .map_err(|_| HttpError(AppError::internal("Database error")))
@@ -246,12 +245,12 @@ async fn load_page_modules(
 
 pub(super) async fn get_tapp_resources(
     State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
+    Extension(OptionalClaims(claims)): Extension<OptionalClaims>,
     Path(tapp_id): Path<String>,
     Query(query): Query<GetTappResourcesQuery>,
 ) -> Result<Json<TappResourcesResponse>, HttpError> {
     let mode = ResourceMode::parse(query.mode.as_deref());
-    let tapp = visible_tapp(&db, &headers, &tapp_id).await?;
+    let tapp = visible_tapp(&db, claims.as_ref(), &tapp_id).await?;
     let tapp_dir = installed_tapp_dir(&tapp)?;
     let code_path = installed_code_path(&tapp)?;
     let manifest = &tapp.manifest;
@@ -380,13 +379,13 @@ pub(super) struct TappAssetResponse {
 
 pub(super) async fn get_tapp_asset(
     State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
+    Extension(OptionalClaims(claims)): Extension<OptionalClaims>,
     Path(tapp_id): Path<String>,
     Query(query): Query<GetTappAssetQuery>,
 ) -> Result<Json<TappAssetResponse>, HttpError> {
     use base64::{engine::general_purpose::STANDARD, Engine};
 
-    let tapp = visible_tapp(&db, &headers, &tapp_id).await?;
+    let tapp = visible_tapp(&db, claims.as_ref(), &tapp_id).await?;
     validate_asset_path(&query.path).map_err(|_| HttpError(AppError::bad_request("Bad request")))?;
     let manifest: TappManifest = serde_json::from_value(tapp.manifest.clone())
         .map_err(|_| HttpError(AppError::internal("Database error")))?;
@@ -415,10 +414,10 @@ pub(super) async fn get_tapp_asset(
 
 pub(super) async fn export_tapp(
     State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
+    Extension(OptionalClaims(claims)): Extension<OptionalClaims>,
     Path(tapp_id): Path<String>,
 ) -> Result<impl IntoResponse, HttpError> {
-    let tapp = visible_tapp(&db, &headers, &tapp_id).await?;
+    let tapp = visible_tapp(&db, claims.as_ref(), &tapp_id).await?;
     let tapp_dir = installed_tapp_dir(&tapp)?;
     let filename = format!("{tapp_id}.tapp");
     let zip_data = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, std::io::Error> {

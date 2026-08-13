@@ -111,7 +111,9 @@ fn prune(l: &mut Limiter) {
     let now = Instant::now();
     l.counters.retain(|_, (fails, blocked)| {
         blocked.is_some_and(|until| now < until)
-            || fails.iter().any(|t| now.duration_since(*t) < FAILURE_WINDOW)
+            || fails
+                .iter()
+                .any(|t| now.duration_since(*t) < FAILURE_WINDOW)
     });
 }
 
@@ -195,7 +197,7 @@ pub async fn token_and_manual_required(
         .map_err(|status| status.into_response())
 }
 
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }
@@ -233,7 +235,10 @@ mod tests {
     #[test]
     fn source_key_falls_back_when_header_absent_or_empty() {
         assert_eq!(source_key(&HeaderMap::new()), "unknown");
-        assert_eq!(source_key(&headers_with("x-forwarded-for", "  ")), "unknown");
+        assert_eq!(
+            source_key(&headers_with("x-forwarded-for", "  ")),
+            "unknown"
+        );
     }
 
     #[test]
@@ -278,12 +283,24 @@ mod tests {
 
     #[test]
     fn token_matches_is_exact_and_rejects_missing() {
-        assert!(token_matches(&headers_with("x-update-token", "s3cret"), "s3cret"));
-        assert!(!token_matches(&headers_with("x-update-token", "s3cre"), "s3cret"));
-        assert!(!token_matches(&headers_with("x-update-token", "s3crett"), "s3cret"));
+        assert!(token_matches(
+            &headers_with("x-update-token", "s3cret"),
+            "s3cret"
+        ));
+        assert!(!token_matches(
+            &headers_with("x-update-token", "s3cre"),
+            "s3cret"
+        ));
+        assert!(!token_matches(
+            &headers_with("x-update-token", "s3crett"),
+            "s3cret"
+        ));
         assert!(!token_matches(&HeaderMap::new(), "s3cret"));
         // 首尾空白被 trim（与 extract_token 一致）
-        assert!(token_matches(&headers_with("x-update-token", " s3cret "), "s3cret"));
+        assert!(token_matches(
+            &headers_with("x-update-token", " s3cret "),
+            "s3cret"
+        ));
     }
 
     #[test]

@@ -1,6 +1,38 @@
 //! Base API routes (setup, system, public config, federation surface).
 use super::*;
 
+fn setup_peer_ip(req: &Request) -> Result<std::net::IpAddr, myriad_error::AppError> {
+    req.extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .map(|connect| connect.0.ip())
+        .ok_or_else(|| {
+            myriad_error::AppError::forbidden("Bootstrap peer unavailable")
+                .with_message("安装控制面无法确认原始连接对端，已拒绝请求。")
+        })
+}
+
+/// Guard setup mutations before body extraction, database extraction, or Argon2.
+async fn require_installation_capability(req: Request, next: Next) -> Response {
+    let result = setup_peer_ip(&req)
+        .and_then(|peer_ip| crate::api::setup_bootstrap::require_bootstrap(req.headers(), peer_ip));
+    if let Err(error) = result {
+        return crate::error::app_error_response(error);
+    }
+    next.run(req).await
+}
+
+/// First-owner creation is authorized before body extraction. The handler
+/// consumes the capability immediately before committing its transaction so a
+/// post-commit crash cannot leave a replayable capability on disk.
+async fn claim_installation_capability(req: Request, next: Next) -> Response {
+    let result = setup_peer_ip(&req)
+        .and_then(|peer_ip| crate::api::setup_bootstrap::require_bootstrap(req.headers(), peer_ip));
+    if let Err(error) = result {
+        return crate::error::app_error_response(error);
+    }
+    next.run(req).await
+}
+
 /// Config-mode only: no DB / no `AppState`. Setup + public auth bootstrap surface.
 ///
 /// Handlers that need a live DB use `extract::Db` and get **503** (not 404) when
@@ -12,16 +44,27 @@ pub(super) fn build_config_mode_router() -> Router {
         .route("/api/setup/config", get(api::setup::get_setup_config))
         // Registered without AppState: extract::Db → 503 until DB is wired.
         .route("/api/setup/status", get(api::setup::check_setup_status))
-        .route("/api/setup/init-env", post(api::setup::initialize_env_file))
-        .route("/api/setup/update-env", post(api::setup::update_env_file))
+        .route(
+            "/api/setup/init-env",
+            post(api::setup::initialize_env_file)
+                .route_layer(from_fn(require_installation_capability)),
+        )
+        .route(
+            "/api/setup/update-env",
+            post(api::setup::update_env_file).route_layer(from_fn(require_installation_capability)),
+        )
         .route(
             "/api/setup/database-config",
-            post(api::setup::save_database_config),
+            post(api::setup::save_database_config)
+                .route_layer(from_fn(require_installation_capability)),
         )
-        .route("/api/setup/init-database", post(api::setup::init_database))
+        .route(
+            "/api/setup/init-database",
+            post(api::setup::init_database).route_layer(from_fn(require_installation_capability)),
+        )
         .route(
             "/api/setup/create-admin",
-            post(api::auth_local::create_admin),
+            post(api::auth_local::create_admin).route_layer(from_fn(claim_installation_capability)),
         )
         // system status stays public for operators during setup
         .route("/api/system/status", get(api::system::system_status))
@@ -49,16 +92,27 @@ pub(super) fn build_base_api_router(
         // Setup routes (always available when DB/AppState is wired)
         .route("/api/setup/config", get(api::setup::get_setup_config))
         .route("/api/setup/status", get(api::setup::check_setup_status))
-        .route("/api/setup/init-env", post(api::setup::initialize_env_file))
-        .route("/api/setup/update-env", post(api::setup::update_env_file))
+        .route(
+            "/api/setup/init-env",
+            post(api::setup::initialize_env_file)
+                .route_layer(from_fn(require_installation_capability)),
+        )
+        .route(
+            "/api/setup/update-env",
+            post(api::setup::update_env_file).route_layer(from_fn(require_installation_capability)),
+        )
         .route(
             "/api/setup/database-config",
-            post(api::setup::save_database_config),
+            post(api::setup::save_database_config)
+                .route_layer(from_fn(require_installation_capability)),
         )
-        .route("/api/setup/init-database", post(api::setup::init_database))
+        .route(
+            "/api/setup/init-database",
+            post(api::setup::init_database).route_layer(from_fn(require_installation_capability)),
+        )
         .route(
             "/api/setup/create-admin",
-            post(api::auth_local::create_admin),
+            post(api::auth_local::create_admin).route_layer(from_fn(claim_installation_capability)),
         )
         // System management routes
         // P2: system/status 暴露了一些系统信息，但为了监控保持公开（考虑移除敏感字段）
@@ -507,7 +561,7 @@ pub(super) fn build_base_api_router(
             get(federation::actor::get_following),
         )
         // Layer 2: Inbox（远程实例投递，通过 HTTP Signature 验证）
-        // Live body limit follows memory profile (default 64 MiB / saver 48 MiB).
+        // Live body limit follows memory profile (default 8 MiB / saver 4 MiB).
         // Concurrent buffering is also gated by inbox inflight budget (429).
         .merge(
             Router::<crate::state::AppState>::new()

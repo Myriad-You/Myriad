@@ -733,6 +733,7 @@ pub async fn handle_room_join(
     // roll back the membership write under the caller's receipt transaction.
     if was_pending || is_new {
         refanout_local_e2e_keys_to_member(db, room_id, joining).await?;
+        backfill_roster_for_new_member(db, room_id, &owner_actor, joining, role).await;
     }
 
     crate::federation::ws_gateway::broadcast_to_room(
@@ -761,6 +762,211 @@ pub async fn handle_room_join(
         actor_url_str
     );
     Ok(())
+}
+
+/// Replay the roster in both directions when a member becomes active, from the
+/// room's home instance.
+///
+/// A `RoomInvite` carries the roster as it stood when the invite was written,
+/// and every later announcement is fanned out to *active* members only — so a
+/// pending invitee is deaf to everything that happens between their invite and
+/// their accept. Two peers invited before either accepted therefore end up
+/// invisible to whichever of them accepted second: the missing peer's
+/// `RoomMessage` is refused as `not_member`, and their `KeyExchange` never
+/// arrived, so anything they encrypt is undecryptable. The home instance is the
+/// only party holding the full roster, so it is the one that repairs the gap.
+///
+/// Best-effort: the join itself is already committed, and a peer we cannot
+/// reach right now is repaired by the next join or roster poll rather than by
+/// failing (and retrying) an otherwise-good membership write.
+pub(crate) async fn backfill_roster_for_new_member(
+    db: &impl ConnectionTrait,
+    room_id: &str,
+    owner_actor: &str,
+    joining: &str,
+    joining_role: &str,
+) {
+    let base_url = get_base_url().await;
+    // Only the home instance speaks for the roster — otherwise every member's
+    // server would announce the same rows to everyone else.
+    if owner_actor.is_empty() || local_username_from_actor_url(&base_url, owner_actor).is_none() {
+        return;
+    }
+
+    let owner_row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"SELECT local_user_id FROM federation_room_members
+               WHERE room_id = $1 AND actor_url = $2 AND is_local = true
+                 AND local_user_id IS NOT NULL"#,
+            [room_id.into(), owner_actor.into()],
+        ))
+        .await
+        .ok()
+        .flatten();
+    let Some(user_id) = owner_row.and_then(|r| r.try_get::<i32>("", "local_user_id").ok()) else {
+        return;
+    };
+
+    // 1) Tell the rest of the room about the newcomer. Their own accept only
+    //    reached the peers *they* knew about, which is the same short list.
+    let announce_id = generate_activity_id(&base_url);
+    let announce = json!({
+        "@context": build_context(),
+        "type": "myriad:RoomJoin",
+        "id": &announce_id,
+        "actor": owner_actor,
+        "object": {
+            "type": "myriad:Room",
+            "id": room_id,
+            "member": joining,
+            "role": joining_role
+        }
+    });
+    if let Err(e) = fanout_to_remote_members_excluding(
+        db,
+        user_id,
+        room_id,
+        &announce_id,
+        &announce,
+        "RoomJoin",
+        "Room",
+        &[joining],
+    )
+    .await
+    {
+        tracing::warn!(
+            room_id = %room_id,
+            member = %joining,
+            error = %e,
+            "[Room] roster announce of new member failed"
+        );
+    }
+
+    // 2) Tell the newcomer about everyone already here.
+    let target = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT inbox_url, domain FROM federation_remote_actors WHERE actor_url = $1",
+            [joining.into()],
+        ))
+        .await
+        .ok()
+        .flatten();
+    let inbox_domain = target.and_then(|r| {
+        let inbox: String = r.try_get("", "inbox_url").unwrap_or_default();
+        let domain: String = r.try_get("", "domain").unwrap_or_default();
+        require_remote_inbox(Some((inbox, domain))).ok()
+    });
+    let Some((inbox, domain)) = inbox_domain else {
+        tracing::warn!(
+            room_id = %room_id,
+            member = %joining,
+            "[Room] roster backfill skipped — no inbox for new member"
+        );
+        return;
+    };
+
+    let members = match db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"SELECT actor_url, role FROM federation_room_members
+               WHERE room_id = $1 AND COALESCE(membership_status, 'active') = 'active'"#,
+            [room_id.into()],
+        ))
+        .await
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::warn!(
+                room_id = %room_id,
+                error = %e,
+                "[Room] roster backfill could not read members"
+            );
+            return;
+        }
+    };
+
+    let mut sent = 0u32;
+    for row in members {
+        let member_actor: String = row.try_get("", "actor_url").unwrap_or_default();
+        if member_actor.is_empty() || same_actor_url(&member_actor, joining) {
+            continue;
+        }
+        let member_role: String = row
+            .try_get("", "role")
+            .unwrap_or_else(|_| "member".to_string());
+
+        let activity_id = generate_activity_id(&base_url);
+        let activity = json!({
+            "@context": build_context(),
+            "type": "myriad:RoomJoin",
+            "id": &activity_id,
+            "actor": owner_actor,
+            "to": [joining],
+            "object": {
+                "type": "myriad:Room",
+                "id": room_id,
+                "member": &member_actor,
+                "role": member_role
+            }
+        });
+
+        let act_row = db
+            .query_one_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                r#"INSERT INTO federation_activities
+                   (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
+                   VALUES ($1, $2, 'RoomJoin', 'Room', $3, true, NOW())
+                   RETURNING id"#,
+                [activity_id.into(), user_id.into(), activity.into()],
+            ))
+            .await;
+        let act_id = match act_row {
+            Ok(Some(r)) => r.try_get::<i32>("", "id").ok(),
+            Ok(None) => None,
+            Err(e) => {
+                tracing::warn!(
+                    room_id = %room_id,
+                    member = %member_actor,
+                    error = %e,
+                    "[Room] roster backfill activity insert failed"
+                );
+                None
+            }
+        };
+        let Some(act_id) = act_id else { continue };
+
+        if let Err(e) = db
+            .execute_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                r#"INSERT INTO federation_delivery_queue
+                   (activity_id, target_inbox, target_domain, status, created_at)
+                   VALUES ($1, $2, $3, 'pending', NOW())
+                   ON CONFLICT (activity_id, target_inbox) DO NOTHING"#,
+                [act_id.into(), inbox.clone().into(), domain.clone().into()],
+            ))
+            .await
+        {
+            tracing::warn!(
+                room_id = %room_id,
+                member = %member_actor,
+                error = %e,
+                "[Room] roster backfill enqueue failed"
+            );
+            continue;
+        }
+        sent += 1;
+    }
+
+    if sent > 0 {
+        tracing::info!(
+            "[Room] Backfilled {} roster entr(ies) to new member {} in {}",
+            sent,
+            joining,
+            room_id
+        );
+    }
 }
 
 /// After a remote member becomes active, deliver KeyExchange for every *local*

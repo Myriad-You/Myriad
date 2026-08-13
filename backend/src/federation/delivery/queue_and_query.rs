@@ -1,7 +1,10 @@
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, Statement};
+use sea_orm::{
+    ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, QueryResult, Statement,
+};
 use serde::Serialize;
 use serde_json::json;
 use std::time::Duration;
+use uuid::Uuid;
 
 use crate::federation::keys::KeyPair;
 use crate::federation::signature::{sign_request, SignatureParams};
@@ -80,9 +83,173 @@ impl FanoutResult {
 /// Delivery queue batch outcome (worker metrics).
 #[derive(Debug, Clone, Default)]
 pub struct DeliveryBatchStats {
+    pub claimed: u32,
+    pub reclaimed: u32,
     pub delivered: u32,
     pub dead: u32,
     pub retried: u32,
+    pub lease_lost: u32,
+}
+
+const DELIVERY_LEASE_SECS: i64 = 10 * 60;
+const DELIVERY_LEASE_HEARTBEAT_SECS: u64 = 60;
+
+struct DeliveryLeaseHeartbeat {
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl Drop for DeliveryLeaseHeartbeat {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+fn spawn_delivery_lease_heartbeat(
+    db: DatabaseConnection,
+    queue_id: i32,
+    lease_token: Uuid,
+) -> DeliveryLeaseHeartbeat {
+    let task = tokio::spawn(async move {
+        let mut interval =
+            tokio::time::interval(Duration::from_secs(DELIVERY_LEASE_HEARTBEAT_SECS));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        // Tokio's first tick is immediate; the claim already established a full
+        // lease, so wait for the first real heartbeat interval.
+        interval.tick().await;
+        loop {
+            interval.tick().await;
+            match renew_delivery_lease(&db, queue_id, lease_token).await {
+                Ok(true) => {
+                    tracing::debug!(queue_id, "renewed federation delivery lease");
+                }
+                Ok(false) => {
+                    tracing::warn!(
+                        queue_id,
+                        "federation delivery lease heartbeat lost ownership"
+                    );
+                    break;
+                }
+                Err(error) => {
+                    // Keep trying while the current lease is still valid. The
+                    // outbound HTTP request itself is bounded to 30 seconds, so
+                    // a transient DB outage cannot normally outlive this lease.
+                    tracing::warn!(
+                        queue_id,
+                        error = %error,
+                        "failed to renew federation delivery lease"
+                    );
+                }
+            }
+        }
+    });
+    DeliveryLeaseHeartbeat { task }
+}
+
+pub(crate) async fn renew_delivery_lease(
+    db: &impl ConnectionTrait,
+    queue_id: i32,
+    lease_token: Uuid,
+) -> Result<bool, DbErr> {
+    let result = db
+        .execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"UPDATE federation_delivery_queue
+               SET lease_expires_at = NOW() + make_interval(secs => $1::double precision),
+                   last_attempt_at = NOW()
+               WHERE id = $2 AND status = 'delivering' AND lease_token = $3"#,
+            [
+                DELIVERY_LEASE_SECS.into(),
+                queue_id.into(),
+                lease_token.into(),
+            ],
+        ))
+        .await?;
+    Ok(result.rows_affected() == 1)
+}
+
+pub(crate) async fn claim_next_delivery(
+    db: &impl ConnectionTrait,
+    lease_token: Uuid,
+) -> Result<Option<QueryResult>, DbErr> {
+    db.query_one_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        // MATERIALIZED keeps FOR UPDATE SKIP LOCKED from being inlined away (PG12+).
+        r#"WITH selected AS MATERIALIZED (
+               SELECT id, status AS prev_status, attempts AS prev_attempts,
+                      EXTRACT(EPOCH FROM (NOW() - last_attempt_at))::BIGINT
+                          AS prior_lease_age_secs
+               FROM federation_delivery_queue
+               WHERE (status = 'pending'
+                      AND (next_retry_at IS NULL OR next_retry_at <= NOW()))
+                  OR (status = 'delivering' AND (
+                      lease_expires_at <= NOW()
+                      OR (lease_token IS NULL
+                          AND (last_attempt_at IS NULL
+                               OR last_attempt_at < NOW() - INTERVAL '10 minutes'))
+                  ))
+               ORDER BY created_at ASC
+               LIMIT 1
+               FOR UPDATE SKIP LOCKED
+           ),
+           claimed AS (
+               UPDATE federation_delivery_queue dq
+               SET status = 'delivering',
+                   last_attempt_at = NOW(),
+                   lease_token = $1,
+                   lease_expires_at = NOW() + make_interval(secs => $2::double precision),
+                   attempts = CASE
+                       WHEN s.prev_status = 'delivering' THEN s.prev_attempts + 1
+                       ELSE s.prev_attempts
+                   END
+               FROM selected s
+               WHERE dq.id = s.id
+               RETURNING dq.id, dq.activity_id, dq.target_inbox, dq.target_domain,
+                         dq.attempts, dq.max_attempts, s.prev_status,
+                         s.prior_lease_age_secs
+           )
+           SELECT c.id, c.activity_id, c.target_inbox, c.target_domain,
+                  c.attempts, c.max_attempts, c.prev_status,
+                  c.prior_lease_age_secs,
+                  a.activity_id AS ap_activity_id, a.activity_type, a.object_json, a.user_id
+           FROM claimed c
+           JOIN federation_activities a ON a.id = c.activity_id"#,
+        [lease_token.into(), DELIVERY_LEASE_SECS.into()],
+    ))
+    .await
+}
+
+pub(crate) async fn mark_delivery_delivered_if_owned(
+    db: &impl ConnectionTrait,
+    queue_id: i32,
+    lease_token: Uuid,
+) -> Result<bool, DbErr> {
+    let result = db
+        .execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "UPDATE federation_delivery_queue SET status = 'delivered', last_attempt_at = NOW(), lease_token = NULL, lease_expires_at = NULL WHERE id = $1 AND status = 'delivering' AND lease_token = $2",
+            [queue_id.into(), lease_token.into()],
+        ))
+        .await?;
+    Ok(result.rows_affected() == 1)
+}
+
+fn lease_update_applied(
+    rows_affected: u64,
+    stats: &mut DeliveryBatchStats,
+    queue_id: i32,
+    outcome: &str,
+) -> bool {
+    if rows_affected == 1 {
+        true
+    } else {
+        stats.lease_lost += 1;
+        tracing::warn!(
+            queue_id,
+            outcome,
+            "ignored stale federation delivery outcome after lease ownership changed"
+        );
+        false
+    }
 }
 
 /// 投递队列处理器 — 由后台任务驱动
@@ -102,74 +269,57 @@ pub async fn process_delivery_queue_detailed(
     db: &DatabaseConnection,
     batch_size: u32,
 ) -> Result<DeliveryBatchStats, String> {
-    // Atomic claim with FOR UPDATE SKIP LOCKED so concurrent workers do not
-    // double-deliver the same row. Also reclaims stuck `delivering` rows from
-    // crashed workers (#97 behaviour kept).
-    let pending = db
-        .query_all_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            // MATERIALIZED keeps FOR UPDATE SKIP LOCKED from being inlined away (PG12+).
-            r#"WITH selected AS MATERIALIZED (
-                   SELECT id, status AS prev_status, attempts AS prev_attempts
-                   FROM federation_delivery_queue
-                   WHERE (status = 'pending'
-                          AND (next_retry_at IS NULL OR next_retry_at <= NOW()))
-                      -- 崩溃恢复：投递中途进程退出会把条目留在 delivering，超时后重新认领
-                      OR (status = 'delivering'
-                          AND last_attempt_at < NOW() - INTERVAL '10 minutes')
-                   ORDER BY created_at ASC
-                   LIMIT $1
-                   FOR UPDATE SKIP LOCKED
-               ),
-               claimed AS (
-                   UPDATE federation_delivery_queue dq
-                   SET status = 'delivering',
-                       last_attempt_at = NOW(),
-                       attempts = CASE
-                           WHEN s.prev_status = 'delivering' THEN s.prev_attempts + 1
-                           ELSE s.prev_attempts
-                       END
-                   FROM selected s
-                   WHERE dq.id = s.id
-                   RETURNING dq.id, dq.activity_id, dq.target_inbox, dq.target_domain,
-                             dq.attempts, dq.max_attempts, s.prev_status
-               )
-               SELECT c.id, c.activity_id, c.target_inbox, c.target_domain,
-                      c.attempts, c.max_attempts, c.prev_status,
-                      a.activity_id AS ap_activity_id, a.activity_type, a.object_json, a.user_id
-               FROM claimed c
-               JOIN federation_activities a ON a.id = c.activity_id"#,
-            [(batch_size as i64).into()],
-        ))
-        .await
-        .map_err(|e| format!("Queue claim failed: {}", e))?;
-
     let mut stats = DeliveryBatchStats::default();
 
-    for row in pending {
+    // Claim immediately before processing each item. Rows waiting behind a slow
+    // peer remain pending and therefore cannot have a lease expire before work
+    // even begins.
+    for _ in 0..batch_size {
+        let lease_token = Uuid::new_v4();
+        let row = claim_next_delivery(db, lease_token)
+            .await
+            .map_err(|e| format!("Queue claim failed: {e}"))?;
+        let Some(row) = row else {
+            break;
+        };
+
         let queue_id: i32 = row.try_get("", "id").unwrap_or(0);
         let target_inbox: String = row.try_get("", "target_inbox").unwrap_or_default();
         let target_domain: String = row.try_get("", "target_domain").unwrap_or_default();
         let attempts: i32 = row.try_get("", "attempts").unwrap_or(0);
         let max_attempts: i32 = row.try_get("", "max_attempts").unwrap_or(12);
         let prev_status: String = row.try_get("", "prev_status").unwrap_or_default();
+        let prior_lease_age_secs: Option<i64> =
+            row.try_get("", "prior_lease_age_secs").ok().flatten();
         let _ap_activity_id: String = row.try_get("", "ap_activity_id").unwrap_or_default();
         let activity_type: String = row.try_get("", "activity_type").unwrap_or_default();
         let object_json: serde_json::Value = row.try_get("", "object_json").unwrap_or_default();
         let user_id: i32 = row.try_get("", "user_id").unwrap_or(0);
+        stats.claimed += 1;
+        let _lease_heartbeat = spawn_delivery_lease_heartbeat(db.clone(), queue_id, lease_token);
 
         // Reclaimed stuck delivering: attempts already incremented in the claim UPDATE
         let reclaim = prev_status == "delivering";
+        if reclaim {
+            stats.reclaimed += 1;
+            tracing::warn!(
+                queue_id,
+                attempts,
+                prior_lease_age_secs,
+                "reclaimed expired federation delivery lease; remote may have observed the prior attempt"
+            );
+        }
         if reclaim && attempts >= max_attempts {
             let err = "Exceeded max attempts after reclaim";
             let mark = db
                 .execute_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
-                    "UPDATE federation_delivery_queue SET status = 'dead', error_message = $1, last_attempt_at = NOW() WHERE id = $2 AND status = 'delivering'",
-                    [err.into(), queue_id.into()],
+                    "UPDATE federation_delivery_queue SET status = 'dead', error_message = $1, last_attempt_at = NOW(), lease_token = NULL, lease_expires_at = NULL WHERE id = $2 AND status = 'delivering' AND lease_token = $3",
+                    [err.into(), queue_id.into(), lease_token.into()],
                 ))
-                .await;
-            if mark.as_ref().map(|r| r.rows_affected()).unwrap_or(0) == 0 {
+                .await
+                .map_err(|e| format!("Queue dead-letter update failed: {e}"))?;
+            if !lease_update_applied(mark.rows_affected(), &mut stats, queue_id, "dead") {
                 continue;
             }
             mark_delivery_dead(user_id, &activity_type, &target_domain, err).await;
@@ -183,12 +333,14 @@ pub async fn process_delivery_queue_detailed(
                 .execute_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     r#"UPDATE federation_delivery_queue
-                       SET status = 'dead', error_message = $1, last_attempt_at = NOW()
-                       WHERE id = $2 AND status = 'delivering'"#,
-                    [reason.clone().into(), queue_id.into()],
+                       SET status = 'dead', error_message = $1, last_attempt_at = NOW(),
+                           lease_token = NULL, lease_expires_at = NULL
+                       WHERE id = $2 AND status = 'delivering' AND lease_token = $3"#,
+                    [reason.clone().into(), queue_id.into(), lease_token.into()],
                 ))
-                .await;
-            if mark.as_ref().map(|r| r.rows_affected()).unwrap_or(0) == 0 {
+                .await
+                .map_err(|e| format!("Queue trust-policy update failed: {e}"))?;
+            if !lease_update_applied(mark.rows_affected(), &mut stats, queue_id, "dead") {
                 continue;
             }
             tracing::warn!(
@@ -235,14 +387,15 @@ pub async fn process_delivery_queue_detailed(
                     Ok(()) => {
                         // 投递成功 — only if still `delivering` (user cancel may
                         // have marked dead mid-flight; do not resurrect).
-                        let mark = db
-                            .execute_raw(Statement::from_sql_and_values(
-                                DatabaseBackend::Postgres,
-                                "UPDATE federation_delivery_queue SET status = 'delivered', last_attempt_at = NOW() WHERE id = $1 AND status = 'delivering'",
-                                [queue_id.into()],
-                            ))
-                            .await;
-                        if mark.as_ref().map(|r| r.rows_affected()).unwrap_or(0) == 0 {
+                        let applied = mark_delivery_delivered_if_owned(db, queue_id, lease_token)
+                            .await
+                            .map_err(|e| format!("Queue delivery completion failed: {e}"))?;
+                        if !lease_update_applied(
+                            u64::from(applied),
+                            &mut stats,
+                            queue_id,
+                            "delivered",
+                        ) {
                             tracing::info!(
                                 queue_id = queue_id,
                                 target = %target_inbox,
@@ -273,11 +426,17 @@ pub async fn process_delivery_queue_detailed(
                             let mark = db
                                 .execute_raw(Statement::from_sql_and_values(
                                     DatabaseBackend::Postgres,
-                                    "UPDATE federation_delivery_queue SET status = 'dead', attempts = $1, error_message = $2, last_attempt_at = NOW() WHERE id = $3 AND status = 'delivering'",
-                                    [new_attempts.into(), e.clone().into(), queue_id.into()],
+                                    "UPDATE federation_delivery_queue SET status = 'dead', attempts = $1, error_message = $2, last_attempt_at = NOW(), lease_token = NULL, lease_expires_at = NULL WHERE id = $3 AND status = 'delivering' AND lease_token = $4",
+                                    [new_attempts.into(), e.clone().into(), queue_id.into(), lease_token.into()],
                                 ))
-                                .await;
-                            if mark.as_ref().map(|r| r.rows_affected()).unwrap_or(0) == 0 {
+                                .await
+                                .map_err(|err| format!("Queue dead-letter update failed: {err}"))?;
+                            if !lease_update_applied(
+                                mark.rows_affected(),
+                                &mut stats,
+                                queue_id,
+                                "dead",
+                            ) {
                                 continue;
                             }
                             if permanent {
@@ -302,11 +461,17 @@ pub async fn process_delivery_queue_detailed(
                             let mark = db
                                 .execute_raw(Statement::from_sql_and_values(
                                     DatabaseBackend::Postgres,
-                                    "UPDATE federation_delivery_queue SET status = 'pending', attempts = $1, error_message = $2, last_attempt_at = NOW(), next_retry_at = NOW() + make_interval(secs => $4::double precision) WHERE id = $3 AND status = 'delivering'",
-                                    [new_attempts.into(), e.clone().into(), queue_id.into(), backoff_secs.into()],
+                                    "UPDATE federation_delivery_queue SET status = 'pending', attempts = $1, error_message = $2, last_attempt_at = NOW(), next_retry_at = NOW() + make_interval(secs => $4::double precision), lease_token = NULL, lease_expires_at = NULL WHERE id = $3 AND status = 'delivering' AND lease_token = $5",
+                                    [new_attempts.into(), e.clone().into(), queue_id.into(), backoff_secs.into(), lease_token.into()],
                                 ))
-                                .await;
-                            if mark.as_ref().map(|r| r.rows_affected()).unwrap_or(0) == 0 {
+                                .await
+                                .map_err(|err| format!("Queue retry update failed: {err}"))?;
+                            if !lease_update_applied(
+                                mark.rows_affected(),
+                                &mut stats,
+                                queue_id,
+                                "pending",
+                            ) {
                                 continue;
                             }
 
@@ -342,15 +507,17 @@ pub async fn process_delivery_queue_detailed(
                     let mark = db
                         .execute_raw(Statement::from_sql_and_values(
                             DatabaseBackend::Postgres,
-                            "UPDATE federation_delivery_queue SET status = 'dead', attempts = $1, error_message = $2, last_attempt_at = NOW() WHERE id = $3 AND status = 'delivering'",
+                            "UPDATE federation_delivery_queue SET status = 'dead', attempts = $1, error_message = $2, last_attempt_at = NOW(), lease_token = NULL, lease_expires_at = NULL WHERE id = $3 AND status = 'delivering' AND lease_token = $4",
                             [
                                 new_attempts.into(),
                                 err_msg.clone().into(),
                                 queue_id.into(),
+                                lease_token.into(),
                             ],
                         ))
-                        .await;
-                    if mark.as_ref().map(|r| r.rows_affected()).unwrap_or(0) == 0 {
+                        .await
+                        .map_err(|err| format!("Queue key dead-letter update failed: {err}"))?;
+                    if !lease_update_applied(mark.rows_affected(), &mut stats, queue_id, "dead") {
                         continue;
                     }
                     if permanent {
@@ -369,16 +536,19 @@ pub async fn process_delivery_queue_detailed(
                     let mark = db
                         .execute_raw(Statement::from_sql_and_values(
                             DatabaseBackend::Postgres,
-                            "UPDATE federation_delivery_queue SET status = 'pending', attempts = $1, error_message = $2, last_attempt_at = NOW(), next_retry_at = NOW() + make_interval(secs => $4::double precision) WHERE id = $3 AND status = 'delivering'",
+                            "UPDATE federation_delivery_queue SET status = 'pending', attempts = $1, error_message = $2, last_attempt_at = NOW(), next_retry_at = NOW() + make_interval(secs => $4::double precision), lease_token = NULL, lease_expires_at = NULL WHERE id = $3 AND status = 'delivering' AND lease_token = $5",
                             [
                                 new_attempts.into(),
                                 err_msg.into(),
                                 queue_id.into(),
                                 backoff_secs.into(),
+                                lease_token.into(),
                             ],
                         ))
-                        .await;
-                    if mark.as_ref().map(|r| r.rows_affected()).unwrap_or(0) == 0 {
+                        .await
+                        .map_err(|err| format!("Queue key retry update failed: {err}"))?;
+                    if !lease_update_applied(mark.rows_affected(), &mut stats, queue_id, "pending")
+                    {
                         continue;
                     }
                     stats.retried += 1;
@@ -417,12 +587,21 @@ pub fn spawn_delivery_worker(db: DatabaseConnection) {
         loop {
             interval.tick().await;
             match process_delivery_queue_detailed(&db, 20).await {
-                Ok(s) if s.delivered > 0 || s.dead > 0 || s.retried > 0 => {
+                Ok(s)
+                    if s.delivered > 0
+                        || s.dead > 0
+                        || s.retried > 0
+                        || s.reclaimed > 0
+                        || s.lease_lost > 0 =>
+                {
                     tracing::info!(
-                        "📤 Delivery worker: delivered={} dead={} retried={}",
+                        "📤 Delivery worker: claimed={} reclaimed={} delivered={} dead={} retried={} lease_lost={}",
+                        s.claimed,
+                        s.reclaimed,
                         s.delivered,
                         s.dead,
-                        s.retried
+                        s.retried,
+                        s.lease_lost
                     );
                 }
                 Err(e) => {
@@ -717,7 +896,9 @@ pub async fn retry_delivery_item(
                    attempts = 0,
                    error_message = NULL,
                    next_retry_at = NOW(),
-                   last_attempt_at = NULL
+                   last_attempt_at = NULL,
+                   lease_token = NULL,
+                   lease_expires_at = NULL
                FROM federation_activities a
                WHERE dq.id = $1
                  AND a.id = dq.activity_id
@@ -817,7 +998,9 @@ pub async fn cancel_delivery_item(
                SET status = 'dead',
                    error_message = 'cancelled: by user',
                    last_attempt_at = NOW(),
-                   next_retry_at = NULL
+                   next_retry_at = NULL,
+                   lease_token = NULL,
+                   lease_expires_at = NULL
                FROM federation_activities a
                WHERE dq.id = $1
                  AND a.id = dq.activity_id
@@ -975,7 +1158,9 @@ pub async fn retry_all_dead_for_user(
                        attempts = 0,
                        error_message = NULL,
                        next_retry_at = NOW(),
-                       last_attempt_at = NULL
+                       last_attempt_at = NULL,
+                       lease_token = NULL,
+                       lease_expires_at = NULL
                    WHERE id = $1
                      AND status = 'dead'
                      AND (
@@ -1043,7 +1228,9 @@ pub async fn cancel_all_pending_for_user(
                    SET status = 'dead',
                        error_message = 'cancelled: by user',
                        last_attempt_at = NOW(),
-                       next_retry_at = NULL
+                       next_retry_at = NULL,
+                       lease_token = NULL,
+                       lease_expires_at = NULL
                    WHERE id = $1 AND status IN ('pending', 'delivering')"#,
                 [id.into()],
             ))
@@ -1281,7 +1468,9 @@ pub async fn cancel_pending_deliveries_for_resource(
                SET status = 'dead',
                    error_message = $2,
                    last_attempt_at = NOW(),
-                   next_retry_at = NULL
+                   next_retry_at = NULL,
+                   lease_token = NULL,
+                   lease_expires_at = NULL
                FROM federation_activities a
                WHERE dq.activity_id = a.id
                  AND dq.status IN ('pending', 'delivering')

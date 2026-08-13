@@ -14,7 +14,9 @@ use crate::federation::actor::{
     RemoteActorInfo, ResolvedRemoteActor,
 };
 use crate::federation::errors::{is_permanent_federation_error, map_inbox_handler_error};
-use crate::federation::limits::buffer_inbox_body;
+use crate::federation::limits::{
+    buffer_inbox_body, try_acquire_inbox_parse, validate_inbox_json_budget,
+};
 use crate::federation::signature::{
     parse_signature_header, require_covered_headers, verify_date_freshness, verify_digest,
     verify_signature, HTTP_DATE_MAX_SKEW,
@@ -165,7 +167,15 @@ async fn claim_or_respond(
         .map_err(|e| inbox_err("inbox receipt claim failed", e))?
     {
         ReceiptClaim::Execute(_) => Ok(None),
-        ReceiptClaim::AlreadyAccepted => Ok(Some(StatusCode::ACCEPTED)),
+        ReceiptClaim::AlreadyAccepted => {
+            tracing::info!(
+                signer = %key.signer,
+                activity_id = %key.activity_id,
+                inbox_scope = %key.inbox_scope,
+                "suppressed duplicate federation activity using durable inbox receipt"
+            );
+            Ok(Some(StatusCode::ACCEPTED))
+        }
         ReceiptClaim::Conflict { stored_digest } => Err(receipt_conflict(key, &stored_digest)),
         ReceiptClaim::Rejected { status, message } => {
             Err(receipt_rejected(status, message.as_deref()))
@@ -207,11 +217,24 @@ pub async fn post_inbox(
 
     let headers = request.headers().clone();
     // MYR-002: reserve concurrent raw-body budget *before* buffering; release on drop.
-    // Exhausted budget → 429 (does not lower INBOX_BODY_LIMIT).
+    // Exhausted raw-body budget → 429 before allocating the request body.
     let (body, _inflight) = buffer_inbox_body(request).await?;
 
     // 先做只依赖 header/原始字节的检查，再解析 body（inbox 上限见 federation::limits::INBOX_BODY_LIMIT）
     verify_preparse_gate(&headers, &body)?;
+
+    // Do not queue already-buffered remote bodies behind admitted deliveries,
+    // and reject pathological JSON before allocating a complete Value tree.
+    // The permit intentionally lives with `activity` through verification and
+    // dispatch so this cap bounds complete parsed trees, not only parse CPU.
+    let _parse_permit = try_acquire_inbox_parse().ok_or_else(|| {
+        (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(json!({"error": "Inbox delivery budget exhausted; retry later"})),
+        )
+    })?;
+    validate_inbox_json_budget(&body)
+        .map_err(|error| (StatusCode::BAD_REQUEST, Json(json!({"error": error}))))?;
 
     // 解析 Activity JSON
     let activity: serde_json::Value = serde_json::from_slice(&body).map_err(|_| {
@@ -442,11 +465,22 @@ pub async fn post_shared_inbox(
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
     let headers = request.headers().clone();
     // MYR-002: reserve concurrent raw-body budget *before* buffering; release on drop.
-    // Exhausted budget → 429 (does not lower INBOX_BODY_LIMIT).
+    // Exhausted raw-body budget → 429 before allocating the request body.
     let (body, _inflight) = buffer_inbox_body(request).await?;
 
     // 先做只依赖 header/原始字节的检查，再解析 body（inbox 上限见 federation::limits::INBOX_BODY_LIMIT）
     verify_preparse_gate(&headers, &body)?;
+
+    // Held through verification and dispatch while the complete JSON tree is
+    // alive; see FEDERATION.md "Public inbox resource boundary".
+    let _parse_permit = try_acquire_inbox_parse().ok_or_else(|| {
+        (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(json!({"error": "Inbox delivery budget exhausted; retry later"})),
+        )
+    })?;
+    validate_inbox_json_budget(&body)
+        .map_err(|error| (StatusCode::BAD_REQUEST, Json(json!({"error": error}))))?;
 
     let activity: serde_json::Value = serde_json::from_slice(&body).map_err(|_| {
         (
@@ -1864,7 +1898,7 @@ fn signing_header_map(
 
 /// 解析请求体**之前**必须通过的检查。
 ///
-/// inbox 允许 INBOX_BODY_LIMIT 的请求体（房间/频道消息与文件分块确实需要），而过去的顺序是
+/// inbox 允许 INBOX_BODY_LIMIT 的请求体（更大的文件必须走分块端点），而过去的顺序是
 /// 「先 `serde_json::from_slice` 整个 body，再验签」—— 于是任何未认证客户端都能
 /// 用一坨满额 inbox body 的 JSON 逼服务端做一次完整解析，代价完全不对等。
 ///

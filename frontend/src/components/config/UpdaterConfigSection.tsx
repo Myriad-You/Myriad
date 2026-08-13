@@ -58,9 +58,7 @@ import { AdvancedPanel } from './updater/AdvancedPanel'
 import {
   CHANNEL_OPTIONS,
   channelDesc,
-
   channelLabel,
-
   deriveMood,
   deriveSelection,
   format,
@@ -69,11 +67,9 @@ import {
   INFRA_OUTCOME_POLL_MS,
   isTransientUpdaterError,
   modeForTarget,
-
   POLL_INTERVAL,
   sleep,
   snapshotDeleteBlockReason,
-
   upstreamDetail,
 } from './updater/helpers'
 import { SnapshotLimitPrefs } from './updater/SnapshotLimitPrefs'
@@ -300,9 +296,9 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
       // Snapshots are a dependent updater resource. Do not emit another 503/502
       // after status has already established that the updater is unavailable.
       // GET /snapshots also self-heals over-limit piles on modern updaters.
-      const snaps: SnapshotsResponse = await api.snapshots().catch(
-        (): SnapshotsResponse => ({ schema_version: 1, items: [] }),
-      )
+      const snaps: SnapshotsResponse = await api
+        .snapshots()
+        .catch((): SnapshotsResponse => ({ schema_version: 1, items: [] }))
       setSnapshots(snaps.items ?? [])
       setSnapshotStats({
         eligible_count: snaps.eligible_count,
@@ -603,19 +599,11 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
       isDowngrade: plan.isDowngrade,
       needsRisk: plan.needsRisk,
     })
-  }, [
-    api,
-    busy,
-    tokenRequired,
-    explain,
-    u,
-    selOption.mode,
-    dispatchUpdate,
-  ])
+  }, [api, busy, tokenRequired, explain, u, selOption.mode, dispatchUpdate])
 
   /**
    * After proxy/updater recreate the HTTP path blips. Poll durable
-   * `*_update_last` until a new outcome appears (~90s), keep last status on
+   * `*_update_last` until a new outcome appears (up to ~90 minutes), keep last status on
    * transient errors, and surface reconnect feedback in toast + linkDown.
    */
   const waitInfraUpdateOutcome = useCallback(
@@ -790,7 +778,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
       setToast({ kind: 'error', text: u.updaterTokenRequiredDirect })
       return
     }
-    // Same as self-update: tip is optional. Empty body lets the updater pick
+    // Tip is optional. Empty body lets the updater pick
     // the component tip from GitHub/Docker Hub when status has no app tip.
     const tip = status?.latest_available?.version
     const ok = tip
@@ -1244,11 +1232,14 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
           {...bindGuide('updater.infra', g.updater.infra)}
           description={
             requiresSelfUpdate
-              ? `${u.updaterInfraGroupDesc} ${format(u.updaterSelfUpdateNeeded, {
-                  version: status?.latest_available?.version ?? '—',
-                  minVersion:
-                    status?.latest_available?.min_updater_version ?? '—',
-                })}`
+              ? `${u.updaterInfraGroupDesc} ${format(
+                  u.updaterSelfUpdateNeeded,
+                  {
+                    version: status?.latest_available?.version ?? '—',
+                    minVersion:
+                      status?.latest_available?.min_updater_version ?? '—',
+                  },
+                )}`
               : u.updaterInfraGroupDesc
           }
           detailTone={requiresSelfUpdate ? 'warning' : 'default'}

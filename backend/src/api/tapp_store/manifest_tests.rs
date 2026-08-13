@@ -1,14 +1,14 @@
 use super::{
     append_directory_to_zip, archive_entry_path, canonical_installation_owner_id,
-    cleanup_reinstall_orphans, has_reinstall_orphan_state, installation_conflict_owner_ids,
-    orphaned_tapp_directories, recover_tapp_directory, reinstall_orphan_paths, tapp_dir_for,
-    tapp_filesystem_error_message, tapp_filesystem_error_status, tapp_setting_value_is_valid,
-    uninstall_post_commit_cleanup_path, validate_asset_path, validate_installed_resources,
-    validate_resource_path, validate_store_manifest_category, validate_tapp_archive,
-    validate_tapp_id, validate_tapp_manifest, validate_widget_template_contents,
-    widget_template_path, write_install_generation, RegisterWidgetRequest, TappCategory,
-    TappDirStage, TappManifest, TappSettingDef, TappStorageAccess, TappWidgetCategory,
-    TappWidgetDef, WidgetTemplateContents,
+    cleanup_reinstall_orphans, fail_next_activation_rename, fail_next_activation_rename_with_kind,
+    has_reinstall_orphan_state, installation_conflict_owner_ids, orphaned_tapp_directories,
+    recover_tapp_directory, reinstall_orphan_paths, tapp_dir_for, tapp_filesystem_error_message,
+    tapp_filesystem_error_status, tapp_setting_value_is_valid, uninstall_post_commit_cleanup_path,
+    validate_asset_path, validate_installed_resources, validate_resource_path,
+    validate_store_manifest_category, validate_tapp_archive, validate_tapp_id,
+    validate_tapp_manifest, validate_widget_template_contents, widget_template_path,
+    write_install_generation, RegisterWidgetRequest, TappCategory, TappDirStage, TappManifest,
+    TappSettingDef, TappStorageAccess, TappWidgetCategory, TappWidgetDef, WidgetTemplateContents,
 };
 use crate::models::entities::{tapp_widgets, tapps};
 use crate::services::permission_service::UserRole;
@@ -188,12 +188,7 @@ fn cleanup_reinstall_orphans_removes_live_and_artifacts_preserving_staging() {
 }
 
 #[tokio::test]
-async fn activate_frees_final_path_when_backup_rename_fails_by_removing() {
-    // When a leftover live dir cannot be renamed (busy/EXDEV in production),
-    // activate falls back to remove_dir_all then places staging. Simulate the
-    // free path by pre-removing after a failed rename is not easy cross-platform;
-    // instead verify activate succeeds after an orphan live dir is cleaned, and
-    // that activate itself renames a normal leftover live dir out of the way.
+async fn activate_replaces_a_cleaned_or_renameable_live_directory() {
     let root = std::env::temp_dir().join(format!(
         "myriad-tapp-activate-orphan-{}",
         uuid::Uuid::new_v4().simple()
@@ -237,6 +232,267 @@ async fn activate_frees_final_path_when_backup_rename_fails_by_removing() {
     assert!(super::lifecycle_artifact_directories(&live)
         .unwrap()
         .is_empty());
+
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn backup_rename_failure_preserves_the_last_known_good_live_version() {
+    let root = std::env::temp_dir().join(format!(
+        "myriad-tapp-backup-rename-failure-{}",
+        uuid::Uuid::new_v4().simple()
+    ));
+    let live = root.join("com.example.app");
+    tokio::fs::create_dir_all(&live).await.unwrap();
+    tokio::fs::write(live.join("main.js"), "known-good")
+        .await
+        .unwrap();
+    let stage = TappDirStage::create(&live).await.unwrap();
+    let stage_path = stage.path().to_path_buf();
+    tokio::fs::write(stage.path().join("main.js"), "candidate")
+        .await
+        .unwrap();
+
+    fail_next_activation_rename(&live);
+    let error = match stage.activate(&live).await {
+        Ok(_) => panic!("backup rename failure must abort activation"),
+        Err(error) => error,
+    };
+    assert_eq!(error.kind(), std::io::ErrorKind::Other);
+    assert_eq!(
+        tokio::fs::read_to_string(live.join("main.js"))
+            .await
+            .unwrap(),
+        "known-good"
+    );
+    assert!(!stage_path.exists());
+    assert!(super::lifecycle_artifact_directories(&live)
+        .unwrap()
+        .is_empty());
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn staging_rename_failure_restores_the_previous_live_version() {
+    let root = std::env::temp_dir().join(format!(
+        "myriad-tapp-stage-rename-failure-{}",
+        uuid::Uuid::new_v4().simple()
+    ));
+    let live = root.join("com.example.app");
+    tokio::fs::create_dir_all(&live).await.unwrap();
+    tokio::fs::write(live.join("main.js"), "known-good")
+        .await
+        .unwrap();
+    let stage = TappDirStage::create(&live).await.unwrap();
+    let stage_path = stage.path().to_path_buf();
+    tokio::fs::write(stage.path().join("main.js"), "candidate")
+        .await
+        .unwrap();
+
+    fail_next_activation_rename(&stage_path);
+    let error = match stage.activate(&live).await {
+        Ok(_) => panic!("staging rename failure must abort activation"),
+        Err(error) => error,
+    };
+    assert_eq!(error.kind(), std::io::ErrorKind::Other);
+    assert_eq!(
+        tokio::fs::read_to_string(live.join("main.js"))
+            .await
+            .unwrap(),
+        "known-good"
+    );
+    assert!(!stage_path.exists());
+    assert!(super::lifecycle_artifact_directories(&live)
+        .unwrap()
+        .is_empty());
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn storage_full_during_candidate_switch_restores_the_previous_live_version() {
+    let root = std::env::temp_dir().join(format!(
+        "myriad-tapp-stage-storage-full-{}",
+        uuid::Uuid::new_v4().simple()
+    ));
+    let live = root.join("com.example.app");
+    tokio::fs::create_dir_all(&live).await.unwrap();
+    tokio::fs::write(live.join("main.js"), "known-good")
+        .await
+        .unwrap();
+    let stage = TappDirStage::create(&live).await.unwrap();
+    let stage_path = stage.path().to_path_buf();
+    tokio::fs::write(stage.path().join("main.js"), "candidate")
+        .await
+        .unwrap();
+
+    fail_next_activation_rename_with_kind(&stage_path, std::io::ErrorKind::StorageFull);
+    let error = match stage.activate(&live).await {
+        Ok(_) => panic!("storage exhaustion must abort activation"),
+        Err(error) => error,
+    };
+    assert_eq!(error.kind(), std::io::ErrorKind::StorageFull);
+    assert_eq!(
+        tokio::fs::read_to_string(live.join("main.js"))
+            .await
+            .unwrap(),
+        "known-good"
+    );
+    assert!(!stage_path.exists());
+    assert!(super::lifecycle_artifact_directories(&live)
+        .unwrap()
+        .is_empty());
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn rollback_restore_failure_preserves_both_generations_for_startup_recovery() {
+    let root = std::env::temp_dir().join(format!(
+        "myriad-tapp-rollback-restore-failure-{}",
+        uuid::Uuid::new_v4().simple()
+    ));
+    let live = root.join("com.example.app");
+    let old_manifest = json!({
+        "id": "com.example.app",
+        "version": "1.0.0",
+        "main": "main.js"
+    });
+    let new_manifest = json!({
+        "id": "com.example.app",
+        "version": "2.0.0",
+        "main": "main.js"
+    });
+    let old_generation = chrono::Utc::now().fixed_offset();
+    let new_generation = old_generation + chrono::Duration::seconds(1);
+
+    tokio::fs::create_dir_all(&live).await.unwrap();
+    tokio::fs::write(live.join("main.js"), "known-good")
+        .await
+        .unwrap();
+    tokio::fs::write(
+        live.join("manifest.json"),
+        serde_json::to_vec(&old_manifest).unwrap(),
+    )
+    .await
+    .unwrap();
+    write_install_generation(&live, old_generation).unwrap();
+
+    let stage = TappDirStage::create(&live).await.unwrap();
+    tokio::fs::write(stage.path().join("main.js"), "candidate")
+        .await
+        .unwrap();
+    tokio::fs::write(
+        stage.path().join("manifest.json"),
+        serde_json::to_vec(&new_manifest).unwrap(),
+    )
+    .await
+    .unwrap();
+    write_install_generation(stage.path(), new_generation).unwrap();
+    let activated = stage.activate(&live).await.unwrap();
+    let backup = activated.backup_path.clone().unwrap();
+
+    fail_next_activation_rename(&backup);
+    activated.rollback().await;
+
+    assert_eq!(
+        tokio::fs::read_to_string(live.join("main.js"))
+            .await
+            .unwrap(),
+        "candidate"
+    );
+    assert_eq!(
+        tokio::fs::read_to_string(backup.join("main.js"))
+            .await
+            .unwrap(),
+        "known-good"
+    );
+
+    assert!(recover_tapp_directory(&live, &old_manifest, old_generation).unwrap());
+    assert_eq!(
+        tokio::fs::read_to_string(live.join("main.js"))
+            .await
+            .unwrap(),
+        "known-good"
+    );
+    assert!(super::lifecycle_artifact_directories(&live)
+        .unwrap()
+        .is_empty());
+    assert!(!recover_tapp_directory(&live, &old_manifest, old_generation).unwrap());
+
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn ambiguous_database_commit_can_recover_the_preserved_candidate_generation() {
+    let root = std::env::temp_dir().join(format!(
+        "myriad-tapp-ambiguous-commit-{}",
+        uuid::Uuid::new_v4().simple()
+    ));
+    let live = root.join("com.example.app");
+    let old_manifest = json!({
+        "id": "com.example.app",
+        "version": "1.0.0",
+        "main": "main.js"
+    });
+    let new_manifest = json!({
+        "id": "com.example.app",
+        "version": "2.0.0",
+        "main": "main.js"
+    });
+    let old_generation = chrono::Utc::now().fixed_offset();
+    let new_generation = old_generation + chrono::Duration::seconds(1);
+
+    tokio::fs::create_dir_all(&live).await.unwrap();
+    tokio::fs::write(live.join("main.js"), "known-good")
+        .await
+        .unwrap();
+    tokio::fs::write(
+        live.join("manifest.json"),
+        serde_json::to_vec(&old_manifest).unwrap(),
+    )
+    .await
+    .unwrap();
+    write_install_generation(&live, old_generation).unwrap();
+
+    let stage = TappDirStage::create(&live).await.unwrap();
+    tokio::fs::write(stage.path().join("main.js"), "candidate")
+        .await
+        .unwrap();
+    tokio::fs::write(
+        stage.path().join("manifest.json"),
+        serde_json::to_vec(&new_manifest).unwrap(),
+    )
+    .await
+    .unwrap();
+    write_install_generation(stage.path(), new_generation).unwrap();
+    let activated = stage.activate(&live).await.unwrap();
+
+    // Simulate the caller receiving an error from COMMIT: rollback restores
+    // the old live path but must retain the candidate until DB truth is known.
+    activated.rollback_after_commit_error().await;
+    assert_eq!(
+        tokio::fs::read_to_string(live.join("main.js"))
+            .await
+            .unwrap(),
+        "known-good"
+    );
+    assert_eq!(
+        super::lifecycle_artifact_directories(&live).unwrap().len(),
+        1
+    );
+
+    // If COMMIT actually succeeded, startup reconciliation promotes the
+    // preserved candidate selected by its generation marker.
+    assert!(recover_tapp_directory(&live, &new_manifest, new_generation).unwrap());
+    assert_eq!(
+        tokio::fs::read_to_string(live.join("main.js"))
+            .await
+            .unwrap(),
+        "candidate"
+    );
+    assert!(super::lifecycle_artifact_directories(&live)
+        .unwrap()
+        .is_empty());
+    assert!(!recover_tapp_directory(&live, &new_manifest, new_generation).unwrap());
 
     tokio::fs::remove_dir_all(root).await.unwrap();
 }
@@ -392,6 +648,9 @@ async fn staged_directory_rollback_restores_previous_install() {
             .unwrap(),
         "old"
     );
+    assert!(super::lifecycle_artifact_directories(&live)
+        .unwrap()
+        .is_empty());
     tokio::fs::remove_dir_all(root).await.unwrap();
 }
 
@@ -485,6 +744,7 @@ async fn startup_recovery_restores_database_generation_after_interrupted_update(
     assert!(super::lifecycle_artifact_directories(&live)
         .unwrap()
         .is_empty());
+    assert!(!recover_tapp_directory(&live, &old_manifest, old_generation).unwrap());
 
     tokio::fs::remove_dir_all(root).await.unwrap();
 }
@@ -1319,9 +1579,11 @@ fn validates_declared_api_shape_and_inject_aliases() {
             .body_mode,
         super::TappHttpBodyMode::Json
     );
-    assert!(serde_json::to_value(&valid).unwrap()["apis"]["weather.current"]
-        .get("bodyMode")
-        .is_none());
+    assert!(
+        serde_json::to_value(&valid).unwrap()["apis"]["weather.current"]
+            .get("bodyMode")
+            .is_none()
+    );
 
     let body_modes: TappManifest = serde_json::from_value(json!({
         "id": "com.example.api-body-modes",

@@ -2,8 +2,25 @@
 
 use super::*;
 
-mod base;
 mod authenticated;
+mod base;
+
+async fn installation_claimed(db: &sea_orm::DatabaseConnection) -> anyhow::Result<bool> {
+    use sea_orm::ConnectionTrait;
+
+    let row = db
+        .query_one_raw(sea_orm::Statement::from_string(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT EXISTS (
+                SELECT 1 FROM users
+                WHERE is_admin = true OR COALESCE(is_owner, false) = true
+            ) AS claimed",
+        ))
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("installation claim query returned no row"))?;
+    row.try_get("", "claimed")
+        .map_err(|error| anyhow::anyhow!("decode installation claim state: {error}"))
+}
 
 pub(crate) async fn start_unified_server(config: AppConfig) -> anyhow::Result<()> {
     // Proxy peer allowlist hygiene (TRUST_PROXY_PEERS) — warn when too broad.
@@ -63,8 +80,31 @@ pub(crate) async fn start_unified_server(config: AppConfig) -> anyhow::Result<()
         .allow_headers(cors_allowed_headers)
         .allow_credentials(true);
 
-    // Get database connection (might be None in config mode)
-    let db_opt = services::tapp_registry::database().await.ok();
+    // A FULL_MODE process losing its registered DB handle must not silently
+    // degrade into an unauthenticated setup router.
+    let db_opt = match services::tapp_registry::database().await {
+        Ok(db) => Some(db),
+        Err(_) if CONFIG_MODE.load(Ordering::Relaxed) => None,
+        Err(error) => {
+            return Err(anyhow::anyhow!(
+                "full-mode router cannot access process database: {error}"
+            ));
+        }
+    };
+
+    let data_dir = &services::data_paths::paths().root;
+    if let Some(db) = db_opt.as_ref() {
+        if installation_claimed(db).await? {
+            api::setup_bootstrap::remove_stale_token_file(data_dir)
+                .map_err(|error| anyhow::anyhow!("remove stale bootstrap capability: {error}"))?;
+        } else {
+            api::setup_bootstrap::init_for_setup(data_dir, true)
+                .map_err(|error| anyhow::anyhow!("initialize setup capability: {error}"))?;
+        }
+    } else {
+        api::setup_bootstrap::init_for_setup(data_dir, false)
+            .map_err(|error| anyhow::anyhow!("initialize setup capability: {error}"))?;
+    }
 
     // Build the unified API router. When a DB is available, wire `AppState` once
     // so `extract::Db` resolves from state. Config-mode (no DB) keeps a
@@ -83,8 +123,6 @@ pub(crate) async fn start_unified_server(config: AppConfig) -> anyhow::Result<()
         base::build_config_mode_router()
     };
 
-
-
     // Apply middleware and layers
     let api_router = api_router
         .layer(from_fn(config_mode_middleware))
@@ -93,8 +131,8 @@ pub(crate) async fn start_unified_server(config: AppConfig) -> anyhow::Result<()
         // Apply security headers after the complete route graph is assembled.
         .layer(from_fn(middleware::security::security_headers_middleware))
         // Global 50 MiB default for most routes. Nested federation routers set
-        // their own DefaultBodyLimit from `federation::limits` (inbox 64 MiB,
-        // authenticated 80 MiB — MYR-002) which **may exceed** this outer layer —
+        // their own DefaultBodyLimit from `federation::limits` (inbox 8 MiB,
+        // authenticated 24 MiB) which may use a different budget than this outer layer —
         // see `federation::limits` tests. Do not assume 50 MiB caps public inbox.
         .layer(axum::extract::DefaultBodyLimit::max(50 * 1024 * 1024))
         .layer(cors)
@@ -253,8 +291,7 @@ pub(crate) async fn start_unified_server(config: AppConfig) -> anyhow::Result<()
                                     // Route table + full-mode workers are built only at process
                                     // start. Clearing CONFIG_MODE without rebuild claims "full
                                     // APIs" on a setup-only Router — exit for supervisor restart.
-                                    let was_config_mode =
-                                        CONFIG_MODE.load(Ordering::Relaxed);
+                                    let was_config_mode = CONFIG_MODE.load(Ordering::Relaxed);
                                     if was_config_mode {
                                         tracing::info!(
                                             "🔁 Database became available while serving the CONFIG_MODE route table; scheduling process restart for full routes"
@@ -331,4 +368,3 @@ pub(crate) async fn start_unified_server(config: AppConfig) -> anyhow::Result<()
     // Start server with the app (convert to service within start_server)
     start_server(config, app).await
 }
-

@@ -1,99 +1,96 @@
-//! Updater 自我更新流程。Spec §14。
+//! Updater TCB self-update request boundary.
 //!
-//! 难点：updater 不能在自己的容器里重建自己。由独立 docker-guard 在返回响应后执行
-//! 固定的 TCB 自替换：`docker compose up -d --no-deps docker-guard updater`。
+//! The updater keeps the one-click self-update UX, but it never performs the
+//! privileged replacement itself.  It resolves a constrained target and asks
+//! `docker-guard` to perform the trusted switch.  Guard owns the Docker
+//! authority, chooses the official updater repository, resolves the tag to an
+//! exact digest, and recreates the fixed TCB service set.
 //!
-//! **双服务**：`docker-guard` 与 `updater` 共用 `UPDATER_TAG` 镜像，必须一起重建，
-//! 否则 guard 二进制会落后于 tag。
+//! There are two target-discovery paths:
 //!
-//! **直连 unix socket**：该次 compose 走 `unix:///var/run/docker.sock`（非 policy
-//! proxy），因为 create 白名单不含 `docker-guard` 服务本身；这是固定 argv 的 TCB
-//! 自替换，不是任意 Docker API。其余 updater 流量仍经 `DOCKER_HOST=tcp://docker-guard:2375`。
+//! * formal GitHub releases are preferred when the signed `release.json` can
+//!   be obtained and verified with a strict cosign policy;
+//! * private repositories and commit/preview deployments use Docker Hub's
+//!   immutable `vX.Y.Z` / `dev-<sha>` tags.
 //!
-//! 流程：
-//!   1. 解析目标：优先 GitHub release.json 的 `images.updater`；GitHub 不可用 /
-//!      404 / commit 频道 tip 时回退 Docker Hub `UPDATER_IMAGE:<tag>`（与
-//!      backend/frontend / proxy 同一模式）
-//!   2. docker pull 目标 updater 镜像（有 manifest 时校验 digest）
-//!   3. 改 .env 把 UPDATER_TAG 替换成新 tag
-//!   4. 请求 docker-guard 鉴权端点，延迟调度双服务重建（body 带 previous/target tag）
-//!
-//! 调度 HTTP 失败时本进程恢复 `.env`。若 helper 的 compose 失败，helper 会恢复
-//! `UPDATER_TAG` 并写入 `state/self-update-last.json`。
+//! Both paths only produce a tag.  The updater does not pull the image, write
+//! `.env`, or send a repository/digest to Guard.  Guard independently applies
+//! its host-owned trust policy before doing any privileged work.  Until a
+//! signed-materials protocol is added to Guard, both paths use the explicit
+//! `dockerhub_tag` trust path; a locally verified manifest is only a better
+//! target selector, not evidence handed to the TCB.
 
 use std::sync::Arc;
 
 use tracing::{info, warn};
 
+use crate::config::Channel;
+use crate::docker::self_update_helper::{SelfUpdateLastStatus, SelfUpdateOutcome};
 use crate::env_file::EnvFile;
 use crate::error::{Result, UpdaterError};
-use crate::release::GithubClient;
-use crate::version::{DeployTag, DeployTagKind, UpdateMode};
+use crate::release::{CosignPolicy, GithubClient};
+use crate::version::{
+    release_channel_name_for_self_update, DeployTag, DeployTagKind, MyriadVersion, UpdateMode,
+};
 use crate::worker::Worker;
 
+/// A target selected by the lower-trust updater.  `trust_path` is descriptive
+/// input to Guard; it is never a repository or digest selector.  The current
+/// protocol accepts `dockerhub_tag` while Guard independently obtains the
+/// official repository digest.
 struct SelfUpdateTarget {
     tag: String,
-    image_ref: String,
-    expected_digest: Option<String>,
-    source: &'static str,
+    trust_path: &'static str,
 }
 
+/// Resolve a target and ask Guard to perform the fixed TCB replacement.
+///
+/// The response shape remains compatible with the existing API.  In
+/// particular, `helper_container_id` is retained as the Guard owner marker;
+/// there is no updater-controlled helper container anymore.
 pub async fn run(worker: Arc<Worker>, actor: Option<String>) -> Result<SelfUpdateReport> {
     let resolved = resolve_self_update_target(worker.as_ref()).await?;
+    let previous_tag = read_previous_updater_tag(worker.as_ref());
+    let status_path = worker.state().root().join("self-update-last.json");
+    let previous_status_at = read_self_update_status(&status_path).map(|status| status.at);
+
     info!(
         target = %resolved.tag,
-        image = %resolved.image_ref,
-        source = resolved.source,
-        "self-update: resolved target"
+        trust_path = resolved.trust_path,
+        "self-update: requesting docker guard TCB replacement"
     );
+    schedule_guarded_recreate(
+        &resolved.tag,
+        resolved.trust_path,
+        worker.config().guard_self_update_token.expose(),
+    )
+    .await?;
 
-    info!(target = %resolved.tag, "self-update: pulling new updater image");
-    let pulled_digest = worker
-        .docker_pull_with_mirror(&resolved.image_ref)
-        .await
-        .map_err(|e| {
-            UpdaterError::Precondition(format!(
-                "pull updater {}: {e} (is the tag published on the registry / Docker Hub?)",
-                resolved.image_ref
-            ))
-        })?;
-    if let Some(expected) = &resolved.expected_digest {
-        if !pulled_digest.ends_with(expected) && pulled_digest != *expected {
-            return Err(UpdaterError::Precondition(format!(
-                "updater digest mismatch: pulled {pulled_digest}, expected {expected}"
-            )));
-        }
-    }
-
-    // 修改 .env 的 UPDATER_TAG。若 guard 调度失败则恢复旧值，旧 updater 继续运行。
-    info!(new_tag = %resolved.tag, "self-update: rewriting UPDATER_TAG in .env");
-    let previous_tag = {
-        let mut env = EnvFile::load(&worker.cli().env_file)?;
-        let previous = env.get("UPDATER_TAG").unwrap_or_default().to_string();
-        env.set("UPDATER_TAG", &resolved.tag)?;
-        env.save()?;
-        previous
-    };
-
-    if let Err(error) = schedule_guarded_recreate(&worker, &previous_tag, &resolved.tag).await {
-        let mut env = EnvFile::load(&worker.cli().env_file)?;
-        env.set("UPDATER_TAG", &previous_tag)?;
-        env.save()?;
-        return Err(error);
-    }
     let actor_suffix = actor
         .as_deref()
         .map(|a| format!(" actor={a}"))
         .unwrap_or_default();
     let audit = format!(
-        "audit: self_update_scheduled new_tag={} previous_tag={previous_tag} executor=docker-guard services=docker-guard,updater scheduled=true source={}{actor_suffix}",
-        resolved.tag, resolved.source
+        "audit: self_update_scheduled target_tag={} previous_tag={} trust_path={} executor=docker-guard services=docker-guard,updater,updater-gateway scheduled=true source=self_update_guard{actor_suffix}",
+        resolved.tag, previous_tag, resolved.trust_path
     );
     worker.state().append_history(&audit)?;
     let _ = worker.state().append_audit(&audit);
-    info!("self-update: docker guard scheduled docker-guard+updater replacement");
+    info!(
+        target = %resolved.tag,
+        trust_path = resolved.trust_path,
+        "self-update: docker guard accepted fixed TCB replacement"
+    );
+
+    // Do not release the single worker queue while Guard is preparing the
+    // handoff. On success this updater process is recreated and the HTTP caller
+    // observes the expected transient disconnect. On pre-handoff rejection,
+    // Guard writes a durable failure and this command returns normally.
+    wait_for_guarded_handoff_outcome(&status_path, &resolved.tag, previous_status_at.as_deref())
+        .await?;
 
     Ok(SelfUpdateReport {
+        // Compatibility field: Guard, not an updater helper, owns the switch.
         helper_container_id: "docker-guard".into(),
         new_updater_tag: resolved.tag,
         previous_updater_tag: previous_tag,
@@ -101,170 +98,209 @@ pub async fn run(worker: Arc<Worker>, actor: Option<String>) -> Result<SelfUpdat
     })
 }
 
+fn read_self_update_status(path: &std::path::Path) -> Option<SelfUpdateLastStatus> {
+    std::fs::read(path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+}
+
+async fn wait_for_guarded_handoff_outcome(
+    status_path: &std::path::Path,
+    target_tag: &str,
+    previous_status_at: Option<&str>,
+) -> Result<()> {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(90 * 60);
+    loop {
+        if let Some(status) = read_self_update_status(status_path) {
+            let changed = previous_status_at != Some(status.at.as_str());
+            if changed && status.target_tag == target_tag {
+                return match status.status {
+                    SelfUpdateOutcome::Pending => {
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                        continue;
+                    }
+                    SelfUpdateOutcome::Succeeded => Ok(()),
+                    SelfUpdateOutcome::Failed => Err(UpdaterError::Precondition(
+                        status
+                            .error
+                            .unwrap_or_else(|| "trusted self-update failed".into()),
+                    )),
+                };
+            }
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(UpdaterError::Precondition(
+                "trusted self-update outcome was not recorded within 90 minutes".into(),
+            ));
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
+}
+
+/// Prefer a strictly verified release manifest, then use Docker Hub immutable
+/// tags when GitHub is unavailable (for example, a private source repository).
 async fn resolve_self_update_target(worker: &Worker) -> Result<SelfUpdateTarget> {
-    // Commit/dev mode: follow Docker Hub immutable tips (dev-<sha>), not formal
-    // GitHub release assets which may jump to a different channel version.
-    if worker.effective_mode() == UpdateMode::Commit {
-        info!("self-update: commit mode — resolving via Docker Hub tip");
-        return resolve_self_update_via_dockerhub(worker).await;
+    if worker.effective_mode() != UpdateMode::Commit {
+        match try_self_update_from_github(worker).await {
+            Ok(Some(target)) => return Ok(target),
+            Ok(None) => {
+                warn!(
+                    "self-update: signed GitHub release unavailable; using Docker Hub immutable tag"
+                );
+            }
+            // Private/missing assets may use the explicit Hub path. A present
+            // but invalid signature or manifest must still fail closed.
+            Err(error) if GithubClient::is_release_json_unavailable(&error) => {
+                warn!(
+                    err = %error,
+                    "self-update: signed GitHub assets unavailable; using Docker Hub immutable tag"
+                );
+            }
+            Err(error) => return Err(error),
+        }
+    } else {
+        info!("self-update: commit mode uses Docker Hub immutable tag path");
     }
 
-    match try_self_update_from_github(worker).await {
-        Ok(Some(t)) => return Ok(t),
-        Ok(None) => {
-            warn!("self-update: GitHub release.json unavailable; falling back to Docker Hub");
-        }
-        Err(e) => return Err(e),
-    }
     resolve_self_update_via_dockerhub(worker).await
 }
 
+/// Resolve the newest usable formal GitHub release for the effective channel.
+///
+/// This client deliberately uses `CosignPolicy::Strict` regardless of the
+/// general update preference.  A signature/payload failure is a hard error;
+/// only the expected unavailable/private-repository class may fall through to
+/// Docker Hub.
 async fn try_self_update_from_github(worker: &Worker) -> Result<Option<SelfUpdateTarget>> {
-    // Release mode: prefer GitHub release.json + signed digests; Hub is fallback only.
-    let gh = match worker.github_client() {
-        Ok(gh) => gh,
-        Err(e) => {
-            warn!(err = %e, "self-update: cannot build GitHub client");
+    let gh = match GithubClient::new(
+        worker.config().github_repo.clone(),
+        worker.config().github_token.clone(),
+        worker.state().cache_dir(),
+        CosignPolicy::Strict,
+    ) {
+        Ok(client) => client,
+        Err(error) => {
+            warn!(err = %error, "self-update: cannot build strict GitHub client");
             return Ok(None);
         }
     };
 
-    let cfg = worker.config();
-    let ch_name = crate::version::release_channel_name_for_self_update(&worker.effective_channel());
-    let ch: crate::config::Channel = ch_name.parse().unwrap_or(cfg.channel);
-    // proxy/updater ship on an independent cadence and may be omitted from a
-    // given app release.json — walk recent channel releases for the newest that
-    // still lists `images.updater`, then fall back to Docker Hub.
-    info!(
-        channel = %ch,
-        "self-update: looking up GitHub releases for channel (may skip releases without images.updater)"
-    );
-
-    let releases = match gh.list_releases_for_channel(ch, 20).await {
-        Ok(r) if !r.is_empty() => r,
-        Ok(_) => {
-            warn!(channel = %ch, "self-update: channel has no GitHub releases");
+    let channel_name = release_channel_name_for_self_update(&worker.effective_channel());
+    let channel: Channel = channel_name.parse().unwrap_or(worker.config().channel);
+    let releases = match gh.list_releases_for_channel(channel, 20).await {
+        Ok(releases) => releases,
+        Err(error) if GithubClient::is_release_json_unavailable(&error) => {
+            warn!(err = %error, "self-update: GitHub release list unavailable");
             return Ok(None);
         }
-        Err(e) if GithubClient::is_release_json_unavailable(&e) => {
-            warn!(err = %e, "self-update: GitHub list releases failed");
-            return Ok(None);
-        }
-        Err(e) => return Err(e),
+        Err(error) => return Err(error),
     };
 
-    for rel in releases {
-        let manifest = match gh.fetch_manifest(&rel.tag_name).await {
-            Ok(m) => m,
-            Err(e) if GithubClient::is_release_json_unavailable(&e) => {
-                warn!(
-                    err = %e,
-                    tag = %rel.tag_name,
-                    "self-update: GitHub release.json unavailable; trying older release"
-                );
-                continue;
-            }
-            Err(e) => return Err(e),
-        };
-
-        let Some(updater_img) = manifest.image("updater") else {
+    for release in releases {
+        // A GitHub release can carry arbitrary tag names.  Self-update accepts
+        // only formal v-prefixed releases, never branch/commit tags.
+        let Ok(tag) = MyriadVersion::parse(release.tag_name.trim()) else {
             info!(
-                tag = %rel.tag_name,
-                "self-update: release omits images.updater; trying older release"
+                tag = %release.tag_name,
+                "self-update: skipping non-formal GitHub release tag"
             );
             continue;
         };
+        let release_tag = tag.as_str();
+
+        let manifest = match gh.fetch_manifest(release_tag).await {
+            Ok(manifest) => manifest,
+            Err(error) if GithubClient::is_release_json_unavailable(&error) => {
+                warn!(
+                    err = %error,
+                    tag = %release_tag,
+                    "self-update: signed release manifest unavailable; trying older release"
+                );
+                continue;
+            }
+            // A present but invalid/unsigned manifest must never be replaced by
+            // an unverified choice.  This is the fail-closed trust boundary.
+            Err(error) => return Err(error),
+        };
+
+        if manifest.version.as_str() != release_tag {
+            return Err(UpdaterError::Precondition(format!(
+                "self-update release tag/manifest mismatch: GitHub tag {release_tag}, manifest {}",
+                manifest.version
+            )));
+        }
+        if manifest.image("updater").is_none() {
+            info!(
+                tag = %release_tag,
+                "self-update: signed release omits images.updater; trying older release"
+            );
+            continue;
+        }
 
         return Ok(Some(SelfUpdateTarget {
-            tag: manifest.version.as_str().to_string(),
-            image_ref: updater_img.r#ref.clone(),
-            expected_digest: Some(updater_img.digest.clone()),
-            source: "github",
+            tag: release_tag.to_string(),
+            trust_path: "dockerhub_tag",
         }));
     }
 
-    warn!(
-        channel = %ch,
-        "self-update: no recent GitHub release lists images.updater"
-    );
     Ok(None)
 }
 
+/// Select an immutable updater tag from Docker Hub without pulling it.  Guard
+/// independently constrains the repository and resolves the returned tag to a
+/// digest before replacing any TCB container.
 async fn resolve_self_update_via_dockerhub(worker: &Worker) -> Result<SelfUpdateTarget> {
     let repo = worker.updater_image_repo()?;
-
-    // Always list this component's tags. App `latest_available` may be a backend tip
-    // that does not exist on myriad-updater yet — only reuse it when present here.
-    let prefer_release = worker.effective_mode() == UpdateMode::Release;
     let tags = worker
         .dockerhub_client()?
         .list_immutable_tags(&repo, 25)
         .await?;
-    let tag = if let Some(from_state) = tip_tag_from_state(worker)? {
-        if tags.iter().any(|t| t.tag == from_state) {
-            info!(
-                tag = %from_state,
-                "self-update: state tip exists on updater repo; using it"
-            );
-            from_state
-        } else {
-            let tip =
-                crate::release::select_component_tip(&tags, prefer_release).ok_or_else(|| {
-                    UpdaterError::Precondition(format!(
-                        "Docker Hub has no immutable tags for {repo} (need dev-<sha> or vX.Y.Z); \
-                         cannot self-update without GitHub release.json"
-                    ))
-                })?;
-            info!(
-                state_tip = %from_state,
-                tag = %tip.tag,
-                kind = tip.kind,
-                "self-update: state tip missing on updater repo; selected component tip"
-            );
-            tip.tag.clone()
-        }
-    } else {
-        let tip = crate::release::select_component_tip(&tags, prefer_release).ok_or_else(|| {
+    let prefer_release = worker.effective_mode() == UpdateMode::Release;
+
+    let selected = crate::release::select_component_tip(&tags, prefer_release)
+        .ok_or_else(|| {
             UpdaterError::Precondition(format!(
-                "Docker Hub has no immutable tags for {repo} (need dev-<sha> or vX.Y.Z); \
-                 cannot self-update without GitHub release.json"
+                "Docker Hub has no immutable updater tags for {repo} (need vX.Y.Z or dev-<sha>)"
             ))
-        })?;
-        info!(
-            tag = %tip.tag,
-            kind = tip.kind,
-            "self-update: selected tip from Docker Hub updater tags"
-        );
-        tip.tag.clone()
-    };
+        })?
+        .tag
+        .clone();
 
-    if tag == "latest" || tag.ends_with(":latest") {
-        return Err(UpdaterError::Precondition(
-            "updater image tag must be immutable (dev-<sha> or vX.Y.Z), got latest".into(),
-        ));
-    }
-
+    let tag = validate_immutable_component_tag(&selected)?;
+    info!(%tag, "self-update: selected Docker Hub immutable updater tag");
     Ok(SelfUpdateTarget {
-        image_ref: format!("{repo}:{tag}"),
         tag,
-        expected_digest: None,
-        source: "dockerhub",
+        trust_path: "dockerhub_tag",
     })
 }
 
-fn tip_tag_from_state(worker: &Worker) -> Result<Option<String>> {
-    let st = worker.state().read_updater()?;
-    Ok(st
-        .latest_available
-        .as_ref()
-        .map(|la| la.version.as_str().to_string())
-        .filter(|t| DeployTag::parse(t).is_ok_and(|d| d.kind() != DeployTagKind::Branch)))
+/// Read the currently configured tag for the compatibility report only.  This
+/// value is never sent to Guard and never participates in target selection or
+/// image trust decisions.
+fn read_previous_updater_tag(worker: &Worker) -> String {
+    EnvFile::load(&worker.cli().env_file)
+        .ok()
+        .and_then(|env| env.get("UPDATER_TAG").map(str::trim).map(str::to_owned))
+        .filter(|tag| !tag.is_empty())
+        .unwrap_or_else(|| "unknown".into())
+}
+
+/// Docker Hub tags accepted by the Guard protocol.  Branch tips and `latest`
+/// are mutable and therefore cannot cross this request boundary.
+fn validate_immutable_component_tag(tag: &str) -> Result<String> {
+    let parsed = DeployTag::parse(tag.trim())?;
+    match parsed.kind() {
+        DeployTagKind::Release | DeployTagKind::Commit => Ok(parsed.as_str().to_string()),
+        DeployTagKind::Branch => Err(UpdaterError::Precondition(format!(
+            "self-update target tag must be immutable (vX.Y.Z or dev-<sha>), got {tag}"
+        ))),
+    }
 }
 
 async fn schedule_guarded_recreate(
-    worker: &Worker,
-    previous_tag: &str,
     target_tag: &str,
+    trust_path: &str,
+    guard_self_update_token: &str,
 ) -> Result<()> {
     let endpoint = std::env::var("DOCKER_GUARD_SELF_UPDATE_URL")
         .unwrap_or_else(|_| "http://docker-guard:2375/_myriad/self-update".into());
@@ -274,11 +310,8 @@ async fn schedule_guarded_recreate(
         .build()
         .map_err(|e| UpdaterError::Docker(format!("build docker guard client: {e}")))?
         .post(endpoint)
-        .header("X-Update-Token", worker.config().update_token.expose())
-        .json(&serde_json::json!({
-            "previous_tag": previous_tag,
-            "target_tag": target_tag,
-        }))
+        .header("X-Guard-Self-Update-Token", guard_self_update_token)
+        .json(&self_update_request_body(target_tag, trust_path))
         .send()
         .await
         .map_err(|e| UpdaterError::Docker(format!("schedule guarded self-update: {e}")))?;
@@ -292,10 +325,60 @@ async fn schedule_guarded_recreate(
     Ok(())
 }
 
+fn self_update_request_body(target_tag: &str, trust_path: &str) -> serde_json::Value {
+    serde_json::json!({
+        "target_tag": target_tag,
+        "trust_path": trust_path,
+    })
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SelfUpdateReport {
     pub helper_container_id: String,
     pub new_updater_tag: String,
     pub previous_updater_tag: String,
     pub scheduled: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn immutable_tag_accepts_release_and_commit() {
+        assert_eq!(
+            validate_immutable_component_tag("v0.3.28").unwrap(),
+            "v0.3.28"
+        );
+        assert_eq!(
+            validate_immutable_component_tag("dev-0123456").unwrap(),
+            "dev-0123456"
+        );
+    }
+
+    #[test]
+    fn immutable_tag_rejects_mutable_branch_and_latest() {
+        for tag in ["main", "preview", "latest", ""] {
+            assert!(
+                validate_immutable_component_tag(tag).is_err(),
+                "mutable/invalid tag must be rejected: {tag}"
+            );
+        }
+    }
+
+    #[test]
+    fn guard_request_contains_only_tag_and_trust_path() {
+        let body = self_update_request_body("v0.3.28", "dockerhub_tag");
+        assert_eq!(body["target_tag"], "v0.3.28");
+        assert_eq!(body["trust_path"], "dockerhub_tag");
+        assert!(body.get("repo").is_none());
+        assert!(body.get("digest").is_none());
+        assert!(body.get("previous_tag").is_none());
+    }
+
+    #[test]
+    fn operator_does_not_disable_self_update() {
+        let body = self_update_request_body("v0.3.28", "dockerhub_tag");
+        assert_eq!(body["trust_path"], "dockerhub_tag");
+    }
 }

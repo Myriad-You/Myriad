@@ -5,7 +5,7 @@
 use crate::error::HttpError;
 use axum::{
     http::{header, HeaderMap, HeaderValue, StatusCode},
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     Json,
 };
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
@@ -13,6 +13,7 @@ use serde_json::{json, Value};
 use std::env;
 
 // Re-export Claims so existing imports `super::auth::Claims` keep working
+use crate::middleware::auth::clear_auth_cookie_value;
 pub use crate::middleware::auth::Claims;
 
 /// Guest body for the session probe. HTTP 200 — never 401 — so browsers do not
@@ -44,6 +45,36 @@ fn extract_auth_token(headers: &HeaderMap) -> Option<&str> {
         })
 }
 
+fn selected_auth_uses_cookie(headers: &HeaderMap) -> bool {
+    headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .is_none()
+        && headers
+            .get(header::COOKIE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|cookies| {
+                cookies.split(';').any(|cookie| {
+                    cookie
+                        .trim()
+                        .split_once('=')
+                        .is_some_and(|(name, _)| name == "auth_token")
+                })
+            })
+}
+
+async fn unauthenticated_me_response(clear_cookie: bool) -> Response {
+    let mut response = Json(unauthenticated_me_body()).into_response();
+    if clear_cookie {
+        let is_production = crate::oauth_url_builder::SiteConfig::is_production().await;
+        if let Ok(value) = HeaderValue::from_str(&clear_auth_cookie_value(is_production)) {
+            response.headers_mut().insert(header::SET_COOKIE, value);
+        }
+    }
+    response
+}
+
 /// `GET /api/auth/me` — session probe + current user profile.
 ///
 /// **Contract (durable guest UX):** missing/invalid token or unknown user →
@@ -53,10 +84,11 @@ fn extract_auth_token(headers: &HeaderMap) -> Option<&str> {
 pub async fn get_current_user(
     crate::extract::Db(db): crate::extract::Db,
     headers: HeaderMap,
-) -> Result<Json<Value>, HttpError> {
+) -> Result<Response, HttpError> {
     let Some(token) = extract_auth_token(&headers) else {
-        return Ok(Json(unauthenticated_me_body()));
+        return Ok(unauthenticated_me_response(false).await);
     };
+    let clear_invalid_cookie = selected_auth_uses_cookie(&headers);
 
     let jwt_secret = env::var("JWT_SECRET").map_err(|_| {
         (
@@ -73,14 +105,14 @@ pub async fn get_current_user(
         Ok(data) => data,
         Err(_) => {
             // Expired/forged cookie — expected guest for this probe, not 401 noise.
-            return Ok(Json(unauthenticated_me_body()));
+            return Ok(unauthenticated_me_response(clear_invalid_cookie).await);
         }
     };
 
     let user_id: i32 = match token_data.claims.sub.parse() {
         Ok(id) => id,
         Err(_) => {
-            return Ok(Json(unauthenticated_me_body()));
+            return Ok(unauthenticated_me_response(clear_invalid_cookie).await);
         }
     };
 
@@ -121,7 +153,7 @@ pub async fn get_current_user(
 
     let Some(user_row) = user_row else {
         // Token valid but user gone — still a session-probe miss, not auth gate.
-        return Ok(Json(unauthenticated_me_body()));
+        return Ok(unauthenticated_me_response(clear_invalid_cookie).await);
     };
 
     let db_tv: i64 = user_row
@@ -132,7 +164,7 @@ pub async fn get_current_user(
         .unwrap_or(0);
     if !crate::middleware::auth::session_epoch_matches(token_data.claims.tv, Some(db_tv)) {
         // Revoked session — soft probe miss (not 401).
-        return Ok(Json(unauthenticated_me_body()));
+        return Ok(unauthenticated_me_response(clear_invalid_cookie).await);
     }
 
     // identities 列表（用 user_identities 表）
@@ -200,19 +232,8 @@ pub async fn get_current_user(
         "has_password": has_password,
         "last_login_at": last_login_at,
         "identities": identities,
-    })))
-}
-
-/// Build the Set-Cookie value that clears `auth_token`.
-///
-/// Must match issuance attributes (`auth_local` / OAuth): `SameSite=Lax`,
-/// `Path=/`, `HttpOnly`, and `Secure` when production — mismatched attributes
-/// prevent browsers from clearing the session cookie.
-pub fn logout_clear_cookie_value(is_production: bool) -> String {
-    format!(
-        "auth_token=deleted; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT{}",
-        if is_production { "; Secure" } else { "" }
-    )
+    }))
+    .into_response())
 }
 
 /// `POST /api/auth/logout`
@@ -258,7 +279,7 @@ pub async fn logout(
     }
 
     let is_production = crate::oauth_url_builder::SiteConfig::is_production().await;
-    let cookie_value = logout_clear_cookie_value(is_production);
+    let cookie_value = clear_auth_cookie_value(is_production);
     let mut response =
         Json(json!({"success": true, "message": "Logged out successfully"})).into_response();
     if let Ok(value) = HeaderValue::from_str(&cookie_value) {
@@ -278,6 +299,20 @@ mod auth_me_probe_tests {
         assert_eq!(body["authenticated"], false);
         assert!(body.get("id").is_none());
         assert!(body.get("error").is_none());
+    }
+
+    #[tokio::test]
+    async fn unauthenticated_me_can_clear_an_invalid_httponly_cookie() {
+        let response = unauthenticated_me_response(true).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let cookie = response
+            .headers()
+            .get(header::SET_COOKIE)
+            .and_then(|value| value.to_str().ok())
+            .expect("invalid browser session must be cleared");
+        assert!(cookie.starts_with("auth_token=deleted;"));
+        assert!(cookie.contains("HttpOnly"));
+        assert!(cookie.contains("Max-Age=0"));
     }
 
     #[test]
@@ -301,7 +336,7 @@ mod auth_me_probe_tests {
 
     #[test]
     fn logout_clear_cookie_matches_issuance_samesite_lax_and_secure_flag() {
-        let dev = logout_clear_cookie_value(false);
+        let dev = clear_auth_cookie_value(false);
         assert!(dev.contains("auth_token=deleted"));
         assert!(dev.contains("Path=/"));
         assert!(dev.contains("HttpOnly"));
@@ -310,7 +345,7 @@ mod auth_me_probe_tests {
         assert!(!dev.contains("Secure"));
         assert!(!dev.contains("SameSite=Strict"));
 
-        let prod = logout_clear_cookie_value(true);
+        let prod = clear_auth_cookie_value(true);
         assert!(prod.contains("SameSite=Lax"));
         assert!(prod.contains("; Secure"));
         assert!(!prod.contains("SameSite=Strict"));

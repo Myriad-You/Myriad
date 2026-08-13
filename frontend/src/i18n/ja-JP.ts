@@ -291,12 +291,14 @@ export const jaJP: TranslationKeys = {
     atLeast8Chars: '8文字以上、英字と数字を含める',
     enterPasswordAgain: 'パスワードを再入力',
     bootstrapToken: 'ブートストラップトークン',
-    bootstrapTokenOptional: '設定済みインスタンスの復旧時は必須',
+    bootstrapTokenOptional: 'インストール操作に必須',
     bootstrapTokenPlaceholder: '.bootstrap-token の内容を貼り付け',
     bootstrapTokenHint:
-      '一度設定済みの場合、データディレクトリの .bootstrap-token（または MYRIAD_BOOTSTRAP_TOKEN）をここに入力してください。未入力だと 401 になります。',
+      'DATA_DIR/.bootstrap-token（または MYRIAD_BOOTSTRAP_TOKEN）の短期トークンを入力してください。初回設定、DB 初期化、所有者作成のすべてで必要です。',
     bootstrapTokenRequired:
       'ブートストラップトークンが必要です。サーバー上の .bootstrap-token を読み取り、入力して再試行してください。',
+    bootstrapTokenRotated:
+      'データベース初期化トークンは無効になりました。所有者を作成する前に、サーバーのデータディレクトリから新しい .bootstrap-token を読み取ってください。',
   },
 
   // 設定
@@ -508,7 +510,8 @@ export const jaJP: TranslationKeys = {
     hideOptionGuide: 'ガイドを閉じる',
     hideOptionGuideAria: '「{title}」のガイドを閉じる',
     pinOptionGuide: '固定',
-    pinOptionGuideAria: '「{title}」ガイドを固定（閉じるボタンのみ／ドラッグ可）',
+    pinOptionGuideAria:
+      '「{title}」ガイドを固定（閉じるボタンのみ／ドラッグ可）',
     unpinOptionGuide: '固定解除',
     unpinOptionGuideAria: '「{title}」ガイドの固定を解除',
     optionGuideDragHint: 'ドラッグして移動',
@@ -1286,7 +1289,7 @@ export const jaJP: TranslationKeys = {
       '実行診断、メモリ節約、アウトバウンドプロキシ、API ミラー、設定バックアップ/復元、危険な操作',
     memorySaverGroup: 'メモリ',
     memorySaverGroupDesc:
-      '約 1 GB のホストで同時メモリ使用を抑えます。既定オフ＝これまでの均衡予算（既存は無感）。',
+      '約 1 GB のホストで同時メモリ使用を抑えます。既定オフは現在の上限付き均衡プロファイルで、旧版からの更新では一部のリクエスト上限が変わります。',
     memorySaver: 'メモリ節約',
     memorySaverHint:
       '連合の同時バッファと単一メッセージ／添付の上限（均衡より少し低い）、転送チャンク同時量、プロセス内キャッシュ、DB プール、パスワードハッシュ同時数を締めます。機能は残りますが、極大メディアや多路ピークでは早めに拒否／「あとで再試行」になり得ます。MYRIAD_MEMORY_PROFILE で上書き可。DB プールは再起動後に完全適用。',

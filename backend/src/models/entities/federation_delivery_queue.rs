@@ -22,6 +22,8 @@ pub struct Model {
     pub attempts: i32,
     pub max_attempts: i32,
     pub last_attempt_at: Option<DateTimeWithTimeZone>,
+    pub lease_token: Option<Uuid>,
+    pub lease_expires_at: Option<DateTimeWithTimeZone>,
     pub next_retry_at: Option<DateTimeWithTimeZone>,
     #[sea_orm(column_type = "Text", nullable)]
     pub error_message: Option<String>,

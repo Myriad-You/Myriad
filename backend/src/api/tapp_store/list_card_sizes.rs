@@ -4,14 +4,10 @@
 //! - PUT requires a durable logged-in user (`sub >= 0`). Guests are rejected
 //!   with 403 even if a guest claim somehow reaches the handler.
 
-use axum::{
-    extract::State,
-    http::{HeaderMap, StatusCode},
-    Extension, Json,
-};
+use axum::{extract::State, http::StatusCode, Extension, Json};
 use serde_json::{json, Value};
 
-use crate::middleware::auth::{extract_optional_claims, Claims};
+use crate::middleware::auth::{Claims, OptionalClaims};
 use crate::services::tapp_list_card_sizes::{self, TappListCardSizes};
 use crate::services::tapp_ownership::parse_authenticated_subject_id;
 use crate::state::AppState;
@@ -67,10 +63,9 @@ fn require_durable_user(claims: &Claims) -> Result<i32, (StatusCode, Json<Value>
 ///   `site_sizes`/`site_order` = site-owner layout for the site scope view.
 pub async fn get_list_card_sizes(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    Extension(OptionalClaims(claims)): Extension<OptionalClaims>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let db = require_db(&state)?;
-    let claims = extract_optional_claims(&headers);
     let viewer = claims
         .as_ref()
         .and_then(|c| parse_authenticated_subject_id(&c.sub));

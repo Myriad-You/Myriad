@@ -763,7 +763,6 @@ async fn run_server() -> anyhow::Result<()> {
                     "💡 Configure database via POST /api/setup/database-config; the service will restart to load the full route table"
                 );
                 CONFIG_MODE.store(true, Ordering::Relaxed);
-                enter_config_mode_guard();
             }
         }
     } else {
@@ -774,25 +773,11 @@ async fn run_server() -> anyhow::Result<()> {
             "💡 Configure database via POST /api/setup/database-config; the service will restart to load the full route table"
         );
         CONFIG_MODE.store(true, Ordering::Relaxed);
-        enter_config_mode_guard();
     }
 
     // Start the unified server. If this process booted without a DB, setup writes
     // DATABASE_URL and exits so the supervisor can restart with the full route table.
     start_unified_server(config).await
-}
-
-/// 进入 CONFIG_MODE 时决定 setup 控制面是否需要引导令牌。
-///
-/// 数据库不可达会自动打开 CONFIG_MODE，而 CONFIG_MODE 下的 setup 路由能改写
-/// `DATABASE_URL` / `JWT_SECRET` / `CORS_ORIGINS`。对于**此前已经配置过**的实例，
-/// 这条链把一次数据库故障变成匿名可达的控制面；这里生成一次性令牌把它锁上，
-/// 令牌只出现在启动日志和宿主文件里。首次安装不受影响。
-fn enter_config_mode_guard() {
-    let env_path = std::env::current_dir()
-        .unwrap_or_else(|_| std::path::PathBuf::from("."))
-        .join(".env");
-    api::setup_bootstrap::init_for_config_mode(&env_path);
 }
 
 /// Middleware to check if route is allowed in configuration mode

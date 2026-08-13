@@ -12,7 +12,6 @@ import {
   useRef,
   useState,
 } from 'react'
-import { flushSync } from 'react-dom'
 import { useLocation } from 'react-router-dom'
 import GlobalControlPanel from '../components/GlobalControlPanel'
 import NavigationIsland from '../components/NavigationIsland'
@@ -99,17 +98,16 @@ export function AppLayout({ children }: AppLayoutProps) {
     applyNavLayoutToDocument(getNavLayoutSnapshot())
   }, [])
 
-  // Layout + flushSync: when LibraryGrid marks canvas in its layout effect,
-  // stop evocative RAF and soft-lock wallpaper before paint. A passive effect
-  // left one frame of parallax (hard cut) when entering /library from elsewhere.
+  // LibraryGrid marks canvas in its layout effect. React processes this state
+  // update before paint, so the evocative RAF stops without a transition flash.
+  // Do not wrap it in flushSync: this callback itself runs during React's layout
+  // phase, where forcing a nested synchronous flush is unsupported.
   useLayoutEffect(() => {
     const syncLibraryCanvasMode = () => {
       const next =
         location.pathname === '/library' &&
         document.documentElement.dataset.libraryCanvas === 'active'
-      flushSync(() => {
-        setLibraryCanvasActive(next)
-      })
+      setLibraryCanvasActive(next)
     }
 
     window.addEventListener(

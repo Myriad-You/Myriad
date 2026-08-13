@@ -177,8 +177,8 @@ fn require() -> Result<&'static UpdaterClient, Box<Response>> {
             crate::error::HttpError(
                 AppError::service_unavailable("updater service is not configured on this backend")
                     .with_hint(
-                        "set MYRIAD_UPDATER_URL and UPDATER_GATEWAY_SECRET (production gateway hop)",
-                    ),
+                    "set MYRIAD_UPDATER_URL and UPDATER_GATEWAY_SECRET (production gateway hop)",
+                ),
             )
             .into_response(),
         )
@@ -657,8 +657,8 @@ pub async fn rescue_continue(headers: HeaderMap) -> Response {
     }
 }
 
-/// Trigger the updater's self-update flow. Spawns a helper container that replaces
-/// the running updater after a short delay. See docs/updater-spec.md §14.
+/// Compatibility endpoint. The updater rejects application-driven TCB upgrades;
+/// Guard/updater upgrades require an independently verified host operation.
 pub async fn self_update(headers: HeaderMap) -> Response {
     let c = match require_mutate() {
         Ok(c) => c,
@@ -698,7 +698,7 @@ pub async fn proxy_update(headers: HeaderMap, body: Option<Json<Value>>) -> Resp
     }
 }
 
-/// Last TCB self-update helper outcome (`state/self-update-last.json`). Also on GET /status.
+/// Legacy TCB self-update outcome (`state/self-update-last.json`). Also on GET /status.
 pub async fn self_update_last() -> Response {
     let c = match require() {
         Ok(c) => c,

@@ -19,6 +19,9 @@
 #
 # Commands:
 #   up          Start backend + frontend in the foreground (default)
+#   db-start    Start the local native PostgreSQL server, then exit
+#   db-stop     Stop the local native PostgreSQL server, then exit
+#   db-status   Show local PostgreSQL reachability / service status
 #   db-setup    Create the local role + database, then exit
 #   doctor      Check toolchain, ports and database, then exit
 #
@@ -62,7 +65,12 @@ show_usage() {
 Usage: $0 [command] [options]
 
 Commands:
-  up               Start backend + frontend in the foreground (default)
+  up               Start backend + frontend in the foreground (default).
+                   If DATABASE_URL points at localhost and Postgres is down,
+                   tries to start the native server first.
+  db-start         Start the local native PostgreSQL server
+  db-stop          Stop the local native PostgreSQL server
+  db-status        Show whether the DB is reachable and how it is managed
   db-setup         Create the local PostgreSQL role + database, then exit
   doctor           Check toolchain, ports and database, then exit
 
@@ -78,6 +86,11 @@ Environment:
                        (default: backend/.env, else $DEFAULT_DB_URL)
   MYRIAD_PSQL_ADMIN    Superuser psql command used by db-setup
                        (default: auto-detected)
+  MYRIAD_PG_BREW_FORMULA
+                       Homebrew formula to start/stop (e.g. postgresql@18).
+                       Auto-detected when unset.
+  MYRIAD_PGDATA        PostgreSQL data directory for pg_ctl fallback.
+  MYRIAD_PG_CTL        Path to pg_ctl when not on PATH.
 
 Docker-based equivalent: scripts/dev/dev.sh
 Native deployment guide: docs/deployment/NATIVE_DEPLOYMENT.md
@@ -86,7 +99,7 @@ EOF
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        up|db-setup|doctor) COMMAND="$1" ;;
+        up|db-start|db-stop|db-status|db-setup|doctor) COMMAND="$1" ;;
         --backend-only)  RUN_FRONTEND=0 ;;
         --frontend-only) RUN_BACKEND=0 ;;
         --release)       CARGO_RELEASE=1 ;;
@@ -141,17 +154,384 @@ port_pids() {
     fi
 }
 
-# 0 = reachable. Prefers pg_isready; falls back to an actual connect.
+# 0 = reachable, 1 = unreachable, 3 = no client tools to probe with.
+# NOTE: do not forward pg_isready's raw exit codes — it uses 2 for "no
+# response", which must not be confused with "can't tell".
 db_reachable() {
     if have pg_isready; then
-        pg_isready -q -h "$DB_HOST" -p "$DB_PORT" -d "$DB_NAME" -U "$DB_USER" >/dev/null 2>&1
+        if pg_isready -q -h "$DB_HOST" -p "$DB_PORT" -d "$DB_NAME" -U "$DB_USER" >/dev/null 2>&1; then
+            return 0
+        fi
+        return 1
     elif have psql; then
         # -w: never prompt. A probe that blocks on a password prompt is worse
         # than one that fails.
-        PGPASSWORD="$DB_PASS" psql -w "$DB_URL" -tAc 'SELECT 1' >/dev/null 2>&1
+        if PGPASSWORD="$DB_PASS" psql -w "$DB_URL" -tAc 'SELECT 1' >/dev/null 2>&1; then
+            return 0
+        fi
+        return 1
     else
-        return 2   # can't tell
+        return 3   # can't tell
     fi
+}
+
+# True when DATABASE_URL targets this machine — only then may we start/stop the
+# OS PostgreSQL service. Remote hosts are never touched.
+db_is_local_host() {
+    case "$DB_HOST" in
+        localhost|127.0.0.1|::1|0.0.0.0|"") return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# --- Native PostgreSQL lifecycle --------------------------------------------
+# Prefer Homebrew services (macOS), then systemd (Linux packages), then pg_ctl
+# with an explicit/auto data directory. Never drive Docker from this script.
+
+PG_BACKEND=""          # brew | systemd | pg_ctl | ""
+PG_BREW_FORMULA=""
+PG_CTL_BIN=""
+PG_DATA_DIR=""
+PG_SYSTEMD_UNIT=""
+
+detect_pg_backend() {
+    [ -n "$PG_BACKEND" ] && return 0
+
+    # Explicit brew formula wins.
+    if [ -n "${MYRIAD_PG_BREW_FORMULA:-}" ] && have brew; then
+        PG_BACKEND="brew"
+        PG_BREW_FORMULA="$MYRIAD_PG_BREW_FORMULA"
+        return 0
+    fi
+
+    # Homebrew: pick an installed postgresql@N / postgresql formula. Prefer one
+    # already marked started in `brew services list`, else the highest version.
+    if have brew; then
+        local list formula started="" candidates="" f ver best="" best_ver=-1
+        list="$(brew services list 2>/dev/null || true)"
+        # shellcheck disable=SC2013
+        for formula in $(brew list --formula 2>/dev/null | grep -E '^postgresql(@[0-9]+)?$' || true); do
+            candidates="$candidates $formula"
+            if printf '%s\n' "$list" | awk -v f="$formula" '$1 == f && $2 == "started" { found=1 } END { exit !found }'; then
+                started="$formula"
+            fi
+            ver="${formula#postgresql@}"
+            [ "$ver" = "$formula" ] && ver=0
+            if [[ "$ver" =~ ^[0-9]+$ ]] && [ "$ver" -gt "$best_ver" ]; then
+                best_ver="$ver"
+                best="$formula"
+            fi
+        done
+        if [ -n "$started" ]; then
+            PG_BACKEND="brew"
+            PG_BREW_FORMULA="$started"
+            return 0
+        fi
+        if [ -n "$best" ]; then
+            PG_BACKEND="brew"
+            PG_BREW_FORMULA="$best"
+            return 0
+        fi
+        # Formula present via opt path even if brew list is odd.
+        for f in postgresql@18 postgresql@17 postgresql@16 postgresql; do
+            if [ -d "/opt/homebrew/opt/$f" ] || [ -d "/usr/local/opt/$f" ]; then
+                PG_BACKEND="brew"
+                PG_BREW_FORMULA="$f"
+                return 0
+            fi
+        done
+    fi
+
+    # systemd unit (Debian/Ubuntu/Fedora packages).
+    if have systemctl; then
+        local unit
+        for unit in postgresql postgresql@16-main postgresql@17-main postgresql@18-main \
+                    postgresql-16 postgresql-17 postgresql-18; do
+            if systemctl cat "$unit" >/dev/null 2>&1; then
+                PG_BACKEND="systemd"
+                PG_SYSTEMD_UNIT="$unit"
+                return 0
+            fi
+        done
+        # cluster alias used by some distros
+        if systemctl list-unit-files 'postgresql*' 2>/dev/null | grep -q .; then
+            PG_BACKEND="systemd"
+            PG_SYSTEMD_UNIT="postgresql"
+            return 0
+        fi
+    fi
+
+    # pg_ctl + data directory.
+    if [ -n "${MYRIAD_PG_CTL:-}" ] && [ -x "${MYRIAD_PG_CTL}" ]; then
+        PG_CTL_BIN="$MYRIAD_PG_CTL"
+    elif have pg_ctl; then
+        PG_CTL_BIN="$(command -v pg_ctl)"
+    else
+        local cand
+        for cand in \
+            /opt/homebrew/opt/postgresql@18/bin/pg_ctl \
+            /opt/homebrew/opt/postgresql@17/bin/pg_ctl \
+            /opt/homebrew/opt/postgresql@16/bin/pg_ctl \
+            /opt/homebrew/opt/postgresql/bin/pg_ctl \
+            /usr/lib/postgresql/18/bin/pg_ctl \
+            /usr/lib/postgresql/17/bin/pg_ctl \
+            /usr/lib/postgresql/16/bin/pg_ctl \
+            /usr/local/opt/postgresql@18/bin/pg_ctl \
+            /usr/local/opt/postgresql/bin/pg_ctl
+        do
+            if [ -x "$cand" ]; then PG_CTL_BIN="$cand"; break; fi
+        done
+    fi
+
+    if [ -n "${MYRIAD_PGDATA:-}" ]; then
+        PG_DATA_DIR="$MYRIAD_PGDATA"
+    else
+        local d
+        for d in \
+            /opt/homebrew/var/postgresql@18 \
+            /opt/homebrew/var/postgresql@17 \
+            /opt/homebrew/var/postgresql@16 \
+            /opt/homebrew/var/postgres \
+            /usr/local/var/postgresql@18 \
+            /usr/local/var/postgres \
+            /var/lib/postgresql/data \
+            "$HOME/.local/share/postgresql/data"
+        do
+            if [ -d "$d" ] && [ -f "$d/PG_VERSION" ]; then
+                PG_DATA_DIR="$d"
+                break
+            fi
+        done
+    fi
+
+    if [ -n "$PG_CTL_BIN" ] && [ -n "$PG_DATA_DIR" ]; then
+        PG_BACKEND="pg_ctl"
+        return 0
+    fi
+
+    PG_BACKEND=""
+    return 1
+}
+
+pg_backend_label() {
+    detect_pg_backend || true
+    case "$PG_BACKEND" in
+        brew)    echo "brew services ($PG_BREW_FORMULA)" ;;
+        systemd) echo "systemd ($PG_SYSTEMD_UNIT)" ;;
+        pg_ctl)  echo "pg_ctl -D $PG_DATA_DIR" ;;
+        *)       echo "none detected" ;;
+    esac
+}
+
+wait_db_ready() {
+    local timeout_s="${1:-30}" waited=0 rc
+    while [ "$waited" -lt "$timeout_s" ]; do
+        rc=0
+        db_reachable || rc=$?
+        # rc 0 = up; rc 3 = no client tools — treat port listen as success below
+        if [ "$rc" -eq 0 ]; then return 0; fi
+        if [ "$rc" -eq 3 ]; then
+            # Fall back: something accepting on the DB port.
+            if [ -n "$(port_pids "$DB_PORT" | head -n 1)" ]; then return 0; fi
+        fi
+        sleep 0.5
+        waited=$((waited + 1))
+    done
+    return 1
+}
+
+db_start() {
+    parse_db_url || { err "✗ could not parse DATABASE_URL: $DB_URL"; return 1; }
+
+    if ! db_is_local_host; then
+        err "✗ refusing to start PostgreSQL: DATABASE_URL host is '$DB_HOST' (not local)"
+        err "  db-start/db-stop only manage a native server on this machine"
+        return 1
+    fi
+
+    local rc=0
+    db_reachable || rc=$?
+    if [ "$rc" -eq 0 ]; then
+        ok "✓ PostgreSQL already reachable ($DB_USER@$DB_HOST:$DB_PORT/$DB_NAME)"
+        return 0
+    fi
+
+    if ! detect_pg_backend; then
+        err "✗ no native PostgreSQL manager found (brew / systemd / pg_ctl)"
+        err "  install Postgres, or start it yourself, then re-run"
+        err "  override: MYRIAD_PG_BREW_FORMULA / MYRIAD_PGDATA / MYRIAD_PG_CTL"
+        return 1
+    fi
+
+    info "Starting PostgreSQL via $(pg_backend_label)…"
+    case "$PG_BACKEND" in
+        brew)
+            brew services start "$PG_BREW_FORMULA" || {
+                err "✗ brew services start $PG_BREW_FORMULA failed"
+                return 1
+            }
+            ;;
+        systemd)
+            if have sudo; then
+                sudo systemctl start "$PG_SYSTEMD_UNIT" || {
+                    err "✗ systemctl start $PG_SYSTEMD_UNIT failed"
+                    return 1
+                }
+            else
+                systemctl --user start "$PG_SYSTEMD_UNIT" 2>/dev/null \
+                    || systemctl start "$PG_SYSTEMD_UNIT" || {
+                    err "✗ systemctl start $PG_SYSTEMD_UNIT failed (try with sudo)"
+                    return 1
+                }
+            fi
+            ;;
+        pg_ctl)
+            "$PG_CTL_BIN" -D "$PG_DATA_DIR" -l "$PG_DATA_DIR/myriad-pg.log" start || {
+                err "✗ pg_ctl start failed (log: $PG_DATA_DIR/myriad-pg.log)"
+                return 1
+            }
+            ;;
+    esac
+
+    if wait_db_ready 40; then
+        ok "✓ PostgreSQL started — $DB_USER@$DB_HOST:$DB_PORT/$DB_NAME"
+        return 0
+    fi
+
+    err "✗ PostgreSQL was launched but is not accepting connections on $DB_HOST:$DB_PORT"
+    err "  check: $(pg_backend_label)"
+    return 1
+}
+
+db_stop() {
+    parse_db_url || { err "✗ could not parse DATABASE_URL: $DB_URL"; return 1; }
+
+    if ! db_is_local_host; then
+        err "✗ refusing to stop PostgreSQL: DATABASE_URL host is '$DB_HOST' (not local)"
+        return 1
+    fi
+
+    if ! detect_pg_backend; then
+        # Still try to report whether something is listening.
+        if [ -n "$(port_pids "$DB_PORT" | head -n 1)" ]; then
+            err "✗ PostgreSQL appears to be listening on :$DB_PORT but no manager was detected"
+            err "  stop it manually, or set MYRIAD_PG_BREW_FORMULA / MYRIAD_PGDATA"
+            return 1
+        fi
+        warn "! no native PostgreSQL manager found and nothing is listening on :$DB_PORT"
+        return 0
+    fi
+
+    info "Stopping PostgreSQL via $(pg_backend_label)…"
+    case "$PG_BACKEND" in
+        brew)
+            brew services stop "$PG_BREW_FORMULA" || {
+                err "✗ brew services stop $PG_BREW_FORMULA failed"
+                return 1
+            }
+            ;;
+        systemd)
+            if have sudo; then
+                sudo systemctl stop "$PG_SYSTEMD_UNIT" || {
+                    err "✗ systemctl stop $PG_SYSTEMD_UNIT failed"
+                    return 1
+                }
+            else
+                systemctl --user stop "$PG_SYSTEMD_UNIT" 2>/dev/null \
+                    || systemctl stop "$PG_SYSTEMD_UNIT" || {
+                    err "✗ systemctl stop $PG_SYSTEMD_UNIT failed (try with sudo)"
+                    return 1
+                }
+            fi
+            ;;
+        pg_ctl)
+            # Only stop if this data dir is the one running — avoid killing a
+            # foreign cluster that happens to share the port.
+            if ! "$PG_CTL_BIN" -D "$PG_DATA_DIR" status >/dev/null 2>&1; then
+                warn "! pg_ctl reports cluster not running at $PG_DATA_DIR"
+                return 0
+            fi
+            "$PG_CTL_BIN" -D "$PG_DATA_DIR" -m fast stop || {
+                err "✗ pg_ctl stop failed"
+                return 1
+            }
+            ;;
+    esac
+
+    # Wait until the port is free / not accepting (best-effort).
+    local waited=0
+    while [ "$waited" -lt 30 ]; do
+        if ! db_reachable 2>/dev/null; then
+            # db_reachable returns non-zero when down — good. But rc=3 means
+            # unknown; also require the listen port to be gone when we can tell.
+            if [ -z "$(port_pids "$DB_PORT" | head -n 1)" ]; then
+                ok "✓ PostgreSQL stopped"
+                return 0
+            fi
+        fi
+        sleep 0.5
+        waited=$((waited + 1))
+    done
+
+    # Some installs keep the process registered but closed connections slowly.
+    if db_reachable 2>/dev/null; then
+        err "✗ PostgreSQL still reachable on $DB_HOST:$DB_PORT after stop"
+        return 1
+    fi
+    ok "✓ PostgreSQL stop issued ($(pg_backend_label))"
+}
+
+db_status() {
+    parse_db_url || { err "✗ could not parse DATABASE_URL: $DB_URL"; return 1; }
+
+    echo "================================================"
+    echo "  Myriad Native Dev — database"
+    echo "================================================"
+    echo -e "  ${DIM}url host${NC}  ${DB_USER}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
+    if db_is_local_host; then
+        ok "  ✓ host is local — start/stop are allowed"
+    else
+        warn "  ! host is remote — db-start/db-stop will refuse"
+    fi
+
+    detect_pg_backend || true
+    echo -e "  ${DIM}manager${NC}  $(pg_backend_label)"
+
+    local rc=0
+    db_reachable || rc=$?
+    case "$rc" in
+        0) ok   "  ✓ reachable" ;;
+        3) warn "  ? no pg_isready/psql — cannot verify connectivity" ;;
+        *) err  "  ✗ not reachable" ;;
+    esac
+
+    local pids
+    pids="$(port_pids "$DB_PORT" | tr '\n' ' ')"
+    if [ -n "${pids// /}" ]; then
+        echo -e "  ${DIM}listen${NC}   :$DB_PORT PID(s) ${pids% }"
+    else
+        echo -e "  ${DIM}listen${NC}   :$DB_PORT free"
+    fi
+
+    if [ "$PG_BACKEND" = "brew" ] && have brew; then
+        local line
+        line="$(brew services list 2>/dev/null | awk -v f="$PG_BREW_FORMULA" '$1 == f { print; exit }')"
+        [ -n "$line" ] && echo -e "  ${DIM}brew${NC}     $line"
+    fi
+    if [ "$PG_BACKEND" = "systemd" ] && have systemctl; then
+        systemctl is-active --quiet "$PG_SYSTEMD_UNIT" 2>/dev/null \
+            && ok "  ✓ systemd unit active" \
+            || warn "  ! systemd unit inactive"
+    fi
+    if [ "$PG_BACKEND" = "pg_ctl" ] && [ -n "$PG_CTL_BIN" ] && [ -n "$PG_DATA_DIR" ]; then
+        if "$PG_CTL_BIN" -D "$PG_DATA_DIR" status >/dev/null 2>&1; then
+            ok "  ✓ pg_ctl cluster running"
+        else
+            warn "  ! pg_ctl cluster not running"
+        fi
+    fi
+    echo ""
+    [ "$rc" -eq 0 ]
 }
 
 check_tools() {
@@ -239,12 +619,25 @@ doctor() {
             err "  ✗ could not parse DATABASE_URL: $DB_URL"
         else
             echo -e "  ${DIM}${DB_USER}@${DB_HOST}:${DB_PORT}/${DB_NAME}${NC}"
+            detect_pg_backend || true
+            if db_is_local_host; then
+                echo -e "  ${DIM}manager  $(pg_backend_label)${NC}"
+            else
+                echo -e "  ${DIM}manager  skipped (remote host)${NC}"
+            fi
             local rc=0
             db_reachable || rc=$?
             case "$rc" in
                 0) ok   "  ✓ reachable" ;;
-                2) warn "  ? no pg_isready/psql — cannot verify from here" ;;
-                *) err  "  ✗ not reachable — start PostgreSQL, or run: $0 db-setup" ;;
+                3) warn "  ? no pg_isready/psql — cannot verify from here" ;;
+                *)
+                    err  "  ✗ not reachable"
+                    if db_is_local_host; then
+                        err  "    try: $0 db-start   then   $0 db-setup"
+                    else
+                        err  "    start the remote PostgreSQL or fix DATABASE_URL"
+                    fi
+                    ;;
             esac
         fi
         echo ""
@@ -271,22 +664,45 @@ db_setup() {
     parse_db_url || { err "✗ could not parse DATABASE_URL: $DB_URL"; exit 1; }
     have psql || { err "✗ psql not found — install the PostgreSQL client tools"; exit 1; }
 
+    # Bring a local server up first when we can manage it.
+    local rc=0
+    db_reachable || rc=$?
+    if [ "$rc" -ne 0 ] && [ "$rc" -ne 3 ] && db_is_local_host; then
+        info "PostgreSQL not reachable — attempting db-start…"
+        db_start || exit 1
+    elif [ "$rc" -ne 0 ] && [ "$rc" -ne 3 ]; then
+        err "✗ database unreachable: $DB_USER@$DB_HOST:$DB_PORT/$DB_NAME"
+        exit 1
+    fi
+
     info "Creating role '$DB_USER' and database '$DB_NAME' on $DB_HOST:$DB_PORT…"
 
-    # Pick a superuser connection: an explicit override, a local 'postgres'
-    # role (common on Homebrew/Arch), then sudo -u postgres (Debian/Ubuntu).
+    # Pick a superuser connection, in order:
+    #   1. explicit MYRIAD_PSQL_ADMIN override
+    #   2. peer/trust as the current OS user (Homebrew Postgres on macOS —
+    #      the installing user is the cluster superuser; there is often no
+    #      'postgres' OS account)
+    #   3. a local 'postgres' role over TCP (common on Arch / some brew setups)
+    #   4. sudo -u postgres (Debian/Ubuntu packages)
     local -a admin
     if [ -n "${MYRIAD_PSQL_ADMIN:-}" ]; then
         read -r -a admin <<< "$MYRIAD_PSQL_ADMIN"
-    elif psql -w -U postgres -h "$DB_HOST" -p "$DB_PORT" -tAc 'SELECT 1' >/dev/null 2>&1; then
+    elif psql -w -d postgres -tAc 'SELECT 1' >/dev/null 2>&1; then
+        admin=(psql -d postgres)
+    elif psql -w -U postgres -h "$DB_HOST" -p "$DB_PORT" -d postgres -tAc 'SELECT 1' >/dev/null 2>&1; then
         # Probed with -w so a password prompt can't hang the detection; the
         # chosen command omits it so a real run may still prompt if needed.
-        admin=(psql -U postgres -h "$DB_HOST" -p "$DB_PORT")
+        admin=(psql -U postgres -h "$DB_HOST" -p "$DB_PORT" -d postgres)
+    elif have sudo && sudo -n -u postgres true >/dev/null 2>&1 \
+         && sudo -u postgres psql -d postgres -tAc 'SELECT 1' >/dev/null 2>&1; then
+        admin=(sudo -u postgres psql -d postgres)
     elif have sudo; then
-        admin=(sudo -u postgres psql)
+        # May prompt for a password; last resort on Debian/Ubuntu.
+        admin=(sudo -u postgres psql -d postgres)
     else
         err "✗ no superuser psql route found"
-        err "  set MYRIAD_PSQL_ADMIN, e.g. MYRIAD_PSQL_ADMIN='sudo -u postgres psql'"
+        err "  set MYRIAD_PSQL_ADMIN, e.g. MYRIAD_PSQL_ADMIN='psql -d postgres'"
+        err "  or on Debian/Ubuntu: MYRIAD_PSQL_ADMIN='sudo -u postgres psql'"
         exit 1
     fi
 
@@ -313,6 +729,7 @@ SQL
 # --- Service supervision ---------------------------------------------------
 BACKEND_PID=""
 FRONTEND_PID=""
+FRONTEND_LOG_PID=""
 SHUTTING_DOWN=0
 
 # Tag each line so two services can share one terminal.
@@ -363,6 +780,37 @@ kill_tree() {
     kill -"$sig" "$pid" 2>/dev/null || true
 }
 
+# Astro 7 backgrounds the real dev server (non-TTY or after spawn) and the
+# launcher (`pnpm`/`astro`) exits 0 immediately. Track the process that is
+# actually listening on FRONTEND_PORT instead of the short-lived launcher.
+wait_for_listen_pid() {
+    local port="$1" timeout_s="${2:-30}" waited=0 pid
+    while [ "$waited" -lt "$timeout_s" ]; do
+        pid="$(port_pids "$port" | head -n 1 | tr -d '[:space:]')"
+        if [ -n "$pid" ]; then
+            echo "$pid"
+            return 0
+        fi
+        sleep 0.2
+        waited=$((waited + 1))
+    done
+    return 1
+}
+
+stop_frontend() {
+    # Prefer Astro's own stop so it clears its lock/pid file cleanly.
+    if [ -x "$FRONTEND_DIR/node_modules/.bin/astro" ]; then
+        ( cd "$FRONTEND_DIR" && ./node_modules/.bin/astro dev stop ) >/dev/null 2>&1 || true
+    fi
+    kill_tree TERM "$FRONTEND_LOG_PID"
+    kill_tree TERM "$FRONTEND_PID"
+    # Free the port in case a detached node lingered past astro stop.
+    local p
+    for p in $(port_pids "$FRONTEND_PORT"); do
+        kill_tree TERM "$p"
+    done
+}
+
 # One Ctrl-C stops everything. Interactive SIGINT already reaches the whole
 # foreground group; re-signalling here is harmless and makes `kill <script>`
 # behave identically.
@@ -373,16 +821,21 @@ shutdown() {
     echo ""
     info "Stopping services…"
     kill_tree TERM "$BACKEND_PID"
-    kill_tree TERM "$FRONTEND_PID"
+    stop_frontend
 
     local waited=0
-    while alive "$BACKEND_PID" || alive "$FRONTEND_PID"; do
+    while alive "$BACKEND_PID" || alive "$FRONTEND_PID" || alive "$FRONTEND_LOG_PID"; do
         sleep 0.2
         waited=$((waited + 1))
         if [ "$waited" -ge 50 ]; then      # 10s grace, then force
             warn "  services did not exit in 10s — sending SIGKILL"
             kill_tree KILL "$BACKEND_PID"
+            kill_tree KILL "$FRONTEND_LOG_PID"
             kill_tree KILL "$FRONTEND_PID"
+            local p
+            for p in $(port_pids "$FRONTEND_PORT"); do
+                kill_tree KILL "$p"
+            done
             break
         fi
     done
@@ -416,11 +869,22 @@ up() {
         db_reachable || rc=$?
         case "$rc" in
             0) ok "  ✓ database reachable ($DB_USER@$DB_HOST:$DB_PORT/$DB_NAME)" ;;
-            2) warn "  ! no pg_isready/psql to verify the database — starting anyway" ;;
+            3) warn "  ! no pg_isready/psql to verify the database — starting anyway" ;;
             *)
-                err "  ✗ database unreachable: $DB_USER@$DB_HOST:$DB_PORT/$DB_NAME"
-                err "    start PostgreSQL, then create the role/db:  $0 db-setup"
-                exit 1
+                if db_is_local_host; then
+                    info "  database down — starting native PostgreSQL…"
+                    if db_start; then
+                        ok "  ✓ database reachable ($DB_USER@$DB_HOST:$DB_PORT/$DB_NAME)"
+                    else
+                        err "  ✗ database unreachable: $DB_USER@$DB_HOST:$DB_PORT/$DB_NAME"
+                        err "    fix Postgres, then:  $0 db-start && $0 db-setup"
+                        exit 1
+                    fi
+                else
+                    err "  ✗ database unreachable: $DB_USER@$DB_HOST:$DB_PORT/$DB_NAME"
+                    err "    remote host — start that PostgreSQL yourself (db-start only manages localhost)"
+                    exit 1
+                fi
                 ;;
         esac
     fi
@@ -444,21 +908,76 @@ up() {
         echo -e "  ${MAGENTA}backend${NC}   http://localhost:$BACKEND_PORT  (pid $BACKEND_PID)"
     fi
     if [ "$RUN_FRONTEND" -eq 1 ]; then
+        # Astro 7 detaches the real server; start it, then re-attach to the
+        # listener PID and stream logs with `astro dev logs --follow`.
         start_service "[frontend]" "$BLUE" "$FRONTEND_DIR" pnpm run dev
-        FRONTEND_PID="$STARTED_PID"
-        echo -e "  ${BLUE}frontend${NC}  http://localhost:$FRONTEND_PORT  (pid $FRONTEND_PID)"
+        local launcher_pid="$STARTED_PID"
+        local listen_pid=""
+        if listen_pid="$(wait_for_listen_pid "$FRONTEND_PORT" 60)"; then
+            FRONTEND_PID="$listen_pid"
+            # Drain the short-lived launcher so it doesn't sit as a zombie.
+            wait "$launcher_pid" 2>/dev/null || true
+            # Follow Astro's background log stream (blocks until stop).
+            start_service "[frontend]" "$BLUE" "$FRONTEND_DIR" \
+                ./node_modules/.bin/astro dev logs --follow
+            FRONTEND_LOG_PID="$STARTED_PID"
+            echo -e "  ${BLUE}frontend${NC}  http://localhost:$FRONTEND_PORT  (pid $FRONTEND_PID)"
+        else
+            err "✗ frontend did not bind :$FRONTEND_PORT within 60s"
+            wait "$launcher_pid" 2>/dev/null || true
+            shutdown
+            exit 1
+        fi
     fi
     echo ""
 
-    # Wake on the first child to exit, then take the other one down with it.
-    local -a running=()
-    [ -n "$BACKEND_PID" ]  && running+=("$BACKEND_PID")
-    [ -n "$FRONTEND_PID" ] && running+=("$FRONTEND_PID")
-
+    # Wake when the first supervised process exits, then take the others down.
+    # Prefer bash 4.3+ `wait -n` when available; fall back to a poll loop for
+    # macOS /bin/bash 3.2 which rejects `wait -n` as an invalid option.
+    # FRONTEND_PID is often not our direct child (Astro-detached node), so the
+    # poll path also checks it with kill -0; wait -n only covers direct children.
     local status=0
     set +e
-    wait -n "${running[@]}"
-    status=$?
+    if [ -n "${BASH_VERSINFO:-}" ] && {
+           [ "${BASH_VERSINFO[0]}" -gt 4 ] ||
+           { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 3 ]; }
+       }; then
+        local -a running=()
+        [ -n "$BACKEND_PID" ]      && running+=("$BACKEND_PID")
+        [ -n "$FRONTEND_LOG_PID" ] && running+=("$FRONTEND_LOG_PID")
+        # Poll loop still needed for detached FRONTEND_PID; race wait -n with poll.
+        (
+            while [ "$SHUTTING_DOWN" -eq 0 ]; do
+                if [ -n "$FRONTEND_PID" ] && ! alive "$FRONTEND_PID"; then
+                    exit 91
+                fi
+                sleep 0.5
+            done
+        ) &
+        local poll_pid=$!
+        wait -n "${running[@]}" "$poll_pid"
+        status=$?
+        kill "$poll_pid" 2>/dev/null || true
+        wait "$poll_pid" 2>/dev/null || true
+    else
+        while [ "$SHUTTING_DOWN" -eq 0 ]; do
+            if [ -n "$BACKEND_PID" ] && ! alive "$BACKEND_PID"; then
+                wait "$BACKEND_PID" 2>/dev/null
+                status=$?
+                break
+            fi
+            if [ -n "$FRONTEND_PID" ] && ! alive "$FRONTEND_PID"; then
+                status=0
+                break
+            fi
+            if [ -n "$FRONTEND_LOG_PID" ] && ! alive "$FRONTEND_LOG_PID"; then
+                wait "$FRONTEND_LOG_PID" 2>/dev/null
+                status=$?
+                break
+            fi
+            sleep 0.5
+        done
+    fi
     set -e
 
     if [ "$SHUTTING_DOWN" -eq 0 ]; then
@@ -477,7 +996,10 @@ up() {
 }
 
 case "$COMMAND" in
-    doctor)   doctor ;;
-    db-setup) db_setup ;;
-    up)       up ;;
+    doctor)    doctor ;;
+    db-start)  db_start ;;
+    db-stop)   db_stop ;;
+    db-status) db_status ;;
+    db-setup)  db_setup ;;
+    up)        up ;;
 esac

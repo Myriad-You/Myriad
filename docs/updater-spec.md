@@ -487,7 +487,7 @@ MYRIAD_DB_MODE=external
 - **诊断字段**（`GET /snapshots` 与 `POST /prefs` 响应）：`snapshot_limit_enabled`、`snapshot_limit`、
   `eligible_count`（可自动删的份数）、`protected_count`（keep / in-use）、`total_count`、
   以及本次 prune 的 `pruned_snapshot_ids`（可能为空）。前端据此展示有效计数，并在 status
-  缺少 `snapshot_limit*` 时提示 updater 镜像可能过旧（需 self-update / `UPDATER_TAG`）。
+  缺少 `snapshot_limit*` 时提示 updater 镜像可能过旧（需宿主运维按摘要策略升级 TCB）。
 - **磁盘一致性**：meta 跟踪的 id 若 `remove_dir_all` 失败须打 error/warn 且**不得**从
   `snapshots.json` 删除该 id；prune 后扫 `state/snapshots/` 下不在 JSON 中、且名称符合
   安全模式（opaque id / `{id}.tmp` / `broken-inplace-*` / `restore-stage-*`）的孤儿目录并清理。
@@ -515,7 +515,7 @@ docker-compose (v1)   ← fallback
 
 - 不直接修改 `compose.yaml`
 - 普通更新只修改 `.env` 中的 `MYRIAD_TAG`
-- self-update 只修改 `.env` 中的 `UPDATER_TAG`
+- updater 不修改自身或 docker-guard 的版本；`UPDATER_TAG` 与 Guard 摘要仅由宿主运维流程更新
 - `PROXY_TAG` 目前由人工编辑 `.env` 后运行 `scripts/docker/deploy.sh upgrade`
 - compose 文件必须用 `${MYRIAD_TAG}` 引用版本变量
 - 启动时验证 compose 引用了这些变量，没有则拒绝启动
@@ -635,7 +635,7 @@ proxy 通道开关：proxy 启动时读 `PROXY_ALLOW_DIRECT_UPDATER`，未开启
 | GET | `/jobs/{id}` | token | 任务详细 log |
 | POST | `/update` | token | `{target_version, allow_skip_versions: false}` |
 | POST | `/rollback` | token | `{snapshot_id}` |
-| POST | `/admin/self-update` | token | updater 自更新 |
+| POST | `/admin/self-update` | token | 一键请求可信 TCB 交接；Updater 仅提交 tag intent |
 | POST | `/admin/proxy-update` | token | 手动升级 proxy（可选 body `{target_version}`；默认频道最新 release） |
 | GET | `/snapshots` | token | 可恢复快照 |
 | POST | `/rescue/exit-maintenance` | token + manual | 强制清维护 |
@@ -670,42 +670,52 @@ proxy 通道开关：proxy 启动时读 `PROXY_ALLOW_DIRECT_UPDATER`，未开启
 不存在都会在进入维护模式前失败。release 模式不使用此回退，仍要求 release manifest、
 迁移元数据和镜像摘要校验。
 
-## 14. 自更新
+## 14. 更新 Guard / updater TCB
 
-### 14.1 两阶段独立
+### 14.1 只允许宿主机运维升级
 
-```
-1. updater 检测 self_update_required=true 或自身版本 < min_updater_version
-2. 标记 state/pending-self-update.json
-3. 没有进行中任务时：
-   a. 经 docker-guard pull <new-updater> 并校验 digest
-   b. 改 .env 的 UPDATER_TAG
-   c. 调用 docker-guard 的鉴权 self-update 端点（X-Update-Token）
-   d. docker-guard 延迟后执行 **固定 argv** 的 TCB 自替换：
-        docker compose up -d --no-deps docker-guard updater updater-gateway
-      该次 compose 走 **unix:///var/run/docker.sock**（直连宿主 daemon），
-      不经过 guard 的 policy proxy。原因：create 白名单只有
-      backend|frontend|postgres|updater，无法经 API 创建 `docker-guard` /
-      `updater-gateway`；自替换是固定 compose 服务列表，不是任意 Docker API。
-      为避免「在 guard 容器内 recreate 自己」中途被杀，compose 由短生命周期
-      helper 容器（同一 updater 镜像、entrypoint=`myriad-tcb-self-update`）执行。
-      请求体携带 `previous_tag` / `target_tag`（安全字符集校验）。
-```
+Guard 持有 Docker socket，是独立于 updater 的宿主 TCB。运行中的 updater、其 API、
+`UPDATE_TOKEN` 和 updater 可写的 `.env` 都不得选择仓库、镜像 digest、Guard 命令或
+Compose 服务集合。`POST /admin/self-update` 保留一键体验；Updater 使用宿主策略中的
+专用 capability 向 Guard 的 `/_myriad/self-update` 提交 `{target_tag, trust_path}`，请求体
+拒绝额外 repo、digest、command。Guard network 隔离是第一层边界，capability 用于避免
+错误接入 guard-net 的其他容器直接触发 TCB 操作；它不用于防御本就有权读该值的 updater。
 
-**必须同时重建 `docker-guard`、`updater` 与 `updater-gateway`**：三者共用
-`UPDATER_TAG` 镜像；只重建 updater 会使 guard/gateway 二进制落后于 tag。
+生产 Guard 镜像必须来自宿主机持有的 `docker-guard.env`，且形式严格为
+`docker.io/somekawahitomi/myriad-updater@sha256:<64 hex>`。Guard 启动时通过原始 socket
+inspect 自身容器，要求实际 `Config.Image` 与 `DOCKER_GUARD_EXPECTED_IMAGE` 完全一致。
+`.env`、Updater 提供的仓库/digest 或 updater 状态均不是该身份的权威来源。
 
-其余 updater 日常流量仍经 `DOCKER_HOST=tcp://docker-guard:2375` 受请求体策略约束。
+当前私有仓库阶段的自动交接流程（#265 的显式 `dockerhub_tag` 路径）：
 
-调度仍是异步（HTTP 202）：updater 改写 `.env` 后请求 docker-guard，guard 延迟后启动
-短生命周期 helper（`myriad-tcb-self-update`，compose 目录 **rw** 挂载、`network=none`）。
-- **调度 HTTP 失败**：updater 进程立即把 `UPDATER_TAG` 恢复为旧值。
-- **helper 的 `compose up docker-guard updater updater-gateway` 失败**：helper 将
-  `UPDATER_TAG` 恢复为请求体中的 `previous_tag`，并写入部署卷上的耐久状态
-  `state/self-update-last.json`（`status: succeeded|failed`、tags、`at`、可选 `error`）。
-- **成功路径**：重建三者并写 `status: succeeded`。
-- **可见性**：`GET /status`（token）返回可选字段 `self_update_last`；亦可
-  `GET /self-update/last`。backend admin 代理原样转发 `/status`。
+1. Guard 只接受 `vX.Y.Z` / `dev-<sha>`，固定编译内置的官方 updater 仓库；tag 仅是意图。
+2. Guard 通过宿主 Docker daemon 拉取 `official_repo:tag`，从实际镜像 `RepoDigests` 得到
+   `official_repo@sha256`；禁止 release semver 与镜像创建时间回退。
+3. Guard 先确认当前 updater/gateway 与宿主固定的旧 Guard digest 一致，再从目标精确
+   digest 启动固定入口 `myriad-tcb-self-update`。请求方不能提供 entrypoint/argv/mount。
+4. 交接程序校验渲染后的三项服务模型、镜像、网络、挂载、entrypoint 与安全选项，只执行
+   `docker compose up --no-deps --force-recreate docker-guard updater updater-gateway`。
+5. 成功时原子写入 `.env` 的 `UPDATER_TAG` / `UPDATER_IMAGE_REF` 与宿主策略的
+   `DOCKER_GUARD_IMAGE`；任一步失败恢复旧文件并用旧精确 digest 回滚。状态写入
+   `state/self-update-last.json`，UI 在短暂断线后轮询结果。
+
+这里的“原子”仅指单个策略文件的临时文件替换，不表示 Docker Compose 的三容器切换是
+事务。交接程序以固定摘要、健康检查、稳定性等待和最多两次回滚收敛保证最终一致；Guard
+异常重启时从保留的固定 helper 容器恢复意图，且在 helper 未清理或回滚未收敛时保持
+Docker mutation gate 关闭。
+三次旧摘要恢复都失败时，Guard 将失败 helper 固定重命名为
+`myriad-tcb-self-update-recovery-exhausted`；该 Docker daemon sentinel 跨 Guard 重启保留，
+阻止重启后重置重试预算。宿主完成手动 TCB 恢复和校验后才能删除它并重启 Guard。
+
+该路径信任 Docker Hub 官方仓库身份和 TLS/registry 控制面。Guard 解析出的 registry
+digest **没有**与签名 release manifest 中的 `expected_digest` 做字节级绑定，因此不声称
+做了 release.json/Cosign 验证。公开 GA 前按 #265 增加该签名证明路径；正常用户操作仍
+保持同一个一键按钮。
+4. 运行 `deploy.sh doctor`，确认运行镜像与期望 digest 完全一致且无旧版动态策略/token。
+
+回滚同样由宿主把策略文件恢复到此前已验证的 digest 后重建 TCB。不得从 updater 的
+`state/` 或 `.env` 自动决定回滚 Guard 身份。业务镜像的日常更新仍经
+`DOCKER_HOST=tcp://docker-guard:2375` 受固定请求体与镜像策略约束。
 
 ### 14.4 手动 proxy 升级的失败回退（轻量）
 
@@ -727,7 +737,7 @@ proxy 通道开关：proxy 启动时读 `PROXY_ALLOW_DIRECT_UPDATER`，未开启
 
 ```
 # 先修改 .env 中的 UPDATER_TAG，再由宿主 Docker CLI 重建 TCB 服务
-docker compose up -d docker-guard updater updater-gateway
+docker compose --env-file .env --env-file /etc/myriad/docker-guard.env up -d docker-guard updater updater-gateway
 ```
 
 ### 14.3 前向兼容
@@ -774,8 +784,8 @@ docker compose up -d docker-guard updater updater-gateway
   面板改 project / container_name / 外来网络 / pgdata named volume 时，应在此阶段被拦下。
 - **updater 不在业务 `myriad-net`**：frontend/postgres 与 updater HTTP 无共享 L2；
   backend 经 admin-net 访问 `updater-gateway`。
-- **推荐部署中 backend 进程不持有 `UPDATE_TOKEN`**：token 仅在 updater、updater-gateway、
-  docker-guard（自更新鉴权）环境中；gateway 在 admin-net 上注入 header。攻击面从
+- **推荐部署中 backend 进程不持有 `UPDATE_TOKEN`**：token 仅在 updater、updater-gateway
+  环境中；Guard 不持有 updater 凭据，gateway 在 admin-net 上注入 header。攻击面从
   胖 backend 进程剥离。
 - **backend→gateway 另需 `UPDATER_GATEWAY_SECRET`**（≥32）：admin-net 上的 peer 不能在
   无 secret 时调用 gateway 代理路由。泄露 gateway secret ≈ 可驱动更新（仍优于
@@ -801,7 +811,7 @@ docker compose up -d docker-guard updater updater-gateway
 - `UPDATER_GATEWAY_SECRET` 必须 ≥ 32 字符（backend + updater-gateway）
 - 启动时检查不在弱密码列表（UPDATE_TOKEN）
 - 5 次/min 401 后封 10min（updater token）
-- 生产 compose：`UPDATE_TOKEN` 注入 updater / updater-gateway / docker-guard；**不**注入 backend
+- 生产 compose：`UPDATE_TOKEN` 只注入 updater / updater-gateway；**不**注入 backend 或 docker-guard
 - 生产 compose：`UPDATER_GATEWAY_SECRET` 注入 backend + updater-gateway；**不**注入 frontend
 
 ### 15.4 release.json 校验
@@ -844,7 +854,7 @@ M2：cosign 签名（已实现）
 | `audit: pre_swap_cleanup_ok job=…` | swap 前失败后已重启上一栈并退出维护 |
 | `audit: pre_swap_restore_failed job=…` | swap 前失败且重启上一栈也失败 → needs_manual |
 | `audit: rollback_start job=… snapshot=…` | 独立回滚任务开始 |
-| `audit: self_update_scheduled …` | 自更新已调度（docker-guard 执行双服务重建） |
+| `audit: self_update_* …` | TCB 一键交接请求、trust path、目标 tag 与执行结果 |
 | `audit: job_terminal job=… status=…` | 任意 job finalize（Succeeded/Failed/NeedsManual 等） |
 | `audit: rescue_*` | rescue CLI / API（exit maintenance、continue、forget、rollback） |
 
@@ -919,7 +929,7 @@ E2E 实际覆盖（11 项 / 全过，2026-07-17）：
   `/:/host` 恶意 bind create
 - rescue CLI 在 updater 运行时仍可调（无 lock 冲突）
 
-> 完整升级 + 回滚 + self-update flow 的 manual 验证需要本地 `docker compose up -d` + 至少
+> 完整业务升级 + 回滚 flow 的 manual 验证需要本地 `docker compose up -d` + 至少
 > 一个真实 release.json on GitHub。第一个公开 tag (`v0.1.0`) 是天然的端到端测试。
 
 ## 18. 实施分期
@@ -927,7 +937,7 @@ E2E 实际覆盖（11 项 / 全过，2026-07-17）：
 ### M1（必须，v1.0 包含）
 
 - §1-9, §10-13 完整实现
-- §14.1 自更新最小通路
+- §14.1 Guard 独立固定官方仓库/digest 并自动交接 TCB
 - §16 日志 + rescue CLI
 - §17 测试矩阵全过
 

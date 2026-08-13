@@ -53,20 +53,28 @@ html.gcp-panel-open [data-tapp-run-shell] {
   transform-origin: top right;
   overflow: hidden;
 
-  /* 默认收缩状�? */
+  /* 默认收缩状态 */
   flex-direction: row;
   justify-content: flex-start;
   width: 160px;
   height: 3rem;
-  padding: 0.5rem 0.875rem;
   border-radius: 2rem;
 
-  /* 形变动画 - Apple 标准曲线 */
+  /* padding 全程保持展开终值，不参与 morph：
+     收缩态唯一的可见内容 .dynamic-content-wrapper 是绝对定位
+     （相对 padding box 定位，padding 改变不影响它），展开态内容宽度固定，
+     因此收缩态的 padding 不产生任何视觉差异 —— 少一个每帧触发布局的属性。
+     改回逐帧过渡 padding 前请先确认这两个前提仍然成立 */
+  padding: 1.125rem 1.375rem;
+
+  /* 形变动画 - Apple 标准曲线。
+     时长由 --gcp-morph 下发（见 ControlPanel/panelTransition.ts 的档位表），
+     展开/收缩内容的 delay 与 duration 都按同一变量的比例计算，
+     两条时间线不会因为改时长而错位 */
   transition:
-    width 0.7s cubic-bezier(0.32, 0.72, 0, 1),
-    height 0.7s cubic-bezier(0.32, 0.72, 0, 1),
-    padding 0.7s cubic-bezier(0.32, 0.72, 0, 1),
-    border-radius 0.7s cubic-bezier(0.32, 0.72, 0, 1),
+    width var(--gcp-morph, 700ms) cubic-bezier(0.32, 0.72, 0, 1),
+    height var(--gcp-morph, 700ms) cubic-bezier(0.32, 0.72, 0, 1),
+    border-radius var(--gcp-morph, 700ms) cubic-bezier(0.32, 0.72, 0, 1),
     transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
     background 0.25s ease,
     border-color 0.25s ease,
@@ -96,6 +104,21 @@ html.dark .control-bar-trigger {
   }
 }
 
+/* 低性能 / reduced-motion 档位（JS 挂 gcp-freeze-blur）：桌面端同样把
+   模糊移出 morph 热路径。桌面标准档不挂该类，观感与既有实现一致 */
+.control-bar-trigger.gcp-animating.gcp-freeze-blur {
+  backdrop-filter: none;
+}
+
+/* 非空间档位（reduced-motion / 最低档）：外壳直接换形，只保留一次短促的
+   opacity 交接。同一状态机、同一 DOM，只换 transition profile */
+.control-bar-trigger.gcp-no-morph {
+  transition:
+    background 0.25s ease,
+    border-color 0.25s ease,
+    box-shadow 0.25s ease;
+}
+
 /*
  * 悬停/按下缩放：仅闲置收缩态。
  * 必须排除 .gcp-animating：点右上角关闭时手指仍按在岛内，
@@ -103,21 +126,29 @@ html.dark .control-bar-trigger {
  * 与 width/height 收起动画抢 transform，Android 上表现为关闭动画错误；
  * 点遮罩关闭时手指不在岛上，不会踩这条路径。
  */
-.control-bar-trigger:not(.expanded, .gcp-animating):hover {
-  background: rgb(255 255 255 / 95%);
-  transform: scale(1.03);
-  box-shadow:
-    0 8px 24px rgb(0 0 0 / 12%),
-    0 4px 12px rgb(0 0 0 / 8%);
-  border-color: rgb(0 0 0 / 15%);
-}
 
-html.dark .control-bar-trigger:not(.expanded, .gcp-animating):hover {
-  background: rgb(26 26 26 / 95%);
-  box-shadow:
-    0 8px 24px rgb(0 0 0 / 80%),
-    0 4px 12px rgb(0 0 0 / 60%);
-  border-color: rgb(255 255 255 / 15%);
+/* 必须限定 hover: hover —— 安卓 Chrome 上触摸后 :hover 会粘滞在元素上，
+   直到点击别处才清除。收起动画期间 .gcp-animating 挡住了这条分支，
+   但 morph 结束摘掉该类的瞬间粘滞的 hover 立刻生效，岛会自己再涨一下；
+   点遮罩关闭时手指不在岛上则没有这条尾巴 —— 两条关闭路径观感因此不一致。
+   :active 不加限定：触屏上按下反馈是正常的，且已被 .gcp-animating 排除 */
+@media (hover: hover) {
+  .control-bar-trigger:not(.expanded, .gcp-animating):hover {
+    background: rgb(255 255 255 / 95%);
+    transform: scale(1.03);
+    box-shadow:
+      0 8px 24px rgb(0 0 0 / 12%),
+      0 4px 12px rgb(0 0 0 / 8%);
+    border-color: rgb(0 0 0 / 15%);
+  }
+
+  html.dark .control-bar-trigger:not(.expanded, .gcp-animating):hover {
+    background: rgb(26 26 26 / 95%);
+    box-shadow:
+      0 8px 24px rgb(0 0 0 / 80%),
+      0 4px 12px rgb(0 0 0 / 60%);
+    border-color: rgb(255 255 255 / 15%);
+  }
 }
 
 .control-bar-trigger:not(.expanded, .gcp-animating):active {
@@ -131,8 +162,7 @@ html.dark .control-bar-trigger:not(.expanded, .gcp-animating):hover {
   align-items: stretch;
   width: 400px;
 
-  /* 高度通过 JS 动态设�? */
-  padding: 1.125rem 1.375rem;
+  /* 高度通过 JS 动态设置；padding 见基础规则（全程保持此终值，不参与 morph） */
   border-radius: 1.5rem;
   box-shadow:
     0 16px 56px rgb(0 0 0 / 18%),
@@ -157,8 +187,12 @@ html.dark .control-bar-trigger.expanded {
   gap: 0.5rem;
   position: absolute;
   top: 50%;
-  left: 0.875rem;
+
+  /* 右缘锚定 + 固定宽度 = 收缩终值（160px 外壳 - 2px 边框 - 左右各 0.875rem）。
+     不再用 left/right 双向锚定：那会让宽度跟着外壳 morph 逐帧变化，
+     每帧重排图标/文本，并让跑马灯的溢出测量在动画中途失真 */
   right: 0.875rem;
+  width: calc(160px - 2px - 1.75rem);
   transform: translateY(-50%) translateZ(0);
   cursor: pointer;
   white-space: nowrap;
@@ -179,8 +213,20 @@ html.dark .control-bar-trigger.expanded {
   opacity: 0;
   pointer-events: none;
 
-  /* 柔和的淡出效�?- 使用 ease-in 曲线，从慢到�? */
+  /* 柔和的淡出效果 - 使用 ease-in 曲线，从慢到快 */
   transition: opacity 0.3s cubic-bezier(0.4, 0, 1, 1);
+}
+
+/* 收起阶段：收缩内容在外壳缩到大半时接手淡入，与 morph 共用同一条时间线。
+   延迟按 --gcp-morph 比例计算，不是写死的毫秒数，改档位不会错位。
+   只作用于收起相位，轮播换页的淡入不受影响 */
+.control-bar-trigger.gcp-closing .dynamic-content-wrapper {
+  transition-delay: calc(var(--gcp-morph, 700ms) * 0.35);
+}
+
+.control-bar-trigger.gcp-no-morph .dynamic-content-wrapper,
+.control-bar-trigger.gcp-no-morph .dynamic-content-wrapper.hidden {
+  transition-duration: var(--gcp-morph, 120ms);
 }
 
 /* 无内容时的居中样�? */
@@ -211,8 +257,10 @@ html.dark .control-bar-trigger.expanded {
   object-fit: contain;
 }
 
-.control-bar-trigger:not(.expanded, .gcp-animating):hover .dynamic-icon {
-  transform: scale(1.1);
+@media (hover: hover) {
+  .control-bar-trigger:not(.expanded, .gcp-animating):hover .dynamic-icon {
+    transform: scale(1.1);
+  }
 }
 
 .dynamic-text {
@@ -281,9 +329,11 @@ html.dark .control-bar-trigger.expanded {
   }
 }
 
-/* 悬停时暂停滚�? */
-.control-bar-trigger:hover .dynamic-text-main.scrolling {
-  animation-play-state: paused;
+/* 悬停时暂停滚动。限定 hover: hover：触屏上粘滞的 hover 会让跑马灯一直停住 */
+@media (hover: hover) {
+  .control-bar-trigger:hover .dynamic-text-main.scrolling {
+    animation-play-state: paused;
+  }
 }
 
 .dynamic-text-main::-webkit-scrollbar {
@@ -307,14 +357,16 @@ html.dark .dynamic-text-main::-webkit-scrollbar-thumb {
   background: rgb(255 255 255 / 20%);
 }
 
-.control-bar-trigger:not(.expanded, .gcp-animating):hover .dynamic-text-main {
-  color: var(--text-primary, #111827);
-}
+@media (hover: hover) {
+  .control-bar-trigger:not(.expanded, .gcp-animating):hover .dynamic-text-main {
+    color: var(--text-primary, #111827);
+  }
 
-html.dark
-  .control-bar-trigger:not(.expanded, .gcp-animating):hover
-  .dynamic-text-main {
-  color: #fff;
+  html.dark
+    .control-bar-trigger:not(.expanded, .gcp-animating):hover
+    .dynamic-text-main {
+    color: #fff;
+  }
 }
 
 .dynamic-text-sub {
@@ -332,14 +384,16 @@ html.dark .dynamic-text-sub {
   color: rgb(255 255 255 / 50%);
 }
 
-.control-bar-trigger:not(.expanded, .gcp-animating):hover .dynamic-text-sub {
-  color: var(--text-secondary, #4b5563);
-}
+@media (hover: hover) {
+  .control-bar-trigger:not(.expanded, .gcp-animating):hover .dynamic-text-sub {
+    color: var(--text-secondary, #4b5563);
+  }
 
-html.dark
-  .control-bar-trigger:not(.expanded, .gcp-animating):hover
-  .dynamic-text-sub {
-  color: rgb(255 255 255 / 70%);
+  html.dark
+    .control-bar-trigger:not(.expanded, .gcp-animating):hover
+    .dynamic-text-sub {
+    color: rgb(255 255 255 / 70%);
+  }
 }
 
 .dynamic-arrow {
@@ -351,9 +405,11 @@ html.dark
   color: currentcolor;
 }
 
-.control-bar-trigger:not(.expanded, .gcp-animating):hover .dynamic-arrow {
-  opacity: 0.8;
-  transform: translateY(2px) scale(1.1);
+@media (hover: hover) {
+  .control-bar-trigger:not(.expanded, .gcp-animating):hover .dynamic-arrow {
+    opacity: 0.8;
+    transform: translateY(2px) scale(1.1);
+  }
 }
 
 .control-bar-trigger:not(.expanded, .gcp-animating):active .dynamic-arrow {
@@ -385,11 +441,12 @@ html.dark
 
   /* visibility 延迟到淡出结束后再翻转为 hidden：
    * 收起时 .expanded 与 .visible 同帧移除，若 visibility 立即生效，
-   * opacity 淡出完全不可见（退出动画丢失的根因之一） */
+   * opacity 淡出完全不可见（退出动画丢失的根因之一）。
+   * 时长按 --gcp-morph 比例取（0.36/0.43 ≈ 标准档的 0.25s/0.3s） */
   transition:
-    opacity 0.25s ease-in,
-    transform 0.3s ease-in,
-    visibility 0s linear 0.3s;
+    opacity calc(var(--gcp-morph, 700ms) * 0.36) ease-in,
+    transform calc(var(--gcp-morph, 700ms) * 0.43) ease-in,
+    visibility 0s linear calc(var(--gcp-morph, 700ms) * 0.43);
   pointer-events: none;
   visibility: hidden;
 }
@@ -405,14 +462,35 @@ html.dark
   content-visibility: hidden;
 }
 
+/* 展开内容与外壳同一帧开始参与渲染，靠 transition-delay 在 morph 露出足够
+   面积后接手淡入（标准档 ≈ 210ms 起、350ms 完成）。
+   旧实现用固定 400ms 定时器再 setState，掉帧或改时长都会错位，
+   并且必然先出现一段空壳 —— 这里的 delay/duration 全部由 --gcp-morph 派生 */
 .expanded-panel-content.visible {
   opacity: 1;
   transform: scale(1);
   pointer-events: auto;
   visibility: visible;
   transition:
-    opacity 0.35s ease-out,
-    transform 0.4s cubic-bezier(0.25, 0.1, 0.25, 1),
+    opacity calc(var(--gcp-morph, 700ms) * 0.5) ease-out
+      calc(var(--gcp-morph, 700ms) * 0.3),
+    transform calc(var(--gcp-morph, 700ms) * 0.57)
+      cubic-bezier(0.25, 0.1, 0.25, 1) calc(var(--gcp-morph, 700ms) * 0.3),
+    visibility 0s;
+}
+
+/* 非空间档位：不做缩放，只留一次短促淡入淡出 */
+.control-bar-trigger.gcp-no-morph .expanded-panel-content {
+  transform: none;
+  transition:
+    opacity var(--gcp-morph, 120ms) linear,
+    visibility 0s linear var(--gcp-morph, 120ms);
+}
+
+.control-bar-trigger.gcp-no-morph .expanded-panel-content.visible {
+  transform: none;
+  transition:
+    opacity var(--gcp-morph, 120ms) linear,
     visibility 0s;
 }
 
@@ -446,17 +524,23 @@ html.dark .control-panel-header {
   transition: all 0.2s ease;
 }
 
-.control-close-btn:hover {
-  background: rgb(0 0 0 / 10%);
-  color: var(--text-primary);
+/* 限定 hover: hover：触屏点按后 :hover 会粘滞，会让某个控制项一直停在悬停态 */
+@media (hover: hover) {
+  .control-close-btn:hover {
+    background: rgb(0 0 0 / 10%);
+    color: var(--text-primary);
+  }
 }
 
 html.dark .control-close-btn {
   background: rgb(255 255 255 / 5%);
 }
 
-html.dark .control-close-btn:hover {
-  background: rgb(255 255 255 / 10%);
+/* 限定 hover: hover：触屏点按后 :hover 会粘滞，会让某个控制项一直停在悬停态 */
+@media (hover: hover) {
+  html.dark .control-close-btn:hover {
+    background: rgb(255 255 255 / 10%);
+  }
 }
 
 /* ==========================================
@@ -498,15 +582,18 @@ html.dark .info-card {
   border-color: rgb(255 255 255 / 10%);
 }
 
-.info-card:hover {
-  background: rgb(0 0 0 / 5%);
-  border-color: rgb(0 0 0 / 12%);
-  transform: translateY(-1px);
-}
+/* 限定 hover: hover：触屏点按后 :hover 会粘滞，会让某个控制项一直停在悬停态 */
+@media (hover: hover) {
+  .info-card:hover {
+    background: rgb(0 0 0 / 5%);
+    border-color: rgb(0 0 0 / 12%);
+    transform: translateY(-1px);
+  }
 
-html.dark .info-card:hover {
-  background: rgb(255 255 255 / 6%);
-  border-color: rgb(255 255 255 / 15%);
+  html.dark .info-card:hover {
+    background: rgb(255 255 255 / 6%);
+    border-color: rgb(255 255 255 / 15%);
+  }
 }
 
 .info-card-header {
@@ -589,26 +676,29 @@ html.dark .control-item {
   );
 }
 
-.control-item:hover {
-  background: rgb(255 255 255 / 70%);
-  border-color: color-mix(
-    in srgb,
-    var(--color-primary, #94a3b8) 20%,
-    transparent
-  );
-}
+/* 限定 hover: hover：触屏点按后 :hover 会粘滞，会让某个控制项一直停在悬停态 */
+@media (hover: hover) {
+  .control-item:hover {
+    background: rgb(255 255 255 / 70%);
+    border-color: color-mix(
+      in srgb,
+      var(--color-primary, #94a3b8) 20%,
+      transparent
+    );
+  }
 
-html.dark .control-item:hover {
-  background: color-mix(
-    in srgb,
-    var(--color-primary, #94a3b8) 15%,
-    transparent
-  );
-  border-color: color-mix(
-    in srgb,
-    var(--color-primary, #94a3b8) 25%,
-    transparent
-  );
+  html.dark .control-item:hover {
+    background: color-mix(
+      in srgb,
+      var(--color-primary, #94a3b8) 15%,
+      transparent
+    );
+    border-color: color-mix(
+      in srgb,
+      var(--color-primary, #94a3b8) 25%,
+      transparent
+    );
+  }
 }
 
 .control-item-info {
@@ -763,8 +853,11 @@ html.dark .icon-theme {
   min-height: 1.375rem;
 }
 
-.control-toggle:hover {
-  background: #9ca3af;
+/* 限定 hover: hover：触屏点按后 :hover 会粘滞，会让某个控制项一直停在悬停态 */
+@media (hover: hover) {
+  .control-toggle:hover {
+    background: #9ca3af;
+  }
 }
 
 .control-toggle.active {
@@ -782,12 +875,15 @@ html.dark .icon-theme {
     color-mix(in srgb, var(--color-primary, #94a3b8) 12%, transparent);
 }
 
-.control-toggle.animation-toggle.performance-light:hover {
-  background: color-mix(
-    in srgb,
-    var(--color-primary, #94a3b8) 42%,
-    transparent
-  );
+/* 限定 hover: hover：触屏点按后 :hover 会粘滞，会让某个控制项一直停在悬停态 */
+@media (hover: hover) {
+  .control-toggle.animation-toggle.performance-light:hover {
+    background: color-mix(
+      in srgb,
+      var(--color-primary, #94a3b8) 42%,
+      transparent
+    );
+  }
 }
 
 .control-toggle.animation-toggle.performance-standard.active {
@@ -796,12 +892,15 @@ html.dark .icon-theme {
     color-mix(in srgb, var(--color-primary, #94a3b8) 12%, transparent);
 }
 
-.control-toggle.active:hover {
-  background: color-mix(in srgb, var(--color-primary, #94a3b8) 90%, black);
-}
+/* 限定 hover: hover：触屏点按后 :hover 会粘滞，会让某个控制项一直停在悬停态 */
+@media (hover: hover) {
+  .control-toggle.active:hover {
+    background: color-mix(in srgb, var(--color-primary, #94a3b8) 90%, black);
+  }
 
-.control-toggle.animation-toggle.performance-standard.active:hover {
-  background: color-mix(in srgb, var(--color-primary, #94a3b8) 90%, black);
+  .control-toggle.animation-toggle.performance-standard.active:hover {
+    background: color-mix(in srgb, var(--color-primary, #94a3b8) 90%, black);
+  }
 }
 
 .control-toggle-slider {
@@ -850,17 +949,20 @@ html.dark .icon-theme {
   transition: all 0.2s ease;
 }
 
-.language-switch-btn:hover {
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--color-primary, #94a3b8) 20%, transparent),
-    color-mix(in srgb, var(--color-secondary, #94a3b8) 15%, transparent)
-  );
-  border-color: color-mix(
-    in srgb,
-    var(--color-primary, #94a3b8) 50%,
-    transparent
-  );
+/* 限定 hover: hover：触屏点按后 :hover 会粘滞，会让某个控制项一直停在悬停态 */
+@media (hover: hover) {
+  .language-switch-btn:hover {
+    background: linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--color-primary, #94a3b8) 20%, transparent),
+      color-mix(in srgb, var(--color-secondary, #94a3b8) 15%, transparent)
+    );
+    border-color: color-mix(
+      in srgb,
+      var(--color-primary, #94a3b8) 50%,
+      transparent
+    );
+  }
 }
 
 .language-switch-btn:active {
@@ -914,26 +1016,29 @@ html.dark .control-action-btn {
   );
 }
 
-.control-action-btn:hover {
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--color-primary, #94a3b8) 25%, transparent),
-    color-mix(in srgb, var(--color-secondary, #94a3b8) 20%, transparent)
-  );
-  border-color: color-mix(
-    in srgb,
-    var(--color-primary, #94a3b8) 35%,
-    transparent
-  );
-  transform: scale(1.05);
-}
+/* 限定 hover: hover：触屏点按后 :hover 会粘滞，会让某个控制项一直停在悬停态 */
+@media (hover: hover) {
+  .control-action-btn:hover {
+    background: linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--color-primary, #94a3b8) 25%, transparent),
+      color-mix(in srgb, var(--color-secondary, #94a3b8) 20%, transparent)
+    );
+    border-color: color-mix(
+      in srgb,
+      var(--color-primary, #94a3b8) 35%,
+      transparent
+    );
+    transform: scale(1.05);
+  }
 
-html.dark .control-action-btn:hover {
-  border-color: color-mix(
-    in srgb,
-    var(--color-primary, #94a3b8) 45%,
-    transparent
-  );
+  html.dark .control-action-btn:hover {
+    border-color: color-mix(
+      in srgb,
+      var(--color-primary, #94a3b8) 45%,
+      transparent
+    );
+  }
 }
 
 .control-action-btn:active {
@@ -958,9 +1063,11 @@ html.dark .control-action-btn:hover {
 
   /* visibility 延迟到淡出结束再隐藏：既保住淡出动画，
      又让收起后的遮罩层（含全屏 backdrop-filter）彻底退出渲染管线 */
+  /* 与展开内容同一套比例：标准档 ≈ 0.3s，exlight 120ms 时一起收掉，
+     不再出现外壳已经换形、遮罩还在淡的错位 */
   transition:
-    opacity 0.3s ease,
-    visibility 0s linear 0.3s;
+    opacity calc(var(--gcp-morph, 700ms) * 0.43) ease,
+    visibility 0s linear calc(var(--gcp-morph, 700ms) * 0.43);
   pointer-events: none;
   visibility: hidden;
 }
@@ -970,8 +1077,30 @@ html.dark .control-action-btn:hover {
   pointer-events: auto;
   visibility: visible;
   transition:
-    opacity 0.3s ease,
+    opacity calc(var(--gcp-morph, 700ms) * 0.43) ease,
     visibility 0s;
+}
+
+/* 移动端 / 低性能 / reduced-motion：全屏 backdrop-filter 不在 morph 期间工作。
+   morph 时只做遮罩底色淡入（合成即可），外壳稳定后再把模糊淡上来。
+   桌面标准档不挂 defer-blur，走上面的既有规则，观感一字不改 */
+.control-panel-overlay.defer-blur {
+  backdrop-filter: blur(0);
+  transition:
+    opacity calc(var(--gcp-morph, 700ms) * 0.43) ease,
+    backdrop-filter calc(var(--gcp-morph, 700ms) * 0.36) ease,
+    visibility 0s linear calc(var(--gcp-morph, 700ms) * 0.43);
+}
+
+.control-panel-overlay.defer-blur.visible {
+  transition:
+    opacity calc(var(--gcp-morph, 700ms) * 0.43) ease,
+    backdrop-filter calc(var(--gcp-morph, 700ms) * 0.36) ease,
+    visibility 0s;
+}
+
+.control-panel-overlay.defer-blur.blurred {
+  backdrop-filter: blur(8px);
 }
 
 html.dark .control-panel-overlay {
@@ -986,10 +1115,6 @@ html.dark .control-panel-overlay {
   .global-control-bar {
     top: 0.75rem;
     right: 0.75rem;
-  }
-
-  .control-bar-trigger {
-    padding: 0.625rem 1rem;
   }
 
   .control-bar-trigger.expanded {
@@ -1197,11 +1322,15 @@ html.dark .control-panel-overlay {
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.control-bar-trigger:not(.expanded, .gcp-animating):hover .dynamic-arrow-badge {
-  transform: scale(1.1);
+@media (hover: hover) {
+  .control-bar-trigger:not(.expanded, .gcp-animating):hover
+    .dynamic-arrow-badge {
+    transform: scale(1.1);
+  }
 }
 
-.control-bar-trigger:not(.expanded, .gcp-animating):active .dynamic-arrow-badge {
+.control-bar-trigger:not(.expanded, .gcp-animating):active
+  .dynamic-arrow-badge {
   transform: scale(1.05);
 }
 
@@ -1285,23 +1414,52 @@ html.dark .control-panel-overlay {
   min-width: 0;
   width: 100%;
   max-width: 100%;
+  transition: opacity var(--gcp-tab, 180ms) ease;
 }
 
 /* 切到通知 tab 时隐藏但保留布局（懒加载项出现仍可触发高度重测）。
    必须用容器级 opacity 而非 visibility：visibility 会继承给子元素，
    且作为离散可过渡属性会被子元素各自的 transition: all（0.2s/0.3s
    不等）拖延到各自时长结束才消失——表现为元素一个个错峰退场。
-   opacity 不继承、只在容器层合成，子元素计算值不变，整块瞬时消失 */
+   opacity 不继承、只在容器层合成，整块作为一个表面一起进出 */
 .notif-control-content.inactive {
   opacity: 0;
   pointer-events: none;
 }
 
-/* 通知覆盖层：完全跟随控制面板内容的尺寸 */
+/* 通知覆盖层：完全跟随控制面板内容的尺寸。
+   两个表面共用容器与稳定高度，用一次同步的交叉淡入换页：
+   旧表面淡完才 visibility:hidden（不卸载 → 不触发外壳重新 morph），
+   也不会出现「先空一下再逐个出现」的硬切 */
 .notif-overlay {
   position: absolute;
   inset: 0;
   display: flex;
   flex-direction: column;
   min-height: 0;
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transition:
+    opacity var(--gcp-tab, 180ms) ease,
+    visibility 0s linear var(--gcp-tab, 180ms);
+}
+
+.notif-overlay.active {
+  opacity: 1;
+  pointer-events: auto;
+  visibility: visible;
+  transition:
+    opacity var(--gcp-tab, 180ms) ease,
+    visibility 0s;
+}
+
+/* 通知列表是懒挂载的：首次切过去时元素带着 .active 直接插入 DOM，
+   没有前一帧的计算值就不会产生过渡，表现为控制面板淡出、通知硬切进来。
+   @starting-style 给出插入前的初始值，让首次进入与之后的往返一样是交叉淡入
+   （不用 rAF/定时器补一帧，避免再引入一条独立时间线） */
+@starting-style {
+  .notif-overlay.active {
+    opacity: 0;
+  }
 }

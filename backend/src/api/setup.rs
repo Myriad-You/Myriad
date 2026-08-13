@@ -1,5 +1,6 @@
 use crate::error::{status_json_to_http, HttpError};
 use axum::{
+    extract::ConnectInfo,
     http::{HeaderMap, StatusCode},
     Json,
 };
@@ -9,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::env;
 use std::fs;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use url::Url;
 
@@ -254,6 +256,37 @@ pub async fn init_database(
             crate::SCHEMA_READY.store(true, std::sync::atomic::Ordering::Release);
             tracing::info!("✅ Schema check/heals completed after setup migrations");
 
+            // A legacy database may already contain users. `ensure_schema` can
+            // promote its durable owner during migration, which claims the
+            // installation just as surely as create-admin does. Otherwise,
+            // consume the database-init secret and mint a distinct owner-claim
+            // capability in the server-local token file.
+            let installation_claimed = check_admin_user_exists(&db).await;
+            if installation_claimed {
+                if let Err(error) = crate::api::setup_bootstrap::consume_bootstrap() {
+                    tracing::error!(%error, "database initialization claimed installation but token cleanup failed");
+                    let _ = crate::api::setup_bootstrap::invalidate_bootstrap_in_memory();
+                    return Err(status_json_to_http((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({
+                            "error": "Bootstrap capability cleanup failed",
+                            "message": "数据库已存在所有者，但无法持久化安装关闭状态；当前进程已拒绝继续安装操作，请检查数据目录权限。"
+                        })),
+                    )));
+                }
+            } else if let Err(error) =
+                crate::api::setup_bootstrap::rotate_bootstrap_after_database_initialization()
+            {
+                tracing::error!(%error, "failed to rotate bootstrap capability after database initialization");
+                return Err(status_json_to_http((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({
+                        "error": "Bootstrap capability rotation failed",
+                        "message": "数据库已初始化，但无法安全轮换创建所有者所需的引导令牌；请检查数据目录权限并重启服务。"
+                    })),
+                )));
+            }
+
             // List all tables in the database
             let tables_result = db
                 .query_all_raw(Statement::from_sql_and_values(
@@ -312,6 +345,7 @@ pub async fn init_database(
                 "success": true,
                 "message": message,
                 "recreated": false,
+                "bootstrap_capability_rotated": !installation_claimed,
                 "verification": {
                     "total_tables": total_tables,
                     "users_table": users_exists,
@@ -337,8 +371,11 @@ pub async fn init_database(
 /// Initialize .env file from .env.example
 ///
 /// 保护：CONFIG_MODE + 引导令牌（实例此前已配置过时）。
-pub async fn initialize_env_file(headers: HeaderMap) -> Result<Json<Value>, HttpError> {
-    crate::api::setup_bootstrap::require_bootstrap(&headers).map_err(HttpError)?;
+pub async fn initialize_env_file(
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, HttpError> {
+    crate::api::setup_bootstrap::require_bootstrap(&headers, peer.ip()).map_err(HttpError)?;
 
     // Only allow in CONFIG_MODE
     let config_mode = crate::CONFIG_MODE.load(std::sync::atomic::Ordering::Relaxed);
@@ -442,10 +479,11 @@ pub struct EnvUpdateRequest {
 ///
 /// 保护：CONFIG_MODE + 引导令牌（实例此前已配置过时）+ 值语法校验。
 pub async fn update_env_file(
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Json(config): Json<EnvUpdateRequest>,
 ) -> Result<Json<Value>, HttpError> {
-    crate::api::setup_bootstrap::require_bootstrap(&headers).map_err(HttpError)?;
+    crate::api::setup_bootstrap::require_bootstrap(&headers, peer.ip()).map_err(HttpError)?;
 
     // Only allow in CONFIG_MODE
     let config_mode = crate::CONFIG_MODE.load(std::sync::atomic::Ordering::Relaxed);
@@ -702,13 +740,14 @@ fn build_database_url(config: &DatabaseConfigRequest) -> Result<String, String> 
 /// Save database configuration to .env file (专门用于配置数据库)
 /// 安全保护：只能在 CONFIG_MODE 下修改数据库配置
 pub async fn save_database_config(
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Json(config): Json<DatabaseConfigRequest>,
 ) -> Result<Json<Value>, HttpError> {
     // 这是最危险的端点：它能把实例重新指向任意 PostgreSQL。
     // CONFIG_MODE 本身会因为数据库故障自动开启，所以它不足以作为唯一门槛 ——
     // 已配置过的实例还必须提供 .bootstrap-token / MYRIAD_BOOTSTRAP_TOKEN。
-    crate::api::setup_bootstrap::require_bootstrap(&headers).map_err(HttpError)?;
+    crate::api::setup_bootstrap::require_bootstrap(&headers, peer.ip()).map_err(HttpError)?;
 
     // P0 安全修复：强制要求 CONFIG_MODE
     let config_mode = crate::CONFIG_MODE.load(std::sync::atomic::Ordering::Relaxed);

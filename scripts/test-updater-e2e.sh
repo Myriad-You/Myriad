@@ -24,9 +24,9 @@ TESTBED="${TESTBED:-/tmp/myriad-e2e}"
 # Prefer CARGO_TARGET_DIR when set (shared cache builds), else package-local target/.
 CARGO_TARGET="${CARGO_TARGET_DIR:-}"
 if [ -z "$CARGO_TARGET" ]; then
-  if [ -x "$ROOT/updater/target/release/myriad-updater" ]; then
+  if [ -x "$ROOT/updater/target/debug/myriad-updater" ]; then
     CARGO_TARGET="$ROOT/updater/target"
-  elif [ -x "${HOME}/.cache/cargo-targets/release/myriad-updater" ]; then
+  elif [ -x "${HOME}/.cache/cargo-targets/debug/myriad-updater" ]; then
     CARGO_TARGET="${HOME}/.cache/cargo-targets"
   else
     CARGO_TARGET="$ROOT/updater/target"
@@ -42,10 +42,11 @@ if [ -z "$PROXY_TARGET" ]; then
     PROXY_TARGET="$ROOT/proxy/target"
   fi
 fi
-UPDATER_BIN="${UPDATER_BIN:-$CARGO_TARGET/release/myriad-updater}"
-RESCUE_BIN="${RESCUE_BIN:-$CARGO_TARGET/release/myriad-rescue}"
+UPDATER_BIN="${UPDATER_BIN:-$CARGO_TARGET/debug/myriad-updater}"
+RESCUE_BIN="${RESCUE_BIN:-$CARGO_TARGET/debug/myriad-rescue}"
 PROXY_BIN="${PROXY_BIN:-$PROXY_TARGET/release/myriad-proxy}"
-DOCKER_GUARD_BIN="${DOCKER_GUARD_BIN:-$CARGO_TARGET/release/myriad-docker-guard}"
+DOCKER_GUARD_IMAGE="${DOCKER_GUARD_E2E_IMAGE:-myriad-updater-dev:e2e}"
+DOCKER_GUARD_CONTAINER="myriad-e2e-docker-guard-${DOCKER_GUARD_PORT:-19375}"
 UPDATER_PORT="${UPDATER_PORT:-19090}"
 PROXY_PORT="${PROXY_PORT:-18080}"
 DOCKER_GUARD_PORT="${DOCKER_GUARD_PORT:-19375}"
@@ -82,6 +83,7 @@ cleanup() {
     [ -n "$UPDATER_PID" ] && kill "$UPDATER_PID" 2>/dev/null
     [ -n "$PROXY_PID" ] && kill "$PROXY_PID" 2>/dev/null
     [ -n "$DOCKER_GUARD_PID" ] && kill "$DOCKER_GUARD_PID" 2>/dev/null
+    host_docker rm -f "$DOCKER_GUARD_CONTAINER" >/dev/null 2>&1 || true
     [ -n "$E2E_NETWORK_CREATED" ] && host_docker network rm "$E2E_DOCKER_NETWORK" >/dev/null 2>&1
     # Wait briefly for processes to exit
     wait 2>/dev/null
@@ -89,16 +91,29 @@ cleanup() {
 trap cleanup EXIT
 
 # Pre-flight: binaries must exist
-[ -x "$UPDATER_BIN" ] || fail "updater binary missing: $UPDATER_BIN (run: cd updater && cargo build --release --bins)"
+[ -x "$UPDATER_BIN" ] || fail "debug updater binary missing: $UPDATER_BIN (run: cd updater && cargo build --bins)"
 [ -x "$RESCUE_BIN" ]  || fail "rescue binary missing: $RESCUE_BIN"
 [ -x "$PROXY_BIN" ]   || fail "proxy binary missing: $PROXY_BIN (run: cd proxy && cargo build --release)"
-[ -x "$DOCKER_GUARD_BIN" ] || fail "docker guard binary missing: $DOCKER_GUARD_BIN"
+
+# Guard's production identity check deliberately cannot run a host binary. Build
+# an explicit debug-only container: release builds reject the unpinned dev tag.
+info "Building debug-only docker guard image $DOCKER_GUARD_IMAGE"
+host_docker build --build-arg CARGO_PROFILE=dev -t "$DOCKER_GUARD_IMAGE" -f updater/Dockerfile . >/dev/null
 
 info "Preparing testbed at $TESTBED"
 rm -rf "$TESTBED"
 mkdir -p "$TESTBED"/{state,pgdata,backups}
 
 # Minimal compose file referencing the required tag variables (probe needs this).
+cat > "$TESTBED/docker-guard.env" <<EOF
+DOCKER_GUARD_IMAGE=$DOCKER_GUARD_IMAGE
+GUARD_COMPOSE_PROJECT_NAME=myriad-e2e
+GUARD_MYRIAD_DOCKER_NETWORK=$E2E_DOCKER_NETWORK
+GUARD_MYRIAD_ADMIN_NETWORK=myriad-admin-net
+GUARD_MYRIAD_DOCKER_GUARD_NETWORK=myriad-e2e-guard
+MYRIAD_GUARD_ENV_FILE=$TESTBED/docker-guard.env
+EOF
+
 cat > "$TESTBED/compose.yaml" <<'YML'
 services:
   postgres:
@@ -106,13 +121,18 @@ services:
   backend:
     image: postgres:18-alpine
   frontend:
-    image: example/myriad-frontend:${MYRIAD_TAG}
+    image: docker.io/somekawahitomi/myriad-frontend:${MYRIAD_TAG}
   proxy:
-    image: example/myriad-proxy:${PROXY_TAG}
+    image: docker.io/somekawahitomi/myriad-proxy:${PROXY_TAG}
   updater:
     image: postgres:18-alpine
+    network_mode: none
     volumes:
-      - ./:/host/compose
+      - ./:/host/compose:ro
+      - ./.env:/host/compose/.env:rw
+      - ./state:/host/compose/state:rw
+      - ./pgdata:/host/compose/pgdata:rw
+      - ./docker-guard.env:/run/secrets/docker-guard.env:ro
 networks:
   default:
     name: ${E2E_DOCKER_NETWORK}
@@ -143,17 +163,24 @@ if ! host_docker network inspect "$E2E_DOCKER_NETWORK" >/dev/null 2>&1; then
     host_docker network create "$E2E_DOCKER_NETWORK" >/dev/null
     E2E_NETWORK_CREATED=1
 fi
-info "Starting docker guard on :$DOCKER_GUARD_PORT"
-DOCKER_GUARD_LISTEN="127.0.0.1:$DOCKER_GUARD_PORT" \
-DOCKER_GUARD_HOST_COMPOSE_ROOT="$TESTBED" \
-DOCKER_GUARD_COMPOSE_DIR="$TESTBED" \
-DOCKER_GUARD_ENV_FILE="$TESTBED/.env" \
-MYRIAD_DOCKER_NETWORK="$E2E_DOCKER_NETWORK" \
-MYRIAD_DOCKER_GUARD_NETWORK="myriad-e2e-guard" \
-DOCKER_GUARD_ALLOWED_IMAGES="example/myriad-backend,example/myriad-frontend,example/myriad-updater,postgres" \
-  "$DOCKER_GUARD_BIN" >"$TESTBED/docker-guard.log" 2>&1 &
+info "Starting docker guard container on :$DOCKER_GUARD_PORT"
+host_docker run --rm --name "$DOCKER_GUARD_CONTAINER" --network host \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v "$TESTBED:$TESTBED:ro" \
+  -e DOCKER_GUARD_LISTEN="127.0.0.1:$DOCKER_GUARD_PORT" \
+  -e DOCKER_GUARD_HOST_COMPOSE_ROOT="$TESTBED" \
+  -e DOCKER_GUARD_COMPOSE_DIR="$TESTBED" \
+  -e DOCKER_GUARD_EXPECTED_IMAGE="$DOCKER_GUARD_IMAGE" \
+  -e DOCKER_GUARD_ALLOW_UNPINNED_DEV=true \
+  -e DOCKER_GUARD_HOST_POLICY_PATH="$TESTBED/docker-guard.env" \
+  -e COMPOSE_PROJECT_NAME="myriad-e2e" \
+  -e MYRIAD_DOCKER_NETWORK="$E2E_DOCKER_NETWORK" \
+  -e MYRIAD_DOCKER_GUARD_NETWORK="myriad-e2e-guard" \
+  --entrypoint /usr/local/bin/myriad-docker-guard \
+  "$DOCKER_GUARD_IMAGE" >"$TESTBED/docker-guard.log" 2>&1 &
 DOCKER_GUARD_PID=$!
 export DOCKER_HOST="tcp://127.0.0.1:$DOCKER_GUARD_PORT"
+export UPDATER_DEBUG_GUARDED_DOCKER_HOST="$DOCKER_HOST"
 
 # pgdata: stub a layout that satisfies the probe (it just needs a directory)
 mkdir -p "$TESTBED/pgdata/PG_VERSION_STUB"
@@ -246,7 +273,7 @@ check_docker_guard_policy() {
     bind_code=$(curl -s -o /dev/null -w '%{http_code}' \
         -X POST "http://127.0.0.1:$DOCKER_GUARD_PORT/v1.51/containers/create?name=host-breakout" \
         -H 'Content-Type: application/json' \
-        -d '{"Image":"example/myriad-backend:v1","Labels":{"com.docker.compose.project":"myriad-e2e","com.docker.compose.service":"backend"},"HostConfig":{"Binds":["/:/host:rw"]}}')
+        -d '{"Image":"docker.io/somekawahitomi/myriad-backend:v1","Labels":{"com.docker.compose.project":"myriad-e2e","com.docker.compose.service":"backend"},"HostConfig":{"Binds":["/:/host:rw"]}}')
     [ "$bind_code" = "403" ] || return 1
 
     mv "$TESTBED/pgdata" "$TESTBED/pgdata.real"
@@ -262,7 +289,7 @@ check_docker_guard_policy() {
     propagation_code=$(curl -s -o /dev/null -w '%{http_code}' \
         -X POST "http://127.0.0.1:$DOCKER_GUARD_PORT/v1.51/containers/create?name=propagation-breakout" \
         -H 'Content-Type: application/json' \
-        -d "{\"Image\":\"example/myriad-updater:v1\",\"Labels\":{\"com.docker.compose.project\":\"myriad-e2e\",\"com.docker.compose.service\":\"updater\"},\"HostConfig\":{\"Binds\":[\"$TESTBED:/host/compose:rw,rshared\"]}}")
+        -d "{\"Image\":\"docker.io/somekawahitomi/myriad-updater:v1\",\"Labels\":{\"com.docker.compose.project\":\"myriad-e2e\",\"com.docker.compose.service\":\"updater\"},\"HostConfig\":{\"Binds\":[\"$TESTBED:/host/compose:rw,rshared\"]}}")
     [ "$propagation_code" = "403" ] || return 1
 
     set +e

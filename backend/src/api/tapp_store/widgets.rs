@@ -8,7 +8,6 @@ use super::{
 };
 use axum::{
     extract::{Path, State},
-    http::HeaderMap,
     Extension, Json,
 };
 use chrono::Utc;
@@ -20,7 +19,7 @@ use serde::Deserialize;
 use std::collections::HashSet;
 
 use crate::api::tapp_runtime::RuntimeGrantContext;
-use crate::middleware::auth::{extract_optional_claims, Claims};
+use crate::middleware::auth::{Claims, OptionalClaims};
 use crate::models::entities::{tapp_widgets, tapps};
 use crate::services::permission_service::TappPermission;
 
@@ -71,9 +70,8 @@ fn tapp_widget_response(widget: &tapp_widgets::Model, is_admin_widget: bool) -> 
 
 pub(super) async fn list_all_widgets(
     State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
+    Extension(OptionalClaims(claims)): Extension<OptionalClaims>,
 ) -> Result<Json<ApiResponse<Vec<serde_json::Value>>>, HttpError> {
-    let claims = extract_optional_claims(&headers);
     let user_id = optional_authenticated_user_id(claims.as_ref());
     let is_admin = match claims.as_ref() {
         Some(claims) => current_is_admin(claims, &db).await,

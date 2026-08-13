@@ -20,6 +20,8 @@
 
 ```bash
 cd /path/to/myriad
+# 先把 docker-guard.env.example 复制到 /etc/myriad/docker-guard.env，
+# 并填入独立验证过的 updater 镜像 repo@sha256 digest（权限 0600/0640）。
 bash scripts/docker/deploy.sh up
 ```
 
@@ -29,6 +31,9 @@ bash scripts/docker/deploy.sh up
 - 创建 `./pgdata`、`./state`、`./backups`
 - 补齐 `MYRIAD_TAG`、`PROXY_TAG`、`UPDATER_TAG`、`COMPOSE_PROJECT_NAME=myriad` 等当前布局 key
 - 若 `UPDATE_TOKEN` 为空则随机生成
+- 若宿主 Guard 策略缺少 `GUARD_SELF_UPDATE_TOKEN` 则随机生成
+- 新建或仍有有效 bootstrap token 的未认领安装默认临时允许浏览器经 proxy 完成 setup；创建 owner 后再次运行
+  `deploy.sh up`，脚本会依据 `.bootstrap-claimed` 自动关闭远程 bootstrap
 - Docker 网络默认显式命名为 `myriad-net`；同机多套部署时可设置 `MYRIAD_DOCKER_NETWORK`
 
 生产布局为 proxy + updater（见 [deployment/DOCKER_DEPLOYMENT.md](./deployment/DOCKER_DEPLOYMENT.md)）。
@@ -41,19 +46,26 @@ bash scripts/docker/deploy.sh up
 proxy (80) ─┬─► frontend
             └─► backend ─► postgres
 updater (内网) ─► docker-guard ─► docker.sock
-       └──────── 单一部署根挂载（pgdata + state + .env）
+       └──────── 部署根只读 + .env/pgdata/state 精确可写
+宿主只读策略 ──► docker-guard.env（Guard 的独立镜像 digest + 自更新 capability）
 ```
 
 只有 `proxy` 暴露宿主端口。`HTTP_PORT` 可以在 `.env` 调（默认 80）。原始 Docker socket
 只挂载给 `docker-guard`；updater 通过内部网络访问经项目/镜像/请求体白名单限制的 API。
-updater 只挂载宿主部署根目录一次，宿主上的 `./pgdata`、`./state` 路径和救援命令不变。
+updater 对部署根本身只读，仅通过独立挂载写入 `./.env`、`./pgdata`、`./state`；Compose
+文件和部署根之外的 Guard 策略不可写。
 
 当前拓扑见 [deployment/DOCKER_DEPLOYMENT.md](./deployment/DOCKER_DEPLOYMENT.md)
 （三网 + docker-guard + updater-gateway）。首次或改拓扑请在宿主执行
 `bash scripts/docker/deploy.sh up`（或等价 compose）；**仅 UI 更新无法创建网络/服务**。
 
-自更新会同时重建 `docker-guard` 与 `updater`（共用 `UPDATER_TAG`）。该次 compose 走
-宿主 unix socket 的固定 argv 路径，日常 Docker API 仍经 guard 策略代理。
+管理员可以在 UI 中一键更新 Guard/updater TCB，无需 SSH。Updater 只提交目标 tag；
+Updater 使用宿主策略 capability 提交意图；Guard 固定官方 updater 仓库、通过宿主 Docker
+拉取并固化 `repo@sha256`，再由该精确
+镜像中的固定交接程序更新 `docker-guard`、`updater` 和 `updater-gateway`。交接失败会
+恢复旧 digest 与配置。当前私有仓库阶段使用 #265 定义的显式 `dockerhub_tag` 信任路径；
+该 registry digest 尚未与签名 release manifest 的 expected digest 做字节级绑定，因此不会
+把它描述成 release.json/Cosign 路径。日常业务 Docker API 仍经 Guard 固定策略代理。
 
 ## 3. 打开 updater UI
 
@@ -63,8 +75,8 @@ updater 只挂载宿主部署根目录一次，宿主上的 `./pgdata`、`./stat
 /config -> 关于 -> 更新管理
 ```
 
-需要管理员登录。**默认走 backend 通道**：backend 持有 `UPDATE_TOKEN`，
-浏览器只携带 admin session cookie，整个流程不需要手动输入 token。
+需要管理员登录。**默认走 backend 通道**：backend 通过 updater-gateway，由 gateway
+注入 `UPDATE_TOKEN`；backend 本身不持有该 token。浏览器只携带 admin session cookie。
 
 如果 backend 本身挂了（极端情况），可以在 UI 的"高级：直连模式"切到 `direct` 并手输 `UPDATE_TOKEN`。前提是宿主机管理员显式启用了直连通道：
 
@@ -156,11 +168,13 @@ curl -s -b "$COOKIE_JAR" -X POST http://localhost/api/admin/updater/update \
 audit: update_request job=… target=… mode=… allow_downgrade=… allow_diverged=… …
 ```
 
-`audit.log` 还会记录 rollback / self-update / rescue / job 终态（见
+`audit.log` 还会记录 rollback / rescue / job 终态（以及旧版 self-update 兼容记录，见
 [updater-spec.md §16.1](./updater-spec.md)）。
 
 Commit 模式成功后 **只写入 `dev-<shortsha>`** 到 `MYRIAD_TAG`。  
-业务更新只换 **backend/frontend**；proxy / updater 本体仍按独立节奏（updater 自更新走 release channel：main→stable，preview→nightly，beta→beta）。
+业务更新只换 **backend/frontend**；proxy 独立更新；Guard/updater TCB 可在 UI 中一键升级。
+成功后 `.env` 的 `UPDATER_IMAGE_REF` 固化为官方 `repo@sha256`，后续不能只改
+`UPDATER_TAG` 手工换版本；请继续使用 UI，或同时清除/更新该 digest 引用。
 
 `.env` 必须包含 `BACKEND_IMAGE` / `FRONTEND_IMAGE`。
 

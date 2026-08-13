@@ -38,10 +38,7 @@ const PROXY_HEALTH_INTERVAL: Duration = Duration::from_secs(1);
 const PROXY_HEALTH_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Compose service DNS + container_name (either may resolve depending on network aliases).
-const PROXY_HEALTH_URLS: &[&str] = &[
-    "http://proxy:80/healthz",
-    "http://myriad-proxy:80/healthz",
-];
+const PROXY_HEALTH_URLS: &[&str] = &["http://proxy:80/healthz", "http://myriad-proxy:80/healthz"];
 const PROXY_CONTAINER_NAMES: &[&str] = &["myriad-proxy", "proxy"];
 
 #[derive(Debug, Clone, Serialize)]
@@ -157,7 +154,9 @@ pub async fn run(
     let pulled_digest = worker
         .docker_pull_with_mirror(&resolved.image_ref)
         .await
-        .map_err(|e| UpdaterError::Precondition(format_proxy_pull_error(&resolved.image_ref, &e)))?;
+        .map_err(|e| {
+            UpdaterError::Precondition(format_proxy_pull_error(&resolved.image_ref, &e))
+        })?;
     if let Some(expected) = &resolved.expected_digest {
         if !pulled_digest.ends_with(expected) && pulled_digest != *expected {
             return Err(UpdaterError::Precondition(format!(
@@ -395,8 +394,7 @@ async fn try_proxy_from_github(
     }
 
     let cfg = worker.config();
-    let ch_name =
-        crate::version::release_channel_name_for_self_update(&worker.effective_channel());
+    let ch_name = crate::version::release_channel_name_for_self_update(&worker.effective_channel());
     let ch: crate::config::Channel = ch_name.parse().unwrap_or(cfg.channel);
     // Walk recent channel releases — app tags often omit proxy when unchanged.
     info!(
@@ -474,12 +472,13 @@ async fn resolve_proxy_via_dockerhub(
                 );
                 from_state
             } else {
-                let tip = crate::release::select_component_tip(&tags, prefer_release)
-                    .ok_or_else(|| {
+                let tip = crate::release::select_component_tip(&tags, prefer_release).ok_or_else(
+                    || {
                         UpdaterError::Precondition(format!(
                             "Docker Hub has no immutable tags for {repo} (need dev-<sha> or vX.Y.Z)"
                         ))
-                    })?;
+                    },
+                )?;
                 info!(
                     state_tip = %from_state,
                     tag = %tip.tag,
@@ -543,16 +542,15 @@ fn validate_immutable_component_tag(tag: &str) -> Result<()> {
     }
 }
 
-/// Operator-facing pull failure message. Allowlist denials are far more common
-/// than a missing Docker Hub tag after a release, so surface docker-guard config
-/// first when the error text indicates that.
+/// Operator-facing pull failure message. The Guard image policy is compiled into
+/// the independently verified TCB, so an allowlist denial cannot be repaired by
+/// editing updater-controlled runtime configuration.
 fn format_proxy_pull_error(image_ref: &str, err: &UpdaterError) -> String {
     let detail = err.to_string();
     if is_docker_guard_allowlist_denial(&detail) {
         format!(
-            "pull proxy {image_ref}: {detail} — docker-guard DOCKER_GUARD_ALLOWED_IMAGES must include the proxy repository \
-(e.g. docker.io/somekawahitomi/myriad-proxy or your PROXY_IMAGE). After changing compose env, recreate docker-guard: \
-`docker compose up -d --force-recreate docker-guard`. If the allowlist already includes proxy, confirm the tag is published on the registry / Docker Hub."
+            "pull proxy {image_ref}: {detail} — the independently verified docker-guard policy does not trust this repository. \
+Use the supported docker.io/somekawahitomi/myriad-proxy repository, or install a separately reviewed Guard build whose compiled policy explicitly trusts your repository."
         )
     } else {
         format!(
@@ -584,22 +582,19 @@ mod tests {
     }
 
     #[test]
-    fn allowlist_denial_mentions_docker_guard_config() {
+    fn allowlist_denial_points_to_independent_guard_policy() {
         let err = UpdaterError::Docker(
             "pull stream: Docker responded with status code 403: image pull repository is not allowlisted"
                 .into(),
         );
-        let msg = format_proxy_pull_error(
-            "docker.io/somekawahitomi/myriad-proxy:v0.3.8",
-            &err,
+        let msg = format_proxy_pull_error("docker.io/somekawahitomi/myriad-proxy:v0.3.8", &err);
+        assert!(
+            msg.contains("independently verified docker-guard policy"),
+            "expected independent-policy hint, got: {msg}"
         );
         assert!(
-            msg.contains("DOCKER_GUARD_ALLOWED_IMAGES"),
-            "expected allowlist hint, got: {msg}"
-        );
-        assert!(
-            msg.contains("force-recreate docker-guard"),
-            "expected recreate hint, got: {msg}"
+            !msg.contains("DOCKER_GUARD_ALLOWED_IMAGES"),
+            "runtime allowlist must not be offered as a repair: {msg}"
         );
         assert!(
             msg.contains("myriad-proxy"),
@@ -621,7 +616,7 @@ mod tests {
             "expected registry hint, got: {msg}"
         );
         assert!(
-            !msg.contains("DOCKER_GUARD_ALLOWED_IMAGES"),
+            !msg.contains("independently verified docker-guard policy"),
             "non-allowlist errors should not mention allowlist: {msg}"
         );
     }

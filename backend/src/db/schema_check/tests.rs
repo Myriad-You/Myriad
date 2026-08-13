@@ -385,6 +385,260 @@ WHERE version = '013_federation_inbox_receipts_v2';
         .expect("rollback receipt savepoint probe");
 }
 
+/// Real PostgreSQL regression coverage for the room outbox commit boundary and
+/// per-delivery lease ownership. The CI schema-drift service supplies the DB;
+/// temp tables shadow production names and the outer transaction rolls back.
+#[tokio::test]
+async fn federation_outbox_and_delivery_lease_db_contracts() {
+    let Ok(url) = std::env::var("MYRIAD_SCHEMA_DRIFT_DB") else {
+        eprintln!("skipping: set MYRIAD_SCHEMA_DRIFT_DB to run federation DB contracts");
+        return;
+    };
+
+    use sea_orm::{ConnectionTrait, Database, DatabaseBackend, Statement, TransactionTrait};
+    use uuid::Uuid;
+
+    let db = Database::connect(&url)
+        .await
+        .expect("connect to federation contract database");
+    let outer = db
+        .begin()
+        .await
+        .expect("begin federation contract transaction");
+    outer
+        .execute_unprepared(
+            r#"
+CREATE TEMP TABLE federation_activities (
+    id SERIAL PRIMARY KEY,
+    activity_id TEXT NOT NULL UNIQUE,
+    user_id INTEGER,
+    activity_type VARCHAR(64) NOT NULL,
+    object_type VARCHAR(64),
+    object_json JSON NOT NULL,
+    is_local BOOLEAN NOT NULL DEFAULT TRUE,
+    published_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+) ON COMMIT DROP;
+CREATE TEMP TABLE users (
+    id INTEGER PRIMARY KEY,
+    username TEXT NOT NULL
+) ON COMMIT DROP;
+CREATE TEMP TABLE federation_room_messages (
+    message_id TEXT PRIMARY KEY
+) ON COMMIT DROP;
+CREATE TEMP TABLE federation_room_members (
+    room_id TEXT NOT NULL,
+    actor_url TEXT NOT NULL,
+    is_local BOOLEAN NOT NULL,
+    membership_status TEXT
+) ON COMMIT DROP;
+CREATE TEMP TABLE federation_remote_actors (
+    id SERIAL PRIMARY KEY,
+    actor_url TEXT NOT NULL UNIQUE,
+    inbox_url TEXT NOT NULL,
+    domain TEXT NOT NULL
+) ON COMMIT DROP;
+CREATE TEMP TABLE federation_delivery_queue (
+    id SERIAL PRIMARY KEY,
+    activity_id INTEGER NOT NULL,
+    target_inbox TEXT NOT NULL,
+    target_domain TEXT NOT NULL CHECK (target_domain <> 'reject.example'),
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 12,
+    last_attempt_at TIMESTAMPTZ,
+    lease_token UUID,
+    lease_expires_at TIMESTAMPTZ,
+    next_retry_at TIMESTAMPTZ DEFAULT NOW(),
+    error_message TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (activity_id, target_inbox)
+) ON COMMIT DROP;
+INSERT INTO federation_room_members
+    (room_id, actor_url, is_local, membership_status)
+VALUES ('room-contract', 'https://peer.example/users/bob', FALSE, 'active');
+INSERT INTO federation_remote_actors (actor_url, inbox_url, domain)
+VALUES ('https://peer.example/users/bob', 'https://peer.example/inbox', 'reject.example');
+"#,
+        )
+        .await
+        .expect("create isolated federation contract tables");
+
+    let failed = outer.begin().await.expect("begin failed outbox savepoint");
+    failed
+        .execute_unprepared(
+            "INSERT INTO federation_room_messages (message_id) VALUES ('message-failed')",
+        )
+        .await
+        .expect("stage local room message");
+    let fanout_error = crate::federation::room::fanout_to_remote_members(
+        &failed,
+        i32::MAX,
+        "room-contract",
+        "https://local.example/activities/failed",
+        &serde_json::json!({"id": "https://local.example/activities/failed"}),
+        "RoomMessage",
+        "RoomMessage",
+    )
+    .await;
+    assert!(
+        fanout_error.is_err(),
+        "outbox enqueue failure must escape the fanout helper"
+    );
+    failed
+        .rollback()
+        .await
+        .expect("rollback failed outbox savepoint");
+
+    for table in [
+        "federation_room_messages",
+        "federation_activities",
+        "federation_delivery_queue",
+    ] {
+        let row = outer
+            .query_one_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                format!("SELECT COUNT(*)::BIGINT AS count FROM {table}"),
+            ))
+            .await
+            .expect("count rolled-back outbox rows")
+            .expect("count row");
+        assert_eq!(
+            row.try_get::<i64>("", "count").expect("read count"),
+            0,
+            "{table} must roll back with a failed outbox enqueue"
+        );
+    }
+
+    outer
+        .execute_unprepared(
+            "UPDATE federation_remote_actors SET domain = 'peer.example' WHERE actor_url = 'https://peer.example/users/bob'",
+        )
+        .await
+        .expect("make outbox target valid");
+    let committed = outer
+        .begin()
+        .await
+        .expect("begin successful outbox savepoint");
+    committed
+        .execute_unprepared(
+            "INSERT INTO federation_room_messages (message_id) VALUES ('message-committed')",
+        )
+        .await
+        .expect("stage committed room message");
+    let fanout = crate::federation::room::fanout_to_remote_members(
+        &committed,
+        i32::MAX,
+        "room-contract",
+        "https://local.example/activities/committed",
+        &serde_json::json!({"id": "https://local.example/activities/committed"}),
+        "RoomMessage",
+        "RoomMessage",
+    )
+    .await
+    .expect("enqueue durable room outbox row");
+    assert_eq!(fanout.enqueued, 1);
+    committed
+        .commit()
+        .await
+        .expect("commit room message and outbox");
+
+    outer
+        .execute_unprepared(
+            r#"
+TRUNCATE federation_delivery_queue, federation_activities RESTART IDENTITY;
+INSERT INTO federation_activities
+    (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
+VALUES
+    ('activity-lease-1', 1, 'Create', 'Note', '{"id":"activity-lease-1"}', TRUE, NOW()),
+    ('activity-lease-2', 1, 'Create', 'Note', '{"id":"activity-lease-2"}', TRUE, NOW());
+INSERT INTO federation_delivery_queue
+    (activity_id, target_inbox, target_domain, status, created_at, next_retry_at)
+VALUES
+    (1, 'https://one.example/inbox', 'one.example', 'pending', NOW() - INTERVAL '2 seconds', NOW()),
+    (2, 'https://two.example/inbox', 'two.example', 'pending', NOW() - INTERVAL '1 second', NOW());
+"#,
+        )
+        .await
+        .expect("seed delivery lease rows");
+
+    let first_token = Uuid::new_v4();
+    let first = crate::federation::delivery::claim_next_delivery(&outer, first_token)
+        .await
+        .expect("claim first delivery")
+        .expect("first delivery row");
+    let first_id = first.try_get::<i32>("", "id").expect("first queue id");
+
+    let waiting = outer
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT status, lease_token FROM federation_delivery_queue WHERE id <> 1 ORDER BY id LIMIT 1".to_string(),
+        ))
+        .await
+        .expect("read waiting delivery")
+        .expect("waiting delivery row");
+    assert_eq!(waiting.try_get::<String>("", "status").unwrap(), "pending");
+    assert!(waiting
+        .try_get::<Option<Uuid>>("", "lease_token")
+        .unwrap()
+        .is_none());
+
+    assert!(
+        crate::federation::delivery::renew_delivery_lease(&outer, first_id, first_token)
+            .await
+            .expect("renew live delivery lease")
+    );
+
+    let second_token = Uuid::new_v4();
+    let second = crate::federation::delivery::claim_next_delivery(&outer, second_token)
+        .await
+        .expect("claim second delivery")
+        .expect("second delivery row");
+    assert_ne!(second.try_get::<i32>("", "id").unwrap(), first_id);
+
+    outer
+        .execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "UPDATE federation_delivery_queue SET lease_expires_at = NOW() - INTERVAL '1 second' WHERE id = $1",
+            [first_id.into()],
+        ))
+        .await
+        .expect("expire crashed worker lease");
+    let replacement_token = Uuid::new_v4();
+    let replacement = crate::federation::delivery::claim_next_delivery(&outer, replacement_token)
+        .await
+        .expect("reclaim expired delivery")
+        .expect("reclaimed row");
+    assert_eq!(replacement.try_get::<i32>("", "id").unwrap(), first_id);
+    assert_eq!(
+        replacement.try_get::<String>("", "prev_status").unwrap(),
+        "delivering"
+    );
+    assert!(
+        !crate::federation::delivery::mark_delivery_delivered_if_owned(
+            &outer,
+            first_id,
+            first_token
+        )
+        .await
+        .expect("apply stale completion fence"),
+        "old worker token must not publish an outcome after reclaim"
+    );
+    assert!(
+        crate::federation::delivery::mark_delivery_delivered_if_owned(
+            &outer,
+            first_id,
+            replacement_token
+        )
+        .await
+        .expect("complete with current lease owner")
+    );
+
+    outer
+        .rollback()
+        .await
+        .expect("rollback isolated federation contract tables");
+}
+
 #[tokio::test]
 async fn tapp_storage_upgrade_heals_and_enforces_credential_constraint() {
     let Ok(url) = std::env::var("MYRIAD_TAPP_STORAGE_UPGRADE_DB") else {

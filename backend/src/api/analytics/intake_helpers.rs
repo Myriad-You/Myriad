@@ -1217,12 +1217,20 @@ async fn process_items(ctx: &IntakeCtx, items: &[CollectItem]) -> usize {
 }
 
 async fn parse_json_body<T: for<'de> Deserialize<'de>>(
+    db: &sea_orm::DatabaseConnection,
     request: Request,
 ) -> Result<(Option<std::net::IpAddr>, String, bool, T), crate::error::HttpError> {
     // Staff JWT (admin or site owner) → drop self-traffic even if client flag is spoofed.
     // Matches FE usePageViewTracker (isAdmin || isOwner).
-    let is_staff = crate::middleware::auth::extract_optional_claims(request.headers())
-        .map(|c| c.is_admin || c.is_owner)
+    let is_staff = crate::middleware::auth::authenticate_optional_request(request.headers(), db)
+        .await
+        .map_err(|response| {
+            crate::error::HttpError(myriad_error::AppError::from_status_u16(
+                response.status().as_u16(),
+                "Invalid authentication state",
+            ))
+        })?
+        .map(|claims| claims.is_admin || claims.is_owner)
         .unwrap_or(false);
     let ip = crate::middleware::client_ip::extract_client_ip(&request);
     let ua = request
@@ -1265,7 +1273,7 @@ pub async fn collect(
     request: Request,
 ) -> (StatusCode, Json<Value>) {
     let header_country = country_from_headers(request.headers(), Some(peer.ip()));
-    let (ip, ua, is_staff, body) = match parse_json_body::<CollectRequest>(request).await {
+    let (ip, ua, is_staff, body) = match parse_json_body::<CollectRequest>(&db, request).await {
         Ok(v) => v,
         Err(e) => {
             let status = StatusCode::from_u16(e.0.status_u16())
@@ -1348,7 +1356,7 @@ pub async fn record_pageview(
     request: Request,
 ) -> (StatusCode, Json<Value>) {
     let header_country = country_from_headers(request.headers(), Some(peer.ip()));
-    let (ip, ua, is_staff, body) = match parse_json_body::<PageviewRequest>(request).await {
+    let (ip, ua, is_staff, body) = match parse_json_body::<PageviewRequest>(&db, request).await {
         Ok(v) => v,
         Err(e) => {
             let status = StatusCode::from_u16(e.0.status_u16())

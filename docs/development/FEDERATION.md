@@ -15,6 +15,39 @@ Entry points: `fetch_remote_actor_for_verify` / `persist_verified_remote_actor` 
 `actor.rs`; `claim_receipt` / `finish_receipt` in `inbox/receipt.rs`; wired in
 `inbox/receive.rs`.
 
+### Public inbox resource boundary (MYR-002 / #306)
+
+The actor identity needed for true HTTP Signature verification is inside the
+Activity JSON. The pre-parse gate can therefore validate only the signature
+header shape, `Date` freshness, and the signed raw-body `Digest`; it does not
+authenticate the actor. A request that passes this cheap gate is still parsed
+before actor resolution and signature verification. The mitigation bounds that
+unavoidable unauthenticated work; it does not eliminate it.
+
+Default-profile bounds are:
+
+| Limit | Value | Rejection |
+| --- | ---: | --- |
+| message payload | 4 MiB | 413; use chunked transfer for larger data |
+| public inbox body | 8 MiB | 413 |
+| concurrent raw inbox bodies | 32 MiB | 429; peer should retry |
+| complete parsed inbox trees | 4 requests | 429; peer should retry |
+| JSON nesting | 32 levels | 400 |
+| JSON structural items | 65,536 | 400 |
+| one encoded JSON string | 6 MiB | 400 |
+
+`INBOX_PARSE_CONCURRENCY` names the admission mechanism, not a short CPU-only
+critical section. The permit is deliberately held while the parsed
+`serde_json::Value` remains alive: through actor fetch, signature/trust checks,
+receipt transaction, and handler execution. Releasing it immediately after
+`serde_json::from_slice` would allow more complete trees to coexist and defeat
+the memory bound. Consequently, four slow remote lookups or DB/handler paths can
+make a fifth delivery receive 429 even when raw-byte budget remains. Operators
+should monitor sustained inbox 429s; peers must treat them as retryable.
+
+The compile-time and unit checks establish deterministic size/concurrency
+bounds. They are not a 1 GiB-host stress test or production load proof.
+
 ## Durable inbox transaction boundary
 
 `federation_inbox_receipts` is coordination state, not an ActivityPub content

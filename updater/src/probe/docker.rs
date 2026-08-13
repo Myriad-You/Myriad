@@ -17,7 +17,9 @@ pub struct DockerProbe {
 }
 
 pub async fn probe() -> DockerProbe {
-    let out = Command::new("docker")
+    let mut command = Command::new("docker");
+    crate::docker::compose::harden_docker_command(&mut command);
+    let out = command
         .args(["info", "--format", "{{json .}}"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

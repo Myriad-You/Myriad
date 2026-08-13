@@ -42,6 +42,14 @@ pub struct Claims {
     pub tv: i64,
 }
 
+/// Current durable subject on routes where credentials are optional.
+///
+/// `None` means no supported credential was supplied. A presented credential
+/// never becomes `None` because [`optional_current_auth_middleware`] rejects it
+/// unless it passes the same current-state resolver as required auth.
+#[derive(Debug, Clone)]
+pub struct OptionalClaims(pub Option<Claims>);
+
 /// Build claims for a durable user session (login / register / password reissue).
 pub fn mint_session_claims(
     user_id: i32,
@@ -77,6 +85,16 @@ pub fn encode_session_token(claims: &Claims) -> Result<String, String> {
 pub fn auth_cookie_value(token: &str, is_production: bool) -> String {
     format!(
         "auth_token={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={AUTH_COOKIE_MAX_AGE_SECS}{}",
+        if is_production { "; Secure" } else { "" }
+    )
+}
+
+/// `auth_token=…` Set-Cookie value for logout and invalid browser sessions.
+/// Attributes must match issuance so an HttpOnly cookie can be removed by the
+/// server; frontend JavaScript cannot delete it.
+pub fn clear_auth_cookie_value(is_production: bool) -> String {
+    format!(
+        "auth_token=deleted; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT{}",
         if is_production { "; Secure" } else { "" }
     )
 }
@@ -359,6 +377,31 @@ pub async fn auth_middleware(
     }
 }
 
+/// Optional durable authentication for public routes.
+///
+/// Absence is anonymous. A presented JWT must pass cryptographic validation,
+/// current user existence, session epoch and current-role resolution.
+pub async fn optional_current_auth_middleware(
+    State(db): State<DatabaseConnection>,
+    req: Request,
+    next: Next,
+) -> Response {
+    let credential_source = auth_credential_source(req.headers());
+    match authenticate_optional_request(req.headers(), &db).await {
+        Ok(claims) => {
+            if let Some(claims) = claims.as_ref() {
+                record_user_presence(claims, db);
+            }
+            let mut req = req;
+            req.extensions_mut().insert(OptionalClaims(claims));
+            next.run(req).await
+        }
+        Err(error_response) => {
+            clear_invalid_cookie_response(*error_response, credential_source).await
+        }
+    }
+}
+
 /// 每用户至少间隔 60s 才落一次库，避免高频请求放大写入。
 const PRESENCE_WRITE_INTERVAL: Duration = Duration::from_secs(60);
 /// Drop map entries older than this so long-lived processes do not retain every
@@ -541,12 +584,15 @@ async fn load_auth_snapshot(
         return Ok(None);
     }
 
-    ensure_auth_cache_listener(db).await;
-
     loop {
         if let Some(snapshot) = auth_cache_get(user_id) {
             return Ok(snapshot);
         }
+
+        // Listener setup is only needed on a real cache miss. Keeping the hit
+        // path database-free also makes the cache's authorization boundary
+        // independently testable.
+        ensure_auth_cache_listener(db).await;
 
         // Only one request per user performs the miss query. Other concurrent
         // requests wait for that result, then take the now-populated cache hit.
@@ -723,6 +769,21 @@ pub async fn authenticate_request(
     Ok(claims)
 }
 
+/// Resolve a current subject when authentication is optional.
+///
+/// This differs from [`authenticate_request`] only for the no-credential case.
+/// Invalid, revoked, deleted-user and stale-role JWTs never silently downgrade
+/// to anonymous access.
+pub async fn authenticate_optional_request(
+    headers: &HeaderMap,
+    db: &DatabaseConnection,
+) -> Result<Option<Claims>, Box<Response>> {
+    if extract_auth_token(headers).is_none() {
+        return Ok(None);
+    }
+    authenticate_request(headers, db).await.map(Some)
+}
+
 /// Atomically bump `users.token_version` and return the new value.
 ///
 /// Used on logout and password change so all previously issued JWTs fail
@@ -847,7 +908,8 @@ fn guest_id(session_id: &str) -> i32 {
 ///
 /// 用于支持权限下放的 API：
 /// - 如果有有效 token，验证并注入 Claims
-/// - 如果没有 token 或 token 无效，注入游客 Claims
+/// - 如果没有 token，注入游客 Claims
+/// - 如果提交了无效、已撤销或状态过期的 token，拒绝请求而不是降级为游客
 ///
 /// 游客 ID 策略：
 /// - 使用浏览器持有的 HttpOnly 签名 session，而不是共享出口 IP
@@ -863,14 +925,16 @@ pub async fn optional_auth_middleware(
     next: Next,
 ) -> Response {
     let headers = req.headers();
+    let credential_source = auth_credential_source(headers);
     let mut set_guest_cookie = None;
-    // Full auth (crypto + epoch). Revoked / missing sessions fall through to guest.
-    let claims = match authenticate_request(headers, &db).await {
-        Ok(claims) => {
+    // Missing credentials become a signed guest. Presented credentials must
+    // pass the full current-state path and never downgrade to guest.
+    let claims = match authenticate_optional_request(headers, &db).await {
+        Ok(Some(claims)) => {
             record_user_presence(&claims, db);
             claims
         }
-        Err(_) => {
+        Ok(None) => {
             let secret = match env::var("JWT_SECRET") {
                 Ok(secret) if !secret.is_empty() => secret,
                 _ => {
@@ -901,6 +965,9 @@ pub async fn optional_auth_middleware(
                 tv: 0,
             }
         }
+        Err(error_response) => {
+            return clear_invalid_cookie_response(*error_response, credential_source).await
+        }
     };
 
     let mut req = req;
@@ -922,40 +989,19 @@ pub async fn optional_auth_middleware(
 /// Verify JWT token from Authorization header or Cookie
 /// Verify JWT for handlers that need claims outside the middleware pipeline.
 pub fn verify_jwt_token(headers: &HeaderMap) -> Result<Claims, Box<Response>> {
-    // Extract token from Authorization header or Cookie (优先 Header)
-    let token = headers
-        .get("Authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .or_else(|| {
-            // 回退到 HttpOnly Cookie
-            headers
-                .get(header::COOKIE)
-                .and_then(|v| v.to_str().ok())
-                .and_then(|cookies| {
-                    cookies.split(';').find_map(|cookie| {
-                        let (name, value) = cookie.trim().split_once('=')?;
-                        if name == "auth_token" {
-                            Some(value)
-                        } else {
-                            None
-                        }
-                    })
-                })
-        })
-        .ok_or_else(|| {
-            tracing::debug!("Missing or invalid Authorization header/cookie");
-            Box::new(
-                (
-                    StatusCode::UNAUTHORIZED,
-                    Json(json!({
-                        "error": "Unauthorized",
-                        "message": "Missing or invalid authorization token. Please login first."
-                    })),
-                )
-                    .into_response(),
+    let token = extract_auth_token(headers).ok_or_else(|| {
+        tracing::debug!("Missing or invalid Authorization header/cookie");
+        Box::new(
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({
+                    "error": "Unauthorized",
+                    "message": "Missing or invalid authorization token. Please login first."
+                })),
             )
-        })?;
+                .into_response(),
+        )
+    })?;
 
     // Get JWT secret
     let jwt_secret = env::var("JWT_SECRET").map_err(|_| {
@@ -995,51 +1041,67 @@ pub fn verify_jwt_token(headers: &HeaderMap) -> Result<Claims, Box<Response>> {
     Ok(token_data.claims)
 }
 
-/// Optional authentication - extracts claims if token is present, but doesn't fail if missing
-/// Useful for endpoints that behave differently for authenticated users but are also public
-pub fn extract_optional_claims(headers: &HeaderMap) -> Option<Claims> {
-    // 尝试从 Authorization header 或 Cookie 获取 token
-    let token = headers
-        .get("Authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .or_else(|| {
-            headers
-                .get(header::COOKIE)
-                .and_then(|v| v.to_str().ok())
-                .and_then(|cookies| {
-                    cookies.split(';').find_map(|cookie| {
-                        let (name, value) = cookie.trim().split_once('=')?;
-                        if name == "auth_token" {
-                            Some(value)
-                        } else {
-                            None
-                        }
-                    })
-                })
-        })?;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AuthCredentialSource {
+    Authorization,
+    Cookie,
+}
 
-    let jwt_secret = env::var("JWT_SECRET").ok()?;
-    decode::<Claims>(
-        token,
-        &DecodingKey::from_secret(jwt_secret.as_bytes()),
-        &Validation::default(),
-    )
-    .ok()
-    .map(|data| data.claims)
+fn auth_cookie_token(headers: &HeaderMap) -> Option<&str> {
+    cookie_value(headers, "auth_token")
+}
+
+fn auth_credential_source(headers: &HeaderMap) -> Option<AuthCredentialSource> {
+    if headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .is_some()
+    {
+        Some(AuthCredentialSource::Authorization)
+    } else {
+        auth_cookie_token(headers).map(|_| AuthCredentialSource::Cookie)
+    }
+}
+
+fn extract_auth_token(headers: &HeaderMap) -> Option<&str> {
+    match auth_credential_source(headers)? {
+        AuthCredentialSource::Authorization => headers
+            .get(header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Bearer ")),
+        AuthCredentialSource::Cookie => auth_cookie_token(headers),
+    }
+}
+
+async fn clear_invalid_cookie_response(
+    mut response: Response,
+    credential_source: Option<AuthCredentialSource>,
+) -> Response {
+    if credential_source != Some(AuthCredentialSource::Cookie)
+        || response.status() != StatusCode::UNAUTHORIZED
+    {
+        return response;
+    }
+
+    let is_production = crate::oauth_url_builder::SiteConfig::is_production().await;
+    if let Ok(value) = HeaderValue::from_str(&clear_auth_cookie_value(is_production)) {
+        response.headers_mut().insert(header::SET_COOKIE, value);
+    }
+    response
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
         apply_current_roles, auth_cache_generation, auth_cache_get, auth_cache_put,
-        auth_cache_put_if_generation, claim_auth_load_slot, encode_session_token,
-        extract_optional_claims, guest_id, invalidate_auth_cache_local, mint_session_claims,
-        session_epoch_matches, sign_guest_session, verify_guest_session, verify_jwt_token,
-        AuthLoadSlot, AuthSnapshot, AUTH_CACHE_CAPACITY, AUTH_CACHE_TTL, AUTH_COOKIE_MAX_AGE_SECS,
-        JWT_TTL_DAYS,
+        auth_cache_put_if_generation, authenticate_optional_request, claim_auth_load_slot,
+        encode_session_token, guest_id, invalidate_auth_cache_local, mint_session_claims,
+        optional_current_auth_middleware, session_epoch_matches, sign_guest_session,
+        verify_guest_session, verify_jwt_token, AuthLoadSlot, AuthSnapshot, AUTH_CACHE_CAPACITY,
+        AUTH_CACHE_TTL, AUTH_COOKIE_MAX_AGE_SECS, JWT_TTL_DAYS,
     };
-    use axum::http::{header, HeaderMap, HeaderValue};
+    use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
     use std::sync::{Mutex, Once, OnceLock};
     use std::time::{Duration, Instant};
 
@@ -1119,11 +1181,6 @@ mod tests {
         let from_cookie = verify_jwt_token(&cookie_headers).expect("cookie verify");
         assert_eq!(from_cookie.sub, verified.sub);
         assert_eq!(from_cookie.tv, verified.tv);
-
-        assert_eq!(
-            extract_optional_claims(&headers).map(|c| c.sub),
-            Some("42".into())
-        );
     }
 
     #[test]
@@ -1142,7 +1199,130 @@ mod tests {
             HeaderValue::from_str(&format!("Bearer {bad}")).expect("header"),
         );
         assert!(verify_jwt_token(&headers).is_err());
-        assert!(extract_optional_claims(&headers).is_none());
+    }
+
+    #[test]
+    fn optional_current_auth_only_treats_absence_as_anonymous() {
+        ensure_jwt_secret();
+        let _test_guard = auth_cache_test_guard();
+        clear_auth_cache_for_test();
+        let db = sea_orm::DatabaseConnection::default();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+
+        let anonymous = runtime
+            .block_on(authenticate_optional_request(&HeaderMap::new(), &db))
+            .expect("missing credentials are anonymous");
+        assert!(anonymous.is_none());
+
+        let current = mint_session_claims(77, "current", true, true, 4);
+        let token = encode_session_token(&current).expect("encode current token");
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {token}")).expect("header"),
+        );
+        auth_cache_put(
+            77,
+            Some(AuthSnapshot {
+                token_version: 4,
+                is_admin: false,
+                is_owner: false,
+            }),
+        );
+        let resolved = runtime
+            .block_on(authenticate_optional_request(&headers, &db))
+            .expect("current token")
+            .expect("current subject");
+        assert_eq!(resolved.sub, "77");
+        assert!(
+            !resolved.is_admin,
+            "current demotion must override stale JWT role"
+        );
+        assert!(
+            !resolved.is_owner,
+            "current owner state must override stale JWT role"
+        );
+
+        invalidate_auth_cache_local(77);
+        auth_cache_put(
+            77,
+            Some(AuthSnapshot {
+                token_version: 5,
+                is_admin: false,
+                is_owner: false,
+            }),
+        );
+        assert!(
+            runtime
+                .block_on(authenticate_optional_request(&headers, &db))
+                .is_err(),
+            "revoked token must not downgrade to anonymous"
+        );
+
+        invalidate_auth_cache_local(77);
+        auth_cache_put(77, None);
+        assert!(
+            runtime
+                .block_on(authenticate_optional_request(&headers, &db))
+                .is_err(),
+            "deleted user must not downgrade to anonymous"
+        );
+    }
+
+    #[test]
+    fn optional_current_auth_http_rejects_revoked_cookie_and_clears_it() {
+        use axum::{body::Body, middleware::from_fn_with_state, routing::get, Router};
+        use tower::ServiceExt;
+
+        ensure_jwt_secret();
+        let _test_guard = auth_cache_test_guard();
+        clear_auth_cache_for_test();
+
+        let claims = mint_session_claims(78, "revoked", false, false, 4);
+        let token = encode_session_token(&claims).expect("encode revoked token");
+        auth_cache_put(
+            78,
+            Some(AuthSnapshot {
+                token_version: 5,
+                is_admin: false,
+                is_owner: false,
+            }),
+        );
+
+        let app = Router::new()
+            .route("/", get(|| async { StatusCode::OK }))
+            .route_layer(from_fn_with_state(
+                sea_orm::DatabaseConnection::default(),
+                optional_current_auth_middleware,
+            ));
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let response = runtime
+            .block_on(
+                app.oneshot(
+                    axum::http::Request::builder()
+                        .uri("/")
+                        .header(header::COOKIE, format!("auth_token={token}"))
+                        .body(Body::empty())
+                        .expect("request"),
+                ),
+            )
+            .expect("middleware response");
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        let clear_cookie = response
+            .headers()
+            .get(header::SET_COOKIE)
+            .and_then(|value| value.to_str().ok())
+            .expect("revoked HttpOnly cookie must be cleared by the server");
+        assert!(clear_cookie.starts_with("auth_token=deleted;"));
+        assert!(clear_cookie.contains("HttpOnly"));
+        assert!(clear_cookie.contains("Max-Age=0"));
     }
 
     #[test]

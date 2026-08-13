@@ -9,8 +9,8 @@ use crate::models::entities::platform_reports;
 use myriad_error::AppError;
 
 use super::generate::{
-    finalize_public_platform_report, generate_platform_reports_internal, public_report_owner_user_id,
-    resolve_report_user_id_for_public_read, REPORT_REGEN_IN_FLIGHT,
+    finalize_public_platform_report, generate_platform_reports_internal,
+    public_report_owner_user_id, resolve_report_user_id_for_public_read, REPORT_REGEN_IN_FLIGHT,
 };
 
 /// 后台重新生成过期的平台报告（只用已有缓存数据调 AI，不重新抓平台）
@@ -50,10 +50,9 @@ pub async fn get_latest_report(
     axum::extract::State(dynamic_config): axum::extract::State<
         std::sync::Arc<tokio::sync::RwLock<crate::config::DynamicConfig>>,
     >,
-    headers: axum::http::HeaderMap,
 ) -> Result<Json<Value>, crate::error::HttpError> {
     // Public dashboard: site owner first; historical rows may live under another admin.
-    let preferred = public_report_owner_user_id(&db, &headers).await;
+    let preferred = public_report_owner_user_id(&db).await;
     let user_id = resolve_report_user_id_for_public_read(&db, preferred).await?;
 
     // 获取所有单平台报告，保留每个平台最新的一份

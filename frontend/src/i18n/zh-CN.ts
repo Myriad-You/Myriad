@@ -271,12 +271,14 @@ export const zhCN: TranslationKeys = {
     atLeast8Chars: '至少 8 个字符，包含字母和数字',
     enterPasswordAgain: '再次输入密码',
     bootstrapToken: '引导令牌',
-    bootstrapTokenOptional: '恢复已配置实例时必填',
+    bootstrapTokenOptional: '安装操作必填',
     bootstrapTokenPlaceholder: '粘贴 .bootstrap-token 内容',
     bootstrapTokenHint:
-      '若实例曾完成配置，请从数据目录的 .bootstrap-token 文件（或环境变量 MYRIAD_BOOTSTRAP_TOKEN）读取并填写，否则保存会返回 401。',
+      '从服务器数据目录的 .bootstrap-token 文件（或环境变量 MYRIAD_BOOTSTRAP_TOKEN）读取短期令牌。首次安装、数据库初始化和创建所有者都必须填写。',
     bootstrapTokenRequired:
       '需要引导令牌：请读取服务器上的 .bootstrap-token 文件，填入后重试。',
+    bootstrapTokenRotated:
+      '数据库初始化令牌已失效。创建所有者前，请重新读取服务器数据目录中的 .bootstrap-token。',
   },
 
   // 配置
@@ -1217,10 +1219,11 @@ export const zhCN: TranslationKeys = {
     fieldMusicPlaylistId: '歌单 ID',
     // 网络代理配置
     advanced: '高级配置',
-    advancedDesc: '运行诊断、内存节约、出站代理、API 镜像、设置备份/恢复与危险操作',
+    advancedDesc:
+      '运行诊断、内存节约、出站代理、API 镜像、设置备份/恢复与危险操作',
     memorySaverGroup: '内存',
     memorySaverGroupDesc:
-      '在约 1 GB 内存的主机上降低并发内存占用。默认关闭 = 均衡（历史）预算，现有部署无感。',
+      '在约 1 GB 内存的主机上降低并发内存占用。默认关闭时使用当前有界的均衡档；从旧版本升级会改变部分请求上限。',
     memorySaver: '内存节约',
     memorySaverHint:
       '会收紧联邦并发缓冲与单条消息/附件上限（略低于均衡档）、传输分块并发、进程内缓存、数据库连接池与密码哈希并发。功能仍可用；极大媒体或高峰多路时可能更早拒收或「稍后重试」。可用 MYRIAD_MEMORY_PROFILE 覆盖。连接池需重启后端后完全生效。',

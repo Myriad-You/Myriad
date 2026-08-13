@@ -13,6 +13,9 @@ pub const UPDATE_TOKEN_MIN_LEN: usize = 32;
 /// Operators should use a longer random secret; hard minimum remains 32.
 pub const UPDATE_TOKEN_WARN_BELOW_LEN: usize = 40;
 
+/// Minimum accepted length for the host-policy self-update capability.
+pub const GUARD_SELF_UPDATE_TOKEN_MIN_LEN: usize = 32;
+
 /// How PostgreSQL is deployed relative to the compose stack.
 ///
 /// - [`Bundled`](DbMode::Bundled) (default): postgres runs in compose with `./pgdata`;
@@ -88,6 +91,10 @@ impl std::fmt::Display for DbMode {
 pub struct Config {
     /// Required: shared secret for mutating API endpoints. Must be >= 32 chars.
     pub update_token: SecretString,
+
+    /// Host-policy capability used only for the Guard TCB self-update endpoint.
+    /// This is intentionally distinct from updater API authentication.
+    pub guard_self_update_token: SecretString,
 
     /// Release channel to track.
     pub channel: Channel,
@@ -193,6 +200,21 @@ impl Config {
             ));
         }
 
+        let guard_self_update_token =
+            std::env::var("DOCKER_GUARD_SELF_UPDATE_TOKEN").map_err(|_| {
+                UpdaterError::Config("DOCKER_GUARD_SELF_UPDATE_TOKEN is required".into())
+            })?;
+        if guard_self_update_token.len() < GUARD_SELF_UPDATE_TOKEN_MIN_LEN
+            || guard_self_update_token.len() > 256
+            || !guard_self_update_token
+                .bytes()
+                .all(|byte| byte.is_ascii_graphic())
+        {
+            return Err(UpdaterError::Config(format!(
+                "DOCKER_GUARD_SELF_UPDATE_TOKEN must be {GUARD_SELF_UPDATE_TOKEN_MIN_LEN}..=256 printable non-whitespace ASCII characters"
+            )));
+        }
+
         let channel: Channel = std::env::var("CHANNEL")
             .unwrap_or_else(|_| "stable".into())
             .parse()?;
@@ -220,6 +242,7 @@ impl Config {
 
         Ok(Self {
             update_token: SecretString::new(token),
+            guard_self_update_token: SecretString::new(guard_self_update_token),
             channel,
             github_repo,
             github_token,
@@ -328,6 +351,7 @@ mod tests {
     fn github_token_present_requires_nonempty() {
         let mut cfg = Config {
             update_token: SecretString::new("9xQ3vN8mP2rT5wY7zA1bC4dF6hJ8kL0n"),
+            guard_self_update_token: SecretString::new("g7N2pQ8xV4mK6rT9wY3zA5bC1dF0hJ8l"),
             channel: Channel::Stable,
             github_repo: "Myriad-You/Myriad".into(),
             github_token: None,

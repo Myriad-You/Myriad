@@ -118,9 +118,15 @@ pub async fn execute_inline(
     snapshot_id: &str,
     swap_back_tag: Option<&str>,
 ) -> Result<Option<DeployTag>> {
-    let result =
-        execute_inline_inner(worker.clone(), rec, compose, snap, snapshot_id, swap_back_tag)
-            .await;
+    let result = execute_inline_inner(
+        worker.clone(),
+        rec,
+        compose,
+        snap,
+        snapshot_id,
+        swap_back_tag,
+    )
+    .await;
     if result.is_err() {
         // Last resort: do not leave the stack fully stopped after a partial rollback.
         warn!("rollback path failed; best-effort restart of app (and postgres if bundled)");
@@ -283,9 +289,7 @@ async fn execute_inline_inner(
     let up = compose
         .up_detached_recreate(&["backend", "frontend"])
         .await
-        .map_err(|e| {
-            UpdaterError::Internal(anyhow::anyhow!("start old failed: {e}"))
-        })?;
+        .map_err(|e| UpdaterError::Internal(anyhow::anyhow!("start old failed: {e}")))?;
     if !up.ok() {
         let err = format!("start old failed: {}", up.error_summary());
         let _ = rec.finish_step_err(&err);

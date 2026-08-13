@@ -8,8 +8,8 @@
 use super::prepared_package::{PackageStageContext, PreparedTappPackage, PreparedTappResources};
 use super::store_package::fetch_from_store;
 use super::{
-    api_http_error, api_response_err, canonical_installation_owner_id,
-    cleanup_reinstall_orphans, current_user_role, filter_install_permissions, get_admin_user_id,
+    api_http_error, api_response_err, canonical_installation_owner_id, cleanup_reinstall_orphans,
+    current_user_role, filter_install_permissions, get_admin_user_id,
     installation_conflict_owner_ids, lock_tapp_lifecycle, log_install_failure,
     log_tapp_filesystem_access, reconcile_manifest_widgets, tapp_dir_for,
     tapp_filesystem_error_message, tapp_filesystem_error_status, validate_tapp_id, ApiResponse,
@@ -487,7 +487,9 @@ async fn install_prepared_package(
         return Err(err);
     }
     if let Err(error) = txn.commit().await {
-        activated.rollback().await;
+        // COMMIT errors are ambiguous: preserve the candidate generation so
+        // startup recovery can follow the database's actual committed state.
+        activated.rollback_after_commit_error().await;
         log_install_failure(
             "txn.commit",
             &manifest.id,
@@ -861,7 +863,7 @@ pub(super) async fn update_tapp(
         return Err(err);
     }
     if txn.commit().await.is_err() {
-        activated.rollback().await;
+        activated.rollback_after_commit_error().await;
         return Err(api_http_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Failed to commit Tapp update",

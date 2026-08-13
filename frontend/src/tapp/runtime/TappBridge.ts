@@ -40,6 +40,47 @@ const BRIDGE_LIMITS = {
   timestampSkewMs: 2 * 60 * 1000,
 } as const
 
+/** Backend default federation payload cap; saver mode may lower this to 2 MiB. */
+const FEDERATION_MESSAGE_PAYLOAD_BYTES = 4 * 1024 * 1024
+/** Bridge-only envelope headroom around the backend request payload. */
+const FEDERATION_MESSAGE_ENVELOPE_BYTES =
+  FEDERATION_MESSAGE_PAYLOAD_BYTES + 64 * 1024
+/** Direct install/store packages have a separate, intentionally larger budget. */
+const TAPP_PACKAGE_PAYLOAD_BYTES = 32 * 1024 * 1024 + 512 * 1024
+
+function serializedUtf8Bytes(value: unknown): number | null {
+  let serialized: string | undefined
+  try {
+    serialized = JSON.stringify(value)
+  } catch {
+    return null
+  }
+  if (serialized === undefined) return null
+  // Count without allocating a second full-size Uint8Array for large packages.
+  let bytes = 0
+  for (let index = 0; index < serialized.length; index += 1) {
+    const code = serialized.charCodeAt(index)
+    if (code < 0x80) {
+      bytes += 1
+    } else if (code < 0x800) {
+      bytes += 2
+    } else if (
+      code >= 0xD800 &&
+      code <= 0xDBFF &&
+      index + 1 < serialized.length &&
+      serialized.charCodeAt(index + 1) >= 0xDC00 &&
+      serialized.charCodeAt(index + 1) <= 0xDFFF
+    ) {
+      bytes += 4
+      index += 1
+    } else {
+      // BMP code points and unpaired surrogates (UTF-8 replacement character).
+      bytes += 3
+    }
+  }
+  return bytes
+}
+
 /** Tiny sliding-window counter for bridge-local limits. */
 class BridgeWindowCounter {
   private stamps: number[] = []
@@ -188,10 +229,12 @@ export class TappBridge {
   } | null = null
 
   private releaseSharedGrant: (() => void) | null = null
-  private reacquireSharedGrant: (() => {
-    grant: TappRuntimeGrant
-    release: () => void
-  }) | null = null
+  private reacquireSharedGrant:
+    | (() => {
+        grant: TappRuntimeGrant
+        release: () => void
+      })
+    | null = null
 
   private registeredSource: MessageEventSource | null = null
 
@@ -689,34 +732,58 @@ export class TappBridge {
         }
       } else if (
         msg.action === 'federation.sendMessage' ||
-        msg.action === 'federation.sendRoomMessage' ||
+        msg.action === 'federation.sendRoomMessage'
+      ) {
+        const envelopeBytes = serializedUtf8Bytes(msg.payload)
+        if (envelopeBytes === null) {
+          return { valid: false, error: 'Payload must be JSON-serializable' }
+        }
+        if (envelopeBytes > FEDERATION_MESSAGE_ENVELOPE_BYTES) {
+          return {
+            valid: false,
+            error: `Payload too large for ${msg.action} (message payload max 4 MiB by default; memory-saver may lower it to 2 MiB; got ${envelopeBytes} UTF-8 bytes). Use federation chunked transfer for larger data.`,
+          }
+        }
+        const args =
+          msg.payload && typeof msg.payload === 'object'
+            ? (msg.payload as { args?: unknown }).args
+            : undefined
+        const request = Array.isArray(args) ? args[1] : undefined
+        const messagePayload =
+          request && typeof request === 'object'
+            ? (request as { payload?: unknown }).payload
+            : undefined
+        const messageBytes = serializedUtf8Bytes(messagePayload)
+        if (
+          messageBytes !== null &&
+          messageBytes > FEDERATION_MESSAGE_PAYLOAD_BYTES
+        ) {
+          return {
+            valid: false,
+            error: `Message payload too large for ${msg.action} (max 4 MiB by default; memory-saver may lower it to 2 MiB; got ${messageBytes} UTF-8 bytes). Use federation chunked transfer for larger data.`,
+          }
+        }
+      } else if (
         msg.action === 'tappList.install' ||
         msg.action === 'tappList.getInstallPackage'
       ) {
-        // Channel/room MAX_MESSAGE_PAYLOAD = 32 MiB; direct install packages
-        // and store-share snapshots may be multi-MB after JSON encoding.
-        const MAX_PACKAGE_CHARS = 32 * 1024 * 1024 + 512 * 1024
-        let payloadStr: string
-        try {
-          payloadStr = JSON.stringify(msg.payload)
-        } catch {
+        const payloadBytes = serializedUtf8Bytes(msg.payload)
+        if (payloadBytes === null) {
           return { valid: false, error: 'Payload must be JSON-serializable' }
         }
-        if (payloadStr.length > MAX_PACKAGE_CHARS) {
+        if (payloadBytes > TAPP_PACKAGE_PAYLOAD_BYTES) {
           return {
             valid: false,
-            error: `Payload too large for ${msg.action} (max ~32 MiB; got ${payloadStr.length} chars)`,
+            error: `Payload too large for ${msg.action} (max ~32 MiB; got ${payloadBytes} UTF-8 bytes)`,
           }
         }
       } else {
-        let payloadStr: string
-        try {
-          payloadStr = JSON.stringify(msg.payload)
-        } catch {
+        const payloadBytes = serializedUtf8Bytes(msg.payload)
+        if (payloadBytes === null) {
           return { valid: false, error: 'Payload must be JSON-serializable' }
         }
         // 1 MiB 业务值额外保留 JSON envelope 余量。
-        if (payloadStr.length > 1024 * 1024 + 64 * 1024) {
+        if (payloadBytes > 1024 * 1024 + 64 * 1024) {
           return {
             valid: false,
             error: `Payload too large (max ~1 MiB for ${msg.action || 'this action'}; use action-specific APIs for media/packages)`,
@@ -729,10 +796,7 @@ export class TappBridge {
     // event.source 已校验具体 WindowProxy；token 防止同页其它脚本在
     // 误获 contentWindow 引用时伪造宿主监听的事件（如 tapp.ready）。
     // host → iframe 的 emit 不走此路径。
-    if (
-      (msg.type === 'request' || msg.type === 'event') &&
-      this.sessionToken
-    ) {
+    if ((msg.type === 'request' || msg.type === 'event') && this.sessionToken) {
       const sessionToken = msg._sessionToken as string | undefined
       if (
         typeof sessionToken !== 'string' ||

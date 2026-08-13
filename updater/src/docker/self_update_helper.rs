@@ -1,58 +1,52 @@
-//! One-shot TCB self-update helper (runs inside a short-lived container).
+//! Trusted one-shot handoff for the updater TCB.
 //!
-//! Responsibilities:
-//! 1. `docker compose up -d --no-deps docker-guard updater updater-gateway` via fixed argv
-//! 2. On failure: restore `UPDATER_TAG` in the deployment `.env` to `previous_tag`
-//! 3. Always write durable status to `state/self-update-last.json`
-//!
-//! Tags arrive via env vars (set by docker-guard after charset validation). The
-//! helper re-validates before any filesystem write so shell metacharacters never
-//! reach compose argv or `.env` content.
+//! The running Guard starts this binary only from an image whose official
+//! repository and immutable digest it has independently verified. The helper
+//! has one operation: converge `docker-guard`, `updater`, and
+//! `updater-gateway` on that exact image, or restore the previous exact image.
 
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output, Stdio};
+use std::time::{Duration, Instant};
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::env_file::EnvFile;
 use crate::error::{Result, UpdaterError};
 use crate::state::atomic;
 
-/// Env vars set by docker-guard when spawning this helper.
+pub const ENV_PREVIOUS_IMAGE: &str = "MYRIAD_SELF_UPDATE_PREVIOUS_IMAGE";
+pub const ENV_TARGET_IMAGE: &str = "MYRIAD_SELF_UPDATE_TARGET_IMAGE";
 pub const ENV_PREVIOUS_TAG: &str = "MYRIAD_SELF_UPDATE_PREVIOUS_TAG";
 pub const ENV_TARGET_TAG: &str = "MYRIAD_SELF_UPDATE_TARGET_TAG";
 pub const ENV_PROJECT: &str = "MYRIAD_SELF_UPDATE_PROJECT";
 pub const ENV_PROJECT_DIRECTORY: &str = "MYRIAD_SELF_UPDATE_PROJECT_DIRECTORY";
+pub const ENV_HOST_COMPOSE_ROOT: &str = "MYRIAD_SELF_UPDATE_HOST_COMPOSE_ROOT";
 pub const ENV_COMPOSE_DIR: &str = "MYRIAD_SELF_UPDATE_COMPOSE_DIR";
-pub const ENV_ENV_FILE: &str = "MYRIAD_SELF_UPDATE_ENV_FILE";
+pub const ENV_APP_ENV_FILE: &str = "MYRIAD_SELF_UPDATE_APP_ENV_FILE";
+pub const ENV_GUARD_ENV_FILE: &str = "MYRIAD_SELF_UPDATE_GUARD_ENV_FILE";
 pub const ENV_STATUS_FILE: &str = "MYRIAD_SELF_UPDATE_STATUS_FILE";
+pub const ENV_POLICY_HOST_PATH: &str = "MYRIAD_SELF_UPDATE_POLICY_HOST_PATH";
+pub const ENV_COMPOSE_NETWORK: &str = "MYRIAD_SELF_UPDATE_COMPOSE_NETWORK";
+pub const ENV_ADMIN_NETWORK: &str = "MYRIAD_SELF_UPDATE_ADMIN_NETWORK";
+pub const ENV_GUARD_NETWORK: &str = "MYRIAD_SELF_UPDATE_GUARD_NETWORK";
+pub const ENV_RECOVERY_ONLY: &str = "MYRIAD_SELF_UPDATE_RECOVERY_ONLY";
 
-/// Max length for a tag / simple name we accept from the self-update path.
-const MAX_TAG_LEN: usize = 128;
-
-/// Image-tag / deploy-tag charset: alphanumeric plus `.` `_` `-`.
-/// Rejects shell metacharacters, path separators, whitespace, etc.
-pub fn is_safe_self_update_tag(tag: &str) -> bool {
-    if tag.is_empty() || tag.len() > MAX_TAG_LEN {
-        return false;
-    }
-    // Leading `-` can look like a flag if ever interpolated into argv incorrectly.
-    if tag.starts_with('-') {
-        return false;
-    }
-    tag.chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
-}
-
-/// Compose project / network style name (same charset as tags, no leading dash required ban is fine).
-pub fn is_safe_simple_name(name: &str) -> bool {
-    is_safe_self_update_tag(name)
-}
+const TRUSTED_UPDATER_REPOSITORY: &str = "docker.io/somekawahitomi/myriad-updater";
+const SERVICES: [&str; 3] = ["docker-guard", "updater", "updater-gateway"];
+const COMPOSE_CONFIG_TIMEOUT: Duration = Duration::from_secs(30);
+const COMPOSE_UP_TIMEOUT: Duration = Duration::from_secs(120);
+const SERVICE_HEALTH_TIMEOUT: Duration = Duration::from_secs(120);
+const DOCKER_INSPECT_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SelfUpdateOutcome {
+    Pending,
     Succeeded,
     Failed,
 }
@@ -62,139 +56,836 @@ pub struct SelfUpdateLastStatus {
     pub status: SelfUpdateOutcome,
     pub target_tag: String,
     pub previous_tag: String,
-    /// RFC3339 UTC timestamp.
     pub at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub recovery_attempt: u8,
+}
+
+fn is_zero(value: &u8) -> bool {
+    *value == 0
 }
 
 impl SelfUpdateLastStatus {
-    pub fn succeeded(previous_tag: &str, target_tag: &str) -> Self {
+    fn pending(cfg: &HelperConfig, recovery_attempt: u8) -> Self {
         Self {
-            status: SelfUpdateOutcome::Succeeded,
-            target_tag: target_tag.to_string(),
-            previous_tag: previous_tag.to_string(),
+            status: SelfUpdateOutcome::Pending,
+            target_tag: cfg.target_tag.clone(),
+            previous_tag: cfg.previous_tag.clone(),
             at: Utc::now().to_rfc3339(),
             error: None,
+            recovery_attempt,
         }
     }
 
-    pub fn failed(previous_tag: &str, target_tag: &str, error: impl Into<String>) -> Self {
+    pub(super) fn succeeded_after_handoff(target_tag: String, previous_tag: String) -> Self {
+        Self {
+            status: SelfUpdateOutcome::Succeeded,
+            target_tag,
+            previous_tag,
+            at: Utc::now().to_rfc3339(),
+            error: None,
+            recovery_attempt: 0,
+        }
+    }
+
+    fn recovery_pending(cfg: &HelperConfig, error: String, recovery_attempt: u8) -> Self {
+        Self {
+            status: SelfUpdateOutcome::Pending,
+            target_tag: cfg.target_tag.clone(),
+            previous_tag: cfg.previous_tag.clone(),
+            at: Utc::now().to_rfc3339(),
+            error: Some(error),
+            recovery_attempt,
+        }
+    }
+
+    pub(super) fn failed_before_handoff(
+        target_tag: String,
+        previous_tag: String,
+        error: String,
+    ) -> Self {
         Self {
             status: SelfUpdateOutcome::Failed,
-            target_tag: target_tag.to_string(),
-            previous_tag: previous_tag.to_string(),
+            target_tag,
+            previous_tag,
             at: Utc::now().to_rfc3339(),
-            error: Some(error.into()),
+            error: Some(error),
+            recovery_attempt: 0,
+        }
+    }
+
+    pub(super) fn pending_before_handoff(target_tag: String, previous_tag: String) -> Self {
+        Self {
+            status: SelfUpdateOutcome::Pending,
+            target_tag,
+            previous_tag,
+            at: Utc::now().to_rfc3339(),
+            error: None,
+            recovery_attempt: 0,
         }
     }
 }
 
-/// Rewrite `UPDATER_TAG` in `env_path` to `previous_tag` using [`EnvFile`].
-pub fn restore_updater_tag(env_path: &Path, previous_tag: &str) -> Result<()> {
-    if !is_safe_self_update_tag(previous_tag) {
-        return Err(UpdaterError::InvalidInput(format!(
-            "refusing to restore unsafe UPDATER_TAG: {previous_tag}"
-        )));
+#[derive(Debug, Clone)]
+struct HelperConfig {
+    previous_image: String,
+    target_image: String,
+    previous_tag: String,
+    target_tag: String,
+    project: String,
+    project_directory: PathBuf,
+    host_compose_root: String,
+    compose_dir: PathBuf,
+    app_env_file: PathBuf,
+    guard_env_file: PathBuf,
+    status_file: PathBuf,
+    policy_host_path: String,
+    compose_network: String,
+    admin_network: String,
+    guard_network: String,
+    recovery_only: bool,
+}
+
+impl HelperConfig {
+    fn from_env() -> Result<Self> {
+        let cfg = Self {
+            previous_image: required_env(ENV_PREVIOUS_IMAGE)?,
+            target_image: required_env(ENV_TARGET_IMAGE)?,
+            previous_tag: required_env(ENV_PREVIOUS_TAG)?,
+            target_tag: required_env(ENV_TARGET_TAG)?,
+            project: required_env(ENV_PROJECT)?,
+            project_directory: required_env(ENV_PROJECT_DIRECTORY)?.into(),
+            host_compose_root: required_env(ENV_HOST_COMPOSE_ROOT)?,
+            compose_dir: required_env(ENV_COMPOSE_DIR)?.into(),
+            app_env_file: required_env(ENV_APP_ENV_FILE)?.into(),
+            guard_env_file: required_env(ENV_GUARD_ENV_FILE)?.into(),
+            status_file: required_env(ENV_STATUS_FILE)?.into(),
+            policy_host_path: required_env(ENV_POLICY_HOST_PATH)?,
+            compose_network: required_env(ENV_COMPOSE_NETWORK)?,
+            admin_network: required_env(ENV_ADMIN_NETWORK)?,
+            guard_network: required_env(ENV_GUARD_NETWORK)?,
+            recovery_only: match std::env::var(ENV_RECOVERY_ONLY).as_deref() {
+                Ok("1") => true,
+                Ok("") | Err(std::env::VarError::NotPresent) => false,
+                _ => {
+                    return Err(UpdaterError::Precondition(
+                        "invalid trusted self-update recovery mode".into(),
+                    ));
+                }
+            },
+        };
+        validate_exact_image(&cfg.previous_image)?;
+        validate_exact_image(&cfg.target_image)?;
+        crate::version::DeployTag::parse(&cfg.previous_tag)?;
+        crate::version::DeployTag::parse(&cfg.target_tag)?;
+        for (name, value) in [
+            (ENV_PROJECT, cfg.project.as_str()),
+            (ENV_COMPOSE_NETWORK, cfg.compose_network.as_str()),
+            (ENV_ADMIN_NETWORK, cfg.admin_network.as_str()),
+            (ENV_GUARD_NETWORK, cfg.guard_network.as_str()),
+        ] {
+            validate_simple_name(name, value)?;
+        }
+        let policy_looks_absolute = Path::new(&cfg.policy_host_path).is_absolute()
+            || cfg
+                .policy_host_path
+                .as_bytes()
+                .get(1)
+                .is_some_and(|separator| *separator == b':');
+        if !policy_looks_absolute
+            || cfg.policy_host_path.contains('\n')
+            || cfg.policy_host_path.contains('\r')
+            || cfg.policy_host_path.contains("..")
+        {
+            return Err(UpdaterError::Precondition(
+                "Guard policy host path must be absolute".into(),
+            ));
+        }
+        Ok(cfg)
     }
-    let mut env = EnvFile::load(env_path)?;
-    env.set("UPDATER_TAG", previous_tag)?;
-    env.save()?;
+}
+
+pub fn main_from_env() -> Result<()> {
+    let cfg = HelperConfig::from_env()?;
+    // Let Guard finish the HTTP 202 response before Compose replaces it.
+    std::thread::sleep(std::time::Duration::from_secs(2));
+    ensure_status_writable(&cfg.status_file)?;
+    let recovery_attempt = std::fs::read(&cfg.status_file)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<SelfUpdateLastStatus>(&bytes).ok())
+        .filter(|status| {
+            status.target_tag == cfg.target_tag && status.previous_tag == cfg.previous_tag
+        })
+        .map(|status| status.recovery_attempt)
+        .unwrap_or(0);
+    write_status(
+        &cfg.status_file,
+        &SelfUpdateLastStatus::pending(&cfg, recovery_attempt),
+    )?;
+
+    if cfg.recovery_only {
+        return match run_recovery(&cfg) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                let detail = format!("trusted handoff recovery failed: {error}");
+                if let Err(status_error) = write_status(
+                    &cfg.status_file,
+                    &SelfUpdateLastStatus::recovery_pending(&cfg, detail.clone(), recovery_attempt),
+                ) {
+                    return Err(UpdaterError::Precondition(format!(
+                        "{detail}; persist recovery-pending outcome: {status_error}"
+                    )));
+                }
+                Err(UpdaterError::Precondition(detail))
+            }
+        };
+    }
+
+    match run_handoff(&cfg) {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            let detail = error.to_string();
+            if let Err(status_error) = write_status(
+                &cfg.status_file,
+                &SelfUpdateLastStatus::recovery_pending(&cfg, detail.clone(), recovery_attempt),
+            ) {
+                return Err(UpdaterError::Precondition(format!(
+                    "{detail}; persist recovery-pending outcome: {status_error}"
+                )));
+            }
+            Err(error)
+        }
+    }
+}
+
+fn run_recovery(cfg: &HelperConfig) -> Result<()> {
+    wait_for_compose_quiescence(Duration::from_secs(120))?;
+    rollback_previous(cfg)
+}
+
+fn run_handoff(cfg: &HelperConfig) -> Result<()> {
+    let app_before = std::fs::read(&cfg.app_env_file)?;
+    let guard_before = std::fs::read(&cfg.guard_env_file)?;
+
+    if let Err(error) = install(cfg, &cfg.target_image, &cfg.target_tag) {
+        let restore_files = restore_files(cfg, &app_before, &guard_before);
+        let quiescence = wait_for_compose_quiescence(Duration::from_secs(120));
+        let rollback = match &quiescence {
+            Ok(()) => rollback_previous(cfg),
+            Err(error) => Err(UpdaterError::Precondition(format!(
+                "target Docker operations did not quiesce before rollback: {error}"
+            ))),
+        };
+        let detail = format!(
+            "target switch failed: {error}; restore files: {}; quiescence: {}; rollback: {}",
+            display_result(restore_files),
+            display_result(quiescence),
+            display_result(rollback)
+        );
+        return Err(UpdaterError::Precondition(detail));
+    }
     Ok(())
 }
 
-/// Persist durable self-update outcome under the deployment volume.
-pub fn write_self_update_status(path: &Path, status: &SelfUpdateLastStatus) -> Result<()> {
+fn wait_for_compose_quiescence(timeout: Duration) -> Result<()> {
+    let deadline = Instant::now() + timeout;
+    let mut previous = None;
+    let mut stable_samples = 0u8;
+    loop {
+        let mut sample = Vec::new();
+        let mut sample_complete = true;
+        for container in [
+            "myriad-docker-guard",
+            "myriad-updater",
+            "myriad-updater-gateway",
+        ] {
+            let mut inspect = Command::new("docker");
+            inspect.args([
+                "container",
+                "inspect",
+                "--format",
+                "{{.Id}}|{{.State.Status}}|{{.Image}}",
+                container,
+            ]);
+            match command_output_with_timeout(
+                &mut inspect,
+                DOCKER_INSPECT_TIMEOUT,
+                "inspect TCB quiescence",
+            ) {
+                Ok(output) if output.status.success() => {
+                    sample.extend_from_slice(container.as_bytes());
+                    sample.push(b'=');
+                    sample.extend_from_slice(&output.stdout);
+                }
+                Ok(output) if is_missing_container_error(&output.stderr) => {
+                    sample.extend_from_slice(container.as_bytes());
+                    sample.extend_from_slice(b"=<absent>\n");
+                }
+                Ok(_) | Err(_) => {
+                    sample_complete = false;
+                    break;
+                }
+            }
+        }
+        if sample_complete {
+            if previous.as_deref() == Some(sample.as_slice()) {
+                stable_samples += 1;
+                if stable_samples >= 5 {
+                    return Ok(());
+                }
+            } else {
+                previous = Some(sample);
+                stable_samples = 0;
+            }
+        } else {
+            stable_samples = 0;
+            previous = None;
+        }
+        if Instant::now() >= deadline {
+            return Err(UpdaterError::Precondition(
+                "TCB container identities did not stabilize".into(),
+            ));
+        }
+        std::thread::sleep(Duration::from_secs(1));
+    }
+}
+
+fn is_missing_container_error(stderr: &[u8]) -> bool {
+    let error = String::from_utf8_lossy(stderr);
+    error.contains("No such container") || error.contains("No such object")
+}
+
+fn ensure_status_writable(path: &Path) -> Result<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| UpdaterError::Precondition("self-update status has no parent".into()))?;
+    std::fs::create_dir_all(parent)?;
+    let mut probe = tempfile::NamedTempFile::new_in(parent)?;
+    probe.write_all(b"self-update-status-probe")?;
+    probe.as_file().sync_all()?;
+    Ok(())
+}
+
+fn install(cfg: &HelperConfig, exact_image: &str, tag: &str) -> Result<()> {
+    update_policy_files(cfg, exact_image, tag)?;
+    let files = find_compose_files(&cfg.compose_dir)?;
+    let config = run_compose(
+        cfg,
+        &files,
+        exact_image,
+        tag,
+        &["config", "--format", "json"],
+    )?;
+    validate_compose_model(&config, exact_image, cfg)?;
+    run_compose(
+        cfg,
+        &files,
+        exact_image,
+        tag,
+        &[
+            "up",
+            "-d",
+            "--no-deps",
+            "--force-recreate",
+            SERVICES[0],
+            SERVICES[1],
+            SERVICES[2],
+        ],
+    )?;
+    wait_for_running_services(exact_image, SERVICE_HEALTH_TIMEOUT)?;
+    Ok(())
+}
+
+fn rollback_previous(cfg: &HelperConfig) -> Result<()> {
+    for attempt in 1..=2 {
+        match install(cfg, &cfg.previous_image, &cfg.previous_tag) {
+            Ok(()) => return Ok(()),
+            Err(error) if attempt == 2 => return Err(error),
+            Err(_) => std::thread::sleep(Duration::from_secs(2)),
+        }
+    }
+    Err(UpdaterError::Precondition(
+        "rollback did not reach the previous TCB invariant".into(),
+    ))
+}
+
+fn update_policy_files(cfg: &HelperConfig, exact_image: &str, tag: &str) -> Result<()> {
+    let mut app = EnvFile::load(&cfg.app_env_file)?;
+    app.set("UPDATER_TAG", tag)?;
+    app.set("UPDATER_IMAGE_REF", exact_image)?;
+    app.save()?;
+
+    let mut guard = EnvFile::load(&cfg.guard_env_file)?;
+    guard.set("DOCKER_GUARD_IMAGE", exact_image)?;
+    guard.set("MYRIAD_GUARD_ENV_FILE", &cfg.policy_host_path)?;
+    guard.save()
+}
+
+fn restore_files(cfg: &HelperConfig, app: &[u8], guard: &[u8]) -> Result<()> {
+    atomic::write_atomic_bytes(&cfg.app_env_file, app)?;
+    atomic::write_atomic_bytes(&cfg.guard_env_file, guard)
+}
+
+pub(super) fn write_status(path: &Path, status: &SelfUpdateLastStatus) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
     atomic::write_atomic_json(path, status)
 }
 
-#[derive(Debug, Clone)]
-pub struct HelperConfig {
-    pub previous_tag: String,
-    pub target_tag: String,
-    pub project: String,
-    /// Host-side compose root (passed to `docker compose --project-directory`).
-    pub project_directory: PathBuf,
-    /// Path inside the helper container for the compose tree (usually `/host/compose`).
-    pub compose_dir: PathBuf,
-    pub env_file: PathBuf,
-    pub status_file: PathBuf,
-}
-
-impl HelperConfig {
-    /// Load from the env vars docker-guard sets on the helper container.
-    pub fn from_env() -> Result<Self> {
-        let previous_tag = require_env(ENV_PREVIOUS_TAG)?;
-        let target_tag = require_env(ENV_TARGET_TAG)?;
-        let project = require_env(ENV_PROJECT)?;
-        let project_directory = PathBuf::from(require_env(ENV_PROJECT_DIRECTORY)?);
-        let compose_dir = PathBuf::from(
-            std::env::var(ENV_COMPOSE_DIR).unwrap_or_else(|_| "/host/compose".into()),
-        );
-        let env_file = PathBuf::from(
-            std::env::var(ENV_ENV_FILE).unwrap_or_else(|_| "/host/compose/.env".into()),
-        );
-        let status_file = PathBuf::from(
-            std::env::var(ENV_STATUS_FILE)
-                .unwrap_or_else(|_| "/host/compose/state/self-update-last.json".into()),
-        );
-
-        validate_config_tags(&previous_tag, &target_tag, &project)?;
-
-        Ok(Self {
-            previous_tag,
-            target_tag,
-            project,
-            project_directory,
-            compose_dir,
-            env_file,
-            status_file,
-        })
+fn run_compose(
+    cfg: &HelperConfig,
+    files: &[PathBuf],
+    exact_image: &str,
+    tag: &str,
+    tail: &[&str],
+) -> Result<Vec<u8>> {
+    let mut command = Command::new("docker");
+    command.args([
+        "compose",
+        "-p",
+        &cfg.project,
+        "--project-directory",
+        cfg.project_directory
+            .to_str()
+            .ok_or_else(|| UpdaterError::InvalidInput("project path is not UTF-8".into()))?,
+    ]);
+    for file in files {
+        command.arg("-f").arg(file);
     }
+    command
+        .arg("--env-file")
+        .arg(&cfg.app_env_file)
+        .arg("--env-file")
+        .arg(&cfg.guard_env_file)
+        .args(tail)
+        // These values are authoritative and override every mutable .env key.
+        .env("UPDATER_IMAGE_REF", exact_image)
+        .env("UPDATER_TAG", tag)
+        .env("DOCKER_GUARD_IMAGE", exact_image)
+        .env("MYRIAD_GUARD_ENV_FILE", &cfg.policy_host_path)
+        .env("MYRIAD_COMPOSE_HOST_ROOT", &cfg.host_compose_root)
+        .env("COMPOSE_PROJECT_NAME", &cfg.project)
+        .env("MYRIAD_DOCKER_NETWORK", &cfg.compose_network)
+        .env("MYRIAD_ADMIN_NETWORK", &cfg.admin_network)
+        .env("MYRIAD_DOCKER_GUARD_NETWORK", &cfg.guard_network)
+        .env("GUARD_COMPOSE_PROJECT_NAME", &cfg.project)
+        .env("GUARD_MYRIAD_DOCKER_NETWORK", &cfg.compose_network)
+        .env("GUARD_MYRIAD_ADMIN_NETWORK", &cfg.admin_network)
+        .env("GUARD_MYRIAD_DOCKER_GUARD_NETWORK", &cfg.guard_network);
+
+    let timeout = if tail.first() == Some(&"config") {
+        COMPOSE_CONFIG_TIMEOUT
+    } else {
+        COMPOSE_UP_TIMEOUT
+    };
+    let output = command_output_with_timeout(&mut command, timeout, "fixed compose operation")?;
+    if !output.status.success() {
+        return Err(UpdaterError::Docker(format!(
+            "fixed compose operation failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )));
+    }
+    Ok(output.stdout)
 }
 
-fn require_env(key: &str) -> Result<String> {
-    std::env::var(key).map_err(|_| {
-        UpdaterError::Precondition(format!("missing required env var {key} for TCB self-update helper"))
+fn command_output_with_timeout(
+    command: &mut Command,
+    timeout: Duration,
+    operation: &str,
+) -> Result<Output> {
+    let mut stdout = tempfile::tempfile().map_err(|error| {
+        UpdaterError::Io(std::io::Error::new(
+            error.kind(),
+            format!("create {operation} stdout: {error}"),
+        ))
+    })?;
+    let mut stderr = tempfile::tempfile().map_err(|error| {
+        UpdaterError::Io(std::io::Error::new(
+            error.kind(),
+            format!("create {operation} stderr: {error}"),
+        ))
+    })?;
+    command
+        .stdout(Stdio::from(stdout.try_clone()?))
+        .stderr(Stdio::from(stderr.try_clone()?));
+    // The helper runs in a Linux container. Put Docker CLI and any Compose
+    // plugin descendants in their own process group so a timeout cannot leave
+    // a target deployment racing the rollback path.
+    unsafe {
+        command.pre_exec(|| {
+            nix::unistd::setsid()
+                .map(|_| ())
+                .map_err(std::io::Error::other)
+        });
+    }
+    let mut child = command
+        .spawn()
+        .map_err(|error| UpdaterError::Docker(format!("spawn {operation}: {error}")))?;
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        if let Some(status) = child
+            .try_wait()
+            .map_err(|error| UpdaterError::Docker(format!("wait for {operation}: {error}")))?
+        {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            let process_group = nix::unistd::Pid::from_raw(child.id() as i32);
+            let _ = nix::sys::signal::killpg(process_group, nix::sys::signal::Signal::SIGTERM);
+            let grace_deadline = Instant::now() + Duration::from_secs(5);
+            while Instant::now() < grace_deadline {
+                if child.try_wait().ok().flatten().is_some() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            if child.try_wait().ok().flatten().is_none() {
+                let _ = nix::sys::signal::killpg(process_group, nix::sys::signal::Signal::SIGKILL);
+            }
+            let _ = child.wait();
+            return Err(UpdaterError::Docker(format!(
+                "{operation} exceeded {} seconds",
+                timeout.as_secs()
+            )));
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    };
+    stdout.seek(SeekFrom::Start(0))?;
+    stderr.seek(SeekFrom::Start(0))?;
+    let mut stdout_bytes = Vec::new();
+    let mut stderr_bytes = Vec::new();
+    stdout.read_to_end(&mut stdout_bytes)?;
+    stderr.read_to_end(&mut stderr_bytes)?;
+    Ok(Output {
+        status,
+        stdout: stdout_bytes,
+        stderr: stderr_bytes,
     })
 }
 
-fn validate_config_tags(previous: &str, target: &str, project: &str) -> Result<()> {
-    if !is_safe_self_update_tag(previous) {
-        return Err(UpdaterError::InvalidInput(format!(
-            "invalid previous_tag for self-update: {previous}"
-        )));
+fn validate_compose_model(bytes: &[u8], exact_image: &str, cfg: &HelperConfig) -> Result<()> {
+    let model: Value = serde_json::from_slice(bytes).map_err(|error| {
+        UpdaterError::Precondition(format!("compose config is not valid JSON: {error}"))
+    })?;
+    let services = model
+        .get("services")
+        .and_then(Value::as_object)
+        .ok_or_else(|| UpdaterError::Precondition("compose config has no services".into()))?;
+    for service in SERVICES {
+        let value = services.get(service).ok_or_else(|| {
+            UpdaterError::Precondition(format!("compose config is missing {service}"))
+        })?;
+        if value.get("image").and_then(Value::as_str) != Some(exact_image) {
+            return Err(UpdaterError::Precondition(format!(
+                "{service} image is not the Guard-verified digest"
+            )));
+        }
+        if value.get("privileged").and_then(Value::as_bool) == Some(true) {
+            return Err(UpdaterError::Precondition(format!(
+                "{service} may not be privileged"
+            )));
+        }
+        for forbidden in ["command", "ports", "cap_add", "devices", "pid", "ipc"] {
+            if value.get(forbidden).is_some_and(nonempty_json) {
+                return Err(UpdaterError::Precondition(format!(
+                    "{service} field {forbidden} is outside the fixed TCB contract"
+                )));
+            }
+        }
+        let security_opt = value
+            .get("security_opt")
+            .and_then(Value::as_array)
+            .ok_or_else(|| {
+                UpdaterError::Precondition(format!("{service} must set no-new-privileges"))
+            })?;
+        if security_opt.len() != 1
+            || !security_opt[0].as_str().is_some_and(|option| {
+                matches!(option, "no-new-privileges:true" | "no-new-privileges")
+            })
+        {
+            return Err(UpdaterError::Precondition(format!(
+                "{service} security options are outside the fixed TCB contract"
+            )));
+        }
     }
-    if !is_safe_self_update_tag(target) {
-        return Err(UpdaterError::InvalidInput(format!(
-            "invalid target_tag for self-update: {target}"
-        )));
+
+    let guard = &services["docker-guard"];
+    require_read_only(guard, true, "docker-guard")?;
+    require_entrypoint(
+        guard,
+        &["/usr/bin/tini", "--", "/usr/local/bin/myriad-docker-guard"],
+        "docker-guard",
+    )?;
+    require_healthcheck(guard, "http://localhost:2375/_ping", "docker-guard")?;
+    require_mount_targets(
+        guard,
+        &["/var/run/docker.sock", "/host/compose", "/host/state"],
+        "docker-guard",
+    )?;
+    require_networks(guard, &[&cfg.guard_network], "docker-guard")?;
+    let updater = &services["updater"];
+    require_read_only(updater, false, "updater")?;
+    if updater.get("entrypoint").is_some_and(nonempty_json) {
+        return Err(UpdaterError::Precondition(
+            "updater entrypoint override is forbidden".into(),
+        ));
     }
-    if !is_safe_simple_name(project) {
-        return Err(UpdaterError::InvalidInput(format!(
-            "invalid compose project for self-update: {project}"
+    require_healthcheck(updater, "http://localhost:1101/healthz", "updater")?;
+    require_updater_mount_targets(updater)?;
+    require_networks(
+        updater,
+        &[&cfg.admin_network, &cfg.guard_network],
+        "updater",
+    )?;
+    let gateway = &services["updater-gateway"];
+    require_read_only(gateway, true, "updater-gateway")?;
+    require_entrypoint(
+        gateway,
+        &[
+            "/usr/bin/tini",
+            "--",
+            "/usr/local/bin/myriad-updater-gateway",
+        ],
+        "updater-gateway",
+    )?;
+    require_healthcheck(gateway, "http://localhost:1104/healthz", "updater-gateway")?;
+    require_mount_targets(gateway, &[], "updater-gateway")?;
+    require_networks(gateway, &[&cfg.admin_network], "updater-gateway")?;
+    Ok(())
+}
+
+fn nonempty_json(value: &Value) -> bool {
+    match value {
+        Value::Null => false,
+        Value::Bool(value) => *value,
+        Value::String(value) => !value.is_empty(),
+        Value::Array(value) => !value.is_empty(),
+        Value::Object(value) => !value.is_empty(),
+        Value::Number(_) => true,
+    }
+}
+
+fn require_read_only(service: &Value, expected: bool, name: &str) -> Result<()> {
+    let actual = service
+        .get("read_only")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if actual != expected {
+        return Err(UpdaterError::Precondition(format!(
+            "{name} read_only does not match the fixed TCB contract"
         )));
     }
     Ok(())
 }
 
-/// Discover compose files under `root` (same order as docker-guard).
-pub fn find_compose_files(root: &Path) -> Result<Vec<PathBuf>> {
-    let mut files = Vec::new();
-    for name in [
+fn require_entrypoint(service: &Value, expected: &[&str], name: &str) -> Result<()> {
+    let actual = service
+        .get("entrypoint")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>();
+    if actual != expected {
+        return Err(UpdaterError::Precondition(format!(
+            "{name} entrypoint is outside the fixed TCB contract"
+        )));
+    }
+    Ok(())
+}
+
+fn require_healthcheck(service: &Value, url: &str, name: &str) -> Result<()> {
+    let actual = service
+        .pointer("/healthcheck/test")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>();
+    if actual != ["CMD", "curl", "-fsS", url] {
+        return Err(UpdaterError::Precondition(format!(
+            "{name} healthcheck is outside the fixed TCB contract"
+        )));
+    }
+    Ok(())
+}
+
+fn require_mount_targets(service: &Value, expected: &[&str], name: &str) -> Result<()> {
+    let mut actual = service
+        .get("volumes")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|mount| mount.get("target").and_then(Value::as_str))
+        .collect::<Vec<_>>();
+    let mut expected = expected.to_vec();
+    actual.sort_unstable();
+    expected.sort_unstable();
+    if actual != expected {
+        return Err(UpdaterError::Precondition(format!(
+            "{name} mount targets are outside the fixed TCB contract"
+        )));
+    }
+    Ok(())
+}
+
+fn require_updater_mount_targets(service: &Value) -> Result<()> {
+    let mut actual = service
+        .get("volumes")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|mount| mount.get("target").and_then(Value::as_str))
+        .collect::<Vec<_>>();
+    actual.sort_unstable();
+    let mut bundled = vec![
+        "/host/compose",
+        "/host/compose/.env",
+        "/host/compose/pgdata",
+        "/host/compose/state",
+        "/run/secrets/docker-guard.env",
+    ];
+    bundled.sort_unstable();
+    let mut external = bundled.clone();
+    external.retain(|target| *target != "/host/compose/pgdata");
+    if actual != bundled && actual != external {
+        return Err(UpdaterError::Precondition(
+            "updater mount targets are outside the fixed bundled/external contract".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn wait_for_running_services(exact_image: &str, timeout: Duration) -> Result<()> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let error = match verify_running_services(exact_image) {
+            Ok(()) => return Ok(()),
+            Err(error) => error,
+        };
+        if Instant::now() >= deadline {
+            return Err(error);
+        }
+        std::thread::sleep(Duration::from_secs(2));
+    }
+}
+
+fn verify_running_services(exact_image: &str) -> Result<()> {
+    for container in [
+        "myriad-docker-guard",
+        "myriad-updater",
+        "myriad-updater-gateway",
+    ] {
+        let mut inspect = Command::new("docker");
+        inspect.args(["container", "inspect", container]);
+        let output = command_output_with_timeout(
+            &mut inspect,
+            DOCKER_INSPECT_TIMEOUT,
+            &format!("inspect {container}"),
+        )?;
+        if !output.status.success() {
+            return Err(UpdaterError::Docker(format!(
+                "inspect recreated {container} failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )));
+        }
+        let inspected: Vec<Value> = serde_json::from_slice(&output.stdout).map_err(|error| {
+            UpdaterError::Precondition(format!("invalid inspect for {container}: {error}"))
+        })?;
+        let inspected = inspected
+            .first()
+            .ok_or_else(|| UpdaterError::Precondition(format!("empty inspect for {container}")))?;
+        if inspected.pointer("/State/Running").and_then(Value::as_bool) != Some(true)
+            || inspected.pointer("/State/Status").and_then(Value::as_str) != Some("running")
+            || inspected
+                .pointer("/State/Health/Status")
+                .and_then(Value::as_str)
+                != Some("healthy")
+        {
+            return Err(UpdaterError::Precondition(format!(
+                "{container} is not running and healthy"
+            )));
+        }
+        let configured = inspected
+            .pointer("/Config/Image")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let image_id = inspected
+            .get("Image")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if configured != exact_image || !image_id.starts_with("sha256:") {
+            return Err(UpdaterError::Precondition(format!(
+                "{container} did not start from the Guard-verified digest"
+            )));
+        }
+        let mut image_inspect = Command::new("docker");
+        image_inspect.args([
+            "image",
+            "inspect",
+            "--format",
+            "{{json .RepoDigests}}",
+            image_id,
+        ]);
+        let output = command_output_with_timeout(
+            &mut image_inspect,
+            DOCKER_INSPECT_TIMEOUT,
+            &format!("inspect image for {container}"),
+        )?;
+        let digests: Vec<String> = serde_json::from_slice(&output.stdout).map_err(|error| {
+            UpdaterError::Precondition(format!("invalid RepoDigests for {container}: {error}"))
+        })?;
+        if !digests
+            .iter()
+            .any(|actual| digest_matches(actual, exact_image))
+        {
+            return Err(UpdaterError::Precondition(format!(
+                "{container} content digest does not match the verified target"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn digest_matches(actual: &str, expected: &str) -> bool {
+    let Some((actual_repo, actual_digest)) = actual.rsplit_once("@sha256:") else {
+        return false;
+    };
+    let Some((expected_repo, expected_digest)) = expected.rsplit_once("@sha256:") else {
+        return false;
+    };
+    actual_repo.trim_start_matches("docker.io/") == expected_repo.trim_start_matches("docker.io/")
+        && actual_digest.eq_ignore_ascii_case(expected_digest)
+}
+
+fn require_networks(service: &Value, expected: &[&str], name: &str) -> Result<()> {
+    let networks = service
+        .get("networks")
+        .and_then(Value::as_object)
+        .ok_or_else(|| UpdaterError::Precondition(format!("{name} has no network map")))?;
+    if networks.len() != expected.len() || expected.iter().any(|item| !networks.contains_key(*item))
+    {
+        return Err(UpdaterError::Precondition(format!(
+            "{name} network topology is outside the fixed allowlist"
+        )));
+    }
+    Ok(())
+}
+
+fn find_compose_files(root: &Path) -> Result<Vec<PathBuf>> {
+    let files = [
         "compose.yaml",
         "compose.yml",
         "docker-compose.yaml",
         "docker-compose.yml",
-    ] {
-        let path = root.join(name);
-        if path.exists() {
-            files.push(path);
-        }
-    }
+    ]
+    .into_iter()
+    .map(|name| root.join(name))
+    .filter(|path| path.is_file())
+    .collect::<Vec<_>>();
     if files.is_empty() {
         return Err(UpdaterError::Precondition(format!(
             "no Compose file found in {}",
@@ -204,169 +895,190 @@ pub fn find_compose_files(root: &Path) -> Result<Vec<PathBuf>> {
     Ok(files)
 }
 
-/// Run compose recreate; on failure restore `UPDATER_TAG` and always write status.
-pub fn run_helper(cfg: &HelperConfig) -> Result<()> {
-    let compose_files = find_compose_files(&cfg.compose_dir)?;
-
-    let mut command = Command::new("docker");
-    command.args([
-        "compose",
-        "-p",
-        &cfg.project,
-        "--project-directory",
-        cfg.project_directory
-            .to_str()
-            .ok_or_else(|| UpdaterError::InvalidInput("project_directory is not valid UTF-8".into()))?,
-    ]);
-    for file in &compose_files {
-        command.arg("-f").arg(file);
-    }
-    let env_path = cfg
-        .env_file
-        .to_str()
-        .ok_or_else(|| UpdaterError::InvalidInput("env_file is not valid UTF-8".into()))?;
-    command
-        .arg("--env-file")
-        .arg(env_path)
-        .args([
-            "up",
-            "-d",
-            "--no-deps",
-            "docker-guard",
-            "updater",
-            "updater-gateway",
-        ]);
-
-    let output = command.output().map_err(|e| {
-        UpdaterError::Docker(format!("spawn docker compose for TCB self-update: {e}"))
+fn validate_exact_image(image: &str) -> Result<()> {
+    let prefix = format!("{TRUSTED_UPDATER_REPOSITORY}@sha256:");
+    let digest = image.strip_prefix(&prefix).ok_or_else(|| {
+        UpdaterError::Precondition(format!("TCB image must use {prefix}<64 hex>"))
     })?;
-
-    if output.status.success() {
-        let status = SelfUpdateLastStatus::succeeded(&cfg.previous_tag, &cfg.target_tag);
-        if let Err(e) = write_self_update_status(&cfg.status_file, &status) {
-            // Compose already succeeded; still surface status write failure.
-            return Err(UpdaterError::State(format!(
-                "self-update compose succeeded but failed to write status file {}: {e}",
-                cfg.status_file.display()
-            )));
-        }
-        return Ok(());
+    if digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(UpdaterError::Precondition(
+            "TCB image digest must contain exactly 64 hex characters".into(),
+        ));
     }
-
-    let compose_err = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    let compose_err = if compose_err.is_empty() {
-        format!("docker compose exited with status {}", output.status)
-    } else {
-        compose_err
-    };
-
-    let mut error_parts = vec![format!("compose failed: {compose_err}")];
-
-    match restore_updater_tag(&cfg.env_file, &cfg.previous_tag) {
-        Ok(()) => error_parts.push(format!(
-            "restored UPDATER_TAG to {}",
-            cfg.previous_tag
-        )),
-        Err(e) => error_parts.push(format!(
-            "FAILED to restore UPDATER_TAG to {}: {e}",
-            cfg.previous_tag
-        )),
-    }
-
-    let combined = error_parts.join("; ");
-    let status = SelfUpdateLastStatus::failed(&cfg.previous_tag, &cfg.target_tag, &combined);
-    let _ = write_self_update_status(&cfg.status_file, &status);
-
-    Err(UpdaterError::Docker(combined))
+    Ok(())
 }
 
-/// Entry used by the `myriad-tcb-self-update` binary.
-pub fn main_from_env() -> Result<()> {
-    let cfg = HelperConfig::from_env()?;
-    run_helper(&cfg)
+fn validate_simple_name(name: &str, value: &str) -> Result<()> {
+    if value.is_empty()
+        || value.len() > 128
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+    {
+        return Err(UpdaterError::InvalidInput(format!("invalid {name}")));
+    }
+    Ok(())
+}
+
+fn required_env(name: &str) -> Result<String> {
+    std::env::var(name)
+        .map_err(|_| UpdaterError::Precondition(format!("missing required helper env {name}")))
+}
+
+fn display_result(result: Result<()>) -> String {
+    match result {
+        Ok(()) => "ok".into(),
+        Err(error) => error.to_string(),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn tag_validation_accepts_normal_tags() {
-        for tag in [
-            "v0.2.3",
-            "v0.2.3-beta.1",
-            "v0.0.0-dev",
-            "dev-abc1234",
-            "main",
-            "preview",
-            "0.1.0",
-        ] {
-            assert!(is_safe_self_update_tag(tag), "{tag}");
+    fn exact_image() -> String {
+        format!("{TRUSTED_UPDATER_REPOSITORY}@sha256:{}", "a".repeat(64))
+    }
+
+    fn config() -> HelperConfig {
+        HelperConfig {
+            previous_image: exact_image(),
+            target_image: exact_image(),
+            previous_tag: "v1.2.2".into(),
+            target_tag: "v1.2.3".into(),
+            project: "myriad".into(),
+            project_directory: "/host/compose".into(),
+            host_compose_root: "/srv/myriad".into(),
+            compose_dir: "/host/compose".into(),
+            app_env_file: "/host/write/.env".into(),
+            guard_env_file: "/host/policy/docker-guard.env".into(),
+            status_file: "/host/write/state/self-update-last.json".into(),
+            policy_host_path: "/etc/myriad/docker-guard.env".into(),
+            compose_network: "myriad-net".into(),
+            admin_network: "myriad-admin-net".into(),
+            guard_network: "myriad-docker-guard-net".into(),
+            recovery_only: false,
         }
     }
 
-    #[test]
-    fn tag_validation_rejects_shell_metacharacters() {
-        for tag in [
-            "; rm -rf /",
-            "v1;id",
-            "v1$(reboot)",
-            "v1`id`",
-            "v1|cat",
-            "v1&true",
-            "v1\nmalicious",
-            "v1/../etc",
-            "../escape",
-            "v1 tag",
-            "",
-            "-evil",
-            "v1'quote",
-            "v1\"quote",
-            "v1$FOO",
-        ] {
-            assert!(!is_safe_self_update_tag(tag), "should reject: {tag:?}");
+    fn service(
+        image: &str,
+        networks: &[&str],
+        volumes: &[&str],
+        entrypoint: Option<&[&str]>,
+        read_only: bool,
+        health_url: &str,
+    ) -> Value {
+        let mut value = serde_json::json!({
+            "image": image,
+            "networks": networks.iter().map(|name| ((*name).to_owned(), serde_json::json!(null))).collect::<serde_json::Map<_, _>>(),
+            "volumes": volumes.iter().map(|target| serde_json::json!({"target": target})).collect::<Vec<_>>(),
+            "read_only": read_only,
+            "security_opt": ["no-new-privileges:true"],
+            "healthcheck": {"test": ["CMD", "curl", "-fsS", health_url]}
+        });
+        if let Some(entrypoint) = entrypoint {
+            value["entrypoint"] = serde_json::json!(entrypoint);
         }
+        value
+    }
+
+    fn compose_model(image: &str) -> Value {
+        serde_json::json!({
+            "services": {
+                "docker-guard": service(
+                    image,
+                    &["myriad-docker-guard-net"],
+                    &["/var/run/docker.sock", "/host/compose", "/host/state"],
+                    Some(&["/usr/bin/tini", "--", "/usr/local/bin/myriad-docker-guard"]),
+                    true,
+                    "http://localhost:2375/_ping",
+                ),
+                "updater": service(
+                    image,
+                    &["myriad-admin-net", "myriad-docker-guard-net"],
+                    &[
+                        "/host/compose",
+                        "/host/compose/.env",
+                        "/host/compose/pgdata",
+                        "/host/compose/state",
+                        "/run/secrets/docker-guard.env",
+                    ],
+                    None,
+                    false,
+                    "http://localhost:1101/healthz",
+                ),
+                "updater-gateway": service(
+                    image,
+                    &["myriad-admin-net"],
+                    &[],
+                    Some(&["/usr/bin/tini", "--", "/usr/local/bin/myriad-updater-gateway"]),
+                    true,
+                    "http://localhost:1104/healthz",
+                )
+            }
+        })
     }
 
     #[test]
-    fn restore_updater_tag_rewrites_env_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let env_path = dir.path().join(".env");
-        std::fs::write(
-            &env_path,
-            "MYRIAD_TAG=v0.1.0\nUPDATER_TAG=v0.9.0\nPROXY_TAG=v0.1.0\n",
+    fn exact_image_rejects_tags_and_foreign_repositories() {
+        assert!(validate_exact_image(
+            "docker.io/somekawahitomi/myriad-updater@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         )
-        .unwrap();
-
-        restore_updater_tag(&env_path, "v0.8.0").unwrap();
-
-        let loaded = EnvFile::load(&env_path).unwrap();
-        assert_eq!(loaded.get("UPDATER_TAG"), Some("v0.8.0"));
-        assert_eq!(loaded.get("MYRIAD_TAG"), Some("v0.1.0"));
-        assert_eq!(loaded.get("PROXY_TAG"), Some("v0.1.0"));
+        .is_ok());
+        assert!(validate_exact_image("docker.io/somekawahitomi/myriad-updater:v1.2.3").is_err());
+        assert!(validate_exact_image(
+            "docker.io/attacker/myriad-updater@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        )
+        .is_err());
     }
 
     #[test]
-    fn restore_updater_tag_rejects_unsafe_previous() {
-        let dir = tempfile::tempdir().unwrap();
-        let env_path = dir.path().join(".env");
-        std::fs::write(&env_path, "UPDATER_TAG=v0.9.0\n").unwrap();
-        assert!(restore_updater_tag(&env_path, "v0;rm -rf /").is_err());
-        let loaded = EnvFile::load(&env_path).unwrap();
-        assert_eq!(loaded.get("UPDATER_TAG"), Some("v0.9.0"));
+    fn fixed_compose_model_accepts_only_guard_owned_image_and_services() {
+        let image = exact_image();
+        let model = compose_model(&image);
+        let bytes = serde_json::to_vec(&model).unwrap();
+        assert!(validate_compose_model(&bytes, &image, &config()).is_ok());
+
+        let mut injected = model;
+        injected["services"]["updater"]["command"] = serde_json::json!(["sh", "-c", "id"]);
+        let bytes = serde_json::to_vec(&injected).unwrap();
+        assert!(validate_compose_model(&bytes, &image, &config()).is_err());
     }
 
     #[test]
-    fn write_status_roundtrip() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("state").join("self-update-last.json");
-        let status = SelfUpdateLastStatus::failed("v0.1.0", "v0.2.0", "compose boom");
-        write_self_update_status(&path, &status).unwrap();
-        let raw = std::fs::read_to_string(&path).unwrap();
-        let parsed: SelfUpdateLastStatus = serde_json::from_str(&raw).unwrap();
-        assert_eq!(parsed.status, SelfUpdateOutcome::Failed);
-        assert_eq!(parsed.previous_tag, "v0.1.0");
-        assert_eq!(parsed.target_tag, "v0.2.0");
-        assert_eq!(parsed.error.as_deref(), Some("compose boom"));
+    fn fixed_compose_model_allows_external_db_without_pgdata_mount() {
+        let image = exact_image();
+        let mut model = compose_model(&image);
+        model["services"]["updater"]["volumes"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|mount| mount["target"] != "/host/compose/pgdata");
+        let bytes = serde_json::to_vec(&model).unwrap();
+        assert!(validate_compose_model(&bytes, &image, &config()).is_ok());
+    }
+
+    #[test]
+    fn digest_comparison_allows_only_docker_hub_canonicalization() {
+        let expected = exact_image();
+        let short = expected.trim_start_matches("docker.io/");
+        assert!(digest_matches(short, &expected));
+        assert!(!digest_matches(
+            &expected.replace("somekawahitomi", "attacker"),
+            &expected
+        ));
+    }
+
+    #[test]
+    fn missing_container_is_a_stable_quiescence_state() {
+        assert!(is_missing_container_error(
+            b"Error: No such container: myriad-updater"
+        ));
+        assert!(is_missing_container_error(
+            b"Error response from daemon: No such object: myriad-updater"
+        ));
+        assert!(!is_missing_container_error(
+            b"Cannot connect to the Docker daemon"
+        ));
     }
 }

@@ -340,7 +340,7 @@ pub async fn create_channel(
     // 创建新 Channel
     let channel_id = generate_channel_id();
     let properties = json!({
-        // Align with live message_payload_limit (default 36 MiB; saver lower)
+        // Align with live message_payload_limit (default 4 MiB; saver lower)
         "maxMessageSize": crate::federation::limits::message_payload_limit(),
         "supportedFormats": ["text/plain", "text/markdown", "application/json"]
     });
@@ -780,7 +780,7 @@ pub async fn send_message(
     db: &DatabaseConnection,
     req: &SendMessageRequest,
 ) -> Result<SendMessageResponse, (StatusCode, Json<serde_json::Value>)> {
-    // 验证载荷大小（default 36 MiB；内存节约档略低）
+    // 验证载荷大小（default 4 MiB；内存节约档略低）
     let max_payload = crate::federation::limits::message_payload_limit();
     let payload_size = req.payload.to_string().len();
     if payload_size > max_payload {

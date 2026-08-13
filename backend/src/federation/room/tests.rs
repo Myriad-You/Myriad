@@ -389,6 +389,22 @@ fn room_join_roster_announce_requires_invite_rights() {
 }
 
 #[test]
+fn room_join_accepts_home_roster_backfill() {
+    // backfill_roster_for_new_member replays the roster from the home instance:
+    // owner-signed, announcing a third party the recipient has never seen, in a
+    // private admin-only room. That is the shape the late joiner must accept —
+    // it is the only way they learn about peers who accepted while they were
+    // still pending.
+    assert!(join_auth(|a| {
+        a.is_self_join = false;
+        a.announcer_is_owner = true;
+        a.joining_already_on_roster = false;
+        a.invite_policy = "admin-only";
+        a.room_is_public = false;
+    }));
+}
+
+#[test]
 fn room_join_unknown_policy_falls_back_to_admin_only() {
     // Mirrors the `_ if !is_admin_role(..)` arm in invite_to_room.
     assert!(!join_auth(|a| {

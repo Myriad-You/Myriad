@@ -150,9 +150,7 @@ export interface LastFailedUpdate {
 }
 
 /** UI presets for periodic update checks (seconds). */
-export const CHECK_INTERVAL_PRESETS = [
-  0, 3600, 21600, 43200, 86400,
-] as const
+export const CHECK_INTERVAL_PRESETS = [0, 3600, 21600, 43200, 86400] as const
 export type CheckIntervalSecs = (typeof CHECK_INTERVAL_PRESETS)[number]
 
 /**
@@ -183,7 +181,7 @@ export function isValidSnapshotLimit(n: number): boolean {
 
 /** Shared shape for self-update / proxy-update durable last outcome. */
 export interface InfraUpdateLastStatus {
-  status: 'succeeded' | 'failed'
+  status: 'pending' | 'succeeded' | 'failed'
   target_tag: string
   previous_tag: string
   /** RFC3339 UTC */

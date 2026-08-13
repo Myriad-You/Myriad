@@ -497,12 +497,9 @@ pub(crate) async fn fanout_to_remote_members_excluding(
     let act_db_id = match act_row.and_then(|r| r.try_get::<i32>("", "id").ok()) {
         Some(id) => id,
         None => {
-            tracing::error!(
-                "[Room] fanout failed to insert activity {} for room {}",
-                activity_id,
-                room_id
-            );
-            return Ok(result);
+            return Err(sea_orm::DbErr::Custom(format!(
+                "room fanout activity insert returned no id: activity={activity_id} room={room_id}"
+            )));
         }
     };
 
@@ -556,7 +553,7 @@ pub(crate) async fn fanout_to_remote_members_excluding(
             continue;
         }
         result.remote_with_inbox += 1;
-        match db
+        let inserted = db
             .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"INSERT INTO federation_delivery_queue
@@ -565,18 +562,8 @@ pub(crate) async fn fanout_to_remote_members_excluding(
                    ON CONFLICT (activity_id, target_inbox) DO NOTHING"#,
                 [act_db_id.into(), inbox.into(), domain.into()],
             ))
-            .await
-        {
-            Ok(_) => result.enqueued += 1,
-            Err(e) => {
-                tracing::error!(
-                    "[Room] fanout enqueue failed room={} actor={}: {}",
-                    room_id,
-                    actor,
-                    e
-                );
-            }
-        }
+            .await?;
+        result.enqueued += inserted.rows_affected() as u32;
     }
 
     if result.enqueued == 0

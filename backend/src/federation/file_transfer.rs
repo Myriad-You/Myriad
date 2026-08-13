@@ -9,14 +9,14 @@
 
 use axum::{http::StatusCode, Json};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
+use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use tokio::{
     fs,
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
 };
 
 use crate::federation::types::*;
@@ -144,7 +144,7 @@ impl Drop for InFlightChunkGuard {
 }
 
 /// Open-transfer statuses that consume concurrent amplification budget.
-const OPEN_TRANSFER_STATUSES: &str = "('pending', 'in-progress')";
+const OPEN_TRANSFER_STATUSES: &str = "('pending', 'in-progress', 'finalizing')";
 
 /// Snapshot of open transfer load for admission decisions.
 #[derive(Debug, Clone, Copy)]
@@ -426,6 +426,25 @@ fn part_file_path(final_path: &Path) -> PathBuf {
     PathBuf::from(part)
 }
 
+fn transfer_lock_key(transfer_id: &str) -> String {
+    format!("federation-file-transfer:{transfer_id}")
+}
+
+/// Serialize one transfer's database and filesystem state across backend replicas.
+/// The caller must hold an explicit transaction for the duration of the mutation.
+async fn lock_transfer_session(
+    db: &impl ConnectionTrait,
+    transfer_id: &str,
+) -> Result<(), sea_orm::DbErr> {
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        [transfer_lock_key(transfer_id).into()],
+    ))
+    .await?;
+    Ok(())
+}
+
 fn path_to_db(path: &Path) -> String {
     path.to_string_lossy().to_string()
 }
@@ -486,6 +505,32 @@ async fn sha256_file(path: &Path) -> Result<String, std::io::Error> {
     Ok(hex::encode(hasher.finalize()))
 }
 
+async fn verify_chunk_bytes(
+    path: &Path,
+    decoded: &[u8],
+    expected_offset: i64,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    let mut file = fs::File::open(path).await.map_err(storage_err)?;
+    file.seek(std::io::SeekFrom::Start(expected_offset as u64))
+        .await
+        .map_err(storage_err)?;
+    let mut existing = vec![0_u8; decoded.len()];
+    file.read_exact(&mut existing).await.map_err(storage_err)?;
+    if existing != decoded {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(json!({"error": "Chunk retry content does not match stored bytes"})),
+        ));
+    }
+    Ok(())
+}
+
+/// Deterministically place one chunk at its protocol offset.
+///
+/// A process can die after a partial write but before the database progress
+/// update. Because the database still owns `expected_offset`, bytes beyond that
+/// offset are uncommitted and are truncated before the complete chunk is
+/// rewritten. A complete retry is accepted only when the stored bytes match.
 async fn write_chunk_to_part(
     part_path: &Path,
     decoded: &[u8],
@@ -495,19 +540,20 @@ async fn write_chunk_to_part(
         fs::create_dir_all(parent).await.map_err(storage_err)?;
     }
 
-    let current_len = match fs::metadata(part_path).await {
-        Ok(meta) => meta.len() as i64,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => 0,
-        Err(e) => return Err(storage_err(e)),
-    };
-    let decoded_len = decoded.len() as i64;
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(part_path)
+        .await
+        .map_err(storage_err)?;
+    let current_len = file.metadata().await.map_err(storage_err)?.len() as i64;
+    let chunk_end = expected_offset
+        .checked_add(decoded.len() as i64)
+        .ok_or_else(|| bad_request("Chunk offset overflow"))?;
 
-    if current_len == expected_offset + decoded_len {
-        // Idempotent retry after DB update failure or client retry. Do not append twice.
-        return Ok(());
-    }
-
-    if current_len != expected_offset {
+    if current_len < expected_offset || current_len > chunk_end {
         return Err((
             StatusCode::CONFLICT,
             Json(json!({
@@ -518,15 +564,265 @@ async fn write_chunk_to_part(
         ));
     }
 
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(part_path)
+    if current_len == chunk_end {
+        drop(file);
+        return verify_chunk_bytes(part_path, decoded, expected_offset).await;
+    }
+
+    if current_len > expected_offset {
+        // Recover an interrupted write for the database-owned current chunk.
+        file.set_len(expected_offset as u64)
+            .await
+            .map_err(storage_err)?;
+    }
+    file.seek(std::io::SeekFrom::Start(expected_offset as u64))
         .await
         .map_err(storage_err)?;
     file.write_all(decoded).await.map_err(storage_err)?;
-    file.flush().await.map_err(storage_err)?;
+    file.sync_all().await.map_err(storage_err)?;
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChunkFileState {
+    Part,
+    Final,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UploadSessionAction {
+    WriteChunk,
+    ResumeFinalization,
+    VerifyCompletedRetry,
+}
+
+fn upload_session_action(
+    status: &str,
+    chunks_completed: i32,
+    chunks_total: i32,
+    chunk_index: i32,
+) -> Result<UploadSessionAction, (StatusCode, Json<serde_json::Value>)> {
+    let is_final_chunk = chunk_index == chunks_total - 1;
+    match status {
+        "completed" if chunks_completed == chunks_total && is_final_chunk => {
+            Ok(UploadSessionAction::VerifyCompletedRetry)
+        }
+        "finalizing" if chunks_completed == chunks_total && is_final_chunk => {
+            Ok(UploadSessionAction::ResumeFinalization)
+        }
+        "pending" | "in-progress" if chunk_index == chunks_completed => {
+            Ok(UploadSessionAction::WriteChunk)
+        }
+        "pending" | "in-progress" => Err((
+            StatusCode::CONFLICT,
+            Json(json!({
+                "error": "Chunks must be uploaded in order",
+                "expected_chunk_index": chunks_completed,
+                "received_chunk_index": chunk_index
+            })),
+        )),
+        "finalizing" | "completed" => Err((
+            StatusCode::CONFLICT,
+            Json(json!({"error": "Transfer finalization state is inconsistent"})),
+        )),
+        _ => Err(bad_request(format!("Transfer is {}", status))),
+    }
+}
+
+/// Recover a retry that arrives after the final rename but before the database
+/// commit, otherwise write the current chunk into the session's isolated part.
+async fn prepare_chunk_file(
+    part_path: &Path,
+    final_path: &Path,
+    decoded: &[u8],
+    expected_offset: i64,
+    is_last_chunk: bool,
+) -> Result<ChunkFileState, (StatusCode, Json<serde_json::Value>)> {
+    match fs::metadata(final_path).await {
+        Ok(_) if is_last_chunk => {
+            verify_chunk_bytes(final_path, decoded, expected_offset).await?;
+            return Ok(ChunkFileState::Final);
+        }
+        Ok(_) => {
+            return Err((
+                StatusCode::CONFLICT,
+                Json(json!({"error": "Final file exists before the last chunk"})),
+            ));
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(storage_err(error)),
+    }
+
+    write_chunk_to_part(part_path, decoded, expected_offset).await?;
+    Ok(ChunkFileState::Part)
+}
+
+#[cfg(unix)]
+async fn sync_parent_directory(path: &Path) -> Result<(), std::io::Error> {
+    let parent = path.parent().map(Path::to_path_buf).ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "file has no parent directory",
+        )
+    })?;
+    tokio::task::spawn_blocking(move || std::fs::File::open(parent)?.sync_all())
+        .await
+        .map_err(std::io::Error::other)?
+}
+
+#[cfg(not(unix))]
+async fn sync_parent_directory(_path: &Path) -> Result<(), std::io::Error> {
+    Ok(())
+}
+
+/// Atomically publish a validated part. If another equivalent retry already
+/// completed the rename, the existing final path is the idempotent result.
+async fn finalize_part_file(
+    part_path: &Path,
+    final_path: &Path,
+    file_size: i64,
+    checksum: Option<&str>,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    match fs::rename(part_path, final_path).await {
+        Ok(()) => sync_parent_directory(final_path).await.map_err(storage_err),
+        Err(rename_error) => match fs::metadata(final_path).await {
+            Ok(_) => validate_completed_file(final_path, file_size, checksum).await,
+            Err(_) => Err(storage_err(rename_error)),
+        },
+    }
+}
+
+async fn validate_completed_file(
+    path: &Path,
+    file_size: i64,
+    checksum: Option<&str>,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    let metadata = fs::metadata(path).await.map_err(storage_err)?;
+    if !metadata.is_file() {
+        return Err(bad_request("Completed transfer path is not a file"));
+    }
+    let stored = metadata.len() as i64;
+    if stored != file_size {
+        return Err(bad_request(format!(
+            "Completed file size mismatch: expected {}, got {}",
+            file_size, stored
+        )));
+    }
+    if let Some(expected_checksum) = checksum.filter(|value| !value.is_empty()) {
+        let actual = sha256_file(path).await.map_err(storage_err)?;
+        if !actual.eq_ignore_ascii_case(expected_checksum) {
+            return Err(bad_request("SHA-256 checksum mismatch"));
+        }
+    }
+    Ok(())
+}
+
+async fn mark_transfer_failed(
+    db: &impl ConnectionTrait,
+    transfer_id: &str,
+) -> Result<(), sea_orm::DbErr> {
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE federation_file_transfers SET status = 'failed' \
+         WHERE transfer_id = $1 AND status = 'finalizing'",
+        [transfer_id.into()],
+    ))
+    .await?;
+    Ok(())
+}
+
+/// Finish the recoverable `finalizing` state without holding a database
+/// connection while hashing a potentially multi-gigabyte file.
+///
+/// The part is already fsynced before `status = finalizing` commits. The final
+/// rename happens before the short completion transaction, so a crash can only
+/// leave `finalizing + .part` or `finalizing + final`, both safe to retry.
+async fn finalize_uploaded_transfer(
+    db: &DatabaseConnection,
+    transfer_id: &str,
+    part_path: &Path,
+    final_path: &Path,
+    final_path_db: &str,
+    file_size: i64,
+    checksum: Option<&str>,
+) -> Result<bool, (StatusCode, Json<serde_json::Value>)> {
+    let completed_path = match fs::metadata(final_path).await {
+        Ok(_) => final_path,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => part_path,
+        Err(error) => return Err(storage_err(error)),
+    };
+
+    if let Err(error) = validate_completed_file(completed_path, file_size, checksum).await {
+        if error.0 == StatusCode::BAD_REQUEST {
+            let txn = db.begin().await.map_err(db_err)?;
+            lock_transfer_session(&txn, transfer_id)
+                .await
+                .map_err(db_err)?;
+            mark_transfer_failed(&txn, transfer_id)
+                .await
+                .map_err(db_err)?;
+            txn.commit().await.map_err(db_err)?;
+        }
+        return Err(error);
+    }
+
+    if completed_path == part_path {
+        finalize_part_file(part_path, final_path, file_size, checksum).await?;
+    }
+
+    let txn = db.begin().await.map_err(db_err)?;
+    lock_transfer_session(&txn, transfer_id)
+        .await
+        .map_err(db_err)?;
+    let row = txn
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT status, chunks_total, chunks_completed \
+             FROM federation_file_transfers WHERE transfer_id = $1",
+            [transfer_id.into()],
+        ))
+        .await
+        .map_err(db_err)?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "Transfer not found while finalizing"})),
+            )
+        })?;
+    let status: String = row.try_get("", "status").unwrap_or_default();
+    let chunks_total: i32 = row.try_get("", "chunks_total").unwrap_or_default();
+    let chunks_completed: i32 = row.try_get("", "chunks_completed").unwrap_or_default();
+    if status == "completed" {
+        txn.commit().await.map_err(db_err)?;
+        return Ok(false);
+    }
+    if status != "finalizing" || chunks_completed != chunks_total {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(json!({"error": "Transfer state changed while finalizing"})),
+        ));
+    }
+
+    let updated = txn
+        .execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"UPDATE federation_file_transfers
+               SET status = 'completed', local_path = $2, completed_at = NOW()
+               WHERE transfer_id = $1
+                 AND status = 'finalizing'
+                 AND chunks_completed = chunks_total"#,
+            [transfer_id.into(), final_path_db.into()],
+        ))
+        .await
+        .map_err(db_err)?;
+    if updated.rows_affected() != 1 {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(json!({"error": "Transfer state changed while finalizing"})),
+        ));
+    }
+    txn.commit().await.map_err(db_err)?;
+    Ok(true)
 }
 
 // 文件传输功能
@@ -823,7 +1119,12 @@ pub async fn upload_chunk(
         ));
     }
 
-    let row = db
+    let txn = db.begin().await.map_err(db_err)?;
+    lock_transfer_session(&txn, transfer_id)
+        .await
+        .map_err(db_err)?;
+
+    let row = txn
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT ft.status, ft.chunks_total, ft.chunks_completed,
@@ -870,13 +1171,9 @@ pub async fn upload_chunk(
         ));
     }
 
-    let status: String = row.try_get("", "status").unwrap_or_default();
-    if !["pending", "in-progress"].contains(&status.as_str()) {
-        return Err(bad_request(format!("Transfer is {}", status)));
-    }
-
     let chunks_total: i32 = row.try_get("", "chunks_total").unwrap_or(1);
     let chunks_completed: i32 = row.try_get("", "chunks_completed").unwrap_or(0);
+    let status: String = row.try_get("", "status").unwrap_or_default();
     let file_size: i64 = row.try_get("", "file_size").unwrap_or(0);
     let channel_id: String = row.try_get("", "channel_id").unwrap_or_default();
     let filename: String = row
@@ -902,16 +1199,8 @@ pub async fn upload_chunk(
     if req.chunk_index < 0 || req.chunk_index >= chunks_total {
         return Err(bad_request("Chunk index out of range"));
     }
-    if req.chunk_index != chunks_completed {
-        return Err((
-            StatusCode::CONFLICT,
-            Json(json!({
-                "error": "Chunks must be uploaded in order",
-                "expected_chunk_index": chunks_completed,
-                "received_chunk_index": req.chunk_index
-            })),
-        ));
-    }
+    let session_action =
+        upload_session_action(&status, chunks_completed, chunks_total, req.chunk_index)?;
 
     if req.chunk_size <= 0 || req.chunk_size > DEFAULT_CHUNK_SIZE {
         return Err(bad_request(format!(
@@ -951,167 +1240,226 @@ pub async fn upload_chunk(
     if !is_strictly_under(&storage_root(), &part_path) {
         return Err(bad_request("Transfer path escapes storage root"));
     }
-    let expected_offset = DEFAULT_CHUNK_SIZE * chunks_completed as i64;
+    let expected_offset = DEFAULT_CHUNK_SIZE * req.chunk_index as i64;
 
-    write_chunk_to_part(&part_path, &decoded, expected_offset).await?;
-
-    let new_chunks = chunks_completed + 1;
-    let mut new_status = if new_chunks >= chunks_total {
-        "completed"
-    } else {
-        "in-progress"
-    };
-
-    if new_status == "completed" {
-        // sha256 / rename only on paths already confined by resolve_transfer_path + part check
-        debug_assert!(
-            is_strictly_under(&storage_root(), &part_path)
-                && is_strictly_under(&storage_root(), &final_path)
-        );
-        let stored = fs::metadata(&part_path).await.map_err(storage_err)?.len() as i64;
+    if session_action == UploadSessionAction::VerifyCompletedRetry {
+        verify_chunk_bytes(&final_path, &decoded, expected_offset).await?;
+        let stored = fs::metadata(&final_path).await.map_err(storage_err)?.len() as i64;
         if stored != file_size {
-            db.execute_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "UPDATE federation_file_transfers SET status = 'failed' WHERE transfer_id = $1",
-                [transfer_id.into()],
-            ))
-            .await
-            .map_err(db_err)?;
             return Err(bad_request(format!(
                 "Completed file size mismatch: expected {}, got {}",
                 file_size, stored
             )));
         }
-
-        if let Some(expected_checksum) = checksum.as_deref().filter(|s| !s.is_empty()) {
-            let actual = sha256_file(&part_path).await.map_err(storage_err)?;
-            if !actual.eq_ignore_ascii_case(expected_checksum) {
-                db.execute_raw(Statement::from_sql_and_values(
-                    DatabaseBackend::Postgres,
-                    "UPDATE federation_file_transfers SET status = 'failed' WHERE transfer_id = $1",
-                    [transfer_id.into()],
-                ))
-                .await
-                .map_err(db_err)?;
-                return Err(bad_request("SHA-256 checksum mismatch"));
-            }
-        }
-
-        if let Some(parent) = final_path.parent() {
-            fs::create_dir_all(parent).await.map_err(storage_err)?;
-        }
-        fs::rename(&part_path, &final_path)
-            .await
-            .map_err(storage_err)?;
+        txn.commit().await.map_err(db_err)?;
+        return Ok(json!({
+            "success": true,
+            "transfer_id": transfer_id,
+            "chunk_index": req.chunk_index,
+            "chunks_completed": chunks_completed,
+            "chunks_total": chunks_total,
+            "status": "completed",
+            "bytes_transferred": file_size,
+            "progress": 100.0
+        }));
     }
 
-    let updated = db
-        .query_one_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            r#"UPDATE federation_file_transfers
-               SET chunks_completed = $3,
-                   status = $4,
-                   local_path = $5,
-                   completed_at = CASE WHEN $4 = 'completed' THEN NOW() ELSE NULL END
-               WHERE transfer_id = $1 AND chunks_completed = $2
-               RETURNING chunks_completed, status"#,
-            [
-                transfer_id.into(),
-                chunks_completed.into(),
-                new_chunks.into(),
-                new_status.into(),
-                final_path_db.clone().into(),
-            ],
-        ))
-        .await
-        .map_err(db_err)?
-        .ok_or_else(|| {
-            (
-                StatusCode::CONFLICT,
-                Json(json!({"error": "Transfer progress changed while uploading chunk"})),
-            )
-        })?;
+    let chunk_file_state = prepare_chunk_file(
+        &part_path,
+        &final_path,
+        &decoded,
+        expected_offset,
+        is_last_chunk,
+    )
+    .await?;
 
-    let persisted_chunks: i32 = updated
-        .try_get("", "chunks_completed")
-        .unwrap_or(new_chunks);
-    let persisted_status: String = updated
-        .try_get("", "status")
-        .unwrap_or_else(|_| new_status.to_string());
-    new_status = &persisted_status;
+    let (persisted_chunks, persisted_status, should_fanout) =
+        if session_action == UploadSessionAction::ResumeFinalization {
+            // Release the advisory transaction lock before hashing a potentially
+            // multi-gigabyte file. `finalizing` is itself the durable ownership
+            // fence, and finalize_uploaded_transfer takes a short lock again for
+            // the final database transition.
+            txn.commit().await.map_err(db_err)?;
+            let became_completed = finalize_uploaded_transfer(
+                db,
+                transfer_id,
+                &part_path,
+                &final_path,
+                &final_path_db,
+                file_size,
+                checksum.as_deref(),
+            )
+            .await?;
+            (chunks_completed, "completed".to_string(), became_completed)
+        } else {
+            let new_chunks = chunks_completed + 1;
+            let target_status = if new_chunks >= chunks_total {
+                "finalizing"
+            } else {
+                "in-progress"
+            };
+
+            if target_status == "finalizing" {
+                // A complete last chunk must be durable before the database enters
+                // finalizing. Full-file hashing happens after this transaction.
+                let completed_path = match chunk_file_state {
+                    ChunkFileState::Part => &part_path,
+                    ChunkFileState::Final => &final_path,
+                };
+                let stored = fs::metadata(completed_path)
+                    .await
+                    .map_err(storage_err)?
+                    .len() as i64;
+                if stored != file_size {
+                    txn.execute_raw(Statement::from_sql_and_values(
+                        DatabaseBackend::Postgres,
+                        "UPDATE federation_file_transfers SET status = 'failed' \
+                     WHERE transfer_id = $1 AND status IN ('pending', 'in-progress')",
+                        [transfer_id.into()],
+                    ))
+                    .await
+                    .map_err(db_err)?;
+                    txn.commit().await.map_err(db_err)?;
+                    return Err(bad_request(format!(
+                        "Completed file size mismatch: expected {}, got {}",
+                        file_size, stored
+                    )));
+                }
+            }
+
+            let updated = txn
+                .query_one_raw(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    r#"UPDATE federation_file_transfers
+                   SET chunks_completed = $3,
+                       status = $4,
+                       local_path = $5,
+                       completed_at = NULL
+                   WHERE transfer_id = $1
+                     AND chunks_completed = $2
+                     AND status IN ('pending', 'in-progress')
+                   RETURNING chunks_completed, status"#,
+                    [
+                        transfer_id.into(),
+                        chunks_completed.into(),
+                        new_chunks.into(),
+                        target_status.into(),
+                        final_path_db.clone().into(),
+                    ],
+                ))
+                .await
+                .map_err(db_err)?
+                .ok_or_else(|| {
+                    (
+                        StatusCode::CONFLICT,
+                        Json(json!({"error": "Transfer progress changed while uploading chunk"})),
+                    )
+                })?;
+
+            let persisted_chunks: i32 = updated
+                .try_get("", "chunks_completed")
+                .unwrap_or(new_chunks);
+            let mut persisted_status: String = updated
+                .try_get("", "status")
+                .unwrap_or_else(|_| target_status.to_string());
+
+            // Filesystem state is durable before database progress is committed.
+            // A retry either verifies this chunk or resumes finalization.
+            txn.commit().await.map_err(db_err)?;
+
+            let should_fanout = if target_status == "finalizing" {
+                let became_completed = finalize_uploaded_transfer(
+                    db,
+                    transfer_id,
+                    &part_path,
+                    &final_path,
+                    &final_path_db,
+                    file_size,
+                    checksum.as_deref(),
+                )
+                .await?;
+                persisted_status = "completed".to_string();
+                became_completed
+            } else {
+                true
+            };
+            (persisted_chunks, persisted_status, should_fanout)
+        };
 
     // Fan-out chunk: channel → single remote peer; room → all remote members
-    let base_url = get_base_url().await;
-    let local_actor = actor_url(&base_url, username);
-    if let Some(ref rid) = room_id {
-        let activity_id = generate_activity_id(&base_url);
-        let chunk_activity = json!({
-            "@context": build_context(),
-            "type": "myriad:FileTransfer",
-            "id": &activity_id,
-            "actor": &local_actor,
-            "object": {
-                "type": "myriad:FileChunk",
-                "transferId": transfer_id,
-                "roomId": rid,
-                "chunkIndex": req.chunk_index,
-                "chunkSize": req.chunk_size,
-                "chunkData": &req.chunk_data,
-                "isLast": is_last_chunk
-            }
-        });
-        let _ = crate::federation::room::fanout_to_remote_members(
-            db,
-            user_id,
-            rid,
-            &activity_id,
-            &chunk_activity,
-            "FileTransfer",
-            "FileChunk",
-        )
-        .await;
-    } else if let Some(inbox) = remote_inbox.filter(|i| !i.is_empty()) {
-        let activity_id = generate_activity_id(&base_url);
-        let chunk_activity = json!({
-            "@context": build_context(),
-            "type": "myriad:FileTransfer",
-            "id": &activity_id,
-            "actor": &local_actor,
-            "to": [&remote_actor_url],
-            "object": {
-                "type": "myriad:FileChunk",
-                "transferId": transfer_id,
-                "channelId": channel_id,
-                "chunkIndex": req.chunk_index,
-                "chunkSize": req.chunk_size,
-                "chunkData": &req.chunk_data,
-                "isLast": is_last_chunk
-            }
-        });
+    if should_fanout {
+        let base_url = get_base_url().await;
+        let local_actor = actor_url(&base_url, username);
+        if let Some(ref rid) = room_id {
+            let activity_id = generate_activity_id(&base_url);
+            let chunk_activity = json!({
+                "@context": build_context(),
+                "type": "myriad:FileTransfer",
+                "id": &activity_id,
+                "actor": &local_actor,
+                "object": {
+                    "type": "myriad:FileChunk",
+                    "transferId": transfer_id,
+                    "roomId": rid,
+                    "chunkIndex": req.chunk_index,
+                    "chunkSize": req.chunk_size,
+                    "chunkData": &req.chunk_data,
+                    "isLast": is_last_chunk
+                }
+            });
+            let _ = crate::federation::room::fanout_to_remote_members(
+                db,
+                user_id,
+                rid,
+                &activity_id,
+                &chunk_activity,
+                "FileTransfer",
+                "FileChunk",
+            )
+            .await;
+        } else if let Some(inbox) = remote_inbox.filter(|i| !i.is_empty()) {
+            let activity_id = generate_activity_id(&base_url);
+            let chunk_activity = json!({
+                "@context": build_context(),
+                "type": "myriad:FileTransfer",
+                "id": &activity_id,
+                "actor": &local_actor,
+                "to": [&remote_actor_url],
+                "object": {
+                    "type": "myriad:FileChunk",
+                    "transferId": transfer_id,
+                    "channelId": channel_id,
+                    "chunkIndex": req.chunk_index,
+                    "chunkSize": req.chunk_size,
+                    "chunkData": &req.chunk_data,
+                    "isLast": is_last_chunk
+                }
+            });
 
-        let domain = extract_domain(&inbox).unwrap_or_default();
-        if let Ok(Some(act_row)) = db
-            .query_one_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                r#"INSERT INTO federation_activities
-                   (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
-                   VALUES ($1, $2, 'FileTransfer', 'FileChunk', $3, true, NOW())
-                   RETURNING id"#,
-                [activity_id.into(), user_id.into(), chunk_activity.into()],
-            ))
-            .await
-        {
-            if let Ok(act_id) = act_row.try_get::<i32>("", "id") {
-                let _ = db
-                    .execute_raw(Statement::from_sql_and_values(
-                        DatabaseBackend::Postgres,
-                        r#"INSERT INTO federation_delivery_queue
-                           (activity_id, target_inbox, target_domain, status, created_at)
-                           VALUES ($1, $2, $3, 'pending', NOW())
-                   ON CONFLICT (activity_id, target_inbox) DO NOTHING"#,
-                        [act_id.into(), inbox.into(), domain.into()],
-                    ))
-                    .await;
+            let domain = extract_domain(&inbox).unwrap_or_default();
+            if let Ok(Some(act_row)) = db
+                .query_one_raw(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    r#"INSERT INTO federation_activities
+                       (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
+                       VALUES ($1, $2, 'FileTransfer', 'FileChunk', $3, true, NOW())
+                       RETURNING id"#,
+                    [activity_id.into(), user_id.into(), chunk_activity.into()],
+                ))
+                .await
+            {
+                if let Ok(act_id) = act_row.try_get::<i32>("", "id") {
+                    let _ = db
+                        .execute_raw(Statement::from_sql_and_values(
+                            DatabaseBackend::Postgres,
+                            r#"INSERT INTO federation_delivery_queue
+                               (activity_id, target_inbox, target_domain, status, created_at)
+                               VALUES ($1, $2, $3, 'pending', NOW())
+                       ON CONFLICT (activity_id, target_inbox) DO NOTHING"#,
+                            [act_id.into(), inbox.into(), domain.into()],
+                        ))
+                        .await;
+                }
             }
         }
     }
@@ -1124,7 +1472,7 @@ pub async fn upload_chunk(
         "chunk_index": req.chunk_index,
         "chunks_completed": persisted_chunks,
         "chunks_total": chunks_total,
-        "status": new_status,
+        "status": persisted_status,
         "bytes_transferred": stored_bytes(&final_path_db).await,
         "progress": progress
     }))
@@ -1522,8 +1870,13 @@ pub async fn cancel_transfer(
     transfer_id: &str,
     db: &DatabaseConnection,
 ) -> Result<serde_json::Value, (StatusCode, Json<serde_json::Value>)> {
+    let txn = db.begin().await.map_err(db_err)?;
+    lock_transfer_session(&txn, transfer_id)
+        .await
+        .map_err(db_err)?;
+
     // 验证所有权（channel owner 或 room transfer owner）
-    let row = db
+    let row = txn
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT ft.status, ft.owner_user_id, ft.room_id, ft.channel_id,
@@ -1566,20 +1919,22 @@ pub async fn cancel_transfer(
     }
 
     let status: String = row.try_get("", "status").unwrap_or_default();
-    if status == "completed" || status == "cancelled" {
+    if !["pending", "in-progress"].contains(&status.as_str()) {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(json!({"error": format!("Transfer is already {}", status)})),
         ));
     }
 
-    db.execute_raw(Statement::from_sql_and_values(
+    txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "UPDATE federation_file_transfers SET status = 'cancelled' WHERE transfer_id = $1",
+        "UPDATE federation_file_transfers SET status = 'cancelled' \
+         WHERE transfer_id = $1 AND status IN ('pending', 'in-progress')",
         [transfer_id.into()],
     ))
     .await
     .map_err(db_err)?;
+    txn.commit().await.map_err(db_err)?;
 
     let base_url = get_base_url().await;
     let local_actor = actor_url(&base_url, username);
@@ -1814,6 +2169,11 @@ async fn handle_file_chunk(
     if !is_valid_transfer_id(transfer_id) {
         return Err("Invalid transferId: must be 1-128 chars of [A-Za-z0-9_-] only".into());
     }
+    // Inbox dispatch supplies the enclosing receipt transaction, so this lock
+    // covers the filesystem mutation until the receipt/database commit.
+    lock_transfer_session(db, transfer_id)
+        .await
+        .map_err(|error| error.to_string())?;
     let chunk_index = object
         .get("chunkIndex")
         .and_then(|v| v.as_i64())
@@ -1937,9 +2297,15 @@ async fn handle_file_chunk(
     }
     let expected_offset = DEFAULT_CHUNK_SIZE * chunks_completed as i64;
 
-    write_chunk_to_part(&part_path, &decoded, expected_offset)
-        .await
-        .map_err(http_err_to_string)?;
+    let chunk_file_state = prepare_chunk_file(
+        &part_path,
+        &final_path,
+        &decoded,
+        expected_offset,
+        is_last_chunk,
+    )
+    .await
+    .map_err(http_err_to_string)?;
 
     let new_chunks = chunks_completed + 1;
     let new_status = if new_chunks >= chunks_total {
@@ -1954,7 +2320,11 @@ async fn handle_file_chunk(
             is_strictly_under(&storage_root(), &part_path)
                 && is_strictly_under(&storage_root(), &final_path)
         );
-        let stored = fs::metadata(&part_path)
+        let completed_path = match chunk_file_state {
+            ChunkFileState::Part => &part_path,
+            ChunkFileState::Final => &final_path,
+        };
+        let stored = fs::metadata(completed_path)
             .await
             .map_err(|e| e.to_string())?
             .len() as i64;
@@ -1973,7 +2343,9 @@ async fn handle_file_chunk(
         }
 
         if let Some(expected_checksum) = checksum.as_deref().filter(|s| !s.is_empty()) {
-            let actual = sha256_file(&part_path).await.map_err(|e| e.to_string())?;
+            let actual = sha256_file(completed_path)
+                .await
+                .map_err(|e| e.to_string())?;
             if !actual.eq_ignore_ascii_case(expected_checksum) {
                 db.execute_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
@@ -1991,9 +2363,11 @@ async fn handle_file_chunk(
                 .await
                 .map_err(|e| e.to_string())?;
         }
-        fs::rename(&part_path, &final_path)
-            .await
-            .map_err(|e| e.to_string())?;
+        if chunk_file_state == ChunkFileState::Part {
+            finalize_part_file(&part_path, &final_path, file_size, checksum.as_deref())
+                .await
+                .map_err(http_err_to_string)?;
+        }
     }
 
     let result = db
@@ -2004,7 +2378,9 @@ async fn handle_file_chunk(
                    status = $3,
                    local_path = $4,
                    completed_at = CASE WHEN $3 = 'completed' THEN NOW() ELSE NULL END
-               WHERE transfer_id = $1 AND chunks_completed = $5"#,
+               WHERE transfer_id = $1
+                 AND chunks_completed = $5
+                 AND status IN ('pending', 'in-progress')"#,
             [
                 transfer_id.into(),
                 new_chunks.into(),
@@ -2077,6 +2453,12 @@ async fn handle_file_cancel(
         .get("transferId")
         .and_then(|v| v.as_str())
         .ok_or("Missing transferId")?;
+    if !is_valid_transfer_id(transfer_id) {
+        return Err("Invalid transferId: must be 1-128 chars of [A-Za-z0-9_-] only".into());
+    }
+    lock_transfer_session(db, transfer_id)
+        .await
+        .map_err(|error| error.to_string())?;
     let room_id = object.get("roomId").and_then(|v| v.as_str());
     let channel_id = object.get("channelId").and_then(|v| v.as_str());
 
@@ -2098,7 +2480,7 @@ async fn handle_file_cancel(
             r#"UPDATE federation_file_transfers
                SET status = 'cancelled'
                WHERE transfer_id = $1
-                 AND status NOT IN ('completed', 'cancelled')"#,
+                 AND status IN ('pending', 'in-progress')"#,
             [transfer_id.into()],
         ))
         .await
@@ -2328,5 +2710,130 @@ mod tests {
             );
             assert!(final_file_path(&id, "a.bin").is_ok());
         }
+    }
+
+    fn chunk_test_paths(label: &str) -> (PathBuf, PathBuf, PathBuf) {
+        let root = std::env::temp_dir().join(format!(
+            "myriad-file-transfer-{label}-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let final_path = root.join("payload.bin");
+        let part_path = part_file_path(&final_path);
+        (root, part_path, final_path)
+    }
+
+    #[test]
+    fn upload_session_state_machine_has_recoverable_retry_edges() {
+        assert_eq!(
+            upload_session_action("pending", 0, 2, 0).unwrap(),
+            UploadSessionAction::WriteChunk
+        );
+        assert_eq!(
+            upload_session_action("in-progress", 1, 2, 1).unwrap(),
+            UploadSessionAction::WriteChunk
+        );
+        assert_eq!(
+            upload_session_action("finalizing", 2, 2, 1).unwrap(),
+            UploadSessionAction::ResumeFinalization
+        );
+        assert_eq!(
+            upload_session_action("completed", 2, 2, 1).unwrap(),
+            UploadSessionAction::VerifyCompletedRetry
+        );
+
+        assert_eq!(
+            upload_session_action("in-progress", 1, 3, 2).unwrap_err().0,
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            upload_session_action("finalizing", 1, 2, 1).unwrap_err().0,
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            upload_session_action("cancelled", 1, 2, 1).unwrap_err().0,
+            StatusCode::BAD_REQUEST
+        );
+    }
+
+    #[tokio::test]
+    async fn concurrent_duplicate_chunk_writes_do_not_append_twice() {
+        let (root, part_path, _) = chunk_test_paths("duplicate");
+        let payload = vec![0x5a; 64 * 1024];
+        let (left, right) = tokio::join!(
+            write_chunk_to_part(&part_path, &payload, 0),
+            write_chunk_to_part(&part_path, &payload, 0)
+        );
+        left.expect("first duplicate write");
+        right.expect("second duplicate write");
+        assert_eq!(tokio::fs::read(&part_path).await.unwrap(), payload);
+        tokio::fs::remove_dir_all(root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn retry_rejects_different_bytes_and_out_of_order_offsets() {
+        let (root, part_path, _) = chunk_test_paths("retry-content");
+        write_chunk_to_part(&part_path, b"original", 0)
+            .await
+            .unwrap();
+        let before = tokio::fs::read(&part_path).await.unwrap();
+        let mismatch = write_chunk_to_part(&part_path, b"changed!", 0)
+            .await
+            .unwrap_err();
+        assert_eq!(mismatch.0, StatusCode::CONFLICT);
+        let out_of_order = write_chunk_to_part(&part_path, b"next", 32)
+            .await
+            .unwrap_err();
+        assert_eq!(out_of_order.0, StatusCode::CONFLICT);
+        assert_eq!(tokio::fs::read(&part_path).await.unwrap(), before);
+        tokio::fs::remove_dir_all(root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn interrupted_partial_chunk_is_rewritten_from_database_offset() {
+        let (root, part_path, _) = chunk_test_paths("partial");
+        tokio::fs::create_dir_all(&root).await.unwrap();
+        tokio::fs::write(&part_path, b"half").await.unwrap();
+        write_chunk_to_part(&part_path, b"complete", 0)
+            .await
+            .unwrap();
+        assert_eq!(tokio::fs::read(&part_path).await.unwrap(), b"complete");
+        tokio::fs::remove_dir_all(root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn final_rename_and_post_rename_retry_are_idempotent() {
+        let (root, part_path, final_path) = chunk_test_paths("finalize");
+        let payload = b"last-chunk";
+        assert_eq!(
+            prepare_chunk_file(&part_path, &final_path, payload, 0, true)
+                .await
+                .unwrap(),
+            ChunkFileState::Part
+        );
+
+        let (left, right) = tokio::join!(
+            finalize_part_file(&part_path, &final_path, payload.len() as i64, None),
+            finalize_part_file(&part_path, &final_path, payload.len() as i64, None)
+        );
+        left.expect("first finalize");
+        right.expect("racing finalize retry");
+
+        assert_eq!(
+            prepare_chunk_file(&part_path, &final_path, payload, 0, true)
+                .await
+                .unwrap(),
+            ChunkFileState::Final
+        );
+        assert_eq!(tokio::fs::read(&final_path).await.unwrap(), payload);
+        assert!(!part_path.exists());
+        tokio::fs::remove_dir_all(root).await.unwrap();
+    }
+
+    #[test]
+    fn transfer_lock_key_is_namespaced_and_stable() {
+        assert_eq!(
+            transfer_lock_key(VALID_FT_UUID),
+            format!("federation-file-transfer:{VALID_FT_UUID}")
+        );
     }
 }

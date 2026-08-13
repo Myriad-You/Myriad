@@ -9,7 +9,6 @@ use super::{
 };
 use axum::{
     extract::{Query, State},
-    http::HeaderMap,
     Extension, Json,
 };
 use chrono::Utc;
@@ -23,7 +22,7 @@ use tokio::sync::RwLock;
 
 use crate::config::DynamicConfig;
 use crate::error::HttpError;
-use crate::middleware::auth::{extract_optional_claims, Claims};
+use crate::middleware::auth::{Claims, OptionalClaims};
 use crate::models::entities::tapps;
 use crate::services::tapp_catalog::{catalog_install_flags, tapp_list_item_from_model};
 use crate::services::tapp_context::role_for_optional_subject;
@@ -55,10 +54,9 @@ fn parse_catalog_scope(raw: Option<&str>) -> &'static str {
 
 pub(super) async fn list_tapps(
     State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
+    Extension(OptionalClaims(claims)): Extension<OptionalClaims>,
     Query(query): Query<CatalogListQuery>,
 ) -> Result<Json<ApiResponse<Vec<TappListItem>>>, HttpError> {
-    let claims = extract_optional_claims(&headers);
     let user_id = optional_authenticated_user_id(claims.as_ref());
     let is_admin = match claims.as_ref() {
         Some(claims) => current_is_admin(claims, &db).await,
@@ -120,10 +118,9 @@ pub(super) async fn list_tapps(
 pub(super) async fn list_tapp_details(
     State(db): State<DatabaseConnection>,
     State(dynamic_config): State<Arc<RwLock<DynamicConfig>>>,
-    headers: HeaderMap,
+    Extension(OptionalClaims(claims)): Extension<OptionalClaims>,
     Query(query): Query<CatalogListQuery>,
 ) -> Result<Json<ApiResponse<Vec<TappDetail>>>, HttpError> {
-    let claims = extract_optional_claims(&headers);
     let user_id = optional_authenticated_user_id(claims.as_ref());
     let is_admin = match claims.as_ref() {
         Some(claims) => current_is_admin(claims, &db).await,
@@ -258,10 +255,9 @@ pub(super) fn default_visibility() -> &'static str {
 pub(super) async fn get_tapp(
     State(db): State<DatabaseConnection>,
     State(dynamic_config): State<Arc<RwLock<DynamicConfig>>>,
-    headers: HeaderMap,
+    Extension(OptionalClaims(claims)): Extension<OptionalClaims>,
     axum::extract::Path(tapp_id): axum::extract::Path<String>,
 ) -> Result<Json<ApiResponse<TappDetail>>, HttpError> {
-    let claims = extract_optional_claims(&headers);
     let user_id = optional_authenticated_user_id(claims.as_ref());
     let is_admin = match claims.as_ref() {
         Some(claims) => current_is_admin(claims, &db).await,

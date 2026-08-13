@@ -507,6 +507,12 @@ pub(crate) fn get_expected_indexes() -> Vec<IndexDef> {
             is_unique: true,
         },
         IndexDef {
+            name: "idx_delivery_lease_expiry".into(),
+            table: "federation_delivery_queue".into(),
+            columns: vec!["status".into(), "lease_expires_at".into()],
+            is_unique: false,
+        },
+        IndexDef {
             name: "idx_timeline_user_activity".into(),
             table: "federation_timeline".into(),
             columns: vec!["user_id".into(), "activity_id".into()],

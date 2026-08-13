@@ -177,9 +177,6 @@ pub async fn create_admin(
     validate_username(&request.username)?;
     validate_password(&request.password)?;
 
-    // Hash outside the transaction — Argon2 is slow; do not hold the advisory lock.
-    let password_hash = hash_password(&request.password).await?;
-
     use sea_orm::Value as SeaValue;
 
     let txn = db.begin().await.map_err(|e| {
@@ -203,7 +200,9 @@ pub async fn create_admin(
     let admin_exists_result = txn
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT EXISTS (SELECT 1 FROM users WHERE is_admin = true) as exists",
+            "SELECT EXISTS (
+                SELECT 1 FROM users WHERE is_admin = true OR COALESCE(is_owner, false) = true
+            ) as exists",
             vec![],
         ))
         .await
@@ -223,6 +222,18 @@ pub async fn create_admin(
         let _ = txn.rollback().await;
         return Err(HttpError(err));
     }
+
+    // The cheap installation capability, transaction, advisory lock, and
+    // durable owner/admin gate all succeeded. Only the single lock winner may
+    // now spend CPU/memory on Argon2; concurrent losers wait, recheck, and
+    // return 409 without hashing.
+    let password_hash = match hash_password(&request.password).await {
+        Ok(hash) => hash,
+        Err(error) => {
+            let _ = txn.rollback().await;
+            return Err(error);
+        }
+    };
 
     // First setup admin is also the durable site owner (`is_owner`). Schema readiness
     // is a startup/setup invariant, so a missing column is fatal instead of a fallback.
@@ -275,6 +286,20 @@ pub async fn create_admin(
             )));
         }
     };
+
+    // Delete the capability before committing the durable owner. A crash after
+    // the database commit must never leave a replayable file that can be
+    // reloaded while the database is temporarily unavailable on restart.
+    if let Err(error) = crate::api::setup_bootstrap::consume_bootstrap() {
+        tracing::error!(%error, "create-admin token cleanup failed before commit");
+        let _ = crate::api::setup_bootstrap::invalidate_bootstrap_in_memory();
+        let _ = txn.rollback().await;
+        return Err(HttpError(
+            AppError::internal("Failed to consume bootstrap capability").with_message(
+                "无法安全关闭安装引导令牌；管理员账户尚未提交，请检查数据目录权限后重试。",
+            ),
+        ));
+    }
 
     txn.commit().await.map_err(|e| {
         tracing::error!("create-admin commit failed: {:?}", e);

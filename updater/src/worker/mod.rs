@@ -5,7 +5,6 @@
 //! - It enqueues commands into a bounded MPSC channel consumed by a single worker task.
 //! - The state machine ensures at most one job is in flight; further `update` requests get 409.
 
-pub mod bootstrap_self;
 pub mod machine;
 pub mod preflight;
 pub mod preflight_env;
@@ -27,8 +26,7 @@ use crate::docker::DockerClient;
 use crate::error::{Result, UpdaterError};
 use crate::release::{
     commit_upgrade_direction_ex, is_cross_kind_deploy, pushed_at_for_tag,
-    select_dev_channel_tip_for,
-    DockerBuild, DockerHubClient, GithubClient, Manifest,
+    select_dev_channel_tip_for, DockerBuild, DockerHubClient, GithubClient, Manifest,
 };
 use crate::state::{Job, JobKind, JobStatus, LatestAvailable, MaintenanceFile, Phase, StateDir};
 use crate::version::{
@@ -233,7 +231,10 @@ pub enum RecoveryReport {
 pub enum CrashRecoveryPlan {
     Idle,
     /// Pre-swap stop/snapshot interrupted — clear maint and restart previous stack.
-    ClearPreSwap { job_id: String, phase: Phase },
+    ClearPreSwap {
+        job_id: String,
+        phase: Phase,
+    },
     /// Post-swap / rollback / needs_manual — never auto-destructive; operator rescue.
     NeedsManual {
         job_id: String,
@@ -425,9 +426,10 @@ impl Worker {
     /// is not enough — operators (or auto_install) could start another update
     /// and overwrite maintenance while services are still half-down.
     pub(crate) fn refuse_update_if_stuck(&self) -> Result<()> {
-        let maint = self.state.read_maintenance().unwrap_or_else(|_| {
-            crate::state::MaintenanceFile::inactive()
-        });
+        let maint = self
+            .state
+            .read_maintenance()
+            .unwrap_or_else(|_| crate::state::MaintenanceFile::inactive());
         if matches!(maint.phase, Phase::NeedsManual)
             || (maint.active
                 && (maint.phase.is_post_swap()
@@ -513,18 +515,12 @@ impl Worker {
 
     /// Proxy image repository (no tag). Prefer `.env` `PROXY_IMAGE`; else compose default.
     pub fn proxy_image_repo(&self) -> Result<String> {
-        self.optional_image_repo(
-            "PROXY_IMAGE",
-            "docker.io/somekawahitomi/myriad-proxy",
-        )
+        self.optional_image_repo("PROXY_IMAGE", "docker.io/somekawahitomi/myriad-proxy")
     }
 
     /// Updater image repository (no tag). Prefer `.env` `UPDATER_IMAGE`; else compose default.
     pub fn updater_image_repo(&self) -> Result<String> {
-        self.optional_image_repo(
-            "UPDATER_IMAGE",
-            "docker.io/somekawahitomi/myriad-updater",
-        )
+        self.optional_image_repo("UPDATER_IMAGE", "docker.io/somekawahitomi/myriad-updater")
     }
 
     fn optional_image_repo(&self, key: &str, default: &str) -> Result<String> {
@@ -727,12 +723,7 @@ impl Worker {
                 .ok()
                 .and_then(|e| e.get("MYRIAD_TAG").map(|s| s.to_string()))
         });
-        let plan = plan_crash_recovery(
-            &maint,
-            job_id.as_deref(),
-            job.as_ref(),
-            env_tag.as_deref(),
-        );
+        let plan = plan_crash_recovery(&maint, job_id.as_deref(), job.as_ref(), env_tag.as_deref());
         match plan {
             CrashRecoveryPlan::Idle => Ok(RecoveryReport::Idle),
             CrashRecoveryPlan::NeedsManual {
@@ -855,11 +846,7 @@ impl Worker {
                             channel = %m.channel,
                             "periodic check: release available"
                         );
-                        if let Err(e) = ticker_worker
-                            .clone()
-                            .maybe_auto_install_release(&m)
-                            .await
-                        {
+                        if let Err(e) = ticker_worker.clone().maybe_auto_install_release(&m).await {
                             tracing::warn!(err = %e, "periodic auto_install skipped/failed");
                         }
                     }
@@ -877,10 +864,7 @@ impl Worker {
                             is_upgrade = ?is_upgrade,
                             "periodic check: commit tip available"
                         );
-                        if let Err(e) = ticker_worker
-                            .clone()
-                            .maybe_auto_install_commit(&tag)
-                            .await
+                        if let Err(e) = ticker_worker.clone().maybe_auto_install_commit(&tag).await
                         {
                             tracing::warn!(err = %e, "periodic auto_install skipped/failed");
                         }
@@ -1143,7 +1127,9 @@ impl Worker {
     /// Self-heal retention when listing backups: prune if over limit, always
     /// report diagnostics so the UI can show truth (including old-updater gap
     /// when these fields are missing from status).
-    pub fn heal_and_list_snapshot_diagnostics(&self) -> Result<(crate::state::SnapshotsFile, SnapshotListDiagnostics)> {
+    pub fn heal_and_list_snapshot_diagnostics(
+        &self,
+    ) -> Result<(crate::state::SnapshotsFile, SnapshotListDiagnostics)> {
         let pruned = match self.maybe_prune_snapshots() {
             Ok(ids) => {
                 if !ids.is_empty() {
@@ -1279,26 +1265,26 @@ impl Worker {
                 allow_diverged: None,
                 allow_unknown: None,
                 allow_irreversible: None,
-                idempotency_key: Some(format!("auto-install-{}-{}", mode.as_str(), target.as_str())),
+                idempotency_key: Some(format!(
+                    "auto-install-{}-{}",
+                    mode.as_str(),
+                    target.as_str()
+                )),
                 actor: Some("auto-install".into()),
                 reply: tx,
             })
             .await
             .map_err(|_| UpdaterError::Conflict)?;
-        let _ = rx
-            .await
-            .map_err(|_| {
-                UpdaterError::Precondition("worker dropped auto_install reply".into())
-            })??;
+        let _ = rx.await.map_err(|_| {
+            UpdaterError::Precondition("worker dropped auto_install reply".into())
+        })??;
         Ok(())
     }
 
     /// Auto-install a clear release upgrade on the current channel (stable or preview).
     async fn maybe_auto_install_release(self: Arc<Self>, manifest: &Manifest) -> Result<()> {
-        let Some(target) = self.auto_install_target_ok(
-            UpdateMode::Release,
-            manifest.migrations.irreversible,
-        )?
+        let Some(target) =
+            self.auto_install_target_ok(UpdateMode::Release, manifest.migrations.irreversible)?
         else {
             return Ok(());
         };
@@ -1308,7 +1294,8 @@ impl Worker {
         } else {
             target
         };
-        self.dispatch_auto_install(target, UpdateMode::Release).await
+        self.dispatch_auto_install(target, UpdateMode::Release)
+            .await
     }
 
     /// Auto-install a clear commit/dev tip upgrade on the current channel.
@@ -1394,15 +1381,8 @@ impl Worker {
             allow_irreversible,
         );
         tokio::spawn(async move {
-            if let Err(e) = update::run(
-                me.clone(),
-                job_id_clone.clone(),
-                target,
-                mode,
-                risk,
-                actor,
-            )
-            .await
+            if let Err(e) =
+                update::run(me.clone(), job_id_clone.clone(), target, mode, risk, actor).await
             {
                 error!(job = %job_id_clone, err = %e, "update flow exited with error");
             }
@@ -1839,9 +1819,7 @@ impl Worker {
         // Skip tip when it is the same artifact as the running deploy (e.g. v0.3.21
         // vs dev-<same-sha>, or short vs full dev-sha). Otherwise a re-tagged sibling
         // becomes "tip" and either thrash-upgrades or blocks seeing a later build.
-        let Some(build) =
-            select_dev_channel_tip_for(&builds, current, current_commit_sha)
-        else {
+        let Some(build) = select_dev_channel_tip_for(&builds, current, current_commit_sha) else {
             if persist_cache {
                 let mut state = state_now;
                 state.last_checked_at = Some(Utc::now());
@@ -1895,11 +1873,7 @@ impl Worker {
             current,
             tip_pushed.as_deref(),
             current_pushed,
-            if cross_kind {
-                None
-            } else {
-                freshness.as_ref()
-            },
+            if cross_kind { None } else { freshness.as_ref() },
             current_commit_sha,
             Some(tip_short_sha.as_str()),
         );
@@ -2013,9 +1987,9 @@ impl Worker {
                 Ok(manifest) => {
                     let self_v = MyriadVersion::parse(crate::self_version()).ok();
                     let requires_self_update = manifest.updater.self_update_required
-                        || self_v.as_ref().is_some_and(|v| {
-                            v.older_than(&manifest.updater.min_updater_version)
-                        });
+                        || self_v
+                            .as_ref()
+                            .is_some_and(|v| v.older_than(&manifest.updater.min_updater_version));
                     let target_commit_sha = match manifest.commit_sha.clone() {
                         some @ Some(_) => some,
                         None => gh
