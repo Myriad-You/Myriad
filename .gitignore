@@ -28,6 +28,8 @@ nul
 # Keep /.claude/ ignored; settings.local.json must never be tracked.
 /.claude/
 .claude/settings.local.json
+# Agent scratch: drafts, temporary specs, notes must not reach preview (see AGENTS.md).
+/.scratch/
 
 # --- Secrets / env ---
 .env
