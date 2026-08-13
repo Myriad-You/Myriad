@@ -87,7 +87,13 @@ pub fn get_rate_limit_config(operation: &str) -> (u32, u64) {
         "brew.comment" => (90, 60),
         "brew.manage" => (30, 60),
         // Host-proxied federation mutations.
-        "federation.write" => (90, 60),
+        // post/interact 是高频社交操作（沿用原 federation.write 额度）；
+        // channel/room/ring 治理操作低频，与 files 同档。
+        "federation.post" => (90, 60),
+        "federation.interact" => (90, 60),
+        "federation.channel" => (60, 60),
+        "federation.room" => (60, 60),
+        "federation.ring" => (60, 60),
         "federation.message" => (180, 60),
         "federation.files" => (60, 60),
         "federation.trust" => (20, 60),
@@ -111,7 +117,11 @@ pub fn host_write_rate_limit_operation(permission: TappPermission) -> Option<&'s
         TappPermission::BrewWrite => Some("brew.write"),
         TappPermission::BrewComment => Some("brew.comment"),
         TappPermission::BrewManage => Some("brew.manage"),
-        TappPermission::FederationWrite => Some("federation.write"),
+        TappPermission::FederationPost => Some("federation.post"),
+        TappPermission::FederationInteract => Some("federation.interact"),
+        TappPermission::FederationChannel => Some("federation.channel"),
+        TappPermission::FederationRoom => Some("federation.room"),
+        TappPermission::FederationRing => Some("federation.ring"),
         TappPermission::FederationMessage => Some("federation.message"),
         TappPermission::FederationFiles => Some("federation.files"),
         TappPermission::FederationTrust => Some("federation.trust"),
@@ -354,8 +364,24 @@ mod tests {
             Some("brew.manage")
         );
         assert_eq!(
-            host_write_rate_limit_operation(TappPermission::FederationWrite),
-            Some("federation.write")
+            host_write_rate_limit_operation(TappPermission::FederationPost),
+            Some("federation.post")
+        );
+        assert_eq!(
+            host_write_rate_limit_operation(TappPermission::FederationInteract),
+            Some("federation.interact")
+        );
+        assert_eq!(
+            host_write_rate_limit_operation(TappPermission::FederationChannel),
+            Some("federation.channel")
+        );
+        assert_eq!(
+            host_write_rate_limit_operation(TappPermission::FederationRoom),
+            Some("federation.room")
+        );
+        assert_eq!(
+            host_write_rate_limit_operation(TappPermission::FederationRing),
+            Some("federation.ring")
         );
         assert_eq!(
             host_write_rate_limit_operation(TappPermission::FederationMessage),
@@ -406,7 +432,11 @@ mod tests {
         assert_eq!(get_rate_limit_config("brew.write"), (90, 60));
         assert_eq!(get_rate_limit_config("brew.comment"), (90, 60));
         assert_eq!(get_rate_limit_config("brew.manage"), (30, 60));
-        assert_eq!(get_rate_limit_config("federation.write"), (90, 60));
+        assert_eq!(get_rate_limit_config("federation.post"), (90, 60));
+        assert_eq!(get_rate_limit_config("federation.interact"), (90, 60));
+        assert_eq!(get_rate_limit_config("federation.channel"), (60, 60));
+        assert_eq!(get_rate_limit_config("federation.room"), (60, 60));
+        assert_eq!(get_rate_limit_config("federation.ring"), (60, 60));
         assert_eq!(get_rate_limit_config("federation.message"), (180, 60));
         assert_eq!(get_rate_limit_config("federation.files"), (60, 60));
         assert_eq!(get_rate_limit_config("federation.trust"), (20, 60));
@@ -418,6 +448,15 @@ mod tests {
         assert!(
             get_rate_limit_config("federation.trust").0
                 < get_rate_limit_config("federation.message").0
+        );
+        // 治理域（channel/room/ring）比高频社交域（post/interact）更严。
+        assert!(
+            get_rate_limit_config("federation.channel").0
+                < get_rate_limit_config("federation.post").0
+        );
+        assert!(
+            get_rate_limit_config("federation.ring").0
+                < get_rate_limit_config("federation.interact").0
         );
 
         assert_eq!(get_rate_limit_config("ai.task"), (30, 60));

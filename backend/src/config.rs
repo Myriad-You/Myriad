@@ -428,12 +428,12 @@ pub struct DynamicConfig {
     pub tapp_window_schemes: Option<String>, // 窗口方案数据 (JSON)
 
     // Tapp 权限下放配置
-    // 基于 Tapp 系统的 elevated 级别权限（14 项可配置下放）
+    // 基于 Tapp 系统的 elevated 级别权限（17 项可配置下放）
     // 这些权限默认只有管理员可用，可以配置下放给普通用户或游客
     // 注意：basic 级别权限默认可授予所有用户
     // 注意：privileged 级别权限始终只限管理员
 
-    // 普通用户可使用的 elevated 权限（14 项）
+    // 普通用户可使用的 elevated 权限（17 项）
     /// ai:generate - AI 生成内容
     pub user_perm_ai_generate: bool,
     /// ai:analyze - AI 分析数据
@@ -462,8 +462,14 @@ pub struct DynamicConfig {
     pub user_perm_speech_asr: bool,
     /// storage:write - 写入 Tapp 存储
     pub user_perm_storage_write: bool,
+    /// federation:post - 发布联邦内容（publish/unpublish/createNote/uploadMedia/密钥轮换/投递队列）
+    pub user_perm_federation_post: bool,
+    /// federation:channel - 频道创建与治理
+    pub user_perm_federation_channel: bool,
+    /// federation:room - 房间创建/加入/治理
+    pub user_perm_federation_room: bool,
 
-    // 游客可使用的 elevated 权限（14 项）
+    // 游客可使用的 elevated 权限（17 项）
     /// ai:generate - AI 生成内容（游客）
     pub guest_perm_ai_generate: bool,
     /// ai:analyze - AI 分析数据（游客）
@@ -492,6 +498,12 @@ pub struct DynamicConfig {
     pub guest_perm_speech_asr: bool,
     /// storage:write - 写入 Tapp 存储（游客）
     pub guest_perm_storage_write: bool,
+    /// federation:post - 发布联邦内容（游客；联邦写路由要求持久登录主体，配置无效）
+    pub guest_perm_federation_post: bool,
+    /// federation:channel - 频道治理（游客；同上，配置无效）
+    pub guest_perm_federation_channel: bool,
+    /// federation:room - 房间治理（游客；同上，配置无效）
+    pub guest_perm_federation_room: bool,
 
     // AI 使用限额配置（当权限已下放时生效）
     // 这些限额只对非管理员用户生效，管理员无限制
@@ -710,6 +722,9 @@ impl Default for DynamicConfig {
             user_perm_speech_tts: false,
             user_perm_speech_asr: false,
             user_perm_storage_write: false,
+            user_perm_federation_post: false,
+            user_perm_federation_channel: false,
+            user_perm_federation_room: false,
 
             // 游客 elevated 权限默认值
             // 默认全部关闭
@@ -727,6 +742,9 @@ impl Default for DynamicConfig {
             guest_perm_speech_tts: false,
             guest_perm_speech_asr: false,
             guest_perm_storage_write: false,
+            guest_perm_federation_post: false,
+            guest_perm_federation_channel: false,
+            guest_perm_federation_room: false,
 
             // AI 使用限额默认值
             // 普通用户: 每日 50 次调用, 20000 tokens, 5 秒冷却

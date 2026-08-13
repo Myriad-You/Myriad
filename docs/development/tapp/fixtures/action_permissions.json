@@ -234,42 +234,42 @@
     {
       "domain": "federation",
       "action": "federation.follow",
-      "permission": "federation:write"
+      "permission": "federation:interact"
     },
     {
       "domain": "federation",
       "action": "federation.unfollow",
-      "permission": "federation:write"
+      "permission": "federation:interact"
     },
     {
       "domain": "federation",
       "action": "federation.publish",
-      "permission": "federation:write"
+      "permission": "federation:post"
     },
     {
       "domain": "federation",
       "action": "federation.createNote",
-      "permission": "federation:write"
+      "permission": "federation:post"
     },
     {
       "domain": "federation",
       "action": "federation.like",
-      "permission": "federation:write"
+      "permission": "federation:interact"
     },
     {
       "domain": "federation",
       "action": "federation.unlike",
-      "permission": "federation:write"
+      "permission": "federation:interact"
     },
     {
       "domain": "federation",
       "action": "federation.bookmark",
-      "permission": "federation:write"
+      "permission": "federation:interact"
     },
     {
       "domain": "federation",
       "action": "federation.unbookmark",
-      "permission": "federation:write"
+      "permission": "federation:interact"
     },
     {
       "domain": "federation",
@@ -289,122 +289,122 @@
     {
       "domain": "federation",
       "action": "federation.announce",
-      "permission": "federation:write"
+      "permission": "federation:interact"
     },
     {
       "domain": "federation",
       "action": "federation.unannounce",
-      "permission": "federation:write"
+      "permission": "federation:interact"
     },
     {
       "domain": "federation",
       "action": "federation.uploadMedia",
-      "permission": "federation:write"
+      "permission": "federation:post"
     },
     {
       "domain": "federation",
       "action": "federation.unpublish",
-      "permission": "federation:write"
+      "permission": "federation:post"
     },
     {
       "domain": "federation",
       "action": "federation.createChannel",
-      "permission": "federation:write"
+      "permission": "federation:channel"
     },
     {
       "domain": "federation",
       "action": "federation.acceptChannel",
-      "permission": "federation:write"
+      "permission": "federation:channel"
     },
     {
       "domain": "federation",
       "action": "federation.closeChannel",
-      "permission": "federation:write"
+      "permission": "federation:channel"
     },
     {
       "domain": "federation",
       "action": "federation.deleteChannel",
-      "permission": "federation:write"
+      "permission": "federation:channel"
     },
     {
       "domain": "federation",
       "action": "federation.createRoom",
-      "permission": "federation:write"
+      "permission": "federation:room"
     },
     {
       "domain": "federation",
       "action": "federation.updateRoom",
-      "permission": "federation:write"
+      "permission": "federation:room"
     },
     {
       "domain": "federation",
       "action": "federation.deleteRoom",
-      "permission": "federation:write"
+      "permission": "federation:room"
     },
     {
       "domain": "federation",
       "action": "federation.inviteMember",
-      "permission": "federation:write"
+      "permission": "federation:room"
     },
     {
       "domain": "federation",
       "action": "federation.acceptRoomInvite",
-      "permission": "federation:write"
+      "permission": "federation:room"
     },
     {
       "domain": "federation",
       "action": "federation.rejectRoomInvite",
-      "permission": "federation:write"
+      "permission": "federation:room"
     },
     {
       "domain": "federation",
       "action": "federation.joinRoom",
-      "permission": "federation:write"
+      "permission": "federation:room"
     },
     {
       "domain": "federation",
       "action": "federation.removeMember",
-      "permission": "federation:write"
+      "permission": "federation:room"
     },
     {
       "domain": "federation",
       "action": "federation.setMemberRole",
-      "permission": "federation:write"
+      "permission": "federation:room"
     },
     {
       "domain": "federation",
       "action": "federation.leaveRoom",
-      "permission": "federation:write"
+      "permission": "federation:room"
     },
     {
       "domain": "federation",
       "action": "federation.transferRoomOwnership",
-      "permission": "federation:write"
+      "permission": "federation:room"
     },
     {
       "domain": "federation",
       "action": "federation.initiateChannelE2e",
-      "permission": "federation:write"
+      "permission": "federation:channel"
     },
     {
       "domain": "federation",
       "action": "federation.initiateRoomE2e",
-      "permission": "federation:write"
+      "permission": "federation:room"
     },
     {
       "domain": "federation",
       "action": "federation.addRoomSticker",
-      "permission": "federation:write"
+      "permission": "federation:room"
     },
     {
       "domain": "federation",
       "action": "federation.removeRoomSticker",
-      "permission": "federation:write"
+      "permission": "federation:room"
     },
     {
       "domain": "federation",
       "action": "federation.pinRoomMessage",
-      "permission": "federation:write"
+      "permission": "federation:room"
     },
     {
       "domain": "federation",
@@ -419,37 +419,37 @@
     {
       "domain": "federation",
       "action": "federation.retryDelivery",
-      "permission": "federation:write"
+      "permission": "federation:post"
     },
     {
       "domain": "federation",
       "action": "federation.cancelDelivery",
-      "permission": "federation:write"
+      "permission": "federation:post"
     },
     {
       "domain": "federation",
       "action": "federation.retryAllDeadDelivery",
-      "permission": "federation:write"
+      "permission": "federation:post"
     },
     {
       "domain": "federation",
       "action": "federation.cancelAllPendingDelivery",
-      "permission": "federation:write"
+      "permission": "federation:post"
     },
     {
       "domain": "federation",
       "action": "federation.dismissDelivery",
-      "permission": "federation:write"
+      "permission": "federation:post"
     },
     {
       "domain": "federation",
       "action": "federation.purgeDeadDelivery",
-      "permission": "federation:write"
+      "permission": "federation:post"
     },
     {
       "domain": "federation",
       "action": "federation.rotateKeys",
-      "permission": "federation:write"
+      "permission": "federation:post"
     },
     {
       "domain": "federation",
@@ -459,27 +459,27 @@
     {
       "domain": "federation",
       "action": "federation.createRing",
-      "permission": "federation:write"
+      "permission": "federation:ring"
     },
     {
       "domain": "federation",
       "action": "federation.leaveRing",
-      "permission": "federation:write"
+      "permission": "federation:ring"
     },
     {
       "domain": "federation",
       "action": "federation.addPeer",
-      "permission": "federation:write"
+      "permission": "federation:ring"
     },
     {
       "domain": "federation",
       "action": "federation.removePeer",
-      "permission": "federation:write"
+      "permission": "federation:ring"
     },
     {
       "domain": "federation",
       "action": "federation.triggerSync",
-      "permission": "federation:write"
+      "permission": "federation:ring"
     },
     {
       "domain": "federation",

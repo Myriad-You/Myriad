@@ -170,6 +170,13 @@ fn test_default_config_seeds_include_quota_and_explicit_open_permissions() {
     assert_eq!(values["guest_ai_daily_tokens"], serde_json::json!(5000));
     assert_eq!(values["user_perm_storage_write"], serde_json::json!(false));
     assert_eq!(values["guest_perm_storage_write"], serde_json::json!(false));
+    // federation 拆分后三个 Elevated 写域进入可配置下放集合，默认关闭
+    assert_eq!(values["user_perm_federation_post"], serde_json::json!(false));
+    assert_eq!(values["user_perm_federation_channel"], serde_json::json!(false));
+    assert_eq!(values["user_perm_federation_room"], serde_json::json!(false));
+    assert_eq!(values["guest_perm_federation_post"], serde_json::json!(false));
+    assert_eq!(values["guest_perm_federation_channel"], serde_json::json!(false));
+    assert_eq!(values["guest_perm_federation_room"], serde_json::json!(false));
     assert!(!values.contains_key("user_perm_component_theme"));
     assert!(!values.contains_key("user_perm_shortcut_register"));
     assert_eq!(values["stash_hidden_capacity"], serde_json::json!(8));

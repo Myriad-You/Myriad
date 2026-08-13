@@ -31,7 +31,6 @@
       "path": "/api/speech/voices",
       "permission": "speech:tts"
     },
-
     {
       "domain": "brew",
       "method": "GET",
@@ -194,7 +193,6 @@
       "path": "/api/brew/categories/{id}",
       "permission": "brew:manage"
     },
-
     {
       "domain": "federation",
       "method": "GET",
@@ -205,7 +203,7 @@
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/keys/rotate",
-      "permission": "federation:write"
+      "permission": "federation:post"
     },
     {
       "domain": "federation",
@@ -301,49 +299,49 @@
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/follow",
-      "permission": "federation:write"
+      "permission": "federation:interact"
     },
     {
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/unfollow",
-      "permission": "federation:write"
+      "permission": "federation:interact"
     },
     {
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/publish",
-      "permission": "federation:write"
+      "permission": "federation:post"
     },
     {
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/notes",
-      "permission": "federation:write"
+      "permission": "federation:post"
     },
     {
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/like",
-      "permission": "federation:write"
+      "permission": "federation:interact"
     },
     {
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/unlike",
-      "permission": "federation:write"
+      "permission": "federation:interact"
     },
     {
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/bookmark",
-      "permission": "federation:write"
+      "permission": "federation:interact"
     },
     {
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/unbookmark",
-      "permission": "federation:write"
+      "permission": "federation:interact"
     },
     {
       "domain": "federation",
@@ -355,127 +353,127 @@
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/announce",
-      "permission": "federation:write"
+      "permission": "federation:interact"
     },
     {
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/unannounce",
-      "permission": "federation:write"
+      "permission": "federation:interact"
     },
     {
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/media",
-      "permission": "federation:write"
+      "permission": "federation:post"
     },
     {
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/unpublish",
-      "permission": "federation:write"
+      "permission": "federation:post"
     },
     {
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/channels",
-      "permission": "federation:write"
+      "permission": "federation:channel"
     },
     {
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/channels/{channel_id}/accept",
-      "permission": "federation:write"
+      "permission": "federation:channel"
     },
     {
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/channels/{channel_id}/close",
-      "permission": "federation:write"
+      "permission": "federation:channel"
     },
     {
       "domain": "federation",
       "method": "DELETE",
       "path": "/api/federation/channels/{channel_id}",
-      "permission": "federation:write"
+      "permission": "federation:channel"
     },
     {
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/rooms",
-      "permission": "federation:write"
+      "permission": "federation:room"
     },
     {
       "domain": "federation",
       "method": "PUT",
       "path": "/api/federation/rooms/{room_id}",
-      "permission": "federation:write"
+      "permission": "federation:room"
     },
     {
       "domain": "federation",
       "method": "DELETE",
       "path": "/api/federation/rooms/{room_id}",
-      "permission": "federation:write"
+      "permission": "federation:room"
     },
     {
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/rooms/{room_id}/invite",
-      "permission": "federation:write"
+      "permission": "federation:room"
     },
     {
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/rooms/{room_id}/accept",
-      "permission": "federation:write"
+      "permission": "federation:room"
     },
     {
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/rooms/{room_id}/reject",
-      "permission": "federation:write"
+      "permission": "federation:room"
     },
     {
       "domain": "federation",
       "method": "DELETE",
       "path": "/api/federation/rooms/{room_id}/members/{actor}",
-      "permission": "federation:write"
+      "permission": "federation:room"
     },
     {
       "domain": "federation",
       "method": "PUT",
       "path": "/api/federation/rooms/{room_id}/members/{actor}/role",
-      "permission": "federation:write"
+      "permission": "federation:room"
     },
     {
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/rooms/{room_id}/leave",
-      "permission": "federation:write"
+      "permission": "federation:room"
     },
     {
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/rooms/{room_id}/transfer-ownership",
-      "permission": "federation:write"
+      "permission": "federation:room"
     },
     {
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/channels/{channel_id}/e2e/key-exchange",
-      "permission": "federation:write"
+      "permission": "federation:channel"
     },
     {
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/rooms/{room_id}/e2e/key-exchange",
-      "permission": "federation:write"
+      "permission": "federation:room"
     },
     {
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/rooms/{room_id}/messages/{message_id}/pin",
-      "permission": "federation:write"
+      "permission": "federation:room"
     },
     {
       "domain": "federation",
@@ -493,43 +491,43 @@
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/delivery/retry-dead",
-      "permission": "federation:write"
+      "permission": "federation:post"
     },
     {
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/delivery/{id}/retry",
-      "permission": "federation:write"
+      "permission": "federation:post"
     },
     {
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/delivery/{id}/cancel",
-      "permission": "federation:write"
+      "permission": "federation:post"
     },
     {
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/delivery/cancel-pending",
-      "permission": "federation:write"
+      "permission": "federation:post"
     },
     {
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/delivery/purge-dead",
-      "permission": "federation:write"
+      "permission": "federation:post"
     },
     {
       "domain": "federation",
       "method": "DELETE",
       "path": "/api/federation/delivery/{id}",
-      "permission": "federation:write"
+      "permission": "federation:post"
     },
     {
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/rooms/{room_id}/join",
-      "permission": "federation:write"
+      "permission": "federation:room"
     },
     {
       "domain": "federation",
@@ -541,31 +539,31 @@
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/rings",
-      "permission": "federation:write"
+      "permission": "federation:ring"
     },
     {
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/rings/{ring_id}/leave",
-      "permission": "federation:write"
+      "permission": "federation:ring"
     },
     {
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/rings/{ring_id}/peers",
-      "permission": "federation:write"
+      "permission": "federation:ring"
     },
     {
       "domain": "federation",
       "method": "DELETE",
       "path": "/api/federation/rings/{ring_id}/peers/{peer}",
-      "permission": "federation:write"
+      "permission": "federation:ring"
     },
     {
       "domain": "federation",
       "method": "POST",
       "path": "/api/federation/rings/{ring_id}/sync",
-      "permission": "federation:write"
+      "permission": "federation:ring"
     },
     {
       "domain": "federation",
