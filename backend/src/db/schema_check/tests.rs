@@ -163,6 +163,82 @@ fn test_default_platform_seeds_include_x_and_core() {
 }
 
 #[test]
+fn test_default_config_seeds_include_quota_and_explicit_open_permissions() {
+    let seeds = default_config_seeds();
+    let values: std::collections::HashMap<_, _> = seeds.into_iter().collect();
+    assert_eq!(values["user_ai_daily_calls"], serde_json::json!(50));
+    assert_eq!(values["guest_ai_daily_tokens"], serde_json::json!(5000));
+    assert!(!values.contains_key("user_perm_component_theme"));
+    assert!(!values.contains_key("user_perm_shortcut_register"));
+    assert_eq!(values["stash_hidden_capacity"], serde_json::json!(8));
+    assert_eq!(values["stash_hidden_idle_seconds"], serde_json::json!(300));
+    assert_eq!(values["resident_quota_per_app"], serde_json::json!(1));
+    assert_eq!(values["resident_quota_site_total"], serde_json::json!(3));
+}
+
+#[tokio::test]
+async fn runtime_config_seed_preserves_existing_values_and_is_idempotent() {
+    let Ok(url) = std::env::var("MYRIAD_CONFIG_SEED_DB") else {
+        eprintln!("skipping: set MYRIAD_CONFIG_SEED_DB to run the runtime config seed test");
+        return;
+    };
+
+    use sea_orm::{ConnectionTrait, Database, DatabaseBackend, Statement};
+    let db = Database::connect(&url)
+        .await
+        .expect("connect to config seed database");
+    db.execute_unprepared(
+        r#"
+        CREATE TABLE IF NOT EXISTS configurations (
+            id SERIAL PRIMARY KEY,
+            key VARCHAR(255) NOT NULL UNIQUE,
+            value JSONB NOT NULL,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        TRUNCATE configurations;
+        INSERT INTO configurations (key, value) VALUES
+            ('user_perm_component_theme', 'false'::jsonb),
+            ('user_ai_daily_calls', '999'::jsonb);
+        "#,
+    )
+    .await
+    .expect("prepare config seed database");
+
+    let inserted = ensure_default_config(&db)
+        .await
+        .expect("seed missing runtime config rows");
+    assert!(inserted > 0);
+
+    let rows = db
+        .query_all_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT key, value FROM configurations".to_string(),
+        ))
+        .await
+        .expect("read seeded config rows");
+    let values: std::collections::HashMap<String, serde_json::Value> = rows
+        .into_iter()
+        .map(|row| {
+            (
+                row.try_get::<String>("", "key").expect("config key"),
+                row.try_get::<serde_json::Value>("", "value")
+                    .expect("config value"),
+            )
+        })
+        .collect();
+    assert_eq!(values["user_perm_component_theme"], serde_json::json!(false));
+    assert_eq!(values["user_ai_daily_calls"], serde_json::json!(999));
+    assert_eq!(values["user_perm_shortcut_register"], serde_json::json!(true));
+    assert_eq!(values["stash_hidden_capacity"], serde_json::json!(8));
+    assert_eq!(values["resident_quota_site_total"], serde_json::json!(3));
+
+    let second = ensure_default_config(&db)
+        .await
+        .expect("repeat config seed");
+    assert_eq!(second, 0, "runtime config seed must be idempotent");
+}
+
+#[test]
 fn test_tapps_schema_includes_approved_permissions() {
     let tables = get_expected_schema();
     let tapps = tables

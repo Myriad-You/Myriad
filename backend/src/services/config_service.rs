@@ -921,6 +921,28 @@ impl ConfigService {
             }
         }
 
+        // 沙箱生命周期配额
+        if let Some(v) = map.get("stash_hidden_capacity") {
+            if let Some(n) = v.as_i64() {
+                config.stash_hidden_capacity = n as i32;
+            }
+        }
+        if let Some(v) = map.get("stash_hidden_idle_seconds") {
+            if let Some(n) = v.as_i64() {
+                config.stash_hidden_idle_seconds = n as i32;
+            }
+        }
+        if let Some(v) = map.get("resident_quota_per_app") {
+            if let Some(n) = v.as_i64() {
+                config.resident_quota_per_app = n as i32;
+            }
+        }
+        if let Some(v) = map.get("resident_quota_site_total") {
+            if let Some(n) = v.as_i64() {
+                config.resident_quota_site_total = n as i32;
+            }
+        }
+
         // 内存节约（高级设置）
         if let Some(v) = map.get("memory_saver_enabled") {
             if let Some(b) = v.as_bool() {
@@ -1007,6 +1029,10 @@ mod tests {
             ("guest_ai_daily_calls".into(), json!(404)),
             ("guest_ai_daily_tokens".into(), json!(505)),
             ("guest_ai_cooldown_seconds".into(), json!(606)),
+            ("stash_hidden_capacity".into(), json!(707)),
+            ("stash_hidden_idle_seconds".into(), json!(808)),
+            ("resident_quota_per_app".into(), json!(9)),
+            ("resident_quota_site_total".into(), json!(10)),
             ("openweather_api_key".into(), json!("weather-secret")),
             ("ui_theme".into(), json!("paper")),
             ("ui_primary_color".into(), json!("#112233")),
@@ -1019,6 +1045,10 @@ mod tests {
         assert_eq!(config.guest_ai_daily_calls, 404);
         assert_eq!(config.guest_ai_daily_tokens, 505);
         assert_eq!(config.guest_ai_cooldown_seconds, 606);
+        assert_eq!(config.stash_hidden_capacity, 707);
+        assert_eq!(config.stash_hidden_idle_seconds, 808);
+        assert_eq!(config.resident_quota_per_app, 9);
+        assert_eq!(config.resident_quota_site_total, 10);
         assert_eq!(
             config.openweather_api_key.as_deref(),
             Some("weather-secret")
@@ -1063,21 +1093,75 @@ mod tests {
 
         #[derive(Default)]
         struct MapGetVisitor {
-            keys: HashSet<String>,
+            parsed_fields: HashSet<String>,
+            active_keys: Vec<String>,
+        }
+
+        impl MapGetVisitor {
+            fn map_get_key(expr: &syn::Expr) -> Option<String> {
+                let syn::Expr::MethodCall(call) = expr else {
+                    return None;
+                };
+                if call.method != "get" {
+                    return Self::map_get_key(call.receiver.as_ref());
+                }
+                if call.args.len() != 1 {
+                    return None;
+                }
+                let syn::Expr::Path(receiver) = call.receiver.as_ref() else {
+                    return None;
+                };
+                if receiver.path.segments.len() != 1
+                    || receiver.path.segments[0].ident != "map"
+                {
+                    return None;
+                }
+                match call.args.first()? {
+                    syn::Expr::Lit(syn::ExprLit {
+                        lit: syn::Lit::Str(key),
+                        ..
+                    }) => Some(key.value()),
+                    _ => None,
+                }
+            }
+
+            fn condition_key(expr: &syn::Expr) -> Option<String> {
+                match expr {
+                    syn::Expr::Let(expr_let) => Self::map_get_key(&expr_let.expr),
+                    syn::Expr::Paren(paren) => Self::condition_key(&paren.expr),
+                    _ => None,
+                }
+            }
         }
 
         impl<'ast> Visit<'ast> for MapGetVisitor {
-            fn visit_expr_method_call(&mut self, node: &'ast syn::ExprMethodCall) {
-                if node.method == "get" {
-                    if let Some(syn::Expr::Lit(syn::ExprLit {
-                        lit: syn::Lit::Str(key),
-                        ..
-                    })) = node.args.first()
-                    {
-                        self.keys.insert(key.value());
+            fn visit_expr_if(&mut self, node: &'ast syn::ExprIf) {
+                if let Some(key) = Self::condition_key(&node.cond) {
+                    self.active_keys.push(key);
+                    syn::visit::visit_block(self, &node.then_branch);
+                    self.active_keys.pop();
+                    if let Some((_, branch)) = &node.else_branch {
+                        self.visit_expr(branch);
+                    }
+                } else {
+                    syn::visit::visit_expr_if(self, node);
+                }
+            }
+
+            fn visit_expr_assign(&mut self, node: &'ast syn::ExprAssign) {
+                if let syn::Expr::Field(field) = node.left.as_ref() {
+                    if let syn::Expr::Path(base) = field.base.as_ref() {
+                        if base.path.is_ident("config") {
+                            if let syn::Member::Named(member) = &field.member {
+                                let name = member.to_string();
+                                if self.active_keys.iter().any(|key| key == &name) {
+                                    self.parsed_fields.insert(name);
+                                }
+                            }
+                        }
                     }
                 }
-                syn::visit::visit_expr_method_call(self, node);
+                syn::visit::visit_expr_assign(self, node);
             }
         }
 
@@ -1093,7 +1177,7 @@ mod tests {
             .all(|(_, reason)| !reason.trim().is_empty()));
 
         let mut missing: Vec<_> = fields
-            .difference(&visitor.keys)
+            .difference(&visitor.parsed_fields)
             .filter(|field| !exemptions.contains(field.as_str()))
             .cloned()
             .collect();

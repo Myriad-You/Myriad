@@ -1,7 +1,9 @@
 //! Default platform seed catalog and synchronization.
-use sea_orm::{ConnectionTrait, DatabaseConnection, DbErr};
+use sea_orm::{ConnectionTrait, DatabaseConnection, DbErr, Statement};
+use serde_json::Value;
 
 use super::introspect::get_existing_tables;
+use crate::config::DynamicConfig;
 
 pub struct DefaultPlatformSeed {
     pub name: &'static str,
@@ -163,6 +165,83 @@ pub async fn ensure_default_platforms(db: &DatabaseConnection) -> Result<usize, 
         );
     } else {
         tracing::debug!("Default platforms seed: all rows already present");
+    }
+
+    Ok(inserted)
+}
+
+/// Return the complete runtime configuration seed set.
+///
+/// `DynamicConfig::default()` is the single source for values; serializing it
+/// here keeps seed defaults aligned with the values used before a database row
+/// exists. Optional values are seeded as JSON null so the database has an
+/// explicit row for every runtime field.
+pub fn default_config_seeds() -> Vec<(String, Value)> {
+    let defaults = serde_json::to_value(DynamicConfig::default())
+        .expect("DynamicConfig defaults must remain JSON serializable");
+    let explicit_open = ["user_perm_component_theme", "user_perm_shortcut_register"];
+    defaults
+        .as_object()
+        .expect("DynamicConfig must serialize as an object")
+        .iter()
+        .filter(|(key, _)| !explicit_open.contains(&key.as_str()))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect()
+}
+
+/// Seed missing runtime configuration rows without overwriting administrator
+/// choices. The two explicitly default-open permissions are inserted first so
+/// their upgrade semantics are independent from the general seed pass.
+pub async fn ensure_default_config(db: &DatabaseConnection) -> Result<usize, DbErr> {
+    let existing_tables = get_existing_tables(db).await?;
+    if !existing_tables.contains("configurations") {
+        return Err(DbErr::Custom(
+            "configurations table missing after migrations".to_string(),
+        ));
+    }
+
+    let explicit_open = ["user_perm_component_theme", "user_perm_shortcut_register"];
+    let mut inserted = 0usize;
+
+    let mut explicit_open_inserted = Vec::new();
+    for key in explicit_open {
+        let result = db
+            .execute_raw(Statement::from_sql_and_values(
+                sea_orm::DatabaseBackend::Postgres,
+                "INSERT INTO configurations (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (key) DO NOTHING",
+                vec![key.into(), Value::Bool(true).into()],
+            ))
+            .await?;
+        let rows = result.rows_affected() as usize;
+        inserted += rows;
+        if rows > 0 {
+            explicit_open_inserted.push(key);
+        }
+    }
+
+    for (key, value) in default_config_seeds() {
+        let result = db
+            .execute_raw(Statement::from_sql_and_values(
+                sea_orm::DatabaseBackend::Postgres,
+                "INSERT INTO configurations (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (key) DO NOTHING",
+                vec![key.into(), value.into()],
+            ))
+            .await?;
+        inserted += result.rows_affected() as usize;
+    }
+
+    if inserted > 0 {
+        tracing::info!(
+            "✅ Runtime configuration seed: inserted {} missing row(s)",
+            inserted
+        );
+    } else {
+        tracing::debug!("Runtime configuration seed: all rows already present");
+    }
+    if !explicit_open_inserted.is_empty() {
+        tracing::info!(
+            "Upgrade notice: ordinary users now have default granted permissions for component:theme and shortcut:register"
+        );
     }
 
     Ok(inserted)

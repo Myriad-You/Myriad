@@ -505,6 +505,16 @@ pub struct DynamicConfig {
     /// 游客 AI 调用冷却时间（秒）
     pub guest_ai_cooldown_seconds: i32,
 
+    // 沙箱生命周期配额
+    /// 暂存池允许保留的隐藏实例数
+    pub stash_hidden_capacity: i32,
+    /// 隐藏实例空闲淘汰时间（秒）
+    pub stash_hidden_idle_seconds: i32,
+    /// 每个应用可占用的常驻名额
+    pub resident_quota_per_app: i32,
+    /// 全站常驻名额上限
+    pub resident_quota_site_total: i32,
+
     /// 内存节约模式（高级设置）：收紧并发预算 / 缓存 / 连接池等，适合 ~1 GiB 主机。
     /// 默认 false = 历史行为。`MYRIAD_MEMORY_PROFILE` env 可覆盖。
     pub memory_saver_enabled: bool,
@@ -722,6 +732,12 @@ impl Default for DynamicConfig {
             guest_ai_daily_calls: 10,
             guest_ai_daily_tokens: 5000,
             guest_ai_cooldown_seconds: 10,
+
+            // 沙箱生命周期配额默认值
+            stash_hidden_capacity: 8,
+            stash_hidden_idle_seconds: 300,
+            resident_quota_per_app: 1,
+            resident_quota_site_total: 3,
 
             // 网络代理配置默认值
             memory_saver_enabled: false,

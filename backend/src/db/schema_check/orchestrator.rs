@@ -8,7 +8,7 @@ use super::ensure_heals::*;
 use super::expected_indexes::get_expected_indexes;
 use super::expected_schema::get_expected_schema;
 use super::introspect::*;
-use super::seeds::ensure_default_platforms;
+use super::seeds::{ensure_default_config, ensure_default_platforms};
 
 /// Schema 版本号
 ///
@@ -231,6 +231,14 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     let seeded_platforms = ensure_default_platforms(db).await?;
     if seeded_platforms > 0 {
         changes_made += seeded_platforms;
+    }
+
+    // Seed all runtime configuration keys after the explicit default-open
+    // entries have had first refusal, preserving any existing administrator
+    // choice via ON CONFLICT DO NOTHING.
+    let seeded_config = ensure_default_config(db).await?;
+    if seeded_config > 0 {
+        changes_made += seeded_config;
     }
 
     // 2/3. 比对期望列与索引（整表创建已不再由 schema_check 兜底）
