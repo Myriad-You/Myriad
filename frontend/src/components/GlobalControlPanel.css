@@ -1062,8 +1062,8 @@ html.dark .control-action-btn {
   opacity: 0;
 
   /* visibility 延迟到淡出结束再隐藏：既保住淡出动画，
-     又让收起后的遮罩层（含全屏 backdrop-filter）彻底退出渲染管线 */
-  /* 与展开内容同一套比例：标准档 ≈ 0.3s，exlight 120ms 时一起收掉，
+     又让收起后的遮罩层（含全屏 backdrop-filter）彻底退出渲染管线。
+     时长与展开内容同一套比例：标准档 ≈ 0.3s，exlight 120ms 时一起收掉，
      不再出现外壳已经换形、遮罩还在淡的错位 */
   transition:
     opacity calc(var(--gcp-morph, 700ms) * 0.43) ease,
