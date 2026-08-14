@@ -868,10 +868,20 @@ pub fn validate_tapp_manifest(manifest: &TappManifest) -> Result<(), String> {
                                         "Tapp API {name} form credentials require bodyMode form"
                                     ));
                                 }
-                                if api.body.as_ref().is_some_and(|body| {
-                                    body.as_object()
-                                        .is_some_and(|fields| fields.contains_key(&resolved.field))
-                                }) {
+                                if !HTTP_BODY_METHODS.contains(&api.method.as_str()) {
+                                    return Err(format!(
+                                        "Tapp API {name} form credentials require one of: {}",
+                                        HTTP_BODY_METHODS.join(", ")
+                                    ));
+                                }
+                                let Some(body) =
+                                    api.body.as_ref().and_then(serde_json::Value::as_object)
+                                else {
+                                    return Err(format!(
+                                        "Tapp API {name} form credentials require a form object body"
+                                    ));
+                                };
+                                if body.contains_key(&resolved.field) {
                                     return Err(format!(
                                         "Tapp API {name} declares the credential form field twice"
                                     ));
@@ -1452,6 +1462,29 @@ mod tests {
         }));
         let error = validate_tapp_manifest(&manifest).unwrap_err();
         assert!(error.contains("must be a scalar"));
+    }
+
+    #[test]
+    fn form_credential_rejects_default_get_and_missing_object_body() {
+        let mut manifest = credential_manifest("https://api.example.com/submit");
+        let api = manifest.apis.as_mut().unwrap().get_mut("games").unwrap();
+        api.body_mode = TappHttpBodyMode::Form;
+        api.credential = Some(
+            serde_json::from_value(json!({
+                "key": "wegame",
+                "in": "form",
+                "field": "token"
+            }))
+            .unwrap(),
+        );
+        let error = validate_tapp_manifest(&manifest).unwrap_err();
+        assert!(error.contains("form credentials require one of:"));
+
+        let api = manifest.apis.as_mut().unwrap().get_mut("games").unwrap();
+        api.method = "POST".into();
+        api.body = None;
+        let error = validate_tapp_manifest(&manifest).unwrap_err();
+        assert!(error.contains("form credentials require a form object body"));
     }
 
     #[test]

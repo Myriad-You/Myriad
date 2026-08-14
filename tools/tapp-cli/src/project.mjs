@@ -204,7 +204,13 @@ function validateDeclaredCredential(definition, binding, name, diagnostics) {
     if (bodyMode !== 'form') {
       diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} form credentials require bodyMode form`))
     }
-    if (isObject(definition.body) && Object.hasOwn(definition.body, field)) {
+    const method = definition.method || contract.rules.defaultHttpMethod
+    if (!HTTP_BODY_METHODS.has(method)) {
+      diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} form credentials require one of: ${contract.rules.httpBodyMethods.join(', ')}`))
+    }
+    if (!isObject(definition.body)) {
+      diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} form credentials require a form object body`))
+    } else if (Object.hasOwn(definition.body, field)) {
       diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} declares the credential form field twice`))
     }
   }

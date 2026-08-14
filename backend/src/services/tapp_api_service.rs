@@ -556,7 +556,8 @@ impl TappApiService {
             Duration::from_secs(30),
             Some("Myriad-Tapp/1.0 (declared-api)"),
         )
-        .await?;
+        .await
+        .map_err(|error| Self::redact_needles(&error, &prepared.redaction_needles))?;
         let mut request = client.request(method, target_url);
 
         // 应用区域伪装（如果配置了 spoof 参数）
@@ -572,11 +573,7 @@ impl TappApiService {
                 request = request.header(name.clone(), value.clone());
             }
 
-            tracing::debug!(
-                "Applied spoof headers for region '{}' to {}",
-                spoof_region,
-                prepared.url
-            );
+            tracing::debug!("Applied spoof headers for region '{spoof_region}'");
         }
 
         // 添加用户定义的请求头（会覆盖伪装头）
@@ -613,10 +610,12 @@ impl TappApiService {
         }
 
         // 发送请求
-        let response = request
-            .send()
-            .await
-            .map_err(|e| format!("HTTP request failed: {}", e))?;
+        let response = request.send().await.map_err(|error| {
+            Self::redact_needles(
+                &format!("HTTP request failed: {error}"),
+                &prepared.redaction_needles,
+            )
+        })?;
 
         let status = response.status();
         let body = crate::services::outbound_security::read_limited_body(
@@ -652,6 +651,16 @@ impl TappApiService {
             };
             Err(format!("HTTP {} - {}", status.as_u16(), safe_body))
         }
+    }
+
+    fn redact_needles(text: &str, needles: &[String]) -> String {
+        let mut redacted = text.to_string();
+        for secret in needles {
+            if !secret.is_empty() {
+                redacted = redacted.replace(secret, "[REDACTED]");
+            }
+        }
+        redacted
     }
 
     fn redact_secret_from_json(value: &mut Value, secret: &str) {
@@ -1019,6 +1028,12 @@ impl TappApiService {
         api_def: &TappApiDef,
         body: Value,
     ) -> Result<EncodedHttpBody, String> {
+        if !HTTP_BODY_METHODS.contains(&api_def.method.as_str()) {
+            return Err(format!(
+                "signed or form credentials require one of: {}",
+                HTTP_BODY_METHODS.join(", ")
+            ));
+        }
         let (bytes, default_content_type) = match api_def.body_mode {
             TappHttpBodyMode::Json => (
                 serde_json::to_vec(&body)
@@ -1688,6 +1703,56 @@ mod tests {
         assert!(request.contains("appid=top-secret") || request.contains("appid=top-secret"));
         assert!(request.contains("/weather?q=tokyo"));
         assert_eq!(response, json!({ "echo": "[REDACTED]" }));
+
+        match previous_environment {
+            Some(value) => std::env::set_var("ENVIRONMENT", value),
+            None => std::env::remove_var("ENVIRONMENT"),
+        }
+        match previous_lab_flag {
+            Some(value) => std::env::set_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND", value),
+            None => std::env::remove_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND"),
+        }
+    }
+
+    #[tokio::test]
+    async fn query_credential_connect_failure_redacts_secret_from_error() {
+        let _guard = crate::services::outbound_security::tests_lab_env_lock().await;
+        let previous_environment = std::env::var("ENVIRONMENT").ok();
+        let previous_lab_flag = std::env::var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND").ok();
+        std::env::remove_var("ENVIRONMENT");
+        std::env::set_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND", "1");
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+
+        let mut api = api_def();
+        api.endpoint = Some(format!("http://{address}/weather?q=tokyo"));
+        api.credential = Some(myriad_tapp_contract::manifest::TappApiCredentialBinding {
+            key: "owm".into(),
+            in_placement: Some(TappCredentialIn::Query),
+            field: Some("appid".into()),
+            header: None,
+            prefix: None,
+            encoding: None,
+            sign: None,
+        });
+        let credential =
+            crate::services::tapp_credentials::ResolvedApiCredential::for_test("top-secret");
+
+        let error = TappApiService::execute_http_api_with_credential(
+            &api,
+            &HashMap::new(),
+            Some(&credential),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(error.contains("HTTP request failed"), "{error}");
+        assert!(
+            !error.contains("top-secret"),
+            "sandbox error leaked query credential: {error}"
+        );
 
         match previous_environment {
             Some(value) => std::env::set_var("ENVIRONMENT", value),

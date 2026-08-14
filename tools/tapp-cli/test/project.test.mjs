@@ -550,6 +550,32 @@ Tapp.storage.get(key)
     assert.match(messages, /must be a scalar/)
   })
 
+  it('rejects form credentials on GET and without an object body', async () => {
+    const root = await temporaryDirectory('api-credential-form-shape')
+    await createProject(root, { type: 'page' })
+    const manifestPath = join(root, 'manifest.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+    manifest.permissions.push('network:fetch')
+    manifest.credentials = [{ key: 'wegame', label: 'WeGame API Key' }]
+    manifest.apis = {
+      games: {
+        type: 'http',
+        endpoint: 'https://api.example.com/submit',
+        bodyMode: 'form',
+        credential: { key: 'wegame', in: 'form', field: 'token' },
+      },
+    }
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+
+    const report = await inspectProject(root)
+    const messages = report.diagnostics
+      .filter(({ code }) => code.includes('credential'))
+      .map(({ message }) => message)
+      .join('\n')
+    assert.match(messages, /form credentials require one of/)
+    assert.match(messages, /form credentials require a form object body/)
+  })
+
   it('rejects credential bindings with a templated destination host', async () => {
     const root = await temporaryDirectory('api-credential-host')
     await createProject(root, { type: 'page' })
