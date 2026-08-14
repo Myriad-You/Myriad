@@ -18,7 +18,7 @@ use myriad_tapp_contract::manifest::{
 use reqwest::header::HeaderName;
 use std::str::FromStr;
 
-use crate::services::permission_service::TappPermission;
+use crate::services::permission_service::{tapp_permission_replacement_hint, TappPermission};
 use crate::services::tapp_storage::validate_storage_key;
 
 // Single source of truth shared with the offline CLI contract exporter.
@@ -576,12 +576,16 @@ pub fn validate_tapp_manifest(manifest: &TappManifest) -> Result<(), String> {
     }
     let mut permissions = std::collections::HashSet::new();
     for permission in &manifest.permissions {
-        if TappPermission::from_str(permission).is_none()
-            || !permissions.insert(permission.as_str())
-        {
-            return Err(format!(
-                "Unknown or duplicate Tapp permission: {permission}"
-            ));
+        if TappPermission::from_str(permission).is_none() {
+            // Fail-closed：未知权限不落库、不签发；只有错误提示会带上共享的替代建议
+            // （如已移除的 `storage` → storage:read / storage:write），不创建任何别名。
+            return Err(match tapp_permission_replacement_hint(permission) {
+                Some(hint) => format!("Unknown Tapp permission '{permission}'; {hint}"),
+                None => format!("Unknown Tapp permission '{permission}'"),
+            });
+        }
+        if !permissions.insert(permission.as_str()) {
+            return Err(format!("Duplicate Tapp permission: {permission}"));
         }
     }
     if manifest
@@ -1483,5 +1487,50 @@ mod tests {
                 .is_ok()
         );
         assert!(validate_named_resource_keys([&"../x".to_string()], "dir").is_err());
+    }
+
+    fn permission_manifest(permissions: &[&str]) -> TappManifest {
+        serde_json::from_value(json!({
+            "id": "com.example.permissions",
+            "name": "Permissions test",
+            "version": "1.0.0",
+            "main": "main.js",
+            "category": "utility",
+            "permissions": permissions,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn unknown_storage_permission_error_recommends_split_permissions_fail_closed() {
+        // 拆分后的 storage:read / storage:write 是独立权限，`storage` 不再可解析。
+        assert!(TappPermission::from_str("storage").is_none());
+        assert!(TappPermission::from_str("storage:read").is_some());
+        assert!(TappPermission::from_str("storage:write").is_some());
+
+        // 安装校验对 `storage` 显式失败，并复用共享 replacement hint。
+        let error = validate_tapp_manifest(&permission_manifest(&["storage"])).unwrap_err();
+        assert!(error.contains("'storage'"), "{error}");
+        assert!(error.contains("storage:read"), "{error}");
+        assert!(error.contains("storage:write"), "{error}");
+        assert!(error.contains("Manifest"), "{error}");
+        assert!(error.contains("reinstall"), "{error}");
+        assert!(!error.contains("Duplicate"), "{error}");
+    }
+
+    #[test]
+    fn generic_unknown_permission_keeps_unknown_error() {
+        let error =
+            validate_tapp_manifest(&permission_manifest(&["legacy:unknown"])).unwrap_err();
+        assert_eq!(error, "Unknown Tapp permission 'legacy:unknown'");
+    }
+
+    #[test]
+    fn duplicate_permission_reports_duplicate_not_unknown() {
+        let error =
+            validate_tapp_manifest(&permission_manifest(&["storage:read", "storage:read"]))
+                .unwrap_err();
+        assert_eq!(error, "Duplicate Tapp permission: storage:read");
+        assert!(!error.contains("Unknown"), "{error}");
     }
 }

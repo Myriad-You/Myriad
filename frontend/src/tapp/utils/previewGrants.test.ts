@@ -9,6 +9,7 @@ import {
 describe('previewGrants (MYR-024)', () => {
   it('does not treat full manifest permissions as granted', () => {
     const declared = [
+      'storage',
       'storage:read',
       'network:fetch',
       'ai:generate',
@@ -29,6 +30,8 @@ describe('previewGrants (MYR-024)', () => {
     ])
     assert.ok(!selectPreviewGrantedPermissions(declared).includes('network:fetch'))
     assert.ok(!selectPreviewGrantedPermissions(declared).includes('ai:generate'))
+    // The retired coarse storage name is not a preview grant either.
+    assert.ok(!selectPreviewGrantedPermissions(declared).includes('storage'))
     // Least privilege: declaring the subscription half does not grant it —
     // preview only ever grants the read half, never subscribe.
     assert.ok(!selectPreviewGrantedPermissions(declared).includes('ui:theme:subscribe'))
@@ -59,6 +62,7 @@ describe('previewGrants (MYR-024)', () => {
       assert.equal(isPreviewPermission(permission), true)
     }
     assert.equal(isPreviewPermission('network:fetch'), false)
+    assert.equal(isPreviewPermission('storage'), false)
     assert.equal(isPreviewPermission('ui:theme:subscribe'), false)
   })
 })
