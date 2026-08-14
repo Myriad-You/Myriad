@@ -129,6 +129,11 @@ await Tapp.storage.clear();
   临时预览不会实际执行 `Tapp.api`；完整字段见
   [MANIFEST · API 声明](./MANIFEST.md#api-声明-apis) 与
   [安装级凭据](./MANIFEST.md#安装级-api-凭据-credentials)。
+  **不要**在源码、`settings`、i18n 或注释里写入真实或示例密钥；`credentials` 只声明
+  `key`/`label`，值由站主安装后写入。
+- 不要把 Three / Pocket 运行时打进生成物，也不要输出 CDN。完整 guest Three 样例见商店
+  `com.myriad.three-lab`；Playground 只需在需要 3D 时按 [GRAPHICS](./GRAPHICS.md) 声明
+  `assets/` 并调用 `getUrlMap` / `rewriteUrl`。
 - 预览只验证 UI、生命周期、主题、`code.i18n`、`manifest.locales` 与内存 storage；
 - **不要**臆造预览 mock 联邦 / Brew / platform API。
 - 若生成 **正式运行后** 调用 `Tapp.tappList.install` 的商店安装代码，必须使用合法 SDK 形状

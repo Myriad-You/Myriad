@@ -33,12 +33,12 @@ const DOCUMENTS: &[KnowledgeDocument] = &[
     },
     KnowledgeDocument {
         id: "MANIFEST",
-        description: "complete manifest fields including locales (host name/description i18n), permissions, settings, APIs, AI, events, and agent",
+        description: "complete manifest fields including locales (host name/description i18n), write-only credentials, permissions, settings, APIs, AI, events, and agent",
         content: include_str!("../../../docs/development/tapp/MANIFEST.md"),
     },
     KnowledgeDocument {
         id: "API_REFERENCE",
-        description: "complete Tapp JavaScript SDK reference: storage, federation notes/media, permissions",
+        description: "complete Tapp JavaScript SDK reference: storage, assets getUrlMap rewriteUrl, federation notes/media, permissions",
         content: include_str!("../../../docs/development/tapp/API_REFERENCE.md"),
     },
     KnowledgeDocument {
@@ -63,7 +63,7 @@ const DOCUMENTS: &[KnowledgeDocument] = &[
     },
     KnowledgeDocument {
         id: "GRAPHICS",
-        description: "graphics, canvas, animation, and rendering guidance",
+        description: "guest Three.js IIFE, canvas/WebGL, getUrlMap rewriteUrl asset loading; no CDN fetch",
         content: include_str!("../../../docs/development/tapp/GRAPHICS.md"),
     },
     KnowledgeDocument {
@@ -93,7 +93,7 @@ const DOCUMENTS: &[KnowledgeDocument] = &[
     },
     KnowledgeDocument {
         id: "PLAYGROUND_GENERATION_CONTEXT",
-        description: "safe temporary-preview contract; manifest.locales vs code.i18n; federation install-only",
+        description: "safe temporary-preview contract; manifest.locales vs code.i18n; credentials not in source; guest Three via getUrlMap; federation install-only",
         content: include_str!("../../../docs/development/tapp/PLAYGROUND_GENERATION_CONTEXT.md"),
     },
 ];
@@ -237,8 +237,30 @@ fn expand_query_aliases(query: &str) -> String {
         ("数据交换", " data exchange "),
         ("接口", " api "),
         ("网络", " api network fetch "),
-        ("图形", " graphics canvas "),
+        ("图形", " graphics canvas three getUrlMap rewriteUrl assets "),
         ("动画", " animation graphics "),
+        (
+            "凭据",
+            " credentials credential header query form sign manifest api write-only ",
+        ),
+        (
+            "密钥",
+            " credentials credential write-only secret manifest api ",
+        ),
+        (
+            "credentials",
+            " credentials credential header query form sign manifest write-only ",
+        ),
+        ("Three", " graphics three canvas getUrlMap rewriteUrl assets "),
+        (
+            "three.js",
+            " graphics three canvas getUrlMap rewriteUrl assets ",
+        ),
+        (
+            "threejs",
+            " graphics three canvas getUrlMap rewriteUrl assets ",
+        ),
+        ("贴图", " assets getUrlMap rewriteUrl graphics glb "),
         ("安装", " install package manifest "),
         (
             "联邦",
@@ -293,6 +315,7 @@ mod tests {
             "RUNTIME_CONTRACT_DESIGN",
             "TAPP_FILE_FORMAT",
             "PLAYGROUND_GENERATION_CONTEXT",
+            "GRAPHICS",
         ] {
             assert!(
                 catalog.contains(document),
@@ -357,6 +380,57 @@ mod tests {
                         || result.document == "API_REFERENCE"
                 }),
                 "locales-related docs missing for query {query:?}: {:?}",
+                results
+                    .iter()
+                    .map(|r| r.document.as_str())
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn credential_queries_hit_manifest_or_generation_context() {
+        for query in ["凭据", "密钥", "credentials header query form sign"] {
+            let results = search(query, 5);
+            assert!(
+                !results.is_empty(),
+                "expected knowledge hits for query {query:?}"
+            );
+            assert!(
+                results.iter().any(|result| {
+                    result.document == "MANIFEST"
+                        || result.document == "PLAYGROUND_GENERATION_CONTEXT"
+                        || result.document == "API_REFERENCE"
+                        || result.document == "SANDBOX"
+                        || result.document == "REST_API"
+                        || result.document == "TROUBLESHOOTING"
+                }),
+                "credential docs missing for query {query:?}: {:?}",
+                results
+                    .iter()
+                    .map(|r| r.document.as_str())
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn three_queries_hit_graphics_or_generation_context() {
+        for query in ["Three", "three.js", "贴图", "图形"] {
+            let results = search(query, 5);
+            assert!(
+                !results.is_empty(),
+                "expected knowledge hits for query {query:?}"
+            );
+            assert!(
+                results.iter().any(|result| {
+                    result.document == "GRAPHICS"
+                        || result.document == "PLAYGROUND_GENERATION_CONTEXT"
+                        || result.document == "API_REFERENCE"
+                        || result.document == "SANDBOX"
+                        || result.document == "QUICKSTART"
+                }),
+                "graphics docs missing for query {query:?}: {:?}",
                 results
                     .iter()
                     .map(|r| r.document.as_str())
