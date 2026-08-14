@@ -13,6 +13,7 @@
 mod access;
 mod catalog;
 mod credentials;
+mod inbound_guard;
 mod installation;
 mod lifecycle;
 mod list_card_sizes;
@@ -41,6 +42,10 @@ use catalog::tapp_detail_from_model;
 use catalog::{get_tapp, list_tapp_details, list_tapps, set_tapp_visibility};
 use credentials::{
     delete_tapp_credential, list_tapp_credential_statuses, put_tapp_credential,
+};
+use inbound_guard::{
+    block_inbound_fingerprint, get_inbound_guard, pause_inbound_guard, resume_inbound_guard,
+    unblock_inbound_fingerprint,
 };
 use installation::{install_tapp, install_tapp_file, update_tapp};
 use store_stats::report_store_stats;
@@ -113,6 +118,14 @@ pub fn create_tapp_routes(
         .route("/{tapp_id}/credentials", get(list_tapp_credential_statuses))
         .route("/{tapp_id}/credentials/{key}", post(put_tapp_credential))
         .route("/{tapp_id}/credentials/{key}", delete(delete_tapp_credential))
+        .route("/{tapp_id}/inbound-guard", get(get_inbound_guard))
+        .route("/{tapp_id}/inbound-guard/pause", post(pause_inbound_guard))
+        .route("/{tapp_id}/inbound-guard/pause", delete(resume_inbound_guard))
+        .route("/{tapp_id}/inbound-guard/blocks", post(block_inbound_fingerprint))
+        .route(
+            "/{tapp_id}/inbound-guard/blocks/{fingerprint}",
+            delete(unblock_inbound_fingerprint),
+        )
         .route("/{tapp_id}/visibility", post(set_tapp_visibility))
         // 商店源管理（需要认证，API 内部检查管理员权限）
         .route("/store/sources", post(add_store_source))

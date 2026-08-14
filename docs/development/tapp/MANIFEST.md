@@ -539,7 +539,7 @@ prefix）。凭据值最长 16 KiB；该限制由管理 API 与宿主界面执�
 
 | 字段 | 说明 |
 | --- | --- |
-| `alg` | 白名单算法。已实现 `md5-sorted-kv`（`md5(token + sort(over).map(k+v).join(""))`）；`hmac-sha256-raw` 已占位，安装时拒绝 |
+| `alg` | 白名单算法。已实现 `md5-sorted-kv`（`md5(token + sort(over).map(k+v).join(""))`）和 `hmac-sha256-raw`（`hex(HMAC-SHA256(secret, sort(over).map(k+v).join("")))`） |
 | `over` | 参与签名的对象字段，1–16 个、不重复；不能包含签名字段本身 |
 | `timestampField` | 可选。若声明则必须列入 `over`；宿主在签名前用当前 UNIX 秒覆盖该字段 |
 
@@ -679,6 +679,7 @@ Manifest `defaultValue`，不是调用方参数。`{{secrets.*}}` 仍然 fail cl
 | `cacheTtl`    | number | ❌   | 响应缓存秒数；缓存按 Tapp、用户、客户端上下文隔离 |
 | `spoof`       | string | ❌   | 区域伪装：`china`/`japan`/`us`/`korea`/`taiwan`/`hongkong`（及别名，见下表） |
 | `description` | string | ❌   | API 描述                                          |
+| `route`       | object | ❌   | 入站挂载。有此字段时必须含 HMAC `verify`，且 `access` 必须是 `public` |
 
 `bodyMode` 控制模板解析后的最终请求体字节：
 
@@ -761,6 +762,63 @@ const summary = await Tapp.api("summarize", { prompt: "总结这些数据" });
 > 所有 `type: http` 的声明 API 都需要安装已授予 `network:fetch`；`access: public` 只放宽
 > 调用者范围（游客可调），**不能**代替 `network:fetch`。`access: protected` 额外要求登录主体。
 > `access: manager` 只允许安装 owner 或当前站点管理员调用。
+
+### 入站路由 (`apis.*.route`)
+
+给其他程序调用的稳定 HTTP 面。沙箱仍走 `Tapp.api`；`route` 把同一条声明挂到：
+
+`GET|POST /tapi/{tappId}{path}`
+
+有 `route` 就必须声明 HMAC `verify`，且该 API 的 `access` 必须是 `public`。
+`protected` / `manager` 和 `ai:*` builtin 不能挂入站。没有 `route` 的 API 行为不变。
+
+```json
+{
+  "route": {
+    "path": "/sponsors",
+    "methods": ["GET"],
+    "verify": {
+      "key": "inboundSecret",
+      "alg": "hmac-sha256-raw",
+      "header": "X-Signature",
+      "prefix": "sha256=",
+      "over": "canonical-query",
+      "timestampHeader": "X-Timestamp",
+      "nonceHeader": "X-Nonce",
+      "maxSkewSecs": 300
+    }
+  }
+}
+```
+
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| `path` | 是 | `/` + 1–64 位字母数字/`_`/`-`，Manifest 内唯一 |
+| `methods` | 否 | 仅 `GET` / `POST`，默认 `["GET"]`。`HEAD` 按 GET 验签 |
+| `verify.key` | 是 | 顶层 `credentials[].key`，可只绑入站 |
+| `verify.alg` | 是 | 仅 `hmac-sha256-raw` |
+| `verify.header` | 是 | `X-` 头；禁止会话头和代理头（`X-CSRF-Token`、`X-Tapp-Runtime-Grant`、`X-Forwarded-*`、`X-Real-IP`、`X-Request-Id` 等） |
+| `verify.prefix` | 否 | 如 `sha256=` |
+| `verify.over` | 是 | GET 用 `canonical-query`；POST 用 `raw-body` |
+| `verify.encoding` | 否 | `hex`（默认）或 `base64` |
+| `verify.timestampHeader` / `nonceHeader` | 是 | 与签名头互不相同的 `X-` 头 |
+| `verify.maxSkewSecs` | 否 | 默认 300，范围 30–3600 |
+
+签名材料（UTF-8，LF）：
+
+```text
+{METHOD}\n/tapi/{tappId}{path}\n{TIMESTAMP}\n{NONCE}\n{PAYLOAD}
+```
+
+GET 的 PAYLOAD 是解码后按键排序的 `k=v&k2=v2`（重复键拒绝），并作为 `params`。
+POST 的 PAYLOAD 是原始 body，超过 1 MiB 先拒；`params` 只来自身体（JSON 对象或 form），
+**未签名的 query 不会并入、也不能覆盖** 已签名字段。
+时间窗内同一 nonce 只能用一次。调用方必须自备 16–128 位 `[A-Za-z0-9_-]` nonce。
+
+入站 **不** 使用 Runtime Grant，也 **不** 查看游客 `network:fetch` 策略；HTTP 出站只要求该公开安装已批准 `network:fetch`。`/tapi` 忽略站点登录 Cookie，只解析 `visibility = all` 的公开安装。
+没有 `GET /tapi/{tappId}` 目录；验签参数写在 Manifest 里交给调用方，不由宿主对外广播本机装了哪些路由。
+入站密钥泄露后，owner 在详情页重填即可作废旧指纹；宿主另有每小时 180 次的凭据封顶。
+验签失败过多会按调用方指纹自动拉黑（不落原始 IP）；详情页可暂停该安装的入站或解除本安装拉黑。暂停/拉黑按安装 owner 隔离。
 
 ---
 

@@ -48,3 +48,44 @@ export async function removeTappCredential(
     { method: 'DELETE' },
   )
 }
+
+export interface TappInboundBlock {
+  fingerprint: string
+  source: string
+  scope: string
+}
+
+export interface TappInboundGuardStatus {
+  paused: boolean
+  blocks: TappInboundBlock[]
+}
+
+export async function getTappInboundGuard(
+  tappId: string,
+): Promise<TappInboundGuardStatus> {
+  return apiRequest(`/api/tapps/${encodeURIComponent(tappId)}/inbound-guard`)
+}
+
+export async function pauseTappInbound(tappId: string): Promise<void> {
+  return apiRequest(
+    `/api/tapps/${encodeURIComponent(tappId)}/inbound-guard/pause`,
+    { method: 'POST', body: JSON.stringify({}) },
+  )
+}
+
+export async function resumeTappInbound(tappId: string): Promise<void> {
+  return apiRequest(
+    `/api/tapps/${encodeURIComponent(tappId)}/inbound-guard/pause`,
+    { method: 'DELETE' },
+  )
+}
+
+export async function unblockTappInbound(
+  tappId: string,
+  fingerprint: string,
+): Promise<void> {
+  return apiRequest(
+    `/api/tapps/${encodeURIComponent(tappId)}/inbound-guard/blocks/${encodeURIComponent(fingerprint)}`,
+    { method: 'DELETE' },
+  )
+}

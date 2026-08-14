@@ -191,9 +191,35 @@ pub const API_INJECT_RESERVED_PREFIXES: &[&str] =
 pub const CREDENTIAL_IN_VALUES: &[&str] = &["header", "query", "form", "sign"];
 pub const CREDENTIAL_ENCODINGS: &[&str] = &["base64"];
 pub const CREDENTIAL_SIGN_ALGS: &[&str] = &["md5-sorted-kv", "hmac-sha256-raw"];
-pub const CREDENTIAL_SIGN_ALGS_IMPLEMENTED: &[&str] = &["md5-sorted-kv"];
+pub const CREDENTIAL_SIGN_ALGS_IMPLEMENTED: &[&str] = &["md5-sorted-kv", "hmac-sha256-raw"];
 pub const MAX_CREDENTIAL_FIELD_LEN: usize = 128;
 pub const MAX_CREDENTIAL_SIGN_OVER: usize = 16;
+pub const ROUTE_METHODS: &[&str] = &["GET", "POST"];
+pub const ROUTE_VERIFY_ALGS: &[&str] = &["hmac-sha256-raw"];
+pub const ROUTE_VERIFY_OVER: &[&str] = &["raw-body", "canonical-query"];
+pub const ROUTE_VERIFY_ENCODINGS: &[&str] = &["hex", "base64"];
+pub const ROUTE_PATH_PATTERN: &str = r"^/[A-Za-z0-9][A-Za-z0-9_-]{0,63}$";
+pub const ROUTE_HEADER_PATTERN: &str = r"^X-[A-Za-z0-9][A-Za-z0-9-]{0,62}$";
+pub const ROUTE_RESERVED_HEADERS: &[&str] = &[
+    "x-csrf-token",
+    "x-tapp-runtime-grant",
+    "x-forwarded-for",
+    "x-forwarded-host",
+    "x-forwarded-proto",
+    "x-forwarded-port",
+    "x-forwarded-prefix",
+    "x-real-ip",
+    "x-request-id",
+    "x-correlation-id",
+    "x-amzn-trace-id",
+];
+pub const ROUTE_DEFAULT_MAX_SKEW_SECS: u32 = 300;
+pub const ROUTE_MIN_MAX_SKEW_SECS: u32 = 30;
+pub const ROUTE_MAX_MAX_SKEW_SECS: u32 = 3600;
+pub const ROUTE_MIN_NONCE_LEN: usize = 16;
+pub const ROUTE_MAX_NONCE_LEN: usize = 128;
+pub const ROUTE_MAX_PREFIX_LEN: usize = 256;
+pub const ROUTE_MAX_BODY_BYTES: usize = 1_048_576;
 pub const EVENT_SUBSCRIBE_PREFIXES: &[&str] = &["tapp.", "system."];
 pub const ASSET_LITERAL_METHODS: &[&str] = &["get", "getUrl", "getArrayBuffer", "resolve"];
 pub const SOURCE_CODE_EXTENSIONS: &[&str] = &[".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx"];

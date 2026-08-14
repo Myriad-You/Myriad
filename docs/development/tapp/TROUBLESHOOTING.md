@@ -417,6 +417,7 @@ const data = await Tapp.api("data", {});
 2. 任意 `type: "http"` API（含 `public`、`protected` 与 `manager`）未授予 `network:fetch`
 3. 后端出站安全或参数模板校验拒绝了请求
 4. 游客调用 `access: "public"` API，但站点的游客 `network:fetch` 策略未开启（默认关闭）
+5. 其他程序调用 `/tapi/{tappId}/{path}` 时未带 HMAC / timestamp / nonce，或密钥未配置 / 重放（一律 401；`ROUTE_VERIFY_REPLAY` 只在 HMAC 已通过后出现）
 
 **解决方案**：
 

@@ -593,6 +593,29 @@ WebSocket 位于不同后端副本时仍可投递，每个标签页都能按自�
 
 旧的 `POST /api/tapp/{tappId}/proxy` 不存在，也不应重新引入。
 
+## 入站声明路由
+
+给其他程序用，不走 Runtime Grant，不种游客 Cookie，也**不读取**站点登录 Cookie。
+始终解析 `visibility = all` 的公开安装；私有安装和 `visibility = admin` 对 `/tapi` 一律按未安装处理（401 `ROUTE_VERIFY_INVALID`）。
+
+| 方法 | 路径 | 说明 |
+| ---- | ---- | ---- |
+| GET/POST | `/tapi/{tappId}/{path}` | 执行对应 `apis.*.route` |
+
+没有未签名的目录接口。调用方必须事先知道 Manifest 里的 `path` 和验签头，不能靠探测本机安装列表。
+未安装、无此 route、方法不对、缺头或 HMAC 错误一律 401 `ROUTE_VERIFY_INVALID`，不区分「有没有这条路由」。
+
+`{path}` 是 Manifest 里去掉前导 `/` 的单段。必须带声明的时间戳、nonce 和 HMAC 头。
+缺密钥或绑定指纹过期在 `/tapi` 上也回 401 `ROUTE_VERIFY_INVALID`（不把「这条路由已声明但未配密钥」暴露给探测方；owner 在 Tapp 详情页看凭据状态）。
+时间窗外 401 `ROUTE_VERIFY_EXPIRED`；nonce 重放 401 `ROUTE_VERIFY_REPLAY`（这两码只在 HMAC 已经通过之后出现）。
+限流：匿名 IP 每分钟 60 次；HMAC 通过后同一凭据每分钟 60 次、每小时 180 次。
+拉黑：10 分钟内对同一 Tapp 验签失败 25 次会自动封该调用方指纹 1 小时；全站 10 分钟失败 80 次会封全站入站 1 小时。不保存原始 IP。
+owner 可在 Tapp 详情里暂停**该安装**的 `/tapi`，或解除该安装下已列出的指纹。暂停/拉黑按安装 owner 隔离，私有副本不能冻结或解封公开安装。解除只清本安装拉黑，不清全站自动封禁。暂停返回 403 `ROUTE_PAUSED`，拉黑返回 403 `ROUTE_BLOCKED`。
+`/tapi` 验签替代 CSRF；带站点 Cookie 的 POST 也不要求 `X-CSRF-Token`。
+请求体上限 1 MiB。入站密钥泄露后应立刻在详情页轮换。
+
+签名规则见 [Manifest · 入站路由](MANIFEST.md#入站路由-apisroute)。
+
 ## 修改路由时的同步项
 
 新增或修改端点时同时检查：

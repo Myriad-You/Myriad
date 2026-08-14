@@ -241,15 +241,15 @@ fn expand_query_aliases(query: &str) -> String {
         ("动画", " animation graphics "),
         (
             "凭据",
-            " credentials credential header query form sign manifest api write-only ",
+            " credentials credential header query form sign hmac inbound route tapi manifest api write-only ",
         ),
         (
             "密钥",
-            " credentials credential write-only secret manifest api ",
+            " credentials credential write-only secret hmac inbound route tapi manifest api ",
         ),
         (
             "credentials",
-            " credentials credential header query form sign manifest write-only ",
+            " credentials credential header query form sign hmac inbound route tapi manifest write-only ",
         ),
         ("Three", " graphics three canvas getUrlMap rewriteUrl assets "),
         (
@@ -261,6 +261,9 @@ fn expand_query_aliases(query: &str) -> String {
             " graphics three canvas getUrlMap rewriteUrl assets ",
         ),
         ("贴图", " assets getUrlMap rewriteUrl graphics glb "),
+        ("入站", " inbound route tapi hmac verify nonce manifest api "),
+        ("tapi", " inbound route tapi hmac verify nonce manifest api "),
+        ("HMAC", " inbound route tapi hmac verify nonce credentials "),
         ("安装", " install package manifest "),
         (
             "联邦",
@@ -406,6 +409,31 @@ mod tests {
                         || result.document == "TROUBLESHOOTING"
                 }),
                 "credential docs missing for query {query:?}: {:?}",
+                results
+                    .iter()
+                    .map(|r| r.document.as_str())
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn inbound_route_queries_hit_manifest_or_rest_api() {
+        for query in ["入站", "tapi", "HMAC"] {
+            let results = search(query, 5);
+            assert!(
+                !results.is_empty(),
+                "expected knowledge hits for query {query:?}"
+            );
+            assert!(
+                results.iter().any(|result| {
+                    result.document == "MANIFEST"
+                        || result.document == "REST_API"
+                        || result.document == "ARCHITECTURE"
+                        || result.document == "API_REFERENCE"
+                        || result.document == "PLAYGROUND_GENERATION_CONTEXT"
+                }),
+                "inbound route docs missing for query {query:?}: {:?}",
                 results
                     .iter()
                     .map(|r| r.document.as_str())

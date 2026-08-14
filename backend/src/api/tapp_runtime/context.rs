@@ -257,6 +257,7 @@ pub async fn get_context_geo(
         cache_ttl: 300,
         spoof: None,
         description: Some("Get client geolocation".to_string()),
+        route: None,
     };
 
     let result = TappApiService::execute("system", "geo", &geo_api, None, &context).await;

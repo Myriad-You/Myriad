@@ -3084,6 +3084,18 @@ export interface TranslationKeys {
     credentialRemove: string
     credentialRemoveConfirm: string
     credentialOrigins: string
+    credentialInboundVerify: string
+    inboundGuard: string
+    inboundGuardDesc: string
+    inboundPaused: string
+    inboundPausedHint: string
+    inboundBlocks: string
+    inboundNoBlocks: string
+    inboundUnblock: string
+    inboundBlockAuto: string
+    inboundBlockManual: string
+    inboundGuardLoadFailed: string
+    inboundGuardSaveFailed: string
     credentialBinding: string
     credentialBindingPlacement: string
     credentialBindingSign: string

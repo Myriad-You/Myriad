@@ -32,6 +32,9 @@ pub mod tapp_events; // Manifest-scoped at-most-once event broker
 pub mod tapp_components; // Host-managed component registry (_component:)
 pub mod tapp_context; // Runtime context payloads + subject role projection
 pub mod tapp_credentials; // Installation-scoped write-only credential bindings
+pub mod tapp_hmac; // Shared HMAC-SHA256 for outbound sign + inbound verify
+pub mod tapp_inbound_guard; // Inbound /tapi pause + IP-fingerprint blocks
+pub mod tapp_inbound_route; // Declared inbound /tapi verify + nonce ledger
 pub mod tapp_catalog; // Catalog/detail list projection (role-filtered)
 pub mod tapp_lifecycle; // Start/stop/uninstall + recent/widget pure rules
 pub mod tapp_list_card_sizes; // Per-user list page card sizes (1x1|2x1)

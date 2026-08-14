@@ -11,10 +11,14 @@ use myriad_tapp_contract::contract_rules::API_INJECT_RESERVED_PREFIXES;
 use myriad_tapp_contract::contract_rules::{
     MAX_OPEN_URLS, MAX_OPEN_URL_ID_LEN, OPEN_URL_PERMISSION,
 };
+use myriad_tapp_contract::contract_rules::{
+    ROUTE_MAX_MAX_SKEW_SECS, ROUTE_MAX_PREFIX_LEN, ROUTE_METHODS, ROUTE_MIN_MAX_SKEW_SECS,
+};
 use myriad_tapp_contract::manifest::{
-    valid_agent_name, valid_event_topic, TappAiContextSource, TappAiOperation, TappAiOutputFormat,
-    TappCredentialIn, TappHttpBodyMode, TappManifest, TappOpenUrlMatch, TappSettingDef,
-    TappWidgetRefreshMode, TappWidgetRefreshPolicy,
+    valid_agent_name, valid_event_topic, valid_inbound_route_path, valid_inbound_verify_header,
+    TappAiContextSource, TappAiOperation, TappAiOutputFormat, TappApiAccess, TappCredentialIn,
+    TappCredentialSignAlg, TappHttpBodyMode, TappManifest, TappOpenUrlMatch, TappRouteVerifyOver,
+    TappSettingDef, TappWidgetRefreshMode, TappWidgetRefreshPolicy,
 };
 use reqwest::header::HeaderName;
 use std::str::FromStr;
@@ -760,6 +764,7 @@ pub fn validate_tapp_manifest(manifest: &TappManifest) -> Result<(), String> {
     }
 
     let mut bound_credential_keys = std::collections::HashSet::new();
+    let mut inbound_route_paths = std::collections::HashSet::new();
     if let Some(apis) = &manifest.apis {
         if apis.len() > 64 {
             return Err("Tapp apis accepts at most 64 entries".to_string());
@@ -1065,12 +1070,114 @@ pub fn validate_tapp_manifest(manifest: &TappManifest) -> Result<(), String> {
                     }
                 }
             }
+            if let Some(route) = &api.route {
+                if api.access != TappApiAccess::Public {
+                    return Err(format!(
+                        "Tapp API {name} inbound route requires access public"
+                    ));
+                }
+                if api.api_type == "builtin"
+                    && matches!(api.builtin.as_deref(), Some("ai:chat" | "ai:generate"))
+                {
+                    return Err(format!(
+                        "Tapp API {name} inbound route cannot expose AI builtins"
+                    ));
+                }
+                if !valid_inbound_route_path(&route.path) {
+                    return Err(format!("Invalid inbound path for Tapp API {name}"));
+                }
+                if !inbound_route_paths.insert(route.path.as_str()) {
+                    return Err(format!(
+                        "Duplicate inbound path {} for Tapp API {name}",
+                        route.path
+                    ));
+                }
+                if route.methods.is_empty()
+                    || route.methods.len() > ROUTE_METHODS.len()
+                    || route
+                        .methods
+                        .iter()
+                        .any(|method| !ROUTE_METHODS.contains(&method.as_str()))
+                {
+                    return Err(format!(
+                        "Tapp API {name} inbound route methods must be GET and/or POST"
+                    ));
+                }
+                let mut seen_methods = std::collections::HashSet::new();
+                for method in &route.methods {
+                    if !seen_methods.insert(method.as_str()) {
+                        return Err(format!(
+                            "Tapp API {name} inbound route declares method {method} twice"
+                        ));
+                    }
+                }
+                let verify = &route.verify;
+                if !credential_keys.contains(verify.key.as_str()) {
+                    return Err(format!(
+                        "Tapp API {name} inbound route references undeclared credential: {}",
+                        verify.key
+                    ));
+                }
+                if verify.alg != TappCredentialSignAlg::HmacSha256Raw {
+                    return Err(format!(
+                        "Tapp API {name} inbound verify algorithm must be hmac-sha256-raw"
+                    ));
+                }
+                if !valid_inbound_verify_header(&verify.header)
+                    || !valid_inbound_verify_header(&verify.timestamp_header)
+                    || !valid_inbound_verify_header(&verify.nonce_header)
+                {
+                    return Err(format!("Invalid inbound verify header for Tapp API {name}"));
+                }
+                let mut verify_headers = std::collections::HashSet::new();
+                for header in [
+                    verify.header.as_str(),
+                    verify.timestamp_header.as_str(),
+                    verify.nonce_header.as_str(),
+                ] {
+                    if !verify_headers.insert(header.to_ascii_lowercase()) {
+                        return Err(format!(
+                            "Tapp API {name} inbound verify headers must be distinct"
+                        ));
+                    }
+                }
+                if verify
+                    .prefix
+                    .as_ref()
+                    .is_some_and(|prefix| prefix.len() > ROUTE_MAX_PREFIX_LEN)
+                {
+                    return Err(format!("Tapp API {name} inbound verify prefix is too long"));
+                }
+                let allows_get = route.methods.iter().any(|method| method == "GET");
+                let allows_post = route.methods.iter().any(|method| method == "POST");
+                match verify.over {
+                    TappRouteVerifyOver::CanonicalQuery if !allows_get || allows_post => {
+                        return Err(format!(
+                            "Tapp API {name} canonical-query verify requires GET-only methods"
+                        ));
+                    }
+                    TappRouteVerifyOver::RawBody if !allows_post || allows_get => {
+                        return Err(format!(
+                            "Tapp API {name} raw-body verify requires POST-only methods"
+                        ));
+                    }
+                    _ => {}
+                }
+                if verify.max_skew_secs < ROUTE_MIN_MAX_SKEW_SECS
+                    || verify.max_skew_secs > ROUTE_MAX_MAX_SKEW_SECS
+                {
+                    return Err(format!(
+                        "Tapp API {name} inbound maxSkewSecs must be between {ROUTE_MIN_MAX_SKEW_SECS} and {ROUTE_MAX_MAX_SKEW_SECS}"
+                    ));
+                }
+                bound_credential_keys.insert(verify.key.as_str());
+            }
         }
     }
     for key in credential_keys {
         if !bound_credential_keys.contains(key) {
             return Err(format!(
-                "Tapp credential '{key}' must be bound to at least one declared HTTP API"
+                "Tapp credential '{key}' must be bound to at least one declared HTTP API or inbound route verify"
             ));
         }
     }
@@ -1428,6 +1535,121 @@ mod tests {
             .body = Some(json!("{{params.body}}"));
         let error = validate_tapp_manifest(&manifest).unwrap_err();
         assert!(error.contains("bodyMode raw"));
+    }
+
+    fn inbound_route_json() -> serde_json::Value {
+        json!({
+            "path": "/sponsors",
+            "methods": ["GET"],
+            "verify": {
+                "key": "inbound",
+                "alg": "hmac-sha256-raw",
+                "header": "X-Signature",
+                "over": "canonical-query",
+                "timestampHeader": "X-Timestamp",
+                "nonceHeader": "X-Nonce"
+            }
+        })
+    }
+
+    #[test]
+    fn inbound_route_accepts_public_hmac_and_inbound_only_credential() {
+        let mut manifest = credential_manifest("https://api.example.com/games");
+        manifest.credentials.as_mut().unwrap().push(
+            serde_json::from_value(json!({ "key": "inbound", "label": "Inbound HMAC" })).unwrap(),
+        );
+        manifest
+            .apis
+            .as_mut()
+            .unwrap()
+            .get_mut("games")
+            .unwrap()
+            .route = Some(serde_json::from_value(inbound_route_json()).unwrap());
+        assert!(validate_tapp_manifest(&manifest).is_ok());
+
+        let inbound_only = serde_json::from_value(json!({
+            "id": "com.example.inbound",
+            "name": "Inbound only",
+            "version": "1.0.0",
+            "main": "main.js",
+            "category": "utility",
+            "permissions": ["network:fetch"],
+            "credentials": [{ "key": "inbound", "label": "Inbound HMAC" }],
+            "apis": {
+                "games": {
+                    "type": "http",
+                    "access": "public",
+                    "endpoint": "https://api.example.com/games",
+                    "route": inbound_route_json()
+                }
+            }
+        }))
+        .unwrap();
+        assert!(validate_tapp_manifest(&inbound_only).is_ok());
+    }
+
+    #[test]
+    fn inbound_route_rejects_protected_missing_verify_and_ai() {
+        let mut manifest = credential_manifest("https://api.example.com/games");
+        manifest.credentials.as_mut().unwrap().push(
+            serde_json::from_value(json!({ "key": "inbound", "label": "Inbound HMAC" })).unwrap(),
+        );
+        let mut route: myriad_tapp_contract::manifest::TappApiRoute =
+            serde_json::from_value(inbound_route_json()).unwrap();
+        manifest
+            .apis
+            .as_mut()
+            .unwrap()
+            .get_mut("games")
+            .unwrap()
+            .access = myriad_tapp_contract::manifest::TappApiAccess::Protected;
+        manifest
+            .apis
+            .as_mut()
+            .unwrap()
+            .get_mut("games")
+            .unwrap()
+            .route = Some(route.clone());
+        let error = validate_tapp_manifest(&manifest).unwrap_err();
+        assert!(error.contains("access public"));
+
+        manifest
+            .apis
+            .as_mut()
+            .unwrap()
+            .get_mut("games")
+            .unwrap()
+            .access = myriad_tapp_contract::manifest::TappApiAccess::Public;
+        route.path = "/nope/nested".into();
+        manifest
+            .apis
+            .as_mut()
+            .unwrap()
+            .get_mut("games")
+            .unwrap()
+            .route = Some(route);
+        let error = validate_tapp_manifest(&manifest).unwrap_err();
+        assert!(error.contains("Invalid inbound path"));
+    }
+
+    #[test]
+    fn inbound_route_rejects_proxy_verify_headers() {
+        let mut manifest = credential_manifest("https://api.example.com/games");
+        manifest.credentials.as_mut().unwrap().push(
+            serde_json::from_value(json!({ "key": "inbound", "label": "Inbound HMAC" })).unwrap(),
+        );
+        let mut route: myriad_tapp_contract::manifest::TappApiRoute =
+            serde_json::from_value(inbound_route_json()).unwrap();
+        route.verify.header = "X-Forwarded-For".into();
+        manifest
+            .apis
+            .as_mut()
+            .unwrap()
+            .get_mut("games")
+            .unwrap()
+            .route = Some(route);
+        let error = validate_tapp_manifest(&manifest).unwrap_err();
+        assert!(error.contains("Invalid inbound verify header"));
     }
 
     #[test]

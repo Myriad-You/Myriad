@@ -184,9 +184,8 @@ pub async fn filter_granted_permissions(
     installed_permissions
         .into_iter()
         .filter(|permission| {
-            TappPermission::from_str(permission).is_some_and(|permission| {
-                TappPermissionService::check(&config, role, permission)
-            })
+            TappPermission::from_str(permission)
+                .is_some_and(|permission| TappPermissionService::check(&config, role, permission))
         })
         .collect()
 }
@@ -234,9 +233,7 @@ pub fn list_api_summaries(apis: &HashMap<String, TappApiDef>) -> Vec<Value> {
 }
 
 /// AI model tier from manifest `/ai/modelTier`.
-pub fn ai_model_tier_from_manifest(
-    manifest: &Value,
-) -> Option<crate::config::ModelTier> {
+pub fn ai_model_tier_from_manifest(manifest: &Value) -> Option<crate::config::ModelTier> {
     manifest
         .pointer("/ai/modelTier")
         .and_then(Value::as_str)
@@ -251,9 +248,7 @@ pub fn ai_model_tier_from_manifest(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        list_api_summaries, manifest_apis_fingerprint, DeclaredApiError,
-    };
+    use super::{list_api_summaries, manifest_apis_fingerprint, DeclaredApiError};
     use crate::services::tapp_ownership::tapp_owner_priority;
     use myriad_tapp_contract::manifest::{TappApiAccess, TappApiDef};
     use serde_json::json;
@@ -345,6 +340,7 @@ mod tests {
                 cache_ttl: 60,
                 spoof: None,
                 description: Some("Weather".into()),
+                route: None,
             },
         );
         let list = list_api_summaries(&apis);

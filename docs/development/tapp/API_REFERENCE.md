@@ -1498,6 +1498,8 @@ const declaredApis = await Tapp.api.list();
   [Manifest · 安装级 API 凭据](MANIFEST.md#安装级-api-凭据-credentials)。
 - 详细 Manifest 字段和 REST 链路见 [Manifest](MANIFEST.md#api-声明-apis) 与
   [REST API](REST_API.md#manifest-声明-api)。
+- 给其他程序挂稳定 URL 时使用 `apis.*.route`（必须 HMAC）。沙箱不要自己拼 `/tapi`；
+  见 [入站路由](MANIFEST.md#入站路由-apisroute) 与 [REST API · 入站声明路由](REST_API.md#入站声明路由)。
 
 ## 文件与语音 API
 

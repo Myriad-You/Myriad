@@ -170,7 +170,24 @@ fn scalar_to_sign_string(field: &str, value: &Value) -> Result<String, String> {
     }
 }
 
-fn apply_md5_sorted_kv_signature(
+fn signed_sorted_kv_material(
+    fields: &serde_json::Map<String, Value>,
+    sign: &myriad_tapp_contract::manifest::TappCredentialSign,
+) -> Result<String, String> {
+    let mut pieces = Vec::new();
+    let mut names = sign.over.clone();
+    names.sort();
+    for name in names {
+        let value = fields
+            .get(&name)
+            .ok_or_else(|| format!("signed field {name} is missing from the body"))?;
+        pieces.push(name.clone());
+        pieces.push(scalar_to_sign_string(&name, value)?);
+    }
+    Ok(pieces.concat())
+}
+
+fn apply_body_signature(
     fields: &mut serde_json::Map<String, Value>,
     sign_field: &str,
     sign: &myriad_tapp_contract::manifest::TappCredentialSign,
@@ -186,19 +203,17 @@ fn apply_md5_sorted_kv_signature(
     if fields.contains_key(sign_field) {
         return Err("signature field is already present in the body".into());
     }
-    let mut pieces = Vec::new();
-    let mut names = sign.over.clone();
-    names.sort();
-    for name in names {
-        let value = fields
-            .get(&name)
-            .ok_or_else(|| format!("signed field {name} is missing from the body"))?;
-        pieces.push(name.clone());
-        pieces.push(scalar_to_sign_string(&name, value)?);
-    }
-    let mut material = String::from(token);
-    material.push_str(&pieces.concat());
-    let digest = format!("{:x}", md5::compute(material.as_bytes()));
+    let sorted = signed_sorted_kv_material(fields, sign)?;
+    let digest = match sign.alg {
+        TappCredentialSignAlg::Md5SortedKv => {
+            let mut material = String::from(token);
+            material.push_str(&sorted);
+            format!("{:x}", md5::compute(material.as_bytes()))
+        }
+        TappCredentialSignAlg::HmacSha256Raw => hex::encode(
+            crate::services::tapp_hmac::hmac_sha256(token.as_bytes(), sorted.as_bytes()),
+        ),
+    };
     fields.insert(sign_field.to_string(), Value::String(digest));
     Ok(())
 }
@@ -963,21 +978,10 @@ impl TappApiService {
                         .sign
                         .as_ref()
                         .ok_or_else(|| "signed credential is missing a sign block".to_string())?;
-                    if sign.alg != TappCredentialSignAlg::Md5SortedKv {
-                        return Err(format!(
-                            "credential sign algorithm {} is not implemented",
-                            sign.alg.as_str()
-                        ));
-                    }
                     let fields = object_body.as_mut().ok_or_else(|| {
                         "signed credentials require a JSON or form object body".to_string()
                     })?;
-                    apply_md5_sorted_kv_signature(
-                        fields,
-                        &resolved.field,
-                        sign,
-                        credential.value(),
-                    )?;
+                    apply_body_signature(fields, &resolved.field, sign, credential.value())?;
                 }
             }
         }
@@ -1268,6 +1272,7 @@ mod tests {
             cache_ttl: 0,
             spoof: None,
             description: None,
+            route: None,
         }
     }
 
@@ -1614,10 +1619,8 @@ mod tests {
         assert!(inject.get("time.unix").and_then(Value::as_u64).is_some());
         assert!(inject.get("time.nonce").and_then(Value::as_str).is_some());
 
-        let spaced = TappApiService::resolve_json_templates(
-            &json!({ "ts": "{{ time.unix }}" }),
-            &inject,
-        );
+        let spaced =
+            TappApiService::resolve_json_templates(&json!({ "ts": "{{ time.unix }}" }), &inject);
         assert!(spaced["ts"].as_u64().is_some());
     }
 
@@ -1627,7 +1630,7 @@ mod tests {
         fields.insert("user_id".into(), json!("abc"));
         fields.insert("params".into(), Value::String(r#"{"a":333}"#.into()));
         fields.insert("ts".into(), json!(1_624_339_905_u64));
-        apply_md5_sorted_kv_signature(
+        apply_body_signature(
             &mut fields,
             "sign",
             &myriad_tapp_contract::manifest::TappCredentialSign {
@@ -1641,6 +1644,33 @@ mod tests {
         assert_eq!(
             fields.get("sign").and_then(Value::as_str),
             Some("a4acc28b81598b7e5d84ebdc3e91710c")
+        );
+    }
+
+    #[test]
+    fn hmac_sha256_raw_signs_sorted_kv_material() {
+        let mut fields = serde_json::Map::new();
+        fields.insert("user_id".into(), json!("abc"));
+        fields.insert("params".into(), Value::String(r#"{"a":333}"#.into()));
+        fields.insert("ts".into(), json!(1_624_339_905_u64));
+        apply_body_signature(
+            &mut fields,
+            "sign",
+            &myriad_tapp_contract::manifest::TappCredentialSign {
+                alg: TappCredentialSignAlg::HmacSha256Raw,
+                over: vec!["params".into(), "ts".into(), "user_id".into()],
+                timestamp_field: None,
+            },
+            "123",
+        )
+        .unwrap();
+        let expected = hex::encode(crate::services::tapp_hmac::hmac_sha256(
+            b"123",
+            b"params{\"a\":333}ts1624339905user_idabc",
+        ));
+        assert_eq!(
+            fields.get("sign").and_then(Value::as_str),
+            Some(expected.as_str())
         );
     }
 

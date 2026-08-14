@@ -272,6 +272,83 @@ function validateDeclaredCredential(definition, binding, name, diagnostics) {
   }
 }
 
+function isInboundRoutePath(value) {
+  return typeof value === 'string' && /^\/[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(value)
+}
+
+function isInboundVerifyHeader(value) {
+  return typeof value === 'string'
+    && /^X-[A-Za-z0-9][A-Za-z0-9-]{0,62}$/.test(value)
+    && !(contract.rules.routeReservedHeaders || []).some((reserved) => reserved.toLowerCase() === value.toLowerCase())
+}
+
+function validateInboundRoute(definition, name, credentialKeys, boundCredentialKeys, inboundRoutePaths, diagnostics) {
+  const path = `apis.${name}.route`
+  if (!validateFields(definition.route, schemaFields('TappApiRoute'), path, diagnostics)) {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `${path} must be an object`))
+    return
+  }
+  const route = definition.route
+  if ((definition.access || 'protected') !== 'public') {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `API ${name} inbound route requires access public`))
+  }
+  if (definition.type === BUILTIN_API_TYPE && ['ai:chat', 'ai:generate'].includes(definition.builtin)) {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `API ${name} inbound route cannot expose AI builtins`))
+  }
+  if (!isInboundRoutePath(route.path)) {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `API ${name} inbound path is invalid`))
+  } else if (inboundRoutePaths.has(route.path)) {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `API ${name} inbound path ${route.path} is duplicated`))
+  } else {
+    inboundRoutePaths.add(route.path)
+  }
+  const methods = route.methods || ['GET']
+  const allowed = new Set(contract.rules.routeMethods || ['GET', 'POST'])
+  if (!Array.isArray(methods) || methods.length === 0 || new Set(methods).size !== methods.length || methods.some((method) => !allowed.has(method))) {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `API ${name} inbound route methods must be GET and/or POST`))
+  }
+  const verifyPath = `${path}.verify`
+  if (!validateFields(route.verify, schemaFields('TappRouteVerify'), verifyPath, diagnostics)) {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `${verifyPath} must be an object`))
+    return
+  }
+  const verify = route.verify
+  if (typeof verify.key !== 'string' || !credentialKeys.has(verify.key)) {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `API ${name} inbound route references an undeclared credential`))
+  } else {
+    boundCredentialKeys.add(verify.key)
+  }
+  if (verify.alg !== 'hmac-sha256-raw') {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `API ${name} inbound verify algorithm must be hmac-sha256-raw`))
+  }
+  if (!isInboundVerifyHeader(verify.header) || !isInboundVerifyHeader(verify.timestampHeader) || !isInboundVerifyHeader(verify.nonceHeader)) {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `API ${name} inbound verify headers are invalid`))
+  } else if (new Set([verify.header, verify.timestampHeader, verify.nonceHeader].map((header) => header.toLowerCase())).size !== 3) {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `API ${name} inbound verify headers must be distinct`))
+  }
+  const allowsGet = methods.includes('GET')
+  const allowsPost = methods.includes('POST')
+  if (verify.over === 'canonical-query' && (!allowsGet || allowsPost)) {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `API ${name} canonical-query verify requires GET-only methods`))
+  }
+  if (verify.over === 'raw-body' && (!allowsPost || allowsGet)) {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `API ${name} raw-body verify requires POST-only methods`))
+  }
+  const maxPrefix = contract.limits.routeVerifyPrefixLength || 256
+  if (verify.prefix !== undefined && (typeof verify.prefix !== 'string' || verify.prefix.length > maxPrefix)) {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `API ${name} inbound verify prefix is too long`))
+  }
+  const encodings = new Set(contract.rules.routeVerifyEncodings || ['hex', 'base64'])
+  if (verify.encoding !== undefined && !encodings.has(verify.encoding)) {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `API ${name} inbound verify encoding is invalid`))
+  }
+  const minSkew = contract.limits.routeMinMaxSkewSecs || 30
+  const maxSkew = contract.limits.routeMaxMaxSkewSecs || 3600
+  if (verify.maxSkewSecs !== undefined && (!Number.isInteger(verify.maxSkewSecs) || verify.maxSkewSecs < minSkew || verify.maxSkewSecs > maxSkew)) {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `API ${name} inbound maxSkewSecs must be between ${minSkew} and ${maxSkew}`))
+  }
+}
+
 function isDataExchangeId(value) {
   return typeof value === 'string' && value.length > 0 && value.length <= contract.limits.dataExchangeIdLength && NAMED_VALUE.test(value)
 }
@@ -837,6 +914,7 @@ function validateManifest(manifest, diagnostics, requiredPermissions) {
 
   const credentialKeys = new Set()
   const boundCredentialKeys = new Set()
+  const inboundRoutePaths = new Set()
   if (manifest.credentials !== undefined) {
     if (!Array.isArray(manifest.credentials)) {
       diagnostics.push(diagnostic('error', 'invalid-credentials', 'credentials must be an array'))
@@ -1006,6 +1084,9 @@ function validateManifest(manifest, diagnostics, requiredPermissions) {
       if (JSON.stringify(definition).includes('{{secrets.')) {
         diagnostics.push(diagnostic('error', 'invalid-api', `API ${name} cannot reference host secret templates`))
       }
+      if (definition.route !== undefined) {
+        validateInboundRoute(definition, name, credentialKeys, boundCredentialKeys, inboundRoutePaths, diagnostics)
+      }
       const type = definition.type || DEFAULT_API_TYPE
       if (!API_TYPES.has(type)) {
         diagnostics.push(diagnostic('error', 'invalid-api', `API ${name} type must be one of: ${contract.rules.apiTypes.join(', ')}`))
@@ -1090,7 +1171,7 @@ function validateManifest(manifest, diagnostics, requiredPermissions) {
 
   for (const key of credentialKeys) {
     if (!boundCredentialKeys.has(key)) {
-      diagnostics.push(diagnostic('error', 'invalid-credential', `Credential ${key} must be bound to at least one declared HTTP API`))
+      diagnostics.push(diagnostic('error', 'invalid-credential', `Credential ${key} must be bound to at least one declared HTTP API or inbound route verify`))
     }
   }
 

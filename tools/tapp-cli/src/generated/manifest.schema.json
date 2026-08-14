@@ -283,6 +283,17 @@
           ],
           "type": "string"
         },
+        "route": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TappApiRoute"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional inbound HTTP mount at `/tapi/{tappId}{path}`."
+        },
         "spoof": {
           "type": [
             "string",
@@ -294,6 +305,31 @@
           "type": "string"
         }
       },
+      "type": "object"
+    },
+    "TappApiRoute": {
+      "additionalProperties": false,
+      "properties": {
+        "methods": {
+          "default": [
+            "GET"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "path": {
+          "type": "string"
+        },
+        "verify": {
+          "$ref": "#/$defs/TappRouteVerify"
+        }
+      },
+      "required": [
+        "path",
+        "verify"
+      ],
       "type": "object"
     },
     "TappAuthor": {
@@ -565,6 +601,78 @@
         "exact",
         "prefix",
         "origin"
+      ],
+      "type": "string"
+    },
+    "TappRouteVerify": {
+      "additionalProperties": false,
+      "description": "Host-verified inbound HMAC for `/tapi/{tappId}{path}`.",
+      "properties": {
+        "alg": {
+          "$ref": "#/$defs/TappCredentialSignAlg",
+          "enum": [
+            "hmac-sha256-raw"
+          ]
+        },
+        "encoding": {
+          "$ref": "#/$defs/TappRouteVerifyEncoding",
+          "enum": [
+            "hex",
+            "base64"
+          ]
+        },
+        "header": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "maxSkewSecs": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nonceHeader": {
+          "type": "string"
+        },
+        "over": {
+          "$ref": "#/$defs/TappRouteVerifyOver",
+          "enum": [
+            "raw-body",
+            "canonical-query"
+          ]
+        },
+        "prefix": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestampHeader": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "alg",
+        "header",
+        "over",
+        "timestampHeader",
+        "nonceHeader"
+      ],
+      "type": "object"
+    },
+    "TappRouteVerifyEncoding": {
+      "enum": [
+        "hex",
+        "base64"
+      ],
+      "type": "string"
+    },
+    "TappRouteVerifyOver": {
+      "enum": [
+        "raw-body",
+        "canonical-query"
       ],
       "type": "string"
     },

@@ -100,7 +100,11 @@ pub fn export_tapp_contract() -> Value {
             "openUrlQueryKeys": contract_rules::MAX_OPEN_URL_QUERY_KEYS,
             "openUrlQueryValueLength": contract_rules::MAX_OPEN_URL_QUERY_VALUE_LEN,
             "widgetRefreshIntervalMinSeconds": contract_rules::MIN_WIDGET_REFRESH_INTERVAL_SECONDS,
-            "widgetRefreshIntervalMaxSeconds": contract_rules::MAX_WIDGET_REFRESH_INTERVAL_SECONDS
+            "widgetRefreshIntervalMaxSeconds": contract_rules::MAX_WIDGET_REFRESH_INTERVAL_SECONDS,
+            "routeVerifyPrefixLength": contract_rules::ROUTE_MAX_PREFIX_LEN,
+            "routeMinMaxSkewSecs": contract_rules::ROUTE_MIN_MAX_SKEW_SECS,
+            "routeMaxMaxSkewSecs": contract_rules::ROUTE_MAX_MAX_SKEW_SECS,
+            "routeMaxBodyBytes": contract_rules::ROUTE_MAX_BODY_BYTES
         },
         "rules": {
             "widgetSizes": contract_rules::WIDGET_SIZES,
@@ -154,6 +158,11 @@ pub fn export_tapp_contract() -> Value {
             "credentialEncodings": contract_rules::CREDENTIAL_ENCODINGS,
             "credentialSignAlgs": contract_rules::CREDENTIAL_SIGN_ALGS,
             "credentialSignAlgsImplemented": contract_rules::CREDENTIAL_SIGN_ALGS_IMPLEMENTED,
+            "routeMethods": contract_rules::ROUTE_METHODS,
+            "routeVerifyAlgs": contract_rules::ROUTE_VERIFY_ALGS,
+            "routeVerifyOver": contract_rules::ROUTE_VERIFY_OVER,
+            "routeVerifyEncodings": contract_rules::ROUTE_VERIFY_ENCODINGS,
+            "routeReservedHeaders": contract_rules::ROUTE_RESERVED_HEADERS,
             "eventSubscribePrefixes": contract_rules::EVENT_SUBSCRIBE_PREFIXES,
             "assetLiteralMethods": contract_rules::ASSET_LITERAL_METHODS,
             "sourceCodeExtensions": contract_rules::SOURCE_CODE_EXTENSIONS,

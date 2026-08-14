@@ -419,6 +419,10 @@ sequenceDiagram
 
 不要恢复旧式“传任意 URL 的 `/proxy`”设计；它会绕过 Manifest 审计和 SSRF 边界。
 
+需要给其他程序调用时，在同一条 `apis` 上声明 `route` + HMAC `verify`。宿主挂
+`/tapi/{tappId}/{path}`，不签发 Runtime Grant，不种游客 Cookie，也不提供未签名目录。
+验签、时间窗、nonce 账本和凭据小时封顶见 [Manifest · 入站路由](MANIFEST.md#入站路由-apisroute)。
+
 ## 性能策略
 
 - 商店弹窗及内置示例按需加载，不进入 Tapp 列表首屏包。

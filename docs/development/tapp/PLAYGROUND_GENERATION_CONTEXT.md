@@ -129,6 +129,8 @@ await Tapp.storage.clear();
   临时预览不会实际执行 `Tapp.api`；完整字段见
   [MANIFEST · API 声明](./MANIFEST.md#api-声明-apis) 与
   [安装级凭据](./MANIFEST.md#安装级-api-凭据-credentials)。
+  若要给其他程序调用，再声明 `apis.*.route`（必须 `hmac-sha256-raw` + timestamp/nonce，
+  且 `access: public`）；不要编造未签名的 `/tapi` 或把密钥写进源码。
   **不要**在源码、`settings`、i18n 或注释里写入真实或示例密钥；`credentials` 只声明
   `key`/`label`，值由站主安装后写入。
 - 不要把 Three / Pocket 运行时打进生成物，也不要输出 CDN。完整 guest Three 样例见商店

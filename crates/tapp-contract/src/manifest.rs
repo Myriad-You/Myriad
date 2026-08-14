@@ -345,7 +345,7 @@ impl TappCredentialSignAlg {
     }
 
     pub fn is_implemented(self) -> bool {
-        matches!(self, Self::Md5SortedKv)
+        matches!(self, Self::Md5SortedKv | Self::HmacSha256Raw)
     }
 }
 
@@ -503,6 +503,139 @@ fn validate_credential_sign(sign: &TappCredentialSign, sign_field: &str) -> Resu
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
+pub enum TappRouteVerifyOver {
+    #[serde(rename = "raw-body")]
+    RawBody,
+    #[serde(rename = "canonical-query")]
+    CanonicalQuery,
+}
+
+impl TappRouteVerifyOver {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::RawBody => "raw-body",
+            Self::CanonicalQuery => "canonical-query",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "lowercase")]
+pub enum TappRouteVerifyEncoding {
+    #[default]
+    Hex,
+    Base64,
+}
+
+impl TappRouteVerifyEncoding {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Hex => "hex",
+            Self::Base64 => "base64",
+        }
+    }
+
+    fn is_hex(&self) -> bool {
+        matches!(self, Self::Hex)
+    }
+}
+
+fn default_route_max_skew_secs() -> u32 {
+    crate::contract_rules::ROUTE_DEFAULT_MAX_SKEW_SECS
+}
+
+fn is_default_route_max_skew_secs(value: &u32) -> bool {
+    *value == crate::contract_rules::ROUTE_DEFAULT_MAX_SKEW_SECS
+}
+
+fn default_route_methods() -> Vec<String> {
+    vec!["GET".to_string()]
+}
+
+/// Host-verified inbound HMAC for `/tapi/{tappId}{path}`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TappRouteVerify {
+    pub key: String,
+    #[cfg_attr(
+        feature = "tapp-contract-schema",
+        schemars(extend("enum" = crate::contract_rules::ROUTE_VERIFY_ALGS))
+    )]
+    pub alg: TappCredentialSignAlg,
+    pub header: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prefix: Option<String>,
+    #[cfg_attr(
+        feature = "tapp-contract-schema",
+        schemars(extend("enum" = crate::contract_rules::ROUTE_VERIFY_OVER))
+    )]
+    pub over: TappRouteVerifyOver,
+    #[serde(default, skip_serializing_if = "TappRouteVerifyEncoding::is_hex")]
+    #[cfg_attr(
+        feature = "tapp-contract-schema",
+        schemars(extend("enum" = crate::contract_rules::ROUTE_VERIFY_ENCODINGS))
+    )]
+    pub encoding: TappRouteVerifyEncoding,
+    pub timestamp_header: String,
+    pub nonce_header: String,
+    #[serde(
+        default = "default_route_max_skew_secs",
+        skip_serializing_if = "is_default_route_max_skew_secs"
+    )]
+    pub max_skew_secs: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TappApiRoute {
+    pub path: String,
+    #[serde(default = "default_route_methods")]
+    pub methods: Vec<String>,
+    pub verify: TappRouteVerify,
+}
+
+pub fn valid_inbound_route_path(path: &str) -> bool {
+    path.len() >= 2
+        && path.len() <= 65
+        && path.starts_with('/')
+        && path
+            .as_bytes()
+            .get(1)
+            .is_some_and(|byte| byte.is_ascii_alphanumeric())
+        && path[1..]
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+}
+
+pub fn valid_inbound_verify_header(name: &str) -> bool {
+    if name.len() < 3 || name.len() > 65 || !name.starts_with("X-") {
+        return false;
+    }
+    let rest = &name.as_bytes()[2..];
+    rest.first()
+        .is_some_and(|byte| byte.is_ascii_alphanumeric())
+        && rest
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || *byte == b'-')
+        && !crate::contract_rules::ROUTE_RESERVED_HEADERS
+            .iter()
+            .any(|reserved| name.eq_ignore_ascii_case(reserved))
+}
+
+pub fn valid_inbound_nonce(value: &str) -> bool {
+    let len = value.len();
+    len >= crate::contract_rules::ROUTE_MIN_NONCE_LEN
+        && len <= crate::contract_rules::ROUTE_MAX_NONCE_LEN
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
@@ -552,6 +685,9 @@ pub struct TappApiDef {
     pub cache_ttl: u32,
     pub spoof: Option<String>,
     pub description: Option<String>,
+    /// Optional inbound HTTP mount at `/tapi/{tappId}{path}`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route: Option<TappApiRoute>,
 }
 
 fn default_api_type() -> String {
@@ -680,6 +816,19 @@ pub struct TappSettingOption {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn inbound_verify_header_rejects_proxy_and_session_names() {
+        assert!(valid_inbound_verify_header("X-Signature"));
+        assert!(valid_inbound_verify_header("X-Tapp-Timestamp"));
+        assert!(!valid_inbound_verify_header("x-signature"));
+        assert!(!valid_inbound_verify_header("Authorization"));
+        assert!(!valid_inbound_verify_header("X-CSRF-Token"));
+        assert!(!valid_inbound_verify_header("X-Forwarded-For"));
+        assert!(!valid_inbound_verify_header("X-Real-IP"));
+        assert!(!valid_inbound_verify_header("X-Request-Id"));
+        assert!(!valid_inbound_verify_header("X-Tapp-Runtime-Grant"));
+    }
 
     #[test]
     fn legacy_header_binding_still_resolves() {
