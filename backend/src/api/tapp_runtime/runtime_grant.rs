@@ -16,7 +16,7 @@ use crate::config::DynamicConfig;
 use crate::error::HttpError;
 use crate::{
     middleware::auth::Claims,
-    services::permission_service::{TappPermission, TappPermissionService},
+    services::permission_service::{TappPermission, TappPermissionService, UnknownTappPermission},
     services::tapp_runtime_grant::{
         self, IssuedRuntimeGrant, RuntimeGrant, RuntimeGrantError, RuntimeKind,
     },
@@ -238,11 +238,16 @@ pub async fn authorize_runtime_permission(
 ) -> Result<Json<Value>, HttpError> {
     runtime_grant.require_tapp_id(&tapp_id)?;
     let permission = TappPermission::from_str(&request.permission).ok_or_else(|| {
+        // Fail-closed, but route the retired-name guidance through the shared
+        // replacement hint so `storage` recommends the split permissions.
+        let unknown = UnknownTappPermission {
+            permission: request.permission.clone(),
+        };
         (
             StatusCode::BAD_REQUEST,
             Json(json!({
-                "error": "Unknown Tapp permission",
-                "code": "UNKNOWN_TAPP_PERMISSION"
+                "error": unknown.message(),
+                "code": unknown.code(),
             })),
         )
     })?;
