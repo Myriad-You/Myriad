@@ -39,6 +39,18 @@ use serde::{Deserialize, Serialize};
 
 pub const UNKNOWN_TAPP_PERMISSION_CODE: &str = "UNKNOWN_TAPP_PERMISSION";
 
+/// 已移除权限名的替代建议（仅用于错误提示，不构成兼容映射；
+/// 未知名仍 fail-closed，绝不解码成新权限）。
+/// 单一来源：permission-service、声明式 API、运行时签发三处错误路径共用。
+pub(crate) fn tapp_permission_replacement_hint(permission: &str) -> Option<&'static str> {
+    match permission {
+        "storage" => Some(
+            "use 'storage:read' or 'storage:write' instead; update the TAPP Manifest, then update or reinstall the app",
+        ),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnknownTappPermission {
     pub permission: String,
@@ -50,7 +62,10 @@ impl UnknownTappPermission {
     }
 
     pub fn message(&self) -> String {
-        format!("Unknown Tapp permission '{}'", self.permission)
+        match tapp_permission_replacement_hint(&self.permission) {
+            Some(hint) => format!("Unknown Tapp permission '{}'; {}", self.permission, hint),
+            None => format!("Unknown Tapp permission '{}'", self.permission),
+        }
     }
 }
 
@@ -1058,5 +1073,44 @@ mod tests {
 
         assert_eq!(error.permission, "legacy:unknown");
         assert_eq!(error.code(), UNKNOWN_TAPP_PERMISSION_CODE);
+    }
+
+    #[test]
+    fn retired_storage_error_recommends_split_permissions_but_stays_fail_closed() {
+        // storage 仍不可解析：拆分后的 storage:read / storage:write 是独立权限。
+        assert!(TappPermission::from_str("storage").is_none());
+        assert!(TappPermission::from_str("storage:read").is_some());
+        assert!(TappPermission::from_str("storage:write").is_some());
+
+        // 真实 permission-service 过滤路径：storage 被拒，且错误提示给出替代权限。
+        let error = TappPermissionService::filter_permissions_for_role(
+            &DynamicConfig::default(),
+            UserRole::Admin,
+            &["storage".to_string()],
+        )
+        .unwrap_err();
+        let message = error.message();
+        assert!(message.contains("'storage'"), "{message}");
+        assert!(message.contains("storage:read"), "{message}");
+        assert!(message.contains("storage:write"), "{message}");
+        assert!(message.contains("update"), "{message}");
+        assert!(message.contains("reinstall"), "{message}");
+
+        // 失败仍是 fail-closed：不放行任何权限。
+        assert!(TappPermissionService::filter_permissions_for_role(
+            &DynamicConfig::default(),
+            UserRole::Admin,
+            &["storage".to_string()],
+        )
+        .is_err());
+
+        // 任意未知名保持通用错误形态，不带替代建议。
+        let generic = UnknownTappPermission {
+            permission: "legacy:unknown".to_string(),
+        };
+        assert_eq!(
+            generic.message(),
+            "Unknown Tapp permission 'legacy:unknown'"
+        );
     }
 }
