@@ -309,11 +309,20 @@ export interface TappApiDefinition {
   /** HTTP 方法，默认 GET */
   method?: string
   headers?: Record<string, string>
-  /** 宿主凭据到固定请求头的绑定；密钥不会进入模板上下文。 */
+  /** 宿主凭据绑定；密钥不会进入模板上下文。 */
   credential?: {
     key: string
-    header: string
+    /** 省略且声明 `header` 时视为 header（旧清单）。 */
+    in?: 'header' | 'query' | 'form' | 'sign'
+    field?: string
+    header?: string
     prefix?: string
+    encoding?: 'base64'
+    sign?: {
+      alg: 'md5-sorted-kv' | 'hmac-sha256-raw'
+      over: string[]
+      timestampField?: string
+    }
   }
   /** 请求体序列化模式，默认 json */
   bodyMode?: 'json' | 'raw' | 'form'

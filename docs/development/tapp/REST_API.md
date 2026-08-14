@@ -291,7 +291,8 @@ Settings 是 **installation owner** 命名空间上的 Manifest 声明配置，�
 | DELETE | `/api/tapps/{tappId}/credentials/{key}` | **auth + owner/admin** | 删除凭据，不回显 |
 
 这些路由不接受游客、普通 viewer 或 Runtime Grant 顶替管理身份。`key` 必须由当前 Manifest 的
-`credentials` 声明并绑定到至少一个具名 HTTP API。值只在后端执行绑定 API 时加入固定请求头；
+`credentials` 声明并绑定到至少一个具名 HTTP API。值只在后端执行绑定 API 时按声明加入请求头、
+query、form 或仅用于签名；状态还会列出每条绑定的 method、endpoint、`access` 和放置方式。
 Manifest 绑定变化后状态会标记需重新授权，运行调用会拒绝使用旧值。
 底层复用 installation owner 的 `tapp_storage` 行和现有唯一索引；`_credentials.` 是宿主保留
 前缀，密文位于专用字段。通用 storage REST 在 SQL 层排除宿主记录且不查询密文字段，完整
@@ -473,7 +474,7 @@ WebSocket 升级不能携带 Grant 头，因此 Tapp Bridge 先调用
 不带票据的 Claims-only WebSocket 语义保持不变。独立 AI 费用账本见 `/api/tapp/ai/v2/ledger`。
 
 Room 消息 POST body 上限与 `MESSAGE_PAYLOAD_LIMIT` / `MAX_ROOM_MESSAGE_PAYLOAD`
-（**4 MiB**）及联邦 inbox 独立硬上限（**8 MiB**）对齐；`join` 可接受 path 中的
+（**36 MiB**）及联邦 inbox DefaultBodyLimit（**64 MiB**）对齐；`join` 可接受 path 中的
 `rm_…@home[:port]`（URL 编码）或 body `{ "home_server": "…" }`。
 
 ### 上下文与媒体

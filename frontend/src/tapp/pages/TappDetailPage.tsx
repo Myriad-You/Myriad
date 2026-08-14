@@ -975,9 +975,30 @@ export function TappDetailPage() {
                     origins: status.origins.join(', '),
                   })
                 : ''
+              const bindings = (status?.bindings ?? [])
+                .map((binding) => {
+                  const sign =
+                    binding.signAlg && binding.signOver?.length
+                      ? format(t.tapp.credentialBindingSign, {
+                          alg: binding.signAlg,
+                          fields: binding.signOver.join(', '),
+                        })
+                      : format(t.tapp.credentialBindingPlacement, {
+                          placement: binding.placement,
+                          field: binding.field,
+                        })
+                  return format(t.tapp.credentialBinding, {
+                    method: binding.method,
+                    endpoint: binding.endpoint,
+                    access: binding.access,
+                    detail: sign,
+                  })
+                })
+                .join(' · ')
               const description = [
                 credential.description,
                 destination,
+                bindings,
                 status?.needsReauthorization
                   ? t.tapp.credentialReauthorizationRequired
                   : undefined,

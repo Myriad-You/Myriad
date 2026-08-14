@@ -105,11 +105,27 @@ impl ResolvedApiCredential {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct TappCredentialBindingSummary {
+    pub api: String,
+    pub method: String,
+    pub endpoint: String,
+    pub access: String,
+    pub placement: String,
+    pub field: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sign_alg: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sign_over: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TappCredentialStatus {
     pub key: String,
     pub configured: bool,
     pub needs_reauthorization: bool,
     pub origins: Vec<String>,
+    pub bindings: Vec<TappCredentialBindingSummary>,
     pub updated_at: Option<String>,
 }
 
@@ -237,6 +253,43 @@ pub fn credential_binding_origins(
     Ok(origins.into_iter().collect())
 }
 
+pub fn credential_binding_summaries(
+    manifest: &Value,
+    key: &str,
+) -> Result<Vec<TappCredentialBindingSummary>, TappCredentialError> {
+    let mut summaries = Vec::new();
+    for (api_name, api) in parse_apis(manifest)? {
+        let Some(binding) = &api.credential else {
+            continue;
+        };
+        if binding.key != key {
+            continue;
+        }
+        let resolved = binding
+            .resolve()
+            .map_err(TappCredentialError::InvalidDefinition)?;
+        summaries.push(TappCredentialBindingSummary {
+            api: api_name,
+            method: api.method,
+            endpoint: api.endpoint.unwrap_or_default(),
+            access: match api.access {
+                myriad_tapp_contract::manifest::TappApiAccess::Public => "public".into(),
+                myriad_tapp_contract::manifest::TappApiAccess::Protected => "protected".into(),
+                myriad_tapp_contract::manifest::TappApiAccess::Manager => "manager".into(),
+            },
+            placement: resolved.placement.as_str().to_string(),
+            field: resolved.field,
+            sign_alg: resolved
+                .sign
+                .as_ref()
+                .map(|sign| sign.alg.as_str().to_string()),
+            sign_over: resolved.sign.map(|sign| sign.over).unwrap_or_default(),
+        });
+    }
+    summaries.sort_by(|left, right| left.api.cmp(&right.api));
+    Ok(summaries)
+}
+
 pub async fn put_credential(
     db: &impl ConnectionTrait,
     owner_id: i32,
@@ -326,6 +379,7 @@ pub async fn credential_statuses(
         .map(|definition| {
             let fingerprint = credential_binding_fingerprint(&tapp.manifest, &definition.key)?;
             let origins = credential_binding_origins(&tapp.manifest, &definition.key)?;
+            let bindings = credential_binding_summaries(&tapp.manifest, &definition.key)?;
             let row = stored.get(&definition.key);
             Ok(TappCredentialStatus {
                 key: definition.key,
@@ -334,6 +388,7 @@ pub async fn credential_statuses(
                     row.binding_fingerprint.as_deref() != Some(fingerprint.as_str())
                 }),
                 origins,
+                bindings,
                 updated_at: row.map(|row| row.updated_at.to_rfc3339()),
             })
         })
@@ -533,6 +588,7 @@ mod tests {
             configured: true,
             needs_reauthorization: false,
             origins: vec!["https://api.example.com".into()],
+            bindings: Vec::new(),
             updated_at: None,
         };
         let serialized = serde_json::to_value(status).unwrap();

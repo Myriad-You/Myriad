@@ -291,17 +291,216 @@ pub enum TappApiAccess {
     Manager,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum TappCredentialIn {
+    Header,
+    Query,
+    Form,
+    Sign,
+}
+
+impl TappCredentialIn {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Header => "header",
+            Self::Query => "query",
+            Self::Form => "form",
+            Self::Sign => "sign",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum TappCredentialEncoding {
+    Base64,
+}
+
+impl TappCredentialEncoding {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Base64 => "base64",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
+pub enum TappCredentialSignAlg {
+    #[serde(rename = "md5-sorted-kv")]
+    Md5SortedKv,
+    #[serde(rename = "hmac-sha256-raw")]
+    HmacSha256Raw,
+}
+
+impl TappCredentialSignAlg {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Md5SortedKv => "md5-sorted-kv",
+            Self::HmacSha256Raw => "hmac-sha256-raw",
+        }
+    }
+
+    pub fn is_implemented(self) -> bool {
+        matches!(self, Self::Md5SortedKv)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TappCredentialSign {
+    pub alg: TappCredentialSignAlg,
+    pub over: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp_field: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TappApiCredentialBinding {
     /// Key from top-level `manifest.credentials`.
     pub key: String,
-    /// Fixed outbound request header that receives the credential.
-    pub header: String,
-    /// Optional literal prefix such as `Bearer `.
+    /// Where the host applies the secret. Omitted with `header` means header (legacy).
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "in")]
+    pub in_placement: Option<TappCredentialIn>,
+    /// Destination name: header, query parameter, form field, or signature field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
+    /// Legacy header name. Equivalent to `field` when `in` is header or omitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header: Option<String>,
+    /// Optional literal prefix such as `Bearer `. Header placement only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prefix: Option<String>,
+    /// Optional host encoding of the secret before prefix/placement. Not for `sign`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub encoding: Option<TappCredentialEncoding>,
+    /// Host-only request signature. Required when `in` is `sign`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sign: Option<TappCredentialSign>,
+}
+
+/// Normalized view of a declared credential binding after Manifest checks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedTappCredentialBinding {
+    pub placement: TappCredentialIn,
+    pub field: String,
+    pub prefix: Option<String>,
+    pub encoding: Option<TappCredentialEncoding>,
+    pub sign: Option<TappCredentialSign>,
+}
+
+impl TappApiCredentialBinding {
+    pub fn resolve(&self) -> Result<ResolvedTappCredentialBinding, String> {
+        let placement = match self.in_placement {
+            Some(placement) => placement,
+            None => {
+                if self.sign.is_some() {
+                    return Err("credential.sign requires in: \"sign\"".into());
+                }
+                TappCredentialIn::Header
+            }
+        };
+
+        let field = match placement {
+            TappCredentialIn::Header => match (self.field.as_deref(), self.header.as_deref()) {
+                (Some(field), Some(header)) if field != header => {
+                    return Err("credential.field and credential.header must match".into());
+                }
+                (Some(field), _) => field.to_string(),
+                (None, Some(header)) => header.to_string(),
+                (None, None) => {
+                    return Err("header credential requires field or header".into());
+                }
+            },
+            TappCredentialIn::Query | TappCredentialIn::Form | TappCredentialIn::Sign => {
+                if self.header.is_some() {
+                    return Err("credential.header is only valid for header credentials".into());
+                }
+                self.field
+                    .clone()
+                    .filter(|value| !value.is_empty())
+                    .ok_or_else(|| "credential.field is required".to_string())?
+            }
+        };
+
+        if field.len() > crate::contract_rules::MAX_CREDENTIAL_FIELD_LEN
+            || !valid_agent_name(&field)
+        {
+            return Err("credential.field is invalid".into());
+        }
+
+        match placement {
+            TappCredentialIn::Header => {
+                if self.sign.is_some() {
+                    return Err("credential.sign is only valid when in is \"sign\"".into());
+                }
+            }
+            TappCredentialIn::Query | TappCredentialIn::Form => {
+                if self.sign.is_some() {
+                    return Err("credential.sign is only valid when in is \"sign\"".into());
+                }
+                if self.prefix.is_some() {
+                    return Err("credential.prefix is only valid for header credentials".into());
+                }
+            }
+            TappCredentialIn::Sign => {
+                if self.prefix.is_some() || self.encoding.is_some() {
+                    return Err("sign credentials cannot declare prefix or encoding".into());
+                }
+                let Some(sign) = &self.sign else {
+                    return Err("in: \"sign\" requires a sign block".into());
+                };
+                validate_credential_sign(sign, &field)?;
+            }
+        }
+
+        Ok(ResolvedTappCredentialBinding {
+            placement,
+            field,
+            prefix: self.prefix.clone(),
+            encoding: self.encoding,
+            sign: self.sign.clone(),
+        })
+    }
+}
+
+fn validate_credential_sign(sign: &TappCredentialSign, sign_field: &str) -> Result<(), String> {
+    if sign.over.is_empty() {
+        return Err("credential.sign.over must list at least one field".into());
+    }
+    if sign.over.len() > crate::contract_rules::MAX_CREDENTIAL_SIGN_OVER {
+        return Err(format!(
+            "credential.sign.over accepts at most {} fields",
+            crate::contract_rules::MAX_CREDENTIAL_SIGN_OVER
+        ));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for name in &sign.over {
+        if !valid_agent_name(name) || !seen.insert(name.as_str()) {
+            return Err("credential.sign.over contains an invalid or duplicate field".into());
+        }
+        if name == sign_field {
+            return Err("credential.sign field cannot appear in over".into());
+        }
+    }
+    if let Some(timestamp_field) = &sign.timestamp_field {
+        if !valid_agent_name(timestamp_field) {
+            return Err("credential.sign.timestampField is invalid".into());
+        }
+        if timestamp_field == sign_field {
+            return Err("credential.sign.timestampField cannot be the sign field".into());
+        }
+        if !sign.over.iter().any(|name| name == timestamp_field) {
+            return Err("credential.sign.timestampField must be listed in over".into());
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -475,4 +674,57 @@ pub struct TappCredentialDef {
 pub struct TappSettingOption {
     pub value: String,
     pub label: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn legacy_header_binding_still_resolves() {
+        let binding: TappApiCredentialBinding = serde_json::from_value(json!({
+            "key": "wegame",
+            "header": "Authorization",
+            "prefix": "Bearer "
+        }))
+        .unwrap();
+        let resolved = binding.resolve().unwrap();
+        assert_eq!(resolved.placement, TappCredentialIn::Header);
+        assert_eq!(resolved.field, "Authorization");
+        assert_eq!(resolved.prefix.as_deref(), Some("Bearer "));
+    }
+
+    #[test]
+    fn sign_binding_requires_over_and_field() {
+        let binding: TappApiCredentialBinding = serde_json::from_value(json!({
+            "key": "afdianToken",
+            "in": "sign",
+            "field": "sign",
+            "sign": {
+                "alg": "md5-sorted-kv",
+                "over": ["params", "ts", "user_id"],
+                "timestampField": "ts"
+            }
+        }))
+        .unwrap();
+        let resolved = binding.resolve().unwrap();
+        assert_eq!(resolved.placement, TappCredentialIn::Sign);
+        assert_eq!(resolved.field, "sign");
+        assert_eq!(
+            resolved.sign.unwrap().timestamp_field.as_deref(),
+            Some("ts")
+        );
+    }
+
+    #[test]
+    fn sign_without_in_is_rejected() {
+        let binding: TappApiCredentialBinding = serde_json::from_value(json!({
+            "key": "afdianToken",
+            "field": "sign",
+            "sign": { "alg": "md5-sorted-kv", "over": ["params"] }
+        }))
+        .unwrap();
+        assert!(binding.resolve().unwrap_err().contains("in: \"sign\""));
+    }
 }

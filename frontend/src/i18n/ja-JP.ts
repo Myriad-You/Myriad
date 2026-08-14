@@ -3421,6 +3421,9 @@ export const jaJP: TranslationKeys = {
     credentialRemoveConfirm:
       'この認証情報を使用する API は動作しなくなります。続行しますか？',
     credentialOrigins: '送信先：{origins}',
+    credentialBinding: '{method} {endpoint}（{access}）· {detail}',
+    credentialBindingPlacement: '{placement} {field}',
+    credentialBindingSign: '署名 {alg}（{fields}）',
     credentialReauthorizationRequired:
       'マニフェストの送信先または権限が変更されました。再入力して承認してください',
     credentialSaved: '認証情報を安全に保存しました',

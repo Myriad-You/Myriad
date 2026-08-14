@@ -229,7 +229,7 @@ Manifest **安装级 settings** 由 owner / 管理员写入 installation owner �
 - Tapp 不依赖主页面 DOM、Cookie 或浏览器存储。
 - 不把密钥写入 Manifest、Tapp 代码、日志或参数。
 - 站主第三方 Key 使用 Manifest `credentials` + `apis.*.credential`；沙箱只调用具名 API，
-  不读取凭据。只绑定可信的固定 HTTPS origin。
+  不读取凭据。按声明放入请求头、query、form 或仅用于签名。只绑定可信的固定 HTTPS origin。
 - Page、Widget、headless 模式分别验证所需 handler。
 - 用户输入和外部响应在进入 DOM 前完成类型、长度和内容校验。
 - 新增 SDK action 时同步更新权限映射、宿主 handler、后端校验和文档。

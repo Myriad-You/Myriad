@@ -124,27 +124,16 @@ Manifest 采用严格字段校验：未声明字段、拼写错误以及已经�
 }
 ```
 
-`credentials` 最多声明 16 项。每项字段为：
-
-| 字段 | 类型 | 必填 | 限制 / 说明 |
-| ---- | ---- | ---- | ----------- |
-| `key` | string | ✅ | 最长 128；使用字母、数字、`.`、`_`、`-`，不能以 `.` 开头/结尾或连续使用 `.` |
-| `label` | string | ✅ | 非空，最长 255；仅用于宿主管理界面 |
-| `description` | string | ❌ | 最长 2000；仅用于宿主管理界面 |
-| `placeholder` | string | ❌ | 最长 255；仅用于输入提示，不是默认值 |
-
-`apis.*.credential` 必须包含已声明的 `key` 与合法固定请求头 `header`；可选 `prefix` 最长
-256 字节（例如 `"Bearer "`）。不能选择 `Host`、`Content-Length`、`Connection`、
-`Transfer-Encoding`、`Upgrade`、代理或其他 hop-by-hop 头，也不能在同一 API 的普通
-`headers` 中再次声明同名头。凭据值最长 16 KiB；该限制由管理 API 与宿主界面执行，值不写入
-Manifest 或 `.tapp` 包。
-
 - 键必须是 BCP-47 语言标签（如 `zh-CN`、`en-US`、`ja-JP`），最多 32 个语言；
   值中 `name`（1-255 字符）与 `description`（≤ 2000 字符）均可选。
 - 解析回退链：精确匹配（忽略大小写）→ 语言前缀匹配（`zh-CN` ↔ `zh`）→ 顶层
-  `name` / `description`。顶层字段是所有语言未命中时的兜底，保持必填/可选语义不变。
-- `locales` 只覆盖清单展示文案；应用内部界面的多语言仍走 `i18n/{lang}.json` 与
-  `Tapp.i18n`（见 [PAGE.md](PAGE.md)）。
+  `name` / `description`。顶层字段是所有语言未命中时的兜底。
+- `locales` 只覆盖清单展示文案。应用内 UI 仍走 `i18n/{lang}.json` 与 `Tapp.i18n`
+  （见 [PAGE.md](PAGE.md)）。
+- 商店详情长介绍与静态预览**不要**写进 Manifest `locales`（安装会拒绝未知字段）。
+  那些字段属于 `catalog.json` / `index.json`，见 [STORE](STORE.md)。
+
+安装级第三方密钥见下文 [安装级 API 凭据](#安装级-api-凭据-credentials)。
 
 ### 应用分类
 
@@ -523,16 +512,59 @@ Manifest 设置属于安装级配置：安装 owner 或管理员可修改；能�
 
 ### 安装级 API 凭据 (`credentials`)
 
+`credentials` 最多声明 16 项。每项字段为：
+
+| 字段 | 类型 | 必填 | 限制 / 说明 |
+| ---- | ---- | ---- | ----------- |
+| `key` | string | ✅ | 最长 128；使用字母、数字、`.`、`_`、`-`，不能以 `.` 开头/结尾或连续使用 `.` |
+| `label` | string | ✅ | 非空，最长 255；仅用于宿主管理界面 |
+| `description` | string | ❌ | 最长 2000；仅用于宿主管理界面 |
+| `placeholder` | string | ❌ | 最长 255；仅用于输入提示，不是默认值 |
+
+`apis.*.credential` 必须包含已声明的 `key`，并用 `in` 选择放置方式（与密钥是否出现在请求里互斥）：
+
+| `in` | 密钥去向 | 必填 |
+| --- | --- | --- |
+| `header`（省略 `in` 且声明 `header` 时的旧写法） | 固定请求头 `field`/`header`，可选 `prefix`、`encoding` | `field` 或 `header` |
+| `query` | 解析后的 URL 查询参数 `field` | `field` |
+| `form` | `bodyMode: form` 的表单字段 `field` | `field` |
+| `sign` | 密钥不上传；宿主按 `sign` 计算并写入 `field` | `field` + `sign` |
+
+`header` 放置不能选择 `Host`、`Content-Length`、`Connection`、`Transfer-Encoding`、`Upgrade`、
+代理或其他 hop-by-hop 头，也不能在同一 API 的普通 `headers` 中再次声明同名头。`prefix` 最长
+256 字节（例如 `"Bearer "`），仅用于 header。`encoding` 目前只接受 `base64`（先编码再加
+prefix）。凭据值最长 16 KiB；该限制由管理 API 与宿主界面执行，值不写入 Manifest 或 `.tapp` 包。
+
+`in: "sign"` 的 `sign` 块：
+
+| 字段 | 说明 |
+| --- | --- |
+| `alg` | 白名单算法。已实现 `md5-sorted-kv`（`md5(token + sort(over).map(k+v).join(""))`）；`hmac-sha256-raw` 已占位，安装时拒绝 |
+| `over` | 参与签名的对象字段，1–16 个、不重复；不能包含签名字段本身 |
+| `timestampField` | 可选。若声明则必须列入 `over`；宿主在签名前用当前 UNIX 秒覆盖该字段 |
+
+签名只适用于 `json` / `form` 对象 body，不能用于 `bodyMode: raw`，且 method 必须是
+`POST`/`PUT`/`PATCH`/`DELETE`（默认 `GET` 会被拒绝）。`over` 中除 `timestampField`
+外的键必须出现在声明的 `body` 里，且声明值只能是字符串、数字、布尔或 `null`
+（模板写在字符串里）。
+
 需要由公开 Tapp 代站主调用第三方 API 时，使用只写 `credentials`，不要使用 `settings`：
 
 ```json
 {
   "permissions": ["network:fetch"],
+  "settings": [
+    { "key": "userId", "label": "爱发电 user_id", "type": "input" }
+  ],
   "credentials": [
     {
       "key": "wegame",
       "label": "WeGame API Key",
       "description": "用于同步站点游戏资料"
+    },
+    {
+      "key": "afdianToken",
+      "label": "爱发电 API Token"
     }
   ],
   "apis": {
@@ -545,6 +577,27 @@ Manifest 设置属于安装级配置：安装 owner 或管理员可修改；能�
         "header": "Authorization",
         "prefix": "Bearer "
       }
+    },
+    "sponsors": {
+      "type": "http",
+      "access": "public",
+      "method": "POST",
+      "endpoint": "https://afdian.com/api/open/query-sponsor",
+      "cacheTtl": 300,
+      "body": {
+        "user_id": "{{settings.userId}}",
+        "params": "{\"page\":1,\"per_page\":20}"
+      },
+      "credential": {
+        "key": "afdianToken",
+        "in": "sign",
+        "field": "sign",
+        "sign": {
+          "alg": "md5-sorted-kv",
+          "over": ["params", "ts", "user_id"],
+          "timestampField": "ts"
+        }
+      }
     }
   }
 }
@@ -553,16 +606,21 @@ Manifest 设置属于安装级配置：安装 owner 或管理员可修改；能�
 凭据值由安装 owner / 当前管理员在 Tapp 详情页输入。宿主复用安装 owner 的 `tapp_storage`
 记录，但只把密文放入专用 `encrypted_value` 字段，并使用宿主保留的 `_credentials.` key；
 沙箱 storage API 无法读取、列举、覆盖或清除此类记录。
-读取接口只返回 `configured`、需否重新授权和固定目标 origin，永远不返回明文或密文；沙箱没有
-credential 读取 API。宿主仅在执行绑定的具名 HTTP API 时把值附加到声明的固定请求头。
+读取接口只返回 `configured`、需否重新授权、固定目标 origin 以及每条绑定的 method/path/
+`access`/放置方式，永远不返回明文或密文；沙箱没有 credential 读取 API。宿主仅在执行绑定的
+具名 HTTP API 时按声明把值放入请求头、query、form，或只用来签名。
 
 绑定凭据的 endpoint 必须使用固定绝对 HTTPS origin，host 不能模板化；凭据也不能出现在
 endpoint、headers、body 或 `inject` 模板中。凭据声明及所有使用它的 API 定义共同参与授权
-指纹：endpoint、header、prefix、`access` 等发生变化后，旧凭据停止使用，owner 必须重新输入。
-一个凭据必须至少绑定一个 HTTP API。目标服务本身会收到凭据，因此 owner 只应授权可信 origin；
-第三方返回内容仍按不可信输入处理。宿主会在响应进入缓存或返回沙箱前，对原样凭据回显执行
-文本层和解析后 JSON 字符串/键双重脱敏（包括 JSON 转义后的值）；无法通用识别第三方主动生成的
-哈希、Base64 等派生表示，因此这不能替代可信目标与最小权限的 API Key。
+指纹：endpoint、`in`/`field`/`header`/`prefix`/`sign`、`access` 等发生变化后，旧凭据停止
+使用，owner 必须重新输入。一个凭据必须至少绑定一个 HTTP API。目标服务本身可能收到凭据，
+因此 owner 只应授权可信声明；第三方返回内容仍按不可信输入处理。宿主会在响应进入缓存或返回
+沙箱前，对原样凭据及编码/带前缀形式做文本层和解析后 JSON 字符串/键双重脱敏；无法通用识别
+第三方主动生成的哈希等派生表示，因此这不能替代可信目标与最小权限的 API Key。
+
+HTTP 模板只读前缀：`user.*`、`geo.*`、`params.*`、`time.unix` / `time.unixMs` /
+`time.iso8601` / `time.nonce`、`settings.{声明键}`。`settings.*` 取安装级已保存值或
+Manifest `defaultValue`，不是调用方参数。`{{secrets.*}}` 仍然 fail closed。
 
 `credentials[].key` 不得与 `settings[].key` 重名，避免同一名称同时存在公开可读值和宿主私密值。
 
@@ -613,7 +671,7 @@ endpoint、headers、body 或 `inject` 模板中。凭据声明及所有使用�
 | `endpoint`    | string | HTTP | HTTP URL，可使用 `{{params.*}}` 等模板            |
 | `method`      | string | ❌   | HTTP 方法，默认 `GET`；仅接受大写的 `GET`/`HEAD`/`POST`/`PUT`/`DELETE`/`CONNECT`/`OPTIONS`/`TRACE`/`PATCH` |
 | `headers`     | object | ❌   | 请求头模板                                        |
-| `credential`  | object | ❌   | 安装级凭据绑定 `{key, header, prefix?}`；仅用于 HTTP |
+| `credential`  | object | ❌   | 安装级凭据绑定；`in` 为 `header` / `query` / `form` / `sign`（互斥）。旧清单 `{key, header, prefix?}` 仍视为 header |
 | `bodyMode`    | string | ❌   | `json`（默认）、`raw` 或 `form`                   |
 | `body`        | any    | ❌   | 按 `bodyMode` 解析的请求体模板                    |
 | `builtin`     | string | 内置 | `geo`、`ai:chat` 或 `ai:generate`                 |
@@ -659,8 +717,8 @@ UTF-8/编码后的实际字节检查 1 MiB 请求体上限；默认 `json` 模�
 
 `inject` 的键是新别名，值是宿主上下文模板。例如
 `{"city":"{{geo.city}}"}` 会创建 `{{city}}`，供 `endpoint`、`headers` 或 `body`
-复用；精确引用会保留数字、布尔值等 JSON 类型。别名不能覆盖 `user.*`、`geo.*` 或
-`params.*`。Tapp 不提供 `secrets.*` 模板；Manifest 中出现宿主 secret 引用会在安装时被拒绝。
+复用；精确引用会保留数字、布尔值等 JSON 类型。别名不能覆盖 `user.*`、`geo.*`、
+`params.*`、`time.*` 或 `settings.*`。Tapp 不提供 `secrets.*` 模板；Manifest 中出现宿主 secret 引用会在安装时被拒绝。
 HTTP API 必须声明 `endpoint`，查询参数直接写在 URL 中；
 内置 API 只接受 `geo`、`ai:chat`、`ai:generate`，不能混入 HTTP 字段。
 AI 内置 API 除对应 `ai:*` 权限外，还必须在 `manifest.ai` 中以 `protocolVersion: 2` 声明相同 operation 和

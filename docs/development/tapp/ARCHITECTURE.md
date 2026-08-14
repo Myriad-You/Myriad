@@ -528,7 +528,7 @@ DNS 结果钉扎到本次客户端并禁止自动重定向；URL credentials、�
 无界响应内存占用。
 宿主配置密钥不进入 Tapp 模板上下文；`{{secrets.*}}` 在 Manifest 校验和运行时都 fail closed。
 第三方凭据使用安装级只写 credential capability：Manifest 声明描述项，并把每个凭据绑定到
-具名 HTTP API 的固定 HTTPS origin 与固定请求头；复用 `tapp_storage` 的宿主保留记录，在
+具名 HTTP API 的固定 HTTPS origin，并按声明放入请求头、query、form 或仅用于签名；复用 `tapp_storage` 的宿主保留记录，在
 `encrypted_value` / `binding_fingerprint` 字段保存密文和授权指纹，状态 API 不返回值。
 完整 storage entity 的序列化会跳过这两个宿主字段；普通 storage 列表、entries、单键读取与
 clear 只投影公开列并在 SQL 层排除所有宿主 key。数据库 CHECK 进一步限制只有

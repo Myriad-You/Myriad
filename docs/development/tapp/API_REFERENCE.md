@@ -178,7 +178,8 @@ const allSettings = await Tapp.settings.getAll();
   storage API 读写。
 - 不要在 settings 里存放密钥或仅管理员应知的敏感串：凡能打开该公开安装的 visitor 均可读。
 - 公开 Tapp 需要代站主调用第三方 API 时，在 Manifest 使用顶层 `credentials` 和
-  `apis.*.credential` 固定 HTTPS 请求头绑定。凭据只有安装管理界面的写入/删除/状态接口，
+  `apis.*.credential`。放置方式为 `header` / `query` / `form` / `sign`（互斥）；
+  旧清单的 `{header, prefix}` 仍视为请求头绑定。凭据只有安装管理界面的写入/删除/状态接口，
   不进入 `Tapp.settings`、模板上下文或任何沙箱读取 API。
 
 ---
@@ -1097,9 +1098,9 @@ Tapp.federation.onChannelUpdate((ev) => { /* accepted | closed | disconnected */
 Tapp.federation.onRoomUpdate((ev) => { /* governance_changed | member_* | disconnected */ });
 ```
 
-Channel/Room **JSON 消息**（含小型内联数据）后端载荷上限 **4 MiB**
-（`MESSAGE_PAYLOAD_LIMIT` / `MAX_ROOM_MESSAGE_PAYLOAD`）；联邦 inbox 独立硬上限
-为 **8 MiB**（见 `federation::limits`；已认证内容路由约 **24 MiB** = inbox + 16 MiB）。更大附件请走分块传输
+Channel/Room **JSON 消息**（含内联 base64 图）后端载荷上限 **36 MiB**
+（`MESSAGE_PAYLOAD_LIMIT` / `MAX_ROOM_MESSAGE_PAYLOAD`）；联邦 inbox DefaultBodyLimit
+为 **64 MiB**（见 `federation::limits`；已认证内容路由约 **80 MiB** = inbox + 16 MiB）。更大附件请走分块传输
 （默认 chunk **4 MiB** raw；base64 JSON 体上限 16 MiB，见 `TRANSFER_CHUNK_*`）。
 加密时 `sendMessage` / `sendRoomMessage` 可设 `encrypt: true`：库内与联邦 fan-out 仍为密文，
 本机 WebSocket 在密钥可用时推送明文以免 UI 先闪 ciphertext。
@@ -1492,7 +1493,8 @@ const declaredApis = await Tapp.api.list();
   `form` 字段顺序不属于契约；需要固定顺序或按最终字节签名时应使用 `raw`。
 - Tapp 不能传入任意 URL，也不能使用历史文档中的 `Tapp.http.request()`。
 - 安装级第三方 Key 使用 Manifest `credentials` + `apis.*.credential`；SDK 只能执行绑定的具名
-  API，不能读取凭据。声明、固定 HTTPS origin、请求头和重新授权规则见
+  API，不能读取凭据。放置方式为 `header` / `query` / `form` / `sign`（互斥）。声明、固定
+  HTTPS origin 和重新授权规则见
   [Manifest · 安装级 API 凭据](MANIFEST.md#安装级-api-凭据-credentials)。
 - 详细 Manifest 字段和 REST 链路见 [Manifest](MANIFEST.md#api-声明-apis) 与
   [REST API](REST_API.md#manifest-声明-api)。

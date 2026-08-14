@@ -186,7 +186,14 @@ pub const HTTP_ONLY_API_FIELDS: &[&str] = &[
     "inject",
     "credential",
 ];
-pub const API_INJECT_RESERVED_PREFIXES: &[&str] = &["user.", "geo.", "secrets.", "params."];
+pub const API_INJECT_RESERVED_PREFIXES: &[&str] =
+    &["user.", "geo.", "secrets.", "params.", "time.", "settings."];
+pub const CREDENTIAL_IN_VALUES: &[&str] = &["header", "query", "form", "sign"];
+pub const CREDENTIAL_ENCODINGS: &[&str] = &["base64"];
+pub const CREDENTIAL_SIGN_ALGS: &[&str] = &["md5-sorted-kv", "hmac-sha256-raw"];
+pub const CREDENTIAL_SIGN_ALGS_IMPLEMENTED: &[&str] = &["md5-sorted-kv"];
+pub const MAX_CREDENTIAL_FIELD_LEN: usize = 128;
+pub const MAX_CREDENTIAL_SIGN_OVER: usize = 16;
 pub const EVENT_SUBSCRIBE_PREFIXES: &[&str] = &["tapp.", "system."];
 pub const ASSET_LITERAL_METHODS: &[&str] = &["get", "getUrl", "getArrayBuffer"];
 pub const SOURCE_CODE_EXTENSIONS: &[&str] = &[".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx"];

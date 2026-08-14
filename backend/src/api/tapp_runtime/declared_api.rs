@@ -13,13 +13,13 @@ use sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::error::HttpError;
 use crate::middleware::auth::{ensure_current_admin_on, Claims};
 use crate::services::permission_service::{TappPermission, UserRole};
 use crate::services::tapp_api_service::{ApiExecutionContext, TappApiService};
 use crate::services::tapp_credentials::{self, TappCredentialError};
 use crate::services::tapp_declared_api::{self, DeclaredApiError};
 use crate::services::tapp_ownership::TappAccessError;
-use crate::error::HttpError;
 
 use super::common::check_rate_limit;
 use super::runtime_grant::RuntimeGrantContext;
@@ -46,10 +46,9 @@ fn declared_http_error(err: DeclaredApiError) -> (StatusCode, Json<Value>) {
                         "message": access.message(),
                     })),
                 ),
-                TappAccessError::Database | TappAccessError::NoAdmin => (
-                    status,
-                    Json(json!({ "error": access.error_code() })),
-                ),
+                TappAccessError::Database | TappAccessError::NoAdmin => {
+                    (status, Json(json!({ "error": access.error_code() })))
+                }
             }
         }
         DeclaredApiError::GrantScopeChanged => (
@@ -59,14 +58,8 @@ fn declared_http_error(err: DeclaredApiError) -> (StatusCode, Json<Value>) {
                 "code": err.code(),
             })),
         ),
-        DeclaredApiError::ApiNotFound { .. } => (
-            status,
-            Json(json!({ "error": err.message() })),
-        ),
-        DeclaredApiError::InvalidUser => (
-            status,
-            Json(json!({ "error": err.message() })),
-        ),
+        DeclaredApiError::ApiNotFound { .. } => (status, Json(json!({ "error": err.message() }))),
+        DeclaredApiError::InvalidUser => (status, Json(json!({ "error": err.message() }))),
     }
 }
 
@@ -116,9 +109,10 @@ pub async fn execute_tapp_api(
         claims.username
     );
 
-    let user_id: i32 = claims.sub.parse().map_err(|_| {
-        declared_http_error(DeclaredApiError::InvalidUser)
-    })?;
+    let user_id: i32 = claims
+        .sub
+        .parse()
+        .map_err(|_| declared_http_error(DeclaredApiError::InvalidUser))?;
 
     // 1. Resolve the same private-first installation bound into the Runtime Grant.
     let tapp = tapp_declared_api::resolve_declared_api_tapp(
@@ -135,7 +129,8 @@ pub async fn execute_tapp_api(
     let apis =
         tapp_declared_api::get_tapp_apis(&manifest_cache_key, &tapp_id, &tapp.manifest).await;
 
-    let api_def = tapp_declared_api::require_api_def(&apis, &api_name).map_err(declared_http_error)?;
+    let api_def =
+        tapp_declared_api::require_api_def(&apis, &api_name).map_err(declared_http_error)?;
     if api_def.api_type == "http" {
         // Public/protected controls the audience only. Every server-side
         // outbound request remains a network capability and must be present in
@@ -192,6 +187,43 @@ pub async fn execute_tapp_api(
         None
     };
 
+    let settings = if caller_may_invoke {
+        let declared: Vec<myriad_tapp_contract::manifest::TappSettingDef> = tapp
+            .manifest
+            .get("settings")
+            .cloned()
+            .map(serde_json::from_value)
+            .transpose()
+            .map_err(|_| {
+                HttpError::from((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "success": false,
+                        "error": "Invalid Tapp settings declaration"
+                    })),
+                ))
+            })?
+            .unwrap_or_default();
+        crate::services::tapp_storage::load_declared_setting_values(
+            &db,
+            tapp.user_id,
+            &tapp.tapp_id,
+            &declared,
+        )
+        .await
+        .map_err(|_| {
+            HttpError::from((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "success": false,
+                    "error": "Failed to load Tapp settings"
+                })),
+            ))
+        })?
+    } else {
+        std::collections::BTreeMap::new()
+    };
+
     // 6. 构建执行上下文
     let context = ApiExecutionContext {
         user_id,
@@ -202,6 +234,7 @@ pub async fn execute_tapp_api(
         granted_permissions,
         ai_model_tier: tapp_declared_api::ai_model_tier_from_manifest(&tapp.manifest),
         credential,
+        settings,
     };
 
     // 7. 执行 API
@@ -233,9 +266,10 @@ pub async fn list_tapp_apis(
         claims.username
     );
 
-    let user_id = claims.sub.parse::<i32>().map_err(|_| {
-        declared_http_error(DeclaredApiError::InvalidUser)
-    })?;
+    let user_id = claims
+        .sub
+        .parse::<i32>()
+        .map_err(|_| declared_http_error(DeclaredApiError::InvalidUser))?;
     let tapp = tapp_declared_api::resolve_declared_api_tapp(
         &db,
         user_id,

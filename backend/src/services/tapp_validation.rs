@@ -7,13 +7,14 @@
 
 use std::path::{Component, Path as FsPath};
 
+use myriad_tapp_contract::contract_rules::API_INJECT_RESERVED_PREFIXES;
 use myriad_tapp_contract::contract_rules::{
-    MAX_OPEN_URL_ID_LEN, MAX_OPEN_URLS, OPEN_URL_PERMISSION,
+    MAX_OPEN_URLS, MAX_OPEN_URL_ID_LEN, OPEN_URL_PERMISSION,
 };
 use myriad_tapp_contract::manifest::{
     valid_agent_name, valid_event_topic, TappAiContextSource, TappAiOperation, TappAiOutputFormat,
-    TappHttpBodyMode, TappManifest, TappOpenUrlMatch, TappSettingDef, TappWidgetRefreshMode,
-    TappWidgetRefreshPolicy,
+    TappCredentialIn, TappHttpBodyMode, TappManifest, TappOpenUrlMatch, TappSettingDef,
+    TappWidgetRefreshMode, TappWidgetRefreshPolicy,
 };
 use reqwest::header::HeaderName;
 use std::str::FromStr;
@@ -296,8 +297,13 @@ pub fn validate_open_url_target(value: &str, field: &str) -> Result<reqwest::Url
     if value.len() > 2_048 {
         return Err(format!("Tapp {field} is too long"));
     }
-    if value.chars().any(|ch| ch.is_control() || ch.is_whitespace()) {
-        return Err(format!("Tapp {field} must not contain whitespace or control characters"));
+    if value
+        .chars()
+        .any(|ch| ch.is_control() || ch.is_whitespace())
+    {
+        return Err(format!(
+            "Tapp {field} must not contain whitespace or control characters"
+        ));
     }
     let parsed = reqwest::Url::parse(value).map_err(|_| format!("Invalid Tapp {field}"))?;
     if !parsed.username().is_empty() || parsed.password().is_some() {
@@ -306,7 +312,8 @@ pub fn validate_open_url_target(value: &str, field: &str) -> Result<reqwest::Url
     let host = parsed
         .host_str()
         .ok_or_else(|| format!("Tapp {field} must include a hostname"))?;
-    let is_loopback = host.eq_ignore_ascii_case("localhost") || host == "127.0.0.1" || host == "::1";
+    let is_loopback =
+        host.eq_ignore_ascii_case("localhost") || host == "127.0.0.1" || host == "::1";
     match parsed.scheme() {
         "https" => {}
         "http" if is_loopback => {}
@@ -339,9 +346,7 @@ fn validate_open_urls(manifest: &TappManifest) -> Result<(), String> {
         return Ok(());
     }
     if !has_permission {
-        return Err(
-            "Tapp openUrls requires manifest permission ui:openUrl".to_string(),
-        );
+        return Err("Tapp openUrls requires manifest permission ui:openUrl".to_string());
     }
     if entries.len() > MAX_OPEN_URLS {
         return Err(format!(
@@ -377,9 +382,7 @@ fn validate_open_urls(manifest: &TappManifest) -> Result<(), String> {
         }
         // Reject fragment-only noise in declarations — host drops fragments on open.
         if parsed.fragment().is_some() {
-            return Err(format!(
-                "Tapp {field}.url must not include a #fragment"
-            ));
+            return Err(format!("Tapp {field}.url must not include a #fragment"));
         }
         let _ = entry.match_mode; // exhaustively known via serde enum
     }
@@ -815,13 +818,9 @@ pub fn validate_tapp_manifest(manifest: &TappManifest) -> Result<(), String> {
                                 "Credential-bound Tapp API {name} requires a fixed absolute HTTPS origin"
                             ));
                         }
-                        let header = HeaderName::from_str(&binding.header).map_err(|_| {
-                            format!("Invalid credential header for Tapp API {name}")
+                        let resolved = binding.resolve().map_err(|error| {
+                            format!("Invalid credential binding for Tapp API {name}: {error}")
                         })?;
-                        crate::services::outbound_security::validate_outbound_header(&header)
-                            .map_err(|_| {
-                                format!("Forbidden credential header for Tapp API {name}")
-                            })?;
                         if binding
                             .prefix
                             .as_ref()
@@ -831,14 +830,105 @@ pub fn validate_tapp_manifest(manifest: &TappManifest) -> Result<(), String> {
                                 "Credential header prefix is too long for Tapp API {name}"
                             ));
                         }
-                        if api.headers.as_ref().is_some_and(|headers| {
-                            headers
-                                .keys()
-                                .any(|name| name.eq_ignore_ascii_case(binding.header.as_str()))
-                        }) {
-                            return Err(format!(
-                                "Tapp API {name} declares the credential header twice"
-                            ));
+                        match resolved.placement {
+                            TappCredentialIn::Header => {
+                                let header =
+                                    HeaderName::from_str(&resolved.field).map_err(|_| {
+                                        format!("Invalid credential header for Tapp API {name}")
+                                    })?;
+                                crate::services::outbound_security::validate_outbound_header(
+                                    &header,
+                                )
+                                .map_err(|_| {
+                                    format!("Forbidden credential header for Tapp API {name}")
+                                })?;
+                                if api.headers.as_ref().is_some_and(|headers| {
+                                    headers.keys().any(|name| {
+                                        name.eq_ignore_ascii_case(resolved.field.as_str())
+                                    })
+                                }) {
+                                    return Err(format!(
+                                        "Tapp API {name} declares the credential header twice"
+                                    ));
+                                }
+                            }
+                            TappCredentialIn::Query => {
+                                if parsed
+                                    .query_pairs()
+                                    .any(|(name, _)| name.as_ref() == resolved.field)
+                                {
+                                    return Err(format!(
+                                        "Tapp API {name} declares the credential query field twice"
+                                    ));
+                                }
+                            }
+                            TappCredentialIn::Form => {
+                                if api.body_mode != TappHttpBodyMode::Form {
+                                    return Err(format!(
+                                        "Tapp API {name} form credentials require bodyMode form"
+                                    ));
+                                }
+                                if api.body.as_ref().is_some_and(|body| {
+                                    body.as_object()
+                                        .is_some_and(|fields| fields.contains_key(&resolved.field))
+                                }) {
+                                    return Err(format!(
+                                        "Tapp API {name} declares the credential form field twice"
+                                    ));
+                                }
+                            }
+                            TappCredentialIn::Sign => {
+                                let sign = resolved.sign.as_ref().expect("resolved sign");
+                                if !sign.alg.is_implemented() {
+                                    return Err(format!(
+                                        "Tapp API {name} credential sign algorithm {} is not implemented",
+                                        sign.alg.as_str()
+                                    ));
+                                }
+                                if !HTTP_BODY_METHODS.contains(&api.method.as_str()) {
+                                    return Err(format!(
+                                        "Tapp API {name} signed credentials require one of: {}",
+                                        HTTP_BODY_METHODS.join(", ")
+                                    ));
+                                }
+                                if api.body_mode == TappHttpBodyMode::Raw {
+                                    return Err(format!(
+                                        "Tapp API {name} signed credentials cannot use bodyMode raw"
+                                    ));
+                                }
+                                let Some(body) =
+                                    api.body.as_ref().and_then(serde_json::Value::as_object)
+                                else {
+                                    return Err(format!(
+                                        "Tapp API {name} signed credentials require a JSON or form object body"
+                                    ));
+                                };
+                                if body.contains_key(&resolved.field) {
+                                    return Err(format!(
+                                        "Tapp API {name} must not declare the signature field in body"
+                                    ));
+                                }
+                                for field_name in &sign.over {
+                                    if sign.timestamp_field.as_deref() == Some(field_name.as_str())
+                                    {
+                                        continue;
+                                    }
+                                    let Some(declared) = body.get(field_name) else {
+                                        return Err(format!(
+                                            "Tapp API {name} sign.over field '{field_name}' is not declared in body"
+                                        ));
+                                    };
+                                    if !declared.is_string()
+                                        && !declared.is_number()
+                                        && !declared.is_boolean()
+                                        && !declared.is_null()
+                                    {
+                                        return Err(format!(
+                                            "Tapp API {name} sign.over field '{field_name}' must be a scalar"
+                                        ));
+                                    }
+                                }
+                            }
                         }
                         bound_credential_keys.insert(binding.key.as_str());
                     }
@@ -950,7 +1040,7 @@ pub fn validate_tapp_manifest(manifest: &TappManifest) -> Result<(), String> {
                 }
                 for (alias, template) in inject {
                     if !valid_agent_name(alias)
-                        || ["user.", "geo.", "secrets.", "params."]
+                        || API_INJECT_RESERVED_PREFIXES
                             .iter()
                             .any(|prefix| alias.starts_with(prefix))
                     {
@@ -1272,6 +1362,120 @@ mod tests {
     }
 
     #[test]
+    fn signed_credential_requires_object_body_and_declared_over_fields() {
+        let mut manifest = credential_manifest("https://afdian.com/api/open/query-sponsor");
+        manifest
+            .apis
+            .as_mut()
+            .unwrap()
+            .get_mut("games")
+            .unwrap()
+            .credential = Some(
+            serde_json::from_value(json!({
+                "key": "wegame",
+                "in": "sign",
+                "field": "sign",
+                "sign": {
+                    "alg": "md5-sorted-kv",
+                    "over": ["params", "ts", "user_id"],
+                    "timestampField": "ts"
+                }
+            }))
+            .unwrap(),
+        );
+        manifest
+            .apis
+            .as_mut()
+            .unwrap()
+            .get_mut("games")
+            .unwrap()
+            .method = "POST".into();
+        manifest
+            .apis
+            .as_mut()
+            .unwrap()
+            .get_mut("games")
+            .unwrap()
+            .body = Some(json!({
+            "user_id": "{{settings.userId}}",
+            "params": "{\"page\":1}"
+        }));
+        assert!(validate_tapp_manifest(&manifest).is_ok());
+
+        manifest
+            .apis
+            .as_mut()
+            .unwrap()
+            .get_mut("games")
+            .unwrap()
+            .body_mode = TappHttpBodyMode::Raw;
+        manifest
+            .apis
+            .as_mut()
+            .unwrap()
+            .get_mut("games")
+            .unwrap()
+            .body = Some(json!("{{params.body}}"));
+        let error = validate_tapp_manifest(&manifest).unwrap_err();
+        assert!(error.contains("bodyMode raw"));
+    }
+
+    #[test]
+    fn signed_credential_rejects_default_get_and_object_over_fields() {
+        let mut manifest = credential_manifest("https://afdian.com/api/open/ping");
+        let api = manifest.apis.as_mut().unwrap().get_mut("games").unwrap();
+        api.credential = Some(
+            serde_json::from_value(json!({
+                "key": "wegame",
+                "in": "sign",
+                "field": "sign",
+                "sign": {
+                    "alg": "md5-sorted-kv",
+                    "over": ["params", "ts", "user_id"],
+                    "timestampField": "ts"
+                }
+            }))
+            .unwrap(),
+        );
+        api.body = Some(json!({
+            "user_id": "{{settings.userId}}",
+            "params": "{\"page\":1}"
+        }));
+        let error = validate_tapp_manifest(&manifest).unwrap_err();
+        assert!(error.contains("signed credentials require one of:"));
+
+        let api = manifest.apis.as_mut().unwrap().get_mut("games").unwrap();
+        api.method = "POST".into();
+        api.body = Some(json!({
+            "user_id": "{{settings.userId}}",
+            "params": { "page": 1 }
+        }));
+        let error = validate_tapp_manifest(&manifest).unwrap_err();
+        assert!(error.contains("must be a scalar"));
+    }
+
+    #[test]
+    fn query_credential_rejects_duplicate_query_name() {
+        let mut manifest = credential_manifest("https://api.example.com/weather?appid=placeholder");
+        manifest
+            .apis
+            .as_mut()
+            .unwrap()
+            .get_mut("games")
+            .unwrap()
+            .credential = Some(
+            serde_json::from_value(json!({
+                "key": "wegame",
+                "in": "query",
+                "field": "appid"
+            }))
+            .unwrap(),
+        );
+        let error = validate_tapp_manifest(&manifest).unwrap_err();
+        assert!(error.contains("query field twice"));
+    }
+
+    #[test]
     fn generated_contract_forbidden_headers_match_outbound_guard() {
         for value in FORBIDDEN_OUTBOUND_HEADERS {
             let header = HeaderName::from_str(value).expect("contract header name must be valid");
@@ -1359,7 +1563,9 @@ mod tests {
         assert!(validate_open_url_target("https://docs.example.com/a", "openUrls[0].url").is_ok());
         assert!(validate_open_url_target("http://localhost:3000/x", "openUrls[0].url").is_ok());
         assert!(validate_open_url_target("http://example.com/x", "openUrls[0].url").is_err());
-        assert!(validate_open_url_target("https://user:pass@example.com/", "openUrls[0].url").is_err());
+        assert!(
+            validate_open_url_target("https://user:pass@example.com/", "openUrls[0].url").is_err()
+        );
     }
 
     #[test]

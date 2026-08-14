@@ -25,7 +25,8 @@ Playground 项目至少需要 **Page** 或 **Widgets** 之一（允许 Widget-on
 | 字段 | 用途 |
 | ---- | ---- |
 | 顶层 `manifest.name` / `description` | **兜底**标题与描述（商店/列表/详情未命中语言时） |
-| `manifest.locales` | **宿主 chrome / 商店目录**的多语言标题与描述（BCP-47 → `{ name?, description? }`） |
+| `manifest.locales` | **宿主 chrome** 的多语言标题与短描述（BCP-47 → `{ name?, description? }`） |
+| `catalog.json` `locales` | **仅发布到商店时**：长介绍与静态预览覆盖（`long_description` / `preview`）。Playground 不生成 catalog |
 | `code.i18n` + `Tapp.i18n.t()` | **应用内 UI** 字符串（按钮、标签、提示等） |
 
 规则：
@@ -35,7 +36,9 @@ Playground 项目至少需要 **Page** 或 **Widgets** 之一（允许 Widget-on
 - **默认同时填写** `locales["en-US"]` 与 `locales["ja-JP"]` 的 `name`/`description`
   （Myriad 宿主常用语言；简短标题也要翻译）。仅当用户明确要求单语包时才可省略。
 - `locales` **不能**替代 `code.i18n`；应用内文案仍走 `Tapp.i18n`。
+- **不要**把 `long_description` 或 `preview` 写进 `manifest.locales`（安装校验会拒绝未知字段）。
 - 完整字段与回退链见 [MANIFEST · 多语言名称与描述](./MANIFEST.md#多语言名称与描述locales)。
+  商店展示层见 [STORE](./STORE.md)。
 
 示例（顶层中文兜底 + 宿主多语言目录文案）：
 
@@ -114,9 +117,12 @@ await Tapp.storage.clear();
 
 - 可在 Manifest 声明真实权限与正式运行时代码（见 [API_REFERENCE](./API_REFERENCE.md)）；
 - 声明式 HTTP API 必须申请 `network:fetch`。请求体默认使用 `bodyMode: "json"`；纯文本、XML
-  或依赖最终字节签名的接口使用 UTF-8 `raw`，表单接口使用 `form`。`raw`/`form` 仅允许
-  `POST`、`PUT`、`PATCH`、`DELETE`，且临时预览不会实际执行 `Tapp.api`；完整字段规则见
-  [MANIFEST · API 声明](./MANIFEST.md#api-声明-apis)。
+  使用 UTF-8 `raw`，表单使用 `form`。第三方密钥用 Manifest `credentials` +
+  `apis.*.credential`（`in`: `header` / `query` / `form` / `sign`）；密钥不进
+  `settings` 或模板。`raw`/`form`/`sign` 仅允许 `POST`、`PUT`、`PATCH`、`DELETE`。
+  临时预览不会实际执行 `Tapp.api`；完整字段见
+  [MANIFEST · API 声明](./MANIFEST.md#api-声明-apis) 与
+  [安装级凭据](./MANIFEST.md#安装级-api-凭据-credentials)。
 - 预览只验证 UI、生命周期、主题、`code.i18n`、`manifest.locales` 与内存 storage；
 - **不要**臆造预览 mock 联邦 / Brew / platform API。
 - 若生成 **正式运行后** 调用 `Tapp.tappList.install` 的商店安装代码，必须使用合法 SDK 形状

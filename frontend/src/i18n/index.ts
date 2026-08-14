@@ -3084,6 +3084,9 @@ export interface TranslationKeys {
     credentialRemove: string
     credentialRemoveConfirm: string
     credentialOrigins: string
+    credentialBinding: string
+    credentialBindingPlacement: string
+    credentialBindingSign: string
     credentialReauthorizationRequired: string
     credentialSaved: string
     credentialSaveFailed: string

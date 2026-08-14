@@ -2,11 +2,23 @@
 
 import { apiRequest } from './TappHttpClient'
 
+export interface TappCredentialBindingSummary {
+  api: string
+  method: string
+  endpoint: string
+  access: string
+  placement: string
+  field: string
+  signAlg?: string
+  signOver?: string[]
+}
+
 export interface TappCredentialStatus {
   key: string
   configured: boolean
   needsReauthorization: boolean
   origins: string[]
+  bindings?: TappCredentialBindingSummary[]
   updatedAt?: string
 }
 

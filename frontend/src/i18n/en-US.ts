@@ -3440,6 +3440,9 @@ export const enUS: TranslationKeys = {
     credentialRemoveConfirm:
       'APIs that depend on this credential will stop working. Continue?',
     credentialOrigins: 'Sent to: {origins}',
+    credentialBinding: '{method} {endpoint} ({access}) · {detail}',
+    credentialBindingPlacement: '{placement} {field}',
+    credentialBindingSign: 'sign {alg} over {fields}',
     credentialReauthorizationRequired:
       'The manifest target or permission changed; enter the credential again to authorize it',
     credentialSaved: 'Credential saved securely',

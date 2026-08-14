@@ -139,25 +139,67 @@
     "TappApiCredentialBinding": {
       "additionalProperties": false,
       "properties": {
+        "encoding": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TappCredentialEncoding"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional host encoding of the secret before prefix/placement. Not for `sign`."
+        },
+        "field": {
+          "description": "Destination name: header, query parameter, form field, or signature field.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "header": {
-          "description": "Fixed outbound request header that receives the credential.",
-          "type": "string"
+          "description": "Legacy header name. Equivalent to `field` when `in` is header or omitted.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "in": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TappCredentialIn"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the host applies the secret. Omitted with `header` means header (legacy)."
         },
         "key": {
           "description": "Key from top-level `manifest.credentials`.",
           "type": "string"
         },
         "prefix": {
-          "description": "Optional literal prefix such as `Bearer `.",
+          "description": "Optional literal prefix such as `Bearer `. Header placement only.",
           "type": [
             "string",
             "null"
           ]
+        },
+        "sign": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TappCredentialSign"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Host-only request signature. Required when `in` is `sign`."
         }
       },
       "required": [
-        "key",
-        "header"
+        "key"
       ],
       "type": "object"
     },
@@ -318,6 +360,53 @@
         "label"
       ],
       "type": "object"
+    },
+    "TappCredentialEncoding": {
+      "enum": [
+        "base64"
+      ],
+      "type": "string"
+    },
+    "TappCredentialIn": {
+      "enum": [
+        "header",
+        "query",
+        "form",
+        "sign"
+      ],
+      "type": "string"
+    },
+    "TappCredentialSign": {
+      "additionalProperties": false,
+      "properties": {
+        "alg": {
+          "$ref": "#/$defs/TappCredentialSignAlg"
+        },
+        "over": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "timestampField": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "alg",
+        "over"
+      ],
+      "type": "object"
+    },
+    "TappCredentialSignAlg": {
+      "enum": [
+        "md5-sorted-kv",
+        "hmac-sha256-raw"
+      ],
+      "type": "string"
     },
     "TappDataExchangeManifest": {
       "additionalProperties": false,

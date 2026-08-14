@@ -451,7 +451,7 @@ HTTP 声明式 API 都需要，不只是 `protected`）：
 
 - 新安装尚未由 installation owner / 当前管理员输入值：在 Tapp 详情页配置；SDK 与普通 viewer
   没有读取或写入凭据的接口。
-- endpoint、credential header/prefix、`access` 或同一凭据绑定的其他 API 定义发生变化：这是
+- endpoint、credential `in`/field/header/prefix/`sign`、`access` 或同一凭据绑定的其他 API 定义发生变化：这是
   授权指纹变化，必须由 owner 重新输入，不会自动沿用旧授权。
 - 从 settings 迁移：先在第三方服务轮换已可能暴露的旧 Key，再配置 credential；不要复制旧
   settings 值继续使用。

@@ -83,7 +83,7 @@ const DOCUMENTS: &[KnowledgeDocument] = &[
     },
     KnowledgeDocument {
         id: "STORE",
-        description: "remote Tapp store catalog index.json, storeSource vs SDK install shapes, assets path rules, publish checklist",
+        description: "remote Tapp store catalog index.json, catalog locales for long_description/preview, storeSource vs SDK install shapes, assets path rules, publish checklist",
         content: include_str!("../../../docs/development/tapp/STORE.md"),
     },
     KnowledgeDocument {
@@ -250,14 +250,15 @@ fn expand_query_aliases(query: &str) -> String {
         ),
         (
             "多语言",
-            " locales i18n name description manifest store catalog ",
+            " locales i18n name description manifest store catalog long_description preview ",
         ),
         (
             "locales",
-            " locales name description manifest store catalog en-US ja-JP ",
+            " locales name description manifest store catalog long_description preview en-US ja-JP ",
         ),
+        ("长介绍", " long_description locales store catalog preview "),
         ("标题", " locales name description manifest "),
-        ("商店", " store install locales package manifest "),
+        ("商店", " store install locales catalog preview package manifest "),
     ];
     aliases
         .iter()

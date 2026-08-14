@@ -466,6 +466,90 @@ Tapp.storage.get(key)
     )
   })
 
+  it('accepts signed-body and query credential placements', async () => {
+    const root = await temporaryDirectory('api-credential-placements')
+    await createProject(root, { type: 'page' })
+    const manifestPath = join(root, 'manifest.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+    manifest.permissions.push('network:fetch')
+    manifest.settings = [{ key: 'userId', label: 'Creator ID', type: 'input' }]
+    manifest.credentials = [
+      { key: 'afdianToken', label: 'Afdian token' },
+      { key: 'owm', label: 'OpenWeather key' },
+    ]
+    manifest.apis = {
+      sponsors: {
+        type: 'http',
+        access: 'public',
+        method: 'POST',
+        endpoint: 'https://afdian.com/api/open/query-sponsor',
+        body: {
+          user_id: '{{settings.userId}}',
+          params: '{"page":1,"per_page":20}',
+        },
+        credential: {
+          key: 'afdianToken',
+          in: 'sign',
+          field: 'sign',
+          sign: {
+            alg: 'md5-sorted-kv',
+            over: ['params', 'ts', 'user_id'],
+            timestampField: 'ts',
+          },
+        },
+      },
+      weather: {
+        type: 'http',
+        endpoint: 'https://api.openweathermap.org/data/2.5/weather?q={{params.city}}',
+        credential: { key: 'owm', in: 'query', field: 'appid' },
+      },
+    }
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+
+    const report = await inspectProject(root)
+    assert.deepEqual(
+      report.diagnostics.filter(({ code }) => code.includes('credential')),
+      [],
+    )
+  })
+
+  it('rejects signed credentials on GET and object over fields', async () => {
+    const root = await temporaryDirectory('api-credential-sign-shape')
+    await createProject(root, { type: 'page' })
+    const manifestPath = join(root, 'manifest.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+    manifest.permissions.push('network:fetch')
+    manifest.credentials = [{ key: 'afdianToken', label: 'Afdian token' }]
+    manifest.apis = {
+      sponsors: {
+        type: 'http',
+        endpoint: 'https://afdian.com/api/open/query-sponsor',
+        body: {
+          user_id: 'abc',
+          params: { page: 1 },
+        },
+        credential: {
+          key: 'afdianToken',
+          in: 'sign',
+          field: 'sign',
+          sign: {
+            alg: 'md5-sorted-kv',
+            over: ['params', 'user_id'],
+          },
+        },
+      },
+    }
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+
+    const report = await inspectProject(root)
+    const messages = report.diagnostics
+      .filter(({ code }) => code.includes('credential'))
+      .map(({ message }) => message)
+      .join('\n')
+    assert.match(messages, /signed credentials require one of/)
+    assert.match(messages, /must be a scalar/)
+  })
+
   it('rejects credential bindings with a templated destination host', async () => {
     const root = await temporaryDirectory('api-credential-host')
     await createProject(root, { type: 'page' })

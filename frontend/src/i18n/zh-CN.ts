@@ -3260,6 +3260,9 @@ export const zhCN: TranslationKeys = {
     credentialRemoveConfirm:
       '移除后，依赖此凭据的 API 将无法调用。确定继续吗？',
     credentialOrigins: '发送至：{origins}',
+    credentialBinding: '{method} {endpoint}（{access}）· {detail}',
+    credentialBindingPlacement: '{placement} {field}',
+    credentialBindingSign: '签名 {alg}，字段 {fields}',
     credentialReauthorizationRequired:
       '清单中的目标或权限已变化，请重新输入以授权',
     credentialSaved: '凭据已安全保存',
