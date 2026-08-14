@@ -794,7 +794,7 @@ const summary = await Tapp.api("summarize", { prompt: "总结这些数据" });
 | 字段 | 必填 | 说明 |
 | --- | --- | --- |
 | `path` | 是 | `/` + 1–64 位字母数字/`_`/`-`，Manifest 内唯一 |
-| `methods` | 否 | 仅 `GET` / `POST`，默认 `["GET"]`。`HEAD` 按 GET 验签 |
+| `methods` | 否 | 仅 `GET` / `POST`，默认 `["GET"]`。`HEAD` 不按 GET 验签，宿主直接拒绝 |
 | `verify.key` | 是 | 顶层 `credentials[].key`，可只绑入站 |
 | `verify.alg` | 是 | 仅 `hmac-sha256-raw` |
 | `verify.header` | 是 | `X-` 头；禁止会话头和代理头（`X-CSRF-Token`、`X-Tapp-Runtime-Grant`、`X-Forwarded-*`、`X-Real-IP`、`X-Request-Id` 等） |

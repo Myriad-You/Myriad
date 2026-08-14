@@ -629,8 +629,8 @@ pub fn valid_inbound_verify_header(name: &str) -> bool {
 
 pub fn valid_inbound_nonce(value: &str) -> bool {
     let len = value.len();
-    len >= crate::contract_rules::ROUTE_MIN_NONCE_LEN
-        && len <= crate::contract_rules::ROUTE_MAX_NONCE_LEN
+    (crate::contract_rules::ROUTE_MIN_NONCE_LEN..=crate::contract_rules::ROUTE_MAX_NONCE_LEN)
+        .contains(&len)
         && value
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))

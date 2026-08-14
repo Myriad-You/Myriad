@@ -425,6 +425,48 @@ Tapp.storage.get(key)
     assert.match(invalidApis[0].message, /API rejected HTTP method/)
   })
 
+  it('treats null inbound route and verify prefix as omitted', async () => {
+    const root = await temporaryDirectory('inbound-route-null')
+    await createProject(root, { type: 'page' })
+    const manifestPath = join(root, 'manifest.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+    manifest.permissions.push('network:fetch')
+    manifest.credentials = [{ key: 'inbound', label: 'Inbound HMAC' }]
+    manifest.apis = {
+      omitted: {
+        type: 'http',
+        access: 'public',
+        endpoint: 'https://api.example.com/games',
+        route: null,
+      },
+      signed: {
+        type: 'http',
+        access: 'public',
+        endpoint: 'https://api.example.com/sponsors',
+        route: {
+          path: '/sponsors',
+          methods: ['GET'],
+          verify: {
+            key: 'inbound',
+            alg: 'hmac-sha256-raw',
+            header: 'X-Signature',
+            prefix: null,
+            over: 'canonical-query',
+            timestampHeader: 'X-Timestamp',
+            nonceHeader: 'X-Nonce',
+          },
+        },
+      },
+    }
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+
+    const report = await inspectProject(root)
+    assert.deepEqual(
+      report.diagnostics.filter(({ code }) => code === 'invalid-api-route'),
+      [],
+    )
+  })
+
   it('accepts raw and form declared API body modes', async () => {
     const root = await temporaryDirectory('http-body-modes')
     await createProject(root, { type: 'page' })

@@ -335,7 +335,7 @@ function validateInboundRoute(definition, name, credentialKeys, boundCredentialK
     diagnostics.push(diagnostic('error', 'invalid-api-route', `API ${name} raw-body verify requires POST-only methods`))
   }
   const maxPrefix = contract.limits.routeVerifyPrefixLength || 256
-  if (verify.prefix !== undefined && (typeof verify.prefix !== 'string' || verify.prefix.length > maxPrefix)) {
+  if (verify.prefix != null && (typeof verify.prefix !== 'string' || verify.prefix.length > maxPrefix)) {
     diagnostics.push(diagnostic('error', 'invalid-api-route', `API ${name} inbound verify prefix is too long`))
   }
   const encodings = new Set(contract.rules.routeVerifyEncodings || ['hex', 'base64'])
@@ -1084,7 +1084,7 @@ function validateManifest(manifest, diagnostics, requiredPermissions) {
       if (JSON.stringify(definition).includes('{{secrets.')) {
         diagnostics.push(diagnostic('error', 'invalid-api', `API ${name} cannot reference host secret templates`))
       }
-      if (definition.route !== undefined) {
+      if (definition.route != null) {
         validateInboundRoute(definition, name, credentialKeys, boundCredentialKeys, inboundRoutePaths, diagnostics)
       }
       const type = definition.type || DEFAULT_API_TYPE

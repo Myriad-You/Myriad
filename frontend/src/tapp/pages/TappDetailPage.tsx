@@ -1081,7 +1081,7 @@ export function TappDetailPage() {
               itemKey="inbound-paused"
               label={t.tapp.inboundPaused}
               description={t.tapp.inboundPausedHint}
-              checked={inboundGuard.paused}
+              value={inboundGuard.paused}
               disabled={inboundGuardBusy}
               onChange={(checked) => {
                 void (async () => {

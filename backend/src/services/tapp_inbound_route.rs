@@ -5,10 +5,10 @@ use crate::services::tapp_registry::{self, RegistryIdentity};
 use axum::http::{HeaderMap, Method};
 use myriad_tapp_contract::contract_rules::ROUTE_MAX_BODY_BYTES;
 use myriad_tapp_contract::manifest::{
-    TappApiDef, TappApiRoute, TappRouteVerifyOver, valid_inbound_nonce,
+    valid_inbound_nonce, TappApiDef, TappApiRoute, TappRouteVerifyOver,
 };
 use sea_orm::DatabaseConnection;
-use serde_json::{Map, Value, json};
+use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 
@@ -65,7 +65,8 @@ impl InboundRouteError {
             Self::MethodNotAllowed => 405,
             Self::VerifyInvalid | Self::VerifyExpired | Self::VerifyReplay => 401,
             Self::Blocked { .. } | Self::Paused => 403,
-            Self::BodyTooLarge | Self::InvalidParams => 400,
+            Self::BodyTooLarge => 413,
+            Self::InvalidParams => 400,
             Self::Database => 500,
         }
     }
@@ -145,11 +146,13 @@ pub fn canonical_query(raw_query: Option<&str>) -> Result<String, InboundRouteEr
 }
 
 pub fn header_text<'a>(headers: &'a HeaderMap, name: &str) -> Result<&'a str, InboundRouteError> {
-    let value = headers
-        .iter()
-        .find(|(header_name, _)| header_name.as_str().eq_ignore_ascii_case(name))
-        .map(|(_, value)| value)
-        .ok_or(InboundRouteError::VerifyInvalid)?;
+    let header_name =
+        axum::http::HeaderName::try_from(name).map_err(|_| InboundRouteError::VerifyInvalid)?;
+    let mut values = headers.get_all(header_name).iter();
+    let value = values.next().ok_or(InboundRouteError::VerifyInvalid)?;
+    if values.next().is_some() {
+        return Err(InboundRouteError::VerifyInvalid);
+    }
     value
         .to_str()
         .map(str::trim)
@@ -307,6 +310,32 @@ pub fn merge_params(
     content_type: Option<&str>,
 ) -> Result<Value, InboundRouteError> {
     let mut params = Map::new();
+    // POST HMAC covers the body only. Unsigned query must not become params,
+    // override signed fields, or fail the request on duplicate tracking keys.
+    if method == "POST" {
+        if raw_body.is_empty() {
+            return Ok(Value::Object(params));
+        }
+        let content_type = media_type(content_type.unwrap_or("application/json"));
+        if content_type == "application/x-www-form-urlencoded" {
+            let mut seen = BTreeMap::new();
+            for (key, value) in url::form_urlencoded::parse(raw_body) {
+                if seen.insert(key.into_owned(), value.into_owned()).is_some() {
+                    return Err(InboundRouteError::InvalidParams);
+                }
+            }
+            for (key, value) in seen {
+                params.insert(key, Value::String(value));
+            }
+            return Ok(Value::Object(params));
+        }
+        let parsed: Value =
+            serde_json::from_slice(raw_body).map_err(|_| InboundRouteError::InvalidParams)?;
+        let Value::Object(fields) = parsed else {
+            return Err(InboundRouteError::InvalidParams);
+        };
+        return Ok(Value::Object(fields));
+    }
     if let Some(raw) = raw_query.filter(|value| !value.is_empty()) {
         let mut seen = BTreeMap::new();
         for (key, value) in url::form_urlencoded::parse(raw.as_bytes()) {
@@ -321,34 +350,7 @@ pub fn merge_params(
             params.insert(key, Value::String(value));
         }
     }
-    // POST HMAC covers the body only. Unsigned query must not become params
-    // or override signed JSON/form fields.
-    if method != "POST" {
-        return Ok(Value::Object(params));
-    }
-    params.clear();
-    if raw_body.is_empty() {
-        return Ok(Value::Object(params));
-    }
-    let content_type = media_type(content_type.unwrap_or("application/json"));
-    if content_type == "application/x-www-form-urlencoded" {
-        let mut seen = BTreeMap::new();
-        for (key, value) in url::form_urlencoded::parse(raw_body) {
-            if seen.insert(key.into_owned(), value.into_owned()).is_some() {
-                return Err(InboundRouteError::InvalidParams);
-            }
-        }
-        for (key, value) in seen {
-            params.insert(key, Value::String(value));
-        }
-        return Ok(Value::Object(params));
-    }
-    let parsed: Value =
-        serde_json::from_slice(raw_body).map_err(|_| InboundRouteError::InvalidParams)?;
-    let Value::Object(fields) = parsed else {
-        return Err(InboundRouteError::InvalidParams);
-    };
-    Ok(Value::Object(fields))
+    Ok(Value::Object(params))
 }
 
 fn media_type(content_type: &str) -> &str {
@@ -527,6 +529,50 @@ mod tests {
         let get = merge_params(Some("city=tokyo"), "GET", br#"{"city":"osaka"}"#, None).unwrap();
         assert_eq!(get["city"], json!("tokyo"));
         assert!(get.get("page").is_none());
+
+        let post_with_dup_query = merge_params(
+            Some("utm=a&utm=b"),
+            "POST",
+            br#"{"city":"osaka"}"#,
+            Some("application/json"),
+        )
+        .unwrap();
+        assert_eq!(post_with_dup_query["city"], json!("osaka"));
+    }
+
+    #[test]
+    fn duplicate_verify_headers_are_rejected() {
+        let route = route(TappRouteVerifyOver::CanonicalQuery, &["GET"]);
+        let payload = canonical_query(Some("page=1")).unwrap();
+        let material = signing_material(
+            "GET",
+            "/tapi/com.example.afdian/sponsors",
+            "1770000000",
+            "7f3c0e2a9b1d4c88a6e05f21",
+            payload.as_bytes(),
+        );
+        let mut headers = signed_headers(&route, &material, "secret");
+        headers.append("X-Timestamp", HeaderValue::from_static("1770000001"));
+        assert_eq!(
+            verify_signature(
+                &route,
+                "GET",
+                "com.example.afdian",
+                &headers,
+                Some("page=1"),
+                b"",
+                "secret",
+                1_770_000_000,
+            )
+            .unwrap_err(),
+            InboundRouteError::VerifyInvalid
+        );
+    }
+
+    #[test]
+    fn body_too_large_is_payload_too_large() {
+        assert_eq!(InboundRouteError::BodyTooLarge.status_hint(), 413);
+        assert_eq!(InboundRouteError::InvalidParams.status_hint(), 400);
     }
 
     #[test]

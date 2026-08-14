@@ -10,17 +10,17 @@ use crate::services::tapp_credentials::{self, TappCredentialError};
 use crate::services::tapp_declared_api;
 use crate::services::tapp_inbound_guard::{self, InboundDenial};
 use crate::services::tapp_inbound_route::{
-    self, InboundRouteError, inbound_path, merge_params, normalize_route_method,
+    self, inbound_path, merge_params, normalize_route_method, InboundRouteError,
 };
 use crate::services::tapp_ownership;
 use crate::services::tapp_validation::validate_tapp_id;
-use axum::Json;
 use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, Method, StatusCode, Uri};
+use axum::Json;
 use myriad_tapp_contract::manifest::TappApiAccess;
 use sea_orm::DatabaseConnection;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::net::SocketAddr;
 
 fn inbound_http_error(error: InboundRouteError) -> HttpError {
@@ -176,6 +176,20 @@ pub async fn execute_inbound_route(
         }
     };
 
+    // A valid HMAC is a one-time ticket. Reserve the nonce before later
+    // 403/429/DB paths so the same signed request cannot be replayed.
+    tapp_inbound_route::consume_nonce(
+        &db,
+        tapp.user_id,
+        &tapp_id,
+        &route.verify.key,
+        &nonce,
+        now,
+        route.verify.max_skew_secs,
+    )
+    .await
+    .map_err(inbound_http_error)?;
+
     if api_def.api_type == "http" {
         let installed = tapp_declared_api::installed_permissions_from_tapp(&tapp);
         if !installed
@@ -222,17 +236,6 @@ pub async fn execute_inbound_route(
     )?;
 
     check_route_verify_rate_limit(&db, &tapp_id, &route.verify.key, credential.revision()).await?;
-    tapp_inbound_route::consume_nonce(
-        &db,
-        tapp.user_id,
-        &tapp_id,
-        &route.verify.key,
-        &nonce,
-        now,
-        route.verify.max_skew_secs,
-    )
-    .await
-    .map_err(inbound_http_error)?;
 
     let context = ApiExecutionContext {
         user_id: -1,
