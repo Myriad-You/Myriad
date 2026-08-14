@@ -1528,20 +1528,29 @@ const text = await Tapp.speech.asr({ audio }); // speech:asr
 
 **权限**: public（仅可读本安装 `manifest.assets` 声明路径）
 
-用于游戏贴图、音频、wasm、关卡 JSON 等包内静态文件。不走 `Tapp.storage`。
+用于游戏贴图、音频、wasm、glTF/GLB、关卡 JSON 等包内静态文件。不走 `Tapp.storage`。
+Three.js 等引擎库不能放在 `assets/`（禁止 `.js`），应打成 IIFE 放进 `pageModules`。
 
 ```javascript
 const paths = await Tapp.assets.list();
 
-// 在沙箱内创建 blob URL（可赋给 Image / Audio）
+// 在沙箱内创建 blob URL（可赋给 Image / Audio / Loader）
 const { url, mimeType, size } = await Tapp.assets.getUrl("assets/sprite.png");
 
 // 需要二进制时
 const { buffer, mimeType: mt } = await Tapp.assets.getArrayBuffer("assets/level.json");
 
+// 一次缓存全部声明资源，供 Three LoadingManager.setURLModifier
+const urls = await Tapp.assets.getUrlMap();
+manager.setURLModifier((href) => Tapp.assets.rewriteUrl(href));
+
 Tapp.assets.revoke(url);
 Tapp.assets.revokeAll(); // 也会在 onDestroy 时自动调用
 ```
+
+`rewriteUrl` / `resolve` 只接受已声明的 `assets/` 路径（或能唯一对应到其中一项的
+文件名）。`fetch` 仅允许 `blob:` / `data:`，不能用来拉 CDN。完整约定见
+[图形与轻量游戏](GRAPHICS.md)。
 
 后端入口：`GET /api/tapps/{tappId}/asset?path=assets/...`（返回 base64）。
 约定与配额见 [图形与轻量游戏](GRAPHICS.md)。

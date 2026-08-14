@@ -84,6 +84,9 @@ export interface TappSdk {
     get(path: string): Promise<unknown>
     getUrl(path: string): Promise<{ url: string; mimeType?: string; size?: number; path?: string }>
     getArrayBuffer(path: string): Promise<{ path: string; mimeType?: string; size?: number; buffer: ArrayBuffer }>
+    getUrlMap(): Promise<Record<string, string>>
+    resolve(path: string): Promise<{ url: string; mimeType?: string; size?: number; path?: string }>
+    rewriteUrl(url: string): string
     revoke(url: string): void
     revokeAll(): void
   }

@@ -15,7 +15,9 @@
 | 全屏、`allow-pointer-lock`、pause/resume | 默认放开 `allow-same-origin` |
 
 开发者可直接使用浏览器原生 API（`canvas.getContext('2d'|'webgl2')`、Web Audio、
-`requestAnimationFrame`）。宿主 **不** 提供自研 WebGL 引擎封装。
+`requestAnimationFrame`）。宿主 **不** 提供自研 WebGL 引擎封装，也 **不** 内置
+Three.js。需要 Three / 自研引擎时，把库打进包内 `pageModules`（IIFE），当作普通
+guest 依赖。
 
 ## 包内资源 `manifest.assets`
 
@@ -95,13 +97,80 @@ function frame(ts) {
 - 失焦后停止 rAF 累加逻辑与音频，避免后台空转
 - 指针锁定依赖用户手势；全屏使用 `Tapp.ui.fullscreen.*` 并申请 `ui:fullscreen`
 
+## Three.js / WebGL 库
+
+Three.js 是 **Page 里的 guest 依赖**，不是宿主 SDK。不要写 `Tapp.three`，不要从
+CDN / `unpkg` / `jsdelivr` / `esm.sh` 加载，也不要把 `three` 打进 Myriad 主包。
+
+沙箱里的 `pageModules` 会按顺序拼成一段经典脚本（不是 ES module）。因此：
+
+1. 用 esbuild / Rollup 把 `three`（以及需要的 addons）打成 **IIFE**，输出到 `page/`。
+2. 在 `manifest.pageModules` 里声明该文件（例如 `scene.js`）。
+3. `.js` 不能放进 `manifest.assets`；库源码属于页面模块，贴图 / glTF / wasm 才走
+   `assets/`。
+4. 合计仍受 20 MiB / 单文件 5 MiB 限制。只打用到的 addons，不要带 DRACO/Basis 解码器
+   除非包里真有对应 wasm。
+
+```bash
+# 在 Tapp 项目里（three 只做 devDependency）
+npx esbuild src/scene.js --bundle --format=iife --minify --outfile=page/scene.js
+```
+
+```json
+{
+  "hasPage": true,
+  "pageTemplate": "page.html",
+  "pageModules": ["scene.js"],
+  "assets": ["assets/check.png", "assets/cube.glb"]
+}
+```
+
+### 先铺一层 URL 表，再交给 Loader
+
+先 `await Tapp.assets.getUrlMap()`，再把 `Tapp.assets.rewriteUrl` 交给
+`THREE.LoadingManager.setURLModifier`。`fetch` 只放行 `blob:` / `data:`（CSP
+`connect-src` 同步），所以 `TextureLoader` / `GLTFLoader.load` 可以吃改写后的
+blob，**仍然不能** `load('https://…')`。
+
+```javascript
+const urls = await Tapp.assets.getUrlMap();
+const manager = new THREE.LoadingManager();
+manager.setURLModifier(function (url) {
+  return Tapp.assets.rewriteUrl(url);
+});
+
+const texture = await new THREE.TextureLoader(manager).loadAsync(
+  "assets/check.png",
+);
+const gltf = await new GLTFLoader(manager).loadAsync("assets/cube.glb");
+```
+
+`rewriteUrl` 只映射已声明且已缓存的 `assets/…`（以及唯一的文件名）。先调用
+`getUrlMap` / `getUrl` / `resolve`，否则改写结果仍是原字符串，Loader 会失败。
+
+分离的 `.gltf` + `.bin` 只要都在 `manifest.assets` 里，改写后可以加载。不要留
+指向 CDN 或未声明路径的 `buffers[].uri` / `images[].uri`。单文件 `.glb` 仍然最省事。
+
+没有 `getUrlMap` 的旧宿主可继续用 `getUrl` + `Image`，或
+`getArrayBuffer` + `GLTFLoader.parse`。
+
+### Widget 与预览
+
+- **不要**在 Dashboard Widget 里跑 Three / 重 WebGL。Widget 要快 ready，主循环只放
+  Page（或全屏窗口）。
+- 商店静态预览 iframe **不执行脚本**。预览用 CSS / 静态图，不要指望里面跑场景。
+- Playground 可以生成「canvas + `Tapp.assets`」骨架，但不要输出 CDN `<script>`，
+  也不要假设沙箱能 `import` npm 包。
+
 ## 官方示例
 
-内置示例仅 **helloWorld**（`com.myriad.hello-world`）。社交客户端 **Aro**、
-联机 **斗地主** 等完整应用发布在官方
+内置示例仅 **helloWorld**（`com.myriad.hello-world`）。Three.js 官方 Page 是商店里的
+**Three 实验室**（`com.myriad.three-lab`）：`getUrlMap` + `rewriteUrl` 接 Loader、
+pause 停 rAF、destroy 时 `dispose`。社交客户端 **Aro**、联机 **斗地主** 等完整应用同样发布在官方
 [tapp-store](https://github.com/Myriad-You/tapp-store)
-（`apps/com.myriad.aro`、`apps/com.myriad.doudizhu`），经商店索引安装。目录协议、
-`manifest.assets` 在商店中的路径拼接与安装回退见 [Tapp 商店](STORE.md)。
+（`apps/com.myriad.aro`、`apps/com.myriad.doudizhu`、`apps/com.myriad.three-lab`），
+经商店索引安装。目录协议、`manifest.assets` 在商店中的路径拼接与安装回退见
+[Tapp 商店](STORE.md)。
 
 ## 后续（非第一版）
 

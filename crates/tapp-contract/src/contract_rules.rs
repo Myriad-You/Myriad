@@ -195,7 +195,7 @@ pub const CREDENTIAL_SIGN_ALGS_IMPLEMENTED: &[&str] = &["md5-sorted-kv"];
 pub const MAX_CREDENTIAL_FIELD_LEN: usize = 128;
 pub const MAX_CREDENTIAL_SIGN_OVER: usize = 16;
 pub const EVENT_SUBSCRIBE_PREFIXES: &[&str] = &["tapp.", "system."];
-pub const ASSET_LITERAL_METHODS: &[&str] = &["get", "getUrl", "getArrayBuffer"];
+pub const ASSET_LITERAL_METHODS: &[&str] = &["get", "getUrl", "getArrayBuffer", "resolve"];
 pub const SOURCE_CODE_EXTENSIONS: &[&str] = &[".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx"];
 pub const SOURCE_SCAN_SKIP_DIRECTORIES: &[&str] =
     &[".git", "node_modules", "dist", "build", "coverage"];

@@ -58,7 +58,7 @@ default-src 'none';
 style-src 'unsafe-inline' https://fonts.googleapis.com;
 img-src data: blob: <host-origin>;   /* + https: http: 当授予 network:fetch */
 font-src data: https://fonts.gstatic.com;
-connect-src 'none';
+connect-src blob: data:;
 frame-src 'none';
 object-src 'none';
 media-src 'none';   /* media:audio → blob: data:；远程音视频/图需 network:fetch */
@@ -74,8 +74,9 @@ manifest-src 'none'
 - `img-src` 默认仅 `data:` / `blob:` / 宿主同源。需要外链封面、CDN 图时，在
   `manifest.permissions` 声明 **`network:fetch`**（安装时由用户授权）；CSP 会
   追加 `https:` / `http:`。不要用 `/api/proxy/image` 折中绕过声明。
-- `connect-src` 始终 `'none'`：即使有 `network:fetch`，Tapp 也不能直接
-  `fetch`/XHR/WS，出站仍走 Manifest `apis` + Bridge。
+- `connect-src` 仅 `blob:` / `data:`：包内 Loader（Three `FileLoader`、`.glb`）
+  可以读沙箱自己创建的 blob。即使有 `network:fetch`，也不能直接 `fetch` `https:` /
+  XHR/WS，出站仍走 Manifest `apis` + Bridge。包装器同样拒绝非 blob/data 的 `fetch`。
 - `'wasm-unsafe-eval'` 仅用于 WebAssembly 编译，不等于开放 `eval`。
 - `media:audio` 仅把 `media-src` 放宽到 `blob: data:`；任意远程音视频同样要
   `network:fetch`。
@@ -93,7 +94,7 @@ manifest-src 'none'
 
 | 浏览器能力                                               | 当前行为                 | 使用方式                                      |
 | -------------------------------------------------------- | ------------------------ | --------------------------------------------- |
-| `fetch`、`XMLHttpRequest`、`WebSocket`、`EventSource`    | 禁用                     | Manifest `apis` + `Tapp.api()`                |
+| `fetch`、`XMLHttpRequest`、`WebSocket`、`EventSource`    | `fetch` 仅 blob:/data:；其余禁用 | 包内资源用 `Tapp.assets`；出站用 Manifest `apis` |
 | `localStorage`、`sessionStorage`、`indexedDB`、Cache API | 禁用或替换为空实现       | `Tapp.storage`                                |
 | `eval`、带源码的 `Function`、字符串形式的 timer          | 禁用                     | 使用预打包代码和函数回调                      |
 | `window.open`、`alert`、`confirm`、`prompt`、`print`     | 禁用                     | `Tapp.ui.showNotification/confirm`；外链用 `Tapp.ui.openUrl` + Manifest `openUrls` |

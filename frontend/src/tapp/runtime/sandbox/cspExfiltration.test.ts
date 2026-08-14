@@ -1,7 +1,7 @@
 /**
  * CSP 外泄 / 远端资源门控回归测试。
  *
- * connect-src 'none' 封掉 fetch/XHR/WS。img-src / media-src 的裸 https:/http:
+ * connect-src 仅 blob:/data:，封掉 https fetch/XHR/WS。img-src / media-src 的裸 https:/http:
  * 挂在 network:fetch 上：需要外链图或远程媒体的 Tapp 必须在 manifest 声明。
  *
  * Run from frontend/:
@@ -11,7 +11,11 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { cspOptionsFromPermissions, generateCSP } from './security.ts'
+import {
+  cspOptionsFromPermissions,
+  generateCSP,
+  generateSecurityWrapper,
+} from './security.ts'
 
 /** 取出某条 directive 的完整文本。 */
 function directive(csp: string, name: string): string {
@@ -82,7 +86,11 @@ describe('generateCSP media directives', () => {
       ['media:audio', 'network:fetch'],
     ]) {
       const csp = generateCSP('n0nce', cspOptionsFromPermissions(perms))
-      assert.equal(directive(csp, 'connect-src'), "connect-src 'none'")
+      assert.equal(directive(csp, 'connect-src'), 'connect-src blob: data:')
+      assert.ok(
+        !/\bhttps:/.test(directive(csp, 'connect-src')),
+        'connect-src must not allow https',
+      )
       assert.equal(directive(csp, 'worker-src'), "worker-src 'none'")
       assert.equal(directive(csp, 'frame-src'), "frame-src 'none'")
       assert.equal(directive(csp, 'object-src'), "object-src 'none'")
@@ -95,5 +103,13 @@ describe('generateCSP media directives', () => {
         `script-src must stay nonce-only: ${script}`,
       )
     }
+  })
+
+  it('keeps fetch blocked for network URLs and only mentions local schemes', () => {
+    const wrapper = generateSecurityWrapper('tok')
+    assert.match(wrapper, /isSandboxedFetchUrl/)
+    assert.match(wrapper, /blob:/)
+    assert.match(wrapper, /fetch disabled/)
+    assert.doesNotMatch(wrapper, /connect-src 'none'/)
   })
 })

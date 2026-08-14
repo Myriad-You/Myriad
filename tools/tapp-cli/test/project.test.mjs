@@ -198,6 +198,25 @@ describe('Tapp project core', () => {
     assert.ok(report.permissions.missing.some(({ permission }) => permission === 'storage'))
   })
 
+  it('warns when page HTML or JS loads an engine from a CDN', async () => {
+    const root = await temporaryDirectory('remote-engine')
+    await createProject(root, { type: 'page' })
+    await writeFile(
+      join(root, 'page.html'),
+      '<canvas id="scene"></canvas>\n<script src="https://unpkg.com/three@0.170.0/build/three.min.js"></script>\n',
+    )
+    await writeFile(
+      join(root, 'main.js'),
+      `import * as THREE from 'https://esm.sh/three'\n`,
+    )
+
+    const report = await inspectProject(root)
+    const remote = report.diagnostics.filter(({ code }) => code === 'remote-engine-script')
+    assert.ok(remote.some((item) => item.file === 'page.html'))
+    assert.ok(remote.some((item) => item.file === 'main.js'))
+    assert.equal(remote.every((item) => item.severity === 'warning'), true)
+  })
+
   it('uses the TypeScript AST for calls without matching comments or strings', async () => {
     const root = await temporaryDirectory('ast-analysis')
     await createProject(root, { type: 'page' })

@@ -49,6 +49,10 @@ myriad-tapp pack .
 可用 [访问统计 SDK](API_REFERENCE.md#访问统计-api)（admin 完整 summary；user/guest 仅
 访客卡片聚合；关闭采集时 `enabled: false` 短路）。
 
+Page 内可用 Canvas 2D / WebGL。Three.js 当作包内 guest 依赖打进 `pageModules`，贴图和
+`.glb` 走 `Tapp.assets`，不要走 CDN。约定见 [图形与轻量游戏](GRAPHICS.md)；可安装的官方
+示例是商店里的 `com.myriad.three-lab`。
+
 ---
 
 ## 代码架构

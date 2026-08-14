@@ -17,6 +17,7 @@
 
 import type { TappInstance } from '../../types'
 import type { SandboxCapabilityProfile } from './capabilityProfiles'
+import { ASSET_URL_HELPER_SOURCE } from './assetUrlRewriter'
 import { serializeSandboxScriptValue } from './security'
 
 // 预缓存的静态代码片段
@@ -133,6 +134,14 @@ export function generateFullSDK(
   let lifecycleDestroyed = false;
   const _assetUrlByPath = new Map();
   const _assetUrls = new Set();
+  ${ASSET_URL_HELPER_SOURCE}
+  const snapshotAssetUrls = () => {
+    const urls = {};
+    _assetUrlByPath.forEach((entry, path) => {
+      if (entry && entry.url) urls[path] = entry.url;
+    });
+    return urls;
+  };
   const decodeBase64ToBytes = (base64) => {
     const binary = atob(base64);
     const bytes = new Uint8Array(binary.length);
@@ -717,6 +726,25 @@ export function generateFullSDK(
         const bytes = decodeBase64ToBytes(asset.base64);
         return { path: asset.path, mimeType: asset.mimeType, size: asset.size, buffer: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) };
       },
+      getUrlMap: async () => {
+        const paths = await sendRequest('assets', 'list', []);
+        const map = {};
+        if (!Array.isArray(paths)) return map;
+        for (const path of paths) {
+          const entry = await Tapp.assets.getUrl(path);
+          map[path] = entry.url;
+        }
+        return map;
+      },
+      resolve: async (path) => {
+        const direct = normalizeDeclaredAssetPath(path);
+        if (direct) return Tapp.assets.getUrl(direct);
+        await Tapp.assets.getUrlMap();
+        const declared = resolveDeclaredAssetPath(path, snapshotAssetUrls());
+        if (!declared) throw new Error('Asset path is required');
+        return Tapp.assets.getUrl(declared);
+      },
+      rewriteUrl: (url) => rewriteAssetUrl(url, snapshotAssetUrls()) || url,
       revoke: (url) => {
         if (typeof url !== 'string') return;
         try { URL.revokeObjectURL(url); } catch (e) {}
@@ -1358,6 +1386,14 @@ function buildWidgetSdkBody(
   var lifecycleDestroyed = false;
   var _assetUrlByPath = new Map();
   var _assetUrls = new Set();
+  ${ASSET_URL_HELPER_SOURCE}
+  var snapshotAssetUrls = function() {
+    var urls = {};
+    _assetUrlByPath.forEach(function(entry, path) {
+      if (entry && entry.url) urls[path] = entry.url;
+    });
+    return urls;
+  };
   var decodeBase64ToBytes = function(base64) {
     var binary = atob(base64);
     var bytes = new Uint8Array(binary.length);
@@ -1773,6 +1809,33 @@ ${speechNs}
             buffer: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
           };
         });
+      },
+      getUrlMap: function() {
+        return sendRequest('assets', 'list', []).then(function(paths) {
+          var map = {};
+          if (!Array.isArray(paths)) return map;
+          var chain = Promise.resolve();
+          paths.forEach(function(path) {
+            chain = chain.then(function() {
+              return Tapp.assets.getUrl(path).then(function(entry) {
+                map[path] = entry.url;
+              });
+            });
+          });
+          return chain.then(function() { return map; });
+        });
+      },
+      resolve: function(path) {
+        var direct = normalizeDeclaredAssetPath(path);
+        if (direct) return Tapp.assets.getUrl(direct);
+        return Tapp.assets.getUrlMap().then(function() {
+          var declared = resolveDeclaredAssetPath(path, snapshotAssetUrls());
+          if (!declared) return Promise.reject(new Error('Asset path is required'));
+          return Tapp.assets.getUrl(declared);
+        });
+      },
+      rewriteUrl: function(url) {
+        return rewriteAssetUrl(url, snapshotAssetUrls()) || url;
       },
       revoke: function(url) {
         if (typeof url !== 'string') return;

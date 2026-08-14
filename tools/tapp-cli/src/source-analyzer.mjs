@@ -81,7 +81,23 @@ function literalString(node) {
   return value && ts.isStringLiteralLike(value) ? value.text : undefined
 }
 
+const REMOTE_ENGINE_SCRIPT =
+  /(?:src\s*=\s*['"]https?:\/\/[^'"]*(?:cdn\.jsdelivr\.net|unpkg\.com|cdnjs\.cloudflare\.com|esm\.sh|skypack\.dev|threejs\.org)|(?:import|from)\s*\(?\s*['"]https?:\/\/)/i
+
+function warnRemoteEngineScript(source, file, diagnostics) {
+  if (!REMOTE_ENGINE_SCRIPT.test(source)) return
+  diagnostics.push(
+    diagnostic(
+      'warning',
+      'remote-engine-script',
+      'Sandbox cannot load engine scripts from a CDN. Bundle Three.js or other WebGL libraries into pageModules as an IIFE.',
+      file,
+    ),
+  )
+}
+
 function inspectCode(source, file, manifest, diagnostics, requiredPermissions, usedActions, surfaces) {
+  warnRemoteEngineScript(source, file, diagnostics)
   const sourceFile = ts.createSourceFile(
     file,
     source,
@@ -179,8 +195,15 @@ export async function analyzeProjectCode({ root, manifest, surfaces }) {
   const usedActions = []
   for (const absolute of await walkCodeFiles(root)) {
     const file = relative(root, absolute).split(sep).join('/')
+    const source = await readFile(absolute, 'utf8')
+    // Minified engine IIFEs (Three.js, etc.) are too large for the TS AST
+    // and must not produce loader/fetch false positives.
+    if (source.length > 128 * 1024) {
+      warnRemoteEngineScript(source.slice(0, 32 * 1024), file, diagnostics)
+      continue
+    }
     inspectCode(
-      await readFile(absolute, 'utf8'),
+      source,
       file,
       manifest,
       diagnostics,
@@ -189,5 +212,20 @@ export async function analyzeProjectCode({ root, manifest, surfaces }) {
       surfaces,
     )
   }
+  for (const absolute of await walkMarkupFiles(root)) {
+    const file = relative(root, absolute).split(sep).join('/')
+    warnRemoteEngineScript(await readFile(absolute, 'utf8'), file, diagnostics)
+  }
   return { diagnostics, requiredPermissions, usedActions }
+}
+
+async function walkMarkupFiles(root, current = root) {
+  const files = []
+  for (const entry of await readdir(current, { withFileTypes: true })) {
+    if (entry.isDirectory() && (SKIP_DIRECTORIES.has(entry.name) || entry.name === 'types')) continue
+    const absolute = join(current, entry.name)
+    if (entry.isDirectory()) files.push(...(await walkMarkupFiles(root, absolute)))
+    else if (entry.isFile() && extname(entry.name) === '.html') files.push(absolute)
+  }
+  return files
 }

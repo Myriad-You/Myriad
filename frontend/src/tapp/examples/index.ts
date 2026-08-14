@@ -4,7 +4,7 @@
  *
  * 更新日期：2026-07
  *
- * 内置：helloWorld。Aro / 斗地主等完整应用见官方 tapp-store。
+ * 内置：helloWorld。Aro / 斗地主 / Three 实验室等完整应用见官方 tapp-store。
  */
 
 // 导出类型

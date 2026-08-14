@@ -261,7 +261,7 @@ Widget/平台内存注册和安装资源；是否保留用户数据由 `keep_dat
 
 ### 浏览器边界
 
-沙箱 HTML 使用随机 nonce CSP，默认 `connect-src 'none'`，并禁用 `fetch`、
+沙箱 HTML 使用随机 nonce CSP，`connect-src` 仅 `blob:` / `data:`，并禁用网络 `fetch`、
 `XMLHttpRequest`、`eval`、`Function`、本地存储和直接父窗口访问。图片允许 HTTP(S)
 是为了展示头像/封面，不代表脚本可以直接发网络请求。
 

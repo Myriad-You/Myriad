@@ -133,7 +133,8 @@
     "assetLiteralMethods": [
       "get",
       "getUrl",
-      "getArrayBuffer"
+      "getArrayBuffer",
+      "resolve"
     ],
     "backgroundRequirements": [
       "media",

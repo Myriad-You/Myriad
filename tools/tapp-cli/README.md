@@ -61,6 +61,13 @@ myriad-tapp pack .
 management page, choose the install action, and upload that file. The CLI does not
 currently log in to a Myriad server or upload packages itself.
 
+WebGL libraries such as Three.js are ordinary guest code. Bundle them with esbuild
+or Rollup into an IIFE under `page/` and list that file in `manifest.pageModules`.
+Put textures and `.glb` models in `manifest.assets` and load them through
+`Tapp.assets`. The sandbox cannot fetch a CDN copy of the engine; `check` warns
+when page HTML or JS points at `unpkg` / `jsdelivr` / `cdnjs` / `esm.sh`. See
+[GRAPHICS.md](../../docs/development/tapp/GRAPHICS.md).
+
 ## Commands
 
 Run `myriad-tapp <command> --help` for the command-specific interface and exit
