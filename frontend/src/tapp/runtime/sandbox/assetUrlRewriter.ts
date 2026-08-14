@@ -57,19 +57,61 @@ function resolveDeclaredAssetPath(url, urls) {
 }
 `
 
-const helpers = new Function(
-  `${ASSET_URL_HELPER_SOURCE}; return { normalizeDeclaredAssetPath, isSandboxedFetchUrl, rewriteAssetUrl, resolveDeclaredAssetPath };`,
-)() as {
-  normalizeDeclaredAssetPath: (url: string) => string
-  isSandboxedFetchUrl: (url: string) => boolean
-  rewriteAssetUrl: (url: string, urls: Record<string, string>) => string
-  resolveDeclaredAssetPath: (url: string, urls: Record<string, string>) => string
+/** Host/test copy of `ASSET_URL_HELPER_SOURCE` — keep behavior in lockstep. */
+export function normalizeDeclaredAssetPath(url: string): string {
+  if (typeof url !== 'string') return ''
+  let path = url.trim()
+  if (!path) return ''
+  if (/^blob:/i.test(path) || /^data:/i.test(path)) return ''
+  if (/^https?:\/\//i.test(path) || path.startsWith('//')) return ''
+  try {
+    path = decodeURI(path)
+  }
+  catch {
+    // keep the raw path
+  }
+  let cut = path.split('#')[0].split('?')[0]
+  const marker = cut.indexOf('assets/')
+  if (marker >= 0) cut = cut.slice(marker)
+  cut = cut.replace(/^(\.\/)+/, '')
+  if (cut.includes('..') || cut.includes('\\') || !cut.startsWith('assets/')) return ''
+  if (cut.length > 512) return ''
+  return cut
 }
 
-export const normalizeDeclaredAssetPath = helpers.normalizeDeclaredAssetPath
-export const isSandboxedFetchUrl = helpers.isSandboxedFetchUrl
-export const rewriteAssetUrl = helpers.rewriteAssetUrl
-export const resolveDeclaredAssetPath = helpers.resolveDeclaredAssetPath
+export function isSandboxedFetchUrl(url: string): boolean {
+  if (typeof url !== 'string') return false
+  const value = url.trim().toLowerCase()
+  return value.startsWith('blob:') || value.startsWith('data:')
+}
+
+export function rewriteAssetUrl(url: string, urls: Record<string, string>): string {
+  if (typeof url !== 'string' || !url || !urls) return ''
+  if (isSandboxedFetchUrl(url)) return url
+  if (/^https?:\/\//i.test(url) || url.startsWith('//')) return ''
+  const declared = normalizeDeclaredAssetPath(url)
+  if (declared && urls[declared]) return urls[declared]
+  if (urls[url]) return urls[url]
+  const base = url.split('?')[0].split('#')[0].split('/').pop()
+  if (!base) return ''
+  const hits: string[] = []
+  for (const key of Object.keys(urls)) {
+    if (key === base || key.endsWith(`/${base}`)) hits.push(key)
+  }
+  return hits.length === 1 ? urls[hits[0]] : ''
+}
+
+export function resolveDeclaredAssetPath(url: string, urls: Record<string, string>): string {
+  const declared = normalizeDeclaredAssetPath(url)
+  if (declared) return declared
+  if (typeof url !== 'string' || !url || !urls) return ''
+  const rewritten = rewriteAssetUrl(url, urls)
+  if (!rewritten) return ''
+  for (const key of Object.keys(urls)) {
+    if (urls[key] === rewritten) return key
+  }
+  return ''
+}
 
 /** Inlined into the sandbox wrapper so FileLoader can `fetch(new Request(blobUrl))`. */
 export const SANDBOXED_FETCH_INSTALL_SOURCE = `

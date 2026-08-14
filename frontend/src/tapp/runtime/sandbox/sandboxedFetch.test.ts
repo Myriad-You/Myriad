@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import vm from 'node:vm'
 import { SANDBOXED_FETCH_INSTALL_SOURCE } from './assetUrlRewriter.ts'
 import { generateFullSDK } from './sdkGenerator.ts'
 import { generateSecurityWrapper } from './security.ts'
 
 function install(windowLike: { fetch: typeof fetch }) {
-  const run = new Function('window', `${SANDBOXED_FETCH_INSTALL_SOURCE}\ninstallSandboxedFetch(window);`)
-  run(windowLike)
+  const context = vm.createContext({ window: windowLike })
+  vm.runInContext(`${SANDBOXED_FETCH_INSTALL_SOURCE}\ninstallSandboxedFetch(window);`, context)
 }
 
 describe('sandboxed fetch (Three FileLoader shape)', () => {

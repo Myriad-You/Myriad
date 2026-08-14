@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import vm from 'node:vm'
 import {
+  ASSET_URL_HELPER_SOURCE,
   isSandboxedFetchUrl,
   normalizeDeclaredAssetPath,
   resolveDeclaredAssetPath,
@@ -80,5 +82,48 @@ describe('isSandboxedFetchUrl', () => {
     assert.equal(isSandboxedFetchUrl('data:application/octet-stream;base64,AA'), true)
     assert.equal(isSandboxedFetchUrl('https://example.com/a'), false)
     assert.equal(isSandboxedFetchUrl('/assets/check.png'), false)
+  })
+})
+
+describe('ASSET_URL_HELPER_SOURCE', () => {
+  it('stays behaviorally identical to the host helpers', () => {
+    const sandbox = vm.runInNewContext(
+      `${ASSET_URL_HELPER_SOURCE}; ({ normalizeDeclaredAssetPath, isSandboxedFetchUrl, rewriteAssetUrl, resolveDeclaredAssetPath })`,
+    ) as {
+      normalizeDeclaredAssetPath: typeof normalizeDeclaredAssetPath
+      isSandboxedFetchUrl: typeof isSandboxedFetchUrl
+      rewriteAssetUrl: typeof rewriteAssetUrl
+      resolveDeclaredAssetPath: typeof resolveDeclaredAssetPath
+    }
+    const urls = {
+      'assets/check.png': 'blob:opaque/check',
+      'assets/cube.glb': 'blob:opaque/cube',
+    }
+    const samples = [
+      'assets/check.png',
+      './assets/models/cube.glb?v=1#mesh',
+      '/install/root/assets/check.png',
+      'cube.glb',
+      'blob:https://local/1',
+      'data:text/plain,hi',
+      'https://unpkg.com/three',
+      '//cdn.example/a.png',
+      'assets/../secret.bin',
+      'textures/check.png',
+    ]
+    for (const sample of samples) {
+      assert.equal(
+        sandbox.normalizeDeclaredAssetPath(sample),
+        normalizeDeclaredAssetPath(sample),
+        sample,
+      )
+      assert.equal(sandbox.isSandboxedFetchUrl(sample), isSandboxedFetchUrl(sample), sample)
+      assert.equal(sandbox.rewriteAssetUrl(sample, urls), rewriteAssetUrl(sample, urls), sample)
+      assert.equal(
+        sandbox.resolveDeclaredAssetPath(sample, urls),
+        resolveDeclaredAssetPath(sample, urls),
+        sample,
+      )
+    }
   })
 })
