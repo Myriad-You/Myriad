@@ -226,6 +226,24 @@ fn issued_to_response(issued: IssuedRuntimeGrant) -> RuntimeGrantResponse {
     }
 }
 
+/// 未知权限的运行时签发失败响应（纯映射，无副作用）。
+/// 供生产路径与测试共用同一边界：fail-closed 语义不变，不创建任何别名；
+/// 错误文案通过 `UnknownTappPermission::message` 复用共享 replacement hint。
+fn authorize_unknown_permission_response(
+    permission: &str,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let unknown = UnknownTappPermission {
+        permission: permission.to_string(),
+    };
+    (
+        StatusCode::BAD_REQUEST,
+        Json(json!({
+            "error": unknown.message(),
+            "code": unknown.code(),
+        })),
+    )
+}
+
 /// POST /api/tapps/{tapp_id}/runtime-grants/authorize
 ///
 /// Browser-hosted capabilities (for example media control and speech) use this
@@ -237,20 +255,8 @@ pub async fn authorize_runtime_permission(
     Json(request): Json<AuthorizeRuntimePermissionRequest>,
 ) -> Result<Json<Value>, HttpError> {
     runtime_grant.require_tapp_id(&tapp_id)?;
-    let permission = TappPermission::from_str(&request.permission).ok_or_else(|| {
-        // Fail-closed, but route the retired-name guidance through the shared
-        // replacement hint so `storage` recommends the split permissions.
-        let unknown = UnknownTappPermission {
-            permission: request.permission.clone(),
-        };
-        (
-            StatusCode::BAD_REQUEST,
-            Json(json!({
-                "error": unknown.message(),
-                "code": unknown.code(),
-            })),
-        )
-    })?;
+    let permission = TappPermission::from_str(&request.permission)
+        .ok_or_else(|| authorize_unknown_permission_response(&request.permission))?;
     runtime_grant.require(permission)?;
     Ok(Json(json!({ "authorized": true })))
 }
@@ -305,4 +311,38 @@ pub async fn revoke_all_tapp_runtime_grants(db: &DatabaseConnection, tapp_id: &s
     super::events::disconnect_all_tapp_events(tapp_id).await;
     super::data_exchange::cancel_all_tapp_data_exchanges(tapp_id).await;
     revoked
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn authorize_unknown_storage_responds_bad_request_with_replacement_hint() {
+        let (status, Json(body)) = authorize_unknown_permission_response("storage");
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["code"], "UNKNOWN_TAPP_PERMISSION");
+        let error = body["error"].as_str().expect("error must be a string");
+        assert!(error.contains("'storage'"), "{error}");
+        assert!(error.contains("storage:read"), "{error}");
+        assert!(error.contains("storage:write"), "{error}");
+        assert!(error.contains("Manifest"), "{error}");
+        assert!(error.contains("reinstall"), "{error}");
+    }
+
+    #[test]
+    fn authorize_unknown_generic_keeps_generic_message() {
+        let (status, Json(body)) = authorize_unknown_permission_response("legacy:unknown");
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["code"], "UNKNOWN_TAPP_PERMISSION");
+        assert_eq!(body["error"], "Unknown Tapp permission 'legacy:unknown'");
+    }
+
+    #[test]
+    fn authorize_unknown_never_maps_to_a_live_permission() {
+        // Fail-closed：`storage` 不能通过签发解析成任何现有权限。
+        assert!(TappPermission::from_str("storage").is_none());
+        assert!(TappPermission::from_str("storage:read").is_some());
+        assert!(TappPermission::from_str("storage:write").is_some());
+    }
 }
