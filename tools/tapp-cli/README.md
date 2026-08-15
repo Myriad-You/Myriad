@@ -61,12 +61,16 @@ myriad-tapp pack .
 management page, choose the install action, and upload that file. The CLI does not
 currently log in to a Myriad server or upload packages itself.
 
-WebGL libraries such as Three.js are ordinary guest code. Bundle them with esbuild
-or Rollup into an IIFE under `page/` and list that file in `manifest.pageModules`.
-Put textures and `.glb` models in `manifest.assets` and load them through
-`Tapp.assets`. The sandbox cannot fetch a CDN copy of the engine; `check` warns
-when page HTML or JS points at `unpkg` / `jsdelivr` / `cdnjs` / `esm.sh`. See
+For Page 3D, prefer `runtimeModules: ["three"]` (category `game` or `developer`)
+so the host injects pinned Three r170 + `GLTFLoader`. You can still bundle a guest
+IIFE under `page/` and list it in `manifest.pageModules`. Put textures and `.glb`
+in `manifest.assets` and load them through `Tapp.assets`. The sandbox cannot fetch
+a CDN copy of the engine; `check` warns when page HTML or JS points at `unpkg` /
+`jsdelivr` / `cdnjs` / `esm.sh`. See
 [GRAPHICS.md](../../docs/development/tapp/GRAPHICS.md).
+
+Online games use `Tapp.game` plus `game:session` and federation permissions.
+`create()` is private by default; preview cannot exercise these APIs.
 
 ## Commands
 

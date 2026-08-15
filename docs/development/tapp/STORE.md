@@ -296,6 +296,10 @@ flowchart TB
 - 不要用 `games` / `tools` / `music` 等旧别名写新包（宿主会规范化，但新发布应直接用规范 ID）。
 - `Page` / `Widget` / headless 是运行形态，不是 `category`。
 - 索引 `category` ≠ Manifest `category` → 后端 **拒绝商店安装**。
+- `category` 为 `game` / `developer` 且声明了 `game` 或 `runtimeModules` 时，资源上限
+  放宽到单文件 12 MiB / 合计 48 MiB / 128 项。3D 请用宿主 `runtimeModules: ["three"]`，
+  不要把 Three 打进商店包。联机新包用 `Tapp.game`；旧的自定义 `message_type`
+  （如 `gomoku.v1`）在未声明 `game` 时仍可走普通房间消息。
 
 ### 最小合法示例
 

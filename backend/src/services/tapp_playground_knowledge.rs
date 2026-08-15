@@ -63,7 +63,7 @@ const DOCUMENTS: &[KnowledgeDocument] = &[
     },
     KnowledgeDocument {
         id: "GRAPHICS",
-        description: "guest Three.js IIFE, canvas/WebGL, getUrlMap rewriteUrl asset loading; no CDN fetch",
+        description: "host runtimeModules three r170, guest IIFE fallback, canvas/WebGL, getUrlMap rewriteUrl; no CDN fetch",
         content: include_str!("../../../docs/development/tapp/GRAPHICS.md"),
     },
     KnowledgeDocument {
@@ -93,7 +93,7 @@ const DOCUMENTS: &[KnowledgeDocument] = &[
     },
     KnowledgeDocument {
         id: "PLAYGROUND_GENERATION_CONTEXT",
-        description: "safe temporary-preview contract; manifest.locales vs code.i18n; credentials not in source; guest Three via getUrlMap; federation install-only",
+        description: "safe temporary-preview contract; runtimeModules three preview; Tapp.game install-only; manifest.locales vs code.i18n; credentials not in source",
         content: include_str!("../../../docs/development/tapp/PLAYGROUND_GENERATION_CONTEXT.md"),
     },
 ];
@@ -237,7 +237,7 @@ fn expand_query_aliases(query: &str) -> String {
         ("数据交换", " data exchange "),
         ("接口", " api "),
         ("网络", " api network fetch "),
-        ("图形", " graphics canvas three getUrlMap rewriteUrl assets "),
+        ("图形", " graphics canvas three runtimeModules getUrlMap rewriteUrl assets "),
         ("动画", " animation graphics "),
         (
             "凭据",
@@ -251,14 +251,22 @@ fn expand_query_aliases(query: &str) -> String {
             "credentials",
             " credentials credential header query form sign hmac inbound route tapi manifest write-only ",
         ),
-        ("Three", " graphics three canvas getUrlMap rewriteUrl assets "),
+        ("Three", " graphics three runtimeModules canvas getUrlMap rewriteUrl assets "),
         (
             "three.js",
-            " graphics three canvas getUrlMap rewriteUrl assets ",
+            " graphics three runtimeModules canvas getUrlMap rewriteUrl assets ",
         ),
         (
             "threejs",
-            " graphics three canvas getUrlMap rewriteUrl assets ",
+            " graphics three runtimeModules canvas getUrlMap rewriteUrl assets ",
+        ),
+        (
+            "Tapp.game",
+            " game session federation room share invite isPublic protocol ",
+        ),
+        (
+            "联机",
+            " game session federation room Tapp.game invite share isPublic ",
         ),
         ("贴图", " assets getUrlMap rewriteUrl graphics glb "),
         ("入站", " inbound route tapi hmac verify nonce manifest api "),
@@ -267,11 +275,11 @@ fn expand_query_aliases(query: &str) -> String {
         ("安装", " install package manifest "),
         (
             "联邦",
-            " federation publish media note uploadMedia createNote ",
+            " federation publish media note uploadMedia createNote game session room invite ",
         ),
         (
             "federation",
-            " federation publish media note uploadMedia createNote ",
+            " federation publish media note uploadMedia createNote game session room invite ",
         ),
         (
             "多语言",

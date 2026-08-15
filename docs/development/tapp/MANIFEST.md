@@ -65,8 +65,10 @@ Page/Widget 模板必须是 `.html`；代码与模板类声明资源必须是安
 ```
 
 - `game.protocol`：小写 `[a-z0-9._-]`，会组成房间消息类型 `game:<tappId>:<protocol>`。
+- 声明 `game` 时必须同时申请 `game:session` 与 `federation:read` / `federation:write` / `federation:message`。
 - `runtimeModules` 目前只允许 `three`，且仅 game / developer 分类。宿主注入钉死版本，不走 CDN。
-- `Tapp.game` 创建房间时会写入 `shared_data_config.game`，分享 ID 为 `room_id@home_server`。
+- `Tapp.game.create()` 默认不公开。同一实例可用 `room_id@home_server` 加入；跨实例私房必须邀请（邀请会带上 `game` 配置），跨实例自助加入要 `{ isPublic: true }`。
+- 发送/入站只接受该房间绑定的 `game:<tappId>:<protocol>`；`seq` / `nonce` 由对局自己去重。
 
 ### 外链 allowlist（openUrls）
 

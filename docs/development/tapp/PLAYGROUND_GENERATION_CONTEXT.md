@@ -27,6 +27,10 @@ Playground 项目至少需要 **Page** 或 **Widgets** 之一（允许 Widget-on
   先 `Tapp.assets.getUrlMap()`，再用 `rewriteUrl` 接 LoadingManager。
   `fetch` 只能打 blob/data。详见 [GRAPHICS.md](GRAPHICS.md)。
 - 不要在预览里调用 `Tapp.game` 或联邦房间。联机只写正式安装后的代码。
+  若生成安装后才跑的对局：Manifest 同时声明 `game:session` 与
+  `federation:read` / `federation:write` / `federation:message`，用 `Tapp.game`
+  （不要自己拼 `gomoku.v1`）。`create()` 默认不公开；跨实例私房靠邀请，
+  跨实例分享 ID 自助加入必须 `{ isPublic: true }`。
 
 ## 宿主展示文案 vs 应用内 i18n（勿混淆）
 
