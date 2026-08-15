@@ -15,7 +15,6 @@ use sea_orm::{DatabaseConnection, EntityTrait};
 use std::collections::HashMap;
 
 use crate::models::entities::tapp_store_sources;
-use crate::services::tapp_install_resources::validate_asset_resource_bytes;
 use crate::services::tapp_store_package::{
     append_store_cache_bust, find_store_app_entry, i18n_downloads, is_invalid_store_source_ref,
     join_store_file_url, nonempty_map_opt, optional_store_text_downloads, page_module_downloads,
@@ -329,8 +328,18 @@ async fn download_store_package_assets(
     package_root: &str,
     manifest: &TappManifest,
 ) -> Result<Option<HashMap<String, String>>, HttpError> {
-    let plan = store_asset_download_plan(base_url, package_root, manifest.assets.as_deref())
-        .map_err(|error| api_http_error(StatusCode::BAD_GATEWAY, error))?;
+    let max_assets = if manifest.uses_game_asset_limits() {
+        crate::services::tapp_validation::MAX_TAPP_GAME_ASSETS
+    } else {
+        crate::services::tapp_validation::MAX_TAPP_ASSETS
+    };
+    let plan = store_asset_download_plan(
+        base_url,
+        package_root,
+        manifest.assets.as_deref(),
+        max_assets,
+    )
+    .map_err(|error| api_http_error(StatusCode::BAD_GATEWAY, error))?;
     if plan.is_empty() {
         return Ok(None);
     }
@@ -362,8 +371,13 @@ async fn download_store_package_assets(
             api_http_error(StatusCode::BAD_GATEWAY, "Upstream fetch failed")
         })?;
 
-        total = validate_asset_resource_bytes(relative, bytes.len() as u64, total)
-            .map_err(|e| api_http_error(StatusCode::BAD_GATEWAY, e))?;
+        total = crate::services::tapp_install_resources::validate_asset_resource_bytes_with(
+            relative,
+            bytes.len() as u64,
+            total,
+            crate::services::tapp_install_resources::AssetBudget::for_manifest(manifest),
+        )
+        .map_err(|e| api_http_error(StatusCode::BAD_GATEWAY, e))?;
 
         assets.insert(relative.clone(), B64.encode(&bytes));
     }

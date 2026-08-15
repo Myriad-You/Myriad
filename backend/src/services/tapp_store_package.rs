@@ -337,9 +337,16 @@ pub fn require_download_page_template_if_declared<'a>(
 
 /// Bound the declared assets list before download (store-side contract).
 pub fn validate_store_declared_assets_count(declared_len: usize) -> Result<(), String> {
-    if declared_len > MAX_TAPP_ASSETS {
+    validate_store_declared_assets_count_max(declared_len, MAX_TAPP_ASSETS)
+}
+
+pub fn validate_store_declared_assets_count_max(
+    declared_len: usize,
+    max_assets: usize,
+) -> Result<(), String> {
+    if declared_len > max_assets {
         return Err(format!(
-            "Tapp assets accepts at most {MAX_TAPP_ASSETS} entries (got {declared_len})"
+            "Tapp assets accepts at most {max_assets} entries (got {declared_len})"
         ));
     }
     Ok(())
@@ -547,6 +554,7 @@ pub fn store_asset_download_plan(
     base_url: &str,
     package_root: &str,
     declared: Option<&[String]>,
+    max_assets: usize,
 ) -> Result<Vec<StoreAssetDownload>, String> {
     use crate::services::tapp_validation::validate_asset_path;
 
@@ -556,7 +564,7 @@ pub fn store_asset_download_plan(
     if declared.is_empty() {
         return Ok(Vec::new());
     }
-    validate_store_declared_assets_count(declared.len())?;
+    validate_store_declared_assets_count_max(declared.len(), max_assets)?;
 
     let mut plan = Vec::with_capacity(declared.len());
     for relative in declared {
@@ -891,6 +899,7 @@ mod tests {
             "https://ex.com/store",
             "apps/com.example.app",
             Some(&declared),
+            MAX_TAPP_ASSETS,
         )
         .unwrap();
         assert_eq!(plan.len(), 2);
@@ -904,13 +913,19 @@ mod tests {
             "https://ex.com/store/apps/com.example.app/assets/felt/table.png"
         );
 
-        assert!(store_asset_download_plan("https://ex.com/store", "apps/a", None)
-            .unwrap()
-            .is_empty());
         assert!(store_asset_download_plan(
             "https://ex.com/store",
             "apps/a",
-            Some(&["main.js".to_string()])
+            None,
+            MAX_TAPP_ASSETS
+        )
+        .unwrap()
+        .is_empty());
+        assert!(store_asset_download_plan(
+            "https://ex.com/store",
+            "apps/a",
+            Some(&["main.js".to_string()]),
+            MAX_TAPP_ASSETS
         )
         .unwrap_err()
         .contains("assets/"));

@@ -5,7 +5,7 @@
  * 精确匹配（忽略大小写）→ 语言前缀匹配（zh-CN ↔ zh）→ 顶层 name/description。
  */
 
-import type { TappManifestLocaleEntry, TappManifestLocales } from '../types'
+import type { TappManifestLocales } from '../types'
 
 /** 解析后的清单展示文案 */
 export interface LocalizedManifestText {
@@ -13,10 +13,11 @@ export interface LocalizedManifestText {
   description?: string
 }
 
-function pickEntry(
-  locales: TappManifestLocales | undefined,
+/** 精确 BCP-47 → 语言前缀 → 未命中。商店与 Manifest 共用这一条回退链。 */
+export function pickLocaleEntry<T>(
+  locales: Record<string, T> | undefined,
   locale: string | undefined,
-): TappManifestLocaleEntry | undefined {
+): T | undefined {
   if (!locales || !locale) return undefined
   const target = locale.toLowerCase()
   const keys = Object.keys(locales)
@@ -31,7 +32,7 @@ function pickEntry(
   return prefix ? locales[prefix] : undefined
 }
 
-function nonEmpty(value: unknown): string | undefined {
+export function nonEmptyText(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined
 }
 
@@ -47,9 +48,9 @@ export function resolveManifestText(
   },
   locale: string | undefined,
 ): LocalizedManifestText {
-  const entry = pickEntry(source.locales, locale)
+  const entry = pickLocaleEntry(source.locales, locale)
   return {
-    name: nonEmpty(entry?.name) ?? source.name,
-    description: nonEmpty(entry?.description) ?? source.description,
+    name: nonEmptyText(entry?.name) ?? source.name,
+    description: nonEmptyText(entry?.description) ?? source.description,
   }
 }

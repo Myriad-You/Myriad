@@ -148,6 +148,8 @@ Host UI: Config → Federation → **Outbound delivery queue** (stats, list, ret
 
 Script: `scripts/dev/federation-multi-instance-suite.sh`
 
+Read-only FK orphan report (does not mutate): `scripts/dev/federation-fk-orphan-report.sql`
+
 - `wait_delivery_side` treats `dead` as failure **unless** `error_message` matches
   `cancelled:%` (user/API cancels left by prior cases must not poison later waits).
 - Case `deploy_retry_dead_skips_user_cancel` seeds one user-cancel dead + one real

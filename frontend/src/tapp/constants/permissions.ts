@@ -295,4 +295,9 @@ export const PERMISSION_CONFIG: Record<
     labelKey: 'permFederationFiles',
     descriptionKey: 'permFederationFilesDesc',
   },
+  'game:session': {
+    icon: FaUsers,
+    labelKey: 'permGameSession',
+    descriptionKey: 'permGameSessionDesc',
+  },
 }

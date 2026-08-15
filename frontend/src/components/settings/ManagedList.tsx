@@ -211,6 +211,12 @@ export interface ManagedListItem {
   /** Controlled expand state. */
   expanded?: boolean
   onToggleExpand?: () => void
+  /**
+   * Replace the default expand hit with a custom control (e.g. a guide
+   * float trigger). Receives the same leading + main nodes. When set,
+   * `expandContent` is not shown inline.
+   */
+  renderHit?: (parts: { leading: ReactNode; main: ReactNode }) => ReactNode
   /** Dim row + block pointer while this row’s action runs. */
   busy?: boolean
   className?: string
@@ -703,8 +709,9 @@ export const ManagedList = React.memo(({
         visibleItems.map((item) => {
           const hasActions = !!(item.actions && item.actions.length > 0)
           const hasTrailing = item.trailing != null
-          const canExpand = item.expandContent != null
-          const isExpanded = !!item.expanded
+          const hasCustomHit = item.renderHit != null
+          const canExpand = item.expandContent != null || hasCustomHit
+          const isExpanded = !!item.expanded && !hasCustomHit
           const badges = [
             ...(item.badge ? [item.badge] : []),
             ...(item.badges ?? []),
@@ -772,7 +779,17 @@ export const ManagedList = React.memo(({
               className={`managed-list-row${isExpanded ? ' is-expanded' : ''}${item.busy ? ' is-busy' : ''}${canExpand ? ' is-expandable' : ''}${item.className ? ` ${item.className}` : ''}`}
               aria-busy={item.busy || undefined}
             >
-              {canExpand ? (
+              {hasCustomHit ? (
+                <div className="managed-list-row-head">
+                  {item.renderHit!({
+                    leading,
+                    main: (
+                      <div className="managed-list-row-main">{mainInner}</div>
+                    ),
+                  })}
+                  {side}
+                </div>
+              ) : canExpand ? (
                 <div className="managed-list-row-head">
                   {/*
                     Full hit target: leading + main. Side actions stay outside

@@ -498,6 +498,17 @@ pub(super) fn build_authenticated_router(
                 get(api::tapp_runtime::list_tapp_apis)
                     .route_layer(from_fn_with_state(app_state.clone(), middleware::auth::optional_auth_middleware)),
             )
+            // Inbound declared routes for other programs. No Runtime Grant, no
+            // guest cookie, and no unauthenticated catalog (that would advertise
+            // which public installs expose signed endpoints).
+            .route(
+                "/tapi/{tapp_id}/{route}",
+                get(api::tapp_runtime::execute_inbound_route)
+                    .post(api::tapp_runtime::execute_inbound_route)
+                    .layer(axum::extract::DefaultBodyLimit::max(
+                        myriad_tapp_contract::contract_rules::ROUTE_MAX_BODY_BYTES,
+                    )),
+            )
             // Context Geo - 公开 API，获取客户端地理位置
             .route(
                 "/api/tapp/context/geo",

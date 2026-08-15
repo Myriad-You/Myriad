@@ -5,9 +5,10 @@
 //!
 //! - GET    /api/admin/users                              用户列表（含 OAuth identities、tapp 数、在线状态）
 //! - GET    /api/admin/users/{id}                         用户详情（identities + 已安装 tapp）
-//! - PATCH  /api/admin/users/{id}                         更新用户（is_admin/local_login_disabled）
+//! - PATCH  /api/admin/users/{id}                         更新用户（is_admin/local_login_disabled/tapp_install_disabled）
 //! - DELETE /api/admin/users/{id}                         删除用户（含关联数据清理）
 //! - DELETE /api/admin/users/{id}/identities/{identity_id} 解绑某用户的 OAuth identity
+//! - DELETE /api/admin/users/{id}/tapps/{tapp_id}         卸载某用户的已安装 Tapp
 //!
 //! Privilege model: durable `users.is_owner` (previously heuristic `id = 1`).
 
@@ -39,6 +40,13 @@ fn db_error(e: impl std::fmt::Debug) -> ApiError {
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(json!({"error": "Database error"})),
     )
+}
+
+
+fn http_to_api(err: crate::error::HttpError) -> ApiError {
+    let status = StatusCode::from_u16(err.0.status_u16())
+        .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    (status, Json(err.0.to_json()))
 }
 
 fn not_found() -> ApiError {
@@ -83,6 +91,17 @@ pub(crate) fn non_owner_delete_error(
     }
     if target_is_admin {
         return Some("Only the site owner can delete administrators");
+    }
+    None
+}
+
+/// The site owner cannot be barred from installing Tapps.
+pub(crate) fn cannot_restrict_owner_install(
+    target_is_owner: bool,
+    disable: Option<bool>,
+) -> Option<&'static str> {
+    if target_is_owner && disable == Some(true) {
+        return Some("Cannot disable Tapp install for the site owner");
     }
     None
 }
@@ -159,6 +178,7 @@ fn user_row_to_json(row: &QueryResult, identities: &[Value]) -> Value {
         "is_owner": row.try_get::<bool>("", "is_owner").unwrap_or(false),
         "auth_provider": row.try_get::<String>("", "auth_provider").unwrap_or_default(),
         "local_login_disabled": row.try_get::<bool>("", "local_login_disabled").unwrap_or(false),
+        "tapp_install_disabled": row.try_get::<bool>("", "tapp_install_disabled").unwrap_or(false),
         "has_password": row.try_get::<bool>("", "has_password").unwrap_or(false),
         "created_at": rfc3339(row, "created_at"),
         "last_login_at": rfc3339(row, "last_login_at"),
@@ -191,6 +211,7 @@ fn user_select_sql() -> String {
     format!(
         "SELECT u.id, u.username, u.display_name, u.email, {avatar} AS avatar_url, \
         u.is_admin, u.is_owner, u.auth_provider, u.local_login_disabled, \
+        u.tapp_install_disabled, \
         u.password_hash IS NOT NULL AS has_password, \
         u.created_at, u.last_login_at, u.last_seen_at, u.online_seconds, \
         (SELECT COUNT(*) FROM tapps t WHERE t.user_id = u.id) AS tapp_count \
@@ -314,6 +335,7 @@ pub async fn get_user(
 pub struct UpdateUserRequest {
     pub is_admin: Option<bool>,
     pub local_login_disabled: Option<bool>,
+    pub tapp_install_disabled: Option<bool>,
 }
 
 /// Notice for promote: JWT claim stays false until re-login.
@@ -406,6 +428,10 @@ pub async fn update_user(
         }
     }
 
+    if let Some(msg) = cannot_restrict_owner_install(target_is_owner, req.tapp_install_disabled) {
+        return Err((StatusCode::BAD_REQUEST, Json(json!({"error": msg}))));
+    }
+
     let mut sets: Vec<String> = Vec::new();
     let mut params: Vec<SeaValue> = Vec::new();
     let push = |sets: &mut Vec<String>, params: &mut Vec<SeaValue>, col: &str, v: SeaValue| {
@@ -425,6 +451,14 @@ pub async fn update_user(
             &mut sets,
             &mut params,
             "local_login_disabled",
+            SeaValue::Bool(Some(disabled)),
+        );
+    }
+    if let Some(disabled) = req.tapp_install_disabled {
+        push(
+            &mut sets,
+            &mut params,
+            "tapp_install_disabled",
             SeaValue::Bool(Some(disabled)),
         );
     }
@@ -481,6 +515,19 @@ pub async fn update_user(
         body["message"] = json!(DEMOTE_IMMEDIATE_NOTICE);
     }
     Ok(Json(body))
+}
+
+/// DELETE /api/admin/users/{id}/tapps/{tapp_id}
+pub async fn uninstall_user_tapp(
+    crate::extract::Db(db): crate::extract::Db,
+    Path((user_id, tapp_id)): Path<(i32, String)>,
+    headers: axum::http::HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    require_admin(&headers, &db).await?;
+    let _ = crate::api::tapp_store::uninstall_tapp_for_user(&db, user_id, &tapp_id, false)
+        .await
+        .map_err(http_to_api)?;
+    get_user(crate::extract::Db(db), Path(user_id), headers).await
 }
 
 /// DELETE /api/admin/users/{id}/identities/{identity_id}
@@ -723,8 +770,8 @@ pub async fn delete_user(
 #[cfg(test)]
 mod tests {
     use super::{
-        cannot_demote_owner_error, non_owner_delete_error, non_owner_grant_admin_on_create_error,
-        non_owner_is_admin_change_error,
+        cannot_demote_owner_error, cannot_restrict_owner_install, non_owner_delete_error,
+        non_owner_grant_admin_on_create_error, non_owner_is_admin_change_error,
     };
 
     /// 与 handler 中安全规则保持一致的纯函数，便于无 DB 单测。
@@ -776,6 +823,14 @@ mod tests {
         assert!(non_owner_is_admin_change_error(true).is_none());
         assert!(!reject_last_admin_demote(true, false, 2));
         assert!(reject_last_admin_demote(true, false, 1));
+    }
+
+    #[test]
+    fn cannot_restrict_owner_tapp_install() {
+        assert!(cannot_restrict_owner_install(true, Some(true)).is_some());
+        assert!(cannot_restrict_owner_install(true, Some(false)).is_none());
+        assert!(cannot_restrict_owner_install(false, Some(true)).is_none());
+        assert!(cannot_restrict_owner_install(true, None).is_none());
     }
 
     #[test]

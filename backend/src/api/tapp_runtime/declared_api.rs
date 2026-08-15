@@ -189,6 +189,43 @@ pub async fn execute_tapp_api(
         None
     };
 
+    let settings = if caller_may_invoke {
+        let declared: Vec<myriad_tapp_contract::manifest::TappSettingDef> = tapp
+            .manifest
+            .get("settings")
+            .cloned()
+            .map(serde_json::from_value)
+            .transpose()
+            .map_err(|_| {
+                HttpError::from((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "success": false,
+                        "error": "Invalid Tapp settings declaration"
+                    })),
+                ))
+            })?
+            .unwrap_or_default();
+        crate::services::tapp_storage::load_declared_setting_values(
+            &db,
+            tapp.user_id,
+            &tapp.tapp_id,
+            &declared,
+        )
+        .await
+        .map_err(|_| {
+            HttpError::from((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "success": false,
+                    "error": "Failed to load Tapp settings"
+                })),
+            ))
+        })?
+    } else {
+        std::collections::BTreeMap::new()
+    };
+
     // 6. 构建执行上下文
     let context = ApiExecutionContext {
         user_id,
@@ -199,6 +236,7 @@ pub async fn execute_tapp_api(
         granted_permissions,
         ai_model_tier: tapp_declared_api::ai_model_tier_from_manifest(&tapp.manifest),
         credential,
+        settings,
     };
 
     // 7. 执行 API

@@ -21,12 +21,6 @@ mod oauth_identities;
 
 mod retired_history;
 
-#[path = "012_federation_inbox_receipts.rs"]
-mod federation_inbox_receipts;
-
-#[path = "013_federation_inbox_receipts_v2.rs"]
-mod federation_inbox_receipts_v2;
-
 #[path = "014_federation_delivery_leases.rs"]
 mod federation_delivery_leases;
 
@@ -48,8 +42,6 @@ impl MigratorTrait for Migrator {
         // greenfield schema, but their names must remain so startup never has
         // to rewrite `seaql_migrations` to make history appear valid.
         migrations.extend(retired_history::migrations());
-        migrations.push(Box::new(federation_inbox_receipts::Migration));
-        migrations.push(Box::new(federation_inbox_receipts_v2::Migration));
         migrations.push(Box::new(federation_delivery_leases::Migration));
         migrations
     }
@@ -78,11 +70,11 @@ mod tests {
         }
         assert!(
             unique.contains("012_federation_inbox_receipts"),
-            "durable federation receipt migration must remain registered"
+            "published receipt migration name must remain registered"
         );
         assert!(
             unique.contains("013_federation_inbox_receipts_v2"),
-            "legacy receipt-shape repair must remain registered"
+            "published receipt-shape repair name must remain registered"
         );
         assert!(
             unique.contains("014_federation_delivery_leases"),

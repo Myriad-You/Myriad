@@ -15,12 +15,12 @@ use sea_orm::{
 use serde::Deserialize;
 use tokio::fs;
 
+use crate::error::HttpError;
 use crate::middleware::auth::Claims;
 use crate::models::entities::{tapp_storage, tapp_widgets, tapps};
 use crate::services::tapp_lifecycle::{
     select_uninstall_target, uninstall_quarantine_dir_name, UninstallTarget,
 };
-use crate::error::HttpError;
 use myriad_error::AppError;
 
 // Path-stable re-export for handlers + manifest_tests / parent crate test imports.
@@ -51,7 +51,10 @@ pub(super) async fn uninstall_tapp(
     Path(tapp_id): Path<String>,
     Query(query): Query<UninstallTappQuery>,
 ) -> Result<Json<ApiResponse<()>>, HttpError> {
-    let user_id: i32 = claims.sub.parse().map_err(|_| HttpError(AppError::unauthorized("Unauthorized")))?;
+    let user_id: i32 = claims
+        .sub
+        .parse()
+        .map_err(|_| HttpError(AppError::unauthorized("Unauthorized")))?;
     validate_tapp_id(&tapp_id).map_err(|_| HttpError(AppError::bad_request("Bad request")))?;
     let keep_data = query.keep_data;
 
@@ -94,6 +97,24 @@ pub(super) async fn uninstall_tapp(
         }
         UninstallTarget::NotFound => Err(HttpError(AppError::not_found("Not found"))),
     }
+}
+
+/// Admin: uninstall one install row belonging to `user_id`.
+pub(crate) async fn uninstall_tapp_for_user(
+    db: &DatabaseConnection,
+    user_id: i32,
+    tapp_id: &str,
+    keep_data: bool,
+) -> Result<Json<ApiResponse<()>>, HttpError> {
+    validate_tapp_id(tapp_id).map_err(|_| HttpError(AppError::bad_request("Bad request")))?;
+    let tapp = tapps::Entity::find()
+        .filter(tapps::Column::UserId.eq(user_id))
+        .filter(tapps::Column::TappId.eq(tapp_id))
+        .one(db)
+        .await
+        .map_err(|_| HttpError(AppError::internal("Database error")))?
+        .ok_or_else(|| HttpError(AppError::not_found("Tapp install not found")))?;
+    do_uninstall_tapp(db, &tapp, keep_data).await
 }
 
 /// 执行卸载 Tapp 的具体操作
@@ -142,7 +163,8 @@ async fn do_uninstall_tapp(
     // them. Rename failures (permissions, busy mount, EXDEV) must not abort
     // uninstall — DB cleanup still proceeds and post-commit best-effort deletes
     // either the quarantine path or the live directory.
-    let tapp_dir = tapp_dir_for(user_id, tapp_id).map_err(|_| HttpError(AppError::bad_request("Bad request")))?;
+    let tapp_dir = tapp_dir_for(user_id, tapp_id)
+        .map_err(|_| HttpError(AppError::bad_request("Bad request")))?;
     let quarantined_dir = if !tapp_dir.exists() {
         None
     } else if let Some(parent) = tapp_dir.parent() {
@@ -429,9 +451,7 @@ pub async fn prune_stale_private_tapps(
 
     let mut deleted = 0i32;
     for row in rows {
-        let row_id: i32 = row
-            .try_get("", "id")
-            .map_err(|e| e.to_string())?;
+        let row_id: i32 = row.try_get("", "id").map_err(|e| e.to_string())?;
         let Some(model) = tapps::Entity::find_by_id(row_id)
             .one(db)
             .await

@@ -26,8 +26,27 @@ pub async fn create_room(
 
     let governance = req.governance_type.as_deref().unwrap_or("owner");
     let invite_policy = req.invite_policy.as_deref().unwrap_or("admin-only");
-    let max_members = req.max_members.unwrap_or(50);
+    let mut max_members = req.max_members.unwrap_or(50);
     let is_public = req.is_public.unwrap_or(false);
+    let mut shared_data_config = None;
+    if let Some(game) = &req.game {
+        super::game::validate_room_game_config(
+            &game.tapp_id,
+            &game.protocol,
+            game.max_players,
+            game.max_message_bytes,
+        )
+        .map_err(|error| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": error, "code": "GAME_CONFIG_INVALID"})),
+            )
+        })?;
+        if let Some(players) = game.max_players {
+            max_members = players;
+        }
+        shared_data_config = Some(json!({ "game": game }));
+    }
 
     // 验证名称和描述长度
     if req.name.is_empty() || req.name.len() > 500 {
@@ -70,8 +89,8 @@ pub async fn create_room(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_rooms
            (room_id, name, description, avatar_url, owner_actor, home_server, governance_type, invite_policy,
-            max_members, is_public, distribution_strategy, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'fan-out', NOW())"#,
+            max_members, is_public, distribution_strategy, shared_data_config, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'fan-out', $11, NOW())"#,
         [
             room_id.clone().into(),
             req.name.clone().into(),
@@ -83,6 +102,7 @@ pub async fn create_room(
             invite_policy.into(),
             max_members.into(),
             is_public.into(),
+            shared_data_config.clone().into(),
         ],
     ))
     .await
@@ -119,7 +139,7 @@ pub async fn create_room(
         max_members,
         is_public,
         enabled_tapps: None,
-        shared_data_config: None,
+        shared_data_config,
         my_role: Some("owner".to_string()),
         my_membership_status: Some("active".to_string()),
         member_count: 1,

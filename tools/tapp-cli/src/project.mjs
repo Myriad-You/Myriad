@@ -143,6 +143,212 @@ function isNamedValue(value) {
   )
 }
 
+function validateDeclaredCredential(definition, binding, name, diagnostics) {
+  const placement = binding.in || (binding.sign ? null : 'header')
+  const fieldLimit = contract.limits.credentialFieldLength || contract.limits.credentialKeyLength
+  if (binding.sign && placement !== 'sign') {
+    diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} credential.sign requires in: "sign"`))
+    return
+  }
+  if (placement && !contract.rules.credentialInValues.includes(placement)) {
+    diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} credential.in is invalid`))
+    return
+  }
+  const field = placement === 'header'
+    ? (binding.field || binding.header)
+    : binding.field
+  if (placement === 'header' && binding.field && binding.header && binding.field !== binding.header) {
+    diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} credential.field and header must match`))
+  }
+  if (placement !== 'header' && binding.header !== undefined) {
+    diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} credential.header is only valid for header credentials`))
+  }
+  if (!field || !isNamedValue(field) || field.length > fieldLimit) {
+    diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} credential field is invalid`))
+    return
+  }
+  if (placement === 'header') {
+    const header = field.toLowerCase()
+    if (!HTTP_HEADER_NAME.test(field) || FORBIDDEN_OUTBOUND_HEADERS.has(header)) {
+      diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} credential header is invalid or forbidden`))
+    }
+    if (isObject(definition.headers) && Object.keys(definition.headers).some((declared) => declared.toLowerCase() === header)) {
+      diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} declares its credential header twice`))
+    }
+    if (binding.prefix !== undefined && (typeof binding.prefix !== 'string' || Buffer.byteLength(binding.prefix) > contract.limits.credentialHeaderPrefixLength)) {
+      diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} credential prefix is invalid`))
+    }
+    if (binding.sign !== undefined) {
+      diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} credential.sign is only valid when in is "sign"`))
+    }
+  } else {
+    if (binding.prefix !== undefined) {
+      diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} credential.prefix is only valid for header credentials`))
+    }
+  }
+  if (binding.encoding !== undefined && !contract.rules.credentialEncodings.includes(binding.encoding)) {
+    diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} credential.encoding is invalid`))
+  }
+  if (placement === 'query') {
+    try {
+      const endpoint = new URL(definition.endpoint)
+      if ([...endpoint.searchParams.keys()].includes(field)) {
+        diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} declares the credential query field twice`))
+      }
+    } catch {
+      // origin check below reports the invalid URL
+    }
+  }
+  if (placement === 'form') {
+    const bodyMode = definition.bodyMode || contract.rules.defaultHttpBodyMode
+    if (bodyMode !== 'form') {
+      diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} form credentials require bodyMode form`))
+    }
+    const method = definition.method || contract.rules.defaultHttpMethod
+    if (!HTTP_BODY_METHODS.has(method)) {
+      diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} form credentials require one of: ${contract.rules.httpBodyMethods.join(', ')}`))
+    }
+    if (!isObject(definition.body)) {
+      diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} form credentials require a form object body`))
+    } else if (Object.hasOwn(definition.body, field)) {
+      diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} declares the credential form field twice`))
+    }
+  }
+  if (placement === 'sign') {
+    if (binding.encoding !== undefined) {
+      diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} sign credentials cannot declare encoding`))
+    }
+    const sign = binding.sign
+    if (!isObject(sign)) {
+      diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} credential.sign is invalid`))
+      return
+    }
+    validateFields(sign, schemaFields('TappCredentialSign'), `apis.${name}.credential.sign`, diagnostics)
+    if (!contract.rules.credentialSignAlgs.includes(sign.alg) || !Array.isArray(sign.over)) {
+      diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} credential.sign is invalid`))
+      return
+    }
+    if (!contract.rules.credentialSignAlgsImplemented.includes(sign.alg)) {
+      diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} credential sign algorithm ${sign.alg} is not implemented`))
+    }
+    const method = definition.method || contract.rules.defaultHttpMethod
+    if (!HTTP_BODY_METHODS.has(method)) {
+      diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} signed credentials require one of: ${contract.rules.httpBodyMethods.join(', ')}`))
+    }
+    const bodyMode = definition.bodyMode || contract.rules.defaultHttpBodyMode
+    if (bodyMode === 'raw') {
+      diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} signed credentials cannot use bodyMode raw`))
+    }
+    if (!isObject(definition.body)) {
+      diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} signed credentials require a JSON or form object body`))
+      return
+    }
+    if (Object.hasOwn(definition.body, field)) {
+      diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} must not declare the signature field in body`))
+    }
+    const over = sign.over
+    if (over.length === 0 || over.length > (contract.limits.credentialSignOver || 16) || new Set(over).size !== over.length || over.some((name) => !isNamedValue(name))) {
+      diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} credential.sign.over is invalid`))
+    }
+    if (over.includes(field)) {
+      diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} credential sign field cannot appear in over`))
+    }
+    if (sign.timestampField !== undefined) {
+      if (!isNamedValue(sign.timestampField) || !over.includes(sign.timestampField) || sign.timestampField === field) {
+        diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} credential.sign.timestampField is invalid`))
+      }
+    }
+    for (const overField of over) {
+      if (overField === sign.timestampField) continue
+      if (!Object.hasOwn(definition.body, overField)) {
+        diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} sign.over field ${overField} is not declared in body`))
+        continue
+      }
+      const declared = definition.body[overField]
+      if (declared !== null && !['string', 'number', 'boolean'].includes(typeof declared)) {
+        diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} sign.over field ${overField} must be a scalar`))
+      }
+    }
+  }
+}
+
+function isInboundRoutePath(value) {
+  return typeof value === 'string' && /^\/[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(value)
+}
+
+function isInboundVerifyHeader(value) {
+  return typeof value === 'string'
+    && /^X-[A-Za-z0-9][A-Za-z0-9-]{0,62}$/.test(value)
+    && !(contract.rules.routeReservedHeaders || []).some((reserved) => reserved.toLowerCase() === value.toLowerCase())
+}
+
+function validateInboundRoute(definition, name, credentialKeys, boundCredentialKeys, inboundRoutePaths, diagnostics) {
+  const path = `apis.${name}.route`
+  if (!validateFields(definition.route, schemaFields('TappApiRoute'), path, diagnostics)) {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `${path} must be an object`))
+    return
+  }
+  const route = definition.route
+  if ((definition.access || 'protected') !== 'public') {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `API ${name} inbound route requires access public`))
+  }
+  if (definition.type === BUILTIN_API_TYPE && ['ai:chat', 'ai:generate'].includes(definition.builtin)) {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `API ${name} inbound route cannot expose AI builtins`))
+  }
+  if (!isInboundRoutePath(route.path)) {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `API ${name} inbound path is invalid`))
+  } else if (inboundRoutePaths.has(route.path)) {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `API ${name} inbound path ${route.path} is duplicated`))
+  } else {
+    inboundRoutePaths.add(route.path)
+  }
+  const methods = route.methods || ['GET']
+  const allowed = new Set(contract.rules.routeMethods || ['GET', 'POST'])
+  if (!Array.isArray(methods) || methods.length === 0 || new Set(methods).size !== methods.length || methods.some((method) => !allowed.has(method))) {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `API ${name} inbound route methods must be GET and/or POST`))
+  }
+  const verifyPath = `${path}.verify`
+  if (!validateFields(route.verify, schemaFields('TappRouteVerify'), verifyPath, diagnostics)) {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `${verifyPath} must be an object`))
+    return
+  }
+  const verify = route.verify
+  if (typeof verify.key !== 'string' || !credentialKeys.has(verify.key)) {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `API ${name} inbound route references an undeclared credential`))
+  } else {
+    boundCredentialKeys.add(verify.key)
+  }
+  if (verify.alg !== 'hmac-sha256-raw') {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `API ${name} inbound verify algorithm must be hmac-sha256-raw`))
+  }
+  if (!isInboundVerifyHeader(verify.header) || !isInboundVerifyHeader(verify.timestampHeader) || !isInboundVerifyHeader(verify.nonceHeader)) {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `API ${name} inbound verify headers are invalid`))
+  } else if (new Set([verify.header, verify.timestampHeader, verify.nonceHeader].map((header) => header.toLowerCase())).size !== 3) {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `API ${name} inbound verify headers must be distinct`))
+  }
+  const allowsGet = methods.includes('GET')
+  const allowsPost = methods.includes('POST')
+  if (verify.over === 'canonical-query' && (!allowsGet || allowsPost)) {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `API ${name} canonical-query verify requires GET-only methods`))
+  }
+  if (verify.over === 'raw-body' && (!allowsPost || allowsGet)) {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `API ${name} raw-body verify requires POST-only methods`))
+  }
+  const maxPrefix = contract.limits.routeVerifyPrefixLength || 256
+  if (verify.prefix != null && (typeof verify.prefix !== 'string' || verify.prefix.length > maxPrefix)) {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `API ${name} inbound verify prefix is too long`))
+  }
+  const encodings = new Set(contract.rules.routeVerifyEncodings || ['hex', 'base64'])
+  if (verify.encoding !== undefined && !encodings.has(verify.encoding)) {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `API ${name} inbound verify encoding is invalid`))
+  }
+  const minSkew = contract.limits.routeMinMaxSkewSecs || 30
+  const maxSkew = contract.limits.routeMaxMaxSkewSecs || 3600
+  if (verify.maxSkewSecs !== undefined && (!Number.isInteger(verify.maxSkewSecs) || verify.maxSkewSecs < minSkew || verify.maxSkewSecs > maxSkew)) {
+    diagnostics.push(diagnostic('error', 'invalid-api-route', `API ${name} inbound maxSkewSecs must be between ${minSkew} and ${maxSkew}`))
+  }
+}
+
 function isDataExchangeId(value) {
   return typeof value === 'string' && value.length > 0 && value.length <= contract.limits.dataExchangeIdLength && NAMED_VALUE.test(value)
 }
@@ -708,6 +914,7 @@ function validateManifest(manifest, diagnostics, requiredPermissions) {
 
   const credentialKeys = new Set()
   const boundCredentialKeys = new Set()
+  const inboundRoutePaths = new Set()
   if (manifest.credentials !== undefined) {
     if (!Array.isArray(manifest.credentials)) {
       diagnostics.push(diagnostic('error', 'invalid-credentials', 'credentials must be an array'))
@@ -877,6 +1084,9 @@ function validateManifest(manifest, diagnostics, requiredPermissions) {
       if (JSON.stringify(definition).includes('{{secrets.')) {
         diagnostics.push(diagnostic('error', 'invalid-api', `API ${name} cannot reference host secret templates`))
       }
+      if (definition.route != null) {
+        validateInboundRoute(definition, name, credentialKeys, boundCredentialKeys, inboundRoutePaths, diagnostics)
+      }
       const type = definition.type || DEFAULT_API_TYPE
       if (!API_TYPES.has(type)) {
         diagnostics.push(diagnostic('error', 'invalid-api', `API ${name} type must be one of: ${contract.rules.apiTypes.join(', ')}`))
@@ -907,16 +1117,7 @@ function validateManifest(manifest, diagnostics, requiredPermissions) {
             } else {
               boundCredentialKeys.add(binding.key)
             }
-            const header = typeof binding.header === 'string' ? binding.header.toLowerCase() : ''
-            if (!HTTP_HEADER_NAME.test(binding.header || '') || FORBIDDEN_OUTBOUND_HEADERS.has(header)) {
-              diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} credential header is invalid or forbidden`))
-            }
-            if (binding.prefix !== undefined && (typeof binding.prefix !== 'string' || Buffer.byteLength(binding.prefix) > contract.limits.credentialHeaderPrefixLength)) {
-              diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} credential prefix is invalid`))
-            }
-            if (isObject(definition.headers) && Object.keys(definition.headers).some((declared) => declared.toLowerCase() === header)) {
-              diagnostics.push(diagnostic('error', 'invalid-api-credential', `API ${name} declares its credential header twice`))
-            }
+            validateDeclaredCredential(definition, binding, name, diagnostics)
             try {
               const endpoint = new URL(definition.endpoint)
               if (endpoint.protocol !== 'https:' || !endpoint.hostname || endpoint.username || endpoint.password || endpoint.hostname.includes('{') || endpoint.hostname.includes('}')) {
@@ -970,7 +1171,7 @@ function validateManifest(manifest, diagnostics, requiredPermissions) {
 
   for (const key of credentialKeys) {
     if (!boundCredentialKeys.has(key)) {
-      diagnostics.push(diagnostic('error', 'invalid-credential', `Credential ${key} must be bound to at least one declared HTTP API`))
+      diagnostics.push(diagnostic('error', 'invalid-credential', `Credential ${key} must be bound to at least one declared HTTP API or inbound route verify`))
     }
   }
 

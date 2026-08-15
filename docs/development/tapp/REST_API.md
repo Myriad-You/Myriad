@@ -291,7 +291,8 @@ Settings 是 **installation owner** 命名空间上的 Manifest 声明配置，�
 | DELETE | `/api/tapps/{tappId}/credentials/{key}` | **auth + owner/admin** | 删除凭据，不回显 |
 
 这些路由不接受游客、普通 viewer 或 Runtime Grant 顶替管理身份。`key` 必须由当前 Manifest 的
-`credentials` 声明并绑定到至少一个具名 HTTP API。值只在后端执行绑定 API 时加入固定请求头；
+`credentials` 声明并绑定到至少一个具名 HTTP API。值只在后端执行绑定 API 时按声明加入请求头、
+query、form 或仅用于签名；状态还会列出每条绑定的 method、endpoint、`access` 和放置方式。
 Manifest 绑定变化后状态会标记需重新授权，运行调用会拒绝使用旧值。
 底层复用 installation owner 的 `tapp_storage` 行和现有唯一索引；`_credentials.` 是宿主保留
 前缀，密文位于专用字段。通用 storage REST 在 SQL 层排除宿主记录且不查询密文字段，完整
@@ -473,7 +474,7 @@ WebSocket 升级不能携带 Grant 头，因此 Tapp Bridge 先调用
 不带票据的 Claims-only WebSocket 语义保持不变。独立 AI 费用账本见 `/api/tapp/ai/v2/ledger`。
 
 Room 消息 POST body 上限与 `MESSAGE_PAYLOAD_LIMIT` / `MAX_ROOM_MESSAGE_PAYLOAD`
-（**4 MiB**）及联邦 inbox 独立硬上限（**8 MiB**）对齐；`join` 可接受 path 中的
+（**36 MiB**）及联邦 inbox DefaultBodyLimit（**64 MiB**）对齐；`join` 可接受 path 中的
 `rm_…@home[:port]`（URL 编码）或 body `{ "home_server": "…" }`。
 
 ### 上下文与媒体
@@ -591,6 +592,29 @@ WebSocket 位于不同后端副本时仍可投递，每个标签页都能按自�
 路由和上下文隔离缓存。
 
 旧的 `POST /api/tapp/{tappId}/proxy` 不存在，也不应重新引入。
+
+## 入站声明路由
+
+给其他程序用，不走 Runtime Grant，不种游客 Cookie，也**不读取**站点登录 Cookie。
+始终解析 `visibility = all` 的公开安装；私有安装和 `visibility = admin` 对 `/tapi` 一律按未安装处理（401 `ROUTE_VERIFY_INVALID`）。
+
+| 方法 | 路径 | 说明 |
+| ---- | ---- | ---- |
+| GET/POST | `/tapi/{tappId}/{path}` | 执行对应 `apis.*.route`。`HEAD` 不按 GET 处理 |
+
+没有未签名的目录接口。调用方必须事先知道 Manifest 里的 `path` 和验签头，不能靠探测本机安装列表。
+未安装、无此 route、方法不对、缺头或 HMAC 错误一律 401 `ROUTE_VERIFY_INVALID`，不区分「有没有这条路由」。
+
+`{path}` 是 Manifest 里去掉前导 `/` 的单段。必须带声明的时间戳、nonce 和 HMAC 头。
+缺密钥或绑定指纹过期在 `/tapi` 上也回 401 `ROUTE_VERIFY_INVALID`（不把「这条路由已声明但未配密钥」暴露给探测方；owner 在 Tapp 详情页看凭据状态）。
+时间窗外 401 `ROUTE_VERIFY_EXPIRED`；nonce 重放 401 `ROUTE_VERIFY_REPLAY`（这两码只在 HMAC 已经通过之后出现）。
+限流：匿名 IP 每分钟 60 次；HMAC 通过后同一凭据每分钟 60 次、每小时 180 次。
+拉黑：10 分钟内对同一 Tapp 验签失败 25 次会自动封该调用方指纹 1 小时；全站 10 分钟失败 80 次会封全站入站 1 小时。不保存原始 IP。
+owner 可在 Tapp 详情里暂停**该安装**的 `/tapi`，或解除该安装下已列出的指纹。暂停/拉黑按安装 owner 隔离，私有副本不能冻结或解封公开安装。解除只清本安装拉黑，不清全站自动封禁。暂停返回 403 `ROUTE_PAUSED`，拉黑返回 403 `ROUTE_BLOCKED`。
+`/tapi` 验签替代 CSRF；带站点 Cookie 的 POST 也不要求 `X-CSRF-Token`。
+请求体超过 1 MiB 返回 413 `ROUTE_BODY_TOO_LARGE`。入站密钥泄露后应立刻在详情页轮换。
+
+签名规则见 [Manifest · 入站路由](MANIFEST.md#入站路由-apisroute)。
 
 ## 修改路由时的同步项
 

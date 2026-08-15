@@ -133,7 +133,9 @@ pub async fn get_context_user(
             display_name = row.try_get("", "display_name").ok();
             // tapp 沙箱同样只该拿到可显示地址（防盗链直链在 iframe 里一样裂）
             avatar_url = crate::services::avatar::proxied_avatar(
-                row.try_get::<Option<String>>("", "avatar_url").ok().flatten(),
+                row.try_get::<Option<String>>("", "avatar_url")
+                    .ok()
+                    .flatten(),
             );
         }
     }
@@ -238,6 +240,7 @@ pub async fn get_context_geo(
         granted_permissions: vec![],
         ai_model_tier: None,
         credential: None,
+        settings: std::collections::BTreeMap::new(),
     };
 
     let geo_api = TappApiDef {
@@ -254,6 +257,7 @@ pub async fn get_context_geo(
         cache_ttl: 300,
         spoof: None,
         description: Some("Get client geolocation".to_string()),
+        route: None,
     };
 
     let result = TappApiService::execute("system", "geo", &geo_api, None, &context).await;

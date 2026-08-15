@@ -1,7 +1,9 @@
 import type { User } from '../../contexts/AuthContext'
-import React, { memo, useCallback, useEffect, useMemo, useState } from 'react'
+import { LuX } from '@lib/icons'
 
+import React, { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useLocation } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
 import { useSiteOwnerProfile } from '../../hooks/useSiteOwnerProfile'
@@ -43,6 +45,7 @@ export const UserSection: React.FC<UserSectionProps> = memo(
       checkAuth,
     } = useAuth()
     const { t } = useI18n()
+    const location = useLocation()
     const [user, setUser] = useState<User | null>(null)
     const [isAuthenticated, setIsAuthenticated] = useState(false)
 
@@ -121,8 +124,15 @@ export const UserSection: React.FC<UserSectionProps> = memo(
       return onProfileDisplayChanged(() => void checkAuth())
     }, [checkAuth])
 
-    // 打开弹窗
+    // 打开弹窗。登录/注册页已经是同一套表单，再叠一层弹窗会双卡背景。
     const openModal = useCallback(() => {
+      if (
+        !authIsAuthenticated &&
+        (location.pathname === '/login' || location.pathname === '/register')
+      ) {
+        onClosePanel()
+        return
+      }
       if (modalState === 'closed') {
         setModalState('mounting')
         void import('../../utils/analyticsEvents').then(
@@ -133,7 +143,7 @@ export const UserSection: React.FC<UserSectionProps> = memo(
           },
         )
       }
-    }, [modalState])
+    }, [authIsAuthenticated, location.pathname, modalState, onClosePanel])
 
     // 关闭弹窗
     const closeModal = useCallback(() => {
@@ -284,7 +294,7 @@ export const UserSection: React.FC<UserSectionProps> = memo(
           createPortal(
             <>
               <div
-                className={`user-modal-overlay ${modalState === 'visible' ? 'animate-in' : ''} ${modalState === 'closing' ? 'closing' : ''}`}
+                className={`user-modal-overlay surface-dialog-backdrop ${isAuthenticated ? '' : 'user-modal-overlay--plain'} ${modalState === 'visible' ? 'animate-in' : ''} ${modalState === 'closing' ? 'closing' : ''}`}
                 onClick={closeModal}
               />
               {isAuthenticated && user && userInfo ? (
@@ -301,26 +311,19 @@ export const UserSection: React.FC<UserSectionProps> = memo(
                 />
               ) : (
                 <div
-                  className={`user-modal-login-only ${modalState === 'visible' ? 'animate-in' : ''} ${modalState === 'closing' ? 'closing' : ''}`}
+                  className={`user-modal-login-only glass surface-dialog ${modalState === 'visible' ? 'animate-in' : ''} ${modalState === 'closing' ? 'closing' : ''}`}
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="login-form-title"
                 >
                   <button
+                    type="button"
                     onClick={closeModal}
-                    className="login-close-btn"
+                    className="user-modal-close-float"
                     aria-label={t.common.close}
+                    title={t.common.close}
                   >
-                    <svg
-                      className="w-5 h-5"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M6 18L18 6M6 6l12 12"
-                      />
-                    </svg>
+                    <LuX aria-hidden />
                   </button>
                   <LoginForm />
                 </div>

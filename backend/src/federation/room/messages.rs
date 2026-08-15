@@ -47,6 +47,26 @@ pub async fn send_room_message(
         ));
     }
 
+    let room_game = super::helpers::load_room_game_config(db, room_id)
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Database error: {error}")})),
+            )
+        })?;
+    if let Err(error) = super::game::validate_room_game_message(
+        message_type,
+        &req.payload,
+        want_encrypt,
+        room_game.as_ref(),
+    ) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": error, "code": "GAME_MESSAGE_INVALID"})),
+        ));
+    }
+
     // E2E 未就绪时降级明文，避免 Aro 默认 encrypt=true 导致发消息 400
     let (stored_payload, is_encrypted) = if want_encrypt {
         let recipients = match collect_room_e2e_recipients(db, room_id, &local_actor).await {

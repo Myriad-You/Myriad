@@ -5,7 +5,10 @@
 
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import type { ToastType } from '../../components/Toast'
-import type { TappCredentialStatus } from '../services/TappCredentialApi'
+import type {
+  TappCredentialStatus,
+  TappInboundGuardStatus,
+} from '../services/TappCredentialApi'
 import type { TappVisibility } from '../services/TappLifecycleApi'
 import type { TappInstance, TappPermission, TappSettingItem } from '../types'
 import {
@@ -96,6 +99,10 @@ export function TappDetailPage() {
     Record<string, TappCredentialStatus>
   >({})
   const [credentialSaving, setCredentialSaving] = useState<string | null>(null)
+  const [inboundGuard, setInboundGuard] = useState<TappInboundGuardStatus | null>(
+    null,
+  )
+  const [inboundGuardBusy, setInboundGuardBusy] = useState(false)
   /** 本地输入缓存，避免中文输入被打断 */
   const [localInputValues, setLocalInputValues] = useState<
     Record<string, string>
@@ -159,6 +166,10 @@ export function TappDetailPage() {
     setCredentialStatuses(
       Object.fromEntries(statuses.map((status) => [status.key, status])),
     )
+  }, [tappId])
+
+  const loadInboundGuard = useCallback(async () => {
+    setInboundGuard(await TappApiService.getTappInboundGuard(tappId))
   }, [tappId])
 
   const saveCredential = useCallback(
@@ -325,6 +336,11 @@ export function TappDetailPage() {
                   console.error('Failed to load Tapp credential status:', err)
                 })
               : Promise.resolve(),
+            mayManageInstallation
+              ? loadInboundGuard().catch((err) => {
+                  console.error('Failed to load inbound guard:', err)
+                })
+              : Promise.resolve(),
           ])
         }
 
@@ -355,6 +371,7 @@ export function TappDetailPage() {
     isAuthenticated,
     loadSettings,
     loadCredentialStatuses,
+    loadInboundGuard,
     t,
   ])
 
@@ -974,10 +991,33 @@ export function TappDetailPage() {
                 ? format(t.tapp.credentialOrigins, {
                     origins: status.origins.join(', '),
                   })
-                : ''
+                : (status?.bindings ?? []).some((binding) => binding.placement === 'verify')
+                  ? t.tapp.credentialInboundVerify
+                  : ''
+              const bindings = (status?.bindings ?? [])
+                .map((binding) => {
+                  const sign =
+                    binding.signAlg && binding.signOver?.length
+                      ? format(t.tapp.credentialBindingSign, {
+                          alg: binding.signAlg,
+                          fields: binding.signOver.join(', '),
+                        })
+                      : format(t.tapp.credentialBindingPlacement, {
+                          placement: binding.placement,
+                          field: binding.field,
+                        })
+                  return format(t.tapp.credentialBinding, {
+                    method: binding.method,
+                    endpoint: binding.endpoint,
+                    access: binding.access,
+                    detail: sign,
+                  })
+                })
+                .join(' · ')
               const description = [
                 credential.description,
                 destination,
+                bindings,
                 status?.needsReauthorization
                   ? t.tapp.credentialReauthorizationRequired
                   : undefined,
@@ -1027,6 +1067,91 @@ export function TappDetailPage() {
                 </div>
               )
             })}
+          </SettingGroup>
+        )}
+
+        {canManageSettings && inboundGuard && (
+          <SettingGroup
+            id="tapp-inbound-guard"
+            title={t.tapp.inboundGuard}
+            description={t.tapp.inboundGuardDesc}
+            icon={<FaLock />}
+          >
+            <SwitchItem
+              itemKey="inbound-paused"
+              label={t.tapp.inboundPaused}
+              description={t.tapp.inboundPausedHint}
+              value={inboundGuard.paused}
+              disabled={inboundGuardBusy}
+              onChange={(checked) => {
+                void (async () => {
+                  setInboundGuardBusy(true)
+                  try {
+                    if (checked) await TappApiService.pauseTappInbound(tappId)
+                    else await TappApiService.resumeTappInbound(tappId)
+                    await loadInboundGuard()
+                  } catch (err) {
+                    console.error('Failed to update inbound guard:', err)
+                    showToastMessage(t.tapp.inboundGuardSaveFailed, 'error')
+                  } finally {
+                    setInboundGuardBusy(false)
+                  }
+                })()
+              }}
+            />
+            <p className="settings-text-3" style={{ margin: '12px 0 8px' }}>
+              {t.tapp.inboundBlocks}
+            </p>
+            {inboundGuard.blocks.length === 0 ? (
+              <p className="settings-text-3" style={{ margin: 0 }}>
+                {t.tapp.inboundNoBlocks}
+              </p>
+            ) : (
+              inboundGuard.blocks.map((block) => (
+                <div
+                  className="tapp-detail-credential-actions"
+                  key={block.fingerprint}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: 12,
+                    marginBottom: 8,
+                  }}
+                >
+                  <span className="settings-text-3">
+                    {block.fingerprint.slice(0, 16)} ·{' '}
+                    {block.source === 'manual'
+                      ? t.tapp.inboundBlockManual
+                      : t.tapp.inboundBlockAuto}
+                  </span>
+                  <SettingsButton
+                    variant="ghost"
+                    size="sm"
+                    disabled={inboundGuardBusy}
+                    onClick={() => {
+                      void (async () => {
+                        setInboundGuardBusy(true)
+                        try {
+                          await TappApiService.unblockTappInbound(
+                            tappId,
+                            block.fingerprint,
+                          )
+                          await loadInboundGuard()
+                        } catch (err) {
+                          console.error('Failed to unblock inbound caller:', err)
+                          showToastMessage(t.tapp.inboundGuardSaveFailed, 'error')
+                        } finally {
+                          setInboundGuardBusy(false)
+                        }
+                      })()
+                    }}
+                  >
+                    {t.tapp.inboundUnblock}
+                  </SettingsButton>
+                </div>
+              ))
+            )}
           </SettingGroup>
         )}
 

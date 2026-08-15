@@ -24,9 +24,7 @@ sea-orm-cli migrate generate create_new_table
 4. `004_agent_system` - Agent tasks, memory and notification state
 5. `005_federation` - Federation identities and messages
 6. `006_oauth_identities` - OAuth/OIDC identity bindings
-7. Published `007`–`011` names - immutable no-op history entries retained for upgrade compatibility
-8. `012_federation_inbox_receipts` - Durable inbound federation idempotency receipts
-9. `013_federation_inbox_receipts_v2` - Upgrade the short-lived scope-less receipt table shape
+7. Published `007`–`013` names - immutable no-op history entries retained for upgrade compatibility
 
 Base CREATE tables (001–006) include the current column set for greenfield installs.
 Thin ALTER-only migrations that only added columns or healed data remain registered
@@ -36,6 +34,7 @@ as no-ops after their structure was folded into the base schema:
 - `008_tapp_approved_permissions` → `tapps.approved_permissions` in 002; missing column via generic `get_expected_schema` ADD only (no dedicated backfill)
 - `009_user_presence` → `users.last_seen_at` / `online_seconds` in 001 + schema_check
 - `010_user_owner` / `011_owner_is_admin` → `users.is_owner` in 001 + `ensure_single_owner`
+- `012_federation_inbox_receipts` / `013_federation_inbox_receipts_v2` → `federation_inbox_receipts` in 005; missing / scope-less table via `ensure_federation_inbox_receipts_table`
 
 The same immutable history includes older/local names:
 
@@ -77,7 +76,7 @@ Recent tables:
 |---------|-----------|--------------|
 | Site analytics (+ country) | `001` §8 | `ensure_analytics_tables` + TableDef |
 | heartbeat_claims | `004` | `ensure_heartbeat_claims_table` + TableDef |
-| content_filters / policy / domain_aliases / object_interactions | `005` 扩展段 | 对应 `ensure_*` + TableDef |
+| content_filters / policy / domain_aliases / object_interactions / inbox_receipts | `005` 扩展段 | 对应 `ensure_*` + TableDef |
 
 Older DBs that already applied a pre-feature migration version get tables via
 `ensure_*` (`CREATE IF NOT EXISTS`). The `_schema_versions` mark does **not**

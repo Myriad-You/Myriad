@@ -385,6 +385,7 @@ mod tests {
                 cache_ttl: 60,
                 spoof: None,
                 description: Some("Weather".into()),
+                route: None,
             },
         );
         let list = list_api_summaries(&apis);

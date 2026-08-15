@@ -512,6 +512,36 @@
       "permission": "federation:message"
     },
     {
+      "domain": "game",
+      "action": "game.create",
+      "permission": "game:session"
+    },
+    {
+      "domain": "game",
+      "action": "game.join",
+      "permission": "game:session"
+    },
+    {
+      "domain": "game",
+      "action": "game.leave",
+      "permission": "game:session"
+    },
+    {
+      "domain": "game",
+      "action": "game.shareId",
+      "permission": "game:session"
+    },
+    {
+      "domain": "game",
+      "action": "game.sendIntent",
+      "permission": "game:session"
+    },
+    {
+      "domain": "game",
+      "action": "game.sendState",
+      "permission": "game:session"
+    },
+    {
       "domain": "federation",
       "action": "federation.getTrustPolicy",
       "permission": "federation:trust"
