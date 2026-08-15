@@ -354,9 +354,13 @@ pub async fn handle_room_message(
         .get("isEncrypted")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    if let Err(error) =
-        super::game::validate_outgoing_game_message(message_type, &payload, is_encrypted)
-    {
+    let room_game = super::helpers::load_room_game_config(db, room_id).await?;
+    if let Err(error) = super::game::validate_room_game_message(
+        message_type,
+        &payload,
+        is_encrypted,
+        room_game.as_ref(),
+    ) {
         return Err(format!("GAME_MESSAGE_INVALID: {error}"));
     }
     let thread_id = object.get("threadId").and_then(|v| v.as_str());

@@ -11,6 +11,8 @@ use myriad_tapp_contract::contract_rules::{
     MAX_TAPP_GAME_PROTOCOL_LEN, MIN_TAPP_GAME_PLAYERS,
 };
 
+use super::types::RoomGameConfig;
+
 pub const GAME_MESSAGE_PREFIX: &str = "game:";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,24 +53,53 @@ pub fn format_share_room_id(room_id: &str, home_server: &str) -> String {
     }
 }
 
-/// Reject malformed game traffic; leave ordinary chat untouched.
-pub fn validate_outgoing_game_message(
+pub fn parse_room_game_config(shared: Option<&Value>) -> Option<RoomGameConfig> {
+    let game = shared?.get("game")?;
+    let config: RoomGameConfig = serde_json::from_value(game.clone()).ok()?;
+    validate_room_game_config(
+        &config.tapp_id,
+        &config.protocol,
+        config.max_players,
+        config.max_message_bytes,
+    )
+    .ok()?;
+    Some(config)
+}
+
+pub fn game_message_byte_limit(config: Option<&RoomGameConfig>) -> usize {
+    config
+        .and_then(|config| config.max_message_bytes)
+        .map(|bytes| bytes as usize)
+        .unwrap_or(DEFAULT_TAPP_GAME_MESSAGE_BYTES as usize)
+        .clamp(1024, MAX_TAPP_GAME_MESSAGE_BYTES as usize)
+}
+
+/// Reject malformed game traffic; bind type and size to the room's game config.
+pub fn validate_room_game_message(
     message_type: &str,
     payload: &Value,
     encrypt: bool,
+    room_game: Option<&RoomGameConfig>,
 ) -> Result<(), String> {
     if !message_type.starts_with(GAME_MESSAGE_PREFIX) {
         return Ok(());
     }
-    if parse_game_message_type(message_type).is_none() {
-        return Err(
-            "Game message_type must be game:<tappId>:<protocol> with a safe protocol name".into(),
-        );
-    }
+    let parsed = parse_game_message_type(message_type).ok_or_else(|| {
+        "Game message_type must be game:<tappId>:<protocol> with a safe protocol name".to_string()
+    })?;
     if encrypt {
         return Err("Game session messages cannot be E2E-encrypted".into());
     }
-    validate_game_payload(payload, DEFAULT_TAPP_GAME_MESSAGE_BYTES as usize)
+    let Some(config) = room_game else {
+        return Err("This room is not a game session".into());
+    };
+    if parsed.tapp_id != config.tapp_id || parsed.protocol != config.protocol {
+        return Err(format!(
+            "Game message_type must be game:{}:{}",
+            config.tapp_id, config.protocol
+        ));
+    }
+    validate_game_payload(payload, game_message_byte_limit(Some(config)))
 }
 
 pub fn validate_game_payload(payload: &Value, max_bytes: usize) -> Result<(), String> {
@@ -79,6 +110,10 @@ pub fn validate_game_payload(payload: &Value, max_bytes: usize) -> Result<(), St
             encoded.len()
         ));
     }
+    validate_game_payload_schema(payload)
+}
+
+pub fn validate_game_payload_schema(payload: &Value) -> Result<(), String> {
     let obj = payload
         .as_object()
         .ok_or_else(|| "Game payload must be a JSON object".to_string())?;
@@ -168,7 +203,7 @@ pub fn activity_is_structured_game_message(activity: &Value) -> bool {
     let Some(payload) = activity.pointer("/object/payload") else {
         return false;
     };
-    validate_game_payload(payload, DEFAULT_TAPP_GAME_MESSAGE_BYTES as usize).is_ok()
+    validate_game_payload_schema(payload).is_ok()
 }
 
 fn is_tapp_id(value: &str) -> bool {
@@ -209,9 +244,65 @@ mod tests {
             "nonce": "n1",
             "body": {"action": "place", "row": 7}
         });
-        assert!(validate_outgoing_game_message("game:com.example.chess:v1", &payload, false).is_ok());
-        assert!(validate_outgoing_game_message("game:com.example.chess:v1", &payload, true).is_err());
-        assert!(validate_outgoing_game_message("text", &payload, false).is_ok());
+        let chess = RoomGameConfig {
+            tapp_id: "com.example.chess".into(),
+            protocol: "v1".into(),
+            max_players: Some(2),
+            max_message_bytes: Some(256 * 1024),
+        };
+        assert!(validate_room_game_message(
+            "game:com.example.chess:v1",
+            &payload,
+            false,
+            Some(&chess)
+        )
+        .is_ok());
+        assert!(validate_room_game_message(
+            "game:com.example.chess:v1",
+            &payload,
+            true,
+            Some(&chess)
+        )
+        .is_err());
+        assert!(validate_room_game_message("text", &payload, false, Some(&chess)).is_ok());
+        assert!(validate_room_game_message(
+            "game:com.other.poker:v1",
+            &payload,
+            false,
+            Some(&chess)
+        )
+        .is_err());
+        assert!(validate_room_game_message(
+            "game:com.example.chess:v1",
+            &payload,
+            false,
+            None
+        )
+        .is_err());
+        let oversized = json!({
+            "kind": "intent",
+            "seq": 1,
+            "nonce": "n1",
+            "body": "x".repeat(70 * 1024)
+        });
+        assert!(validate_room_game_message(
+            "game:com.example.chess:v1",
+            &oversized,
+            false,
+            Some(&chess)
+        )
+        .is_ok());
+        let tight = RoomGameConfig {
+            max_message_bytes: Some(1024),
+            ..chess.clone()
+        };
+        assert!(validate_room_game_message(
+            "game:com.example.chess:v1",
+            &oversized,
+            false,
+            Some(&tight)
+        )
+        .is_err());
     }
 
     #[test]

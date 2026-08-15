@@ -24,10 +24,38 @@ export function parseShareRoomId(value: string): {
   roomId: string
   homeServer?: string
 } {
-  const raw = value.trim()
-  const at = raw.indexOf('@')
-  if (at <= 0) return { roomId: raw }
-  return { roomId: raw.slice(0, at), homeServer: raw.slice(at + 1) }
+  let raw = value.trim()
+  if (raw.startsWith('myriad:room:')) {
+    raw = raw.slice('myriad:room:'.length).trim()
+  }
+  const publicIdx = raw.lastIndexOf('/public/rooms/')
+  if (publicIdx >= 0) {
+    const tail = raw.slice(publicIdx + '/public/rooms/'.length)
+    const id = (tail.split(/[?#/]/)[0] || '').trim()
+    if (id.startsWith('rm_')) {
+      try {
+        const href = raw.includes('://') ? raw : `https://${raw}`
+        const url = new URL(href)
+        const home = url.port ? `${url.hostname}:${url.port}` : url.hostname
+        return home ? { roomId: id, homeServer: home } : { roomId: id }
+      } catch {
+        return { roomId: id }
+      }
+    }
+  }
+  const at = raw.lastIndexOf('@')
+  if (at > 0) {
+    const roomId = raw.slice(0, at).trim()
+    const homeServer = raw.slice(at + 1).trim()
+    if (
+      roomId.startsWith('rm_') &&
+      homeServer &&
+      !/[/?#@]/.test(homeServer)
+    ) {
+      return { roomId, homeServer }
+    }
+  }
+  return { roomId: raw }
 }
 
 export function gameMessageType(tappId: string, protocol: string): string {
@@ -53,11 +81,11 @@ function classifyJoinError(error: unknown): { error: string; code?: string } {
   if (/not found on this instance/i.test(message)) {
     return { error: message, code: 'ROOM_NOT_FOUND' }
   }
-  if (/not found on home server|unreachable/i.test(message)) {
-    return { error: message, code: 'REMOTE_HOME_UNREACHABLE' }
-  }
-  if (/not public|Public room not found/i.test(message)) {
+  if (/Public room not found|not public/i.test(message)) {
     return { error: message, code: 'REMOTE_NOT_PUBLIC' }
+  }
+  if (/unreachable|home returned|timed out|home_server is empty/i.test(message)) {
+    return { error: message, code: 'REMOTE_HOME_UNREACHABLE' }
   }
   if (/blocked|trust/i.test(message)) {
     return { error: message, code: 'INSTANCE_BLOCKED' }
@@ -113,7 +141,7 @@ export function registerGameHandlers(
               : tappInstance.manifest.name,
           description:
             typeof opts.description === 'string' ? opts.description : undefined,
-          is_public: opts.isPublic !== false,
+          is_public: opts.isPublic === true,
           invite_policy: 'open',
           max_members: typeof maxPlayers === 'number' ? maxPlayers : undefined,
           game: {

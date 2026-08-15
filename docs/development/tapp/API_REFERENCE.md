@@ -1114,7 +1114,18 @@ Channel/Room **JSON 消息**（含内联 base64 图）后端载荷上限 **36 Mi
 
 Page 上的 `Tapp.game` 把联邦房间收成对局会话。消息类型固定为
 `game:<tappId>:<protocol>`，载荷只能是
-`{ kind: "intent"|"state", seq, nonce, body }`，默认 ≤ 64 KiB，不能 E2E 加密。
+`{ kind: "intent"|"state", seq, nonce, body }`。单条默认 ≤ 64 KiB，房间可在
+`manifest.game.maxMessageBytes`（1024–256 KiB）里放宽；宿主按**该房间**的上限校验，
+不能 E2E 加密。`seq` / `nonce` 只给对局自己去重和排序，宿主不保证单调、也不拦重放。
+`body` 是不透明 JSON，关键词过滤看不到里面的文本。
+
+`Tapp.game.create()` 默认**不公开**（`isPublic: false`），`invite_policy` 仍是 `open`，
+所以有分享 ID 的人可以加入，但房间不会出现在公开目录。要上目录须显式
+`{ isPublic: true }`。
+
+发送和入站都会核对 `message_type` 必须是这间房绑定的 `game:<tappId>:<protocol>`；
+别的 Tapp 的 `game:…` 信封会被 400。`Tapp.game.onMessage` 也只收本包这一条类型。
+
 跨实例入站时**不**对这段 JSON 做关键词过滤，但仍检查成员、签名、体积、频率和域名拉黑。
 
 ```javascript

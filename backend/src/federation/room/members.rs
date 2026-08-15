@@ -455,7 +455,7 @@ pub async fn get_public_room(
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT room_id, name, description, avatar_url, owner_actor, home_server,
-                      invite_policy, max_members, is_public,
+                      invite_policy, max_members, is_public, shared_data_config,
                       (SELECT COUNT(*) FROM federation_room_members
                        WHERE room_id = federation_rooms.room_id
                          AND COALESCE(membership_status, 'active') = 'active') AS member_count
@@ -487,6 +487,12 @@ pub async fn get_public_room(
         max_members: row.try_get::<i32>("", "max_members").unwrap_or(50),
         is_public: true,
         member_count: row.try_get::<i64>("", "member_count").unwrap_or(0),
+        game: super::game::parse_room_game_config(
+            row.try_get::<Option<serde_json::Value>>("", "shared_data_config")
+                .ok()
+                .flatten()
+                .as_ref(),
+        ),
     })
 }
 
@@ -645,8 +651,8 @@ pub(crate) async fn materialize_remote_public_room(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_rooms
            (room_id, name, description, avatar_url, owner_actor, home_server, governance_type,
-            invite_policy, max_members, is_public, distribution_strategy, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, 'owner', $7, $8, true, 'fan-out', NOW())
+            invite_policy, max_members, is_public, distribution_strategy, shared_data_config, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, 'owner', $7, $8, true, 'fan-out', $9, NOW())
            ON CONFLICT (room_id) DO UPDATE SET
              name = CASE
                WHEN btrim(EXCLUDED.name) <> ''
@@ -701,6 +707,14 @@ pub(crate) async fn materialize_remote_public_room(
                THEN true
                ELSE federation_rooms.is_public
              END,
+             shared_data_config = CASE
+               WHEN EXCLUDED.shared_data_config IS NULL THEN federation_rooms.shared_data_config
+               WHEN lower(btrim(federation_rooms.home_server)) = lower(btrim(EXCLUDED.home_server))
+                    OR btrim(federation_rooms.home_server) = ''
+               THEN COALESCE(federation_rooms.shared_data_config, '{}'::jsonb)
+                    || EXCLUDED.shared_data_config
+               ELSE federation_rooms.shared_data_config
+             END,
              updated_at = NOW()"#,
         [
             info.room_id.clone().into(),
@@ -711,6 +725,10 @@ pub(crate) async fn materialize_remote_public_room(
             home.into(),
             invite_policy.into(),
             max_members.into(),
+            info.game
+                .as_ref()
+                .map(|game| serde_json::json!({ "game": game }))
+                .into(),
         ],
     ))
     .await
@@ -816,11 +834,20 @@ pub async fn join_room(
                     error = %e,
                     "[Room] remote public room fetch failed"
                 );
+                let not_public = e == "Public room not found on home server";
                 (
                     StatusCode::NOT_FOUND,
                     Json(json!({
-                        "error": "Public room not found on home server",
-                        "code": "REMOTE_HOME_UNREACHABLE",
+                        "error": if not_public {
+                            "Public room not found on home server"
+                        } else {
+                            "Home server unreachable"
+                        },
+                        "code": if not_public {
+                            "REMOTE_NOT_PUBLIC"
+                        } else {
+                            "REMOTE_HOME_UNREACHABLE"
+                        },
                         "detail": e
                     })),
                 )

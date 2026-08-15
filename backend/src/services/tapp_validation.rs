@@ -692,6 +692,17 @@ pub fn validate_tapp_manifest(manifest: &TappManifest) -> Result<(), String> {
         {
             return Err("Tapp game requires the game:session permission".to_string());
         }
+        for required in ["federation:read", "federation:write", "federation:message"] {
+            if !manifest
+                .permissions
+                .iter()
+                .any(|permission| permission == required)
+            {
+                return Err(format!(
+                    "Tapp game requires the {required} permission"
+                ));
+            }
+        }
     }
 
     if let Some(requirements) = &manifest.background_requirements {
@@ -2028,7 +2039,12 @@ mod tests {
             "version": "1.0.0",
             "main": "main.js",
             "category": "game",
-            "permissions": ["game:session"],
+            "permissions": [
+                "game:session",
+                "federation:read",
+                "federation:write",
+                "federation:message"
+            ],
             "game": { "protocol": "v1", "maxPlayers": 2 }
         }))
         .unwrap();
@@ -2037,7 +2053,20 @@ mod tests {
         assert!(validate_tapp_manifest(&manifest)
             .unwrap_err()
             .contains("game:session"));
-        manifest.permissions = vec!["game:session".into()];
+        manifest.permissions = vec![
+            "game:session".into(),
+            "federation:read".into(),
+            "federation:write".into(),
+        ];
+        assert!(validate_tapp_manifest(&manifest)
+            .unwrap_err()
+            .contains("federation:message"));
+        manifest.permissions = vec![
+            "game:session".into(),
+            "federation:read".into(),
+            "federation:write".into(),
+            "federation:message".into(),
+        ];
         manifest.game.as_mut().unwrap().protocol = "V1".into();
         assert!(validate_tapp_manifest(&manifest)
             .unwrap_err()

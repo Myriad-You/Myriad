@@ -23,6 +23,14 @@ describe('Tapp.game share ids', () => {
       homeServer: 'peer.example:8443',
     })
     assert.deepEqual(parseShareRoomId('rm_abc'), { roomId: 'rm_abc' })
+    assert.deepEqual(
+      parseShareRoomId('myriad:room:rm_abc@peer.example:8443'),
+      { roomId: 'rm_abc', homeServer: 'peer.example:8443' },
+    )
+    assert.deepEqual(
+      parseShareRoomId('https://peer.example:8443/api/federation/public/rooms/rm_abc'),
+      { roomId: 'rm_abc', homeServer: 'peer.example:8443' },
+    )
   })
 
   it('builds the game message type', () => {
@@ -56,5 +64,7 @@ describe('Tapp.game share ids', () => {
     assert.match(sdk, /game:\s*\{/)
     assert.match(sdk, /sendIntent:/)
     assert.match(sdk, /sendState:/)
+    assert.match(sdk, /type === "game:com.example.chess:v1"/)
+    assert.doesNotMatch(sdk, /type\.indexOf\('game:'\)/)
   })
 })

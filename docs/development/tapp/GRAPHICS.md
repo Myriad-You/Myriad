@@ -115,6 +115,11 @@ CDN / `unpkg` / `jsdelivr` / `esm.sh` 加载，也不要把 `three` 打进 Myria
 宿主会把钉死的 Three r170 + `GLTFLoader` 当作带 nonce 的脚本注入沙箱（全局 `THREE` /
 `GLTFLoader`）。未声明 `runtimeModules` 的 Tapp 行为不变，CSP 也不变。
 
+仓库里的权威文件是 `frontend/public/tapp-runtime/three.0.170.iife.js`（SHA-256
+`0ca6ee7e41840a8b95d416f7f38b204126838f277f248a1761acdb7662f2b60d`）。
+`frontend/scripts/bundle-tapp-three.mjs` 只是可选重建脚本，**不要**在没有把
+`three@0.170` / `esbuild` 装进 frontend 的情况下当构建步骤跑。
+
 也可以继续自己打 IIFE 放进 `pageModules`。沙箱里的 `pageModules` 会按顺序拼成一段经典
 脚本（不是 ES module）：
 

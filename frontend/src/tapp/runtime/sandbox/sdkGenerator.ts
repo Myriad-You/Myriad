@@ -116,6 +116,9 @@ export function generateFullSDK(
   const versionLiteral = serializeSandboxScriptValue(manifest.version)
   const tokenLiteral = serializeSandboxScriptValue(token)
   const permissionsLiteral = serializeSandboxScriptValue(grantedPermissions)
+  const gameTypeLiteral = serializeSandboxScriptValue(
+    `game:${id}:${(manifest.game?.protocol || 'session').trim() || 'session'}`,
+  )
   const headlessLiteral = profile === 'headless' ? 'true' : 'false'
 
   return `
@@ -951,7 +954,7 @@ export function generateFullSDK(
       sendState: (roomId, body, seq) => sendRequest('game', 'sendState', [roomId, body, seq]),
       onMessage: (cb) => addEventListener('federation:message', (ev) => {
         const type = ev && ev.data && ev.data.message && ev.data.message.message_type;
-        if (typeof type === 'string' && type.indexOf('game:') === 0) cb(ev);
+        if (type === ${gameTypeLiteral}) cb(ev);
       }),
       onRoomUpdate: (cb) => addEventListener('federation:roomUpdate', cb),
     },

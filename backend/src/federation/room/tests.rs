@@ -63,6 +63,7 @@ fn sample_public_info(home: &str, owner: &str) -> PublicRoomInfo {
         max_members: 50,
         is_public: true,
         member_count: 1,
+        game: None,
     }
 }
 

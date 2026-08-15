@@ -35,9 +35,20 @@ pub async fn send_room_message(
     let local_actor = actor_url(&base_url, username);
     let message_type = req.message_type.as_deref().unwrap_or("text");
     let want_encrypt = req.encrypt.unwrap_or(false);
-    if let Err(error) =
-        super::game::validate_outgoing_game_message(message_type, &req.payload, want_encrypt)
-    {
+    let room_game = super::helpers::load_room_game_config(db, room_id)
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Database error: {error}")})),
+            )
+        })?;
+    if let Err(error) = super::game::validate_room_game_message(
+        message_type,
+        &req.payload,
+        want_encrypt,
+        room_game.as_ref(),
+    ) {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(json!({"error": error, "code": "GAME_MESSAGE_INVALID"})),
