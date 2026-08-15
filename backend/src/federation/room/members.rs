@@ -28,7 +28,8 @@ pub async fn invite_member(
     let room_row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            r#"SELECT invite_policy, max_members, name, owner_actor, is_public, home_server
+            r#"SELECT invite_policy, max_members, name, owner_actor, is_public, home_server,
+                      shared_data_config
                FROM federation_rooms WHERE room_id = $1"#,
             [room_id.into()],
         ))
@@ -50,6 +51,13 @@ pub async fn invite_member(
         .try_get::<String>("", "home_server")
         .unwrap_or_default();
     let room_invite_policy = policy.clone();
+    let room_game = super::game::parse_room_game_config(
+        room_row
+            .try_get::<Option<serde_json::Value>>("", "shared_data_config")
+            .ok()
+            .flatten()
+            .as_ref(),
+    );
 
     match policy.as_str() {
         "admin-only" if !is_admin_role(&my_role) => {
@@ -227,7 +235,8 @@ pub async fn invite_member(
                 "members": members_json,
                 "isPublic": room_is_public,
                 "invitePolicy": room_invite_policy,
-                "homeServer": room_home_server
+                "homeServer": room_home_server,
+                "game": room_game,
             }
         });
 

@@ -340,4 +340,22 @@ mod tests {
         );
         assert_eq!(format_share_room_id("rm_abc@peer.example", "ignored"), "rm_abc@peer.example");
     }
+
+    #[test]
+    fn parses_invite_and_shared_data_game_objects() {
+        let wrapped = json!({
+            "game": {
+                "tapp_id": "com.example.chess",
+                "protocol": "v1",
+                "max_message_bytes": 131072
+            }
+        });
+        let config = parse_room_game_config(Some(&wrapped)).unwrap();
+        assert_eq!(config.protocol, "v1");
+        assert_eq!(config.max_message_bytes, Some(131072));
+        assert_eq!(
+            game_message_byte_limit(Some(&config)),
+            131072
+        );
+    }
 }

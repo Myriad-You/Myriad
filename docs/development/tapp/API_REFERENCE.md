@@ -1119,9 +1119,13 @@ Page 上的 `Tapp.game` 把联邦房间收成对局会话。消息类型固定�
 不能 E2E 加密。`seq` / `nonce` 只给对局自己去重和排序，宿主不保证单调、也不拦重放。
 `body` 是不透明 JSON，关键词过滤看不到里面的文本。
 
-`Tapp.game.create()` 默认**不公开**（`isPublic: false`），`invite_policy` 仍是 `open`，
-所以有分享 ID 的人可以加入，但房间不会出现在公开目录。要上目录须显式
-`{ isPublic: true }`。
+`Tapp.game.create()` 默认**不公开**（`isPublic: false`），`invite_policy` 仍是 `open`。
+同一实例上，分享 ID 可以直接 `join`。跨实例时：
+
+- 公开房（`{ isPublic: true }`）：对端用 `room_id@home` 走公开房间接口，副本会带上
+  `game` 配置；
+- 私房：对端必须被邀请。`RoomInvite` 会带上同一份 `game` 配置，副本才能收意图。
+  私房的分享 ID **不能**跨实例自助加入（公开目录接口会 404 / `REMOTE_NOT_PUBLIC`）。
 
 发送和入站都会核对 `message_type` 必须是这间房绑定的 `game:<tappId>:<protocol>`；
 别的 Tapp 的 `game:…` 信封会被 400。`Tapp.game.onMessage` 也只收本包这一条类型。

@@ -140,12 +140,18 @@ pub async fn handle_room_invite(
         });
     let has_real_name = invite_name.is_some();
     let display_name = resolve_invite_room_name(invite_name.as_deref(), room_id);
+    let invite_game = object.get("game").and_then(|game| {
+        super::game::parse_room_game_config(Some(&serde_json::json!({ "game": game })))
+    });
+    let invite_shared = invite_game
+        .as_ref()
+        .map(|game| serde_json::json!({ "game": game }));
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_rooms
            (room_id, name, description, owner_actor, home_server, governance_type, invite_policy,
-            max_members, is_public, distribution_strategy, created_at)
-           VALUES ($1, $2, NULL, $3, $4, 'owner', $6, 50, $7, 'fan-out', NOW())
+            max_members, is_public, distribution_strategy, shared_data_config, created_at)
+           VALUES ($1, $2, NULL, $3, $4, 'owner', $6, 50, $7, 'fan-out', $8, NOW())
            ON CONFLICT (room_id) DO UPDATE SET
              name = CASE
                WHEN $5::boolean
@@ -186,6 +192,15 @@ pub async fn handle_room_invite(
                THEN EXCLUDED.home_server
                ELSE federation_rooms.home_server
              END,
+             shared_data_config = CASE
+               WHEN $8::jsonb IS NULL THEN federation_rooms.shared_data_config
+               WHEN btrim(federation_rooms.home_server) = ''
+                    OR lower(btrim(federation_rooms.home_server))
+                       = lower(btrim(EXCLUDED.home_server))
+               THEN COALESCE(federation_rooms.shared_data_config, '{}'::jsonb)
+                    || EXCLUDED.shared_data_config
+               ELSE federation_rooms.shared_data_config
+             END,
              updated_at = CASE
                WHEN $5::boolean
                     AND (
@@ -193,6 +208,7 @@ pub async fn handle_room_invite(
                       OR btrim(federation_rooms.name) = ''
                       OR federation_rooms.name = ('Room ' || left($1, 8))
                     )
+                    OR $8::jsonb IS NOT NULL
                THEN NOW()
                ELSE federation_rooms.updated_at
              END"#,
@@ -204,6 +220,7 @@ pub async fn handle_room_invite(
             has_real_name.into(),
             invite_policy.into(),
             invite_is_public.into(),
+            invite_shared.into(),
         ],
     ))
     .await
