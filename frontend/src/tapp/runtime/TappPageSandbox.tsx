@@ -848,6 +848,13 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
     }
 
     let cancelled = false
+    const detachIframe = () => {
+      container.style.pointerEvents = ''
+      if (container.contains(iframe)) {
+        container.removeChild(iframe)
+      }
+    }
+    cleanups.push(detachIframe)
     const mount = async () => {
       let runtimeScripts = ''
       if (
@@ -888,18 +895,20 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
       iframe.style.cssText =
         'position:absolute;inset:0;width:100%;height:100%;border:none;display:block;overflow:hidden;border-bottom-left-radius:0.75rem;border-bottom-right-radius:0.75rem;pointer-events:auto;touch-action:manipulation;-webkit-tap-highlight-color:transparent;'
       container.style.pointerEvents = 'auto'
-      container.appendChild(iframe)
+      if (!container.contains(iframe)) {
+        container.appendChild(iframe)
+      }
       iframe.srcdoc = html
+      if (cancelled) {
+        detachIframe()
+        return
+      }
       bridge.attachSource()
-      const onIframeLoad = () => bridge.attachSource()
+      const onIframeLoad = () => {
+        if (!cancelled) bridge.attachSource()
+      }
       iframe.addEventListener('load', onIframeLoad)
       cleanups.push(() => iframe.removeEventListener('load', onIframeLoad))
-      cleanups.push(() => {
-        container.style.pointerEvents = ''
-        if (container.contains(iframe)) {
-          container.removeChild(iframe)
-        }
-      })
     }
     void mount()
 

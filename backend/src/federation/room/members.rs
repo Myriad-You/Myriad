@@ -355,7 +355,8 @@ pub async fn invite_member(
                 "type": "myriad:Room",
                 "id": room_id,
                 "member": &local_target_actor,
-                "role": role
+                "role": role,
+                "game": room_game,
             }
         });
         if let Err(e) = fanout_to_remote_members(
@@ -1003,6 +1004,7 @@ pub async fn join_room(
         ));
     }
 
+    let join_game = load_room_game_config(db, &room_id).await.ok().flatten();
     let join_activity_id = generate_activity_id(&base_url);
     let join_activity = json!({
         "@context": build_context(),
@@ -1013,7 +1015,8 @@ pub async fn join_room(
             "type": "myriad:Room",
             "id": &room_id,
             "member": &local_actor,
-            "role": "member"
+            "role": "member",
+            "game": join_game,
         }
     });
     if let Err(e) = fanout_to_remote_members(
@@ -1105,6 +1108,7 @@ pub async fn accept_room_invite(
     .map_err(db_err)?;
 
     // Announce join to all *active* remote peers (inviter + others)
+    let join_game = load_room_game_config(db, room_id).await.ok().flatten();
     let join_activity_id = generate_activity_id(&base_url);
     let join_activity = json!({
         "@context": build_context(),
@@ -1115,7 +1119,8 @@ pub async fn accept_room_invite(
             "type": "myriad:Room",
             "id": room_id,
             "member": &local_actor,
-            "role": &role
+            "role": &role,
+            "game": join_game,
         }
     });
     if let Err(e) = fanout_to_remote_members(

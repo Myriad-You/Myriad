@@ -645,6 +645,7 @@ pub(super) async fn update_tapp(
         .sub
         .parse()
         .map_err(|_| api_http_error(StatusCode::UNAUTHORIZED, "Invalid user"))?;
+    ensure_tapp_install_allowed(&db, user_id).await?;
     let role = current_user_role(&claims, &db).await;
     validate_tapp_id(&tapp_id).map_err(|error| api_http_error(StatusCode::BAD_REQUEST, error))?;
     let admin_id = get_admin_user_id(&db).await?;

@@ -35,6 +35,18 @@ pub async fn send_room_message(
     let local_actor = actor_url(&base_url, username);
     let message_type = req.message_type.as_deref().unwrap_or("text");
     let want_encrypt = req.encrypt.unwrap_or(false);
+
+    // 验证成员身份（pending 邀请返回 ROOM_INVITE_PENDING，便于客户端引导接受）
+    let my_role = require_active_member_role(db, room_id, &local_actor).await?;
+
+    // observer 不能发消息
+    if my_role == "observer" {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({"error": "Observers cannot send messages"})),
+        ));
+    }
+
     let room_game = super::helpers::load_room_game_config(db, room_id)
         .await
         .map_err(|error| {
@@ -52,17 +64,6 @@ pub async fn send_room_message(
         return Err((
             StatusCode::BAD_REQUEST,
             Json(json!({"error": error, "code": "GAME_MESSAGE_INVALID"})),
-        ));
-    }
-
-    // 验证成员身份（pending 邀请返回 ROOM_INVITE_PENDING，便于客户端引导接受）
-    let my_role = require_active_member_role(db, room_id, &local_actor).await?;
-
-    // observer 不能发消息
-    if my_role == "observer" {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(json!({"error": "Observers cannot send messages"})),
         ));
     }
 

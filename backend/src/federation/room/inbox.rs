@@ -726,6 +726,33 @@ pub async fn handle_room_join(
         });
     }
 
+    let announcer_is_owner =
+        !owner_actor.is_empty() && same_actor_url(&owner_actor, actor_url_str);
+    if announcer_is_owner {
+        if let Some(config) = object.get("game").and_then(|game| {
+            super::game::parse_room_game_config(Some(&json!({ "game": game })))
+        }) {
+            let existing = super::helpers::load_room_game_config(db, room_id).await?;
+            if existing.is_none() {
+                db.execute_raw(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    r#"UPDATE federation_rooms
+                       SET shared_data_config = COALESCE(shared_data_config, '{}'::jsonb)
+                           || $2::jsonb,
+                           updated_at = NOW()
+                       WHERE room_id = $1
+                         AND (shared_data_config -> 'game') IS NULL"#,
+                    [
+                        room_id.into(),
+                        json!({ "game": config }).into(),
+                    ],
+                ))
+                .await
+                .map_err(|e| e.to_string())?;
+            }
+        }
+    }
+
     // Was this a pending invite on our roster? (inviter-side accept signal)
     let was_pending = prior
         .as_ref()
