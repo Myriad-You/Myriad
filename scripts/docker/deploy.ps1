@@ -222,9 +222,9 @@ function Ensure-Env {
 function Ensure-CurrentLayout {
     Write-Info "==> Ensuring current proxy + updater layout"
     New-Item -ItemType Directory -Force -Path pgdata, state, state/snapshots, state/cache, backups | Out-Null
-    Ensure-Key "MYRIAD_TAG" "v0.3.29"
-    Ensure-Key "PROXY_TAG" "v0.3.29"
-    Ensure-Key "UPDATER_TAG" "v0.3.29"
+    Ensure-Key "MYRIAD_TAG" "v0.3.30"
+    Ensure-Key "PROXY_TAG" "v0.3.30"
+    Ensure-Key "UPDATER_TAG" "v0.3.30"
     Ensure-Key "BACKEND_IMAGE" "docker.io/somekawahitomi/myriad-backend"
     Ensure-Key "FRONTEND_IMAGE" "docker.io/somekawahitomi/myriad-frontend"
     Ensure-Key "COMPOSE_PROJECT_NAME" "myriad"
