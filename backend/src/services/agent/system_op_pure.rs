@@ -249,9 +249,15 @@ mod tests {
             .unwrap()["time"],
             "08:00"
         );
-        assert!(
-            build_schedule_config(AgentScheduleType::Cron, None, None, None, None, None).is_err()
-        );
+        assert!(build_schedule_config(
+            AgentScheduleType::Cron,
+            None,
+            None,
+            None,
+            None,
+            None
+        )
+        .is_err());
     }
 
     #[test]

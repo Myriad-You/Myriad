@@ -3,11 +3,7 @@
 //! WebFinger (RFC 7033) + NodeInfo 2.1 端点
 //! 这些端点不需要认证，是联邦互通的入口。
 
-use axum::{
-    extract::{Query, State},
-    http::StatusCode,
-    Json,
-};
+use axum::{extract::{Query, State}, http::StatusCode, Json};
 use sea_orm::DatabaseConnection;
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde::Deserialize;
@@ -136,6 +132,7 @@ pub async fn nodeinfo_wellknown() -> (StatusCode, Json<serde_json::Value>) {
 pub async fn nodeinfo(
     State(db): State<DatabaseConnection>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, Json<serde_json::Value>)> {
+
     // 查询用户统计
     let (total_users, active_month) = get_user_stats(&db).await.unwrap_or((0, 0));
     // 查询本地发布的 Activity 数量

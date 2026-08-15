@@ -559,7 +559,11 @@ mod oidc_security_tests {
     fn id_token_alg_allowlists_asymmetric_rejects_hmac() {
         // jsonwebtoken 11: Algorithm is non_exhaustive — keep HS* rejected and
         // known RSA/EC/EdDSA accepted (fail-closed for unknown variants).
-        const ASYMMETRIC_OK: &[Algorithm] = &[Algorithm::RS256, Algorithm::ES256, Algorithm::EdDSA];
+        const ASYMMETRIC_OK: &[Algorithm] = &[
+            Algorithm::RS256,
+            Algorithm::ES256,
+            Algorithm::EdDSA,
+        ];
         for &alg in ASYMMETRIC_OK {
             assert!(
                 ensure_asymmetric_id_token_alg(alg).is_ok(),
@@ -574,9 +578,8 @@ mod oidc_security_tests {
             (Algorithm::HS512, "HS512"),
         ];
         for &(alg, name) in HMAC_REJECT {
-            let err = ensure_asymmetric_id_token_alg(alg).expect_err(&format!(
-                "{name} must be rejected by ensure_asymmetric_id_token_alg"
-            ));
+            let err = ensure_asymmetric_id_token_alg(alg)
+                .expect_err(&format!("{name} must be rejected by ensure_asymmetric_id_token_alg"));
             assert!(
                 err.contains("not accepted") || err.contains("asymmetric"),
                 "{name} error should mention rejection: {err}"
@@ -587,8 +590,8 @@ mod oidc_security_tests {
     /// Dedicated regression lock for Copilot #294 — HS384 must not be omitted.
     #[test]
     fn ensure_asymmetric_id_token_alg_rejects_hs384_explicitly() {
-        let err =
-            ensure_asymmetric_id_token_alg(Algorithm::HS384).expect_err("HS384 must be rejected");
+        let err = ensure_asymmetric_id_token_alg(Algorithm::HS384)
+            .expect_err("HS384 must be rejected");
         assert!(
             err.contains("HS384") || err.contains("not accepted"),
             "unexpected error text: {err}"

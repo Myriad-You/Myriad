@@ -1,3 +1,4 @@
+
 use axum::{
     http::StatusCode,
     response::sse::{Event, KeepAlive, Sse},
@@ -1109,55 +1110,35 @@ fn validate_runtime_feedback(feedback: &[String]) -> Result<(), String> {
 /// Validate multi-turn history limits (count, field sizes, per-project 512KiB).
 fn validate_history(history: &[PlaygroundHistoryTurn]) -> Result<(), ApiError> {
     if history.len() > MAX_HISTORY_TURNS {
-        return Err(api_error(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            format!("History accepts at most {MAX_HISTORY_TURNS} turns"),
-        ));
+        return Err(api_error(StatusCode::PAYLOAD_TOO_LARGE, format!("History accepts at most {MAX_HISTORY_TURNS} turns")));
     }
 
     let mut saw_failed = false;
     for (index, turn) in history.iter().enumerate() {
         if saw_failed {
-            return Err(api_error(
-                StatusCode::BAD_REQUEST,
-                "Failed history entries may only appear as a trailing tail",
-            ));
+            return Err(api_error(StatusCode::BAD_REQUEST, "Failed history entries may only appear as a trailing tail"));
         }
         let instruction = turn.instruction.trim();
         if instruction.is_empty() || instruction.len() > MAX_INSTRUCTION_BYTES {
-            return Err(api_error(
-                StatusCode::BAD_REQUEST,
-                format!(
+            return Err(api_error(StatusCode::BAD_REQUEST, format!(
                     "History turn {index} instruction must contain 1-{MAX_INSTRUCTION_BYTES} bytes"
-                ),
-            ));
+                )));
         }
         if turn.explanation.len() > MAX_HISTORY_EXPLANATION_BYTES {
-            return Err(api_error(
-                StatusCode::BAD_REQUEST,
-                format!(
+            return Err(api_error(StatusCode::BAD_REQUEST, format!(
                     "History turn {index} explanation exceeds {MAX_HISTORY_EXPLANATION_BYTES} bytes"
-                ),
-            ));
+                )));
         }
         if let Some(error) = &turn.error {
             if error.len() > MAX_HISTORY_ERROR_BYTES {
-                return Err(api_error(
-                    StatusCode::BAD_REQUEST,
-                    format!("History turn {index} error exceeds {MAX_HISTORY_ERROR_BYTES} bytes"),
-                ));
+                return Err(api_error(StatusCode::BAD_REQUEST, format!("History turn {index} error exceeds {MAX_HISTORY_ERROR_BYTES} bytes")));
             }
         }
         if turn.failed {
             saw_failed = true;
             // Failed tail: project optional; if present still size-checked.
             if let Some(project) = &turn.project {
-                validate_playground_project(project).map_err(|message| {
-                    api_error(
-                        StatusCode::BAD_REQUEST,
-                        format!("History turn {index} project invalid: {message}"),
-                    )
-                })?;
+                validate_playground_project(project).map_err(|message| api_error(StatusCode::BAD_REQUEST, format!("History turn {index} project invalid: {message}")))?;
                 let bytes = serde_json::to_vec(project).map_err(|_| {
                     api_error(
                         StatusCode::BAD_REQUEST,
@@ -1165,28 +1146,15 @@ fn validate_history(history: &[PlaygroundHistoryTurn]) -> Result<(), ApiError> {
                     )
                 })?;
                 if bytes.len() > MAX_PROJECT_BYTES {
-                    return Err(api_error(
-                        StatusCode::PAYLOAD_TOO_LARGE,
-                        format!("History turn {index} project exceeds {MAX_PROJECT_BYTES} bytes"),
-                    ));
+                    return Err(api_error(StatusCode::PAYLOAD_TOO_LARGE, format!("History turn {index} project exceeds {MAX_PROJECT_BYTES} bytes")));
                 }
             }
             continue;
         }
 
         // Successful turns require a full project snapshot.
-        let project = turn.project.as_ref().ok_or_else(|| {
-            api_error(
-                StatusCode::BAD_REQUEST,
-                format!("History turn {index} is missing project snapshot"),
-            )
-        })?;
-        validate_playground_project(project).map_err(|message| {
-            api_error(
-                StatusCode::BAD_REQUEST,
-                format!("History turn {index} project invalid: {message}"),
-            )
-        })?;
+        let project = turn.project.as_ref().ok_or_else(|| api_error(StatusCode::BAD_REQUEST, format!("History turn {index} is missing project snapshot")))?;
+        validate_playground_project(project).map_err(|message| api_error(StatusCode::BAD_REQUEST, format!("History turn {index} project invalid: {message}")))?;
         let bytes = serde_json::to_vec(project).map_err(|_| {
             api_error(
                 StatusCode::BAD_REQUEST,
@@ -1194,10 +1162,7 @@ fn validate_history(history: &[PlaygroundHistoryTurn]) -> Result<(), ApiError> {
             )
         })?;
         if bytes.len() > MAX_PROJECT_BYTES {
-            return Err(api_error(
-                StatusCode::PAYLOAD_TOO_LARGE,
-                format!("History turn {index} project exceeds {MAX_PROJECT_BYTES} bytes"),
-            ));
+            return Err(api_error(StatusCode::PAYLOAD_TOO_LARGE, format!("History turn {index} project exceeds {MAX_PROJECT_BYTES} bytes")));
         }
     }
     Ok(())

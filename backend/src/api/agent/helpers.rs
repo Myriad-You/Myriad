@@ -34,9 +34,7 @@ pub(crate) fn build_request_context(ctx: ProcessContext) -> RequestContext {
 }
 
 /// 将 DataDisplayHint 从 service 层转换为 API 层类型
-pub(crate) fn convert_data_display_hint(
-    hint: crate::services::agent::DataDisplayHint,
-) -> DataDisplayHintApi {
+pub(crate) fn convert_data_display_hint(hint: crate::services::agent::DataDisplayHint) -> DataDisplayHintApi {
     match hint {
         crate::services::agent::DataDisplayHint::Table { columns, data_path } => {
             DataDisplayHintApi::Table {
@@ -85,12 +83,10 @@ pub(crate) fn convert_data_display_hint(
 
 /// 解析 user_id，返回标准化错误
 pub(crate) fn parse_user_id(claims: &Claims) -> Result<i32, HttpError> {
-    claims.sub.parse::<i32>().map_err(|_| {
-        HttpError::from((
+    claims.sub.parse::<i32>().map_err(|_| HttpError::from((
             StatusCode::UNAUTHORIZED,
             Json(json!({ "error": "Invalid user" })),
-        ))
-    })
+        )))
 }
 
 /// 解析 user_id 并校验 Agent 可见性/使用权限
@@ -141,3 +137,5 @@ pub(crate) fn validate_input(input: &str) -> Result<(), HttpError> {
     }
     Ok(())
 }
+
+

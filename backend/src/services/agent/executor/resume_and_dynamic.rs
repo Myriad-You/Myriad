@@ -15,6 +15,7 @@ use super::{
 use super::{dag, events, retry, task_store};
 
 impl Executor {
+
     /// 用户回答后恢复执行
     pub async fn resume_with_answer(
         &self,
@@ -1176,11 +1177,7 @@ impl Executor {
     }
 
     /// 检查步骤依赖
-    pub(crate) fn check_dependencies(
-        &self,
-        step: &RecipeStep,
-        outputs: &HashMap<String, Value>,
-    ) -> bool {
+    pub(crate) fn check_dependencies(&self, step: &RecipeStep, outputs: &HashMap<String, Value>) -> bool {
         for dep_id in &step.depends_on {
             if !outputs.contains_key(dep_id) {
                 return false;

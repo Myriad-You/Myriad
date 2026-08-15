@@ -1,5 +1,6 @@
 //! Pure helpers for executor_resolve_pure.
 
+
 use crate::services::agent::executor_utils_pure::truncate_str;
 use crate::services::agent::types::{QuestionType, RiskLevel, UserQuestion};
 use crate::services::agent::SYSTEM_USER_ID;
@@ -48,7 +49,10 @@ pub fn build_debug_params(params: &HashMap<String, Value>) -> Option<Value> {
 
 /// Data-shaped params keep full objects for handlers that parse structure.
 pub fn is_data_param_key(key: &str) -> bool {
-    matches!(key, "data" | "content" | "input" | "context" | "items")
+    matches!(
+        key,
+        "data" | "content" | "input" | "context" | "items"
+    )
 }
 
 /// ID-shaped params must never fall through to semantic text extraction.
@@ -415,7 +419,10 @@ mod tests {
     #[test]
     fn id_param_falls_back_to_top_level_id() {
         let output = json!({ "id": 42, "message": "文案" });
-        assert_eq!(extract_id_from_output(&output, "songId"), Some(json!(42)));
+        assert_eq!(
+            extract_id_from_output(&output, "songId"),
+            Some(json!(42))
+        );
     }
 
     #[test]
@@ -461,10 +468,7 @@ mod tests {
         assert!(!resolved.contains_key("playlistId"));
 
         let mut previous = HashMap::new();
-        previous.insert(
-            "search".into(),
-            json!({ "message": "找到 10 个歌单", "success": true }),
-        );
+        previous.insert("search".into(), json!({ "message": "找到 10 个歌单", "success": true }));
         let mut params = HashMap::new();
         params.insert("playlistIdFrom".into(), json!("search"));
         let (resolved, unresolved) = resolve_params(&params, &previous);
@@ -507,7 +511,10 @@ mod tests {
     #[test]
     fn playlist_fallback_and_text_truthy_dot() {
         let mut outs = HashMap::new();
-        outs.insert("rec".into(), json!({ "recommendedPlaylistId": "pl_1" }));
+        outs.insert(
+            "rec".into(),
+            json!({ "recommendedPlaylistId": "pl_1" }),
+        );
         assert_eq!(find_playlist_id_in_outputs(&outs).as_deref(), Some("pl_1"));
 
         assert_eq!(
@@ -522,7 +529,10 @@ mod tests {
 
         let mut step_outs = HashMap::new();
         step_outs.insert("prev".into(), json!({ "n": 3 }));
-        assert_eq!(resolve_dot_path("prev.n", &json!({}), &step_outs), json!(3));
+        assert_eq!(
+            resolve_dot_path("prev.n", &json!({}), &step_outs),
+            json!(3)
+        );
         assert_eq!(
             resolve_dot_path("output.x", &json!({ "x": true }), &step_outs),
             json!(true)
@@ -535,7 +545,10 @@ mod tests {
         let long = "a".repeat(600);
         params.insert("prompt".into(), json!(long));
         let preview = build_debug_params(&params).expect("preview");
-        let s = preview.get("prompt").and_then(|v| v.as_str()).expect("str");
+        let s = preview
+            .get("prompt")
+            .and_then(|v| v.as_str())
+            .expect("str");
         assert!(s.contains("...("));
         assert!(s.len() < 600);
     }

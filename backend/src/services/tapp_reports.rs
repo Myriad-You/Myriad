@@ -366,10 +366,7 @@ pub async fn update_tapp_report(
     let mut active: tapp_storage::ActiveModel = item.into();
     active.value = Set(report_data.clone());
     active.updated_at = Set(now);
-    active
-        .update(db)
-        .await
-        .map_err(|_| TappReportCrudError::UpdateFailed)?;
+    active.update(db).await.map_err(|_| TappReportCrudError::UpdateFailed)?;
     Ok(report_data)
 }
 

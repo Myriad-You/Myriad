@@ -79,13 +79,14 @@ impl UpdaterClientError {
     /// Map into the shared [`AppError`] used by HTTP adapters.
     pub fn into_app_error(self) -> AppError {
         match self {
-            Self::NotConfigured => {
-                AppError::service_unavailable("updater not configured (set MYRIAD_UPDATER_URL)")
-            }
-            Self::Upstream(status, body) => {
-                AppError::from_status_u16(status.as_u16(), format!("updater upstream {status}"))
-                    .with_message(body)
-            }
+            Self::NotConfigured => AppError::service_unavailable(
+                "updater not configured (set MYRIAD_UPDATER_URL)",
+            ),
+            Self::Upstream(status, body) => AppError::from_status_u16(
+                status.as_u16(),
+                format!("updater upstream {status}"),
+            )
+            .with_message(body),
             Self::Transport(e) => AppError::bad_gateway("updater transport error").with_message(e),
         }
     }

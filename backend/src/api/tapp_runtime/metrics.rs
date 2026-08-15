@@ -1,10 +1,6 @@
 //! Tapp 运行状态与速率限制 API
 
-use axum::{
-    extract::{Path, State},
-    http::StatusCode,
-    Extension, Json,
-};
+use axum::{extract::{Path, State}, http::StatusCode, Extension, Json};
 use sea_orm::DatabaseConnection;
 use serde_json::{json, Value};
 
@@ -28,7 +24,8 @@ pub async fn get_tapp_metrics(
 
     let active_limits = get_rate_limiter_active_count(&db).await?;
 
-    let cached_platforms = crate::services::platform_cache::platform_cache_entry_count().await;
+    let cached_platforms =
+        crate::services::platform_cache::platform_cache_entry_count().await;
     let active_scheduler_subjects = active_frontend_subject_count(&db).await.map_err(|error| {
         tracing::error!(%error, "[TAPP] Failed to collect scheduler metrics");
         (

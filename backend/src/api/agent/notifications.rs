@@ -98,12 +98,10 @@ pub(crate) async fn mark_notification_read(
     let found = manager
         .mark_read(&notification_id, user_id)
         .await
-        .map_err(|error| {
-            HttpError::from((
+        .map_err(|error| HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({"error": error})),
-            ))
-        })?;
+            )))?;
     Ok(Json(json!({"success": found})))
 }
 
@@ -117,12 +115,10 @@ pub(crate) async fn mark_all_notifications_read(
         Json(json!({"error": "Notification system not initialized"})),
     ))?;
 
-    manager.mark_all_read(user_id).await.map_err(|error| {
-        HttpError::from((
+    manager.mark_all_read(user_id).await.map_err(|error| HttpError::from((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": error})),
-        ))
-    })?;
+        )))?;
     Ok(Json(json!({"success": true})))
 }
 
@@ -140,12 +136,10 @@ pub(crate) async fn delete_notification(
     let removed = manager
         .delete_notification(&notification_id, user_id)
         .await
-        .map_err(|error| {
-            HttpError::from((
+        .map_err(|error| HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({"error": error})),
-            ))
-        })?;
+            )))?;
     if !removed {
         return Err(HttpError::from((
             StatusCode::NOT_FOUND,
@@ -165,12 +159,10 @@ pub(crate) async fn clear_notifications(
         Json(json!({"error": "Notification system not initialized"})),
     ))?;
 
-    let deleted = manager.clear_all(user_id).await.map_err(|error| {
-        HttpError::from((
+    let deleted = manager.clear_all(user_id).await.map_err(|error| HttpError::from((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": error})),
-        ))
-    })?;
+        )))?;
     Ok(Json(json!({"success": true, "deleted": deleted})))
 }
 
@@ -178,3 +170,5 @@ pub(crate) async fn clear_notifications(
 pub(crate) struct NotificationListParams {
     limit: Option<usize>,
 }
+
+

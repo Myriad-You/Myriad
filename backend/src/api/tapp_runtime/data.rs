@@ -10,14 +10,13 @@ use sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::error::HttpError;
 use crate::middleware::auth::Claims;
 use crate::services::permission_service::TappPermission;
 use crate::services::platform_cache::{
-    acquire_platform_lock, get_cached_platform_data, validate_platform_name,
-    write_filtered_document,
+    acquire_platform_lock, get_cached_platform_data, validate_platform_name, write_filtered_document,
 };
 use crate::services::tapp_data_transform::{self, DataTransformError, ProcessStep};
+use crate::error::HttpError;
 use crate::services::tapp_storage::{
     self, read_storage_value, validate_sandbox_storage_key, validate_storage_value_size,
     write_storage_value, TappStorageError,
@@ -63,9 +62,10 @@ fn transform_http_error(err: DataTransformError) -> (StatusCode, Json<Value>) {
 fn storage_http_error(err: TappStorageError) -> (StatusCode, Json<Value>) {
     // Preserve historical transform error strings for storage I/O.
     match err {
-        TappStorageError::InvalidKey(reason) => {
-            (StatusCode::BAD_REQUEST, Json(json!({ "error": reason })))
-        }
+        TappStorageError::InvalidKey(reason) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": reason })),
+        ),
         TappStorageError::TooLarge => (
             StatusCode::PAYLOAD_TOO_LARGE,
             Json(json!({ "error": "Storage value too large" })),
@@ -83,9 +83,10 @@ fn storage_write_http_error(err: TappStorageError) -> (StatusCode, Json<Value>) 
             StatusCode::PAYLOAD_TOO_LARGE,
             Json(json!({ "error": "Storage value too large" })),
         ),
-        TappStorageError::InvalidKey(reason) => {
-            (StatusCode::BAD_REQUEST, Json(json!({ "error": reason })))
-        }
+        TappStorageError::InvalidKey(reason) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": reason })),
+        ),
         TappStorageError::Database => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": "Failed to save storage" })),
@@ -148,14 +149,7 @@ pub async fn data_transform(
         let user_id = parse_user_id(&claims)?;
         verify_tapp_ownership(&db, user_id, &req.tapp_id).await?;
     } else {
-        authorize_tapp_permissions(
-            &db,
-            &claims,
-            &req.tapp_id,
-            &required_permissions,
-            &dynamic_config,
-        )
-        .await?;
+        authorize_tapp_permissions(&db, &claims, &req.tapp_id, &required_permissions, &dynamic_config).await?;
     }
 
     // Storage I/O always follows the current runtime subject, including when a

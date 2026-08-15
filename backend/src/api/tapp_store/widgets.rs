@@ -23,15 +23,14 @@ use crate::middleware::auth::{Claims, OptionalClaims};
 use crate::models::entities::{tapp_widgets, tapps};
 use crate::services::permission_service::TappPermission;
 
-use crate::error::HttpError;
+use crate::services::tapp_ownership::public_install_visible_to_viewer;
 use crate::services::tapp_lifecycle::{
     desired_manifest_widget_ids, format_tapp_widget_id, is_manifest_widget_row,
     legacy_manifest_widget_ids, local_widget_id_from_full, manifest_declares_local_widget_id,
-    resolve_full_widget_id,
-    runtime_widget_belongs_to_installation as runtime_widget_belongs_to_installation_domain,
+    resolve_full_widget_id, runtime_widget_belongs_to_installation as runtime_widget_belongs_to_installation_domain,
     runtime_widget_register_shape_ok, runtime_widget_slot_available, widget_source,
 };
-use crate::services::tapp_ownership::public_install_visible_to_viewer;
+use crate::error::HttpError;
 use myriad_error::AppError;
 
 // Domain ownership rules: services::tapp_lifecycle (path-stable Model adapter).
@@ -40,7 +39,11 @@ pub(super) fn runtime_widget_belongs_to_installation(
     subject_id: i32,
     installation_owner_id: i32,
 ) -> bool {
-    runtime_widget_belongs_to_installation_domain(&widget.config, subject_id, installation_owner_id)
+    runtime_widget_belongs_to_installation_domain(
+        &widget.config,
+        subject_id,
+        installation_owner_id,
+    )
 }
 
 fn tapp_widget_response(widget: &tapp_widgets::Model, is_admin_widget: bool) -> serde_json::Value {
@@ -292,14 +295,8 @@ pub(super) async fn register_widget(
     require_current_admin(&claims, &db).await?;
     runtime_grant.require_tapp_id(&tapp_id)?;
     runtime_grant.require(TappPermission::WidgetRegister)?;
-    let user_id = authorize_tapp_permission(
-        &db,
-        &claims,
-        &tapp_id,
-        TappPermission::WidgetRegister,
-        &dynamic_config,
-    )
-    .await?;
+    let user_id =
+        authorize_tapp_permission(&db, &claims, &tapp_id, TappPermission::WidgetRegister, &dynamic_config).await?;
     let installation_owner_id = runtime_grant.owner_id();
     if !runtime_widget_register_shape_ok(
         &request.id,
@@ -312,8 +309,7 @@ pub(super) async fn register_widget(
     validate_tapp_settings(&request.settings, &format!("Widget {}", request.id))
         .map_err(|_| HttpError(AppError::bad_request("Bad request")))?;
     if let Some(policy) = &request.refresh_policy {
-        validate_widget_refresh_policy(policy, &request.id)
-            .map_err(|_| HttpError(AppError::bad_request("Bad request")))?;
+        validate_widget_refresh_policy(policy, &request.id).map_err(|_| HttpError(AppError::bad_request("Bad request")))?;
     }
 
     let widget_id = format_tapp_widget_id(&tapp_id, &request.id);
@@ -473,17 +469,11 @@ pub(super) async fn unregister_widget(
     require_current_admin(&claims, &db).await?;
     runtime_grant.require_tapp_id(&tapp_id)?;
     runtime_grant.require(TappPermission::WidgetRegister)?;
-    let user_id = authorize_tapp_permission(
-        &db,
-        &claims,
-        &tapp_id,
-        TappPermission::WidgetRegister,
-        &dynamic_config,
-    )
-    .await?;
+    let user_id =
+        authorize_tapp_permission(&db, &claims, &tapp_id, TappPermission::WidgetRegister, &dynamic_config).await?;
     let installation_owner_id = runtime_grant.owner_id();
-    let full_widget_id = resolve_full_widget_id(&tapp_id, &widget_id)
-        .map_err(|_| HttpError(AppError::bad_request("Bad request")))?;
+    let full_widget_id =
+        resolve_full_widget_id(&tapp_id, &widget_id).map_err(|_| HttpError(AppError::bad_request("Bad request")))?;
     let widget = tapp_widgets::Entity::find()
         .filter(tapp_widgets::Column::UserId.eq(user_id))
         .filter(tapp_widgets::Column::WidgetId.eq(&full_widget_id))

@@ -95,13 +95,8 @@ pub async fn run_text_provider<F>(
 where
     F: FnMut(&str) -> bool + Send,
 {
-    let analyzer = AiAnalyzer::new(
-        config.provider,
-        config.api_key,
-        config.model,
-        config.base_url,
-    )
-    .await;
+    let analyzer =
+        AiAnalyzer::new(config.provider, config.api_key, config.model, config.base_url).await;
     let raw = if stream {
         analyzer
             .analyze_stream(&format!("{system}\n\n{prompt}"), |delta| on_delta(delta))

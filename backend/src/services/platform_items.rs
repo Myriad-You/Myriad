@@ -405,11 +405,14 @@ fn enrich_netease_items(items: &mut [Value], raw: &Value) {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        let fee = s.get("fee").and_then(|v| v.as_i64()).or_else(|| {
-            s.get("privilege")
-                .and_then(|p| p.get("fee"))
-                .and_then(|v| v.as_i64())
-        });
+        let fee = s
+            .get("fee")
+            .and_then(|v| v.as_i64())
+            .or_else(|| {
+                s.get("privilege")
+                    .and_then(|p| p.get("fee"))
+                    .and_then(|v| v.as_i64())
+            });
         let is_vip = s
             .get("isVip")
             .and_then(|v| v.as_bool())
@@ -1606,10 +1609,12 @@ mod tests {
         assert_eq!(items[0]["video_id"], "dQw4w9WgXcQ");
         assert_eq!(items[0]["view_count"], 1000);
         assert_eq!(items[0]["name"], "Sample Upload One");
-        assert!(items[0]["url"]
-            .as_str()
-            .unwrap_or("")
-            .contains("dQw4w9WgXcQ"));
+        assert!(
+            items[0]["url"]
+                .as_str()
+                .unwrap_or("")
+                .contains("dQw4w9WgXcQ")
+        );
     }
 
     #[test]

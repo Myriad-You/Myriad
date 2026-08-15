@@ -4,10 +4,16 @@ use chrono::{Duration, Utc};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
-use super::agent_footer::*;
+use super::{
+    capability,
+    executor,
+    identity,
+    response_agent,
+    types,
+};
 use super::agent_header::*;
+use super::agent_footer::*;
 use super::types::*;
-use super::{capability, executor, identity, response_agent, types};
 
 /// 确认请求的判定结果：能直接答复的，和真要跑 recipe 的。
 ///
@@ -20,6 +26,7 @@ enum ConfirmationOutcome {
 }
 
 impl Agent {
+
     /// 处理用户确认
     ///
     /// 只有「真的要跑 recipe」这一段进预算作用域。取消、越权、找不到、已过期、
@@ -53,15 +60,16 @@ impl Agent {
     ) -> Result<ConfirmationOutcome, String> {
         // PostgreSQL provides atomic, owner-scoped consumption across replicas.
         // The local map is only a hot cache and is cleared after the shared take.
-        let pending =
-            crate::services::tapp_registry::take_for_subject::<PendingRecipeConfirmation>(
-                &self.db,
-                CONFIRMATION_REGISTRY_NAMESPACE,
-                &confirmation.confirmation_id,
-                confirmation.user_id,
-            )
-            .await
-            .map_err(|error| format!("Failed to consume confirmation: {error}"))?;
+        let pending = crate::services::tapp_registry::take_for_subject::<
+            PendingRecipeConfirmation,
+        >(
+            &self.db,
+            CONFIRMATION_REGISTRY_NAMESPACE,
+            &confirmation.confirmation_id,
+            confirmation.user_id,
+        )
+        .await
+        .map_err(|error| format!("Failed to consume confirmation: {error}"))?;
         PENDING_CONFIRMATIONS
             .write()
             .await
@@ -324,10 +332,9 @@ impl Agent {
         if user_id != SYSTEM_USER_ID {
             return None;
         }
-        if let Some(blocked) = sensitive_steps
-            .iter()
-            .find(|s| matches!(s.risk_level, RiskLevel::High | RiskLevel::Critical))
-        {
+        if let Some(blocked) = sensitive_steps.iter().find(|s| {
+            matches!(s.risk_level, RiskLevel::High | RiskLevel::Critical)
+        }) {
             let msg = format!(
                 "定时任务包含敏感操作 '{}'（{}，风险 {:?}），已拒绝自动执行。请手动操作或调整任务指令。",
                 blocked.capability_name, blocked.capability_id, blocked.risk_level
@@ -1115,10 +1122,7 @@ impl Agent {
     ///
     /// 将文本按句/标点拆分为自然片段，逐个发送给前端，
     /// 让用户看到"AI 在打字"的效果而非一次性出现全部内容。
-    pub(crate) async fn stream_text_as_tokens(
-        tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>,
-        text: &str,
-    ) {
+    pub(crate) async fn stream_text_as_tokens(tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>, text: &str) {
         // 按自然断点切分（标点、换行）
         let mut chunks = Vec::new();
         let mut current = String::new();

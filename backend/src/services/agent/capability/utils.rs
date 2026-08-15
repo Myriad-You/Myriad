@@ -311,17 +311,11 @@ pub fn get_sensitive_capabilities() -> HashMap<&'static str, (&'static str, Risk
     );
     map.insert(
         "brew.schedule",
-        (
-            "此操作将控制 Brew 订阅调度器（启动/停止/刷新）",
-            RiskLevel::Medium,
-        ),
+        ("此操作将控制 Brew 订阅调度器（启动/停止/刷新）", RiskLevel::Medium),
     );
     map.insert(
         "http.fetch",
-        (
-            "此操作将向外部 URL 发起 HTTP 请求（出站网络）",
-            RiskLevel::Medium,
-        ),
+        ("此操作将向外部 URL 发起 HTTP 请求（出站网络）", RiskLevel::Medium),
     );
     map.insert(
         "tapp.delete",
@@ -378,7 +372,10 @@ pub fn get_sensitive_capabilities() -> HashMap<&'static str, (&'static str, Risk
     );
     map.insert(
         "task.submit",
-        ("此操作将提交后台平台数据处理任务", RiskLevel::Medium),
+        (
+            "此操作将提交后台平台数据处理任务",
+            RiskLevel::Medium,
+        ),
     );
 
     // 低风险 - 可逆操作
@@ -660,19 +657,11 @@ mod sensitive_caps_tests {
     #[test]
     fn network_and_brew_writes_require_confirmation() {
         let map = get_sensitive_capabilities();
-        for id in [
-            "brew.subscribe",
-            "brew.schedule",
-            "http.fetch",
-            "task.submit",
-        ] {
+        for id in ["brew.subscribe", "brew.schedule", "http.fetch", "task.submit"] {
             let (msg, risk) = map.get(id).unwrap_or_else(|| panic!("missing {id}"));
             assert!(!msg.is_empty(), "{id} message");
             assert!(
-                matches!(
-                    risk,
-                    RiskLevel::Medium | RiskLevel::High | RiskLevel::Critical
-                ),
+                matches!(risk, RiskLevel::Medium | RiskLevel::High | RiskLevel::Critical),
                 "{id} risk {risk:?}"
             );
         }

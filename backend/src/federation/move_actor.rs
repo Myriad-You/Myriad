@@ -585,10 +585,7 @@ async fn local_actor_document_for_base(
             [username.into()],
         ))
         .await
-        .map_err(|e| {
-            tracing::error!("DB error: {}", e);
-            "Database error".to_string()
-        })?
+        .map_err(|e| { tracing::error!("DB error: {}", e); "Database error".to_string() })?
         .ok_or_else(|| format!("Local user not found: {}", username))?;
 
     let display_name: Option<String> = row.try_get("", "display_name").ok();
@@ -683,10 +680,8 @@ pub async fn migrate_follows_old_to_new(
             [old_actor_url.into()],
         ))
         .await
-        .map_err(|e| {
-            tracing::error!("DB error: {}", e);
-            "Database error".to_string()
-        })? {
+        .map_err(|e| { tracing::error!("DB error: {}", e); "Database error".to_string() })?
+    {
         Some(r) => r.try_get::<i32>("", "id").unwrap_or(0),
         None => {
             // No local knowledge of old actor — nothing to migrate
@@ -716,10 +711,7 @@ pub async fn migrate_follows_old_to_new(
             [old_remote.into()],
         ))
         .await
-        .map_err(|e| {
-            tracing::error!("DB error listing follows: {}", e);
-            "Database error".to_string()
-        })?;
+        .map_err(|e| { tracing::error!("DB error listing follows: {}", e); "Database error".to_string() })?;
 
     let mut migrated = 0u32;
 
@@ -744,10 +736,7 @@ pub async fn migrate_follows_old_to_new(
                 ],
             ))
             .await
-            .map_err(|e| {
-                tracing::error!("DB error: {}", e);
-                "Database error".to_string()
-            })?;
+            .map_err(|e| { tracing::error!("DB error: {}", e); "Database error".to_string() })?;
 
         match plan_follow_repoint(
             &status,

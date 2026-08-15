@@ -599,6 +599,7 @@ pub fn project_time_info(now: chrono::DateTime<chrono::Utc>, timezone: &str) -> 
     })
 }
 
+
 // ── Platform stats projections ──────────────────────────────────────────────
 
 pub fn analyze_bilibili_stats(data: &Value) -> Result<Value, String> {
@@ -930,7 +931,10 @@ pub fn agent_extract_platform_items(platform: &str, data: &Value) -> Vec<Value> 
                 .and_then(|v| v.as_array())
             {
                 for video in videos {
-                    let video_id = video.get("video_id").and_then(|v| v.as_str()).unwrap_or("");
+                    let video_id = video
+                        .get("video_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
                     items.push(json!({
                         "type": "video",
                         "title": video.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled"),
@@ -1222,6 +1226,7 @@ pub fn parse_rsshub_radar_rules(content: &str) -> Value {
     json!(routes)
 }
 
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1316,12 +1321,7 @@ mod tests {
             url: None,
             source_id: None,
         };
-        assert!(article_lookup_matches(
-            &by_guid,
-            1,
-            "guid-1",
-            "https://other"
-        ));
+        assert!(article_lookup_matches(&by_guid, 1, "guid-1", "https://other"));
         assert!(article_lookup_matches(&by_guid, 1, "other", "guid-1"));
 
         let by_url = BrewArticleLookup {
@@ -1400,7 +1400,9 @@ mod tests {
             "example.com"
         );
 
-        let cleaned = clean_search_result_url("https://example.com/a?utm_source=x&id=1&fbclid=y");
+        let cleaned = clean_search_result_url(
+            "https://example.com/a?utm_source=x&id=1&fbclid=y",
+        );
         assert!(cleaned.contains("id=1"));
         assert!(!cleaned.contains("utm_source"));
         assert!(!cleaned.contains("fbclid"));
@@ -1438,8 +1440,11 @@ mod tests {
             json!({"title": "new", "createdAt": "2026-06-01T00:00:00+00:00"}),
             json!({"title": "mid", "created_at": "2025-01-01T00:00:00+00:00"}),
         ];
-        let filtered =
-            filter_items_by_since_and_limit(items, Some("2024-01-01T00:00:00+00:00"), Some(1));
+        let filtered = filter_items_by_since_and_limit(
+            items,
+            Some("2024-01-01T00:00:00+00:00"),
+            Some(1),
+        );
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0]["title"], "new");
     }
@@ -1500,17 +1505,12 @@ mod tests {
         let obj = extract_json_from_response("noise {\"k\":true} more");
         assert_eq!(obj.as_deref(), Some("{\"k\":true}"));
 
-        let rss = parse_brew_content(
-            "<item><title>T</title><link>https://x</link><pubDate>d</pubDate></item>",
-        );
+        let rss = parse_brew_content("<item><title>T</title><link>https://x</link><pubDate>d</pubDate></item>");
         assert_eq!(rss.len(), 1);
         assert_eq!(rss[0]["title"], "T");
 
         let radar = parse_rsshub_radar_rules("");
-        assert!(
-            radar.as_array().unwrap().len() >= 5,
-            "popular fallback routes"
-        );
+        assert!(radar.as_array().unwrap().len() >= 5, "popular fallback routes");
     }
 
     #[test]
@@ -1528,10 +1528,7 @@ mod tests {
         assert_eq!(items[0]["type"], "artist");
         assert_eq!(items[0]["name"], "YOASOBI");
         assert_eq!(items[0]["play_count"], 12);
-        assert!(
-            items[0].get("title").is_none(),
-            "agent shape has name not title"
-        );
+        assert!(items[0].get("title").is_none(), "agent shape has name not title");
 
         // steam: type/name/playtime_minutes/appid/icon_url
         let steam = json!({
@@ -1644,4 +1641,5 @@ mod tests {
         assert_eq!(out["timestamp"], now.timestamp());
         assert!(out["datetime"].as_str().unwrap().starts_with("2026-07-31"));
     }
+
 }

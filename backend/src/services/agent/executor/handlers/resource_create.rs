@@ -53,8 +53,13 @@ async fn persist_agent_tapp(
     author: Value,
 ) -> Result<chrono::DateTime<Utc>, String> {
     require_nonempty_code(code)?;
-    let manifest =
-        normalize_agent_tapp_manifest(manifest, tapp_id, name, description.as_deref(), &author)?;
+    let manifest = normalize_agent_tapp_manifest(
+        manifest,
+        tapp_id,
+        name,
+        description.as_deref(),
+        &author,
+    )?;
     let requested_permissions = manifest_permission_strings(&manifest);
     let role = if crate::services::agent::user_is_current_admin(ctx.db, ctx.user_id).await {
         UserRole::Admin
@@ -558,3 +563,5 @@ async fn execute_bookmark_save(
         }
     }))
 }
+
+

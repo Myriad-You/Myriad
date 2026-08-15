@@ -84,7 +84,10 @@ pub fn lane_id_from_user_session(user_id: i32, session_id: &str) -> Option<Strin
 }
 
 /// Whether a terminal task's `completed_at` is past retention and should be purged.
-pub fn is_terminal_past_retention(completed_at: DateTime<Utc>, now: DateTime<Utc>) -> bool {
+pub fn is_terminal_past_retention(
+    completed_at: DateTime<Utc>,
+    now: DateTime<Utc>,
+) -> bool {
     (now - completed_at).num_hours() > TERMINAL_RETENTION_HOURS
 }
 
@@ -96,9 +99,7 @@ pub fn is_waiting_input_timed_out(started_at: DateTime<Utc>, now: DateTime<Utc>)
 /// In-memory status tallies: (total, pending, running, waiting, completed, failed, cancelled).
 ///
 /// `WaitingForInput` and `Paused` both count as **waiting**.
-pub fn status_counts_from_iter<'a, I>(
-    statuses: I,
-) -> (usize, usize, usize, usize, usize, usize, usize)
+pub fn status_counts_from_iter<'a, I>(statuses: I) -> (usize, usize, usize, usize, usize, usize, usize)
 where
     I: IntoIterator<Item = &'a TaskStatus>,
 {
@@ -154,10 +155,7 @@ mod tests {
         ] {
             assert_eq!(task_status_to_db_str(&task_status_from_db_str(s)), s);
         }
-        assert_eq!(
-            task_status_from_db_str("unknown_legacy"),
-            TaskStatus::Pending
-        );
+        assert_eq!(task_status_from_db_str("unknown_legacy"), TaskStatus::Pending);
     }
 
     #[test]
@@ -184,10 +182,22 @@ mod tests {
     #[test]
     fn retention_and_waiting_timeout() {
         let now = Utc::now();
-        assert!(!is_terminal_past_retention(now - Duration::hours(23), now));
-        assert!(is_terminal_past_retention(now - Duration::hours(25), now));
-        assert!(!is_waiting_input_timed_out(now - Duration::hours(2), now));
-        assert!(is_waiting_input_timed_out(now - Duration::hours(3), now));
+        assert!(!is_terminal_past_retention(
+            now - Duration::hours(23),
+            now
+        ));
+        assert!(is_terminal_past_retention(
+            now - Duration::hours(25),
+            now
+        ));
+        assert!(!is_waiting_input_timed_out(
+            now - Duration::hours(2),
+            now
+        ));
+        assert!(is_waiting_input_timed_out(
+            now - Duration::hours(3),
+            now
+        ));
         assert!(WAITING_INPUT_TIMEOUT_ERROR.contains("超时"));
     }
 

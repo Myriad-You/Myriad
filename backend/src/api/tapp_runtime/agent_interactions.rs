@@ -21,7 +21,9 @@ use crate::error::HttpError;
 use crate::{
     middleware::auth::Claims,
     services::agent_interaction::AgentInteractionSnapshot,
-    services::tapp_agent_interaction::{self, AgentInteractionError, InteractionRuntime},
+    services::tapp_agent_interaction::{
+        self, AgentInteractionError, InteractionRuntime,
+    },
 };
 
 use super::{
@@ -207,12 +209,10 @@ pub async fn stream_agent_interactions(
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
     let subject_id = parse_user_id(&claims)?;
     let tapp = resolve_accessible_tapp(&db, subject_id, runtime.tapp_id()).await?;
-    let manifest = tapp_agent_interaction::parse_agent_manifest(&tapp.manifest)
-        .map_err(interaction_http_error)?;
+    let manifest =
+        tapp_agent_interaction::parse_agent_manifest(&tapp.manifest).map_err(interaction_http_error)?;
     if manifest.protocol_version != 2 {
-        return Err(interaction_http_error(
-            AgentInteractionError::ProtocolVersion,
-        ));
+        return Err(interaction_http_error(AgentInteractionError::ProtocolVersion));
     }
     let event_runtime = InteractionRuntime {
         subject_id,

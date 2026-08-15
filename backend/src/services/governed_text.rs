@@ -118,7 +118,9 @@ mod tests {
 
     #[tokio::test]
     async fn installed_executor_is_invoked() {
-        install_executor(|_db, request| async move { Ok(format!("echo:{}", request.prompt)) });
+        install_executor(|_db, request| async move {
+            Ok(format!("echo:{}", request.prompt))
+        });
         let db = DatabaseConnection::default();
         let text = execute_governed_text(
             &db,

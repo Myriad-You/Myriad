@@ -6,10 +6,11 @@ use crate::services::agent::types::*;
 use serde_json::Value;
 use std::collections::HashMap;
 
-use super::summarize_output;
 use super::Executor;
+use super::summarize_output;
 
 impl Executor {
+
     /// 解析 dot-path 从步骤输出中取值
     pub(crate) fn resolve_dot_path(
         &self,

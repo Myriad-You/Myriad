@@ -348,11 +348,7 @@ mod tests {
             b"federation activity body with unicode \xE8\x81\x94\xE9\x82\xA6 \x00\xff",
         ] {
             let sig = kp.sign(msg).unwrap();
-            assert_eq!(
-                sig.len(),
-                256,
-                "RSA-2048 PKCS#1 v1.5 signature is 256 bytes"
-            );
+            assert_eq!(sig.len(), 256, "RSA-2048 PKCS#1 v1.5 signature is 256 bytes");
             assert!(
                 KeyPair::verify(&pem, msg, &sig).unwrap(),
                 "signature must verify for message"

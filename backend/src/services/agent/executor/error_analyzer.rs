@@ -4,9 +4,13 @@
 //! Executor retry / DAG paths keep using `ErrorAnalyzer::{analyze,apply_fixes}`
 //! so call sites stay stable while pure rules remain I/O-free and unit-tested.
 
-pub use crate::services::agent::error_analyzer_pure::{ErrorAnalysis, ErrorCategory, ParamFix};
+pub use crate::services::agent::error_analyzer_pure::{
+    ErrorAnalysis, ErrorCategory, ParamFix,
+};
 
-use crate::services::agent::error_analyzer_pure::{analyze_error, apply_param_fixes};
+use crate::services::agent::error_analyzer_pure::{
+    analyze_error, apply_param_fixes,
+};
 use serde_json::Value;
 use std::collections::HashMap;
 

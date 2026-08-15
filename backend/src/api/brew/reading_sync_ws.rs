@@ -1,6 +1,8 @@
 //! Brew reading state, item detail, stats, and WebSocket.
 use axum::{
-    extract::{Path, State},
+    extract::{
+        Path, State,
+    },
     http::StatusCode,
     response::IntoResponse,
     Extension, Json,
@@ -8,8 +10,8 @@ use axum::{
 use chrono::Utc;
 use sea_orm::{
     sea_query::Expr, ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait,
-    DatabaseBackend, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QuerySelect,
-    Statement,
+    DatabaseBackend, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
+    QuerySelect, Statement,
 };
 use serde_json::json;
 

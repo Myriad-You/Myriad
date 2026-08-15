@@ -8,11 +8,7 @@ pub use crate::services::agent::dag_pure::DagScheduler;
 use crate::services::agent::types::FailureStrategy;
 
 /// Adapter wrapper: mark failed + log strategy effect for operators.
-pub fn mark_failed_with_log(
-    scheduler: &mut DagScheduler,
-    step_id: &str,
-    strategy: &FailureStrategy,
-) {
+pub fn mark_failed_with_log(scheduler: &mut DagScheduler, step_id: &str, strategy: &FailureStrategy) {
     let blocks = scheduler.mark_failed(step_id, strategy);
     if blocks {
         tracing::warn!(

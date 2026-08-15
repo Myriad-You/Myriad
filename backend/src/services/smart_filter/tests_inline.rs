@@ -193,7 +193,10 @@ fn filter_youtube_channel_and_videos() {
     let filtered = SmartFilter::filter("youtube", &raw).expect("filter youtube");
     assert_eq!(filtered.platform, "youtube");
     assert_eq!(filtered.user_summary.username, "Google for Developers");
-    assert_eq!(filtered.user_summary.user_id, "UC_x5XG1OV2P6uZZ5FSM9Ttw");
+    assert_eq!(
+        filtered.user_summary.user_id,
+        "UC_x5XG1OV2P6uZZ5FSM9Ttw"
+    );
     assert_eq!(filtered.user_summary.stats.follower_count, Some(2_300_000));
     assert_eq!(filtered.user_summary.stats.total_content, 5800);
 
@@ -475,5 +478,8 @@ fn load_youtube_filtered_cache_from_disk_if_present() {
     let back: SmartFilteredData =
         serde_json::from_value(v).expect("deserialize SmartFilteredData after save shape");
     assert_eq!(back.platform, "youtube");
-    assert!(matches!(back.content_analysis, ContentAnalysis::YouTube(_)));
+    assert!(matches!(
+        back.content_analysis,
+        ContentAnalysis::YouTube(_)
+    ));
 }

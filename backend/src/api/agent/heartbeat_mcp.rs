@@ -23,12 +23,10 @@ pub(crate) async fn heartbeat_tasks(
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Value>, HttpError> {
     require_current_admin(&claims, &db).await?;
-    let manager = crate::services::agent::heartbeat::get_heartbeat().ok_or_else(|| {
-        HttpError::from((
+    let manager = crate::services::agent::heartbeat::get_heartbeat().ok_or_else(|| HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({ "error": "Heartbeat not initialized" })),
-        ))
-    })?;
+        )))?;
 
     let tasks = manager.get_tasks().await;
     Ok(Json(json!({ "tasks": tasks })))
@@ -41,12 +39,10 @@ pub(crate) async fn toggle_heartbeat(
     Path(task_id): Path<String>,
 ) -> Result<Json<Value>, HttpError> {
     require_current_admin(&claims, &db).await?;
-    let manager = crate::services::agent::heartbeat::get_heartbeat().ok_or_else(|| {
-        HttpError::from((
+    let manager = crate::services::agent::heartbeat::get_heartbeat().ok_or_else(|| HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({ "error": "Heartbeat not initialized" })),
-        ))
-    })?;
+        )))?;
 
     match manager.toggle_task(&task_id).await {
         Some(enabled) => Ok(Json(json!({ "task_id": task_id, "enabled": enabled }))),
@@ -63,12 +59,10 @@ pub(crate) async fn reload_heartbeat(
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Value>, HttpError> {
     require_current_admin(&claims, &db).await?;
-    let manager = crate::services::agent::heartbeat::get_heartbeat().ok_or_else(|| {
-        HttpError::from((
+    let manager = crate::services::agent::heartbeat::get_heartbeat().ok_or_else(|| HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({ "error": "Heartbeat not initialized" })),
-        ))
-    })?;
+        )))?;
 
     manager.reload().await;
     let tasks = manager.get_tasks().await;
@@ -91,12 +85,10 @@ pub(crate) async fn update_heartbeat(
     Json(body): Json<UpdateHeartbeatBody>,
 ) -> Result<Json<Value>, HttpError> {
     require_current_admin(&claims, &db).await?;
-    let manager = crate::services::agent::heartbeat::get_heartbeat().ok_or_else(|| {
-        HttpError::from((
+    let manager = crate::services::agent::heartbeat::get_heartbeat().ok_or_else(|| HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({ "error": "Heartbeat not initialized" })),
-        ))
-    })?;
+        )))?;
 
     match manager
         .update_task(
@@ -109,14 +101,10 @@ pub(crate) async fn update_heartbeat(
         .await
     {
         Ok(task) => Ok(Json(json!({ "task": task }))),
-        Err(e) if e.contains("not found") => Err(HttpError::from((
-            StatusCode::NOT_FOUND,
-            Json(json!({ "error": e })),
-        ))),
-        Err(e) => Err(HttpError::from((
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": e })),
-        ))),
+        Err(e) if e.contains("not found") => {
+            Err(HttpError::from((StatusCode::NOT_FOUND, Json(json!({ "error": e })))))
+        }
+        Err(e) => Err(HttpError::from((StatusCode::BAD_REQUEST, Json(json!({ "error": e }))))),
     }
 }
 
@@ -141,26 +129,20 @@ pub(crate) async fn create_heartbeat(
     Json(body): Json<CreateHeartbeatBody>,
 ) -> Result<Json<Value>, HttpError> {
     require_current_admin(&claims, &db).await?;
-    let manager = crate::services::agent::heartbeat::get_heartbeat().ok_or_else(|| {
-        HttpError::from((
+    let manager = crate::services::agent::heartbeat::get_heartbeat().ok_or_else(|| HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({ "error": "Heartbeat not initialized" })),
-        ))
-    })?;
+        )))?;
 
     match manager
         .add_task(body.id, body.name, body.schedule, body.action, body.enabled)
         .await
     {
         Ok(task) => Ok(Json(json!({ "task": task }))),
-        Err(e) if e.contains("already exists") => Err(HttpError::from((
-            StatusCode::CONFLICT,
-            Json(json!({ "error": e })),
-        ))),
-        Err(e) => Err(HttpError::from((
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": e })),
-        ))),
+        Err(e) if e.contains("already exists") => {
+            Err(HttpError::from((StatusCode::CONFLICT, Json(json!({ "error": e })))))
+        }
+        Err(e) => Err(HttpError::from((StatusCode::BAD_REQUEST, Json(json!({ "error": e }))))),
     }
 }
 
@@ -171,23 +153,17 @@ pub(crate) async fn delete_heartbeat(
     Path(task_id): Path<String>,
 ) -> Result<Json<Value>, HttpError> {
     require_current_admin(&claims, &db).await?;
-    let manager = crate::services::agent::heartbeat::get_heartbeat().ok_or_else(|| {
-        HttpError::from((
+    let manager = crate::services::agent::heartbeat::get_heartbeat().ok_or_else(|| HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({ "error": "Heartbeat not initialized" })),
-        ))
-    })?;
+        )))?;
 
     match manager.delete_task(&task_id).await {
         Ok(()) => Ok(Json(json!({ "deleted": true, "task_id": task_id }))),
-        Err(e) if e.contains("not found") => Err(HttpError::from((
-            StatusCode::NOT_FOUND,
-            Json(json!({ "error": e })),
-        ))),
-        Err(e) => Err(HttpError::from((
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": e })),
-        ))),
+        Err(e) if e.contains("not found") => {
+            Err(HttpError::from((StatusCode::NOT_FOUND, Json(json!({ "error": e })))))
+        }
+        Err(e) => Err(HttpError::from((StatusCode::BAD_REQUEST, Json(json!({ "error": e }))))),
     }
 }
 
@@ -206,10 +182,7 @@ pub(crate) async fn reload_mcp(
             };
             Ok(Json(json!({ "reloaded": true, "tool_count": tools })))
         }
-        Err(e) => Err(HttpError::from((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": e })),
-        ))),
+        Err(e) => Err(HttpError::from((StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "error": e }))))),
     }
 }
 
@@ -219,12 +192,10 @@ pub(crate) async fn mcp_status(
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Value>, HttpError> {
     require_current_admin(&claims, &db).await?;
-    let manager = crate::services::agent::mcp::get_mcp_manager().ok_or_else(|| {
-        HttpError::from((
+    let manager = crate::services::agent::mcp::get_mcp_manager().ok_or_else(|| HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({ "error": "MCP manager not initialized" })),
-        ))
-    })?;
+        )))?;
     let servers = manager.list_server_status().await;
     let tools = manager.list_tools().await.len();
     Ok(Json(json!({ "servers": servers, "tool_count": tools })))
@@ -270,13 +241,16 @@ pub(crate) async fn mcp_put_config(
     })?;
 
     // Accept either `{ "servers": [...] }` or `{ "config": { "servers": [...] } }`.
-    let config_val = body.get("config").cloned().unwrap_or_else(|| {
-        if body.get("servers").is_some() {
-            body.clone()
-        } else {
-            json!({ "servers": [] })
-        }
-    });
+    let config_val = body
+        .get("config")
+        .cloned()
+        .unwrap_or_else(|| {
+            if body.get("servers").is_some() {
+                body.clone()
+            } else {
+                json!({ "servers": [] })
+            }
+        });
 
     let parsed: crate::services::agent::mcp::config::McpServersConfig =
         serde_json::from_value(config_val).map_err(|e| {
@@ -322,12 +296,10 @@ pub(crate) async fn mcp_put_config(
 
 /// 获取可用技能列表
 pub(crate) async fn list_skills() -> Result<Json<Value>, HttpError> {
-    let registry = crate::services::agent::skill::get_skill_registry().ok_or_else(|| {
-        HttpError::from((
+    let registry = crate::services::agent::skill::get_skill_registry().ok_or_else(|| HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({ "error": "Skill registry not initialized" })),
-        ))
-    })?;
+        )))?;
 
     let skills = registry.get_all().await;
     // 获取 skill stats（如果 SkillEvolution 已初始化）
@@ -365,12 +337,10 @@ pub(crate) async fn list_memories(
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Value>, HttpError> {
     let user_id = parse_user_id(&claims)?;
-    let memory = crate::services::agent::memory::get_memory().ok_or_else(|| {
-        HttpError::from((
+    let memory = crate::services::agent::memory::get_memory().ok_or_else(|| HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({ "error": "Memory not initialized" })),
-        ))
-    })?;
+        )))?;
 
     let entries = memory.list_recent(50, user_id).await;
     let memories_json: Vec<Value> = entries
@@ -399,12 +369,10 @@ pub(crate) async fn delete_memory(
     Path(memory_id): Path<String>,
 ) -> Result<Json<Value>, HttpError> {
     let user_id = parse_user_id(&claims)?;
-    let memory = crate::services::agent::memory::get_memory().ok_or_else(|| {
-        HttpError::from((
+    let memory = crate::services::agent::memory::get_memory().ok_or_else(|| HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({ "error": "Memory not initialized" })),
-        ))
-    })?;
+        )))?;
 
     if memory.remove_memory(&memory_id, user_id).await {
         Ok(Json(json!({ "success": true })))
@@ -423,19 +391,15 @@ pub(crate) async fn update_memory(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, HttpError> {
     let user_id = parse_user_id(&claims)?;
-    let content = body["content"].as_str().ok_or_else(|| {
-        HttpError::from((
+    let content = body["content"].as_str().ok_or_else(|| HttpError::from((
             StatusCode::BAD_REQUEST,
             Json(json!({ "error": "Missing field: content" })),
-        ))
-    })?;
+        )))?;
 
-    let memory = crate::services::agent::memory::get_memory().ok_or_else(|| {
-        HttpError::from((
+    let memory = crate::services::agent::memory::get_memory().ok_or_else(|| HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({ "error": "Memory not initialized" })),
-        ))
-    })?;
+        )))?;
 
     if memory.update_memory(&memory_id, content, user_id).await {
         Ok(Json(json!({ "success": true })))
@@ -454,12 +418,10 @@ pub(crate) async fn delete_skill(
     Path(skill_id): Path<String>,
 ) -> Result<Json<Value>, HttpError> {
     require_current_admin(&claims, &db).await?;
-    let evo = crate::services::agent::skill_evolution::get_skill_evolution().ok_or_else(|| {
-        HttpError::from((
+    let evo = crate::services::agent::skill_evolution::get_skill_evolution().ok_or_else(|| HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({ "error": "Skill evolution not initialized" })),
-        ))
-    })?;
+        )))?;
 
     evo.delete_skill(&skill_id)
         .await
@@ -474,12 +436,10 @@ pub(crate) async fn list_capability_gaps(
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Value>, HttpError> {
     require_current_admin(&claims, &db).await?;
-    let evo = crate::services::agent::skill_evolution::get_skill_evolution().ok_or_else(|| {
-        HttpError::from((
+    let evo = crate::services::agent::skill_evolution::get_skill_evolution().ok_or_else(|| HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({ "error": "Skill evolution not initialized" })),
-        ))
-    })?;
+        )))?;
 
     let gaps = evo.get_all_gaps().await;
     let significant_count = gaps.iter().filter(|g| g.confidence >= 0.7).count();
@@ -526,12 +486,10 @@ pub(crate) async fn interrupt_session(
     let new_input = body
         .get("input")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            HttpError::from((
+        .ok_or_else(|| HttpError::from((
                 StatusCode::BAD_REQUEST,
                 Json(json!({ "error": "Missing 'input' field" })),
-            ))
-        })?
+            )))?
         .to_string();
 
     // 取消当前用户所有非终态任务（running / waiting / paused / pending）
@@ -568,9 +526,7 @@ pub(crate) async fn interrupt_session(
             std::time::Duration::from_secs(LaneQueue::DEFAULT_ACQUIRE_TIMEOUT_SECS),
         )
         .await
-        .map_err(|e| {
-            HttpError::from((StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "error": e }))))
-        })?;
+        .map_err(|e| HttpError::from((StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "error": e })))))?;
 
     let request = crate::services::agent::UserRequest {
         raw_input: new_input.clone(),
@@ -608,12 +564,10 @@ pub(crate) async fn steer_session(
     let instruction = body
         .get("instruction")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            HttpError::from((
+        .ok_or_else(|| HttpError::from((
                 StatusCode::BAD_REQUEST,
                 Json(json!({ "error": "Missing 'instruction' field" })),
-            ))
-        })?;
+            )))?;
 
     // 校验指令长度（复用 validate_input 的上限逻辑）
     if instruction.is_empty() || instruction.len() > MAX_INPUT_LEN {
@@ -633,12 +587,10 @@ pub(crate) async fn steer_session(
         let task = crate::services::agent::executor::get_task_for_user(requested, user_id)
             .await
             .filter(|task| task.status == crate::services::agent::types::TaskStatus::Running)
-            .ok_or_else(|| {
-                HttpError::from((
+            .ok_or_else(|| HttpError::from((
                     StatusCode::NOT_FOUND,
                     Json(json!({ "error": "Running task not found" })),
-                ))
-            })?;
+                )))?;
         task.task_id
     } else {
         match running_tasks.as_slice() {
@@ -660,12 +612,10 @@ pub(crate) async fn steer_session(
 
     crate::services::agent::executor::enqueue_steering(&db, &task_id, instruction.to_string())
         .await
-        .map_err(|error| {
-            HttpError::from((
+        .map_err(|error| HttpError::from((
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(json!({ "error": error, "code": "steering_unavailable" })),
-            ))
-        })?;
+            )))?;
 
     // Keep an audit/session trace after the instruction is accepted for execution.
     if let Some(mem) = crate::services::agent::memory::get_memory() {
@@ -685,3 +635,5 @@ pub(crate) async fn steer_session(
         "instruction": instruction,
     })))
 }
+
+

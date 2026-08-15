@@ -299,8 +299,7 @@ mod tests {
                 .map(|r| (r.method.clone(), r.path.clone()))
                 .collect();
             assert_eq!(
-                actual,
-                expected,
+                actual, expected,
                 "domain {}: mapper keys must equal fixture entries",
                 domain.as_str()
             );
@@ -529,7 +528,10 @@ mod tests {
             None
         );
         assert_eq!(
-            federation_permission("POST", "/api/federation/rooms/{room_id}/e2e/key-exchange"),
+            federation_permission(
+                "POST",
+                "/api/federation/rooms/{room_id}/e2e/key-exchange"
+            ),
             Some(TappPermission::FederationWrite)
         );
         assert_eq!(
@@ -659,10 +661,7 @@ mod tests {
 
     #[test]
     fn error_codes_preserve_api_contract() {
-        assert_eq!(
-            error_codes::UNAUTHENTICATED,
-            "TAPP_ATTRIBUTION_UNAUTHENTICATED"
-        );
+        assert_eq!(error_codes::UNAUTHENTICATED, "TAPP_ATTRIBUTION_UNAUTHENTICATED");
         assert_eq!(error_codes::PATH_NOT_ALLOWED, "TAPP_HOST_PATH_NOT_ALLOWED");
     }
 }

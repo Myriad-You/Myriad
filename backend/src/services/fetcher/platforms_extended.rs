@@ -6,6 +6,7 @@ use super::types::*;
 use super::x_share::urlencoding_lite;
 
 impl PlatformFetcher {
+
     /// 聚合：画像 + 服务器 + 第三方连接
     pub async fn fetch_discord_profile_bundle(
         &self,
@@ -1046,7 +1047,9 @@ impl PlatformFetcher {
             return Err(anyhow!("YouTube channel id or handle is required"));
         }
 
-        let channel = self.fetch_youtube_channel(key, identity).await?;
+        let channel = self
+            .fetch_youtube_channel(key, identity)
+            .await?;
         let channel_id = channel
             .get("id")
             .and_then(|v| v.as_str())

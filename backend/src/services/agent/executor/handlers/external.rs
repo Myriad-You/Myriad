@@ -673,3 +673,4 @@ async fn execute_mcp_tool(
     let args = mcp_arguments(params);
     manager.call_tool(server_id, tool_name, args).await
 }
+

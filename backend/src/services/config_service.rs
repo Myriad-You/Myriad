@@ -567,11 +567,7 @@ impl ConfigService {
 
         // Private Tapp install retention (users section)
         if let Some(v) = map.get("tapp_private_install_cleanup") {
-            let mode = v
-                .as_str()
-                .unwrap_or("inactivity")
-                .trim()
-                .to_ascii_lowercase();
+            let mode = v.as_str().unwrap_or("inactivity").trim().to_ascii_lowercase();
             config.tapp_private_install_cleanup = if mode == "logout" {
                 "logout".to_string()
             } else {
@@ -579,10 +575,7 @@ impl ConfigService {
             };
         }
         if let Some(v) = map.get("tapp_private_install_inactivity_days") {
-            let days = v
-                .as_i64()
-                .or_else(|| v.as_u64().map(|n| n as i64))
-                .unwrap_or(14);
+            let days = v.as_i64().or_else(|| v.as_u64().map(|n| n as i64)).unwrap_or(14);
             config.tapp_private_install_inactivity_days = days.clamp(1, 365) as i32;
         }
 

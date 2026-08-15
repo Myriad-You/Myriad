@@ -15,9 +15,8 @@ pub static LANE_QUEUE: Lazy<Arc<super::queue::LaneQueue>> =
 pub const SYSTEM_USER_ID: i32 = 0;
 
 /// 待确认配方存储
-pub(crate) static PENDING_CONFIRMATIONS: Lazy<
-    Arc<RwLock<HashMap<String, PendingRecipeConfirmation>>>,
-> = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
+pub(crate) static PENDING_CONFIRMATIONS: Lazy<Arc<RwLock<HashMap<String, PendingRecipeConfirmation>>>> =
+    Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
 pub(crate) const CONFIRMATION_REGISTRY_NAMESPACE: &str = "agent_recipe_confirmation";
 
 /// Peek-only context for attaching a confirmation resume to its original session.
@@ -67,3 +66,4 @@ pub struct Agent {
     /// Shared persistence used by confirmation hand-offs across backend replicas.
     pub(crate) db: DatabaseConnection,
 }
+

@@ -210,7 +210,10 @@ pub fn extract_html_title(html: &str) -> Option<String> {
 }
 
 /// Bookmark final title: explicit → fetched → Untitled.
-pub fn resolve_bookmark_title<'a>(explicit: Option<&'a str>, fetched: Option<&'a str>) -> &'a str {
+pub fn resolve_bookmark_title<'a>(
+    explicit: Option<&'a str>,
+    fetched: Option<&'a str>,
+) -> &'a str {
     explicit.or(fetched).unwrap_or("Untitled")
 }
 
@@ -235,7 +238,10 @@ mod tests {
 
     #[test]
     fn escape_html_entities() {
-        assert_eq!(escape_html(r#"a&b<c>"d""#), "a&amp;b&lt;c&gt;&quot;d&quot;");
+        assert_eq!(
+            escape_html(r#"a&b<c>"d""#),
+            "a&amp;b&lt;c&gt;&quot;d&quot;"
+        );
     }
 
     #[test]
@@ -297,7 +303,13 @@ mod tests {
         );
         assert!(md.contains("# T"));
         assert!(md.contains("分析结果"));
-        let html = render_report_content("<bad>", "html", &json!({}), "t", "t");
+        let html = render_report_content(
+            "<bad>",
+            "html",
+            &json!({}),
+            "t",
+            "t",
+        );
         assert!(html.contains("&lt;bad&gt;"));
         assert_eq!(format_report_id(42), "report_42");
     }

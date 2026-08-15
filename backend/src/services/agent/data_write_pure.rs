@@ -61,7 +61,9 @@ pub fn is_disallowed_subscribe_ip(ip: IpAddr) -> bool {
         return true;
     }
     match ip {
-        IpAddr::V4(v4) => v4.is_private() || v4.is_link_local() || v4.octets()[0] == 169,
+        IpAddr::V4(v4) => {
+            v4.is_private() || v4.is_link_local() || v4.octets()[0] == 169
+        }
         IpAddr::V6(v6) => {
             // 阻止 IPv6 回环和链路本地
             v6.is_loopback() || (v6.segments()[0] & 0xffc0) == 0xfe80
@@ -81,9 +83,7 @@ pub fn validate_subscribe_url_policy(url: &str) -> Result<(), String> {
         scheme => return Err(format!("不允许的 URL scheme: {scheme}")),
     }
 
-    let host = parsed
-        .host_str()
-        .ok_or_else(|| "URL 缺少 host".to_string())?;
+    let host = parsed.host_str().ok_or_else(|| "URL 缺少 host".to_string())?;
 
     if is_disallowed_subscribe_host(host) {
         return Err("不允许访问内网地址".to_string());
@@ -175,7 +175,9 @@ pub fn collect_subscribe_url_candidates(
 }
 
 /// Cap the number of URLs actually attempted.
-pub fn take_feed_urls_to_try(urls: Vec<(String, Option<String>)>) -> Vec<(String, Option<String>)> {
+pub fn take_feed_urls_to_try(
+    urls: Vec<(String, Option<String>)>,
+) -> Vec<(String, Option<String>)> {
     urls.into_iter().take(MAX_FEED_URLS).collect()
 }
 
@@ -190,10 +192,7 @@ mod tests {
         assert_eq!(sanitize_feed_name("  天利  ").unwrap(), "天利");
         assert!(sanitize_feed_name("   ").is_err());
         let long = "a".repeat(300);
-        assert_eq!(
-            sanitize_feed_name(&long).unwrap().chars().count(),
-            MAX_FEED_NAME_LEN
-        );
+        assert_eq!(sanitize_feed_name(&long).unwrap().chars().count(), MAX_FEED_NAME_LEN);
     }
 
     #[test]
@@ -214,21 +213,15 @@ mod tests {
         assert!(validate_subscribe_url_policy("http://svc.local/rss").is_err());
         assert!(validate_subscribe_url_policy("http://192.168.0.1/rss").is_err());
         assert!(validate_subscribe_url_policy("http://127.0.0.1/rss").is_err());
-        assert!(is_disallowed_subscribe_ip(IpAddr::V4(Ipv4Addr::new(
-            10, 0, 0, 1
-        ))));
+        assert!(is_disallowed_subscribe_ip(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))));
         assert!(is_disallowed_subscribe_ip(IpAddr::V6(Ipv6Addr::LOCALHOST)));
-        assert!(!is_disallowed_subscribe_ip(IpAddr::V4(Ipv4Addr::new(
-            8, 8, 8, 8
-        ))));
+        assert!(!is_disallowed_subscribe_ip(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))));
     }
 
     #[test]
     fn feed_priority_and_collect() {
-        assert!(
-            feed_priority_score("https://a.com", true, "official")
-                > feed_priority_score("http://rsshub.app/x", false, "")
-        );
+        assert!(feed_priority_score("https://a.com", true, "official")
+            > feed_priority_score("http://rsshub.app/x", false, ""));
 
         let feeds = json!([
             { "url": "http://rsshub.app/x", "verified": false, "source": "mirror" },

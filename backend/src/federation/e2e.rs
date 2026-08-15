@@ -758,10 +758,7 @@ mod tests {
         let plaintext = b"federation body";
         let envelope = encrypt_message(plaintext, &shared, &a_pk, aad).expect("encrypt");
         assert_eq!(envelope.algorithm, E2E_ALGORITHM);
-        assert_eq!(
-            decrypt_message(&envelope, &shared, aad).expect("decrypt"),
-            plaintext
-        );
+        assert_eq!(decrypt_message(&envelope, &shared, aad).expect("decrypt"), plaintext);
         // Wrong AAD must fail authentication (channel/room binding).
         assert!(decrypt_message(&envelope, &shared, b"channel:other").is_err());
     }

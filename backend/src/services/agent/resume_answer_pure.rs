@@ -24,9 +24,15 @@ pub enum AnswerIdValidation {
     /// IDs match exactly.
     Ok,
     /// IDs differ but only one active question exists — accept for legacy clients.
-    AcceptedMismatch { expected: String, actual: String },
+    AcceptedMismatch {
+        expected: String,
+        actual: String,
+    },
     /// IDs differ with more questions queued — reject.
-    RejectMismatch { expected: String, actual: String },
+    RejectMismatch {
+        expected: String,
+        actual: String,
+    },
 }
 
 impl AnswerIdValidation {
@@ -83,7 +89,10 @@ pub fn is_pending_question_still_valid(
 }
 
 /// Drop expired items from a pending-question queue; returns count removed.
-pub fn retain_unexpired_pending(questions: &mut Vec<UserQuestion>, now: DateTime<Utc>) -> usize {
+pub fn retain_unexpired_pending(
+    questions: &mut Vec<UserQuestion>,
+    now: DateTime<Utc>,
+) -> usize {
     let before = questions.len();
     questions.retain(|q| is_pending_question_still_valid(q.expires_at, now));
     before.saturating_sub(questions.len())
@@ -180,11 +189,17 @@ pub struct AnswerProcessPlan {
 }
 
 /// Plan how a validated, non-expired answer mutates execution context / recipe.
-pub fn plan_user_answer_effects(answer: &UserAnswer, question: &UserQuestion) -> AnswerProcessPlan {
+pub fn plan_user_answer_effects(
+    answer: &UserAnswer,
+    question: &UserQuestion,
+) -> AnswerProcessPlan {
     let answer_output_key = answer_storage_key(&answer.question_id);
     let mut plan = AnswerProcessPlan {
         should_skip_remaining: false,
-        vars: vec![(answer_output_key.clone(), json!(answer.answer.clone()))],
+        vars: vec![(
+            answer_output_key.clone(),
+            json!(answer.answer.clone()),
+        )],
         answer_output_key: answer_output_key.clone(),
         answer_output: answer_step_output(&answer.answer, &question.question),
         decisions: Vec::new(),
@@ -399,8 +414,12 @@ mod tests {
             created_at: Utc::now(),
             expires_at: None,
         };
-        assert!(plan_user_answer_effects(&answer("c1", "no"), &conf).should_skip_remaining);
-        assert!(!plan_user_answer_effects(&answer("c1", "yes"), &conf).should_skip_remaining);
+        assert!(
+            plan_user_answer_effects(&answer("c1", "no"), &conf).should_skip_remaining
+        );
+        assert!(
+            !plan_user_answer_effects(&answer("c1", "yes"), &conf).should_skip_remaining
+        );
     }
 
     #[test]
@@ -408,15 +427,16 @@ mod tests {
         let q = choice_q("c", vec![("a", "选项A"), ("b", "选项B")]);
         let plan = plan_user_answer_effects(&answer("c", "a"), &q);
         assert!(!plan.warn_invalid_option);
-        assert!(plan
-            .vars
-            .iter()
-            .any(|(k, v)| { k == "selected_option_label" && v.as_str() == Some("选项A") }));
+        assert!(plan.vars.iter().any(|(k, v)| {
+            k == "selected_option_label" && v.as_str() == Some("选项A")
+        }));
 
         let bad = plan_user_answer_effects(&answer("c", "zzz"), &q);
         assert!(bad.warn_invalid_option);
         // control verbs do not warn
-        assert!(!plan_user_answer_effects(&answer("c", "retry"), &q).warn_invalid_option);
+        assert!(
+            !plan_user_answer_effects(&answer("c", "retry"), &q).warn_invalid_option
+        );
     }
 
     #[test]

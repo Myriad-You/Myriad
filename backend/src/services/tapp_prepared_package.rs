@@ -197,8 +197,7 @@ pub fn check_manifest_byte_size(size: u64) -> Result<(), PackageLoadError> {
 
 /// Parse manifest.json text into a typed manifest.
 pub fn parse_manifest_json(content: &str) -> Result<TappManifest, PackageLoadError> {
-    serde_json::from_str(content)
-        .map_err(|error| PackageLoadError::ManifestParse(error.to_string()))
+    serde_json::from_str(content).map_err(|error| PackageLoadError::ManifestParse(error.to_string()))
 }
 
 impl PreparedTappPackage {

@@ -105,9 +105,10 @@ async fn apply_source(
     payload: SetProfileTextSourceRequest,
 ) -> Result<Json<Value>, ApiError> {
     let kind = parse_kind(&payload.kind)?;
-    let resolved = set_profile_text_source(db, user_id, kind, payload.source_ref.as_deref())
-        .await
-        .map_err(bad_request)?;
+    let resolved =
+        set_profile_text_source(db, user_id, kind, payload.source_ref.as_deref())
+            .await
+            .map_err(bad_request)?;
 
     Ok(Json(json!({
         "success": true,

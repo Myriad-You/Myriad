@@ -35,10 +35,7 @@ impl LimitQuery {
     }
 
     pub(crate) fn status_filter(&self) -> Option<&str> {
-        self.status
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
+        self.status.as_deref().map(str::trim).filter(|s| !s.is_empty())
     }
 }
 
@@ -198,8 +195,7 @@ pub(crate) async fn federation_keys_rotate(
                     e
                 };
                 Json(json!({"error": msg}))
-            })
-                .into_response()
+            }).into_response()
         }
     }
 }
@@ -244,16 +240,17 @@ pub(crate) async fn federation_following_list(
     let user_id: i32 = claims.sub.parse().unwrap_or(0);
     match get_follow_list(&db, user_id, "outgoing").await {
         Ok(list) => (StatusCode::OK, Json(list)).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, {
-            let msg = if e.contains("DB error") || e.contains("Database error") {
-                tracing::error!(error = %e, "Federation API database failure");
-                "Database error".to_string()
-            } else {
-                e
-            };
-            Json(json!({"error": msg}))
-        })
-            .into_response(),
+        Err(e) => {
+            (StatusCode::INTERNAL_SERVER_ERROR, {
+                let msg = if e.contains("DB error") || e.contains("Database error") {
+                    tracing::error!(error = %e, "Federation API database failure");
+                    "Database error".to_string()
+                } else {
+                    e
+                };
+                Json(json!({"error": msg}))
+            }).into_response()
+        }
     }
 }
 
@@ -266,16 +263,17 @@ pub(crate) async fn federation_followers_list(
     let user_id: i32 = claims.sub.parse().unwrap_or(0);
     match get_follow_list(&db, user_id, "incoming").await {
         Ok(list) => (StatusCode::OK, Json(list)).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, {
-            let msg = if e.contains("DB error") || e.contains("Database error") {
-                tracing::error!(error = %e, "Federation API database failure");
-                "Database error".to_string()
-            } else {
-                e
-            };
-            Json(json!({"error": msg}))
-        })
-            .into_response(),
+        Err(e) => {
+            (StatusCode::INTERNAL_SERVER_ERROR, {
+                let msg = if e.contains("DB error") || e.contains("Database error") {
+                    tracing::error!(error = %e, "Federation API database failure");
+                    "Database error".to_string()
+                } else {
+                    e
+                };
+                Json(json!({"error": msg}))
+            }).into_response()
+        }
     }
 }
 
@@ -288,16 +286,17 @@ pub(crate) async fn federation_timeline(
     let user_id: i32 = claims.sub.parse().unwrap_or(0);
     match get_federation_timeline(&db, user_id).await {
         Ok(timeline) => (StatusCode::OK, Json(timeline)).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, {
-            let msg = if e.contains("DB error") || e.contains("Database error") {
-                tracing::error!(error = %e, "Federation API database failure");
-                "Database error".to_string()
-            } else {
-                e
-            };
-            Json(json!({"error": msg}))
-        })
-            .into_response(),
+        Err(e) => {
+            (StatusCode::INTERNAL_SERVER_ERROR, {
+                let msg = if e.contains("DB error") || e.contains("Database error") {
+                    tracing::error!(error = %e, "Federation API database failure");
+                    "Database error".to_string()
+                } else {
+                    e
+                };
+                Json(json!({"error": msg}))
+            }).into_response()
+        }
     }
 }
 
@@ -386,7 +385,9 @@ pub(crate) async fn federation_bookmarks_list(
 ) -> Response {
     let user_id: i32 = claims.sub.parse().unwrap_or(0);
     match federation::interactions::list_bookmarks(user_id, &db).await {
-        Ok(resp) => (StatusCode::OK, Json(serde_json::to_value(resp).unwrap())).into_response(),
+        Ok(resp) => {
+            (StatusCode::OK, Json(serde_json::to_value(resp).unwrap())).into_response()
+        }
         Err((status, json)) => status_json_to_http((status, json)).into_response(),
     }
 }
@@ -963,8 +964,15 @@ pub(crate) async fn federation_set_room_member_role(
     let actor = urlencoding::decode(&actor)
         .map(|s| s.into_owned())
         .unwrap_or(actor);
-    match federation::room::set_member_role(user_id, &claims.username, &room_id, &actor, &role, &db)
-        .await
+    match federation::room::set_member_role(
+        user_id,
+        &claims.username,
+        &room_id,
+        &actor,
+        &role,
+        &db,
+    )
+    .await
     {
         Ok(resp) => (StatusCode::OK, Json(resp)).into_response(),
         Err((status, json)) => status_json_to_http((status, json)).into_response(),
@@ -1213,16 +1221,17 @@ pub(crate) async fn federation_delivery_stats(
     let user_id: i32 = claims.sub.parse().unwrap_or(0);
     match federation::delivery::delivery_stats_for_user(&db, user_id).await {
         Ok(v) => (StatusCode::OK, Json(v)).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, {
-            let msg = if e.contains("DB error") || e.contains("Database error") {
-                tracing::error!(error = %e, "Federation API database failure");
-                "Database error".to_string()
-            } else {
-                e
-            };
-            Json(json!({"error": msg}))
-        })
-            .into_response(),
+        Err(e) => {
+            (StatusCode::INTERNAL_SERVER_ERROR, {
+                let msg = if e.contains("DB error") || e.contains("Database error") {
+                    tracing::error!(error = %e, "Federation API database failure");
+                    "Database error".to_string()
+                } else {
+                    e
+                };
+                Json(json!({"error": msg}))
+            }).into_response()
+        }
     }
 }
 
@@ -1373,15 +1382,14 @@ pub(crate) async fn federation_list_delivery(
     {
         Ok(v) => (StatusCode::OK, Json(v)).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, {
-            let msg = if e.contains("DB error") || e.contains("Database error") {
-                tracing::error!(error = %e, "Federation API database failure");
-                "Database error".to_string()
-            } else {
-                e
-            };
-            Json(json!({"error": msg}))
-        })
-            .into_response(),
+                let msg = if e.contains("DB error") || e.contains("Database error") {
+                    tracing::error!(error = %e, "Federation API database failure");
+                    "Database error".to_string()
+                } else {
+                    e
+                };
+                Json(json!({"error": msg}))
+            }).into_response(),
     }
 }
 
@@ -1617,10 +1625,7 @@ pub(crate) async fn get_follow_list(
             [user_id.into(), direction.into()],
         ))
         .await
-        .map_err(|e| {
-            tracing::error!("DB error: {}", e);
-            "Database error".to_string()
-        })?;
+        .map_err(|e| { tracing::error!("DB error: {}", e); "Database error".to_string() })?;
 
     let list: Vec<serde_json::Value> = rows
         .iter()
@@ -1652,8 +1657,7 @@ pub(crate) async fn get_federation_timeline(
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            format!(
-                r#"SELECT t.activity_id, t.activity_type, t.object_type,
+            format!(r#"SELECT t.activity_id, t.activity_type, t.object_type,
                       t.content_preview, t.content_json, t.is_read, t.received_at,
                       ra.actor_url AS remote_actor_url,
                       ra.username AS remote_username,
@@ -1697,15 +1701,11 @@ pub(crate) async fn get_federation_timeline(
                ORDER BY t.received_at DESC
                LIMIT 50"#,
                 peer_has_avatar = crate::services::avatar::avatar_presence_expr("peer"),
-                author_has_avatar = crate::services::avatar::avatar_presence_expr("author")
-            ),
+                author_has_avatar = crate::services::avatar::avatar_presence_expr("author")),
             [user_id.into(), base.into(), local_domain.clone().into()],
         ))
         .await
-        .map_err(|e| {
-            tracing::error!("DB error: {}", e);
-            "Database error".to_string()
-        })?;
+        .map_err(|e| { tracing::error!("DB error: {}", e); "Database error".to_string() })?;
 
     let mut items: Vec<serde_json::Value> = rows
         .iter()
@@ -1844,3 +1844,4 @@ pub(crate) async fn get_federation_timeline(
 
     Ok(json!({"items": items, "total": items.len()}))
 }
+

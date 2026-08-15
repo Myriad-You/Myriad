@@ -2,8 +2,8 @@
 //!
 //! Real submodules (not `include!`) so each file owns its imports and visibility.
 
-mod hitokoto_web;
 mod image_music_geo;
+mod hitokoto_web;
 
 pub use hitokoto_web::*;
 pub use image_music_geo::*;

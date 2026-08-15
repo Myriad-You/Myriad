@@ -24,12 +24,12 @@ use super::intake_helpers::{
     analytics_collection_enabled, analytics_today, analytics_tz_label, compare_range_kind,
     count_distinct_site, invalidate_summary_cache, metric_delta, normalize_country_code,
     normalize_country_name, normalize_event_name, normalize_path, normalize_referrer_host,
-    normalize_target, read_visitor_ordinal, resolve_visitor_hash, sum_page_views, SummaryQuery,
+    normalize_target, read_visitor_ordinal, resolve_visitor_hash, sum_page_views,
     ANALYTICS_BACKUP_FORMAT, ANALYTICS_BACKUP_VERSION, DAILY_RETENTION_DAYS, ENGAGE_MARKER,
     MAX_IMPORT_COUNTRY_DAILY, MAX_IMPORT_COUNTRY_VISITOR, MAX_IMPORT_EVENT_DAILY,
     MAX_IMPORT_EVENT_VISITOR, MAX_IMPORT_PAGE_DAILY, MAX_IMPORT_REFERRER_DAILY,
     MAX_IMPORT_VISITOR_SEEN, MAX_SUMMARY_DAYS, SITE_PATH, SUMMARY_CACHE, SUMMARY_CACHE_TTL,
-    VISITOR_CARD_CACHE, VISITOR_RETENTION_DAYS,
+    SummaryQuery, VISITOR_CARD_CACHE, VISITOR_RETENTION_DAYS,
 };
 
 /// GET /api/analytics/summary?days=7  or  ?from=YYYY-MM-DD&to=YYYY-MM-DD
@@ -49,8 +49,16 @@ pub(crate) async fn build_analytics_summary(
 ) -> (StatusCode, Json<Value>) {
     use super::intake_helpers::resolve_analytics_window;
 
-    let (from, to_day, days) = resolve_analytics_window(q.days, q.from.as_deref(), q.to.as_deref());
-    let cache_key = format!("{}..{}", from.format("%Y-%m-%d"), to_day.format("%Y-%m-%d"));
+    let (from, to_day, days) = resolve_analytics_window(
+        q.days,
+        q.from.as_deref(),
+        q.to.as_deref(),
+    );
+    let cache_key = format!(
+        "{}..{}",
+        from.format("%Y-%m-%d"),
+        to_day.format("%Y-%m-%d")
+    );
 
     // Short TTL cache — admin UI refresh shouldn't re-scan every open.
     {
@@ -123,11 +131,7 @@ ORDER BY day ASC
     let mut cursor = from;
     let by_day: HashMap<String, &Value> = daily
         .iter()
-        .filter_map(|v| {
-            v.get("day")
-                .and_then(|d| d.as_str())
-                .map(|d| (d.to_string(), v))
-        })
+        .filter_map(|v| v.get("day").and_then(|d| d.as_str()).map(|d| (d.to_string(), v)))
         .collect();
     while cursor <= today {
         let key = cursor.format("%Y-%m-%d").to_string();
@@ -474,22 +478,18 @@ GROUP BY country_code
         })
         .collect();
     countries.sort_by(|a, b| {
-        let ua = a
-            .get("unique_visitors")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0);
-        let ub = b
-            .get("unique_visitors")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0);
+        let ua = a.get("unique_visitors").and_then(|v| v.as_i64()).unwrap_or(0);
+        let ub = b.get("unique_visitors").and_then(|v| v.as_i64()).unwrap_or(0);
         let va = a.get("views").and_then(|v| v.as_i64()).unwrap_or(0);
         let vb = b.get("views").and_then(|v| v.as_i64()).unwrap_or(0);
-        ub.cmp(&ua).then(vb.cmp(&va)).then(
-            a.get("code")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .cmp(b.get("code").and_then(|v| v.as_str()).unwrap_or("")),
-        )
+        ub.cmp(&ua)
+            .then(vb.cmp(&va))
+            .then(
+                a.get("code")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .cmp(b.get("code").and_then(|v| v.as_str()).unwrap_or("")),
+            )
     });
     if countries.len() > 12 {
         countries.truncate(12);
@@ -1089,7 +1089,9 @@ pub struct AnalyticsImportBody {
 
 /// After import, unique_visitors / engaged_views come from detail tables so
 /// merge never double-counts UV by summing aggregate fields.
-async fn recompute_unique_metrics(conn: &impl ConnectionTrait) -> Result<(), sea_orm::DbErr> {
+async fn recompute_unique_metrics(
+    conn: &impl ConnectionTrait,
+) -> Result<(), sea_orm::DbErr> {
     conn.execute_raw(Statement::from_string(
         DatabaseBackend::Postgres,
         r#"
@@ -1285,7 +1287,10 @@ pub async fn import_analytics(
     };
 
     if let Err(e) = verify_integrity(integrity, &expected_hash) {
-        tracing::warn!(error = e, "analytics import integrity verification failed");
+        tracing::warn!(
+            error = e,
+            "analytics import integrity verification failed"
+        );
         let hint = match e {
             "content_hash_mismatch" => {
                 "payload was modified after export (content hash does not match). Re-export without editing metrics."

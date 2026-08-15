@@ -83,11 +83,13 @@ fn sitemap_line(base: Option<&str>) -> String {
 pub fn build_robots_txt(base: Option<&str>, policy: &str) -> String {
     let sitemap = sitemap_line(base);
     match policy {
-        VISIBILITY_PRIVATE => "User-agent: *\n\
+        VISIBILITY_PRIVATE => {
+            "User-agent: *\n\
 Disallow: /\n\
 \n\
 # Myriad visibility: private (no indexing)\n"
-            .to_string(),
+                .to_string()
+        }
         VISIBILITY_SEARCH_ONLY => {
             let mut body = format!(
                 "User-agent: *\n\

@@ -7,6 +7,7 @@ use std::path::Path;
 use super::helpers::*;
 
 impl SmartFilter {
+
     /// Keep API vocabulary labels for distribution histograms; type 6 stays "real".
     /// Library/report consumers map via `bangumi_label_to_library_type` / `bangumi_library_item_type`.
     pub(crate) fn bangumi_subject_type_label(subject_type: i64) -> &'static str {

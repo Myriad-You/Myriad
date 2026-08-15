@@ -18,7 +18,6 @@ use sea_orm::{
 };
 use serde::Deserialize;
 
-use crate::error::HttpError;
 use crate::middleware::auth::Claims;
 use crate::models::entities::{tapp_user_activities, tapps};
 use crate::services::tapp_lifecycle::{
@@ -26,6 +25,7 @@ use crate::services::tapp_lifecycle::{
     RecentTappItem, StartOutcome, StopOutcome,
 };
 use crate::services::tapp_ownership::public_install_visible_to_viewer;
+use crate::error::HttpError;
 use myriad_error::AppError;
 
 /// 启动 Tapp
@@ -41,10 +41,7 @@ pub(super) async fn start_tapp(
     Extension(claims): Extension<Claims>,
     Path(tapp_id): Path<String>,
 ) -> Result<Json<ApiResponse<()>>, HttpError> {
-    let user_id: i32 = claims
-        .sub
-        .parse()
-        .map_err(|_| HttpError(AppError::unauthorized("Unauthorized")))?;
+    let user_id: i32 = claims.sub.parse().map_err(|_| HttpError(AppError::unauthorized("Unauthorized")))?;
     validate_tapp_id(&tapp_id).map_err(|_| HttpError(AppError::bad_request("Bad request")))?;
     let admin_id = find_admin_user_id(&db).await?;
     let now = Utc::now().fixed_offset();
@@ -69,7 +66,9 @@ pub(super) async fn start_tapp(
             .await
             .map_err(|_| HttpError(AppError::internal("Database error")))?;
         // Admin-only public installs are invisible to non-admins (same as catalog).
-        row.filter(|tapp| public_install_visible_to_viewer(&tapp.visibility, is_current_admin))
+        row.filter(|tapp| {
+            public_install_visible_to_viewer(&tapp.visibility, is_current_admin)
+        })
     } else {
         None
     };
@@ -156,10 +155,7 @@ pub(super) async fn stop_tapp(
     Extension(claims): Extension<Claims>,
     Path(tapp_id): Path<String>,
 ) -> Result<Json<ApiResponse<()>>, HttpError> {
-    let user_id: i32 = claims
-        .sub
-        .parse()
-        .map_err(|_| HttpError(AppError::unauthorized("Unauthorized")))?;
+    let user_id: i32 = claims.sub.parse().map_err(|_| HttpError(AppError::unauthorized("Unauthorized")))?;
     validate_tapp_id(&tapp_id).map_err(|_| HttpError(AppError::bad_request("Bad request")))?;
     let admin_id = find_admin_user_id(&db).await?;
     let is_current_admin = current_is_admin(&claims, &db).await;
@@ -182,7 +178,9 @@ pub(super) async fn stop_tapp(
             .one(&db)
             .await
             .map_err(|_| HttpError(AppError::internal("Database error")))?;
-        row.filter(|tapp| public_install_visible_to_viewer(&tapp.visibility, is_current_admin))
+        row.filter(|tapp| {
+            public_install_visible_to_viewer(&tapp.visibility, is_current_admin)
+        })
     } else {
         None
     };
@@ -246,10 +244,7 @@ pub(super) async fn get_recent_tapps(
     Extension(claims): Extension<Claims>,
     Query(query): Query<GetRecentTappsQuery>,
 ) -> Result<Json<ApiResponse<Vec<RecentTappItem>>>, HttpError> {
-    let user_id: i32 = claims
-        .sub
-        .parse()
-        .map_err(|_| HttpError(AppError::unauthorized("Unauthorized")))?;
+    let user_id: i32 = claims.sub.parse().map_err(|_| HttpError(AppError::unauthorized("Unauthorized")))?;
     let limit = clamp_recent_limit(query.limit);
 
     // 获取用户活动记录

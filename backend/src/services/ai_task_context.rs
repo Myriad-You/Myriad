@@ -185,8 +185,9 @@ pub async fn resolve_context(
                     subject.grant_platform_read,
                 )
                 .await?;
-                validate_platform_name(platform)
-                    .map_err(|error| AiContextError::new(400, "INVALID_AI_CONTEXT", error))?;
+                validate_platform_name(platform).map_err(|error| {
+                    AiContextError::new(400, "INVALID_AI_CONTEXT", error)
+                })?;
                 if selector.len() > 256 || (!selector.is_empty() && !selector.starts_with('/')) {
                     return Err(AiContextError::new(
                         400,

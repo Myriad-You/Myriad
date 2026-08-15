@@ -45,8 +45,9 @@ pub struct Executor {
     pub(crate) standard_analyzer: Option<AiAnalyzer>,
 }
 
+mod executor_footer;
 mod execute_core;
 mod execute_step;
-mod executor_footer;
-mod path_ai_helpers;
 mod resume_and_dynamic;
+mod path_ai_helpers;
+

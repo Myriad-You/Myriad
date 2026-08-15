@@ -1,3 +1,4 @@
+
 use super::super::HandlerContext;
 use crate::models::entities::{
     brew_items, brew_sources, brew_user_states, tapp_scheduled_tasks, tapps,
@@ -2093,7 +2094,10 @@ fn extract_platform_items(platform: &str, data: &Value) -> Vec<Value> {
                 .and_then(|v| v.as_array())
             {
                 for video in videos {
-                    let video_id = video.get("video_id").and_then(|v| v.as_str()).unwrap_or("");
+                    let video_id = video
+                        .get("video_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
                     items.push(json!({
                         "type": "video",
                         "title": video.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled"),
@@ -2478,7 +2482,8 @@ async fn execute_fuzzy_search(
         let admin_id = crate::services::tapp_ownership::get_admin_user_id(ctx.db)
             .await
             .map_err(|e| e.to_string())?;
-        let is_admin = crate::services::agent::user_is_current_admin(ctx.db, ctx.user_id).await;
+        let is_admin =
+            crate::services::agent::user_is_current_admin(ctx.db, ctx.user_id).await;
         let mut query = tapps::Entity::find();
         if !is_admin {
             query = query.filter(
@@ -3674,15 +3679,17 @@ async fn execute_netease_search_playlist(
             .send()
             .await
         {
-            let data =
-                match crate::services::outbound_security::read_limited_body(response, 512 * 1024)
-                    .await
-                    .ok()
-                    .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-                {
-                    Some(d) => d,
-                    None => continue,
-                };
+            let data = match crate::services::outbound_security::read_limited_body(
+                response,
+                512 * 1024,
+            )
+            .await
+            .ok()
+            .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+            {
+                Some(d) => d,
+                None => continue,
+            };
             if let Some(playlists) = data.get("playlists").and_then(|p| p.as_array()) {
                 if !playlists.is_empty() {
                     tracing::info!(
@@ -4448,7 +4455,10 @@ async fn execute_task_status(
     let mut tasks = get_user_tasks(ctx.user_id).await;
     tasks.sort_by_key(|t| std::cmp::Reverse(t.started_at));
     let limit = std::cmp::min(
-        params.get("limit").and_then(|v| v.as_u64()).unwrap_or(20),
+        params
+            .get("limit")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(20),
         100,
     ) as usize;
     tasks.truncate(limit);
@@ -5612,3 +5622,4 @@ mod brew_db_helpers_tests {
         assert!(!parse_allow_web_search(&params));
     }
 }
+

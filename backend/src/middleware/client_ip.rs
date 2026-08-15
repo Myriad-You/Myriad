@@ -45,7 +45,10 @@ pub fn parse_proxy_peer_allowlist(raw: &str) -> Vec<ipnet::IpNet> {
             if token.contains('/') {
                 token.parse::<ipnet::IpNet>().ok()
             } else {
-                token.parse::<IpAddr>().ok().map(ipnet::IpNet::from)
+                token
+                    .parse::<IpAddr>()
+                    .ok()
+                    .map(ipnet::IpNet::from)
             }
         })
         .collect()
@@ -98,7 +101,9 @@ pub fn trusted_proxy_peer_allowlist() -> &'static [ipnet::IpNet] {
 pub fn is_private_or_local(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => v4.is_private() || v4.is_loopback() || v4.is_link_local(),
-        IpAddr::V6(v6) => v6.is_loopback() || v6.is_unique_local() || v6.is_unicast_link_local(),
+        IpAddr::V6(v6) => {
+            v6.is_loopback() || v6.is_unique_local() || v6.is_unicast_link_local()
+        }
     }
 }
 
@@ -193,7 +198,9 @@ pub fn is_broad_private_supernet(net: &ipnet::IpNet) -> bool {
             let net_ip = n.network();
             // Entire 10/8, 172.16/12, or 192.168/16
             (net_ip.octets()[0] == 10 && p <= 8)
-                || (net_ip.octets()[0] == 172 && (16..=31).contains(&net_ip.octets()[1]) && p <= 12)
+                || (net_ip.octets()[0] == 172
+                    && (16..=31).contains(&net_ip.octets()[1])
+                    && p <= 12)
                 || (net_ip.octets()[0] == 192 && net_ip.octets()[1] == 168 && p <= 16)
         }
         ipnet::IpNet::V6(_) => false,
@@ -288,11 +295,7 @@ mod tests {
 
         // Compose myriad-net (172.28/16) needs explicit TRUST_PROXY_PEERS
         let myriad_net_peer = "172.28.0.2".parse().unwrap();
-        assert!(!should_trust_proxy_headers(
-            Some(myriad_net_peer),
-            true,
-            &[]
-        ));
+        assert!(!should_trust_proxy_headers(Some(myriad_net_peer), true, &[]));
         let compose_allow = default_trust_proxy_peer_nets();
         let mut with_compose = compose_allow;
         with_compose.push(net("172.28.0.0/16"));
@@ -322,26 +325,11 @@ mod tests {
         assert!(!defaults.is_empty());
         assert!(defaults.iter().all(|n| !is_broad_private_supernet(n)));
         // Known members
-        assert!(peer_in_proxy_allowlist(
-            "127.0.0.1".parse().unwrap(),
-            &defaults
-        ));
-        assert!(peer_in_proxy_allowlist(
-            "172.17.0.1".parse().unwrap(),
-            &defaults
-        ));
-        assert!(!peer_in_proxy_allowlist(
-            "10.0.0.1".parse().unwrap(),
-            &defaults
-        ));
-        assert!(!peer_in_proxy_allowlist(
-            "192.168.1.1".parse().unwrap(),
-            &defaults
-        ));
-        assert!(!peer_in_proxy_allowlist(
-            "172.28.0.1".parse().unwrap(),
-            &defaults
-        ));
+        assert!(peer_in_proxy_allowlist("127.0.0.1".parse().unwrap(), &defaults));
+        assert!(peer_in_proxy_allowlist("172.17.0.1".parse().unwrap(), &defaults));
+        assert!(!peer_in_proxy_allowlist("10.0.0.1".parse().unwrap(), &defaults));
+        assert!(!peer_in_proxy_allowlist("192.168.1.1".parse().unwrap(), &defaults));
+        assert!(!peer_in_proxy_allowlist("172.28.0.1".parse().unwrap(), &defaults));
     }
 
     #[test]
@@ -446,13 +434,7 @@ mod tests {
         assert_eq!(nets.len(), 3);
         assert!(peer_in_proxy_allowlist("10.1.2.3".parse().unwrap(), &nets));
         assert!(peer_in_proxy_allowlist("192.0.2.1".parse().unwrap(), &nets));
-        assert!(!peer_in_proxy_allowlist(
-            "192.0.2.2".parse().unwrap(),
-            &nets
-        ));
-        assert!(peer_in_proxy_allowlist(
-            "172.16.5.5".parse().unwrap(),
-            &nets
-        ));
+        assert!(!peer_in_proxy_allowlist("192.0.2.2".parse().unwrap(), &nets));
+        assert!(peer_in_proxy_allowlist("172.16.5.5".parse().unwrap(), &nets));
     }
 }

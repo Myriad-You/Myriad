@@ -193,7 +193,10 @@ mod tests {
     #[test]
     fn prepend_id_and_final_error() {
         assert_eq!(prepend_step_id("step_a", 2), "step_a_prepend_2");
-        assert_eq!(format_retry_final_error(&["only".into()], "only"), "only");
+        assert_eq!(
+            format_retry_final_error(&["only".into()], "only"),
+            "only"
+        );
         let multi = format_retry_final_error(
             &["first error".into(), "second error".into()],
             "second error",

@@ -15,7 +15,9 @@ use std::collections::HashMap;
 
 use crate::middleware::auth::Claims;
 use crate::services::permission_service::TappPermission;
-use crate::services::tapp_components::{self, ComponentRegistryError, ComponentType};
+use crate::services::tapp_components::{
+    self, ComponentRegistryError, ComponentType,
+};
 
 use super::common::{authorize_tapp_permission, parse_user_id, verify_tapp_ownership};
 use super::runtime_grant::RuntimeGrantContext;
@@ -129,9 +131,15 @@ pub async fn unregister_component(
         component_id
     );
 
-    tapp_components::unregister_component(&db, owner_id, &tapp_id, &component_type, &component_id)
-        .await
-        .map_err(component_http_error)?;
+    tapp_components::unregister_component(
+        &db,
+        owner_id,
+        &tapp_id,
+        &component_type,
+        &component_id,
+    )
+    .await
+    .map_err(component_http_error)?;
 
     Ok(Json(json!({
         "success": true,
@@ -175,10 +183,14 @@ pub async fn list_components(
         _ => {}
     }
 
-    let components =
-        tapp_components::list_components_for_tapp(&db, owner_id, &tapp_id, type_filter)
-            .await
-            .map_err(component_http_error)?;
+    let components = tapp_components::list_components_for_tapp(
+        &db,
+        owner_id,
+        &tapp_id,
+        type_filter,
+    )
+    .await
+    .map_err(component_http_error)?;
 
     let components: Vec<Value> = components
         .into_iter()

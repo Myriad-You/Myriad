@@ -79,9 +79,10 @@ impl ComponentRegistryError {
         match self {
             Self::InvalidConfig { .. } | Self::InvalidType => 400,
             Self::NotFound => 404,
-            Self::Database | Self::RegisterFailed | Self::UpdateFailed | Self::UnregisterFailed => {
-                500
-            }
+            Self::Database
+            | Self::RegisterFailed
+            | Self::UpdateFailed
+            | Self::UnregisterFailed => 500,
         }
     }
 }

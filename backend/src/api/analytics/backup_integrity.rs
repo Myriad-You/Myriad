@@ -245,8 +245,14 @@ pub(crate) fn seal_integrity(content_hash_hex: &str) -> Result<Value, String> {
 /// Verify integrity block against the recomputed content hash.
 ///
 /// Returns `Ok(())` when the token decrypts and matches `expected_hash`.
-pub(crate) fn verify_integrity(integrity: &Value, expected_hash: &str) -> Result<(), &'static str> {
-    let alg = integrity.get("alg").and_then(|v| v.as_str()).unwrap_or("");
+pub(crate) fn verify_integrity(
+    integrity: &Value,
+    expected_hash: &str,
+) -> Result<(), &'static str> {
+    let alg = integrity
+        .get("alg")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     if alg != INTEGRITY_ALG {
         return Err("unsupported_integrity_alg");
     }
@@ -280,7 +286,10 @@ pub(crate) fn verify_integrity(integrity: &Value, expected_hash: &str) -> Result
     }
 
     // Optional key fingerprint check (warn-only would be soft; fail closed if present and wrong).
-    if let Some(fp) = integrity.get("key_fingerprint").and_then(|v| v.as_str()) {
+    if let Some(fp) = integrity
+        .get("key_fingerprint")
+        .and_then(|v| v.as_str())
+    {
         if !fp.is_empty() && fp != myriad_data_key::data_key().fingerprint() {
             return Err("integrity_key_mismatch");
         }
@@ -400,7 +409,8 @@ pub(crate) fn prevalidate_rows(
             .and_then(|v| v.as_str())
             .unwrap_or("");
         let ordinal = i64_nonneg(row.get("ordinal")).unwrap_or(0);
-        if day_ok.is_none() || !path_ok || !valid_visitor_hash(hash) || !metric_in_range(ordinal) {
+        if day_ok.is_none() || !path_ok || !valid_visitor_hash(hash) || !metric_in_range(ordinal)
+        {
             skipped += 1;
         }
     }

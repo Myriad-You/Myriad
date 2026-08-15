@@ -171,10 +171,7 @@ impl McpManager {
     }
 
     /// Validate, write config to disk, then hot-reload running children.
-    pub async fn replace_config(
-        &self,
-        config: McpServersConfig,
-    ) -> Result<McpServersConfig, String> {
+    pub async fn replace_config(&self, config: McpServersConfig) -> Result<McpServersConfig, String> {
         let config = validate_config(config)?;
         let _guard = self.reload_lock.lock().await;
         save_config(&self.config_path, &config).await?;

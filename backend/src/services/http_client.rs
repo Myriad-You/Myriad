@@ -421,11 +421,7 @@ mod tests {
         let config = ProxyConfig {
             enabled: true,
             proxy_url: Some("http://127.0.0.1:9".to_string()),
-            bypass_list: vec![
-                "localhost".into(),
-                "127.0.0.1".into(),
-                "bilibili.com".into(),
-            ],
+            bypass_list: vec!["localhost".into(), "127.0.0.1".into(), "bilibili.com".into()],
         };
         // Must not ignore bypass: building with NoProxy must succeed.
         create_client_with_proxy(&config).expect("client with proxy + bypass");

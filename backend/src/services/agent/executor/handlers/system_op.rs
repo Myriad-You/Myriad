@@ -71,9 +71,11 @@ async fn execute_data_transform(params: &HashMap<String, Value>) -> Result<Value
         DataTransformError::TooManySteps => "管道步骤数不能超过 20".to_string(),
         other => other.message().to_string(),
     })?;
-    let items = apply_pipeline(items_from_agent_input(input), steps).map_err(|err| match err {
-        DataTransformError::TooManySteps => "管道步骤数不能超过 20".to_string(),
-        other => other.message().to_string(),
+    let items = apply_pipeline(items_from_agent_input(input), steps).map_err(|err| {
+        match err {
+            DataTransformError::TooManySteps => "管道步骤数不能超过 20".to_string(),
+            other => other.message().to_string(),
+        }
     })?;
 
     let count = items.len();
@@ -118,7 +120,8 @@ async fn execute_scheduler_create(
         .get("scheduleType")
         .or_else(|| params.get("schedule_type"))
         .and_then(Value::as_str);
-    let agent_schedule = parse_schedule_type(schedule_type_name, legacy_cron.is_some())?;
+    let agent_schedule =
+        parse_schedule_type(schedule_type_name, legacy_cron.is_some())?;
     let schedule_type = match agent_schedule {
         AgentScheduleType::Cron => ScheduleType::Cron,
         AgentScheduleType::Interval => ScheduleType::Interval,
@@ -141,7 +144,8 @@ async fn execute_scheduler_create(
         .get("executionTarget")
         .or_else(|| params.get("execution_target"))
         .and_then(Value::as_str);
-    let agent_target = parse_execution_target(execution_target_name, backend_actions.is_some())?;
+    let agent_target =
+        parse_execution_target(execution_target_name, backend_actions.is_some())?;
     let execution_target = match agent_target {
         AgentExecutionTarget::Backend => ExecutionTarget::Backend,
         AgentExecutionTarget::Frontend => ExecutionTarget::Frontend,

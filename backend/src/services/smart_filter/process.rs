@@ -343,11 +343,7 @@ impl SmartFilter {
         let mut recent_videos: Vec<YouTubeVideoItem> = Vec::new();
         if let Some(videos) = data.get("videos").and_then(|v| v.as_array()) {
             for v in videos {
-                let video_id = v
-                    .get("id")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .to_string();
+                let video_id = v.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string();
                 if video_id.is_empty() {
                     continue;
                 }
@@ -366,8 +362,12 @@ impl SmartFilter {
                     title: vtitle,
                     video_id: video_id.clone(),
                     cover,
-                    view_count: v.pointer("/statistics/viewCount").and_then(json_nonneg_i64),
-                    like_count: v.pointer("/statistics/likeCount").and_then(json_nonneg_i64),
+                    view_count: v
+                        .pointer("/statistics/viewCount")
+                        .and_then(json_nonneg_i64),
+                    like_count: v
+                        .pointer("/statistics/likeCount")
+                        .and_then(json_nonneg_i64),
                     comment_count: v
                         .pointer("/statistics/commentCount")
                         .and_then(json_nonneg_i64),
@@ -1120,12 +1120,15 @@ impl SmartFilter {
                                 .or_else(|| track.get("picUrl").and_then(|v| v.as_str()))
                                 .map(|s| s.trim().to_string())
                                 .filter(|s| !s.is_empty());
-                            let fee = track.get("fee").and_then(|v| v.as_i64()).or_else(|| {
-                                track
-                                    .get("privilege")
-                                    .and_then(|p| p.get("fee"))
-                                    .and_then(|v| v.as_i64())
-                            });
+                            let fee = track
+                                .get("fee")
+                                .and_then(|v| v.as_i64())
+                                .or_else(|| {
+                                    track
+                                        .get("privilege")
+                                        .and_then(|p| p.get("fee"))
+                                        .and_then(|v| v.as_i64())
+                                });
                             let is_vip = track
                                 .get("isVip")
                                 .and_then(|v| v.as_bool())

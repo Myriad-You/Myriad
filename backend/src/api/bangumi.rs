@@ -45,6 +45,7 @@ async fn server_bangumi_token_and_ua(
     Ok((token, ua))
 }
 
+
 #[derive(Debug, Deserialize)]
 pub struct BangumiQuery {
     pub username: Option<String>,
@@ -291,9 +292,7 @@ mod bangumi_secret_gate_tests {
         let err = reject_query_access_token(&Some("bgm_token_xyz".into())).unwrap_err();
         let resp = err.into_response();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-        let body = axum::body::to_bytes(resp.into_body(), 64 * 1024)
-            .await
-            .expect("body");
+        let body = axum::body::to_bytes(resp.into_body(), 64 * 1024).await.expect("body");
         let v: serde_json::Value = serde_json::from_slice(&body).expect("json");
         // HttpError/AppError body uses the `error` label field (not a success flag).
         assert_eq!(v["error"], "access_token_not_allowed");

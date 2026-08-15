@@ -4,7 +4,7 @@
 //!
 //! | Path | Role |
 //! |------|------|
-//! | `migrations` (Migrator 001–007, including immutable retired-name no-ops) | **Greenfield SoT** — CREATE tables for new installs and preserve published history |
+//! | `migrations` (Migrator 001–013, including immutable retired-name no-ops) | **Greenfield SoT** — CREATE tables for new installs and preserve published history |
 //! | `schema_check` (`ensure_schema`) | **Runtime heals** — missing columns/indexes (generic), platform seeds, single owner, recent-feature CREATE / structural heals |
 //!
 //! Boot (`main`) and setup (`init_database`) both run Migrator then `ensure_schema`.

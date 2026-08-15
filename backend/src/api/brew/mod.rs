@@ -2,10 +2,10 @@
 //!
 //! Real submodules with shared [`helpers`] (auth + OPML).
 
-mod comments_rsshub;
-mod feeds_articles;
 mod helpers;
+mod feeds_articles;
 mod reading_sync_ws;
+mod comments_rsshub;
 
 pub use feeds_articles::create_brew_routes;
 
@@ -24,9 +24,7 @@ mod integration_tests {
         let Ok(database_url) = database_url else {
             return;
         };
-        let db = Database::connect(&database_url)
-            .await
-            .expect("connect test db");
+        let db = Database::connect(&database_url).await.expect("connect test db");
         migration::Migrator::up(&db, None)
             .await
             .expect("migrator up");

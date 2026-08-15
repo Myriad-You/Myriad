@@ -97,7 +97,10 @@ pub fn build_operation_prompt(
             }),
         TappAiOperation::Analyze => {
             let object = input.as_object().ok_or_else(|| {
-                AiTaskLogicError::new("INVALID_AI_TASK_INPUT", "analyze input must be an object")
+                AiTaskLogicError::new(
+                    "INVALID_AI_TASK_INPUT",
+                    "analyze input must be an object",
+                )
             })?;
             let data = object.get("data").ok_or_else(|| {
                 AiTaskLogicError::new("INVALID_AI_TASK_INPUT", "analyze input requires data")
@@ -268,8 +271,11 @@ mod tests {
             "hello"
         );
         assert_eq!(
-            build_operation_prompt(TappAiOperation::Generate, &json!({ "prompt": "world" }))
-                .unwrap(),
+            build_operation_prompt(
+                TappAiOperation::Generate,
+                &json!({ "prompt": "world" })
+            )
+            .unwrap(),
             "world"
         );
     }

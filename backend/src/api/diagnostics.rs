@@ -24,7 +24,9 @@ fn limited_detail(detail: impl AsRef<str>) -> String {
 /// 2. Postgres data-dir `PG_VERSION` mtime for the current database
 ///
 /// Returns RFC3339 UTC when known.
-async fn probe_database_established_at(db: &impl ConnectionTrait) -> Option<DateTime<Utc>> {
+async fn probe_database_established_at(
+    db: &impl ConnectionTrait,
+) -> Option<DateTime<Utc>> {
     // sea-orm: applied_at is typically a Unix epoch (bigint); some setups use timestamptz.
     if let Ok(Some(row)) = db
         .query_one_raw(Statement::from_string(

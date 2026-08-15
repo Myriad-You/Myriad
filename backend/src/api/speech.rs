@@ -38,7 +38,9 @@ async fn verify_admin(
 }
 
 /// 创建语音服务 API 路由
-pub fn create_speech_routes(app_state: crate::state::AppState) -> Router<crate::state::AppState> {
+pub fn create_speech_routes(
+    app_state: crate::state::AppState,
+) -> Router<crate::state::AppState> {
     use axum::middleware::from_fn_with_state;
     Router::<crate::state::AppState>::new()
         // TTS 文本转语音

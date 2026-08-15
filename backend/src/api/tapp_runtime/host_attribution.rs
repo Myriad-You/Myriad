@@ -104,10 +104,9 @@ async fn attribute_host_request(
 
     // Coarse per-(subject, tapp, operation class) limits on write-ish methods.
     // Host UI traffic never reaches this branch (no grant header above).
-    if let Some(operation) = tapp_host_attribution::host_attribution_rate_limit_operation(
-        req.method().as_str(),
-        permission,
-    ) {
+    if let Some(operation) =
+        tapp_host_attribution::host_attribution_rate_limit_operation(req.method().as_str(), permission)
+    {
         if let Err(error) =
             check_rate_limit(db, grant.subject_id(), grant.tapp_id(), operation).await
         {

@@ -9,12 +9,12 @@ use sea_orm::DatabaseConnection;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 
-use super::executor_footer::*;
 use super::handlers::HandlerContext;
+use super::executor_footer::*;
 use super::Executor;
 use super::{
-    clear_cancellation, extract_image_url, is_cancelled, persist_task_async, summarize_output,
-    TASK_STORE,
+    clear_cancellation, extract_image_url, is_cancelled, persist_task_async,
+    summarize_output, TASK_STORE,
 };
 use super::{dag, error_analyzer, events, retry, task_store};
 

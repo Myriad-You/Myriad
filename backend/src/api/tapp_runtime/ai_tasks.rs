@@ -23,7 +23,9 @@ use crate::{
     middleware::auth::Claims,
     services::{
         ai_config::{get_ai_config_for_tier, get_ai_image_config},
-        ai_quota::{get_ai_usage, reserve_ai_quota, rollback_ai_quota_reservation, AiQuotaError},
+        ai_quota::{
+            get_ai_usage, reserve_ai_quota, rollback_ai_quota_reservation, AiQuotaError,
+        },
         ai_task_context::{resolve_context, AiContextError, AiContextSubject},
         ai_task_execute::{
             default_output, execute_task, hash_request, parse_ai_manifest, prepare_task,
@@ -376,14 +378,8 @@ pub async fn create_ai_task(
 
     let operation_permission = permission_for_operation(request.operation);
     runtime.require(operation_permission)?;
-    let user_id = authorize_tapp_permission(
-        &db,
-        &claims,
-        runtime.tapp_id(),
-        operation_permission,
-        &dynamic_config,
-    )
-    .await?;
+    let user_id =
+        authorize_tapp_permission(&db, &claims, runtime.tapp_id(), operation_permission, &dynamic_config).await?;
     let tapp = resolve_accessible_tapp(&db, user_id, runtime.tapp_id()).await?;
     let declaration = parse_ai_manifest(&tapp.manifest).map_err(logic_api_error)?;
     if declaration.protocol_version != 2 || !declaration.operations.contains(&request.operation) {

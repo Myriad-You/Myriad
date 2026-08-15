@@ -23,6 +23,7 @@ mod tests {
 
     use super::super::types_frontend::*;
 
+
     #[test]
     fn frontend_message_matches_scheduler_client_contract() {
         let message = FrontendTaskMessage {

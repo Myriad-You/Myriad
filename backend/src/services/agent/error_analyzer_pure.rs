@@ -604,10 +604,12 @@ mod tests {
 
     #[test]
     fn test_apply_fixes_set_value_and_append_system() {
-        let params: HashMap<String, Value> =
-            [("systemPrompt".into(), Value::String("base rules".into()))]
-                .into_iter()
-                .collect();
+        let params: HashMap<String, Value> = [(
+            "systemPrompt".into(),
+            Value::String("base rules".into()),
+        )]
+        .into_iter()
+        .collect();
         let fixes: HashMap<String, ParamFix> = [
             (
                 "action".into(),
@@ -621,7 +623,10 @@ mod tests {
         .into_iter()
         .collect();
         let result = apply_param_fixes(&params, &fixes);
-        assert_eq!(result.get("action").and_then(|v| v.as_str()), Some("play"));
+        assert_eq!(
+            result.get("action").and_then(|v| v.as_str()),
+            Some("play")
+        );
         let system = result.get("systemPrompt").unwrap().as_str().unwrap();
         assert!(system.contains("base rules"));
         assert!(system.contains("keep it tasteful"));
@@ -788,11 +793,7 @@ mod tests {
     #[test]
     fn test_unknown_error_is_retryable_with_multiplier() {
         let params = HashMap::new();
-        let analysis = analyze_error(
-            "something completely unexpected blew up",
-            "ai.chat",
-            &params,
-        );
+        let analysis = analyze_error("something completely unexpected blew up", "ai.chat", &params);
         assert_eq!(analysis.category, ErrorCategory::Unknown);
         assert!(analysis.retryable);
         assert!(analysis.delay_multiplier >= 2.0);

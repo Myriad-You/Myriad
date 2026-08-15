@@ -4,8 +4,8 @@
 //! [`crate::services::tapp_federation_feed`]. This module keeps SQL loaders,
 //! interaction enrichment, and HTTP grant checks.
 
-use crate::error::HttpError;
 use axum::{extract::State, http::StatusCode, Json};
+use crate::error::HttpError;
 use chrono::{DateTime, FixedOffset};
 use sea_orm::{DatabaseBackend, DatabaseConnection, FromQueryResult, Statement};
 use serde_json::{json, Value};
@@ -209,7 +209,9 @@ async fn load_personal_feed(
     Ok(items)
 }
 
-async fn load_public_feed(db: &DatabaseConnection) -> Result<Vec<Value>, HttpError> {
+async fn load_public_feed(
+    db: &DatabaseConnection,
+) -> Result<Vec<Value>, HttpError> {
     // Local author avatar follows the same snapshot ladder as personal feed /
     // federation actor documents — never raw `users.avatar_url` alone (that
     // ignores avatar_source_kind / avatar_resolved_url).

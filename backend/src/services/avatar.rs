@@ -462,11 +462,7 @@ async fn identity_avatar<C: ConnectionTrait>(
     .await
     .ok()
     .flatten()
-    .and_then(|row| {
-        row.try_get::<Option<String>>("", "avatar_url")
-            .ok()
-            .flatten()
-    })
+    .and_then(|row| row.try_get::<Option<String>>("", "avatar_url").ok().flatten())
 }
 
 /// 解析结果 + 它是否来自 SQL 阶梯。
@@ -517,7 +513,9 @@ async fn resolve_detail<C: ConnectionTrait>(
                 .find(|(name, _)| *name == want)
                 .and_then(|(_, profile)| profile.avatar),
             // auto：按 PLATFORM_ORDER 取第一个有画像的
-            None => profiles.into_iter().find_map(|(_, profile)| profile.avatar),
+            None => profiles
+                .into_iter()
+                .find_map(|(_, profile)| profile.avatar),
         }
     };
 
@@ -527,12 +525,10 @@ async fn resolve_detail<C: ConnectionTrait>(
         // 直接走阶梯。
         AvatarSourceKind::Auto => owner_platform_avatar(None).await,
         AvatarSourceKind::Account => row.account_avatar.clone(),
-        AvatarSourceKind::Identity => {
-            match row.source_ref.as_deref().and_then(|r| r.parse().ok()) {
-                Some(identity_id) => identity_avatar(user_row_db, user_id, identity_id).await,
-                None => None,
-            }
-        }
+        AvatarSourceKind::Identity => match row.source_ref.as_deref().and_then(|r| r.parse().ok()) {
+            Some(identity_id) => identity_avatar(user_row_db, user_id, identity_id).await,
+            None => None,
+        },
         AvatarSourceKind::Platform => owner_platform_avatar(row.source_ref.clone()).await,
     };
 
@@ -713,8 +709,10 @@ fn build_merged_identity_platform_sources(
     current_kind: AvatarSourceKind,
     current_ref: &str,
 ) -> Vec<AvatarSource> {
-    let platform_by_key: HashMap<&str, &PlatformProfile> =
-        platforms.iter().map(|(k, p)| (k.as_str(), p)).collect();
+    let platform_by_key: HashMap<&str, &PlatformProfile> = platforms
+        .iter()
+        .map(|(k, p)| (k.as_str(), p))
+        .collect();
 
     let mut consumed_platforms: HashMap<&str, bool> = HashMap::new();
     let mut out = Vec::new();
@@ -730,10 +728,12 @@ fn build_merged_identity_platform_sources(
         if let Some(platform_key) = identity_provider_platform_key(&identity.provider) {
             if let Some(profile) = platform_by_key.get(platform_key) {
                 consumed_platforms.insert(platform_key, true);
-                let platform_is_current =
-                    current_kind == AvatarSourceKind::Platform && current_ref == platform_key;
-                let raw_avatar =
-                    prefer_merged_avatar_url(profile.avatar.clone(), identity.avatar_url.clone());
+                let platform_is_current = current_kind == AvatarSourceKind::Platform
+                    && current_ref == platform_key;
+                let raw_avatar = prefer_merged_avatar_url(
+                    profile.avatar.clone(),
+                    identity.avatar_url.clone(),
+                );
                 out.push(AvatarSource {
                     kind: AvatarSourceKind::Platform,
                     source_ref: platform_key.to_string(),
@@ -921,8 +921,7 @@ async fn set_avatar_source_txn(
             Some(identity_id.to_string())
         }
         AvatarSourceKind::Platform => {
-            let platform =
-                source_ref.ok_or_else(|| "platform source requires a ref".to_string())?;
+            let platform = source_ref.ok_or_else(|| "platform source requires a ref".to_string())?;
             // Platform avatar is site-owner only. Check is_owner before profiles so a
             // disk-cache fallback cannot make platform refs validate for non-owners.
             let row = load_user_avatar_row(db, user_id)
@@ -1046,15 +1045,11 @@ mod tests {
         assert!(is_placeholder_avatar(
             "https://ui-avatars.com/api/?name=Admin&background=4f46e5&color=fff"
         ));
-        assert!(is_placeholder_avatar(
-            "http://UI-Avatars.com/api/?name=User"
-        ));
+        assert!(is_placeholder_avatar("http://UI-Avatars.com/api/?name=User"));
         assert!(!is_placeholder_avatar(
             "https://avatars.githubusercontent.com/u/1"
         ));
-        assert!(!is_placeholder_avatar(
-            "https://i0.hdslb.com/bfs/face/a.jpg"
-        ));
+        assert!(!is_placeholder_avatar("https://i0.hdslb.com/bfs/face/a.jpg"));
     }
 
     #[test]
@@ -1094,10 +1089,7 @@ mod tests {
         assert_eq!(bilibili.name.as_deref(), Some("阿绫"));
         // 平台画像返回原始地址：代理只在 HTTP 出口发生（落库当快照、给联邦抓图
         // 都必须是绝对地址，相对的 /api/proxy/image 抓不动）
-        assert_eq!(
-            bilibili.avatar.as_deref(),
-            Some("https://i0.hdslb.com/f.jpg")
-        );
+        assert_eq!(bilibili.avatar.as_deref(), Some("https://i0.hdslb.com/f.jpg"));
         assert_eq!(bilibili.bio, "hi");
 
         // 旧缓存用 user_info 而非 user
@@ -1156,10 +1148,7 @@ mod tests {
         }
         // 库里存了脏值时退回 auto，而不是让用户没头像
         assert_eq!(AvatarSourceKind::parse(None), AvatarSourceKind::Auto);
-        assert_eq!(
-            AvatarSourceKind::parse(Some("nope")),
-            AvatarSourceKind::Auto
-        );
+        assert_eq!(AvatarSourceKind::parse(Some("nope")), AvatarSourceKind::Auto);
     }
 
     #[test]
@@ -1184,11 +1173,13 @@ mod tests {
     #[test]
     fn merge_sublabel_dedupes_and_prefers_richer_name() {
         assert_eq!(
-            merge_platform_sublabel(Some("octocat".into()), Some("octocat".into())).as_deref(),
+            merge_platform_sublabel(Some("octocat".into()), Some("octocat".into()))
+                .as_deref(),
             Some("octocat")
         );
         assert_eq!(
-            merge_platform_sublabel(Some("octocat".into()), Some("The Octocat".into())).as_deref(),
+            merge_platform_sublabel(Some("octocat".into()), Some("The Octocat".into()))
+                .as_deref(),
             Some("The Octocat")
         );
         assert_eq!(

@@ -222,7 +222,10 @@ pub(crate) async fn create_comment(
         context_after: Set(req.context_after),
         color: Set(validated_color),
         // Explicit body wins; replies inherit parent visibility when omitted.
-        is_public: Set(req.is_public.or(inherited_is_public).unwrap_or(false)),
+        is_public: Set(req
+            .is_public
+            .or(inherited_is_public)
+            .unwrap_or(false)),
         parent_id: Set(req.parent_id),
         created_at: Set(now.into()),
         updated_at: Set(now.into()),

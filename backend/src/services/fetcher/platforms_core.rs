@@ -2,9 +2,7 @@
 
 use anyhow::{anyhow, Result};
 
-use crate::services::bilibili_utils::{
-    generate_bilibili_cookie, get_random_china_ip, get_random_user_agent,
-};
+use crate::services::bilibili_utils::{generate_bilibili_cookie, get_random_china_ip, get_random_user_agent};
 use crate::services::http_client::{get_global_client, GitHubApiUrl};
 
 use super::types::*;
@@ -51,8 +49,7 @@ impl PlatformFetcher {
             Ok(info) if !info.name.is_empty() || info.mid != 0 => {
                 // card 有时粉丝为 0（字段缺失）；用 relation/stat 补全
                 if info.follower == 0 && info.following == 0 {
-                    if let Ok((follower, following)) = self.fetch_bilibili_relation_stat(uid).await
-                    {
+                    if let Ok((follower, following)) = self.fetch_bilibili_relation_stat(uid).await {
                         return Ok(BilibiliUserInfo {
                             follower,
                             following,
@@ -98,7 +95,11 @@ impl PlatformFetcher {
         let card = &data["card"];
         let mid = card["mid"]
             .as_i64()
-            .or_else(|| card["mid"].as_str().and_then(|s| s.parse::<i64>().ok()))
+            .or_else(|| {
+                card["mid"]
+                    .as_str()
+                    .and_then(|s| s.parse::<i64>().ok())
+            })
             .unwrap_or(uid);
         let level = card
             .pointer("/level_info/current_level")

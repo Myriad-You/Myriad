@@ -1,3 +1,4 @@
+
 /// Minimal query-value encoding (letters, digits, -_.~ pass through).
 pub(crate) fn urlencoding_lite(s: &str) -> String {
     let mut out = String::with_capacity(s.len() * 2);

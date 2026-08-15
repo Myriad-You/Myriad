@@ -571,8 +571,11 @@ mod tests {
                 value: json!(i),
             })
             .collect();
-        let err = apply_pipeline(vec![json!({})], vec![ProcessStep::Map { operations: ops }])
-            .unwrap_err();
+        let err = apply_pipeline(
+            vec![json!({})],
+            vec![ProcessStep::Map { operations: ops }],
+        )
+        .unwrap_err();
         assert_eq!(err, DataTransformError::TooManyMapOps);
     }
 

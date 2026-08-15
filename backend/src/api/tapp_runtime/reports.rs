@@ -12,10 +12,10 @@ use sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::error::HttpError;
 use crate::middleware::auth::Claims;
 use crate::services::permission_service::TappPermission;
 use crate::services::tapp_reports::{self, ReportCatalogError, TappReportCrudError};
+use crate::error::HttpError;
 
 use super::common::{authorize_tapp_permission, parse_user_id};
 use super::runtime_grant::RuntimeGrantContext;
@@ -118,9 +118,10 @@ pub async fn get_runtime_platform_report(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": "Failed to fetch report" })),
             ),
-            ReportCatalogError::InvalidPlatform(msg) => {
-                (StatusCode::BAD_REQUEST, Json(json!({ "error": msg })))
-            }
+            ReportCatalogError::InvalidPlatform(msg) => (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": msg })),
+            ),
             other => catalog_http_error(other),
         })?;
     Ok(Json(
@@ -158,7 +159,10 @@ pub struct ListReportsQuery {
 fn crud_http_error(err: TappReportCrudError) -> (StatusCode, Json<Value>) {
     let status =
         StatusCode::from_u16(err.status_hint()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-    (status, Json(json!({ "error": err.message() })))
+    (
+        status,
+        Json(json!({ "error": err.message() })),
+    )
 }
 
 /// POST /api/tapp/reports
@@ -171,14 +175,8 @@ pub async fn create_report(
 ) -> Result<Json<Value>, HttpError> {
     runtime_grant.require_tapp_id(&req.tapp_id)?;
     runtime_grant.require(TappPermission::ReportWrite)?;
-    let user_id = authorize_tapp_permission(
-        &db,
-        &claims,
-        &req.tapp_id,
-        TappPermission::ReportWrite,
-        &dynamic_config,
-    )
-    .await?;
+    let user_id =
+        authorize_tapp_permission(&db, &claims, &req.tapp_id, TappPermission::ReportWrite, &dynamic_config).await?;
 
     tracing::info!(
         "[TAPP] create_report - User: {}, Tapp: {}, Type: {}",
@@ -221,14 +219,8 @@ pub async fn list_tapp_reports(
 ) -> Result<Json<Value>, HttpError> {
     runtime_grant.require_tapp_id(&tapp_id)?;
     runtime_grant.require(TappPermission::ReportRead)?;
-    let user_id = authorize_tapp_permission(
-        &db,
-        &claims,
-        &tapp_id,
-        TappPermission::ReportRead,
-        &dynamic_config,
-    )
-    .await?;
+    let user_id =
+        authorize_tapp_permission(&db, &claims, &tapp_id, TappPermission::ReportRead, &dynamic_config).await?;
     tracing::debug!(
         "[TAPP] list_tapp_reports - User: {}, Tapp: {}",
         claims.username,
@@ -257,14 +249,8 @@ pub async fn get_tapp_report(
 ) -> Result<Json<Value>, HttpError> {
     runtime_grant.require_tapp_id(&tapp_id)?;
     runtime_grant.require(TappPermission::ReportRead)?;
-    let user_id = authorize_tapp_permission(
-        &db,
-        &claims,
-        &tapp_id,
-        TappPermission::ReportRead,
-        &dynamic_config,
-    )
-    .await?;
+    let user_id =
+        authorize_tapp_permission(&db, &claims, &tapp_id, TappPermission::ReportRead, &dynamic_config).await?;
     tracing::debug!(
         "[TAPP] get_tapp_report - User: {}, Report: {}",
         claims.username,
@@ -288,14 +274,8 @@ pub async fn update_tapp_report(
 ) -> Result<Json<Value>, HttpError> {
     runtime_grant.require_tapp_id(&tapp_id)?;
     runtime_grant.require(TappPermission::ReportWrite)?;
-    let user_id = authorize_tapp_permission(
-        &db,
-        &claims,
-        &tapp_id,
-        TappPermission::ReportWrite,
-        &dynamic_config,
-    )
-    .await?;
+    let user_id =
+        authorize_tapp_permission(&db, &claims, &tapp_id, TappPermission::ReportWrite, &dynamic_config).await?;
     tracing::info!(
         "[TAPP] update_tapp_report - User: {}, Report: {}",
         claims.username,
@@ -326,14 +306,8 @@ pub async fn delete_tapp_report(
 ) -> Result<Json<Value>, HttpError> {
     runtime_grant.require_tapp_id(&tapp_id)?;
     runtime_grant.require(TappPermission::ReportWrite)?;
-    let user_id = authorize_tapp_permission(
-        &db,
-        &claims,
-        &tapp_id,
-        TappPermission::ReportWrite,
-        &dynamic_config,
-    )
-    .await?;
+    let user_id =
+        authorize_tapp_permission(&db, &claims, &tapp_id, TappPermission::ReportWrite, &dynamic_config).await?;
     tracing::info!(
         "[TAPP] delete_tapp_report - User: {}, Report: {}",
         claims.username,

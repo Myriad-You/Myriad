@@ -4,16 +4,15 @@ use axum::{
     extract::{Path, Query, State},
     http::{header, StatusCode},
     response::IntoResponse,
-    routing::{get, post, put},
-    Json, Router,
+    routing::{get, post, put}, Json, Router,
 };
 use chrono::Utc;
 use futures::StreamExt;
 use reqwest::Url;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseBackend,
-    DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
-    QueryTrait, Statement,
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait,
+    DatabaseBackend, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect, QueryTrait, Statement,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -22,7 +21,8 @@ use tower_http::services::ServeDir;
 use tower_http::set_header::SetResponseHeaderLayer;
 
 use crate::models::entities::{
-    brew_annotations, brew_categories, brew_items, brew_podcasts, brew_sources, brew_user_states,
+    brew_annotations, brew_categories, brew_items, brew_podcasts, brew_sources,
+    brew_user_states,
 };
 use crate::services::brew_parser::{FeedParser, ParsedFeed};
 use crate::services::brew_scheduler::get_brew_scheduler;

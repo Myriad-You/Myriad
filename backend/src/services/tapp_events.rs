@@ -11,7 +11,9 @@ use std::collections::HashSet;
 
 use chrono::Utc;
 use myriad_tapp_contract::manifest::TappEventsManifest;
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
+use sea_orm::{
+    ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -509,7 +511,10 @@ pub async fn register_subscription(
 }
 
 /// Drain pending mailbox events for a runtime (SSE poll).
-pub async fn drain_events(db: &DatabaseConnection, runtime_id: &str) -> Vec<TappEventEnvelope> {
+pub async fn drain_events(
+    db: &DatabaseConnection,
+    runtime_id: &str,
+) -> Vec<TappEventEnvelope> {
     shared_registry::drain::<TappEventEnvelope>(
         db,
         EVENT_MAILBOX_CHANNEL,
