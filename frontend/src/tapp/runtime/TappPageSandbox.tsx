@@ -38,10 +38,6 @@ import {
   serializeSandboxScriptValue,
 } from './sandbox'
 import {
-  loadHostRuntimeModule,
-  manifestRequestsRuntimeModule,
-} from './sandbox/hostRuntimeModules'
-import {
   registerAdvancedHandlers,
   registerAgentInteractionHandlers,
   registerAIHandlers,
@@ -55,8 +51,8 @@ import {
   registerDynamicContentHandlers,
   registerEventHandlers,
   registerFederationHandlers,
-  registerGameHandlers,
   registerFileHandlers,
+  registerGameHandlers,
   registerLifecycleHandlers,
   registerMediaHandlers,
   registerPlatformHandlers,
@@ -70,6 +66,10 @@ import {
   registerWidgetHandlers,
 } from './sandbox/handlers'
 import { registerPlaygroundPreviewHandlers } from './sandbox/handlers/playgroundPreviewHandlers'
+import {
+  loadHostRuntimeModule,
+  manifestRequestsRuntimeModule,
+} from './sandbox/hostRuntimeModules'
 import { onSpaNavigation } from './spaNavigation'
 import { createTappBridge } from './TappBridge'
 import { TappRuntimeGrant } from './TappRuntimeGrant'

@@ -12,9 +12,10 @@
  * - 资料库画布模式隐藏（视口由画布自己平移）
  */
 
+import type { LockedDragMetrics } from '../utils/customScrollbarMetrics'
+
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
-
 import { observeResize } from '../hooks/animation'
 import {
   useSharedResize,
@@ -27,7 +28,6 @@ import {
   scrollTopFromThumb,
   thumbTopFromPointer,
   TRACK_HEIGHT_PERCENT,
-  type LockedDragMetrics,
 } from '../utils/customScrollbarMetrics'
 
 // 检测是否为移动端 - 使用多重检测确保准确性

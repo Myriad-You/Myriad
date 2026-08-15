@@ -4,9 +4,10 @@
  * and the game:<tappId>:<protocol> envelope.
  */
 
+import type { TappInstance, TappMessage } from '../types'
+import type { TappBridge } from './TappBridge'
+
 import { federationApi } from '../../services/federationApi'
-import type { TappInstance } from '../types'
-import type { TappBridge, TappMessage } from './TappBridge'
 
 const NONCE_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_'
 
@@ -100,20 +101,17 @@ export function registerGameHandlers(
   const protocol = protocolOf(tappInstance)
   const messageType = gameMessageType(tappInstance.id, protocol)
 
-  const requireObject = (
+  const asRecord = (
     value: unknown,
-    label: string,
-  ): Record<string, unknown> | { success: false; error: string } => {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
-      return { success: false, error: `${label} is required` }
-    }
+  ): Record<string, unknown> | null => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null
     return value as Record<string, unknown>
   }
 
   bridge.registerHandler('game.shareId', async (message: TappMessage) => {
     const [room] = (message.payload as { args: unknown[] }).args || []
-    const rec = requireObject(room, 'Room')
-    if ('success' in rec) return rec
+    const rec = asRecord(room)
+    if (!rec) return { success: false, error: 'Room is required' }
     const roomId = typeof rec.room_id === 'string' ? rec.room_id : ''
     const home =
       typeof rec.home_server === 'string' ? rec.home_server : undefined

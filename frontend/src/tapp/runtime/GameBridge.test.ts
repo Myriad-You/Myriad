@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { generateFullSDK } from './sandbox/sdkGenerator.ts'
+
 import {
   formatShareRoomId,
   gameMessageType,
   parseShareRoomId,
 } from './GameBridge.ts'
+import { generateFullSDK } from './sandbox/sdkGenerator.ts'
 
 describe('Tapp.game share ids', () => {
   it('joins room_id and home_server', () => {
