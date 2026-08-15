@@ -103,9 +103,7 @@ impl WsTicketError {
     pub fn message(&self) -> &'static str {
         match self {
             Self::Unavailable => "WebSocket ticket registry is unavailable",
-            Self::Invalid => {
-                "WebSocket ticket is missing, invalid, expired, or already used"
-            }
+            Self::Invalid => "WebSocket ticket is missing, invalid, expired, or already used",
             Self::InvalidSubject => "Authenticated subject is invalid",
             Self::SubjectMismatch => {
                 "WebSocket ticket subject does not match the authenticated user"
@@ -212,10 +210,7 @@ pub async fn mint_ws_ticket(
         "[TAPP] Federation WS ticket minted"
     );
 
-    Ok(MintedWsTicket {
-        ticket,
-        expires_at,
-    })
+    Ok(MintedWsTicket { ticket, expires_at })
 }
 
 /// Consume a one-time ticket for a federation WebSocket upgrade.

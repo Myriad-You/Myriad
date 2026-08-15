@@ -494,11 +494,7 @@ impl BrewSchedulerEngine {
                     return Err(format!("Failed to batch insert items: {e}"));
                 }
             };
-            let titles: Vec<String> = inserted
-                .iter()
-                .map(|m| m.title.clone())
-                .take(5)
-                .collect();
+            let titles: Vec<String> = inserted.iter().map(|m| m.title.clone()).take(5).collect();
             (inserted.len() as i32, titles)
         };
 

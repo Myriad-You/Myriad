@@ -514,19 +514,12 @@ impl VerifiedState {
                 provider_slug = %stored.provider_slug,
                 "OAuth state mark_used: nonce already used (soft-recover possible)"
             );
-            return ConsumeOutcome::Replay {
-                stored,
-                browser_tx,
-            };
+            return ConsumeOutcome::Replay { stored, browser_tx };
         }
         // O(1) oldest eviction when at cap (process-local anti-replay table).
-        let _inserted =
-            nonces.insert_if_absent(browser_tx.clone(), Instant::now() + remaining_ttl);
+        let _inserted = nonces.insert_if_absent(browser_tx.clone(), Instant::now() + remaining_ttl);
 
-        ConsumeOutcome::Fresh {
-            stored,
-            browser_tx,
-        }
+        ConsumeOutcome::Fresh { stored, browser_tx }
     }
 }
 
@@ -722,7 +715,9 @@ mod tests {
         assert!(!first.is_replay());
 
         // After mark_used, verify reports already_used and mark yields Replay.
-        let peeked3 = verify_state(&issued.token).await.expect("verify after mark");
+        let peeked3 = verify_state(&issued.token)
+            .await
+            .expect("verify after mark");
         assert!(peeked3.already_used());
         assert!(peeked3.mark_used().await.is_replay());
     }
@@ -946,7 +941,10 @@ mod tests {
         assert!(oauth_tx_cookie_matches(Some(header), "deadbeef"));
         assert!(!oauth_tx_cookie_matches(Some(header), "other"));
         assert!(!oauth_tx_cookie_matches(None, "deadbeef"));
-        assert!(!oauth_tx_cookie_matches(Some("oauth_tx=deleted"), "deadbeef"));
+        assert!(!oauth_tx_cookie_matches(
+            Some("oauth_tx=deleted"),
+            "deadbeef"
+        ));
         assert!(!oauth_tx_cookie_matches(Some(""), "deadbeef"));
     }
 }

@@ -1759,5 +1759,3 @@ pub async fn leave_room(
 
     Ok(json!({ "success": true, "room_id": room_id }))
 }
-
-

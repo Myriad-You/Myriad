@@ -459,7 +459,9 @@ pub fn page_module_downloads(download: &serde_json::Value) -> Vec<NamedPathDownl
 }
 
 /// Collapse a map into `None` when empty (install payload convention).
-pub fn nonempty_map_opt<K, V>(map: std::collections::HashMap<K, V>) -> Option<std::collections::HashMap<K, V>> {
+pub fn nonempty_map_opt<K, V>(
+    map: std::collections::HashMap<K, V>,
+) -> Option<std::collections::HashMap<K, V>> {
     if map.is_empty() {
         None
     } else {
@@ -649,7 +651,9 @@ mod tests {
         assert!(is_invalid_store_source_ref(""));
         assert!(is_invalid_store_source_ref(" store "));
         assert!(is_invalid_store_source_ref("DIRECT"));
-        assert!(!is_invalid_store_source_ref("https://ex.com/store/index.json"));
+        assert!(!is_invalid_store_source_ref(
+            "https://ex.com/store/index.json"
+        ));
         assert!(!is_invalid_store_source_ref("12"));
     }
 
@@ -753,9 +757,11 @@ mod tests {
             Some("apps/a/page.html")
         );
         let download_missing = json!({});
-        assert!(require_download_page_styles_if_declared(&download_missing, &manifest)
-            .unwrap_err()
-            .contains("page_styles"));
+        assert!(
+            require_download_page_styles_if_declared(&download_missing, &manifest)
+                .unwrap_err()
+                .contains("page_styles")
+        );
         assert!(
             require_download_page_template_if_declared(&download_missing, &manifest)
                 .unwrap_err()
@@ -774,11 +780,9 @@ mod tests {
             "permissions": []
         }))
         .unwrap();
-        assert!(validate_store_manifest_category(
-            &json!({ "category": "music" }),
-            &manifest
-        )
-        .is_ok());
+        assert!(
+            validate_store_manifest_category(&json!({ "category": "music" }), &manifest).is_ok()
+        );
         assert!(validate_store_manifest_category(
             &json!({ "category": "productivity" }),
             &manifest
@@ -813,13 +817,18 @@ mod tests {
 
         let templates = widget_template_downloads(&download);
         assert_eq!(templates.len(), 2);
-        assert!(templates.iter().any(|t| t.widget_id == "card" && t.size == "2x2"));
+        assert!(templates
+            .iter()
+            .any(|t| t.widget_id == "card" && t.size == "2x2"));
 
         let i18n = i18n_downloads(&download);
-        assert_eq!(i18n, vec![NamedPathDownload {
-            key: "en-US".into(),
-            path: "apps/a/i18n/en-US.json".into()
-        }]);
+        assert_eq!(
+            i18n,
+            vec![NamedPathDownload {
+                key: "en-US".into(),
+                path: "apps/a/i18n/en-US.json".into()
+            }]
+        );
         let modules = page_module_downloads(&download);
         assert_eq!(modules[0].key, "extra.js");
 
@@ -842,10 +851,7 @@ mod tests {
                 id: 1,
                 url: official,
             },
-            StoreSourceRowRef {
-                id: 2,
-                url: mirror,
-            },
+            StoreSourceRowRef { id: 2, url: mirror },
         ];
 
         // exact URL
@@ -854,17 +860,11 @@ mod tests {
             Some(1)
         );
         // numeric id
-        assert_eq!(
-            resolve_store_source_among(rows, "2").map(|r| r.id),
-            Some(2)
-        );
+        assert_eq!(resolve_store_source_among(rows, "2").map(|r| r.id), Some(2));
         // normalized base (index.json stripped form)
         assert_eq!(
-            resolve_store_source_among(
-                rows,
-                "https://raw.githubusercontent.com/org/store/main"
-            )
-            .map(|r| r.id),
+            resolve_store_source_among(rows, "https://raw.githubusercontent.com/org/store/main")
+                .map(|r| r.id),
             Some(1)
         );
         // invalid install-mode placeholders

@@ -123,7 +123,9 @@ pub enum RuntimeGrantError {
     ScopeChanged,
     SubjectMismatch,
     RoleChanged,
-    PermissionDenied { permission: String },
+    PermissionDenied {
+        permission: String,
+    },
     TappMismatch,
     InvalidInstanceId,
     LimitExceeded,
@@ -166,7 +168,9 @@ impl RuntimeGrantError {
         match self {
             Self::Unavailable => 503,
             Self::Invalid | Self::ScopeChanged => 401,
-            Self::SubjectMismatch | Self::RoleChanged | Self::PermissionDenied { .. }
+            Self::SubjectMismatch
+            | Self::RoleChanged
+            | Self::PermissionDenied { .. }
             | Self::TappMismatch => 403,
             Self::InvalidInstanceId => 400,
             Self::LimitExceeded => 429,
@@ -216,7 +220,10 @@ pub(crate) fn valid_instance_id(instance_id: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
 }
 
-pub(crate) fn intersect_current_permissions(issued: &mut Vec<String>, currently_allowed: &[String]) {
+pub(crate) fn intersect_current_permissions(
+    issued: &mut Vec<String>,
+    currently_allowed: &[String],
+) {
     issued.retain(|permission| {
         currently_allowed
             .iter()
@@ -257,8 +264,7 @@ pub async fn validate_runtime_grant(
     // A grant is a short-lived upper bound, not a frozen authorization fact.
     // Rebind it to the installation that is visible now and intersect its
     // permissions with the current role/config/installation on every request.
-    let tapp = match tapp_ownership::resolve_accessible_tapp(db, subject_id, &grant.tapp_id).await
-    {
+    let tapp = match tapp_ownership::resolve_accessible_tapp(db, subject_id, &grant.tapp_id).await {
         Ok(tapp) if tapp.user_id == grant.owner_id => tapp,
         Ok(_) | Err(_) => {
             let _ = shared_registry::delete(db, RUNTIME_GRANT_NAMESPACE, &hash).await;
@@ -526,8 +532,12 @@ mod tests {
         assert_eq!(RuntimeGrantError::Invalid.status_hint(), 401);
         assert_eq!(RuntimeGrantError::LimitExceeded.status_hint(), 429);
         assert_eq!(RuntimeGrantError::InvalidInstanceId.status_hint(), 400);
-        assert_eq!(RuntimeGrantError::PermissionDenied {
-            permission: "x".into()
-        }.status_hint(), 403);
+        assert_eq!(
+            RuntimeGrantError::PermissionDenied {
+                permission: "x".into()
+            }
+            .status_hint(),
+            403
+        );
     }
 }

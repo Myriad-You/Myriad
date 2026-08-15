@@ -48,7 +48,9 @@ fn map_load_error(err: PackageLoadError) -> PackageError {
 }
 
 /// HTTP adapter: load a .tapp archive into a validated prepared package.
-pub(super) fn package_from_archive(file_data: Vec<u8>) -> Result<PreparedTappPackage, PackageError> {
+pub(super) fn package_from_archive(
+    file_data: Vec<u8>,
+) -> Result<PreparedTappPackage, PackageError> {
     let cursor = std::io::Cursor::new(&file_data);
     let mut archive = zip::ZipArchive::new(cursor)
         .map_err(|_| map_load_error(PackageLoadError::InvalidArchive))?;
@@ -110,9 +112,7 @@ impl PreparedTappPackageHttp for PreparedTappPackage {
             }
             None => {
                 // MYR-025: share Arc into extract; do not clone the full zip.
-                let file_data = self
-                    .archive_arc()
-                    .expect("archive package has bytes");
+                let file_data = self.archive_arc().expect("archive package has bytes");
                 extract_archive(self, tapp_dir, file_data, context).await?;
             }
         }
@@ -184,8 +184,15 @@ async fn write_resources(
         );
         if let Some(declared) = package.manifest.widget_styles.as_deref() {
             if let Some(content) = content {
-                write_text(package, tapp_dir, declared, content, "widget_styles", context)
-                    .await?;
+                write_text(
+                    package,
+                    tapp_dir,
+                    declared,
+                    content,
+                    "widget_styles",
+                    context,
+                )
+                .await?;
             } else {
                 return Err((
                     StatusCode::BAD_REQUEST,
@@ -195,7 +202,15 @@ async fn write_resources(
                 ));
             }
         } else if let Some(content) = nonempty_content(resources.generated_widget_css.as_ref()) {
-            write_text(package, tapp_dir, "widget.css", content, "widget_css", context).await?;
+            write_text(
+                package,
+                tapp_dir,
+                "widget.css",
+                content,
+                "widget_css",
+                context,
+            )
+            .await?;
         }
     }
 
@@ -207,8 +222,7 @@ async fn write_resources(
         );
         if let Some(declared) = package.manifest.page_styles.as_deref() {
             if let Some(content) = content {
-                write_text(package, tapp_dir, declared, content, "page_styles", context)
-                    .await?;
+                write_text(package, tapp_dir, declared, content, "page_styles", context).await?;
             } else {
                 return Err((
                     StatusCode::BAD_REQUEST,
@@ -342,7 +356,13 @@ async fn extract_archive(
     match result {
         Ok(Ok(())) => Ok(()),
         Ok(Err(error)) => {
-            log_write_failure(package, "extract_write", context, tapp_dir.as_path(), &error);
+            log_write_failure(
+                package,
+                "extract_write",
+                context,
+                tapp_dir.as_path(),
+                &error,
+            );
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 api_error(format!("Failed to save files: {error}")),
@@ -407,7 +427,9 @@ mod tests {
             },
         );
 
-        assert!(package.validate_for_http(Some("com.example.other")).is_err());
+        assert!(package
+            .validate_for_http(Some("com.example.other"))
+            .is_err());
         assert!(package
             .validate_for_http(Some("com.example.prepared"))
             .is_ok());

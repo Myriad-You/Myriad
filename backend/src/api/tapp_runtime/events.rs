@@ -21,9 +21,7 @@ use crate::error::HttpError;
 use crate::{
     middleware::auth::Claims,
     services::permission_service::TappPermission,
-    services::tapp_events::{
-        self, EventError, EventRuntime, PublishEventRequest,
-    },
+    services::tapp_events::{self, EventError, EventRuntime, PublishEventRequest},
 };
 
 use super::{
@@ -82,11 +80,18 @@ pub async fn publish_event(
     Json(request): Json<PublishEventRequest>,
 ) -> Result<Json<Value>, ApiError> {
     runtime.require(TappPermission::EventPublish)?;
-    let user_id =
-        authorize_tapp_permission(&db, &claims, runtime.tapp_id(), TappPermission::EventPublish, &dynamic_config).await?;
+    let user_id = authorize_tapp_permission(
+        &db,
+        &claims,
+        runtime.tapp_id(),
+        TappPermission::EventPublish,
+        &dynamic_config,
+    )
+    .await?;
 
     let tapp = resolve_accessible_tapp(&db, user_id, runtime.tapp_id()).await?;
-    let declaration = tapp_events::parse_event_manifest(&tapp.manifest).map_err(event_http_error)?;
+    let declaration =
+        tapp_events::parse_event_manifest(&tapp.manifest).map_err(event_http_error)?;
     let allowed: HashSet<String> = declaration.publish.into_iter().collect();
 
     check_rate_limit(&db, user_id, runtime.tapp_id(), "event.publish").await?;
@@ -117,9 +122,12 @@ pub async fn stream_events(
         &claims,
         runtime.tapp_id(),
         TappPermission::EventSubscribe,
-        &dynamic_config).await?;
+        &dynamic_config,
+    )
+    .await?;
     let tapp = resolve_accessible_tapp(&db, user_id, runtime.tapp_id()).await?;
-    let declaration = tapp_events::parse_event_manifest(&tapp.manifest).map_err(event_http_error)?;
+    let declaration =
+        tapp_events::parse_event_manifest(&tapp.manifest).map_err(event_http_error)?;
     let topics = declaration.subscribe.into_iter().collect::<HashSet<_>>();
     let event_runtime = runtime_from_grant(&runtime);
 

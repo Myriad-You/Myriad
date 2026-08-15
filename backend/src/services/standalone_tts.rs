@@ -71,7 +71,12 @@ pub fn generate_text_hash(text: &str) -> String {
 }
 
 /// Audio filename for a voice/speed/sample_rate/codec combination.
-pub fn generate_audio_filename(voice_type: i32, speed: f32, sample_rate: i32, codec: &str) -> String {
+pub fn generate_audio_filename(
+    voice_type: i32,
+    speed: f32,
+    sample_rate: i32,
+    codec: &str,
+) -> String {
     format!("{}_{}_{}.{}", voice_type, speed as i32, sample_rate, codec)
 }
 
@@ -181,9 +186,7 @@ pub fn tencent_speech_error_message(error: &TencentSpeechError) -> String {
         }
         TencentSpeechError::ParseError(msg) => msg.clone(),
         TencentSpeechError::InvalidAudioData(msg) => msg.clone(),
-        TencentSpeechError::TextTooLong => {
-            "文本过长，中文最大150字，英文最大500字母".to_string()
-        }
+        TencentSpeechError::TextTooLong => "文本过长，中文最大150字，英文最大500字母".to_string(),
     }
 }
 
@@ -310,14 +313,17 @@ mod tests {
     #[test]
     fn tencent_error_messages_cover_key_variants() {
         let msg = tencent_speech_error_message(&TencentSpeechError::ApiKeyNotConfigured);
-        assert!(msg.contains("TTS") || msg.contains("腾讯云") || msg.contains("未配置"), "{msg}");
+        assert!(
+            msg.contains("TTS") || msg.contains("腾讯云") || msg.contains("未配置"),
+            "{msg}"
+        );
         assert_eq!(
             tencent_speech_error_message(&TencentSpeechError::TextTooLong),
             "文本过长，中文最大150字，英文最大500字母"
         );
-        assert!(tencent_speech_error_message(&TencentSpeechError::NetworkError(
-            "boom".into()
-        ))
-        .contains("boom"));
+        assert!(
+            tencent_speech_error_message(&TencentSpeechError::NetworkError("boom".into()))
+                .contains("boom")
+        );
     }
 }

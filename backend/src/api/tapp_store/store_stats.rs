@@ -2,12 +2,7 @@
 //! Instance-day cap: 1 count / instance / app / event / UTC day (no shared secret).
 
 use super::{api_http_error, ApiResponse};
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    Extension, Json,
-};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, Extension, Json};
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use serde::Deserialize;
 

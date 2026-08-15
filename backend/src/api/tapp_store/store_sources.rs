@@ -16,13 +16,13 @@ use sea_orm::{
 };
 use serde::Deserialize;
 
+use crate::error::HttpError;
 use crate::middleware::auth::Claims;
 use crate::models::entities::tapp_store_sources;
 use crate::services::tapp_store_sources::{
     default_store_source_enabled, may_change_store_source_url, may_delete_store_source,
     store_source_urls_conflict, validate_store_source_url, StoreSourcePolicyError, StoreSourceView,
 };
-use crate::error::HttpError;
 use myriad_error::AppError;
 
 /// Path-stable public response DTO (serde camelCase via domain).
@@ -136,9 +136,10 @@ pub(super) async fn update_store_source(
             .all(&db)
             .await
             .map_err(|_| HttpError(AppError::internal("Database error")))?;
-        if others.iter().any(|other| {
-            other.id != source_id && store_source_urls_conflict(&other.url, url)
-        }) {
+        if others
+            .iter()
+            .any(|other| other.id != source_id && store_source_urls_conflict(&other.url, url))
+        {
             return Err(HttpError(AppError::conflict("Conflict")));
         }
     }

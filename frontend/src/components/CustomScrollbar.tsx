@@ -5,10 +5,11 @@
  * - 固定30%高度轨道，居中显示
  * - 使用壁纸色（--color-primary）
  * - 流畅的进入/退出/滚动动画
- * - 超跟手的拖拽体验
+ * - 指针捕获 + 锁定几何，拖拽时滑块贴住指针
  * - 仅在桌面端显示，移动端完全不加载
  * - 右侧 1rem 定位
  * - SPA 路由切换时平滑过渡尺寸
+ * - 资料库画布模式隐藏（视口由画布自己平移）
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -19,6 +20,15 @@ import {
   useSharedResize,
   useSharedScroll,
 } from '../hooks/useSharedEventListener'
+import {
+  computeThumbLayout,
+  grabOffsetFromThumbPointer,
+  MIN_THUMB_HEIGHT,
+  scrollTopFromThumb,
+  thumbTopFromPointer,
+  TRACK_HEIGHT_PERCENT,
+  type LockedDragMetrics,
+} from '../utils/customScrollbarMetrics'
 
 // 检测是否为移动端 - 使用多重检测确保准确性
 function getIsMobile(): boolean {
@@ -31,6 +41,24 @@ function getIsMobile(): boolean {
   ).matches
 
   return isSmallScreen || isTouchDevice
+}
+
+function isLibraryCanvasActive(): boolean {
+  if (typeof document === 'undefined') return false
+  return document.documentElement.dataset.libraryCanvas === 'active'
+}
+
+function applyPageScroll(top: number) {
+  // html is the real scroller (`overflow: hidden auto`). Write both
+  // anyway — scrollingElement is body in some engines.
+  document.documentElement.scrollTop = top
+  document.body.scrollTop = top
+}
+
+function setScrollbarDragging(active: boolean) {
+  const root = document.documentElement
+  if (active) root.dataset.scrollbarDragging = 'true'
+  else delete root.dataset.scrollbarDragging
 }
 
 // 在模块加载时立即检测,避免任何延迟
@@ -73,11 +101,6 @@ export default function CustomScrollbar() {
   return <CustomScrollbarInner />
 }
 
-// 关键修复: 将常量移到组件外部，避免每次渲染重新创建
-// 这是导致无限重渲染的根本原因！
-const TRACK_HEIGHT_PERCENT = 0.3
-const MIN_THUMB_HEIGHT = 40 // 最小 Thumb 高度（px）
-
 /**
  * 内部滚动条组件 - 只在桌面端渲染
  */
@@ -87,18 +110,45 @@ function CustomScrollbarInner() {
   const [isVisible, setIsVisible] = useState(false)
   const [isScrolling, setIsScrolling] = useState(false)
   const [isHovering, setIsHovering] = useState(false)
+  const [isLibraryCanvas, setIsLibraryCanvas] = useState(isLibraryCanvasActive)
 
-  const dragStartRef = useRef({ scrollY: 0, clientY: 0 })
   const hideTimerRef = useRef<number | null>(null)
   const scrollingTimerRef = useRef<number | null>(null)
+  const trackRef = useRef<HTMLDivElement>(null)
   const thumbRef = useRef<HTMLDivElement>(null)
+  const pulseRef = useRef<HTMLDivElement>(null)
   const isDraggingRef = useRef(false)
+  const dragMetricsRef = useRef<LockedDragMetrics | null>(null)
+  const savedScrollBehaviorRef = useRef({ html: '', body: '' })
   const lastScrollTopRef = useRef(0)
-  const dragEndTimeRef = useRef(0) // 记录拖动结束时间
   const isRouteTransitioningRef = useRef(false) // 路由切换中，禁止所有更新
   const routeTransitionTimeRef = useRef(0) // 记录路由切换开始时间
   const cachedDocumentHeightRef = useRef(0) // 缓存文档高度，减少重排
   const lastHeightCheckRef = useRef(0) // 上次检查高度的时间
+
+  const paintThumb = useCallback((thumbTop: number, thumbHeight: number) => {
+    const thumb = thumbRef.current
+    if (!thumb) return
+    thumb.style.height = `${thumbHeight}px`
+    thumb.style.top = `${thumbTop}px`
+    const pulse = pulseRef.current
+    if (pulse) {
+      pulse.style.top = `${thumbTop + thumbHeight / 2}px`
+    }
+  }, [])
+
+  const readDocumentHeight = useCallback((force = false) => {
+    const now = Date.now()
+    if (
+      force ||
+      cachedDocumentHeightRef.current === 0 ||
+      now - lastHeightCheckRef.current > 500
+    ) {
+      cachedDocumentHeightRef.current = document.documentElement.scrollHeight
+      lastHeightCheckRef.current = now
+    }
+    return cachedDocumentHeightRef.current
+  }, [])
 
   // 计算并更新 Thumb 的位置和高度
   const updateThumb = useCallback(() => {
@@ -107,71 +157,27 @@ function CustomScrollbarInner() {
     // 路由切换期间，禁止所有更新
     if (isRouteTransitioningRef.current) return
 
-    const now = Date.now()
-    const timeSinceDragEnd = now - dragEndTimeRef.current
-    const timeSinceRouteTransition = now - routeTransitionTimeRef.current
+    const layout = computeThumbLayout({
+      windowHeight: window.innerHeight,
+      documentHeight: readDocumentHeight(),
+      scrollTop: window.scrollY,
+    })
 
-    // 拖动结束后 1000ms 内，忽略所有更新（除非是路由切换后的更新）
-    if (timeSinceDragEnd < 1000 && timeSinceRouteTransition > 2000) {
-      return
-    }
-
-    const windowHeight = window.innerHeight
-
-    // 优化：缓存 scrollHeight，每 500ms 最多更新一次
-    // 这减少了大量的强制布局计算
-    if (
-      now - lastHeightCheckRef.current > 500 ||
-      cachedDocumentHeightRef.current === 0
-    ) {
-      cachedDocumentHeightRef.current = document.documentElement.scrollHeight
-      lastHeightCheckRef.current = now
-    }
-    const documentHeight = cachedDocumentHeightRef.current
-
-    const scrollTop = window.scrollY
-    const scrollableHeight = documentHeight - windowHeight
-
-    if (scrollableHeight <= 0) {
+    if (layout.scrollableHeight <= 0) {
       setIsVisible(false)
       return
     }
 
-    // 计算轨道高度
-    const trackHeight = windowHeight * TRACK_HEIGHT_PERCENT
-
-    // 根据内容比例动态计算 Thumb 高度
-    const viewportRatio = windowHeight / documentHeight
-    const thumbHeight = Math.max(MIN_THUMB_HEIGHT, trackHeight * viewportRatio)
-
-    // 计算可用轨道空间
-    const availableTrackHeight = trackHeight - thumbHeight
-
-    // 计算滚动百分比和 Thumb 位置
-    const percentage = Math.max(0, Math.min(1, scrollTop / scrollableHeight))
-    const thumbTop = percentage * availableTrackHeight
-
-    // 路由切换后的平滑过渡（优先级最高）
+    const timeSinceRouteTransition = Date.now() - routeTransitionTimeRef.current
     if (timeSinceRouteTransition >= 1000 && timeSinceRouteTransition < 1700) {
       // 路由切换的过渡动画已经在外部设置，这里直接更新即可
-      // 不需要设置 transition，避免覆盖
-    }
-    // 拖动结束后的修正动画
-    else if (timeSinceDragEnd >= 1000 && timeSinceDragEnd < 1600) {
-      // 先设置过渡动画
-      thumbRef.current.style.transition =
-        'top 0.6s cubic-bezier(0.4, 0, 0.2, 1), height 0.6s cubic-bezier(0.4, 0, 0.2, 1)'
     } else {
       thumbRef.current.style.transition = 'none'
     }
 
-    // 同时更新高度和位置
-    thumbRef.current.style.height = `${thumbHeight}px`
-    thumbRef.current.style.top = `${thumbTop}px`
-
-    // 记录当前 scrollTop
-    lastScrollTopRef.current = scrollTop
-  }, []) // 修复: 空依赖数组，因为常量已移到组件外部
+    paintThumb(layout.thumbTop, layout.thumbHeight)
+    lastScrollTopRef.current = window.scrollY
+  }, [paintThumb, readDocumentHeight])
 
   // RAF 节流的更新处理器 - 使用 useCallback 确保引用稳定
   const handleUpdate = useCallback(() => {
@@ -184,6 +190,27 @@ function CustomScrollbarInner() {
   // RAF 节流 (~60fps) 由共享监听器内部处理
   useSharedScroll(handleUpdate)
   useSharedResize(handleUpdate)
+
+  useEffect(() => {
+    const syncCanvas = () => {
+      const active = isLibraryCanvasActive()
+      setIsLibraryCanvas(active)
+      if (active && isDraggingRef.current) {
+        isDraggingRef.current = false
+        dragMetricsRef.current = null
+        document.documentElement.style.scrollBehavior =
+          savedScrollBehaviorRef.current.html
+        document.body.style.scrollBehavior = savedScrollBehaviorRef.current.body
+        setScrollbarDragging(false)
+        setIsDragging(false)
+      }
+    }
+    window.addEventListener('libraryCanvasModeChanged', syncCanvas)
+    syncCanvas()
+    return () => {
+      window.removeEventListener('libraryCanvasModeChanged', syncCanvas)
+    }
+  }, [])
 
   // ResizeObserver 用于监听文档高度变化
   // 移除了 MutationObserver - 这是造成移动端崩溃的主要原因
@@ -287,7 +314,7 @@ function CustomScrollbarInner() {
 
       // Hover 或拖拽时不隐藏，否则 1.5 秒后隐藏
       hideTimerRef.current = window.setTimeout(() => {
-        if (!isDragging && !isHovering) {
+        if (!isDraggingRef.current && !isHovering) {
           setIsVisible(false)
         }
       }, 1500)
@@ -302,7 +329,7 @@ function CustomScrollbarInner() {
       if (scrollableHeight > 0) {
         setIsVisible(true)
         hideTimerRef.current = window.setTimeout(() => {
-          if (!isDragging && !isHovering) {
+          if (!isDraggingRef.current && !isHovering) {
             setIsVisible(false)
           }
         }, 2000)
@@ -316,100 +343,152 @@ function CustomScrollbarInner() {
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
       if (scrollingTimerRef.current) clearTimeout(scrollingTimerRef.current)
     }
-  }, [isDragging, isHovering])
+  }, [isHovering])
 
-  // 处理拖拽开始
-  const handleMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault()
+  const endDrag = useCallback(
+    (event?: React.PointerEvent | PointerEvent) => {
+      const drag = dragMetricsRef.current
+      if (!drag) return
+      if (event && event.pointerId !== drag.pointerId) return
 
-    // 立即设置 ref 标志
-    isDraggingRef.current = true
+      const track = trackRef.current
+      if (track && event && track.hasPointerCapture(event.pointerId)) {
+        track.releasePointerCapture(event.pointerId)
+      }
 
-    // 保存拖动起始信息
-    dragStartRef.current = {
-      scrollY: window.scrollY,
-      clientY: e.clientY,
-    }
-
-    setIsDragging(true)
-    document.body.style.userSelect = 'none'
-  }
-
-  // 处理拖拽 - 完全同步，无延迟
-  useEffect(() => {
-    if (!isDragging) return
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!thumbRef.current) return
-
-      // 获取当前尺寸
-      const windowHeight = window.innerHeight
-      const documentHeight = document.documentElement.scrollHeight
-      const scrollableHeight = documentHeight - windowHeight
-      const trackHeight = windowHeight * TRACK_HEIGHT_PERCENT
-
-      // 获取当前 Thumb 高度（动态计算的）
-      const currentThumbHeight = Number.parseFloat(
-        thumbRef.current.style.height || '0',
-      )
-      const availableTrackHeight = trackHeight - currentThumbHeight
-
-      // 计算鼠标移动距离
-      const deltaY = e.clientY - dragStartRef.current.clientY
-
-      // 计算新的滚动位置
-      const scrollRatio = deltaY / availableTrackHeight
-      const newScrollY =
-        dragStartRef.current.scrollY + scrollRatio * scrollableHeight
-      const clampedScrollY = Math.max(0, Math.min(newScrollY, scrollableHeight))
-
-      // 同步更新滚动位置
-      document.documentElement.scrollTop = clampedScrollY
-      document.body.scrollTop = clampedScrollY
-
-      // 记录这次设置的 scrollTop
-      lastScrollTopRef.current = clampedScrollY
-
-      // 计算并更新 Thumb 位置
-      const percentage = clampedScrollY / scrollableHeight
-      const thumbTop = percentage * availableTrackHeight
-      thumbRef.current.style.top = `${thumbTop}px`
-    }
-
-    const handleMouseUp = () => {
-      // 清除光标样式
-      document.body.style.userSelect = ''
-      document.body.style.cursor = ''
-
-      // 记录拖动结束时间
-      dragEndTimeRef.current = Date.now()
-
-      // 清除拖动状态
-      setIsDragging(false)
+      dragMetricsRef.current = null
       isDraggingRef.current = false
-    }
-
-    // 全局拖拽光标
-    document.body.style.cursor = 'grabbing'
-    document.body.style.userSelect = 'none'
-
-    document.addEventListener('mousemove', handleMouseMove, { passive: false })
-    document.addEventListener('mouseup', handleMouseUp)
-    document.addEventListener('mouseleave', handleMouseUp)
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
-      document.removeEventListener('mouseleave', handleMouseUp)
-      document.body.style.cursor = ''
+      document.documentElement.style.scrollBehavior =
+        savedScrollBehaviorRef.current.html
+      document.body.style.scrollBehavior = savedScrollBehaviorRef.current.body
+      setScrollbarDragging(false)
       document.body.style.userSelect = ''
-    }
-  }, [isDragging, updateThumb])
+      document.body.style.cursor = ''
+      setIsDragging(false)
+
+      // Thumb is already where the pointer left it. Do not rematerialize
+      // from window.scrollY — with `scroll-behavior: smooth` that value
+      // lags and the thumb flashes back to the old spot.
+      cachedDocumentHeightRef.current = 0
+    },
+    [],
+  )
+
+  const moveDrag = useCallback(
+    (event: React.PointerEvent | PointerEvent) => {
+      const drag = dragMetricsRef.current
+      if (!drag || event.pointerId !== drag.pointerId) return
+      event.preventDefault()
+
+      const thumbTop = thumbTopFromPointer(event.clientY, drag)
+      // Live page height: library infinite-load grows the document. Keep
+      // the thumb under the pointer and map that position to current range
+      // so release does not snap the thumb back.
+      const scrollableHeight = Math.max(
+        0,
+        document.documentElement.scrollHeight - window.innerHeight,
+      )
+      const nextScrollTop = scrollTopFromThumb(
+        thumbTop,
+        drag.availableTrackHeight,
+        scrollableHeight,
+      )
+      applyPageScroll(nextScrollTop)
+      lastScrollTopRef.current = nextScrollTop
+      paintThumb(thumbTop, drag.thumbHeight)
+    },
+    [paintThumb],
+  )
+
+  const beginDrag = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>, mode: 'thumb' | 'track') => {
+      if (event.button !== 0) return
+      const thumb = thumbRef.current
+      const track = trackRef.current
+      if (!thumb || !track) return
+
+      event.preventDefault()
+      event.stopPropagation()
+
+      const layout = computeThumbLayout({
+        windowHeight: window.innerHeight,
+        documentHeight: document.documentElement.scrollHeight,
+        scrollTop: window.scrollY,
+      })
+      if (layout.scrollableHeight <= 0) return
+
+      savedScrollBehaviorRef.current = {
+        html: document.documentElement.style.scrollBehavior,
+        body: document.body.style.scrollBehavior,
+      }
+      document.documentElement.style.scrollBehavior = 'auto'
+      document.body.style.scrollBehavior = 'auto'
+      setScrollbarDragging(true)
+
+      const trackRect = track.getBoundingClientRect()
+      const thumbRect = thumb.getBoundingClientRect()
+      const availableTrackHeight = Math.max(1, trackRect.height - thumbRect.height)
+
+      let grabOffsetY = grabOffsetFromThumbPointer(
+        event.clientY,
+        thumbRect.top,
+        thumbRect.height,
+      )
+
+      if (mode === 'track') {
+        grabOffsetY = thumbRect.height / 2
+        const thumbTop = thumbTopFromPointer(event.clientY, {
+          trackTop: trackRect.top,
+          grabOffsetY,
+          availableTrackHeight,
+        })
+        const nextScrollTop = scrollTopFromThumb(
+          thumbTop,
+          availableTrackHeight,
+          layout.scrollableHeight,
+        )
+        applyPageScroll(nextScrollTop)
+        lastScrollTopRef.current = nextScrollTop
+        paintThumb(thumbTop, thumbRect.height)
+      }
+
+      dragMetricsRef.current = {
+        pointerId: event.pointerId,
+        grabOffsetY,
+        trackTop: trackRect.top,
+        availableTrackHeight,
+        thumbHeight: thumbRect.height,
+        scrollableHeight: layout.scrollableHeight,
+      }
+      isDraggingRef.current = true
+      cachedDocumentHeightRef.current =
+        layout.scrollableHeight + window.innerHeight
+      lastHeightCheckRef.current = Date.now()
+      setIsDragging(true)
+      setIsVisible(true)
+      document.body.style.userSelect = 'none'
+      document.body.style.cursor = 'grabbing'
+      thumb.style.transition = 'none'
+
+      if (!track.hasPointerCapture(event.pointerId)) {
+        track.setPointerCapture(event.pointerId)
+      }
+    },
+    [paintThumb],
+  )
+
+  const handleTrackPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    const thumb = thumbRef.current
+    const onThumb = thumb != null && thumb.contains(event.target as Node)
+    beginDrag(event, onThumb ? 'thumb' : 'track')
+  }
 
   // SSR 安全检查 - 在服务端渲染时不渲染此组件
   if (typeof window === 'undefined' || typeof document === 'undefined') {
     return null
   }
+
+  if (isLibraryCanvas) return null
 
   // 计算轨道尺寸
   const windowHeight = window.innerHeight
@@ -422,16 +501,25 @@ function CustomScrollbarInner() {
 
   return (
     <>
-      {/* 滚动条轨道容器 */}
+      {/* 滚动条轨道容器：视觉条仍约 10px，命中区加宽避免资料库画布抢手势 */}
       <div
-        className="fixed right-4 w-2.5 z-9999 hidden md:block pointer-events-none"
+        ref={trackRef}
+        className="fixed right-2 z-9999 hidden w-6 md:block"
         onMouseEnter={() => setIsHovering(true)}
-        onMouseLeave={() => setIsHovering(false)}
+        onMouseLeave={() => {
+          if (!isDraggingRef.current) setIsHovering(false)
+        }}
+        onPointerDown={handleTrackPointerDown}
+        onPointerMove={moveDrag}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        onLostPointerCapture={endDrag}
         style={{
           height: `${TRACK_HEIGHT}px`,
           top: '50%',
-          // 进入：从右侧 (60px) 滑入到原位 (0) + 从小变大 - 带回弹效果
-          // 退出：从原位 (0) 滑出到右侧 (60px) + 从大变小 - 平滑退出
+          touchAction: 'none',
+          // 进入：从右侧滑入到原位 + 从小变大 - 带回弹效果
+          // 退出：从原位滑出到右侧 + 从大变小 - 平滑退出
           transform: isVisible
             ? 'translateY(-50%) translateX(0px) scale(1)'
             : 'translateY(-50%) translateX(60px) scale(0.8)',
@@ -440,12 +528,12 @@ function CustomScrollbarInner() {
           transition: isVisible
             ? 'opacity 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)'
             : 'opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-          pointerEvents: isVisible ? 'auto' : 'none',
+          pointerEvents: isVisible || isDragging ? 'auto' : 'none',
         }}
       >
         {/* 轨道背景 */}
         <div
-          className="absolute inset-0 rounded-full"
+          className="absolute inset-y-0 left-1/2 w-2.5 -translate-x-1/2 rounded-full"
           style={{
             backgroundColor: `color-mix(in srgb, var(--color-primary) ${
               isDragging
@@ -477,17 +565,19 @@ function CustomScrollbarInner() {
         {/* Thumb滑块 - 由 DOM 控制位置和高度，但提供初始值避免闪烁 */}
         <div
           ref={thumbRef}
-          className="absolute left-0 right-0 rounded-full cursor-grab active:cursor-grabbing pointer-events-auto"
+          className="absolute left-1/2 w-2.5 -translate-x-1/2 rounded-full cursor-grab active:cursor-grabbing"
+          role="scrollbar"
+          aria-orientation="vertical"
           style={{
             // 设置初始值，防止 thumb 在 updateThumb 执行前不可见
             top: '0px',
             height: `${MIN_THUMB_HEIGHT}px`,
+            touchAction: 'none',
             backgroundColor:
               'color-mix(in srgb, var(--color-primary) 70%, transparent)',
             opacity: 0.95,
             boxShadow: `0 0 14px color-mix(in srgb, var(--color-primary) 65%, transparent),
                        0 3px 10px color-mix(in srgb, var(--color-primary) 45%, transparent)`,
-            transform: 'scaleX(1) scaleY(1)',
             transition: 'none',
             backdropFilter:
               typeof document !== 'undefined' &&
@@ -496,15 +586,15 @@ function CustomScrollbarInner() {
                 : 'blur(4px)',
             willChange: isDragging ? 'top' : 'auto',
           }}
-          onMouseDown={handleMouseDown}
         />
 
         {/* 滚动进度指示器 - 微妙的脉冲效果 */}
-        {isDragging && thumbRef.current && (
+        {isDragging && (
           <div
-            className="absolute left-1/2 -translate-x-1/2 pointer-events-none"
+            ref={pulseRef}
+            className="pointer-events-none absolute left-1/2 -translate-x-1/2 -translate-y-1/2"
             style={{
-              top: `calc(${thumbRef.current.style.top || '0px'} + ${Number.parseFloat(thumbRef.current.style.height || '0') / 2}px)`,
+              top: `${(Number.parseFloat(thumbRef.current?.style.top || '0') || 0) + (Number.parseFloat(thumbRef.current?.style.height || '0') || 0) / 2}px`,
               width: '16px',
               height: '16px',
               borderRadius: '50%',
@@ -518,6 +608,10 @@ function CustomScrollbarInner() {
 
       <style>
         {`
+        html[data-scrollbar-dragging='true'] {
+          scroll-behavior: auto !important;
+          overflow-anchor: none;
+        }
         @keyframes pulse-ring {
           0%, 100% {
             transform: translate(-50%, -50%) scale(1);

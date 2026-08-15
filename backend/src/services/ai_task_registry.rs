@@ -199,10 +199,7 @@ ON CONFLICT (namespace, record_id) DO NOTHING
     Ok(AiTaskRegistration::Inserted)
 }
 
-pub async fn persist_ai_task(
-    db: &DatabaseConnection,
-    task: &PersistedAiTask,
-) -> Result<(), DbErr> {
+pub async fn persist_ai_task(db: &DatabaseConnection, task: &PersistedAiTask) -> Result<(), DbErr> {
     shared_registry::put(
         db,
         AI_TASK_NAMESPACE,

@@ -2,8 +2,9 @@
 
 use super::types_frontend::TappSchedulerEngine;
 
-static SCHEDULER_ENGINE: once_cell::sync::OnceCell<std::sync::Arc<tokio::sync::RwLock<TappSchedulerEngine>>> =
-    once_cell::sync::OnceCell::new();
+static SCHEDULER_ENGINE: once_cell::sync::OnceCell<
+    std::sync::Arc<tokio::sync::RwLock<TappSchedulerEngine>>,
+> = once_cell::sync::OnceCell::new();
 
 /// Process-wide scheduler engine handle.
 pub fn try_scheduler_engine() -> Option<std::sync::Arc<tokio::sync::RwLock<TappSchedulerEngine>>> {
@@ -11,7 +12,8 @@ pub fn try_scheduler_engine() -> Option<std::sync::Arc<tokio::sync::RwLock<TappS
 }
 
 /// Process-wide scheduler engine handle, or error string if not started.
-pub fn scheduler_engine() -> Result<std::sync::Arc<tokio::sync::RwLock<TappSchedulerEngine>>, String> {
+pub fn scheduler_engine() -> Result<std::sync::Arc<tokio::sync::RwLock<TappSchedulerEngine>>, String>
+{
     try_scheduler_engine().ok_or_else(|| "Scheduler not initialized".to_string())
 }
 

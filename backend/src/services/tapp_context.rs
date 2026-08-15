@@ -158,23 +158,11 @@ mod tests {
 
     #[test]
     fn role_for_optional_subject_matches_catalog_rules() {
-        assert_eq!(
-            role_for_optional_subject(Some(42), false),
-            UserRole::User
-        );
-        assert_eq!(
-            role_for_optional_subject(Some(0), false),
-            UserRole::User
-        );
+        assert_eq!(role_for_optional_subject(Some(42), false), UserRole::User);
+        assert_eq!(role_for_optional_subject(Some(0), false), UserRole::User);
         assert_eq!(role_for_optional_subject(None, false), UserRole::Guest);
-        assert_eq!(
-            role_for_optional_subject(Some(-5), false),
-            UserRole::Guest
-        );
-        assert_eq!(
-            role_for_optional_subject(Some(42), true),
-            UserRole::Admin
-        );
+        assert_eq!(role_for_optional_subject(Some(-5), false), UserRole::Guest);
+        assert_eq!(role_for_optional_subject(Some(42), true), UserRole::Admin);
     }
 
     #[test]
@@ -189,16 +177,7 @@ mod tests {
 
     #[test]
     fn context_user_payload_marks_guest_unauthenticated() {
-        let body = context_user_payload(
-            -1,
-            "guest",
-            None,
-            None,
-            false,
-            &[],
-            "ja-JP",
-            "Asia/Tokyo",
-        );
+        let body = context_user_payload(-1, "guest", None, None, false, &[], "ja-JP", "Asia/Tokyo");
         assert_eq!(body["role"], "guest");
         assert_eq!(body["authenticated"], false);
         assert_eq!(body["isAdmin"], false);

@@ -513,10 +513,7 @@ pub async fn update_oauth_providers(
     if let Some(raw) = payload.tapp_private_install_cleanup.as_deref() {
         let mode = raw.trim().to_ascii_lowercase();
         if mode == "logout" || mode == "inactivity" {
-            updates.insert(
-                "tapp_private_install_cleanup".to_string(),
-                json!(mode),
-            );
+            updates.insert("tapp_private_install_cleanup".to_string(), json!(mode));
         }
     }
     if let Some(days) = payload.tapp_private_install_inactivity_days {

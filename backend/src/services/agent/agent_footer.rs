@@ -3,16 +3,9 @@ use sea_orm::DatabaseConnection;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
-use super::{
-    capability,
-    executor,
-    mcp,
-    memory,
-    skill,
-    types,
-};
 use super::agent_header::*;
 use super::types::*;
+use super::{capability, executor, mcp, memory, skill, types};
 
 /// 记录执行记忆的通用参数
 pub(crate) struct MemoryRecordParams<'a> {

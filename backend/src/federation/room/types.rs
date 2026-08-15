@@ -1,8 +1,6 @@
 //! Room request/response types.
 use serde::{Deserialize, Serialize};
 
-
-
 // 请求/响应类型
 
 /// 创建 Room 请求
@@ -250,4 +248,3 @@ pub struct RoomStickersResponse {
     pub room_id: String,
     pub stickers: Vec<RoomStickerItem>,
 }
-

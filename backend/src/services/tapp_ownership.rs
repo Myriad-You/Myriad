@@ -101,9 +101,7 @@ static ADMIN_ID_CACHE: Lazy<Arc<RwLock<SingleCache>>> =
     Lazy::new(|| Arc::new(RwLock::new(SingleCache::new(Duration::from_secs(60)))));
 
 /// Optional site owner / admin id (cached). Fresh DBs before setup return `Ok(None)`.
-pub async fn find_admin_user_id(
-    db: &DatabaseConnection,
-) -> Result<Option<i32>, TappAccessError> {
+pub async fn find_admin_user_id(db: &DatabaseConnection) -> Result<Option<i32>, TappAccessError> {
     {
         let cache = ADMIN_ID_CACHE.read().await;
         if let Some(id) = cache.get() {
@@ -287,11 +285,7 @@ pub fn tapp_owner_priority(owner_id: i32, user_id: i32, admin_id: i32) -> u8 {
 ///
 /// Admins always operate the site-owner public namespace (`site_owner_id`);
 /// users and guests write under their own actor id (private install).
-pub fn canonical_installation_owner_id(
-    role: UserRole,
-    actor_id: i32,
-    site_owner_id: i32,
-) -> i32 {
+pub fn canonical_installation_owner_id(role: UserRole, actor_id: i32, site_owner_id: i32) -> i32 {
     if role == UserRole::Admin {
         site_owner_id
     } else {
@@ -479,10 +473,7 @@ pub fn tapp_lifecycle_lock_key(tapp_id: &str) -> String {
 ///
 /// The lock is global across owner namespaces so admin public installs and user
 /// private installs of the same ID cannot race their conflict checks across replicas.
-pub async fn lock_tapp_lifecycle(
-    db: &impl ConnectionTrait,
-    tapp_id: &str,
-) -> Result<(), DbErr> {
+pub async fn lock_tapp_lifecycle(db: &impl ConnectionTrait, tapp_id: &str) -> Result<(), DbErr> {
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
@@ -518,8 +509,14 @@ mod tests {
         };
         assert!(public_install_visible_to_viewer(TAPP_VISIBILITY_ALL, false));
         assert!(public_install_visible_to_viewer(TAPP_VISIBILITY_ALL, true));
-        assert!(!public_install_visible_to_viewer(TAPP_VISIBILITY_ADMIN, false));
-        assert!(public_install_visible_to_viewer(TAPP_VISIBILITY_ADMIN, true));
+        assert!(!public_install_visible_to_viewer(
+            TAPP_VISIBILITY_ADMIN,
+            false
+        ));
+        assert!(public_install_visible_to_viewer(
+            TAPP_VISIBILITY_ADMIN,
+            true
+        ));
         assert_eq!(normalize_tapp_visibility("bogus"), TAPP_VISIBILITY_ALL);
         assert_eq!(parse_tapp_visibility("admin"), Some(TAPP_VISIBILITY_ADMIN));
         assert_eq!(parse_tapp_visibility("nope"), None);
@@ -611,18 +608,12 @@ mod tests {
 
     #[test]
     fn private_install_lookup_skips_site_owner_and_guests() {
-        assert_eq!(
-            private_install_lookup_user_id(Some(42), Some(1)),
-            Some(42)
-        );
+        assert_eq!(private_install_lookup_user_id(Some(42), Some(1)), Some(42));
         // Site owner reads public namespace only (no private self-query branch).
         assert_eq!(private_install_lookup_user_id(Some(1), Some(1)), None);
         assert_eq!(private_install_lookup_user_id(None, Some(1)), None);
         // Pre-setup: no site owner yet — authenticated subject still may have private.
-        assert_eq!(
-            private_install_lookup_user_id(Some(42), None),
-            Some(42)
-        );
+        assert_eq!(private_install_lookup_user_id(Some(42), None), Some(42));
     }
 
     #[test]

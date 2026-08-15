@@ -7,9 +7,9 @@
 //! - prompt sanitization
 //! - image dimension / prompt pure mapping
 
-use serde_json::Value;
 #[cfg(test)]
 use serde_json::json;
+use serde_json::Value;
 use std::collections::HashMap;
 
 /// Append a steering instruction onto an existing string param.
@@ -362,7 +362,15 @@ pub fn append_memory_to_system_prompt(existing: &str, memory: &str) -> String {
 
 /// Take the last N conversation messages (oldest-first order preserved).
 pub fn take_recent_conversation_messages<T: Clone>(history: &[T], max: usize) -> Vec<T> {
-    history.iter().rev().take(max).collect::<Vec<_>>().into_iter().rev().cloned().collect()
+    history
+        .iter()
+        .rev()
+        .take(max)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .cloned()
+        .collect()
 }
 
 #[cfg(test)]
@@ -385,15 +393,17 @@ mod tests {
     fn resolve_image_prompt_and_dims() {
         let mut params = HashMap::from([("prompt".into(), json!("a cat"))]);
         assert_eq!(resolve_image_prompt(&params).unwrap(), "a cat");
-        params.insert("prompt".into(), json!({ "prompt": "nested", "negativePrompt": "blur" }));
-        assert_eq!(resolve_image_prompt(&params).unwrap(), "nested");
-        assert_eq!(
-            resolve_negative_prompt(&params).as_deref(),
-            Some("blur")
+        params.insert(
+            "prompt".into(),
+            json!({ "prompt": "nested", "negativePrompt": "blur" }),
         );
+        assert_eq!(resolve_image_prompt(&params).unwrap(), "nested");
+        assert_eq!(resolve_negative_prompt(&params).as_deref(), Some("blur"));
         let too_long = "x".repeat(IMAGE_PROMPT_MAX_CHARS + 1);
         params.insert("prompt".into(), json!(too_long));
-        assert!(resolve_image_prompt(&params).unwrap_err().contains("too long"));
+        assert!(resolve_image_prompt(&params)
+            .unwrap_err()
+            .contains("too long"));
 
         let dims = resolve_image_dimensions(&HashMap::from([
             ("width".into(), json!("512px")),
@@ -474,10 +484,7 @@ mod tests {
         assert!(capability_needs_conversation_context("ai.analyze"));
         assert!(!capability_needs_conversation_context("speech.tts"));
 
-        assert_eq!(
-            merge_system_prompt("", "role"),
-            "role"
-        );
+        assert_eq!(merge_system_prompt("", "role"), "role");
         assert!(append_memory_to_system_prompt("base", "mem").contains("参考记忆"));
 
         let msgs = vec![1, 2, 3, 4, 5];

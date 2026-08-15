@@ -65,7 +65,9 @@ pub(crate) async fn get_existing_tables(db: &DatabaseConnection) -> Result<HashS
 }
 
 /// 从数据库获取现有索引
-pub(crate) async fn get_existing_indexes(db: &DatabaseConnection) -> Result<HashSet<String>, DbErr> {
+pub(crate) async fn get_existing_indexes(
+    db: &DatabaseConnection,
+) -> Result<HashSet<String>, DbErr> {
     let sql = r#"
         SELECT indexname
         FROM pg_indexes
@@ -114,7 +116,10 @@ pub(crate) fn generate_create_index_ddl(idx: &IndexDef) -> String {
 }
 
 /// 检查 schema 版本是否已应用
-pub(crate) async fn is_schema_version_applied(db: &DatabaseConnection, version: &str) -> Result<bool, DbErr> {
+pub(crate) async fn is_schema_version_applied(
+    db: &DatabaseConnection,
+    version: &str,
+) -> Result<bool, DbErr> {
     // 安全检查：版本号只允许字母、数字、点、下划线、连字符
     if !version
         .chars()
@@ -151,7 +156,10 @@ pub(crate) async fn is_schema_version_applied(db: &DatabaseConnection, version: 
 }
 
 /// 记录 schema 版本已应用
-pub(crate) async fn mark_schema_version_applied(db: &DatabaseConnection, version: &str) -> Result<(), DbErr> {
+pub(crate) async fn mark_schema_version_applied(
+    db: &DatabaseConnection,
+    version: &str,
+) -> Result<(), DbErr> {
     // 安全检查：版本号只允许字母、数字、点、下划线、连字符
     if !version
         .chars()

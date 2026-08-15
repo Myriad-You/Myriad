@@ -41,10 +41,7 @@ fn vid_and_event() {
     assert!(normalize_event_name("__custom").is_none());
     assert_eq!(normalize_target(""), "");
     assert_eq!(normalize_target("  My-Tapp_01  "), "my-tapp_01");
-    assert_eq!(
-        normalize_target("weather@github.com"),
-        "weather@github.com"
-    );
+    assert_eq!(normalize_target("weather@github.com"), "weather@github.com");
     assert!(normalize_target("!!!").is_empty());
 }
 
@@ -79,7 +76,10 @@ fn visitor_hash_prefers_vid() {
         "Other",
     );
     assert_eq!(a, b);
-    assert!(a.is_some(), "dev/default salt path must still hash visitors");
+    assert!(
+        a.is_some(),
+        "dev/default salt path must still hash visitors"
+    );
 }
 
 /// Pure salt resolver tests — no process env mutation (safe under parallel tests).
@@ -243,10 +243,7 @@ fn i64_nonneg_accepts_json_numbers() {
 
 #[test]
 fn import_path_and_event_helpers() {
-    assert_eq!(
-        normalize_import_path(SITE_PATH).as_deref(),
-        Some(SITE_PATH)
-    );
+    assert_eq!(normalize_import_path(SITE_PATH).as_deref(), Some(SITE_PATH));
     assert_eq!(
         normalize_import_path("/library").as_deref(),
         Some("/library")

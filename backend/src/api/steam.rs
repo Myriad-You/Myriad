@@ -218,7 +218,6 @@ fn trigger_presence_refresh(api_key: String, steam_id: String) {
     });
 }
 
-
 /// Reject client-supplied Steam API keys (must not travel in query/logs).
 pub(crate) fn reject_query_api_key(api_key: &Option<String>) -> Result<(), HttpError> {
     if api_key.as_ref().is_some_and(|k| !k.trim().is_empty()) {
@@ -243,7 +242,11 @@ async fn server_steam_credentials(
         .as_ref()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
-        .or_else(|| std::env::var("STEAM_API_KEY").ok().filter(|s| !s.trim().is_empty()))
+        .or_else(|| {
+            std::env::var("STEAM_API_KEY")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+        })
         .ok_or_else(|| {
             HttpError::from((
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -262,7 +265,11 @@ async fn server_steam_credentials(
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
         })
-        .or_else(|| std::env::var("STEAM_ID").ok().filter(|s| !s.trim().is_empty()))
+        .or_else(|| {
+            std::env::var("STEAM_ID")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+        })
         .ok_or_else(|| {
             HttpError::from((
                 StatusCode::BAD_REQUEST,
@@ -431,10 +438,7 @@ pub async fn get_steam_user_info(
     let (api_key, steam_id) = server_steam_credentials(params.steam_id).await?;
     let fetcher = PlatformFetcher::new().await;
 
-    match fetcher
-        .fetch_steam_user(&api_key, &steam_id)
-        .await
-    {
+    match fetcher.fetch_steam_user(&api_key, &steam_id).await {
         Ok(info) => {
             let data = serde_json::to_value(info).unwrap_or_default();
             Ok(Json(ApiResponse {
@@ -462,10 +466,7 @@ pub async fn get_steam_games(
     let (api_key, steam_id) = server_steam_credentials(params.steam_id).await?;
     let fetcher = PlatformFetcher::new().await;
 
-    match fetcher
-        .fetch_steam_games(&api_key, &steam_id)
-        .await
-    {
+    match fetcher.fetch_steam_games(&api_key, &steam_id).await {
         Ok(games) => {
             let total_playtime: i32 = games.iter().map(|g| g.playtime_forever).sum();
             let total_games = games.len();
@@ -548,10 +549,7 @@ pub async fn get_steam_stats(
     let (api_key, steam_id) = server_steam_credentials(params.steam_id).await?;
     let fetcher = PlatformFetcher::new().await;
 
-    match fetcher
-        .fetch_steam_games(&api_key, &steam_id)
-        .await
-    {
+    match fetcher.fetch_steam_games(&api_key, &steam_id).await {
         Ok(mut games) => {
             let total_minutes: i32 = games.iter().map(|g| g.playtime_forever).sum();
             let total_hours = total_minutes as f32 / 60.0;
@@ -683,9 +681,7 @@ fn steam_store_language(preferred: Option<&str>, accept_language: Option<&str>) 
     if primary.starts_with("pt") {
         return "portuguese";
     }
-    if primary.starts_with("es-419")
-        || primary.starts_with("es-mx")
-        || primary.starts_with("es-ar")
+    if primary.starts_with("es-419") || primary.starts_with("es-mx") || primary.starts_with("es-ar")
     {
         return "latam";
     }
@@ -822,7 +818,9 @@ mod steam_secret_gate_tests {
         let err = reject_query_api_key(&Some("SK-secret".into())).unwrap_err();
         let resp = err.into_response();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-        let body = axum::body::to_bytes(resp.into_body(), 64 * 1024).await.expect("body");
+        let body = axum::body::to_bytes(resp.into_body(), 64 * 1024)
+            .await
+            .expect("body");
         let v: serde_json::Value = serde_json::from_slice(&body).expect("json");
         // HttpError/AppError body uses the `error` label field (not a success flag).
         assert_eq!(v["error"], "api_key_not_allowed");

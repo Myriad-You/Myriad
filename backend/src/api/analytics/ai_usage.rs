@@ -92,8 +92,7 @@ pub async fn get_ai_usage_summary(
     crate::extract::Db(db): crate::extract::Db,
     Query(q): Query<AiUsageSummaryQuery>,
 ) -> (StatusCode, Json<Value>) {
-    let (from, to_day, days) =
-        resolve_analytics_window(q.days, q.from.as_deref(), q.to.as_deref());
+    let (from, to_day, days) = resolve_analytics_window(q.days, q.from.as_deref(), q.to.as_deref());
     let tz_label = analytics_tz_label();
 
     let subject_filter = q.subject_id;
@@ -385,11 +384,9 @@ LIMIT 50
         .collect();
 
     // Filter option lists (day-scoped; one dimension less constrained for pickers).
-    let mut model_opt_where = String::from(
-        "WHERE occurred_at::date >= $1 AND occurred_at::date <= $2",
-    );
-    let mut model_opt_params: Vec<SeaValue> =
-        vec![SeaValue::from(from), SeaValue::from(to_day)];
+    let mut model_opt_where =
+        String::from("WHERE occurred_at::date >= $1 AND occurred_at::date <= $2");
+    let mut model_opt_params: Vec<SeaValue> = vec![SeaValue::from(from), SeaValue::from(to_day)];
     if let Some(sid) = subject_filter {
         model_opt_where.push_str(" AND subject_id = $3");
         model_opt_params.push(SeaValue::Int(Some(sid)));
@@ -410,11 +407,9 @@ LIMIT 50
         .filter(|m| !m.is_empty())
         .collect();
 
-    let mut user_opt_where = String::from(
-        "WHERE l.occurred_at::date >= $1 AND l.occurred_at::date <= $2",
-    );
-    let mut user_opt_params: Vec<SeaValue> =
-        vec![SeaValue::from(from), SeaValue::from(to_day)];
+    let mut user_opt_where =
+        String::from("WHERE l.occurred_at::date >= $1 AND l.occurred_at::date <= $2");
+    let mut user_opt_params: Vec<SeaValue> = vec![SeaValue::from(from), SeaValue::from(to_day)];
     if let Some(ref model) = model_filter {
         user_opt_where.push_str(" AND l.model = $3");
         user_opt_params.push(SeaValue::String(Some(model.clone())));
@@ -490,9 +485,9 @@ LIMIT 100
 
 #[cfg(test)]
 mod tests {
+    use super::super::intake_helpers::resolve_analytics_window;
     use super::*;
     use chrono::NaiveDate;
-    use super::super::intake_helpers::resolve_analytics_window;
 
     #[test]
     fn days_clamp_bounds_match_analytics() {
@@ -519,11 +514,8 @@ mod tests {
 
     #[test]
     fn custom_from_to_swaps_and_spans() {
-        let (from, to, days) = resolve_analytics_window(
-            None,
-            Some("2026-07-10"),
-            Some("2026-07-01"),
-        );
+        let (from, to, days) =
+            resolve_analytics_window(None, Some("2026-07-10"), Some("2026-07-01"));
         assert_eq!(from.format("%Y-%m-%d").to_string(), "2026-07-01");
         assert_eq!(to.format("%Y-%m-%d").to_string(), "2026-07-10");
         assert_eq!(days, 10);

@@ -283,11 +283,8 @@ pub fn validate_write_assets_declaration(
     declared: Option<&[String]>,
     provided_keys: impl IntoIterator<Item = impl AsRef<str>>,
 ) -> Result<(), String> {
-    let declared: std::collections::HashSet<&str> = declared
-        .unwrap_or(&[])
-        .iter()
-        .map(String::as_str)
-        .collect();
+    let declared: std::collections::HashSet<&str> =
+        declared.unwrap_or(&[]).iter().map(String::as_str).collect();
     let provided: Vec<String> = provided_keys
         .into_iter()
         .map(|key| key.as_ref().to_string())
@@ -428,20 +425,17 @@ mod tests {
 
     #[test]
     fn agent_schema_rejects_ref_and_invalid_json() {
-        assert!(validate_agent_schema_bytes(
-            "schemas/input.json",
-            br#"{"type":"object"}"#
-        )
-        .is_ok());
-        assert!(validate_agent_schema_bytes("schemas/input.json", b"not-json")
-            .unwrap_err()
-            .contains("not valid JSON"));
-        assert!(validate_agent_schema_bytes(
-            "schemas/input.json",
-            br#"{"$ref":"remote.json"}"#
-        )
-        .unwrap_err()
-        .contains("does not support $ref"));
+        assert!(validate_agent_schema_bytes("schemas/input.json", br#"{"type":"object"}"#).is_ok());
+        assert!(
+            validate_agent_schema_bytes("schemas/input.json", b"not-json")
+                .unwrap_err()
+                .contains("not valid JSON")
+        );
+        assert!(
+            validate_agent_schema_bytes("schemas/input.json", br#"{"$ref":"remote.json"}"#)
+                .unwrap_err()
+                .contains("does not support $ref")
+        );
         let huge = vec![b'a'; MAX_AGENT_SCHEMA_RESOURCE_BYTES + 1];
         assert!(validate_agent_schema_bytes("schemas/input.json", &huge)
             .unwrap_err()
@@ -454,20 +448,16 @@ mod tests {
             validate_asset_resource_bytes("assets/a.png", 10, 0).unwrap(),
             10
         );
-        assert!(validate_asset_resource_bytes(
-            "assets/a.png",
-            MAX_TAPP_ASSET_BYTES + 1,
-            0
-        )
-        .unwrap_err()
-        .contains("exceeds"));
-        assert!(validate_asset_resource_bytes(
-            "assets/a.png",
-            1,
-            MAX_TAPP_ASSETS_TOTAL_BYTES
-        )
-        .unwrap_err()
-        .contains("total size exceeds"));
+        assert!(
+            validate_asset_resource_bytes("assets/a.png", MAX_TAPP_ASSET_BYTES + 1, 0)
+                .unwrap_err()
+                .contains("exceeds")
+        );
+        assert!(
+            validate_asset_resource_bytes("assets/a.png", 1, MAX_TAPP_ASSETS_TOTAL_BYTES)
+                .unwrap_err()
+                .contains("total size exceeds")
+        );
         assert!(validate_asset_resource_bytes("not-under-assets.png", 1, 0).is_err());
     }
 
@@ -480,9 +470,11 @@ mod tests {
         assert!(validate_i18n_filename("../x.json").is_err());
 
         assert!(validate_i18n_file_bytes("en-US.json", br#"{"title":"T"}"#).is_ok());
-        assert!(validate_i18n_file_bytes("en-US.json", br#"["not","object"]"#)
-            .unwrap_err()
-            .contains("JSON object"));
+        assert!(
+            validate_i18n_file_bytes("en-US.json", br#"["not","object"]"#)
+                .unwrap_err()
+                .contains("JSON object")
+        );
         assert!(validate_i18n_file_count(MAX_TAPP_I18N_FILES).is_ok());
         assert!(validate_i18n_file_count(MAX_TAPP_I18N_FILES + 1).is_err());
     }
@@ -495,9 +487,11 @@ mod tests {
         let mut paths = HashSet::new();
         let total = validate_archive_entry("src/main.js", false, 10, &mut paths, 0).unwrap();
         assert_eq!(total, 10);
-        assert!(validate_archive_entry("src/main.js", false, 1, &mut paths, total)
-            .unwrap_err()
-            .contains("Duplicate"));
+        assert!(
+            validate_archive_entry("src/main.js", false, 1, &mut paths, total)
+                .unwrap_err()
+                .contains("Duplicate")
+        );
         assert_eq!(
             validate_archive_entry("empty/", true, 0, &mut paths, total).unwrap(),
             total
@@ -526,12 +520,11 @@ mod tests {
         assert!(validate_write_assets_declaration(Some(&[]), ["assets/a.png"]).is_err());
         let declared = vec!["assets/a.png".to_string(), "assets/b.bin".to_string()];
         assert!(validate_write_assets_declaration(Some(&declared), ["assets/a.png"]).is_ok());
-        assert!(validate_write_assets_declaration(
-            Some(&declared),
-            ["assets/missing.png"]
-        )
-        .unwrap_err()
-        .contains("not declared"));
+        assert!(
+            validate_write_assets_declaration(Some(&declared), ["assets/missing.png"])
+                .unwrap_err()
+                .contains("not declared")
+        );
         // Empty payload always ok.
         assert!(validate_write_assets_declaration(None, std::iter::empty::<&str>()).is_ok());
     }

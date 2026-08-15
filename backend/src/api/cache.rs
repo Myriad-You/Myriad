@@ -312,7 +312,11 @@ fn extract_preview_metrics(data: &Value, analysis: &Value) -> Vec<Value> {
     let mut metrics = Vec::new();
 
     if let Some(stats) = data.get("user_summary").and_then(|u| u.get("stats")) {
-        push_metric(&mut metrics, "total_content", stats.get("total_content").unwrap_or(&Value::Null));
+        push_metric(
+            &mut metrics,
+            "total_content",
+            stats.get("total_content").unwrap_or(&Value::Null),
+        );
         push_metric(
             &mut metrics,
             "follower_count",
@@ -384,7 +388,11 @@ fn extract_preview_metrics(data: &Value, analysis: &Value) -> Vec<Value> {
     // Deduplicate by key while preserving order
     let mut seen = std::collections::HashSet::new();
     metrics.retain(|m| {
-        let key = m.get("key").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let key = m
+            .get("key")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         seen.insert(key)
     });
 
@@ -513,12 +521,7 @@ fn extract_preview_samples(analysis: &Value, raw_unknown: Option<&Value>) -> Vec
             if samples.len() >= MAX {
                 break;
             }
-            push_preview_samples_from_list(
-                &mut samples,
-                &mut seen_titles,
-                analysis.get(*key),
-                MAX,
-            );
+            push_preview_samples_from_list(&mut samples, &mut seen_titles, analysis.get(*key), MAX);
         }
     }
 

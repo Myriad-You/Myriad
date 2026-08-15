@@ -9,7 +9,7 @@ use super::prepared_package::{PackageStageContext, PreparedTappPackage, Prepared
 use super::store_package::fetch_from_store;
 use super::{
     api_http_error, api_response_err, canonical_installation_owner_id, cleanup_reinstall_orphans,
-    current_user_role, filter_install_permissions, get_admin_user_id,
+    current_user_role, ensure_tapp_install_allowed, filter_install_permissions, get_admin_user_id,
     installation_conflict_owner_ids, lock_tapp_lifecycle, log_install_failure,
     log_tapp_filesystem_access, reconcile_manifest_widgets, tapp_dir_for,
     tapp_filesystem_error_message, tapp_filesystem_error_status, validate_tapp_id, ApiResponse,
@@ -130,6 +130,7 @@ pub(super) struct InstallTappRequest {
 /// 支持两种安装来源：
 /// - direct: 直接提供代码
 /// - store: 从远程商店下载
+
 pub(super) async fn install_tapp(
     State(db): State<DatabaseConnection>,
     State(dynamic_config): State<Arc<RwLock<DynamicConfig>>>,
@@ -140,6 +141,7 @@ pub(super) async fn install_tapp(
         .sub
         .parse()
         .map_err(|_| api_http_error(StatusCode::UNAUTHORIZED, "Invalid user"))?;
+    ensure_tapp_install_allowed(&db, user_id).await?;
     let role = current_user_role(&claims, &db).await;
     let is_current_admin = role == UserRole::Admin;
     let InstallTappRequest {
@@ -530,6 +532,7 @@ pub(super) async fn install_tapp_file(
         .sub
         .parse()
         .map_err(|_| api_http_error(StatusCode::UNAUTHORIZED, "Invalid user"))?;
+    ensure_tapp_install_allowed(&db, user_id).await?;
     let role = current_user_role(&claims, &db).await;
     let is_current_admin = role == UserRole::Admin;
     // 读取上传的文件

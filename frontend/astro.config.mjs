@@ -752,10 +752,12 @@ export default defineConfig({
       __APP_VERSION__: JSON.stringify(APP_VERSION),
     },
     optimizeDeps: {
-      // Pre-bundle deps used by lazy routes (Tapp detail / playground).
+      // Pre-bundle deps used by lazy routes (Tapp, Brew, companion).
       // Discovering them mid-session triggers "504 Outdated Optimize Dep" and
-      // breaks React.lazy chunks like TappDetailView until a full hard reload.
+      // breaks React.lazy chunks like Brew.tsx until a full hard reload.
       include: [
+        'ag-psd',
+        'isomorphic-dompurify',
         'jszip',
         'prismjs',
         'prismjs/components/prism-json',

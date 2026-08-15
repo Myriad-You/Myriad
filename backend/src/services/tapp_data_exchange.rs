@@ -200,16 +200,12 @@ impl DataExchangeError {
             Self::ImportNotDeclared => {
                 "Requester manifest does not declare this import".to_string()
             }
-            Self::ExportNotDeclared => {
-                "Provider manifest does not declare this export".to_string()
-            }
+            Self::ExportNotDeclared => "Provider manifest does not declare this export".to_string(),
             Self::PendingLimit => "Too many pending Data Exchange requests".to_string(),
             Self::RequestExpired => {
                 "Prepared Data Exchange request is missing or expired".to_string()
             }
-            Self::RequestMismatch => {
-                "Prepared request does not belong to this runtime".to_string()
-            }
+            Self::RequestMismatch => "Prepared request does not belong to this runtime".to_string(),
             Self::RequestAlreadyUsed => {
                 "Prepared Data Exchange request was already consumed".to_string()
             }
@@ -282,7 +278,9 @@ pub(crate) fn same_provider_scope(
         && grant_tapp_id == runtime_tapp_id
 }
 
-fn parse_exchange_manifest(manifest: &Value) -> Result<TappDataExchangeManifest, DataExchangeError> {
+fn parse_exchange_manifest(
+    manifest: &Value,
+) -> Result<TappDataExchangeManifest, DataExchangeError> {
     let value = manifest
         .get("dataExchange")
         .ok_or(DataExchangeError::NotDeclared)?;
@@ -319,7 +317,8 @@ pub async fn prepare_exchange(
     if purpose.is_empty() || purpose.len() > MAX_PURPOSE_LENGTH {
         return Err(DataExchangeError::InvalidPurpose);
     }
-    let params_bytes = serde_json::to_vec(&input.params).map_err(|_| DataExchangeError::InvalidParams)?;
+    let params_bytes =
+        serde_json::to_vec(&input.params).map_err(|_| DataExchangeError::InvalidParams)?;
     if params_bytes.len() > MAX_PARAMS_BYTES {
         return Err(DataExchangeError::ParamsTooLarge);
     }
@@ -331,9 +330,11 @@ pub async fn prepare_exchange(
     }
 
     let requester_exchange = parse_exchange_manifest(&requester.manifest)?;
-    if !requester_exchange.imports.iter().any(|import| {
-        import.tapp_id == input.target_tapp_id && import.export_id == input.export_id
-    }) {
+    if !requester_exchange
+        .imports
+        .iter()
+        .any(|import| import.tapp_id == input.target_tapp_id && import.export_id == input.export_id)
+    {
         return Err(DataExchangeError::ImportNotDeclared);
     }
     let provider_exchange = parse_exchange_manifest(&provider.manifest)?;
@@ -564,8 +565,7 @@ pub async fn consume_exchange(
         return Err(DataExchangeError::ProviderMismatch);
     }
 
-    let encoded =
-        serde_json::to_vec(&response).map_err(|_| DataExchangeError::ResponseInvalid)?;
+    let encoded = serde_json::to_vec(&response).map_err(|_| DataExchangeError::ResponseInvalid)?;
     if encoded.len() > grant.export.max_bytes {
         return Err(DataExchangeError::ResponseTooLarge {
             actual: encoded.len(),
@@ -580,9 +580,8 @@ pub async fn consume_exchange(
             });
         }
     }
-    validate_inline_json_value(&grant.export.schema, &response).map_err(|message| {
-        DataExchangeError::SchemaMismatch { message }
-    })?;
+    validate_inline_json_value(&grant.export.schema, &response)
+        .map_err(|message| DataExchangeError::SchemaMismatch { message })?;
 
     tracing::info!(
         grant_id = %grant.grant_id,
@@ -794,8 +793,12 @@ mod tests {
         assert_eq!(DataExchangeError::RequestAlreadyUsed.status_hint(), 409);
         assert_eq!(DataExchangeError::PendingLimit.status_hint(), 429);
         assert_eq!(DataExchangeError::ExportNotDeclared.status_hint(), 404);
-        assert_eq!(DataExchangeError::SchemaMismatch {
-            message: "m".into()
-        }.status_hint(), 422);
+        assert_eq!(
+            DataExchangeError::SchemaMismatch {
+                message: "m".into()
+            }
+            .status_hint(),
+            422
+        );
     }
 }

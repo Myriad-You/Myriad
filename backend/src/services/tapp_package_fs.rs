@@ -29,9 +29,7 @@ pub const LIFECYCLE_ARTIFACT_KINDS: &[&str] =
 /// - `.com.example.app.uninstall-`
 /// - `.com.example.app.recovery-discard-`
 pub fn lifecycle_artifact_prefixes(tapp_dir_name: &str) -> [String; 4] {
-    std::array::from_fn(|index| {
-        format!(".{tapp_dir_name}.{}-", LIFECYCLE_ARTIFACT_KINDS[index])
-    })
+    std::array::from_fn(|index| format!(".{tapp_dir_name}.{}-", LIFECYCLE_ARTIFACT_KINDS[index]))
 }
 
 /// Build a lifecycle artifact directory name for `tapp_dir_name` + kind + nonce.
@@ -129,10 +127,7 @@ pub fn install_generation_payload(updated_at_micros: i64) -> Value {
 
 /// Whether a generation marker payload matches the expected timestamp micros.
 pub fn install_generation_matches_micros(value: &Value, expected_micros: i64) -> bool {
-    value
-        .get("updatedAtMicros")
-        .and_then(Value::as_i64)
-        == Some(expected_micros)
+    value.get("updatedAtMicros").and_then(Value::as_i64) == Some(expected_micros)
 }
 
 /// Join a validated relative resource path under `tapp_dir`.
@@ -260,10 +255,7 @@ pub fn recovery_artifact_sort_key(filename: &str) -> u8 {
 ///
 /// `artifact_matches` must already be ordered with
 /// [`recovery_artifact_sort_key`] (non-staging first). The first `true` wins.
-pub fn plan_tapp_directory_recovery(
-    live_matches: bool,
-    artifact_matches: &[bool],
-) -> RecoveryPlan {
+pub fn plan_tapp_directory_recovery(live_matches: bool, artifact_matches: &[bool]) -> RecoveryPlan {
     if live_matches {
         return RecoveryPlan::DiscardArtifactsOnly;
     }
@@ -328,9 +320,7 @@ pub fn orphan_tapp_key_if_unowned(
 /// Whether marker presence probes indicate a Tapp installation directory.
 ///
 /// IO layer supplies `marker_exists(name)`; domain owns which names count.
-pub fn looks_like_tapp_installation_from_markers(
-    marker_exists: impl FnMut(&str) -> bool,
-) -> bool {
+pub fn looks_like_tapp_installation_from_markers(marker_exists: impl FnMut(&str) -> bool) -> bool {
     tapp_installation_marker_names()
         .into_iter()
         .any(marker_exists)
@@ -391,17 +381,15 @@ mod tests {
 
     #[test]
     fn filesystem_error_messages_match_api_contract() {
-        let denied = filesystem_error_message("create staging", ErrorKind::PermissionDenied, "denied");
+        let denied =
+            filesystem_error_message("create staging", ErrorKind::PermissionDenied, "denied");
         assert!(denied.contains("storage is not writable"));
         assert!(denied.contains("ownership/permissions"));
         assert_eq!(
             filesystem_error_status_hint(ErrorKind::PermissionDenied),
             503
         );
-        assert_eq!(
-            filesystem_error_status_hint(ErrorKind::Other),
-            500
-        );
+        assert_eq!(filesystem_error_status_hint(ErrorKind::Other), 500);
         let other = filesystem_error_message("activate", ErrorKind::Other, "boom");
         assert_eq!(other, "activate: boom");
     }
@@ -496,7 +484,10 @@ mod tests {
             })
         );
         // Valid id but no install markers → ignore (not an orphan candidate).
-        assert_eq!(classify_tapp_directory_entry("com.example.app", false), None);
+        assert_eq!(
+            classify_tapp_directory_entry("com.example.app", false),
+            None
+        );
         assert_eq!(classify_tapp_directory_entry("not a tapp", true), None);
         assert_eq!(
             tapp_id_from_dir_entry_class(&TappDirEntryClass::LiveInstall {
@@ -559,8 +550,10 @@ mod tests {
             recovery_artifact_sort_key(".com.example.app.staging-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
             1
         );
-        let mut names = [".app.staging-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            ".app.backup-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"];
+        let mut names = [
+            ".app.staging-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            ".app.backup-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ];
         names.sort_by_key(|name| recovery_artifact_sort_key(name));
         assert!(names[0].contains(".backup-"));
         assert!(names[1].contains(".staging-"));

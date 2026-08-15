@@ -196,8 +196,8 @@ pub async fn fetch_single_platform_data(
                 outcome.data.get(&req.platform),
                 remote_err,
             ) {
-                let empty = platform_data_warning(&req.platform, outcome.data.get(&req.platform))
-                    .is_some();
+                let empty =
+                    platform_data_warning(&req.platform, outcome.data.get(&req.platform)).is_some();
                 tracing::warn!(
                     "⚠️ {} fetch issue (empty={}): {}",
                     req.platform,
@@ -487,9 +487,7 @@ pub async fn delete_platform_cache(
 }
 
 // Media URL rewrite (pure) — implementation in services so schedulers/export can share it.
-pub use crate::services::image_proxy_urls::{
-    normalize_json_media_urls, proxy_image_url,
-};
+pub use crate::services::image_proxy_urls::{normalize_json_media_urls, proxy_image_url};
 
 // Library item shaping (pure) — DB I/O stays in this module.
 pub use crate::services::library_items::{

@@ -424,7 +424,7 @@ pub async fn test_platform(
                         "success": false,
                         "message": test_fail_message("X", e)
                     })),
-                )
+                ),
             }
         }
         "MyAnimeList" => {

@@ -5,9 +5,9 @@ use sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::error::HttpError;
 use crate::middleware::auth::Claims;
 use crate::services::permission_service::TappPermission;
-use crate::error::HttpError;
 
 use super::common::authorize_tapp_permission;
 use super::runtime_grant::RuntimeGrantContext;
@@ -29,7 +29,14 @@ pub async fn media_control(
 ) -> Result<Json<Value>, HttpError> {
     runtime_grant.require_tapp_id(&req.tapp_id)?;
     runtime_grant.require(TappPermission::MediaControl)?;
-    authorize_tapp_permission(&db, &claims, &req.tapp_id, TappPermission::MediaControl, &dynamic_config).await?;
+    authorize_tapp_permission(
+        &db,
+        &claims,
+        &req.tapp_id,
+        TappPermission::MediaControl,
+        &dynamic_config,
+    )
+    .await?;
 
     tracing::info!(
         "[TAPP] media_control - User: {}, Tapp: {}, Action: {}",

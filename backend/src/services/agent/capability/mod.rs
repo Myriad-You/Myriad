@@ -116,12 +116,7 @@ pub async fn get_capability_summary_filtered(include_admin: bool) -> Value {
     let mut capabilities: Vec<Value> = Vec::with_capacity(all.len());
 
     for cap in all {
-        if !include_admin
-            && cap
-                .required_permissions
-                .iter()
-                .any(|p| p == "system:admin")
-        {
+        if !include_admin && cap.required_permissions.iter().any(|p| p == "system:admin") {
             continue;
         }
         let usage_hint = resolve_capability_hint(cap);
@@ -153,9 +148,7 @@ pub async fn get_capability_summary_filtered(include_admin: bool) -> Value {
                 v.as_object().and_then(|o| {
                     let (k, val) = o.iter().next()?;
                     match val {
-                        serde_json::Value::String(s) if !s.is_empty() => {
-                            Some(format!("{k}:{s}"))
-                        }
+                        serde_json::Value::String(s) if !s.is_empty() => Some(format!("{k}:{s}")),
                         _ => Some(k.clone()),
                     }
                 })

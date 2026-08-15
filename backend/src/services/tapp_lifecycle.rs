@@ -152,8 +152,7 @@ pub fn runtime_widget_belongs_to_installation(
 ) -> bool {
     widget_source(config) == Some("runtime")
         && (widget_installation_owner(config) == Some(installation_owner_id)
-            || (widget_installation_owner(config).is_none()
-                && subject_id == installation_owner_id))
+            || (widget_installation_owner(config).is_none() && subject_id == installation_owner_id))
 }
 
 /// Canonical registry id: `tapp.{tapp_id}.{local_id}`.
@@ -251,10 +250,7 @@ pub fn runtime_widget_slot_available(
 }
 
 /// Whether a local widget id collides with a declared manifest widget.
-pub fn manifest_declares_local_widget_id(
-    manifest: &serde_json::Value,
-    local_id: &str,
-) -> bool {
+pub fn manifest_declares_local_widget_id(manifest: &serde_json::Value, local_id: &str) -> bool {
     manifest
         .get("widgets")
         .and_then(serde_json::Value::as_array)
@@ -515,10 +511,8 @@ mod tests {
         assert!(desired.contains("tapp.com.ex.a"));
         assert!(desired.contains("tapp.com.ex.b"));
 
-        let legacy = legacy_manifest_widget_ids(
-            "com.ex",
-            Some(&json!({ "widgets": [{ "id": "old" }] })),
-        );
+        let legacy =
+            legacy_manifest_widget_ids("com.ex", Some(&json!({ "widgets": [{ "id": "old" }] })));
         assert!(legacy.contains("tapp.com.ex.old"));
         assert!(is_manifest_widget_row(
             &json!({ "source": "manifest" }),

@@ -342,14 +342,18 @@ pub fn router(app_state: crate::state::AppState) -> axum::Router<crate::state::A
             "/api/federation/rooms",
             get(federation_list_rooms)
                 .post(federation_create_room)
-                .layer(axum::middleware::from_fn(crate::federation::limits::live_small_control_body_limit)),
+                .layer(axum::middleware::from_fn(
+                    crate::federation::limits::live_small_control_body_limit,
+                )),
         )
         .route(
             "/api/federation/rooms/{room_id}",
             get(federation_get_room)
                 .put(federation_update_room)
                 .delete(federation_delete_room)
-                .layer(axum::middleware::from_fn(crate::federation::limits::live_small_control_body_limit)),
+                .layer(axum::middleware::from_fn(
+                    crate::federation::limits::live_small_control_body_limit,
+                )),
         )
         .route(
             "/api/federation/rooms/{room_id}/members",
@@ -357,7 +361,9 @@ pub fn router(app_state: crate::state::AppState) -> axum::Router<crate::state::A
         )
         .route(
             "/api/federation/rooms/{room_id}/invite",
-            post(federation_invite_room_member).layer(axum::middleware::from_fn(crate::federation::limits::live_small_control_body_limit)),
+            post(federation_invite_room_member).layer(axum::middleware::from_fn(
+                crate::federation::limits::live_small_control_body_limit,
+            )),
         )
         .route(
             "/api/federation/rooms/{room_id}/accept",
@@ -369,7 +375,9 @@ pub fn router(app_state: crate::state::AppState) -> axum::Router<crate::state::A
         )
         .route(
             "/api/federation/rooms/{room_id}/join",
-            post(federation_join_room).layer(axum::middleware::from_fn(crate::federation::limits::live_small_control_body_limit)),
+            post(federation_join_room).layer(axum::middleware::from_fn(
+                crate::federation::limits::live_small_control_body_limit,
+            )),
         )
         .route(
             "/api/federation/rooms/{room_id}/members/{actor}",
@@ -377,7 +385,9 @@ pub fn router(app_state: crate::state::AppState) -> axum::Router<crate::state::A
         )
         .route(
             "/api/federation/rooms/{room_id}/members/{actor}/role",
-            put(federation_set_room_member_role).layer(axum::middleware::from_fn(crate::federation::limits::live_small_control_body_limit)),
+            put(federation_set_room_member_role).layer(axum::middleware::from_fn(
+                crate::federation::limits::live_small_control_body_limit,
+            )),
         )
         .route(
             "/api/federation/rooms/{room_id}/leave",
@@ -385,7 +395,9 @@ pub fn router(app_state: crate::state::AppState) -> axum::Router<crate::state::A
         )
         .route(
             "/api/federation/rooms/{room_id}/transfer-ownership",
-            post(federation_transfer_room_ownership).layer(axum::middleware::from_fn(crate::federation::limits::live_small_control_body_limit)),
+            post(federation_transfer_room_ownership).layer(axum::middleware::from_fn(
+                crate::federation::limits::live_small_control_body_limit,
+            )),
         )
         .route(
             "/api/federation/rooms/{room_id}/messages",
@@ -397,7 +409,9 @@ pub fn router(app_state: crate::state::AppState) -> axum::Router<crate::state::A
         )
         .route(
             "/api/federation/rooms/{room_id}/stickers",
-            post(federation_add_room_sticker).layer(axum::middleware::from_fn(crate::federation::limits::live_small_control_body_limit)),
+            post(federation_add_room_sticker).layer(axum::middleware::from_fn(
+                crate::federation::limits::live_small_control_body_limit,
+            )),
         )
         .route(
             "/api/federation/rooms/{room_id}/stickers/{sticker_id}",
@@ -405,7 +419,9 @@ pub fn router(app_state: crate::state::AppState) -> axum::Router<crate::state::A
         )
         .route(
             "/api/federation/rooms/{room_id}/messages/{message_id}/pin",
-            post(federation_pin_room_message).layer(axum::middleware::from_fn(crate::federation::limits::live_small_control_body_limit)),
+            post(federation_pin_room_message).layer(axum::middleware::from_fn(
+                crate::federation::limits::live_small_control_body_limit,
+            )),
         )
         .route(
             "/api/federation/rooms/{room_id}/ws-ticket",
@@ -419,7 +435,9 @@ pub fn router(app_state: crate::state::AppState) -> axum::Router<crate::state::A
             "/api/federation/rings",
             get(federation_list_rings)
                 .post(federation_create_ring)
-                .layer(axum::middleware::from_fn(crate::federation::limits::live_small_control_body_limit)),
+                .layer(axum::middleware::from_fn(
+                    crate::federation::limits::live_small_control_body_limit,
+                )),
         )
         .route("/api/federation/rings/{ring_id}", get(federation_get_ring))
         .route(
@@ -430,7 +448,9 @@ pub fn router(app_state: crate::state::AppState) -> axum::Router<crate::state::A
             "/api/federation/rings/{ring_id}/peers",
             get(federation_get_ring_peers)
                 .post(federation_add_ring_peer)
-                .layer(axum::middleware::from_fn(crate::federation::limits::live_small_control_body_limit)),
+                .layer(axum::middleware::from_fn(
+                    crate::federation::limits::live_small_control_body_limit,
+                )),
         )
         .route(
             "/api/federation/rings/{ring_id}/peers/{peer}",
@@ -473,7 +493,9 @@ pub fn router(app_state: crate::state::AppState) -> axum::Router<crate::state::A
             "/api/federation/trust/policy",
             get(federation_get_trust_policy)
                 .put(federation_update_trust_policy)
-                .layer(axum::middleware::from_fn(crate::federation::limits::live_small_control_body_limit)),
+                .layer(axum::middleware::from_fn(
+                    crate::federation::limits::live_small_control_body_limit,
+                )),
         )
         .route(
             "/api/federation/trust/instances",
@@ -482,40 +504,64 @@ pub fn router(app_state: crate::state::AppState) -> axum::Router<crate::state::A
         .route(
             "/api/federation/trust/update",
             post(federation_update_instance_trust)
-                .route_layer(from_fn_with_state(app_state.clone(), middleware::auth::admin_middleware))
-                .layer(axum::middleware::from_fn(crate::federation::limits::live_small_control_body_limit)),
+                .route_layer(from_fn_with_state(
+                    app_state.clone(),
+                    middleware::auth::admin_middleware,
+                ))
+                .layer(axum::middleware::from_fn(
+                    crate::federation::limits::live_small_control_body_limit,
+                )),
         )
         .route(
             "/api/federation/trust/block",
             post(federation_toggle_instance_block)
-                .route_layer(from_fn_with_state(app_state.clone(), middleware::auth::admin_middleware))
-                .layer(axum::middleware::from_fn(crate::federation::limits::live_small_control_body_limit)),
+                .route_layer(from_fn_with_state(
+                    app_state.clone(),
+                    middleware::auth::admin_middleware,
+                ))
+                .layer(axum::middleware::from_fn(
+                    crate::federation::limits::live_small_control_body_limit,
+                )),
         )
         .route(
             "/api/federation/trust/filters",
             get(federation_list_content_filters)
                 .post(federation_create_content_filter)
-                .route_layer(from_fn_with_state(app_state.clone(), middleware::auth::admin_middleware))
-                .layer(axum::middleware::from_fn(crate::federation::limits::live_small_control_body_limit)),
+                .route_layer(from_fn_with_state(
+                    app_state.clone(),
+                    middleware::auth::admin_middleware,
+                ))
+                .layer(axum::middleware::from_fn(
+                    crate::federation::limits::live_small_control_body_limit,
+                )),
         )
         .route(
             "/api/federation/trust/filters/{id}",
             axum::routing::put(federation_update_content_filter)
                 .delete(federation_delete_content_filter)
-                .route_layer(from_fn_with_state(app_state.clone(), middleware::auth::admin_middleware))
-                .layer(axum::middleware::from_fn(crate::federation::limits::live_small_control_body_limit)),
+                .route_layer(from_fn_with_state(
+                    app_state.clone(),
+                    middleware::auth::admin_middleware,
+                ))
+                .layer(axum::middleware::from_fn(
+                    crate::federation::limits::live_small_control_body_limit,
+                )),
         )
         .route(
             "/api/federation/channels/{channel_id}/transfers",
             get(federation_list_transfers)
                 .post(federation_initiate_transfer)
-                .layer(axum::middleware::from_fn(crate::federation::limits::live_small_control_body_limit)),
+                .layer(axum::middleware::from_fn(
+                    crate::federation::limits::live_small_control_body_limit,
+                )),
         )
         .route(
             "/api/federation/rooms/{room_id}/transfers",
             get(federation_list_room_transfers)
                 .post(federation_initiate_room_transfer)
-                .layer(axum::middleware::from_fn(crate::federation::limits::live_small_control_body_limit)),
+                .layer(axum::middleware::from_fn(
+                    crate::federation::limits::live_small_control_body_limit,
+                )),
         )
         .route(
             "/api/federation/rooms/{room_id}/files",
@@ -531,9 +577,9 @@ pub fn router(app_state: crate::state::AppState) -> axum::Router<crate::state::A
         )
         .route(
             "/api/federation/transfers/{transfer_id}/chunks",
-            post(federation_upload_chunk).layer(
-                axum::middleware::from_fn(crate::federation::limits::live_transfer_chunk_body_limit),
-            ),
+            post(federation_upload_chunk).layer(axum::middleware::from_fn(
+                crate::federation::limits::live_transfer_chunk_body_limit,
+            )),
         )
         .route(
             "/api/federation/transfers/{transfer_id}/cancel",
@@ -542,27 +588,36 @@ pub fn router(app_state: crate::state::AppState) -> axum::Router<crate::state::A
         // 已认证本地用户提交的联邦写操作（follow/channel/room/message、
         // base64 文件分块、Tapp 包快照）。上限见 federation::limits —— 那里
         // 同时约束「本端发得出的东西本端必须收得进」。
-        .layer(axum::middleware::from_fn(crate::federation::limits::live_authenticated_body_limit))
+        .layer(axum::middleware::from_fn(
+            crate::federation::limits::live_authenticated_body_limit,
+        ))
         .route_layer(from_fn_with_state(
             app_state.clone(),
             api::tapp_runtime::federation_host_attribution,
         ))
-        .route_layer(from_fn_with_state(app_state.clone(), middleware::auth::auth_middleware));
+        .route_layer(from_fn_with_state(
+            app_state.clone(),
+            middleware::auth::auth_middleware,
+        ));
 
     // Freeform Note 媒体：图片/视频上限见 federation::limits::{NOTE_IMAGE_LIMIT,
     // NOTE_VIDEO_LIMIT}；路由层取二者中较大者再留信封余量。
     let media_router = Router::<crate::state::AppState>::new()
         .route("/api/federation/media", post(federation_media_upload))
-        .layer(axum::middleware::from_fn(crate::federation::limits::live_note_media_body_limit))
+        .layer(axum::middleware::from_fn(
+            crate::federation::limits::live_note_media_body_limit,
+        ))
         .route_layer(from_fn_with_state(
             app_state.clone(),
             api::tapp_runtime::federation_host_attribution,
         ))
-        .route_layer(from_fn_with_state(app_state.clone(), middleware::auth::auth_middleware));
+        .route_layer(from_fn_with_state(
+            app_state.clone(),
+            middleware::auth::auth_middleware,
+        ));
 
     main_router.merge(media_router)
 }
-
 
 #[cfg(test)]
 mod query_parse_tests {

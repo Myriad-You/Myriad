@@ -265,6 +265,10 @@ export interface TranslationKeys {
     saveHint: string
     atLeast8Chars: string
     enterPasswordAgain: string
+    setupSecret: string
+    setupSecretHint: string
+    setupSecretPlaceholder: string
+    setupSecretRequired: string
     bootstrapToken: string
     bootstrapTokenOptional: string
     bootstrapTokenPlaceholder: string
@@ -717,6 +721,13 @@ export interface TranslationKeys {
     usersUnlinkConfirm: string
     usersInstalledTapps: string
     usersNoTapps: string
+    usersUninstallTapp: string
+    usersUninstallTappConfirm: string
+    usersEnableTappInstall: string
+    usersDisableTappInstall: string
+    usersTappInstallDisabled: string
+    usersErrorCannotRestrictOwnerInstall: string
+    usersErrorTappNotFound: string
     usersRole: string
     usersRoleAdmin: string
     usersRoleUser: string
@@ -734,6 +745,10 @@ export interface TranslationKeys {
     usersDeleteConfirm: string
     usersDeleteSuccess: string
     usersEmail: string
+    usersAccountSection: string
+    usersActivitySection: string
+    usersDetail: string
+    usersHideDetail: string
     usersCancel: string
     usersCancelDesc: string
     usersCreateUser: string
@@ -2199,6 +2214,8 @@ export interface TranslationKeys {
     viewAllTapps: string
     oauthBindings: string
     oauthAccount: string
+    /** e.g. {count} 个平台 — used when more than one provider is linked */
+    linkedProviderCount: string
     oauthBind: string
     oauthUnbind: string
     oauthUnbindConfirm: string

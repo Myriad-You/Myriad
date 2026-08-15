@@ -190,15 +190,13 @@ impl FeedParser {
         tracing::debug!("Feed content-type: {}", content_type);
 
         // Cap body size before buffering: never read unbounded feed payloads (MYR-018).
-        let body_bytes = crate::services::outbound_security::read_limited_body(
-            response,
-            MAX_FEED_BODY_BYTES,
-        )
-        .await
-        .map_err(|e| {
-            // Oversize and I/O failures both surface as FetchError (fail cleanly).
-            ParseError::FetchError(format!("Failed to read body: {e}"))
-        })?;
+        let body_bytes =
+            crate::services::outbound_security::read_limited_body(response, MAX_FEED_BODY_BYTES)
+                .await
+                .map_err(|e| {
+                    // Oversize and I/O failures both surface as FetchError (fail cleanly).
+                    ParseError::FetchError(format!("Failed to read body: {e}"))
+                })?;
 
         let body = match String::from_utf8(body_bytes) {
             Ok(s) => s,

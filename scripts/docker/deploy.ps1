@@ -210,7 +210,7 @@ function Ensure-Env {
         Write-Warn "  - JWT_SECRET"
         Write-Warn "  - CORS_ORIGINS"
         Write-Warn ""
-        Write-Warn "This script will create pgdata/state/backups and fill empty UPDATE_TOKEN / UPDATER_GATEWAY_SECRET."
+        Write-Warn "This script will create pgdata/state/backups and fill empty UPDATE_TOKEN / UPDATER_GATEWAY_SECRET / MYRIAD_SETUP_SECRET."
         Write-Warn ""
         $r = Read-Host "Open .env in notepad? (y/N)"
         if ($r -match "^[Yy]$") {
@@ -235,6 +235,7 @@ function Ensure-CurrentLayout {
     Ensure-Key "PROXY_ALLOW_DIRECT_UPDATER" "false"
     Ensure-UpdateToken
     Ensure-UpdaterGatewaySecret
+    Ensure-SecretKey "MYRIAD_SETUP_SECRET"
 }
 
 function Get-DeploymentProjectName {

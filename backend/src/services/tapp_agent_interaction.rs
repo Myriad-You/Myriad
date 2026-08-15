@@ -10,9 +10,7 @@ use std::time::Duration;
 use chrono::Utc;
 use myriad_tapp_contract::contract_rules::MAX_AGENT_SCHEMA_RESOURCE_BYTES;
 use myriad_tapp_contract::manifest::{TappAgentInteractionDef, TappAgentManifest};
-use sea_orm::{
-    ConnectionTrait, DatabaseBackend, DatabaseConnection, FromQueryResult, Statement,
-};
+use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, FromQueryResult, Statement};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -133,12 +131,8 @@ impl AgentInteractionError {
             Self::InvalidSchema { message } => message.clone(),
             Self::InvalidValue => "Agent interaction value cannot be serialized".to_string(),
             Self::InputTooLarge => "Agent interaction input exceeds 128 KiB".to_string(),
-            Self::ResultInvalid => {
-                "Agent interaction result is invalid or too large".to_string()
-            }
-            Self::InvalidRejection => {
-                "Rejection reason must contain 1-500 characters".to_string()
-            }
+            Self::ResultInvalid => "Agent interaction result is invalid or too large".to_string(),
+            Self::InvalidRejection => "Rejection reason must contain 1-500 characters".to_string(),
             Self::IntentConfirmationRequired => {
                 "Agent intent requires bounded params, reason, and host confirmation".to_string()
             }
@@ -171,8 +165,11 @@ impl AgentInteractionError {
             Self::Unavailable { .. } => 503,
             Self::SerializationFailed => 500,
             Self::NotFound | Self::NotFoundScoped => 404,
-            Self::SchemaReadFailed | Self::InvalidSchema { .. } | Self::InvalidManifest
-            | Self::ProtocolVersion | Self::ResultSchemaMismatch { .. } => 422,
+            Self::SchemaReadFailed
+            | Self::InvalidSchema { .. }
+            | Self::InvalidManifest
+            | Self::ProtocolVersion
+            | Self::ResultSchemaMismatch { .. } => 422,
             Self::InvalidValue
             | Self::InputTooLarge
             | Self::ResultInvalid
@@ -237,10 +234,12 @@ fn safe_resource_path(tapp_dir: &Path, relative: &str) -> Option<PathBuf> {
         return None;
     }
     let candidate = Path::new(relative);
-    if candidate
-        .components()
-        .any(|c| matches!(c, Component::ParentDir | Component::RootDir | Component::Prefix(_)))
-    {
+    if candidate.components().any(|c| {
+        matches!(
+            c,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+        )
+    }) {
         return None;
     }
     Some(tapp_dir.join(relative))
@@ -264,20 +263,20 @@ async fn read_schema(
             message: "Agent schema path is invalid".to_string(),
         }
     })?;
-    let bytes = tokio::fs::read(&path).await.map_err(|_| AgentInteractionError::SchemaReadFailed)?;
+    let bytes = tokio::fs::read(&path)
+        .await
+        .map_err(|_| AgentInteractionError::SchemaReadFailed)?;
     if bytes.len() > MAX_AGENT_SCHEMA_RESOURCE_BYTES {
         return Err(AgentInteractionError::InvalidSchema {
             message: format!("Agent schema exceeds {MAX_AGENT_SCHEMA_RESOURCE_BYTES} bytes"),
         });
     }
-    let schema: Value = serde_json::from_slice(&bytes).map_err(|_| {
-        AgentInteractionError::InvalidSchema {
+    let schema: Value =
+        serde_json::from_slice(&bytes).map_err(|_| AgentInteractionError::InvalidSchema {
             message: "Agent schema is not valid JSON".to_string(),
-        }
-    })?;
-    validate_inline_data_schema(&schema).map_err(|error| AgentInteractionError::InvalidSchema {
-        message: error,
-    })?;
+        })?;
+    validate_inline_data_schema(&schema)
+        .map_err(|error| AgentInteractionError::InvalidSchema { message: error })?;
     Ok(Some(schema))
 }
 
@@ -304,8 +303,8 @@ async fn expire_interaction_if_due(
     expired.snapshot.rejection_reason = Some("Agent interaction expired".to_string());
     expired.snapshot.updated_at = Utc::now().to_rfc3339();
     expired.retain_until = Utc::now().timestamp() + TERMINAL_RETENTION_SECONDS;
-    let payload = serde_json::to_value(&expired)
-        .map_err(|_| AgentInteractionError::SerializationFailed)?;
+    let payload =
+        serde_json::to_value(&expired).map_err(|_| AgentInteractionError::SerializationFailed)?;
     let result = db
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -556,15 +555,22 @@ async fn create_with_tapp(
         .ok_or_else(|| AgentInteractionError::TypeNotDeclared {
             interaction_type: interaction_type.clone(),
         })?;
-    let input_schema =
-        read_schema(tapp.user_id, &tapp.tapp_id, definition.input_schema.as_deref()).await?;
+    let input_schema = read_schema(
+        tapp.user_id,
+        &tapp.tapp_id,
+        definition.input_schema.as_deref(),
+    )
+    .await?;
     if let Some(schema) = &input_schema {
-        validate_inline_json_value(schema, &input).map_err(|error| {
-            AgentInteractionError::InputSchemaMismatch { message: error }
-        })?;
+        validate_inline_json_value(schema, &input)
+            .map_err(|error| AgentInteractionError::InputSchemaMismatch { message: error })?;
     }
-    let result_schema =
-        read_schema(tapp.user_id, &tapp.tapp_id, definition.result_schema.as_deref()).await?;
+    let result_schema = read_schema(
+        tapp.user_id,
+        &tapp.tapp_id,
+        definition.result_schema.as_deref(),
+    )
+    .await?;
 
     let now = Utc::now();
     let deadline_at = now.timestamp() + INTERACTION_TTL_SECONDS;
@@ -699,9 +705,8 @@ pub async fn submit_result(
         });
     }
     if let Some(schema) = &interaction.result_schema {
-        validate_inline_json_value(schema, &data).map_err(|error| {
-            AgentInteractionError::ResultSchemaMismatch { message: error }
-        })?;
+        validate_inline_json_value(schema, &data)
+            .map_err(|error| AgentInteractionError::ResultSchemaMismatch { message: error })?;
     }
     interaction.snapshot.state = InteractionState::Completed;
     interaction.snapshot.result = Some(json!({
@@ -867,7 +872,10 @@ pub async fn open_stream(
     Ok(vec![])
 }
 
-pub async fn drain_stream(db: &DatabaseConnection, runtime_id: &str) -> Vec<AgentInteractionSnapshot> {
+pub async fn drain_stream(
+    db: &DatabaseConnection,
+    runtime_id: &str,
+) -> Vec<AgentInteractionSnapshot> {
     shared_registry::drain::<AgentInteractionSnapshot>(
         db,
         INTERACTION_MAILBOX_CHANNEL,
@@ -1024,10 +1032,7 @@ mod tests {
             "AGENT_INTERACTION_NOT_FOUND"
         );
         assert_eq!(
-            AgentInteractionError::StateConflict {
-                message: "x"
-            }
-            .code(),
+            AgentInteractionError::StateConflict { message: "x" }.code(),
             "AGENT_INTERACTION_STATE_CONFLICT"
         );
         assert_eq!(

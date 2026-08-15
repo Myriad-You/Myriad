@@ -1,8 +1,10 @@
 //! Platform library/stats extractors and Discord guild-take helpers for reports.
-use serde_json::{json, Value};
 use crate::services::smart_filter::SmartFilteredData;
+use serde_json::{json, Value};
 
-pub(crate) async fn extract_steam_library_items(metadata: &SmartFilteredData) -> Result<Vec<Value>, String> {
+pub(crate) async fn extract_steam_library_items(
+    metadata: &SmartFilteredData,
+) -> Result<Vec<Value>, String> {
     use std::fs;
     use std::path::PathBuf;
 
@@ -103,7 +105,9 @@ pub(crate) async fn extract_steam_library_items(metadata: &SmartFilteredData) ->
     Ok(library_items)
 }
 
-pub(crate) async fn extract_github_library_items(metadata: &SmartFilteredData) -> Result<Vec<Value>, String> {
+pub(crate) async fn extract_github_library_items(
+    metadata: &SmartFilteredData,
+) -> Result<Vec<Value>, String> {
     let mut library_items = Vec::new();
 
     if let crate::services::smart_filter::ContentAnalysis::GitHub(analysis) =
@@ -134,7 +138,9 @@ pub(crate) async fn extract_github_library_items(metadata: &SmartFilteredData) -
     Ok(library_items)
 }
 
-pub(crate) async fn extract_netease_library_items(metadata: &SmartFilteredData) -> Result<Vec<Value>, String> {
+pub(crate) async fn extract_netease_library_items(
+    metadata: &SmartFilteredData,
+) -> Result<Vec<Value>, String> {
     use std::fs;
 
     let mut library_items = Vec::new();
@@ -429,7 +435,9 @@ pub(crate) async fn extract_netease_library_items(metadata: &SmartFilteredData) 
     Ok(library_items)
 }
 
-pub(crate) async fn extract_bangumi_library_items(metadata: &SmartFilteredData) -> Result<Vec<Value>, String> {
+pub(crate) async fn extract_bangumi_library_items(
+    metadata: &SmartFilteredData,
+) -> Result<Vec<Value>, String> {
     let mut library_items = Vec::new();
 
     if let crate::services::smart_filter::ContentAnalysis::Bangumi(analysis) =
@@ -489,7 +497,9 @@ pub(crate) async fn extract_bangumi_library_items(metadata: &SmartFilteredData) 
     Ok(library_items)
 }
 
-pub(crate) async fn extract_mal_library_items(metadata: &SmartFilteredData) -> Result<Vec<Value>, String> {
+pub(crate) async fn extract_mal_library_items(
+    metadata: &SmartFilteredData,
+) -> Result<Vec<Value>, String> {
     let mut library_items = Vec::new();
 
     if let crate::services::smart_filter::ContentAnalysis::Mal(analysis) =
@@ -570,12 +580,14 @@ pub(crate) struct NeteaseUserStats {
 
 /// Parse Bilibili user stats from a raw JSON object (`user` or `user_info` key).
 pub(crate) fn bilibili_stats_from_raw_json(raw_json: &Value) -> Option<BilibiliUserStats> {
-    let user_info = raw_json
-        .get("user")
-        .or_else(|| raw_json.get("user_info"))?;
+    let user_info = raw_json.get("user").or_else(|| raw_json.get("user_info"))?;
     let level = user_info
         .get("level")
-        .or_else(|| user_info.get("level_info").and_then(|l| l.get("current_level")))
+        .or_else(|| {
+            user_info
+                .get("level_info")
+                .and_then(|l| l.get("current_level"))
+        })
         .cloned()
         .unwrap_or(json!(0));
     let follower_count = user_info
@@ -682,9 +694,7 @@ pub(crate) async fn extract_netease_user_stats(
     }
 
     if follower_count.is_none() && playlist_count.is_none() {
-        return Err(
-            "Netease stats missing: no user_summary.stats and no cache/raw profile".into(),
-        );
+        return Err("Netease stats missing: no user_summary.stats and no cache/raw profile".into());
     }
 
     Ok(NeteaseUserStats {
@@ -700,14 +710,11 @@ pub(crate) fn netease_fee_is_vip(fee: i64) -> bool {
 
 /// Pure helper: extract (fee, isVip) pair from a raw song object.
 pub(crate) fn netease_song_fee_flags(song: &Value) -> (Option<i64>, bool) {
-    let fee = song
-        .get("fee")
-        .and_then(|v| v.as_i64())
-        .or_else(|| {
-            song.get("privilege")
-                .and_then(|p| p.get("fee"))
-                .and_then(|v| v.as_i64())
-        });
+    let fee = song.get("fee").and_then(|v| v.as_i64()).or_else(|| {
+        song.get("privilege")
+            .and_then(|p| p.get("fee"))
+            .and_then(|v| v.as_i64())
+    });
     let explicit_vip = song
         .get("isVip")
         .and_then(|v| v.as_bool())
@@ -720,7 +727,9 @@ pub(crate) fn netease_song_fee_flags(song: &Value) -> (Option<i64>, bool) {
     }
 }
 
-pub(crate) fn discord_fallback_guild_take(g: &crate::services::smart_filter::DiscordGuildItem) -> String {
+pub(crate) fn discord_fallback_guild_take(
+    g: &crate::services::smart_filter::DiscordGuildItem,
+) -> String {
     let members = g.member_count.unwrap_or(0);
     let size = if members >= 100_000 {
         Some("万人广场")
@@ -861,7 +870,6 @@ pub(crate) fn normalize_discord_guild_takes(
     obj.insert("guild_takes".to_string(), json!(normalized));
 }
 
-
 pub(crate) async fn extract_bilibili_library_items(
     metadata: &SmartFilteredData,
 ) -> Result<Vec<Value>, String> {
@@ -878,8 +886,10 @@ pub(crate) async fn extract_bilibili_library_items(
         // 读取B站原始数据：封面 + 追番进度（progress / season_id）
         let raw_cache_path = PathBuf::from("./cache/raw/bilibili.json");
         // title → (cover, progress, season_id)
-        let mut bangumi_map: std::collections::HashMap<String, (String, Option<String>, Option<String>)> =
-            std::collections::HashMap::new();
+        let mut bangumi_map: std::collections::HashMap<
+            String,
+            (String, Option<String>, Option<String>),
+        > = std::collections::HashMap::new();
 
         if raw_cache_path.exists() {
             if let Ok(content) = fs::read_to_string(&raw_cache_path) {
@@ -905,21 +915,23 @@ pub(crate) async fn extract_bilibili_library_items(
                                     let ep = item
                                         .get("new_ep")
                                         .and_then(|v| v.as_object())
-                                        .and_then(|o| o.get("title").or_else(|| o.get("index_show")))
+                                        .and_then(|o| {
+                                            o.get("title").or_else(|| o.get("index_show"))
+                                        })
                                         .and_then(|v| v.as_str())
                                         .map(|s| s.trim().to_string())
                                         .filter(|s| !s.is_empty());
                                     ep
                                 });
-                                let season_id = item.get("season_id").map(|v| match v {
-                                    Value::String(s) => s.trim().to_string(),
-                                    Value::Number(n) => n.to_string(),
-                                    _ => String::new(),
-                                }).filter(|s| !s.is_empty());
-                                bangumi_map.insert(
-                                    title.to_string(),
-                                    (cover, progress, season_id),
-                                );
+                                let season_id = item
+                                    .get("season_id")
+                                    .map(|v| match v {
+                                        Value::String(s) => s.trim().to_string(),
+                                        Value::Number(n) => n.to_string(),
+                                        _ => String::new(),
+                                    })
+                                    .filter(|s| !s.is_empty());
+                                bangumi_map.insert(title.to_string(), (cover, progress, season_id));
                             }
                         }
                         println!(
@@ -992,14 +1004,8 @@ pub(crate) async fn extract_bilibili_library_items(
                     .get(&unknown.title)
                     .map(|(c, p, s)| (c.clone(), p.clone(), s.clone()))
                     .unwrap_or_else(|| {
-                        let progress = meta
-                            .get("progress")
-                            .cloned()
-                            .filter(|s| !s.is_empty());
-                        let season_id = meta
-                            .get("season_id")
-                            .cloned()
-                            .filter(|s| !s.is_empty());
+                        let progress = meta.get("progress").cloned().filter(|s| !s.is_empty());
+                        let season_id = meta.get("season_id").cloned().filter(|s| !s.is_empty());
                         (cover, progress, season_id)
                     });
                 let mut item = json!({
@@ -1103,7 +1109,6 @@ pub(crate) async fn extract_bilibili_library_items(
 
     Ok(library_items)
 }
-
 
 #[cfg(test)]
 mod bilibili_stats_dual_read_tests {

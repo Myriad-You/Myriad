@@ -17,16 +17,12 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use sea_orm::{
-    ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
-};
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde::Serialize;
 use serde_json::{json, Value};
 
 use crate::models::entities::{brew_items, brew_sources, tapps};
-use crate::services::tapp_ownership::{
-    find_admin_user_id, public_install_visible_to_viewer,
-};
+use crate::services::tapp_ownership::{find_admin_user_id, public_install_visible_to_viewer};
 use crate::services::tapp_validation::validate_tapp_id;
 use myriad_module_visibility::load_module_visibility_preferences;
 
@@ -210,8 +206,8 @@ async fn load_site_branding(db: &DatabaseConnection) -> SiteBranding {
         .filter(|s| !s.trim().is_empty())
         .or_else(|| std::env::var("SITE_VISIBILITY_POLICY").ok())
         .unwrap_or_default();
-    let policy = crate::api::seo_policy::normalize_visibility_policy(&policy_raw, noindex_flag)
-        .to_string();
+    let policy =
+        crate::api::seo_policy::normalize_visibility_policy(&policy_raw, noindex_flag).to_string();
     let noindex = noindex_flag || policy == crate::api::seo_policy::VISIBILITY_PRIVATE;
 
     SiteBranding {
@@ -465,7 +461,11 @@ fn description_from_manifest(manifest: &Value, fallback: Option<&str>) -> Option
         .and_then(|v| v.as_str())
         .filter(|s| !s.trim().is_empty())
         .map(str::to_string)
-        .or_else(|| fallback.map(str::to_string).filter(|s| !s.trim().is_empty()))
+        .or_else(|| {
+            fallback
+                .map(str::to_string)
+                .filter(|s| !s.trim().is_empty())
+        })
 }
 
 fn icon_from_manifest(manifest: &Value, row_icon: Option<&str>) -> Option<String> {
@@ -474,7 +474,11 @@ fn icon_from_manifest(manifest: &Value, row_icon: Option<&str>) -> Option<String
         .and_then(|v| v.as_str())
         .filter(|s| !s.trim().is_empty())
         .map(str::to_string)
-        .or_else(|| row_icon.map(str::to_string).filter(|s| !s.trim().is_empty()))
+        .or_else(|| {
+            row_icon
+                .map(str::to_string)
+                .filter(|s| !s.trim().is_empty())
+        })
 }
 
 /// Resolve public SEO summary for a site-owner install of `tapp_id`.
@@ -649,16 +653,10 @@ pub async fn tapp_seo_summary(
             Json(json!({ "error": "Invalid tapp id" })),
         )
             .into_response(),
-        Err(StatusCode::NOT_FOUND) => (
-            StatusCode::NOT_FOUND,
-            Json(json!({ "error": "Not found" })),
-        )
-            .into_response(),
-        Err(status) => (
-            status,
-            Json(json!({ "error": "Internal error" })),
-        )
-            .into_response(),
+        Err(StatusCode::NOT_FOUND) => {
+            (StatusCode::NOT_FOUND, Json(json!({ "error": "Not found" }))).into_response()
+        }
+        Err(status) => (status, Json(json!({ "error": "Internal error" }))).into_response(),
     }
 }
 
@@ -698,16 +696,10 @@ pub async fn brew_item_seo_summary(
             Json(json!({ "error": "Invalid item id" })),
         )
             .into_response(),
-        Err(StatusCode::NOT_FOUND) => (
-            StatusCode::NOT_FOUND,
-            Json(json!({ "error": "Not found" })),
-        )
-            .into_response(),
-        Err(status) => (
-            status,
-            Json(json!({ "error": "Internal error" })),
-        )
-            .into_response(),
+        Err(StatusCode::NOT_FOUND) => {
+            (StatusCode::NOT_FOUND, Json(json!({ "error": "Not found" }))).into_response()
+        }
+        Err(status) => (status, Json(json!({ "error": "Internal error" }))).into_response(),
     }
 }
 
@@ -754,10 +746,7 @@ fn simple_error_html(title: &str, message: &str) -> String {
 /// Disallow private SPA routes (login/setup/admin/playground); public modules
 /// remain Allow. Client-side noindex is still applied on those pages for bots
 /// that execute JS.
-pub async fn robots_txt(
-    State(db): State<DatabaseConnection>,
-    _headers: HeaderMap,
-) -> Response {
+pub async fn robots_txt(State(db): State<DatabaseConnection>, _headers: HeaderMap) -> Response {
     let branding = load_site_branding(&db).await;
     let base = resolve_public_base_url();
     let body = crate::api::seo_policy::build_robots_txt(base.as_deref(), &branding.policy);
@@ -775,10 +764,7 @@ pub async fn robots_txt(
 /// GET /llms.txt — AI-facing site index when policy is ai_citation or ai_full.
 /// Absolute route links require durable `FRONTEND_URL`/`BASE_URL`; otherwise
 /// paths stay relative (no client-Host absolute links).
-pub async fn llms_txt(
-    State(db): State<DatabaseConnection>,
-    _headers: HeaderMap,
-) -> Response {
+pub async fn llms_txt(State(db): State<DatabaseConnection>, _headers: HeaderMap) -> Response {
     let branding = load_site_branding(&db).await;
     if !crate::api::seo_policy::policy_serves_llms_txt(&branding.policy) {
         return (
@@ -827,16 +813,12 @@ pub async fn llms_txt(
         .into_response()
 }
 
-
 /// GET /sitemap.xml
 ///
 /// Sitemap protocol requires absolute `<loc>` URLs. Without durable
 /// `FRONTEND_URL`/`BASE_URL` we return an empty urlset rather than poisoning
 /// caches with a client-supplied Host.
-pub async fn sitemap_xml(
-    State(db): State<DatabaseConnection>,
-    _headers: HeaderMap,
-) -> Response {
+pub async fn sitemap_xml(State(db): State<DatabaseConnection>, _headers: HeaderMap) -> Response {
     let branding = load_site_branding(&db).await;
     let empty = r#"<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
@@ -896,10 +878,7 @@ pub async fn sitemap_xml(
         }
     }
 
-    let tapp_level = modules
-        .get("tapp")
-        .map(String::as_str)
-        .unwrap_or("all");
+    let tapp_level = modules.get("tapp").map(String::as_str).unwrap_or("all");
     if module_is_public_all(tapp_level) {
         if let Ok(Some(admin_id)) = find_admin_user_id(&db).await {
             if let Ok(admin_tapps) = tapps::Entity::find()
@@ -965,10 +944,7 @@ pub async fn sitemap_xml(
         body.push_str("  <url>\n");
         body.push_str(&format!("    <loc>{}</loc>\n", xml_escape(&entry.loc)));
         if let Some(ref lastmod) = entry.lastmod {
-            body.push_str(&format!(
-                "    <lastmod>{}</lastmod>\n",
-                xml_escape(lastmod)
-            ));
+            body.push_str(&format!("    <lastmod>{}</lastmod>\n", xml_escape(lastmod)));
         }
         if let Some(freq) = entry.changefreq {
             body.push_str(&format!(
@@ -1011,7 +987,7 @@ mod tests {
         assert!(!brew_source_is_own(&Some("科技".into()), false));
         assert!(!brew_source_is_own(&None, false));
         assert!(!brew_source_is_own(&Some("我".into()), true)); // admin_only
-        // Substring false positive: 「我们」 is not the mine preset
+                                                                // Substring false positive: 「我们」 is not the mine preset
         assert!(!brew_source_is_own(&Some("我们".into()), false));
     }
 

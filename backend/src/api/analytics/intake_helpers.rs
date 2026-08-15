@@ -1,23 +1,20 @@
-
+use crate::config::DynamicConfig;
 use axum::{
     extract::{ConnectInfo, Request},
     http::{header, StatusCode},
     Json,
 };
 use chrono::{Duration, Local, NaiveDate, Utc};
-use sea_orm::{
-    ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, Value as SeaValue,
-};
+use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, Value as SeaValue};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::sync::RwLock;
-use crate::config::DynamicConfig;
 use std::time::{Duration as StdDuration, Instant};
 use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 
 pub(crate) const SITE_PATH: &str = "__site__";
 const MAX_PATH_LEN: usize = 128;
@@ -96,9 +93,8 @@ pub(crate) const SUMMARY_CACHE_TTL: StdDuration = StdDuration::from_secs(45);
 pub(crate) static VISITOR_CARD_CACHE: once_cell::sync::Lazy<Arc<Mutex<Option<(Instant, Value)>>>> =
     once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(None)));
 /// IP → country (code, name) cache for analytics intake.
-static COUNTRY_CACHE: once_cell::sync::Lazy<
-    Arc<Mutex<HashMap<String, (Instant, CountryInfo)>>>,
-> = once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
+static COUNTRY_CACHE: once_cell::sync::Lazy<Arc<Mutex<HashMap<String, (Instant, CountryInfo)>>>> =
+    once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 #[derive(Debug, Clone)]
 pub(crate) struct CountryInfo {
@@ -257,11 +253,7 @@ pub(crate) fn try_analytics_salt() -> Result<String, AnalyticsSaltUnavailable> {
     let env_salt = std::env::var("ANALYTICS_SALT").ok();
     let jwt_secret = std::env::var("JWT_SECRET").ok();
     let production = is_production_environment();
-    let result = resolve_analytics_salt(
-        env_salt.as_deref(),
-        production,
-        jwt_secret.as_deref(),
-    );
+    let result = resolve_analytics_salt(env_salt.as_deref(), production, jwt_secret.as_deref());
 
     match &result {
         Ok(_)
@@ -561,11 +553,7 @@ pub(crate) fn normalize_country_code(raw: &str) -> Option<String> {
 }
 
 pub(crate) fn normalize_country_name(raw: &str) -> String {
-    raw.chars()
-        .take(64)
-        .collect::<String>()
-        .trim()
-        .to_string()
+    raw.chars().take(64).collect::<String>().trim().to_string()
 }
 
 fn is_private_or_local_ip(ip: std::net::IpAddr) -> bool {
@@ -578,7 +566,10 @@ fn is_private_or_local_ip(ip: std::net::IpAddr) -> bool {
                 || v4.is_unspecified()
         }
         std::net::IpAddr::V6(v6) => {
-            v6.is_loopback() || v6.is_unique_local() || v6.is_unicast_link_local() || v6.is_unspecified()
+            v6.is_loopback()
+                || v6.is_unique_local()
+                || v6.is_unicast_link_local()
+                || v6.is_unspecified()
         }
     }
 }
@@ -890,10 +881,7 @@ ON CONFLICT (day, path) DO UPDATE SET
   unique_visitors = analytics_page_daily.unique_visitors + 1
 RETURNING unique_visitors
 "#,
-            [
-                SeaValue::from(day),
-                SeaValue::from(SITE_PATH.to_string()),
-            ],
+            [SeaValue::from(day), SeaValue::from(SITE_PATH.to_string())],
         ))
         .await?
         .and_then(|r| r.try_get::<i64>("", "unique_visitors").ok())
@@ -1140,11 +1128,7 @@ async fn process_items(ctx: &IntakeCtx, items: &[CollectItem]) -> usize {
         let kind = item.kind.trim().to_ascii_lowercase();
         match kind.as_str() {
             "pageview" => {
-                let Some(path) = item
-                    .path
-                    .as_deref()
-                    .and_then(normalize_path)
-                else {
+                let Some(path) = item.path.as_deref().and_then(normalize_path) else {
                     continue;
                 };
                 let _ = record_site_unique(&ctx.db, ctx.day, &ctx.visitor).await;
@@ -1155,30 +1139,15 @@ async fn process_items(ctx: &IntakeCtx, items: &[CollectItem]) -> usize {
                 {
                     accepted += 1;
                     if let Some(ref country) = ctx.country {
-                        let _ = bump_country(
-                            &ctx.db,
-                            ctx.day,
-                            country,
-                            &ctx.visitor,
-                            !dup,
-                        )
-                        .await;
+                        let _ = bump_country(&ctx.db, ctx.day, country, &ctx.visitor, !dup).await;
                     }
                 }
-                if let Some(host) = item
-                    .referrer
-                    .as_deref()
-                    .and_then(normalize_referrer_host)
-                {
+                if let Some(host) = item.referrer.as_deref().and_then(normalize_referrer_host) {
                     let _ = bump_referrer(&ctx.db, ctx.day, &host).await;
                 }
             }
             "engagement" => {
-                let Some(path) = item
-                    .path
-                    .as_deref()
-                    .and_then(normalize_path)
-                else {
+                let Some(path) = item.path.as_deref().and_then(normalize_path) else {
                     continue;
                 };
                 let ms = item.ms.unwrap_or(0);
@@ -1265,9 +1234,7 @@ pub(crate) fn analytics_collection_enabled(config: &DynamicConfig) -> bool {
 
 /// POST /api/analytics/collect — preferred batch endpoint.
 pub async fn collect(
-    axum::extract::State(dynamic_config): axum::extract::State<
-        Arc<RwLock<DynamicConfig>>,
-    >,
+    axum::extract::State(dynamic_config): axum::extract::State<Arc<RwLock<DynamicConfig>>>,
     crate::extract::Db(db): crate::extract::Db,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     request: Request,
@@ -1276,8 +1243,7 @@ pub async fn collect(
     let (ip, ua, is_staff, body) = match parse_json_body::<CollectRequest>(&db, request).await {
         Ok(v) => v,
         Err(e) => {
-            let status = StatusCode::from_u16(e.0.status_u16())
-                .unwrap_or(StatusCode::BAD_REQUEST);
+            let status = StatusCode::from_u16(e.0.status_u16()).unwrap_or(StatusCode::BAD_REQUEST);
             return (status, Json(e.0.to_json()));
         }
     };
@@ -1348,9 +1314,7 @@ pub async fn collect(
 
 /// POST /api/analytics/pageview — single pageview (compat).
 pub async fn record_pageview(
-    axum::extract::State(dynamic_config): axum::extract::State<
-        Arc<RwLock<DynamicConfig>>,
-    >,
+    axum::extract::State(dynamic_config): axum::extract::State<Arc<RwLock<DynamicConfig>>>,
     crate::extract::Db(db): crate::extract::Db,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     request: Request,
@@ -1359,8 +1323,7 @@ pub async fn record_pageview(
     let (ip, ua, is_staff, body) = match parse_json_body::<PageviewRequest>(&db, request).await {
         Ok(v) => v,
         Err(e) => {
-            let status = StatusCode::from_u16(e.0.status_u16())
-                .unwrap_or(StatusCode::BAD_REQUEST);
+            let status = StatusCode::from_u16(e.0.status_u16()).unwrap_or(StatusCode::BAD_REQUEST);
             return (status, Json(e.0.to_json()));
         }
     };
@@ -1464,11 +1427,7 @@ WHERE day >= $1 AND day <= $2 AND path = $3
 }
 
 /// Pageviews in `[from, to]` excluding the site-wide rollup path.
-pub(crate) async fn sum_page_views(
-    db: &DatabaseConnection,
-    from: NaiveDate,
-    to: NaiveDate,
-) -> i64 {
+pub(crate) async fn sum_page_views(db: &DatabaseConnection, from: NaiveDate, to: NaiveDate) -> i64 {
     db.query_one_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"

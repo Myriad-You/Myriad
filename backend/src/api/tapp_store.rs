@@ -32,7 +32,8 @@ mod widgets;
 use access::{
     authorize_runtime_storage, authorize_tapp_permission, can_write_installation_settings,
     canonical_installation_owner_id, current_is_admin, current_user_role,
-    filter_install_permissions, find_admin_user_id, find_visible_tapp, get_admin_user_id,
+    ensure_tapp_install_allowed, filter_install_permissions, find_admin_user_id, find_visible_tapp,
+    get_admin_user_id,
     installation_conflict_owner_ids, lock_tapp_lifecycle, optional_authenticated_user_id,
     require_current_admin,
 };
@@ -70,6 +71,7 @@ pub use types::{ApiResponse, TappDetail, TappListItem};
 #[cfg(test)]
 use uninstall::uninstall_post_commit_cleanup_path;
 use uninstall::{cleanup_temporary_tapps, uninstall_tapp};
+pub(crate) use uninstall::uninstall_tapp_for_user;
 pub use uninstall::{
     prune_stale_private_tapps, PRIVATE_INSTALL_INACTIVITY_DAYS,
 };

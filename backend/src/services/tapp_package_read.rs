@@ -25,10 +25,7 @@ impl InstalledCssMode {
 
 /// Parse cssMode from a raw manifest JSON value (DB-stored).
 pub fn installed_css_mode(manifest: &serde_json::Value) -> InstalledCssMode {
-    match manifest
-        .get("cssMode")
-        .and_then(serde_json::Value::as_str)
-    {
+    match manifest.get("cssMode").and_then(serde_json::Value::as_str) {
         Some("separated") => InstalledCssMode::Separated,
         _ => InstalledCssMode::Combined,
     }
@@ -246,7 +243,9 @@ mod tests {
         });
         let templates = installed_widget_template_paths(&manifest);
         assert_eq!(templates.len(), 2);
-        assert!(templates.iter().any(|t| t.widget_id == "card" && t.size == "2x2"));
+        assert!(templates
+            .iter()
+            .any(|t| t.widget_id == "card" && t.size == "2x2"));
 
         let names = installed_page_module_names(&manifest).unwrap();
         assert_eq!(names, vec!["extra.js", "boot.js"]);

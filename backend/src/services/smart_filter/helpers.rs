@@ -1,7 +1,5 @@
-
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-
 
 /// Parse a non-negative integer from JSON without dropping valid `u64` / float /
 /// string forms (Steam / GitHub APIs occasionally switch representation).
@@ -544,4 +542,3 @@ pub struct UnknownContent {
 }
 
 pub struct SmartFilter;
-

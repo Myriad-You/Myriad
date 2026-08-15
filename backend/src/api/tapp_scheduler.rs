@@ -49,12 +49,12 @@ pub async fn shutdown_scheduler() {
 }
 
 /// Public re-export for agent/system handlers.
-pub fn scheduler_engine() -> Result<std::sync::Arc<tokio::sync::RwLock<crate::services::tapp_scheduler::TappSchedulerEngine>>, String> {
+pub fn scheduler_engine() -> Result<
+    std::sync::Arc<tokio::sync::RwLock<crate::services::tapp_scheduler::TappSchedulerEngine>>,
+    String,
+> {
     crate::services::tapp_scheduler::scheduler_engine()
 }
-
-
-
 
 /// HTTP-facing handle: 503 when the engine has not been started.
 fn get_scheduler() -> Result<Arc<RwLock<TappSchedulerEngine>>, HttpError> {
@@ -191,9 +191,7 @@ fn parse_scope(s: &str) -> Result<TaskScope, HttpError> {
     }
 }
 
-fn normalize_retry_config(
-    retry: Option<RetryConfigRequest>,
-) -> Result<Option<Value>, HttpError> {
+fn normalize_retry_config(retry: Option<RetryConfigRequest>) -> Result<Option<Value>, HttpError> {
     let Some(retry) = retry else {
         return Ok(None);
     };
@@ -320,7 +318,13 @@ pub async fn register_task(
     runtime_grant.require_tapp_id(&req.tapp_id)?;
     runtime_grant.require(TappPermission::SchedulerRegister)?;
     let user_id = parse_user_id(&claims)?;
-    check_tapp_permission(&db, &claims, TappPermission::SchedulerRegister, &dynamic_config).await?;
+    check_tapp_permission(
+        &db,
+        &claims,
+        TappPermission::SchedulerRegister,
+        &dynamic_config,
+    )
+    .await?;
     verify_tapp_ownership(&db, user_id, &req.tapp_id).await?;
 
     let schedule_type = parse_schedule_type(&req.schedule_type)?;

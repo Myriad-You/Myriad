@@ -19,7 +19,9 @@ mod list_smoke_tests {
         let Ok(database_url) = database_url else {
             return;
         };
-        let db = Database::connect(&database_url).await.expect("connect test db");
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect test db");
         migration::Migrator::up(&db, None)
             .await
             .expect("migrator up");
@@ -28,11 +30,7 @@ mod list_smoke_tests {
             .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "INSERT INTO users (username) VALUES ($1) RETURNING id",
-                [format!(
-                    "channel-smoke-{}",
-                    uuid::Uuid::new_v4().simple()
-                )
-                .into()],
+                [format!("channel-smoke-{}", uuid::Uuid::new_v4().simple()).into()],
             ))
             .await
             .expect("insert user")

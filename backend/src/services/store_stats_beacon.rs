@@ -88,11 +88,7 @@ fn stable_key(material: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(material.as_bytes());
     let digest = hasher.finalize();
-    digest
-        .iter()
-        .take(16)
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    digest.iter().take(16).map(|b| format!("{b:02x}")).collect()
 }
 
 fn stats_enabled() -> bool {

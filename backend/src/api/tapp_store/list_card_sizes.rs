@@ -27,11 +27,7 @@ fn require_durable_user(claims: &Claims) -> Result<i32, (StatusCode, Json<Value>
         Some(user_id) => Ok(user_id),
         None => {
             // Distinguish guest cookie claims from garbage `sub`
-            let is_guest = claims
-                .sub
-                .parse::<i32>()
-                .map(|id| id < 0)
-                .unwrap_or(false)
+            let is_guest = claims.sub.parse::<i32>().map(|id| id < 0).unwrap_or(false)
                 || claims.username.starts_with("guest:");
             if is_guest {
                 Err((

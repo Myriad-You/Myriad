@@ -18,16 +18,12 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     Json,
 };
-use sea_orm::{
-    ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, Value as SeaValue,
-};
+use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, Value as SeaValue};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::env;
 
-use crate::middleware::auth::{
-    auth_cookie_value, encode_session_token, mint_session_claims,
-};
+use crate::middleware::auth::{auth_cookie_value, encode_session_token, mint_session_claims};
 use crate::oauth_url_builder::SiteConfig;
 use crate::services::oauth::{
     registry::REGISTRY,
@@ -210,9 +206,7 @@ pub async fn list_providers() -> Json<Value> {
 
 // GET /api/auth/oauth/:slug/login
 
-pub async fn provider_login(
-    Path(slug): Path<String>,
-) -> Result<Response, HttpError> {
+pub async fn provider_login(Path(slug): Path<String>) -> Result<Response, HttpError> {
     let provider = REGISTRY
         .get(&slug)
         .await
@@ -572,7 +566,10 @@ async fn handle_link_replay(
             ],
         ))
         .await
-        .map_err(|e| { tracing::error!("OAuth DB error: {e}"); err_500("Database error") })?;
+        .map_err(|e| {
+            tracing::error!("OAuth DB error: {e}");
+            err_500("Database error")
+        })?;
 
     if let Some(row) = existing {
         let username: Option<String> = row.try_get("", "provider_username").ok().flatten();
@@ -628,7 +625,10 @@ async fn handle_link(
             vec![SeaValue::Int(Some(link_user_id))],
         ))
         .await
-        .map_err(|e| { tracing::error!("OAuth DB error: {e}"); err_500("Database error") })?;
+        .map_err(|e| {
+            tracing::error!("OAuth DB error: {e}");
+            err_500("Database error")
+        })?;
 
     if user.is_none() {
         let url = format!(
@@ -650,15 +650,16 @@ async fn handle_link(
             ],
         ))
         .await
-        .map_err(|e| { tracing::error!("OAuth DB error: {e}"); err_500("Database error") })?;
+        .map_err(|e| {
+            tracing::error!("OAuth DB error: {e}");
+            err_500("Database error")
+        })?;
 
     if let Some(row) = existing {
-        let owner_id: i32 = row
-            .try_get("", "user_id")
-            .map_err(|e| {
-                tracing::error!(error = %e, "OAuth: failed to read user_id");
-                err_500("Database error")
-            })?;
+        let owner_id: i32 = row.try_get("", "user_id").map_err(|e| {
+            tracing::error!(error = %e, "OAuth: failed to read user_id");
+            err_500("Database error")
+        })?;
         if owner_id != link_user_id {
             let url = format!(
                 "{}/?link=error&reason=already_linked",
@@ -699,7 +700,10 @@ async fn handle_login(
             vec![SeaValue::Int(Some(user_id))],
         ))
         .await
-        .map_err(|e| { tracing::error!("OAuth DB error: {e}"); err_500("Database error") })?
+        .map_err(|e| {
+            tracing::error!("OAuth DB error: {e}");
+            err_500("Database error")
+        })?
         .ok_or_else(|| err_500("User vanished after create"))?;
 
     let is_admin: bool = row.try_get("", "is_admin").unwrap_or(false);
@@ -728,11 +732,10 @@ async fn handle_login(
         <script>window.location.href=\"/?auth=success\";</script></body></html>";
 
     let mut response = axum::response::Html(html).into_response();
-    let set_cookie = HeaderValue::from_str(&cookie_value)
-        .map_err(|e| {
-            tracing::error!(error = %e, "OAuth: invalid auth cookie header");
-            err_500("Internal error")
-        })?;
+    let set_cookie = HeaderValue::from_str(&cookie_value).map_err(|e| {
+        tracing::error!(error = %e, "OAuth: invalid auth cookie header");
+        err_500("Internal error")
+    })?;
     response
         .headers_mut()
         .insert(header::SET_COOKIE, set_cookie);
@@ -759,14 +762,15 @@ async fn find_or_create_user(
             ],
         ))
         .await
-        .map_err(|e| { tracing::error!("OAuth DB error: {e}"); err_500("Database error") })?
+        .map_err(|e| {
+            tracing::error!("OAuth DB error: {e}");
+            err_500("Database error")
+        })?
     {
-        let uid: i32 = row
-            .try_get("", "user_id")
-            .map_err(|e| {
-                tracing::error!(error = %e, "OAuth: failed to read user_id");
-                err_500("Database error")
-            })?;
+        let uid: i32 = row.try_get("", "user_id").map_err(|e| {
+            tracing::error!(error = %e, "OAuth: failed to read user_id");
+            err_500("Database error")
+        })?;
         // 更新 identity 的 last_login_at + 档案字段
         let _ = db
             .execute_raw(Statement::from_sql_and_values(
@@ -844,7 +848,7 @@ async fn find_or_create_user(
                 Json(json!({
                     "error": "email_already_registered",
                     "message": "An account with this email already exists. \
-Sign in with your original method, then link this provider from account settings."
+                Sign in with your original method, then link this provider from account settings."
                 })),
             )));
         }
@@ -987,10 +991,7 @@ async fn upsert_identity(
 /// 防止 username 冲突：若已存在，追加 `_<n>` 后缀
 ///
 /// MYR-036: one range scan for `base` / `base_*` instead of up to 100 point probes.
-async fn ensure_unique_username(
-    db: &DatabaseConnection,
-    base: &str,
-) -> Result<String, HttpError> {
+async fn ensure_unique_username(db: &DatabaseConnection, base: &str) -> Result<String, HttpError> {
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -1057,7 +1058,10 @@ pub async fn provider_unlink(
             ],
         ))
         .await
-        .map_err(|e| { tracing::error!("OAuth DB error: {e}"); err_500("Database error") })?;
+        .map_err(|e| {
+            tracing::error!("OAuth DB error: {e}");
+            err_500("Database error")
+        })?;
 
     if row.is_none() {
         return Err(err_404("identity not found or not yours"));
@@ -1073,7 +1077,10 @@ pub async fn provider_unlink(
             vec![SeaValue::Int(Some(user_id))],
         ))
         .await
-        .map_err(|e| { tracing::error!("OAuth DB error: {e}"); err_500("Database error") })?
+        .map_err(|e| {
+            tracing::error!("OAuth DB error: {e}");
+            err_500("Database error")
+        })?
         .ok_or_else(|| err_500("user not found"))?;
 
     let has_password: bool = summary.try_get("", "has_password").unwrap_or(false);
@@ -1139,7 +1146,10 @@ pub async fn list_my_identities(
             vec![SeaValue::Int(Some(user_id))],
         ))
         .await
-        .map_err(|e| { tracing::error!("OAuth DB error: {e}"); err_500("Database error") })?;
+        .map_err(|e| {
+            tracing::error!("OAuth DB error: {e}");
+            err_500("Database error")
+        })?;
 
     let identities: Vec<Value> = rows
         .into_iter()

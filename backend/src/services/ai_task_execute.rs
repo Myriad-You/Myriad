@@ -340,14 +340,12 @@ fn merge_task_broadcasts(
                 .payload
                 .get("text")
                 .and_then(Value::as_str)
-                .map(str::to_owned)
-                ?;
+                .map(str::to_owned)?;
             let incoming_text = incoming
                 .payload
                 .get("text")
                 .and_then(Value::as_str)
-                .map(str::to_owned)
-                ?;
+                .map(str::to_owned)?;
             let mut merged = previous_text;
             let remaining = max_text_bytes.saturating_sub(merged.len());
             let boundary = incoming_text

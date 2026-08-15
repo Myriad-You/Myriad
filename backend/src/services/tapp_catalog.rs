@@ -132,10 +132,7 @@ pub fn tapp_list_item_from_model(
 /// reports `status = "installed"` and omits `last_run_at` even when the DB row
 /// was inserted as Running with a timestamp (clients treat install as not yet
 /// "started" from the list UI).
-pub fn install_response_list_item(
-    tapp: tapps::Model,
-    is_site_owner_install: bool,
-) -> TappListItem {
+pub fn install_response_list_item(tapp: tapps::Model, is_site_owner_install: bool) -> TappListItem {
     let (is_temporary, is_admin_tapp) = catalog_install_flags(is_site_owner_install);
     let mut item = tapp_list_item_from_model(tapp, is_temporary, is_admin_tapp);
     item.status = "installed".to_string();
@@ -147,10 +144,7 @@ pub fn install_response_list_item(
 ///
 /// Preserves live status / last_run_at from the DB row; flags follow
 /// [`catalog_install_flags`].
-pub fn update_response_list_item(
-    tapp: tapps::Model,
-    is_site_owner_install: bool,
-) -> TappListItem {
+pub fn update_response_list_item(tapp: tapps::Model, is_site_owner_install: bool) -> TappListItem {
     let (is_temporary, is_admin_tapp) = catalog_install_flags(is_site_owner_install);
     tapp_list_item_from_model(tapp, is_temporary, is_admin_tapp)
 }

@@ -1,7 +1,5 @@
 //! Pure helpers for executor_utils_pure.
 
-
-
 use serde_json::Value;
 
 /// 安全截断 UTF-8 字符串到指定字节长度（不会在多字节字符中间截断）

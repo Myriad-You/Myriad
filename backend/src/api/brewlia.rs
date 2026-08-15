@@ -41,10 +41,7 @@ async fn verify_admin(
 }
 
 /// 创建 Brewlia API 路由
-pub fn create_brewlia_routes(
-    _app_state: crate::state::AppState,
-) -> Router<crate::state::AppState> {
-    
+pub fn create_brewlia_routes(_app_state: crate::state::AppState) -> Router<crate::state::AppState> {
     Router::<crate::state::AppState>::new()
         // 获取文章注释（优先从数据库，不存在则生成）
         .route("/items/{item_id}/annotations", get(get_annotations))

@@ -3,20 +3,13 @@
 use sea_orm::DatabaseConnection;
 use serde_json::{json, Value};
 
-use super::{
-    capability,
-    escalation,
-    executor,
-    orchestrator,
-    planner,
-    recipe,
-    response_agent,
-    skill_evolution,
-    types,
-};
-use super::agent_header::*;
 use super::agent_footer::*;
+use super::agent_header::*;
 use super::types::*;
+use super::{
+    capability, escalation, executor, orchestrator, planner, recipe, response_agent,
+    skill_evolution, types,
+};
 
 impl Agent {
     /// 创建新的 Agent 实例
@@ -929,7 +922,10 @@ impl Agent {
     }
 
     /// 是否允许联网搜索升级（白名单：generateReadingList + 显式 flag，或纯外部调研链）
-    pub(crate) fn allow_web_search_escalation(task_state: &TaskState, capability_ids: &[String]) -> bool {
+    pub(crate) fn allow_web_search_escalation(
+        task_state: &TaskState,
+        capability_ids: &[String],
+    ) -> bool {
         // brew.generateReadingList 仅在步骤参数显式开启时允许 web
         if let Some(recipe) = &task_state.recipe {
             for step in &recipe.steps {
@@ -959,7 +955,9 @@ impl Agent {
     }
 
     /// 构建评估上下文
-    pub(crate) fn evaluation_context_for_task(task_state: &TaskState) -> escalation::EvaluationContext {
+    pub(crate) fn evaluation_context_for_task(
+        task_state: &TaskState,
+    ) -> escalation::EvaluationContext {
         let capability_ids = Self::capability_ids_from_task(task_state);
         let allow_web_search = Self::allow_web_search_escalation(task_state, &capability_ids);
         escalation::EvaluationContext {
