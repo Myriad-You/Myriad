@@ -8,6 +8,17 @@ pub const MAX_TAPP_RESOURCE_BYTES: u64 = 25 * 1024 * 1024;
 pub const MAX_TAPP_ASSETS: usize = 64;
 pub const MAX_TAPP_ASSET_BYTES: u64 = 5 * 1024 * 1024;
 pub const MAX_TAPP_ASSETS_TOTAL_BYTES: u64 = 20 * 1024 * 1024;
+/// Game / 3D packages that declare `game` or `runtimeModules`.
+pub const MAX_TAPP_GAME_ASSETS: usize = 128;
+pub const MAX_TAPP_GAME_ASSET_BYTES: u64 = 12 * 1024 * 1024;
+pub const MAX_TAPP_GAME_ASSETS_TOTAL_BYTES: u64 = 48 * 1024 * 1024;
+pub const MAX_TAPP_RUNTIME_MODULES: usize = 4;
+pub const TAPP_RUNTIME_MODULES: &[&str] = &["three"];
+pub const MAX_TAPP_GAME_PROTOCOL_LEN: usize = 64;
+pub const MIN_TAPP_GAME_PLAYERS: u32 = 2;
+pub const MAX_TAPP_GAME_PLAYERS: u32 = 32;
+pub const DEFAULT_TAPP_GAME_MESSAGE_BYTES: u32 = 64 * 1024;
+pub const MAX_TAPP_GAME_MESSAGE_BYTES: u32 = 256 * 1024;
 pub const MAX_TAPP_MANIFEST_BYTES: u64 = 256 * 1024;
 pub const MAX_WIDGETS_PER_TAPP: usize = 64;
 pub const MAX_DATA_EXCHANGE_DECLARATIONS: usize = 32;

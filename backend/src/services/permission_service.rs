@@ -116,6 +116,8 @@ pub enum TappPermission {
     FederationMessage,
     #[serde(rename = "federation:files")]
     FederationFiles,
+    #[serde(rename = "game:session")]
+    GameSession,
 
     // Elevated 级别
     #[serde(rename = "ai:generate")]
@@ -210,7 +212,8 @@ impl TappPermission {
             | TappPermission::FederationRead
             | TappPermission::FederationWrite
             | TappPermission::FederationMessage
-            | TappPermission::FederationFiles => PermissionLevel::Basic,
+            | TappPermission::FederationFiles
+            | TappPermission::GameSession => PermissionLevel::Basic,
 
             // Elevated（可配置下放的集合见 all_elevated；brew:write 不在其中）
             TappPermission::AiGenerate
@@ -281,6 +284,7 @@ impl TappPermission {
             TappPermission::FederationMessage => "联邦消息",
             TappPermission::FederationFiles => "联邦文件传输",
             TappPermission::FederationTrust => "联邦信任管理",
+            TappPermission::GameSession => "游戏房间会话",
         }
     }
 
@@ -344,6 +348,7 @@ impl TappPermission {
             "federation:message" => Some(TappPermission::FederationMessage),
             "federation:files" => Some(TappPermission::FederationFiles),
             "federation:trust" => Some(TappPermission::FederationTrust),
+            "game:session" => Some(TappPermission::GameSession),
             _ => None,
         }
     }
@@ -391,6 +396,7 @@ impl TappPermission {
             TappPermission::FederationMessage => "federation:message",
             TappPermission::FederationFiles => "federation:files",
             TappPermission::FederationTrust => "federation:trust",
+            TappPermission::GameSession => "game:session",
         }
     }
 }
@@ -445,6 +451,7 @@ impl TappPermissionService {
                 TappPermission::FederationWrite
                     | TappPermission::FederationMessage
                     | TappPermission::FederationFiles
+                    | TappPermission::GameSession
             )
         {
             return false;

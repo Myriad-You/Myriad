@@ -33,7 +33,11 @@ pub use myriad_tapp_contract::contract_rules::{
     MAX_DATA_EXCHANGE_ID_LEN, MAX_DATA_EXCHANGE_RESPONSE_BYTES, MAX_DATA_EXCHANGE_SCHEMA_BYTES,
     MAX_RESOURCE_PATH_LEN, MAX_TAPP_ARCHIVE_BYTES, MAX_TAPP_ARCHIVE_FILES,
     MAX_TAPP_ARCHIVE_UNCOMPRESSED_BYTES, MAX_TAPP_ASSETS, MAX_TAPP_ASSETS_TOTAL_BYTES,
-    MAX_TAPP_ASSET_BYTES, MAX_TAPP_CREDENTIALS, MAX_TAPP_I18N_FILES, MAX_TAPP_I18N_RESOURCE_BYTES,
+    MAX_TAPP_ASSET_BYTES, MAX_TAPP_CREDENTIALS, MAX_TAPP_GAME_ASSETS,
+    MAX_TAPP_GAME_ASSETS_TOTAL_BYTES, MAX_TAPP_GAME_ASSET_BYTES, MAX_TAPP_GAME_MESSAGE_BYTES,
+    MAX_TAPP_GAME_PLAYERS, MAX_TAPP_GAME_PROTOCOL_LEN, MAX_TAPP_I18N_FILES,
+    MAX_TAPP_I18N_RESOURCE_BYTES, MAX_TAPP_RUNTIME_MODULES, MIN_TAPP_GAME_PLAYERS,
+    TAPP_RUNTIME_MODULES,
     MAX_TAPP_ID_LEN, MAX_TAPP_MANIFEST_BYTES, MAX_TAPP_RESOURCE_BYTES, MAX_WIDGETS_PER_TAPP,
 };
 
@@ -627,6 +631,69 @@ pub fn validate_tapp_manifest(manifest: &TappManifest) -> Result<(), String> {
         }
     }
 
+    if let Some(modules) = &manifest.runtime_modules {
+        if modules.len() > MAX_TAPP_RUNTIME_MODULES {
+            return Err(format!(
+                "Tapp runtimeModules accepts at most {MAX_TAPP_RUNTIME_MODULES} entries"
+            ));
+        }
+        if !matches!(
+            manifest.category,
+            Some(myriad_tapp_contract::manifest::TappCategory::Game)
+                | Some(myriad_tapp_contract::manifest::TappCategory::Developer)
+        ) {
+            return Err(
+                "runtimeModules is only allowed for game or developer Tapps".to_string(),
+            );
+        }
+        let mut seen = std::collections::HashSet::new();
+        for module in modules {
+            if !TAPP_RUNTIME_MODULES.contains(&module.as_str()) || !seen.insert(module.as_str())
+            {
+                return Err(format!(
+                    "Unknown or duplicate runtime module: {module}; allowed: {}",
+                    TAPP_RUNTIME_MODULES.join(", ")
+                ));
+            }
+        }
+    }
+
+    if let Some(game) = &manifest.game {
+        if game.protocol.is_empty() || game.protocol.len() > MAX_TAPP_GAME_PROTOCOL_LEN {
+            return Err(format!(
+                "Tapp game.protocol must be 1-{MAX_TAPP_GAME_PROTOCOL_LEN} characters"
+            ));
+        }
+        if !game
+            .protocol
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '-' | '_'))
+        {
+            return Err("Tapp game.protocol must be lowercase [a-z0-9._-]".to_string());
+        }
+        if let Some(players) = game.max_players {
+            if !(MIN_TAPP_GAME_PLAYERS..=MAX_TAPP_GAME_PLAYERS).contains(&players) {
+                return Err(format!(
+                    "Tapp game.maxPlayers must be {MIN_TAPP_GAME_PLAYERS}-{MAX_TAPP_GAME_PLAYERS}"
+                ));
+            }
+        }
+        if let Some(bytes) = game.max_message_bytes {
+            if !(1024..=MAX_TAPP_GAME_MESSAGE_BYTES).contains(&bytes) {
+                return Err(format!(
+                    "Tapp game.maxMessageBytes must be 1024-{MAX_TAPP_GAME_MESSAGE_BYTES}"
+                ));
+            }
+        }
+        if !manifest
+            .permissions
+            .iter()
+            .any(|permission| permission == "game:session")
+        {
+            return Err("Tapp game requires the game:session permission".to_string());
+        }
+    }
+
     if let Some(requirements) = &manifest.background_requirements {
         if requirements.len() > 16 {
             return Err("Tapp backgroundRequirements accepts at most 16 entries".to_string());
@@ -703,9 +770,14 @@ pub fn validate_tapp_manifest(manifest: &TappManifest) -> Result<(), String> {
     }
 
     if let Some(assets) = &manifest.assets {
-        if assets.len() > MAX_TAPP_ASSETS {
+        let max_assets = if manifest.uses_game_asset_limits() {
+            MAX_TAPP_GAME_ASSETS
+        } else {
+            MAX_TAPP_ASSETS
+        };
+        if assets.len() > max_assets {
             return Err(format!(
-                "Tapp assets accepts at most {MAX_TAPP_ASSETS} entries"
+                "Tapp assets accepts at most {max_assets} entries"
             ));
         }
         let mut seen = std::collections::HashSet::new();
@@ -1854,6 +1926,8 @@ mod tests {
             credentials: None,
             category: Some(TappCategory::Utility),
             page_modules: None,
+            runtime_modules: None,
+            game: None,
             apis: None,
             data_exchange: None,
             ai: None,
@@ -1944,5 +2018,49 @@ mod tests {
                 .is_ok()
         );
         assert!(validate_named_resource_keys([&"../x".to_string()], "dir").is_err());
+    }
+
+    #[test]
+    fn game_declaration_requires_permission_and_safe_protocol() {
+        let mut manifest: TappManifest = serde_json::from_value(json!({
+            "id": "com.example.chess",
+            "name": "Chess",
+            "version": "1.0.0",
+            "main": "main.js",
+            "category": "game",
+            "permissions": ["game:session"],
+            "game": { "protocol": "v1", "maxPlayers": 2 }
+        }))
+        .unwrap();
+        assert!(validate_tapp_manifest(&manifest).is_ok());
+        manifest.permissions.clear();
+        assert!(validate_tapp_manifest(&manifest)
+            .unwrap_err()
+            .contains("game:session"));
+        manifest.permissions = vec!["game:session".into()];
+        manifest.game.as_mut().unwrap().protocol = "V1".into();
+        assert!(validate_tapp_manifest(&manifest)
+            .unwrap_err()
+            .contains("lowercase"));
+    }
+
+    #[test]
+    fn runtime_modules_only_on_game_or_developer() {
+        let mut manifest: TappManifest = serde_json::from_value(json!({
+            "id": "com.example.lab",
+            "name": "Lab",
+            "version": "1.0.0",
+            "main": "main.js",
+            "category": "developer",
+            "permissions": [],
+            "runtimeModules": ["three"]
+        }))
+        .unwrap();
+        assert!(validate_tapp_manifest(&manifest).is_ok());
+        assert!(manifest.uses_game_asset_limits());
+        manifest.category = Some(myriad_tapp_contract::manifest::TappCategory::Utility);
+        assert!(validate_tapp_manifest(&manifest)
+            .unwrap_err()
+            .contains("runtimeModules"));
     }
 }

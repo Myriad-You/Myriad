@@ -78,6 +78,12 @@ pub struct TappManifest {
     pub category: Option<TappCategory>,
     #[serde(default)]
     pub page_modules: Option<Vec<String>>,
+    /// Host-injected, pinned runtime libraries (currently only `three`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_modules: Option<Vec<String>>,
+    /// Optional turn-based game session declaration (federation rooms).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub game: Option<TappGameDef>,
     #[serde(default)]
     pub apis: Option<HashMap<String, TappApiDef>>,
     #[serde(default)]
@@ -94,6 +100,48 @@ pub struct TappManifest {
     /// Runtime opens only by declared `id` (+ optional path/query under match rules).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open_urls: Option<Vec<TappOpenUrlDef>>,
+}
+
+impl TappManifest {
+    /// Larger asset caps apply only to game/developer packages that opt into
+    /// the game session or a host runtime module.
+    pub fn uses_game_asset_limits(&self) -> bool {
+        let category_ok = matches!(
+            self.category,
+            Some(TappCategory::Game) | Some(TappCategory::Developer)
+        );
+        if !category_ok {
+            return false;
+        }
+        let has_game = self
+            .game
+            .as_ref()
+            .is_some_and(|game| game.qualifies_for_game_asset_limits());
+        let has_runtime = self
+            .runtime_modules
+            .as_ref()
+            .is_some_and(|modules| !modules.is_empty());
+        has_game || has_runtime
+    }
+}
+
+/// Turn-based game session declared by a Tapp. Rooms still carry authority.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TappGameDef {
+    /// Stable protocol name, e.g. `gomoku`. Combined with tapp id in message types.
+    pub protocol: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_players: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_message_bytes: Option<u32>,
+}
+
+impl TappGameDef {
+    pub fn qualifies_for_game_asset_limits(&self) -> bool {
+        !self.protocol.trim().is_empty()
+    }
 }
 
 /// One install-time declared external navigation target.

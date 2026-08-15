@@ -2781,6 +2781,7 @@ export interface TranslationKeys {
     permMessageFederation: string
     permTrustFederation: string
     permFederationFiles: string
+    permGameSession: string
 
     // 权限描述
     permRegisterWidgetDesc: string
@@ -2823,6 +2824,7 @@ export interface TranslationKeys {
     permMessageFederationDesc: string
     permTrustFederationDesc: string
     permFederationFilesDesc: string
+    permGameSessionDesc: string
 
     // 列表页面
     listTitle: string

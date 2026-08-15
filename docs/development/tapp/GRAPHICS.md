@@ -99,17 +99,31 @@ function frame(ts) {
 
 ## Three.js / WebGL 库
 
-Three.js 是 **Page 里的 guest 依赖**，不是宿主 SDK。不要写 `Tapp.three`，不要从
+Three.js 可以由宿主注入，也可以仍是 Page 里的 guest 依赖。不要写 `Tapp.three`，不要从
 CDN / `unpkg` / `jsdelivr` / `esm.sh` 加载，也不要把 `three` 打进 Myriad 主包。
 
-沙箱里的 `pageModules` 会按顺序拼成一段经典脚本（不是 ES module）。因此：
+推荐（游戏 / developer 分类）：
+
+```json
+{
+  "category": "game",
+  "runtimeModules": ["three"],
+  "assets": ["assets/check.png", "assets/cube.glb"]
+}
+```
+
+宿主会把钉死的 Three r170 + `GLTFLoader` 当作带 nonce 的脚本注入沙箱（全局 `THREE` /
+`GLTFLoader`）。未声明 `runtimeModules` 的 Tapp 行为不变，CSP 也不变。
+
+也可以继续自己打 IIFE 放进 `pageModules`。沙箱里的 `pageModules` 会按顺序拼成一段经典
+脚本（不是 ES module）：
 
 1. 用 esbuild / Rollup 把 `three`（以及需要的 addons）打成 **IIFE**，输出到 `page/`。
 2. 在 `manifest.pageModules` 里声明该文件（例如 `scene.js`）。
 3. `.js` 不能放进 `manifest.assets`；库源码属于页面模块，贴图 / glTF / wasm 才走
    `assets/`。
-4. 合计仍受 20 MiB / 单文件 5 MiB 限制。只打用到的 addons，不要带 DRACO/Basis 解码器
-   除非包里真有对应 wasm。
+4. 默认合计 20 MiB / 单文件 5 MiB。声明了 `game` 或 `runtimeModules` 的 game/developer
+   包放宽到合计 48 MiB / 单文件 12 MiB / 128 项。
 
 ```bash
 # 在 Tapp 项目里（three 只做 devDependency）

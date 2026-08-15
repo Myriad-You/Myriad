@@ -2964,6 +2964,7 @@ export const zhCN: TranslationKeys = {
     permMessageFederation: '联邦消息',
     permTrustFederation: '联邦信任',
     permFederationFiles: '联邦文件',
+    permGameSession: '游戏房间',
 
     // 权限描述
     permRegisterWidgetDesc: '仅允许管理员注册自定义小组件到主页',
@@ -3008,6 +3009,8 @@ export const zhCN: TranslationKeys = {
     permMessageFederationDesc: '允许发送和接收联邦消息',
     permTrustFederationDesc: '允许管理联邦信任关系',
     permFederationFilesDesc: '允许访问联邦文件传输能力',
+    permGameSessionDesc:
+      '允许用联邦房间开局、加入和收发结构化游戏消息（仍需对应联邦权限）',
 
     // 列表页面
     listTitle: 'Tapp 应用',

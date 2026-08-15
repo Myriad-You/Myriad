@@ -17,6 +17,17 @@ pub struct CreateRoomRequest {
     pub invite_policy: Option<String>,
     pub max_members: Option<i32>,
     pub is_public: Option<bool>,
+    /// Optional structured game session bound to this room.
+    pub game: Option<RoomGameConfig>,
+}
+
+/// Game metadata stored in `shared_data_config.game`.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RoomGameConfig {
+    pub tapp_id: String,
+    pub protocol: String,
+    pub max_players: Option<i32>,
+    pub max_message_bytes: Option<i32>,
 }
 
 /// 更新 Room 请求

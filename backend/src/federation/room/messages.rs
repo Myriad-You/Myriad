@@ -35,6 +35,14 @@ pub async fn send_room_message(
     let local_actor = actor_url(&base_url, username);
     let message_type = req.message_type.as_deref().unwrap_or("text");
     let want_encrypt = req.encrypt.unwrap_or(false);
+    if let Err(error) =
+        super::game::validate_outgoing_game_message(message_type, &req.payload, want_encrypt)
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": error, "code": "GAME_MESSAGE_INVALID"})),
+        ));
+    }
 
     // 验证成员身份（pending 邀请返回 ROOM_INVITE_PENDING，便于客户端引导接受）
     let my_role = require_active_member_role(db, room_id, &local_actor).await?;

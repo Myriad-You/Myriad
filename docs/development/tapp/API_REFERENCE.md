@@ -1108,6 +1108,35 @@ Channel/Room **JSON 消息**（含内联 base64 图）后端载荷上限 **36 Mi
 参数与 REST 字段以 `frontend/src/types/federation.ts`、后端路由与
 `fixtures/action_permissions.json` 为准，勿从方法名臆造字段。
 
+## Game API
+
+**权限**: `game:session`（另需 `federation:read` / `federation:write` / `federation:message`）
+
+Page 上的 `Tapp.game` 把联邦房间收成对局会话。消息类型固定为
+`game:<tappId>:<protocol>`，载荷只能是
+`{ kind: "intent"|"state", seq, nonce, body }`，默认 ≤ 64 KiB，不能 E2E 加密。
+跨实例入站时**不**对这段 JSON 做关键词过滤，但仍检查成员、签名、体积、频率和域名拉黑。
+
+```javascript
+const room = await Tapp.game.create({ name: "Gomoku", maxPlayers: 2 });
+// room.share_id === `${room.room_id}@${room.home_server}`
+await navigator.clipboard.writeText(room.share_id);
+
+const joined = await Tapp.game.join("rm_…@peer.example:8443");
+await Tapp.federation.subscribeRoom(joined.room_id);
+
+Tapp.game.onMessage((ev) => {
+  const envelope = ev.data.message.payload; // kind / seq / nonce / body
+});
+
+await Tapp.game.sendIntent(joined.room_id, { action: "place", row: 7, col: 7 }, 1);
+await Tapp.game.sendState(room.room_id, snapshot, seq);
+```
+
+失败时 `join` 可能带 `code`：`ROOM_NOT_FOUND`、`REMOTE_HOME_UNREACHABLE`、
+`REMOTE_NOT_PUBLIC`、`INSTANCE_BLOCKED`。Playground 预览不注册这些 handler。
+权威仍在房主客户端；房主掉线不会自动选主。
+
 ---
 
 ## Tapp 列表 API

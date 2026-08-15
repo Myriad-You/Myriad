@@ -796,6 +796,7 @@ pub async fn join_room(
                 StatusCode::NOT_FOUND,
                 Json(json!({
                     "error": "Room not found on this instance",
+                    "code": "ROOM_NOT_FOUND",
                     "hint": "For remote public groups, use room_id@home_server (shown when sharing)"
                 })),
             ));
@@ -819,6 +820,7 @@ pub async fn join_room(
                     StatusCode::NOT_FOUND,
                     Json(json!({
                         "error": "Public room not found on home server",
+                        "code": "REMOTE_HOME_UNREACHABLE",
                         "detail": e
                     })),
                 )

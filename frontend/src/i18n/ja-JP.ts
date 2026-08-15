@@ -3097,6 +3097,7 @@ export const jaJP: TranslationKeys = {
     permMessageFederation: 'Federation メッセージ',
     permTrustFederation: 'Federation 信頼管理',
     permFederationFiles: 'Federation ファイル',
+    permGameSession: 'ゲームルーム',
 
     // 権限説明
     permRegisterWidgetDesc:
@@ -3146,6 +3147,8 @@ export const jaJP: TranslationKeys = {
     permMessageFederationDesc: 'Federation メッセージの送受信を許可',
     permTrustFederationDesc: 'Federation の信頼関係の管理を許可',
     permFederationFilesDesc: 'Federation ファイル転送機能へのアクセスを許可',
+    permGameSessionDesc:
+      'Federation ルームでの対局作成・参加と構造化ゲームメッセージの送受信を許可（Federation 権限も必要）',
 
     // リストページ
     listTitle: 'Tapp アプリ',

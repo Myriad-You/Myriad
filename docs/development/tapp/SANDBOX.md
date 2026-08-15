@@ -77,6 +77,8 @@ manifest-src 'none'
 - `connect-src` 仅 `blob:` / `data:`：包内 Loader（Three `FileLoader`、`.glb`）
   可以读沙箱自己创建的 blob。即使有 `network:fetch`，也不能直接 `fetch` `https:` /
   XHR/WS，出站仍走 Manifest `apis` + Bridge。包装器同样拒绝非 blob/data 的 `fetch`。
+- 联邦入站的 `game:<tappId>:<protocol>` 房间消息不过关键词过滤（仍检查成员、签名、
+  体积、频率和域名拉黑）。普通聊天和 Note 仍走内容过滤。
 - `'wasm-unsafe-eval'` 仅用于 WebAssembly 编译，不等于开放 `eval`。
 - `media:audio` 仅把 `media-src` 放宽到 `blob: data:`；任意远程音视频同样要
   `network:fetch`。

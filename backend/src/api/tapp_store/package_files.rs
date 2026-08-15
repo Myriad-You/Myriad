@@ -823,7 +823,12 @@ pub(crate) async fn write_install_assets(
     for (relative, encoded) in assets {
         validate_asset_path(relative)?;
         let bytes = decode_asset_base64(encoded)?;
-        total = validate_asset_resource_bytes(relative, bytes.len() as u64, total)?;
+        total = crate::services::tapp_install_resources::validate_asset_resource_bytes_with(
+            relative,
+            bytes.len() as u64,
+            total,
+            crate::services::tapp_install_resources::AssetBudget::for_manifest(manifest),
+        )?;
         write_tapp_resource(tapp_dir, relative, &bytes)
             .await
             .map_err(|_| format!("Failed to save asset: {relative}"))?;
@@ -882,7 +887,14 @@ pub(crate) fn validate_installed_resources(
                     .ok_or_else(|| asset_not_regular(relative))?;
                 let bytes = std::fs::read(&path).map_err(|_| asset_not_found(relative))?;
                 asset_total =
-                    validate_asset_resource_bytes(relative, bytes.len() as u64, asset_total)?;
+                    crate::services::tapp_install_resources::validate_asset_resource_bytes_with(
+                        relative,
+                        bytes.len() as u64,
+                        asset_total,
+                        crate::services::tapp_install_resources::AssetBudget::for_manifest(
+                            manifest,
+                        ),
+                    )?;
             }
         }
     }

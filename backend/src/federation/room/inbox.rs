@@ -350,12 +350,17 @@ pub async fn handle_room_message(
         .and_then(|v| v.as_str())
         .unwrap_or("text");
     let payload = object.get("payload").cloned().unwrap_or(json!(null));
-    let thread_id = object.get("threadId").and_then(|v| v.as_str());
-    let reply_to = object.get("replyTo").and_then(|v| v.as_str());
     let is_encrypted = object
         .get("isEncrypted")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+    if let Err(error) =
+        super::game::validate_outgoing_game_message(message_type, &payload, is_encrypted)
+    {
+        return Err(format!("GAME_MESSAGE_INVALID: {error}"));
+    }
+    let thread_id = object.get("threadId").and_then(|v| v.as_str());
+    let reply_to = object.get("replyTo").and_then(|v| v.as_str());
 
     let inserted = db
         .execute_raw(Statement::from_sql_and_values(

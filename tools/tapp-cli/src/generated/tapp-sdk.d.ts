@@ -351,6 +351,14 @@ export interface TappSdk {
   file: {
     download(...args: unknown[]): Promise<unknown> // permission: storage
   }
+  game: {
+    create(...args: unknown[]): Promise<unknown> // permission: game:session
+    join(...args: unknown[]): Promise<unknown> // permission: game:session
+    leave(...args: unknown[]): Promise<unknown> // permission: game:session
+    sendIntent(...args: unknown[]): Promise<unknown> // permission: game:session
+    sendState(...args: unknown[]): Promise<unknown> // permission: game:session
+    shareId(...args: unknown[]): Promise<unknown> // permission: game:session
+  }
   platform: {
     addItem(...args: unknown[]): Promise<unknown> // permission: platform:write
     addItems(...args: unknown[]): Promise<unknown> // permission: platform:write

@@ -35,6 +35,9 @@
     "dataExchangeResponseBytes": 524288,
     "dataExchangeSchemaBytes": 65536,
     "eventTopics": 100,
+    "gameAssetBytes": 12582912,
+    "gameAssets": 128,
+    "gameAssetsTotalBytes": 50331648,
     "httpUrlLength": 2048,
     "i18nFiles": 32,
     "i18nResourceBytes": 1048576,
@@ -942,6 +945,36 @@
         },
         "type": "object"
       },
+      "TappGameDef": {
+        "additionalProperties": false,
+        "description": "Turn-based game session declared by a Tapp. Rooms still carry authority.",
+        "properties": {
+          "maxMessageBytes": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "maxPlayers": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "protocol": {
+            "description": "Stable protocol name, e.g. `gomoku`. Combined with tapp id in message types.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol"
+        ],
+        "type": "object"
+      },
       "TappHttpBodyMode": {
         "enum": [
           "json",
@@ -1394,6 +1427,17 @@
         ],
         "default": null
       },
+      "game": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/TappGameDef"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "description": "Optional turn-based game session declaration (federation rooms)."
+      },
       "hasPage": {
         "default": false,
         "type": "boolean"
@@ -1483,6 +1527,16 @@
       "repository": {
         "type": [
           "string",
+          "null"
+        ]
+      },
+      "runtimeModules": {
+        "description": "Host-injected, pinned runtime libraries (currently only `three`).",
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "array",
           "null"
         ]
       },
@@ -1576,7 +1630,8 @@
       "federation:write": "basic",
       "federation:message": "basic",
       "federation:trust": "privileged",
-      "federation:files": "basic"
+      "federation:files": "basic",
+      "game:session": "basic"
     },
     "actions": {
       "lifecycle.ready": "public",
@@ -1802,6 +1857,12 @@
       "federation.unsubscribeChannel": "federation:message",
       "federation.subscribeRoom": "federation:message",
       "federation.unsubscribeRoom": "federation:message",
+      "game.create": "game:session",
+      "game.join": "game:session",
+      "game.leave": "game:session",
+      "game.shareId": "game:session",
+      "game.sendIntent": "game:session",
+      "game.sendState": "game:session",
       "federation.getTrustPolicy": "federation:trust",
       "federation.updateTrustPolicy": "federation:trust",
       "federation.getInstances": "federation:trust",

@@ -21,10 +21,12 @@ Playground 项目至少需要 **Page** 或 **Widgets** 之一（允许 Widget-on
   CSP 使用每实例 nonce。Widget-only 预览不挂载 Page 沙箱。
 - Canvas / WebGL / Three.js 只放在 **Page**。不要在 Widget 里跑 rAF 主循环或 3D 场景。
 - 禁止输出 CDN 脚本（`unpkg` / `jsdelivr` / `cdnjs` / `esm.sh` / `threejs.org/build`）。
-  沙箱 `connect-src` 只有 `blob:` / `data:`，也不能 `import` npm。Three 等库必须预打成 IIFE 写入
-  `page/`，由 `manifest.pageModules` 加载；贴图和 `.glb` 走 `Tapp.assets`。
+  沙箱 `connect-src` 只有 `blob:` / `data:`，也不能 `import` npm。
+  3D 预览请声明 `runtimeModules: ["three"]`（game / developer），使用宿主注入的
+  `THREE` / `GLTFLoader`；贴图和 `.glb` 走 `Tapp.assets`。
   先 `Tapp.assets.getUrlMap()`，再用 `rewriteUrl` 接 LoadingManager。
   `fetch` 只能打 blob/data。详见 [GRAPHICS.md](GRAPHICS.md)。
+- 不要在预览里调用 `Tapp.game` 或联邦房间。联机只写正式安装后的代码。
 
 ## 宿主展示文案 vs 应用内 i18n（勿混淆）
 

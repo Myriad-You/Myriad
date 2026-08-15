@@ -942,6 +942,20 @@ export function generateFullSDK(
       onRoomUpdate: (cb) => addEventListener('federation:roomUpdate', cb),
     },
 
+    game: {
+      create: (opts) => sendRequest('game', 'create', [opts || {}]),
+      join: (shareId) => sendRequest('game', 'join', [shareId]),
+      leave: (roomId) => sendRequest('game', 'leave', [roomId]),
+      shareId: (room) => sendRequest('game', 'shareId', [room]),
+      sendIntent: (roomId, body, seq) => sendRequest('game', 'sendIntent', [roomId, body, seq]),
+      sendState: (roomId, body, seq) => sendRequest('game', 'sendState', [roomId, body, seq]),
+      onMessage: (cb) => addEventListener('federation:message', (ev) => {
+        const type = ev && ev.data && ev.data.message && ev.data.message.message_type;
+        if (typeof type === 'string' && type.indexOf('game:') === 0) cb(ev);
+      }),
+      onRoomUpdate: (cb) => addEventListener('federation:roomUpdate', cb),
+    },
+
     on: addEventListener,
     widgets: {},
     pages: {},
@@ -1004,6 +1018,7 @@ export function generateFullSDK(
   Object.freeze(Tapp.animation);
   Object.freeze(Tapp.speech);
   Object.freeze(Tapp.federation);
+  Object.freeze(Tapp.game);
 
   // widgets/pages 容器保持可扩展：Tapp 代码需要向其注册定义
   // （Object.seal 会禁止新增属性，strict 模式下注册直接抛 TypeError）。

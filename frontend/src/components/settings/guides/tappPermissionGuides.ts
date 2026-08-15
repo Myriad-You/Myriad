@@ -296,6 +296,13 @@ const zh: TappPermissionGuides = {
     frontend: '联邦场景下的附件/文件功能。',
     notes: '文件体积与类型可能受限；注意恶意文件风险。',
   },
+  'game:session': {
+    what: '允许用联邦房间开对局、加入并收发结构化游戏消息。',
+    chain:
+      '① 应用调用 Tapp.game。\n② 宿主在房间上发送 game:<tappId>:<protocol> 信封。\n③ 本机或对端实例的成员收到意图/状态。',
+    frontend: '游戏开房、分享 room_id@home_server、对局同步。',
+    notes: '仍需联邦读写/消息权限。权威在房主客户端；跨实例不过关键词过滤，但仍受拉黑与体积限制。',
+  },
 }
 
 const en: TappPermissionGuides = {
@@ -580,6 +587,13 @@ const en: TappPermissionGuides = {
     frontend: 'Federation attachments/files.',
     notes: 'Size/type limits may apply; malware risk.',
   },
+  'game:session': {
+    what: 'Allows creating and joining federation game rooms and exchanging structured game messages.',
+    chain:
+      '1) App calls Tapp.game.\n2) Host sends game:<tappId>:<protocol> envelopes on a room.\n3) Members on this or a peer instance receive intent/state.',
+    frontend: 'Game lobby, share room_id@home_server, match sync.',
+    notes: 'Federation read/write/message are still required. Authority stays with the host client.',
+  },
 }
 
 const ja: TappPermissionGuides = {
@@ -863,6 +877,13 @@ const ja: TappPermissionGuides = {
       '① ファイル API。\n② ファイル経路。\n③ 相手へ到達またはローカル保存。',
     frontend: '添付/ファイル機能。',
     notes: 'サイズ制限あり。悪意あるファイルに注意。',
+  },
+  'game:session': {
+    what: 'フェデレーションルームで対局を作り、参加し、構造化メッセージを送れます。',
+    chain:
+      '① Tapp.game を呼ぶ。\n② ホストが game:<tappId>:<protocol> をルームへ送る。\n③ 自サイトまたは相手サイトのメンバーが受け取る。',
+    frontend: '対局ロビー、room_id@home_server の共有、同期。',
+    notes: 'Federation の読み書き/メッセージ権限も必要です。権威はホスト側クライアントに残ります。',
   },
 }
 

@@ -156,6 +156,19 @@ export interface TappManifest {
    */
   pageModules?: string[]
 
+  /** Host-injected runtime libraries. Currently only `three`. */
+  runtimeModules?: Array<'three'>
+
+  /**
+   * Turn-based game session on federation rooms.
+   * Requires `game:session` plus federation room permissions.
+   */
+  game?: {
+    protocol: string
+    maxPlayers?: number
+    maxMessageBytes?: number
+  }
+
   /** 应用用途分类（稳定 ID，由宿主翻译显示） */
   category: TappCategory
 
@@ -490,6 +503,7 @@ export type TappPermission =
   | 'federation:message'
   | 'federation:trust'
   | 'federation:files'
+  | 'game:session'
 
 // 用户角色
 

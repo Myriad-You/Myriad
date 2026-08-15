@@ -3117,6 +3117,7 @@ export const enUS: TranslationKeys = {
     permMessageFederation: 'Federation Messaging',
     permTrustFederation: 'Federation Trust',
     permFederationFiles: 'Federation Files',
+    permGameSession: 'Game rooms',
 
     // Permission descriptions
     permRegisterWidgetDesc:
@@ -3168,6 +3169,8 @@ export const enUS: TranslationKeys = {
     permTrustFederationDesc: 'Allow managing federation trust relationships',
     permFederationFilesDesc:
       'Allow accessing federation file transfer capabilities',
+    permGameSessionDesc:
+      'Allow creating and joining federation game rooms and exchanging structured game messages (federation permissions still required)',
 
     // List page
     listTitle: 'Tapp Apps',

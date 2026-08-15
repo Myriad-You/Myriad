@@ -48,9 +48,25 @@ Manifest 是 Tapp 的核心配置文件，定义了应用的元数据、权限�
 目录内的文件名，不能再次包含目录前缀。`main` 必须是 `.js`，样式路径必须是 `.css`，
 Page/Widget 模板必须是 `.html`；代码与模板类声明资源必须是安装目录内的普通 UTF-8 文本
 文件。`assets` 允许二进制（贴图、音频、wasm、JSON 关卡等），路径必须位于 `assets/`
-下，且不得使用 `.js` / `.html` 扩展名；单文件 ≤ 5 MiB，合计 ≤ 20 MiB，最多 64 项。
-资源读取不会跟随安装后插入的符号链接。运行时通过 `Tapp.assets` 读取，详见
-[图形与轻量游戏](GRAPHICS.md)。
+下，且不得使用 `.js` / `.html` 扩展名；默认单文件 ≤ 5 MiB，合计 ≤ 20 MiB，最多 64 项。
+`category` 为 `game` 或 `developer`，并且声明了 `game` 或 `runtimeModules` 时，放宽到
+单文件 12 MiB / 合计 48 MiB / 128 项。资源读取不会跟随安装后插入的符号链接。运行时通过
+`Tapp.assets` 读取，详见 [图形与轻量游戏](GRAPHICS.md)。
+
+### 游戏会话与宿主 Three（`game` / `runtimeModules`）
+
+```json
+{
+  "category": "game",
+  "permissions": ["game:session", "federation:read", "federation:write", "federation:message"],
+  "game": { "protocol": "gomoku", "maxPlayers": 2 },
+  "runtimeModules": ["three"]
+}
+```
+
+- `game.protocol`：小写 `[a-z0-9._-]`，会组成房间消息类型 `game:<tappId>:<protocol>`。
+- `runtimeModules` 目前只允许 `three`，且仅 game / developer 分类。宿主注入钉死版本，不走 CDN。
+- `Tapp.game` 创建房间时会写入 `shared_data_config.game`，分享 ID 为 `room_id@home_server`。
 
 ### 外链 allowlist（openUrls）
 
@@ -954,6 +970,7 @@ Tapp 私有 storage、报告和内部状态不会因为知道另一个 `tappId` 
 | `federation:write`   | 联邦个人操作     |
 | `federation:message` | 联邦消息         |
 | `federation:files`   | 联邦文件传输     |
+| `game:session`       | 游戏房间会话（`Tapp.game`；仍需对应联邦权限） |
 
 ### 提升权限（管理员可配置下放）
 

@@ -368,6 +368,12 @@ export interface CreateRoomRequest {
   invite_policy?: 'admin-only' | 'member-invite' | 'open'
   max_members?: number
   is_public?: boolean
+  game?: {
+    tapp_id: string
+    protocol: string
+    max_players?: number
+    max_message_bytes?: number
+  }
 }
 
 export interface UpdateRoomRequest {
@@ -466,6 +472,7 @@ export interface SendRoomMessageRequest {
   payload: unknown
   thread_id?: string
   reply_to?: string
+  encrypt?: boolean
 }
 
 export interface RoomMessageItem {

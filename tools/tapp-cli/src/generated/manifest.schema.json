@@ -538,6 +538,36 @@
       },
       "type": "object"
     },
+    "TappGameDef": {
+      "additionalProperties": false,
+      "description": "Turn-based game session declared by a Tapp. Rooms still carry authority.",
+      "properties": {
+        "maxMessageBytes": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "maxPlayers": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "protocol": {
+          "description": "Stable protocol name, e.g. `gomoku`. Combined with tapp id in message types.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocol"
+      ],
+      "type": "object"
+    },
     "TappHttpBodyMode": {
       "enum": [
         "json",
@@ -990,6 +1020,17 @@
       ],
       "default": null
     },
+    "game": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TappGameDef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Optional turn-based game session declaration (federation rooms)."
+    },
     "hasPage": {
       "default": false,
       "type": "boolean"
@@ -1079,6 +1120,16 @@
     "repository": {
       "type": [
         "string",
+        "null"
+      ]
+    },
+    "runtimeModules": {
+      "description": "Host-injected, pinned runtime libraries (currently only `three`).",
+      "items": {
+        "type": "string"
+      },
+      "type": [
+        "array",
         "null"
       ]
     },
