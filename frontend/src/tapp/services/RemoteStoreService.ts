@@ -6,10 +6,12 @@
  * 缓存仅保存在内存中，刷新页面后重新获取
  */
 
-import type { TappManifest, TappManifestLocales } from '../types'
+import type { TappManifest } from '../types'
+import type { RemoteStoreLocales } from '../utils/storeLocale'
 import type { StorePreviewDescriptor } from '../utils/storePreview'
 import api from '../../lib/api'
 import { TAPP_ICON_TOKENS } from '../constants/icons'
+import { parseStoreLocales } from '../utils/storeLocale'
 import {
   storeAssetStorePath,
   storePackageRoot,
@@ -71,10 +73,10 @@ export interface RemoteApp {
   /** 详细描述（可选） */
   long_description?: string
   /**
-   * name/description 的多语言覆盖（与 manifest.locales 同结构）。
-   * 键为 BCP-47；未命中时回退顶层 name/description。
+   * 商店展示覆盖（BCP-47 → name / description / long_description / preview）。
+   * name/description 与 manifest.locales 同源；长介绍与预览只属于 catalog。
    */
-  locales?: TappManifestLocales
+  locales?: RemoteStoreLocales
   /** 作者 */
   author: {
     name: string
@@ -520,6 +522,9 @@ class RemoteStoreServiceImpl {
         preview: parseStorePreview(
           (app as RemoteApp & { preview?: unknown }).preview,
         ),
+        locales: parseStoreLocales(
+          (app as RemoteApp & { locales?: unknown }).locales,
+        ),
       }))
 
       // 更新内存缓存
@@ -766,6 +771,7 @@ class RemoteStoreServiceImpl {
   async downloadAppPreview(
     app: RemoteApp,
     baseUrl: string,
+    snapshot = app.preview,
   ): Promise<{ html?: string; css?: string }> {
     const sessionId = this.newStoreDownloadSessionId()
     const downloadText = async (path?: string): Promise<string | undefined> => {
@@ -779,11 +785,11 @@ class RemoteStoreServiceImpl {
       return text.slice(0, 512 * 1024)
     }
 
-    // 1. Explicit merchandising snapshot
-    if (app.preview?.html) {
+    // 1. Explicit merchandising snapshot (caller may pass a locale-resolved one)
+    if (snapshot?.html) {
       const [html, ...styles] = await Promise.all([
-        downloadText(app.preview.html),
-        ...app.preview.styles.map((path) => downloadText(path)),
+        downloadText(snapshot.html),
+        ...snapshot.styles.map((path) => downloadText(path)),
       ])
       return {
         html,

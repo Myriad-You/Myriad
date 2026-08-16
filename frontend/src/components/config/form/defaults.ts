@@ -7,8 +7,9 @@ export const DEFAULT_PERMISSION_CONFIG: PermissionConfigValues = {
   user_perm_ai_chat: false,
   user_perm_report_write: false,
   user_perm_network_fetch: false,
-  user_perm_component_theme: false,
-  user_perm_shortcut_register: false,
+  // ADR 0016: component:theme 与 shortcut:register 对普通用户默认下放（游客仍关闭）
+  user_perm_component_theme: true,
+  user_perm_shortcut_register: true,
   user_perm_event_publish: false,
   user_perm_ai_image: false,
   user_perm_scheduler_register: false,

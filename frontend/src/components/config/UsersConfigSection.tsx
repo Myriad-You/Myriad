@@ -1,10 +1,10 @@
 /**
  * 设置页「用户管理」区块
  *
- * 基于 ManagedList + InfoActionCard：
+ * 基于 ManagedList：
  * - 搜索 / 角色 / 在线筛选（折叠查询栏）
  * - 创建用户（折叠表单）
- * - 列表行展开详情（InfoActionCard + 操作）
+ * - 列表行「详情」走选项指南同款浮窗；浮窗内 tab 切换（账号+活动 / 来源 / 应用）
  */
 
 import type {
@@ -13,7 +13,6 @@ import type {
   AdminUserUpdate,
 } from '../../services/adminUsersApi'
 import type {
-  InfoActionField,
   ManagedListAction,
   ManagedListFilterOption,
   ManagedListItem,
@@ -35,6 +34,7 @@ import {
   LuUser,
 } from '../../lib/icons'
 import adminUsersApi from '../../services/adminUsersApi'
+import { TappIconBadge } from '../../tapp/components/TappIconBadge'
 import { messageForAdminUserError } from '../../utils/authErrorMessages'
 import { getOAuthIconAsset } from '../../utils/oauthIcons'
 import { Avatar } from '../Avatar'
@@ -43,9 +43,9 @@ import OAuthIconImage from '../OAuthIconImage'
 import { ProfileTextSourcePicker } from '../ProfileTextSourcePicker'
 import {
   guideDomProps,
-  InfoActionCard,
   InputItem,
   ManagedList,
+  SegmentedControl,
   SettingsButton,
   SettingSection,
   SettingTitleGuideEntry,
@@ -107,6 +107,74 @@ function userMatchesQuery(user: AdminUser, query: string): boolean {
   return fields.some((value) => value?.toLowerCase().includes(q))
 }
 
+function DetailField({
+  label,
+  value,
+}: {
+  label: string
+  value: React.ReactNode
+}) {
+  return (
+    <div className="users-expand-field">
+      <dt>{label}</dt>
+      <dd>{value}</dd>
+    </div>
+  )
+}
+
+type UserDetailTab = 'account' | 'avatar' | 'text' | 'tapps'
+
+function UserDetailPanel({
+  accountLabel,
+  avatarLabel,
+  textLabel,
+  tappsLabel,
+  tabsAriaLabel,
+  account,
+  avatar,
+  text,
+  tapps,
+}: {
+  accountLabel: string
+  avatarLabel: string
+  textLabel: string
+  tappsLabel: string
+  tabsAriaLabel: string
+  account: React.ReactNode
+  avatar: React.ReactNode
+  text: React.ReactNode
+  tapps: React.ReactNode
+}) {
+  const [tab, setTab] = useState<UserDetailTab>('account')
+  return (
+    <div className="users-expand-stack">
+      <SegmentedControl
+        size="sm"
+        columns="auto"
+        ariaLabel={tabsAriaLabel}
+        value={tab}
+        onChange={setTab}
+        className="users-detail-tabs"
+        options={[
+          { value: 'account', label: accountLabel },
+          { value: 'avatar', label: avatarLabel },
+          { value: 'text', label: textLabel },
+          { value: 'tapps', label: tappsLabel },
+        ]}
+      />
+      <div className={`users-expand-extra${tab === 'account' ? ' is-account' : ' is-pane'}`}>
+        {tab === 'account'
+          ? account
+          : tab === 'avatar'
+            ? avatar
+            : tab === 'text'
+              ? text
+              : tapps}
+      </div>
+    </div>
+  )
+}
+
 function ProviderBadge({ identity }: { identity: AdminUserIdentity }) {
   const { t } = useI18n()
   const iconSrc = KNOWN_PROVIDER_ICONS[identity.provider.toLowerCase()]
@@ -151,7 +219,7 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
   const { user: currentUser } = useAuth()
   const [users, setUsers] = useState<AdminUser[]>([])
   const [loading, setLoading] = useState(true)
-  const [expandedId, setExpandedId] = useState<number | null>(null)
+  const [detailUserId, setDetailUserId] = useState<number | null>(null)
   const [detail, setDetail] = useState<AdminUser | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [createDraft, setCreateDraft] = useState({
@@ -247,14 +315,10 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
     setDetail((prev) => (prev?.id === updated.id ? updated : prev))
   }, [])
 
-  const toggleExpand = useCallback(
+  const ensureDetail = useCallback(
     async (user: AdminUser) => {
-      if (expandedId === user.id) {
-        setExpandedId(null)
-        setDetail(null)
-        return
-      }
-      setExpandedId(user.id)
+      if (detail?.id === user.id) return
+      setDetailUserId(user.id)
       setDetail(null)
       setDetailLoading(true)
       try {
@@ -265,7 +329,7 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
         setDetailLoading(false)
       }
     },
-    [expandedId, notifyError, c.usersLoadError],
+    [detail?.id, notifyError, c.usersLoadError],
   )
 
   const runUpdate = useCallback(
@@ -314,6 +378,38 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
     [runUpdate],
   )
 
+  const handleToggleTappInstall = useCallback(
+    async (user: AdminUser) => {
+      await runUpdate(user.id, {
+        tapp_install_disabled: !user.tapp_install_disabled,
+      })
+    },
+    [runUpdate],
+  )
+
+  const handleUninstallTapp = useCallback(
+    async (user: AdminUser, tapp: { tapp_id: string; name: string }) => {
+      if (
+        !window.confirm(
+          c.usersUninstallTappConfirm.replace('{name}', tapp.name || tapp.tapp_id),
+        )
+      ) {
+        return
+      }
+      setBusy(true)
+      setRowBusyId(user.id)
+      try {
+        applyUpdated(await adminUsersApi.uninstallTapp(user.id, tapp.tapp_id))
+      } catch (error) {
+        notifyError(error, c.usersActionError)
+      } finally {
+        setBusy(false)
+        setRowBusyId(null)
+      }
+    },
+    [applyUpdated, notifyError, c],
+  )
+
   const handleUnlinkIdentity = useCallback(
     async (user: AdminUser, identity: AdminUserIdentity) => {
       if (!window.confirm(c.usersUnlinkConfirm)) return
@@ -340,8 +436,8 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
       try {
         await adminUsersApi.delete(user.id)
         setUsers((prev) => prev.filter((u) => u.id !== user.id))
-        if (expandedId === user.id) {
-          setExpandedId(null)
+        if (detail?.id === user.id || detailUserId === user.id) {
+          setDetailUserId(null)
           setDetail(null)
         }
         onMessage?.(c.usersDeleteSuccess, 'success')
@@ -352,7 +448,7 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
         setRowBusyId(null)
       }
     },
-    [currentUser?.id, expandedId, notifyError, onMessage, c],
+    [currentUser?.id, detail?.id, detailUserId, notifyError, onMessage, c],
   )
 
   const handleCreate = useCallback(async () => {
@@ -528,7 +624,7 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
   const renderExpandContent = useCallback(
     (user: AdminUser) => {
       const shown = detail?.id === user.id ? detail : user
-      const loadingDetail = detailLoading && expandedId === user.id && !detail
+      const loadingDetail = detailLoading && detailUserId === user.id && !detail
 
       if (loadingDetail) {
         return (
@@ -538,48 +634,11 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
         )
       }
 
-      const fields: InfoActionField[] = [
-        {
-          key: 'email',
-          label: c.usersEmail,
-          value: shown.email || '—',
-          copyable: !!shown.email,
-        },
-        {
-          key: 'password',
-          label: c.usersLocalPassword,
-          value: shown.has_password
-            ? shown.local_login_disabled
-              ? `${c.usersPasswordSet} · ${c.usersLocalLoginDisabled}`
-              : c.usersPasswordSet
-            : c.usersPasswordUnset,
-          copyable: false,
-        },
-        {
-          key: 'last-login',
-          label: c.usersLastLogin,
-          value: formatDateTime(shown.last_login_at),
-          copyable: false,
-        },
-        {
-          key: 'last-seen',
-          label: c.usersLastSeen,
-          value: formatDateTime(shown.last_seen_at),
-          copyable: false,
-        },
-        {
-          key: 'created',
-          label: c.usersCreatedAt,
-          value: formatDateTime(shown.created_at),
-          copyable: false,
-        },
-        {
-          key: 'online-total',
-          label: c.usersOnlineTotal,
-          value: formatOnlineTotal(shown.online_seconds),
-          copyable: false,
-        },
-      ]
+      const passwordValue = shown.has_password
+        ? shown.local_login_disabled
+          ? `${c.usersPasswordSet} · ${c.usersLocalLoginDisabled}`
+          : c.usersPasswordSet
+        : c.usersPasswordUnset
 
       const identityBlock =
         shown.identities.length === 0 ? (
@@ -606,13 +665,32 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
         !shown.tapps || shown.tapps.length === 0 ? (
           <span className="users-muted">{c.usersNoTapps}</span>
         ) : (
-          <ul className="users-tapp-list">
+          <ul className="users-tapp-grid">
             {shown.tapps.map((tapp) => (
-              <li key={tapp.tapp_id}>
-                <span className="users-tapp-name">{tapp.name}</span>
-                <span className="users-muted">
-                  v{tapp.version} · {tapp.status}
+              <li key={tapp.tapp_id} className="users-tapp-tile">
+                <TappIconBadge
+                  icon={tapp.icon ?? undefined}
+                  name={tapp.name}
+                  id={tapp.tapp_id}
+                  shellClassName="users-tapp-tile-icon"
+                  glyphSizeClass="w-4 h-4"
+                  glyphTextClass="text-sm"
+                />
+                <span className="users-tapp-tile-text">
+                  <span className="users-tapp-name">{tapp.name}</span>
+                  <span className="users-muted">
+                    v{tapp.version} · {tapp.status}
+                  </span>
                 </span>
+                <SettingsButton
+                  size="sm"
+                  variant="danger"
+                  block
+                  disabled={busy}
+                  onClick={() => void handleUninstallTapp(shown, tapp)}
+                >
+                  {c.usersUninstallTapp}
+                </SettingsButton>
               </li>
             ))}
           </ul>
@@ -657,74 +735,123 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
       }
 
       return (
-        <div className="users-expand-stack">
-          <InfoActionCard
-            embedded
-            className="users-detail-card"
-            fields={fields}
-            copyLabel={t.common.copy}
-            copiedLabel={t.common.copied}
-            actions={actions.map((a) => ({
-              key: a.key,
-              label: a.label,
-              onClick: a.onClick,
-              disabled: a.disabled,
-              loading: a.loading,
-              variant: a.variant,
-              title: a.title,
-              confirm: a.confirm,
-            }))}
-            footer={
-              <div className="users-expand-extra">
-                <div className="users-expand-block">
-                  <div className="users-expand-block-title">
-                    {c.usersOAuthIdentities}
-                  </div>
-                  {identityBlock}
-                </div>
-                <div className="users-expand-block">
-                  <div className="users-expand-block-title">
-                    {t.userModal.profileSourceTitle}
-                  </div>
-                  {/* 管理员替他人换头像来源；后端只接受该用户已有的来源，
-                      塞不进任意 URL，且会记一条审计日志 */}
-                  <AvatarSourcePicker
-                    userId={shown.id}
-                    targetIsSiteOwner={shown.is_owner}
-                    onApplied={() => void loadUsers()}
-                  />
-                </div>
-                <div className="users-expand-block">
-                  <div className="users-expand-block-title">
-                    {t.userModal.profileTextSourceTitle}
-                  </div>
-                  {/* 名称/简介来源与头像独立；同站合并仅影响列表展示 */}
-                  <ProfileTextSourcePicker
-                    userId={shown.id}
-                    targetIsSiteOwner={shown.is_owner}
-                    onApplied={() => void loadUsers()}
-                  />
-                </div>
-                <div className="users-expand-block">
-                  <div className="users-expand-block-title">
-                    {c.usersInstalledTapps}
-                  </div>
-                  {tappBlock}
-                </div>
+        <UserDetailPanel
+          accountLabel={c.usersAccountSection}
+          avatarLabel={t.userModal.profileSourceTitle}
+          textLabel={t.userModal.profileTextSourceTitle}
+          tappsLabel={c.usersInstalledTapps}
+          tabsAriaLabel={c.usersDetail}
+          account={
+            <div className="users-account-sheet">
+              <div className="users-account-facts">
+                <DetailField
+                  label={c.usersEmail}
+                  value={shown.email || '—'}
+                />
+                <DetailField
+                  label={c.usersLocalPassword}
+                  value={passwordValue}
+                />
               </div>
-            }
-          />
-        </div>
+              <div className="users-account-bindings">
+                <span className="users-account-kicker">
+                  {c.usersOAuthIdentities}
+                </span>
+                {identityBlock}
+              </div>
+              <div className="users-account-stats">
+                <DetailField
+                  label={c.usersLastLogin}
+                  value={formatDateTime(shown.last_login_at)}
+                />
+                <DetailField
+                  label={c.usersLastSeen}
+                  value={formatDateTime(shown.last_seen_at)}
+                />
+                <DetailField
+                  label={c.usersCreatedAt}
+                  value={formatDateTime(shown.created_at)}
+                />
+                <DetailField
+                  label={c.usersOnlineTotal}
+                  value={formatOnlineTotal(shown.online_seconds)}
+                />
+              </div>
+              {actions.length > 0 ? (
+                <div className="users-expand-actions">
+                  {actions.map((a) => (
+                    <SettingsButton
+                      key={a.key}
+                      size="sm"
+                      variant={a.variant ?? 'secondary'}
+                      disabled={a.disabled}
+                      loading={a.loading}
+                      title={a.title}
+                      onClick={a.onClick}
+                    >
+                      {a.label}
+                    </SettingsButton>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          }
+          avatar={
+            <div className="users-expand-pane users-expand-pane--full">
+              {/* 管理员替他人换头像来源；后端只接受该用户已有的来源，
+                  塞不进任意 URL，且会记一条审计日志 */}
+              <AvatarSourcePicker
+                userId={shown.id}
+                targetIsSiteOwner={shown.is_owner}
+                onApplied={() => void loadUsers()}
+              />
+            </div>
+          }
+          text={
+            <div className="users-expand-pane users-expand-pane--full">
+              {/* 名称/简介来源与头像独立；同站合并仅影响列表展示 */}
+              <ProfileTextSourcePicker
+                userId={shown.id}
+                targetIsSiteOwner={shown.is_owner}
+                onApplied={() => void loadUsers()}
+              />
+            </div>
+          }
+          tapps={
+            <div className="users-expand-pane users-expand-pane--full users-tapp-manage">
+              {!shown.is_owner ? (
+                <div
+                  className={`users-tapp-policy${shown.tapp_install_disabled ? ' is-blocked' : ''}`}
+                >
+                  {shown.tapp_install_disabled ? (
+                    <span className="users-account-kicker">
+                      {c.usersTappInstallDisabled}
+                    </span>
+                  ) : null}
+                  <SettingsButton
+                    size="sm"
+                    variant={shown.tapp_install_disabled ? 'secondary' : 'danger'}
+                    disabled={busy}
+                    onClick={() => void handleToggleTappInstall(shown)}
+                  >
+                    {shown.tapp_install_disabled
+                      ? c.usersEnableTappInstall
+                      : c.usersDisableTappInstall}
+                  </SettingsButton>
+                </div>
+              ) : null}
+              {tappBlock}
+            </div>
+          }
+        />
       )
     },
     [
       detail,
       detailLoading,
-      expandedId,
+      detailUserId,
       busy,
       c,
-      t.common?.copy,
-      t.common?.copied,
       t.userModal.profileSourceTitle,
       t.userModal.profileTextSourceTitle,
       loadUsers,
@@ -732,6 +859,8 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
       formatOnlineTotal,
       handleUnlinkIdentity,
       handleToggleLocalLogin,
+      handleToggleTappInstall,
+      handleUninstallTapp,
       handleToggleAdmin,
       handleDeleteUser,
       isPrimaryAdmin,
@@ -753,6 +882,12 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
         badges.push({
           label: roleLabel,
           tone: 'muted',
+        })
+      }
+      if (user.tapp_install_disabled) {
+        badges.push({
+          label: c.usersTappInstallDisabled,
+          tone: 'warn',
         })
       }
 
@@ -808,9 +943,37 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
         ),
         badges: badges.length > 0 ? badges : undefined,
         busy: rowBusyId === user.id,
-        expanded: expandedId === user.id,
-        onToggleExpand: () => void toggleExpand(user),
-        expandContent: renderExpandContent(user),
+        renderHit: ({ leading: hitLeading, main: hitMain }) => (
+          <SettingTitleGuideEntry
+            requireShowDetails={false}
+            title={user.display_name || user.username}
+            openLabel={c.usersDetail}
+            closeLabel={c.usersHideDetail}
+            panelClassName="users-detail-guide-float"
+            guide={renderExpandContent(user)}
+            renderTrigger={(api) => (
+              <button
+                type="button"
+                className={`managed-list-row-hit${api.open || api.closing ? ' is-active' : ''}`}
+                aria-label={
+                  api.open
+                    ? c.usersHideDetail
+                    : `${c.usersDetail} · ${user.display_name || user.username}`
+                }
+                aria-expanded={api.open}
+                aria-controls={api.mounted ? api.panelId : undefined}
+                title={api.open ? c.usersHideDetail : c.usersDetail}
+                onClick={(event) => {
+                  if (!api.open) void ensureDetail(user)
+                  api.toggle(event)
+                }}
+              >
+                {hitLeading}
+                {hitMain}
+              </button>
+            )}
+          />
+        ),
       }
     })
   }, [
@@ -820,8 +983,7 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
     formatOnlineTotal,
     formatDateTime,
     rowBusyId,
-    expandedId,
-    toggleExpand,
+    ensureDetail,
     renderExpandContent,
   ])
 
@@ -861,20 +1023,9 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
           stats={listStats}
           loading={loading}
           working={busy}
-          /* 展开详情时取消 body 高度上限，避免嵌套滚动裁切 InfoActionCard */
-          maxHeight={
-            expandedId != null
-              ? null
-              : filteredUsers.length > 12
-                ? '28rem'
-                : null
-          }
+          maxHeight={filteredUsers.length > 12 ? '28rem' : null}
           maxVisibleItems={
-            expandedId != null
-              ? null
-              : filteredUsers.length > 12
-                ? USERS_LIST_CAP
-                : null
+            filteredUsers.length > 12 ? USERS_LIST_CAP : null
           }
           truncateFooter={(shown, total) =>
             c.usersShowing

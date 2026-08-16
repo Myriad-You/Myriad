@@ -1,11 +1,19 @@
-import type { FC, SubmitEvent } from 'react'
+import type { FC, Ref, SubmitEvent } from 'react'
 
 import type { User } from '../../contexts/AuthContext'
 import type {
   RecentTappItem,
   TappListItem,
 } from '../../tapp/services/TappLifecycleApi'
-import { FaGithub, LuCrown, LuLink, LuUser, MyriadStoreIcon } from '@lib/icons'
+import {
+  FaGithub,
+  LuChevronLeft,
+  LuCrown,
+  LuLink,
+  LuUser,
+  LuX,
+  MyriadStoreIcon,
+} from '@lib/icons'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useNavigate } from 'react-router-dom'
@@ -66,6 +74,51 @@ interface UserModalProps {
 }
 
 /**
+ * 二级页顶栏：左返回、中当前页标题、右关闭。两颗圆钮同一套交互。
+ */
+function UserModalPageHead({
+  title,
+  backLabel,
+  closeLabel,
+  onBack,
+  onClose,
+  headRef,
+}: {
+  title: string
+  backLabel: string
+  closeLabel: string
+  onBack: () => void
+  onClose: () => void
+  headRef?: Ref<HTMLDivElement>
+}) {
+  return (
+    <div className="user-modal-page-head" ref={headRef}>
+      <div className="user-modal-page-back">
+        <button
+          type="button"
+          className="user-modal-chrome-hit"
+          aria-label={backLabel}
+          title={backLabel}
+          onClick={onBack}
+        >
+          <LuChevronLeft aria-hidden />
+        </button>
+        <h3 className="user-modal-page-title">{title}</h3>
+      </div>
+      <button
+        type="button"
+        className="user-modal-chrome-hit"
+        aria-label={closeLabel}
+        title={closeLabel}
+        onClick={onClose}
+      >
+        <LuX aria-hidden />
+      </button>
+    </div>
+  )
+}
+
+/**
  * 用户信息弹窗组件（已登录状态）
  * 全新设计：头像居中、信息整合、浮动关闭按钮
  */
@@ -97,10 +150,11 @@ export const UserModal: FC<UserModalProps> = ({
   const [oauthLoading, setOAuthLoading] = useState(false)
   const [oauthError, setOAuthError] = useState('')
   const [unbindingId, setUnbindingId] = useState<number | null>(null)
-  const { t, locale } = useI18n()
+  const { t, locale, format } = useI18n()
   const navigate = useNavigate()
   /** 自然高度测量目标：不受外层钉住 height / 滚动容器 max-height 约束 */
   const contentRef = useRef<HTMLDivElement>(null)
+  const pageHeadRef = useRef<HTMLDivElement>(null)
   const modalRef = useRef<HTMLDivElement>(null)
   const [modalHeight, setModalHeight] = useState<number>()
 
@@ -168,7 +222,9 @@ export const UserModal: FC<UserModalProps> = ({
     if (!el) return 0
     const contentH = el.offsetHeight
     if (contentH <= 0) return 0
-    return Math.ceil(contentH + getShellChromePx())
+    // 顶栏已提出滚动层，量高时加回它的占位
+    const headH = pageHeadRef.current?.offsetHeight ?? 0
+    return Math.ceil(contentH + headH + getShellChromePx())
   }, [getShellChromePx])
 
   // 跟随内容自然高度，让主页/二级页切换（及内容加载）时的高度变化有过渡动画。
@@ -185,12 +241,14 @@ export const UserModal: FC<UserModalProps> = ({
     updateHeight()
     const observer = new ResizeObserver(updateHeight)
     observer.observe(el)
+    const head = pageHeadRef.current
+    if (head) observer.observe(head)
     window.addEventListener('resize', updateHeight)
     return () => {
       observer.disconnect()
       window.removeEventListener('resize', updateHeight)
     }
-  }, [clampModalHeight, measureShellHeightFromContent])
+  }, [clampModalHeight, measureShellHeightFromContent, page])
 
   // 换页后等 DOM 绘制再量一次，确保从当前外层高度过渡到新内容 clamp 后高度
   useEffect(() => {
@@ -312,64 +370,44 @@ export const UserModal: FC<UserModalProps> = ({
   )
 
   const accountBadge = useMemo(() => {
-    const hasLocalPassword =
-      hasPassword ||
-      user.has_password === true ||
-      user.auth_provider === 'local'
-    const labels = linkedProviders.map(providerDisplayName)
-    const join = (names: string[]) =>
-      names.join(locale.startsWith('zh') ? '、' : ', ')
+    const count = linkedProviders.length
+    const onlyGithub = count === 1 && linkedProviders[0] === 'github'
 
-    if (hasLocalPassword && linkedProviders.length > 0) {
-      const providersText = join(labels)
-      const text =
-        t.userModal.hybridAccountWithProviders?.replace(
-          '{providers}',
-          providersText,
-        ) ||
-        t.userModal.hybridAccount ||
-        `Local + ${providersText}`
-      const onlyGithub =
-        linkedProviders.length === 1 && linkedProviders[0] === 'github'
+    // 单个平台写名字；多个只标数量，避免徽章被平台名撑开。
+    if (onlyGithub || (count === 0 && user.auth_provider === 'github')) {
+      return { kind: 'github' as const, text: 'GitHub' }
+    }
+
+    if (count === 1) {
       return {
-        kind: 'hybrid' as const,
-        text,
-        onlyGithub,
+        kind: 'oauth' as const,
+        text: providerDisplayName(linkedProviders[0]),
       }
     }
 
-    if (
-      user.auth_provider === 'github' ||
-      (linkedProviders.length === 1 &&
-        linkedProviders[0] === 'github' &&
-        !hasLocalPassword)
-    ) {
-      return { kind: 'github' as const, text: 'GitHub', onlyGithub: true }
+    if (count > 1) {
+      return {
+        kind: 'oauth' as const,
+        text: format(t.userModal.linkedProviderCount, { count }),
+      }
     }
 
-    if (
-      user.auth_provider === 'oidc' ||
-      (linkedProviders.length > 0 && !hasLocalPassword)
-    ) {
-      const text =
-        labels.length > 0
-          ? join(labels)
-          : t.userModal.oauthAccount || 'OAuth'
-      return { kind: 'oauth' as const, text, onlyGithub: false }
+    if (user.auth_provider === 'oidc') {
+      return {
+        kind: 'oauth' as const,
+        text: t.userModal.oauthAccount || 'OAuth',
+      }
     }
 
     return {
       kind: 'local' as const,
       text: t.userModal.localAccount || 'Local',
-      onlyGithub: false,
     }
   }, [
-    hasPassword,
-    user.has_password,
     user.auth_provider,
     linkedProviders,
     providerDisplayName,
-    locale,
+    format,
     t.userModal,
   ])
 
@@ -570,6 +608,15 @@ export const UserModal: FC<UserModalProps> = ({
     }
   }
 
+  const secondaryTitle =
+    page === 'oauth'
+      ? t.userModal.oauthBindings
+      : page === 'profileSource'
+        ? t.userModal.profileDisplaySourcesTitle
+        : hasPassword
+          ? t.userModal.changePassword
+          : t.userModal.setPassword
+
   const goFromPanel = (path: string) => {
     onClose()
     if (onNavigateFromPanel) {
@@ -593,66 +640,34 @@ export const UserModal: FC<UserModalProps> = ({
       className={`user-modal ${canAnimate ? 'animate-in' : 'pre-animate'} ${isClosing ? 'closing' : ''}`}
       style={modalHeight !== undefined ? { height: modalHeight } : undefined}
     >
-      {/* 浮动关闭按钮 */}
-      <button
-        onClick={onClose}
-        className="user-modal-close-float"
-        aria-label={t.common.close}
-      >
-        <svg
-          className="w-5 h-5"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
+      {page === 'main' ? (
+        <button
+          type="button"
+          onClick={onClose}
+          className="user-modal-chrome-hit user-modal-close-float"
+          aria-label={t.common.close}
+          title={t.common.close}
         >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M6 18L18 6M6 6l12 12"
-          />
-        </svg>
-      </button>
+          <LuX aria-hidden />
+        </button>
+      ) : (
+        <UserModalPageHead
+          title={secondaryTitle}
+          backLabel={t.common.back}
+          closeLabel={t.common.close}
+          onBack={backToMain}
+          onClose={onClose}
+          headRef={pageHeadRef}
+        />
+      )}
 
       {/* 滚动容器：外层 height 封顶时在此滚动；不参与自然高度测量 */}
       <div className="user-modal-inner">
         {/* 测量目标：height auto，不受外层钉高影响，供 ResizeObserver 读自然高度 */}
         <div className="user-modal-content" ref={contentRef}>
         {page !== 'main' ? (
-          /* 二级页面：整体替换弹窗内容，左上角返回 */
+          /* 二级页面正文：顶栏已提出滚动层 */
           <div className="user-modal-page">
-            <div className="user-modal-page-head">
-              <button
-                type="button"
-                className="user-modal-page-back"
-                aria-label={t.common.back}
-                onClick={backToMain}
-              >
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M15 19l-7-7 7-7"
-                  />
-                </svg>
-              </button>
-              <h3 className="user-modal-page-title">
-                {page === 'oauth'
-                  ? t.userModal.oauthBindings
-                  : page === 'profileSource'
-                    ? t.userModal.profileDisplaySourcesTitle
-                    : hasPassword
-                      ? t.userModal.changePassword
-                      : t.userModal.setPassword}
-              </h3>
-            </div>
-
             {page === 'profileSource' ? (
               <div className="user-modal-page-body">
                 {/* 两套来源分开管理：切头像不改文案，切文案不改头像 */}
@@ -917,17 +932,8 @@ export const UserModal: FC<UserModalProps> = ({
                       </>
                     )}
                   </span>
-                  {/* 账户类型：本地密码 + 任意 OAuth/OIDC 绑定 → 混合；否则按主 provider */}
-                  {accountBadge.kind === 'hybrid' ? (
-                    <span className="user-modal-badge badge-hybrid">
-                      {accountBadge.onlyGithub ? (
-                        <FaGithub size={13} className="inline" />
-                      ) : (
-                        <LuLink size={13} className="inline" />
-                      )}
-                      {accountBadge.text}
-                    </span>
-                  ) : accountBadge.kind === 'github' ? (
+                  {/* 账户类型：有绑定时只标平台，不再单独写「本地 +」 */}
+                  {accountBadge.kind === 'github' ? (
                     <span className="user-modal-badge badge-github">
                       <FaGithub size={13} className="inline" />
                       {accountBadge.text}

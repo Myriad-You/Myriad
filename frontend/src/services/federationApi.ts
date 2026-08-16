@@ -1272,7 +1272,13 @@ export const federationApi = {
     roomId: string,
     runtimeGrant?: string,
     options?: { home_server?: string },
-  ): Promise<{ success: boolean; membership_status?: string }> {
+  ): Promise<{
+    success: boolean
+    room_id?: string
+    membership_status?: string
+    role?: string
+    already_member?: boolean
+  }> {
     const body =
       options?.home_server && options.home_server.trim()
         ? { home_server: options.home_server.trim() }

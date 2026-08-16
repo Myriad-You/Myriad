@@ -44,7 +44,6 @@ pub struct RegistryIdentity<'a> {
     pub runtime_id: Option<&'a str>,
 }
 
-
 pub async fn put<T: Serialize>(
     db: &impl ConnectionTrait,
     namespace: &str,
@@ -83,6 +82,58 @@ ON CONFLICT (namespace, record_id) DO UPDATE SET
     .await?;
     maybe_cleanup(db).await;
     Ok(())
+}
+
+/// Insert a registry row only if the id is absent or the existing row is expired.
+///
+/// Returns `true` when this caller now owns the id. `false` means a live row
+/// already occupies it (used for one-time inbound nonces).
+pub async fn put_if_absent<T: Serialize>(
+    db: &impl ConnectionTrait,
+    namespace: &str,
+    record_id: &str,
+    identity: RegistryIdentity<'_>,
+    payload: &T,
+    expires_at: i64,
+) -> Result<bool, DbErr> {
+    let payload = serde_json::to_value(payload).map_err(|error| DbErr::Json(error.to_string()))?;
+    #[derive(FromQueryResult)]
+    struct InsertedRow {
+        #[allow(dead_code)]
+        record_id: String,
+    }
+    let inserted = InsertedRow::find_by_statement(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        r#"
+INSERT INTO tapp_runtime_registry
+    (namespace, record_id, subject_id, owner_id, tapp_id, runtime_id, payload, expires_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+ON CONFLICT (namespace, record_id) DO UPDATE SET
+    subject_id = EXCLUDED.subject_id,
+    owner_id = EXCLUDED.owner_id,
+    tapp_id = EXCLUDED.tapp_id,
+    runtime_id = EXCLUDED.runtime_id,
+    payload = EXCLUDED.payload,
+    expires_at = EXCLUDED.expires_at,
+    updated_at = NOW()
+WHERE tapp_runtime_registry.expires_at < EXTRACT(EPOCH FROM NOW())::BIGINT
+RETURNING record_id
+"#,
+        vec![
+            namespace.into(),
+            record_id.into(),
+            identity.subject_id.into(),
+            identity.owner_id.into(),
+            identity.tapp_id.map(str::to_string).into(),
+            identity.runtime_id.map(str::to_string).into(),
+            payload.into(),
+            expires_at.into(),
+        ],
+    ))
+    .one(db)
+    .await?;
+    maybe_cleanup(db).await;
+    Ok(inserted.is_some())
 }
 
 /// Atomically enforce a per-subject live-record limit and insert a registry

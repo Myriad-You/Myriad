@@ -102,24 +102,15 @@ host HTTP_PORT → proxy → frontend:1102
 ### 本地开发
 
 ```bash
-# 只起开发用 PostgreSQL
-docker compose -f docker-compose.dev.yml up -d postgres
-
-# 后端（Rust 1.94+）→ :1103
-cd backend && cp .env.example .env && cargo run
-
-# 前端（Node 24 LTS、pnpm）→ :1102；/api 与联邦公开路径代理到后端
-cd frontend && pnpm install && pnpm dev
+./scripts/dev/dev.sh start             # 本机 PostgreSQL，日志打在当前终端
+./scripts/dev/dev.sh start --docker    # Docker postgres + 新开终端
+.\scripts\dev\dev.ps1 start            # Windows
 ```
 
-或一键脚本：
-
-```bash
-./scripts/dev/dev.sh start          # macOS / Linux
-.\scripts\dev\dev.ps1 start         # Windows
-```
-
+后端 `:1103`，前端 `:1102`。没有本机库时先 `./scripts/dev/dev.sh db-setup`。
 需要在开发 UI 里测「更新管理」时：`./scripts/dev/dev.sh start all-updater`。
+更多细节见 [快速开始](docs/QUICKSTART.md)。
+
 
 ---
 
@@ -173,6 +164,8 @@ Myriad/
 | [端口清单](docs/deployment/PORTS.md) | 端口与暴露面 |
 | [Updater 运维](docs/UPDATER_QUICKSTART.md) | 自更新通道 |
 | [外部 PostgreSQL](docs/deployment/EXTERNAL_POSTGRES.md) | 自带库以外的 PG |
+| [无 Docker 部署](docs/deployment/NATIVE_DEPLOYMENT.md) | 本机 PostgreSQL + 二进制 |
+| [Setup 引导令牌](docs/deployment/SETUP_BOOTSTRAP.md) | CONFIG_MODE 破窗令牌；编排安装时的所有者暗号 |
 
 ---
 

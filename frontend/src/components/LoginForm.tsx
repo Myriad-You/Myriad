@@ -180,152 +180,138 @@ const LoginForm: FC = () => {
   }
 
   return (
-    <div className="w-full max-w-md">
-      <div className="glass rounded-2xl shadow-xl p-8">
-        {/* Error Message */}
-        {error && (
-          <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
-            <p className="text-red-800 text-sm">{error}</p>
-          </div>
-        )}
+    <div className="login-form">
+      <h2 id="login-form-title" className="login-form-title">
+        {t.auth.login}
+      </h2>
 
-        {/* Local Login Form */}
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t.auth.username}
-            </label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <FaUser className="text-gray-400" />
-              </div>
-              <input
-                type="text"
-                value={formData.username}
-                onChange={(e) => {
-                  const sanitized = sanitizeUsername(e.target.value)
-                  setFormData({ ...formData, username: sanitized })
+      {error && (
+        <div className="login-form-error" role="alert">
+          {error}
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="login-form-fields">
+        <div>
+          <label className="login-form-label" htmlFor="login-username">
+            {t.auth.username}
+          </label>
+          <div className="login-form-input-wrap">
+            <span className="login-form-input-icon" aria-hidden>
+              <FaUser />
+            </span>
+            <input
+              id="login-username"
+              type="text"
+              value={formData.username}
+              onChange={(e) => {
+                const sanitized = sanitizeUsername(e.target.value)
+                setFormData({ ...formData, username: sanitized })
+              }}
+              className="login-form-input"
+              placeholder={t.auth.enterUsername}
+              maxLength={50}
+              autoComplete="username"
+              required
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="login-form-label" htmlFor="login-password">
+            {t.auth.password}
+          </label>
+          <div className="login-form-input-wrap">
+            <span className="login-form-input-icon" aria-hidden>
+              <FaLock />
+            </span>
+            <input
+              id="login-password"
+              type="password"
+              value={formData.password}
+              onChange={(e) =>
+                setFormData({ ...formData, password: e.target.value })
+              }
+              className="login-form-input"
+              placeholder={t.auth.enterPassword}
+              maxLength={128}
+              autoComplete="current-password"
+              required
+            />
+          </div>
+        </div>
+
+        <button
+          type="submit"
+          disabled={submitting}
+          className="login-form-submit"
+        >
+          {submitting ? <Spinner size="xs" color="white" /> : t.auth.login}
+        </button>
+      </form>
+
+      {providers.length > 0 && (
+        <>
+          <div className="login-form-divider">
+            <span>{t.common.or}</span>
+          </div>
+
+          <div className="login-form-oauth">
+            {providers.map((p) => (
+              <a
+                key={p.slug}
+                href={`${API_URL}/api/auth/oauth/${p.slug}/login`}
+                onClick={() => {
+                  void import('../utils/analyticsEvents').then(
+                    ({ trackProductEvent, AnalyticsEvents }) => {
+                      trackProductEvent(AnalyticsEvents.LOGIN_OAUTH_CLICK, {
+                        target: p.slug,
+                        flush: true,
+                      })
+                    },
+                  )
                 }}
-                className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                placeholder={t.auth.enterUsername}
-                maxLength={50}
-                autoComplete="username"
-                required
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t.auth.password}
-            </label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <FaLock className="text-gray-400" />
-              </div>
-              <input
-                type="password"
-                value={formData.password}
-                onChange={(e) =>
-                  setFormData({ ...formData, password: e.target.value })
+                className={
+                  p.slug === 'github'
+                    ? 'oauth-provider-btn oauth-provider-btn-github'
+                    : 'oauth-provider-btn oauth-provider-btn-oidc'
                 }
-                className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                placeholder={t.auth.enterPassword}
-                maxLength={128}
-                autoComplete="current-password"
-                required
-              />
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            disabled={submitting}
-            className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed font-semibold shadow-lg"
-          >
-            {submitting ? (
-              <Spinner size="xs" color="white" />
-            ) : (
-              <span>{t.auth.login}</span>
-            )}
-          </button>
-        </form>
-
-        {/* OAuth Providers — 动态从 /api/auth/oauth/providers 拉取 */}
-        {providers.length > 0 && (
-          <>
-            <div className="relative my-6">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-300"></div>
-              </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-white text-gray-500">
-                  {t.common.or}
+              >
+                <span className="oauth-provider-icon">
+                  {p.kind === 'github' ||
+                  p.slug === 'github' ||
+                  p.icon === 'github' ? (
+                    <FaGithub />
+                  ) : p.icon ? (
+                    <OAuthIconImage
+                      src={p.icon}
+                      size={20}
+                      loading="eager"
+                      fetchPriority="high"
+                    />
+                  ) : (
+                    <span className="oauth-provider-icon-fallback">
+                      {p.display_name?.[0]?.toUpperCase() || '?'}
+                    </span>
+                  )}
                 </span>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-2.5">
-              {providers.map((p) => (
-                <a
-                  key={p.slug}
-                  href={`${API_URL}/api/auth/oauth/${p.slug}/login`}
-                  onClick={() => {
-                    void import('../utils/analyticsEvents').then(
-                      ({ trackProductEvent, AnalyticsEvents }) => {
-                        trackProductEvent(AnalyticsEvents.LOGIN_OAUTH_CLICK, {
-                          target: p.slug,
-                          flush: true,
-                        })
-                      },
-                    )
-                  }}
-                  className={
-                    p.slug === 'github'
-                      ? 'oauth-provider-btn oauth-provider-btn-github'
-                      : 'oauth-provider-btn oauth-provider-btn-oidc'
-                  }
-                >
-                  <span className="oauth-provider-icon">
-                    {p.kind === 'github' || p.slug === 'github' || p.icon === 'github' ? (
-                      <FaGithub />
-                    ) : p.icon ? (
-                      <OAuthIconImage
-                        src={p.icon}
-                        size={20}
-                        loading="eager"
-                        fetchPriority="high"
-                      />
-                    ) : (
-                      <span className="oauth-provider-icon-fallback">
-                        {p.display_name?.[0]?.toUpperCase() || '?'}
-                      </span>
-                    )}
-                  </span>
-                  <span className="oauth-provider-label">
-                    {p.slug === 'github'
-                      ? t.auth.loginWithGithub
-                      : format(t.auth.loginWith, { name: p.display_name })}
-                  </span>
-                </a>
-              ))}
-            </div>
-          </>
-        )}
-
-        {/* Register link — PR #4 */}
-        {allowRegister && (
-          <div className="mt-6 text-center text-sm text-gray-600">
-            {t.auth.noAccount}
-            <a
-              href="/register"
-              className="text-indigo-600 hover:underline ml-1"
-            >
-              {t.auth.registerHere}
-            </a>
+                <span className="oauth-provider-label">
+                  {p.slug === 'github'
+                    ? t.auth.loginWithGithub
+                    : format(t.auth.loginWith, { name: p.display_name })}
+                </span>
+              </a>
+            ))}
           </div>
-        )}
-      </div>
+        </>
+      )}
+
+      {allowRegister && (
+        <p className="login-form-footer">
+          {t.auth.noAccount}
+          <a href="/register">{t.auth.registerHere}</a>
+        </p>
+      )}
     </div>
   )
 }

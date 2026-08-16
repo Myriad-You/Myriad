@@ -198,6 +198,44 @@ describe('Tapp project core', () => {
     assert.ok(report.permissions.missing.some(({ permission }) => permission === 'storage:write'))
   })
 
+  it('rejects retired storage permission instead of satisfying storage writes', async () => {
+    const root = await temporaryDirectory('retired-storage-permission')
+    await createProject(root, { type: 'page' })
+    const manifestPath = join(root, 'manifest.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+    manifest.permissions = ['storage']
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+    await writeFile(join(root, 'main.js'), `Tapp.storage.set('key', 'value');\n`)
+
+    const report = await inspectProject(root)
+    assert.ok(
+      report.diagnostics.some(
+        ({ code, message }) =>
+          code === 'unknown-permission' && message.includes("Unknown permission: storage"),
+      ),
+    )
+    assert.ok(report.permissions.missing.some(({ permission }) => permission === 'storage:write'))
+  })
+
+  it('warns when page HTML or JS loads an engine from a CDN', async () => {
+    const root = await temporaryDirectory('remote-engine')
+    await createProject(root, { type: 'page' })
+    await writeFile(
+      join(root, 'page.html'),
+      '<canvas id="scene"></canvas>\n<script src="https://unpkg.com/three@0.170.0/build/three.min.js"></script>\n',
+    )
+    await writeFile(
+      join(root, 'main.js'),
+      `import * as THREE from 'https://esm.sh/three'\n`,
+    )
+
+    const report = await inspectProject(root)
+    const remote = report.diagnostics.filter(({ code }) => code === 'remote-engine-script')
+    assert.ok(remote.some((item) => item.file === 'page.html'))
+    assert.ok(remote.some((item) => item.file === 'main.js'))
+    assert.equal(remote.every((item) => item.severity === 'warning'), true)
+  })
+
   it('uses the TypeScript AST for calls without matching comments or strings', async () => {
     const root = await temporaryDirectory('ast-analysis')
     await createProject(root, { type: 'page' })
@@ -406,6 +444,48 @@ Tapp.storage.get(key)
     assert.match(invalidApis[0].message, /API rejected HTTP method/)
   })
 
+  it('treats null inbound route and verify prefix as omitted', async () => {
+    const root = await temporaryDirectory('inbound-route-null')
+    await createProject(root, { type: 'page' })
+    const manifestPath = join(root, 'manifest.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+    manifest.permissions.push('network:fetch')
+    manifest.credentials = [{ key: 'inbound', label: 'Inbound HMAC' }]
+    manifest.apis = {
+      omitted: {
+        type: 'http',
+        access: 'public',
+        endpoint: 'https://api.example.com/games',
+        route: null,
+      },
+      signed: {
+        type: 'http',
+        access: 'public',
+        endpoint: 'https://api.example.com/sponsors',
+        route: {
+          path: '/sponsors',
+          methods: ['GET'],
+          verify: {
+            key: 'inbound',
+            alg: 'hmac-sha256-raw',
+            header: 'X-Signature',
+            prefix: null,
+            over: 'canonical-query',
+            timestampHeader: 'X-Timestamp',
+            nonceHeader: 'X-Nonce',
+          },
+        },
+      },
+    }
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+
+    const report = await inspectProject(root)
+    assert.deepEqual(
+      report.diagnostics.filter(({ code }) => code === 'invalid-api-route'),
+      [],
+    )
+  })
+
   it('accepts raw and form declared API body modes', async () => {
     const root = await temporaryDirectory('http-body-modes')
     await createProject(root, { type: 'page' })
@@ -464,6 +544,116 @@ Tapp.storage.get(key)
       report.diagnostics.filter(({ code }) => code.includes('credential')),
       [],
     )
+  })
+
+  it('accepts signed-body and query credential placements', async () => {
+    const root = await temporaryDirectory('api-credential-placements')
+    await createProject(root, { type: 'page' })
+    const manifestPath = join(root, 'manifest.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+    manifest.permissions.push('network:fetch')
+    manifest.settings = [{ key: 'userId', label: 'Creator ID', type: 'input' }]
+    manifest.credentials = [
+      { key: 'afdianToken', label: 'Afdian token' },
+      { key: 'owm', label: 'OpenWeather key' },
+    ]
+    manifest.apis = {
+      sponsors: {
+        type: 'http',
+        access: 'public',
+        method: 'POST',
+        endpoint: 'https://afdian.com/api/open/query-sponsor',
+        body: {
+          user_id: '{{settings.userId}}',
+          params: '{"page":1,"per_page":20}',
+        },
+        credential: {
+          key: 'afdianToken',
+          in: 'sign',
+          field: 'sign',
+          sign: {
+            alg: 'md5-sorted-kv',
+            over: ['params', 'ts', 'user_id'],
+            timestampField: 'ts',
+          },
+        },
+      },
+      weather: {
+        type: 'http',
+        endpoint: 'https://api.openweathermap.org/data/2.5/weather?q={{params.city}}',
+        credential: { key: 'owm', in: 'query', field: 'appid' },
+      },
+    }
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+
+    const report = await inspectProject(root)
+    assert.deepEqual(
+      report.diagnostics.filter(({ code }) => code.includes('credential')),
+      [],
+    )
+  })
+
+  it('rejects signed credentials on GET and object over fields', async () => {
+    const root = await temporaryDirectory('api-credential-sign-shape')
+    await createProject(root, { type: 'page' })
+    const manifestPath = join(root, 'manifest.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+    manifest.permissions.push('network:fetch')
+    manifest.credentials = [{ key: 'afdianToken', label: 'Afdian token' }]
+    manifest.apis = {
+      sponsors: {
+        type: 'http',
+        endpoint: 'https://afdian.com/api/open/query-sponsor',
+        body: {
+          user_id: 'abc',
+          params: { page: 1 },
+        },
+        credential: {
+          key: 'afdianToken',
+          in: 'sign',
+          field: 'sign',
+          sign: {
+            alg: 'md5-sorted-kv',
+            over: ['params', 'user_id'],
+          },
+        },
+      },
+    }
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+
+    const report = await inspectProject(root)
+    const messages = report.diagnostics
+      .filter(({ code }) => code.includes('credential'))
+      .map(({ message }) => message)
+      .join('\n')
+    assert.match(messages, /signed credentials require one of/)
+    assert.match(messages, /must be a scalar/)
+  })
+
+  it('rejects form credentials on GET and without an object body', async () => {
+    const root = await temporaryDirectory('api-credential-form-shape')
+    await createProject(root, { type: 'page' })
+    const manifestPath = join(root, 'manifest.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+    manifest.permissions.push('network:fetch')
+    manifest.credentials = [{ key: 'wegame', label: 'WeGame API Key' }]
+    manifest.apis = {
+      games: {
+        type: 'http',
+        endpoint: 'https://api.example.com/submit',
+        bodyMode: 'form',
+        credential: { key: 'wegame', in: 'form', field: 'token' },
+      },
+    }
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+
+    const report = await inspectProject(root)
+    const messages = report.diagnostics
+      .filter(({ code }) => code.includes('credential'))
+      .map(({ message }) => message)
+      .join('\n')
+    assert.match(messages, /form credentials require one of/)
+    assert.match(messages, /form credentials require a form object body/)
   })
 
   it('rejects credential bindings with a templated destination host', async () => {

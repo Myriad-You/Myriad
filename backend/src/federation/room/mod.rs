@@ -11,6 +11,7 @@ mod messages;
 mod inbox;
 mod e2e;
 mod stickers;
+pub(crate) mod game;
 
 pub use types::*;
 pub(crate) use helpers::{

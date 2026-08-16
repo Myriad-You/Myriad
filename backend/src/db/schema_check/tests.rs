@@ -106,6 +106,22 @@ fn test_recent_month_features_in_expected_schema() {
 }
 
 #[test]
+fn test_users_schema_includes_tapp_install_disabled() {
+    let tables = get_expected_schema();
+    let users = tables
+        .iter()
+        .find(|t| t.name == "users")
+        .expect("users table");
+    assert!(
+        users
+            .columns
+            .iter()
+            .any(|c| c.name == "tapp_install_disabled"),
+        "users must define tapp_install_disabled"
+    );
+}
+
+#[test]
 fn test_users_schema_includes_is_owner() {
     let tables = get_expected_schema();
     let users = tables
@@ -379,8 +395,8 @@ VALUES
     );
 
     // A review deployment may already have recorded the short-lived first
-    // 012 migration while retaining its scope-less table. Rewriting 012 would
-    // never run for that database, so 013 must repair the persisted shape.
+    // 012 migration while retaining its scope-less table. 012/013 are retired
+    // no-ops now, so schema_check rebuilds that shape.
     db.execute_unprepared(
         r#"
 DROP TABLE federation_inbox_receipts;
@@ -399,16 +415,14 @@ CREATE TABLE federation_inbox_receipts (
     accepted_at TIMESTAMPTZ,
     CONSTRAINT federation_inbox_receipts_identity_unique UNIQUE (signer, activity_id)
 );
-DELETE FROM seaql_migrations
-WHERE version = '013_federation_inbox_receipts_v2';
 "#,
     )
     .await
-    .expect("create the legacy receipt shape and rewind only migration 013");
+    .expect("create the legacy receipt shape");
 
-    crate::db::Migrator::up(&db, None)
+    ensure_schema(&db)
         .await
-        .expect("013 must upgrade a database that already recorded old 012");
+        .expect("schema heal must upgrade a database that recorded old 012");
     let upgraded_drift = report_schema_drift(&db)
         .await
         .expect("upgraded receipt schema drift report must succeed");
@@ -436,7 +450,7 @@ WHERE version = '013_federation_inbox_receipts_v2';
             .try_get::<i64>("", "count")
             .expect("read legacy receipt column count"),
         0,
-        "013 must remove every column unique to the scope-less receipt shape"
+        "healer must remove every column unique to the scope-less receipt shape"
     );
 
     // Permanent handler rejection must preserve the claimed receipt while

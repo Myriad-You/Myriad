@@ -20,6 +20,8 @@ pub struct SetupStatus {
     pub is_setup_required: bool,
     pub has_database: bool,
     pub has_admin_user: bool,
+    /// 编排 / deploy 预置了 `MYRIAD_SETUP_SECRET` 时，创建所有者必须对上。
+    pub setup_secret_required: bool,
     pub missing_configs: Vec<String>,
 }
 
@@ -57,6 +59,7 @@ pub async fn check_setup_status(
         is_setup_required,
         has_database,
         has_admin_user,
+        setup_secret_required: crate::api::setup_bootstrap::setup_secret_is_configured(),
         missing_configs,
     };
 

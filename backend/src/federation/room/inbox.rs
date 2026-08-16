@@ -140,12 +140,18 @@ pub async fn handle_room_invite(
         });
     let has_real_name = invite_name.is_some();
     let display_name = resolve_invite_room_name(invite_name.as_deref(), room_id);
+    let invite_game = object.get("game").and_then(|game| {
+        super::game::parse_room_game_config(Some(&serde_json::json!({ "game": game })))
+    });
+    let invite_shared = invite_game
+        .as_ref()
+        .map(|game| serde_json::json!({ "game": game }));
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_rooms
            (room_id, name, description, owner_actor, home_server, governance_type, invite_policy,
-            max_members, is_public, distribution_strategy, created_at)
-           VALUES ($1, $2, NULL, $3, $4, 'owner', $6, 50, $7, 'fan-out', NOW())
+            max_members, is_public, distribution_strategy, shared_data_config, created_at)
+           VALUES ($1, $2, NULL, $3, $4, 'owner', $6, 50, $7, 'fan-out', $8, NOW())
            ON CONFLICT (room_id) DO UPDATE SET
              name = CASE
                WHEN $5::boolean
@@ -186,6 +192,15 @@ pub async fn handle_room_invite(
                THEN EXCLUDED.home_server
                ELSE federation_rooms.home_server
              END,
+             shared_data_config = CASE
+               WHEN $8::jsonb IS NULL THEN federation_rooms.shared_data_config
+               WHEN btrim(federation_rooms.home_server) = ''
+                    OR lower(btrim(federation_rooms.home_server))
+                       = lower(btrim(EXCLUDED.home_server))
+               THEN COALESCE(federation_rooms.shared_data_config, '{}'::jsonb)
+                    || EXCLUDED.shared_data_config
+               ELSE federation_rooms.shared_data_config
+             END,
              updated_at = CASE
                WHEN $5::boolean
                     AND (
@@ -193,6 +208,7 @@ pub async fn handle_room_invite(
                       OR btrim(federation_rooms.name) = ''
                       OR federation_rooms.name = ('Room ' || left($1, 8))
                     )
+                    OR $8::jsonb IS NOT NULL
                THEN NOW()
                ELSE federation_rooms.updated_at
              END"#,
@@ -204,6 +220,7 @@ pub async fn handle_room_invite(
             has_real_name.into(),
             invite_policy.into(),
             invite_is_public.into(),
+            invite_shared.into(),
         ],
     ))
     .await
@@ -350,12 +367,21 @@ pub async fn handle_room_message(
         .and_then(|v| v.as_str())
         .unwrap_or("text");
     let payload = object.get("payload").cloned().unwrap_or(json!(null));
-    let thread_id = object.get("threadId").and_then(|v| v.as_str());
-    let reply_to = object.get("replyTo").and_then(|v| v.as_str());
     let is_encrypted = object
         .get("isEncrypted")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+    let room_game = super::helpers::load_room_game_config(db, room_id).await?;
+    if let Err(error) = super::game::validate_room_game_message(
+        message_type,
+        &payload,
+        is_encrypted,
+        room_game.as_ref(),
+    ) {
+        return Err(format!("GAME_MESSAGE_INVALID: {error}"));
+    }
+    let thread_id = object.get("threadId").and_then(|v| v.as_str());
+    let reply_to = object.get("replyTo").and_then(|v| v.as_str());
 
     let inserted = db
         .execute_raw(Statement::from_sql_and_values(
@@ -698,6 +724,33 @@ pub async fn handle_room_join(
         } else {
             format!("not_member: {actor_url_str} cannot add members to room {room_id}")
         });
+    }
+
+    let announcer_is_owner =
+        !owner_actor.is_empty() && same_actor_url(&owner_actor, actor_url_str);
+    if announcer_is_owner {
+        if let Some(config) = object.get("game").and_then(|game| {
+            super::game::parse_room_game_config(Some(&json!({ "game": game })))
+        }) {
+            let existing = super::helpers::load_room_game_config(db, room_id).await?;
+            if existing.is_none() {
+                db.execute_raw(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    r#"UPDATE federation_rooms
+                       SET shared_data_config = COALESCE(shared_data_config, '{}'::jsonb)
+                           || $2::jsonb,
+                           updated_at = NOW()
+                       WHERE room_id = $1
+                         AND (shared_data_config -> 'game') IS NULL"#,
+                    [
+                        room_id.into(),
+                        json!({ "game": config }).into(),
+                    ],
+                ))
+                .await
+                .map_err(|e| e.to_string())?;
+            }
+        }
     }
 
     // Was this a pending invite on our roster? (inviter-side accept signal)

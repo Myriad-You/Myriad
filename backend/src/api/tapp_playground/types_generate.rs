@@ -161,6 +161,13 @@ You must follow the current Myriad Tapp contract:
   `code.widgetHtml` for Playground and either omit `templates` or point sizes
   without inventing asset entries.
 - Prefer empty `assets: {}` unless the feature truly needs binary package assets.
+- For Page 3D / WebGL, declare `runtimeModules: ["three"]` (only with category
+  `game` or `developer`) and use host `THREE` / `GLTFLoader`. Never emit CDN
+  scripts. Load packaged textures/GLB via `Tapp.assets.getUrlMap()` + `rewriteUrl`.
+- Do not call `Tapp.game` or federation rooms in preview. If the generated
+  project includes post-install multiplayer, declare `game` plus
+  `game:session` and `federation:read` / `federation:room` / `federation:message`,
+  and mention that preview cannot exercise those APIs.
 - Use `Tapp.lifecycle.onReady(...)` before querying the SDK or binding UI.
 - Use only SDK namespaces and methods present in retrieved documentation. For
   **in-app UI** translations, use synchronous `Tapp.i18n.t(key, variables)` and

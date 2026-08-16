@@ -3,7 +3,7 @@ use argon2::{
     Argon2,
 };
 use axum::{
-    http::{header, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     response::IntoResponse,
     Json,
 };
@@ -90,10 +90,13 @@ async fn acquire_password_hash_permit_from(
 pub(crate) const CREATE_ADMIN_ADVISORY_LOCK_KEY: i64 = 0x4D59_5249_4144_0001; // MYRIAD\0\1
 
 /// Request to create admin account
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct CreateAdminRequest {
     pub username: String,
     pub password: String,
+    /// 与 `.env` 里 `MYRIAD_SETUP_SECRET` 对暗号。也可改走 `X-Setup-Secret`。
+    #[serde(default)]
+    pub setup_secret: Option<String>,
 }
 
 /// Request for local login
@@ -168,10 +171,17 @@ pub(crate) fn map_create_admin_insert_error(err: &dyn std::fmt::Display) -> AppE
 ///
 /// Concurrency: transaction + `pg_advisory_xact_lock` serializes first-admin
 /// creation so two concurrent setup requests cannot both pass EXISTS then INSERT.
+///
+/// Ownership: if orchestration/deploy pre-set `MYRIAD_SETUP_SECRET`, it must
+/// match. Wizard-only first install (no secret configured) is not gated.
 pub async fn create_admin(
     crate::extract::Db(db): crate::extract::Db,
+    headers: HeaderMap,
     Json(request): Json<CreateAdminRequest>,
 ) -> Result<Json<Value>, HttpError> {
+    crate::api::setup_bootstrap::require_setup_secret(&headers, request.setup_secret.as_deref())
+        .map_err(HttpError)?;
+
     tracing::info!("Creating local admin account: {}", request.username);
 
     validate_username(&request.username)?;
@@ -1328,8 +1338,9 @@ pub async fn admin_create_user(
 mod tests {
     use super::{
         acquire_password_hash_permit_from, admin_already_exists_error, create_admin_gate,
-        hash_password, map_create_admin_insert_error, verify_password, AuthResponse, UserInfo,
-        CREATE_ADMIN_ADVISORY_LOCK_KEY, PASSWORD_HASH_ACQUIRE_TIMEOUT, PASSWORD_HASH_PERMITS,
+        hash_password, map_create_admin_insert_error, verify_password, AuthResponse,
+        CreateAdminRequest, UserInfo, CREATE_ADMIN_ADVISORY_LOCK_KEY,
+        PASSWORD_HASH_ACQUIRE_TIMEOUT, PASSWORD_HASH_PERMITS,
     };
     use crate::error::{app_error_response, HttpError};
     use axum::body::to_bytes;
@@ -1376,6 +1387,24 @@ mod tests {
     #[test]
     fn create_admin_gate_allows_first_admin() {
         assert!(create_admin_gate(false).is_ok());
+    }
+
+    #[test]
+    fn create_admin_request_accepts_setup_secret() {
+        let v: CreateAdminRequest = serde_json::from_value(serde_json::json!({
+            "username": "owner",
+            "password": "hunter2ab",
+            "setup_secret": "phrase-from-env"
+        }))
+        .unwrap();
+        assert_eq!(v.setup_secret.as_deref(), Some("phrase-from-env"));
+
+        let legacy: CreateAdminRequest = serde_json::from_value(serde_json::json!({
+            "username": "owner",
+            "password": "hunter2ab"
+        }))
+        .unwrap();
+        assert_eq!(legacy.setup_secret, None);
     }
 
     #[test]

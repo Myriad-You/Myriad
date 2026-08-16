@@ -163,10 +163,9 @@ export function AppDetailView({
       const localPageHtml = app.localTapp?.code.pageHtml
       // Catalog snapshot / page_template, or built-in example pageHtml.
       // Do not re-render installed package resources (empty white shells).
+      const snapshot = app.preview ?? remote?.preview
       const previewDeclared = Boolean(
-        remote?.preview?.html ||
-          remote?.download.page_template ||
-          localPageHtml,
+        snapshot?.html || remote?.download.page_template || localPageHtml,
       )
       if (!previewDeclared) {
         if (!cancelled) setPreviewLoading(false)
@@ -177,17 +176,18 @@ export function AppDetailView({
         let html: string | undefined
         let css: string | undefined
         let preserveControls = false
-        let theme = getPreviewCanvas(remote?.preview).theme
+        let theme = getPreviewCanvas(snapshot).theme
 
-        if (remote?.preview?.html || remote?.download.page_template) {
+        if (remote && (snapshot?.html || remote.download.page_template)) {
           const preview = await RemoteStoreService.downloadAppPreview(
             remote,
             remote.sourceBaseUrl,
+            snapshot,
           )
           html = preview.html
           css = preview.css
-          preserveControls = Boolean(remote.preview)
-          theme = getPreviewCanvas(remote.preview).theme
+          preserveControls = Boolean(snapshot)
+          theme = getPreviewCanvas(snapshot).theme
         } else if (localPageHtml) {
           html = localPageHtml
           css = [app.localTapp?.code.styles, app.localTapp?.code.pageCSS]
@@ -220,7 +220,7 @@ export function AppDetailView({
     return () => {
       cancelled = true
     }
-  }, [app.id, app.localTapp, app.remoteApp])
+  }, [app.id, app.localTapp, app.preview, app.remoteApp])
 
   const factItems = [
     {

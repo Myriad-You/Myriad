@@ -7,7 +7,7 @@
 
 use crate::models::entities::{tapp_storage, tapps};
 use myriad_tapp_contract::contract_rules::MAX_CREDENTIAL_VALUE_LEN;
-use myriad_tapp_contract::manifest::{TappApiDef, TappCredentialDef};
+use myriad_tapp_contract::manifest::{TappApiDef, TappApiRoute, TappCredentialDef};
 use sea_orm::{
     prelude::DateTimeWithTimeZone, ColumnTrait, ConnectionTrait, DatabaseBackend,
     DatabaseConnection, EntityTrait, FromQueryResult, QueryFilter, Statement,
@@ -105,11 +105,27 @@ impl ResolvedApiCredential {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct TappCredentialBindingSummary {
+    pub api: String,
+    pub method: String,
+    pub endpoint: String,
+    pub access: String,
+    pub placement: String,
+    pub field: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sign_alg: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sign_over: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TappCredentialStatus {
     pub key: String,
     pub configured: bool,
     pub needs_reauthorization: bool,
     pub origins: Vec<String>,
+    pub bindings: Vec<TappCredentialBindingSummary>,
     pub updated_at: Option<String>,
 }
 
@@ -174,20 +190,60 @@ pub fn credential_definition(
         })
 }
 
+fn api_uses_outbound_credential(api: &TappApiDef, key: &str) -> bool {
+    api.credential
+        .as_ref()
+        .is_some_and(|binding| binding.key == key)
+}
+
+fn api_uses_inbound_verify(api: &TappApiDef, key: &str) -> bool {
+    api.route
+        .as_ref()
+        .is_some_and(|route| route.verify.key == key)
+}
+
+#[derive(Serialize)]
+struct InboundVerifyContract {
+    api: String,
+    path: String,
+    methods: Vec<String>,
+    verify: TappApiRoute,
+}
+
 pub fn credential_binding_fingerprint(
     manifest: &Value,
     key: &str,
 ) -> Result<String, TappCredentialError> {
     let definition = credential_definition(manifest, key)?;
-    let bindings: BTreeMap<String, TappApiDef> = parse_apis(manifest)?
-        .into_iter()
-        .filter(|(_, api)| {
-            api.credential
-                .as_ref()
-                .is_some_and(|binding| binding.key == key)
+    let apis = parse_apis(manifest)?;
+    let bindings: BTreeMap<String, TappApiDef> = apis
+        .iter()
+        .filter(|(_, api)| api_uses_outbound_credential(api, key))
+        .map(|(name, api)| {
+            let mut api = api.clone();
+            // Inbound mounts are fingerprinted separately so adding a route
+            // that uses another key does not force re-entry of outbound secrets.
+            api.route = None;
+            (name.clone(), api)
         })
         .collect();
-    if bindings.is_empty() {
+    let inbound: BTreeMap<String, InboundVerifyContract> = apis
+        .into_iter()
+        .filter(|(_, api)| api_uses_inbound_verify(api, key))
+        .map(|(name, api)| {
+            let route = api.route.expect("checked inbound verify");
+            (
+                name.clone(),
+                InboundVerifyContract {
+                    api: name,
+                    path: route.path.clone(),
+                    methods: route.methods.clone(),
+                    verify: route,
+                },
+            )
+        })
+        .collect();
+    if bindings.is_empty() && inbound.is_empty() {
         return Err(TappCredentialError::InvalidDefinition(format!(
             "Credential '{key}' is not bound to any declared API"
         )));
@@ -196,10 +252,13 @@ pub fn credential_binding_fingerprint(
     struct BindingContract {
         definition: TappCredentialDef,
         bindings: BTreeMap<String, TappApiDef>,
+        #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+        inbound: BTreeMap<String, InboundVerifyContract>,
     }
     let binding_contract = serde_json::to_value(BindingContract {
         definition,
         bindings,
+        inbound,
     })
     .map_err(|_| TappCredentialError::InvalidDefinition("Credential binding is invalid".into()))?;
     let encoded = serde_json::to_vec(&canonicalize_json(binding_contract)).map_err(|_| {
@@ -229,12 +288,79 @@ pub fn credential_binding_origins(
         let origin = url.origin().ascii_serialization();
         origins.insert(origin);
     }
-    if origins.is_empty() {
+    if origins.is_empty()
+        && !parse_apis(manifest)?
+            .values()
+            .any(|api| api_uses_inbound_verify(api, key))
+    {
         return Err(TappCredentialError::InvalidDefinition(format!(
             "Credential '{key}' is not bound to any declared API"
         )));
     }
     Ok(origins.into_iter().collect())
+}
+
+pub fn credential_binding_summaries(
+    manifest: &Value,
+    key: &str,
+) -> Result<Vec<TappCredentialBindingSummary>, TappCredentialError> {
+    let mut summaries = Vec::new();
+    for (api_name, api) in parse_apis(manifest)? {
+        let Some(binding) = &api.credential else {
+            continue;
+        };
+        if binding.key != key {
+            continue;
+        }
+        let resolved = binding
+            .resolve()
+            .map_err(TappCredentialError::InvalidDefinition)?;
+        summaries.push(TappCredentialBindingSummary {
+            api: api_name,
+            method: api.method,
+            endpoint: api.endpoint.unwrap_or_default(),
+            access: match api.access {
+                myriad_tapp_contract::manifest::TappApiAccess::Public => "public".into(),
+                myriad_tapp_contract::manifest::TappApiAccess::Protected => "protected".into(),
+                myriad_tapp_contract::manifest::TappApiAccess::Manager => "manager".into(),
+            },
+            placement: resolved.placement.as_str().to_string(),
+            field: resolved.field,
+            sign_alg: resolved
+                .sign
+                .as_ref()
+                .map(|sign| sign.alg.as_str().to_string()),
+            sign_over: resolved.sign.map(|sign| sign.over).unwrap_or_default(),
+        });
+    }
+    for (api_name, api) in parse_apis(manifest)? {
+        let Some(route) = &api.route else {
+            continue;
+        };
+        if route.verify.key != key {
+            continue;
+        }
+        summaries.push(TappCredentialBindingSummary {
+            api: api_name,
+            method: route.methods.join(","),
+            endpoint: route.path.clone(),
+            access: match api.access {
+                myriad_tapp_contract::manifest::TappApiAccess::Public => "public".into(),
+                myriad_tapp_contract::manifest::TappApiAccess::Protected => "protected".into(),
+                myriad_tapp_contract::manifest::TappApiAccess::Manager => "manager".into(),
+            },
+            placement: "verify".into(),
+            field: route.verify.header.clone(),
+            sign_alg: Some(route.verify.alg.as_str().to_string()),
+            sign_over: vec![route.verify.over.as_str().to_string()],
+        });
+    }
+    summaries.sort_by(|left, right| {
+        left.api
+            .cmp(&right.api)
+            .then(left.placement.cmp(&right.placement))
+    });
+    Ok(summaries)
 }
 
 pub async fn put_credential(
@@ -326,6 +452,7 @@ pub async fn credential_statuses(
         .map(|definition| {
             let fingerprint = credential_binding_fingerprint(&tapp.manifest, &definition.key)?;
             let origins = credential_binding_origins(&tapp.manifest, &definition.key)?;
+            let bindings = credential_binding_summaries(&tapp.manifest, &definition.key)?;
             let row = stored.get(&definition.key);
             Ok(TappCredentialStatus {
                 key: definition.key,
@@ -334,6 +461,7 @@ pub async fn credential_statuses(
                     row.binding_fingerprint.as_deref() != Some(fingerprint.as_str())
                 }),
                 origins,
+                bindings,
                 updated_at: row.map(|row| row.updated_at.to_rfc3339()),
             })
         })
@@ -384,19 +512,16 @@ WHERE user_id = $1
         .collect())
 }
 
-pub async fn resolve_api_credential(
+pub async fn resolve_credential_by_key(
     db: &DatabaseConnection,
     tapp: &tapps::Model,
-    api_def: &TappApiDef,
-) -> Result<Option<ResolvedApiCredential>, TappCredentialError> {
-    let Some(binding) = &api_def.credential else {
-        return Ok(None);
-    };
-    let expected = credential_binding_fingerprint(&tapp.manifest, &binding.key)?;
+    key: &str,
+) -> Result<ResolvedApiCredential, TappCredentialError> {
+    let expected = credential_binding_fingerprint(&tapp.manifest, key)?;
     let row = tapp_storage::Entity::find()
         .filter(tapp_storage::Column::UserId.eq(tapp.user_id))
         .filter(tapp_storage::Column::TappId.eq(&tapp.tapp_id))
-        .filter(tapp_storage::Column::Key.eq(storage_key(&binding.key)))
+        .filter(tapp_storage::Column::Key.eq(storage_key(key)))
         .one(db)
         .await
         .map_err(|_| TappCredentialError::Database)?
@@ -411,14 +536,27 @@ pub async fn resolve_api_credential(
             tracing::error!(
                 tapp_id = %tapp.tapp_id,
                 owner_id = tapp.user_id,
-                credential_key = %binding.key,
+                credential_key = %key,
                 %error,
                 "Failed to decrypt Tapp credential"
             );
             TappCredentialError::Encryption
         })?;
     let revision = hex::encode(Sha256::digest(encrypted_value.as_bytes()));
-    Ok(Some(ResolvedApiCredential { value, revision }))
+    Ok(ResolvedApiCredential { value, revision })
+}
+
+pub async fn resolve_api_credential(
+    db: &DatabaseConnection,
+    tapp: &tapps::Model,
+    api_def: &TappApiDef,
+) -> Result<Option<ResolvedApiCredential>, TappCredentialError> {
+    let Some(binding) = &api_def.credential else {
+        return Ok(None);
+    };
+    resolve_credential_by_key(db, tapp, &binding.key)
+        .await
+        .map(Some)
 }
 
 #[cfg(test)]
@@ -512,6 +650,70 @@ mod tests {
     }
 
     #[test]
+    fn inbound_verify_changes_fingerprint_and_allows_empty_origins() {
+        let outbound = manifest("https://api.example.com/games", "Authorization");
+        let inbound_only = json!({
+            "credentials": [{ "key": "wegame", "label": "WeGame API Key" }],
+            "apis": {
+                "games": {
+                    "type": "http",
+                    "access": "public",
+                    "endpoint": "https://api.example.com/games",
+                    "route": {
+                        "path": "/sponsors",
+                        "methods": ["GET"],
+                        "verify": {
+                            "key": "wegame",
+                            "alg": "hmac-sha256-raw",
+                            "header": "X-Signature",
+                            "over": "canonical-query",
+                            "timestampHeader": "X-Timestamp",
+                            "nonceHeader": "X-Nonce"
+                        }
+                    }
+                }
+            }
+        });
+        let outbound_fp = credential_binding_fingerprint(&outbound, "wegame").unwrap();
+        let inbound_fp = credential_binding_fingerprint(&inbound_only, "wegame").unwrap();
+        assert_ne!(outbound_fp, inbound_fp);
+        assert!(credential_binding_origins(&inbound_only, "wegame")
+            .unwrap()
+            .is_empty());
+        let summaries = credential_binding_summaries(&inbound_only, "wegame").unwrap();
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].placement, "verify");
+        assert_eq!(summaries[0].endpoint, "/sponsors");
+    }
+
+    #[test]
+    fn outbound_fingerprint_ignores_unrelated_inbound_route() {
+        let outbound = manifest("https://api.example.com/games", "Authorization");
+        let mut with_other_route = outbound.clone();
+        with_other_route["credentials"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({ "key": "inbound", "label": "Inbound HMAC" }));
+        with_other_route["apis"]["games"]["route"] = json!({
+            "path": "/sponsors",
+            "methods": ["GET"],
+            "verify": {
+                "key": "inbound",
+                "alg": "hmac-sha256-raw",
+                "header": "X-Signature",
+                "over": "canonical-query",
+                "timestampHeader": "X-Timestamp",
+                "nonceHeader": "X-Nonce"
+            }
+        });
+        assert_eq!(
+            credential_binding_fingerprint(&outbound, "wegame").unwrap(),
+            credential_binding_fingerprint(&with_other_route, "wegame").unwrap()
+        );
+        assert!(credential_binding_fingerprint(&with_other_route, "inbound").is_ok());
+    }
+
+    #[test]
     fn origins_never_include_paths_or_queries() {
         assert_eq!(
             credential_binding_origins(
@@ -533,6 +735,7 @@ mod tests {
             configured: true,
             needs_reauthorization: false,
             origins: vec!["https://api.example.com".into()],
+            bindings: Vec::new(),
             updated_at: None,
         };
         let serialized = serde_json::to_value(status).unwrap();

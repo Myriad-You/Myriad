@@ -84,6 +84,9 @@ export interface TappSdk {
     get(path: string): Promise<unknown>
     getUrl(path: string): Promise<{ url: string; mimeType?: string; size?: number; path?: string }>
     getArrayBuffer(path: string): Promise<{ path: string; mimeType?: string; size?: number; buffer: ArrayBuffer }>
+    getUrlMap(): Promise<Record<string, string>>
+    resolve(path: string): Promise<{ url: string; mimeType?: string; size?: number; path?: string }>
+    rewriteUrl(url: string): string
     revoke(url: string): void
     revokeAll(): void
   }
@@ -347,6 +350,14 @@ export interface TappSdk {
   }
   file: {
     download(...args: unknown[]): Promise<unknown> // permission: storage:read
+  }
+  game: {
+    create(...args: unknown[]): Promise<unknown> // permission: game:session
+    join(...args: unknown[]): Promise<unknown> // permission: game:session
+    leave(...args: unknown[]): Promise<unknown> // permission: game:session
+    sendIntent(...args: unknown[]): Promise<unknown> // permission: game:session
+    sendState(...args: unknown[]): Promise<unknown> // permission: game:session
+    shareId(...args: unknown[]): Promise<unknown> // permission: game:session
   }
   platform: {
     addItem(...args: unknown[]): Promise<unknown> // permission: platform:write

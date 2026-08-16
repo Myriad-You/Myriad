@@ -72,6 +72,7 @@ Networks:
 | `docs/deployment/EXTERNAL_POSTGRES.md` | External / 1Panel Postgres: `MYRIAD_DB_MODE=external`, no local pgdata |
 | `docs/deployment/examples/docker-compose.external-db.example.yml` | Compose without `postgres`; external `DATABASE_URL` |
 | `docs/deployment/UPDATER_SECURITY_BASELINE.md` | Done-state security baseline + operator red lines |
+| `docs/deployment/SETUP_BOOTSTRAP.md` | Break-glass token when a configured instance enters CONFIG_MODE |
 | `docs/UPDATER_QUICKSTART.md` | Operator guide for update, rollback, rescue |
 | `docs/updater-spec.md` | Updater protocol and failure-mode design |
 
@@ -147,6 +148,8 @@ during a database outage.
 | `MYRIAD_ALLOW_REMOTE_BOOTSTRAP` | no | Backend default `false`; deploy `up` temporarily enables it for fresh/active browser setup and disables it after the claim marker. |
 | `MYRIAD_BOOTSTRAP_TTL_SECS` | no | Short-lived setup capability TTL, default 1800 seconds (range 60..86400). |
 | `UPDATER_GATEWAY_SECRET` | yes | Shared secret for backend→gateway (`X-Updater-Gateway-Secret`); deploy fills if empty; backend + gateway only |
+| `MYRIAD_SETUP_SECRET` | yes\* | Passphrase to claim the first owner **when the stack already has a real DATABASE_URL**. `deploy.sh` fills it if empty. Wizard-only DB setup does not require it. \*Required until an owner exists on orchestrated installs. Never expose it in the UI. See [SETUP_BOOTSTRAP.md](./SETUP_BOOTSTRAP.md). |
+| `MYRIAD_BOOTSTRAP_TOKEN` | no | Optional preset for setup break-glass. If unset, a configured instance in CONFIG_MODE writes `/app/.bootstrap-token` inside the backend container. Stock compose does **not** inject this; add it to `backend.environment` if you want a stable value. Never expose it in the UI. See [SETUP_BOOTSTRAP.md](./SETUP_BOOTSTRAP.md). |
 | `HTTP_PORT` | no | Published proxy port, default `80` |
 | `CHANNEL` | no | Release channel, default `stable` |
 | `MYRIAD_GITHUB_REPO` | no | Release source repo, default `Myriad-You/Myriad` |
@@ -250,6 +253,16 @@ snapshotting (local DB mode only), tag switching, health probes, rollback, and
 rescue state.
 Health probes use direct HTTP on the Compose network; they do not use Docker exec
 or create temporary probe containers.
+
+### Setup wizard 401 after the database is down
+
+A previously configured stack that cannot reach PostgreSQL boots in `CONFIG_MODE`. Setup then requires `X-Bootstrap-Token`. Read it from the backend container (not from logs):
+
+```bash
+docker compose exec backend cat /app/.bootstrap-token
+```
+
+Paste it into the wizard’s Bootstrap token field, or send the `X-Bootstrap-Token` header. Full runbook: [SETUP_BOOTSTRAP.md](./SETUP_BOOTSTRAP.md).
 
 ### External database
 

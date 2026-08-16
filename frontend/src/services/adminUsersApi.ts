@@ -44,6 +44,8 @@ export interface AdminUser {
   is_owner: boolean
   auth_provider: string
   local_login_disabled: boolean
+  /** 禁止该用户安装新 Tapp（不影响已装应用的运行/更新） */
+  tapp_install_disabled?: boolean
   has_password: boolean
   created_at: string | null
   last_login_at: string | null
@@ -59,6 +61,7 @@ export interface AdminUser {
 export interface AdminUserUpdate {
   is_admin?: boolean
   local_login_disabled?: boolean
+  tapp_install_disabled?: boolean
 }
 
 export interface AdminCreateUserInput {
@@ -114,6 +117,13 @@ export const adminUsersApi = {
   async unlinkIdentity(userId: number, identityId: number): Promise<AdminUser> {
     const response = await apiService.delete<{ user: AdminUser }>(
       `${BASE}/${userId}/identities/${identityId}`,
+    )
+    return response.user
+  },
+
+  async uninstallTapp(userId: number, tappId: string): Promise<AdminUser> {
+    const response = await apiService.delete<{ user: AdminUser }>(
+      `${BASE}/${userId}/tapps/${encodeURIComponent(tappId)}`,
     )
     return response.user
   },
