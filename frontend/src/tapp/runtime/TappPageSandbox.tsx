@@ -52,6 +52,7 @@ import {
   registerEventHandlers,
   registerFederationHandlers,
   registerFileHandlers,
+  registerGameHandlers,
   registerLifecycleHandlers,
   registerMediaHandlers,
   registerPlatformHandlers,
@@ -65,6 +66,10 @@ import {
   registerWidgetHandlers,
 } from './sandbox/handlers'
 import { registerPlaygroundPreviewHandlers } from './sandbox/handlers/playgroundPreviewHandlers'
+import {
+  loadHostRuntimeModule,
+  manifestRequestsRuntimeModule,
+} from './sandbox/hostRuntimeModules'
 import { onSpaNavigation } from './spaNavigation'
 import { createTappBridge } from './TappBridge'
 import { TappRuntimeGrant } from './TappRuntimeGrant'
@@ -213,6 +218,7 @@ function generatePageHTML(
   locale: string,
   safeInsets?: SafeInsets,
   launchParams?: Record<string, string>,
+  runtimeScripts?: string,
 ): string {
   const { manifest } = tappInstance
   const isDark = getIsDarkMode()
@@ -366,6 +372,7 @@ function generatePageHTML(
 
   <script nonce="${nonce}">${securityWrapper}</script>
   <script nonce="${nonce}">${sdkCode}</script>
+  ${runtimeScripts ? `<script nonce="${nonce}">${runtimeScripts}</script>` : ''}
 
   <!-- JS 代码始终加载（用于事件绑定等） -->
   <script nonce="${nonce}">
@@ -808,6 +815,9 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
       const closeFederationSockets = hasFederation
         ? registerFederationHandlers(bridge, currentTappInstance)
         : () => {}
+      if (hasExact('game:session') && hasFederation) {
+        registerGameHandlers(bridge, currentTappInstance)
+      }
       registerContextHandlers(bridge, currentTappInstance)
       // data-exchange stays public (consent host + broker still enforce)
       const closeDataExchange = registerDataExchangeHandlers(
@@ -843,52 +853,73 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
       /* ignore */
     }
 
-    // 生成 HTML（使用预生成的 session token）
-    // headless: 只跑 core 大脑代码、无 UI；否则渲染完整 page
-    const html = headless
-      ? generateHeadlessCoreHTML(
-          currentTappInstance,
-          currentCode,
-          sessionToken,
-          localeRef.current,
-        )
-      : generatePageHTML(
-          currentTappInstance,
-          currentCode,
-          sessionToken,
-          localeRef.current,
-          safeInsetsRef.current,
-          launchParams,
-        )
-
-    // 内联挂载（含 WebKit）
-    //
-    // 历史：WebKit 在 opacity 动画祖先下 iframe 不绘制，曾 portal 到 body + 几何同步。
-    // 问题：fixed portal 与运行页壳层叠层/亚像素同步 thrash，移动端「摸得到但不触发」。
-    // 现策略：/tapp/run 去掉页面级 opacity 动画（见 App.tsx AnimatedPage fixed），
-    // iframe 安全内联；位置由布局自然决定，触摸直达 contentDocument。
-    iframe.style.cssText =
-      'position:absolute;inset:0;width:100%;height:100%;border:none;display:block;overflow:hidden;border-bottom-left-radius:0.75rem;border-bottom-right-radius:0.75rem;pointer-events:auto;touch-action:manipulation;-webkit-tap-highlight-color:transparent;'
-
-    // 确保容器可命中（portal 时代曾设为 none）
-    container.style.pointerEvents = 'auto'
-
-    container.appendChild(iframe)
-    iframe.srcdoc = html
-    // 集中式 message 路由：srcdoc 挂载后注册 contentWindow
-    bridge.attachSource()
-    const onIframeLoad = () => bridge.attachSource()
-    iframe.addEventListener('load', onIframeLoad)
-    cleanups.push(() => iframe.removeEventListener('load', onIframeLoad))
-
-    cleanups.push(() => {
+    let cancelled = false
+    const detachIframe = () => {
       container.style.pointerEvents = ''
       if (container.contains(iframe)) {
         container.removeChild(iframe)
       }
-    })
+    }
+    cleanups.push(detachIframe)
+    const mount = async () => {
+      let runtimeScripts = ''
+      if (
+        !headless &&
+        manifestRequestsRuntimeModule(
+          currentTappInstance.manifest.runtimeModules,
+          'three',
+        )
+      ) {
+        try {
+          runtimeScripts = await loadHostRuntimeModule('three')
+        } catch (error) {
+          console.error('[Tapp] host Three runtime failed', error)
+        }
+      }
+      if (cancelled) return
+
+      const html = headless
+        ? generateHeadlessCoreHTML(
+            currentTappInstance,
+            currentCode,
+            sessionToken,
+            localeRef.current,
+          )
+        : generatePageHTML(
+            currentTappInstance,
+            currentCode,
+            sessionToken,
+            localeRef.current,
+            safeInsetsRef.current,
+            launchParams,
+            runtimeScripts
+              ? escapeSandboxScriptSource(runtimeScripts)
+              : undefined,
+          )
+      if (cancelled) return
+
+      iframe.style.cssText =
+        'position:absolute;inset:0;width:100%;height:100%;border:none;display:block;overflow:hidden;border-bottom-left-radius:0.75rem;border-bottom-right-radius:0.75rem;pointer-events:auto;touch-action:manipulation;-webkit-tap-highlight-color:transparent;'
+      container.style.pointerEvents = 'auto'
+      if (!container.contains(iframe)) {
+        container.appendChild(iframe)
+      }
+      iframe.srcdoc = html
+      if (cancelled) {
+        detachIframe()
+        return
+      }
+      bridge.attachSource()
+      const onIframeLoad = () => {
+        if (!cancelled) bridge.attachSource()
+      }
+      iframe.addEventListener('load', onIframeLoad)
+      cleanups.push(() => iframe.removeEventListener('load', onIframeLoad))
+    }
+    void mount()
 
     return () => {
+      cancelled = true
       cleanups.forEach((fn) => fn())
       setIsReady(false)
       iframeRef.current = null

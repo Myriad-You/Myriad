@@ -4,6 +4,10 @@
 //! state predicates, not authorization. Every setup mutation therefore needs a
 //! short-lived capability stored outside the web surface. The first owner claim
 //! consumes that capability; durable owner state prevents replay after restart.
+//!
+//! Orchestration may also set `MYRIAD_SETUP_SECRET`. `create-admin` must match
+//! that passphrase when it is present. The wizard does not write this value
+//! when it fills in the database itself.
 
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
@@ -19,6 +23,13 @@ use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
 
 pub const BOOTSTRAP_TOKEN_HEADER: &str = "x-bootstrap-token";
+
+/// 安装暗号环境变量。编排预置后，创建第一个所有者必须对上。
+const SETUP_SECRET_ENV: &str = "MYRIAD_SETUP_SECRET";
+
+/// 安装暗号请求头。JSON 体里的 `setup_secret` 也可以。
+const SETUP_SECRET_HEADER: &str = "x-setup-secret";
+
 const TOKEN_FILE_NAME: &str = ".bootstrap-token";
 const CLAIMED_MARKER_FILE_NAME: &str = ".bootstrap-claimed";
 const ROTATION_MARKER_FILE_NAME: &str = ".bootstrap-rotating";
@@ -554,6 +565,84 @@ pub fn remove_stale_token_file(data_dir: &Path) -> io::Result<()> {
     remove_token_file(&token_file_path(data_dir))
 }
 
+fn unquote_env(value: &str) -> &str {
+    let value = value.trim();
+    let bytes = value.as_bytes();
+    if value.len() >= 2
+        && ((bytes[0] == b'"' && bytes[value.len() - 1] == b'"')
+            || (bytes[0] == b'\'' && bytes[value.len() - 1] == b'\''))
+    {
+        &value[1..value.len() - 1]
+    } else {
+        value
+    }
+}
+
+/// 从 `.env` 一行或进程环境里取出可用的安装暗号。
+fn setup_secret_from_env_value(raw: Option<&str>) -> Option<String> {
+    raw.map(unquote_env)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn setup_secret_mismatch_error() -> AppError {
+    AppError::unauthorized("Setup secret required")
+        .with_message(
+            "安装暗号不对。请从服务器 .env 的 MYRIAD_SETUP_SECRET 复制后再试。",
+        )
+        .with_hint(format!("Send `{SETUP_SECRET_HEADER}` or JSON field `setup_secret`"))
+}
+
+/// Whether the process has a usable installation passphrase.
+pub(crate) fn setup_secret_is_configured() -> bool {
+    setup_secret_from_env_value(std::env::var(SETUP_SECRET_ENV).ok().as_deref()).is_some()
+}
+
+/// 纯函数：只有编排预置了暗号时才校验；没配则放行（向导自己填库）。
+fn check_setup_secret(expected: Option<&str>, provided: &str) -> Result<(), AppError> {
+    let Some(expected) = setup_secret_from_env_value(expected) else {
+        return Ok(());
+    };
+    if bootstrap_token_matches(&expected, provided) {
+        Ok(())
+    } else {
+        Err(setup_secret_mismatch_error())
+    }
+}
+
+/// 创建第一个所有者时校验安装暗号。
+///
+/// 仅当进程环境里已有 `MYRIAD_SETUP_SECRET`（编排 / deploy 写入）才要求对上。
+/// 向导自己填库时不会预置这枚值，不挡。HTTP 响应不回传正文。
+pub(crate) fn require_setup_secret(
+    headers: &HeaderMap,
+    body_secret: Option<&str>,
+) -> Result<(), AppError> {
+    let expected = std::env::var(SETUP_SECRET_ENV).ok();
+    let from_header = headers
+        .get(SETUP_SECRET_HEADER)
+        .and_then(|value| value.to_str().ok());
+    let provided = first_nonempty_setup_secret(from_header, body_secret);
+    check_setup_secret(expected.as_deref(), provided)
+}
+
+/// Header 优先；空字符串不当成已提供，避免盖住 JSON body。
+fn first_nonempty_setup_secret<'a>(
+    header: Option<&'a str>,
+    body: Option<&'a str>,
+) -> &'a str {
+    header
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or_else(|| body.map(str::trim).filter(|value| !value.is_empty()))
+        .unwrap_or("")
+}
+
+/// 校验单个 `.env` 值是否可以安全写入。
+///
+/// `.env` 是逐行 `KEY=VALUE` 的格式，值里出现 CR/LF 就能凭空造出新的一行，
+/// 也就是注入任意环境变量。NUL 会截断多数解析器，一并拒绝。
 pub fn validate_env_value(key: &str, value: &str) -> Result<(), String> {
     if value.contains('\n') || value.contains('\r') {
         return Err(format!(
@@ -758,6 +847,27 @@ mod tests {
     }
 
     #[test]
+    fn bootstrap_token_matches_accepts_exact_and_rejects_wrong() {
+        let expected = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKL";
+        assert_eq!(expected.len(), 48);
+        assert!(bootstrap_token_matches(expected, expected));
+        assert!(bootstrap_token_matches(
+            expected,
+            &format!("  {expected}  ")
+        ));
+        // Same length, one flipped byte — must reject (constant-time path).
+        let mut wrong = expected.as_bytes().to_vec();
+        wrong[0] ^= 0x01;
+        let wrong_s = String::from_utf8(wrong).expect("ascii");
+        assert!(!bootstrap_token_matches(expected, &wrong_s));
+        assert!(!bootstrap_token_matches(expected, ""));
+        assert!(!bootstrap_token_matches(
+            expected,
+            &expected[..expected.len() - 1]
+        ));
+    }
+
+    #[test]
     fn notice_never_contains_the_secret() {
         let token = "SuperSecretBootstrapTokenValueABCDEF1234567890XYZ";
         let path = Path::new("/var/lib/myriad/.bootstrap-token");
@@ -776,5 +886,65 @@ mod tests {
         assert!(validate_env_value("JWT_SECRET", "abc\nADMIN_OVERRIDE=1").is_err());
         assert!(validate_env_value("JWT_SECRET", "abc\0def").is_err());
         assert!(validate_env_value("DATABASE_URL", "postgres://a:b==@h/d").is_ok());
+    }
+
+    #[tokio::test]
+    async fn bootstrap_token_required_http_response_is_401_json() {
+        use crate::error::HttpError;
+        use axum::body::to_bytes;
+        use axum::http::StatusCode;
+        use axum::response::IntoResponse;
+
+        let resp = HttpError(bootstrap_token_required_error()).into_response();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        let bytes = to_bytes(resp.into_body(), 64 * 1024).await.expect("body");
+        let v: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
+        assert_eq!(v["error"], "Bootstrap token required");
+    }
+
+    #[test]
+    fn setup_secret_from_env_value_strips_quotes_and_empties() {
+        assert_eq!(
+            setup_secret_from_env_value(Some("  abc123  ")).as_deref(),
+            Some("abc123")
+        );
+        assert_eq!(
+            setup_secret_from_env_value(Some("\"quoted-secret\"")).as_deref(),
+            Some("quoted-secret")
+        );
+        assert_eq!(setup_secret_from_env_value(Some("")), None);
+        assert_eq!(setup_secret_from_env_value(Some("   ")), None);
+        assert_eq!(setup_secret_from_env_value(None), None);
+    }
+
+    #[test]
+    fn check_setup_secret_skips_when_not_configured() {
+        assert!(check_setup_secret(None, "anything").is_ok());
+        assert!(check_setup_secret(Some(""), "anything").is_ok());
+        assert!(check_setup_secret(Some("   "), "").is_ok());
+    }
+
+    #[test]
+    fn check_setup_secret_requires_match_when_configured() {
+        assert!(check_setup_secret(Some("correct-phrase"), "wrong").is_err());
+        assert!(check_setup_secret(Some("correct-phrase"), "").is_err());
+        assert!(check_setup_secret(Some("correct-phrase"), "correct-phrase").is_ok());
+        assert!(check_setup_secret(Some("\"correct-phrase\""), "correct-phrase").is_ok());
+    }
+
+    #[test]
+    fn first_nonempty_setup_secret_prefers_header_and_skips_blanks() {
+        assert_eq!(
+            first_nonempty_setup_secret(Some(" header "), Some("body")),
+            "header"
+        );
+        assert_eq!(
+            first_nonempty_setup_secret(Some("   "), Some(" body ")),
+            "body"
+        );
+        assert_eq!(first_nonempty_setup_secret(Some(""), Some("body")), "body");
+        assert_eq!(first_nonempty_setup_secret(None, Some("body")), "body");
+        assert_eq!(first_nonempty_setup_secret(Some(""), Some("")), "");
+        assert_eq!(first_nonempty_setup_secret(None, None), "");
     }
 }

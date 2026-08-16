@@ -4,6 +4,8 @@ import antfu from '@antfu/eslint-config'
 export default antfu(
   {
     formatters: false,
+    // Vendored Three IIFE is the runtime source of truth; do not lint minify output.
+    ignores: ['public/tapp-runtime/**'],
   },
   {
     rules: {

@@ -3883,7 +3883,14 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
                   : {
                       height: `${containerHeight}px`,
                       minHeight: '400px',
-                      transition: 'height 0.4s ease-out',
+                      // Dragging the custom scrollbar locks page-height math.
+                      // Don't ease the grid taller mid-drag or the thumb slips.
+                      transition:
+                        typeof document !== 'undefined' &&
+                        document.documentElement.dataset.scrollbarDragging ===
+                          'true'
+                          ? 'none'
+                          : 'height 0.4s ease-out',
                     }
               }
               onPointerDown={

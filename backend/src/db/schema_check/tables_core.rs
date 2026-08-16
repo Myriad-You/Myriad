@@ -175,6 +175,12 @@ pub(crate) fn tables() -> Vec<TableDef> {
                     default_value: Some("false".into()),
                 },
                 ColumnDef {
+                    name: "tapp_install_disabled".into(),
+                    data_type: "boolean".into(),
+                    is_nullable: false,
+                    default_value: Some("false".into()),
+                },
+                ColumnDef {
                     name: "notification_preferences".into(),
                     data_type: "jsonb".into(),
                     is_nullable: false,

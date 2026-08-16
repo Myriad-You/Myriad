@@ -27,8 +27,10 @@ export default function Login() {
   )
 
   return (
-    <AnimatedView className="min-h-screen flex items-center justify-center px-4 pt-20">
-      <LoginForm />
+    <AnimatedView className="auth-page min-h-screen flex items-center justify-center px-4 pt-20">
+      <div className="auth-card glass">
+        <LoginForm />
+      </div>
     </AnimatedView>
   )
 }

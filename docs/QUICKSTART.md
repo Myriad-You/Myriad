@@ -61,7 +61,7 @@ Windows:
 .\scripts\docker\deploy.ps1 up
 ```
 
-打开 `http://localhost`，或 `.env` 中 `HTTP_PORT` 指向的端口。首次访问会进入初始化向导。
+打开 `http://localhost`，或 `.env` 中 `HTTP_PORT` 指向的端口。首次访问会进入初始化向导。Docker / 编排已经写好数据库时，创建所有者要填安装暗号（`.env` 的 `MYRIAD_SETUP_SECRET`，`deploy.sh up` 会生成）。向导自己填库则不用。详见 [SETUP_BOOTSTRAP.md](deployment/SETUP_BOOTSTRAP.md)。
 
 ### 3. 常用运维命令
 
@@ -85,22 +85,12 @@ bash scripts/docker/deploy.sh upgrade
 
 ## 开发环境
 
-```bash
-# 本地开发只启动 PostgreSQL，不启动生产 proxy/updater
-docker compose -f docker-compose.dev.yml up -d postgres
-
-# 后端：读取 backend/.env，监听 1103
-(cd backend && cp .env.example .env && cargo run)
-
-# 前端：监听 1102；Astro dev proxy 将 /api/*、/health 以及联邦公开路径
-# （webfinger、nodeinfo、/inbox、/users/*、/media/federation/*）转发到 1103（与生产 proxy 一致）
-(cd frontend && pnpm install && pnpm dev)
-```
-
-也可以用开发脚本：
+默认走本机 PostgreSQL。没有库时先 `db-setup`：
 
 ```bash
-./scripts/dev/dev.sh start
+./scripts/dev/dev.sh db-setup          # 本机还没有 myriad 库时
+./scripts/dev/dev.sh start             # 本机 PG + backend:1103 + frontend:1102
+./scripts/dev/dev.sh start --docker    # 改用 docker compose 起 postgres
 ./scripts/dev/dev.sh status
 ```
 
@@ -111,14 +101,12 @@ Windows:
 .\scripts\dev\dev.ps1 status
 ```
 
-需要在开发 UI 里测试“更新管理”时，启动 updater harness：
+前端 dev server 会把 `/api/*`、`/health` 以及联邦公开路径（webfinger、nodeinfo、`/inbox`、`/users/*`、`/media/federation/*`）代理到 `:1103`。
 
-```bash
-./scripts/dev/dev.sh start all-updater
-```
+需要在开发 UI 里测试“更新管理”时：`./scripts/dev/dev.sh start all-updater`。
 
 真实镜像替换、维护模式、`pgdata` 快照和回滚仍应使用生产栈
-`scripts/docker/deploy.sh` 验证。
+`scripts/docker/deploy.sh` 验证。无 Docker 生产部署见 [NATIVE_DEPLOYMENT.md](deployment/NATIVE_DEPLOYMENT.md)。
 
 ## 数据备份
 
@@ -192,6 +180,14 @@ docker compose logs postgres
 docker compose exec backend env | grep DATABASE_URL
 ```
 
+库挂了之后 backend 会进 CONFIG_MODE。生产栈几乎总是已经注入了真实 `DATABASE_URL`，这时向导保存数据库会要求 **引导令牌**（401），不是再走一遍首次安装。令牌在容器内 `/app/.bootstrap-token`，日志里不会打印正文：
+
+```bash
+docker compose exec backend cat /app/.bootstrap-token
+```
+
+完整说明见 [SETUP_BOOTSTRAP.md](deployment/SETUP_BOOTSTRAP.md)。
+
 ### CORS 错误
 
 确认 `.env` 中 `CORS_ORIGINS` 是用户实际访问 Myriad 的 origin：
@@ -211,7 +207,7 @@ CORS_ORIGINS=http://localhost:1102,http://localhost:1103
 - `POSTGRES_PASSWORD` 长度至少 32 字符。
 - `JWT_SECRET` 长度至少 32 字符。
 - `CORS_ORIGINS` 是真实访问域名，不要用 `*`。
-- `UPDATE_TOKEN` 与 `UPDATER_GATEWAY_SECRET` 已由部署脚本生成，或已手动设置为 32+ 字符。
+- `UPDATE_TOKEN`、`UPDATER_GATEWAY_SECRET`、`MYRIAD_SETUP_SECRET` 已由部署脚本生成，或已手动设置。编排安装创建所有者需要安装暗号。
 - `pgdata` 使用仓库根目录下的 `./pgdata` bind mount。
 - 外层 HTTPS/TLS 入口代理到 Myriad `proxy` 的 `HTTP_PORT`，不是 backend `1103`。
 - `.env` 未提交到 Git，生产机上建议 `chmod 600 .env`。
@@ -219,6 +215,8 @@ CORS_ORIGINS=http://localhost:1102,http://localhost:1103
 ## 更多文档
 
 - [Docker 部署](deployment/DOCKER_DEPLOYMENT.md)
+- [无 Docker 部署](deployment/NATIVE_DEPLOYMENT.md)
+- [Setup 引导令牌](deployment/SETUP_BOOTSTRAP.md)
 - [端口清单](deployment/PORTS.md)
 - [Updater 运维](UPDATER_QUICKSTART.md)
 - [README](../README.md)

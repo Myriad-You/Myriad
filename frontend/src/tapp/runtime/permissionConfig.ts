@@ -65,6 +65,7 @@ export const PERMISSION_LEVELS: Record<TappPermission, TappPermissionLevel> = {
   'federation:message': 'basic',
   'federation:trust': 'privileged',
   'federation:files': 'basic',
+  'game:session': 'basic',
 }
 
 /**
@@ -362,6 +363,12 @@ export const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> =
     ['federation.unsubscribeChannel', 'federation:message'],
     ['federation.subscribeRoom', 'federation:message'],
     ['federation.unsubscribeRoom', 'federation:message'],
+    ['game.create', 'game:session'],
+    ['game.join', 'game:session'],
+    ['game.leave', 'game:session'],
+    ['game.shareId', 'game:session'],
+    ['game.sendIntent', 'game:session'],
+    ['game.sendState', 'game:session'],
     ['federation.getTrustPolicy', 'federation:trust'],
     ['federation.updateTrustPolicy', 'federation:trust'],
     ['federation.getInstances', 'federation:trust'],

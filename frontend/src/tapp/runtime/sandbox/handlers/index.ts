@@ -6,6 +6,7 @@ export { registerAgentInteractionHandlers } from '../../AgentInteractionBroker'
 export { registerDataExchangeHandlers } from '../../DataExchangeBroker'
 export { registerEventHandlers } from '../../EventBroker'
 export { registerFederationHandlers } from '../../FederationBridge'
+export { registerGameHandlers } from '../../GameBridge'
 
 export {
   registerAdvancedHandlers,

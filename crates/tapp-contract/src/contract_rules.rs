@@ -8,6 +8,17 @@ pub const MAX_TAPP_RESOURCE_BYTES: u64 = 25 * 1024 * 1024;
 pub const MAX_TAPP_ASSETS: usize = 64;
 pub const MAX_TAPP_ASSET_BYTES: u64 = 5 * 1024 * 1024;
 pub const MAX_TAPP_ASSETS_TOTAL_BYTES: u64 = 20 * 1024 * 1024;
+/// Game / 3D packages that declare `game` or `runtimeModules`.
+pub const MAX_TAPP_GAME_ASSETS: usize = 128;
+pub const MAX_TAPP_GAME_ASSET_BYTES: u64 = 12 * 1024 * 1024;
+pub const MAX_TAPP_GAME_ASSETS_TOTAL_BYTES: u64 = 48 * 1024 * 1024;
+pub const MAX_TAPP_RUNTIME_MODULES: usize = 4;
+pub const TAPP_RUNTIME_MODULES: &[&str] = &["three"];
+pub const MAX_TAPP_GAME_PROTOCOL_LEN: usize = 64;
+pub const MIN_TAPP_GAME_PLAYERS: u32 = 2;
+pub const MAX_TAPP_GAME_PLAYERS: u32 = 32;
+pub const DEFAULT_TAPP_GAME_MESSAGE_BYTES: u32 = 64 * 1024;
+pub const MAX_TAPP_GAME_MESSAGE_BYTES: u32 = 256 * 1024;
 pub const MAX_TAPP_MANIFEST_BYTES: u64 = 256 * 1024;
 pub const MAX_WIDGETS_PER_TAPP: usize = 64;
 pub const MAX_DATA_EXCHANGE_DECLARATIONS: usize = 32;
@@ -186,9 +197,42 @@ pub const HTTP_ONLY_API_FIELDS: &[&str] = &[
     "inject",
     "credential",
 ];
-pub const API_INJECT_RESERVED_PREFIXES: &[&str] = &["user.", "geo.", "secrets.", "params."];
+pub const API_INJECT_RESERVED_PREFIXES: &[&str] =
+    &["user.", "geo.", "secrets.", "params.", "time.", "settings."];
+pub const CREDENTIAL_IN_VALUES: &[&str] = &["header", "query", "form", "sign"];
+pub const CREDENTIAL_ENCODINGS: &[&str] = &["base64"];
+pub const CREDENTIAL_SIGN_ALGS: &[&str] = &["md5-sorted-kv", "hmac-sha256-raw"];
+pub const CREDENTIAL_SIGN_ALGS_IMPLEMENTED: &[&str] = &["md5-sorted-kv", "hmac-sha256-raw"];
+pub const MAX_CREDENTIAL_FIELD_LEN: usize = 128;
+pub const MAX_CREDENTIAL_SIGN_OVER: usize = 16;
+pub const ROUTE_METHODS: &[&str] = &["GET", "POST"];
+pub const ROUTE_VERIFY_ALGS: &[&str] = &["hmac-sha256-raw"];
+pub const ROUTE_VERIFY_OVER: &[&str] = &["raw-body", "canonical-query"];
+pub const ROUTE_VERIFY_ENCODINGS: &[&str] = &["hex", "base64"];
+pub const ROUTE_PATH_PATTERN: &str = r"^/[A-Za-z0-9][A-Za-z0-9_-]{0,63}$";
+pub const ROUTE_HEADER_PATTERN: &str = r"^X-[A-Za-z0-9][A-Za-z0-9-]{0,62}$";
+pub const ROUTE_RESERVED_HEADERS: &[&str] = &[
+    "x-csrf-token",
+    "x-tapp-runtime-grant",
+    "x-forwarded-for",
+    "x-forwarded-host",
+    "x-forwarded-proto",
+    "x-forwarded-port",
+    "x-forwarded-prefix",
+    "x-real-ip",
+    "x-request-id",
+    "x-correlation-id",
+    "x-amzn-trace-id",
+];
+pub const ROUTE_DEFAULT_MAX_SKEW_SECS: u32 = 300;
+pub const ROUTE_MIN_MAX_SKEW_SECS: u32 = 30;
+pub const ROUTE_MAX_MAX_SKEW_SECS: u32 = 3600;
+pub const ROUTE_MIN_NONCE_LEN: usize = 16;
+pub const ROUTE_MAX_NONCE_LEN: usize = 128;
+pub const ROUTE_MAX_PREFIX_LEN: usize = 256;
+pub const ROUTE_MAX_BODY_BYTES: usize = 1_048_576;
 pub const EVENT_SUBSCRIBE_PREFIXES: &[&str] = &["tapp.", "system."];
-pub const ASSET_LITERAL_METHODS: &[&str] = &["get", "getUrl", "getArrayBuffer"];
+pub const ASSET_LITERAL_METHODS: &[&str] = &["get", "getUrl", "getArrayBuffer", "resolve"];
 pub const SOURCE_CODE_EXTENSIONS: &[&str] = &[".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx"];
 pub const SOURCE_SCAN_SKIP_DIRECTORIES: &[&str] =
     &[".git", "node_modules", "dist", "build", "coverage"];

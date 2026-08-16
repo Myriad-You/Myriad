@@ -295,6 +295,12 @@ export const enUS: TranslationKeys = {
       'Tip: Backend restarts after saving so the full route table is loaded',
     atLeast8Chars: 'At least 8 characters with letters and numbers',
     enterPasswordAgain: 'Enter password again',
+    setupSecret: 'Setup passphrase',
+    setupSecretHint:
+      'Required only when the database URL was already written by orchestration. Copy MYRIAD_SETUP_SECRET from the server .env. The wizard database step does not show this field.',
+    setupSecretPlaceholder: 'Paste MYRIAD_SETUP_SECRET',
+    setupSecretRequired:
+      'Enter the setup passphrase from the server .env. It is not shown in the web UI.',
     bootstrapToken: 'Bootstrap token',
     bootstrapTokenOptional: 'required for installation operations',
     bootstrapTokenPlaceholder: 'Paste contents of .bootstrap-token',
@@ -835,6 +841,13 @@ export const enUS: TranslationKeys = {
       'Unlink this OAuth account? The user will no longer be able to sign in with it.',
     usersInstalledTapps: 'Installed apps',
     usersNoTapps: 'No apps installed',
+    usersUninstallTapp: 'Uninstall',
+    usersUninstallTappConfirm: 'Uninstall {name} for this user? App files will be removed.',
+    usersEnableTappInstall: 'Allow app installs',
+    usersDisableTappInstall: 'Block app installs',
+    usersTappInstallDisabled: 'Installs blocked',
+    usersErrorCannotRestrictOwnerInstall: 'Cannot block app installs for the site owner.',
+    usersErrorTappNotFound: 'That app install was not found.',
     usersRole: 'Role',
     usersRoleAdmin: 'Admin',
     usersRoleUser: 'User',
@@ -857,6 +870,10 @@ export const enUS: TranslationKeys = {
       'Permanently delete this user account? Their OAuth links, apps, and related data will be removed. This cannot be undone.',
     usersDeleteSuccess: 'User deleted',
     usersEmail: 'Email',
+    usersAccountSection: 'Account',
+    usersActivitySection: 'Activity',
+    usersDetail: 'Details',
+    usersHideDetail: 'Hide details',
     usersCancel: 'Cancel',
     usersCancelDesc: 'Discard this draft',
     usersCreateUser: 'New user',
@@ -2536,6 +2553,7 @@ export const enUS: TranslationKeys = {
     viewAllTapps: 'View all Tapps',
     oauthBindings: 'Linked Accounts',
     oauthAccount: 'OAuth Account',
+    linkedProviderCount: '{count} linked',
     oauthBind: 'Link',
     oauthUnbind: 'Unlink',
     oauthUnbindConfirm:
@@ -3123,6 +3141,7 @@ export const enUS: TranslationKeys = {
     permMessageFederation: 'Federation Messaging',
     permTrustFederation: 'Federation Trust',
     permFederationFiles: 'Federation Files',
+    permGameSession: 'Game rooms',
 
     // Permission descriptions
     permRegisterWidgetDesc:
@@ -3177,6 +3196,8 @@ export const enUS: TranslationKeys = {
     permTrustFederationDesc: 'Allow managing federation trust relationships',
     permFederationFilesDesc:
       'Allow accessing federation file transfer capabilities',
+    permGameSessionDesc:
+      'Allow creating and joining federation game rooms and exchanging structured game messages (federation permissions still required)',
 
     // List page
     listTitle: 'Tapp Apps',
@@ -3449,6 +3470,22 @@ export const enUS: TranslationKeys = {
     credentialRemoveConfirm:
       'APIs that depend on this credential will stop working. Continue?',
     credentialOrigins: 'Sent to: {origins}',
+    credentialInboundVerify: 'Inbound host verification',
+    inboundGuard: 'Inbound limits and blocks',
+    inboundGuardDesc:
+      'Repeated verify failures auto-block the caller fingerprint (raw IPs are not stored). You can also pause every /tapi route.',
+    inboundPaused: 'Pause inbound calls',
+    inboundPausedHint: 'While on, every /tapi request returns 403.',
+    inboundBlocks: 'Blocked fingerprints',
+    inboundNoBlocks: 'No blocks yet',
+    inboundUnblock: 'Unblock',
+    inboundBlockAuto: 'auto',
+    inboundBlockManual: 'manual',
+    inboundGuardLoadFailed: 'Could not load inbound protection',
+    inboundGuardSaveFailed: 'Could not update inbound protection',
+    credentialBinding: '{method} {endpoint} ({access}) · {detail}',
+    credentialBindingPlacement: '{placement} {field}',
+    credentialBindingSign: 'sign {alg} over {fields}',
     credentialReauthorizationRequired:
       'The manifest target or permission changed; enter the credential again to authorize it',
     credentialSaved: 'Credential saved securely',

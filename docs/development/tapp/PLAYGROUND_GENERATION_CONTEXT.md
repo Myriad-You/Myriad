@@ -19,13 +19,26 @@ Playground 项目至少需要 **Page** 或 **Widgets** 之一（允许 Widget-on
   （沙箱内没有 `--color-primary`）。
 - Page 沙箱（有可用 Page 时）运行在没有 `allow-same-origin` 的 sandboxed iframe 中，
   CSP 使用每实例 nonce。Widget-only 预览不挂载 Page 沙箱。
+- Canvas / WebGL / Three.js 只放在 **Page**。不要在 Widget 里跑 rAF 主循环或 3D 场景。
+- 禁止输出 CDN 脚本（`unpkg` / `jsdelivr` / `cdnjs` / `esm.sh` / `threejs.org/build`）。
+  沙箱 `connect-src` 只有 `blob:` / `data:`，也不能 `import` npm。
+  3D 预览请声明 `runtimeModules: ["three"]`（game / developer），使用宿主注入的
+  `THREE` / `GLTFLoader`；贴图和 `.glb` 走 `Tapp.assets`。
+  先 `Tapp.assets.getUrlMap()`，再用 `rewriteUrl` 接 LoadingManager。
+  `fetch` 只能打 blob/data。详见 [GRAPHICS.md](GRAPHICS.md)。
+- 不要在预览里调用 `Tapp.game` 或联邦房间。联机只写正式安装后的代码。
+  若生成安装后才跑的对局：Manifest 同时声明 `game:session` 与
+  `federation:read` / `federation:write` / `federation:message`，用 `Tapp.game`
+  （不要自己拼 `gomoku.v1`）。`create()` 默认不公开；跨实例私房靠邀请，
+  跨实例分享 ID 自助加入必须 `{ isPublic: true }`。
 
 ## 宿主展示文案 vs 应用内 i18n（勿混淆）
 
 | 字段 | 用途 |
 | ---- | ---- |
 | 顶层 `manifest.name` / `description` | **兜底**标题与描述（商店/列表/详情未命中语言时） |
-| `manifest.locales` | **宿主 chrome / 商店目录**的多语言标题与描述（BCP-47 → `{ name?, description? }`） |
+| `manifest.locales` | **宿主 chrome** 的多语言标题与短描述（BCP-47 → `{ name?, description? }`） |
+| `catalog.json` `locales` | **仅发布到商店时**：长介绍与静态预览覆盖（`long_description` / `preview`）。Playground 不生成 catalog |
 | `code.i18n` + `Tapp.i18n.t()` | **应用内 UI** 字符串（按钮、标签、提示等） |
 
 规则：
@@ -35,7 +48,9 @@ Playground 项目至少需要 **Page** 或 **Widgets** 之一（允许 Widget-on
 - **默认同时填写** `locales["en-US"]` 与 `locales["ja-JP"]` 的 `name`/`description`
   （Myriad 宿主常用语言；简短标题也要翻译）。仅当用户明确要求单语包时才可省略。
 - `locales` **不能**替代 `code.i18n`；应用内文案仍走 `Tapp.i18n`。
+- **不要**把 `long_description` 或 `preview` 写进 `manifest.locales`（安装校验会拒绝未知字段）。
 - 完整字段与回退链见 [MANIFEST · 多语言名称与描述](./MANIFEST.md#多语言名称与描述locales)。
+  商店展示层见 [STORE](./STORE.md)。
 
 示例（顶层中文兜底 + 宿主多语言目录文案）：
 
@@ -114,9 +129,19 @@ await Tapp.storage.clear();
 
 - 可在 Manifest 声明真实权限与正式运行时代码（见 [API_REFERENCE](./API_REFERENCE.md)）；
 - 声明式 HTTP API 必须申请 `network:fetch`。请求体默认使用 `bodyMode: "json"`；纯文本、XML
-  或依赖最终字节签名的接口使用 UTF-8 `raw`，表单接口使用 `form`。`raw`/`form` 仅允许
-  `POST`、`PUT`、`PATCH`、`DELETE`，且临时预览不会实际执行 `Tapp.api`；完整字段规则见
-  [MANIFEST · API 声明](./MANIFEST.md#api-声明-apis)。
+  使用 UTF-8 `raw`，表单使用 `form`。第三方密钥用 Manifest `credentials` +
+  `apis.*.credential`（`in`: `header` / `query` / `form` / `sign`）；密钥不进
+  `settings` 或模板。`raw`/`form`/`sign` 仅允许 `POST`、`PUT`、`PATCH`、`DELETE`。
+  临时预览不会实际执行 `Tapp.api`；完整字段见
+  [MANIFEST · API 声明](./MANIFEST.md#api-声明-apis) 与
+  [安装级凭据](./MANIFEST.md#安装级-api-凭据-credentials)。
+  若要给其他程序调用，再声明 `apis.*.route`（必须 `hmac-sha256-raw` + timestamp/nonce，
+  且 `access: public`）；不要编造未签名的 `/tapi` 或把密钥写进源码。
+  **不要**在源码、`settings`、i18n 或注释里写入真实或示例密钥；`credentials` 只声明
+  `key`/`label`，值由站主安装后写入。
+- 不要把 Three / Pocket 运行时打进生成物，也不要输出 CDN。完整 guest Three 样例见商店
+  `com.myriad.three-lab`；Playground 只需在需要 3D 时按 [GRAPHICS](./GRAPHICS.md) 声明
+  `assets/` 并调用 `getUrlMap` / `rewriteUrl`。
 - 预览只验证 UI、生命周期、主题、`code.i18n`、`manifest.locales` 与内存 storage；
 - **不要**臆造预览 mock 联邦 / Brew / platform API。
 - 若生成 **正式运行后** 调用 `Tapp.tappList.install` 的商店安装代码，必须使用合法 SDK 形状

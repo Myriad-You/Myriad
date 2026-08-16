@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import type { ExampleTapp } from '../../examples'
 import type { RemoteApp } from '../../services/RemoteStoreService'
 import type { TappCategory } from '../../types'
+import type { StorePreviewDescriptor } from '../../utils/storePreview'
 import {
   FaCog,
   FaDatabase,
@@ -45,6 +46,8 @@ export interface UnifiedAppItem {
   description: string
   /** 详细描述 */
   longDescription?: string
+  /** 当前宿主语言下的商店静态预览（未解析时回退 remoteApp.preview） */
+  preview?: StorePreviewDescriptor
   author: { name: string; email?: string; url?: string }
   icon?: string
   /** 内联 SVG 图标代码（优先于 icon） */

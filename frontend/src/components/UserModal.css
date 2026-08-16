@@ -52,6 +52,23 @@ html.dark .user-info-button:hover {
    * natural height and breaks content-based shrink animation.
    */
   --user-modal-min-height: 20rem;
+  --user-modal-chrome-inset: 1rem;
+  --user-modal-chrome-size: 34px;
+  --um-chrome-ink: #1f2937;
+  --um-chrome-muted: #6b7280;
+  --um-chrome-accent: var(--color-primary, #94a3b8);
+  --um-chrome-liq-border: color-mix(in srgb, #d8dbe6 48%, white 36%);
+  --um-chrome-liq-sheen: linear-gradient(
+    180deg,
+    rgb(255 255 255 / 16%),
+    rgb(255 255 255 / 0%) 48%
+  );
+  --um-chrome-liq-inset:
+    inset 0 1px 0 rgb(255 255 255 / 44%), inset 0 -1px 0 rgb(0 0 0 / 6%);
+  --um-chrome-liq-soft-shadow:
+    var(--um-chrome-liq-inset), 0 8px 22px -12px rgb(31 38 135 / 12%);
+  --um-chrome-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --um-chrome-ease-glide: cubic-bezier(0.32, 0.72, 0, 1);
 
   min-height: min(var(--user-modal-min-height), 85vh);
   max-height: 85vh;
@@ -91,7 +108,7 @@ html.dark .user-info-button:hover {
 }
 
 /* 滚动层：外层 height 钉住且内容超过 max-height 时在此滚动。
-   关闭按钮在 outer 上 absolute，不随滚。测量自然高度见 .user-modal-content。 */
+   关闭钮 / 二级顶栏都在 outer 上，不随滚。测量自然高度见 .user-modal-content。 */
 .user-modal-inner {
   display: flex;
   flex-direction: column;
@@ -123,6 +140,10 @@ html.dark .user-info-button:hover {
 }
 
 html.dark .user-modal {
+  --um-chrome-ink: #f3f4f6;
+  --um-chrome-muted: #9ca3af;
+  --um-chrome-liq-border: color-mix(in srgb, #4b5563 52%, white 10%);
+
   background: rgb(30 30 35 / 65%);
   border-color: rgb(255 255 255 / 8%);
   box-shadow:
@@ -131,45 +152,82 @@ html.dark .user-modal {
     inset 0 1px 0 rgb(255 255 255 / 5%);
 }
 
-/* 浮动关闭按钮 */
+/*
+ * 圆形顶栏按钮：照抄 onboarding / setup `.setup-ob-back__hit`。
+ * 关闭和返回同一套 hover：描边点亮、左移 2px、图标再左移 1px；按下 scale(0.94)。
+ */
+.user-modal-chrome-hit {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: var(--user-modal-chrome-size);
+  height: var(--user-modal-chrome-size);
+  padding: 0;
+  border: 1px solid var(--um-chrome-liq-border);
+  border-radius: 50%;
+  background:
+    var(--um-chrome-liq-sheen),
+    color-mix(in srgb, rgb(255 255 255 / 42%), transparent);
+  box-shadow: var(--um-chrome-liq-inset);
+  color: color-mix(in srgb, var(--um-chrome-ink) 72%, var(--um-chrome-muted));
+  cursor: pointer;
+  font: inherit;
+  transition:
+    transform 280ms var(--um-chrome-ease-spring),
+    box-shadow 280ms var(--um-chrome-ease-glide),
+    background-color 160ms var(--um-chrome-ease-glide),
+    border-color 160ms var(--um-chrome-ease-glide),
+    color 160ms var(--um-chrome-ease-glide);
+}
+
+html.dark .user-modal-chrome-hit {
+  background:
+    var(--um-chrome-liq-sheen),
+    color-mix(in srgb, rgb(50 50 55 / 42%), transparent);
+}
+
+.user-modal-chrome-hit svg {
+  width: 17px;
+  height: 17px;
+  transition: transform 160ms var(--um-chrome-ease-spring);
+}
+
+.user-modal-page-back .user-modal-chrome-hit svg {
+  margin-left: -1px;
+}
+
+.user-modal-chrome-hit:hover {
+  border-color: color-mix(in srgb, var(--um-chrome-accent) 28%, white 30%);
+  background:
+    var(--um-chrome-liq-sheen),
+    color-mix(in srgb, var(--um-chrome-accent) 14%, transparent);
+  box-shadow: var(--um-chrome-liq-soft-shadow);
+  color: var(--um-chrome-ink);
+  transform: translate3d(-2px, 0, 0);
+}
+
+.user-modal-chrome-hit:hover svg {
+  transform: translate3d(-1px, 0, 0);
+}
+
+.user-modal-chrome-hit:active {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 20%);
+  transform: scale(0.94);
+}
+
+.user-modal-chrome-hit:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--um-chrome-accent) 42%, transparent);
+  box-shadow: 0 0 0 3px
+    color-mix(in srgb, var(--um-chrome-accent) 18%, transparent);
+}
+
+/* 主页：关闭钮仍浮在右上，尺寸 / 交互跟顶栏圆钮同一套 */
 .user-modal-close-float {
   position: absolute;
-  top: 1rem;
-  right: 1rem;
+  top: var(--user-modal-chrome-inset);
+  right: var(--user-modal-chrome-inset);
   z-index: 10;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.25rem;
-  height: 2.25rem;
-  background: rgb(255 255 255 / 90%);
-  border: none;
-  border-radius: 50%;
-  color: #6b7280;
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-  box-shadow: 0 2px 8px rgb(0 0 0 / 10%);
-}
-
-html.dark .user-modal-close-float {
-  background: rgb(50 50 55 / 90%);
-  color: #9ca3af;
-}
-
-.user-modal-close-float:hover {
-  background: color-mix(
-    in srgb,
-    var(--color-primary, #94a3b8) 25%,
-    transparent
-  );
-  color: var(--color-primary, #94a3b8);
-  transform: rotate(90deg) scale(1.1);
-  box-shadow: 0 4px 16px
-    color-mix(in srgb, var(--color-primary, #94a3b8) 20%, transparent);
-}
-
-.user-modal-close-float:active {
-  transform: rotate(90deg) scale(0.95);
 }
 
 /* 上部区域 - Hero */
@@ -980,8 +1038,17 @@ html.dark .user-modal-overlay {
   background: rgb(0 0 0 / 50%);
 }
 
+/* 登录弹窗自己就是玻璃面，遮罩只负责压暗，不再叠一层 blur */
+.user-modal-overlay--plain,
+.user-modal-overlay--plain.animate-in,
+.user-modal-overlay--plain.closing {
+  backdrop-filter: none;
+}
+
 /* ==========================================
-   仅登录弹窗样式
+   仅登录弹窗
+   表面交给 .glass / .surface-dialog，这里只负责定位和开关动画。
+   表单不再内套一层 glass，避免和本壳叠两层背景。
    ========================================== */
 .user-modal-login-only {
   position: fixed;
@@ -989,14 +1056,7 @@ html.dark .user-modal-overlay {
   left: 50%;
   width: 90%;
   max-width: 400px;
-  background: rgb(255 255 255 / 95%);
-  backdrop-filter: blur(24px) saturate(180%);
   border-radius: 1.75rem;
-  border: 1px solid rgb(255 255 255 / 30%);
-  box-shadow:
-    0 25px 80px rgb(0 0 0 / 15%),
-    0 10px 30px rgb(0 0 0 / 8%),
-    inset 0 1px 0 rgb(255 255 255 / 50%);
   z-index: 10001;
   padding: 2rem;
 
@@ -1031,125 +1091,6 @@ html.dark .user-modal-overlay {
     transform 0.25s ease-out,
     visibility 0s linear 0.25s;
   pointer-events: none;
-}
-
-html.dark .user-modal-login-only {
-  background: rgb(30 30 35 / 85%);
-  border-color: rgb(255 255 255 / 8%);
-  box-shadow:
-    0 25px 80px rgb(0 0 0 / 35%),
-    0 10px 30px rgb(0 0 0 / 20%),
-    inset 0 1px 0 rgb(255 255 255 / 5%);
-}
-
-/* 登录弹窗关闭按钮 */
-.login-close-btn {
-  position: absolute;
-  top: 1rem;
-  right: 1rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.25rem;
-  height: 2.25rem;
-  background: rgb(0 0 0 / 5%);
-  border: none;
-  border-radius: 50%;
-  color: #6b7280;
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-html.dark .login-close-btn {
-  background: rgb(255 255 255 / 8%);
-  color: #9ca3af;
-}
-
-.login-close-btn:hover {
-  background: color-mix(
-    in srgb,
-    var(--color-primary, #94a3b8) 25%,
-    transparent
-  );
-  color: var(--color-primary, #94a3b8);
-  transform: rotate(90deg) scale(1.1);
-}
-
-.login-close-btn:active {
-  transform: rotate(90deg) scale(0.95);
-}
-
-/* 弹窗内部的容器透明化，避免双重背景 */
-.user-modal-login-only > div {
-  max-width: none;
-  width: 100%;
-}
-
-/* 覆盖 tailwind 的 glass rounded-2xl shadow-xl p-8 */
-.user-modal-login-only .glass,
-.user-modal-login-only .rounded-2xl,
-.user-modal-login-only .shadow-xl,
-.user-modal-login-only .p-8 {
-  background: transparent !important;
-  backdrop-filter: none !important;
-  border: none !important;
-  box-shadow: none !important;
-  border-radius: 0 !important;
-  padding: 0 !important;
-}
-
-/* 恢复表单内部的间距 */
-.user-modal-login-only .space-y-4 > * + * {
-  margin-top: 1rem;
-}
-
-html.dark .user-modal-login-only .glass {
-  background: transparent !important;
-  border: none !important;
-}
-
-/* 暗色模式下的表单样式优化 */
-html.dark .user-modal-login-only label {
-  color: #e5e7eb;
-}
-
-html.dark .user-modal-login-only input {
-  background: rgb(255 255 255 / 8%);
-  border-color: rgb(255 255 255 / 15%);
-  color: #f3f4f6;
-}
-
-html.dark .user-modal-login-only input::placeholder {
-  color: #9ca3af;
-}
-
-html.dark .user-modal-login-only input:focus {
-  border-color: var(--color-primary, #94a3b8);
-  box-shadow: 0 0 0 2px
-    color-mix(in srgb, var(--color-primary, #94a3b8) 30%, transparent);
-}
-
-/* 暗色模式下分隔线 */
-html.dark .user-modal-login-only .border-t {
-  border-color: rgb(255 255 255 / 10%);
-}
-
-html.dark .user-modal-login-only .text-gray-500 {
-  color: #9ca3af;
-}
-
-html.dark .user-modal-login-only .bg-white {
-  background: rgb(30 30 35 / 85%);
-}
-
-/* 暗色模式下错误提示 */
-html.dark .user-modal-login-only .bg-red-50 {
-  background: rgb(220 38 38 / 15%);
-  border-color: rgb(220 38 38 / 30%);
-}
-
-html.dark .user-modal-login-only .text-red-800 {
-  color: #fca5a5;
 }
 
 /* 第三方账号绑定 */
@@ -1344,54 +1285,37 @@ html.dark .badge-oauth {
   }
 }
 
-/* 头部：左上返回 + 标题（右侧给浮动关闭按钮留空间） */
+/*
+ * 二级页顶栏：提出滚动层。左返回 + 标题，右关闭，两颗圆钮同一行对齐。
+ */
 .user-modal-page-head {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
-  gap: 0.625rem;
-  padding: 1rem 3.5rem 0.75rem 1rem;
-  border-bottom: 1px solid rgb(0 0 0 / 6%);
-}
-
-html.dark .user-modal-page-head {
-  border-bottom-color: rgb(255 255 255 / 8%);
+  justify-content: space-between;
+  gap: 12px;
+  padding: var(--user-modal-chrome-inset);
 }
 
 .user-modal-page-back {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-
-  /* 与浮动关闭按钮 (.user-modal-close-float) 尺寸一致 */
-  width: 2.25rem;
-  height: 2.25rem;
-  flex-shrink: 0;
-  border: none;
-  border-radius: 50%;
-  background: rgb(0 0 0 / 5%);
-  color: #374151;
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-
-.user-modal-page-back:hover {
-  background: rgb(0 0 0 / 10%);
-}
-
-html.dark .user-modal-page-back {
-  background: rgb(255 255 255 / 8%);
-  color: #e5e7eb;
-}
-
-html.dark .user-modal-page-back:hover {
-  background: rgb(255 255 255 / 14%);
+  gap: 8px;
+  min-width: 0;
 }
 
 .user-modal-page-title {
+  flex: 0 1 auto;
+  min-width: 0;
   margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #1f2937;
   font-size: 0.95rem;
   font-weight: 600;
-  color: #1f2937;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 html.dark .user-modal-page-title {
