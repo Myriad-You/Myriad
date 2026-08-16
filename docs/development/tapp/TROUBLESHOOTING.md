@@ -417,6 +417,7 @@ const data = await Tapp.api("data", {});
 2. 任意 `type: "http"` API（含 `public`、`protected` 与 `manager`）未授予 `network:fetch`
 3. 后端出站安全或参数模板校验拒绝了请求
 4. 游客调用 `access: "public"` API，但站点的游客 `network:fetch` 策略未开启（默认关闭）
+5. 其他程序调用 `/tapi/{tappId}/{path}` 时未带 HMAC / timestamp / nonce，或密钥未配置 / 重放（一律 401；`ROUTE_VERIFY_REPLAY` 只在 HMAC 已通过后出现）
 
 **解决方案**：
 
@@ -451,7 +452,7 @@ HTTP 声明式 API 都需要，不只是 `protected`）：
 
 - 新安装尚未由 installation owner / 当前管理员输入值：在 Tapp 详情页配置；SDK 与普通 viewer
   没有读取或写入凭据的接口。
-- endpoint、credential header/prefix、`access` 或同一凭据绑定的其他 API 定义发生变化：这是
+- endpoint、credential `in`/field/header/prefix/`sign`、`access` 或同一凭据绑定的其他 API 定义发生变化：这是
   授权指纹变化，必须由 owner 重新输入，不会自动沿用旧授权。
 - 从 settings 迁移：先在第三方服务轮换已可能暴露的旧 Key，再配置 credential；不要复制旧
   settings 值继续使用。

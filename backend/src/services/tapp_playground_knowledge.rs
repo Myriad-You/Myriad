@@ -33,12 +33,12 @@ const DOCUMENTS: &[KnowledgeDocument] = &[
     },
     KnowledgeDocument {
         id: "MANIFEST",
-        description: "complete manifest fields including locales (host name/description i18n), permissions, settings, APIs, AI, events, and agent",
+        description: "complete manifest fields including locales (host name/description i18n), write-only credentials, permissions, settings, APIs, AI, events, and agent",
         content: include_str!("../../../docs/development/tapp/MANIFEST.md"),
     },
     KnowledgeDocument {
         id: "API_REFERENCE",
-        description: "complete Tapp JavaScript SDK reference: storage, federation notes/media, permissions",
+        description: "complete Tapp JavaScript SDK reference: storage, assets getUrlMap rewriteUrl, federation notes/media, permissions",
         content: include_str!("../../../docs/development/tapp/API_REFERENCE.md"),
     },
     KnowledgeDocument {
@@ -63,7 +63,7 @@ const DOCUMENTS: &[KnowledgeDocument] = &[
     },
     KnowledgeDocument {
         id: "GRAPHICS",
-        description: "graphics, canvas, animation, and rendering guidance",
+        description: "host runtimeModules three r170, guest IIFE fallback, canvas/WebGL, getUrlMap rewriteUrl; no CDN fetch",
         content: include_str!("../../../docs/development/tapp/GRAPHICS.md"),
     },
     KnowledgeDocument {
@@ -83,7 +83,7 @@ const DOCUMENTS: &[KnowledgeDocument] = &[
     },
     KnowledgeDocument {
         id: "STORE",
-        description: "remote Tapp store catalog index.json, storeSource vs SDK install shapes, assets path rules, publish checklist",
+        description: "remote Tapp store catalog index.json, catalog locales for long_description/preview, storeSource vs SDK install shapes, assets path rules, publish checklist",
         content: include_str!("../../../docs/development/tapp/STORE.md"),
     },
     KnowledgeDocument {
@@ -93,7 +93,7 @@ const DOCUMENTS: &[KnowledgeDocument] = &[
     },
     KnowledgeDocument {
         id: "PLAYGROUND_GENERATION_CONTEXT",
-        description: "safe temporary-preview contract; manifest.locales vs code.i18n; federation install-only",
+        description: "safe temporary-preview contract; runtimeModules three preview; Tapp.game install-only; manifest.locales vs code.i18n; credentials not in source",
         content: include_str!("../../../docs/development/tapp/PLAYGROUND_GENERATION_CONTEXT.md"),
     },
 ];
@@ -237,27 +237,61 @@ fn expand_query_aliases(query: &str) -> String {
         ("数据交换", " data exchange "),
         ("接口", " api "),
         ("网络", " api network fetch "),
-        ("图形", " graphics canvas "),
+        ("图形", " graphics canvas three runtimeModules getUrlMap rewriteUrl assets "),
         ("动画", " animation graphics "),
+        (
+            "凭据",
+            " credentials credential header query form sign hmac inbound route tapi manifest api write-only ",
+        ),
+        (
+            "密钥",
+            " credentials credential write-only secret hmac inbound route tapi manifest api ",
+        ),
+        (
+            "credentials",
+            " credentials credential header query form sign hmac inbound route tapi manifest write-only ",
+        ),
+        ("Three", " graphics three runtimeModules canvas getUrlMap rewriteUrl assets "),
+        (
+            "three.js",
+            " graphics three runtimeModules canvas getUrlMap rewriteUrl assets ",
+        ),
+        (
+            "threejs",
+            " graphics three runtimeModules canvas getUrlMap rewriteUrl assets ",
+        ),
+        (
+            "Tapp.game",
+            " game session federation room share invite isPublic protocol ",
+        ),
+        (
+            "联机",
+            " game session federation room Tapp.game invite share isPublic ",
+        ),
+        ("贴图", " assets getUrlMap rewriteUrl graphics glb "),
+        ("入站", " inbound route tapi hmac verify nonce manifest api "),
+        ("tapi", " inbound route tapi hmac verify nonce manifest api "),
+        ("HMAC", " inbound route tapi hmac verify nonce credentials "),
         ("安装", " install package manifest "),
         (
             "联邦",
-            " federation publish media note uploadMedia createNote ",
+            " federation publish media note uploadMedia createNote game session room invite ",
         ),
         (
             "federation",
-            " federation publish media note uploadMedia createNote ",
+            " federation publish media note uploadMedia createNote game session room invite ",
         ),
         (
             "多语言",
-            " locales i18n name description manifest store catalog ",
+            " locales i18n name description manifest store catalog long_description preview ",
         ),
         (
             "locales",
-            " locales name description manifest store catalog en-US ja-JP ",
+            " locales name description manifest store catalog long_description preview en-US ja-JP ",
         ),
+        ("长介绍", " long_description locales store catalog preview "),
         ("标题", " locales name description manifest "),
-        ("商店", " store install locales package manifest "),
+        ("商店", " store install locales catalog preview package manifest "),
     ];
     aliases
         .iter()
@@ -292,6 +326,7 @@ mod tests {
             "RUNTIME_CONTRACT_DESIGN",
             "TAPP_FILE_FORMAT",
             "PLAYGROUND_GENERATION_CONTEXT",
+            "GRAPHICS",
         ] {
             assert!(
                 catalog.contains(document),
@@ -356,6 +391,82 @@ mod tests {
                         || result.document == "API_REFERENCE"
                 }),
                 "locales-related docs missing for query {query:?}: {:?}",
+                results
+                    .iter()
+                    .map(|r| r.document.as_str())
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn credential_queries_hit_manifest_or_generation_context() {
+        for query in ["凭据", "密钥", "credentials header query form sign"] {
+            let results = search(query, 5);
+            assert!(
+                !results.is_empty(),
+                "expected knowledge hits for query {query:?}"
+            );
+            assert!(
+                results.iter().any(|result| {
+                    result.document == "MANIFEST"
+                        || result.document == "PLAYGROUND_GENERATION_CONTEXT"
+                        || result.document == "API_REFERENCE"
+                        || result.document == "SANDBOX"
+                        || result.document == "REST_API"
+                        || result.document == "TROUBLESHOOTING"
+                }),
+                "credential docs missing for query {query:?}: {:?}",
+                results
+                    .iter()
+                    .map(|r| r.document.as_str())
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn inbound_route_queries_hit_manifest_or_rest_api() {
+        for query in ["入站", "tapi", "HMAC"] {
+            let results = search(query, 5);
+            assert!(
+                !results.is_empty(),
+                "expected knowledge hits for query {query:?}"
+            );
+            assert!(
+                results.iter().any(|result| {
+                    result.document == "MANIFEST"
+                        || result.document == "REST_API"
+                        || result.document == "ARCHITECTURE"
+                        || result.document == "API_REFERENCE"
+                        || result.document == "PLAYGROUND_GENERATION_CONTEXT"
+                }),
+                "inbound route docs missing for query {query:?}: {:?}",
+                results
+                    .iter()
+                    .map(|r| r.document.as_str())
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn three_queries_hit_graphics_or_generation_context() {
+        for query in ["Three", "three.js", "贴图", "图形"] {
+            let results = search(query, 5);
+            assert!(
+                !results.is_empty(),
+                "expected knowledge hits for query {query:?}"
+            );
+            assert!(
+                results.iter().any(|result| {
+                    result.document == "GRAPHICS"
+                        || result.document == "PLAYGROUND_GENERATION_CONTEXT"
+                        || result.document == "API_REFERENCE"
+                        || result.document == "SANDBOX"
+                        || result.document == "QUICKSTART"
+                }),
+                "graphics docs missing for query {query:?}: {:?}",
                 results
                     .iter()
                     .map(|r| r.document.as_str())

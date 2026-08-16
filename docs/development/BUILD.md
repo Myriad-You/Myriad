@@ -394,8 +394,8 @@ After building:
 2. Set up database
 3. Run tests: `cargo test` (backend), `pnpm test` (frontend)
 4. Start development: `./scripts/dev/dev.sh start` or `.\scripts\dev\dev.ps1 start`
-   - Without Docker: `./scripts/native/dev.sh` runs backend + frontend against a
-     locally installed PostgreSQL (`doctor` to check prerequisites, `db-setup` to
-     create the role/database).
+   - Default is a locally installed PostgreSQL (`doctor` checks prerequisites,
+     `db-setup` creates the role/database). Pass `--docker` to use compose
+     postgres instead.
 
 For deployment instructions, see [Docker Deployment](../deployment/DOCKER_DEPLOYMENT.md).

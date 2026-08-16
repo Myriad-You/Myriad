@@ -5,9 +5,9 @@ use sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::error::HttpError;
 use crate::middleware::auth::Claims;
 use crate::services::permission_service::TappPermission;
-use crate::error::HttpError;
 
 use super::common::authorize_tapp_permission;
 use super::runtime_grant::RuntimeGrantContext;
@@ -193,7 +193,9 @@ mod tests {
     /// 精确匹配）；runtime_grant.require 自身的错误契约由
     /// `services::tapp_runtime_grant` 测试覆盖，这里锁定分域本身。
     fn grant_allows(granted: &[&str], permission: TappPermission) -> bool {
-        granted.iter().any(|granted| *granted == permission.as_str())
+        granted
+            .iter()
+            .any(|granted| *granted == permission.as_str())
     }
 
     #[test]
@@ -236,12 +238,24 @@ mod tests {
             "play", "pause", "next", "prev", "seek", "volume", "mute", "unmute", "mode",
         ] {
             let required = media_control_permission(action).unwrap();
-            assert!(grant_allows(&full, required), "full media grant must allow {action}");
+            assert!(
+                grant_allows(&full, required),
+                "full media grant must allow {action}"
+            );
         }
         // 单域 grant 只放行自己域内的 action
-        assert!(grant_allows(&["media:volume"], media_control_permission("volume").unwrap()));
-        assert!(grant_allows(&["media:queue"], media_control_permission("mode").unwrap()));
-        assert!(grant_allows(&["media:playback"], media_control_permission("seek").unwrap()));
+        assert!(grant_allows(
+            &["media:volume"],
+            media_control_permission("volume").unwrap()
+        ));
+        assert!(grant_allows(
+            &["media:queue"],
+            media_control_permission("mode").unwrap()
+        ));
+        assert!(grant_allows(
+            &["media:playback"],
+            media_control_permission("seek").unwrap()
+        ));
     }
 
     /// 机器可读 fixture 与后端映射锁定：每个 control action 的权限必须一致，
@@ -253,7 +267,9 @@ mod tests {
         ))
         .expect("media action fixture must parse");
 
-        let control = fixture["controlActions"].as_array().expect("controlActions");
+        let control = fixture["controlActions"]
+            .as_array()
+            .expect("controlActions");
         assert!(!control.is_empty());
         for entry in control {
             let action = entry["action"].as_str().expect("control action");

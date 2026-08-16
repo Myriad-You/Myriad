@@ -403,7 +403,7 @@ dependencies = [
 
 [[package]]
 name = "myriad-proxy"
-version = "0.3.28"
+version = "0.3.31"
 dependencies = [
  "anyhow",
  "axum",

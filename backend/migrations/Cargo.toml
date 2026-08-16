@@ -1,6 +1,6 @@
 [package]
 name = "migration"
-version = "0.3.28"
+version = "0.3.31"
 edition = "2021"
 publish = false
 

@@ -65,6 +65,7 @@ services:
       MYRIAD_BOOTSTRAP_TOKEN: ${MYRIAD_BOOTSTRAP_TOKEN:-}
       MYRIAD_BOOTSTRAP_TTL_SECS: ${MYRIAD_BOOTSTRAP_TTL_SECS:-1800}
       MYRIAD_ALLOW_REMOTE_BOOTSTRAP: ${MYRIAD_ALLOW_REMOTE_BOOTSTRAP:-false}
+      MYRIAD_SETUP_SECRET: ${MYRIAD_SETUP_SECRET:-}
       # Required for weather/client-geo: honor proxy-rewritten X-Real-IP.
       TRUST_PROXY_HEADERS: "true"
       # Explicit second-hop trust: loopback + docker0 + fixed compose myriad-net,

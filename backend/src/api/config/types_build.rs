@@ -3479,36 +3479,6 @@ mod settings_backup_tests {
     }
 
     #[test]
-    fn remove_env_keys_strips_active_and_commented_db_only_lines() {
-        let content = "\
-DATABASE_URL=postgres://x\n\
-UI_WALLPAPER_URL=https://example.com/a.jpg\n\
-# GEMINI_API_KEY=old\n\
-GITHUB_TOKEN=ghp_x\n\
-BASE_URL=https://site.example\n\
-PROXY_ENABLED=true\n\
-";
-        let next = remove_env_keys(content, DB_ONLY_ENV_KEYS);
-        assert!(next.contains("DATABASE_URL=postgres://x"));
-        assert!(next.contains("BASE_URL=https://site.example"));
-        assert!(next.contains("PROXY_ENABLED=true"));
-        assert!(!next.contains("UI_WALLPAPER_URL"));
-        assert!(!next.contains("GEMINI_API_KEY"));
-        assert!(!next.contains("GITHUB_TOKEN"));
-    }
-
-    #[test]
-    fn db_only_env_keys_covers_wallpaper_and_ai() {
-        assert!(DB_ONLY_ENV_KEYS.contains(&"UI_WALLPAPER_URL"));
-        assert!(DB_ONLY_ENV_KEYS.contains(&"GEMINI_API_KEY"));
-        assert!(DB_ONLY_ENV_KEYS.contains(&"GITHUB_TOKEN"));
-        // Deploy keys must NOT be purged
-        assert!(!DB_ONLY_ENV_KEYS.contains(&"BASE_URL"));
-        assert!(!DB_ONLY_ENV_KEYS.contains(&"PROXY_URL"));
-        assert!(!DB_ONLY_ENV_KEYS.contains(&"GITHUB_CLIENT_ID"));
-    }
-
-    #[test]
     fn music_playlist_id_normalized_in_db_updates() {
         let mut config = empty_config();
         config.ui_config.config_fields = vec![ui_field(
@@ -3546,10 +3516,10 @@ pub async fn update_config(
     }
     tracing::info!("✅ Configuration saved to database");
 
-    // 2. Sync deploy keys to .env (BASE_URL / OAuth client / proxy); purge DB-only dual-writes
+    // 2. Sync deploy keys to .env (BASE_URL / OAuth client / proxy). A/B/C stay DB-only.
     let body = match save_all_configs(&payload).await {
         Ok(_) => {
-            tracing::info!("✅ Deploy env synced; DB-only app keys purged from .env");
+            tracing::info!("✅ Deploy env synced; app config groups A/B/C stay DB-only");
             json!({
                 "success": true,
                 "message": "Configuration saved successfully! Changes will be applied automatically within a few seconds."
@@ -4190,158 +4160,18 @@ fn should_write_env_field(field_key: &str, value: &str) -> bool {
     }
 }
 
-/// App config that lives only in the database (groups A/B/C).
+/// Save deploy keys to `.env`. App config groups A/B/C stay DB-only.
 ///
-/// Never dual-write these to `.env` / process env. On every config save we also
-/// strip any legacy lines and `remove_var` so stale process env cannot resurrect
-/// cleared wallpaper / secrets / AI settings.
+/// Never dual-write UI / platform credentials / AI / Tripo / music / site bag
+/// to `.env` or process env. This path writes only:
+/// BASE_URL, GITHUB_CLIENT_ID / SECRET, PROXY_*, GEMINI_BASE_URL,
+/// GITHUB_API_BASE_URL (plus infra already outside this path).
 ///
-/// Kept in env (not in this list):
+/// Kept in env:
 /// - infra: DATABASE_URL, SERVER_*, JWT_SECRET, CORS_ORIGINS, FRONTEND_*, RUST_LOG
 /// - site origin: BASE_URL (+ site-domain FRONTEND_URL / CORS adapt)
 /// - OAuth deploy: GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET
 /// - outbound runtime: PROXY_*, GEMINI_BASE_URL, GITHUB_API_BASE_URL
-///
-/// ## TECH DEBT — remove after 5 releases
-///
-/// Introduced in **v0.3.26** (stop dual-writing A/B/C + one-time purge of legacy
-/// `.env` / process env). The **purge path** (`DB_ONLY_ENV_KEYS`,
-/// `remove_env_keys` on save, `std::env::remove_var` loop for this list) exists
-/// only so old installs clean themselves on the next config save.
-///
-/// **Remove target: ≥ v0.3.31** (5 versions after 0.3.26). By then all active
-/// deployments should have purged; keep only the “do not write A/B/C to env”
-/// contract (i.e. never re-add dual-write). Delete:
-/// - this constant (or shrink to empty if unused)
-/// - `remove_env_keys` + its unit tests (if only used for this purge)
-/// - the `remove_env_keys(...)` call and `for key in DB_ONLY_ENV_KEYS { remove_var }`
-///   in `save_all_configs`
-///
-/// Tracked: https://github.com/Myriad-You/Myriad/issues/301
-const DB_ONLY_ENV_KEYS: &[&str] = &[
-    // A — pure UI / site bag / music / report topic / dead pet
-    "UI_WALLPAPER_URL",
-    "UI_WALLPAPER_BLUR",
-    "UI_WALLPAPER_PARALLAX",
-    "UI_EVOCATIVE_PARALLAX",
-    "UI_EVOCATIVE_DYNAMIC_BLUR",
-    "UI_EVOCATIVE_RIPPLE",
-    "UI_EVOCATIVE_FPS",
-    "UI_EVOCATIVE_RIPPLE_QUALITY",
-    "PET_ENABLED",
-    "PET_IMAGE_URL",
-    "ANALYTICS_ENABLED",
-    "PWA_ENABLED",
-    "SITE_TITLE",
-    "SITE_DESCRIPTION",
-    "SITE_FAVICON",
-    "SITE_KEYWORDS",
-    "SITE_OG_IMAGE",
-    "SITE_NOINDEX",
-    "SITE_VISIBILITY_POLICY",
-    "SITE_AI_INTRO",
-    "SITE_FOOTER_CUSTOM",
-    "SITE_ICP",
-    "SITE_GONGAN",
-    "GA_MEASUREMENT_ID",
-    "UMAMI_WEBSITE_ID",
-    "UMAMI_SCRIPT_URL",
-    "MUSIC_ENABLED",
-    "MUSIC_SOURCE",
-    "MUSIC_PLAYLIST_ID",
-    "TOPIC_STYLE",
-    // B — platform credentials
-    "GITHUB_USERNAME",
-    "GITHUB_TOKEN",
-    "BILIBILI_UID",
-    "STEAM_API_KEY",
-    "STEAM_ID",
-    "YOUTUBE_API_KEY",
-    "YOUTUBE_CHANNEL_ID",
-    "NETEASE_USER_ID",
-    "BANGUMI_USERNAME",
-    "BANGUMI_ACCESS_TOKEN",
-    "BANGUMI_USER_AGENT",
-    "X_USERNAME",
-    "X_BEARER_TOKEN",
-    "MAL_USERNAME",
-    "MAL_CLIENT_ID",
-    "XBOX_GAMERTAG",
-    "OPENXBL_API_KEY",
-    "PSN_ONLINE_ID",
-    "PSN_NPSSO",
-    "DISCORD_ACCESS_TOKEN",
-    "DISCORD_REFRESH_TOKEN",
-    "DISCORD_TOKEN_EXPIRES_AT",
-    "DISCORD_USER_ID",
-    // C — AI / Lite / Pro / image / Tripo
-    "AI_PROVIDER",
-    "GEMINI_API_KEY",
-    "GEMINI_MODEL",
-    "OPENAI_API_KEY",
-    "OPENAI_MODEL",
-    "OPENAI_BASE_URL",
-    "OPENAI_MAX_TOKENS",
-    "PRO_ENABLED",
-    "PRO_AI_PROVIDER",
-    "PRO_GEMINI_API_KEY",
-    "PRO_GEMINI_MODEL",
-    "PRO_OPENAI_API_KEY",
-    "PRO_OPENAI_MODEL",
-    "PRO_OPENAI_BASE_URL",
-    "AI_IMAGE_PROVIDER",
-    "AI_IMAGE_MODEL",
-    "AI_IMAGE_OPENAI_API_KEY",
-    "AI_IMAGE_OPENAI_BASE_URL",
-    "AI_IMAGE_OPENROUTER_API_KEY",
-    "AI_IMAGE_VOLCENGINE_API_KEY",
-    "AI_IMAGE_VOLCENGINE_BASE_URL",
-    "AI_IMAGE_WIDTH",
-    "AI_IMAGE_HEIGHT",
-    "LITE_ENABLED",
-    "LITE_AI_PROVIDER",
-    "LITE_GEMINI_API_KEY",
-    "LITE_GEMINI_MODEL",
-    "LITE_OPENAI_API_KEY",
-    "LITE_OPENAI_MODEL",
-    "LITE_OPENAI_BASE_URL",
-    "TRIPO_ENABLED",
-    "TRIPO_API_KEY",
-    "TRIPO_BASE_URL",
-    "TRIPO_MODEL",
-    "TRIPO_FACE_LIMIT",
-    "TRIPO_POLL_INTERVAL_SECONDS",
-    "TRIPO_TASK_TIMEOUT_SECONDS",
-    "TRIPO_MAX_DOWNLOAD_MB",
-];
-
-/// Drop `KEY=...` and `# KEY=...` lines from .env content.
-pub(crate) fn remove_env_keys(content: &str, keys: &[&str]) -> String {
-    if keys.is_empty() {
-        return content.to_string();
-    }
-    let prefixes: Vec<(String, String)> = keys
-        .iter()
-        .map(|k| (format!("{k}="), format!("# {k}=")))
-        .collect();
-    let mut out: Vec<&str> = Vec::new();
-    for line in content.lines() {
-        let trimmed = line.trim_start();
-        let drop = prefixes.iter().any(|(eq, hash)| {
-            trimmed.starts_with(eq.as_str()) || trimmed.starts_with(hash.as_str())
-        });
-        if !drop {
-            out.push(line);
-        }
-    }
-    let mut s = out.join("\n");
-    if content.ends_with('\n') && !s.is_empty() && !s.ends_with('\n') {
-        s.push('\n');
-    }
-    s
-}
-
-/// 保存部署相关配置到 .env；应用配置（A/B/C）只在 DB，绝不 dual-write。
 async fn save_all_configs(config: &ConfigResponse) -> Result<(), Box<dyn std::error::Error>> {
     use std::fs;
     use std::path::Path;
@@ -4362,9 +4192,6 @@ async fn save_all_configs(config: &ConfigResponse) -> Result<(), Box<dyn std::er
     } else {
         String::new()
     };
-
-    // Purge legacy dual-written A/B/C keys from the file before writing deploy keys.
-    env_content = remove_env_keys(&env_content, DB_ONLY_ENV_KEYS);
 
     // Keys emptied on this save (commented `# KEY=`) — must remove_var after dotenv.
     let mut env_keys_to_clear: Vec<&'static str> = Vec::new();
@@ -4459,7 +4286,7 @@ async fn save_all_configs(config: &ConfigResponse) -> Result<(), Box<dyn std::er
     }
 
     fs::write(env_path, env_content_normalized.as_bytes())?;
-    tracing::info!("✅ Configuration saved to .env file (DB-only keys purged)");
+    tracing::info!("✅ Configuration saved to .env file (deploy keys only)");
 
     // 重新加载环境变量
     if let Err(e) = dotenvy::from_path_override(env_path) {
@@ -4468,12 +4295,8 @@ async fn save_all_configs(config: &ConfigResponse) -> Result<(), Box<dyn std::er
         tracing::info!("♻️ Environment variables reloaded after config save");
     }
 
-    // Drop emptied deploy keys + all DB-only keys from process env so nothing
-    // can resurrect via std::env after a purge (dotenv never unsets missing keys).
+    // Drop emptied deploy keys from process env (dotenv never unsets missing keys).
     for key in env_keys_to_clear {
-        std::env::remove_var(key);
-    }
-    for key in DB_ONLY_ENV_KEYS {
         std::env::remove_var(key);
     }
 

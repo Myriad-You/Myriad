@@ -1013,9 +1013,18 @@ fn rejects_removed_media_control_with_replacement_names() {
         error.contains("media:control"),
         "error should name the removed permission: {error}"
     );
-    assert!(error.contains("media:playback"), "error should list media:playback: {error}");
-    assert!(error.contains("media:volume"), "error should list media:volume: {error}");
-    assert!(error.contains("media:queue"), "error should list media:queue: {error}");
+    assert!(
+        error.contains("media:playback"),
+        "error should list media:playback: {error}"
+    );
+    assert!(
+        error.contains("media:volume"),
+        "error should list media:volume: {error}"
+    );
+    assert!(
+        error.contains("media:queue"),
+        "error should list media:queue: {error}"
+    );
 }
 
 #[test]

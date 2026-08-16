@@ -135,6 +135,10 @@ services:
       MYRIAD_BOOTSTRAP_TTL_SECS: ${MYRIAD_BOOTSTRAP_TTL_SECS:-1800}
       MYRIAD_BOOTSTRAP_TOKEN: ${MYRIAD_BOOTSTRAP_TOKEN:-}
       JWT_SECRET: ${JWT_SECRET}
+      # First-owner passphrase when orchestration already wrote DATABASE_URL.
+      # deploy.sh fills host .env if empty. Empty = create-admin is not gated.
+      # Never expose the value in the admin UI.
+      MYRIAD_SETUP_SECRET: ${MYRIAD_SETUP_SECRET:-}
       # Visitor-hash salt for first-party analytics. Prefer a dedicated random value
       # (openssl rand -hex 32). When empty, backend derives from JWT_SECRET so
       # collect does not 503 on stock compose (ENVIRONMENT=production).

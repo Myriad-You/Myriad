@@ -42,6 +42,8 @@ pub const RETIRED_MIGRATION_NAMES: &[&str] = &[
     "010_digital_life_phase_four",
     "011_owner_is_admin",
     "011_digital_life_asset_subjects",
+    "012_federation_inbox_receipts",
+    "013_federation_inbox_receipts_v2",
 ];
 
 pub fn migrations() -> impl Iterator<Item = Box<dyn MigrationTrait>> {

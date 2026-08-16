@@ -21,6 +21,7 @@ import { useI18n } from '../contexts/I18nContext'
 import { assertConfigWriteSuccess } from '../lib/api'
 import { parseAuthMeResponse } from '../utils/authMe'
 import { getCSRFHeaderName, getCSRFToken } from '../utils/csrf'
+import { consumeSetupSecretFromLocation } from '../utils/setupSecretFromUrl'
 import { InputItem, SegmentedControl, SwitchItem } from './settings'
 import { SettingItemWrapper } from './settings/items/SettingItemWrapper'
 import {
@@ -45,6 +46,7 @@ interface SetupStatus {
   is_setup_required: boolean
   has_database: boolean
   has_admin_user: boolean
+  setup_secret_required?: boolean
   missing_configs: string[]
 }
 
@@ -145,6 +147,8 @@ const SetupWizard: React.FC = () => {
     username: '',
     password: '',
     confirmPassword: '',
+    /** 与 .env 里 MYRIAD_SETUP_SECRET 对暗号 */
+    setupSecret: '',
   })
   const [creatingAdmin, setCreatingAdmin] = useState(false)
   const [adminCreated, setAdminCreated] = useState(false)
@@ -258,6 +262,16 @@ const SetupWizard: React.FC = () => {
       }
     }
   }, [checkSetupStatus])
+
+  useEffect(() => {
+    const secret = consumeSetupSecretFromLocation(window.location, (url) => {
+      window.history.replaceState(window.history.state, '', url)
+    })
+    if (!secret) return
+    setAdminForm((prev) =>
+      prev.setupSecret ? prev : { ...prev, setupSecret: secret },
+    )
+  }, [])
 
   const enterSetup = () => {
     sessionStorage.setItem('myriad-setup-started', 'true')
@@ -615,6 +629,11 @@ const SetupWizard: React.FC = () => {
       setNotice({ tone: 'error', message: t.setup.bootstrapTokenRequired })
       return
     }
+    const setupSecretRequired = Boolean(status?.setup_secret_required)
+    if (setupSecretRequired && !adminForm.setupSecret.trim()) {
+      setNotice({ tone: 'error', message: t.setup.setupSecretRequired })
+      return
+    }
 
     setCreatingAdmin(true)
 
@@ -628,6 +647,9 @@ const SetupWizard: React.FC = () => {
         body: JSON.stringify({
           username: adminForm.username,
           password: adminForm.password,
+          ...(setupSecretRequired
+            ? { setup_secret: adminForm.setupSecret.trim() }
+            : {}),
         }),
       })
 
@@ -1177,6 +1199,26 @@ const SetupWizard: React.FC = () => {
                     autoComplete="new-password"
                   />
                 </Field>
+                {status?.setup_secret_required ? (
+                  <Field
+                    label={t.setup.setupSecret}
+                    hint={t.setup.setupSecretHint}
+                  >
+                    <TextInput
+                      type="password"
+                      mono
+                      value={adminForm.setupSecret}
+                      onChange={(e) =>
+                        setAdminForm({
+                          ...adminForm,
+                          setupSecret: e.target.value,
+                        })
+                      }
+                      placeholder={t.setup.setupSecretPlaceholder}
+                      autoComplete="off"
+                    />
+                  </Field>
+                ) : null}
               </StepBody>
               <ActionBar>
                 <PrimaryButton

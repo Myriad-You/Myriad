@@ -209,8 +209,8 @@ export const PermissionsConfigSection: React.FC<
     {
       key: 'storage_write',
       code: 'storage:write',
-      label: '写入本地存储',
-      hint: '允许写入该应用的私有存储空间',
+      label: t.config.permStorageWrite,
+      hint: t.config.permStorageWriteHint,
     },
     // 网络（report:write 已仅管理员，不再展示下放开关）
     {

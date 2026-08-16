@@ -692,6 +692,54 @@ CREATE INDEX IF NOT EXISTS idx_fed_interactions_user_kind_created
     Ok(())
 }
 
+/// Inbox receipt table (authoritative CREATE is `migrations/005`).
+///
+/// Old DBs that already applied 005 get `CREATE IF NOT EXISTS`. Review DBs that
+/// recorded the short-lived scope-less 012 shape are rebuilt here — generic ADD
+/// cannot introduce `inbox_scope` into that primary key.
+pub(crate) async fn ensure_federation_inbox_receipts_table(
+    db: &DatabaseConnection,
+) -> Result<(), DbErr> {
+    db.execute_unprepared(
+        r#"
+DO $$
+BEGIN
+    IF to_regclass('federation_inbox_receipts') IS NOT NULL
+       AND NOT EXISTS (
+           SELECT 1
+           FROM information_schema.columns
+           WHERE table_schema = current_schema()
+             AND table_name = 'federation_inbox_receipts'
+             AND column_name = 'inbox_scope'
+       )
+    THEN
+        DROP TABLE federation_inbox_receipts;
+    END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS federation_inbox_receipts (
+    signer TEXT NOT NULL,
+    activity_id TEXT NOT NULL,
+    inbox_scope TEXT NOT NULL,
+    body_digest CHAR(64) NOT NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'processing',
+    outcome_status SMALLINT,
+    error_message TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMPTZ,
+    CONSTRAINT federation_inbox_receipts_status_check
+        CHECK (status IN ('processing', 'accepted', 'rejected')),
+    CONSTRAINT federation_inbox_receipts_digest_check
+        CHECK (body_digest ~ '^[0-9a-f]{64}$'),
+    CONSTRAINT federation_inbox_receipts_pkey
+        PRIMARY KEY (signer, activity_id, inbox_scope)
+);
+"#,
+    )
+    .await?;
+    Ok(())
+}
+
 pub(crate) async fn ensure_tapp_storage_quota(db: &DatabaseConnection) -> Result<(), DbErr> {
     db.execute_unprepared(
         r#"

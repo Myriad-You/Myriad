@@ -94,6 +94,27 @@ pub async fn check_anonymous_rate_limit(
         .map_err(rate_limit_http_error)
 }
 
+pub async fn check_route_verify_rate_limit(
+    db: &sea_orm::DatabaseConnection,
+    tapp_id: &str,
+    credential_key: &str,
+    revision: &str,
+) -> Result<(), HttpError> {
+    tapp_rate_limit::check_route_verify_rate_limit(db, tapp_id, credential_key, revision)
+        .await
+        .map_err(rate_limit_http_error)
+}
+
+pub async fn check_inbound_anonymous_rate_limit(
+    db: &sea_orm::DatabaseConnection,
+    client_ip: Option<&str>,
+    tapp_id: &str,
+) -> Result<(), HttpError> {
+    tapp_rate_limit::check_inbound_anonymous_rate_limit(db, client_ip, tapp_id)
+        .await
+        .map_err(rate_limit_http_error)
+}
+
 /// 获取速率限制状态（只读，不记录）
 pub async fn get_rate_limit_status_for(
     db: &sea_orm::DatabaseConnection,
@@ -146,9 +167,7 @@ fn tapp_access_http_error(err: TappAccessError) -> HttpError {
 ///
 /// 全新数据库在 setup 创建站点 owner 前合法地没有管理员；公开读取路径应把它视为空集合，
 /// 需要 owner 的控制面路径再通过 `get_admin_user_id` 提升为错误。
-pub async fn find_admin_user_id(
-    db: &DatabaseConnection,
-) -> Result<Option<i32>, HttpError> {
+pub async fn find_admin_user_id(db: &DatabaseConnection) -> Result<Option<i32>, HttpError> {
     tapp_ownership::find_admin_user_id(db)
         .await
         .map_err(tapp_access_http_error)

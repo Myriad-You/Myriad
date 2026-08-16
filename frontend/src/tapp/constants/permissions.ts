@@ -133,13 +133,13 @@ export const PERMISSION_CONFIG: Record<
   // —— 存储 / UI ——
   'storage:read': {
     icon: FaHdd,
-    labelKey: 'permStorage',
-    descriptionKey: 'permStorageDesc',
+    labelKey: 'permStorageRead',
+    descriptionKey: 'permStorageReadDesc',
   },
   'storage:write': {
     icon: FaHdd,
-    labelKey: 'permStorage',
-    descriptionKey: 'permStorageDesc',
+    labelKey: 'permStorageWrite',
+    descriptionKey: 'permStorageWriteDesc',
   },
   'ui:notification': {
     icon: FaBell,
@@ -304,5 +304,10 @@ export const PERMISSION_CONFIG: Record<
     icon: FaFolder,
     labelKey: 'permFederationFiles',
     descriptionKey: 'permFederationFilesDesc',
+  },
+  'game:session': {
+    icon: FaUsers,
+    labelKey: 'permGameSession',
+    descriptionKey: 'permGameSessionDesc',
   },
 }

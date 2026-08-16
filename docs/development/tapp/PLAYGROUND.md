@@ -65,11 +65,13 @@ events / agent / dataExchange 等 Manifest 扩展（见
 
 ### 目录文案：`manifest.locales` ≠ 应用内 `code.i18n`
 
-生成面向商店/列表的包时，优先为 **catalog-facing 标题与描述** 填写
+生成面向商店/列表的包时，优先为 **宿主 chrome 标题与短描述** 填写
 `manifest.locales`（BCP-47 → `{ name?, description? }`），并保留顶层
-`name` / `description` 作为语言未命中时的兜底。这与 **应用内 UI** 的
-`code.i18n` / `Tapp.i18n` 是两套机制，不要混用。详见
-[MANIFEST · 多语言名称与描述](./MANIFEST.md#多语言名称与描述locales) 与
+`name` / `description` 作为语言未命中时的兜底。商店详情长介绍与静态预览的多语言
+属于 `catalog.json` 的 `locales`（`long_description` / `preview`），不要写进
+Manifest。这与 **应用内 UI** 的 `code.i18n` / `Tapp.i18n` 也不是同一套机制。详见
+[MANIFEST · 多语言名称与描述](./MANIFEST.md#多语言名称与描述locales)、
+[STORE](./STORE.md) 与
 [PLAYGROUND_GENERATION_CONTEXT](./PLAYGROUND_GENERATION_CONTEXT.md)。
 
 每次生成或修改都返回**完整项目 JSON**，而不是未经验证的文本 diff。

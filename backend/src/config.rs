@@ -428,12 +428,12 @@ pub struct DynamicConfig {
     pub tapp_window_schemes: Option<String>, // 窗口方案数据 (JSON)
 
     // Tapp 权限下放配置
-    // 基于 Tapp 系统的 elevated 级别权限（13 项可配置下放）
+    // 基于 Tapp 系统的 elevated 级别权限（14 项可配置下放）
     // 这些权限默认只有管理员可用，可以配置下放给普通用户或游客
     // 注意：basic 级别权限默认可授予所有用户
     // 注意：privileged 级别权限始终只限管理员
 
-    // 普通用户可使用的 elevated 权限（13 项）
+    // 普通用户可使用的 elevated 权限（14 项）
     /// ai:generate - AI 生成内容
     pub user_perm_ai_generate: bool,
     /// ai:analyze - AI 分析数据
@@ -461,7 +461,7 @@ pub struct DynamicConfig {
     /// storage:write - 写入 Tapp 存储
     pub user_perm_storage_write: bool,
 
-    // 游客可使用的 elevated 权限（13 项）
+    // 游客可使用的 elevated 权限（14 项）
     /// ai:generate - AI 生成内容（游客）
     pub guest_perm_ai_generate: bool,
     /// ai:analyze - AI 分析数据（游客）

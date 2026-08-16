@@ -25,7 +25,8 @@ use myriad_tapp_contract::contract_rules::{
     HTTP_BODY_METHODS, MAX_TAPP_NON_JSON_HTTP_REQUEST_BYTES,
 };
 use myriad_tapp_contract::manifest::{
-    TappAiOperation, TappApiAccess, TappApiDef, TappHttpBodyMode,
+    TappAiOperation, TappApiAccess, TappApiDef, TappCredentialEncoding, TappCredentialIn,
+    TappCredentialSignAlg, TappHttpBodyMode,
 };
 
 // 预编译模板变量正则，避免每次调用都重新编译
@@ -79,6 +80,8 @@ pub struct ApiExecutionContext {
     pub ai_model_tier: Option<crate::config::ModelTier>,
     /// Host-only material resolved after install/runtime binding checks.
     pub credential: Option<crate::services::tapp_credentials::ResolvedApiCredential>,
+    /// Installation settings the declared API may interpolate as `settings.*`.
+    pub settings: std::collections::BTreeMap<String, Value>,
 }
 
 /// 地理位置信息
@@ -108,6 +111,111 @@ pub struct TappApiService;
 struct EncodedHttpBody {
     bytes: Vec<u8>,
     default_content_type: Option<&'static str>,
+}
+
+struct PreparedHttpRequest {
+    url: String,
+    body: Option<EncodedHttpBody>,
+    secret_header: Option<(HeaderName, HeaderValue)>,
+    redaction_needles: Vec<String>,
+}
+
+fn present_credential_value(
+    raw: &str,
+    encoding: Option<TappCredentialEncoding>,
+) -> Result<String, String> {
+    match encoding {
+        None => Ok(raw.to_string()),
+        Some(TappCredentialEncoding::Base64) => {
+            use base64::Engine;
+            Ok(base64::engine::general_purpose::STANDARD.encode(raw.as_bytes()))
+        }
+    }
+}
+
+fn credential_redaction_needles(raw: &str, presented: &str, prefix: Option<&str>) -> Vec<String> {
+    let mut needles = Vec::new();
+    if !raw.is_empty() {
+        needles.push(raw.to_string());
+    }
+    if !presented.is_empty() && presented != raw {
+        needles.push(presented.to_string());
+    }
+    if let Some(prefix) = prefix {
+        if !prefix.is_empty() {
+            needles.push(format!("{prefix}{presented}"));
+        }
+    }
+    needles
+}
+
+fn append_credential_query(url: &str, field: &str, value: &str) -> Result<String, String> {
+    let mut parsed = url::Url::parse(url).map_err(|_| "Invalid credential URL".to_string())?;
+    if parsed.query_pairs().any(|(name, _)| name.as_ref() == field) {
+        return Err("credential query field is already present".into());
+    }
+    parsed.query_pairs_mut().append_pair(field, value);
+    Ok(parsed.into())
+}
+
+fn scalar_to_sign_string(field: &str, value: &Value) -> Result<String, String> {
+    match value {
+        Value::String(value) => Ok(value.clone()),
+        Value::Number(value) => Ok(value.to_string()),
+        Value::Bool(value) => Ok(value.to_string()),
+        Value::Null => Ok(String::new()),
+        Value::Array(_) | Value::Object(_) => Err(format!(
+            "signed or form field {field} must resolve to a scalar value"
+        )),
+    }
+}
+
+fn signed_sorted_kv_material(
+    fields: &serde_json::Map<String, Value>,
+    sign: &myriad_tapp_contract::manifest::TappCredentialSign,
+) -> Result<String, String> {
+    let mut pieces = Vec::new();
+    let mut names = sign.over.clone();
+    names.sort();
+    for name in names {
+        let value = fields
+            .get(&name)
+            .ok_or_else(|| format!("signed field {name} is missing from the body"))?;
+        pieces.push(name.clone());
+        pieces.push(scalar_to_sign_string(&name, value)?);
+    }
+    Ok(pieces.concat())
+}
+
+fn apply_body_signature(
+    fields: &mut serde_json::Map<String, Value>,
+    sign_field: &str,
+    sign: &myriad_tapp_contract::manifest::TappCredentialSign,
+    token: &str,
+) -> Result<(), String> {
+    if let Some(timestamp_field) = &sign.timestamp_field {
+        let unix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        fields.insert(timestamp_field.clone(), json!(unix));
+    }
+    if fields.contains_key(sign_field) {
+        return Err("signature field is already present in the body".into());
+    }
+    let sorted = signed_sorted_kv_material(fields, sign)?;
+    let digest = match sign.alg {
+        TappCredentialSignAlg::Md5SortedKv => {
+            let mut material = String::from(token);
+            material.push_str(&sorted);
+            format!("{:x}", md5::compute(material.as_bytes()))
+        }
+        TappCredentialSignAlg::HmacSha256Raw => hex::encode(
+            crate::services::tapp_hmac::hmac_sha256(token.as_bytes(), sorted.as_bytes()),
+        ),
+    };
+    fields.insert(sign_field.to_string(), Value::String(digest));
+    Ok(())
 }
 
 impl TappApiService {
@@ -252,6 +360,22 @@ impl TappApiService {
         inject_context.insert("user.id".to_string(), json!(context.user_id));
         inject_context.insert("user.username".to_string(), json!(context.username));
         inject_context.insert("user.isAdmin".to_string(), json!(context.is_admin));
+
+        for (key, value) in &context.settings {
+            inject_context.insert(format!("settings.{key}"), value.clone());
+        }
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
+        inject_context.insert("time.unix".to_string(), json!(now.as_secs()));
+        inject_context.insert("time.unixMs".to_string(), json!(now.as_millis() as u64));
+        inject_context.insert(
+            "time.iso8601".to_string(),
+            json!(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+        );
+        let nonce = rand::random::<[u8; 16]>();
+        inject_context.insert("time.nonce".to_string(), json!(hex::encode(nonce)));
 
         // Every templated HTTP surface can consume host context. Inspect them
         // all so direct references in headers/body do not resolve to empty
@@ -437,26 +561,18 @@ impl TappApiService {
         context: &HashMap<String, Value>,
         credential: Option<&crate::services::tapp_credentials::ResolvedApiCredential>,
     ) -> Result<Value, String> {
-        let base_url = api_def
-            .endpoint
-            .as_ref()
-            .ok_or("HTTP API requires endpoint")?;
-        // Reject invalid body-mode/method combinations and serialize the final
-        // bytes before any DNS resolution or outbound client construction.
-        let encoded_body = Self::encode_http_body(api_def, context)?;
-
-        // 解析模板变量
-        let url = Self::resolve_template(base_url, context);
+        let prepared = Self::prepare_http_request(api_def, context, credential)?;
 
         // 构建请求
         let method = reqwest::Method::from_str(&api_def.method.to_uppercase())
             .map_err(|_| format!("Invalid method: {}", api_def.method))?;
         let (target_url, client) = crate::services::outbound_security::build_public_http_client(
-            &url,
+            &prepared.url,
             Duration::from_secs(30),
             Some("Myriad-Tapp/1.0 (declared-api)"),
         )
-        .await?;
+        .await
+        .map_err(|error| Self::redact_needles(&error, &prepared.redaction_needles))?;
         let mut request = client.request(method, target_url);
 
         // 应用区域伪装（如果配置了 spoof 参数）
@@ -472,11 +588,7 @@ impl TappApiService {
                 request = request.header(name.clone(), value.clone());
             }
 
-            tracing::debug!(
-                "Applied spoof headers for region '{}' to {}",
-                spoof_region,
-                url
-            );
+            tracing::debug!("Applied spoof headers for region '{spoof_region}'");
         }
 
         // 添加用户定义的请求头（会覆盖伪装头）
@@ -492,23 +604,13 @@ impl TappApiService {
             }
         }
 
-        if let Some(binding) = &api_def.credential {
-            let credential = credential.ok_or_else(|| {
-                "Required Tapp credential was not resolved by the host".to_string()
-            })?;
-            let name = HeaderName::from_str(&binding.header)
-                .map_err(|_| "Invalid credential header".to_string())?;
-            crate::services::outbound_security::validate_outbound_header(&name)?;
-            let mut secret_header = binding.prefix.clone().unwrap_or_default();
-            secret_header.push_str(credential.value());
-            let value = HeaderValue::from_str(&secret_header)
-                .map_err(|_| "Invalid credential header value".to_string())?;
+        if let Some((name, value)) = prepared.secret_header {
             request = request.header(name, value);
         }
 
         // Serialize once, enforce the cap on the final bytes, and send those exact
         // bytes. This keeps payload hashing/signing aligned with the wire body.
-        if let Some(encoded) = encoded_body {
+        if let Some(encoded) = prepared.body {
             let has_declared_content_type = api_def.headers.as_ref().is_some_and(|headers| {
                 headers
                     .keys()
@@ -523,10 +625,12 @@ impl TappApiService {
         }
 
         // 发送请求
-        let response = request
-            .send()
-            .await
-            .map_err(|e| format!("HTTP request failed: {}", e))?;
+        let response = request.send().await.map_err(|error| {
+            Self::redact_needles(
+                &format!("HTTP request failed: {error}"),
+                &prepared.redaction_needles,
+            )
+        })?;
 
         let status = response.status();
         let body = crate::services::outbound_security::read_limited_body(
@@ -535,9 +639,9 @@ impl TappApiService {
         )
         .await?;
         let mut body = String::from_utf8_lossy(&body).into_owned();
-        if let Some(credential) = credential {
-            if !credential.value().is_empty() {
-                body = body.replace(credential.value(), "[REDACTED]");
+        for secret in &prepared.redaction_needles {
+            if !secret.is_empty() {
+                body = body.replace(secret, "[REDACTED]");
             }
         }
 
@@ -548,8 +652,8 @@ impl TappApiService {
         let parsed = serde_json::from_str::<Value>(&body);
         let is_json = parsed.is_ok();
         let mut data = parsed.unwrap_or_else(|_| json!({ "text": body }));
-        if let Some(credential) = credential {
-            Self::redact_secret_from_json(&mut data, credential.value());
+        for secret in &prepared.redaction_needles {
+            Self::redact_secret_from_json(&mut data, secret);
         }
 
         if status.is_success() {
@@ -562,6 +666,16 @@ impl TappApiService {
             };
             Err(format!("HTTP {} - {}", status.as_u16(), safe_body))
         }
+    }
+
+    fn redact_needles(text: &str, needles: &[String]) -> String {
+        let mut redacted = text.to_string();
+        for secret in needles {
+            if !secret.is_empty() {
+                redacted = redacted.replace(secret, "[REDACTED]");
+            }
+        }
+        redacted
     }
 
     fn redact_secret_from_json(value: &mut Value, secret: &str) {
@@ -810,6 +924,156 @@ impl TappApiService {
         }
     }
 
+    fn prepare_http_request(
+        api_def: &TappApiDef,
+        context: &HashMap<String, Value>,
+        credential: Option<&crate::services::tapp_credentials::ResolvedApiCredential>,
+    ) -> Result<PreparedHttpRequest, String> {
+        let base_url = api_def
+            .endpoint
+            .as_ref()
+            .ok_or("HTTP API requires endpoint")?;
+        let mut url = Self::resolve_template(base_url, context);
+        let mut object_body = Self::resolved_object_body(api_def, context)?;
+        let mut secret_header = None;
+        let mut redaction_needles = Vec::new();
+
+        if let Some(binding) = &api_def.credential {
+            let credential = credential.ok_or_else(|| {
+                "Required Tapp credential was not resolved by the host".to_string()
+            })?;
+            let resolved = binding.resolve()?;
+            let presented = present_credential_value(credential.value(), resolved.encoding)?;
+            redaction_needles.extend(credential_redaction_needles(
+                credential.value(),
+                &presented,
+                resolved.prefix.as_deref(),
+            ));
+
+            match resolved.placement {
+                TappCredentialIn::Header => {
+                    let name = HeaderName::from_str(&resolved.field)
+                        .map_err(|_| "Invalid credential header".to_string())?;
+                    crate::services::outbound_security::validate_outbound_header(&name)?;
+                    let mut header_value = resolved.prefix.clone().unwrap_or_default();
+                    header_value.push_str(&presented);
+                    let value = HeaderValue::from_str(&header_value)
+                        .map_err(|_| "Invalid credential header value".to_string())?;
+                    secret_header = Some((name, value));
+                }
+                TappCredentialIn::Query => {
+                    url = append_credential_query(&url, &resolved.field, &presented)?;
+                }
+                TappCredentialIn::Form => {
+                    let fields = object_body
+                        .as_mut()
+                        .ok_or_else(|| "form credentials require a form object body".to_string())?;
+                    if fields.contains_key(&resolved.field) {
+                        return Err("credential form field is already present".into());
+                    }
+                    fields.insert(resolved.field, Value::String(presented));
+                }
+                TappCredentialIn::Sign => {
+                    let sign = resolved
+                        .sign
+                        .as_ref()
+                        .ok_or_else(|| "signed credential is missing a sign block".to_string())?;
+                    let fields = object_body.as_mut().ok_or_else(|| {
+                        "signed credentials require a JSON or form object body".to_string()
+                    })?;
+                    apply_body_signature(fields, &resolved.field, sign, credential.value())?;
+                }
+            }
+        }
+
+        let encoded_body = match object_body {
+            Some(fields) => Some(Self::encode_resolved_object_body(
+                api_def,
+                Value::Object(fields),
+            )?),
+            None => Self::encode_http_body(api_def, context)?,
+        };
+
+        Ok(PreparedHttpRequest {
+            url,
+            body: encoded_body,
+            secret_header,
+            redaction_needles,
+        })
+    }
+
+    fn resolved_object_body(
+        api_def: &TappApiDef,
+        context: &HashMap<String, Value>,
+    ) -> Result<Option<serde_json::Map<String, Value>>, String> {
+        let needs_object = api_def.credential.as_ref().is_some_and(|binding| {
+            binding.resolve().ok().is_some_and(|resolved| {
+                matches!(
+                    resolved.placement,
+                    TappCredentialIn::Form | TappCredentialIn::Sign
+                )
+            })
+        });
+        if !needs_object {
+            return Ok(None);
+        }
+        let Some(body) = &api_def.body else {
+            return Err("signed or form credentials require a declared object body".into());
+        };
+        let resolved = Self::resolve_json_templates(body, context);
+        resolved
+            .as_object()
+            .cloned()
+            .ok_or_else(|| "signed or form credentials require an object body".into())
+            .map(Some)
+    }
+
+    fn encode_resolved_object_body(
+        api_def: &TappApiDef,
+        body: Value,
+    ) -> Result<EncodedHttpBody, String> {
+        if !HTTP_BODY_METHODS.contains(&api_def.method.as_str()) {
+            return Err(format!(
+                "signed or form credentials require one of: {}",
+                HTTP_BODY_METHODS.join(", ")
+            ));
+        }
+        let (bytes, default_content_type) = match api_def.body_mode {
+            TappHttpBodyMode::Json => (
+                serde_json::to_vec(&body)
+                    .map_err(|error| format!("Failed to serialize JSON body: {error}"))?,
+                Some("application/json"),
+            ),
+            TappHttpBodyMode::Form => {
+                let fields = body
+                    .as_object()
+                    .ok_or_else(|| "form body must resolve to an object".to_string())?;
+                let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+                for (name, value) in fields {
+                    serializer.append_pair(name, &scalar_to_sign_string(name, value)?);
+                }
+                (
+                    serializer.finish().into_bytes(),
+                    Some("application/x-www-form-urlencoded"),
+                )
+            }
+            TappHttpBodyMode::Raw => {
+                return Err("signed or form credentials cannot use bodyMode raw".into());
+            }
+        };
+        if api_def.body_mode != TappHttpBodyMode::Json
+            && bytes.len() > MAX_TAPP_NON_JSON_HTTP_REQUEST_BYTES
+        {
+            return Err(format!(
+                "non-JSON HTTP request body exceeds {MAX_TAPP_NON_JSON_HTTP_REQUEST_BYTES} bytes"
+            ));
+        }
+        Ok(EncodedHttpBody {
+            bytes,
+            default_content_type,
+        })
+    }
+
     fn encode_http_body(
         api_def: &TappApiDef,
         context: &HashMap<String, Value>,
@@ -917,8 +1181,14 @@ impl TappApiService {
             .as_ref()
             .map(|credential| credential.revision())
             .unwrap_or("none");
+        let settings_hash = if context.settings.is_empty() {
+            "none".to_string()
+        } else {
+            let encoded = serde_json::to_vec(&context.settings).unwrap_or_default();
+            hex::encode(Sha256::digest(encoded))
+        };
         format!(
-            "tapp_api:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}",
+            "tapp_api:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}",
             tapp_id,
             context.owner_id,
             context.user_id,
@@ -928,6 +1198,7 @@ impl TappApiService {
             api_name,
             definition_hash,
             credential_revision,
+            settings_hash,
             params_hash
         )
     }
@@ -1001,6 +1272,7 @@ mod tests {
             cache_ttl: 0,
             spoof: None,
             description: None,
+            route: None,
         }
     }
 
@@ -1014,6 +1286,7 @@ mod tests {
             granted_permissions: Vec::new(),
             ai_model_tier: None,
             credential: None,
+            settings: std::collections::BTreeMap::new(),
         }
     }
 
@@ -1294,8 +1567,12 @@ mod tests {
         api.endpoint = Some(format!("http://{address}/credential"));
         api.credential = Some(myriad_tapp_contract::manifest::TappApiCredentialBinding {
             key: "wegame".into(),
-            header: "Authorization".into(),
+            in_placement: None,
+            field: None,
+            header: Some("Authorization".into()),
             prefix: Some("Bearer ".into()),
+            encoding: None,
+            sign: None,
         });
         let credential =
             crate::services::tapp_credentials::ResolvedApiCredential::for_test("top-secret");
@@ -1313,6 +1590,199 @@ mod tests {
             .to_ascii_lowercase()
             .contains("authorization: bearer top-secret"));
         assert_eq!(response, json!({ "echo": "[REDACTED]" }));
+
+        match previous_environment {
+            Some(value) => std::env::set_var("ENVIRONMENT", value),
+            None => std::env::remove_var("ENVIRONMENT"),
+        }
+        match previous_lab_flag {
+            Some(value) => std::env::set_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND", value),
+            None => std::env::remove_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND"),
+        }
+    }
+
+    #[tokio::test]
+    async fn injects_settings_and_time_into_template_context() {
+        let mut api = api_def();
+        api.body = Some(json!({
+            "user_id": "{{settings.userId}}",
+            "ts": "{{time.unix}}"
+        }));
+        let mut execution_context = context(1, "203.0.113.1");
+        execution_context
+            .settings
+            .insert("userId".into(), json!("abc"));
+        let inject = TappApiService::build_inject_context(&api, &execution_context)
+            .await
+            .unwrap();
+        assert_eq!(inject.get("settings.userId"), Some(&json!("abc")));
+        assert!(inject.get("time.unix").and_then(Value::as_u64).is_some());
+        assert!(inject.get("time.nonce").and_then(Value::as_str).is_some());
+
+        let spaced =
+            TappApiService::resolve_json_templates(&json!({ "ts": "{{ time.unix }}" }), &inject);
+        assert!(spaced["ts"].as_u64().is_some());
+    }
+
+    #[test]
+    fn md5_sorted_kv_matches_afdian_open_vector() {
+        let mut fields = serde_json::Map::new();
+        fields.insert("user_id".into(), json!("abc"));
+        fields.insert("params".into(), Value::String(r#"{"a":333}"#.into()));
+        fields.insert("ts".into(), json!(1_624_339_905_u64));
+        apply_body_signature(
+            &mut fields,
+            "sign",
+            &myriad_tapp_contract::manifest::TappCredentialSign {
+                alg: TappCredentialSignAlg::Md5SortedKv,
+                over: vec!["params".into(), "ts".into(), "user_id".into()],
+                timestamp_field: None,
+            },
+            "123",
+        )
+        .unwrap();
+        assert_eq!(
+            fields.get("sign").and_then(Value::as_str),
+            Some("a4acc28b81598b7e5d84ebdc3e91710c")
+        );
+    }
+
+    #[test]
+    fn hmac_sha256_raw_signs_sorted_kv_material() {
+        let mut fields = serde_json::Map::new();
+        fields.insert("user_id".into(), json!("abc"));
+        fields.insert("params".into(), Value::String(r#"{"a":333}"#.into()));
+        fields.insert("ts".into(), json!(1_624_339_905_u64));
+        apply_body_signature(
+            &mut fields,
+            "sign",
+            &myriad_tapp_contract::manifest::TappCredentialSign {
+                alg: TappCredentialSignAlg::HmacSha256Raw,
+                over: vec!["params".into(), "ts".into(), "user_id".into()],
+                timestamp_field: None,
+            },
+            "123",
+        )
+        .unwrap();
+        let expected = hex::encode(crate::services::tapp_hmac::hmac_sha256(
+            b"123",
+            b"params{\"a\":333}ts1624339905user_idabc",
+        ));
+        assert_eq!(
+            fields.get("sign").and_then(Value::as_str),
+            Some(expected.as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn query_credential_is_appended_and_redacted() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let _guard = crate::services::outbound_security::tests_lab_env_lock().await;
+        let previous_environment = std::env::var("ENVIRONMENT").ok();
+        let previous_lab_flag = std::env::var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND").ok();
+        std::env::remove_var("ENVIRONMENT");
+        std::env::set_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND", "1");
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut chunk = [0_u8; 4096];
+            loop {
+                let read = stream.read(&mut chunk).await.unwrap();
+                assert!(read > 0);
+                request.extend_from_slice(&chunk[..read]);
+                if request.windows(4).any(|part| part == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 21\r\nConnection: close\r\n\r\n{\"echo\":\"top-secret\"}",
+                )
+                .await
+                .unwrap();
+            String::from_utf8_lossy(&request).into_owned()
+        });
+
+        let mut api = api_def();
+        api.endpoint = Some(format!("http://{address}/weather?q=tokyo"));
+        api.credential = Some(myriad_tapp_contract::manifest::TappApiCredentialBinding {
+            key: "owm".into(),
+            in_placement: Some(TappCredentialIn::Query),
+            field: Some("appid".into()),
+            header: None,
+            prefix: None,
+            encoding: None,
+            sign: None,
+        });
+        let credential =
+            crate::services::tapp_credentials::ResolvedApiCredential::for_test("top-secret");
+
+        let response = TappApiService::execute_http_api_with_credential(
+            &api,
+            &HashMap::new(),
+            Some(&credential),
+        )
+        .await
+        .unwrap();
+        let request = server.await.unwrap();
+
+        assert!(request.contains("appid=top-secret") || request.contains("appid=top-secret"));
+        assert!(request.contains("/weather?q=tokyo"));
+        assert_eq!(response, json!({ "echo": "[REDACTED]" }));
+
+        match previous_environment {
+            Some(value) => std::env::set_var("ENVIRONMENT", value),
+            None => std::env::remove_var("ENVIRONMENT"),
+        }
+        match previous_lab_flag {
+            Some(value) => std::env::set_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND", value),
+            None => std::env::remove_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND"),
+        }
+    }
+
+    #[tokio::test]
+    async fn query_credential_connect_failure_redacts_secret_from_error() {
+        let _guard = crate::services::outbound_security::tests_lab_env_lock().await;
+        let previous_environment = std::env::var("ENVIRONMENT").ok();
+        let previous_lab_flag = std::env::var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND").ok();
+        std::env::remove_var("ENVIRONMENT");
+        std::env::set_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND", "1");
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+
+        let mut api = api_def();
+        api.endpoint = Some(format!("http://{address}/weather?q=tokyo"));
+        api.credential = Some(myriad_tapp_contract::manifest::TappApiCredentialBinding {
+            key: "owm".into(),
+            in_placement: Some(TappCredentialIn::Query),
+            field: Some("appid".into()),
+            header: None,
+            prefix: None,
+            encoding: None,
+            sign: None,
+        });
+        let credential =
+            crate::services::tapp_credentials::ResolvedApiCredential::for_test("top-secret");
+
+        let error = TappApiService::execute_http_api_with_credential(
+            &api,
+            &HashMap::new(),
+            Some(&credential),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(error.contains("HTTP request failed"), "{error}");
+        assert!(
+            !error.contains("top-secret"),
+            "sandbox error leaked query credential: {error}"
+        );
 
         match previous_environment {
             Some(value) => std::env::set_var("ENVIRONMENT", value),

@@ -407,6 +407,11 @@ pub fn apply_content_filters(
                 }
             }
             "block_keyword" => {
+                // Structured game envelopes are not chat. Keyword rules still
+                // apply to Notes and ordinary room text.
+                if crate::federation::room::game::activity_is_structured_game_message(activity) {
+                    continue;
+                }
                 let content =
                     lowered_activity.get_or_insert_with(|| activity.to_string().to_lowercase());
                 let keyword = rule.value.to_lowercase();
@@ -1214,6 +1219,57 @@ mod tests {
                 FilterVerdict::Reject(_)
             ),
             "keyword spam should block"
+        );
+    }
+
+    #[test]
+    fn apply_content_filters_skips_keywords_on_game_room_messages() {
+        let rules = vec![ContentFilterRule {
+            name: "kw".into(),
+            filter_type: "block_keyword".into(),
+            value: "spam".into(),
+            enabled: true,
+        }];
+        let act = serde_json::json!({
+            "type": "myriad:RoomMessage",
+            "object": {
+                "type": "myriad:RoomMessage",
+                "messageType": "game:com.example.chess:v1",
+                "payload": {"kind":"intent","seq":1,"nonce":"n","body":{"note":"spam"}}
+            }
+        });
+        assert!(
+            matches!(
+                apply_content_filters(&act, TrustLevel::Discovered, &rules),
+                FilterVerdict::Allow
+            ),
+            "structured game payloads must not be keyword-scanned"
+        );
+    }
+
+    #[test]
+    fn apply_content_filters_does_not_skip_spoofed_note_message_type() {
+        let rules = vec![ContentFilterRule {
+            name: "kw".into(),
+            filter_type: "block_keyword".into(),
+            value: "spam".into(),
+            enabled: true,
+        }];
+        let act = serde_json::json!({
+            "type": "Create",
+            "content": "buy spam now",
+            "object": {
+                "type": "Note",
+                "content": "buy spam now",
+                "messageType": "game:com.example.chess:v1"
+            }
+        });
+        assert!(
+            matches!(
+                apply_content_filters(&act, TrustLevel::Discovered, &rules),
+                FilterVerdict::Reject(_)
+            ),
+            "spoofed game messageType on a Note must still hit keyword filters"
         );
     }
 

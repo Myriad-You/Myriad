@@ -187,6 +187,15 @@ export function messageForAdminUserError(
   if (/no linked oauth identity/i.test(msg)) {
     return t.config.usersLocalLoginRequiresOAuth
   }
+  if (/cannot disable tapp install for the site owner/i.test(msg)) {
+    return t.config.usersErrorCannotRestrictOwnerInstall
+  }
+  if (/tapp installation is disabled for this account/i.test(msg)) {
+    return t.config.usersTappInstallDisabled
+  }
+  if (/not found/i.test(msg) && /tapp/i.test(msg)) {
+    return t.config.usersErrorTappNotFound
+  }
 
   // Prefer localized fallback over raw English when it looks like our generic API prefix
   if (/^API Error:\s*\d+/i.test(msg)) return fallback

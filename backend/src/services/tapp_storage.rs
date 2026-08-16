@@ -323,6 +323,62 @@ pub async fn storage_bytes(
     .map(|row| row.map_or(0, |row| row.bytes))
 }
 
+/// Load installation settings that a declared HTTP API may interpolate.
+///
+/// Only Manifest-declared keys are returned. Stored values win; otherwise the
+/// declared `defaultValue` is used. Missing keys are omitted so templates stay
+/// unresolved instead of inventing empty secrets.
+pub async fn load_declared_setting_values(
+    db: &DatabaseConnection,
+    owner_id: i32,
+    tapp_id: &str,
+    declared: &[myriad_tapp_contract::manifest::TappSettingDef],
+) -> Result<std::collections::BTreeMap<String, Value>, TappStorageError> {
+    if declared.is_empty() {
+        return Ok(std::collections::BTreeMap::new());
+    }
+
+    #[derive(FromQueryResult)]
+    struct SettingRow {
+        key: String,
+        value: Value,
+    }
+
+    let stored = SettingRow::find_by_statement(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        r#"
+SELECT key, value
+FROM tapp_storage
+WHERE user_id = $1
+  AND tapp_id = $2
+  AND starts_with(key, '_settings.')
+"#,
+        vec![owner_id.into(), tapp_id.into()],
+    ))
+    .all(db)
+    .await
+    .map_err(|_| TappStorageError::Database)?;
+
+    let mut stored_by_key = std::collections::BTreeMap::new();
+    for row in stored {
+        if let Some(key) = row.key.strip_prefix("_settings.") {
+            stored_by_key.insert(key.to_string(), row.value);
+        }
+    }
+
+    let mut values = std::collections::BTreeMap::new();
+    for setting in declared {
+        if let Some(value) = stored_by_key
+            .get(&setting.key)
+            .cloned()
+            .or_else(|| setting.default_value.clone())
+        {
+            values.insert(setting.key.clone(), value);
+        }
+    }
+    Ok(values)
+}
+
 pub async fn read_storage_value(
     db: &DatabaseConnection,
     user_id: i32,
@@ -495,7 +551,9 @@ mod tests {
                 vec![user_id.into(), tapp_id.into()],
             )
         };
-        db.execute_raw(delete_rows()).await.expect("clean guard rows");
+        db.execute_raw(delete_rows())
+            .await
+            .expect("clean guard rows");
         db.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
@@ -542,7 +600,9 @@ VALUES
             .collect();
         assert_eq!(remaining, vec!["_credentials.api", "_settings.theme"]);
 
-        db.execute_raw(delete_rows()).await.expect("remove guard rows");
+        db.execute_raw(delete_rows())
+            .await
+            .expect("remove guard rows");
     }
 
     #[test]

@@ -265,6 +265,10 @@ export interface TranslationKeys {
     saveHint: string
     atLeast8Chars: string
     enterPasswordAgain: string
+    setupSecret: string
+    setupSecretHint: string
+    setupSecretPlaceholder: string
+    setupSecretRequired: string
     bootstrapToken: string
     bootstrapTokenOptional: string
     bootstrapTokenPlaceholder: string
@@ -717,6 +721,13 @@ export interface TranslationKeys {
     usersUnlinkConfirm: string
     usersInstalledTapps: string
     usersNoTapps: string
+    usersUninstallTapp: string
+    usersUninstallTappConfirm: string
+    usersEnableTappInstall: string
+    usersDisableTappInstall: string
+    usersTappInstallDisabled: string
+    usersErrorCannotRestrictOwnerInstall: string
+    usersErrorTappNotFound: string
     usersRole: string
     usersRoleAdmin: string
     usersRoleUser: string
@@ -734,6 +745,10 @@ export interface TranslationKeys {
     usersDeleteConfirm: string
     usersDeleteSuccess: string
     usersEmail: string
+    usersAccountSection: string
+    usersActivitySection: string
+    usersDetail: string
+    usersHideDetail: string
     usersCancel: string
     usersCancelDesc: string
     usersCreateUser: string
@@ -1549,6 +1564,8 @@ export interface TranslationKeys {
     permSpeechTtsHint: string
     permSpeechAsr: string
     permSpeechAsrHint: string
+    permStorageWrite: string
+    permStorageWriteHint: string
     permissionsSaved: string
     permissionsSaveFailed: string
     moduleSettings: string
@@ -2198,6 +2215,8 @@ export interface TranslationKeys {
     viewAllTapps: string
     oauthBindings: string
     oauthAccount: string
+    /** e.g. {count} 个平台 — used when more than one provider is linked */
+    linkedProviderCount: string
     oauthBind: string
     oauthUnbind: string
     oauthUnbindConfirm: string
@@ -2752,7 +2771,8 @@ export interface TranslationKeys {
     permAiChat: string
     permReadReport: string
     permWriteReport: string
-    permStorage: string
+    permStorageRead: string
+    permStorageWrite: string
     permNotification: string
     permFullscreen: string
     permReadTheme: string
@@ -2784,6 +2804,7 @@ export interface TranslationKeys {
     permMessageFederation: string
     permTrustFederation: string
     permFederationFiles: string
+    permGameSession: string
 
     // 权限描述
     permRegisterWidgetDesc: string
@@ -2796,7 +2817,8 @@ export interface TranslationKeys {
     permAiChatDesc: string
     permReadReportDesc: string
     permWriteReportDesc: string
-    permStorageDesc: string
+    permStorageReadDesc: string
+    permStorageWriteDesc: string
     permNotificationDesc: string
     permFullscreenDesc: string
     permReadThemeDesc: string
@@ -2828,6 +2850,7 @@ export interface TranslationKeys {
     permMessageFederationDesc: string
     permTrustFederationDesc: string
     permFederationFilesDesc: string
+    permGameSessionDesc: string
 
     // 列表页面
     listTitle: string
@@ -3089,6 +3112,21 @@ export interface TranslationKeys {
     credentialRemove: string
     credentialRemoveConfirm: string
     credentialOrigins: string
+    credentialInboundVerify: string
+    inboundGuard: string
+    inboundGuardDesc: string
+    inboundPaused: string
+    inboundPausedHint: string
+    inboundBlocks: string
+    inboundNoBlocks: string
+    inboundUnblock: string
+    inboundBlockAuto: string
+    inboundBlockManual: string
+    inboundGuardLoadFailed: string
+    inboundGuardSaveFailed: string
+    credentialBinding: string
+    credentialBindingPlacement: string
+    credentialBindingSign: string
     credentialReauthorizationRequired: string
     credentialSaved: string
     credentialSaveFailed: string
