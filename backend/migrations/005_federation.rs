@@ -1269,6 +1269,25 @@ CREATE INDEX IF NOT EXISTS idx_fed_interactions_object_kind
     ON federation_object_interactions (object_id, kind);
 CREATE INDEX IF NOT EXISTS idx_fed_interactions_user_kind_created
     ON federation_object_interactions (user_id, kind, created_at DESC);
+
+-- 联邦 inbox 幂等回执（原 012/013；已跑过旧 005 的库由 schema_check 建表/修旧形）
+CREATE TABLE IF NOT EXISTS federation_inbox_receipts (
+    signer TEXT NOT NULL,
+    activity_id TEXT NOT NULL,
+    inbox_scope TEXT NOT NULL,
+    body_digest CHAR(64) NOT NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'processing',
+    outcome_status SMALLINT,
+    error_message TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMPTZ,
+    CONSTRAINT federation_inbox_receipts_status_check
+        CHECK (status IN ('processing', 'accepted', 'rejected')),
+    CONSTRAINT federation_inbox_receipts_digest_check
+        CHECK (body_digest ~ '^[0-9a-f]{64}$'),
+    CONSTRAINT federation_inbox_receipts_pkey
+        PRIMARY KEY (signer, activity_id, inbox_scope)
+);
 "#,
         )
         .await?;
@@ -1282,6 +1301,7 @@ CREATE INDEX IF NOT EXISTS idx_fed_interactions_user_kind_created
             .get_connection()
             .execute_unprepared(
                 r#"
+DROP TABLE IF EXISTS federation_inbox_receipts;
 DROP TABLE IF EXISTS federation_object_interactions;
 DROP TABLE IF EXISTS federation_domain_aliases;
 DROP TABLE IF EXISTS federation_policy_settings;

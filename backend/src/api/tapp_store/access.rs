@@ -1,6 +1,8 @@
 use super::validate_tapp_id;
 use axum::http::StatusCode;
-use sea_orm::{ConnectionTrait, DatabaseConnection, DbErr};
+use sea_orm::{
+    ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, Statement,
+};
 
 use crate::api::tapp_runtime::common as tapp_common;
 use crate::api::tapp_runtime::RuntimeGrantContext;
@@ -13,6 +15,30 @@ use myriad_error::AppError;
 /// 获取管理员用户 ID（委托给 tapp_runtime::common 的缓存版本）
 pub(super) async fn get_admin_user_id(db: &DatabaseConnection) -> Result<i32, HttpError> {
     tapp_common::get_admin_user_id(db).await
+}
+
+/// Refuse new Tapp installs when an admin has locked the account.
+pub(super) async fn ensure_tapp_install_allowed(
+    db: &DatabaseConnection,
+    user_id: i32,
+) -> Result<(), HttpError> {
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT tapp_install_disabled FROM users WHERE id = $1",
+            [user_id.into()],
+        ))
+        .await
+        .map_err(|_| HttpError(AppError::internal("Database error")))?;
+    let disabled = row
+        .and_then(|row| row.try_get::<bool>("", "tapp_install_disabled").ok())
+        .unwrap_or(false);
+    if disabled {
+        return Err(HttpError(AppError::forbidden(
+            "Tapp installation is disabled for this account",
+        )));
+    }
+    Ok(())
 }
 
 pub(super) async fn find_admin_user_id(db: &DatabaseConnection) -> Result<Option<i32>, HttpError> {

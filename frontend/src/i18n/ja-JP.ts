@@ -290,6 +290,12 @@ export const jaJP: TranslationKeys = {
       'ヒント：保存後、完全なルートテーブルを読み込むためバックエンドが再起動します',
     atLeast8Chars: '8文字以上、英字と数字を含める',
     enterPasswordAgain: 'パスワードを再入力',
+    setupSecret: 'セットアップ合言葉',
+    setupSecretHint:
+      '編成側ですでに DATABASE_URL が書かれているときだけ必要です。サーバー .env の MYRIAD_SETUP_SECRET を貼るか、ジェネレーターの #setup_secret リンクで自動入力できます。ウィザードで DB を自分で書く場合はこの欄は出ません。',
+    setupSecretPlaceholder: 'MYRIAD_SETUP_SECRET を貼り付け',
+    setupSecretRequired:
+      'セットアップ合言葉を入力してください。値はサーバーの .env にあり、ウェブ設定には出ません。',
     bootstrapToken: 'ブートストラップトークン',
     bootstrapTokenOptional: 'インストール操作に必須',
     bootstrapTokenPlaceholder: '.bootstrap-token の内容を貼り付け',
@@ -824,6 +830,13 @@ export const jaJP: TranslationKeys = {
       'この OAuth アカウントの連携を解除しますか？このユーザーはこのアカウントでログインできなくなります。',
     usersInstalledTapps: 'インストール済みアプリ',
     usersNoTapps: 'アプリ未インストール',
+    usersUninstallTapp: 'アンインストール',
+    usersUninstallTappConfirm: 'このユーザーの「{name}」をアンインストールしますか？アプリのファイルは削除されます。',
+    usersEnableTappInstall: 'アプリのインストールを許可',
+    usersDisableTappInstall: 'アプリのインストールを禁止',
+    usersTappInstallDisabled: 'インストール禁止中',
+    usersErrorCannotRestrictOwnerInstall: 'サイト所有者のインストールを禁止できません。',
+    usersErrorTappNotFound: 'そのアプリのインストールが見つかりません。',
     usersRole: 'ロール',
     usersRoleAdmin: '管理者',
     usersRoleUser: 'ユーザー',
@@ -845,6 +858,10 @@ export const jaJP: TranslationKeys = {
       'このユーザーアカウントを完全に削除しますか？OAuth 連携・インストール済みアプリ・関連データが削除され、元に戻せません。',
     usersDeleteSuccess: 'ユーザーを削除しました',
     usersEmail: 'メールアドレス',
+    usersAccountSection: 'アカウント',
+    usersActivitySection: 'アクティビティ',
+    usersDetail: '詳細',
+    usersHideDetail: '詳細を閉じる',
     usersCancel: 'キャンセル',
     usersCancelDesc: '作成をやめる',
     usersCreateUser: '新規ユーザー',
@@ -1815,6 +1832,8 @@ export const jaJP: TranslationKeys = {
     permSpeechTtsHint: 'Tappにクラウド音声合成サービス（TTS）の使用を許可',
     permSpeechAsr: '音声認識',
     permSpeechAsrHint: 'Tappにクラウド音声認識サービス（ASR）の使用を許可',
+    permStorageWrite: 'ローカルストレージ書込',
+    permStorageWriteHint: 'このアプリ専用ストレージへの書き込みを許可',
     permissionsSaved: '権限設定を保存しました',
     permissionsSaveFailed: '権限設定の保存に失敗しました',
     // モジュール設定
@@ -2511,6 +2530,7 @@ export const jaJP: TranslationKeys = {
     viewAllTapps: 'すべてのTappを見る',
     oauthBindings: '外部アカウント連携',
     oauthAccount: 'OAuth アカウント',
+    linkedProviderCount: '{count} 件連携',
     oauthBind: '連携',
     oauthUnbind: '解除',
     oauthUnbindConfirm:
@@ -3069,7 +3089,8 @@ export const jaJP: TranslationKeys = {
     permAiChat: 'AI チャット',
     permReadReport: 'レポート読取',
     permWriteReport: 'レポート書込',
-    permStorage: 'ローカルストレージ',
+    permStorageRead: 'ローカルストレージ読取',
+    permStorageWrite: 'ローカルストレージ書込',
     permNotification: '通知送信',
     permFullscreen: 'フルスクリーンモード',
     permReadTheme: 'テーマ読取',
@@ -3100,6 +3121,7 @@ export const jaJP: TranslationKeys = {
     permMessageFederation: 'Federation メッセージ',
     permTrustFederation: 'Federation 信頼管理',
     permFederationFiles: 'Federation ファイル',
+    permGameSession: 'ゲームルーム',
 
     // 権限説明
     permRegisterWidgetDesc:
@@ -3114,7 +3136,9 @@ export const jaJP: TranslationKeys = {
     permAiChatDesc: 'AI との会話を許可',
     permReadReportDesc: '生成されたレポートデータの読取を許可',
     permWriteReportDesc: 'レポートの作成、更新、削除を許可',
-    permStorageDesc: 'ローカルストレージスペースの使用を許可',
+    permStorageReadDesc:
+      'このアプリ専用のプライベートストレージの読み取りを許可（読み取り専用、永続書き込みなし）',
+    permStorageWriteDesc: 'このアプリ専用のプライベートストレージへの書き込みを許可',
     permNotificationDesc: 'システム通知の送信を許可',
     permFullscreenDesc: 'フルスクリーン表示のリクエストを許可',
     permReadThemeDesc: '現在のテーマ設定の読取を許可',
@@ -3152,6 +3176,8 @@ export const jaJP: TranslationKeys = {
     permMessageFederationDesc: 'Federation メッセージの送受信を許可',
     permTrustFederationDesc: 'Federation の信頼関係の管理を許可',
     permFederationFilesDesc: 'Federation ファイル転送機能へのアクセスを許可',
+    permGameSessionDesc:
+      'Federation ルームでの対局作成・参加と構造化ゲームメッセージの送受信を許可（Federation 権限も必要）',
 
     // リストページ
     listTitle: 'Tapp アプリ',
@@ -3427,6 +3453,22 @@ export const jaJP: TranslationKeys = {
     credentialRemoveConfirm:
       'この認証情報を使用する API は動作しなくなります。続行しますか？',
     credentialOrigins: '送信先：{origins}',
+    credentialInboundVerify: 'ホスト入場検証',
+    inboundGuard: '入場制限とブロック',
+    inboundGuardDesc:
+      '検証失敗が続くと呼び出し元フィンガープリントを自動ブロックします（生 IP は保存しません）。/tapi を一時停止することもできます。',
+    inboundPaused: '入場呼び出しを停止',
+    inboundPausedHint: 'オンの間、すべての /tapi は 403 を返します。',
+    inboundBlocks: 'ブロック中のフィンガープリント',
+    inboundNoBlocks: 'ブロックはありません',
+    inboundUnblock: '解除',
+    inboundBlockAuto: '自動',
+    inboundBlockManual: '手動',
+    inboundGuardLoadFailed: '入場保護を読み込めませんでした',
+    inboundGuardSaveFailed: '入場保護を更新できませんでした',
+    credentialBinding: '{method} {endpoint}（{access}）· {detail}',
+    credentialBindingPlacement: '{placement} {field}',
+    credentialBindingSign: '署名 {alg}（{fields}）',
     credentialReauthorizationRequired:
       'マニフェストの送信先または権限が変更されました。再入力して承認してください',
     credentialSaved: '認証情報を安全に保存しました',

@@ -197,6 +197,13 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(false),
                     )
+                    // 禁止该用户安装新 Tapp（旧库由 schema_check 补列）
+                    .col(
+                        ColumnDef::new(Users::TappInstallDisabled)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
                     // 每用户通知策略（原 007；旧库由 schema_check 补列）
                     .col(
                         ColumnDef::new(Users::NotificationPreferences)
@@ -769,6 +776,7 @@ enum Users {
     AuthProvider,
     LinkedGithubId,
     LocalLoginDisabled,
+    TappInstallDisabled,
     NotificationPreferences,
     TappListCardSizes,
     LastSeenAt,

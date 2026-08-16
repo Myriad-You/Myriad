@@ -79,6 +79,11 @@ pub fn get_rate_limit_config(operation: &str) -> (u32, u64) {
         "ai.task" => (30, 60),
         "ai.anonymous" => (15, 60),
         operation if operation.starts_with("network.fetch:") => (90, 60),
+        "route.anonymous" => (60, 60),
+        "route.verify" => (60, 60),
+        "route.verify.hour" => (180, 3600),
+        "route.fail" => (25, 600),
+        "route.fail.site" => (80, 600),
         "platform.write" => (45, 60),
         // Storage autosave / multi-key writes are normal Tapp traffic.
         "storage.set" | "storage.clear" => (180, 60),
@@ -183,6 +188,52 @@ pub async fn check_rate_limit(
         operation,
     )
     .await
+    .map(|_| ())
+}
+
+/// Per inbound-credential limiter. `revision` is the ciphertext hash, so
+/// rotation opens a fresh window without persisting the secret.
+pub async fn check_route_verify_rate_limit(
+    db: &DatabaseConnection,
+    tapp_id: &str,
+    credential_key: &str,
+    revision: &str,
+) -> Result<(), RateLimitError> {
+    check_rate_limit_key(
+        db,
+        0,
+        format!("route.verify:{tapp_id}:{credential_key}:{revision}"),
+        tapp_id,
+        "route.verify",
+    )
+    .await?;
+    check_rate_limit_key(
+        db,
+        0,
+        format!("route.verify.hour:{tapp_id}:{credential_key}:{revision}"),
+        tapp_id,
+        "route.verify.hour",
+    )
+    .await
+    .map(|_| ())
+}
+
+/// Anonymous `/tapi` limiter. Separate from AI guest quota.
+pub async fn check_inbound_anonymous_rate_limit(
+    db: &DatabaseConnection,
+    client_ip: Option<&str>,
+    tapp_id: &str,
+) -> Result<(), RateLimitError> {
+    let fingerprint = anonymous_subject_fingerprint(client_ip.unwrap_or("unresolved"));
+    check_rate_limit_key(
+        db,
+        0,
+        format!("anonymous:{fingerprint}:{tapp_id}:route.anonymous"),
+        tapp_id,
+        "route.anonymous",
+    )
+    .await
+    .map(|_| ())
 }
 
 /// Coarse anonymous limiter keyed by a one-way client-address fingerprint.
@@ -201,6 +252,7 @@ pub async fn check_anonymous_rate_limit(
         "ai.anonymous",
     )
     .await
+    .map(|_| ())
 }
 
 async fn check_rate_limit_key(
@@ -209,7 +261,7 @@ async fn check_rate_limit_key(
     key: String,
     tapp_id: &str,
     operation: &str,
-) -> Result<(), RateLimitError> {
+) -> Result<u32, RateLimitError> {
     let (limit, window_secs) = get_rate_limit_config(operation);
     let record_id = rate_limit_record_id(&key);
     let transaction = db.begin().await.map_err(map_db_err)?;
@@ -279,8 +331,18 @@ ON CONFLICT (namespace, record_id) DO UPDATE SET
             remaining,
         });
     }
+    Ok(count.saturating_add(1))
+}
 
-    Ok(())
+/// Increment a named limit and return the new count. `Exceeded` means the
+/// window is already full (used to trip inbound auto-blocks).
+pub async fn increment_named_limit(
+    db: &DatabaseConnection,
+    key: String,
+    tapp_id: &str,
+    operation: &str,
+) -> Result<u32, RateLimitError> {
+    check_rate_limit_key(db, 0, key, tapp_id, operation).await
 }
 
 /// 获取速率限制状态（只读，不记录）
@@ -311,7 +373,9 @@ pub async fn get_rate_limit_status_for(
     ))
 }
 
-pub async fn get_rate_limiter_active_count(db: &DatabaseConnection) -> Result<usize, RateLimitError> {
+pub async fn get_rate_limiter_active_count(
+    db: &DatabaseConnection,
+) -> Result<usize, RateLimitError> {
     let row = CountRow::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
         "SELECT COUNT(*)::BIGINT AS count FROM tapp_runtime_registry WHERE namespace = $1 AND expires_at > EXTRACT(EPOCH FROM NOW())::BIGINT",
@@ -326,8 +390,8 @@ pub async fn get_rate_limiter_active_count(db: &DatabaseConnection) -> Result<us
 #[cfg(test)]
 mod tests {
     use super::{
-        get_rate_limit_config, host_write_rate_limit_operation, rate_limit_key, rate_limit_record_id,
-        RateLimitError,
+        get_rate_limit_config, host_write_rate_limit_operation, rate_limit_key,
+        rate_limit_record_id, RateLimitError,
     };
     use crate::services::permission_service::TappPermission;
 
@@ -434,11 +498,17 @@ mod tests {
 
     #[test]
     fn network_fetch_prefix_uses_dedicated_cap() {
-        assert_eq!(
-            get_rate_limit_config("network.fetch:weather"),
-            (90, 60)
-        );
+        assert_eq!(get_rate_limit_config("network.fetch:weather"), (90, 60));
         assert_eq!(get_rate_limit_config("ai.anonymous"), (15, 60));
+        assert_eq!(get_rate_limit_config("route.anonymous"), (60, 60));
+        assert_eq!(get_rate_limit_config("route.verify"), (60, 60));
+        assert_eq!(get_rate_limit_config("route.verify.hour"), (180, 3600));
+        assert_eq!(get_rate_limit_config("route.fail"), (25, 600));
+        assert_eq!(get_rate_limit_config("route.fail.site"), (80, 600));
+        assert!(
+            get_rate_limit_config("route.verify.hour").0
+                < get_rate_limit_config("route.verify").0 * 60
+        );
         assert_eq!(get_rate_limit_config("event.publish"), (240, 60));
     }
 

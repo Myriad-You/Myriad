@@ -139,25 +139,67 @@
     "TappApiCredentialBinding": {
       "additionalProperties": false,
       "properties": {
+        "encoding": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TappCredentialEncoding"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional host encoding of the secret before prefix/placement. Not for `sign`."
+        },
+        "field": {
+          "description": "Destination name: header, query parameter, form field, or signature field.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "header": {
-          "description": "Fixed outbound request header that receives the credential.",
-          "type": "string"
+          "description": "Legacy header name. Equivalent to `field` when `in` is header or omitted.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "in": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TappCredentialIn"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the host applies the secret. Omitted with `header` means header (legacy)."
         },
         "key": {
           "description": "Key from top-level `manifest.credentials`.",
           "type": "string"
         },
         "prefix": {
-          "description": "Optional literal prefix such as `Bearer `.",
+          "description": "Optional literal prefix such as `Bearer `. Header placement only.",
           "type": [
             "string",
             "null"
           ]
+        },
+        "sign": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TappCredentialSign"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Host-only request signature. Required when `in` is `sign`."
         }
       },
       "required": [
-        "key",
-        "header"
+        "key"
       ],
       "type": "object"
     },
@@ -241,6 +283,17 @@
           ],
           "type": "string"
         },
+        "route": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TappApiRoute"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional inbound HTTP mount at `/tapi/{tappId}{path}`."
+        },
         "spoof": {
           "type": [
             "string",
@@ -252,6 +305,31 @@
           "type": "string"
         }
       },
+      "type": "object"
+    },
+    "TappApiRoute": {
+      "additionalProperties": false,
+      "properties": {
+        "methods": {
+          "default": [
+            "GET"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "path": {
+          "type": "string"
+        },
+        "verify": {
+          "$ref": "#/$defs/TappRouteVerify"
+        }
+      },
+      "required": [
+        "path",
+        "verify"
+      ],
       "type": "object"
     },
     "TappAuthor": {
@@ -318,6 +396,53 @@
         "label"
       ],
       "type": "object"
+    },
+    "TappCredentialEncoding": {
+      "enum": [
+        "base64"
+      ],
+      "type": "string"
+    },
+    "TappCredentialIn": {
+      "enum": [
+        "header",
+        "query",
+        "form",
+        "sign"
+      ],
+      "type": "string"
+    },
+    "TappCredentialSign": {
+      "additionalProperties": false,
+      "properties": {
+        "alg": {
+          "$ref": "#/$defs/TappCredentialSignAlg"
+        },
+        "over": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "timestampField": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "alg",
+        "over"
+      ],
+      "type": "object"
+    },
+    "TappCredentialSignAlg": {
+      "enum": [
+        "md5-sorted-kv",
+        "hmac-sha256-raw"
+      ],
+      "type": "string"
     },
     "TappDataExchangeManifest": {
       "additionalProperties": false,
@@ -413,6 +538,36 @@
       },
       "type": "object"
     },
+    "TappGameDef": {
+      "additionalProperties": false,
+      "description": "Turn-based game session declared by a Tapp. Rooms still carry authority.",
+      "properties": {
+        "maxMessageBytes": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "maxPlayers": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "protocol": {
+          "description": "Stable protocol name, e.g. `gomoku`. Combined with tapp id in message types.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocol"
+      ],
+      "type": "object"
+    },
     "TappHttpBodyMode": {
       "enum": [
         "json",
@@ -476,6 +631,78 @@
         "exact",
         "prefix",
         "origin"
+      ],
+      "type": "string"
+    },
+    "TappRouteVerify": {
+      "additionalProperties": false,
+      "description": "Host-verified inbound HMAC for `/tapi/{tappId}{path}`.",
+      "properties": {
+        "alg": {
+          "$ref": "#/$defs/TappCredentialSignAlg",
+          "enum": [
+            "hmac-sha256-raw"
+          ]
+        },
+        "encoding": {
+          "$ref": "#/$defs/TappRouteVerifyEncoding",
+          "enum": [
+            "hex",
+            "base64"
+          ]
+        },
+        "header": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "maxSkewSecs": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nonceHeader": {
+          "type": "string"
+        },
+        "over": {
+          "$ref": "#/$defs/TappRouteVerifyOver",
+          "enum": [
+            "raw-body",
+            "canonical-query"
+          ]
+        },
+        "prefix": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestampHeader": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "alg",
+        "header",
+        "over",
+        "timestampHeader",
+        "nonceHeader"
+      ],
+      "type": "object"
+    },
+    "TappRouteVerifyEncoding": {
+      "enum": [
+        "hex",
+        "base64"
+      ],
+      "type": "string"
+    },
+    "TappRouteVerifyOver": {
+      "enum": [
+        "raw-body",
+        "canonical-query"
       ],
       "type": "string"
     },
@@ -793,6 +1020,17 @@
       ],
       "default": null
     },
+    "game": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TappGameDef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Optional turn-based game session declaration (federation rooms)."
+    },
     "hasPage": {
       "default": false,
       "type": "boolean"
@@ -882,6 +1120,16 @@
     "repository": {
       "type": [
         "string",
+        "null"
+      ]
+    },
+    "runtimeModules": {
+      "description": "Host-injected, pinned runtime libraries (currently only `three`).",
+      "items": {
+        "type": "string"
+      },
+      "type": [
+        "array",
         "null"
       ]
     },

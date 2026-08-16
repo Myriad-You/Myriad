@@ -210,7 +210,7 @@ function Ensure-Env {
         Write-Warn "  - JWT_SECRET"
         Write-Warn "  - CORS_ORIGINS"
         Write-Warn ""
-        Write-Warn "This script will create pgdata/state/backups and fill empty UPDATE_TOKEN / UPDATER_GATEWAY_SECRET."
+        Write-Warn "This script will create pgdata/state/backups and fill empty UPDATE_TOKEN / UPDATER_GATEWAY_SECRET / MYRIAD_SETUP_SECRET."
         Write-Warn ""
         $r = Read-Host "Open .env in notepad? (y/N)"
         if ($r -match "^[Yy]$") {
@@ -222,9 +222,9 @@ function Ensure-Env {
 function Ensure-CurrentLayout {
     Write-Info "==> Ensuring current proxy + updater layout"
     New-Item -ItemType Directory -Force -Path pgdata, state, state/snapshots, state/cache, backups | Out-Null
-    Ensure-Key "MYRIAD_TAG" "v0.3.28"
-    Ensure-Key "PROXY_TAG" "v0.3.28"
-    Ensure-Key "UPDATER_TAG" "v0.3.28"
+    Ensure-Key "MYRIAD_TAG" "v0.3.31"
+    Ensure-Key "PROXY_TAG" "v0.3.31"
+    Ensure-Key "UPDATER_TAG" "v0.3.31"
     Ensure-Key "BACKEND_IMAGE" "docker.io/somekawahitomi/myriad-backend"
     Ensure-Key "FRONTEND_IMAGE" "docker.io/somekawahitomi/myriad-frontend"
     Ensure-Key "COMPOSE_PROJECT_NAME" "myriad"
@@ -235,6 +235,7 @@ function Ensure-CurrentLayout {
     Ensure-Key "PROXY_ALLOW_DIRECT_UPDATER" "false"
     Ensure-UpdateToken
     Ensure-UpdaterGatewaySecret
+    Ensure-SecretKey "MYRIAD_SETUP_SECRET"
 }
 
 function Get-DeploymentProjectName {

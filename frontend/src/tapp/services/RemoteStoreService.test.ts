@@ -86,6 +86,52 @@ describe('RemoteStoreService.downloadAppPreview', () => {
     }
   })
 
+  it('downloads a locale-resolved snapshot instead of the default preview', async () => {
+    const originalFetch = globalThis.fetch
+    const requestedPaths: string[] = []
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = new URL(
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url,
+      )
+      requestedPaths.push(url.pathname)
+      const fixtures: Record<string, string> = {
+        '/store/apps/com.example.preview/preview.en-US.html':
+          '<main>English preview</main>',
+        '/store/apps/com.example.preview/preview.css': 'main { color: navy; }',
+      }
+      const body = fixtures[url.pathname]
+      return new Response(body ?? 'missing', { status: body ? 200 : 404 })
+    }) as typeof fetch
+
+    try {
+      const app = previewApp()
+      const preview = await RemoteStoreService.downloadAppPreview(
+        app,
+        'https://store.example/store/',
+        {
+          ...app.preview!,
+          html: 'apps/com.example.preview/preview.en-US.html',
+          styles: ['apps/com.example.preview/preview.css'],
+        },
+      )
+      assert.equal(preview.html, '<main>English preview</main>')
+      assert.ok(
+        requestedPaths.includes(
+          '/store/apps/com.example.preview/preview.en-US.html',
+        ),
+      )
+      assert.ok(
+        !requestedPaths.some((path) => path.endsWith('/preview.html')),
+      )
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
   it('falls back to page_template when no preview snapshot is declared', async () => {
     const originalFetch = globalThis.fetch
     const requestedPaths: string[] = []

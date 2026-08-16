@@ -28,6 +28,7 @@ mod declared_api;
 mod events;
 mod federation;
 mod host_attribution;
+mod inbound_route;
 mod media;
 mod metrics;
 mod notifications;
@@ -127,3 +128,4 @@ pub use notifications::create_tapp_notification;
 
 // Declared API System
 pub use declared_api::{execute_tapp_api, invalidate_tapp_apis_cache, list_tapp_apis};
+pub use inbound_route::execute_inbound_route;

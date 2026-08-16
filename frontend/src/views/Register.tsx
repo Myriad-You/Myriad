@@ -27,8 +27,10 @@ export default function Register() {
   )
 
   return (
-    <AnimatedView className="min-h-screen flex items-center justify-center px-4 pt-20">
-      <RegisterForm />
+    <AnimatedView className="auth-page min-h-screen flex items-center justify-center px-4 pt-20">
+      <div className="auth-card glass">
+        <RegisterForm />
+      </div>
     </AnimatedView>
   )
 }

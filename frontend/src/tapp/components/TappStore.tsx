@@ -54,6 +54,7 @@ import { EXAMPLE_TAPPS } from '../examples'
 import { getTappRuntime } from '../runtime'
 import { RemoteStoreService } from '../services/RemoteStoreService'
 import { resolveManifestText } from '../utils/manifestLocale'
+import { resolveStoreMerchandising } from '../utils/storeLocale'
 import {
   normalizeTappCategory,
   TAPP_CATEGORIES,
@@ -290,20 +291,14 @@ export function TappStore({
   const remoteAppsUnified: UnifiedAppItem[] = useMemo(
     () =>
       remoteApps.map((app) => {
-        const text = resolveManifestText(
-          {
-            name: app.name,
-            description: app.description,
-            locales: app.locales,
-          },
-          locale,
-        )
+        const merch = resolveStoreMerchandising(app, locale)
         return {
           id: app.id,
-          name: text.name,
+          name: merch.name,
           version: app.version,
-          description: text.description || '',
-          longDescription: app.long_description,
+          description: merch.description || '',
+          longDescription: merch.longDescription,
+          preview: merch.preview,
           author: app.author,
           icon: app.icon,
           iconSvg: app.icon_svg,
@@ -381,6 +376,7 @@ export function TappStore({
         prev.name === next.name &&
         prev.description === next.description &&
         prev.longDescription === next.longDescription &&
+        prev.preview === next.preview &&
         prev.updatedAt === next.updatedAt &&
         prev.source === next.source &&
         prev.remoteApp === next.remoteApp &&
@@ -412,18 +408,22 @@ export function TappStore({
       const query = searchQuery.toLowerCase()
       const matchName = app.name.toLowerCase().includes(query)
       const matchDesc = app.description.toLowerCase().includes(query)
+      const matchLong = app.longDescription?.toLowerCase().includes(query)
       const matchTags = app.tags.some((t) => t.toLowerCase().includes(query))
       const remote = app.remoteApp
       const matchRaw =
         !!remote &&
         (remote.name.toLowerCase().includes(query) ||
           remote.description.toLowerCase().includes(query) ||
+          (remote.long_description?.toLowerCase().includes(query) ?? false) ||
           Object.values(remote.locales ?? {}).some(
             (entry) =>
               (entry.name?.toLowerCase().includes(query) ?? false) ||
-              (entry.description?.toLowerCase().includes(query) ?? false),
+              (entry.description?.toLowerCase().includes(query) ?? false) ||
+              (entry.long_description?.toLowerCase().includes(query) ?? false),
           ))
-      if (!matchName && !matchDesc && !matchTags && !matchRaw) return false
+      if (!matchName && !matchDesc && !matchLong && !matchTags && !matchRaw)
+        return false
     }
     // 分类过滤
     if (selectedCategory === '__installed__') {

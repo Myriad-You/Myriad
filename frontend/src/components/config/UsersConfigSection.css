@@ -1,5 +1,5 @@
 /**
- * Users roster — layout/identity skin over ManagedList + InfoActionCard.
+ * Users roster — layout/identity skin over ManagedList.
  * Density stays close to default ManagedList / settings tokens (not compact).
  */
 
@@ -422,51 +422,180 @@ html.dark .users-row.is-self .users-display-name {
 
 /* Expanded detail — roomier, still 2-col where useful */
 
-.users-expand-stack {
+.users-row .setting-title-guide.has-custom-trigger {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: 0;
+}
+
+.users-row .setting-title-guide-trigger-host {
+  display: flex;
+  flex: 1 1 auto;
   min-width: 0;
 }
 
-.users-detail-card.info-action-card {
+.users-row:has(.setting-title-guide.is-open) {
+  border-color: color-mix(in srgb, var(--cfg-accent, #3b82f6) 28%, transparent);
+}
+
+.users-detail-guide-float {
+  min-width: min(32rem, calc(100vw - 1.25rem));
+}
+
+/*
+ * 用户详情浮窗内容更密（账号操作、应用块），不能沿用指南正文的
+ * 右下绝对定位钮 + 大底 padding。把固定/关闭收到文档流底部，
+ * 正文单独滚动，二者不再叠层。
+ */
+.users-detail-guide-float .setting-title-guide-drag {
+  order: 0;
+}
+
+.users-detail-guide-float .setting-title-guide-body {
+  order: 1;
+  padding: 0.85rem 0.9rem 0.55rem;
+}
+
+.users-detail-guide-float .setting-title-guide-actions {
+  position: static;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  order: 2;
+  z-index: auto;
+  flex: 0 0 auto;
+  align-self: stretch;
+  justify-content: flex-end;
+  width: auto;
+  margin: 0;
+  padding: 0.35rem 0.85rem 0.8rem;
+}
+
+.users-expand-stack {
+  display: flex;
+  flex-direction: column;
   gap: 0.65rem;
+  min-width: 0;
 }
 
-.users-managed-list .users-detail-card .info-action-card-fields {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.45rem 1.25rem;
-}
-
-.users-managed-list .users-detail-card .info-action-card-field {
-  display: grid;
-  grid-template-columns: minmax(4.5rem, 7rem) minmax(0, 1fr);
-  gap: 0.25rem 0.65rem;
-  align-items: center;
+.users-detail-tabs {
+  flex: 0 0 auto;
+  width: 100%;
 }
 
 .users-expand-extra {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.75rem 1.25rem;
+  gap: 0.65rem;
+  align-items: stretch;
   min-width: 0;
-  padding-top: 0.55rem;
-  border-top: 1px dashed rgb(209 213 219 / 55%);
-  margin-top: 0.15rem;
 }
 
-html.dark .users-expand-extra {
-  border-top-color: rgb(255 255 255 / 10%);
+.users-expand-extra.is-account,
+.users-expand-extra.is-pane {
+  grid-template-columns: minmax(0, 1fr);
 }
 
-.users-expand-block-title {
+.users-expand-pane,
+.users-account-sheet {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.users-account-sheet {
+  gap: 0.85rem;
+}
+
+.users-account-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem 1rem;
+}
+
+.users-account-bindings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.users-account-kicker {
   font-size: 0.75rem;
-  font-weight: 650;
-  letter-spacing: 0.01em;
+  font-weight: 550;
   color: var(--cfg-text-3);
-  margin-bottom: 0.35rem;
+  line-height: 1.3;
 }
 
-html.dark .users-expand-block-title {
+.users-account-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem 1rem;
+}
+
+.users-account-stats .users-expand-field {
+  min-width: 0;
+}
+
+.users-account-stats .users-expand-field dd {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 详情里 tab 已说明分区，收掉选择器长 hint，列表过长时在区内滚动 */
+.users-expand-pane .user-modal-profile-source-hint {
+  display: none;
+}
+
+.users-expand-pane .user-modal-profile-source-list {
+  gap: 0.35rem;
+  max-height: 13.5rem;
+  overflow: auto;
+}
+
+.users-expand-pane .user-modal-profile-source-row {
+  gap: 0.55rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 0.6rem;
+}
+
+.users-expand-pane .user-modal-profile-source-avatar {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.users-expand-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.users-expand-field dt {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 550;
   color: var(--cfg-text-3);
+  line-height: 1.3;
+}
+
+.users-expand-field dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.8125rem;
+  font-weight: 550;
+  color: var(--cfg-text-1);
+  line-height: 1.4;
+}
+
+.users-expand-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: auto;
+  padding-top: 0.6rem;
 }
 
 .users-muted {
@@ -542,24 +671,74 @@ html.dark .users-provider-badge.primary {
   white-space: nowrap;
 }
 
-/* Tapps */
+/* Tapps — tiles, not a one-column list */
 
-.users-tapp-list {
+.users-tapp-grid {
   margin: 0;
   padding: 0;
   list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.25rem, 1fr));
+  gap: 0.5rem;
 }
 
-.users-tapp-list li {
+.users-tapp-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.4rem;
+  min-width: 0;
+  padding: 0.55rem 0.5rem 0.5rem;
+  border: 1px solid var(--cfg-subtle-border);
+  border-radius: 0.7rem;
+  background: var(--cfg-subtle-bg);
+}
+
+html.dark .users-tapp-tile {
+  border-color: var(--cfg-subtle-border);
+  background: var(--cfg-subtle-bg);
+}
+
+.users-tapp-tile-icon {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.55rem;
+}
+
+.users-tapp-tile-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.08rem;
+  min-width: 0;
+}
+
+.users-tapp-tile .users-tapp-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.users-tapp-tile .users-muted {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.users-tapp-policy {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.3rem 0.55rem;
-  font-size: 0.8125rem;
-  line-height: 1.35;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45rem 0.75rem;
+  margin-bottom: 0.65rem;
+}
+
+.users-tapp-policy.is-blocked {
+  justify-content: space-between;
+}
+
+.users-tapp-manage {
+  min-width: 0;
 }
 
 .users-tapp-name {
@@ -596,12 +775,12 @@ html.dark .users-create-admin-row .setting-label-text {
 }
 
 @media (width <= 560px) {
-  .users-managed-list .users-detail-card .info-action-card-fields {
+  .users-account-facts {
     grid-template-columns: 1fr;
   }
 
-  .users-expand-extra {
-    grid-template-columns: 1fr;
+  .users-account-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .users-row-title {

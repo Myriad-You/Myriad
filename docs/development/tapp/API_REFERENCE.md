@@ -179,7 +179,8 @@ const allSettings = await Tapp.settings.getAll();
   storage API 读写。
 - 不要在 settings 里存放密钥或仅管理员应知的敏感串：凡能打开该公开安装的 visitor 均可读。
 - 公开 Tapp 需要代站主调用第三方 API 时，在 Manifest 使用顶层 `credentials` 和
-  `apis.*.credential` 固定 HTTPS 请求头绑定。凭据只有安装管理界面的写入/删除/状态接口，
+  `apis.*.credential`。放置方式为 `header` / `query` / `form` / `sign`（互斥）；
+  旧清单的 `{header, prefix}` 仍视为请求头绑定。凭据只有安装管理界面的写入/删除/状态接口，
   不进入 `Tapp.settings`、模板上下文或任何沙箱读取 API。
 
 ---
@@ -1099,15 +1100,59 @@ Tapp.federation.onChannelUpdate((ev) => { /* accepted | closed | disconnected */
 Tapp.federation.onRoomUpdate((ev) => { /* governance_changed | member_* | disconnected */ });
 ```
 
-Channel/Room **JSON 消息**（含小型内联数据）后端载荷上限 **4 MiB**
-（`MESSAGE_PAYLOAD_LIMIT` / `MAX_ROOM_MESSAGE_PAYLOAD`）；联邦 inbox 独立硬上限
-为 **8 MiB**（见 `federation::limits`；已认证内容路由约 **24 MiB** = inbox + 16 MiB）。更大附件请走分块传输
+Channel/Room **JSON 消息**（含内联 base64 图）后端载荷上限 **36 MiB**
+（`MESSAGE_PAYLOAD_LIMIT` / `MAX_ROOM_MESSAGE_PAYLOAD`）；联邦 inbox DefaultBodyLimit
+为 **64 MiB**（见 `federation::limits`；已认证内容路由约 **80 MiB** = inbox + 16 MiB）。更大附件请走分块传输
 （默认 chunk **4 MiB** raw；base64 JSON 体上限 16 MiB，见 `TRANSFER_CHUNK_*`）。
 加密时 `sendMessage` / `sendRoomMessage` 可设 `encrypt: true`：库内与联邦 fan-out 仍为密文，
 本机 WebSocket 在密钥可用时推送明文以免 UI 先闪 ciphertext。
 
 参数与 REST 字段以 `frontend/src/types/federation.ts`、后端路由与
 `fixtures/action_permissions.json` 为准，勿从方法名臆造字段。
+
+## Game API
+
+**权限**: `game:session`（另需 `federation:read` / `federation:write` / `federation:message`）
+
+Page 上的 `Tapp.game` 把联邦房间收成对局会话。消息类型固定为
+`game:<tappId>:<protocol>`，载荷只能是
+`{ kind: "intent"|"state", seq, nonce, body }`。单条默认 ≤ 64 KiB，房间可在
+`manifest.game.maxMessageBytes`（1024–256 KiB）里放宽；宿主按**该房间**的上限校验，
+不能 E2E 加密。`seq` / `nonce` 只给对局自己去重和排序，宿主不保证单调、也不拦重放。
+`body` 是不透明 JSON，关键词过滤看不到里面的文本。
+
+`Tapp.game.create()` 默认**不公开**（`isPublic: false`），`invite_policy` 仍是 `open`。
+同一实例上，分享 ID 可以直接 `join`。跨实例时：
+
+- 公开房（`{ isPublic: true }`）：对端用 `room_id@home` 走公开房间接口，副本会带上
+  `game` 配置；
+- 私房：对端必须被邀请。`RoomInvite` 会带上同一份 `game` 配置，副本才能收意图。
+  私房的分享 ID **不能**跨实例自助加入（公开目录接口会 404 / `REMOTE_NOT_PUBLIC`）。
+
+发送和入站都会核对 `message_type` 必须是这间房绑定的 `game:<tappId>:<protocol>`；
+别的 Tapp 的 `game:…` 信封会被 400。`Tapp.game.onMessage` 也只收本包这一条类型。
+
+跨实例入站时**不**对这段 JSON 做关键词过滤，但仍检查成员、签名、体积、频率和域名拉黑。
+
+```javascript
+const room = await Tapp.game.create({ name: "Gomoku", maxPlayers: 2 });
+// room.share_id === `${room.room_id}@${room.home_server}`
+await navigator.clipboard.writeText(room.share_id);
+
+const joined = await Tapp.game.join("rm_…@peer.example:8443");
+await Tapp.federation.subscribeRoom(joined.room_id);
+
+Tapp.game.onMessage((ev) => {
+  const envelope = ev.data.message.payload; // kind / seq / nonce / body
+});
+
+await Tapp.game.sendIntent(joined.room_id, { action: "place", row: 7, col: 7 }, 1);
+await Tapp.game.sendState(room.room_id, snapshot, seq);
+```
+
+失败时 `join` 可能带 `code`：`ROOM_NOT_FOUND`、`REMOTE_HOME_UNREACHABLE`、
+`REMOTE_NOT_PUBLIC`、`INSTANCE_BLOCKED`。Playground 预览不注册这些 handler。
+权威仍在房主客户端；房主掉线不会自动选主。
 
 ---
 
@@ -1495,10 +1540,13 @@ const declaredApis = await Tapp.api.list();
   `form` 字段顺序不属于契约；需要固定顺序或按最终字节签名时应使用 `raw`。
 - Tapp 不能传入任意 URL，也不能使用历史文档中的 `Tapp.http.request()`。
 - 安装级第三方 Key 使用 Manifest `credentials` + `apis.*.credential`；SDK 只能执行绑定的具名
-  API，不能读取凭据。声明、固定 HTTPS origin、请求头和重新授权规则见
+  API，不能读取凭据。放置方式为 `header` / `query` / `form` / `sign`（互斥）。声明、固定
+  HTTPS origin 和重新授权规则见
   [Manifest · 安装级 API 凭据](MANIFEST.md#安装级-api-凭据-credentials)。
 - 详细 Manifest 字段和 REST 链路见 [Manifest](MANIFEST.md#api-声明-apis) 与
   [REST API](REST_API.md#manifest-声明-api)。
+- 给其他程序挂稳定 URL 时使用 `apis.*.route`（必须 HMAC）。沙箱不要自己拼 `/tapi`；
+  见 [入站路由](MANIFEST.md#入站路由-apisroute) 与 [REST API · 入站声明路由](REST_API.md#入站声明路由)。
 
 ## 文件与语音 API
 
@@ -1529,20 +1577,29 @@ const text = await Tapp.speech.asr({ audio }); // speech:asr
 
 **权限**: public（仅可读本安装 `manifest.assets` 声明路径）
 
-用于游戏贴图、音频、wasm、关卡 JSON 等包内静态文件。不走 `Tapp.storage`。
+用于游戏贴图、音频、wasm、glTF/GLB、关卡 JSON 等包内静态文件。不走 `Tapp.storage`。
+Three.js 等引擎库不能放在 `assets/`（禁止 `.js`），应打成 IIFE 放进 `pageModules`。
 
 ```javascript
 const paths = await Tapp.assets.list();
 
-// 在沙箱内创建 blob URL（可赋给 Image / Audio）
+// 在沙箱内创建 blob URL（可赋给 Image / Audio / Loader）
 const { url, mimeType, size } = await Tapp.assets.getUrl("assets/sprite.png");
 
 // 需要二进制时
 const { buffer, mimeType: mt } = await Tapp.assets.getArrayBuffer("assets/level.json");
 
+// 一次缓存全部声明资源，供 Three LoadingManager.setURLModifier
+const urls = await Tapp.assets.getUrlMap();
+manager.setURLModifier((href) => Tapp.assets.rewriteUrl(href));
+
 Tapp.assets.revoke(url);
 Tapp.assets.revokeAll(); // 也会在 onDestroy 时自动调用
 ```
+
+`rewriteUrl` / `resolve` 只接受已声明的 `assets/` 路径（或能唯一对应到其中一项的
+文件名）。`fetch` 仅允许 `blob:` / `data:`，不能用来拉 CDN。完整约定见
+[图形与轻量游戏](GRAPHICS.md)。
 
 后端入口：`GET /api/tapps/{tappId}/asset?path=assets/...`（返回 base64）。
 约定与配额见 [图形与轻量游戏](GRAPHICS.md)。

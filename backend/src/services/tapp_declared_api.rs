@@ -14,7 +14,9 @@ use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 
 use crate::models::entities::tapps;
-use crate::services::permission_service::{TappPermissionService, UnknownTappPermission, UserRole};
+use crate::services::permission_service::{
+    tapp_permission_replacement_hint, TappPermissionService, UnknownTappPermission, UserRole,
+};
 use crate::services::tapp_ownership::{self, TappAccessError};
 use crate::GLOBAL_DYNAMIC_CONFIG;
 use myriad_tapp_contract::manifest::{TappApiAccess, TappApiDef};
@@ -67,7 +69,12 @@ impl DeclaredApiError {
             Self::GrantScopeChanged => "Runtime grant installation scope changed".to_string(),
             Self::InvalidUser => "Invalid user".to_string(),
             Self::UnknownPermission { permission } => {
-                format!("Unknown Tapp permission '{permission}'")
+                match tapp_permission_replacement_hint(permission) {
+                    Some(hint) => {
+                        format!("Unknown Tapp permission '{permission}'; {hint}")
+                    }
+                    None => format!("Unknown Tapp permission '{permission}'"),
+                }
             }
             Self::ApiNotFound { api_name } => {
                 format!("API '{api_name}' not defined in manifest")
@@ -338,6 +345,28 @@ mod tests {
     }
 
     #[test]
+    fn unknown_permission_message_uses_shared_replacement_hint() {
+        let storage = DeclaredApiError::UnknownPermission {
+            permission: "storage".into(),
+        };
+        let message = storage.message();
+        assert!(message.contains("'storage'"), "{message}");
+        assert!(message.contains("storage:read"), "{message}");
+        assert!(message.contains("storage:write"), "{message}");
+        assert!(message.contains("reinstall"), "{message}");
+        // 仍保持 fail-closed 语义与通用错误码。
+        assert_eq!(storage.code(), "UNKNOWN_TAPP_PERMISSION");
+
+        let generic = DeclaredApiError::UnknownPermission {
+            permission: "legacy:unknown".into(),
+        };
+        assert_eq!(
+            generic.message(),
+            "Unknown Tapp permission 'legacy:unknown'"
+        );
+    }
+
+    #[test]
     fn list_summaries_expose_access_without_secrets() {
         let mut apis = HashMap::new();
         apis.insert(
@@ -356,6 +385,7 @@ mod tests {
                 cache_ttl: 60,
                 spoof: None,
                 description: Some("Weather".into()),
+                route: None,
             },
         );
         let list = list_api_summaries(&apis);

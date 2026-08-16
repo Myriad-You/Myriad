@@ -241,7 +241,7 @@ ensure_env() {
         warn "  - JWT_SECRET        (openssl rand -base64 32)"
         warn "  - CORS_ORIGINS      (your domain)"
         warn ""
-        warn "This script will create pgdata/state/backups and fill empty UPDATE_TOKEN / UPDATER_GATEWAY_SECRET."
+        warn "This script will create pgdata/state/backups and fill empty UPDATE_TOKEN / UPDATER_GATEWAY_SECRET / MYRIAD_SETUP_SECRET."
         warn ""
         read -r -p "Open .env in \$EDITOR now? (y/N): " r
         if [[ "$r" =~ ^[Yy]$ ]]; then
@@ -253,9 +253,9 @@ ensure_env() {
 ensure_current_layout() {
     info "==> Ensuring current proxy + updater layout"
     mkdir -p pgdata state state/snapshots state/cache backups
-    ensure_key MYRIAD_TAG v0.3.28
-    ensure_key PROXY_TAG v0.3.28
-    ensure_key UPDATER_TAG v0.3.28
+    ensure_key MYRIAD_TAG v0.3.31
+    ensure_key PROXY_TAG v0.3.31
+    ensure_key UPDATER_TAG v0.3.31
     ensure_key BACKEND_IMAGE docker.io/somekawahitomi/myriad-backend
     ensure_key FRONTEND_IMAGE docker.io/somekawahitomi/myriad-frontend
     ensure_key COMPOSE_PROJECT_NAME myriad
@@ -266,6 +266,7 @@ ensure_current_layout() {
     ensure_key PROXY_ALLOW_DIRECT_UPDATER false
     ensure_update_token
     ensure_updater_gateway_secret
+    ensure_secret_key MYRIAD_SETUP_SECRET
 }
 
 deployment_project_name() {

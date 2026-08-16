@@ -60,6 +60,27 @@ pub(crate) async fn require_active_member_role(
     }
 }
 
+pub(crate) async fn load_room_game_config(
+    db: &impl ConnectionTrait,
+    room_id: &str,
+) -> Result<Option<super::types::RoomGameConfig>, String> {
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT shared_data_config FROM federation_rooms WHERE room_id = $1",
+            [room_id.into()],
+        ))
+        .await
+        .map_err(|error| error.to_string())?;
+    let shared = match row {
+        Some(row) => row
+            .try_get::<Option<serde_json::Value>>("", "shared_data_config")
+            .unwrap_or(None),
+        None => None,
+    };
+    Ok(super::game::parse_room_game_config(shared.as_ref()))
+}
+
 /// Advance this member's room read cursor (used by list_rooms unread_count).
 pub(crate) async fn mark_room_read(
     db: &impl ConnectionTrait,

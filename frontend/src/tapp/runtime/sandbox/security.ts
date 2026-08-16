@@ -7,12 +7,14 @@
  * 1. CSP 严格限制脚本执行来源
  * 2. 使用 nonce 代替 unsafe-inline（当可行时）
  * 3. 禁止 eval 和动态代码执行
- * 4. 阻止所有外部连接
+ * 4. 阻止外部网络连接（fetch 仅放行 blob:/data: 供包内 Loader）
  *
  * 🎯 性能优化：
  * - CSP 字符串预计算
  * - 安全包装代码缓存
  */
+
+import { SANDBOXED_FETCH_INSTALL_SOURCE } from './assetUrlRewriter'
 
 /**
  * 生成随机 nonce（用于 CSP script-src）
@@ -67,7 +69,7 @@ export function escapeSandboxScriptSource(source: string): string {
  *
  * 安全说明：
  * - 严格限制外部资源；远端图/媒体须声明 network:fetch
- * - connect-src 'none' + 禁用 fetch/XHR/WS 是主动联网边界
+ * - connect-src 仅 blob:/data:（包内 Loader）+ 禁用任意网络 fetch/XHR/WS
  * - 🔒 font-src 允许 data: URI 和 Google Fonts
  * - 🔒 script-src 仅 nonce（Tailwind 在安装时预编译为 CSS 注入，
  *   不加载任何外部脚本源——外部脚本 host 白名单同样是外泄通道）
@@ -92,7 +94,7 @@ export interface GenerateCSPOptions {
    *
    * 远端封面/头像/CDN 图是正常需求，但须在 manifest 显式声明联网权限，
    * 由用户安装时授权——不要默认对所有 Tapp 放开，也不要用图片代理折中。
-   * （connect-src 仍为 'none'：Tapp 不能随意 fetch；远程图是单向加载。）
+   * （connect-src 仍只有 blob:/data:：Tapp 不能随意 fetch；远程图是单向加载。）
    */
   allowRemoteMedia?: boolean
 }
@@ -153,7 +155,7 @@ export function generateCSP(
     "style-src 'unsafe-inline' https://fonts.googleapis.com",
     imgSrc,
     'font-src data: https://fonts.gstatic.com',
-    "connect-src 'none'",
+    'connect-src blob: data:',
     "frame-src 'none'",
     "object-src 'none'",
     mediaSrc,
@@ -376,8 +378,9 @@ export function generateSecurityWrapper(
   safeDefineProperty(window, 'indexedDB', { value: null, writable: false });
   safeDefineProperty(window, 'caches', { value: null, writable: false });
   
-  // 禁用网络 API（强制使用 Tapp.api() 声明式 API）
-  window.fetch = () => Promise.reject(new Error('fetch disabled - use Tapp.api() with manifest.apis declarations'));
+  // 网络 API：禁止任意 URL。blob:/data: 留给包内 Loader（FileLoader / GLB）。
+  ${SANDBOXED_FETCH_INSTALL_SOURCE}
+  installSandboxedFetch(window);
   window.XMLHttpRequest = class { constructor() { throw new Error('XMLHttpRequest disabled - use Tapp.api() with manifest.apis declarations'); } };
   window.WebSocket = class { constructor() { throw new Error('WebSocket is disabled in Tapp sandbox'); } };
   window.EventSource = class { constructor() { throw new Error('EventSource is disabled in Tapp sandbox'); } };

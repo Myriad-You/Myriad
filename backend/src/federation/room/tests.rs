@@ -63,6 +63,7 @@ fn sample_public_info(home: &str, owner: &str) -> PublicRoomInfo {
         max_members: 50,
         is_public: true,
         member_count: 1,
+        game: None,
     }
 }
 
@@ -182,6 +183,30 @@ fn invite_object_name_parsing_matches_handle_room_invite() {
         resolve_invite_room_name(name.as_deref(), room_id),
         "Room rm_abc12"
     );
+}
+
+#[test]
+fn invite_object_game_parses_into_room_config() {
+    let object = json!({
+        "id": "rm_abc",
+        "game": {
+            "tapp_id": "com.example.chess",
+            "protocol": "v1",
+            "max_players": 2,
+            "max_message_bytes": 65536
+        }
+    });
+    let config = crate::federation::room::game::parse_room_game_config(Some(&json!({
+        "game": object.get("game").cloned().unwrap()
+    })))
+    .expect("invite game");
+    assert_eq!(config.tapp_id, "com.example.chess");
+    assert_eq!(config.protocol, "v1");
+    assert_eq!(config.max_message_bytes, Some(65536));
+    assert!(crate::federation::room::game::parse_room_game_config(Some(&json!({
+        "game": {"tapp_id": "not-an-id", "protocol": "v1"}
+    })))
+    .is_none());
 }
 
 #[test]

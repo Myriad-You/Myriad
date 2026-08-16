@@ -26,8 +26,8 @@ export function FeaturedTappPreview({ app }: { app: UnifiedAppItem }) {
   const [transform, setTransform] = useState({ scale: 1, x: 0, y: 0 })
   const [renderState, setRenderState] = useState<PreviewRenderState>('checking')
   const canvas = useMemo(
-    () => getPreviewCanvas(app.remoteApp?.preview),
-    [app.remoteApp?.preview],
+    () => getPreviewCanvas(app.preview ?? app.remoteApp?.preview),
+    [app.preview, app.remoteApp?.preview],
   )
 
   useEffect(() => {
@@ -59,12 +59,9 @@ export function FeaturedTappPreview({ app }: { app: UnifiedAppItem }) {
       // No installed-package re-render.
       const remote = app.remoteApp
       const localPageHtml = app.localTapp?.code.pageHtml
+      const snapshot = app.preview ?? remote?.preview
       if (
-        !(
-          remote?.preview?.html ||
-          remote?.download.page_template ||
-          localPageHtml
-        )
+        !(snapshot?.html || remote?.download.page_template || localPageHtml)
       ) {
         if (!cancelled) setRenderState('fallback')
         return
@@ -75,14 +72,15 @@ export function FeaturedTappPreview({ app }: { app: UnifiedAppItem }) {
         let css: string | undefined
         let preserveControls = false
 
-        if (remote?.preview?.html || remote?.download.page_template) {
+        if (remote && (snapshot?.html || remote.download.page_template)) {
           const preview = await RemoteStoreService.downloadAppPreview(
             remote,
             remote.sourceBaseUrl,
+            snapshot,
           )
           html = preview.html
           css = preview.css
-          preserveControls = Boolean(remote.preview)
+          preserveControls = Boolean(snapshot)
         } else if (localPageHtml) {
           html = localPageHtml
           css = [app.localTapp?.code.styles, app.localTapp?.code.pageCSS]
@@ -113,7 +111,7 @@ export function FeaturedTappPreview({ app }: { app: UnifiedAppItem }) {
     return () => {
       cancelled = true
     }
-  }, [app.id, app.localTapp, app.remoteApp, canvas.theme, shouldLoad])
+  }, [app.id, app.localTapp, app.preview, app.remoteApp, canvas.theme, shouldLoad])
 
   useEffect(() => {
     const host = hostRef.current
@@ -234,8 +232,8 @@ export function StaticTappPreview({
   const [transform, setTransform] = useState({ scale: 0, x: 0, y: 0 })
   const [renderState, setRenderState] = useState<PreviewRenderState>('checking')
   const canvas = useMemo(
-    () => getPreviewCanvas(app.remoteApp?.preview),
-    [app.remoteApp?.preview],
+    () => getPreviewCanvas(app.preview ?? app.remoteApp?.preview),
+    [app.preview, app.remoteApp?.preview],
   )
 
   useEffect(() => {

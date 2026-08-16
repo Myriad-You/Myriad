@@ -212,8 +212,8 @@ export const PermissionsConfigSection: React.FC<
     {
       key: 'storage_write',
       code: 'storage:write',
-      label: '写入本地存储',
-      hint: '允许写入该应用的私有存储空间',
+      label: t.config.permStorageWrite,
+      hint: t.config.permStorageWriteHint,
     },
     {
       key: 'brew_comment_write',

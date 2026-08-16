@@ -42,9 +42,12 @@ pub const UNKNOWN_TAPP_PERMISSION_CODE: &str = "UNKNOWN_TAPP_PERMISSION";
 
 /// 已移除权限名的替代建议（仅用于错误提示，不构成兼容映射；
 /// 未知名仍 fail-closed，绝不解码成新权限）。
-/// 单一来源：`UnknownTappPermission::message` 与 manifest 安装校验共用。
+/// 单一来源：permission-service、manifest 校验、声明式 API 与运行时签发共用。
 pub(crate) fn tapp_permission_replacement_hint(permission: &str) -> Option<&'static str> {
     match permission {
+        "storage" => Some(
+            "use 'storage:read' or 'storage:write' instead; update the TAPP Manifest, then update or reinstall the app",
+        ),
         "brew:write" => Some(
             "use 'brew:readStatus' (read status) or 'brew:favorite' (star) instead",
         ),
@@ -162,6 +165,8 @@ pub enum TappPermission {
     FederationMessage,
     #[serde(rename = "federation:files")]
     FederationFiles,
+    #[serde(rename = "game:session")]
+    GameSession,
 
     // Elevated 级别
     #[serde(rename = "ai:generate")]
@@ -262,7 +267,8 @@ impl TappPermission {
             | TappPermission::FederationRead
             | TappPermission::FederationWrite
             | TappPermission::FederationMessage
-            | TappPermission::FederationFiles => PermissionLevel::Basic,
+            | TappPermission::FederationFiles
+            | TappPermission::GameSession => PermissionLevel::Basic,
 
             // Elevated（可配置下放的集合见 all_elevated）
             TappPermission::AiGenerate
@@ -337,6 +343,7 @@ impl TappPermission {
             TappPermission::FederationMessage => "联邦消息",
             TappPermission::FederationFiles => "联邦文件传输",
             TappPermission::FederationTrust => "联邦信任管理",
+            TappPermission::GameSession => "游戏房间会话",
         }
     }
 
@@ -404,6 +411,7 @@ impl TappPermission {
             "federation:message" => Some(TappPermission::FederationMessage),
             "federation:files" => Some(TappPermission::FederationFiles),
             "federation:trust" => Some(TappPermission::FederationTrust),
+            "game:session" => Some(TappPermission::GameSession),
             _ => None,
         }
     }
@@ -453,6 +461,7 @@ impl TappPermission {
             TappPermission::FederationMessage => "federation:message",
             TappPermission::FederationFiles => "federation:files",
             TappPermission::FederationTrust => "federation:trust",
+            TappPermission::GameSession => "game:session",
         }
     }
 }
@@ -515,6 +524,7 @@ impl TappPermissionService {
                 TappPermission::FederationWrite
                     | TappPermission::FederationMessage
                     | TappPermission::FederationFiles
+                    | TappPermission::GameSession
             )
         {
             return false;
@@ -1265,5 +1275,44 @@ mod tests {
 
         assert_eq!(error.permission, "legacy:unknown");
         assert_eq!(error.code(), UNKNOWN_TAPP_PERMISSION_CODE);
+    }
+
+    #[test]
+    fn retired_storage_error_recommends_split_permissions_but_stays_fail_closed() {
+        // storage 仍不可解析：拆分后的 storage:read / storage:write 是独立权限。
+        assert!(TappPermission::from_str("storage").is_none());
+        assert!(TappPermission::from_str("storage:read").is_some());
+        assert!(TappPermission::from_str("storage:write").is_some());
+
+        // 真实 permission-service 过滤路径：storage 被拒，且错误提示给出替代权限。
+        let error = TappPermissionService::filter_permissions_for_role(
+            &DynamicConfig::default(),
+            UserRole::Admin,
+            &["storage".to_string()],
+        )
+        .unwrap_err();
+        let message = error.message();
+        assert!(message.contains("'storage'"), "{message}");
+        assert!(message.contains("storage:read"), "{message}");
+        assert!(message.contains("storage:write"), "{message}");
+        assert!(message.contains("update"), "{message}");
+        assert!(message.contains("reinstall"), "{message}");
+
+        // 失败仍是 fail-closed：不放行任何权限。
+        assert!(TappPermissionService::filter_permissions_for_role(
+            &DynamicConfig::default(),
+            UserRole::Admin,
+            &["storage".to_string()],
+        )
+        .is_err());
+
+        // 任意未知名保持通用错误形态，不带替代建议。
+        let generic = UnknownTappPermission {
+            permission: "legacy:unknown".to_string(),
+        };
+        assert_eq!(
+            generic.message(),
+            "Unknown Tapp permission 'legacy:unknown'"
+        );
     }
 }

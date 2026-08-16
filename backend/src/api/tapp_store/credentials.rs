@@ -42,7 +42,7 @@ fn credential_http_error(error: TappCredentialError) -> HttpError {
     HttpError(AppError::new(status, error.code()).with_message(error.message()))
 }
 
-async fn authorize_credential_management(
+pub(super) async fn authorize_credential_management(
     db: &DatabaseConnection,
     claims: &Claims,
     tapp_id: &str,

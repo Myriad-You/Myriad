@@ -283,6 +283,12 @@ pub(super) fn build_base_api_router(
                 )),
         )
         .route(
+            "/api/admin/users/{id}/tapps/{tapp_id}",
+            axum::routing::delete(api::admin_users::uninstall_user_tapp).route_layer(
+                from_fn_with_state(app_state.clone(), middleware::auth::admin_middleware),
+            ),
+        )
+        .route(
             "/api/admin/users/{id}/identities/{identity_id}",
             axum::routing::delete(api::admin_users::unlink_identity).route_layer(
                 from_fn_with_state(app_state.clone(), middleware::auth::admin_middleware),

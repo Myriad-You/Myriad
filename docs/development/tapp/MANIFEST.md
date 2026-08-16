@@ -48,9 +48,27 @@ Manifest 是 Tapp 的核心配置文件，定义了应用的元数据、权限�
 目录内的文件名，不能再次包含目录前缀。`main` 必须是 `.js`，样式路径必须是 `.css`，
 Page/Widget 模板必须是 `.html`；代码与模板类声明资源必须是安装目录内的普通 UTF-8 文本
 文件。`assets` 允许二进制（贴图、音频、wasm、JSON 关卡等），路径必须位于 `assets/`
-下，且不得使用 `.js` / `.html` 扩展名；单文件 ≤ 5 MiB，合计 ≤ 20 MiB，最多 64 项。
-资源读取不会跟随安装后插入的符号链接。运行时通过 `Tapp.assets` 读取，详见
-[图形与轻量游戏](GRAPHICS.md)。
+下，且不得使用 `.js` / `.html` 扩展名；默认单文件 ≤ 5 MiB，合计 ≤ 20 MiB，最多 64 项。
+`category` 为 `game` 或 `developer`，并且声明了 `game` 或 `runtimeModules` 时，放宽到
+单文件 12 MiB / 合计 48 MiB / 128 项。资源读取不会跟随安装后插入的符号链接。运行时通过
+`Tapp.assets` 读取，详见 [图形与轻量游戏](GRAPHICS.md)。
+
+### 游戏会话与宿主 Three（`game` / `runtimeModules`）
+
+```json
+{
+  "category": "game",
+  "permissions": ["game:session", "federation:read", "federation:write", "federation:message"],
+  "game": { "protocol": "gomoku", "maxPlayers": 2 },
+  "runtimeModules": ["three"]
+}
+```
+
+- `game.protocol`：小写 `[a-z0-9._-]`，会组成房间消息类型 `game:<tappId>:<protocol>`。
+- 声明 `game` 时必须同时申请 `game:session` 与 `federation:read` / `federation:write` / `federation:message`。
+- `runtimeModules` 目前只允许 `three`，且仅 game / developer 分类。宿主注入钉死版本，不走 CDN。
+- `Tapp.game.create()` 默认不公开。同一实例可用 `room_id@home_server` 加入；跨实例私房必须邀请（邀请会带上 `game` 配置），跨实例自助加入要 `{ isPublic: true }`。
+- 发送/入站只接受该房间绑定的 `game:<tappId>:<protocol>`；`seq` / `nonce` 由对局自己去重。
 
 ### 外链 allowlist（openUrls）
 
@@ -124,27 +142,16 @@ Manifest 采用严格字段校验：未声明字段、拼写错误以及已经�
 }
 ```
 
-`credentials` 最多声明 16 项。每项字段为：
-
-| 字段 | 类型 | 必填 | 限制 / 说明 |
-| ---- | ---- | ---- | ----------- |
-| `key` | string | ✅ | 最长 128；使用字母、数字、`.`、`_`、`-`，不能以 `.` 开头/结尾或连续使用 `.` |
-| `label` | string | ✅ | 非空，最长 255；仅用于宿主管理界面 |
-| `description` | string | ❌ | 最长 2000；仅用于宿主管理界面 |
-| `placeholder` | string | ❌ | 最长 255；仅用于输入提示，不是默认值 |
-
-`apis.*.credential` 必须包含已声明的 `key` 与合法固定请求头 `header`；可选 `prefix` 最长
-256 字节（例如 `"Bearer "`）。不能选择 `Host`、`Content-Length`、`Connection`、
-`Transfer-Encoding`、`Upgrade`、代理或其他 hop-by-hop 头，也不能在同一 API 的普通
-`headers` 中再次声明同名头。凭据值最长 16 KiB；该限制由管理 API 与宿主界面执行，值不写入
-Manifest 或 `.tapp` 包。
-
 - 键必须是 BCP-47 语言标签（如 `zh-CN`、`en-US`、`ja-JP`），最多 32 个语言；
   值中 `name`（1-255 字符）与 `description`（≤ 2000 字符）均可选。
 - 解析回退链：精确匹配（忽略大小写）→ 语言前缀匹配（`zh-CN` ↔ `zh`）→ 顶层
-  `name` / `description`。顶层字段是所有语言未命中时的兜底，保持必填/可选语义不变。
-- `locales` 只覆盖清单展示文案；应用内部界面的多语言仍走 `i18n/{lang}.json` 与
-  `Tapp.i18n`（见 [PAGE.md](PAGE.md)）。
+  `name` / `description`。顶层字段是所有语言未命中时的兜底。
+- `locales` 只覆盖清单展示文案。应用内 UI 仍走 `i18n/{lang}.json` 与 `Tapp.i18n`
+  （见 [PAGE.md](PAGE.md)）。
+- 商店详情长介绍与静态预览**不要**写进 Manifest `locales`（安装会拒绝未知字段）。
+  那些字段属于 `catalog.json` / `index.json`，见 [STORE](STORE.md)。
+
+安装级第三方密钥见下文 [安装级 API 凭据](#安装级-api-凭据-credentials)。
 
 ### 应用分类
 
@@ -523,16 +530,59 @@ Manifest 设置属于安装级配置：安装 owner 或管理员可修改；能�
 
 ### 安装级 API 凭据 (`credentials`)
 
+`credentials` 最多声明 16 项。每项字段为：
+
+| 字段 | 类型 | 必填 | 限制 / 说明 |
+| ---- | ---- | ---- | ----------- |
+| `key` | string | ✅ | 最长 128；使用字母、数字、`.`、`_`、`-`，不能以 `.` 开头/结尾或连续使用 `.` |
+| `label` | string | ✅ | 非空，最长 255；仅用于宿主管理界面 |
+| `description` | string | ❌ | 最长 2000；仅用于宿主管理界面 |
+| `placeholder` | string | ❌ | 最长 255；仅用于输入提示，不是默认值 |
+
+`apis.*.credential` 必须包含已声明的 `key`，并用 `in` 选择放置方式（与密钥是否出现在请求里互斥）：
+
+| `in` | 密钥去向 | 必填 |
+| --- | --- | --- |
+| `header`（省略 `in` 且声明 `header` 时的旧写法） | 固定请求头 `field`/`header`，可选 `prefix`、`encoding` | `field` 或 `header` |
+| `query` | 解析后的 URL 查询参数 `field` | `field` |
+| `form` | `bodyMode: form` 的表单字段 `field` | `field` |
+| `sign` | 密钥不上传；宿主按 `sign` 计算并写入 `field` | `field` + `sign` |
+
+`header` 放置不能选择 `Host`、`Content-Length`、`Connection`、`Transfer-Encoding`、`Upgrade`、
+代理或其他 hop-by-hop 头，也不能在同一 API 的普通 `headers` 中再次声明同名头。`prefix` 最长
+256 字节（例如 `"Bearer "`），仅用于 header。`encoding` 目前只接受 `base64`（先编码再加
+prefix）。凭据值最长 16 KiB；该限制由管理 API 与宿主界面执行，值不写入 Manifest 或 `.tapp` 包。
+
+`in: "sign"` 的 `sign` 块：
+
+| 字段 | 说明 |
+| --- | --- |
+| `alg` | 白名单算法。已实现 `md5-sorted-kv`（`md5(token + sort(over).map(k+v).join(""))`）和 `hmac-sha256-raw`（`hex(HMAC-SHA256(secret, sort(over).map(k+v).join("")))`） |
+| `over` | 参与签名的对象字段，1–16 个、不重复；不能包含签名字段本身 |
+| `timestampField` | 可选。若声明则必须列入 `over`；宿主在签名前用当前 UNIX 秒覆盖该字段 |
+
+签名只适用于 `json` / `form` 对象 body，不能用于 `bodyMode: raw`，且 method 必须是
+`POST`/`PUT`/`PATCH`/`DELETE`（默认 `GET` 会被拒绝）。`over` 中除 `timestampField`
+外的键必须出现在声明的 `body` 里，且声明值只能是字符串、数字、布尔或 `null`
+（模板写在字符串里）。
+
 需要由公开 Tapp 代站主调用第三方 API 时，使用只写 `credentials`，不要使用 `settings`：
 
 ```json
 {
   "permissions": ["network:fetch"],
+  "settings": [
+    { "key": "userId", "label": "爱发电 user_id", "type": "input" }
+  ],
   "credentials": [
     {
       "key": "wegame",
       "label": "WeGame API Key",
       "description": "用于同步站点游戏资料"
+    },
+    {
+      "key": "afdianToken",
+      "label": "爱发电 API Token"
     }
   ],
   "apis": {
@@ -545,6 +595,27 @@ Manifest 设置属于安装级配置：安装 owner 或管理员可修改；能�
         "header": "Authorization",
         "prefix": "Bearer "
       }
+    },
+    "sponsors": {
+      "type": "http",
+      "access": "public",
+      "method": "POST",
+      "endpoint": "https://afdian.com/api/open/query-sponsor",
+      "cacheTtl": 300,
+      "body": {
+        "user_id": "{{settings.userId}}",
+        "params": "{\"page\":1,\"per_page\":20}"
+      },
+      "credential": {
+        "key": "afdianToken",
+        "in": "sign",
+        "field": "sign",
+        "sign": {
+          "alg": "md5-sorted-kv",
+          "over": ["params", "ts", "user_id"],
+          "timestampField": "ts"
+        }
+      }
     }
   }
 }
@@ -553,16 +624,21 @@ Manifest 设置属于安装级配置：安装 owner 或管理员可修改；能�
 凭据值由安装 owner / 当前管理员在 Tapp 详情页输入。宿主复用安装 owner 的 `tapp_storage`
 记录，但只把密文放入专用 `encrypted_value` 字段，并使用宿主保留的 `_credentials.` key；
 沙箱 storage API 无法读取、列举、覆盖或清除此类记录。
-读取接口只返回 `configured`、需否重新授权和固定目标 origin，永远不返回明文或密文；沙箱没有
-credential 读取 API。宿主仅在执行绑定的具名 HTTP API 时把值附加到声明的固定请求头。
+读取接口只返回 `configured`、需否重新授权、固定目标 origin 以及每条绑定的 method/path/
+`access`/放置方式，永远不返回明文或密文；沙箱没有 credential 读取 API。宿主仅在执行绑定的
+具名 HTTP API 时按声明把值放入请求头、query、form，或只用来签名。
 
 绑定凭据的 endpoint 必须使用固定绝对 HTTPS origin，host 不能模板化；凭据也不能出现在
 endpoint、headers、body 或 `inject` 模板中。凭据声明及所有使用它的 API 定义共同参与授权
-指纹：endpoint、header、prefix、`access` 等发生变化后，旧凭据停止使用，owner 必须重新输入。
-一个凭据必须至少绑定一个 HTTP API。目标服务本身会收到凭据，因此 owner 只应授权可信 origin；
-第三方返回内容仍按不可信输入处理。宿主会在响应进入缓存或返回沙箱前，对原样凭据回显执行
-文本层和解析后 JSON 字符串/键双重脱敏（包括 JSON 转义后的值）；无法通用识别第三方主动生成的
-哈希、Base64 等派生表示，因此这不能替代可信目标与最小权限的 API Key。
+指纹：endpoint、`in`/`field`/`header`/`prefix`/`sign`、`access` 等发生变化后，旧凭据停止
+使用，owner 必须重新输入。一个凭据必须至少绑定一个 HTTP API。目标服务本身可能收到凭据，
+因此 owner 只应授权可信声明；第三方返回内容仍按不可信输入处理。宿主会在响应进入缓存或返回
+沙箱前，对原样凭据及编码/带前缀形式做文本层和解析后 JSON 字符串/键双重脱敏；无法通用识别
+第三方主动生成的哈希等派生表示，因此这不能替代可信目标与最小权限的 API Key。
+
+HTTP 模板只读前缀：`user.*`、`geo.*`、`params.*`、`time.unix` / `time.unixMs` /
+`time.iso8601` / `time.nonce`、`settings.{声明键}`。`settings.*` 取安装级已保存值或
+Manifest `defaultValue`，不是调用方参数。`{{secrets.*}}` 仍然 fail closed。
 
 `credentials[].key` 不得与 `settings[].key` 重名，避免同一名称同时存在公开可读值和宿主私密值。
 
@@ -613,7 +689,7 @@ endpoint、headers、body 或 `inject` 模板中。凭据声明及所有使用�
 | `endpoint`    | string | HTTP | HTTP URL，可使用 `{{params.*}}` 等模板            |
 | `method`      | string | ❌   | HTTP 方法，默认 `GET`；仅接受大写的 `GET`/`HEAD`/`POST`/`PUT`/`DELETE`/`CONNECT`/`OPTIONS`/`TRACE`/`PATCH` |
 | `headers`     | object | ❌   | 请求头模板                                        |
-| `credential`  | object | ❌   | 安装级凭据绑定 `{key, header, prefix?}`；仅用于 HTTP |
+| `credential`  | object | ❌   | 安装级凭据绑定；`in` 为 `header` / `query` / `form` / `sign`（互斥）。旧清单 `{key, header, prefix?}` 仍视为 header |
 | `bodyMode`    | string | ❌   | `json`（默认）、`raw` 或 `form`                   |
 | `body`        | any    | ❌   | 按 `bodyMode` 解析的请求体模板                    |
 | `builtin`     | string | 内置 | `geo`、`ai:chat` 或 `ai:generate`                 |
@@ -621,6 +697,7 @@ endpoint、headers、body 或 `inject` 模板中。凭据声明及所有使用�
 | `cacheTtl`    | number | ❌   | 响应缓存秒数；缓存按 Tapp、用户、客户端上下文隔离 |
 | `spoof`       | string | ❌   | 区域伪装：`china`/`japan`/`us`/`korea`/`taiwan`/`hongkong`（及别名，见下表） |
 | `description` | string | ❌   | API 描述                                          |
+| `route`       | object | ❌   | 入站挂载。有此字段时必须含 HMAC `verify`，且 `access` 必须是 `public` |
 
 `bodyMode` 控制模板解析后的最终请求体字节：
 
@@ -659,8 +736,8 @@ UTF-8/编码后的实际字节检查 1 MiB 请求体上限；默认 `json` 模�
 
 `inject` 的键是新别名，值是宿主上下文模板。例如
 `{"city":"{{geo.city}}"}` 会创建 `{{city}}`，供 `endpoint`、`headers` 或 `body`
-复用；精确引用会保留数字、布尔值等 JSON 类型。别名不能覆盖 `user.*`、`geo.*` 或
-`params.*`。Tapp 不提供 `secrets.*` 模板；Manifest 中出现宿主 secret 引用会在安装时被拒绝。
+复用；精确引用会保留数字、布尔值等 JSON 类型。别名不能覆盖 `user.*`、`geo.*`、
+`params.*`、`time.*` 或 `settings.*`。Tapp 不提供 `secrets.*` 模板；Manifest 中出现宿主 secret 引用会在安装时被拒绝。
 HTTP API 必须声明 `endpoint`，查询参数直接写在 URL 中；
 内置 API 只接受 `geo`、`ai:chat`、`ai:generate`，不能混入 HTTP 字段。
 AI 内置 API 除对应 `ai:*` 权限外，还必须在 `manifest.ai` 中以 `protocolVersion: 2` 声明相同 operation 和
@@ -703,6 +780,63 @@ const summary = await Tapp.api("summarize", { prompt: "总结这些数据" });
 > 所有 `type: http` 的声明 API 都需要安装已授予 `network:fetch`；`access: public` 只放宽
 > 调用者范围（游客可调），**不能**代替 `network:fetch`。`access: protected` 额外要求登录主体。
 > `access: manager` 只允许安装 owner 或当前站点管理员调用。
+
+### 入站路由 (`apis.*.route`)
+
+给其他程序调用的稳定 HTTP 面。沙箱仍走 `Tapp.api`；`route` 把同一条声明挂到：
+
+`GET|POST /tapi/{tappId}{path}`
+
+有 `route` 就必须声明 HMAC `verify`，且该 API 的 `access` 必须是 `public`。
+`protected` / `manager` 和 `ai:*` builtin 不能挂入站。没有 `route` 的 API 行为不变。
+
+```json
+{
+  "route": {
+    "path": "/sponsors",
+    "methods": ["GET"],
+    "verify": {
+      "key": "inboundSecret",
+      "alg": "hmac-sha256-raw",
+      "header": "X-Signature",
+      "prefix": "sha256=",
+      "over": "canonical-query",
+      "timestampHeader": "X-Timestamp",
+      "nonceHeader": "X-Nonce",
+      "maxSkewSecs": 300
+    }
+  }
+}
+```
+
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| `path` | 是 | `/` + 1–64 位字母数字/`_`/`-`，Manifest 内唯一 |
+| `methods` | 否 | 仅 `GET` / `POST`，默认 `["GET"]`。`HEAD` 不按 GET 验签，宿主直接拒绝 |
+| `verify.key` | 是 | 顶层 `credentials[].key`，可只绑入站 |
+| `verify.alg` | 是 | 仅 `hmac-sha256-raw` |
+| `verify.header` | 是 | `X-` 头；禁止会话头和代理头（`X-CSRF-Token`、`X-Tapp-Runtime-Grant`、`X-Forwarded-*`、`X-Real-IP`、`X-Request-Id` 等） |
+| `verify.prefix` | 否 | 如 `sha256=` |
+| `verify.over` | 是 | GET 用 `canonical-query`；POST 用 `raw-body` |
+| `verify.encoding` | 否 | `hex`（默认）或 `base64` |
+| `verify.timestampHeader` / `nonceHeader` | 是 | 与签名头互不相同的 `X-` 头 |
+| `verify.maxSkewSecs` | 否 | 默认 300，范围 30–3600 |
+
+签名材料（UTF-8，LF）：
+
+```text
+{METHOD}\n/tapi/{tappId}{path}\n{TIMESTAMP}\n{NONCE}\n{PAYLOAD}
+```
+
+GET 的 PAYLOAD 是解码后按键排序的 `k=v&k2=v2`（重复键拒绝），并作为 `params`。
+POST 的 PAYLOAD 是原始 body，超过 1 MiB 先拒；`params` 只来自身体（JSON 对象或 form），
+**未签名的 query 不会并入、也不能覆盖** 已签名字段。
+时间窗内同一 nonce 只能用一次。调用方必须自备 16–128 位 `[A-Za-z0-9_-]` nonce。
+
+入站 **不** 使用 Runtime Grant，也 **不** 查看游客 `network:fetch` 策略；HTTP 出站只要求该公开安装已批准 `network:fetch`。`/tapi` 忽略站点登录 Cookie，只解析 `visibility = all` 的公开安装。
+没有 `GET /tapi/{tappId}` 目录；验签参数写在 Manifest 里交给调用方，不由宿主对外广播本机装了哪些路由。
+入站密钥泄露后，owner 在详情页重填即可作废旧指纹；宿主另有每小时 180 次的凭据封顶。
+验签失败过多会按调用方指纹自动拉黑（不落原始 IP）；详情页可暂停该安装的入站或解除本安装拉黑。暂停/拉黑按安装 owner 隔离。
 
 ---
 
@@ -838,6 +972,7 @@ Tapp 私有 storage、报告和内部状态不会因为知道另一个 `tappId` 
 | `federation:write`   | 联邦个人操作     |
 | `federation:message` | 联邦消息         |
 | `federation:files`   | 联邦文件传输     |
+| `game:session`       | 游戏房间会话（`Tapp.game`；仍需对应联邦权限） |
 
 ### 提升权限（管理员可配置下放）
 

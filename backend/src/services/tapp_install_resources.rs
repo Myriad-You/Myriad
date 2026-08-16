@@ -11,7 +11,8 @@ use myriad_tapp_contract::manifest::TappManifest;
 use crate::services::tapp_validation::{
     is_safe_path_component, validate_asset_path, validate_inline_data_schema,
     MAX_AGENT_SCHEMA_RESOURCE_BYTES, MAX_TAPP_ARCHIVE_FILES, MAX_TAPP_ARCHIVE_UNCOMPRESSED_BYTES,
-    MAX_TAPP_ASSETS_TOTAL_BYTES, MAX_TAPP_ASSET_BYTES, MAX_TAPP_I18N_FILES,
+    MAX_TAPP_ASSETS_TOTAL_BYTES, MAX_TAPP_ASSET_BYTES, MAX_TAPP_GAME_ASSETS_TOTAL_BYTES,
+    MAX_TAPP_GAME_ASSET_BYTES, MAX_TAPP_I18N_FILES,
     MAX_TAPP_I18N_RESOURCE_BYTES, MAX_TAPP_RESOURCE_BYTES,
 };
 
@@ -168,6 +169,33 @@ pub fn validate_agent_schema_bytes(relative: &str, bytes: &[u8]) -> Result<(), S
         .map_err(|error| format!("Invalid Agent schema {relative}: {error}"))
 }
 
+/// Size budget for declared package assets.
+#[derive(Debug, Clone, Copy)]
+pub struct AssetBudget {
+    pub max_each: u64,
+    pub max_total: u64,
+}
+
+impl AssetBudget {
+    pub fn standard() -> Self {
+        Self {
+            max_each: MAX_TAPP_ASSET_BYTES,
+            max_total: MAX_TAPP_ASSETS_TOTAL_BYTES,
+        }
+    }
+
+    pub fn for_manifest(manifest: &TappManifest) -> Self {
+        if manifest.uses_game_asset_limits() {
+            Self {
+                max_each: MAX_TAPP_GAME_ASSET_BYTES,
+                max_total: MAX_TAPP_GAME_ASSETS_TOTAL_BYTES,
+            }
+        } else {
+            Self::standard()
+        }
+    }
+}
+
 /// Validate one package asset size and running total.
 ///
 /// Returns the updated total after adding this asset.
@@ -176,18 +204,29 @@ pub fn validate_asset_resource_bytes(
     size: u64,
     total_so_far: u64,
 ) -> Result<u64, String> {
+    validate_asset_resource_bytes_with(relative, size, total_so_far, AssetBudget::standard())
+}
+
+pub fn validate_asset_resource_bytes_with(
+    relative: &str,
+    size: u64,
+    total_so_far: u64,
+    budget: AssetBudget,
+) -> Result<u64, String> {
     validate_asset_path(relative)?;
-    if size > MAX_TAPP_ASSET_BYTES {
+    if size > budget.max_each {
         return Err(format!(
-            "Tapp asset exceeds {MAX_TAPP_ASSET_BYTES} bytes: {relative}"
+            "Tapp asset exceeds {} bytes: {relative}",
+            budget.max_each
         ));
     }
     let total = total_so_far
         .checked_add(size)
         .ok_or_else(|| "Tapp assets total size overflow".to_string())?;
-    if total > MAX_TAPP_ASSETS_TOTAL_BYTES {
+    if total > budget.max_total {
         return Err(format!(
-            "Tapp assets total size exceeds {MAX_TAPP_ASSETS_TOTAL_BYTES} bytes"
+            "Tapp assets total size exceeds {} bytes",
+            budget.max_total
         ));
     }
     Ok(total)

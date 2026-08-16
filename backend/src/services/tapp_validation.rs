@@ -7,13 +7,18 @@
 
 use std::path::{Component, Path as FsPath};
 
+use myriad_tapp_contract::contract_rules::API_INJECT_RESERVED_PREFIXES;
 use myriad_tapp_contract::contract_rules::{
-    MAX_OPEN_URL_ID_LEN, MAX_OPEN_URLS, OPEN_URL_PERMISSION,
+    MAX_OPEN_URLS, MAX_OPEN_URL_ID_LEN, OPEN_URL_PERMISSION,
+};
+use myriad_tapp_contract::contract_rules::{
+    ROUTE_MAX_MAX_SKEW_SECS, ROUTE_MAX_PREFIX_LEN, ROUTE_METHODS, ROUTE_MIN_MAX_SKEW_SECS,
 };
 use myriad_tapp_contract::manifest::{
-    valid_agent_name, valid_event_topic, TappAiContextSource, TappAiOperation, TappAiOutputFormat,
-    TappHttpBodyMode, TappManifest, TappOpenUrlMatch, TappSettingDef, TappWidgetRefreshMode,
-    TappWidgetRefreshPolicy,
+    valid_agent_name, valid_event_topic, valid_inbound_route_path, valid_inbound_verify_header,
+    TappAiContextSource, TappAiOperation, TappAiOutputFormat, TappApiAccess, TappCredentialIn,
+    TappCredentialSignAlg, TappHttpBodyMode, TappManifest, TappOpenUrlMatch, TappRouteVerifyOver,
+    TappSettingDef, TappWidgetRefreshMode, TappWidgetRefreshPolicy,
 };
 use reqwest::header::HeaderName;
 use std::str::FromStr;
@@ -28,7 +33,11 @@ pub use myriad_tapp_contract::contract_rules::{
     MAX_DATA_EXCHANGE_ID_LEN, MAX_DATA_EXCHANGE_RESPONSE_BYTES, MAX_DATA_EXCHANGE_SCHEMA_BYTES,
     MAX_RESOURCE_PATH_LEN, MAX_TAPP_ARCHIVE_BYTES, MAX_TAPP_ARCHIVE_FILES,
     MAX_TAPP_ARCHIVE_UNCOMPRESSED_BYTES, MAX_TAPP_ASSETS, MAX_TAPP_ASSETS_TOTAL_BYTES,
-    MAX_TAPP_ASSET_BYTES, MAX_TAPP_CREDENTIALS, MAX_TAPP_I18N_FILES, MAX_TAPP_I18N_RESOURCE_BYTES,
+    MAX_TAPP_ASSET_BYTES, MAX_TAPP_CREDENTIALS, MAX_TAPP_GAME_ASSETS,
+    MAX_TAPP_GAME_ASSETS_TOTAL_BYTES, MAX_TAPP_GAME_ASSET_BYTES, MAX_TAPP_GAME_MESSAGE_BYTES,
+    MAX_TAPP_GAME_PLAYERS, MAX_TAPP_GAME_PROTOCOL_LEN, MAX_TAPP_I18N_FILES,
+    MAX_TAPP_I18N_RESOURCE_BYTES, MAX_TAPP_RUNTIME_MODULES, MIN_TAPP_GAME_PLAYERS,
+    TAPP_RUNTIME_MODULES,
     MAX_TAPP_ID_LEN, MAX_TAPP_MANIFEST_BYTES, MAX_TAPP_RESOURCE_BYTES, MAX_WIDGETS_PER_TAPP,
 };
 
@@ -296,8 +305,13 @@ pub fn validate_open_url_target(value: &str, field: &str) -> Result<reqwest::Url
     if value.len() > 2_048 {
         return Err(format!("Tapp {field} is too long"));
     }
-    if value.chars().any(|ch| ch.is_control() || ch.is_whitespace()) {
-        return Err(format!("Tapp {field} must not contain whitespace or control characters"));
+    if value
+        .chars()
+        .any(|ch| ch.is_control() || ch.is_whitespace())
+    {
+        return Err(format!(
+            "Tapp {field} must not contain whitespace or control characters"
+        ));
     }
     let parsed = reqwest::Url::parse(value).map_err(|_| format!("Invalid Tapp {field}"))?;
     if !parsed.username().is_empty() || parsed.password().is_some() {
@@ -306,7 +320,8 @@ pub fn validate_open_url_target(value: &str, field: &str) -> Result<reqwest::Url
     let host = parsed
         .host_str()
         .ok_or_else(|| format!("Tapp {field} must include a hostname"))?;
-    let is_loopback = host.eq_ignore_ascii_case("localhost") || host == "127.0.0.1" || host == "::1";
+    let is_loopback =
+        host.eq_ignore_ascii_case("localhost") || host == "127.0.0.1" || host == "::1";
     match parsed.scheme() {
         "https" => {}
         "http" if is_loopback => {}
@@ -339,9 +354,7 @@ fn validate_open_urls(manifest: &TappManifest) -> Result<(), String> {
         return Ok(());
     }
     if !has_permission {
-        return Err(
-            "Tapp openUrls requires manifest permission ui:openUrl".to_string(),
-        );
+        return Err("Tapp openUrls requires manifest permission ui:openUrl".to_string());
     }
     if entries.len() > MAX_OPEN_URLS {
         return Err(format!(
@@ -377,9 +390,7 @@ fn validate_open_urls(manifest: &TappManifest) -> Result<(), String> {
         }
         // Reject fragment-only noise in declarations — host drops fragments on open.
         if parsed.fragment().is_some() {
-            return Err(format!(
-                "Tapp {field}.url must not include a #fragment"
-            ));
+            return Err(format!("Tapp {field}.url must not include a #fragment"));
         }
         let _ = entry.match_mode; // exhaustively known via serde enum
     }
@@ -576,14 +587,12 @@ pub fn validate_tapp_manifest(manifest: &TappManifest) -> Result<(), String> {
     }
     let mut permissions = std::collections::HashSet::new();
     for permission in &manifest.permissions {
-        // 未知名与重复名分开报错：未知名附加已移除权限的替代建议
-        // （hint 与 UnknownTappPermission 共用单一来源，见 permission_service）。
         if TappPermission::from_str(permission).is_none() {
+            // Fail-closed：未知权限不落库、不签发；只有错误提示会带上共享的替代建议
+            // （如已移除的 storage 与 Brew 粗权限），不创建任何别名。
             return Err(match tapp_permission_replacement_hint(permission) {
-                Some(hint) => {
-                    format!("Unknown Tapp permission: {permission}; {hint}")
-                }
-                None => format!("Unknown Tapp permission: {permission}"),
+                Some(hint) => format!("Unknown Tapp permission '{permission}'; {hint}"),
+                None => format!("Unknown Tapp permission '{permission}'"),
             });
         }
         if !permissions.insert(permission.as_str()) {
@@ -621,6 +630,80 @@ pub fn validate_tapp_manifest(manifest: &TappManifest) -> Result<(), String> {
             {
                 return Err(format!(
                     "Invalid or duplicate page module filename: {module}; expected a .js file relative to page/"
+                ));
+            }
+        }
+    }
+
+    if let Some(modules) = &manifest.runtime_modules {
+        if modules.len() > MAX_TAPP_RUNTIME_MODULES {
+            return Err(format!(
+                "Tapp runtimeModules accepts at most {MAX_TAPP_RUNTIME_MODULES} entries"
+            ));
+        }
+        if !matches!(
+            manifest.category,
+            Some(myriad_tapp_contract::manifest::TappCategory::Game)
+                | Some(myriad_tapp_contract::manifest::TappCategory::Developer)
+        ) {
+            return Err(
+                "runtimeModules is only allowed for game or developer Tapps".to_string(),
+            );
+        }
+        let mut seen = std::collections::HashSet::new();
+        for module in modules {
+            if !TAPP_RUNTIME_MODULES.contains(&module.as_str()) || !seen.insert(module.as_str())
+            {
+                return Err(format!(
+                    "Unknown or duplicate runtime module: {module}; allowed: {}",
+                    TAPP_RUNTIME_MODULES.join(", ")
+                ));
+            }
+        }
+    }
+
+    if let Some(game) = &manifest.game {
+        if game.protocol.is_empty() || game.protocol.len() > MAX_TAPP_GAME_PROTOCOL_LEN {
+            return Err(format!(
+                "Tapp game.protocol must be 1-{MAX_TAPP_GAME_PROTOCOL_LEN} characters"
+            ));
+        }
+        if !game
+            .protocol
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '-' | '_'))
+        {
+            return Err("Tapp game.protocol must be lowercase [a-z0-9._-]".to_string());
+        }
+        if let Some(players) = game.max_players {
+            if !(MIN_TAPP_GAME_PLAYERS..=MAX_TAPP_GAME_PLAYERS).contains(&players) {
+                return Err(format!(
+                    "Tapp game.maxPlayers must be {MIN_TAPP_GAME_PLAYERS}-{MAX_TAPP_GAME_PLAYERS}"
+                ));
+            }
+        }
+        if let Some(bytes) = game.max_message_bytes {
+            if !(1024..=MAX_TAPP_GAME_MESSAGE_BYTES).contains(&bytes) {
+                return Err(format!(
+                    "Tapp game.maxMessageBytes must be 1024-{MAX_TAPP_GAME_MESSAGE_BYTES}"
+                ));
+            }
+        }
+        if !manifest
+            .permissions
+            .iter()
+            .any(|permission| permission == "game:session")
+        {
+            return Err("Tapp game requires the game:session permission".to_string());
+        }
+        for required in ["federation:read", "federation:write", "federation:message"] {
+            if !manifest
+                .permissions
+                .iter()
+                .any(|permission| permission == required)
+            {
+                return Err(format!(
+                    "Tapp game requires the {required} permission"
                 ));
             }
         }
@@ -702,9 +785,14 @@ pub fn validate_tapp_manifest(manifest: &TappManifest) -> Result<(), String> {
     }
 
     if let Some(assets) = &manifest.assets {
-        if assets.len() > MAX_TAPP_ASSETS {
+        let max_assets = if manifest.uses_game_asset_limits() {
+            MAX_TAPP_GAME_ASSETS
+        } else {
+            MAX_TAPP_ASSETS
+        };
+        if assets.len() > max_assets {
             return Err(format!(
-                "Tapp assets accepts at most {MAX_TAPP_ASSETS} entries"
+                "Tapp assets accepts at most {max_assets} entries"
             ));
         }
         let mut seen = std::collections::HashSet::new();
@@ -763,6 +851,7 @@ pub fn validate_tapp_manifest(manifest: &TappManifest) -> Result<(), String> {
     }
 
     let mut bound_credential_keys = std::collections::HashSet::new();
+    let mut inbound_route_paths = std::collections::HashSet::new();
     if let Some(apis) = &manifest.apis {
         if apis.len() > 64 {
             return Err("Tapp apis accepts at most 64 entries".to_string());
@@ -821,13 +910,9 @@ pub fn validate_tapp_manifest(manifest: &TappManifest) -> Result<(), String> {
                                 "Credential-bound Tapp API {name} requires a fixed absolute HTTPS origin"
                             ));
                         }
-                        let header = HeaderName::from_str(&binding.header).map_err(|_| {
-                            format!("Invalid credential header for Tapp API {name}")
+                        let resolved = binding.resolve().map_err(|error| {
+                            format!("Invalid credential binding for Tapp API {name}: {error}")
                         })?;
-                        crate::services::outbound_security::validate_outbound_header(&header)
-                            .map_err(|_| {
-                                format!("Forbidden credential header for Tapp API {name}")
-                            })?;
                         if binding
                             .prefix
                             .as_ref()
@@ -837,14 +922,115 @@ pub fn validate_tapp_manifest(manifest: &TappManifest) -> Result<(), String> {
                                 "Credential header prefix is too long for Tapp API {name}"
                             ));
                         }
-                        if api.headers.as_ref().is_some_and(|headers| {
-                            headers
-                                .keys()
-                                .any(|name| name.eq_ignore_ascii_case(binding.header.as_str()))
-                        }) {
-                            return Err(format!(
-                                "Tapp API {name} declares the credential header twice"
-                            ));
+                        match resolved.placement {
+                            TappCredentialIn::Header => {
+                                let header =
+                                    HeaderName::from_str(&resolved.field).map_err(|_| {
+                                        format!("Invalid credential header for Tapp API {name}")
+                                    })?;
+                                crate::services::outbound_security::validate_outbound_header(
+                                    &header,
+                                )
+                                .map_err(|_| {
+                                    format!("Forbidden credential header for Tapp API {name}")
+                                })?;
+                                if api.headers.as_ref().is_some_and(|headers| {
+                                    headers.keys().any(|name| {
+                                        name.eq_ignore_ascii_case(resolved.field.as_str())
+                                    })
+                                }) {
+                                    return Err(format!(
+                                        "Tapp API {name} declares the credential header twice"
+                                    ));
+                                }
+                            }
+                            TappCredentialIn::Query => {
+                                if parsed
+                                    .query_pairs()
+                                    .any(|(name, _)| name.as_ref() == resolved.field)
+                                {
+                                    return Err(format!(
+                                        "Tapp API {name} declares the credential query field twice"
+                                    ));
+                                }
+                            }
+                            TappCredentialIn::Form => {
+                                if api.body_mode != TappHttpBodyMode::Form {
+                                    return Err(format!(
+                                        "Tapp API {name} form credentials require bodyMode form"
+                                    ));
+                                }
+                                if !HTTP_BODY_METHODS.contains(&api.method.as_str()) {
+                                    return Err(format!(
+                                        "Tapp API {name} form credentials require one of: {}",
+                                        HTTP_BODY_METHODS.join(", ")
+                                    ));
+                                }
+                                let Some(body) =
+                                    api.body.as_ref().and_then(serde_json::Value::as_object)
+                                else {
+                                    return Err(format!(
+                                        "Tapp API {name} form credentials require a form object body"
+                                    ));
+                                };
+                                if body.contains_key(&resolved.field) {
+                                    return Err(format!(
+                                        "Tapp API {name} declares the credential form field twice"
+                                    ));
+                                }
+                            }
+                            TappCredentialIn::Sign => {
+                                let sign = resolved.sign.as_ref().expect("resolved sign");
+                                if !sign.alg.is_implemented() {
+                                    return Err(format!(
+                                        "Tapp API {name} credential sign algorithm {} is not implemented",
+                                        sign.alg.as_str()
+                                    ));
+                                }
+                                if !HTTP_BODY_METHODS.contains(&api.method.as_str()) {
+                                    return Err(format!(
+                                        "Tapp API {name} signed credentials require one of: {}",
+                                        HTTP_BODY_METHODS.join(", ")
+                                    ));
+                                }
+                                if api.body_mode == TappHttpBodyMode::Raw {
+                                    return Err(format!(
+                                        "Tapp API {name} signed credentials cannot use bodyMode raw"
+                                    ));
+                                }
+                                let Some(body) =
+                                    api.body.as_ref().and_then(serde_json::Value::as_object)
+                                else {
+                                    return Err(format!(
+                                        "Tapp API {name} signed credentials require a JSON or form object body"
+                                    ));
+                                };
+                                if body.contains_key(&resolved.field) {
+                                    return Err(format!(
+                                        "Tapp API {name} must not declare the signature field in body"
+                                    ));
+                                }
+                                for field_name in &sign.over {
+                                    if sign.timestamp_field.as_deref() == Some(field_name.as_str())
+                                    {
+                                        continue;
+                                    }
+                                    let Some(declared) = body.get(field_name) else {
+                                        return Err(format!(
+                                            "Tapp API {name} sign.over field '{field_name}' is not declared in body"
+                                        ));
+                                    };
+                                    if !declared.is_string()
+                                        && !declared.is_number()
+                                        && !declared.is_boolean()
+                                        && !declared.is_null()
+                                    {
+                                        return Err(format!(
+                                            "Tapp API {name} sign.over field '{field_name}' must be a scalar"
+                                        ));
+                                    }
+                                }
+                            }
                         }
                         bound_credential_keys.insert(binding.key.as_str());
                     }
@@ -956,7 +1142,7 @@ pub fn validate_tapp_manifest(manifest: &TappManifest) -> Result<(), String> {
                 }
                 for (alias, template) in inject {
                     if !valid_agent_name(alias)
-                        || ["user.", "geo.", "secrets.", "params."]
+                        || API_INJECT_RESERVED_PREFIXES
                             .iter()
                             .any(|prefix| alias.starts_with(prefix))
                     {
@@ -971,12 +1157,114 @@ pub fn validate_tapp_manifest(manifest: &TappManifest) -> Result<(), String> {
                     }
                 }
             }
+            if let Some(route) = &api.route {
+                if api.access != TappApiAccess::Public {
+                    return Err(format!(
+                        "Tapp API {name} inbound route requires access public"
+                    ));
+                }
+                if api.api_type == "builtin"
+                    && matches!(api.builtin.as_deref(), Some("ai:chat" | "ai:generate"))
+                {
+                    return Err(format!(
+                        "Tapp API {name} inbound route cannot expose AI builtins"
+                    ));
+                }
+                if !valid_inbound_route_path(&route.path) {
+                    return Err(format!("Invalid inbound path for Tapp API {name}"));
+                }
+                if !inbound_route_paths.insert(route.path.as_str()) {
+                    return Err(format!(
+                        "Duplicate inbound path {} for Tapp API {name}",
+                        route.path
+                    ));
+                }
+                if route.methods.is_empty()
+                    || route.methods.len() > ROUTE_METHODS.len()
+                    || route
+                        .methods
+                        .iter()
+                        .any(|method| !ROUTE_METHODS.contains(&method.as_str()))
+                {
+                    return Err(format!(
+                        "Tapp API {name} inbound route methods must be GET and/or POST"
+                    ));
+                }
+                let mut seen_methods = std::collections::HashSet::new();
+                for method in &route.methods {
+                    if !seen_methods.insert(method.as_str()) {
+                        return Err(format!(
+                            "Tapp API {name} inbound route declares method {method} twice"
+                        ));
+                    }
+                }
+                let verify = &route.verify;
+                if !credential_keys.contains(verify.key.as_str()) {
+                    return Err(format!(
+                        "Tapp API {name} inbound route references undeclared credential: {}",
+                        verify.key
+                    ));
+                }
+                if verify.alg != TappCredentialSignAlg::HmacSha256Raw {
+                    return Err(format!(
+                        "Tapp API {name} inbound verify algorithm must be hmac-sha256-raw"
+                    ));
+                }
+                if !valid_inbound_verify_header(&verify.header)
+                    || !valid_inbound_verify_header(&verify.timestamp_header)
+                    || !valid_inbound_verify_header(&verify.nonce_header)
+                {
+                    return Err(format!("Invalid inbound verify header for Tapp API {name}"));
+                }
+                let mut verify_headers = std::collections::HashSet::new();
+                for header in [
+                    verify.header.as_str(),
+                    verify.timestamp_header.as_str(),
+                    verify.nonce_header.as_str(),
+                ] {
+                    if !verify_headers.insert(header.to_ascii_lowercase()) {
+                        return Err(format!(
+                            "Tapp API {name} inbound verify headers must be distinct"
+                        ));
+                    }
+                }
+                if verify
+                    .prefix
+                    .as_ref()
+                    .is_some_and(|prefix| prefix.len() > ROUTE_MAX_PREFIX_LEN)
+                {
+                    return Err(format!("Tapp API {name} inbound verify prefix is too long"));
+                }
+                let allows_get = route.methods.iter().any(|method| method == "GET");
+                let allows_post = route.methods.iter().any(|method| method == "POST");
+                match verify.over {
+                    TappRouteVerifyOver::CanonicalQuery if !allows_get || allows_post => {
+                        return Err(format!(
+                            "Tapp API {name} canonical-query verify requires GET-only methods"
+                        ));
+                    }
+                    TappRouteVerifyOver::RawBody if !allows_post || allows_get => {
+                        return Err(format!(
+                            "Tapp API {name} raw-body verify requires POST-only methods"
+                        ));
+                    }
+                    _ => {}
+                }
+                if verify.max_skew_secs < ROUTE_MIN_MAX_SKEW_SECS
+                    || verify.max_skew_secs > ROUTE_MAX_MAX_SKEW_SECS
+                {
+                    return Err(format!(
+                        "Tapp API {name} inbound maxSkewSecs must be between {ROUTE_MIN_MAX_SKEW_SECS} and {ROUTE_MAX_MAX_SKEW_SECS}"
+                    ));
+                }
+                bound_credential_keys.insert(verify.key.as_str());
+            }
         }
     }
     for key in credential_keys {
         if !bound_credential_keys.contains(key) {
             return Err(format!(
-                "Tapp credential '{key}' must be bound to at least one declared HTTP API"
+                "Tapp credential '{key}' must be bound to at least one declared HTTP API or inbound route verify"
             ));
         }
     }
@@ -1324,6 +1612,258 @@ mod tests {
     }
 
     #[test]
+    fn signed_credential_requires_object_body_and_declared_over_fields() {
+        let mut manifest = credential_manifest("https://afdian.com/api/open/query-sponsor");
+        manifest
+            .apis
+            .as_mut()
+            .unwrap()
+            .get_mut("games")
+            .unwrap()
+            .credential = Some(
+            serde_json::from_value(json!({
+                "key": "wegame",
+                "in": "sign",
+                "field": "sign",
+                "sign": {
+                    "alg": "md5-sorted-kv",
+                    "over": ["params", "ts", "user_id"],
+                    "timestampField": "ts"
+                }
+            }))
+            .unwrap(),
+        );
+        manifest
+            .apis
+            .as_mut()
+            .unwrap()
+            .get_mut("games")
+            .unwrap()
+            .method = "POST".into();
+        manifest
+            .apis
+            .as_mut()
+            .unwrap()
+            .get_mut("games")
+            .unwrap()
+            .body = Some(json!({
+            "user_id": "{{settings.userId}}",
+            "params": "{\"page\":1}"
+        }));
+        assert!(validate_tapp_manifest(&manifest).is_ok());
+
+        manifest
+            .apis
+            .as_mut()
+            .unwrap()
+            .get_mut("games")
+            .unwrap()
+            .body_mode = TappHttpBodyMode::Raw;
+        manifest
+            .apis
+            .as_mut()
+            .unwrap()
+            .get_mut("games")
+            .unwrap()
+            .body = Some(json!("{{params.body}}"));
+        let error = validate_tapp_manifest(&manifest).unwrap_err();
+        assert!(error.contains("bodyMode raw"));
+    }
+
+    fn inbound_route_json() -> serde_json::Value {
+        json!({
+            "path": "/sponsors",
+            "methods": ["GET"],
+            "verify": {
+                "key": "inbound",
+                "alg": "hmac-sha256-raw",
+                "header": "X-Signature",
+                "over": "canonical-query",
+                "timestampHeader": "X-Timestamp",
+                "nonceHeader": "X-Nonce"
+            }
+        })
+    }
+
+    #[test]
+    fn inbound_route_accepts_public_hmac_and_inbound_only_credential() {
+        let mut manifest = credential_manifest("https://api.example.com/games");
+        manifest.credentials.as_mut().unwrap().push(
+            serde_json::from_value(json!({ "key": "inbound", "label": "Inbound HMAC" })).unwrap(),
+        );
+        manifest
+            .apis
+            .as_mut()
+            .unwrap()
+            .get_mut("games")
+            .unwrap()
+            .route = Some(serde_json::from_value(inbound_route_json()).unwrap());
+        assert!(validate_tapp_manifest(&manifest).is_ok());
+
+        let inbound_only = serde_json::from_value(json!({
+            "id": "com.example.inbound",
+            "name": "Inbound only",
+            "version": "1.0.0",
+            "main": "main.js",
+            "category": "utility",
+            "permissions": ["network:fetch"],
+            "credentials": [{ "key": "inbound", "label": "Inbound HMAC" }],
+            "apis": {
+                "games": {
+                    "type": "http",
+                    "access": "public",
+                    "endpoint": "https://api.example.com/games",
+                    "route": inbound_route_json()
+                }
+            }
+        }))
+        .unwrap();
+        assert!(validate_tapp_manifest(&inbound_only).is_ok());
+    }
+
+    #[test]
+    fn inbound_route_rejects_protected_missing_verify_and_ai() {
+        let mut manifest = credential_manifest("https://api.example.com/games");
+        manifest.credentials.as_mut().unwrap().push(
+            serde_json::from_value(json!({ "key": "inbound", "label": "Inbound HMAC" })).unwrap(),
+        );
+        let mut route: myriad_tapp_contract::manifest::TappApiRoute =
+            serde_json::from_value(inbound_route_json()).unwrap();
+        manifest
+            .apis
+            .as_mut()
+            .unwrap()
+            .get_mut("games")
+            .unwrap()
+            .access = myriad_tapp_contract::manifest::TappApiAccess::Protected;
+        manifest
+            .apis
+            .as_mut()
+            .unwrap()
+            .get_mut("games")
+            .unwrap()
+            .route = Some(route.clone());
+        let error = validate_tapp_manifest(&manifest).unwrap_err();
+        assert!(error.contains("access public"));
+
+        manifest
+            .apis
+            .as_mut()
+            .unwrap()
+            .get_mut("games")
+            .unwrap()
+            .access = myriad_tapp_contract::manifest::TappApiAccess::Public;
+        route.path = "/nope/nested".into();
+        manifest
+            .apis
+            .as_mut()
+            .unwrap()
+            .get_mut("games")
+            .unwrap()
+            .route = Some(route);
+        let error = validate_tapp_manifest(&manifest).unwrap_err();
+        assert!(error.contains("Invalid inbound path"));
+    }
+
+    #[test]
+    fn inbound_route_rejects_proxy_verify_headers() {
+        let mut manifest = credential_manifest("https://api.example.com/games");
+        manifest.credentials.as_mut().unwrap().push(
+            serde_json::from_value(json!({ "key": "inbound", "label": "Inbound HMAC" })).unwrap(),
+        );
+        let mut route: myriad_tapp_contract::manifest::TappApiRoute =
+            serde_json::from_value(inbound_route_json()).unwrap();
+        route.verify.header = "X-Forwarded-For".into();
+        manifest
+            .apis
+            .as_mut()
+            .unwrap()
+            .get_mut("games")
+            .unwrap()
+            .route = Some(route);
+        let error = validate_tapp_manifest(&manifest).unwrap_err();
+        assert!(error.contains("Invalid inbound verify header"));
+    }
+
+    #[test]
+    fn signed_credential_rejects_default_get_and_object_over_fields() {
+        let mut manifest = credential_manifest("https://afdian.com/api/open/ping");
+        let api = manifest.apis.as_mut().unwrap().get_mut("games").unwrap();
+        api.credential = Some(
+            serde_json::from_value(json!({
+                "key": "wegame",
+                "in": "sign",
+                "field": "sign",
+                "sign": {
+                    "alg": "md5-sorted-kv",
+                    "over": ["params", "ts", "user_id"],
+                    "timestampField": "ts"
+                }
+            }))
+            .unwrap(),
+        );
+        api.body = Some(json!({
+            "user_id": "{{settings.userId}}",
+            "params": "{\"page\":1}"
+        }));
+        let error = validate_tapp_manifest(&manifest).unwrap_err();
+        assert!(error.contains("signed credentials require one of:"));
+
+        let api = manifest.apis.as_mut().unwrap().get_mut("games").unwrap();
+        api.method = "POST".into();
+        api.body = Some(json!({
+            "user_id": "{{settings.userId}}",
+            "params": { "page": 1 }
+        }));
+        let error = validate_tapp_manifest(&manifest).unwrap_err();
+        assert!(error.contains("must be a scalar"));
+    }
+
+    #[test]
+    fn form_credential_rejects_default_get_and_missing_object_body() {
+        let mut manifest = credential_manifest("https://api.example.com/submit");
+        let api = manifest.apis.as_mut().unwrap().get_mut("games").unwrap();
+        api.body_mode = TappHttpBodyMode::Form;
+        api.credential = Some(
+            serde_json::from_value(json!({
+                "key": "wegame",
+                "in": "form",
+                "field": "token"
+            }))
+            .unwrap(),
+        );
+        let error = validate_tapp_manifest(&manifest).unwrap_err();
+        assert!(error.contains("form credentials require one of:"));
+
+        let api = manifest.apis.as_mut().unwrap().get_mut("games").unwrap();
+        api.method = "POST".into();
+        api.body = None;
+        let error = validate_tapp_manifest(&manifest).unwrap_err();
+        assert!(error.contains("form credentials require a form object body"));
+    }
+
+    #[test]
+    fn query_credential_rejects_duplicate_query_name() {
+        let mut manifest = credential_manifest("https://api.example.com/weather?appid=placeholder");
+        manifest
+            .apis
+            .as_mut()
+            .unwrap()
+            .get_mut("games")
+            .unwrap()
+            .credential = Some(
+            serde_json::from_value(json!({
+                "key": "wegame",
+                "in": "query",
+                "field": "appid"
+            }))
+            .unwrap(),
+        );
+        let error = validate_tapp_manifest(&manifest).unwrap_err();
+        assert!(error.contains("query field twice"));
+    }
+
+    #[test]
     fn generated_contract_forbidden_headers_match_outbound_guard() {
         for value in FORBIDDEN_OUTBOUND_HEADERS {
             let header = HeaderName::from_str(value).expect("contract header name must be valid");
@@ -1411,7 +1951,9 @@ mod tests {
         assert!(validate_open_url_target("https://docs.example.com/a", "openUrls[0].url").is_ok());
         assert!(validate_open_url_target("http://localhost:3000/x", "openUrls[0].url").is_ok());
         assert!(validate_open_url_target("http://example.com/x", "openUrls[0].url").is_err());
-        assert!(validate_open_url_target("https://user:pass@example.com/", "openUrls[0].url").is_err());
+        assert!(
+            validate_open_url_target("https://user:pass@example.com/", "openUrls[0].url").is_err()
+        );
     }
 
     #[test]
@@ -1445,6 +1987,8 @@ mod tests {
             credentials: None,
             category: Some(TappCategory::Utility),
             page_modules: None,
+            runtime_modules: None,
+            game: None,
             apis: None,
             data_exchange: None,
             ai: None,
@@ -1535,5 +2079,112 @@ mod tests {
                 .is_ok()
         );
         assert!(validate_named_resource_keys([&"../x".to_string()], "dir").is_err());
+    }
+
+    fn permission_manifest(permissions: &[&str]) -> TappManifest {
+        serde_json::from_value(json!({
+            "id": "com.example.permissions",
+            "name": "Permissions test",
+            "version": "1.0.0",
+            "main": "main.js",
+            "category": "utility",
+            "permissions": permissions,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn unknown_storage_permission_error_recommends_split_permissions_fail_closed() {
+        // 拆分后的 storage:read / storage:write 是独立权限，`storage` 不再可解析。
+        assert!(TappPermission::from_str("storage").is_none());
+        assert!(TappPermission::from_str("storage:read").is_some());
+        assert!(TappPermission::from_str("storage:write").is_some());
+
+        // 安装校验对 `storage` 显式失败，并复用共享 replacement hint。
+        let error = validate_tapp_manifest(&permission_manifest(&["storage"])).unwrap_err();
+        assert!(error.contains("'storage'"), "{error}");
+        assert!(error.contains("storage:read"), "{error}");
+        assert!(error.contains("storage:write"), "{error}");
+        assert!(error.contains("Manifest"), "{error}");
+        assert!(error.contains("reinstall"), "{error}");
+        assert!(!error.contains("Duplicate"), "{error}");
+    }
+
+    #[test]
+    fn generic_unknown_permission_keeps_unknown_error() {
+        let error =
+            validate_tapp_manifest(&permission_manifest(&["legacy:unknown"])).unwrap_err();
+        assert_eq!(error, "Unknown Tapp permission 'legacy:unknown'");
+    }
+
+    #[test]
+    fn duplicate_permission_reports_duplicate_not_unknown() {
+        let error =
+            validate_tapp_manifest(&permission_manifest(&["storage:read", "storage:read"]))
+                .unwrap_err();
+        assert_eq!(error, "Duplicate Tapp permission: storage:read");
+        assert!(!error.contains("Unknown"), "{error}");
+    }
+
+    #[test]
+    fn game_declaration_requires_permission_and_safe_protocol() {
+        let mut manifest: TappManifest = serde_json::from_value(json!({
+            "id": "com.example.chess",
+            "name": "Chess",
+            "version": "1.0.0",
+            "main": "main.js",
+            "category": "game",
+            "permissions": [
+                "game:session",
+                "federation:read",
+                "federation:write",
+                "federation:message"
+            ],
+            "game": { "protocol": "v1", "maxPlayers": 2 }
+        }))
+        .unwrap();
+        assert!(validate_tapp_manifest(&manifest).is_ok());
+        manifest.permissions.clear();
+        assert!(validate_tapp_manifest(&manifest)
+            .unwrap_err()
+            .contains("game:session"));
+        manifest.permissions = vec![
+            "game:session".into(),
+            "federation:read".into(),
+            "federation:write".into(),
+        ];
+        assert!(validate_tapp_manifest(&manifest)
+            .unwrap_err()
+            .contains("federation:message"));
+        manifest.permissions = vec![
+            "game:session".into(),
+            "federation:read".into(),
+            "federation:write".into(),
+            "federation:message".into(),
+        ];
+        manifest.game.as_mut().unwrap().protocol = "V1".into();
+        assert!(validate_tapp_manifest(&manifest)
+            .unwrap_err()
+            .contains("lowercase"));
+    }
+
+    #[test]
+    fn runtime_modules_only_on_game_or_developer() {
+        let mut manifest: TappManifest = serde_json::from_value(json!({
+            "id": "com.example.lab",
+            "name": "Lab",
+            "version": "1.0.0",
+            "main": "main.js",
+            "category": "developer",
+            "permissions": [],
+            "runtimeModules": ["three"]
+        }))
+        .unwrap();
+        assert!(validate_tapp_manifest(&manifest).is_ok());
+        assert!(manifest.uses_game_asset_limits());
+        manifest.category = Some(myriad_tapp_contract::manifest::TappCategory::Utility);
+        assert!(validate_tapp_manifest(&manifest)
+            .unwrap_err()
+            .contains("runtimeModules"));
     }
 }

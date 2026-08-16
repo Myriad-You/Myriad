@@ -148,8 +148,8 @@ flowchart TB
 | `name` | ✅ | 展示名（可被 `locales` 覆盖） |
 | `version` | ✅ | 应与 `manifest.version` 同步 |
 | `description` | ✅ | 短描述 |
-| `long_description` | ❌ | 详情长文案 |
-| `locales` | ❌ | BCP-47 → `{ name?, description? }`，同 Manifest 规则 |
+| `long_description` | ❌ | 详情长文案（默认语言；可被 `locales` 覆盖） |
+| `locales` | ❌ | BCP-47 → `{ name?, description?, long_description?, preview? }`。`name`/`description` 与 Manifest 回退规则相同；长介绍与预览只属于商店目录，不进入安装 Manifest |
 | `author` | ✅ | `{ name, email?, url? }` |
 | `category` | ✅ | 稳定用途 ID；**安装时必须与 Manifest 分类一致**（含旧别名规范化后） |
 | `permissions` | ✅ | 申请权限列表（展示与安装同意用） |
@@ -183,10 +183,15 @@ flowchart TB
 
 #### 加载优先级
 
-1. **显式 `preview` 快照**（`preview.html` + `preview.styles[]` 路径）— 推荐
-2. 否则 **`download.page_template`**（+ `styles` / `page_styles`）
-3. 再否则（仅已安装本地项且无远程模板）用本地 `pageHtml` 壳
-4. 仍不可用 / 清洗失败 / 详情页布局极端溢出 → **主题色 + 图标占位**（`TappPreviewPlaceholder`）
+宿主按当前系统语言先选目录字段，再拉取资源。预览 iframe 不执行脚本，也不继承页面 `lang`，因此语言必须在装入 iframe 之前选定。
+
+1. 当前语言的 `locales[tag].preview`（精确 BCP-47，再语言前缀）
+2. 顶层默认 `preview` 快照
+3. 否则 **`download.page_template`**（+ `styles` / `page_styles`）
+4. 再否则（仅已安装本地项且无远程模板）用本地 `pageHtml` 壳
+5. 仍不可用 / 清洗失败 / 详情页布局极端溢出 → **主题色 + 图标占位**（`TappPreviewPlaceholder`）
+
+长介绍回退：`locales[tag].long_description` → 顶层 `long_description` → 已本地化的短 `description`。语言切换后详情页与精选预览会重新选择路径；清洗与 CSP 规则不变。每个语言的 `preview` 与默认预览使用同一套 `parseStorePreview` 校验。
 
 预览失败 **永不阻断** 浏览与安装。
 
@@ -291,6 +296,10 @@ flowchart TB
 - 不要用 `games` / `tools` / `music` 等旧别名写新包（宿主会规范化，但新发布应直接用规范 ID）。
 - `Page` / `Widget` / headless 是运行形态，不是 `category`。
 - 索引 `category` ≠ Manifest `category` → 后端 **拒绝商店安装**。
+- `category` 为 `game` / `developer` 且声明了 `game` 或 `runtimeModules` 时，资源上限
+  放宽到单文件 12 MiB / 合计 48 MiB / 128 项。3D 请用宿主 `runtimeModules: ["three"]`，
+  不要把 Three 打进商店包。联机新包用 `Tapp.game`；旧的自定义 `message_type`
+  （如 `gomoku.v1`）在未声明 `game` 时仍可走普通房间消息。
 
 ### 最小合法示例
 
@@ -451,7 +460,7 @@ REST 商店安装仍是 body `source: "store"` + `storeSource: catalogRef`（源
 1. 用 `@myriad/tapp-cli` 初始化、`check`、可选 `pack`（见 [QUICKSTART](QUICKSTART.md)）。
 2. 确认 `manifest.json`：`category`（稳定 ID）、`permissions`、`main`、模板/CSS/assets；**semver `version`**。
 3. 在商店仓库 **只改一个** `apps/{id}/`；**不要手改** 根 `index.json`。
-4. 可选：`apps/{id}/catalog.json` 写商店展示字段（`long_description` / `tags` / `preview` / `featured`…）。
+4. 可选：`apps/{id}/catalog.json` 写商店展示字段（`long_description` / `tags` / `preview` / `featured` / `locales`…）。`locales` 里的长介绍与预览由索引同步合并进 `index.json`；不要手改根索引。
 5. PR 门禁：单 app、禁 index、非文档改动须 bump version、`validate-app`、`myriad-tapp check`、preview 校验。
 6. 合并到 `main` 后 Catalog Sync bot 从 manifest + catalog.json 自动对齐 `index.json`。
 7. Myriad 商店 UI 强制刷新源缓存并试装。

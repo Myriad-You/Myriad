@@ -1,13 +1,13 @@
 use axum::{
+    Json,
     extract::Request,
-    http::{header, HeaderMap, Method, StatusCode},
+    http::{HeaderMap, Method, StatusCode, header},
     middleware::Next,
     response::{IntoResponse, Response},
-    Json,
 };
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use hmac::{Hmac, KeyInit, Mac};
-use jsonwebtoken::{decode, DecodingKey, Validation};
+use jsonwebtoken::{DecodingKey, Validation, decode};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -477,6 +477,9 @@ pub(crate) fn is_csrf_exempt(path: &str) -> bool {
         // 仅公开写入埋点；export/import/summary 需会话 + CSRF（admin）
         || path.starts_with("/api/analytics/collect")
         || path.starts_with("/api/analytics/pageview")
+        // HMAC-authenticated inbound routes ignore cookies; other programs
+        // must not need a browser CSRF token.
+        || path.starts_with("/tapi/")
     // 注意: /api/agent/、/api/tapps/、/api/tapp/ 不在豁免列表
     // Cookie 会话必须带 CSRF；纯 Bearer / 游客由 csrf_check_needed 跳过
 }
@@ -531,7 +534,7 @@ pub async fn get_csrf_token(headers: HeaderMap) -> impl IntoResponse {
 mod tests {
     use super::*;
     use axum::body::to_bytes;
-    use jsonwebtoken::{encode, EncodingKey, Header};
+    use jsonwebtoken::{EncodingKey, Header, encode};
     use std::sync::Once;
 
     static INIT_JWT: Once = Once::new();
@@ -791,6 +794,7 @@ mod tests {
         assert!(is_csrf_exempt("/api/proxy/image"));
         assert!(is_csrf_exempt("/api/analytics/collect"));
         assert!(is_csrf_exempt("/api/analytics/pageview"));
+        assert!(is_csrf_exempt("/tapi/com.example.app/sponsors"));
         assert!(!is_csrf_exempt("/api/analytics/summary"));
         assert!(!is_csrf_exempt("/api/analytics/export"));
         assert!(!is_csrf_exempt("/api/analytics/import"));
@@ -894,6 +898,11 @@ mod tests {
         ));
         assert!(!csrf_check_needed(
             "/api/proxy/image",
+            &Method::POST,
+            &cookie
+        ));
+        assert!(!csrf_check_needed(
+            "/tapi/com.example.app/sponsors",
             &Method::POST,
             &cookie
         ));

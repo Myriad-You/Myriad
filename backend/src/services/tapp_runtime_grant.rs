@@ -16,7 +16,8 @@ use std::time::Duration;
 use uuid::Uuid;
 
 use crate::services::permission_service::{
-    TappPermission, TappPermissionService, UnknownTappPermission, UserRole,
+    tapp_permission_replacement_hint, TappPermission, TappPermissionService, UnknownTappPermission,
+    UserRole,
 };
 use crate::services::tapp_ownership;
 use crate::services::tapp_registry as shared_registry;
@@ -161,7 +162,12 @@ impl RuntimeGrantError {
                 "Runtime grant administrator role is no longer current".to_string()
             }
             Self::UnknownPermission { permission } => {
-                format!("Unknown Tapp permission '{permission}'")
+                match tapp_permission_replacement_hint(permission) {
+                    Some(hint) => {
+                        format!("Unknown Tapp permission '{permission}'; {hint}")
+                    }
+                    None => format!("Unknown Tapp permission '{permission}'"),
+                }
             }
             Self::PermissionDenied { permission } => {
                 format!("Runtime grant is missing '{permission}'")
@@ -563,6 +569,28 @@ mod tests {
             }
             .status_hint(),
             403
+        );
+    }
+
+    #[test]
+    fn unknown_permission_message_uses_shared_replacement_hint() {
+        let storage = RuntimeGrantError::UnknownPermission {
+            permission: "storage".into(),
+        };
+        let message = storage.message();
+        assert!(message.contains("'storage'"), "{message}");
+        assert!(message.contains("storage:read"), "{message}");
+        assert!(message.contains("storage:write"), "{message}");
+        assert!(message.contains("reinstall"), "{message}");
+        // 仍保持 fail-closed 语义与通用错误码。
+        assert_eq!(storage.code(), "UNKNOWN_TAPP_PERMISSION");
+
+        let generic = RuntimeGrantError::UnknownPermission {
+            permission: "legacy:unknown".into(),
+        };
+        assert_eq!(
+            generic.message(),
+            "Unknown Tapp permission 'legacy:unknown'"
         );
     }
 }

@@ -93,14 +93,14 @@ const zh: TappPermissionGuides = {
     notes: '可删除用户可见报告，属高敏感写权限。',
   },
   'storage:read': {
-    what: '允许使用该应用的本地/服务端键值存储（应用私有数据）。',
+    what: '允许读取该应用的私有键值存储（应用私有数据，只读）。',
     chain:
-      '① 应用读写 storage API。\n② 数据按应用隔离保存。\n③ 卸载时可选是否清除。',
-    frontend: '应用自身的偏好、草稿、缓存状态。',
-    notes: '一般不共享给其他应用；别存密钥到不可信应用。',
+      '① 应用通过 storage 读 API 取数。\n② 数据按应用隔离保存。\n③ 读取不产生任何持久写入。',
+    frontend: '应用自身的偏好、草稿、缓存状态读取。',
+    notes: '只读：不会持久写入；别把密钥存到不可信应用。',
   },
   'storage:write': {
-    what: '允许写入该应用的私有键值存储。',
+    what: '允许写入该应用的私有键值存储（仅写，不含读取）。',
     chain: '① 应用调用写入 API。\n② 数据按应用隔离保存。\n③ 写入内容会影响应用后续状态。',
     frontend: '应用偏好、草稿和持久化状态。',
     notes: '写入权限默认关闭，仅向可信应用下放。',
@@ -309,6 +309,13 @@ const zh: TappPermissionGuides = {
     frontend: '联邦场景下的附件/文件功能。',
     notes: '文件体积与类型可能受限；注意恶意文件风险。',
   },
+  'game:session': {
+    what: '允许用联邦房间开对局、加入并收发结构化游戏消息。',
+    chain:
+      '① 应用调用 Tapp.game。\n② 宿主在房间上发送 game:<tappId>:<protocol> 信封。\n③ 本机或对端实例的成员收到意图/状态。',
+    frontend: '游戏开房、分享 room_id@home_server、对局同步。',
+    notes: '仍需联邦读写/消息权限。权威在房主客户端；跨实例不过关键词过滤，但仍受拉黑与体积限制。',
+  },
 }
 
 const en: TappPermissionGuides = {
@@ -390,14 +397,14 @@ const en: TappPermissionGuides = {
     notes: 'Can delete user-visible reports — sensitive.',
   },
   'storage:read': {
-    what: 'Allows private key-value storage for this app.',
+    what: 'Allows reading this app’s private key-value storage (read-only).',
     chain:
-      '1) App uses storage APIs.\n2) Data is isolated per app.\n3) Uninstall may clear it (user choice).',
-    frontend: 'App preferences, drafts, local state.',
-    notes: 'Do not store secrets in untrusted apps.',
+      '1) App calls storage read APIs.\n2) Data is isolated per app.\n3) Reading never persists writes.',
+    frontend: 'App preferences, drafts, cached state reads.',
+    notes: 'Read-only: never persists writes; do not store secrets in untrusted apps.',
   },
   'storage:write': {
-    what: 'Allows writing to this app private key-value storage.',
+    what: 'Allows writing to this app’s private key-value storage (write-only, no read).',
     chain: '1) App calls write APIs.\n2) Data is isolated per app.\n3) Writes affect later app state.',
     frontend: 'App preferences, drafts, and persistent state.',
     notes: 'Write access is disabled by default; delegate only to trusted apps.',
@@ -606,6 +613,13 @@ const en: TappPermissionGuides = {
     frontend: 'Federation attachments/files.',
     notes: 'Size/type limits may apply; malware risk.',
   },
+  'game:session': {
+    what: 'Allows creating and joining federation game rooms and exchanging structured game messages.',
+    chain:
+      '1) App calls Tapp.game.\n2) Host sends game:<tappId>:<protocol> envelopes on a room.\n3) Members on this or a peer instance receive intent/state.',
+    frontend: 'Game lobby, share room_id@home_server, match sync.',
+    notes: 'Federation read/write/message are still required. Authority stays with the host client.',
+  },
 }
 
 const ja: TappPermissionGuides = {
@@ -687,14 +701,14 @@ const ja: TappPermissionGuides = {
     notes: 'ユーザー向けレポートを消せる高リスクです。',
   },
   'storage:read': {
-    what: 'このアプリ専用のキー値ストレージを使えます。',
+    what: 'このアプリ専用のキー値ストレージを読み取れます（読み取り専用）。',
     chain:
-      '① storage API。\n② アプリ単位で隔離。\n③ 削除時に消すか選べる。',
-    frontend: '設定・下書き・状態の保存。',
-    notes: '信頼できないアプリに秘密を置かないでください。',
+      '① storage 読み取り API。\n② アプリ単位で隔離。\n③ 読み取りで永続書き込みは発生しません。',
+    frontend: '設定・下書き・キャッシュ状態の読み取り。',
+    notes: '読み取り専用：永続書き込みはしません。',
   },
   'storage:write': {
-    what: 'このアプリ専用のキー値ストレージへ書き込めます。',
+    what: 'このアプリ専用のキー値ストレージへ書き込めます（書込専用、読取なし）。',
     chain: '① 書き込み API。\n② アプリ単位で隔離。\n③ 次回のアプリ状態に反映。',
     frontend: '設定・下書き・永続状態の保存。',
     notes: '既定では無効。信頼できるアプリだけに下放してください。',
@@ -902,6 +916,13 @@ const ja: TappPermissionGuides = {
       '① ファイル API。\n② ファイル経路。\n③ 相手へ到達またはローカル保存。',
     frontend: '添付/ファイル機能。',
     notes: 'サイズ制限あり。悪意あるファイルに注意。',
+  },
+  'game:session': {
+    what: 'フェデレーションルームで対局を作り、参加し、構造化メッセージを送れます。',
+    chain:
+      '① Tapp.game を呼ぶ。\n② ホストが game:<tappId>:<protocol> をルームへ送る。\n③ 自サイトまたは相手サイトのメンバーが受け取る。',
+    frontend: '対局ロビー、room_id@home_server の共有、同期。',
+    notes: 'Federation の読み書き/メッセージ権限も必要です。権威はホスト側クライアントに残ります。',
   },
 }
 

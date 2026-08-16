@@ -11,6 +11,8 @@
 | 从源码构建 | [BUILD.md](../development/BUILD.md) |
 | HTTP API 入口 | [API.md](../API.md) |
 | Updater 运维 | [UPDATER_QUICKSTART.md](../UPDATER_QUICKSTART.md) |
+| Setup 破窗 / 安装暗号 | [SETUP_BOOTSTRAP.md](../deployment/SETUP_BOOTSTRAP.md) |
+| 无 Docker 部署 | [NATIVE_DEPLOYMENT.md](../deployment/NATIVE_DEPLOYMENT.md) |
 | Tapp 开发 | [TAPP_DEVELOPMENT.md](../development/TAPP_DEVELOPMENT.md) |
 
 ## 文档树
@@ -27,6 +29,8 @@ docs/
 │   ├── EXTERNAL_POSTGRES.md
 │   ├── PORTS.md
 │   ├── UPDATER_SECURITY_BASELINE.md
+│   ├── SETUP_BOOTSTRAP.md           # CONFIG_MODE 引导令牌 + 安装暗号
+│   ├── NATIVE_DEPLOYMENT.md         # 无 Docker 生产部署
 │   ├── MIGRATION_DOMAIN.md          # 非联邦换域名
 │   ├── FEDERATION_DOMAIN_MOVE.md    # 联邦 Move
 │   └── examples/
@@ -76,6 +80,8 @@ Myriad/
 | [UPDATER_QUICKSTART.md](../UPDATER_QUICKSTART.md) | 更新 / 回滚 / 救援 |
 | [updater-spec.md](../updater-spec.md) | Updater 协议与失败模式 |
 | [UPDATER_SECURITY_BASELINE.md](../deployment/UPDATER_SECURITY_BASELINE.md) | Updater 安全基线 |
+| [SETUP_BOOTSTRAP.md](../deployment/SETUP_BOOTSTRAP.md) | CONFIG_MODE 破窗令牌；编排安装时的所有者暗号 |
+| [NATIVE_DEPLOYMENT.md](../deployment/NATIVE_DEPLOYMENT.md) | 无 Docker 生产部署 |
 | [MIGRATION_DOMAIN.md](../deployment/MIGRATION_DOMAIN.md) | 换域名（非联邦） |
 | [FEDERATION_DOMAIN_MOVE.md](../deployment/FEDERATION_DOMAIN_MOVE.md) | 联邦域名 Move |
 
@@ -84,7 +90,6 @@ Myriad/
 | 文档 | 说明 |
 | --- | --- |
 | [ARCHITECTURE.md](../development/ARCHITECTURE.md) | 组件与拓扑 |
-| [BACKEND_MEMORY_AUDIT.md](../development/BACKEND_MEMORY_AUDIT.md) | 后端内存审计（基线/稳态/尖峰） |
 | [BUILD.md](../development/BUILD.md) | 工具链与构建 |
 | [API.md](../API.md) | HTTP API 入口 |
 | [OAUTH.md](../development/OAUTH.md) | 本地登录与 OAuth/OIDC |
@@ -111,8 +116,7 @@ Myriad/
 bash scripts/docker/deploy.sh up
 bash scripts/docker/deploy.sh status
 
-# 开发
-docker compose -f docker-compose.dev.yml up -d postgres
+# 开发（默认本机 PostgreSQL；`--docker` 改用 compose postgres）
 ./scripts/dev/dev.sh start
 ```
 
