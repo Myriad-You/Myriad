@@ -5,10 +5,10 @@
  * Query `?setup_secret=` is accepted then stripped. Invalid values are ignored.
  */
 
-const SETUP_SECRET_RE = /^[A-Za-z0-9_-]{32,512}$/
+const SETUP_SECRET_RE = /^[\w-]{32,512}$/
 const PARAM = 'setup_secret'
 
-export type SetupSecretLocation = {
+export interface SetupSecretLocation {
   search: string
   hash: string
   pathname: string

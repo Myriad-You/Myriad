@@ -669,7 +669,7 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
             {shown.tapps.map((tapp) => (
               <li key={tapp.tapp_id} className="users-tapp-tile">
                 <TappIconBadge
-                  icon={tapp.icon}
+                  icon={tapp.icon ?? undefined}
                   name={tapp.name}
                   id={tapp.tapp_id}
                   shellClassName="users-tapp-tile-icon"
