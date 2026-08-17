@@ -297,7 +297,7 @@ export const enUS: TranslationKeys = {
     enterPasswordAgain: 'Enter password again',
     setupSecret: 'Setup passphrase',
     setupSecretHint:
-      'Required only when the database URL was already written by orchestration. Copy MYRIAD_SETUP_SECRET from the server .env. The wizard database step does not show this field.',
+      'Required only when the database URL was already written by orchestration. Copy MYRIAD_SETUP_SECRET from the server .env, or open the generator’s #setup_secret link to fill it. The wizard database step does not show this field.',
     setupSecretPlaceholder: 'Paste MYRIAD_SETUP_SECRET',
     setupSecretRequired:
       'Enter the setup passphrase from the server .env. It is not shown in the web UI.',

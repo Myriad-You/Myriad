@@ -34,6 +34,7 @@ import {
   LuUser,
 } from '../../lib/icons'
 import adminUsersApi from '../../services/adminUsersApi'
+import { TappIconBadge } from '../../tapp/components/TappIconBadge'
 import { messageForAdminUserError } from '../../utils/authErrorMessages'
 import { getOAuthIconAsset } from '../../utils/oauthIcons'
 import { Avatar } from '../Avatar'
@@ -664,10 +665,21 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
         !shown.tapps || shown.tapps.length === 0 ? (
           <span className="users-muted">{c.usersNoTapps}</span>
         ) : (
-          <ul className="users-tapp-list">
+          <ul className="users-tapp-grid">
             {shown.tapps.map((tapp) => (
-              <li key={tapp.tapp_id}>
-                <span className="users-tapp-main">
+              <li key={tapp.tapp_id} className="users-tapp-tile">
+                <TappIconBadge
+                  icon={tapp.icon ?? undefined}
+                  iconSvg={tapp.icon_svg ?? undefined}
+                  iconShell={tapp.icon_shell ?? undefined}
+                  themeColor={tapp.theme_color ?? undefined}
+                  name={tapp.name}
+                  id={tapp.tapp_id}
+                  shellClassName="users-tapp-tile-icon"
+                  glyphSizeClass="w-4 h-4"
+                  glyphTextClass="text-sm"
+                />
+                <span className="users-tapp-tile-text">
                   <span className="users-tapp-name">{tapp.name}</span>
                   <span className="users-muted">
                     v{tapp.version} · {tapp.status}
@@ -676,6 +688,7 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
                 <SettingsButton
                   size="sm"
                   variant="danger"
+                  block
                   disabled={busy}
                   onClick={() => void handleUninstallTapp(shown, tapp)}
                 >

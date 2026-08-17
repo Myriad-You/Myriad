@@ -16,6 +16,7 @@ export {
   formatBytes,
   INFRA_OUTCOME_MAX_TRIES,
   INFRA_OUTCOME_POLL_MS,
+  isFreshInfraOutcome,
   isReleaseTag,
   isTransientUpdaterError,
   modeForTarget,

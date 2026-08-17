@@ -1549,6 +1549,18 @@ async fn prepare_trusted_self_update(
     let previous_tag = running_updater_tag(&state.config.socket_path).await?;
     prevent_release_downgrade(&previous_tag, requested_tag)?;
 
+    // Record intent before the pull so a long Hub fetch is not an invisible
+    // "confirming result" gap, and a post-pull rejection can replace it.
+    let pending = super::self_update_helper::SelfUpdateLastStatus::pending_before_handoff(
+        requested_tag.to_owned(),
+        previous_tag.clone(),
+    );
+    super::self_update_helper::write_status(
+        &state.config.state_dir.join("self-update-last.json"),
+        &pending,
+    )
+    .context("persist trusted handoff intent")?;
+
     // Guard has no egress. The host daemon pulls only the compiled-in official
     // repository; Guard then converts the result to repo@sha256 before handoff.
     let (exact_image, target_created_at) =
@@ -1565,15 +1577,6 @@ async fn prepare_trusted_self_update(
         target_tag: requested_tag.to_owned(),
         recovery_only: false,
     };
-    let pending = super::self_update_helper::SelfUpdateLastStatus::pending_before_handoff(
-        attempt.target_tag.clone(),
-        attempt.previous_tag.clone(),
-    );
-    super::self_update_helper::write_status(
-        &state.config.state_dir.join("self-update-last.json"),
-        &pending,
-    )
-    .context("persist trusted handoff intent")?;
     let helper_id = launch_trusted_handoff(
         state,
         &attempt.previous_image,

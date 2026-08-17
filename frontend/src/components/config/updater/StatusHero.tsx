@@ -39,11 +39,9 @@ export function StatusHero({
   pendingConfirm,
   nowTick,
   toast,
-  linkDown,
   u,
   onCheck,
   onUpdate,
-  onSelfUpdate,
   onRetry,
   onSaveAutoPrefs,
 }: {
@@ -60,12 +58,9 @@ export function StatusHero({
   pendingConfirm: boolean
   nowTick: number
   toast: Toast
-  /** Brief admin↔updater/proxy blip (self-update / proxy recreate). */
-  linkDown: boolean
   u: U
   onCheck: () => void
   onUpdate: () => void
-  onSelfUpdate: () => void
   onRetry: () => void
   onSaveAutoPrefs: (prefs: {
     check_interval_secs?: number
@@ -129,16 +124,6 @@ export function StatusHero({
       effectiveHint = u.updaterCheckStaleAction
     }
   }
-  // Prefer reconnect copy while infra is recreating — stronger than stale check.
-  if (linkDown && mood !== 'offline') {
-    if (busy === 'proxy-update') {
-      effectiveHint = u.updaterProxyUpdateReconnecting
-    } else if (busy === 'self-update') {
-      effectiveHint = u.updaterSelfUpdateReconnecting
-    } else {
-      effectiveHint = u.updaterSelfUpdateReconnecting
-    }
-  }
 
   let action: React.ReactNode = null
   if (showCheckPrimary) {
@@ -154,20 +139,16 @@ export function StatusHero({
       </SettingsButton>
     )
   } else if (mood === 'available' || mood === 'downgrade') {
-    action = requiresSelfUpdate ? (
-      <SettingsButton
-        variant="primary"
-        onClick={onSelfUpdate}
-        disabled={busy === 'self-update' || tokenRequired}
-        loading={busy === 'self-update'}
-      >
-        {u.updaterSelfUpdateButton}
-      </SettingsButton>
-    ) : (
+    action = (
       <SettingsButton
         variant={mood === 'downgrade' ? 'secondary' : 'primary'}
         onClick={onUpdate}
-        disabled={busy === 'update' || busy === 'check' || tokenRequired}
+        disabled={
+          requiresSelfUpdate ||
+          busy === 'update' ||
+          busy === 'check' ||
+          tokenRequired
+        }
         loading={busy === 'update' || busy === 'check'}
       >
         {mood === 'downgrade'
@@ -273,24 +254,12 @@ export function StatusHero({
         {action && <div className="updater-hero-action">{action}</div>}
       </div>
       {showUpdateDetails &&
-        (freshness ||
-          source === 'dockerhub' ||
-          requiresSelfUpdate ||
-          irreversible ||
-          notesUrl) && (
+        (freshness || source === 'dockerhub' || irreversible || notesUrl) && (
           <div className="updater-hero-details">
             {freshness && <p>{freshness}</p>}
             {source === 'dockerhub' && (
               <p className="updater-hero-warning">
                 {u.updaterDockerHubFallback}
-              </p>
-            )}
-            {requiresSelfUpdate && (
-              <p className="updater-hero-warning">
-                {format(u.updaterSelfUpdateNeeded, {
-                  version: targetVersion,
-                  minVersion: latest?.min_updater_version ?? '—',
-                })}
               </p>
             )}
             {irreversible && (

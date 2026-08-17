@@ -1,6 +1,6 @@
 [package]
 name = "myriad-backend"
-version = "0.3.31"
+version = "0.3.32"
 edition = "2021"
 rust-version = "1.94"
 authors = ["Myriad Contributors"]

@@ -67,6 +67,35 @@ export function format(template: string, params: Record<string, string>): string
 }
 
 /** Brief proxy/updater restart windows surface as 502/503 or fetch failures. */
+/**
+ * Whether a durable infra outcome is new enough to stop polling.
+ * `targetTag` is only applied when the schedule RPC actually returned one —
+ * the success path kills the updater before that response arrives, and the
+ * app tip is a different version space from the updater tag.
+ */
+export function isFreshInfraOutcome(
+  last:
+    | {
+        status?: string | null
+        target_tag?: string | null
+        at?: string | null
+      }
+    | null
+    | undefined,
+  beforeAt: string | null | undefined,
+  targetTag: string,
+): 'succeeded' | 'failed' | null {
+  if (!last) return null
+  if (beforeAt && last.at === beforeAt) return null
+  if (targetTag && last.target_tag && last.target_tag !== targetTag) {
+    return null
+  }
+  if (last.status === 'succeeded' || last.status === 'failed') {
+    return last.status
+  }
+  return null
+}
+
 export function isTransientUpdaterError(e: unknown): boolean {
   if (e instanceof UpdaterError) {
     return (

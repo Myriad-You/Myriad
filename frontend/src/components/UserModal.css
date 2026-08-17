@@ -52,23 +52,6 @@ html.dark .user-info-button:hover {
    * natural height and breaks content-based shrink animation.
    */
   --user-modal-min-height: 20rem;
-  --user-modal-chrome-inset: 1rem;
-  --user-modal-chrome-size: 34px;
-  --um-chrome-ink: #1f2937;
-  --um-chrome-muted: #6b7280;
-  --um-chrome-accent: var(--color-primary, #94a3b8);
-  --um-chrome-liq-border: color-mix(in srgb, #d8dbe6 48%, white 36%);
-  --um-chrome-liq-sheen: linear-gradient(
-    180deg,
-    rgb(255 255 255 / 16%),
-    rgb(255 255 255 / 0%) 48%
-  );
-  --um-chrome-liq-inset:
-    inset 0 1px 0 rgb(255 255 255 / 44%), inset 0 -1px 0 rgb(0 0 0 / 6%);
-  --um-chrome-liq-soft-shadow:
-    var(--um-chrome-liq-inset), 0 8px 22px -12px rgb(31 38 135 / 12%);
-  --um-chrome-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-  --um-chrome-ease-glide: cubic-bezier(0.32, 0.72, 0, 1);
 
   min-height: min(var(--user-modal-min-height), 85vh);
   max-height: 85vh;
@@ -139,11 +122,39 @@ html.dark .user-info-button:hover {
   pointer-events: none;
 }
 
-html.dark .user-modal {
+/*
+ * 顶栏圆钮 token：登录弹窗和已登录弹窗共用。
+ * 登录壳以前没定义这些变量，关闭钮 top/right 失效后叠在标题上。
+ */
+.user-modal,
+.user-modal-login-only {
+  --user-modal-chrome-inset: 1rem;
+  --user-modal-chrome-size: 34px;
+  --um-chrome-ink: #1f2937;
+  --um-chrome-muted: #6b7280;
+  --um-chrome-accent: var(--color-primary, #94a3b8);
+  --um-chrome-liq-border: color-mix(in srgb, #d8dbe6 48%, white 36%);
+  --um-chrome-liq-sheen: linear-gradient(
+    180deg,
+    rgb(255 255 255 / 16%),
+    rgb(255 255 255 / 0%) 48%
+  );
+  --um-chrome-liq-inset:
+    inset 0 1px 0 rgb(255 255 255 / 44%), inset 0 -1px 0 rgb(0 0 0 / 6%);
+  --um-chrome-liq-soft-shadow:
+    var(--um-chrome-liq-inset), 0 8px 22px -12px rgb(31 38 135 / 12%);
+  --um-chrome-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --um-chrome-ease-glide: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+html.dark .user-modal,
+html.dark .user-modal-login-only {
   --um-chrome-ink: #f3f4f6;
   --um-chrome-muted: #9ca3af;
   --um-chrome-liq-border: color-mix(in srgb, #4b5563 52%, white 10%);
+}
 
+html.dark .user-modal {
   background: rgb(30 30 35 / 65%);
   border-color: rgb(255 255 255 / 8%);
   box-shadow:
@@ -1058,7 +1069,9 @@ html.dark .user-modal-overlay {
   max-width: 400px;
   border-radius: 1.75rem;
   z-index: 10001;
-  padding: 2rem;
+
+  /* 顶距与关闭钮 inset 对齐，标题和圆钮同一行 */
+  padding: var(--user-modal-chrome-inset) var(--user-modal-chrome-inset) 2rem;
 
   /* 初始隐藏状态 */
   opacity: 0;

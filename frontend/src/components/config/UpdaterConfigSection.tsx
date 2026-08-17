@@ -65,6 +65,7 @@ import {
   formatBytes,
   INFRA_OUTCOME_MAX_TRIES,
   INFRA_OUTCOME_POLL_MS,
+  isFreshInfraOutcome,
   isTransientUpdaterError,
   modeForTarget,
   POLL_INTERVAL,
@@ -127,10 +128,14 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [toast, setToast] = useState<Toast>(null)
+  /** Edge / updater outcome stays in the infra cards, not the app hero. */
+  const [infraFeedback, setInfraFeedback] = useState<
+    ({ scope: 'self' | 'proxy' } & NonNullable<Toast>) | null
+  >(null)
   /**
    * True while an infra upgrade (updater self-update / proxy recreate) briefly
    * drops the admin→updater path. Keep last-known status so the panel does not
-   * flash “offline”; toast + banner explain the gap.
+   * flash “offline”; the matching infra card explains the gap.
    */
   const [linkDown, setLinkDown] = useState(false)
   const [drift, setDrift] = useState<{ build: string; current: string } | null>(
@@ -603,8 +608,9 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
 
   /**
    * After proxy/updater recreate the HTTP path blips. Poll durable
-   * `*_update_last` until a new outcome appears (up to ~90 minutes), keep last status on
-   * transient errors, and surface reconnect feedback in toast + linkDown.
+   * `*_update_last` until a new outcome appears (up to ~90 minutes), keep last
+   * status on transient errors, and drive infra-card progress via linkDown.
+   * Progress / success / failure stay on the component cards — not the hero.
    */
   const waitInfraUpdateOutcome = useCallback(
     async (opts: {
@@ -612,15 +618,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
       beforeAt: string | null | undefined
       targetTag: string
     }): Promise<'succeeded' | 'failed' | 'timeout'> => {
-      const waitingText =
-        opts.kind === 'self'
-          ? u.updaterSelfUpdateWaiting
-          : u.updaterProxyUpdateWaiting
-      const reconnectText =
-        opts.kind === 'self'
-          ? u.updaterSelfUpdateReconnecting
-          : u.updaterProxyUpdateReconnecting
-      setToast({ kind: 'ok', text: waitingText })
       setLinkDown(false)
 
       let sawDisconnect = false
@@ -630,24 +627,16 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
           const s = await api.status()
           if (sawDisconnect) {
             setLinkDown(false)
-            setToast({ kind: 'ok', text: waitingText })
             sawDisconnect = false
           }
           setStatus(s)
           const last =
             opts.kind === 'self' ? s?.self_update_last : s?.proxy_update_last
-          if (!last) continue
-          if (opts.beforeAt && last.at === opts.beforeAt) continue
-          if (
-            opts.targetTag &&
-            last.target_tag &&
-            last.target_tag !== opts.targetTag
-          ) {
-            continue
-          }
-          if (last.status === 'succeeded') {
+          const outcome = isFreshInfraOutcome(last, opts.beforeAt, opts.targetTag)
+          if (outcome === 'succeeded' && last) {
             setLinkDown(false)
-            setToast({
+            setInfraFeedback({
+              scope: opts.kind,
               kind: 'ok',
               text:
                 opts.kind === 'self'
@@ -662,28 +651,31 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
             })
             return 'succeeded'
           }
-          if (last.status === 'failed') {
+          if (outcome === 'failed' && last) {
             setLinkDown(false)
-            const errText =
-              opts.kind === 'self'
-                ? format(u.updaterSelfUpdateFailed, {
-                    error: last.error || '—',
-                  })
-                : format(u.updaterProxyUpdateFailed, {
-                    error: last.error || '—',
-                  })
-            setToast({ kind: 'error', text: errText })
+            setInfraFeedback({
+              scope: opts.kind,
+              kind: 'error',
+              text:
+                opts.kind === 'self'
+                  ? format(u.updaterSelfUpdateFailed, {
+                      error: last.error || '—',
+                    })
+                  : format(u.updaterProxyUpdateFailed, {
+                      error: last.error || '—',
+                    }),
+            })
             return 'failed'
           }
         } catch {
           // Updater image replace / proxy recreate: expected brief blip.
           sawDisconnect = true
           setLinkDown(true)
-          setToast({ kind: 'ok', text: reconnectText })
         }
       }
       setLinkDown(false)
-      setToast({
+      setInfraFeedback({
+        scope: opts.kind,
         kind: 'ok',
         text:
           opts.kind === 'self'
@@ -707,13 +699,17 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
       setAvailable(manifest)
       await refresh()
     } catch {
-      // Tip recheck is best-effort; durable outcome toast already shown.
+      // Tip recheck is best-effort; durable outcome already shown on the card.
     }
   }, [api, refresh])
 
   const triggerSelfUpdate = useCallback(async () => {
     if (tokenRequired) {
-      setToast({ kind: 'error', text: u.updaterTokenRequiredDirect })
+      setInfraFeedback({
+        scope: 'self',
+        kind: 'error',
+        text: u.updaterTokenRequiredDirect,
+      })
       return
     }
     // Backend resolves the tip itself (release.json or Docker Hub). App
@@ -725,30 +721,27 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     if (!ok) return
     const beforeAt = status?.self_update_last?.at
     setBusy('self-update')
-    setToast(null)
+    setInfraFeedback(null)
     setLinkDown(false)
-    let target = tip || ''
+    // Do not fall back to the app tip: POST success kills this process before
+    // new_updater_tag returns, and the app version is a different tag space.
+    let target = ''
     let shouldWait = true
     try {
       try {
         const report = await api.triggerSelfUpdate()
-        target = report.new_updater_tag || tip || ''
-        setToast({
-          kind: 'ok',
-          text: format(u.updaterSelfUpdateDispatched, {
-            version: target || '—',
-            previous:
-              report.previous_updater_tag || status?.updater_version || '—',
-          }),
-        })
+        target = report.new_updater_tag || ''
       } catch (e) {
         // Schedule may have been accepted then the gateway died on recreate.
         if (!isTransientUpdaterError(e)) {
-          setToast({ kind: 'error', text: explain(e) })
+          setInfraFeedback({
+            scope: 'self',
+            kind: 'error',
+            text: explain(e),
+          })
           shouldWait = false
         } else {
           setLinkDown(true)
-          setToast({ kind: 'ok', text: u.updaterSelfUpdateReconnecting })
         }
       }
       if (shouldWait) {
@@ -775,7 +768,11 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
 
   const triggerProxyUpdate = useCallback(async () => {
     if (tokenRequired) {
-      setToast({ kind: 'error', text: u.updaterTokenRequiredDirect })
+      setInfraFeedback({
+        scope: 'proxy',
+        kind: 'error',
+        text: u.updaterTokenRequiredDirect,
+      })
       return
     }
     // Tip is optional. Empty body lets the updater pick
@@ -787,21 +784,14 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     if (!ok) return
     const beforeAt = status?.proxy_update_last?.at
     setBusy('proxy-update')
-    setToast(null)
+    setInfraFeedback(null)
     setLinkDown(false)
-    let target = tip || ''
+    let target = ''
     let shouldWait = true
     try {
       try {
         const report = await api.triggerProxyUpdate(tip || undefined)
-        target = report.new_proxy_tag || tip || ''
-        setToast({
-          kind: 'ok',
-          text: format(u.updaterInfraProxyDispatched, {
-            version: target || '—',
-            previous: report.previous_proxy_tag || status?.proxy_version || '—',
-          }),
-        })
+        target = report.new_proxy_tag || ''
       } catch (e) {
         // Proxy recreate tears down the HTTP path mid-request even when the
         // upgrade succeeds; durable proxy_update_last is the source of truth.
@@ -809,11 +799,14 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
           // Hard error before/after work: surface API message, still one
           // refresh so last_failed / version lines catch up if written.
           await refresh().catch(() => {})
-          setToast({ kind: 'error', text: explain(e) })
+          setInfraFeedback({
+            scope: 'proxy',
+            kind: 'error',
+            text: explain(e),
+          })
           shouldWait = false
         } else {
           setLinkDown(true)
-          setToast({ kind: 'ok', text: u.updaterProxyUpdateReconnecting })
         }
       }
       if (shouldWait) {
@@ -1112,11 +1105,9 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
           pendingConfirm={pendingConfirm}
           nowTick={nowTick}
           toast={toast}
-          linkDown={linkDown}
           u={u}
           onCheck={() => checkAvailable()}
           onUpdate={updateToLatest}
-          onSelfUpdate={triggerSelfUpdate}
           onRetry={refresh}
           onSaveAutoPrefs={async (prefs) => {
             setBusy('auto-prefs')
@@ -1300,23 +1291,24 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
                     </>
                   )}
                 </p>
-                {status?.self_update_last?.status === 'failed' &&
-                  busy !== 'self-update' && (
-                    <p className="updater-infra-last-fail" role="status">
-                      {format(u.updaterInfraSelfLastFailed, {
-                        target: status.self_update_last.target_tag || '—',
-                        previous: status.self_update_last.previous_tag || '—',
-                        error: status.self_update_last.error || '—',
-                      })}
-                    </p>
-                  )}
-                {busy === 'self-update' && (
-                  <p className="updater-infra-progress" role="status">
-                    {linkDown
-                      ? u.updaterSelfUpdateReconnecting
-                      : u.updaterSelfUpdateWaiting}
-                  </p>
-                )}
+                <InfraCardNotice
+                  inProgress={busy === 'self-update'}
+                  linkDown={linkDown}
+                  waiting={u.updaterSelfUpdateWaiting}
+                  reconnecting={u.updaterSelfUpdateReconnecting}
+                  feedback={
+                    infraFeedback?.scope === 'self' ? infraFeedback : null
+                  }
+                  lastFail={
+                    status?.self_update_last?.status === 'failed'
+                      ? format(u.updaterInfraSelfLastFailed, {
+                          target: status.self_update_last.target_tag || '—',
+                          previous: status.self_update_last.previous_tag || '—',
+                          error: status.self_update_last.error || '—',
+                        })
+                      : null
+                  }
+                />
                 <div className="updater-infra-card-actions">
                   <SettingsButton
                     size="sm"
@@ -1358,26 +1350,28 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
                   {u.updaterInfraCurrent}{' '}
                   <code>{status?.proxy_version ?? '—'}</code>
                 </p>
-                {status?.proxy_update_last?.status === 'failed' &&
-                  busy !== 'proxy-update' && (
-                    <p className="updater-infra-last-fail" role="status">
-                      {format(u.updaterInfraProxyLastFailed, {
-                        target: status.proxy_update_last.target_tag || '—',
-                        previous: status.proxy_update_last.previous_tag || '—',
-                        error: status.proxy_update_last.error || '—',
-                      })}
-                      {status.proxy_update_last.rolled_back
-                        ? ` ${u.updaterInfraProxyRolledBack}`
-                        : ''}
-                    </p>
-                  )}
-                {busy === 'proxy-update' && (
-                  <p className="updater-infra-progress" role="status">
-                    {linkDown
-                      ? u.updaterProxyUpdateReconnecting
-                      : u.updaterProxyUpdateWaiting}
-                  </p>
-                )}
+                <InfraCardNotice
+                  inProgress={busy === 'proxy-update'}
+                  linkDown={linkDown}
+                  waiting={u.updaterProxyUpdateWaiting}
+                  reconnecting={u.updaterProxyUpdateReconnecting}
+                  feedback={
+                    infraFeedback?.scope === 'proxy' ? infraFeedback : null
+                  }
+                  lastFail={
+                    status?.proxy_update_last?.status === 'failed'
+                      ? `${format(u.updaterInfraProxyLastFailed, {
+                          target: status.proxy_update_last.target_tag || '—',
+                          previous: status.proxy_update_last.previous_tag || '—',
+                          error: status.proxy_update_last.error || '—',
+                        })}${
+                          status.proxy_update_last.rolled_back
+                            ? ` ${u.updaterInfraProxyRolledBack}`
+                            : ''
+                        }`
+                      : null
+                  }
+                />
                 <div className="updater-infra-card-actions">
                   <SettingsButton
                     size="sm"
@@ -1519,6 +1513,52 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
       </SettingGroup>
     </div>
   )
+}
+
+function InfraCardNotice({
+  inProgress,
+  linkDown,
+  waiting,
+  reconnecting,
+  feedback,
+  lastFail,
+}: {
+  inProgress: boolean
+  linkDown: boolean
+  waiting: string
+  reconnecting: string
+  feedback: NonNullable<Toast> | null
+  lastFail: string | null
+}) {
+  if (inProgress) {
+    return (
+      <p className="updater-infra-progress" role="status">
+        {linkDown ? reconnecting : waiting}
+      </p>
+    )
+  }
+  if (feedback) {
+    return (
+      <p
+        className={
+          feedback.kind === 'error'
+            ? 'updater-infra-last-fail'
+            : 'updater-infra-success'
+        }
+        role={feedback.kind === 'error' ? 'alert' : 'status'}
+      >
+        {feedback.text}
+      </p>
+    )
+  }
+  if (lastFail) {
+    return (
+      <p className="updater-infra-last-fail" role="status">
+        {lastFail}
+      </p>
+    )
+  }
+  return null
 }
 
 export default UpdaterInlinePanel

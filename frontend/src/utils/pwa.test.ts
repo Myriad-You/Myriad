@@ -17,6 +17,7 @@ import {
   PWA_LOGO_SCALE_MAX,
   PWA_LOGO_SCALE_MIN,
   resolveManifestUrl,
+  pwaIconIsCanvasReadable,
   resolvePwaIconSourceUrl,
 } from './pwa'
 
@@ -202,6 +203,34 @@ describe('PWA logo compositing geometry', () => {
     assert.equal(
       resolvePwaIconSourceUrl(bilibili, origin, 'https://api.example'),
       `https://api.example/api/proxy/image?url=${encodeURIComponent(bilibili)}`,
+    )
+  })
+
+  it('canvas readback only for same-origin, data, or proxied URLs', () => {
+    const origin = 'https://kiseki.blog'
+    assert.equal(pwaIconIsCanvasReadable('/favicon.webp', origin), true)
+    assert.equal(
+      pwaIconIsCanvasReadable('https://kiseki.blog/siteicon.ico', origin),
+      true,
+    )
+    assert.equal(pwaIconIsCanvasReadable(TINY_PNG_DATA_URL, origin), true)
+    assert.equal(
+      pwaIconIsCanvasReadable(
+        '/api/proxy/image?url=https%3A%2F%2Fi0.hdslb.com%2Fx.jpg',
+        origin,
+      ),
+      true,
+    )
+    assert.equal(
+      pwaIconIsCanvasReadable(
+        'https://api.fuukei.org/myriad/frontend/public/siteicon.ico',
+        origin,
+      ),
+      false,
+    )
+    assert.equal(
+      pwaIconIsCanvasReadable('https://cdn.example/logo.png', origin),
+      false,
     )
   })
 })

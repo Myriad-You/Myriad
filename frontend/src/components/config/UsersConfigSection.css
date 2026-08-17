@@ -443,8 +443,33 @@ html.dark .users-row.is-self .users-display-name {
   min-width: min(32rem, calc(100vw - 1.25rem));
 }
 
+/*
+ * 用户详情浮窗内容更密（账号操作、应用块），不能沿用指南正文的
+ * 右下绝对定位钮 + 大底 padding。把固定/关闭收到文档流底部，
+ * 正文单独滚动，二者不再叠层。
+ */
+.users-detail-guide-float .setting-title-guide-drag {
+  order: 0;
+}
+
 .users-detail-guide-float .setting-title-guide-body {
-  padding: 0.85rem 0.9rem 0.95rem;
+  order: 1;
+  padding: 0.85rem 0.9rem 0.55rem;
+}
+
+.users-detail-guide-float .setting-title-guide-actions {
+  position: static;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  order: 2;
+  z-index: auto;
+  flex: 0 0 auto;
+  align-self: stretch;
+  justify-content: flex-end;
+  width: auto;
+  margin: 0;
+  padding: 0.35rem 0.85rem 0.8rem;
 }
 
 .users-expand-stack {
@@ -646,33 +671,57 @@ html.dark .users-provider-badge.primary {
   white-space: nowrap;
 }
 
-/* Tapps */
+/* Tapps — tiles, not a one-column list */
 
-.users-tapp-list {
+.users-tapp-grid {
   margin: 0;
   padding: 0;
   list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.25rem, 1fr));
+  gap: 0.5rem;
+}
+
+.users-tapp-tile {
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
-}
-
-.users-tapp-list li {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.45rem 0.75rem;
-  font-size: 0.8125rem;
-  line-height: 1.35;
-}
-
-.users-tapp-main {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.3rem 0.55rem;
+  align-items: stretch;
+  gap: 0.4rem;
   min-width: 0;
+  padding: 0.55rem 0.5rem 0.5rem;
+  border: 1px solid var(--cfg-subtle-border);
+  border-radius: 0.7rem;
+  background: var(--cfg-subtle-bg);
+}
+
+html.dark .users-tapp-tile {
+  border-color: var(--cfg-subtle-border);
+  background: var(--cfg-subtle-bg);
+}
+
+.users-tapp-tile-icon {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.55rem;
+}
+
+.users-tapp-tile-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.08rem;
+  min-width: 0;
+}
+
+.users-tapp-tile .users-tapp-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.users-tapp-tile .users-muted {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .users-tapp-policy {

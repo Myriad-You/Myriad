@@ -548,6 +548,43 @@ impl TappApiService {
         GeoInfo::default()
     }
 
+    /// Declared-API egress: honor the admin/env proxy that `http_client`
+    /// documents for China, instead of always pinning local DNS.
+    ///
+    /// `build_public_http_client` replaced the shared Tapp client and started
+    /// failing closed when any resolved address was non-public. That dropped
+    /// the working proxy path and broke `hub.docker.com` on polluted DNS.
+    async fn declared_api_http_client(
+        url: &str,
+    ) -> Result<(reqwest::Url, reqwest::Client), String> {
+        let timeout = Duration::from_secs(30);
+        let user_agent = Some("Myriad-Tapp/1.0 (declared-api)");
+        let proxy_config = crate::services::http_client::ProxyConfig::from_dynamic_config().await;
+        if proxy_config.should_use_proxy() && !proxy_config.should_bypass(url) {
+            if let Some(proxy_url) = &proxy_config.proxy_url {
+                let mut proxy = reqwest::Proxy::all(proxy_url)
+                    .map_err(|error| format!("Invalid outbound proxy: {error}"))?;
+                let bypass_str = proxy_config
+                    .bypass_list
+                    .iter()
+                    .map(|value| value.trim())
+                    .filter(|value| !value.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(",");
+                if !bypass_str.is_empty() {
+                    if let Some(no_proxy) = reqwest::NoProxy::from_string(&bypass_str) {
+                        proxy = proxy.no_proxy(Some(no_proxy));
+                    }
+                }
+                return crate::services::outbound_security::build_public_http_client_via_proxy(
+                    url, timeout, user_agent, proxy,
+                )
+                .await;
+            }
+        }
+        crate::services::outbound_security::build_public_http_client(url, timeout, user_agent).await
+    }
+
     /// 执行 HTTP API
     async fn execute_http_api(
         api_def: &TappApiDef,
@@ -566,13 +603,9 @@ impl TappApiService {
         // 构建请求
         let method = reqwest::Method::from_str(&api_def.method.to_uppercase())
             .map_err(|_| format!("Invalid method: {}", api_def.method))?;
-        let (target_url, client) = crate::services::outbound_security::build_public_http_client(
-            &prepared.url,
-            Duration::from_secs(30),
-            Some("Myriad-Tapp/1.0 (declared-api)"),
-        )
-        .await
-        .map_err(|error| Self::redact_needles(&error, &prepared.redaction_needles))?;
+        let (target_url, client) = Self::declared_api_http_client(&prepared.url)
+            .await
+            .map_err(|error| Self::redact_needles(&error, &prepared.redaction_needles))?;
         let mut request = client.request(method, target_url);
 
         // 应用区域伪装（如果配置了 spoof 参数）

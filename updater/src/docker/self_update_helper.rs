@@ -247,12 +247,19 @@ pub fn main_from_env() -> Result<()> {
         Ok(()) => Ok(()),
         Err(error) => {
             let detail = error.to_string();
+            // Terminal failure — not recovery_pending. The updater HTTP waiter
+            // and admin UI only leave "confirming result" on succeeded/failed.
+            // A pending error left them spinning after a pull-but-no-switch.
             if let Err(status_error) = write_status(
                 &cfg.status_file,
-                &SelfUpdateLastStatus::recovery_pending(&cfg, detail.clone(), recovery_attempt),
+                &SelfUpdateLastStatus::failed_before_handoff(
+                    cfg.target_tag.clone(),
+                    cfg.previous_tag.clone(),
+                    detail.clone(),
+                ),
             ) {
                 return Err(UpdaterError::Precondition(format!(
-                    "{detail}; persist recovery-pending outcome: {status_error}"
+                    "{detail}; persist failed outcome: {status_error}"
                 )));
             }
             Err(error)
@@ -578,7 +585,8 @@ fn validate_compose_model(bytes: &[u8], exact_image: &str, cfg: &HelperConfig) -
         let value = services.get(service).ok_or_else(|| {
             UpdaterError::Precondition(format!("compose config is missing {service}"))
         })?;
-        if value.get("image").and_then(Value::as_str) != Some(exact_image) {
+        let actual_image = value.get("image").and_then(Value::as_str).unwrap_or("");
+        if !digest_matches(actual_image, exact_image) {
             return Err(UpdaterError::Precondition(format!(
                 "{service} image is not the Guard-verified digest"
             )));
@@ -713,14 +721,19 @@ fn require_healthcheck(service: &Value, url: &str, name: &str) -> Result<()> {
     Ok(())
 }
 
-fn require_mount_targets(service: &Value, expected: &[&str], name: &str) -> Result<()> {
-    let mut actual = service
+fn persistent_mount_targets(service: &Value) -> Vec<&str> {
+    service
         .get("volumes")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
+        .filter(|mount| mount.get("type").and_then(Value::as_str) != Some("tmpfs"))
         .filter_map(|mount| mount.get("target").and_then(Value::as_str))
-        .collect::<Vec<_>>();
+        .collect()
+}
+
+fn require_mount_targets(service: &Value, expected: &[&str], name: &str) -> Result<()> {
+    let mut actual = persistent_mount_targets(service);
     let mut expected = expected.to_vec();
     actual.sort_unstable();
     expected.sort_unstable();
@@ -733,13 +746,7 @@ fn require_mount_targets(service: &Value, expected: &[&str], name: &str) -> Resu
 }
 
 fn require_updater_mount_targets(service: &Value) -> Result<()> {
-    let mut actual = service
-        .get("volumes")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|mount| mount.get("target").and_then(Value::as_str))
-        .collect::<Vec<_>>();
+    let mut actual = persistent_mount_targets(service);
     actual.sort_unstable();
     let mut bundled = vec![
         "/host/compose",
@@ -857,17 +864,43 @@ fn digest_matches(actual: &str, expected: &str) -> bool {
     let Some((expected_repo, expected_digest)) = expected.rsplit_once("@sha256:") else {
         return false;
     };
-    actual_repo.trim_start_matches("docker.io/") == expected_repo.trim_start_matches("docker.io/")
+    normalize_image_repository(actual_repo) == normalize_image_repository(expected_repo)
         && actual_digest.eq_ignore_ascii_case(expected_digest)
 }
 
+/// Compose / Docker inspect often drop `docker.io/` and may keep `name:tag@sha256`.
+fn normalize_image_repository(repo: &str) -> String {
+    let repo = repo
+        .trim()
+        .trim_start_matches("docker.io/")
+        .trim_start_matches("index.docker.io/")
+        .trim_start_matches("registry-1.docker.io/");
+    if let Some((name, maybe_tag)) = repo.rsplit_once(':') {
+        if !maybe_tag.contains('/') {
+            return name.to_string();
+        }
+    }
+    repo.to_string()
+}
+
 fn require_networks(service: &Value, expected: &[&str], name: &str) -> Result<()> {
-    let networks = service
-        .get("networks")
-        .and_then(Value::as_object)
-        .ok_or_else(|| UpdaterError::Precondition(format!("{name} has no network map")))?;
-    if networks.len() != expected.len() || expected.iter().any(|item| !networks.contains_key(*item))
-    {
+    let mut actual: Vec<String> =
+        if let Some(map) = service.get("networks").and_then(Value::as_object) {
+            map.keys().cloned().collect()
+        } else if let Some(list) = service.get("networks").and_then(Value::as_array) {
+            list.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        } else {
+            return Err(UpdaterError::Precondition(format!(
+                "{name} has no network map"
+            )));
+        };
+    let mut expected: Vec<String> = expected.iter().map(|item| (*item).to_string()).collect();
+    actual.sort();
+    expected.sort();
+    if actual != expected {
         return Err(UpdaterError::Precondition(format!(
             "{name} network topology is outside the fixed allowlist"
         )));
@@ -1063,10 +1096,37 @@ mod tests {
         let expected = exact_image();
         let short = expected.trim_start_matches("docker.io/");
         assert!(digest_matches(short, &expected));
+        let tagged = format!(
+            "somekawahitomi/myriad-updater:v1.2.3@sha256:{}",
+            "a".repeat(64)
+        );
+        assert!(digest_matches(&tagged, &expected));
         assert!(!digest_matches(
             &expected.replace("somekawahitomi", "attacker"),
             &expected
         ));
+    }
+
+    #[test]
+    fn compose_model_accepts_canonicalized_digest_and_tmpfs_mounts() {
+        let image = exact_image();
+        let mut model = compose_model(&image);
+        let short = image.trim_start_matches("docker.io/");
+        for service in ["docker-guard", "updater", "updater-gateway"] {
+            model["services"][service]["image"] = serde_json::json!(short);
+        }
+        model["services"]["docker-guard"]["volumes"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({"type": "tmpfs", "target": "/tmp"}));
+        model["services"]["updater-gateway"]["volumes"] = serde_json::json!([
+            {"type": "tmpfs", "target": "/tmp"},
+            {"type": "tmpfs", "target": "/run"}
+        ]);
+        model["services"]["updater"]["networks"] =
+            serde_json::json!(["myriad-admin-net", "myriad-docker-guard-net"]);
+        let bytes = serde_json::to_vec(&model).unwrap();
+        assert!(validate_compose_model(&bytes, &image, &config()).is_ok());
     }
 
     #[test]

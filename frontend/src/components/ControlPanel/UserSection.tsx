@@ -319,7 +319,7 @@ export const UserSection: React.FC<UserSectionProps> = memo(
                   <button
                     type="button"
                     onClick={closeModal}
-                    className="user-modal-close-float"
+                    className="user-modal-chrome-hit user-modal-close-float"
                     aria-label={t.common.close}
                     title={t.common.close}
                   >

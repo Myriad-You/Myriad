@@ -292,7 +292,7 @@ export const jaJP: TranslationKeys = {
     enterPasswordAgain: 'パスワードを再入力',
     setupSecret: 'セットアップ合言葉',
     setupSecretHint:
-      '編成側ですでに DATABASE_URL が書かれているときだけ必要です。サーバー .env の MYRIAD_SETUP_SECRET を貼ってください。ウィザードで DB を自分で書く場合はこの欄は出ません。',
+      '編成側ですでに DATABASE_URL が書かれているときだけ必要です。サーバー .env の MYRIAD_SETUP_SECRET を貼るか、ジェネレーターの #setup_secret リンクで自動入力できます。ウィザードで DB を自分で書く場合はこの欄は出ません。',
     setupSecretPlaceholder: 'MYRIAD_SETUP_SECRET を貼り付け',
     setupSecretRequired:
       'セットアップ合言葉を入力してください。値はサーバーの .env にあり、ウェブ設定には出ません。',

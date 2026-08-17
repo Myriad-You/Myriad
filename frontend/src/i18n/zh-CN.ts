@@ -272,7 +272,7 @@ export const zhCN: TranslationKeys = {
     enterPasswordAgain: '再次输入密码',
     setupSecret: '安装暗号',
     setupSecretHint:
-      '编排里已经写好数据库时才要填。从部署目录 .env 的 MYRIAD_SETUP_SECRET 复制。向导自己填库时不会出现这一项。',
+      '编排里已经写好数据库时才要填。从部署目录 .env 的 MYRIAD_SETUP_SECRET 复制，或用生成器给的 #setup_secret 链接自动填入。向导自己填库时不会出现这一项。',
     setupSecretPlaceholder: '粘贴 MYRIAD_SETUP_SECRET',
     setupSecretRequired: '请填写安装暗号。它在服务器的 .env 里，不在网页设置中。',
     bootstrapToken: '引导令牌',

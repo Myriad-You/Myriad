@@ -1521,6 +1521,24 @@ html.dark .updater-infra-last-fail {
   color: #fecdd3;
 }
 
+.updater-infra-success {
+  margin: 0;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid rgb(16 185 129 / 28%);
+  border-radius: 0.5rem;
+  background: rgb(16 185 129 / 8%);
+  color: #047857;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+html.dark .updater-infra-success {
+  border-color: rgb(52 211 153 / 32%);
+  background: rgb(6 78 59 / 36%);
+  color: #a7f3d0;
+}
+
 /* In-progress self-update / proxy recreate (incl. brief reconnect blip). */
 .updater-infra-progress {
   margin: 0;

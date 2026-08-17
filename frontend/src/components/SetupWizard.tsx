@@ -21,6 +21,7 @@ import { useI18n } from '../contexts/I18nContext'
 import { assertConfigWriteSuccess } from '../lib/api'
 import { parseAuthMeResponse } from '../utils/authMe'
 import { getCSRFHeaderName, getCSRFToken } from '../utils/csrf'
+import { consumeSetupSecretFromLocation } from '../utils/setupSecretFromUrl'
 import { InputItem, SegmentedControl, SwitchItem } from './settings'
 import { SettingItemWrapper } from './settings/items/SettingItemWrapper'
 import {
@@ -261,6 +262,16 @@ const SetupWizard: React.FC = () => {
       }
     }
   }, [checkSetupStatus])
+
+  useEffect(() => {
+    const secret = consumeSetupSecretFromLocation(window.location, (url) => {
+      window.history.replaceState(window.history.state, '', url)
+    })
+    if (!secret) return
+    setAdminForm((prev) =>
+      prev.setupSecret ? prev : { ...prev, setupSecret: secret },
+    )
+  }, [])
 
   const enterSetup = () => {
     sessionStorage.setItem('myriad-setup-started', 'true')

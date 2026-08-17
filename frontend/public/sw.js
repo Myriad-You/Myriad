@@ -6,7 +6,9 @@
 // 开发环境无 SW 则正常 —— 表现为「仅生产壁纸/动效异常」）
 // v2.5: 图片分支仅处理 GET；非 GET（含 HEAD）直接放行，避免 Cache API put 报错
 // v2.6: 合并重复 blob: 守卫；CSS/JS 分支仅 GET（与图片一致，避免 Cache API 报错）
-const CACHE_VERSION = 'myriad-v2.6'
+// v2.7: 跨域一律不拦截。SW 内 fetch() 是 CORS 请求，对端无 ACAO 时失败，
+// 再被 FetchEvent 打成 uncaught（站外 favicon / CDN 图标）。壁纸 CDN 并入这条规则。
+const CACHE_VERSION = 'myriad-v2.7'
 const STATIC_CACHE = `${CACHE_VERSION}-static`
 const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`
 const IMAGE_CACHE = `${CACHE_VERSION}-images`
@@ -23,18 +25,7 @@ const MAX_IMAGE_CACHE_SIZE = 200
 const CACHE_MAX_AGE = {
   static: 30 * 24 * 60 * 60 * 1000, // 30天
   images: 7 * 24 * 60 * 60 * 1000, // 7天
-  wallpaper: 24 * 60 * 60 * 1000, // 壁纸缓存1天（可能是动态API）
-  api: 5 * 60 * 1000, // 5分钟
 }
-
-// 壁纸 CDN 域名列表（优先缓存）
-const WALLPAPER_CDN_DOMAINS = [
-  'nmxc.ltd',
-  's.nmxc.ltd',
-  'picsum.photos',
-  'unsplash.com',
-  'source.unsplash.com',
-]
 
 // 安装 Service Worker
 globalThis.addEventListener('install', (event) => {
@@ -140,6 +131,12 @@ globalThis.addEventListener('fetch', (event) => {
     return
   }
 
+  // 跨域交给浏览器。本 SW 只缓存同站资源；拦跨域再 fetch 会变成 CORS
+  // 请求，对端无 ACAO 时失败并变成 uncaught FetchEvent。
+  if (url.origin !== self.location.origin) {
+    return
+  }
+
   // API 请求 - 网络优先策略
   if (url.pathname.startsWith('/api/')) {
     // API responses are live application state. Let the browser hit the
@@ -148,28 +145,12 @@ globalThis.addEventListener('fetch', (event) => {
   }
 
   // 图片请求 - 缓存优先策略(带过期检查)
-  // ⚠️ 壁纸 CDN：完全不拦截，交给浏览器（CSS background 可用 no-cors 显示）
   // ⚠️ 仅 GET：Cache API 不支持 put HEAD；图床探活 HEAD 必须直通网络
   if (
     request.destination === 'image' ||
-    /\.(jpg|jpeg|png|gif|webp|svg|avif)$/i.test(url.pathname)
+    /\.(jpg|jpeg|png|gif|webp|svg|avif|ico)$/i.test(url.pathname)
   ) {
     if (request.method !== 'GET') {
-      return
-    }
-
-    const isWallpaperCDN = WALLPAPER_CDN_DOMAINS.some((domain) =>
-      url.hostname.includes(domain),
-    )
-
-    // 壁纸 CDN 不接管：强制 cors 会在无 ACAO 时失败并用空 blob「顶替」，
-    // 仅生产注册 SW，开发无此问题。
-    if (isWallpaperCDN) {
-      return
-    }
-
-    // 跨域图片且浏览器以 no-cors 发起时，不要改 mode（改 cors 会同样失败）
-    if (request.mode === 'no-cors') {
       return
     }
 
@@ -270,7 +251,7 @@ globalThis.addEventListener('fetch', (event) => {
           if (request.mode === 'navigate') {
             return caches.match('/')
           }
-          throw new Error('Network failed and no cache available')
+          return Response.error()
         })
       }),
   )
