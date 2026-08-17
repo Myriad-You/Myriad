@@ -1,5 +1,5 @@
 {
-  "name": "@myriad/tapp-cli",
+  "name": "@myriad-you/tapp-cli",
   "version": "0.1.0",
   "description": "Offline project tooling for Myriad Tapps",
   "type": "module",

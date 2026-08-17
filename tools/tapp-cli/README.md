@@ -8,7 +8,7 @@ authority; this CLI catches common contract problems before upload.
 - Node.js 20 or newer;
 - access to a Myriad instance when you are ready to install the generated package.
 
-The examples pin `@myriad/tapp-cli` to `0.1.0`. Keep the version explicit in
+The examples pin `@myriad-you/tapp-cli` to `0.1.0`. Keep the version explicit in
 automation and upgrade it deliberately when a newer release is available.
 
 ## For agents
@@ -18,9 +18,9 @@ accepts npm's temporary-install prompt; `--package` makes the selected package a
 binary unambiguous in CI.
 
 ```bash
-npx --yes --package=@myriad/tapp-cli@0.1.0 myriad-tapp init ./my-tapp --type page
-npx --yes --package=@myriad/tapp-cli@0.1.0 myriad-tapp check ./my-tapp --json
-npx --yes --package=@myriad/tapp-cli@0.1.0 myriad-tapp pack ./my-tapp --json
+npx --yes --package=@myriad-you/tapp-cli@0.1.0 myriad-tapp init ./my-tapp --type page
+npx --yes --package=@myriad-you/tapp-cli@0.1.0 myriad-tapp check ./my-tapp --json
+npx --yes --package=@myriad-you/tapp-cli@0.1.0 myriad-tapp pack ./my-tapp --json
 ```
 
 Treat a non-zero status as failure. When `check --json` returns status `1`, repair
@@ -31,7 +31,7 @@ For a checked-in dependency, pin the package in the lockfile and invoke its bina
 through `npm exec`:
 
 ```bash
-npm install --save-dev --save-exact @myriad/tapp-cli@0.1.0
+npm install --save-dev --save-exact @myriad-you/tapp-cli@0.1.0
 npm exec -- myriad-tapp check . --json
 ```
 
@@ -43,7 +43,7 @@ exit status described in [Automation contract](#automation-contract).
 Install the pinned CLI globally when you want a short interactive command:
 
 ```bash
-npm install --global @myriad/tapp-cli@0.1.0
+npm install --global @myriad-you/tapp-cli@0.1.0
 ```
 
 Create a starter, edit its `manifest.json` and source files, then validate and
