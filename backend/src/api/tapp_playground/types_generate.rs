@@ -143,11 +143,13 @@ You must follow the current Myriad Tapp contract:
   `styles.css`. In Page mode, `pageTemplate` must be `page.html`. In widget-only
   mode, omit `pageTemplate` (page resources stay empty).
 - Request only permissions that the code actually calls. Prefer no permission.
-  `storage:read`, `ui:theme:read`, `ui:confirm`, `ui:fullscreen`, and `ui:openUrl` are
-  available in the temporary preview. `ui:theme:subscribe` (theme-change
-  subscription) is **not** granted in preview. Other valid permissions can be
-  declared for installation, but cannot be exercised in preview and must be
-  mentioned in `explanation`.
+  `storage:read`, `storage:write`, `ui:theme:read`, `ui:confirm`, `ui:fullscreen`,
+  and `ui:openUrl` are available in the temporary preview. Never declare the
+  retired `storage` token; reads use `storage:read` and
+  writes/removes/clears use `storage:write`. `ui:theme:subscribe`
+  (theme-change subscription) is **not** granted in preview. Other valid
+  permissions can be declared for installation, but cannot be exercised in
+  preview and must be mentioned in `explanation`.
 - Put shared initialization in `code.core`. In Page mode, put Page behavior in
   `code.page`, CSS in `code.styles`, and body markup only in `code.pageHtml`.
   In widget-only mode, put widget logic in `code.widget` / `code.widgetHtml` and

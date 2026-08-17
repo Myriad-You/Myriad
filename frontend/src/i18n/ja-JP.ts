@@ -3464,7 +3464,7 @@ export const jaJP: TranslationKeys = {
     inboundBlockManual: '手動',
     inboundGuardLoadFailed: '入場保護を読み込めませんでした',
     inboundGuardSaveFailed: '入場保護を更新できませんでした',
-    credentialBinding: '{method} {endpoint}（{access}）· {detail}',
+    credentialBindings: '紐づく API',
     credentialBindingPlacement: '{placement} {field}',
     credentialBindingSign: '署名 {alg}（{fields}）',
     credentialReauthorizationRequired:

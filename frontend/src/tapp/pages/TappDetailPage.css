@@ -238,11 +238,71 @@ html.dark .tapp-perm-card.tapp-perm-card--privileged .checkbox-group-card-icon {
   width: 100%;
 }
 
+.tapp-detail-credential-bindings {
+  margin: 0.1rem 0 0.35rem;
+  padding: 0 0.15rem;
+}
+
+.tapp-detail-credential-binding-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.12rem;
+}
+
+.tapp-detail-credential-binding-list > li {
+  display: grid;
+  grid-template-columns: 2.75rem minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.45rem 0.6rem;
+  min-width: 0;
+  font-size: 0.6875rem;
+  line-height: 1.35;
+}
+
+.tapp-detail-credential-binding-list > li:has(.tapp-detail-credential-binding-extra) {
+  grid-template-columns: 2.75rem minmax(0, 1fr) auto;
+}
+
+.tapp-detail-credential-binding-method {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.625rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  color: var(--cfg-text-3);
+}
+
+.tapp-detail-credential-binding-api {
+  color: var(--cfg-text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tapp-detail-credential-binding-extra,
+.tapp-detail-credential-binding-meta {
+  margin: 0;
+  color: var(--cfg-text-3);
+}
+
+.tapp-detail-credential-binding-extra {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tapp-detail-credential-binding-meta {
+  margin-top: 0.28rem;
+  font-size: 0.6875rem;
+  line-height: 1.4;
+}
+
 .tapp-detail-credential-actions {
   display: flex;
   justify-content: flex-end;
-  margin-top: -0.35rem;
-  padding: 0 0.25rem 0.5rem;
+  margin-top: 0.05rem;
+  padding: 0 0.15rem 0.35rem;
 }
 
 /* 加载 / 错误壳：复用 config-section 视觉 */

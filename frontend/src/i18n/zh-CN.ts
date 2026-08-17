@@ -3301,7 +3301,7 @@ export const zhCN: TranslationKeys = {
     inboundBlockManual: '手动',
     inboundGuardLoadFailed: '无法加载入站防护状态',
     inboundGuardSaveFailed: '无法更新入站防护',
-    credentialBinding: '{method} {endpoint}（{access}）· {detail}',
+    credentialBindings: '绑定的 API',
     credentialBindingPlacement: '{placement} {field}',
     credentialBindingSign: '签名 {alg}，字段 {fields}',
     credentialReauthorizationRequired:

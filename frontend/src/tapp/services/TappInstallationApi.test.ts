@@ -86,7 +86,7 @@ describe('Tapp store transport strategy', () => {
       {
         source: 'https://store.example/index.json',
         tappId: 'com.example.large',
-        permissions: ['storage'],
+        permissions: ['storage:read', 'storage:write'],
       },
       { estimatedBytes: 4 * 1024 * 1024 },
     )
@@ -96,7 +96,7 @@ describe('Tapp store transport strategy', () => {
       source: 'store',
       storeSource: 'https://store.example/index.json',
       tappId: 'com.example.large',
-      permissions: ['storage'],
+      permissions: ['storage:read', 'storage:write'],
     })
   })
 
@@ -111,7 +111,7 @@ describe('Tapp store transport strategy', () => {
       'com.example.large',
       {
         source: 'https://store.example/index.json',
-        permissions: ['storage'],
+        permissions: ['storage:read', 'storage:write'],
       },
       { estimatedBytes: 4 * 1024 * 1024 },
     )
@@ -121,7 +121,7 @@ describe('Tapp store transport strategy', () => {
     assert.deepEqual(calls[0]?.body, {
       source: 'store',
       storeSource: 'https://store.example/index.json',
-      permissions: ['storage'],
+      permissions: ['storage:read', 'storage:write'],
     })
   })
 
@@ -131,7 +131,7 @@ describe('Tapp store transport strategy', () => {
       name: 'Fallback',
       version: '1.0.0',
       main: 'main.js',
-      permissions: ['storage'],
+      permissions: ['storage:read', 'storage:write'],
       category: 'utility',
     } as TappManifest
     const app = {

@@ -717,7 +717,7 @@ Widget **不是**平台首页数据源，也**不能**在沙箱里直接 `fetch`
 ### 推荐链路（core 拉数 → storage → Widget 刷新）
 
 ```
-manifest.apis + permissions（含 network:fetch、storage）
+manifest.apis + permissions（含 network:fetch、storage:read、storage:write）
         │
         ▼
 core / Page / headless（scheduler 或 onReady）

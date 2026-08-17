@@ -3483,7 +3483,7 @@ export const enUS: TranslationKeys = {
     inboundBlockManual: 'manual',
     inboundGuardLoadFailed: 'Could not load inbound protection',
     inboundGuardSaveFailed: 'Could not update inbound protection',
-    credentialBinding: '{method} {endpoint} ({access}) · {detail}',
+    credentialBindings: 'Bound APIs',
     credentialBindingPlacement: '{placement} {field}',
     credentialBindingSign: 'sign {alg} over {fields}',
     credentialReauthorizationRequired:

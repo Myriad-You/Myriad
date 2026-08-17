@@ -11,6 +11,7 @@ describe('previewGrants (MYR-024)', () => {
     const declared = [
       'storage',
       'storage:read',
+      'storage:write',
       'network:fetch',
       'ai:generate',
       'platform:read',
@@ -23,6 +24,7 @@ describe('previewGrants (MYR-024)', () => {
     ]
     assert.deepEqual(selectPreviewGrantedPermissions(declared), [
       'storage:read',
+      'storage:write',
       'ui:theme:read',
       'ui:confirm',
       'ui:fullscreen',
@@ -53,6 +55,7 @@ describe('previewGrants (MYR-024)', () => {
   it('keeps allowlist stable for host docs and backend parity', () => {
     assert.deepEqual([...PREVIEW_PERMISSIONS], [
       'storage:read',
+      'storage:write',
       'ui:theme:read',
       'ui:confirm',
       'ui:fullscreen',

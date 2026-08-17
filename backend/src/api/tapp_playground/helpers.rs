@@ -215,6 +215,20 @@ pub(super) fn validate_generated_source(fields: &[(&str, &str)]) -> Result<(), S
     Ok(())
 }
 
+fn calls_sdk_method(source: &str, method: &str) -> bool {
+    let mut rest = source;
+    while let Some(position) = rest.find(method) {
+        let after = &rest[position + method.len()..];
+        match after.chars().next() {
+            Some(character) if character.is_ascii_alphanumeric() => {
+                rest = &rest[position + 1..];
+            }
+            _ => return true,
+        }
+    }
+    false
+}
+
 pub(super) fn validate_permission_usage(
     manifest: &TappManifest,
     fields: &[(&str, &str)],
@@ -225,21 +239,46 @@ pub(super) fn validate_permission_usage(
         .collect::<Vec<_>>()
         .join("\n");
     let required = [
-        ("Tapp.storage.", "storage"),
-        ("Tapp.ui.confirm", "ui:confirm"),
-        ("Tapp.ui.requestFullscreen", "ui:fullscreen"),
-        ("Tapp.widget.register", "widget:register"),
+        (
+            &[
+                "Tapp.storage.get",
+                "Tapp.storage.keys",
+                "Tapp.storage.getAll",
+                "Tapp.storage.usage",
+                "Tapp.settings.get",
+                "Tapp.settings.getAll",
+                "Tapp.file.download",
+            ][..],
+            "storage:read",
+        ),
+        (
+            &[
+                "Tapp.storage.set",
+                "Tapp.storage.remove",
+                "Tapp.storage.clear",
+                "Tapp.settings.set",
+            ][..],
+            "storage:write",
+        ),
+        (&["Tapp.ui.confirm"][..], "ui:confirm"),
+        (&["Tapp.ui.requestFullscreen"][..], "ui:fullscreen"),
+        (&["Tapp.widget.register"][..], "widget:register"),
     ];
-    for (needle, permission) in required {
-        if source.contains(needle)
-            && !manifest
+    for (needles, permission) in required {
+        if let Some(needle) = needles
+            .iter()
+            .copied()
+            .find(|needle| calls_sdk_method(&source, needle))
+        {
+            if !manifest
                 .permissions
                 .iter()
                 .any(|declared| declared == permission)
-        {
-            return Err(format!(
-                "Code calls {needle} but manifest.permissions is missing {permission}"
-            ));
+            {
+                return Err(format!(
+                    "Code calls {needle} but manifest.permissions is missing {permission}"
+                ));
+            }
         }
     }
     Ok(())
@@ -312,6 +351,7 @@ pub(super) fn validate_sdk_namespaces(fields: &[(&str, &str)]) -> Result<(), Str
 /// `PREVIEW_PERMISSIONS` in `frontend/src/tapp/utils/previewGrants.ts`.
 pub(super) const PREVIEW_PERMISSIONS: &[&str] = &[
     "storage:read",
+    "storage:write",
     // Read-only theme access only; preview never grants the subscription
     // half — least privilege, subscription needs install-time approval.
     "ui:theme:read",
@@ -792,10 +832,51 @@ mod tests {
 
     #[test]
     fn reports_permissions_unavailable_in_preview() {
-        let warnings = preview_warnings(&["storage:read".into(), "network:fetch".into()]);
+        let warnings = preview_warnings(&[
+            "storage:read".into(),
+            "storage:write".into(),
+            "network:fetch".into(),
+        ]);
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("network:fetch"));
         assert!(!warnings[0].contains("storage,"));
+        assert!(!warnings[0].contains("storage:read"));
+        assert!(!warnings[0].contains("storage:write"));
+    }
+
+    #[test]
+    fn storage_permission_usage_requires_split_tokens() {
+        let mut project = sample_project("Notes");
+        project.manifest.permissions = vec!["storage:read".into()];
+        assert!(validate_permission_usage(
+            &project.manifest,
+            &[("page", "Tapp.storage.get('key')")]
+        )
+        .is_ok());
+        assert!(validate_permission_usage(
+            &project.manifest,
+            &[("page", "Tapp.storage.getAll()")]
+        )
+        .is_ok());
+
+        let write_error = validate_permission_usage(
+            &project.manifest,
+            &[("page", "Tapp.storage.set('key', 1)")],
+        )
+        .expect_err("writes require storage:write");
+        assert!(write_error.contains("storage:write"), "{write_error}");
+        assert!(
+            !write_error.contains("missing storage\""),
+            "{write_error}"
+        );
+
+        project.manifest.permissions = vec!["storage".into()];
+        let retired = validate_permission_usage(
+            &project.manifest,
+            &[("page", "Tapp.storage.get('key'); Tapp.storage.set('key', 1)")],
+        )
+        .expect_err("retired storage does not satisfy split tokens");
+        assert!(retired.contains("storage:read") || retired.contains("storage:write"), "{retired}");
     }
 
     #[test]
@@ -803,6 +884,8 @@ mod tests {
         // MYR-024: declared ≠ granted for real host capabilities in preview.
         let declared = vec![
             "storage:read".into(),
+            "storage:write".into(),
+            "storage".into(),
             "network:fetch".into(),
             "ai:generate".into(),
             "ui:theme:read".into(),
@@ -811,7 +894,11 @@ mod tests {
         ];
         assert_eq!(
             select_preview_granted_permissions(&declared),
-            vec!["storage:read".to_string(), "ui:theme:read".to_string()]
+            vec![
+                "storage:read".to_string(),
+                "storage:write".to_string(),
+                "ui:theme:read".to_string()
+            ]
         );
         assert!(select_preview_granted_permissions(&[]).is_empty());
         // Deny-by-default: allowlist entries not declared stay ungranted.

@@ -15,6 +15,7 @@ import type { TappPermission } from '../types'
 /** Host capabilities available in temporary Playground preview only. */
 export const PREVIEW_PERMISSIONS = [
   'storage:read',
+  'storage:write',
   // Read-only theme access only; preview never grants the subscription
   // half — least privilege, subscription needs install-time approval.
   'ui:theme:read',
