@@ -197,5 +197,5 @@ npm run pack:check
 npm publish
 ```
 
-Publishing requires an authenticated npm account with access to the `@myriad`
+Publishing requires an authenticated npm account with access to the `@myriad-you`
 scope. The package declares public scoped access in `publishConfig`.
