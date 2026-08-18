@@ -82,7 +82,7 @@ export default memo(
           onMouseLeave={onMouseLeave}
         >
           <div
-            className={`flex flex-col items-center gap-2 p-2 rounded-2xl backdrop-blur-md border ${currentTheme.border} ${currentTheme.surface}`}
+            className={`flex flex-col items-center gap-2 p-2 rounded-2xl border ${currentTheme.border} ${currentTheme.surface}`}
           >
             {/* 用户评论指示器 - 仅登录用户可见 */}
             {isAuthenticated && (

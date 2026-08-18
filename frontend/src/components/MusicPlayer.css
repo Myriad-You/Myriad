@@ -441,6 +441,10 @@ html.dark .music-temp-stop-btn.music-view-switch-btn:hover {
   }
 }
 
+html[data-perf-mode='exlight'] .music-temp-stop-btn.music-view-switch-btn {
+  animation: none;
+}
+
 @keyframes music-pulse {
   0%,
   100% {

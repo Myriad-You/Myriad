@@ -213,8 +213,6 @@ function FloatingPane({
   interactive,
   staticClassName,
 }: FloatingPaneProps) {
-  const animConfig = useAnimationLevel()
-  const solidChrome = isExlight(animConfig)
   const paneRef = useRef<HTMLDivElement>(null)
   const [rect, setRect] = useState<Rect>(() => defaultRect)
   const [isDragging, setIsDragging] = useState(false)
@@ -343,11 +341,8 @@ function FloatingPane({
         }}
       >
         <div
-          className="flex items-center h-9 shrink-0 select-none backdrop-blur-sm"
+          className="flex items-center h-9 shrink-0 select-none glass-surface glass-80"
           style={{
-            backgroundColor: solidChrome
-              ? 'var(--bg-secondary)'
-              : 'color-mix(in srgb, var(--bg-secondary) 85%, transparent)',
             borderBottom: '1px solid var(--border-color)',
           }}
         >
@@ -385,13 +380,10 @@ function FloatingPane({
     >
       {/* 标题栏 - 拖拽把手 */}
       <div
-        className={`flex items-center h-9 shrink-0 select-none backdrop-blur-sm ${
+        className={`flex items-center h-9 shrink-0 select-none glass-surface glass-80 ${
           isDragging ? 'cursor-grabbing' : 'cursor-grab'
         }`}
         style={{
-          backgroundColor: solidChrome
-            ? 'var(--bg-secondary)'
-            : 'color-mix(in srgb, var(--bg-secondary) 85%, transparent)',
           borderBottom: '1px solid var(--border-color)',
           opacity: isActive ? 1 : 0.7,
           transition: 'opacity 0.2s ease',
@@ -1539,10 +1531,10 @@ export function TappPlaygroundPage() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="absolute inset-0 z-30 grid place-items-center bg-white/40 dark:bg-black/40 backdrop-blur-sm"
+            className="absolute inset-0 z-30 grid place-items-center glass-surface glass-45"
           >
             <div
-              className="flex items-center justify-center rounded-full p-3 bg-white/85 dark:bg-black/70 backdrop-blur-xl shadow-lg ring-1 ring-inset ring-black/5 dark:ring-white/10"
+              className="flex items-center justify-center rounded-full p-3 glass-surface glass-80 shadow-lg ring-1 ring-inset ring-black/5 dark:ring-white/10"
               role="status"
             >
               <Spinner size="sm" color="primary" />
@@ -1770,7 +1762,7 @@ export function TappPlaygroundPage() {
       </div>
 
       {diffOpen && session.revisions.length >= 2 && (
-        <div className="shrink-0 flex flex-wrap items-center gap-2 px-2.5 py-1.5 border-b border-white/10 bg-white/[0.03] backdrop-blur-md">
+        <div className="shrink-0 flex flex-wrap items-center gap-2 px-2.5 py-1.5 border-b border-white/10 bg-white/[0.03]">
           <label className="flex items-center gap-1 text-[10px] text-gray-400">
             <span>{t.tapp.playgroundDiffBase}</span>
             <select
@@ -1966,11 +1958,8 @@ export function TappPlaygroundPage() {
       {/* 顶部工具栏 - 与多窗口运行页一致的浮动样式 */}
       <div className="absolute top-3.5 left-3.5 z-40">
         <div
-          className="flex items-center gap-1.5 rounded-xl pl-1.5 pr-3 py-1.5 backdrop-blur-md"
+          className="flex items-center gap-1.5 rounded-xl pl-1.5 pr-3 py-1.5 glass-surface glass-80"
           style={{
-            backgroundColor: isExlight(animConfig)
-              ? 'var(--bg-card)'
-              : 'color-mix(in srgb, var(--bg-card) 80%, transparent)',
             border: '1px solid var(--border-color)',
             boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
           }}

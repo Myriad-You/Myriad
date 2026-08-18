@@ -105,6 +105,10 @@ pub enum Command {
         snapshot_limit: Option<u32>,
         reply: tokio::sync::oneshot::Sender<Result<Prefs>>,
     },
+    /// Clear the persisted last-failed banner after the operator acknowledges it.
+    DismissLastFailed {
+        reply: tokio::sync::oneshot::Sender<Result<()>>,
+    },
     SelfUpdate {
         actor: Option<String>,
         reply: tokio::sync::oneshot::Sender<Result<self_update::SelfUpdateReport>>,
@@ -994,6 +998,10 @@ impl Worker {
                         .await;
                     let _ = reply.send(res);
                 }
+                Command::DismissLastFailed { reply } => {
+                    let res = self.clone().handle_dismiss_last_failed();
+                    let _ = reply.send(res);
+                }
                 Command::SelfUpdate { actor, reply } => {
                     let res = self_update::run(self.clone(), actor).await;
                     let _ = reply.send(res);
@@ -1463,6 +1471,19 @@ impl Worker {
                     "could not resolve current deploy tag to a git commit for comparison".into(),
                 )
             })
+    }
+
+    fn handle_dismiss_last_failed(self: Arc<Self>) -> Result<()> {
+        let mut st = self.state.read_updater()?;
+        if st.last_failed_update.is_none() {
+            return Ok(());
+        }
+        st.last_failed_update = None;
+        self.state.write_updater(&st)?;
+        let _ = self
+            .state
+            .append_audit("audit: last_failed_update_dismissed");
+        Ok(())
     }
 
     async fn handle_set_prefs(

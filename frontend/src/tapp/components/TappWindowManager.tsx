@@ -470,18 +470,11 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(
     // 缓存标题栏样式（exlight：不透明底，避免关 blur 后仍透壁纸）
     const headerStyle = useMemo(
       () => ({
-        ...(isStorePanel
-          ? {}
-          : {
-              backgroundColor: noAnimation
-                ? 'var(--bg-secondary)'
-                : 'color-mix(in srgb, var(--bg-secondary) 85%, transparent)',
-            }),
         borderBottom: `1px solid ${isStorePanel ? 'var(--surface-border)' : 'var(--border-color)'}`,
         opacity: isActive ? 1 : 0.7,
         transition: 'opacity 0.2s ease',
       }),
-      [isActive, isStorePanel, noAnimation],
+      [isActive, isStorePanel],
     )
 
     // 缓存窗口点击处理函数
@@ -549,7 +542,7 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(
       >
         {/* 窗口标题栏 - 可拖拽（支持鼠标和触摸） */}
         <div
-          className={`flex items-center justify-between px-3 h-10 shrink-0 select-none rounded-t-xl ${isStorePanel ? 'glass glass-chrome-free' : 'backdrop-blur-sm'} ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+          className={`flex items-center justify-between px-3 h-10 shrink-0 select-none rounded-t-xl ${isStorePanel ? 'glass glass-chrome-free' : 'glass-surface glass-80'} ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
           style={headerStyle}
           onMouseDown={handleDragStart}
           onTouchStart={handleDragStart}
@@ -1728,11 +1721,8 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
       {/* 顶部工具栏：返回 + 方案 + 窗口计数（不再弹中间选择器） */}
       <div className="absolute top-4 left-4 z-1000">
         <div
-          className="flex items-center gap-2 rounded-xl px-2 py-1.5 backdrop-blur-md"
+          className="flex items-center gap-2 rounded-xl px-2 py-1.5 glass-surface glass-80"
           style={{
-            backgroundColor: noAnimation
-              ? 'var(--bg-card)'
-              : 'color-mix(in srgb, var(--bg-card) 80%, transparent)',
             border: '1px solid var(--border-color)',
             boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
           }}
@@ -1791,9 +1781,8 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
                 <AnimatePresence>
                   {showSchemeMenu && (
                     <motion.div
-                      className="absolute top-full left-0 z-1001 mt-2 w-56 overflow-hidden rounded-xl"
+                      className="absolute top-full left-0 z-1001 mt-2 w-56 overflow-hidden rounded-xl glass-surface glass-90"
                       style={{
-                        backgroundColor: 'var(--bg-card)',
                         border: '1px solid var(--border-color)',
                         boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.15)',
                       }}

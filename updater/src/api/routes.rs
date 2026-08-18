@@ -36,6 +36,7 @@ pub fn build(state: ApiState) -> Router {
         .route("/snapshots/{id}", delete(delete_snapshot))
         .route("/update", post(update))
         .route("/prefs", post(set_prefs))
+        .route("/last-failed/dismiss", post(dismiss_last_failed))
         .route("/rollback", post(rollback))
         // One-click recovery for needs_manual / stuck post-swap jobs: same privilege as
         // `/rollback` (admin + token via backend). Does not require host manual-override
@@ -812,6 +813,18 @@ async fn set_prefs(
         "protected_count": prefs.protected_count,
         "total_count": prefs.total_count,
     })))
+}
+
+async fn dismiss_last_failed(State(st): State<ApiState>) -> Result<Json<Value>, ApiError> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    st.worker
+        .sender()
+        .send(WorkerCmd::DismissLastFailed { reply: tx })
+        .await
+        .map_err(|_| ApiError(StatusCode::SERVICE_UNAVAILABLE, "worker unavailable".into()))?;
+    rx.await
+        .map_err(|_| ApiError(StatusCode::INTERNAL_SERVER_ERROR, "worker dropped".into()))??;
+    Ok(Json(json!({ "ok": true })))
 }
 
 #[derive(Deserialize)]

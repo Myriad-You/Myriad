@@ -372,7 +372,7 @@ export const WelcomeWidget = memo(
               className="absolute inset-0 cursor-pointer"
             >
               <div
-                className="relative h-full w-full rounded-lg bg-white/60 dark:bg-white/3 backdrop-blur-sm hover:bg-white/80 dark:hover:bg-white/5 transition-all hover:scale-[1.02] shadow-lg overflow-hidden p-4 flex flex-col"
+                className="relative h-full w-full rounded-lg glass-surface glass-60 transition-all hover:scale-[1.02] shadow-lg overflow-hidden p-4 flex flex-col"
                 style={{ padding: `${16 * scale}px` }}
               >
                 <div

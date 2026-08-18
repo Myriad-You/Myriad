@@ -99,6 +99,11 @@ pub(crate) fn validate_guard_policy_file(path: &std::path::Path) -> Result<()> {
             )));
         }
     }
+    if values["MYRIAD_GUARD_ENV_FILE"] != "guard-policy/docker-guard.env" {
+        return Err(UpdaterError::Precondition(
+            "MYRIAD_GUARD_ENV_FILE must be guard-policy/docker-guard.env".into(),
+        ));
+    }
     let image = values["DOCKER_GUARD_IMAGE"];
     if cfg!(debug_assertions) && image.starts_with("myriad-updater-dev:") {
         return Ok(());

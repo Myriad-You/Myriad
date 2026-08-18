@@ -1619,6 +1619,18 @@ html.dark .arael-sessions-search:hover {
   border-color: rgb(255 255 255 / 14%);
 }
 
+html[data-perf-mode='exlight'] .arael-sessions-search,
+html[data-perf-mode='exlight'] .arael-sessions-search:hover,
+html[data-perf-mode='exlight'] .arael-sessions-search:focus-within {
+  background: rgb(255 255 255 / 96%);
+}
+
+html.dark[data-perf-mode='exlight'] .arael-sessions-search,
+html.dark[data-perf-mode='exlight'] .arael-sessions-search:hover,
+html.dark[data-perf-mode='exlight'] .arael-sessions-search:focus-within {
+  background: rgb(26 26 26 / 96%);
+}
+
 html.dark .arael-sessions-search:focus-within {
   background: rgb(255 255 255 / 12%);
   border-color: color-mix(

@@ -97,7 +97,7 @@ export function Lightbox({ src, alt = '', isDark, onClose, t }: LightboxProps) {
         >
           {/* 背景遮罩 */}
           <div
-            className={`absolute inset-0 backdrop-blur-md ${
+            className={`absolute inset-0 ${
               isDark ? 'bg-black/90' : 'bg-white/90'
             }`}
           />
@@ -108,10 +108,8 @@ export function Lightbox({ src, alt = '', isDark, onClose, t }: LightboxProps) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-            className={`hidden sm:flex absolute top-6 items-center gap-2 px-4 py-2.5 rounded-2xl backdrop-blur-xl border shadow-xl z-10 ${
-              isDark
-                ? 'bg-neutral-900/80 border-neutral-700 text-white'
-                : 'bg-white/80 border-gray-200 text-gray-900'
+            className={`hidden sm:flex absolute top-6 items-center gap-2 px-4 py-2.5 rounded-2xl glass-surface glass-80 border shadow-xl z-10 ${
+              isDark ? 'text-white' : 'text-gray-900'
             }`}
             onClick={(e: MouseEvent) => e.stopPropagation()}
           >
@@ -204,10 +202,8 @@ export function Lightbox({ src, alt = '', isDark, onClose, t }: LightboxProps) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-            className={`sm:hidden absolute top-4 left-4 flex items-center gap-2 px-3 py-2 rounded-xl backdrop-blur-xl border shadow-xl z-10 ${
-              isDark
-                ? 'bg-neutral-900/80 border-neutral-700 text-white'
-                : 'bg-white/80 border-gray-200 text-gray-900'
+            className={`sm:hidden absolute top-4 left-4 flex items-center gap-2 px-3 py-2 rounded-xl glass-surface glass-80 border shadow-xl z-10 ${
+              isDark ? 'text-white' : 'text-gray-900'
             }`}
             onClick={(e: MouseEvent) => e.stopPropagation()}
           >
@@ -270,10 +266,8 @@ export function Lightbox({ src, alt = '', isDark, onClose, t }: LightboxProps) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
             transition={{ duration: 0.25, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
-            className={`absolute bottom-6 px-4 py-2 rounded-xl backdrop-blur-xl text-sm z-10 ${
-              isDark
-                ? 'bg-neutral-900/60 text-gray-300'
-                : 'bg-white/60 text-gray-600'
+            className={`absolute bottom-6 px-4 py-2 rounded-xl glass-surface glass-60 text-sm z-10 ${
+              isDark ? 'text-gray-300' : 'text-gray-600'
             }`}
           >
             {t.brew.lightboxCloseHint}

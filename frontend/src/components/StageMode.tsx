@@ -711,7 +711,7 @@ export default function StageMode({
                 <div className="h-[65%] md:h-[45%] relative">
                   {/* 篇章指示器 - 右上角 */}
                   <div className="absolute top-0 right-0 z-50">
-                    <div className="bg-white/80 dark:bg-neutral-900/80 rounded-xl px-4 py-2 backdrop-blur-xl shadow-lg border border-gray-100 dark:border-neutral-700">
+                    <div className="glass-surface glass-80 rounded-xl px-4 py-2 shadow-lg border border-gray-100 dark:border-neutral-700">
                       <div className="flex items-center gap-3">
                         <div className="flex flex-col items-end">
                           <div className="text-xs text-gray-500 dark:text-gray-400 font-mono">

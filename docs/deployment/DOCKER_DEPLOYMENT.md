@@ -72,7 +72,7 @@ Networks:
 | `docs/deployment/EXTERNAL_POSTGRES.md` | External / 1Panel Postgres: `MYRIAD_DB_MODE=external`, no local pgdata |
 | `docs/deployment/examples/docker-compose.external-db.example.yml` | Compose without `postgres`; external `DATABASE_URL` |
 | `docs/deployment/UPDATER_SECURITY_BASELINE.md` | Done-state security baseline + operator red lines |
-| `docs/deployment/SETUP_BOOTSTRAP.md` | Break-glass token when a configured instance enters CONFIG_MODE |
+| `docs/deployment/SETUP_BOOTSTRAP.md` | 安装暗号：编排预置库时，安装写操作必须对上 |
 | `docs/UPDATER_QUICKSTART.md` | Operator guide for update, rollback, rescue |
 | `docs/updater-spec.md` | Updater protocol and failure-mode design |
 
@@ -80,14 +80,11 @@ Networks:
 
 ```bash
 cp .env.production.example .env
-sudo install -d -m 0750 /etc/myriad
-sudo install -m 0600 docker-guard.env.example /etc/myriad/docker-guard.env
-# Replace the placeholder with the independently verified release repo@sha256 digest.
-
 # Edit at minimum:
 # POSTGRES_PASSWORD, JWT_SECRET, CORS_ORIGINS
-# deploy.sh fills UPDATE_TOKEN / UPDATER_GATEWAY_SECRET and the host-policy
-# GUARD_SELF_UPDATE_TOKEN if empty.
+# DOCKER_GUARD_IMAGE = independently verified release repo@sha256 digest
+# deploy.sh fills UPDATE_TOKEN / UPDATER_GATEWAY_SECRET / MYRIAD_SETUP_SECRET
+# and GUARD_SELF_UPDATE_TOKEN if empty, then writes ./guard-policy/docker-guard.env.
 
 bash scripts/docker/deploy.sh up
 ```
@@ -98,33 +95,14 @@ On Windows:
 .\scripts\docker\deploy.ps1 up
 ```
 
-Copy `docker-guard.env.example` to
-`C:\ProgramData\Myriad\docker-guard.env`, change its
-`MYRIAD_GUARD_ENV_FILE` entry to that exact resolved Windows path, and set the
-verified digest before running the script.
+Guard writes `./guard-policy/docker-guard.env` on first start.
 
 Open `http://localhost` or the port configured by `HTTP_PORT`.
 
-The setup mutations require the server-local capability. For the named-volume
-deployment, read it without sending it through logs:
-
-```bash
-docker exec myriad-backend sh -c 'cat /app/data/.bootstrap-token'
-```
-
-The deploy scripts inspect the backend data volume. For a fresh or actively
-unclaimed install, `up` temporarily enables `MYRIAD_ALLOW_REMOTE_BOOTSTRAP=true` so the
-standard browser path through the bundled proxy works. Use `up
---local-bootstrap` only when intentionally calling the backend from loopback.
-An older non-empty data volume with no claim marker fails safe and needs an
-explicit `up --remote-bootstrap` if it is genuinely unclaimed.
-A successful database initialization invalidates that token and writes a
-distinct owner-claim token to the same file, so read it again before creating
-the owner. After owner creation, rerun `deploy.sh up` / `deploy.ps1 up`; the
-durable `.bootstrap-claimed` marker makes the script disable remote bootstrap
-and recreate the backend. `doctor` reports a **FAIL** if a claimed installation
-still has remote bootstrap enabled. The marker also prevents reopening setup
-during a database outage.
+Create the owner in the wizard; if orchestration wrote `MYRIAD_SETUP_SECRET`,
+paste that passphrase (or open the generator `#setup_secret=` link). The
+durable `.bootstrap-claimed` marker prevents reopening setup during a
+database outage.
 
 ## Environment
 
@@ -144,12 +122,11 @@ during a database outage.
 | `UPDATER_TAG` | yes | Updater image tag |
 | `COMPOSE_PROJECT_NAME` | yes | Compose project name, default `myriad` |
 | `UPDATE_TOKEN` | yes | Updater token for updater/gateway; deploy script fills it if empty; **not** injected into backend or docker-guard |
-| `GUARD_SELF_UPDATE_TOKEN` | yes (Guard policy) | Dedicated self-update capability in host-owned `docker-guard.env`; deploy generates it if empty; Guard + updater only |
-| `MYRIAD_ALLOW_REMOTE_BOOTSTRAP` | no | Backend default `false`; deploy `up` temporarily enables it for fresh/active browser setup and disables it after the claim marker. |
-| `MYRIAD_BOOTSTRAP_TTL_SECS` | no | Short-lived setup capability TTL, default 1800 seconds (range 60..86400). |
+| `GUARD_SELF_UPDATE_TOKEN` | yes | Dedicated self-update capability; lives in `.env` and is copied to `./guard-policy/docker-guard.env` on first start; deploy generates it if empty; Guard + updater only |
+| `DOCKER_GUARD_IMAGE` | yes | Exact `docker.io/somekawahitomi/myriad-updater@sha256:<64hex>` identity for Guard; first boot source is `.env`, live TCB copy is `./guard-policy/docker-guard.env` |
+| `MYRIAD_GUARD_ENV_FILE` | no | Fixed Compose-relative path `guard-policy/docker-guard.env` |
 | `UPDATER_GATEWAY_SECRET` | yes | Shared secret for backend→gateway (`X-Updater-Gateway-Secret`); deploy fills if empty; backend + gateway only |
-| `MYRIAD_SETUP_SECRET` | yes\* | Passphrase to claim the first owner **when the stack already has a real DATABASE_URL**. `deploy.sh` fills it if empty. Wizard-only DB setup does not require it. \*Required until an owner exists on orchestrated installs. Never expose it in the UI. See [SETUP_BOOTSTRAP.md](./SETUP_BOOTSTRAP.md). |
-| `MYRIAD_BOOTSTRAP_TOKEN` | no | Optional preset for setup break-glass. If unset, a configured instance in CONFIG_MODE writes `/app/.bootstrap-token` inside the backend container. Stock compose does **not** inject this; add it to `backend.environment` if you want a stable value. Never expose it in the UI. See [SETUP_BOOTSTRAP.md](./SETUP_BOOTSTRAP.md). |
+| `MYRIAD_SETUP_SECRET` | yes\* | Passphrase for setup writes **when the stack already has a real DATABASE_URL**. Official compose refuses to start if unset. `deploy.sh` fills it if empty. Wizard-only native DB setup does not require it. \*Required until an owner exists on orchestrated installs. Never expose it in the UI. See [SETUP_BOOTSTRAP.md](./SETUP_BOOTSTRAP.md). |
 | `HTTP_PORT` | no | Published proxy port, default `80` |
 | `CHANNEL` | no | Release channel, default `stable` |
 | `MYRIAD_GITHUB_REPO` | no | Release source repo, default `Myriad-You/Myriad` |
@@ -180,11 +157,10 @@ out-of-scope items live in:
 
 - Keep **`COSIGN_VERIFY=strict`**, **`PROXY_ALLOW_DIRECT_UPDATER=false`**, and do **not**
   publish updater `1101`, updater-gateway `1104`, or docker-guard `2375` on the host.
-- Before Compose, place `docker-guard.env.example` outside the deployment root
-  (`/etc/myriad/docker-guard.env` by default), set its exact independently verified
-  Guard `repo@sha256`, and restrict it to the host administrator. The deploy scripts
-  pass this second env file to Compose; updater cannot write it. The scripts
-  also generate a dedicated `GUARD_SELF_UPDATE_TOKEN` there when absent.
+- Put a digest-pinned `DOCKER_GUARD_IMAGE` in `.env`. Guard writes
+  `./guard-policy/docker-guard.env` on first start (mode 0600). The deploy
+  scripts seed that file from `.env` when missing and pass it as a second
+  env-file; updater mounts the directory read-only and cannot rewrite it.
 - `COSIGN_VERIFY=off` alone is refused: set `UPDATER_ALLOW_INSECURE_COSIGN=true`
   (or `COSIGN_INSECURE_OK=true`) only when you intentionally accept that risk.
 - Topology check (read-only; no auto-migrate):
@@ -254,15 +230,10 @@ rescue state.
 Health probes use direct HTTP on the Compose network; they do not use Docker exec
 or create temporary probe containers.
 
-### Setup wizard 401 after the database is down
+### Setup wizard after the database is down
 
-A previously configured stack that cannot reach PostgreSQL boots in `CONFIG_MODE`. Setup then requires `X-Bootstrap-Token`. Read it from the backend container (not from logs):
-
-```bash
-docker compose exec backend cat /app/.bootstrap-token
-```
-
-Paste it into the wizard’s Bootstrap token field, or send the `X-Bootstrap-Token` header. Full runbook: [SETUP_BOOTSTRAP.md](./SETUP_BOOTSTRAP.md).
+A claimed installation does not reopen the wizard. Fix PostgreSQL and bring the
+backend back to FULL MODE. Full runbook: [SETUP_BOOTSTRAP.md](./SETUP_BOOTSTRAP.md).
 
 ### External database
 

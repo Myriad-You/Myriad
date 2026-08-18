@@ -9,6 +9,8 @@
  * scale, 192/512 + maskable PNGs as **data:** URLs (not blob:). Chrome's
  * installability pipeline cannot fetch page-scoped blob: icon URLs, which made
  * the install affordance appear then vanish after branding.
+ * Unproxied cross-origin favicons are skipped (no ACAO → canvas taint / CORS
+ * error); the static `/icons/pwa/*` set stays installable.
  */
 
 import { API_URL } from '../config'
@@ -324,6 +326,24 @@ export function resolvePwaIconSourceUrl(
   }
 }
 
+/**
+ * Canvas readback needs a CORS-clean bitmap. Same-origin, data/blob, and the
+ * image proxy qualify. Unproxied cross-origin URLs usually have no ACAO
+ * (static file hosts, personal CDNs) — fetching them with mode:cors only
+ * produces a console error and cannot be drawn.
+ */
+export function pwaIconIsCanvasReadable(src: string, origin: string): boolean {
+  const trimmed = src.trim()
+  if (!trimmed) return false
+  if (trimmed.startsWith('data:') || trimmed.startsWith('blob:')) return true
+  if (trimmed.includes('/api/proxy/image')) return true
+  try {
+    return new URL(trimmed, origin).origin === new URL(origin).origin
+  } catch {
+    return false
+  }
+}
+
 type DrawableImage = CanvasImageSource & {
   width: number
   height: number
@@ -502,6 +522,11 @@ export async function composePwaIconPng(options: {
     origin,
     options.apiBase ?? API_URL ?? '',
   )
+  if (!pwaIconIsCanvasReadable(fetchUrl, origin)) {
+    throw new Error(
+      '[PWA] icon source is cross-origin without CORS; cannot compose',
+    )
+  }
   const img = await loadImageForCanvas(fetchUrl)
   try {
     return renderLogoToPngDataUrl(
@@ -536,6 +561,9 @@ async function composeBrandedIconSet(options: {
       options.origin,
       API_URL || '',
     )
+    if (!pwaIconIsCanvasReadable(fetchUrl, options.origin)) {
+      return null
+    }
     // Decode once — reuse for 192 / 512 / maskable (ICO + proxy more reliable).
     img = await loadImageForCanvas(fetchUrl)
 

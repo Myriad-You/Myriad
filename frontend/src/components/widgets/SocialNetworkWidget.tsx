@@ -44,6 +44,7 @@ import {
 } from '../../utils/requestDedup'
 import { useThemeMode } from '../../utils/themeSubscriber'
 import { Spinner } from '../Spinner'
+import { parseCustomPlatforms } from './parseCustomPlatforms'
 import { GlowBackground } from './shared/GlowBackground'
 import { WidgetLongPressHint } from './shared/WidgetLongPressHint'
 import { WidgetShell } from './shared/WidgetShell'
@@ -330,11 +331,15 @@ let customPlatformsData: CustomPlatformData[] = []
 let customPlatformsLoaded = false // 标记是否已加载
 let customPlatformsLoadPromise: Promise<CustomPlatformData[]> | null = null
 
+function getCustomPlatformsData(): CustomPlatformData[] {
+  return Array.isArray(customPlatformsData) ? customPlatformsData : []
+}
+
 // 从后端API加载自定义平台
 function loadCustomPlatforms(): CustomPlatformData[] {
   // 如果已加载，直接返回缓存的数据
   if (customPlatformsLoaded) {
-    return customPlatformsData
+    return getCustomPlatformsData()
   }
 
   // 触发异步加载（如果还没有）
@@ -342,38 +347,33 @@ function loadCustomPlatforms(): CustomPlatformData[] {
     customPlatformsLoadPromise = loadCustomPlatformsAsync()
   }
 
-  return customPlatformsData
+  return getCustomPlatformsData()
 }
 
 // 异步从后端加载自定义平台（使用去重机制）
 async function loadCustomPlatformsAsync(): Promise<CustomPlatformData[]> {
   if (customPlatformsLoaded) {
-    return customPlatformsData
+    return getCustomPlatformsData()
   }
 
   try {
     const data = await getUIConfigDeduped()
-    if (data.custom_platforms) {
-      try {
-        customPlatformsData = JSON.parse(data.custom_platforms)
-      } catch (e) {
-        console.error('Failed to parse custom platforms:', e)
-        customPlatformsData = []
-      }
-    }
+    customPlatformsData = parseCustomPlatforms(
+      data?.custom_platforms,
+    ) as CustomPlatformData[]
   } catch (e) {
     console.error('Failed to load custom platforms from API:', e)
   }
 
   customPlatformsLoaded = true
   customPlatformsLoadPromise = null
-  return customPlatformsData
+  return getCustomPlatformsData()
 }
 
 // 保存自定义平台：必须真正 POST 到后端并校验 response.ok。
 // 历史上只 dispatchEvent + Home 空 CSRF 头 → 内存有、刷新丢。
 async function saveCustomPlatforms(platforms: CustomPlatformData[]) {
-  const previous = customPlatformsData
+  const previous = getCustomPlatformsData()
   customPlatformsData = platforms
   customPlatformsLoaded = true
   platformInfoCache.clear()
@@ -416,14 +416,14 @@ async function saveCustomPlatforms(platforms: CustomPlatformData[]) {
 
 // 添加自定义平台
 async function addCustomPlatform(platform: CustomPlatformData) {
-  const updated = [...customPlatformsData, platform]
+  const updated = [...getCustomPlatformsData(), platform]
   await saveCustomPlatforms(updated)
   return platform.id
 }
 
 // 删除自定义平台
 async function removeCustomPlatform(platformId: string) {
-  const updated = customPlatformsData.filter((p) => p.id !== platformId)
+  const updated = getCustomPlatformsData().filter((p) => p.id !== platformId)
   await saveCustomPlatforms(updated)
 }
 
@@ -508,7 +508,9 @@ function customPlatformToPlatformInfo(
 
 // 获取所有平台（包括预设和自定义）
 function getAllPlatforms(): PlatformInfo[] {
-  const customPlatforms = customPlatformsData.map(customPlatformToPlatformInfo)
+  const customPlatforms = getCustomPlatformsData().map(
+    customPlatformToPlatformInfo,
+  )
   return [...PLATFORMS, ...customPlatforms]
 }
 
@@ -1536,7 +1538,7 @@ export const SocialNetworkWidget = memo(
 
       // 检查是否是自定义平台（确保数据已加载）
       if (customPlatformsReady) {
-        const customPlatform = customPlatformsData.find(
+        const customPlatform = getCustomPlatformsData().find(
           (p) => p.id === selectedPlatformId,
         )
         if (customPlatform) {
@@ -1571,7 +1573,7 @@ export const SocialNetworkWidget = memo(
         default: {
           // 自定义平台（确保数据已加载）
           if (customPlatformsReady) {
-            const customPlatform = customPlatformsData.find(
+            const customPlatform = getCustomPlatformsData().find(
               (p) => p.id === selectedPlatformId,
             )
             if (customPlatform) {
@@ -1667,7 +1669,7 @@ export const SocialNetworkWidget = memo(
     // 获取弹窗类型平台数据（合并查找逻辑避免重复）
     const popupPlatformData = useMemo(() => {
       loadCustomPlatforms()
-      const customPlatform = customPlatformsData.find(
+      const customPlatform = getCustomPlatformsData().find(
         (p) => p.id === selectedPlatformId,
       )
       if (customPlatform?.linkType === 'popup') {

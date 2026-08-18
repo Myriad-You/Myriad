@@ -72,6 +72,16 @@ function attributionOptions(
 }
 
 export const federationApi = {
+  /** Live message/media caps (public; follows memory profile). */
+  getPublicLimits(): Promise<{
+    profile: string
+    message_payload_bytes: number
+    note_image_bytes: number
+    note_video_bytes: number
+  }> {
+    return apiService.get(`${PREFIX}/public/limits`)
+  },
+
   /** 获取当前用户联邦身份 */
   getIdentity(runtimeGrant?: string): Promise<FederationIdentity> {
     return apiService.get<FederationIdentity>(

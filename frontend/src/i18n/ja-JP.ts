@@ -227,6 +227,9 @@ export const jaJP: TranslationKeys = {
     connectionFailed: '接続失敗',
     connectionFailedDesc:
       'バックエンドサービスに接続できません。サーバーが起動していることを確認してください',
+    claimedRepairTitle: 'セットアップは完了済みです',
+    claimedRepairDesc:
+      'このインスタンスにはすでに所有者がいます。先に PostgreSQL を直してください。セットアップウィザードでホスト設定を変えないでください。',
     backendDisconnected: 'バックエンドサービス接続中断',
     reconnecting: '再接続を試行中...',
     retry: '再試行',
@@ -296,15 +299,6 @@ export const jaJP: TranslationKeys = {
     setupSecretPlaceholder: 'MYRIAD_SETUP_SECRET を貼り付け',
     setupSecretRequired:
       'セットアップ合言葉を入力してください。値はサーバーの .env にあり、ウェブ設定には出ません。',
-    bootstrapToken: 'ブートストラップトークン',
-    bootstrapTokenOptional: 'インストール操作に必須',
-    bootstrapTokenPlaceholder: '.bootstrap-token の内容を貼り付け',
-    bootstrapTokenHint:
-      'DATA_DIR/.bootstrap-token（または MYRIAD_BOOTSTRAP_TOKEN）の短期トークンを入力してください。初回設定、DB 初期化、所有者作成のすべてで必要です。',
-    bootstrapTokenRequired:
-      'ブートストラップトークンが必要です。サーバー上の .bootstrap-token を読み取り、入力して再試行してください。',
-    bootstrapTokenRotated:
-      'データベース初期化トークンは無効になりました。所有者を作成する前に、サーバーのデータディレクトリから新しい .bootstrap-token を読み取ってください。',
   },
 
   // 設定
@@ -909,6 +903,8 @@ export const jaJP: TranslationKeys = {
     updaterLastFailedTitle: '前回の更新は完了しませんでした',
     updaterLastFailedBody:
       '{from} から {to} への更新に失敗しました。理由: {reason}',
+    updaterLastFailedDismiss: '今後表示しない',
+    updaterLastFailedDismissAria: 'この失敗通知を今後表示しない',
     updaterHintHealthy: 'このチャネルに利用可能な更新はありません。',
     updaterHintUpdating: '完了後に動作状態を自動確認します。',
     updaterHintMaintenance: '準備ができたら下から解除できます。',
@@ -1043,6 +1039,7 @@ export const jaJP: TranslationKeys = {
     updaterTargetDockerHubHead: 'Docker Hub ビルド（クリックで選択）',
     updaterDockerHubFallback:
       'Docker Hub 経由でビルドを検出（private リポジトリや GITHUB_TOKEN 未設定時は正常）。',
+    updaterDockerHubSourceTag: 'Docker Hub',
     updaterDockerHubBuild: 'Docker Hub でビルド済み',
     updaterCommitTarget: '手動入力',
     updaterCommitPlaceholder: 'vX.Y.Z、dev-xxx、またはコミット sha',
@@ -1309,7 +1306,7 @@ export const jaJP: TranslationKeys = {
       '約 1 GB のホストで同時メモリ使用を抑えます。既定オフは現在の上限付き均衡プロファイルで、旧版からの更新では一部のリクエスト上限が変わります。',
     memorySaver: 'メモリ節約',
     memorySaverHint:
-      '連合の同時バッファと単一メッセージ／添付の上限（均衡より少し低い）、転送チャンク同時量、プロセス内キャッシュ、DB プール、パスワードハッシュ同時数を締めます。機能は残りますが、極大メディアや多路ピークでは早めに拒否／「あとで再試行」になり得ます。MYRIAD_MEMORY_PROFILE で上書き可。DB プールは再起動後に完全適用。',
+      '均衡プロファイルからもう一段締めます。転送チャンク同時量、プロセス内キャッシュ、DB プール、パスワードハッシュ同時数、動画／音声のピークを下げます。日常のメッセージは使えます。大きなメディアは分割転送を、ロスレス音声は節約オフを検討。MYRIAD_MEMORY_PROFILE で上書き可。DB プールは再起動後に完全適用。',
     enableProxy: 'ネットワークプロキシを有効化',
     enableProxyHint:
       '有効にすると、外部APIリクエストはプロキシ経由で送信されます',
@@ -3474,7 +3471,7 @@ export const jaJP: TranslationKeys = {
     inboundBlockManual: '手動',
     inboundGuardLoadFailed: '入場保護を読み込めませんでした',
     inboundGuardSaveFailed: '入場保護を更新できませんでした',
-    credentialBinding: '{method} {endpoint}（{access}）· {detail}',
+    credentialBindings: '紐づく API',
     credentialBindingPlacement: '{placement} {field}',
     credentialBindingSign: '署名 {alg}（{fields}）',
     credentialReauthorizationRequired:

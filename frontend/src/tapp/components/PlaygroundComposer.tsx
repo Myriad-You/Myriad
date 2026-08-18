@@ -209,7 +209,7 @@ function NotificationCard({
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: 6, scale: 0.98 }}
       transition={{ duration: 0.2, ease: 'easeOut' }}
-      className="rounded-2xl bg-white/90 dark:bg-[#1c1c1e]/90 backdrop-blur-xl shadow-lg ring-1 ring-black/5 dark:ring-white/10 overflow-hidden"
+      className="rounded-2xl glass-surface glass-90 shadow-lg ring-1 ring-black/5 dark:ring-white/10 overflow-hidden"
     >
       <div className="flex items-start gap-2.5 px-3.5 py-2.5">
         {tone === 'success' ? (
@@ -548,7 +548,7 @@ export function PlaygroundComposer({
 
         <div
           ref={historyPanelRef}
-          className="relative rounded-[1.6rem] bg-white/90 dark:bg-[#1a1a1a]/90 backdrop-blur-xl shadow-2xl ring-1 ring-black/5 dark:ring-white/10 overflow-hidden"
+          className="relative rounded-[1.6rem] glass-surface glass-90 shadow-2xl ring-1 ring-black/5 dark:ring-white/10 overflow-hidden"
         >
           {/* ---------- 历史 / 会话面板 ---------- */}
           <AnimatePresence initial={false}>
@@ -1529,11 +1529,9 @@ export function PlaygroundComposer({
                   whileTap={animationsEnabled ? { scale: 0.92 } : {}}
                   onClick={onExport}
                   disabled={exporting || installing || busy}
-                  className="h-8 shrink-0 rounded-full px-3 flex items-center gap-1.5 text-xs font-semibold transition-opacity disabled:opacity-40"
+                  className="h-8 shrink-0 rounded-full px-3 flex items-center gap-1.5 text-xs font-semibold transition-opacity disabled:opacity-40 glass-surface glass-90"
                   style={{
                     color: 'var(--text-primary)',
-                    backgroundColor:
-                      'color-mix(in srgb, var(--bg-card) 90%, transparent)',
                     border: '1px solid var(--border-color)',
                   }}
                   title={t.tapp.playgroundExport}

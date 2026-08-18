@@ -363,6 +363,16 @@ if (typeof document !== 'undefined') {
             backface-visibility: hidden;
         }
 
+        html[data-perf-mode='exlight'] .library-card-container {
+            transition: none;
+        }
+
+        html[data-perf-mode='exlight'] .rating-badge-shine,
+        html[data-perf-mode='exlight'] .rating-badge-anim-max,
+        html[data-perf-mode='exlight'] .animate-fade-in {
+            animation: none;
+        }
+
         /*
          * 右上角平台图标 — 轻量玻璃 + 品牌 tint
          * 已砍：噪点 / 多层渐变 / glow / 重阴影 / drop-shadow / saturate+brightness
@@ -728,6 +738,18 @@ if (typeof document !== 'undefined') {
 
         html.dark[data-surface='liquid'] .library-card-caption {
             --lib-caption-alpha: 48%;
+        }
+
+        html[data-perf-mode='exlight'] .platform-icon-bg,
+        html.dark[data-perf-mode='exlight'] .platform-icon-bg,
+        html[data-perf-mode='exlight'][data-surface='liquid'] .platform-icon-bg,
+        html.dark[data-perf-mode='exlight'][data-surface='liquid'] .platform-icon-bg,
+        html[data-perf-mode='exlight'] .library-card-caption,
+        html.dark[data-perf-mode='exlight'] .library-card-caption,
+        html[data-perf-mode='exlight'][data-surface='liquid'] .library-card-caption,
+        html.dark[data-perf-mode='exlight'][data-surface='liquid'] .library-card-caption {
+            --lib-plat-alpha: 96%;
+            --lib-caption-alpha: 96%;
         }
 
         .library-card-caption__row {
@@ -3851,7 +3873,7 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-700 ease-out">
       {error || showEmpty ? (
         <div className="flex flex-col items-start py-8">
-          <div className="rounded-2xl bg-white/90 dark:bg-neutral-900/90 backdrop-blur-xl border border-gray-200/50 dark:border-neutral-700/50 shadow-lg shadow-black/10 flex items-center gap-3 px-5 py-3">
+          <div className="rounded-2xl glass-surface glass-90 border border-gray-200/50 dark:border-neutral-700/50 shadow-lg shadow-black/10 flex items-center gap-3 px-5 py-3">
             <div className="w-9 h-9 rounded-xl bg-gray-100/80 dark:bg-white/5 flex items-center justify-center text-gray-400 dark:text-gray-500 shrink-0">
               {emptyIcon}
             </div>
@@ -4038,7 +4060,7 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
                           className="w-3.5 h-3.5"
                         />
                       </div>
-                      <div className="absolute top-full right-0 mt-2 bg-black/90 backdrop-blur-sm text-white text-xs px-2.5 py-1 rounded-md opacity-0 group-hover/platform:opacity-100 transition-opacity duration-200 whitespace-nowrap pointer-events-none">
+                      <div className="absolute top-full right-0 mt-2 bg-black/90 text-white text-xs px-2.5 py-1 rounded-md opacity-0 group-hover/platform:opacity-100 transition-opacity duration-200 whitespace-nowrap pointer-events-none">
                         {item.platform}
                       </div>
                     </div>

@@ -443,6 +443,12 @@
     transform 360ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
+html[data-perf-mode='exlight'] .as-store__search-shell {
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
 /* A caustic travels across the lens on intent, without another backdrop pass. */
 .as-store__search-shell::after {
   position: absolute;
@@ -694,6 +700,11 @@ html.dark .as-store__search-shell:focus-within {
   background: color-mix(in srgb, var(--as-bg) 84%, transparent);
   border-bottom: 0.5px solid var(--as-sep);
   backdrop-filter: saturate(180%) blur(18px);
+}
+
+html[data-perf-mode='exlight'] .as-store__chrome {
+  backdrop-filter: none;
+  background: var(--as-bg);
 }
 
 .as-store__chrome-inner {
@@ -2250,6 +2261,11 @@ html.dark .as-detail__perm-card--privileged.checkbox-group-card {
     background: color-mix(in srgb, var(--as-bg) 88%, transparent);
     border-bottom: 0.5px solid var(--as-sep);
     backdrop-filter: saturate(180%) blur(20px);
+  }
+
+  html[data-perf-mode='exlight'] .as-store__chrome {
+    backdrop-filter: none;
+    background: var(--as-bg);
   }
 
   .as-store__chrome-inner {

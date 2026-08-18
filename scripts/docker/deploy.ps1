@@ -29,20 +29,15 @@ function Write-Err   { Write-Color Red $args }
 # Change to repo root.
 Set-Location (Resolve-Path (Join-Path $PSScriptRoot "..\.."))
 
-$GuardEnvFile = if ($env:MYRIAD_GUARD_ENV_FILE) {
-    $env:MYRIAD_GUARD_ENV_FILE
-} else {
-    Join-Path $env:ProgramData "Myriad\docker-guard.env"
-}
+$ComposeGuardDir = Join-Path (Get-Location) "guard-policy"
+$GuardEnvFile = Join-Path $ComposeGuardDir "docker-guard.env"
 
 function Show-Usage {
     @"
 Usage: deploy.ps1 [command] [options]
 
 Commands:
-  up [--local-bootstrap]
-            (default) Enable proxy/browser setup until the owner is claimed.
-            Use --local-bootstrap to keep setup loopback-only.
+  up        (default) Initialise .env / volumes, then docker compose up -d.
   down      Stop and remove containers (volumes preserved)
   restart   docker compose restart
   pull      Pull images pinned by .env tags
@@ -55,8 +50,7 @@ Commands:
   help      Show this help
 
 Examples:
-  .\deploy.ps1                 # Browser/proxy bootstrap + start
-  .\deploy.ps1 up --local-bootstrap # Loopback-only bootstrap
+  .\deploy.ps1                 # Start
   .\deploy.ps1 down            # Stop
   .\deploy.ps1 status          # See running versions
   .\deploy.ps1 doctor          # Topology security checks
@@ -75,7 +69,7 @@ function Get-ComposeCmd {
 
 function Invoke-Compose {
     Assert-GuardPolicy
-    $env:MYRIAD_GUARD_ENV_FILE = (Resolve-Path -LiteralPath $GuardEnvFile).Path
+    $env:MYRIAD_GUARD_ENV_FILE = "guard-policy/docker-guard.env"
     $cmd = (Get-ComposeCmd) -split " "
     $prefix = @()
     if ($cmd.Count -gt 1) { $prefix = $cmd[1..($cmd.Count - 1)] }
@@ -119,15 +113,55 @@ function Ensure-GuardPolicySecret {
     }
 }
 
-function Assert-GuardPolicy {
-    if (-not (Test-Path -LiteralPath $GuardEnvFile -PathType Leaf)) {
-        throw "Missing host-owned Guard policy: $GuardEnvFile. Copy docker-guard.env.example outside the deployment root and set an independently verified repo@sha256 digest."
+function Write-GuardPolicyFromEnv {
+    $image = Get-EnvValue "DOCKER_GUARD_IMAGE"
+    if ($image -notmatch '^docker\.io/somekawahitomi/myriad-updater@sha256:[0-9a-fA-F]{64}$') {
+        throw ".env must contain digest-pinned DOCKER_GUARD_IMAGE (repo@sha256) so Guard can write ./guard-policy/docker-guard.env"
     }
-    $policyPath = (Resolve-Path -LiteralPath $GuardEnvFile).Path
-    $rootPath = (Resolve-Path -LiteralPath '.').Path.TrimEnd([IO.Path]::DirectorySeparatorChar)
-    if ($policyPath.Equals($rootPath, [StringComparison]::OrdinalIgnoreCase) -or
-        $policyPath.StartsWith("$rootPath$([IO.Path]::DirectorySeparatorChar)", [StringComparison]::OrdinalIgnoreCase)) {
-        throw "Guard policy must be outside the deployment root: $policyPath"
+    $token = Get-EnvValue "GUARD_SELF_UPDATE_TOKEN"
+    if ([string]::IsNullOrWhiteSpace($token)) {
+        $token = New-Secret
+        Set-EnvFileValue -Path ".env" -Key "GUARD_SELF_UPDATE_TOKEN" -Value $token
+        Write-Info "  + generated GUARD_SELF_UPDATE_TOKEN in .env"
+    }
+    $project = Get-EnvValue "GUARD_COMPOSE_PROJECT_NAME"
+    if ([string]::IsNullOrWhiteSpace($project)) { $project = Get-EnvValue "COMPOSE_PROJECT_NAME" }
+    if ([string]::IsNullOrWhiteSpace($project)) { $project = "myriad" }
+    $net = Get-EnvValue "GUARD_MYRIAD_DOCKER_NETWORK"
+    if ([string]::IsNullOrWhiteSpace($net)) { $net = Get-EnvValue "MYRIAD_DOCKER_NETWORK" }
+    if ([string]::IsNullOrWhiteSpace($net)) { $net = "myriad-net" }
+    $admin = Get-EnvValue "GUARD_MYRIAD_ADMIN_NETWORK"
+    if ([string]::IsNullOrWhiteSpace($admin)) { $admin = Get-EnvValue "MYRIAD_ADMIN_NETWORK" }
+    if ([string]::IsNullOrWhiteSpace($admin)) { $admin = "myriad-admin-net" }
+    $gnet = Get-EnvValue "GUARD_MYRIAD_DOCKER_GUARD_NETWORK"
+    if ([string]::IsNullOrWhiteSpace($gnet)) { $gnet = Get-EnvValue "MYRIAD_DOCKER_GUARD_NETWORK" }
+    if ([string]::IsNullOrWhiteSpace($gnet)) { $gnet = "myriad-docker-guard-net" }
+    $body = @(
+        "DOCKER_GUARD_IMAGE=$image",
+        "GUARD_SELF_UPDATE_TOKEN=$token",
+        "GUARD_COMPOSE_PROJECT_NAME=$project",
+        "GUARD_MYRIAD_DOCKER_NETWORK=$net",
+        "GUARD_MYRIAD_ADMIN_NETWORK=$admin",
+        "GUARD_MYRIAD_DOCKER_GUARD_NETWORK=$gnet",
+        "MYRIAD_GUARD_ENV_FILE=guard-policy/docker-guard.env"
+    )
+    [IO.File]::WriteAllLines($GuardEnvFile, $body)
+    Write-Info "  + wrote $GuardEnvFile from .env"
+}
+
+function Assert-GuardPolicy {
+    New-Item -ItemType Directory -Force -Path $ComposeGuardDir | Out-Null
+    if (-not (Test-Path -LiteralPath $GuardEnvFile -PathType Leaf)) {
+        Write-GuardPolicyFromEnv
+    } else {
+        $existingImage = ((Get-Content -LiteralPath $GuardEnvFile | Where-Object { $_ -match '^DOCKER_GUARD_IMAGE=' } | Select-Object -First 1) -split '=', 2)[1]
+        if ($existingImage -notmatch '^docker\.io/somekawahitomi/myriad-updater@sha256:[0-9a-fA-F]{64}$') {
+            Write-Warn "  ! $GuardEnvFile is not digest-pinned; rewriting from .env"
+            Write-GuardPolicyFromEnv
+        }
+    }
+    if ((Get-Item -LiteralPath $GuardEnvFile).Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        throw "Guard policy must not be a symbolic link: $GuardEnvFile"
     }
     Ensure-GuardPolicySecret
     $lines = @(Get-Content -LiteralPath $GuardEnvFile)
@@ -145,8 +179,8 @@ function Assert-GuardPolicy {
         throw "DOCKER_GUARD_IMAGE must be the trusted repository pinned by an exact sha256 digest"
     }
     $configuredPath = (($lines | Where-Object { $_ -match '^MYRIAD_GUARD_ENV_FILE=' }) -split '=', 2)[1]
-    if (-not $configuredPath.Equals($policyPath, [StringComparison]::OrdinalIgnoreCase)) {
-        throw "MYRIAD_GUARD_ENV_FILE must equal the resolved policy path: $policyPath"
+    if ($configuredPath -ne "guard-policy/docker-guard.env") {
+        throw "MYRIAD_GUARD_ENV_FILE must be guard-policy/docker-guard.env"
     }
 }
 
@@ -210,7 +244,7 @@ function Ensure-Env {
         Write-Warn "  - JWT_SECRET"
         Write-Warn "  - CORS_ORIGINS"
         Write-Warn ""
-        Write-Warn "This script will create pgdata/state/backups and fill empty UPDATE_TOKEN / UPDATER_GATEWAY_SECRET / MYRIAD_SETUP_SECRET."
+        Write-Warn "This script will create pgdata/state/backups/guard-policy and fill empty UPDATE_TOKEN / UPDATER_GATEWAY_SECRET / MYRIAD_SETUP_SECRET / GUARD_SELF_UPDATE_TOKEN."
         Write-Warn ""
         $r = Read-Host "Open .env in notepad? (y/N)"
         if ($r -match "^[Yy]$") {
@@ -221,10 +255,10 @@ function Ensure-Env {
 
 function Ensure-CurrentLayout {
     Write-Info "==> Ensuring current proxy + updater layout"
-    New-Item -ItemType Directory -Force -Path pgdata, state, state/snapshots, state/cache, backups | Out-Null
-    Ensure-Key "MYRIAD_TAG" "v0.3.31"
-    Ensure-Key "PROXY_TAG" "v0.3.31"
-    Ensure-Key "UPDATER_TAG" "v0.3.31"
+    New-Item -ItemType Directory -Force -Path pgdata, state, state/snapshots, state/cache, backups, guard-policy | Out-Null
+    Ensure-Key "MYRIAD_TAG" "v0.3.35"
+    Ensure-Key "PROXY_TAG" "v0.3.35"
+    Ensure-Key "UPDATER_TAG" "v0.3.35"
     Ensure-Key "BACKEND_IMAGE" "docker.io/somekawahitomi/myriad-backend"
     Ensure-Key "FRONTEND_IMAGE" "docker.io/somekawahitomi/myriad-frontend"
     Ensure-Key "COMPOSE_PROJECT_NAME" "myriad"
@@ -233,68 +267,12 @@ function Ensure-CurrentLayout {
     Ensure-Key "MYRIAD_GITHUB_REPO" "Myriad-You/Myriad"
     Ensure-Key "CHECK_INTERVAL_SECS" "3600"
     Ensure-Key "PROXY_ALLOW_DIRECT_UPDATER" "false"
+    Ensure-Key "MYRIAD_GUARD_ENV_FILE" "guard-policy/docker-guard.env"
+    Ensure-Key "GUARD_COMPOSE_PROJECT_NAME" "myriad"
     Ensure-UpdateToken
     Ensure-UpdaterGatewaySecret
     Ensure-SecretKey "MYRIAD_SETUP_SECRET"
-}
-
-function Get-DeploymentProjectName {
-    $project = $env:COMPOSE_PROJECT_NAME
-    if ([string]::IsNullOrWhiteSpace($project)) { $project = Get-EnvValue "COMPOSE_PROJECT_NAME" }
-    if ([string]::IsNullOrWhiteSpace($project)) { $project = "myriad" }
-    if ($project -notmatch '^[a-z0-9][a-z0-9_-]*$') {
-        throw "Invalid COMPOSE_PROJECT_NAME: $project"
-    }
-    return $project
-}
-
-function Get-BootstrapClaimState {
-    $dataVol = "$(Get-DeploymentProjectName)_backend_data"
-    docker volume inspect $dataVol 2>$null | Out-Null
-    if ($LASTEXITCODE -ne 0) { return "Unknown" }
-    docker run --rm -v "${dataVol}:/app/data:ro" alpine:3.20 `
-        sh -c '[ -f /app/data/.bootstrap-claimed ] && exit 0; [ -f /app/data/.bootstrap-token ] && exit 1; [ -z "$(find /app/data -mindepth 1 -maxdepth 1 -print -quit)" ] && exit 3; exit 4' | Out-Null
-    if ($LASTEXITCODE -eq 0) { return "Claimed" }
-    if ($LASTEXITCODE -eq 1) { return "Unclaimed" }
-    if ($LASTEXITCODE -eq 3) { return "Fresh" }
-    if ($LASTEXITCODE -eq 4) { return "Legacy" }
-    return "Unknown"
-}
-
-function Get-RunningBootstrapClaimState {
-    docker inspect myriad-backend 2>$null | Out-Null
-    if ($LASTEXITCODE -ne 0) { return "Unknown" }
-    docker exec myriad-backend sh -c '[ -f /app/data/.bootstrap-claimed ] && exit 0; [ -f /app/data/.bootstrap-token ] && exit 1; [ -z "$(find /app/data -mindepth 1 -maxdepth 1 -print -quit)" ] && exit 3; exit 4' | Out-Null
-    if ($LASTEXITCODE -eq 0) { return "Claimed" }
-    if ($LASTEXITCODE -eq 1) { return "Unclaimed" }
-    if ($LASTEXITCODE -eq 3) { return "Fresh" }
-    if ($LASTEXITCODE -eq 4) { return "Legacy" }
-    return "Unknown"
-}
-
-function Set-BootstrapAccess([string]$Mode) {
-    $claimState = Get-BootstrapClaimState
-    if ($claimState -eq "Claimed") {
-        Set-EnvFileValue -Path ".env" -Key "MYRIAD_ALLOW_REMOTE_BOOTSTRAP" -Value "false"
-        Write-Ok "Owner claim detected; remote bootstrap is disabled."
-        return
-    }
-    if ($claimState -eq "Unknown") {
-        throw "Cannot inspect the backend data volume for bootstrap state."
-    }
-    if ($Mode -eq "local") {
-        Set-EnvFileValue -Path ".env" -Key "MYRIAD_ALLOW_REMOTE_BOOTSTRAP" -Value "false"
-        Write-Warn "Bootstrap remains loopback-only; the browser through the proxy cannot complete setup."
-        Write-Warn "Run setup locally against the backend, or rerun: .\deploy.ps1 up"
-    } elseif ($Mode -eq "remote" -or $claimState -in @("Unclaimed", "Fresh")) {
-        Set-EnvFileValue -Path ".env" -Key "MYRIAD_ALLOW_REMOTE_BOOTSTRAP" -Value "true"
-        Write-Warn "Remote bootstrap temporarily enabled for first-run browser setup."
-        Write-Warn "After creating the owner, rerun '.\deploy.ps1 up' to detect the claim and disable it."
-    } else {
-        Set-EnvFileValue -Path ".env" -Key "MYRIAD_ALLOW_REMOTE_BOOTSTRAP" -Value "false"
-        Write-Warn "Existing backend data has no bootstrap marker; remote setup was not enabled automatically."
-        Write-Warn "If this installation is genuinely unclaimed, rerun: .\deploy.ps1 up --remote-bootstrap"
-    }
+    Ensure-SecretKey "GUARD_SELF_UPDATE_TOKEN"
 }
 
 # Backend runs as uid 1000 (USER myriad). Named volumes are root-owned on first
@@ -359,18 +337,12 @@ function Cmd-SoftDoctor {
 }
 
 function Cmd-Up {
-    $bootstrapMode = "auto"
     foreach ($arg in @($Rest)) {
-        switch ($arg) {
-            "--local-bootstrap" { $bootstrapMode = "local" }
-            "--remote-bootstrap" { $bootstrapMode = "remote" }
-            default { throw "Unknown up option: $arg" }
-        }
+        throw "Unknown up option: $arg"
     }
     Ensure-Env
     Ensure-CurrentLayout
     Ensure-BackendVolumePerms
-    Set-BootstrapAccess -Mode $bootstrapMode
     Write-Info "==> docker compose up -d"
     Invoke-Compose up -d
     Write-Host ""
@@ -475,30 +447,6 @@ function Cmd-Doctor {
     if ([string]::IsNullOrWhiteSpace($businessNet)) { $businessNet = "myriad-net" }
 
     Write-Info "==> Deploy topology doctor (read-only)"
-
-    $claimState = Get-RunningBootstrapClaimState
-    if ($claimState -eq "Claimed") {
-        if (Test-EnvTruthy "MYRIAD_ALLOW_REMOTE_BOOTSTRAP") {
-            Write-Err "FAIL  owner is claimed but MYRIAD_ALLOW_REMOTE_BOOTSTRAP is still enabled"
-            Write-Err "      Run '.\deploy.ps1 up' to disable it and recreate the backend."
-            $fail++
-        } else {
-            Write-Ok "PASS  claimed installation has remote bootstrap disabled"
-        }
-    } elseif ($claimState -in @("Unclaimed", "Fresh")) {
-        if (Test-EnvTruthy "MYRIAD_ALLOW_REMOTE_BOOTSTRAP") {
-            Write-Warn "WARN  first-run remote bootstrap is enabled until owner claim"
-        } else {
-            Write-Warn "WARN  installation is unclaimed and browser/proxy setup is disabled"
-            Write-Warn "      Run '.\deploy.ps1 up' (or use --local-bootstrap intentionally)."
-        }
-    } elseif ($claimState -eq "Legacy") {
-        Write-Warn "WARN  existing backend data has no bootstrap claim marker"
-        Write-Warn "      Use '.\deploy.ps1 up --remote-bootstrap' only if it is genuinely unclaimed."
-    } else {
-        Write-Warn "SKIP  bootstrap claim state is not inspectable"
-        $skip++
-    }
 
     if (Test-ContainerExists "myriad-docker-guard") {
         Write-Ok "PASS  myriad-docker-guard container exists"

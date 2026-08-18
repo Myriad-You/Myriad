@@ -30,7 +30,7 @@ export function CardLogoPill({ platformId, cardContent }: CardLogoPillProps) {
       transition={{ duration: 0.3, ease: 'easeOut' }}
     >
       <div
-        className={`rounded-lg flex items-center gap-2 ${platformConfig.textColor} backdrop-blur-sm shadow-lg transition-all overflow-hidden ${
+        className={`rounded-lg flex items-center gap-2 ${platformConfig.textColor} shadow-lg transition-all overflow-hidden ${
           cardContent ? 'bg-white/95 dark:bg-black/95' : ''
         }`}
         style={{

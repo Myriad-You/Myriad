@@ -218,6 +218,20 @@ pub fn installed_permissions_from_tapp(tapp: &tapps::Model) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Parse Manifest `settings`. Missing or JSON `null` means “none declared”.
+///
+/// Install persists omitted optional fields as `null`. Treating that as a
+/// malformed declaration made every declared HTTP API return 400.
+pub fn declared_settings_from_manifest(
+    manifest: &Value,
+) -> Result<Vec<myriad_tapp_contract::manifest::TappSettingDef>, String> {
+    match manifest.get("settings") {
+        None | Some(Value::Null) => Ok(Vec::new()),
+        Some(value) => serde_json::from_value(value.clone())
+            .map_err(|_| "Invalid Tapp settings declaration".to_string()),
+    }
+}
+
 /// Lookup a named API definition from a cached/parsed map.
 pub fn require_api_def<'a>(
     apis: &'a HashMap<String, TappApiDef>,
@@ -264,7 +278,10 @@ pub fn ai_model_tier_from_manifest(manifest: &Value) -> Option<crate::config::Mo
 
 #[cfg(test)]
 mod tests {
-    use super::{list_api_summaries, manifest_apis_fingerprint, DeclaredApiError};
+    use super::{
+        declared_settings_from_manifest, list_api_summaries, manifest_apis_fingerprint,
+        DeclaredApiError,
+    };
     use crate::services::tapp_ownership::tapp_owner_priority;
     use myriad_tapp_contract::manifest::{TappApiAccess, TappApiDef};
     use serde_json::json;
@@ -293,6 +310,23 @@ mod tests {
             manifest_apis_fingerprint(&first),
             manifest_apis_fingerprint(&changed_api)
         );
+    }
+
+    #[test]
+    fn declared_settings_treat_missing_and_null_as_empty() {
+        assert!(declared_settings_from_manifest(&json!({})).unwrap().is_empty());
+        assert!(declared_settings_from_manifest(&json!({ "settings": null }))
+            .unwrap()
+            .is_empty());
+        assert!(declared_settings_from_manifest(&json!({ "settings": [] }))
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn declared_settings_reject_malformed_objects() {
+        assert!(declared_settings_from_manifest(&json!({ "settings": {} })).is_err());
+        assert!(declared_settings_from_manifest(&json!({ "settings": "nope" })).is_err());
     }
 
     /// Declared API resolution uses `resolve_accessible_tapp`, which sorts by

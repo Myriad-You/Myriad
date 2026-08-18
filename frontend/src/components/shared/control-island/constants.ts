@@ -11,7 +11,7 @@ import { proxyImageUrl } from '../../../utils/proxyImageUrl'
 /** 标准玻璃容器 — 玻璃底走 --surface 令牌（跟随主题）+ 精细边框 + 多层投影 */
 export const ISLAND_GLASS = [
   'rounded-2xl',
-  'glass-surface', // 底色 80% + 滤镜走令牌，替代 bg-white/80 dark:bg-neutral-900/80 backdrop-blur-2xl
+  'glass-surface glass-80', // 底色 80% + 滤镜走令牌，替代 bg-white/80 dark:bg-neutral-900/80 backdrop-blur-2xl
   'border border-white/60 dark:border-white/8',
   'shadow-[inset_0_0.5px_0_0_rgba(255,255,255,0.15),0_8px_32px_-8px_rgba(0,0,0,0.12),0_2px_8px_-2px_rgba(0,0,0,0.06)]',
   'dark:shadow-[inset_0_0.5px_0_0_rgba(255,255,255,0.08),0_8px_32px_-8px_rgba(0,0,0,0.4),0_2px_8px_-2px_rgba(0,0,0,0.2)]',
@@ -20,7 +20,7 @@ export const ISLAND_GLASS = [
 /** 编辑模式玻璃容器 — 略带色调 */
 export const ISLAND_GLASS_EDIT = [
   'rounded-2xl',
-  'glass-surface',
+  'glass-surface glass-80',
   'border border-gray-200/60 dark:border-white/8',
   'shadow-[inset_0_0.5px_0_0_rgba(255,255,255,0.1),0_8px_32px_-8px_rgba(0,0,0,0.12),0_2px_8px_-2px_rgba(0,0,0,0.06)]',
   'dark:shadow-[inset_0_0.5px_0_0_rgba(255,255,255,0.05),0_8px_32px_-8px_rgba(0,0,0,0.4),0_2px_8px_-2px_rgba(0,0,0,0.2)]',

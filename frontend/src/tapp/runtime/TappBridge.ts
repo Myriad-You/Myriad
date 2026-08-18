@@ -21,6 +21,11 @@ import type {
   TappPermission,
 } from '../types'
 import { getQuotaManager } from '../services/QuotaManager'
+import {
+  federationLiveLimits,
+  federationMessageEnvelopeBytes,
+  refreshFederationLimits,
+} from './federationLimits'
 import { PERMISSION_MAP } from './permissionConfig'
 import { TappRuntimeGrant } from './TappRuntimeGrant'
 
@@ -40,11 +45,6 @@ const BRIDGE_LIMITS = {
   timestampSkewMs: 2 * 60 * 1000,
 } as const
 
-/** Backend default federation payload cap; saver mode may lower this to 2 MiB. */
-const FEDERATION_MESSAGE_PAYLOAD_BYTES = 4 * 1024 * 1024
-/** Bridge-only envelope headroom around the backend request payload. */
-const FEDERATION_MESSAGE_ENVELOPE_BYTES =
-  FEDERATION_MESSAGE_PAYLOAD_BYTES + 64 * 1024
 /** Direct install/store packages have a separate, intentionally larger budget. */
 const TAPP_PACKAGE_PAYLOAD_BYTES = 32 * 1024 * 1024 + 512 * 1024
 
@@ -298,6 +298,7 @@ export class TappBridge {
   constructor() {
     // bound instance methods for handler registration
     this.handleMessage = this.handleMessage.bind(this)
+    void refreshFederationLimits()
   }
 
   /**
@@ -653,11 +654,10 @@ export class TappBridge {
           }
         }
       } else if (msg.action === 'federation.uploadMedia') {
-        // Align with backend federation::limits::{NOTE_IMAGE_LIMIT, NOTE_VIDEO_LIMIT}
-        // image 32 MiB / video 256 MiB. Uniform 50 MiB was wrong both ways:
-        // large images passed FE then 413'd; mid videos were rejected early.
-        const MAX_IMAGE_RAW_BYTES = 32 * 1024 * 1024
-        const MAX_VIDEO_RAW_BYTES = 256 * 1024 * 1024
+        // Align with live note image/video caps (default 32/256; saver 8/32).
+        const limits = federationLiveLimits()
+        const MAX_IMAGE_RAW_BYTES = limits.noteImageBytes
+        const MAX_VIDEO_RAW_BYTES = limits.noteVideoBytes
         const args = (msg.payload as { args?: unknown[] }).args
         const options = args?.[0] as Record<string, unknown> | undefined
         if (!options || typeof options !== 'object' || Array.isArray(options)) {
@@ -734,14 +734,15 @@ export class TappBridge {
         msg.action === 'federation.sendMessage' ||
         msg.action === 'federation.sendRoomMessage'
       ) {
+        const limits = federationLiveLimits()
         const envelopeBytes = serializedUtf8Bytes(msg.payload)
         if (envelopeBytes === null) {
           return { valid: false, error: 'Payload must be JSON-serializable' }
         }
-        if (envelopeBytes > FEDERATION_MESSAGE_ENVELOPE_BYTES) {
+        if (envelopeBytes > federationMessageEnvelopeBytes()) {
           return {
             valid: false,
-            error: `Payload too large for ${msg.action} (message payload max 4 MiB by default; memory-saver may lower it to 2 MiB; got ${envelopeBytes} UTF-8 bytes). Use federation chunked transfer for larger data.`,
+            error: `Payload too large for ${msg.action} (message payload max ${limits.messagePayloadBytes} bytes; got ${envelopeBytes} UTF-8 bytes). Use federation chunked transfer for larger data.`,
           }
         }
         const args =
@@ -756,11 +757,11 @@ export class TappBridge {
         const messageBytes = serializedUtf8Bytes(messagePayload)
         if (
           messageBytes !== null &&
-          messageBytes > FEDERATION_MESSAGE_PAYLOAD_BYTES
+          messageBytes > limits.messagePayloadBytes
         ) {
           return {
             valid: false,
-            error: `Message payload too large for ${msg.action} (max 4 MiB by default; memory-saver may lower it to 2 MiB; got ${messageBytes} UTF-8 bytes). Use federation chunked transfer for larger data.`,
+            error: `Message payload too large for ${msg.action} (max ${limits.messagePayloadBytes} bytes; got ${messageBytes} UTF-8 bytes). Use federation chunked transfer for larger data.`,
           }
         }
       } else if (

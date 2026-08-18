@@ -4,6 +4,15 @@ use sea_orm::{ConnectionTrait, DatabaseConnection, Statement};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 
+/// Optional config string: null / "" / whitespace → None.
+/// Empty `Some("")` must not reach outbound auth headers.
+fn opt_nonempty_string(v: &JsonValue) -> Option<String> {
+    v.as_str()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+}
+
 /// 配置服务 - 用于从数据库读写动态配置
 pub struct ConfigService {
     db: DatabaseConnection,
@@ -182,11 +191,11 @@ impl ConfigService {
         }
 
         if let Some(v) = map.get("github_token") {
-            config.github_token = v.as_str().map(|s| s.to_string());
+            config.github_token = opt_nonempty_string(v);
         }
 
         if let Some(v) = map.get("github_username") {
-            config.github_username = v.as_str().map(|s| s.to_string());
+            config.github_username = opt_nonempty_string(v);
         }
 
         if let Some(v) = map.get("bilibili_enabled") {
@@ -198,7 +207,7 @@ impl ConfigService {
         }
 
         if let Some(v) = map.get("bilibili_uid") {
-            config.bilibili_uid = v.as_str().map(|s| s.to_string());
+            config.bilibili_uid = opt_nonempty_string(v);
         }
 
         if let Some(v) = map.get("steam_enabled") {
@@ -210,11 +219,11 @@ impl ConfigService {
         }
 
         if let Some(v) = map.get("steam_api_key") {
-            config.steam_api_key = v.as_str().map(|s| s.to_string());
+            config.steam_api_key = opt_nonempty_string(v);
         }
 
         if let Some(v) = map.get("steam_id") {
-            config.steam_id = v.as_str().map(|s| s.to_string());
+            config.steam_id = opt_nonempty_string(v);
         }
 
         if let Some(v) = map.get("youtube_enabled") {
@@ -226,11 +235,11 @@ impl ConfigService {
         }
 
         if let Some(v) = map.get("youtube_api_key") {
-            config.youtube_api_key = v.as_str().map(|s| s.to_string());
+            config.youtube_api_key = opt_nonempty_string(v);
         }
 
         if let Some(v) = map.get("youtube_channel_id") {
-            config.youtube_channel_id = v.as_str().map(|s| s.to_string());
+            config.youtube_channel_id = opt_nonempty_string(v);
         }
 
         if let Some(v) = map.get("netease_enabled") {
@@ -242,7 +251,7 @@ impl ConfigService {
         }
 
         if let Some(v) = map.get("netease_user_id") {
-            config.netease_user_id = v.as_str().map(|s| s.to_string());
+            config.netease_user_id = opt_nonempty_string(v);
         }
 
         if let Some(v) = map.get("bangumi_enabled") {
@@ -254,15 +263,15 @@ impl ConfigService {
         }
 
         if let Some(v) = map.get("bangumi_username") {
-            config.bangumi_username = v.as_str().map(|s| s.to_string());
+            config.bangumi_username = opt_nonempty_string(v);
         }
 
         if let Some(v) = map.get("bangumi_access_token") {
-            config.bangumi_access_token = v.as_str().map(|s| s.to_string());
+            config.bangumi_access_token = opt_nonempty_string(v);
         }
 
         if let Some(v) = map.get("bangumi_user_agent") {
-            config.bangumi_user_agent = v.as_str().map(|s| s.to_string());
+            config.bangumi_user_agent = opt_nonempty_string(v);
         }
 
         if let Some(v) = map.get("x_enabled") {
@@ -274,11 +283,11 @@ impl ConfigService {
         }
 
         if let Some(v) = map.get("x_username") {
-            config.x_username = v.as_str().map(|s| s.to_string());
+            config.x_username = opt_nonempty_string(v);
         }
 
         if let Some(v) = map.get("x_bearer_token") {
-            config.x_bearer_token = v.as_str().map(|s| s.to_string());
+            config.x_bearer_token = opt_nonempty_string(v);
         }
 
         if let Some(v) = map.get("discord_enabled") {
@@ -290,11 +299,11 @@ impl ConfigService {
         }
 
         if let Some(v) = map.get("discord_access_token") {
-            config.discord_access_token = v.as_str().map(|s| s.to_string());
+            config.discord_access_token = opt_nonempty_string(v);
         }
 
         if let Some(v) = map.get("discord_refresh_token") {
-            config.discord_refresh_token = v.as_str().map(|s| s.to_string());
+            config.discord_refresh_token = opt_nonempty_string(v);
         }
 
         if let Some(v) = map.get("discord_token_expires_at") {
@@ -314,11 +323,11 @@ impl ConfigService {
         }
 
         if let Some(v) = map.get("mal_username") {
-            config.mal_username = v.as_str().map(|s| s.to_string());
+            config.mal_username = opt_nonempty_string(v);
         }
 
         if let Some(v) = map.get("mal_client_id") {
-            config.mal_client_id = v.as_str().map(|s| s.to_string());
+            config.mal_client_id = opt_nonempty_string(v);
         }
 
         if let Some(v) = map.get("xbox_enabled") {
@@ -330,11 +339,11 @@ impl ConfigService {
         }
 
         if let Some(v) = map.get("xbox_gamertag") {
-            config.xbox_gamertag = v.as_str().map(|s| s.to_string());
+            config.xbox_gamertag = opt_nonempty_string(v);
         }
 
         if let Some(v) = map.get("openxbl_api_key") {
-            config.openxbl_api_key = v.as_str().map(|s| s.to_string());
+            config.openxbl_api_key = opt_nonempty_string(v);
         }
 
         if let Some(v) = map.get("psn_enabled") {
@@ -346,11 +355,11 @@ impl ConfigService {
         }
 
         if let Some(v) = map.get("psn_online_id") {
-            config.psn_online_id = v.as_str().map(|s| s.to_string());
+            config.psn_online_id = opt_nonempty_string(v);
         }
 
         if let Some(v) = map.get("psn_npsso") {
-            config.psn_npsso = v.as_str().map(|s| s.to_string());
+            config.psn_npsso = opt_nonempty_string(v);
         }
 
         if let Some(v) = map.get("discord_user_id") {
@@ -1096,6 +1105,20 @@ mod tests {
         assert_eq!(config.ui_theme.as_deref(), Some("paper"));
         assert_eq!(config.ui_primary_color.as_deref(), Some("#112233"));
         assert_eq!(config.ui_secondary_color.as_deref(), Some("#445566"));
+    }
+
+    #[test]
+    fn empty_platform_secrets_are_absent() {
+        let config = ConfigService::parse_config(HashMap::from([
+            ("github_token".into(), json!("")),
+            ("github_username".into(), json!("  ")),
+            ("steam_api_key".into(), json!(null)),
+            ("x_bearer_token".into(), json!("ghp_kept")),
+        ]));
+        assert_eq!(config.github_token, None);
+        assert_eq!(config.github_username, None);
+        assert_eq!(config.steam_api_key, None);
+        assert_eq!(config.x_bearer_token.as_deref(), Some("ghp_kept"));
     }
 
     #[test]

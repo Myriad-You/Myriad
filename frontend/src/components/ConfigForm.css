@@ -189,6 +189,8 @@ html.dark {
     0 6px 16px -6px rgb(0 0 0 / 48%);
   --cfg-frost-elevated-bg: rgb(20 20 20 / 92%);
 
+  /* exlight 下 --cfg-frost-* 由 performance.css 改写（关 blur + 抬不透明） */
+
   /* 输入井：比 subtle 卡略实，深色下可读、可辨认 */
   --cfg-input-bg: rgb(255 255 255 / 11%);
   --cfg-input-bg-focus: rgb(255 255 255 / 15%);
@@ -2645,6 +2647,14 @@ html.dark .info-card {
   border-color: color-mix(in srgb, var(--cfg-accent) 30%, transparent);
   box-shadow: 0 2px 8px -2px
     color-mix(in srgb, var(--cfg-accent) 12%, transparent);
+}
+
+html[data-perf-mode='exlight'] .info-card {
+  background: color-mix(in srgb, var(--cfg-accent) 8%, #fff);
+}
+
+html.dark[data-perf-mode='exlight'] .info-card {
+  background: color-mix(in srgb, var(--cfg-accent) 12%, #1a1a1a);
 }
 
 /* 功能介绍区布局容器 - 左侧介绍右侧功能 */

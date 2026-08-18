@@ -8,7 +8,7 @@ import type {
 } from '../../../services/updaterApi'
 import type { ChannelOption, U } from './helpers'
 import React, { useEffect, useRef, useState } from 'react'
-import { InputItem, SettingsButton } from '../../settings'
+import { InputItem, SettingsButton, SettingTitleTag } from '../../settings'
 import { Spinner } from '../../Spinner'
 import {
 
@@ -245,10 +245,15 @@ export function TargetPicker({
             : u.updaterTargetReleaseHead}
           {' · '}
           <code>{option.channel}</code>
+          {isCommit && targetSource === 'dockerhub' && (
+            <SettingTitleTag
+              variant="muted"
+              detail={u.updaterDockerHubFallback}
+            >
+              {u.updaterDockerHubSourceTag}
+            </SettingTitleTag>
+          )}
         </div>
-        {isCommit && targetSource === 'dockerhub' && (
-          <p className="updater-empty">{u.updaterDockerHubFallback}</p>
-        )}
         {listLoading ? (
           <div className="updater-empty flex justify-center py-6" role="status">
             <Spinner size="sm" color="primary" />

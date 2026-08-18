@@ -399,7 +399,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         {/* 后端未连接提示 - 只在曾经连接过但现在断开时显示 */}
         {backendConnected === false && hasEverConnected && (
           <div className="pointer-events-auto animate-fade-in">
-            <div className="glass rounded-xl px-4 py-3 shadow-lg border border-red-200/50 dark:border-red-800/50 bg-red-50/80 dark:bg-red-950/80 backdrop-blur-md">
+            <div className="glass rounded-xl px-4 py-3 border border-red-200/50 dark:border-red-800/50">
               <div className="flex items-center gap-3">
                 <div className="shrink-0">
                   <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>

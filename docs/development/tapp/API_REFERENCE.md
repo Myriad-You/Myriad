@@ -1092,6 +1092,7 @@ const detail = await Tapp.federation.getRoom(roomId);
 **公开群 REST（无 Tapp Grant、无需登录）**：`GET /api/federation/public/rooms/{room_id}`
 仅当 `is_public = true` 时返回卡片（name、owner、home_server、member_count 等）。跨实例
 `joinRoom` 会向该端点拉元数据并物化本地行；**不可**用任意 `home_server` 把本机私有群改成公开。
+活的消息/媒体上限见 `GET /api/federation/public/limits`（同样无认证、无 Grant）。
 
 **`getRoom` 字段**：除基础治理字段外，成员可读 `shared_data_config`（含
 `e2e.published_keys`，公钥 map，供 UI 判断 E2E 是否就绪）。私有密钥只在服务端成员
@@ -1105,9 +1106,10 @@ Tapp.federation.onChannelUpdate((ev) => { /* accepted | closed | disconnected */
 Tapp.federation.onRoomUpdate((ev) => { /* governance_changed | member_* | disconnected */ });
 ```
 
-Channel/Room **JSON 消息**（含内联 base64 图）后端载荷上限 **36 MiB**
-（`MESSAGE_PAYLOAD_LIMIT` / `MAX_ROOM_MESSAGE_PAYLOAD`）；联邦 inbox DefaultBodyLimit
-为 **64 MiB**（见 `federation::limits`；已认证内容路由约 **80 MiB** = inbox + 16 MiB）。更大附件请走分块传输
+Channel/Room **JSON 消息**（含内联 base64 图）后端载荷上限默认 **4 MiB**
+（活值 `message_payload_limit()`；内存节约档 **2 MiB**）。联邦 inbox 请求体默认 **8 MiB**
+（节约档 **4 MiB**）；已认证写路径默认 **24 MiB**（节约档 **8 MiB**）。活档见
+`GET /api/federation/public/limits`。更大附件请走分块传输
 （默认 chunk **4 MiB** raw；base64 JSON 体上限 16 MiB，见 `TRANSFER_CHUNK_*`）。
 加密时 `sendMessage` / `sendRoomMessage` 可设 `encrypt: true`：库内与联邦 fan-out 仍为密文，
 本机 WebSocket 在密钥可用时推送明文以免 UI 先闪 ciphertext。

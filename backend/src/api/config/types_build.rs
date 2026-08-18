@@ -38,7 +38,9 @@ pub(crate) fn form_secret_if_plaintext(value: Option<&str>) -> Option<String> {
 ///
 /// Semantics (data platforms only — not AI/OAuth omit-empty-keep):
 /// - masked (`••••` / `****…`) → skip (keep existing DB value)
-/// - empty string → insert `""` so clear persists
+/// - empty / whitespace → `null` (未配置). Do not persist `""`:
+///   `Option::as_deref()` treats `Some("")` as a credential and GitHub
+///   rejects `Authorization: token ` with 401.
 /// - non-empty plaintext → set new value
 fn insert_platform_field(
     updates: &mut std::collections::HashMap<String, Value>,
@@ -46,6 +48,10 @@ fn insert_platform_field(
     value: &str,
 ) {
     if is_masked_secret_value(value) {
+        return;
+    }
+    if value.trim().is_empty() {
+        updates.insert(db_key.to_string(), Value::Null);
         return;
     }
     updates.insert(db_key.to_string(), Value::String(value.to_string()));
@@ -3382,8 +3388,8 @@ mod settings_backup_tests {
             },
         ];
         let cleared = collect_database_updates(&config);
-        assert_eq!(cleared.get("github_username"), Some(&json!("")));
-        assert_eq!(cleared.get("github_token"), Some(&json!("")));
+        assert_eq!(cleared.get("github_username"), Some(&json!(null)));
+        assert_eq!(cleared.get("github_token"), Some(&json!(null)));
     }
 
     #[test]
@@ -3441,14 +3447,14 @@ mod settings_backup_tests {
             });
         }
         let updates = collect_database_updates(&config);
-        assert_eq!(updates.get("bangumi_username"), Some(&json!("")));
-        assert_eq!(updates.get("bangumi_access_token"), Some(&json!("")));
-        assert_eq!(updates.get("x_username"), Some(&json!("")));
-        assert_eq!(updates.get("x_bearer_token"), Some(&json!("")));
-        assert_eq!(updates.get("steam_api_key"), Some(&json!("")));
-        assert_eq!(updates.get("steam_id"), Some(&json!("")));
-        assert_eq!(updates.get("psn_online_id"), Some(&json!("")));
-        assert_eq!(updates.get("psn_npsso"), Some(&json!("")));
+        assert_eq!(updates.get("bangumi_username"), Some(&json!(null)));
+        assert_eq!(updates.get("bangumi_access_token"), Some(&json!(null)));
+        assert_eq!(updates.get("x_username"), Some(&json!(null)));
+        assert_eq!(updates.get("x_bearer_token"), Some(&json!(null)));
+        assert_eq!(updates.get("steam_api_key"), Some(&json!(null)));
+        assert_eq!(updates.get("steam_id"), Some(&json!(null)));
+        assert_eq!(updates.get("psn_online_id"), Some(&json!(null)));
+        assert_eq!(updates.get("psn_npsso"), Some(&json!(null)));
     }
 
     #[test]
@@ -3626,7 +3632,7 @@ fn collect_database_updates(config: &ConfigResponse) -> std::collections::HashMa
     // Shared with types_build / platform_test — see `is_masked_secret_value`.
     let is_masked = is_masked_secret_value;
 
-    // 保存平台配置（空串 = 清除；掩码 = 保留；明文 = 写入）
+    // 保存平台配置（空 = null 清除；掩码 = 保留；明文 = 写入）
     for platform in &config.platforms {
         match platform.name.as_str() {
             "GitHub" => {

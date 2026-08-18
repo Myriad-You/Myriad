@@ -24,7 +24,7 @@ Related:
 | --- | --- |
 | **Topology** | Business / admin / guard nets; updater off business L2; frontend/postgres cannot reach updater |
 | **docker-guard** | Only Guard mounts `docker.sock`; its operation/image/bind policy is compiled into the Guard TCB; updater-only on guard-net |
-| **Guard identity** | Production Guard is selected by a host-owned `docker-guard.env` outside the deployment root and must use the independently verified `repo@sha256` identity |
+| **Guard identity** | Production Guard is selected by `./guard-policy/docker-guard.env` (written by Guard on first start from the `.env` digest) and must use the independently verified `repo@sha256` identity |
 | **Guard local auth** | `/_myriad/self-update` requires a distinct host-policy capability shared only with updater; guard-net membership alone is insufficient |
 | **Token hop** | `UPDATE_TOKEN` in updater + gateway only — **not** in backend or Guard env |
 | **Gateway secret** | `UPDATER_GATEWAY_SECRET` (≥32) on backend ↔ updater-gateway; admin-net alone is not enough; the token hop exposes only explicit method/path/query/body capabilities |
@@ -42,18 +42,16 @@ Related:
 
 Must follow on every production self-hosted install:
 
-1. **Create the host-owned Guard policy before starting or upgrading.** Copy
-   `docker-guard.env.example` to `/etc/myriad/docker-guard.env` (Windows:
-   `%ProgramData%\Myriad\docker-guard.env`), replace the placeholder with the
-   exact updater image `repo@sha256` from independently verified signed release
-   metadata, and restrict it to the host administrator (`0600` or `0640` on Unix).
-   The deploy script generates `GUARD_SELF_UPDATE_TOKEN` in that policy when
-   missing; do not reuse `UPDATE_TOKEN`.
-   To use another path, set `MYRIAD_GUARD_ENV_FILE` in the host shell, not `.env`.
+1. **Pin Guard in `.env` before starting or upgrading.** Set
+   `DOCKER_GUARD_IMAGE` to the exact updater image `repo@sha256` from
+   independently verified signed release metadata. Guard writes
+   `./guard-policy/docker-guard.env` on first start (`0600` on Unix). The deploy
+   script seeds that file from `.env` when missing and generates
+   `GUARD_SELF_UPDATE_TOKEN` if empty; do not reuse `UPDATE_TOKEN`.
 2. **Existing installs / topology drift:** remove legacy Guard entries
    (`UPDATE_TOKEN`, `DOCKER_GUARD_ALLOWED_IMAGES`, self-update URL/env-file
    settings), then run one host-level `bash scripts/docker/deploy.sh upgrade`.
-   The script supplies both `.env` and the host-owned Guard policy to Compose.
+   The script supplies both `.env` and `./guard-policy/docker-guard.env` to Compose.
 3. **After deploy:** run `bash scripts/docker/deploy.sh doctor` and fix every
    **FAIL** before trusting the stack.
 4. **Protect secrets:** `UPDATE_TOKEN`, `UPDATER_GATEWAY_SECRET`, and the Guard
@@ -79,7 +77,7 @@ These are **by design** for single-tenant self-host, not open bugs:
   maintenance). That is the product surface.
 - A **compromised updater** can still change the explicitly writable deployment
   data (`.env`, `pgdata`, `state`), but the deployment root/Compose file and
-  host-owned Guard policy are read-only to it. Those changes cannot select a new
+  `./guard-policy/docker-guard.env` are read-only to it. Those changes cannot select a new
   Guard image or expand the Guard operation/image policy.
 - The self-update helper is itself trusted target-image code. During a handoff
   it receives the deployment root at `/host/write` and the Guard-policy parent

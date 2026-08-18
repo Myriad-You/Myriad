@@ -214,6 +214,9 @@ export const zhCN: TranslationKeys = {
     adminAccount: '所有者账户',
     connectionFailed: '连接失败',
     connectionFailedDesc: '无法连接到后端服务，请确保服务器正在运行',
+    claimedRepairTitle: '安装已完成',
+    claimedRepairDesc:
+      '这个实例已经有站长。库挂了请先修 PostgreSQL，不要再用安装向导改宿主配置。',
     backendDisconnected: '后端服务连接中断',
     reconnecting: '正在尝试重新连接...',
     retry: '重试',
@@ -275,15 +278,6 @@ export const zhCN: TranslationKeys = {
       '编排里已经写好数据库时才要填。从部署目录 .env 的 MYRIAD_SETUP_SECRET 复制，或用生成器给的 #setup_secret 链接自动填入。向导自己填库时不会出现这一项。',
     setupSecretPlaceholder: '粘贴 MYRIAD_SETUP_SECRET',
     setupSecretRequired: '请填写安装暗号。它在服务器的 .env 里，不在网页设置中。',
-    bootstrapToken: '引导令牌',
-    bootstrapTokenOptional: '安装操作必填',
-    bootstrapTokenPlaceholder: '粘贴 .bootstrap-token 内容',
-    bootstrapTokenHint:
-      '从服务器数据目录的 .bootstrap-token 文件（或环境变量 MYRIAD_BOOTSTRAP_TOKEN）读取短期令牌。首次安装、数据库初始化和创建所有者都必须填写。',
-    bootstrapTokenRequired:
-      '需要引导令牌：请读取服务器上的 .bootstrap-token 文件，填入后重试。',
-    bootstrapTokenRotated:
-      '数据库初始化令牌已失效。创建所有者前，请重新读取服务器数据目录中的 .bootstrap-token。',
   },
 
   // 配置
@@ -865,6 +859,8 @@ export const zhCN: TranslationKeys = {
     updaterStatusFirstRun: '还没有版本记录',
     updaterLastFailedTitle: '上次更新未成功',
     updaterLastFailedBody: '从 {from} 到 {to} 失败。原因：{reason}',
+    updaterLastFailedDismiss: '不再显示',
+    updaterLastFailedDismissAria: '永久关闭这次失败提示',
     updaterHintHealthy: '当前通道没有可用更新。',
     updaterHintUpdating: '完成后将自动检查运行状态。',
     updaterHintMaintenance: '可在下方退出维护模式。',
@@ -992,6 +988,7 @@ export const zhCN: TranslationKeys = {
     updaterTargetDockerHubHead: 'Docker Hub 构建（点击选择）',
     updaterDockerHubFallback:
       '通过 Docker Hub 发现构建（源码仓私有或未配置 GITHUB_TOKEN 时属正常）。',
+    updaterDockerHubSourceTag: 'Docker Hub',
     updaterDockerHubBuild: 'Docker Hub 已构建',
     updaterCommitTarget: '手动输入',
     updaterCommitPlaceholder: 'vX.Y.Z、dev-xxx 或提交 sha',
@@ -1242,7 +1239,7 @@ export const zhCN: TranslationKeys = {
       '在约 1 GB 内存的主机上降低并发内存占用。默认关闭时使用当前有界的均衡档；从旧版本升级会改变部分请求上限。',
     memorySaver: '内存节约',
     memorySaverHint:
-      '会收紧联邦并发缓冲与单条消息/附件上限（略低于均衡档）、传输分块并发、进程内缓存、数据库连接池与密码哈希并发。功能仍可用；极大媒体或高峰多路时可能更早拒收或「稍后重试」。可用 MYRIAD_MEMORY_PROFILE 覆盖。连接池需重启后端后完全生效。',
+      '在均衡档之上再收一档：分块并发、进程内缓存、连接池、密码哈希并发，以及视频/音频峰值。日常消息仍可用；大媒体请走分块传输，无损音频可能更早拒收。可用 MYRIAD_MEMORY_PROFILE 覆盖。连接池需重启后端后完全生效。',
     enableProxy: '启用网络代理',
     enableProxyHint: '开启后将使用代理访问外部API',
     proxyUrl: '代理地址',
@@ -3307,7 +3304,7 @@ export const zhCN: TranslationKeys = {
     inboundBlockManual: '手动',
     inboundGuardLoadFailed: '无法加载入站防护状态',
     inboundGuardSaveFailed: '无法更新入站防护',
-    credentialBinding: '{method} {endpoint}（{access}）· {detail}',
+    credentialBindings: '绑定的 API',
     credentialBindingPlacement: '{placement} {field}',
     credentialBindingSign: '签名 {alg}，字段 {fields}',
     credentialReauthorizationRequired:

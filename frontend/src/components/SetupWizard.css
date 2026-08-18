@@ -1588,6 +1588,13 @@ html[data-perf-mode='exlight'] .setup-ob {
   --sob-lift: 0px;
   --sob-stagger: 0ms;
   --sob-ease-spring: var(--sob-ease-glide);
+  --sob-glass: rgb(var(--sob-surface-rgb) / 96%);
+  --sob-glass-strong: rgb(var(--sob-surface-rgb) / 96%);
+  --sob-glass-soft: rgb(var(--sob-surface-rgb) / 96%);
+}
+
+html[data-perf-mode='exlight'] .setup-ob-bar .setup-ob-cta {
+  background: rgb(var(--sob-surface-rgb) / 96%);
 }
 
 html[data-perf-mode='exlight'] .setup-ob__aurora i,

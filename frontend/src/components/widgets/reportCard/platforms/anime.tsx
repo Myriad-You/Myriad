@@ -62,7 +62,7 @@ export const ANIME_THEMES: Record<'bangumi' | 'mal', AnimeListTheme> = {
     surfaceClass:
       'bg-linear-to-br from-rose-50/50 to-transparent dark:from-rose-900/20 dark:to-transparent',
     badgeClass:
-      'bg-rose-400/15 text-rose-500 border border-rose-400/25 backdrop-blur-sm',
+      'bg-rose-400/15 text-rose-500 border border-rose-400/25',
     emptyCoverClass: 'text-rose-400 bg-rose-50 dark:bg-rose-950/30',
     fallbackIcon: <SiBangumi />,
     typeColors: {
@@ -92,7 +92,7 @@ export const ANIME_THEMES: Record<'bangumi' | 'mal', AnimeListTheme> = {
     surfaceClass:
       'bg-linear-to-br from-blue-50/50 to-transparent dark:from-blue-900/20 dark:to-transparent',
     badgeClass:
-      'bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/25 backdrop-blur-sm',
+      'bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/25',
     emptyCoverClass: 'text-blue-400 bg-blue-50 dark:bg-blue-950/30',
     fallbackIcon: <SiMyanimelist />,
     typeColors: {

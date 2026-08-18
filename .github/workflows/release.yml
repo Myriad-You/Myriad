@@ -501,7 +501,7 @@ jobs:
               echo "GUARD_MYRIAD_DOCKER_NETWORK=myriad-net"
               echo "GUARD_MYRIAD_ADMIN_NETWORK=myriad-admin-net"
               echo "GUARD_MYRIAD_DOCKER_GUARD_NETWORK=myriad-docker-guard-net"
-              echo "MYRIAD_GUARD_ENV_FILE=/etc/myriad/docker-guard.env"
+              echo "MYRIAD_GUARD_ENV_FILE=guard-policy/docker-guard.env"
             } > docker-guard.env
           fi
 

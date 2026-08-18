@@ -5,6 +5,24 @@
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 
+/// True when an administrator or durable owner already exists.
+pub async fn installation_has_owner(db: &DatabaseConnection) -> Result<bool, String> {
+    let row = db
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT EXISTS (
+                SELECT 1 FROM users
+                WHERE is_admin = true OR COALESCE(is_owner, false) = true
+            ) AS claimed"
+                .to_string(),
+        ))
+        .await
+        .map_err(|error| format!("Failed to read installation claim: {error}"))?
+        .ok_or_else(|| "installation claim query returned no row".to_string())?;
+    row.try_get::<bool>("", "claimed")
+        .map_err(|error| format!("decode installation claim state: {error}"))
+}
+
 pub async fn site_owner_user_id(db: &DatabaseConnection) -> Result<i32, String> {
     // 1) Durable site owner flag
     if let Ok(Some(row)) = db

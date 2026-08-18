@@ -2,7 +2,9 @@
 //!
 //! - **default**: current balanced, bounded product budgets. These are not the
 //!   legacy unbounded/high-water values, so upgrading can change request caps.
-//! - **saver**: tighter concurrent / cache / pool knobs for ~1 GiB hosts.
+//! - **saver**: a second, tighter notch for ~1 GiB hosts. Default is already
+//!   bounded; saver further cuts cache, chunk inflight, pool, Argon2, and
+//!   large-media peaks so those knobs stay meaningfully below default.
 //!
 //! Selection order: `MYRIAD_MEMORY_PROFILE` env (`default`|`saver`|`small`) >
 //! dynamic config `memory_saver_enabled` > default.
@@ -18,8 +20,13 @@ use tokio::sync::Semaphore;
 
 /// Current balanced product defaults. They are not compatibility promises for
 /// releases that predate the bounded federation profile.
-pub const DEFAULT_DB_MIN_CONNECTIONS: u32 = 5;
-pub const DEFAULT_DB_MAX_CONNECTIONS: u32 = 20;
+///
+/// Pool min is the idle floor (not request concurrency). Keep it small so a
+/// quiet host does not park five Postgres backends; max is the concurrent
+/// query ceiling. 2/24 is +4 peak checkouts versus the old 5/20, paid for by
+/// three fewer idle connections at rest.
+pub const DEFAULT_DB_MIN_CONNECTIONS: u32 = 2;
+pub const DEFAULT_DB_MAX_CONNECTIONS: u32 = 24;
 pub const DEFAULT_INBOX_INFLIGHT_RAW_BUDGET: usize = 32 * 1024 * 1024;
 pub const DEFAULT_MAX_IN_FLIGHT_CHUNK_BYTES: usize = 128 * 1024 * 1024;
 pub const DEFAULT_MAX_API_CACHE_ENTRIES: usize = 2048;
@@ -30,17 +37,17 @@ pub const DEFAULT_MAX_GEO_CACHE_BYTES: usize = 4 * 1024 * 1024;
 pub const DEFAULT_ARGON2_PERMITS: usize = 4;
 pub const DEFAULT_MAX_AUDIO_BYTES: usize = 128 * 1024 * 1024;
 
-/// Memory-saver budgets (tighter concurrent + modestly lower federation peaks).
-pub const SAVER_DB_MIN_CONNECTIONS: u32 = 2;
-pub const SAVER_DB_MAX_CONNECTIONS: u32 = 8;
-pub const SAVER_INBOX_INFLIGHT_RAW_BUDGET: usize = 8 * 1024 * 1024;
-pub const SAVER_MAX_IN_FLIGHT_CHUNK_BYTES: usize = 48 * 1024 * 1024;
-pub const SAVER_MAX_API_CACHE_ENTRIES: usize = 512;
-pub const SAVER_MAX_GEO_CACHE_ENTRIES: usize = 512;
-pub const SAVER_MAX_API_CACHE_BYTES: usize = 32 * 1024 * 1024;
-pub const SAVER_MAX_GEO_CACHE_BYTES: usize = 1024 * 1024;
-pub const SAVER_ARGON2_PERMITS: usize = 2;
-pub const SAVER_MAX_AUDIO_BYTES: usize = 64 * 1024 * 1024;
+/// Memory-saver budgets for ~1 GiB hosts (second notch below bounded default).
+pub const SAVER_DB_MIN_CONNECTIONS: u32 = 1;
+pub const SAVER_DB_MAX_CONNECTIONS: u32 = 4;
+pub const SAVER_INBOX_INFLIGHT_RAW_BUDGET: usize = 4 * 1024 * 1024;
+pub const SAVER_MAX_IN_FLIGHT_CHUNK_BYTES: usize = 16 * 1024 * 1024;
+pub const SAVER_MAX_API_CACHE_ENTRIES: usize = 128;
+pub const SAVER_MAX_GEO_CACHE_ENTRIES: usize = 128;
+pub const SAVER_MAX_API_CACHE_BYTES: usize = 8 * 1024 * 1024;
+pub const SAVER_MAX_GEO_CACHE_BYTES: usize = 256 * 1024;
+pub const SAVER_ARGON2_PERMITS: usize = 1;
+pub const SAVER_MAX_AUDIO_BYTES: usize = 16 * 1024 * 1024;
 /// Federation JSON caps. Larger media uses the chunked transfer surface.
 pub const DEFAULT_MESSAGE_PAYLOAD_LIMIT: usize = 4 * 1024 * 1024;
 pub const DEFAULT_INBOX_BODY_LIMIT: usize = 8 * 1024 * 1024;
@@ -49,9 +56,9 @@ pub const DEFAULT_NOTE_IMAGE_LIMIT: usize = 32 * 1024 * 1024;
 pub const DEFAULT_NOTE_VIDEO_LIMIT: usize = 256 * 1024 * 1024;
 pub const SAVER_MESSAGE_PAYLOAD_LIMIT: usize = 2 * 1024 * 1024;
 pub const SAVER_INBOX_BODY_LIMIT: usize = 4 * 1024 * 1024;
-pub const SAVER_AUTHENTICATED_BODY_LIMIT: usize = 16 * 1024 * 1024;
-pub const SAVER_NOTE_IMAGE_LIMIT: usize = 20 * 1024 * 1024;
-pub const SAVER_NOTE_VIDEO_LIMIT: usize = 128 * 1024 * 1024;
+pub const SAVER_AUTHENTICATED_BODY_LIMIT: usize = 8 * 1024 * 1024;
+pub const SAVER_NOTE_IMAGE_LIMIT: usize = 8 * 1024 * 1024;
+pub const SAVER_NOTE_VIDEO_LIMIT: usize = 32 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MemoryProfile {
@@ -307,6 +314,17 @@ pub fn metrics_snapshot() -> serde_json::Value {
     })
 }
 
+/// Public product caps for host/TAPP clients (no RSS / pool internals).
+pub fn public_limits_snapshot() -> serde_json::Value {
+    let b = active_budgets();
+    serde_json::json!({
+        "profile": b.profile.as_str(),
+        "message_payload_bytes": b.message_payload_limit,
+        "note_image_bytes": b.note_image_limit,
+        "note_video_bytes": b.note_video_limit,
+    })
+}
+
 pub fn message_payload_limit() -> usize {
     MESSAGE_PAYLOAD.load(Ordering::Relaxed)
 }
@@ -353,8 +371,8 @@ mod tests {
     #[test]
     fn default_budgets_match_public_inbox_contract() {
         let b = MemoryBudgets::for_profile(MemoryProfile::Default);
-        assert_eq!(b.db_min_connections, 5);
-        assert_eq!(b.db_max_connections, 20);
+        assert_eq!(b.db_min_connections, 2);
+        assert_eq!(b.db_max_connections, 24);
         assert_eq!(b.inbox_inflight_raw_budget, 32 * 1024 * 1024);
         assert_eq!(b.max_in_flight_chunk_bytes, 128 * 1024 * 1024);
         assert_eq!(b.max_api_cache_entries, 2048);
@@ -391,7 +409,11 @@ mod tests {
         assert!(s.inbox_body_limit - s.message_payload_limit >= s.message_payload_limit / 4);
         // Larger media is intentionally handled by chunked transfer, not inbox JSON.
         assert!(s.message_payload_limit >= 2 * 1024 * 1024);
-        assert!(s.note_video_limit >= 96 * 1024 * 1024);
+        assert_eq!(s.note_video_limit, 32 * 1024 * 1024);
+        assert_eq!(s.max_in_flight_chunk_bytes, 16 * 1024 * 1024);
+        assert_eq!(s.max_api_cache_bytes, 8 * 1024 * 1024);
+        assert_eq!(s.db_max_connections, 4);
+        assert_eq!(s.argon2_permits, 1);
     }
 
     #[test]
@@ -400,11 +422,40 @@ mod tests {
         apply(MemoryProfile::Saver);
         assert_eq!(active_profile(), MemoryProfile::Saver);
         assert_eq!(inbox_inflight_raw_budget(), SAVER_INBOX_INFLIGHT_RAW_BUDGET);
+        assert_eq!(max_in_flight_chunk_bytes(), SAVER_MAX_IN_FLIGHT_CHUNK_BYTES);
+        assert_eq!(max_api_cache_entries(), SAVER_MAX_API_CACHE_ENTRIES);
+        assert_eq!(max_api_cache_bytes(), SAVER_MAX_API_CACHE_BYTES);
+        assert_eq!(max_geo_cache_entries(), SAVER_MAX_GEO_CACHE_ENTRIES);
+        assert_eq!(max_geo_cache_bytes(), SAVER_MAX_GEO_CACHE_BYTES);
+        assert_eq!(max_audio_bytes(), SAVER_MAX_AUDIO_BYTES);
+        assert_eq!(message_payload_limit(), SAVER_MESSAGE_PAYLOAD_LIMIT);
+        assert_eq!(inbox_body_limit(), SAVER_INBOX_BODY_LIMIT);
+        assert_eq!(authenticated_body_limit(), SAVER_AUTHENTICATED_BODY_LIMIT);
+        assert_eq!(note_image_limit(), SAVER_NOTE_IMAGE_LIMIT);
+        assert_eq!(note_video_limit(), SAVER_NOTE_VIDEO_LIMIT);
+        assert_eq!(db_min_connections(), SAVER_DB_MIN_CONNECTIONS);
+        assert_eq!(db_max_connections(), SAVER_DB_MAX_CONNECTIONS);
+        assert_eq!(argon2_permits(), SAVER_ARGON2_PERMITS);
         apply(MemoryProfile::Default);
         assert_eq!(
             inbox_inflight_raw_budget(),
             DEFAULT_INBOX_INFLIGHT_RAW_BUDGET
         );
+        assert_eq!(max_audio_bytes(), DEFAULT_MAX_AUDIO_BYTES);
+        assert_eq!(db_max_connections(), DEFAULT_DB_MAX_CONNECTIONS);
+        assert_eq!(argon2_permits(), DEFAULT_ARGON2_PERMITS);
+        apply(MemoryProfile::Saver);
+        let snap = public_limits_snapshot();
+        assert_eq!(snap.get("profile").and_then(|v| v.as_str()), Some("saver"));
+        assert_eq!(
+            snap.get("message_payload_bytes").and_then(|v| v.as_u64()),
+            Some(SAVER_MESSAGE_PAYLOAD_LIMIT as u64)
+        );
+        assert_eq!(
+            snap.get("note_video_bytes").and_then(|v| v.as_u64()),
+            Some(SAVER_NOTE_VIDEO_LIMIT as u64)
+        );
+        apply(MemoryProfile::Default);
     }
 
     #[test]

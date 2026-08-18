@@ -25,8 +25,8 @@ err()  { echo -e "${RED}$1${NC}"; }
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
-# This file is deliberately outside the updater-writable deployment root.
-GUARD_ENV_FILE="${MYRIAD_GUARD_ENV_FILE:-/etc/myriad/docker-guard.env}"
+COMPOSE_GUARD_DIR="$ROOT/guard-policy"
+GUARD_ENV_FILE="$COMPOSE_GUARD_DIR/docker-guard.env"
 
 COMMAND="${1:-up}"
 
@@ -35,10 +35,7 @@ show_usage() {
 Usage: $0 [command] [options]
 
 Commands:
-  up [--local-bootstrap]
-            (default) Initialise .env / volumes, enable proxy/browser setup until
-            the owner is claimed, then \`docker compose up -d\`. Use
-            --local-bootstrap to keep setup loopback-only.
+  up        (default) Initialise .env / volumes, then \`docker compose up -d\`.
   down      Stop and remove containers (volumes preserved)
   restart   docker compose restart
   pull      Pull images pinned by .env tags
@@ -57,8 +54,7 @@ Notes:
     run \`$0 upgrade\`.
 
 Examples:
-  $0                 # Browser/proxy bootstrap + start
-  $0 up --local-bootstrap # Loopback-only bootstrap
+  $0                 # Start
   $0 down            # Stop
   $0 status          # See running versions
   $0 doctor          # Topology security checks
@@ -116,30 +112,74 @@ detect_compose() {
     fi
 }
 
-ensure_guard_policy() {
-    if [ ! -f "$GUARD_ENV_FILE" ]; then
-        err "✗ Missing host-owned Guard policy: $GUARD_ENV_FILE"
-        err "  Copy docker-guard.env.example outside this deployment root, then set"
-        err "  DOCKER_GUARD_IMAGE to the exact trusted repo@sha256 digest from a"
-        err "  cosign-verified release.json. Automatic Guard image selection is forbidden."
+env_file_value() {
+    local key="$1" file="${2:-.env}"
+    grep -E "^${key}=" "$file" 2>/dev/null | head -1 | cut -d= -f2- || true
+}
+
+seed_guard_policy_from_env() {
+    local image token project net admin gnet
+    image="$(env_file_value DOCKER_GUARD_IMAGE)"
+    if ! printf '%s' "$image" | grep -Eq '^docker\.io/somekawahitomi/myriad-updater@sha256:[0-9a-fA-F]{64}$'; then
+        err "✗ .env must contain digest-pinned DOCKER_GUARD_IMAGE (repo@sha256)"
+        err "  so Guard can write ./guard-policy/docker-guard.env. Mutable tags are forbidden."
         exit 2
+    fi
+    token="$(env_file_value GUARD_SELF_UPDATE_TOKEN)"
+    if [ -z "$token" ]; then
+        token="$(generate_secret)"
+        set_env_file_value .env GUARD_SELF_UPDATE_TOKEN "$token"
+        info "  + generated GUARD_SELF_UPDATE_TOKEN in .env"
+    fi
+    project="$(env_file_value GUARD_COMPOSE_PROJECT_NAME)"
+    [ -z "$project" ] && project="$(env_file_value COMPOSE_PROJECT_NAME)"
+    [ -z "$project" ] && project="myriad"
+    net="$(env_file_value GUARD_MYRIAD_DOCKER_NETWORK)"
+    [ -z "$net" ] && net="$(env_file_value MYRIAD_DOCKER_NETWORK)"
+    [ -z "$net" ] && net="myriad-net"
+    admin="$(env_file_value GUARD_MYRIAD_ADMIN_NETWORK)"
+    [ -z "$admin" ] && admin="$(env_file_value MYRIAD_ADMIN_NETWORK)"
+    [ -z "$admin" ] && admin="myriad-admin-net"
+    gnet="$(env_file_value GUARD_MYRIAD_DOCKER_GUARD_NETWORK)"
+    [ -z "$gnet" ] && gnet="$(env_file_value MYRIAD_DOCKER_GUARD_NETWORK)"
+    [ -z "$gnet" ] && gnet="myriad-docker-guard-net"
+    umask 077
+    cat > "$GUARD_ENV_FILE" <<EOF
+DOCKER_GUARD_IMAGE=$image
+GUARD_SELF_UPDATE_TOKEN=$token
+GUARD_COMPOSE_PROJECT_NAME=$project
+GUARD_MYRIAD_DOCKER_NETWORK=$net
+GUARD_MYRIAD_ADMIN_NETWORK=$admin
+GUARD_MYRIAD_DOCKER_GUARD_NETWORK=$gnet
+MYRIAD_GUARD_ENV_FILE=guard-policy/docker-guard.env
+EOF
+    chmod 0600 "$GUARD_ENV_FILE"
+    info "  + wrote $GUARD_ENV_FILE from .env"
+}
+
+ensure_guard_policy() {
+    mkdir -p "$COMPOSE_GUARD_DIR"
+    if [ ! -f "$GUARD_ENV_FILE" ]; then
+        seed_guard_policy_from_env
+    else
+        local existing_image
+        existing_image="$(grep '^DOCKER_GUARD_IMAGE=' "$GUARD_ENV_FILE" | head -1 | cut -d= -f2- || true)"
+        if ! printf '%s' "$existing_image" | grep -Eq '^docker\.io/somekawahitomi/myriad-updater@sha256:[0-9a-fA-F]{64}$'; then
+            warn "  ! $GUARD_ENV_FILE is not digest-pinned; rewriting from .env"
+            seed_guard_policy_from_env
+        fi
     fi
     if [ -L "$GUARD_ENV_FILE" ]; then
         err "✗ Guard policy must not be a symbolic link: $GUARD_ENV_FILE"
         exit 2
     fi
-    local policy_real root_real count image key configured_path
-    policy_real="$(cd "$(dirname "$GUARD_ENV_FILE")" && pwd -P)/$(basename "$GUARD_ENV_FILE")"
-    root_real="$(pwd -P)"
-    case "$policy_real" in
-        "$root_real"|"$root_real"/*) err "✗ Guard policy must be outside the deployment root: $policy_real"; exit 2 ;;
-    esac
+    local count image key configured_path
     if [ "$(uname -s)" != "Darwin" ]; then
         local mode
         mode="$(stat -c '%a' "$GUARD_ENV_FILE" 2>/dev/null || true)"
         case "$mode" in
             600|640) ;;
-            *) err "✗ Guard policy must be owner-controlled mode 0600 or 0640: $GUARD_ENV_FILE"; exit 2 ;;
+            *) chmod 0600 "$GUARD_ENV_FILE" ;;
         esac
     fi
     ensure_guard_policy_secret
@@ -157,20 +197,18 @@ ensure_guard_policy() {
         exit 2
     fi
     configured_path="$(grep '^MYRIAD_GUARD_ENV_FILE=' "$GUARD_ENV_FILE" | cut -d= -f2-)"
-    if [ "$configured_path" != "$policy_real" ]; then
-        err "✗ MYRIAD_GUARD_ENV_FILE must equal the resolved policy path: $policy_real"
+    if [ "$configured_path" != "guard-policy/docker-guard.env" ]; then
+        err "✗ MYRIAD_GUARD_ENV_FILE must be guard-policy/docker-guard.env"
         exit 2
     fi
 }
 
 run_compose() {
     ensure_guard_policy
-    local policy_real
-    policy_real="$(cd "$(dirname "$GUARD_ENV_FILE")" && pwd -P)/$(basename "$GUARD_ENV_FILE")"
     if [ "$COMPOSE_KIND" = "docker compose" ]; then
-        MYRIAD_GUARD_ENV_FILE="$policy_real" docker compose --env-file .env --env-file "$GUARD_ENV_FILE" "$@"
+        MYRIAD_GUARD_ENV_FILE=guard-policy/docker-guard.env docker compose --env-file .env --env-file "$GUARD_ENV_FILE" "$@"
     else
-        MYRIAD_GUARD_ENV_FILE="$policy_real" docker-compose --env-file .env --env-file "$GUARD_ENV_FILE" "$@"
+        MYRIAD_GUARD_ENV_FILE=guard-policy/docker-guard.env docker-compose --env-file .env --env-file "$GUARD_ENV_FILE" "$@"
     fi
 }
 
@@ -241,7 +279,7 @@ ensure_env() {
         warn "  - JWT_SECRET        (openssl rand -base64 32)"
         warn "  - CORS_ORIGINS      (your domain)"
         warn ""
-        warn "This script will create pgdata/state/backups and fill empty UPDATE_TOKEN / UPDATER_GATEWAY_SECRET / MYRIAD_SETUP_SECRET."
+        warn "This script will create pgdata/state/backups/guard-policy and fill empty UPDATE_TOKEN / UPDATER_GATEWAY_SECRET / MYRIAD_SETUP_SECRET / GUARD_SELF_UPDATE_TOKEN."
         warn ""
         read -r -p "Open .env in \$EDITOR now? (y/N): " r
         if [[ "$r" =~ ^[Yy]$ ]]; then
@@ -252,10 +290,10 @@ ensure_env() {
 
 ensure_current_layout() {
     info "==> Ensuring current proxy + updater layout"
-    mkdir -p pgdata state state/snapshots state/cache backups
-    ensure_key MYRIAD_TAG v0.3.31
-    ensure_key PROXY_TAG v0.3.31
-    ensure_key UPDATER_TAG v0.3.31
+    mkdir -p pgdata state state/snapshots state/cache backups guard-policy
+    ensure_key MYRIAD_TAG v0.3.35
+    ensure_key PROXY_TAG v0.3.35
+    ensure_key UPDATER_TAG v0.3.35
     ensure_key BACKEND_IMAGE docker.io/somekawahitomi/myriad-backend
     ensure_key FRONTEND_IMAGE docker.io/somekawahitomi/myriad-frontend
     ensure_key COMPOSE_PROJECT_NAME myriad
@@ -264,74 +302,12 @@ ensure_current_layout() {
     ensure_key MYRIAD_GITHUB_REPO Myriad-You/Myriad
     ensure_key CHECK_INTERVAL_SECS 3600
     ensure_key PROXY_ALLOW_DIRECT_UPDATER false
+    ensure_key MYRIAD_GUARD_ENV_FILE guard-policy/docker-guard.env
+    ensure_key GUARD_COMPOSE_PROJECT_NAME myriad
     ensure_update_token
     ensure_updater_gateway_secret
     ensure_secret_key MYRIAD_SETUP_SECRET
-}
-
-deployment_project_name() {
-    local project="${COMPOSE_PROJECT_NAME:-}"
-    if [ -z "$project" ]; then
-        project="$(grep -E '^COMPOSE_PROJECT_NAME=' .env 2>/dev/null | head -1 | cut -d= -f2-)"
-    fi
-    project="${project:-myriad}"
-    project="${project%\"}"; project="${project#\"}"
-    project="${project%\'}"; project="${project#\'}"
-    if [[ ! "$project" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
-        err "Invalid COMPOSE_PROJECT_NAME: $project"
-        return 1
-    fi
-    printf '%s' "$project"
-}
-
-bootstrap_claim_state() {
-    local data_vol="$(deployment_project_name)_backend_data"
-    docker volume inspect "$data_vol" >/dev/null 2>&1 || return 2
-    docker run --rm -v "${data_vol}:/app/data:ro" alpine:3.20 \
-        sh -c '
-          [ -f /app/data/.bootstrap-claimed ] && exit 0
-          [ -f /app/data/.bootstrap-token ] && exit 1
-          [ -z "$(find /app/data -mindepth 1 -maxdepth 1 -print -quit)" ] && exit 3
-          exit 4
-        '
-}
-
-running_bootstrap_claim_state() {
-    docker inspect myriad-backend >/dev/null 2>&1 || return 2
-    docker exec myriad-backend sh -c '
-      [ -f /app/data/.bootstrap-claimed ] && exit 0
-      [ -f /app/data/.bootstrap-token ] && exit 1
-      [ -z "$(find /app/data -mindepth 1 -maxdepth 1 -print -quit)" ] && exit 3
-      exit 4
-    '
-}
-
-configure_bootstrap_access() {
-    local mode="$1" state
-    if bootstrap_claim_state; then
-        set_env_file_value .env MYRIAD_ALLOW_REMOTE_BOOTSTRAP false
-        ok "Owner claim detected; remote bootstrap is disabled."
-        return 0
-    else
-        state=$?
-    fi
-    if [ "$state" != "1" ] && [ "$state" != "3" ] && [ "$state" != "4" ]; then
-        err "Cannot inspect the backend data volume for bootstrap state."
-        return 1
-    fi
-    if [ "$mode" = "local" ]; then
-        set_env_file_value .env MYRIAD_ALLOW_REMOTE_BOOTSTRAP false
-        warn "Bootstrap remains loopback-only; the browser through the proxy cannot complete setup."
-        warn "Run setup locally against the backend, or rerun: $0 up"
-    elif [ "$mode" = "remote" ] || [ "$state" = "1" ] || [ "$state" = "3" ]; then
-        set_env_file_value .env MYRIAD_ALLOW_REMOTE_BOOTSTRAP true
-        warn "Remote bootstrap temporarily enabled for first-run browser setup."
-        warn "After creating the owner, rerun '$0 up' to detect the claim and disable it."
-    else
-        set_env_file_value .env MYRIAD_ALLOW_REMOTE_BOOTSTRAP false
-        warn "Existing backend data has no bootstrap marker; remote setup was not enabled automatically."
-        warn "If this installation is genuinely unclaimed, rerun: $0 up --remote-bootstrap"
-    fi
+    ensure_secret_key GUARD_SELF_UPDATE_TOKEN
 }
 
 # Backend runs as uid 1000 (USER myriad). Named volumes are root-owned on first
@@ -417,18 +393,14 @@ cmd_soft_doctor() {
 }
 
 cmd_up() {
-    local bootstrap_mode=auto arg
+    local arg
     for arg in "$@"; do
-        case "$arg" in
-            --local-bootstrap) bootstrap_mode=local ;;
-            --remote-bootstrap) bootstrap_mode=remote ;;
-            *) err "Unknown up option: $arg"; return 2 ;;
-        esac
+        err "Unknown up option: $arg"
+        return 2
     done
     ensure_env
     ensure_current_layout
     ensure_backend_volume_perms
-    configure_bootstrap_access "$bootstrap_mode"
     info "==> docker compose up -d"
     run_compose up -d
     echo ""
@@ -504,32 +476,6 @@ cmd_doctor() {
     fi
 
     info "==> Deploy topology doctor (read-only)"
-
-    if running_bootstrap_claim_state; then
-        if grep -E '^MYRIAD_ALLOW_REMOTE_BOOTSTRAP=(true|1|yes|on)$' .env >/dev/null 2>&1; then
-            err "FAIL  owner is claimed but MYRIAD_ALLOW_REMOTE_BOOTSTRAP is still enabled"
-            err "      Run '$0 up' to disable it and recreate the backend."
-            fail=$((fail + 1))
-        else
-            ok "PASS  claimed installation has remote bootstrap disabled"
-        fi
-    else
-        local bootstrap_state=$?
-        if [ "$bootstrap_state" = "1" ] || [ "$bootstrap_state" = "3" ]; then
-            if grep -E '^MYRIAD_ALLOW_REMOTE_BOOTSTRAP=(true|1|yes|on)$' .env >/dev/null 2>&1; then
-                warn "WARN  first-run remote bootstrap is enabled until owner claim"
-            else
-                warn "WARN  installation is unclaimed and browser/proxy setup is disabled"
-                warn "      Run '$0 up' (or use --local-bootstrap intentionally)."
-            fi
-        elif [ "$bootstrap_state" = "4" ]; then
-            warn "WARN  existing backend data has no bootstrap claim marker"
-            warn "      Use '$0 up --remote-bootstrap' only if it is genuinely unclaimed."
-        else
-            warn "SKIP  bootstrap claim state is not inspectable"
-            skip=$((skip + 1))
-        fi
-    fi
 
     container_exists() {
         docker inspect "$1" >/dev/null 2>&1

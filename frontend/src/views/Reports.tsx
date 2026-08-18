@@ -1305,7 +1305,7 @@ export default function Reports() {
                           {!platformReport && (
                             <div className="absolute bottom-3 left-3 z-20">
                               <div
-                                className={`w-8 h-8 rounded-lg flex items-center justify-center text-base backdrop-blur-sm shadow-lg border ${platform.text} ${platform.bg} ${platform.border}`}
+                                className={`w-8 h-8 rounded-lg flex items-center justify-center text-base shadow-lg border ${platform.text} ${platform.bg} ${platform.border}`}
                               >
                                 {platform.icon}
                               </div>
@@ -1334,7 +1334,7 @@ export default function Reports() {
                         delay: isPageReady ? 0.15 : 0,
                       }}
                     >
-                      <div className="absolute inset-0 bg-white/70 dark:bg-black/80 backdrop-blur-xl" />
+                      <div className="absolute inset-0 glass-surface glass-70" />
                       <div
                         className="absolute -right-20 -top-20 w-48 h-48 rounded-full blur-3xl opacity-20"
                         style={{ background: 'var(--color-primary)' }}

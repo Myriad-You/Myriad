@@ -209,6 +209,8 @@ export interface TranslationKeys {
     adminAccount: string
     connectionFailed: string
     connectionFailedDesc: string
+    claimedRepairTitle: string
+    claimedRepairDesc: string
     backendDisconnected: string
     reconnecting: string
     retry: string
@@ -269,12 +271,6 @@ export interface TranslationKeys {
     setupSecretHint: string
     setupSecretPlaceholder: string
     setupSecretRequired: string
-    bootstrapToken: string
-    bootstrapTokenOptional: string
-    bootstrapTokenPlaceholder: string
-    bootstrapTokenHint: string
-    bootstrapTokenRequired: string
-    bootstrapTokenRotated: string
   }
 
   // 配置
@@ -792,6 +788,8 @@ export interface TranslationKeys {
     updaterStatusFirstRun: string
     updaterLastFailedTitle: string
     updaterLastFailedBody: string
+    updaterLastFailedDismiss: string
+    updaterLastFailedDismissAria: string
     updaterHintHealthy: string
     updaterHintUpdating: string
     updaterHintMaintenance: string
@@ -892,6 +890,7 @@ export interface TranslationKeys {
     updaterTargetCommitHead: string
     updaterTargetDockerHubHead: string
     updaterDockerHubFallback: string
+    updaterDockerHubSourceTag: string
     updaterDockerHubBuild: string
     updaterCommitTarget: string
     updaterCommitPlaceholder: string
@@ -3129,7 +3128,7 @@ export interface TranslationKeys {
     inboundBlockManual: string
     inboundGuardLoadFailed: string
     inboundGuardSaveFailed: string
-    credentialBinding: string
+    credentialBindings: string
     credentialBindingPlacement: string
     credentialBindingSign: string
     credentialReauthorizationRequired: string

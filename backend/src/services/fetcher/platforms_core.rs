@@ -592,7 +592,7 @@ impl PlatformFetcher {
             .header("User-Agent", "Myriad")
             .header("Accept", "application/vnd.github.v3+json");
 
-        if let Some(token) = token {
+        if let Some(token) = token.map(str::trim).filter(|token| !token.is_empty()) {
             request = request.header("Authorization", format!("token {}", token));
         }
 
@@ -622,7 +622,7 @@ impl PlatformFetcher {
                 .header("User-Agent", "Myriad")
                 .header("Accept", "application/vnd.github.v3+json");
 
-            if let Some(token) = token {
+            if let Some(token) = token.map(str::trim).filter(|token| !token.is_empty()) {
                 request = request.header("Authorization", format!("token {}", token));
             }
 

@@ -229,6 +229,9 @@ export const enUS: TranslationKeys = {
     connectionFailed: 'Connection Failed',
     connectionFailedDesc:
       'Cannot connect to backend service, please make sure the server is running',
+    claimedRepairTitle: 'Setup already claimed',
+    claimedRepairDesc:
+      'This instance already has an owner. Repair PostgreSQL first; do not use the setup wizard to change host configuration.',
     backendDisconnected: 'Backend service disconnected',
     reconnecting: 'Attempting to reconnect...',
     retry: 'Retry',
@@ -297,19 +300,10 @@ export const enUS: TranslationKeys = {
     enterPasswordAgain: 'Enter password again',
     setupSecret: 'Setup passphrase',
     setupSecretHint:
-      'Required only when the database URL was already written by orchestration. Copy MYRIAD_SETUP_SECRET from the server .env, or open the generator’s #setup_secret link to fill it. The wizard database step does not show this field.',
+      'Required only when the database URL was already written by orchestration. Copy MYRIAD_SETUP_SECRET from the server .env, or open the generator’s #setup_secret link to fill it. The wizard-only database path does not show this field.',
     setupSecretPlaceholder: 'Paste MYRIAD_SETUP_SECRET',
     setupSecretRequired:
       'Enter the setup passphrase from the server .env. It is not shown in the web UI.',
-    bootstrapToken: 'Bootstrap token',
-    bootstrapTokenOptional: 'required for installation operations',
-    bootstrapTokenPlaceholder: 'Paste contents of .bootstrap-token',
-    bootstrapTokenHint:
-      'Read the short-lived token from DATA_DIR/.bootstrap-token (or MYRIAD_BOOTSTRAP_TOKEN). It is required for first install, database initialization, and owner creation.',
-    bootstrapTokenRequired:
-      'Bootstrap token required: read the server .bootstrap-token file, paste it, and try again.',
-    bootstrapTokenRotated:
-      'The database-initialization token is now invalid. Before creating the owner, read the new .bootstrap-token from the server data directory.',
   },
 
   // Configuration
@@ -920,6 +914,8 @@ export const enUS: TranslationKeys = {
     updaterStatusFirstRun: 'No version recorded yet',
     updaterLastFailedTitle: 'Last update did not complete',
     updaterLastFailedBody: 'From {from} to {to} failed. Reason: {reason}',
+    updaterLastFailedDismiss: 'Don’t show again',
+    updaterLastFailedDismissAria: 'Permanently dismiss this failed-update notice',
     updaterHintHealthy: 'No updates are available on this channel.',
     updaterHintUpdating: 'The system will be checked when it finishes.',
     updaterHintMaintenance: 'Exit maintenance mode below when ready.',
@@ -1057,6 +1053,7 @@ export const enUS: TranslationKeys = {
     updaterTargetDockerHubHead: 'Docker Hub builds (click to select)',
     updaterDockerHubFallback:
       'Discovering builds via Docker Hub (normal when the source repo is private or GITHUB_TOKEN is unset).',
+    updaterDockerHubSourceTag: 'Docker Hub',
     updaterDockerHubBuild: 'Built on Docker Hub',
     updaterCommitTarget: 'Enter manually',
     updaterCommitPlaceholder: 'vX.Y.Z, dev-xxx, or commit sha',
@@ -1329,7 +1326,7 @@ export const enUS: TranslationKeys = {
       'Lower concurrent memory use on small hosts (~1 GiB). Default off uses the current bounded balanced profile; upgrades from older releases can change request limits.',
     memorySaver: 'Memory saver',
     memorySaverHint:
-      'Tightens concurrent federation buffers, slightly lowers single-message/attachment size caps, transfer chunk concurrency, process caches, DB pool size, and password-hash concurrency. Features stay available; very large media or multi-path peaks may reject sooner or show “retry later”. Env MYRIAD_MEMORY_PROFILE can override. DB pool fully applies after backend restart.',
+      'A second notch below the bounded default: smaller chunk inflight, process caches, DB pool, password-hash concurrency, and video/audio peaks. Everyday messages still fit; large media should use chunked transfer, and lossless audio may reject sooner. Env MYRIAD_MEMORY_PROFILE can override. DB pool fully applies after backend restart.',
     enableProxy: 'Enable Network Proxy',
     enableProxyHint:
       'External API requests will be sent through the proxy when enabled',
@@ -3494,7 +3491,7 @@ export const enUS: TranslationKeys = {
     inboundBlockManual: 'manual',
     inboundGuardLoadFailed: 'Could not load inbound protection',
     inboundGuardSaveFailed: 'Could not update inbound protection',
-    credentialBinding: '{method} {endpoint} ({access}) · {detail}',
+    credentialBindings: 'Bound APIs',
     credentialBindingPlacement: '{placement} {field}',
     credentialBindingSign: 'sign {alg} over {fields}',
     credentialReauthorizationRequired:

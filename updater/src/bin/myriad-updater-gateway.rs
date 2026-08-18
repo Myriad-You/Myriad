@@ -126,6 +126,7 @@ fn build_router(state: Arc<GatewayState>) -> Router {
         .route("/diagnostics", get(proxy))
         .route("/update", post(proxy))
         .route("/prefs", post(proxy))
+        .route("/last-failed/dismiss", post(proxy))
         .route("/rollback", post(proxy))
         .route("/rescue/continue", post(proxy))
         .route("/rescue/exit-maintenance", post(proxy))
@@ -334,6 +335,7 @@ fn validate_capability(
             body: BodySchema::Prefs,
             ..write_capability(false)
         },
+        (&Method::POST, "/last-failed/dismiss") => write_capability(false),
         (&Method::POST, "/rollback") => Capability {
             body: BodySchema::Rollback,
             ..write_capability(true)
@@ -1121,5 +1123,9 @@ mod tests {
             validate_capability(&Method::POST, &uri, &headers, br#"{"snapshot_limit":21}"#,)
                 .is_err()
         );
+
+        let uri: Uri = "/last-failed/dismiss".parse().unwrap();
+        assert!(validate_capability(&Method::POST, &uri, &headers, b"").is_ok());
+        assert!(validate_capability(&Method::POST, &uri, &headers, br#"{}"#).is_err());
     }
 }

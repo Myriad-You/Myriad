@@ -663,7 +663,7 @@ const YoutubeVideoSlide = memo(({ item }: { item: YtVideoItem }) => {
       )}
 
       {parts.length > 0 && (
-        <div className="absolute right-1.5 top-1.5 z-10 flex items-center gap-1 rounded-md bg-black/70 px-1.5 py-0.5 text-[9px] font-bold tabular-nums leading-none text-white shadow backdrop-blur-sm">
+        <div className="absolute right-1.5 top-1.5 z-10 flex items-center gap-1 rounded-md bg-black/70 px-1.5 py-0.5 text-[9px] font-bold tabular-nums leading-none text-white shadow">
           {parts.map((key, i) => (
             <span key={key} className="inline-flex items-center gap-1">
               {i > 0 && (

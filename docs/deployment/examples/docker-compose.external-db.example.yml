@@ -17,8 +17,8 @@
 #   JWT_SECRET / CORS_ORIGINS
 #   UPDATE_TOKEN / UPDATER_GATEWAY_SECRET
 #   COMPOSE_PROJECT_NAME=myriad
-# 还必须把宿主持有的 docker-guard.env 作为第二个 --env-file 传给 Compose；
-# 不要把 DOCKER_GUARD_IMAGE 放进 updater 可写的应用 .env。
+# .env 必须含 digest 钉死的 DOCKER_GUARD_IMAGE 与 GUARD_SELF_UPDATE_TOKEN。
+# Guard 首次启动写入 ./guard-policy/docker-guard.env。
 #
 # 可选：
 #   extra_hosts on backend for host.docker.internal:host-gateway
@@ -62,10 +62,7 @@ services:
       DATA_DIR: /app/data
       CACHE_DIR: /app/cache
       JWT_SECRET: ${JWT_SECRET}
-      MYRIAD_BOOTSTRAP_TOKEN: ${MYRIAD_BOOTSTRAP_TOKEN:-}
-      MYRIAD_BOOTSTRAP_TTL_SECS: ${MYRIAD_BOOTSTRAP_TTL_SECS:-1800}
-      MYRIAD_ALLOW_REMOTE_BOOTSTRAP: ${MYRIAD_ALLOW_REMOTE_BOOTSTRAP:-false}
-      MYRIAD_SETUP_SECRET: ${MYRIAD_SETUP_SECRET:-}
+      MYRIAD_SETUP_SECRET: ${MYRIAD_SETUP_SECRET:?Set MYRIAD_SETUP_SECRET in .env}
       # Required for weather/client-geo: honor proxy-rewritten X-Real-IP.
       TRUST_PROXY_HEADERS: "true"
       # Explicit second-hop trust: loopback + docker0 + fixed compose myriad-net,
@@ -161,9 +158,14 @@ services:
       options: { max-size: "10m", max-file: "3" }
 
   docker-guard:
-    image: ${DOCKER_GUARD_IMAGE:?Pass the host-owned docker-guard.env with an exact repo@sha256 digest}
+    image: ${DOCKER_GUARD_IMAGE:?Set DOCKER_GUARD_IMAGE in .env to an exact repo@sha256 digest}
     container_name: myriad-docker-guard
-    entrypoint: ["/usr/bin/tini", "--", "/usr/local/bin/myriad-docker-guard"]
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        if [ ! -f /guard-policy/docker-guard.env ]; then umask 077; fi
+        exec /usr/bin/tini -- /usr/local/bin/myriad-docker-guard
     environment:
       COMPOSE_PROJECT_NAME: ${GUARD_COMPOSE_PROJECT_NAME:-myriad}
       MYRIAD_DOCKER_NETWORK: ${GUARD_MYRIAD_DOCKER_NETWORK:-myriad-net}
@@ -172,7 +174,7 @@ services:
       DOCKER_GUARD_COMPOSE_DIR: /host/compose
       DOCKER_GUARD_STATE_DIR: /host/state
       DOCKER_GUARD_EXPECTED_IMAGE: ${DOCKER_GUARD_IMAGE}
-      DOCKER_GUARD_HOST_POLICY_PATH: ${MYRIAD_GUARD_ENV_FILE:?Host Guard policy path is required}
+      DOCKER_GUARD_HOST_POLICY_PATH: /guard-policy/docker-guard.env
       DOCKER_GUARD_SELF_UPDATE_TOKEN: ${GUARD_SELF_UPDATE_TOKEN:?Host Guard self-update token is required}
       RUST_LOG: ${DOCKER_GUARD_LOG:-info}
       TZ: Asia/Shanghai
@@ -185,6 +187,9 @@ services:
       - type: bind
         source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}/state
         target: /host/state
+      - type: bind
+        source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}/guard-policy
+        target: /guard-policy
     networks: [myriad-docker-guard-net]
     restart: unless-stopped
     security_opt: [no-new-privileges:true]
@@ -237,8 +242,8 @@ services:
         source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}/state
         target: /host/compose/state
       - type: bind
-        source: ${MYRIAD_GUARD_ENV_FILE:?Host Guard policy path is required}
-        target: /run/secrets/docker-guard.env
+        source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}/guard-policy
+        target: /run/secrets
         read_only: true
     networks: [myriad-admin-net, myriad-docker-guard-net]
     depends_on:

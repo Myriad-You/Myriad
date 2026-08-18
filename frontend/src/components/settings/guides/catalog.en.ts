@@ -810,7 +810,7 @@ export const en: SettingGuidesCatalog = {
     memorySaver: {
       what: 'Trade concurrent capacity for lower memory use on small hosts (~1 GiB).',
       chain:
-        '1) Off (default) = current balanced, bounded budgets: 4 MiB message payload, 8 MiB federation inbox body, 24 MiB authenticated body, and 32 MiB concurrent raw inbox buffering. Upgrading from older releases can therefore change limits.\n2) On = tighter concurrent federation buffers, slightly lower single-message/attachment caps, smaller process caches, fewer DB pool connections and Argon2 slots.\n3) Normal chat/media still fit; huge inline attachments may need chunked transfer or turn saver off.\n4) Most knobs apply after Save; DB pool size fully applies after backend reconnect/restart.',
+        '1) Off (default) = current balanced, bounded budgets: 4 MiB message payload, 8 MiB federation inbox body, 24 MiB authenticated body, and 32 MiB concurrent raw inbox buffering. Upgrading from older releases can therefore change limits.\n2) On = a second notch: 4 MiB inbox inflight, 16 MiB chunk inflight, 8 MiB API cache, DB pool 1–4, 1 Argon2 slot, 32 MiB note video, 16 MiB audio proxy.\n3) Everyday messages still fit; large video or lossless audio should use chunked transfer or turn saver off.\n4) Most knobs apply after Save; DB pool size fully applies after backend reconnect/restart.',
       frontend: 'No page theme change. Very large media or multi-path peaks may reject sooner or show “retry later”.',
       notes: 'Operators can force a profile with MYRIAD_MEMORY_PROFILE=default|saver (env overrides this switch).',
     },

@@ -631,10 +631,19 @@ html.dark .tapp-launchpad-search:focus-within {
       color-mix(in srgb, var(--color-primary, #6366f1) 22%, transparent);
 }
 
+html[data-perf-mode='exlight'] .tapp-launchpad-stage,
+html.dark[data-perf-mode='exlight'] .tapp-launchpad-stage {
+  --surface-alpha: 96%;
+}
+
 html[data-perf-mode='exlight'] .tapp-launchpad-search {
+  -webkit-backdrop-filter: none;
   backdrop-filter: none;
-  backdrop-filter: none;
-  background: color-mix(in srgb, var(--bg-card) 92%, transparent);
+  background: var(--bg-card);
+}
+
+html[data-perf-mode='exlight'] .tapp-multi-dock-label {
+  background: var(--bg-card);
 }
 
 .tapp-launchpad-search-icon {

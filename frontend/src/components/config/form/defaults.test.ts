@@ -1,5 +1,5 @@
 /**
- * Reset defaults must match the product default delegation (ADR 0016):
+ * Reset defaults must match the product default delegation:
  * `component:theme` and `shortcut:register` are default-delegated to ordinary
  * users; guests and every other elevated capability stay closed.
  *

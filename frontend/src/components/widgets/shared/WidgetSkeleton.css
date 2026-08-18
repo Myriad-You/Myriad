@@ -355,6 +355,14 @@ html.dark .widget-skeleton-stall {
   }
 }
 
+html[data-perf-mode='exlight'] .widget-skeleton-stall {
+  background: color-mix(in srgb, var(--ws-soft) 70%, #fff);
+}
+
+html.dark[data-perf-mode='exlight'] .widget-skeleton-stall {
+  background: color-mix(in srgb, var(--ws-soft) 70%, #1a1a1a);
+}
+
 html[data-perf-mode='exlight'] .widget-skeleton-bone::after {
   animation: none;
   display: none;

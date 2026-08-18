@@ -670,7 +670,7 @@ const AlbumCover = memo(
         transition={ALBUM_COVER_TRANSITION}
       >
         <div
-          className="rounded-lg overflow-hidden shadow-lg ring-2 ring-white/20 dark:ring-white/10 backdrop-blur-sm"
+          className="rounded-lg overflow-hidden shadow-lg ring-2 ring-white/20 dark:ring-white/10"
           style={{ width: `${48 * scale}px`, height: `${48 * scale}px` }}
         >
           {cover ? (
@@ -1012,7 +1012,7 @@ export const MusicPlayerWidget = memo(
           </div>
 
           {/* 下半部分：信息 + 控制 (1/3) */}
-          <div className="h-[36%] relative w-full border-t border-gray-200/10 dark:border-white/5 bg-white/30 dark:bg-black/20 backdrop-blur-md flex items-center justify-between px-4 z-20">
+          <div className="h-[36%] relative w-full border-t border-gray-200/10 dark:border-white/5 glass-surface glass-30 flex items-center justify-between px-4 z-20">
             <div className="flex items-center gap-3 min-w-0 flex-1 mr-2">
               {/* 封面 - 放大并向上溢出 + 悬浮动效 */}
               <motion.div
@@ -1213,7 +1213,7 @@ export const MusicPlayerWidget = memo(
         >
           <button
             onClick={handleTogglePlay}
-            className="rounded-full bg-white/80 dark:bg-black/80 backdrop-blur-sm shadow-md flex items-center justify-center hover:scale-110 transition-transform"
+            className="rounded-full glass-surface glass-80 shadow-md flex items-center justify-center hover:scale-110 transition-transform"
             style={{
               color: themeColor,
               width: `${32 * scale}px`,

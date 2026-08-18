@@ -181,7 +181,7 @@ export default memo(
           onMouseLeave={onMouseLeave}
         >
           <div
-            className={`flex flex-col items-center gap-2 p-2 rounded-2xl backdrop-blur-md border ${currentTheme.border} ${currentTheme.surface}`}
+            className={`flex flex-col items-center gap-2 p-2 rounded-2xl border ${currentTheme.border} ${currentTheme.surface}`}
           >
             {/* 返回按钮 */}
             <button
@@ -395,7 +395,7 @@ export default memo(
                     ? { duration: 0.25, ease: [0.16, 1, 0.3, 1] }
                     : undefined
                 }
-                className={`absolute left-full top-0 ml-2 w-64 max-h-[50vh] overflow-y-auto rounded-2xl backdrop-blur-md border ${currentTheme.border} ${currentTheme.surface} p-3`}
+                className={`absolute left-full top-0 ml-2 w-64 max-h-[50vh] overflow-y-auto rounded-2xl border ${currentTheme.border} ${currentTheme.surface} p-3`}
               >
                 <div
                   className={`text-xs font-medium ${currentTheme.secondary} mb-2 px-2`}
@@ -457,7 +457,7 @@ export default memo(
                     ? { duration: 0.25, ease: [0.16, 1, 0.3, 1] }
                     : undefined
                 }
-                className={`absolute left-full ${showToc && toc.length > 0 ? 'top-[calc(100%+0.5rem)]' : 'top-0'} ml-2 w-72 overflow-hidden rounded-2xl backdrop-blur-md border ${currentTheme.border} ${currentTheme.surface} flex flex-col`}
+                className={`absolute left-full ${showToc && toc.length > 0 ? 'top-[calc(100%+0.5rem)]' : 'top-0'} ml-2 w-72 overflow-hidden rounded-2xl border ${currentTheme.border} ${currentTheme.surface} flex flex-col`}
                 style={STYLE_MAX_HEIGHT_320} /* 约4个注释的高度 */
               >
                 {/* 头部 */}
@@ -621,7 +621,7 @@ export default memo(
                     ? { duration: 0.25, ease: [0.16, 1, 0.3, 1] }
                     : undefined
                 }
-                className={`absolute left-full ${showBrewliaPanel || (showToc && toc.length > 0) ? 'top-[calc(100%+0.5rem)]' : 'top-0'} ml-2 w-80 overflow-hidden rounded-2xl backdrop-blur-md border ${currentTheme.border} ${currentTheme.surface} flex flex-col`}
+                className={`absolute left-full ${showBrewliaPanel || (showToc && toc.length > 0) ? 'top-[calc(100%+0.5rem)]' : 'top-0'} ml-2 w-80 overflow-hidden rounded-2xl border ${currentTheme.border} ${currentTheme.surface} flex flex-col`}
                 style={STYLE_MAX_HEIGHT_320}
               >
                 {/* 头部 */}

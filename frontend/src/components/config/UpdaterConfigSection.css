@@ -267,6 +267,12 @@ html.dark .updater-hero-warning {
   text-decoration: underline;
 }
 
+.updater-hero-source {
+  display: flex;
+  align-items: center;
+  margin: 0.45rem 0 0 1.3rem;
+}
+
 html.dark .updater-hero-notes {
   color: rgb(var(--updater-accent));
 }
@@ -624,6 +630,10 @@ html.dark .updater-commit-list {
 }
 
 .updater-commit-list-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.5rem;
   padding: 0.5rem 0.85rem;
   font-size: 0.75rem;
   font-weight: 600;
@@ -927,8 +937,32 @@ html.dark .updater-drift {
   word-break: break-word;
 }
 
+.updater-last-failed-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
 .updater-last-failed strong {
   font-weight: 600;
+}
+
+.updater-last-failed-dismiss {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 500;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.updater-last-failed-dismiss:hover {
+  opacity: 0.8;
 }
 
 html.dark .updater-last-failed {
@@ -1401,7 +1435,8 @@ html.dark .updater-auto-desc {
     justify-content: center;
   }
 
-  .updater-hero-details {
+  .updater-hero-details,
+  .updater-hero-source {
     margin-left: 0;
   }
 
@@ -1519,6 +1554,24 @@ html.dark .updater-infra-last-fail {
   border-color: rgb(244 63 94 / 30%);
   background: rgb(127 29 29 / 28%);
   color: #fecdd3;
+}
+
+.updater-infra-success {
+  margin: 0;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid rgb(16 185 129 / 28%);
+  border-radius: 0.5rem;
+  background: rgb(16 185 129 / 8%);
+  color: #047857;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+html.dark .updater-infra-success {
+  border-color: rgb(52 211 153 / 32%);
+  background: rgb(6 78 59 / 36%);
+  color: #a7f3d0;
 }
 
 /* In-progress self-update / proxy recreate (incl. brief reconnect blip). */
